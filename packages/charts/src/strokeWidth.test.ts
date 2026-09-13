@@ -73,6 +73,16 @@ function fixturePath(relative: string): string {
 // but no explicit `target`, so it defaults to `web`, and that fix changes
 // web's disc shape independently of `strokeWidth`. Every non-arc entry is
 // untouched.
+//
+// Regenerated again for `series.ts`'s shade-ramp fix (CHARTS-RESEARCH
+// `DIAGNOSIS-pie-contrast.md`, "## Charts" "Series and shading"): every
+// key for a multi-series mark (indices 17-22 — `sankeySample`,
+// `funnelSample`, `[1000,500,100]`, the three `browserShares` arc specs —
+// at every charset) changed, plus a single-series ONE, `6:ascii`
+// (`arc([-1,1])`'s ASCII callout separator `·`, which used to fold to
+// `?` and now folds to `-` — C5 in the diagnosis, `labels.ts`'s own fold
+// table). Every other single-series entry's own `█`/`#` fill glyph is
+// byte-identical.
 const parentFixtures: Record<string, string> = JSON.parse(
   readFileSync(fixturePath("fixtures/strokeWidthParentFixtures.json"), "utf8"),
 );

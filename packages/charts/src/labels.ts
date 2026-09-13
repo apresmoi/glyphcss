@@ -74,11 +74,20 @@ export interface GlyphChartLabelLayoutResult {
   readonly ledger: readonly GlyphChartLedgerEntry[];
 }
 
-/** Measure the same folded cells text() paints, including the ASCII repertoire. */
+/**
+ * Measure the same folded cells text() paints, including the ASCII
+ * repertoire. `·` (U+00B7, the pie callout's own `name · NN%` separator —
+ * `paint.ts`'s `paintArcCallouts`) folds to `-` here, not the generic `?`
+ * fallback below: the glyphcss canvas's own punctuation substitution table
+ * (`CANVAS_TEXT_SUBSTITUTIONS`) only covers fullwidth CJK punctuation, so
+ * an unhandled middle dot reached the `?` catch-all and every ASCII pie
+ * callout printed `Alpha ? 13%` (CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md
+ * C5) — a reader can't tell that from a genuinely unsupported glyph.
+ */
 export function chartText(text: string, charset: GlyphCanvasTierName = "box"): string {
   // NFD routes accented graphemes through the canvas's existing fold. The
   // frozen canvas accepts other single-cell Unicode; ASCII is chart policy.
-  const input = charset === "ascii" ? text.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...").replace(/µ/g, "u") : text;
+  const input = charset === "ascii" ? text.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...").replace(/µ/g, "u").replace(/·/g, "-") : text;
   const scratch = createGlyphCanvas({ cols: Math.max(1, input.length), rows: 1, tier: charset });
   scratch.text(0, 0, [input]);
   const folded = scratch.grid.char.join("").trimEnd();

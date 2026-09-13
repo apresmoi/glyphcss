@@ -126,7 +126,7 @@ describe("item 3 (B2/B6d) — region-mark series are distinguishable in monochro
         if (c !== " ") glyphsInPlot.add(c);
       }
     }
-    const barGlyphs = [...glyphsInPlot].filter((c) => "█▓▒░".includes(c));
+    const barGlyphs = [...glyphsInPlot].filter((c) => "█░▚╱▌═▓▒".includes(c));
     expect(barGlyphs.length).toBe(3);
     // The legend swatch for each series is exactly one of those glyphs —
     // never a line style (`─`/`╌`/`═`/`·`), which is what a bar chart's
@@ -136,7 +136,7 @@ describe("item 3 (B2/B6d) — region-mark series are distinguishable in monochro
     const legendGlyphs = new Set<string>();
     for (let x = 0; x < 40; x++) {
       const c = p.at(x, legendRow)!;
-      if ("█▓▒░".includes(c)) legendGlyphs.add(c);
+      if ("█░▚╱▌═▓▒".includes(c)) legendGlyphs.add(c);
     }
     expect(legendGlyphs.size).toBe(3);
     for (const g of legendGlyphs) expect(barGlyphs).toContain(g);

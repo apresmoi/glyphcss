@@ -24,17 +24,23 @@ describe("Phase 1 round 2 arc regressions", () => {
     expect(r.meta.series).toEqual(["Chrome", "Safari", "Firefox"]);
     expect(r.meta.values).toBe(3);
     const cells = disc(r);
-    expect(new Set(cells)).toEqual(new Set(["█", "▓", "▒"]));
-    shares(cells, ["█", "▓", "▒"]).forEach((share, i) => expect(Math.abs(share - [0.65, 0.2, 0.15][i]!)).toBeLessThan(0.04));
+    // CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md's shape-family ramp
+    // (`series.ts`'s SHADE_RAMPS, `█ ░ ▚ ╱ ▌ ═ ▓ ▒`) replaced the old
+    // 4-step density-only cycle (`█ ▓ ▒ ░`).
+    expect(new Set(cells)).toEqual(new Set(["█", "░", "▚"]));
+    shares(cells, ["█", "░", "▚"]).forEach((share, i) => expect(Math.abs(share - [0.65, 0.2, 0.15][i]!)).toBeLessThan(0.04));
     // Mutation: exclude arc from chartSeries or use line swatches -> named slice legend disappears/mismatches.
     const legend = r.text.split("\n").at(-1)!;
-    expect(legend).toMatch(/█\s+Chrome.*▓\s+Safari.*▒\s+Firefox/);
+    expect(legend).toMatch(/█\s+Chrome.*░\s+Safari.*▚\s+Firefox/);
   });
 
   it.each(["ascii", "box", "blocks", "braille"] as const)("[50,25,25] at 30x16 retains 2:1:1 glyph areas in %s", (charset) => {
     // Mutation: paint every slice solid -> fewer than three disc glyphs and wrong 2:1:1 counts.
     const r = renderGlyphChart(glyphChartArc([50, 25, 25], undefined, { labels: "legend-only" }), { target: "chat", width: 30, height: 16, charset });
-    const glyphs = charset === "ascii" ? ["#", "%", "+"] : ["█", "▓", "▒"];
+    // ASCII at <= 4 total series uses the density-first compact table
+    // (`# . @ -`, the only ASCII 4-set that clears a 0.15 ink-coverage gap
+    // in every measured font — DIAGNOSIS-pie-contrast.md's recommendation).
+    const glyphs = charset === "ascii" ? ["#", ".", "@"] : ["█", "░", "▚"];
     const cells = disc(r);
     expect(new Set(cells)).toEqual(new Set(glyphs));
     shares(cells, glyphs).forEach((share, i) => expect(Math.abs(share - [0.5, 0.25, 0.25][i]!)).toBeLessThan(0.04));
@@ -50,10 +56,10 @@ describe("Phase 1 round 2 arc regressions", () => {
     expect(fallback.meta.series).toEqual(["Chrome", "Safari", "Firefox"]);
     expect(filled.text).toBe(fallback.text);
     // Mutation: cycle only with colour off -> stripping colours downstream leaves a solid disc.
-    expect(new Set(disc(fallback))).toEqual(new Set(["█", "▓", "▒"]));
+    expect(new Set(disc(fallback))).toEqual(new Set(["█", "░", "▚"]));
     if (color === "css") {
       // Mutation: paint all slices/swatches with palette colour 0 -> named colours disappear.
-      for (const [glyph, name, hex] of [["█", "Chrome", "#3b82f6"], ["▓", "Safari", "#f97316"], ["▒", "Firefox", "#22c55e"]]) {
+      for (const [glyph, name, hex] of [["█", "Chrome", "#3b82f6"], ["░", "Safari", "#f97316"], ["▚", "Firefox", "#22c55e"]]) {
         expect(fallback.html).toMatch(new RegExp(`color:${hex}[^>]*>[^<]*${glyph}`));
         expect(fallback.html).toMatch(new RegExp(`color:${hex}[^>]*>[^<]*${name}`));
       }
@@ -89,7 +95,7 @@ describe("Phase 1 round 2 arc regressions", () => {
     const cx = (width - 1) / 2;
     const cy = (height - 1) / 2;
 
-    const glyphs = ["█", "▓", "▒"];
+    const glyphs = ["█", "░", "▚"];
     const insideDisc: string[] = [];
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
@@ -104,12 +110,19 @@ describe("Phase 1 round 2 arc regressions", () => {
     shares(insideDisc, glyphs).forEach((share, i) => expect(Math.abs(share - [0.5, 0.25, 0.25][i]!)).toBeLessThan(0.05));
   });
 
-  it.each(["box", "ascii"] as const)("cycles four %s shades and keeps the closing neighbours distinct after wrapping", (charset) => {
-    // Mutation: always use index % 4, including the closing slice -> slice 5 matches slice 1.
-    const r = renderGlyphChart(glyphChartArc([20, 20, 20, 20, 20], undefined, { labels: "legend-only" }), { target: "chat", width: 80, height: 24, charset });
-    const swatches = r.text.split("\n").at(-1)!.match(charset === "ascii" ? /[#%+.]/g : /[█▓▒░]/g)!;
-    expect(swatches).toHaveLength(5);
-    expect(new Set(disc(r))).toEqual(new Set(charset === "ascii" ? ["#", "%", "+", "."] : ["█", "▓", "▒", "░"]));
-    swatches.forEach((glyph, i) => expect(glyph).not.toBe(swatches[(i + 1) % swatches.length]));
+  // Superseded "cycles four shades" (the old 4-step cycle): the shade
+  // family is now GLYPH_CHART_SHADE_CYCLE_LENGTH (8) glyphs long on every
+  // charset, so a 5- or 8-slice pie never wraps at all — see
+  // `pieContrast.test.ts` for the 9-slice wrap + `series-shade-repeat`
+  // ledger entry this test used to stand in for.
+  it.each(["box", "ascii"] as const)("retains 8 distinct %s shades at the full shade-cycle length, with no wrap or repeat", (charset) => {
+    // Mutation: cycle a shorter table (e.g. 4) -> fewer than 8 distinct legend swatches.
+    const r = renderGlyphChart(glyphChartArc(Array(8).fill(1), undefined, { labels: "legend-only" }), { target: "chat", width: 80, height: 24, charset });
+    const swatches = r.text.split("\n").at(-1)!.match(charset === "ascii" ? /[#.=\/@:|-]/g : /[█░▚╱▌═▓▒]/g)!;
+    expect(swatches).toHaveLength(8);
+    expect(new Set(swatches).size).toBe(8);
+    const expectedGlyphs = charset === "ascii" ? ["#", ".", "=", "/", "@", ":", "|", "-"] : ["█", "░", "▚", "╱", "▌", "═", "▓", "▒"];
+    expect(new Set(disc(r))).toEqual(new Set(expectedGlyphs));
+    expect(r.report.ledger.some((e) => e.code === "series-shade-repeat")).toBe(false);
   });
 });

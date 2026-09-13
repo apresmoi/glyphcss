@@ -139,23 +139,21 @@ const data = [
 renderGlyphChart(glyphChartArc(data, { fill: "browser", y: "share" }), { target: "chat", width: 40, height: 14 });
 ```
 ```
+  Firefox · 15%─────                    
+               ▚▚▚▚▚█████               
+             ░▚▚▚▚▚▚███████             
+            ░░░░░▚▚▚████████            
+ Safari─────░░░░░░░░████████            
+            ░░░░░███████████            
+             ░█████████████─────Chrome  
+               ██████████               
                                         
-         ▒▒▒▒▒▒▒▒▒▒▒███████████         
-     ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒███████████████     
-   ▓▓▓▓▒▒▒▒▒▒▒▒▒▒▒▒▒█████████████████   
-  ▓▓▓▓▓▓▓▓▓▒▒▒▒▒▒▒▒▒██████████████████  
- ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▒▒▒▒███████████████████ 
-▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓████████████████████
- ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓███████████████████████ 
-  ▓▓▓▓▓▓▓▓▓███████████████████████████  
-   ▓▓▓▓██████████████████████████████   
-     ██████████████████████████████     
-         ██████████████████████         
                                         
-█  Chrome    ▓  Safari    ▒  Firefox    
+                                        
+█  Chrome    ░  Safari    ▚  Firefox   
 ```
 
-Slices cycle `█ ▓ ▒ ░` in box/blocks/braille and `# % + .` in ASCII. The closing shade advances if it would match the first, so adjacent slices differ. The legend shows each slice's glyph swatch; colour adds matching palette colours to slices and swatches. Shades still cycle with colour enabled, preserving slice proportions when colour is removed downstream.
+Slices cycle a SHAPE-FAMILY glyph set, not a density ramp — `█ ░ ▚ ╱ ▌ ═ ▓ ▒` in box/blocks/braille (prefix-consistent, so an n-slice pie uses the first n), `# . @ -` in ASCII for up to 4 slices and `# . = / @ : | -` beyond (ASCII cannot sustain a 0.15 ink-coverage gap between adjacent glyphs past 4 in any measured monospace font — see AGENTS.md's "Charts" "Series and shading" and `docs/design/charts.md`'s own coverage table). Past 8 slices the cycle wraps and `report.ledger` carries one `series-shade-repeat` entry per repeated pair, naming both slices. The legend shows each slice's glyph swatch; colour adds matching palette colours to slices and swatches. Shades still cycle with colour enabled, preserving slice proportions when colour is removed downstream.
 
 ### `glyphChartCell` (heatmap)
 
@@ -219,22 +217,22 @@ const data = [
 renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
 ```
 ```
-┌────────┐██████████┌────────┐▒▒▒▒▒▒▒▒▒▒┌────────┐
-│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
-│  Coal  │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
-│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
-│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│ Homes  │
-└────────┘██████████│        │▒▒▒▒▒▒▒▒▒▒│        │
-          ▓▓▓▓▓▓▓▓▓▓│ Power  │▒▒▒▒▒▒▒▒▒▒│        │
-┌────────┐▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
-│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │
-│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒└────────┘
-│  Gas   │▓▓▓▓▓▓▓▓▓▓│        │▒                   
-│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒┌────────┐
-│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│Industry│
-│        │▓▓▓▓▓▓▓▓▓▓└────────┘▒▒▒▒▒▒▒▒▒▒│        │
-└────────┘▓▓▓▓▓▓▓▓               ▒▒▒▒▒▒▒└────────┘
-   █  Coal          ▓  Gas         ▒  Power       
+┌────────┐██████████┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐
+│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
+│  Coal  │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
+│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
+│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │
+└────────┘██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
+          ░░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │
+┌────────┐░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
+│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
+│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘
+│  Gas   │░░░░░░░░░░│        │▚                   
+│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐
+│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│Industry│
+│        │░░░░░░░░░░└────────┘▚▚▚▚▚▚▚▚▚▚│        │
+└────────┘░░░░░░░░               ▚▚▚▚▚▚▚└────────┘
+   █  Coal          ░  Gas         ▚  Power       
 ```
 
 ### `glyphChartFunnel`
@@ -256,21 +254,21 @@ renderGlyphChart(glyphChartFunnel(data, { stage: "stage", value: "count" }), { t
        Visits████████████████████████████████████  10,000 · 100%
              ████████████████████████████████████               
                                                                 
-                        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
-Product Views           ▓▓▓▓▓▓▓▓▓▓▓▓▓▓             4,000 · 40%  
-                        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓                          
+                        ░░░░░░░░░░░░░░                          
+Product Views           ░░░░░░░░░░░░░░             4,000 · 40%  
+                        ░░░░░░░░░░░░░░                          
                                                                 
-                             ▒▒▒▒                               
-  Add to Cart                ▒▒▒▒                  1,000 · 10%  
-                             ▒▒▒▒                               
+                             ▚▚▚▚                               
+  Add to Cart                ▚▚▚▚                  1,000 · 10%  
+                             ▚▚▚▚                               
                                                                 
-                               ░                                
-     Checkout                  ░                   400 · 4%     
-                               ░                                
+                               ╱                                
+     Checkout                  ╱                   400 · 4%     
+                               ╱                                
                                                                 
-                               █                                
-     Purchase                  █                   260 · 3%     
-                               █                                
+                               ▌                                
+     Purchase                  ▌                   260 · 3%     
+                               ▌                                
                                                                 
 ```
 
@@ -518,7 +516,7 @@ glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: 
 
 `scales.x/y.type` supports `linear`, `log`, `sqrt`, `time`, `band`, and `ordinal` (band). Log and square-root scales use d3's actual transforms. Log domains containing zero or crossing sign reject with `log-domain`; zero-anchored bars/rects therefore need a zero-capable scale. Time domains accept calendar-valid ISO strings, parsed once; invalid ones reject with `bad-time-domain`. Intraday ticks use d3's multi-scale time format. `nice: true` enables d3 domain nicening.
 
-Categorical `fill` or `stroke` splits line, area, dot, bar, rect and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/rect/area) instead carries series identity through its own glyph (`█ ▓ ▒ ░`/`# % + .`), unconditionally — with colour on or off — so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
+Categorical `fill` or `stroke` splits line, area, dot, bar, rect and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/rect/area) instead carries series identity through its own glyph — a SHAPE-FAMILY set (`█ ░ ▚ ╱ ▌ ═ ▓ ▒` in box/blocks/braille, `# . @ -`/`# . = / @ : | -` in ASCII below/above 4 series — see the pie section above), unconditionally — with colour on or off — so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. Past 8 series in one shade family the cycle wraps and `report.ledger` gets a `series-shade-repeat` entry per repeated pair. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
 
 All strings pass through the canvas's text fold. ASCII output is 7-bit, including `-`, a three-cell `...`, accented titles and text marks. Axis labels use the same slot-aware abbreviation policy as other labels: SI first, then elision, with ledger entries. Crowded category labels thin every kth tick; numeric/time collisions also thin. Labels never rely on canvas clipping.
 

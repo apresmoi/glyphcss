@@ -106,9 +106,9 @@ function fillRegionShade(canvas: GlyphCanvas, x0: number, y0: number, x1: number
  * whether or not colour is enabled, exactly like `paintArc` already does
  * for pie slices.
  */
-function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
+function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, total: number, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
-  const glyph = seriesShade(canvas.tier, styleIndex);
+  const glyph = seriesShade(canvas.tier, styleIndex, total);
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
   for (const row of rows) {
     const stacked = row.y1 !== undefined;
@@ -143,8 +143,8 @@ function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
 /** See `paintBar`'s own doc — the same `styleIndex` -> `seriesShade` fill
  * glyph rule (CHARTS-RESEARCH diagnosis B2), applied per column since an
  * area's boundary is a slope rather than a flat-topped rect. */
-function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number): void {
-  const glyph = seriesShade(canvas.tier, styleIndex);
+function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, total: number): void {
+  const glyph = seriesShade(canvas.tier, styleIndex, total);
   for (const layer of areaLayers(rows)) {
     const sorted = [...layer].sort((a, b) => scales.x.toFraction(a.x) - scales.x.toFraction(b.x));
     for (let i = 0; i < sorted.length - 1; i++) {
@@ -172,9 +172,9 @@ function paintArea(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
  * finding 4: an undodged Jan band read as North's bar with South's own
  * value merely painted over its base, "January resembles a stack").
  */
-function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
+function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, styleIndex: number, total: number, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
-  const glyph = seriesShade(canvas.tier, styleIndex);
+  const glyph = seriesShade(canvas.tier, styleIndex, total);
   for (const row of rows) {
     const stacked = row.y1 !== undefined;
     const base = scaleToRow(scales.y, layout.plot, row.y0 ?? 0);
@@ -512,7 +512,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
     const s = start;
     start += angle;
     const entry = series[i]!;
-    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: seriesShade(canvas.tier, entry.shadeIndex!), name: entry.name ?? String(i), value: v };
+    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: seriesShade(canvas.tier, entry.shadeIndex!, series.length), name: entry.name ?? String(i), value: v };
   });
   for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
     for (let x = layout.plot.x0; x <= layout.plot.x1; x++) {
@@ -921,10 +921,15 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     const entry = series.find((s) => s.name === item.label);
     const color = colorEnabled ? item.color ?? null : null;
     const styleIdx = entry ? (entry.mark.type === "arc" ? entry.shadeIndex! : entry.styleIndex) : i;
-    if (entry?.mark.type === "arc") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
+    // `total` mirrors the mark's own paint-time count — the number of
+    // OTHER series entries sharing this exact `entry.mark` reference — so
+    // the legend swatch always picks the same table (compact-vs-extended
+    // ASCII) the plot itself painted with.
+    const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
+    if (entry?.mark.type === "arc") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.shadeIndex!, shadeTotal)], { color });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex)], { color });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex, shadeTotal)], { color });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color });
@@ -1027,9 +1032,9 @@ export function paintGlyphChart(
       const group = groups[i]!;
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
-      if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
-      if (mark.type === "area") paintArea(guarded, layout, scales, rows, color, styleIndex);
-      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
+      if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, styleIndex, groups.length, { index: i, count: groups.length }, ledger, dodgeDegraded);
+      if (mark.type === "area") paintArea(guarded, layout, scales, rows, color, styleIndex, groups.length);
+      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, styleIndex, groups.length, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check
         // (its own doc explains why: a cell mark is always ONE series, so
@@ -1165,7 +1170,9 @@ export function paintGlyphChart(
       const color = opts.colorEnabled ? item.color ?? null : null;
       const entry = series.find((s) => s.name === item.label);
       const swatchX = Math.max(0, label.x - 3);
-      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
+      // See `paintCornerLegend`'s own doc on `shadeTotal`.
+      const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
+      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!, shadeTotal)], { color });
       else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {
         // Under braille/blocks the plot itself paints a 2x2 dot cluster
         // (CHARTS-RESEARCH diagnosis B6b), never the whole-cell "● × + ◆"
@@ -1183,7 +1190,7 @@ export function paintGlyphChart(
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
       // it can paint.
       else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
-        guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex)], { color });
+        guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex, shadeTotal)], { color });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color });
       else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
