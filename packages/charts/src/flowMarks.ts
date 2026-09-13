@@ -308,14 +308,15 @@ function uniqueSankeyFoldName(realNodeIds: ReadonlySet<string>): string {
  * final bands apart by; it is 0 whenever `candidates.length <= 1` (nothing
  * to put air between) or the row budget couldn't afford it at all.
  */
-function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: number, realNodeIds: ReadonlySet<string>): { readonly finalLinks: readonly SankeyOutLink[]; readonly heights: readonly number[]; readonly foldedFlows: readonly string[]; readonly gap: number } {
+function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: number, realNodeIds: ReadonlySet<string>, textScale: number): { readonly finalLinks: readonly SankeyOutLink[]; readonly heights: readonly number[]; readonly foldedFlows: readonly string[]; readonly gap: number } {
   const foldName = uniqueSankeyFoldName(realNodeIds);
+  const desiredGap = GLYPH_CHART_SANKEY_LINK_GAP_ROWS * textScale;
   let keptReal = [...outLinks];
   let otherValue = 0;
   const foldedFlows: string[] = [];
   for (let iter = 0; iter <= outLinks.length; iter++) {
     const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: foldName, value: otherValue, folded: true }] : [...keptReal];
-    const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS, candidates.length, boxHeight);
+    const gap = sankeyAirGap(desiredGap, candidates.length, boxHeight);
     const capacity = Math.max(0, boxHeight - gap * (candidates.length - 1));
     const heights = distributeCumulative(candidates.map((l) => l.value), capacity);
     const zeroReal = keptReal.filter((l, i) => heights[i] === 0 && l.value > 0);
@@ -328,7 +329,7 @@ function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: numbe
   // rounds — each round that doesn't return strictly shrinks `keptReal`),
   // kept only so the function is total under TypeScript's control-flow check.
   const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: foldName, value: otherValue, folded: true }] : keptReal;
-  const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS, candidates.length, boxHeight);
+  const gap = sankeyAirGap(desiredGap, candidates.length, boxHeight);
   const capacity = Math.max(0, boxHeight - gap * (candidates.length - 1));
   const heights = distributeCumulative(candidates.map((l) => l.value), capacity);
   return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows, gap };
@@ -345,6 +346,18 @@ function fillGlyphRegion(canvas: GlyphCanvas, x0: number, y0: number, x1: number
 const GLYPH_CHART_SANKEY_NODE_WIDTH_CAP = 16;
 const GLYPH_CHART_SANKEY_MIN_NODE_WIDTH = 3;
 const GLYPH_CHART_SANKEY_MIN_GAP = 3;
+/**
+ * The layout's own true FLOOR column gap (never the 3-cell PREFERRED
+ * `GLYPH_CHART_SANKEY_MIN_GAP` spacing above, which a tight layout reflows
+ * node width to reclaim toward) — see `layoutSankeyGraph`'s own "P2-2"
+ * comment for why the fit check below must use this one. Hoisted to module
+ * scope (it used to be a `layoutSankeyGraph`-local const) so it scales by
+ * `textScale` alongside every other fixed-cell geometry constant here.
+ */
+const GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP = 1;
+/** The sankey fold-stub's own max cell length (AGENTS.md's "Charts" — a
+ * short stub reading "flow leaves, not itemized"), scaled the same way. */
+const GLYPH_CHART_SANKEY_FOLD_STUB_MAX = 3;
 
 /**
  * Visual AIR, reserved at the LAYOUT layer (AGENTS.md's "Charts" sankey
@@ -418,7 +431,7 @@ export interface GlyphChartSankeyLayout {
  * own painter reads for its slices. Returns `null` when there's nothing to
  * lay out (no links) or the plot rect has no area.
  */
-export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphChartPlotRect, tierName: GlyphCanvasTierName, ledger: GlyphChartLedgerEntry[]): GlyphChartSankeyLayout | null {
+export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphChartPlotRect, tierName: GlyphCanvasTierName, ledger: GlyphChartLedgerEntry[], textScale = 1): GlyphChartSankeyLayout | null {
   const links: { readonly source: string; readonly target: string; readonly value: number; readonly styleIndex: number }[] = [];
   for (const g of groups) for (const r of g.rows) links.push({ source: g.name!, target: String(r.label), value: numeric(r.y), styleIndex: g.styleIndex });
   if (links.length === 0) return null;
@@ -451,17 +464,40 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   if (plotWidth <= 0 || plotHeight <= 0) return null;
   const numColsRaw = maxDepth + 1;
 
+  // Every fixed cell-count GEOMETRY constant from here on multiplies by
+  // `textScale` (AGENTS.md's "Charts" "Density"), exactly like the arc
+  // callout gutter already does — a chart at a higher web Density renders
+  // into a proportionally BIGGER grid at a proportionally SMALLER font, so
+  // a constant cell count (a node box's width, a column gap) would
+  // otherwise shrink as a FRACTION of the plot the denser the render gets,
+  // which is the reported "increase the density, breaks the column
+  // widths" defect. A data-PROPORTIONAL quantity (row height ∝ throughput,
+  // band thickness) is never scaled here — it already rides the
+  // density-scaled plot. At `textScale === 1` every expression below is
+  // its own bare, pre-scaling value, byte-identical to before this scaling
+  // existed (`docs/design/charts.md`'s "Density" — geometry constants).
+  const minNodeWidth = GLYPH_CHART_SANKEY_MIN_NODE_WIDTH * textScale;
+  const nodeWidthCap = GLYPH_CHART_SANKEY_NODE_WIDTH_CAP * textScale;
+  const minGap = GLYPH_CHART_SANKEY_MIN_GAP * textScale;
+  const minLayoutGap = GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP * textScale;
+
   // Node box width = min(longest folded label + 2, a cap) — measured
   // through `chartText` (the SAME fold `abbreviateChartText` applies), not
-  // the raw string length, so a tier's own ASCII fold is what sizes the box.
+  // the raw string length, so a tier's own ASCII fold is what sizes the
+  // box. The label's own CHARACTER count is scaled by `textScale` too: a
+  // node label is painted through `canvas.text(..., { scale: textScale })`
+  // (`paintSankeyNodeBoxes`), so each of its glyphs occupies `textScale`
+  // columns — sizing the box off the raw (unscaled) character count would
+  // force MORE aggressive abbreviation at higher density, the opposite of
+  // what density is for.
   const longestLabel = Math.max(1, ...nodeOrder.map((id) => chartText(id, tierName).length));
-  let nodeWidth = Math.max(GLYPH_CHART_SANKEY_MIN_NODE_WIDTH, Math.min(longestLabel + 2, GLYPH_CHART_SANKEY_NODE_WIDTH_CAP));
+  let nodeWidth = Math.max(minNodeWidth, Math.min(longestLabel * textScale + 2 * textScale, nodeWidthCap));
   let numCols = numColsRaw;
   let gap = numCols > 1 ? Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1)) : 0;
-  if (numCols > 1 && gap < GLYPH_CHART_SANKEY_MIN_GAP) {
-    const maxWidthThatFits = Math.max(GLYPH_CHART_SANKEY_MIN_NODE_WIDTH, Math.floor((plotWidth - (numCols - 1) * GLYPH_CHART_SANKEY_MIN_GAP) / numCols));
+  if (numCols > 1 && gap < minGap) {
+    const maxWidthThatFits = Math.max(minNodeWidth, Math.floor((plotWidth - (numCols - 1) * minGap) / numCols));
     nodeWidth = Math.min(nodeWidth, maxWidthThatFits);
-    gap = Math.max(1, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1)));
+    gap = Math.max(minLayoutGap, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1)));
   }
   // P2-2: even at the floor node width, this many columns may still not
   // fit the plot — walking `colX0(col)` past `plot.x1` and, at extreme
@@ -487,14 +523,13 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // claimed it was, not a second, silently-firing fold pass.
   const originalNumCols = numCols;
   let foldedColumns = 0;
-  const GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP = 1;
-  if (numCols > 1 && numCols * GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + (numCols - 1) * GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP > plotWidth) {
-    const maxColsFit = Math.max(1, Math.floor((plotWidth + GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP) / (GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP)));
+  if (numCols > 1 && numCols * minNodeWidth + (numCols - 1) * minLayoutGap > plotWidth) {
+    const maxColsFit = Math.max(1, Math.floor((plotWidth + minLayoutGap) / (minNodeWidth + minLayoutGap)));
     if (maxColsFit < numCols) {
       foldedColumns = numCols - maxColsFit;
       numCols = maxColsFit;
-      nodeWidth = GLYPH_CHART_SANKEY_MIN_NODE_WIDTH;
-      gap = numCols > 1 ? Math.max(1, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1))) : 0;
+      nodeWidth = minNodeWidth;
+      gap = numCols > 1 ? Math.max(minLayoutGap, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1))) : 0;
     }
   }
   // A defensive final check (rounding at the boundary, never observed to
@@ -503,7 +538,7 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   while (numCols > 1 && numCols * nodeWidth + (numCols - 1) * gap > plotWidth) {
     numCols -= 1;
     foldedColumns = originalNumCols - numCols;
-    gap = numCols > 1 ? Math.max(1, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1))) : 0;
+    gap = numCols > 1 ? Math.max(minLayoutGap, Math.floor((plotWidth - numCols * nodeWidth) / (numCols - 1))) : 0;
   }
   const depthOf = (id: string): number => Math.min(nodeDepthById.get(id) ?? 0, numCols - 1);
   const colX0 = (col: number): number => plot.x0 + col * (nodeWidth + gap);
@@ -522,12 +557,13 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // own total throughput) so every OTHER column has slack rather than any
   // column ever overflowing, and a value of 150 is therefore never drawn
   // thinner than a 130 elsewhere in the chart, whatever column each sits in.
+  const nodePaddingRows = GLYPH_CHART_SANKEY_NODE_PADDING_ROWS * textScale;
   let rowsPerUnit = Infinity;
   for (let col = 0; col < numCols; col++) {
     const colNodes = nodeOrder.filter((id) => depthOf(id) === col);
     if (colNodes.length === 0) continue;
     const n = colNodes.length;
-    const padGap = n > 1 ? sankeyAirGap(GLYPH_CHART_SANKEY_NODE_PADDING_ROWS, n, plotHeight) : 0;
+    const padGap = n > 1 ? sankeyAirGap(nodePaddingRows, n, plotHeight) : 0;
     const capacity = Math.max(0, plotHeight - padGap * (n - 1));
     const totalValue = colNodes.reduce((a, id) => a + (nodeValueById.get(id) ?? 0), 0);
     if (totalValue > 0 && capacity > 0) rowsPerUnit = Math.min(rowsPerUnit, capacity / totalValue);
@@ -546,8 +582,8 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     // cell (AGENTS.md's "Charts" sankey clause, replacing the superseded
     // painter-level attempt in `docs/design/charts.md`'s "Sankey ribbon
     // rendering").
-    const padGap = n > 1 ? sankeyAirGap(GLYPH_CHART_SANKEY_NODE_PADDING_ROWS, n, plotHeight) : 0;
-    if (n > 1 && padGap === 0) ledger.push(ledgerSankeyAirDropped({ where: "node padding", id: `column ${col}`, requestedRows: GLYPH_CHART_SANKEY_NODE_PADDING_ROWS }));
+    const padGap = n > 1 ? sankeyAirGap(nodePaddingRows, n, plotHeight) : 0;
+    if (n > 1 && padGap === 0) ledger.push(ledgerSankeyAirDropped({ where: "node padding", id: `column ${col}`, requestedRows: nodePaddingRows }));
     const capacity = Math.max(0, plotHeight - padGap * (n - 1));
     const values = colNodes.map((id) => nodeValueById.get(id) ?? 0);
     const { heights, stillZero } = ensureMinimumHeights(distributeByRate(values, rowsPerUnit), values, capacity);
@@ -582,13 +618,13 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     const outLinks = [...g.rows]
       .sort((a, b) => (nodeBoxes.get(String(a.label))?.y0 ?? 0) - (nodeBoxes.get(String(b.label))?.y0 ?? 0))
       .map((r) => ({ target: String(r.label), value: numeric(r.y) }));
-    const { finalLinks, heights, foldedFlows, gap } = foldSankeyOutLinks(outLinks, box.height, seenNode);
+    const { finalLinks, heights, foldedFlows, gap } = foldSankeyOutLinks(outLinks, box.height, seenNode, textScale);
     if (foldedFlows.length > 0) {
       const stubIdx = finalLinks.findIndex((l) => l.folded);
       const stubVisible = stubIdx === -1 || heights[stubIdx]! > 0;
       ledger.push(ledgerSankeyFoldedFlows({ source: nodeId, flows: foldedFlows.map((t) => `${nodeId} → ${t}`), stubVisible }));
     }
-    if (finalLinks.length > 1 && gap === 0) ledger.push(ledgerSankeyAirDropped({ where: "link gap", id: nodeId, requestedRows: GLYPH_CHART_SANKEY_LINK_GAP_ROWS }));
+    if (finalLinks.length > 1 && gap === 0) ledger.push(ledgerSankeyAirDropped({ where: "link gap", id: nodeId, requestedRows: GLYPH_CHART_SANKEY_LINK_GAP_ROWS * textScale }));
     let cursor = box.y0;
     finalLinks.forEach((l, i) => {
       const h = heights[i]!;
@@ -614,8 +650,8 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     // Mirror the outgoing side: stub rows in SOURCE-column order, so bands
     // entering low/high land near where their sources already are.
     const list = [...unsorted].sort((a, b) => (nodeBoxes.get(a.source)?.y0 ?? 0) - (nodeBoxes.get(b.source)?.y0 ?? 0));
-    const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS, list.length, box.height);
-    if (list.length > 1 && gap === 0) ledger.push(ledgerSankeyAirDropped({ where: "link gap", id: targetId, requestedRows: GLYPH_CHART_SANKEY_LINK_GAP_ROWS }));
+    const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS * textScale, list.length, box.height);
+    if (list.length > 1 && gap === 0) ledger.push(ledgerSankeyAirDropped({ where: "link gap", id: targetId, requestedRows: GLYPH_CHART_SANKEY_LINK_GAP_ROWS * textScale }));
     const capacity = Math.max(0, box.height - gap * (list.length - 1));
     const heights = distributeCumulative(list.map((b) => b.value), capacity);
     let cursor = box.y0;
@@ -891,7 +927,7 @@ export interface SankeyRoutedRow { readonly band: SankeyBand; readonly cells: re
  * visually (fable review, batch 3, finding c). `paintGlyphChart` passes
  * each sankey mark's own index.
  */
-export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = ""): readonly SankeyRoutedRow[] {
+export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = "", textScale = 1): readonly SankeyRoutedRow[] {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const { bands, gap } = layout;
   const cols = sankeyColumnsByX0(nodeBoxes);
@@ -918,7 +954,7 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
       // No real target: a short stub reads as "flow leaves, not itemized".
       // Still routed (a synthetic `(fold)` node id per source, unique from
       // any real node) so it takes part in the same no-overwrite contract.
-      const stubLen = Math.max(1, Math.min(3, gap - 1));
+      const stubLen = Math.max(1, Math.min(GLYPH_CHART_SANKEY_FOLD_STUB_MAX * textScale, gap - 1));
       const x0 = srcBox.x1 + 1;
       const x1 = Math.min(plot.x1, x0 + stubLen - 1);
       const foldNode = `${band.source}::(fold)`;
@@ -1243,7 +1279,7 @@ function paintSankeyRibbonSmooth(
  * own namespace (see its doc).
  */
 export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
-  const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, edgeIdPrefix);
+  const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, edgeIdPrefix, textScale);
   canvas.resolveJunctions();
   paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale);
 }
@@ -1592,7 +1628,7 @@ function paintSankeyNodeBoxes(
  * in one step, `resolveJunctions()` included. For more than one sankey mark
  * in a render, use `paintSankeyMarks` instead (see its own doc for why). */
 export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
-  const layout = layoutSankeyGraph(groups, plot, canvas.tier, ledger);
+  const layout = layoutSankeyGraph(groups, plot, canvas.tier, ledger, textScale);
   if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger, claimedBy, edgeIdPrefix, ribbon, textScale);
 }
 
@@ -1613,9 +1649,9 @@ export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
 export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[]; readonly ribbon?: GlyphChartSankeyRibbon }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   const registered: { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[]; readonly ribbon: GlyphChartSankeyRibbon }[] = [];
   for (let i = 0; i < entries.length; i++) {
-    const layout = layoutSankeyGraph(entries[i]!.groups, plot, canvas.tier, ledger);
+    const layout = layoutSankeyGraph(entries[i]!.groups, plot, canvas.tier, ledger, textScale);
     if (!layout) continue;
-    const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, `sankey${i}:`);
+    const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, `sankey${i}:`, textScale);
     registered.push({ layout, routedRows, ribbon: entries[i]!.ribbon ?? "filled" });
   }
   if (registered.length === 0) return;
@@ -1697,9 +1733,13 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
   const n = stages.length;
 
   // One EQUAL row band per stage (never proportional — only the bar WIDTH
-  // is ∝ value), with a one-row gap between stages when there's room.
-  const hasGap = n > 1 && plotHeight >= 2 * n - 1;
-  const bandHeight = Math.max(1, Math.floor((plotHeight - (hasGap ? n - 1 : 0)) / n));
+  // is ∝ value), with a `textScale`-row gap between stages when there's
+  // room — scaled the same way the sankey's own link/node gaps are
+  // (AGENTS.md's "Charts" "Density"), so the funnel's row proportions hold
+  // steady as the web Density slider grows the grid.
+  const stageGapRows = textScale;
+  const hasGap = n > 1 && plotHeight >= n + (n - 1) * stageGapRows;
+  const bandHeight = Math.max(1, Math.floor((plotHeight - (hasGap ? (n - 1) * stageGapRows : 0)) / n));
   const maxValue = Math.max(0, ...stages.map((s) => s.value));
 
   // P1-4: a nonpositive (or non-finite) reference stage used to make EVERY
@@ -1710,7 +1750,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
   const hasValidReference = Number.isFinite(referenceValue) && referenceValue > 0;
   if (!hasValidReference) ledger.push(ledgerFunnelBadReference({ value: referenceValue }));
 
-  const labelGutter = Math.max(4, Math.min(14, Math.floor(plotWidth * 0.22)));
+  const labelGutter = Math.max(4 * textScale, Math.min(14 * textScale, Math.floor(plotWidth * 0.22)));
   const innerX0 = plot.x0 + labelGutter;
   const innerX1 = plot.x1 - labelGutter;
   const innerWidth = Math.max(1, innerX1 - innerX0 + 1);
@@ -1720,7 +1760,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
   for (const stage of stages) {
     const rowStart = cursor;
     const rowEnd = Math.min(plot.y1, rowStart + bandHeight - 1);
-    cursor = rowEnd + 1 + (hasGap ? 1 : 0);
+    cursor = rowEnd + 1 + (hasGap ? stageGapRows : 0);
     if (rowStart > plot.y1) break;
     const midRow = Math.floor((rowStart + rowEnd) / 2);
 

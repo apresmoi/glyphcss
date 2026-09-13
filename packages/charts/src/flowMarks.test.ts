@@ -5,7 +5,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { layoutGlyphChart, resolveGlyphChartLegendOption } from "./layout";
 import {
   computeSankeyRoutedRows, GLYPH_CHART_SANKEY_LINK_GAP_ROWS, GLYPH_CHART_SANKEY_NODE_PADDING_ROWS,
-  layoutSankeyGraph, paintSankeyLayout, paintSankeyMarks, type GlyphChartSankeyLayout,
+  layoutSankeyGraph, paintFunnelMark, paintSankeyLayout, paintSankeyMarks, type GlyphChartSankeyLayout,
 } from "./flowMarks";
 import { resolveGlyphChartScales } from "./scales";
 import { glyphChartFunnel, glyphChartLine, glyphChartSankey } from "./spec";
@@ -1952,6 +1952,172 @@ describe("sankey ribbon rendering — braille/blocks smooth curve, box/ascii cor
       const x = idx % canvas.cols;
       expect(nodeColumns.some(([x0, x1]) => x >= x0 && x <= x1), `textFiller cell at column ${x} sits outside every node's own box — in a band's gap column`).toBe(true);
     }
+  });
+});
+
+/**
+ * The web `Density` slider multiplies the render grid by `d` while dividing
+ * the `<pre>`'s font-size by the same `d` (`round(density)` becomes
+ * `textScale`, `chartsWorkbenchRenderOptions`), so the on-screen box holds
+ * still while the picture sharpens — AGENTS.md's "Charts" "Density". Every
+ * FIXED cell-count geometry constant in the sankey/funnel layout (node box
+ * width cap/minimum, the column gap minimum/preferred, node padding rows,
+ * link gap rows, the fold-stub length, the funnel label gutter and stage
+ * gap) must scale by `textScale` too, exactly like the arc callout gutter
+ * already does — otherwise a fixed cell count shrinks as a FRACTION of the
+ * plot the denser the render gets, which is the reported "increase the
+ * density, breaks the column widths" defect. A data-PROPORTIONAL quantity
+ * (row height ∝ throughput, band thickness) needs no such scaling — it
+ * already rides the density-scaled plot, which the band-thickness clause
+ * below also pins.
+ */
+describe("density scaling (`textScale`) keeps sankey/funnel geometry proportional (AGENTS.md's \"Charts\" \"Density\")", () => {
+  // The energy dataset's longest label ("Electricity Generation") clears
+  // `GLYPH_CHART_SANKEY_NODE_WIDTH_CAP` at every width swept here, so this
+  // suite exercises the CAP's own `textScale` factor specifically (the
+  // label-footprint factor is covered by the node-label textScale test
+  // above, which deliberately keeps a short 2-node graph under the cap).
+  function measureSankey(textScale: number) {
+    const width = Math.round(96 * textScale);
+    const height = Math.round(32 * textScale);
+    const plot = PLOT(width, height);
+    const groups = sankeyGroups(energySpec);
+    const layout = layoutSankeyGraph(groups, plot, "braille", [], textScale)!;
+    const nodeWidth = Math.max(...layout.nodes.map((n) => n.x1 - n.x0 + 1));
+    const byX0 = new Map<number, (typeof layout.nodes)[number][]>();
+    for (const n of layout.nodes) { const list = byX0.get(n.x0) ?? []; list.push(n); byX0.set(n.x0, list); }
+    let nodePad = NaN;
+    for (const list of byX0.values()) {
+      if (list.length > 1) {
+        const sorted = [...list].sort((a, b) => a.y0 - b.y0);
+        nodePad = sorted[1]!.y0 - sorted[0]!.y1 - 1;
+        break;
+      }
+    }
+    const bySource = new Map<string, (typeof layout.bands)[number][]>();
+    for (const b of layout.bands) { const list = bySource.get(b.source) ?? []; list.push(b); bySource.set(b.source, list); }
+    let linkGap = NaN;
+    for (const list of bySource.values()) {
+      if (list.length > 1) {
+        const sorted = [...list].sort((a, b) => a.sourceRowRange[0] - b.sourceRowRange[0]);
+        linkGap = sorted[1]!.sourceRowRange[0] - sorted[0]!.sourceRowRange[1] - 1;
+        break;
+      }
+    }
+    const bandHeights = layout.bands.map((b) => b.sourceRowRange[1] - b.sourceRowRange[0] + 1);
+    return { width, height, nodeWidth, colGap: layout.gap, nodePad, linkGap, minBand: Math.min(...bandHeights) };
+  }
+
+  it("node box width, column gap, node padding and link gap stay the SAME FRACTION of the plot at textScale 1, 2 and 3 — within one density-1 cell of the density-1 value", () => {
+    const d1 = measureSankey(1);
+    for (const ts of [2, 3]) {
+      const d = measureSankey(ts);
+      // Compared in DENSITY-1 cell units: `frac_d * width_1` is what
+      // `frac_d`'s own share of the plot would measure back on the
+      // density-1 grid — "within one cell's worth of the density-1 value"
+      // is the bound the task itself states.
+      expect(Math.abs(d.nodeWidth / d.width - d1.nodeWidth / d1.width) * d1.width, `node width at textScale ${ts}`).toBeLessThanOrEqual(1);
+      expect(Math.abs(d.colGap / d.width - d1.colGap / d1.width) * d1.width, `column gap at textScale ${ts}`).toBeLessThanOrEqual(1);
+      expect(Math.abs(d.nodePad / d.height - d1.nodePad / d1.height) * d1.height, `node padding at textScale ${ts}`).toBeLessThanOrEqual(1);
+      expect(Math.abs(d.linkGap / d.height - d1.linkGap / d1.height) * d1.height, `link gap at textScale ${ts}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("a band's own thickness (data-proportional, never scaled by textScale directly) still tracks the plot's own growth, unlike the pre-fix column width", () => {
+    const d1 = measureSankey(1);
+    const d2 = measureSankey(2);
+    const d3 = measureSankey(3);
+    expect(Math.abs(d2.minBand / d2.height - d1.minBand / d1.height) * d1.height).toBeLessThanOrEqual(1);
+    expect(Math.abs(d3.minBand / d3.height - d1.minBand / d1.height) * d1.height).toBeLessThanOrEqual(1);
+  });
+
+  // Mutation check: this dataset's node width is governed entirely by
+  // `GLYPH_CHART_SANKEY_NODE_WIDTH_CAP` (its longest label clears the cap
+  // at every width swept here) — removing that one constant's `*
+  // textScale` factor (verified by hand against the pre-fix code) freezes
+  // the measured width at 16 for every textScale, failing the exact
+  // doubling/tripling asserted here immediately.
+  it("mutation check: node box width scales EXACTLY with textScale on this dataset", () => {
+    const d1 = measureSankey(1);
+    expect(measureSankey(2).nodeWidth).toBe(d1.nodeWidth * 2);
+    expect(measureSankey(3).nodeWidth).toBe(d1.nodeWidth * 3);
+  });
+
+  it("textScale 1 (explicit or omitted) is byte-identical for the sankey layout — no scaling exists at the default", () => {
+    const groups = sankeyGroups(energySpec);
+    const plot = PLOT(90, 30);
+    const withDefault = layoutSankeyGraph(groups, plot, "box", []);
+    const withExplicit1 = layoutSankeyGraph(groups, plot, "box", [], 1);
+    expect(withExplicit1).toEqual(withDefault);
+  });
+
+  // The funnel's own label gutter (`Math.max(4, Math.min(14, ...))`) is
+  // recovered from the render itself: stage 0 ("Visits") equals
+  // `maxValue`, so its bar fills the FULL inner width and its own left
+  // edge sits at (approximately) `plot.x0 + labelGutter` — a non-mid row of
+  // its band (no text painted there) isolates the bar's own ink.
+  function funnelBarLeftEdge(textScale: number): { width: number; height: number; leftEdge: number } {
+    const width = Math.round(72 * textScale);
+    const height = Math.round(24 * textScale);
+    const canvas = createGlyphCanvas({ cols: width, rows: height, tier: "box" });
+    const spec: GlyphChartSpec = { marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA, { stage: "stage", value: "count" })] };
+    const groups = chartSeries(resolveGlyphChartSpec(spec));
+    paintFunnelMark(canvas, PLOT(width, height), groups, false, [], textScale);
+    // Row 0 is always inside stage 0's own band (its bandHeight is well
+    // over 1 row at every density swept here) and strictly above its
+    // centred label/value row, so it carries bar ink only.
+    let leftEdge = width;
+    for (let x = 0; x < width; x++) if (canvas.grid.char[x] !== " ") { leftEdge = x; break; }
+    return { width, height, leftEdge };
+  }
+
+  it("the funnel's label gutter stays the same fraction of the plot width at textScale 1, 2 and 3", () => {
+    const d1 = funnelBarLeftEdge(1);
+    for (const ts of [2, 3]) {
+      const d = funnelBarLeftEdge(ts);
+      expect(Math.abs(d.leftEdge / d.width - d1.leftEdge / d1.width) * d1.width, `funnel gutter at textScale ${ts}`).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("mutation check: the funnel's label gutter scales with textScale (its cap of 14 is what this dataset's short labels hit)", () => {
+    const d1 = funnelBarLeftEdge(1);
+    const d3 = funnelBarLeftEdge(3);
+    // The 14-cell CAP triples to 42 at textScale 3 — reverting `14 *
+    // textScale` to a bare `14` freezes this at `d1.leftEdge` instead.
+    expect(d3.leftEdge).toBeGreaterThan(d1.leftEdge * 2);
+  });
+
+  it("the funnel's inter-stage gap is exactly `textScale` rows (never a flat 1) once there is room for it", () => {
+    for (const ts of [1, 2, 3]) {
+      const width = Math.round(72 * ts), height = Math.round(24 * ts);
+      const canvas = createGlyphCanvas({ cols: width, rows: height, tier: "box" });
+      const spec: GlyphChartSpec = { marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA, { stage: "stage", value: "count" })] };
+      const groups = chartSeries(resolveGlyphChartSpec(spec));
+      paintFunnelMark(canvas, PLOT(width, height), groups, false, [], ts);
+      const rowHasInk = (y: number) => {
+        for (let x = 0; x < width; x++) if (canvas.grid.char[y * width + x] !== " ") return true;
+        return false;
+      };
+      // The first blank-row run strictly between two ink runs is the gap
+      // between stage 0 and stage 1.
+      let y = 0;
+      while (y < height && rowHasInk(y)) y++;
+      const gapStart = y;
+      while (y < height && !rowHasInk(y)) y++;
+      const gap = y - gapStart;
+      expect(gap, `textScale ${ts}`).toBe(ts);
+    }
+  });
+
+  it("textScale 1 (explicit or omitted) is byte-identical for the funnel render", () => {
+    const spec: GlyphChartSpec = { marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA, { stage: "stage", value: "count" })] };
+    const groups = chartSeries(resolveGlyphChartSpec(spec));
+    const width = 72, height = 24;
+    const withDefault = createGlyphCanvas({ cols: width, rows: height, tier: "box" });
+    paintFunnelMark(withDefault, PLOT(width, height), groups, true, []);
+    const withExplicit1 = createGlyphCanvas({ cols: width, rows: height, tier: "box" });
+    paintFunnelMark(withExplicit1, PLOT(width, height), groups, true, [], 1);
+    expect(Array.from(withExplicit1.grid.char)).toEqual(Array.from(withDefault.grid.char));
   });
 });
 

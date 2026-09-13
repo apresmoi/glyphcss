@@ -1094,9 +1094,9 @@ export function paintGlyphChart(
     for (let i = 0; i < sankeyMarks.length; i++) {
       const { mark } = sankeyMarks[i]!;
       const groups = series.filter((s) => s.mark === mark);
-      const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger);
+      const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
       if (!sankeyLayout) continue;
-      const routedRows = computeSankeyRoutedRows(guardedSankey, layout.plot, sankeyLayout, opts.colorEnabled, ledger, `sankey${i}:`);
+      const routedRows = computeSankeyRoutedRows(guardedSankey, layout.plot, sankeyLayout, opts.colorEnabled, ledger, `sankey${i}:`, textScale);
       registered.push({ mark, layout: sankeyLayout, routedRows });
     }
     if (registered.length > 0) canvas.resolveJunctions();

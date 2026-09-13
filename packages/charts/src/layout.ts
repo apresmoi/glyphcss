@@ -222,7 +222,12 @@ function axisTicks(
   let stride = 1;
   if (band && sorted.length > 1) {
     const spacing = Math.max(1, (sorted.at(-1)!.cell - sorted[0]!.cell) / (sorted.length - 1));
-    stride = Math.max(1, Math.ceil((axis === "x" ? 5 : 2) / spacing));
+    // The target spacing (5 cols/2 rows) is a MINIMUM LABEL FOOTPRINT, and a
+    // label painted at `scale: textScale` occupies `textScale` cells per
+    // glyph — scaling it the same way keeps the band-label stride (and so
+    // which category labels survive) identical across every web Density,
+    // exactly like the y-axis's own `yMinRowSpacing` above.
+    stride = Math.max(1, Math.ceil((axis === "x" ? 5 : 2) * textScale / spacing));
   } else if (!band && sorted.length > requestedCount && requestedCount > 0) {
     stride = Math.ceil(sorted.length / requestedCount);
   }
@@ -794,10 +799,17 @@ export function layoutGlyphChart(
     // `axes.x.ticks` (packet item 6) is a requested count, not a fitting
     // heuristic — it skips the measured-width auto-shrink below entirely,
     // exactly like the y budget above.
-    const xTickCountProvisional = xAxisOpts?.ticks ?? Math.max(2, Math.floor(plotWidth / 6));
+    // `6` is a MINIMUM COLUMN SPACING per label (AGENTS.md's "Charts"
+    // "Axes"), and `measuredXLabelWidth` is a raw character count whose
+    // actual painted footprint is `measuredXLabelWidth * textScale` columns
+    // once drawn via `canvas.text({ scale: textScale })` — both budgets
+    // scale by `textScale` so the auto-requested x-tick count (and so the
+    // set of tick VALUES `scale.ticks(n)` returns) stays the same across
+    // every web Density, mirroring the y budget's `yMinRowSpacing` above.
+    const xTickCountProvisional = xAxisOpts?.ticks ?? Math.max(2, Math.floor(plotWidth / (6 * textScale)));
     const provisionalXTicks = formatAxisTicks(scales.x.ticks(xTickCountProvisional), xTickFormat);
     const measuredXLabelWidth = provisionalXTicks.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.x.type !== "band" && typeof t.value === "number").text.length), 1);
-    const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth + 1))));
+    const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth * textScale + 1))));
     let xTicksRaw = integerOnlyTicks(
       xTickCount >= xTickCountProvisional ? provisionalXTicks : formatAxisTicks(scales.x.ticks(xTickCount), xTickFormat),
       scales.x.type !== "band" && scales.x.type !== "time" && isIntegerAxisData(marks, "x"),
