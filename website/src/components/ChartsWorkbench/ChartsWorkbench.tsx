@@ -358,7 +358,12 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={() => void copy("ascii")}>
       {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
     </button>
-    {rendered.ok && rendered.ansi !== undefined && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+    {/* Hidden on `chat` (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C3):
+     *  a chat paste shows SGR escapes as literal `\x1b[38;2;…m` text, so
+     *  offering this export on a target that can never consume it is a
+     *  trap, not a convenience — Copy ASCII (above) is the honest export
+     *  there. */}
+    {rendered.ok && rendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
       {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
     </button>}
     <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
@@ -431,6 +436,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
               <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss chart …"
                 isHtml={Boolean(displayRendered?.isHtml)} text={displayRendered?.text ?? ""}
                 html={displayRendered?.isHtml ? displayRendered.display : undefined} ansi={displayRendered?.ansi}
+                charsetDowngraded={displayRendered?.charsetDowngraded}
                 style={densityStyle}
                 ariaLabel={state.chart.title || "Chart preview"} ariaDescription={state.chart.description || undefined} />
             </div>

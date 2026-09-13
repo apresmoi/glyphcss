@@ -98,7 +98,15 @@ export function applyChartStyle(spec: GlyphChartSpec, style: ChartsWorkbenchChar
 }
 
 export type ChartsWorkbenchRender =
-  | { ok: true; display: string; isHtml: boolean; text: string; ansi?: string; meta: GlyphChartMeta; report: GlyphChartReport }
+  | {
+      ok: true; display: string; isHtml: boolean; text: string; ansi?: string; meta: GlyphChartMeta; report: GlyphChartReport;
+      /** True when this render silently substituted `box` for a requested
+       *  `braille` charset because the target is `chat` (see `renderSpec`'s
+       *  own doc — CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C4). Absent
+       *  (never `false`) when no substitution happened, so a caller that
+       *  never checks it sees no new field at all. */
+      charsetDowngraded?: true;
+    }
   | { ok: false; error: string; code?: string };
 
 // ── Ticks row seed (Dock item "Ticks rows") ──────────────────────────────
@@ -228,16 +236,46 @@ function failure(error: unknown): ChartsWorkbenchRender {
   const e = error as Error & { code?: string };
   return { ok: false, error: e.code ? `${e.code}: ${e.message}` : e.message, code: e.code };
 }
+/**
+ * CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C4: `chat`'s own fenced-code
+ * font stack carries no braille glyphs (0/256 in both SF Mono and Menlo,
+ * measured cmap) while `box` is 32/32 on every one of those faces — the
+ * SAME reason `chat`'s own charset DEFAULT is `box`, never `braille`
+ * (AGENTS.md's "Targets and page"). A default never reaches here (an
+ * unset `options.charset` isn't `"braille"`); what does is an EXPLICIT
+ * override the page carries across a target switch (AGENTS.md: "the page
+ * tracks explicit overrides per control") — a reader who picked `braille`
+ * on `web`/`terminal` and then switches to `chat` keeps it. Downgrading to
+ * `box` here — the tier `chat` already defaults to — is a faithful
+ * substitution of the SAME data-mark request, never a different chart;
+ * `blocks` is untouched (32/32 on both chat-stack faces, so it needs no
+ * downgrade — CHARTS-RESEARCH's own font table). Callers report the
+ * substitution via `charsetDowngraded` rather than silently swapping it,
+ * so `TargetPreview` can say so in its own chrome.
+ */
+function chatCharsetDowngrade(options: GlyphChartRenderOptions): GlyphChartRenderOptions {
+  return options.target === "chat" && options.charset === "braille" ? { ...options, charset: "box" } : options;
+}
 function renderSpec(input: GlyphChartInput, options: GlyphChartRenderOptions): ChartsWorkbenchRender {
   try {
-    const result = renderGlyphChart(input, options);
+    const downgraded = chatCharsetDowngrade(options);
+    const charsetDowngraded = downgraded !== options;
+    const result = renderGlyphChart(input, downgraded);
     const text = Array.from({ length: result.grid.rows }, (_, row) =>
       result.grid.char.slice(row * result.grid.cols, (row + 1) * result.grid.cols).join("")
     ).join("\n");
-    const isHtml = options.target === "web" && result.html !== undefined;
+    // `html` is produced for `color: "css"` on every target (the library
+    // has no target gate of its own — CHARTS-RESEARCH C2) — `TargetPreview`
+    // is what decides whether a given target may SHOW it (never `chat`;
+    // `terminal` shows it with its own chrome note), so this stays
+    // ungated rather than re-implementing that decision here too.
+    const isHtml = result.html !== undefined;
     // NO_COLOR may have suppressed ANSI despite the requested colour depth.
     const ansi = result.text.includes("\x1b[") ? result.text : undefined;
-    return { ok: true, display: isHtml ? result.html! : text, isHtml, text, ansi, meta: result.meta, report: result.report };
+    return {
+      ok: true, display: isHtml ? result.html! : text, isHtml, text, ansi, meta: result.meta, report: result.report,
+      ...(charsetDowngraded ? { charsetDowngraded: true as const } : {}),
+    };
   } catch (error) { return failure(error); }
 }
 export function renderChartsWorkbenchSpec(specJson: string, options: GlyphChartRenderOptions): ChartsWorkbenchRender {
