@@ -112,6 +112,28 @@ describe("parseTabular", () => {
     expect(result.rows).toEqual([{ a: 1, a_2: 2, a_3: 3 }]);
   });
 
+  // N9c (batch-3 review): a "_<n>" suffix past Number.MAX_SAFE_INTEGER
+  // (2^53) used to loop forever — `requested + 1` and this scheme's own
+  // `n++` both stop advancing at that magnitude in IEEE-754 double
+  // arithmetic (`2**53 + 1 === 2**53`), so `nextFree`'s `while
+  // (used.has(...))` kept re-testing the SAME already-occupied name.
+  // Mutation check: dropping the `Number.isSafeInteger` gate (treating
+  // `requested >= 2` alone as sufficient) makes this hang past the 1500ms
+  // vitest default test timeout instead of returning in well under 50ms.
+  it("dedupes a header whose numeric suffix is past Number.MAX_SAFE_INTEGER, in well under 50ms", () => {
+    const started = performance.now();
+    const result = parseTabular("col_9007199254740992,col_9007199254740992\n1,2");
+    const elapsedMs = performance.now() - started;
+    expect(elapsedMs).toBeLessThan(50);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    const [row] = result.rows;
+    const names = Object.keys(row!);
+    expect(names).toHaveLength(2);
+    expect(new Set(names).size).toBe(2); // distinct names — neither value silently dropped
+    expect(row).toEqual({ col_9007199254740992: 1, col_9007199254740992_2: 2 });
+  });
+
   // N9b: RFC4180 (and d3-dsv, and PapaParse) treat a quoted field's
   // whitespace as literal — the one place the format lets an author SAY
   // the padding is data. `coerceCell`'s trim (F6/P2-3, above) must not

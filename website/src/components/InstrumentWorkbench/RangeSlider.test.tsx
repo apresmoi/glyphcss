@@ -174,17 +174,45 @@ describe("RangeSlider", () => {
     expect(onChange).toHaveBeenCalledWith([20, 1000]);
   });
 
-  it("loCeiling/hiFloor cap each THUMB independently of the outer min/max bounds — a bar/area/rect y-domain's own zero-anchor rule", () => {
+  // P1-3 (batch-3 review): BOTH thumbs share one coordinate system — the
+  // outer `min`/`max` — never the thumb-specific `loCeiling`/`hiFloor`
+  // narrowed onto the native `min`/`max` HTML attribute. Two native ranges
+  // with DIFFERENT `min`/`max` compute their own `%`-of-track position off
+  // their OWN attribute pair, so an ordinary positive domain (bounds
+  // `[-2, 12]`, `loCeiling`/`hiFloor: 0`, an all-nonnegative `[0, 10]`
+  // selection) used to put the low thumb's DOM value fraction at
+  // `(0 - -2) / (0 - -2) = 100%` (its narrowed `max` was `0`) against the
+  // high thumb's `(10 - 0) / (12 - 0) = 83.3%` — the minimum handle drawn
+  // to the RIGHT of the maximum, both detached from `.range-slider-fill`'s
+  // own `pct(lo, min, max)`/`pct(hi, min, max)`, which always reads the
+  // outer bounds. `loCeiling`/`hiFloor`/`loFloor` are enforced ONLY in the
+  // commit/clamp path (`commit`/`violatesCap`) now — the native attributes
+  // never narrow, so both thumbs and the fill bar are always the same
+  // fraction of the same track.
+  it("loCeiling/hiFloor cap each THUMB's COMMIT, never its native min/max attribute — both thumbs share the outer bounds' coordinate system", () => {
     const host = render(<Harness min={-20} max={20} loCeiling={0} hiFloor={0} initial={[-10, 10]} label="Domain" />);
     const { lo, hi } = ranges(host);
-    expect(lo.max).toBe("0");
-    expect(hi.min).toBe("0");
+    // Both native attributes are the OUTER bounds, not the per-thumb cap.
+    expect(lo.min).toBe("-20"); expect(lo.max).toBe("20");
+    expect(hi.min).toBe("-20"); expect(hi.max).toBe("20");
     // A drag past the cap is clamped AT it, never past — the domain can
     // never end up excluding zero from this control alone.
     act(() => setRangeValue(lo, 15));
     expect(Number(ranges(host).lo.value)).toBeLessThanOrEqual(0);
     act(() => setRangeValue(hi, -15));
     expect(Number(ranges(host).hi.value)).toBeGreaterThanOrEqual(0);
+  });
+
+  // The reviewer's own "common coordinate" repro: bounds `[-2, 12]`,
+  // domain `[0, 10]`, both caps at `0` — an all-nonnegative selection with
+  // no thumb ever typed/dragged. Fails on the OLD per-thumb `min`/`max`
+  // narrowing (low thumb's DOM fraction landed at 100%, right of the high
+  // thumb's 83.3%) and passes once both share `[-2, 12]`.
+  it("keeps the low thumb's DOM fraction left of the high thumb's under mismatched bounds/domain/caps (reviewer repro)", () => {
+    const host = render(<Harness min={-2} max={12} loCeiling={0} hiFloor={0} initial={[0, 10]} label="Domain" />);
+    const { lo, hi } = ranges(host);
+    const fraction = (input: HTMLInputElement) => (Number(input.value) - Number(input.min)) / (Number(input.max) - Number(input.min));
+    expect(fraction(lo)).toBeLessThan(fraction(hi));
   });
 
   it("loCeiling/hiFloor are enforced on a TYPED value too, not just a thumb drag", () => {
@@ -239,6 +267,31 @@ describe("RangeSlider", () => {
     // above via `onChange` never firing, not merely via the message.
     act(() => { lo.focus(); lo.value = "0.001"; lo.dispatchEvent(new Event("input", { bubbles: true })); lo.blur(); });
     expect(onChange).toHaveBeenCalledWith([0.001, 1000]);
+  });
+
+  // P1-4 mirror (batch-3 review): a NEGATIVE `loFloor` (a negative-only log
+  // domain's own ceiling — `chartsScaleSliderBounds`) must clamp with
+  // `Math.min`, never the positive-domain `Math.max` — the reported
+  // `[null, 5e-324]` corruption of a typed `-50`/Shift+ArrowLeft nudge on
+  // `[-100, -10, -1]`. Mutation check: reverting `commit`/`violatesCap` to
+  // an unconditional `Math.max(next, loFloor)` makes the typed `-50`
+  // commit come back positive (`5e-324`) instead of `-50`, and the
+  // Shift+ArrowLeft nudge come back positive too instead of more negative.
+  it("with a NEGATIVE loFloor (a negative-only log domain's ceiling), a typed negative value commits unchanged, never corrupted positive", () => {
+    const onChange = vi.fn();
+    const host = render(<RangeSlider min={-120} max={-0.83} loFloor={-1e-6} value={[-100, -1]} onChange={onChange} label="Domain" />);
+    const { hi } = numbers(host);
+    act(() => { hi.focus(); hi.value = "-50"; hi.dispatchEvent(new Event("input", { bubbles: true })); hi.blur(); });
+    expect(onChange).toHaveBeenCalledWith([-100, -50]); // never corrupted to a positive value
+  });
+
+  it("with a NEGATIVE loFloor, a Shift+ArrowLeft nudge on the max handle moves it further negative, never flips it positive", () => {
+    const host = render(<Harness min={-120} max={-0.83} loFloor={-1e-6} initial={[-100, -1]} label="Domain" />);
+    const { hi } = ranges(host);
+    act(() => { hi.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true, cancelable: true })); });
+    const next = Number(ranges(host).hi.value);
+    expect(next).toBeLessThan(-1); // moved further from zero
+    expect(next).toBeLessThan(0); // never flipped positive (the reported `5e-324` corruption)
   });
 
   // NEW-2 (REVIEW-dock-colours-sliders-opus-round2.md): a commit from ONE

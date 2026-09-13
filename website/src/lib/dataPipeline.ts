@@ -62,6 +62,20 @@ function isPlainRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+/** A plain bracket assignment (`row[key] = value`) on a column literally
+ *  named `__proto__` goes through `Object.prototype`'s own accessor
+ *  (`[[Set]]`), not a normal own-property write — for an object value it
+ *  REPLACES the row's prototype instead of storing a column named
+ *  `__proto__`, and for a primitive it silently drops the write entirely.
+ *  `Object.defineProperty` always creates/overwrites an own data property,
+ *  matching what `JSON.parse` already does for the same key (N5's read
+ *  guard's write-side twin) — used everywhere this file builds a row by
+ *  KEY VARIABLE rather than a static object-literal property (a computed
+ *  literal key `{ [k]: v }` is already safe; see `pivotLonger`, untouched). */
+function setRowField(row: TabularRow, key: string, value: TabularCell): void {
+  Object.defineProperty(row, key, { value, writable: true, enumerable: true, configurable: true });
+}
+
 /** `Object.hasOwn`-guarded column read — a `filter`/`sort`/`parseDate` step
  *  names a column the same way `derive`'s "col" AST node does (F4/P2-1), so
  *  a column named after an inherited `Object.prototype` member (say
@@ -86,7 +100,7 @@ function flattenRecord(row: TabularRow): TabularRow {
     for (const [key, v] of Object.entries(obj)) {
       const flatKey = prefix ? `${prefix}.${key}` : key;
       if (isPlainRecord(v)) walk(v, flatKey);
-      else out[flatKey] = (v as TabularCell) ?? null;
+      else setRowField(out, flatKey, (v as TabularCell) ?? null);
     }
   };
   walk(row, "");
@@ -114,16 +128,26 @@ function pivotLonger(rows: readonly TabularRow[], idColumns: readonly string[], 
   return out;
 }
 
+/** `JSON.stringify(rest)` keyed two rows with the SAME identifier columns
+ *  in different property orders as two different groups (a plain object's
+ *  own key order is its JSON.parse/insertion order, and nothing here
+ *  canonicalizes it) — sorting the identifier entries before stringifying
+ *  makes the key depend only on the (name, value) pairs themselves, never
+ *  on which order a producer happened to write them in. */
+function pivotWiderGroupKey(rest: Record<string, unknown>): string {
+  return JSON.stringify(Object.entries(rest).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
+}
+
 function pivotWider(rows: readonly TabularRow[], keyColumn: string, valueColumn: string): TabularRow[] {
   const groups = new Map<string, TabularRow>();
   const order: string[] = [];
   for (const row of rows) {
     const rest = Object.fromEntries(Object.entries(row).filter(([k]) => k !== keyColumn && k !== valueColumn));
-    const groupKey = JSON.stringify(rest);
+    const groupKey = pivotWiderGroupKey(rest);
     let group = groups.get(groupKey);
     if (!group) { group = { ...rest }; groups.set(groupKey, group); order.push(groupKey); }
     const keyValue = String(rowColumn(row, keyColumn) ?? "");
-    group[keyValue] = rowColumn(row, valueColumn);
+    setRowField(group, keyValue, rowColumn(row, valueColumn));
   }
   return order.map((k) => groups.get(k)!);
 }
@@ -258,19 +282,75 @@ export function compileDateFormat(format: string): RegExp {
   return new RegExp(`^${pattern}$`);
 }
 
+const NORMALISE_ISO_FULL = /^\d{4}-\d{2}-\d{2}(T.*)?$/;
+const NORMALISE_ISO_MONTH_ONLY = /^(\d{4})-(\d{2})$/;
+const NORMALISE_SLASH = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/;
+
+/** Normalizes one of the profiler's own recognized date SHAPES
+ *  (`dataProfile.ts`'s `ISO_DATE`/`SLASH_DATE`) to a bare `YYYY-MM-DD`
+ *  calendar date, WITHOUT ever routing through `Date.parse`/`toISOString`
+ *  for the two shapes that aren't already ISO — that round trip reads a
+ *  slash date at LOCAL midnight (`dataProfile.ts`'s `isRolledCalendarDate`
+ *  doc), so a positive-UTC-offset reader's "1/2/2024" became
+ *  "2024-01-01T23:00:00.000Z", the WRONG calendar day, the instant it
+ *  crossed the UTC boundary. Built from the matched digits directly
+ *  instead, so the calendar day this function returns is EXACTLY the one
+ *  the string named, in every time zone. Anything already a full calendar
+ *  date (bare or with a time part) is returned untouched — it already
+ *  parses everywhere this value is headed (a chart's `time` scale,
+ *  `parseDateCellFreeform`'s own `Date.parse` fallback below). A shape
+ *  this function doesn't recognize (arbitrary free text) is returned
+ *  untouched too, for the same fallback to keep handling. */
+export function normaliseDateColumn(raw: TabularCell): TabularCell {
+  if (typeof raw !== "string") return raw;
+  const value = raw.trim();
+  if (NORMALISE_ISO_FULL.test(value)) return value;
+  const monthOnly = NORMALISE_ISO_MONTH_ONLY.exec(value);
+  if (monthOnly) return `${monthOnly[1]}-${monthOnly[2]}-01`; // first of month — there is no month-only domain type to hand it to.
+  const slash = NORMALISE_SLASH.exec(value);
+  if (slash) {
+    const [, mRaw, dRaw, yRaw] = slash;
+    // MM/DD/YYYY, mirroring `dataProfile.ts`'s own `SLASH_DATE_PARTS` reading.
+    const year = yRaw!.length === 4 ? Number(yRaw) : 2000 + Number(yRaw);
+    return `${String(year).padStart(4, "0")}-${String(Number(mRaw)).padStart(2, "0")}-${String(Number(dRaw)).padStart(2, "0")}`;
+  }
+  return raw;
+}
+
 function parseDateCellFreeform(raw: TabularCell): string | null {
   if (raw === null || raw === undefined || raw === "") return null;
-  const t = Date.parse(String(raw));
+  const normalised = normaliseDateColumn(raw);
+  const t = Date.parse(String(normalised));
   return Number.isNaN(t) ? null : new Date(t).toISOString();
 }
 
+/** `Date.UTC` (and the two-or-more-argument `Date` constructor it shares
+ *  the rule with) silently NORMALIZES an out-of-range month/day onto a
+ *  later date instead of rejecting it (`2024-02-31` -> March 2) and
+ *  silently REMAPS a year in 0..99 onto 1900..1999 (the same legacy
+ *  two-digit-year rule `dataProfile.ts`'s date detection never has to
+ *  worry about, since it only ever reads calendar fields BACK OUT of an
+ *  already-parsed date, never writes one) — both used to return `ok: true`
+ *  with a changed value the profiler's own "rolled calendar date" guard
+ *  can't see, because that guard runs on FREEFORM text, not this format
+ *  path. The calendar fields are read back out and compared to what was
+ *  actually typed, exactly like that guard does; a genuine 0..99 year is
+ *  corrected back with `setUTCFullYear` FIRST, since that's the one `Date`
+ *  method that takes a year literally with no legacy remapping — applying
+ *  it before the round-trip check is what lets "0099-01-01" survive as 99
+ *  AD instead of failing the check against the `Date.UTC` call's own
+ *  1999 reading. */
 function parseDateCellWithFormat(raw: TabularCell, regex: RegExp): string | null {
   if (raw === null || raw === undefined || raw === "") return null;
   const match = regex.exec(String(raw));
   if (!match?.groups) return null;
   const y = Number(match.groups.y ?? "1970"); const m = Number(match.groups.mo ?? "1"); const d = Number(match.groups.d ?? "1");
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return null;
   const date = new Date(Date.UTC(y, m - 1, d));
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  if (Number.isNaN(date.getTime())) return null;
+  if (y >= 0 && y <= 99) date.setUTCFullYear(y, m - 1, d);
+  if (date.getUTCFullYear() !== y || date.getUTCMonth() !== m - 1 || date.getUTCDate() !== d) return null;
+  return date.toISOString();
 }
 
 // ── safe expression evaluator (`derive`) ──────────────────────────────
@@ -469,7 +549,7 @@ function evaluateNode(node: Node, row: TabularRow): ExprValue {
     }
     case "binary": {
       const { op } = node;
-      if (op === "&&") return truthy(evaluateNode(node.left, row)) ? evaluateNode(node.right, row) : evaluateNode(node.left, row);
+      if (op === "&&") { const l = evaluateNode(node.left, row); return truthy(l) ? evaluateNode(node.right, row) : l; }
       if (op === "||") { const l = evaluateNode(node.left, row); return truthy(l) ? l : evaluateNode(node.right, row); }
       const l = evaluateNode(node.left, row); const r = evaluateNode(node.right, row);
       switch (op) {

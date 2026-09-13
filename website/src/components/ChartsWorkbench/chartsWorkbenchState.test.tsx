@@ -451,6 +451,92 @@ describe("chartsScaleSliderBounds", () => {
     expect(bounds.loCeiling).toBeUndefined();
     expect(bounds.hiFloor).toBeUndefined();
   });
+
+  // P1-4 (batch-3 review): a log domain need not be positive — only
+  // zero-containing or sign-crossing domains are illegal (AGENTS.md's
+  // "Charts") — but the log branch assumed `domainMin > 0` and fell back to
+  // the POSITIVE fallback `Number.MIN_VALUE` for a negative domain, which
+  // `RangeSlider`'s (pre-fix) unconditional `Math.max(next, loFloor)` then
+  // used to push every negative committed value UP to a tiny POSITIVE one
+  // — the reported `[null, 5e-324]` corruption of a Shift+ArrowLeft nudge
+  // on `[-100, -10, -1]`. Mutation check: reverting the negative branch
+  // (dropping the `domainMax < 0` special case) makes `bounds.loFloor`
+  // come back `Number.MIN_VALUE` (positive) instead of a small NEGATIVE
+  // value, and the render loop below (which pins the actual end-to-end
+  // guarantee — every legal lo/hi pair on this domain renders without
+  // `log-domain`) fails once `RangeSlider`'s sign-aware clamp is exercised
+  // through `commit`'s own `Math.max`/`Math.min` split.
+  it("a negative-only log domain pads outward (never through zero) and caps both ends at a small NEGATIVE ceiling, never a positive floor", () => {
+    const bounds = chartsScaleSliderBounds("log", -100, -1, false);
+    expect(bounds.min).toBeCloseTo(-120); // -100 * 1.2 — more negative, away from zero
+    expect(bounds.max).toBeCloseTo(-1 / 1.2); // -1 / 1.2 — closer to zero, mirroring the positive branch's domainMin/1.2
+    expect(bounds.loFloor).toBeDefined();
+    expect(bounds.loFloor!).toBeLessThan(0); // a ceiling near zero from the negative side, never Number.MIN_VALUE (positive)
+    expect(bounds.hiFloor).toBeUndefined();
+    expect(bounds.loCeiling).toBeUndefined();
+    for (const lo of [bounds.min, -100, -50]) {
+      for (const hi of [-50, -1, bounds.max]) {
+        if (lo >= hi) continue;
+        const spec = { marks: [{ type: "line" as const, data: [-100, -10, -1], channels: {}, options: {} }], scales: { y: { type: "log" as const, domain: [lo, hi] } } };
+        const rendered = renderChartsWorkbenchSpec(JSON.stringify(spec), { target: "web", width: 24, height: 8 });
+        expect(rendered.ok, `lo=${lo} hi=${hi}: ${!rendered.ok ? rendered.error : ""}`).toBe(true);
+      }
+    }
+  });
+});
+
+// P1-5 (batch-3 review): Apply installed an explicit `scales.x.type:
+// "time"` whenever the profiler classified the x column as `date`
+// (`xChannelIsDate`) — but the profiler recognizes SHAPES (slash dates,
+// bare `YYYY-MM`) the renderer's own `ISO_DATE_PATTERN` doesn't, so the
+// recommended chart rejected with `bad-time-domain` the moment it tried to
+// render. `apply-data` now normalizes the mark's own x column through
+// `normaliseDateColumn` BEFORE installing the time scale, so the two never
+// disagree about what the column contains.
+describe("apply-data — date normalization (P1-5)", () => {
+  const applyCustom = (raw: string, x: string, y: string) => {
+    const withSource = reduceChartsWorkbenchState(createChartsWorkbenchState(), {
+      type: "set-data-source", source: { kind: "custom", raw },
+    });
+    return reduceChartsWorkbenchState(withSource, { type: "apply-data", mark: "line", channels: { x, y } });
+  };
+
+  it("normalizes a slash-date (MM/DD/YYYY) x column to ISO before installing the time scale, so the recommended chart renders", () => {
+    const state = applyCustom("date,value\n1/2/2024,10\n1/3/2024,20", "date", "value");
+    expect(state.scales.x.type).toBe("time");
+    expect(JSON.parse(state.marks[0]!.dataText)).toEqual([
+      { date: "2024-01-02", value: 10 },
+      { date: "2024-01-03", value: 20 },
+    ]);
+    const rendered = renderChartsWorkbenchState(state);
+    expect(rendered.ok, !rendered.ok ? rendered.error : "").toBe(true);
+  });
+
+  it("normalizes a bare YYYY-MM x column to the first of the month before installing the time scale, so the recommended chart renders", () => {
+    const state = applyCustom("month,value\n2024-01,10\n2024-02,20", "month", "value");
+    expect(state.scales.x.type).toBe("time");
+    expect(JSON.parse(state.marks[0]!.dataText)).toEqual([
+      { month: "2024-01-01", value: 10 },
+      { month: "2024-02-01", value: 20 },
+    ]);
+    const rendered = renderChartsWorkbenchState(state);
+    expect(rendered.ok, !rendered.ok ? rendered.error : "").toBe(true);
+  });
+
+  // Mutation check: skipping the normalization (building the mark from the
+  // raw, un-normalized `rows` — i.e. reverting to the pre-fix
+  // `buildDatasetMark(..., rows, ...)`) reproduces the reported defect
+  // exactly: the scale installs `time` but the mark's own data still
+  // carries the slash-form string, and rendering rejects with
+  // `bad-time-domain`.
+  it("a non-date x column is left untouched and installs no time scale", () => {
+    const state = applyCustom("category,value\nA,10\nB,20", "category", "value");
+    expect(state.scales.x.type).toBe("auto");
+    expect(JSON.parse(state.marks[0]!.dataText)).toEqual([
+      { category: "A", value: 10 },
+      { category: "B", value: 20 },
+    ]);
+  });
 });
 
 // ── N2 — the 256 KB custom-payload cap is enforced in the REDUCER itself,

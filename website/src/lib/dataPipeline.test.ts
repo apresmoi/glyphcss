@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileDateFormat, compileExpression, ExpressionError, PipelineFormatError, runPipeline, type PipelineStep } from "./dataPipeline";
+import { compileDateFormat, compileExpression, ExpressionError, normaliseDateColumn, PipelineFormatError, runPipeline, type PipelineStep } from "./dataPipeline";
 import type { TabularRow } from "./tabularParse";
 
 describe("runPipeline — select/flatten", () => {
@@ -41,6 +41,56 @@ describe("runPipeline — pivot", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error(result.error);
     expect(result.rows).toEqual([{ country: "US", "2020": 10, "2021": 12 }]);
+  });
+
+  // P2-7 (batch-3 review): `JSON.stringify(rest)` made a group's identity
+  // depend on the IDENTIFIER columns' own property ORDER, not just their
+  // (name, value) pairs — two rows carrying the SAME `id`/`group` differing
+  // only in which was written first (`{id,group,...}` vs `{group,id,...}`,
+  // a routine outcome of `Object.fromEntries(Object.entries(row).filter(...))`
+  // over rows built by different code paths) grouped as TWO rows, each
+  // missing the other's key. Mutation check: reverting `pivotWiderGroupKey`
+  // to bare `JSON.stringify(rest)` makes this go red — two incomplete rows
+  // with `ok: true` instead of one merged row.
+  it("merges two rows with the same identifier columns in different property orders into one group", () => {
+    const rows: TabularRow[] = [
+      { id: 1, group: "a", k: "x", v: 3 },
+      { group: "a", id: 1, k: "y", v: 4 } as unknown as TabularRow,
+    ];
+    const result = runPipeline(rows, [{ kind: "pivotWider", keyColumn: "k", valueColumn: "v" }]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error(result.error);
+    expect(result.rows).toEqual([{ id: 1, group: "a", x: 3, y: 4 }]);
+  });
+
+  // P4 (fable seat, batch-3 review): `pivotWider`'s WRITE (`group[keyValue]
+  // = value`, a plain bracket assignment) went through `Object.prototype`'s
+  // own `__proto__` accessor for a key column whose VALUE is literally the
+  // string "__proto__" — a primitive value silently dropped the write
+  // entirely (`[[Set]]` on `__proto__` with a non-object value is a no-op
+  // per spec), and an object value REPLACED the row's prototype instead of
+  // storing a column named `__proto__`. `setRowField`'s `defineProperty`
+  // always creates an own data property, matching what `JSON.parse` itself
+  // already does for the same key. Mutation check: reverting the group
+  // write back to `group[keyValue] = value` makes both assertions below go
+  // red (primitive: the row has NO `__proto__` own key at all; object: the
+  // row's OWN prototype is replaced, `Object.getPrototypeOf(row) !==
+  // Object.prototype`).
+  it("stores a __proto__-named key column as an own data property, never through the prototype accessor", () => {
+    const primitive = runPipeline([{ k: "__proto__", v: 42 }], [{ kind: "pivotWider", keyColumn: "k", valueColumn: "v" }]);
+    if (!primitive.ok) throw new Error(primitive.error);
+    const [row] = primitive.rows;
+    expect(Object.getPrototypeOf(row)).toBe(Object.prototype);
+    expect(Object.hasOwn(row!, "__proto__")).toBe(true);
+    expect((row as unknown as Record<string, unknown>)["__proto__"]).toBe(42);
+
+    const objectValue = { evil: true };
+    const nested = runPipeline([{ k: "__proto__", v: objectValue }] as unknown as TabularRow[], [{ kind: "pivotWider", keyColumn: "k", valueColumn: "v" }]);
+    if (!nested.ok) throw new Error(nested.error);
+    const [nestedRow] = nested.rows;
+    expect(Object.getPrototypeOf(nestedRow)).toBe(Object.prototype); // prototype untouched
+    expect(Object.hasOwn(nestedRow!, "__proto__")).toBe(true);
+    expect((nestedRow as unknown as Record<string, unknown>)["__proto__"]).toBe(objectValue);
   });
 });
 
@@ -255,6 +305,72 @@ describe("runPipeline — filter/sort/limit/parseDate", () => {
   it("a bad token is rejected as PipelineFormatError specifically, not a bare Error", () => {
     expect(() => compileDateFormat("MMM")).toThrow(PipelineFormatError);
   });
+
+  // P2-8 (batch-3 review): `Date.UTC` silently NORMALIZES an out-of-range
+  // month/day onto a later date (`2024-02-31` -> March 2, `2024-00-01` ->
+  // 2023-12-01) instead of rejecting it, and REMAPS a year in 0..99 onto
+  // 1900..1999 (the two-digit-year legacy rule) — all three used to return
+  // `ok: true` with a changed value. The calendar fields are now read back
+  // out and compared to what was actually typed (a genuine 0..99 year is
+  // corrected with `setUTCFullYear` first, the one `Date` method with no
+  // such remapping). Mutation check: reverting `parseDateCellWithFormat` to
+  // a bare `new Date(Date.UTC(y, m-1, d))` with no round-trip check makes
+  // all three assertions below go red (rolled to 2024-03-02, rolled to
+  // 2023-12-01, and remapped to 1999 respectively).
+  it("rejects an invalid calendar date instead of silently rolling it, and preserves a 0..99 year instead of remapping to 19xx", () => {
+    const rolledDay = runPipeline([{ d: "2024-02-31" }], [{ kind: "parseDate", column: "d", format: "YYYY-MM-DD" }]);
+    if (!rolledDay.ok) throw new Error(rolledDay.error);
+    expect(rolledDay.rows[0]!.d).toBeNull();
+
+    const rolledMonth = runPipeline([{ d: "2024-00-01" }], [{ kind: "parseDate", column: "d", format: "YYYY-MM-DD" }]);
+    if (!rolledMonth.ok) throw new Error(rolledMonth.error);
+    expect(rolledMonth.rows[0]!.d).toBeNull();
+
+    const twoDigitYear = runPipeline([{ d: "0099-01-01" }], [{ kind: "parseDate", column: "d", format: "YYYY-MM-DD" }]);
+    if (!twoDigitYear.ok) throw new Error(twoDigitYear.error);
+    const date = new Date(twoDigitYear.rows[0]!.d as string);
+    expect(date.getUTCFullYear()).toBe(99); // never 1999
+    expect(date.getUTCMonth()).toBe(0);
+    expect(date.getUTCDate()).toBe(1);
+  });
+});
+
+// P1-5 (batch-3 review): the one pure function Apply and the `parseDate`
+// step now BOTH normalize a recognized date shape through, so a chart's
+// `scales.x.type: "time"` and the mark's own `dataText` never disagree
+// about what the x column contains.
+describe("normaliseDateColumn", () => {
+  it("passes an already-full calendar date (bare or with a time part) through untouched", () => {
+    expect(normaliseDateColumn("2024-01-02")).toBe("2024-01-02");
+    expect(normaliseDateColumn("2024-01-02T00:00:00.000Z")).toBe("2024-01-02T00:00:00.000Z");
+  });
+
+  it("expands a bare YYYY-MM month to the first of that month", () => {
+    expect(normaliseDateColumn("2024-01")).toBe("2024-01-01");
+    expect(normaliseDateColumn("2024-12")).toBe("2024-12-01");
+  });
+
+  // The timezone-shift bug this function exists to avoid: `Date.parse`
+  // reads "MM/DD/YYYY" at LOCAL midnight (`dataProfile.ts`'s own
+  // `isRolledCalendarDate` doc), so `new Date("1/2/2024").toISOString()` in
+  // a positive-UTC-offset zone becomes "2024-01-01T23:00:00.000Z" — the
+  // WRONG calendar day. `normaliseDateColumn` never constructs a `Date` for
+  // this shape at all, so the result is independent of the runner's own
+  // timezone.
+  it("normalizes a slash date (MM/DD/YYYY) to the exact calendar day named, independent of the local timezone", () => {
+    expect(normaliseDateColumn("1/2/2024")).toBe("2024-01-02");
+    expect(normaliseDateColumn("12/31/2024")).toBe("2024-12-31");
+  });
+
+  it("expands a 2-digit slash year into 20xx", () => {
+    expect(normaliseDateColumn("1/2/24")).toBe("2024-01-02");
+  });
+
+  it("passes an unrecognized shape (arbitrary text, non-date strings) through untouched", () => {
+    expect(normaliseDateColumn("not a date")).toBe("not a date");
+    expect(normaliseDateColumn(42)).toBe(42);
+    expect(normaliseDateColumn(null)).toBeNull();
+  });
 });
 
 describe("runPipeline — derive", () => {
@@ -286,6 +402,45 @@ describe("runPipeline — derive", () => {
   it("rejects a malformed expression as a structured pipeline error", () => {
     const result = runPipeline([{ a: 1 }], [{ kind: "derive", column: "b", expression: "a +" }]);
     expect(result.ok).toBe(false);
+  });
+
+  // P1-1 (batch-3 review): `&&`'s FALSE branch used to re-evaluate its own
+  // LEFT subtree a second time (`truthy(evaluateNode(node.left, row)) ?
+  // evaluateNode(node.right, row) : evaluateNode(node.left, row)`) —
+  // observable only on a FALSY left, which is exactly the reported repro's
+  // own shape (`Array(40).fill("0").join(" && ")` tokenizes each bare `0`
+  // as the NUMBER `0`, and `truthy(0)` is `false` here; a chain of TRUTHY
+  // operands never reaches this branch at all under either the old or new
+  // code, left- or right-leaning). Since `parseAnd` builds a LEFT-leaning
+  // tree for a chain of `&&`s, every node's own left subtree is ITSELF
+  // another such node, so the leftmost leaf's evaluation count doubled per
+  // level: 24 chained falsy operands measured 16,777,215 (2^24-1)
+  // evaluations for one row, and a 40-operand chain exceeded a 1500ms
+  // limit outright. `col`'s own read (`row[node.name]`, through a getter
+  // here) is the one observable per-evaluation side effect, so counting it
+  // pins the fix's own guarantee. Mutation check: reverting the `&&` case
+  // to the old double-evaluation form makes `reads` explode exponentially
+  // and the elapsed-time assertion fail by many orders of magnitude —
+  // confirmed directly against a 20-node chain of the exact reverted
+  // expression (39 total node evaluations under the fix, versus doubling
+  // per level under the reverted form).
+  it("evaluates a 40-node chained && over a FALSY column, short-circuiting once instead of doubling per level, in well under 50ms", () => {
+    let reads = 0;
+    const target: TabularRow = { col: 0 };
+    const row = new Proxy(target, {
+      get(obj, prop, receiver) {
+        if (prop === "col") reads++;
+        return Reflect.get(obj, prop, receiver);
+      },
+    });
+    const expression = Array(40).fill("col").join(" && ");
+    const evaluate = compileExpression(expression);
+    const started = performance.now();
+    const result = evaluate(row);
+    const elapsedMs = performance.now() - started;
+    expect(elapsedMs).toBeLessThan(50);
+    expect(reads).toBeLessThanOrEqual(40); // linear at worst — never the exponential blow-up the bug produced
+    expect(result).toBe(0); // `&&` short-circuits on the first falsy operand, exactly like real JS
   });
 });
 

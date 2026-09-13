@@ -69,6 +69,12 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   // already-shrunk size, so it never fired for the one case — a big custom
   // paste — that most needed telling the sharer their data didn't make it.
   const [omittedCustomKB, setOmittedCustomKB] = useState<number | null>(null);
+  // Set when even dropping every serialized copy of the custom payload
+  // (`encodeChartsUrlStateInfo`'s own doc) left the envelope over
+  // `CHARTS_URL_SIZE_WARN_BYTES` — the link was never written (`raw` was
+  // `""`), so this replaces the "isn't included" notice with a stronger
+  // one naming the still-oversized size, rather than showing both.
+  const [tooLargeKB, setTooLargeKB] = useState<number | null>(null);
   const preRef = useRef<HTMLPreElement | null>(null);
   const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
   // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
@@ -99,12 +105,16 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   }, [state]);
   // One writer for the component's lifetime — see chartsUrlState.ts's doc
   // (150ms debounced, `history.replaceState`-only, skip-when-unchanged).
-  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes, omittedCustomBytes }) => {
+  const urlWriter = useRef(createChartsUrlWriter(({ sizeBytes, omittedCustomBytes, tooLarge }) => {
     setUrlSizeBytes(sizeBytes);
-    setOmittedCustomKB(omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
+    setOmittedCustomKB(!tooLarge && omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
+    setTooLargeKB(tooLarge ? Math.ceil(sizeBytes / 1024) : null);
   })).current;
   useEffect(() => { urlWriter(state); }, [state, urlWriter]);
-  const urlTooLong = urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
+  // `tooLargeKB` gets its OWN, stronger notice below — no link was written
+  // at all in that case (raw was `""`), so the ordinary "link is N KB"
+  // readout (which describes a link that WAS written) would be misleading.
+  const urlTooLong = tooLargeKB === null && urlSizeBytes > CHARTS_URL_SIZE_WARN_BYTES;
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -139,9 +149,11 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   // address bar is brought current in the same click.
   const copyLink = async () => {
     try {
-      const { raw, sizeBytes, omittedCustomBytes } = await encodeChartsUrlStateInfo(state);
+      const { raw, sizeBytes, omittedCustomBytes, tooLarge } = await encodeChartsUrlStateInfo(state);
       setUrlSizeBytes(sizeBytes);
-      setOmittedCustomKB(omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
+      setOmittedCustomKB(!tooLarge && omittedCustomBytes !== undefined ? Math.ceil(omittedCustomBytes / 1024) : null);
+      setTooLargeKB(tooLarge ? Math.ceil(sizeBytes / 1024) : null);
+      if (tooLarge) { setFeedback(`Link too large to share (${Math.ceil(sizeBytes / 1024)} KB).`); return; }
       writeUrlParam(CHARTS_URL_PARAM, raw || null);
       const params = new URLSearchParams(window.location.search);
       if (raw) params.set(CHARTS_URL_PARAM, raw); else params.delete(CHARTS_URL_PARAM);
@@ -191,6 +203,12 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
              *  paste that shrinks the encoded link back under
              *  CHARTS_URL_SIZE_WARN_BYTES still gets told. */}
             {omittedCustomKB !== null && <p className="charts-readout" role="status">Custom data ({omittedCustomKB} KB) isn't included in this link.</p>}
+            {/* Dropping every copy of the custom payload (`encodeChartsUrlStateInfo`'s
+             *  own doc) still left the envelope over the cap — no link was
+             *  written, so this replaces the "isn't included" notice above
+             *  rather than showing alongside it (`omittedCustomKB` is `null`
+             *  whenever this is set). */}
+            {tooLargeKB !== null && <p className="charts-error" role="alert">Link too large to share ({tooLargeKB} KB).</p>}
             {feedback && <p className="charts-readout" role="status">{feedback}</p>}
           </div>
         </InstrumentViewport>

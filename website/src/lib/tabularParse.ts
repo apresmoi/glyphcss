@@ -71,22 +71,40 @@ function coerceCell(raw: string, quoted: boolean): TabularCell {
  *  whose own literal name is already taken — by an earlier duplicate OR by
  *  an earlier duplicate's own generated suffix — keeps climbing the same
  *  `_<n>` ladder for its base name until it lands on a free one:
- *  `"a,a,a_2"` -> `"a,a_2,a_3"`, never a second collision. */
+ *  `"a,a,a_2"` -> `"a,a_2,a_3"`, never a second collision.
+ *
+ *  N9c: a suffix past `Number.MAX_SAFE_INTEGER` (2^53) used to loop
+ *  forever — `requested + 1` and this scheme's own `n++` both stop
+ *  advancing at that magnitude (`2**53 + 1 === 2**53` in IEEE-754 double
+ *  arithmetic), so `nextFree`'s `while (used.has(...))` kept re-testing
+ *  the SAME already-occupied name on every pass. `Number.isSafeInteger`
+ *  gates whether a "_<n>" suffix is reinterpreted as this scheme's own
+ *  numbering at all — past that magnitude the suffix is treated as
+ *  literal text instead (exactly like an ordinary column that happens to
+ *  contain digits), and `nextFree`'s own loop asserts each step is a
+ *  genuine, safely-representable advance rather than trusting the
+ *  increment blindly. */
 function dedupeHeaders(headers: readonly string[]): string[] {
   const used = new Set<string>();
   const nextFree = (base: string, from: number): string => {
     let n = from;
-    while (used.has(`${base}_${n}`)) n++;
+    while (used.has(`${base}_${n}`)) {
+      if (!Number.isSafeInteger(n + 1)) throw new Error(`dedupeHeaders: exhausted safe-integer suffixes for "${base}".`);
+      n++;
+    }
     return `${base}_${n}`;
   };
   return headers.map((name) => {
     const match = /^(.*)_(\d+)$/.exec(name);
     const requested = match ? Number(match[2]) : NaN;
     // Only treat a "_<n>" suffix as part of this scheme's own numbering
-    // when n >= 2 — the smallest suffix this function ever generates — so
-    // an ordinary column literally named e.g. "q_1" is never reinterpreted
-    // as base "q"'s first duplicate.
-    if (match && requested >= 2) {
+    // when n >= 2 (the smallest suffix this function ever generates — an
+    // ordinary column literally named e.g. "q_1" is never reinterpreted as
+    // base "q"'s first duplicate) AND n is a SAFE integer (see N9c above)
+    // — a suffix past that magnitude can never be this scheme's own
+    // numbering anyway, since a `_<n>` this function generates always
+    // climbs from 2 one safe integer at a time.
+    if (match && Number.isSafeInteger(requested) && requested >= 2) {
       const base = match[1]!;
       const candidate = `${base}_${requested}`;
       const final = used.has(candidate) ? nextFree(base, requested + 1) : candidate;

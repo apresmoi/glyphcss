@@ -36,18 +36,24 @@ export interface RangeSliderProps {
    *  allows) — a bar/area/rect y-domain pins this to `0` so no thumb
    *  position can ever push the domain's minimum above zero. */
   loCeiling?: number;
-  /** The absolute floor for BOTH ends' commits — a log scale pins this to
-   *  a small positive value derived from the domain's own extent, so no
-   *  commit on EITHER thumb (a keyboard nudge's silent clamp, or a TYPED
-   *  value refused via `capReason`) can ever push it to zero or negative,
-   *  which trips the library's own `log-domain` rule (NEW-1, REVIEW-dock-
-   *  colours-sliders-opus-round2.md — a log domain must keep one sign on
-   *  BOTH ends, not just the minimum). Never a native `min` HTML
-   *  attribute, unlike `loCeiling`/`hiFloor` below — `min` (the outer
-   *  padded bound) already sits comfortably above zero for a legal log
-   *  domain, so DRAG never needed an extra floor on either thumb; adding
-   *  one there would only pull that thumb's browser-computed position away
-   *  from the visual fill bar's, which shares `min`/`max`, not `loFloor`. */
+  /** The sign-exclusion cap for BOTH ends' commits — a log scale pins this
+   *  to a small value, DERIVED FROM THE DOMAIN'S OWN SIGN, so no commit on
+   *  EITHER thumb (a keyboard nudge's silent clamp, or a TYPED value
+   *  refused via `capReason`) can ever cross zero, which trips the
+   *  library's own `log-domain` rule (NEW-1, REVIEW-dock-colours-sliders-
+   *  opus-round2.md — a log domain must keep one sign on BOTH ends, not
+   *  just the minimum). A POSITIVE value is a FLOOR (`Math.max`, as for an
+   *  ordinary positive-domain log scale); a NEGATIVE value is a CEILING
+   *  (`Math.min`) for a domain that is entirely negative — a positive
+   *  `Math.max` floor there would push every negative value UP to a
+   *  positive one instead of merely keeping it away from zero (the
+   *  reported `[null, 5e-324]` corruption of a typed negative bound).
+   *  Never a native `min`/`max` HTML attribute, unlike `loCeiling`/
+   *  `hiFloor` below — the outer padded `min`/`max` already sit
+   *  comfortably on the legal side of zero for a legal log domain, so DRAG
+   *  never needed an extra cap on either thumb; adding one there would
+   *  only pull that thumb's browser-computed position away from the
+   *  visual fill bar's, which shares `min`/`max`, not `loFloor`. */
   loFloor?: number;
   /** The HIGH thumb's OWN reachable floor (never lower, whatever `min`
    *  allows) — a bar/area/rect y-domain pins this to `0` so no thumb
@@ -142,8 +148,6 @@ export function RangeSlider({
   const [rawLo, rawHi] = value ?? [null, null];
   const lo = rawLo ?? domainLo;
   const hi = rawHi ?? domainHi;
-  const loMax = loCeiling ?? max;
-  const hiMin = hiFloor ?? min;
   const [loDraft, setLoDraft] = useState<string | null>(null);
   const [hiDraft, setHiDraft] = useState<string | null>(null);
   // A structured inline message (NEW-1/NEW-4) for the END a typed commit
@@ -176,7 +180,8 @@ export function RangeSlider({
     setCapError(null);
     let next = raw;
     if (next !== null) {
-      if (loFloor !== undefined) next = Math.max(next, loFloor); // both ends — see `loFloor`'s own doc
+      // both ends — see `loFloor`'s own doc for the sign split.
+      if (loFloor !== undefined) next = loFloor >= 0 ? Math.max(next, loFloor) : Math.min(next, loFloor);
       if (which === "lo" && loCeiling !== undefined) next = Math.min(next, loCeiling);
       if (which === "hi" && hiFloor !== undefined) next = Math.max(next, hiFloor);
     }
@@ -193,7 +198,8 @@ export function RangeSlider({
     onChange(which === "lo" ? [next, otherRaw] : [otherRaw, next]);
   };
   const violatesCap = (which: "lo" | "hi", n: number): boolean => {
-    if (loFloor !== undefined && n < loFloor) return true; // both ends
+    // both ends — see `loFloor`'s own doc for the sign split.
+    if (loFloor !== undefined && (loFloor >= 0 ? n < loFloor : n > loFloor)) return true;
     if (which === "lo") return loCeiling !== undefined && n > loCeiling;
     return hiFloor !== undefined && n < hiFloor;
   };
@@ -237,11 +243,11 @@ export function RangeSlider({
         onKeyDown={onEndKeyDown} />
       <div className="range-slider-track" onPointerDown={onTrackPointerPosition} onPointerMove={onTrackPointerPosition}>
         <div className="range-slider-fill" style={{ left: `${pct(lo, min, max)}%`, right: `${100 - pct(hi, min, max)}%` }} />
-        <input type="range" className={`range-slider-range range-slider-range--lo${frontThumb === "lo" ? " is-front" : ""}`} min={min} max={loMax} step={resolvedStep} disabled={disabled}
+        <input type="range" className={`range-slider-range range-slider-range--lo${frontThumb === "lo" ? " is-front" : ""}`} min={min} max={max} step={resolvedStep} disabled={disabled}
           value={lo} aria-label={`${label ?? "Range"} minimum handle`} aria-valuetext={format(lo)} title={title}
           onChange={(e) => commit("lo", Number(e.target.value))}
           onKeyDown={(e) => onThumbKeyDown(e, "lo")} />
-        <input type="range" className={`range-slider-range range-slider-range--hi${frontThumb === "hi" ? " is-front" : ""}`} min={hiMin} max={max} step={resolvedStep} disabled={disabled}
+        <input type="range" className={`range-slider-range range-slider-range--hi${frontThumb === "hi" ? " is-front" : ""}`} min={min} max={max} step={resolvedStep} disabled={disabled}
           value={hi} aria-label={`${label ?? "Range"} maximum handle`} aria-valuetext={format(hi)} title={title}
           onChange={(e) => commit("hi", Number(e.target.value))}
           onKeyDown={(e) => onThumbKeyDown(e, "hi")} />

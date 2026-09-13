@@ -5,6 +5,7 @@ import {
 } from "./chartsWorkbenchState";
 import {
   CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlState,
+  encodeChartsUrlStateInfo,
 } from "./chartsUrlState";
 
 const presetState = (id: string): ChartsWorkbenchState =>
@@ -254,6 +255,98 @@ describe("chartsUrlState — round trip", () => {
     expect(new TextEncoder().encode(link).length).toBeLessThan(CHARTS_URL_SIZE_WARN_BYTES);
     const decoded = await decodeChartsUrlState(link);
     expect(decoded?.data.source).toEqual({ kind: "custom", raw: "", filename: "huge.csv", omitted: true });
+  });
+
+  // P4 (fable seat, batch-3 review): `CHARTS_CUSTOM_MAX_BYTES` capped a
+  // paste/upload and a decoded `data.source.raw` (A3, above), but a mark's
+  // own `dataText` — the field the CHART ACTUALLY RENDERS FROM — had no
+  // cap on the decode path at all: a hand-built link with a huge `dataText`
+  // decoded and rendered with no bound whatsoever. Same treatment as every
+  // other malformed field in this envelope: the whole link fails to decode
+  // (falls back to the page's default state) rather than accepting
+  // unbounded render data. Mutation check: removing the `dataText` size
+  // check from `validateMark` makes this go red — the oversized mark
+  // decodes intact instead of the whole envelope coming back `null`.
+  it("caps a decoded mark's dataText at the same size a paste/dropdown could never bypass (P4)", async () => {
+    const hugeRows = Array.from({ length: 60_000 }, (_, i) => ({ x: i, y: i }));
+    const base = createChartsWorkbenchState();
+    const state: ChartsWorkbenchState = { ...base, marks: [{ ...base.marks[0]!, dataText: JSON.stringify(hugeRows), channels: { x: "x", y: "y" } }] };
+    const dataTextBytes = new TextEncoder().encode(state.marks[0]!.dataText).length;
+    expect(dataTextBytes).toBeGreaterThan(CHARTS_CUSTOM_MAX_BYTES);
+    // Encode directly through the envelope (bypassing `encodeChartsUrlStateInfo`'s
+    // own N3 drop, which only ever touches `data.source` — this pins the
+    // DECODE-side cap on `dataText` itself, independent of that mechanism).
+    const raw = await encodeChartsUrlState(state);
+    expect(await decodeChartsUrlState(raw)).toBeNull();
+  });
+});
+
+// P1-6 (batch-3 review): `encodeChartsUrlStateInfo` dropped `data.source.raw`
+// but left `marks[N].dataText` — a SECOND, independent JSON copy of the
+// same rows `buildDatasetMark` (Apply) writes — riding in the envelope
+// uncapped. A 2,000-row custom CSV, Applied, exceeded the cap even with
+// `source.raw` stripped (the reviewer's own repro measured a 14,805-byte
+// envelope after the old drop, over the 8,192-byte cap), and the decoded
+// page contradicted itself: the Data folder said "paste it again" while
+// the chart rendered fine from the still-present `dataText`.
+describe("chartsUrlState — Apply'd custom data omission (P1-6)", () => {
+  const bigCsvState = () => {
+    const raw = `a,b\n${Array.from({ length: 2000 }, (_, i) => `${i},${i}`).join("\n")}`;
+    const withSource = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-data-source", source: { kind: "custom", raw } });
+    return reduceChartsWorkbenchState(withSource, { type: "apply-data", mark: "line", channels: { x: "a", y: "b" } });
+  };
+
+  // Mutation check: reverting `encodeChartsUrlStateInfo` to drop only
+  // `source.raw` (never scanning `marks` for the derived `dataText` copy)
+  // makes this go red — the final envelope comes back over 8,192 bytes
+  // (measured ~14.8 KB in the original report) instead of at/under the cap.
+  it("the FINAL envelope (source.raw AND the derived mark dataText both dropped) is at or under the cap — never a second silent copy", async () => {
+    const state = bigCsvState();
+    const info = await encodeChartsUrlStateInfo(state);
+    expect(info.tooLarge).toBeFalsy();
+    expect(info.raw.length).toBeGreaterThan(0);
+    expect(new TextEncoder().encode(info.raw).length).toBeLessThanOrEqual(CHARTS_URL_SIZE_WARN_BYTES);
+    expect(info.omittedCustomBytes).toBeDefined();
+  });
+
+  // The "must agree" property: decoding the link must NOT recover the
+  // 2,000 rows through either copy — a link that renders the chart in full
+  // while claiming the data isn't included would be the same contradiction
+  // in the opposite direction.
+  it("decoding the omitted link recovers neither copy of the 2,000 rows", async () => {
+    const state = bigCsvState();
+    const info = await encodeChartsUrlStateInfo(state);
+    const decoded = await decodeChartsUrlState(info.raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.data.source).toMatchObject({ kind: "custom", raw: "", omitted: true });
+    expect(JSON.parse(decoded!.marks[0]!.dataText)).toEqual([]);
+  });
+
+  it("a mark that diverges from the source's own resolved rows (hand-edited) is real data with no other copy, and is left untouched", async () => {
+    let state = bigCsvState();
+    state = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: { dataText: JSON.stringify([{ a: 1, b: 2 }]) } });
+    const info = await encodeChartsUrlStateInfo(state);
+    const decoded = await decodeChartsUrlState(info.raw);
+    expect(decoded).not.toBeNull();
+    expect(JSON.parse(decoded!.marks[0]!.dataText)).toEqual([{ a: 1, b: 2 }]);
+  });
+
+  // If even every copy dropped still leaves the envelope over the cap
+  // (many/huge marks — synthesized here by adding a second large mark that
+  // does NOT match the derivable source output, so it can never be
+  // dropped), the encoder reports it rather than writing a broken link.
+  it("reports tooLarge (raw: \"\") when the envelope is still over the cap after dropping every derivable copy", async () => {
+    let state = bigCsvState();
+    const extraRows = Array.from({ length: 2000 }, (_, i) => ({ x: i, y: i * 2 }));
+    state = reduceChartsWorkbenchState(state, { type: "add-mark", markType: "dot" });
+    state = reduceChartsWorkbenchState(state, {
+      type: "update-mark", id: state.marks[1]!.id,
+      patch: { dataText: JSON.stringify(extraRows), channels: { x: "x", y: "y" } },
+    });
+    const info = await encodeChartsUrlStateInfo(state);
+    expect(info.tooLarge).toBe(true);
+    expect(info.raw).toBe("");
+    expect(info.sizeBytes).toBeGreaterThan(CHARTS_URL_SIZE_WARN_BYTES);
   });
 });
 

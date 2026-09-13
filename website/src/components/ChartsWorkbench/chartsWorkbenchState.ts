@@ -9,7 +9,7 @@ import {
   type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
   type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
 } from "@glyphcss/charts";
-import { runPipeline, type PipelineStep } from "../../lib/dataPipeline";
+import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
 import { buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
@@ -376,8 +376,21 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
         if (!reshaped.ok) return state;
         rows = reshaped.rows;
       }
-      const mark = buildDatasetMark(state.nextMarkId, action.mark, rows, action.channels);
       const isDate = xChannelIsDate(profileRows(rows), action.channels.x);
+      // The profiler recognizes date SHAPES (`dataProfile.ts`'s
+      // `ISO_DATE`/`SLASH_DATE`) the library's own `scales.ts` time domain
+      // does not — a bare `YYYY-MM` or a slash date profiles as `date` but
+      // fails the renderer's `ISO_DATE_PATTERN` with `bad-time-domain`, so
+      // Apply recommended a chart it could not itself render. Normalize the
+      // x column to the calendar date the renderer accepts BEFORE building
+      // the mark, through the SAME `normaliseDateColumn` the `parseDate`
+      // step uses, so the mark's own `dataText` and the `time` scale this
+      // action installs never disagree about what the column contains.
+      const dateColumn = isDate ? action.channels.x : undefined;
+      const markRows = dateColumn
+        ? rows.map((row) => ({ ...row, [dateColumn]: normaliseDateColumn(Object.hasOwn(row, dateColumn) ? row[dateColumn] ?? null : null) }))
+        : rows;
+      const mark = buildDatasetMark(state.nextMarkId, action.mark, markRows, action.channels);
       return {
         ...state, marks: [mark], nextMarkId: state.nextMarkId + 1,
         scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
@@ -639,13 +652,19 @@ export interface ChartsScaleSliderBounds {
    *  position can ever push the committed domain's minimum above zero or
    *  its maximum below zero (P1: `bar-domain-excludes-zero`). */
   readonly loCeiling?: number;
-  /** Log scale only: the absolute floor for BOTH ends — a small positive
-   *  value derived from the domain's own extent (NOT the padded `min`
-   *  above, which a typed value is otherwise free to undercut — `0.001` on
-   *  a `[1, 1000]` domain still renders fine and must stay reachable).
-   *  Guarantees a typed or dragged min/max can never reach `0` or go
-   *  negative, which trips the library's own `log-domain` rule and used to
-   *  blank the whole chart (NEW-1, REVIEW-dock-colours-sliders-opus-
+  /** Log scale only: the sign-exclusion cap for BOTH ends, following the
+   *  domain's own SIGN — a small value derived from the domain's own
+   *  extent (NOT the padded `min`/`max` above, which a typed value is
+   *  otherwise free to undercut/overshoot — `0.001` on a `[1, 1000]`
+   *  domain, or `-50` on a `[-100, -1]` one, still render fine and must
+   *  stay reachable). For a POSITIVE domain this is a small positive FLOOR
+   *  (`RangeSlider` applies `Math.max`); for a domain that is entirely
+   *  NEGATIVE it is a small negative CEILING (`Math.min`) instead — a
+   *  positive floor there pushed every negative value UP across zero
+   *  (the reported `[null, 5e-324]` corruption of a typed `-50` after a
+   *  Shift+arrow nudge). Guarantees a typed or dragged min/max can never
+   *  cross `0`, which trips the library's own `log-domain` rule and used
+   *  to blank the whole chart (NEW-1, REVIEW-dock-colours-sliders-opus-
    *  round2.md — a log domain must keep one sign on both ends, not just
    *  the minimum). `RangeSlider`'s own `loFloor` applies it to both
    *  thumbs' commits without touching either one's native HTML attribute
@@ -665,20 +684,28 @@ export interface ChartsScaleSliderBounds {
  * function narrows the DRAGGABLE range around that fact, it doesn't
  * establish it).
  *
- * - `log`: `[domainMin / 1.2, domainMax * 1.2]` — multiplicative padding,
- *   since additive padding on a log domain routinely crosses zero.
- *   `domainMin` is already `> 0` here (a non-positive log domain fails
- *   inference upstream and never reaches this function with a real
- *   domain — `chartsWorkbenchInferredDomains`'s `disabledReason` path
- *   handles that case separately, with `zeroAnchored` forced off). BOTH
- *   ends additionally get `loFloor` (NEW-1: the SAME cap MECHANISM the
- *   zero-anchored case uses below, applied to the opposite kind of
- *   boundary — a sign/zero exclusion rather than a zero-anchor) — a tiny
- *   positive value derived from `domainMin`, never the padded `min` itself,
- *   so a typed value well outside the padded bounds but still legitimately
- *   positive (`0.001` on a `[1, 1000]` domain) stays reachable exactly as
- *   P2-1 already allows; only `0` and negative values (the actual
- *   `log-domain` violation) are refused.
+ * - `log`, POSITIVE domain: `[domainMin / 1.2, domainMax * 1.2]` —
+ *   multiplicative padding, since additive padding on a log domain
+ *   routinely crosses zero. BOTH ends additionally get `loFloor` (NEW-1:
+ *   the SAME cap MECHANISM the zero-anchored case uses below, applied to
+ *   the opposite kind of boundary — a sign/zero exclusion rather than a
+ *   zero-anchor) — a tiny positive value derived from `domainMin`, never
+ *   the padded `min` itself, so a typed value well outside the padded
+ *   bounds but still legitimately positive (`0.001` on a `[1, 1000]`
+ *   domain) stays reachable exactly as P2-1 already allows; only `0` and
+ *   negative values (the actual `log-domain` violation) are refused.
+ * - `log`, NEGATIVE domain (a log domain need not be positive — only
+ *   zero-containing or sign-crossing domains are illegal, AGENTS.md's
+ *   "Charts"): the padding MIRRORS the positive case outward from zero —
+ *   `[domainMin * 1.2, domainMax / 1.2]` (`domainMin` is the MORE negative
+ *   end, so multiplying it by `1.2` moves it further from zero; `domainMax`
+ *   is the end CLOSEST to zero, so dividing by `1.2` moves it closer still,
+ *   mirroring how `domainMin / 1.2` moves the positive case's closest-to-
+ *   zero end closer). `loFloor` mirrors into a CEILING the same way — a
+ *   tiny NEGATIVE value derived from `domainMax` (the end closest to
+ *   zero), so `RangeSlider`'s sign-aware clamp (see its own `loFloor` doc)
+ *   applies `Math.min` instead of `Math.max` and a typed/dragged value can
+ *   approach zero but never reach or cross it.
  * - zero-anchored (`zeroAnchored`): pad AWAY from zero only — the low
  *   bound moves further negative only when it's already negative, the
  *   high bound further positive only when it's already positive — and the
@@ -696,6 +723,16 @@ export function chartsScaleSliderBounds(
 ): ChartsScaleSliderBounds {
   const span = domainMax - domainMin;
   if (type === "log") {
+    if (domainMax < 0) {
+      // Entirely negative domain — mirror the positive branch below: pad
+      // outward (more negative on the low end, closer to zero on the high
+      // end) and cap both ends at a tiny NEGATIVE ceiling near the
+      // closest-to-zero bound, never the fallback's positive
+      // `Number.MIN_VALUE` (that literal pushed every negative value UP
+      // across zero — see `loFloor`'s own doc).
+      const loFloor = domainMax < 0 ? domainMax * 1e-6 : -Number.MIN_VALUE;
+      return { min: domainMin * 1.2, max: domainMax / 1.2, loFloor };
+    }
     const loFloor = domainMin > 0 ? domainMin * 1e-6 : Number.MIN_VALUE;
     return { min: domainMin / 1.2, max: domainMax * 1.2, loFloor };
   }

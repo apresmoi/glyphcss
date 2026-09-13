@@ -20,6 +20,7 @@ import {
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
+import { resolveChartsDataRows } from "./chartsDataSource";
 import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
 import { createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 import { writeUrlParam } from "../../lib/urlState";
@@ -57,6 +58,16 @@ function validateMark(value: unknown): ChartsWorkbenchMark | null {
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (!oneOf(type, CHART_MARK_TYPES)) return null;
   if (typeof dataText !== "string") return null;
+  // A hand-built link (never one this page's own `encodeChartsUrlStateInfo`
+  // wrote — see its own doc) can carry a `dataText` of any size at all; the
+  // reducer-level `CHARTS_CUSTOM_MAX_BYTES` cap on a paste/upload never
+  // applies to a decoded payload, and this field is the mark's actual
+  // render data (unlike `data.source.raw`, which is only a re-editable
+  // copy) — 233 KB decoded and rendered with no cap at all. Same cap, same
+  // treatment as every other malformed field here: the whole envelope
+  // fails to decode and the page falls back to its default state, rather
+  // than accepting a payload with no bound.
+  if (new TextEncoder().encode(dataText).length > CHARTS_CUSTOM_MAX_BYTES) return null;
   if (!isRecord(channels)) return null;
   const cleanChannels: Partial<Record<typeof CHART_CHANNELS[number], string>> = {};
   for (const key of CHART_CHANNELS) {
@@ -326,6 +337,13 @@ export interface ChartsUrlEncodeResult {
    *  carry your data" notice can fire on the size the sharer's OWN paste
    *  was, not on the (already-shrunk) size of the link that resulted. */
   readonly omittedCustomBytes?: number;
+  /** Set when even every serialized copy of the custom payload (both
+   *  `data.source.raw` AND the marks `buildDatasetMark` derived from it —
+   *  see this function's own doc) was dropped and the envelope STILL
+   *  exceeds `CHARTS_URL_SIZE_WARN_BYTES`. `raw` is `""` in this case — the
+   *  caller must not write it — and `sizeBytes` reports the still-oversized
+   *  size so a "link too large to share" notice can name it. */
+  readonly tooLarge?: boolean;
 }
 
 /** P2-5, second half, rewritten for N3: a custom paste/upload's raw text
@@ -353,7 +371,23 @@ export interface ChartsUrlEncodeResult {
  *  error on decode. A dataset source, an under-threshold custom one, or a
  *  custom source already marked `omitted` is untouched (one encode, same
  *  as before this fix), so every existing round-trip test stays
- *  byte-identical. */
+ *  byte-identical.
+ *
+ *  `data.source.raw` is not the ONLY serialized copy of a custom payload:
+ *  `chartsDataSource.ts`'s `buildDatasetMark` (what Apply runs) writes the
+ *  SAME resolved rows into `marks[N].dataText` as its own independent JSON
+ *  copy, typically ~3x the raw text's size — dropping only `source.raw`
+ *  left that copy riding in full, so the link stayed over the cap AND the
+ *  "isn't in this link" notice became FALSE (the chart still rendered from
+ *  `dataText` with no re-paste needed at all). Every mark whose `dataText`
+ *  IS that derived output (re-resolved here, compared verbatim — never a
+ *  heuristic) is blanked to `"[]"` alongside `source.raw`, so decoding
+ *  drops the data everywhere the notice says it does; a mark that diverges
+ *  (hand-edited, or built from something else entirely) is real data with
+ *  no other copy and is left untouched. If the envelope is STILL over the
+ *  cap after dropping every copy (many/huge marks), `raw` comes back `""`
+ *  and `tooLarge: true` — writing an oversized link anyway is exactly the
+ *  414-on-reload risk this whole mechanism exists to avoid (F8's repro). */
 export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Promise<ChartsUrlEncodeResult> {
   const full = await chartsUrlEnvelope.encode(state);
   const fullSize = new TextEncoder().encode(full).length;
@@ -362,12 +396,21 @@ export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Pro
     return { raw: full, sizeBytes: fullSize };
   }
   const omittedCustomBytes = new TextEncoder().encode(source.raw).length;
+  const resolved = resolveChartsDataRows(source, state.data.pipeline);
+  const derivedDataText = resolved.ok ? JSON.stringify(resolved.rows, null, 2) : null;
+  const droppedMarks = derivedDataText === null ? state.marks
+    : state.marks.map((mark) => mark.dataText === derivedDataText ? { ...mark, dataText: "[]" } : mark);
   const dropped: ChartsWorkbenchState = {
     ...state,
+    marks: droppedMarks,
     data: { ...state.data, source: { kind: "custom", raw: "", omitted: true, ...(source.filename !== undefined ? { filename: source.filename } : {}) } },
   };
   const raw = await chartsUrlEnvelope.encode(dropped);
-  return { raw, sizeBytes: new TextEncoder().encode(raw).length, omittedCustomBytes };
+  const sizeBytes = new TextEncoder().encode(raw).length;
+  if (sizeBytes > CHARTS_URL_SIZE_WARN_BYTES) {
+    return { raw: "", sizeBytes, omittedCustomBytes, tooLarge: true };
+  }
+  return { raw, sizeBytes, omittedCustomBytes };
 }
 
 export async function encodeChartsUrlState(state: ChartsWorkbenchState): Promise<string> {
