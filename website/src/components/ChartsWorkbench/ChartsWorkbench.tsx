@@ -248,7 +248,7 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
           actions={exportActions} />}
       </InstrumentMain>
       <Dock id="charts-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-        <ChartsDock state={state} dispatch={dispatch} />
+        <ChartsDock state={state} dispatch={dispatch} rendered={rendered} />
       </Dock>
     </InstrumentBody>
     <InstrumentTray id="charts-presets-panel" label="Chart presets" open={mobilePanel === "presets"}>

@@ -1,6 +1,7 @@
 import {
   renderGlyphChart,
-  type GlyphChartInput, type GlyphChartMeta, type GlyphChartRenderOptions, type GlyphChartSpec,
+  type GlyphChartInput, type GlyphChartLedgerEntry, type GlyphChartMeta, type GlyphChartRenderOptions,
+  type GlyphChartReport, type GlyphChartSpec, type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
 import { buildChartsWorkbenchSpec, chartsWorkbenchRenderOptions, type ChartsWorkbenchState } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
@@ -22,8 +23,8 @@ import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 export interface ChartsWorkbenchChartStyle {
   readonly axes?: {
     readonly color?: string;
-    readonly x?: { readonly color?: string };
-    readonly y?: { readonly color?: string };
+    readonly x?: { readonly color?: string; readonly titleAt?: GlyphChartXAxisTitleAt };
+    readonly y?: { readonly color?: string; readonly titleAt?: GlyphChartYAxisTitleAt };
   };
   readonly markColors?: readonly (string | readonly string[] | undefined)[];
 }
@@ -36,16 +37,35 @@ export interface ChartsWorkbenchChartStyle {
  * with no `ChartsWorkbenchState` in the picture.
  */
 export function chartsWorkbenchChartStyle(state: ChartsWorkbenchState): ChartsWorkbenchChartStyle {
-  const { axisColor } = state.style;
+  const { axisColor, axisTitlePlacement } = state.style;
   // Byte-identical omission at the library's own default — a reader who
   // never opened the Axes row never requests `axes.color` at all, exactly
   // as a `min`/`max` never typed never requests a `domain` (`buildScale`'s
   // own rule, `chartsWorkbenchState.ts`).
-  const isDefault = axisColor.mode === "shared"
+  const isColorDefault = axisColor.mode === "shared"
     ? axisColor.shared === CHARTS_AXIS_DEFAULT_COLOR
     : axisColor.x === CHARTS_AXIS_DEFAULT_COLOR && axisColor.y === CHARTS_AXIS_DEFAULT_COLOR;
+  const sharedColor = !isColorDefault && axisColor.mode === "shared" ? axisColor.shared : undefined;
+  const colorX = !isColorDefault && axisColor.mode === "per-axis" ? axisColor.x : undefined;
+  const colorY = !isColorDefault && axisColor.mode === "per-axis" ? axisColor.y : undefined;
+  // `titleAt` (Dock item "Axis Title + Title at") folds into the SAME
+  // per-axis style object as colour, independently — a reader can move the
+  // title without touching colour, or vice versa, and each omits at the
+  // library's own default ("center"/"top") exactly like colour omits at
+  // `CHARTS_AXIS_DEFAULT_COLOR`.
+  const titleAtX = axisTitlePlacement.x !== "center" ? axisTitlePlacement.x : undefined;
+  const titleAtY = axisTitlePlacement.y !== "top" ? axisTitlePlacement.y : undefined;
+  const xStyle = colorX !== undefined || titleAtX !== undefined
+    ? { ...(colorX !== undefined ? { color: colorX } : {}), ...(titleAtX !== undefined ? { titleAt: titleAtX } : {}) }
+    : undefined;
+  const yStyle = colorY !== undefined || titleAtY !== undefined
+    ? { ...(colorY !== undefined ? { color: colorY } : {}), ...(titleAtY !== undefined ? { titleAt: titleAtY } : {}) }
+    : undefined;
+  const axes = sharedColor !== undefined || xStyle || yStyle
+    ? { ...(sharedColor !== undefined ? { color: sharedColor } : {}), ...(xStyle ? { x: xStyle } : {}), ...(yStyle ? { y: yStyle } : {}) }
+    : undefined;
   return {
-    ...(isDefault ? {} : { axes: axisColor.mode === "shared" ? { color: axisColor.shared } : { x: { color: axisColor.x }, y: { color: axisColor.y } } }),
+    ...(axes ? { axes } : {}),
     markColors: state.marks.map((mark) => mark.color),
   };
 }
@@ -78,8 +98,23 @@ export function applyChartStyle(spec: GlyphChartSpec, style: ChartsWorkbenchChar
 }
 
 export type ChartsWorkbenchRender =
-  | { ok: true; display: string; isHtml: boolean; text: string; ansi?: string; meta: GlyphChartMeta }
+  | { ok: true; display: string; isHtml: boolean; text: string; ansi?: string; meta: GlyphChartMeta; report: GlyphChartReport }
   | { ok: false; error: string; code?: string };
+
+/**
+ * The tick-slider row's own seed value (Dock item "Ticks rows") — the
+ * axis's ACTUAL rendered tick count is otherwise unobservable from outside
+ * `@glyphcss/charts`; the one place it is ever reported back is a
+ * `ticks-thinned` ledger entry's `shown` field (AGENTS.md's "Charts" —
+ * "Axes"), logged only when the auto/requested count didn't fit and had to
+ * be collision-thinned. No entry for that axis means nothing was thinned —
+ * `undefined` here, and the caller falls back to a flat `6`.
+ */
+export function chartsWorkbenchActualTicks(ledger: readonly GlyphChartLedgerEntry[], axis: "x" | "y"): number | undefined {
+  const entry = ledger.find((e) => e.code === "ticks-thinned" && e.detail?.axis === axis);
+  const shown = entry?.detail?.shown;
+  return typeof shown === "number" && Number.isFinite(shown) ? shown : undefined;
+}
 
 function failure(error: unknown): ChartsWorkbenchRender {
   const e = error as Error & { code?: string };
@@ -94,7 +129,7 @@ function renderSpec(input: GlyphChartInput, options: GlyphChartRenderOptions): C
     const isHtml = options.target === "web" && result.html !== undefined;
     // NO_COLOR may have suppressed ANSI despite the requested colour depth.
     const ansi = result.text.includes("\x1b[") ? result.text : undefined;
-    return { ok: true, display: isHtml ? result.html! : text, isHtml, text, ansi, meta: result.meta };
+    return { ok: true, display: isHtml ? result.html! : text, isHtml, text, ansi, meta: result.meta, report: result.report };
   } catch (error) { return failure(error); }
 }
 export function renderChartsWorkbenchSpec(specJson: string, options: GlyphChartRenderOptions): ChartsWorkbenchRender {

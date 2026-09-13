@@ -36,6 +36,15 @@ describe("applyChartStyle", () => {
     expect(styled.axes).toEqual({ x: { ticks: 4, color: "#ff0000" }, y: { grid: true, color: "#00ff00" } });
   });
 
+  // Axis title placement (Dock item "Axis Title + Title at") — folds into
+  // the SAME per-axis style object as colour (the generic `{ ...spec.axes?.x,
+  // ...style.axes.x }` merge above needs no code change to carry it), and
+  // independently of colour: one can be set with the other absent.
+  it("writes titleAt alongside an unrelated axis colour, and alone with no colour at all", () => {
+    const styled = applyChartStyle(spec, { axes: { x: { color: "#ff0000", titleAt: "end" }, y: { titleAt: "bottom" } } });
+    expect(styled.axes).toEqual({ x: { color: "#ff0000", titleAt: "end" }, y: { titleAt: "bottom" } });
+  });
+
   it("writes a single-string mark colour into that mark's options.color, by position", () => {
     const styled = applyChartStyle(spec, { markColors: [undefined, "#3b82f6"] });
     expect(styled.marks[0]).toBe(spec.marks[0]);
@@ -77,6 +86,23 @@ describe("chartsWorkbenchChartStyle", () => {
     state = reduceChartsWorkbenchState(state, { type: "set-mark-color", id: state.marks[1]!.id, color: "#abcdef" });
     expect(chartsWorkbenchChartStyle(state).markColors).toEqual([undefined, "#abcdef"]);
   });
+
+  // Axis title placement (Dock item "Axis Title + Title at").
+  it("omits titleAt entirely at the library's own default (center/top)", () => {
+    const style = chartsWorkbenchChartStyle(createChartsWorkbenchState());
+    expect(style.axes).toBeUndefined();
+  });
+
+  it("reports a non-default x titleAt independently of y, and of colour", () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-axis-title-at", axis: "x", value: "end" });
+    expect(chartsWorkbenchChartStyle(state).axes).toEqual({ x: { titleAt: "end" } });
+  });
+
+  it("reports both axes' titleAt together with a shared axis colour", () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-axis-color", which: "shared", color: "#123456" });
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-title-at", axis: "y", value: "bottom" });
+    expect(chartsWorkbenchChartStyle(state).axes).toEqual({ color: "#123456", y: { titleAt: "bottom" } });
+  });
 });
 
 // P3-2 (REVIEW-dock-colours-sliders-opus.md): the axis half of this feature
@@ -100,5 +126,20 @@ describe("a mark colour set through applyChartStyle reaches a rendered span", ()
     const result = renderGlyphChart(spec, { target: "web", width: 24, height: 8 });
     expect(result.html).toContain("#ff0000");
     expect(result.html).toContain("#00ff00");
+  });
+});
+
+// Axis title placement (Dock item "Axis Title + Title at") reaches a real
+// render the same way mark colour above does — `@glyphcss/charts` has
+// accepted `axes.x.titleAt`/`axes.y.titleAt` for real since the parent
+// packet (bffc797a); mirrors this file's own mark-colour precedent above.
+describe("an axis titleAt set through applyChartStyle reaches a rendered column", () => {
+  it("moves the rendered x-title text to a later column than the library's own center default", () => {
+    const data = [{ x: 0, y: 1 }, { x: 1, y: 3 }, { x: 2, y: 2 }, { x: 3, y: 4 }];
+    const base = glyphChartPlot({ marks: [glyphChartLine(data, { x: "x", y: "y" })], axes: { x: { title: "Month" } } });
+    const centered = renderGlyphChart(base, { target: "web", width: 60, height: 24, color: "none" });
+    const ended = renderGlyphChart(applyChartStyle(base, { axes: { x: { titleAt: "end" } } }), { target: "web", width: 60, height: 24, color: "none" });
+    const columnOf = (text: string) => text.split("\n").find((row) => row.includes("Month"))!.indexOf("Month");
+    expect(columnOf(ended.text)).toBeGreaterThan(columnOf(centered.text));
   });
 });

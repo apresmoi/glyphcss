@@ -202,6 +202,30 @@ describe("chartsUrlState — round trip", () => {
     expect(decoded!.marks[0]!.color).toEqual(["#3b82f6", "#f97316"]);
   });
 
+  // Axis title placement (Dock item "Axis Title + Title at"), appended
+  // after `v1` already existed exactly like the colour controls above — a
+  // link saved before this feature existed carries no `axisTitlePlacement`
+  // key at all and still decodes to today's default (proven by the fixed
+  // historical link below), so this test's job is round-tripping a choice
+  // a reader DID make.
+  it("round-trips a non-default axis title placement on both axes", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-title-at", axis: "x", value: "end" });
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-title-at", axis: "y", value: "bottom" });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.style.axisTitlePlacement).toEqual({ x: "end", y: "bottom" });
+  });
+
+  it("rejects a malformed axis title placement rather than guessing", async () => {
+    const base = createChartsWorkbenchState();
+    const badX = await encodeChartsUrlState({ ...base, style: { ...base.style, axisTitlePlacement: { x: "sideways", y: "top" } } } as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(badX)).toBeNull();
+    const badY = await encodeChartsUrlState({ ...base, style: { ...base.style, axisTitlePlacement: { x: "center", y: "middle" } } } as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(badY)).toBeNull();
+  });
+
   it("rejects a malformed axis colour mode or a non-hex mark colour rather than guessing", async () => {
     const base = createChartsWorkbenchState();
     const badMode = await encodeChartsUrlState({ ...base, style: { axisColor: { ...base.style.axisColor, mode: "rainbow" } } } as unknown as ChartsWorkbenchState);

@@ -262,7 +262,10 @@ describe("ChartsWorkbench presets through the page", () => {
 
 describe("ChartsWorkbench colour controls — state", () => {
   it("defaults the axis colour to the shared muted-grey constant", () => {
-    expect(initial().style).toEqual({ axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } });
+    expect(initial().style).toEqual({
+      axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR },
+      axisTitlePlacement: { x: "center", y: "top" },
+    });
   });
 
   it("set-axis-color-mode/set-axis-color write only the addressed field", () => {
@@ -304,8 +307,12 @@ describe("ChartsWorkbench colour controls — state", () => {
     let dirty = reduceChartsWorkbenchState(clean, { type: "set-axis-color", which: "shared", color: "#ff0000" });
     dirty = reduceChartsWorkbenchState(dirty, { type: "set-mark-color", id: dirty.marks[0]!.id, color: "#00ff00" });
     dirty = reduceChartsWorkbenchState(dirty, { type: "set-scale", axis: "y", patch: { min: "1", max: "9" } });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis-title-at", axis: "x", value: "end" });
     const reset = reduceChartsWorkbenchState(dirty, { type: "reset-chart-style" });
-    expect(reset.style).toEqual({ axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } });
+    expect(reset.style).toEqual({
+      axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR },
+      axisTitlePlacement: { x: "center", y: "top" },
+    });
     expect(reset.marks[0]!.color).toBeUndefined();
     expect(reset.scales).toEqual({ x: { type: "auto", min: "", max: "" }, y: { type: "auto", min: "", max: "" } });
     // Never touches output settings.
@@ -314,6 +321,15 @@ describe("ChartsWorkbench colour controls — state", () => {
 
   it("CHART_AXIS_COLOR_MODES is a non-empty vocabulary the Dock reads from", () => {
     expect(CHART_AXIS_COLOR_MODES).toEqual(["shared", "per-axis"]);
+  });
+
+  // Axis title placement (Dock item "Axis Title + Title at") — same
+  // write-only-the-addressed-axis discipline `set-axis-color` already has.
+  it("set-axis-title-at writes only the addressed axis", () => {
+    let state = reduceChartsWorkbenchState(initial(), { type: "set-axis-title-at", axis: "x", value: "end" });
+    expect(state.style.axisTitlePlacement).toEqual({ x: "end", y: "top" });
+    state = reduceChartsWorkbenchState(state, { type: "set-axis-title-at", axis: "y", value: "bottom" });
+    expect(state.style.axisTitlePlacement).toEqual({ x: "end", y: "bottom" });
   });
 });
 

@@ -275,8 +275,62 @@
   .charts-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }
 }
 
-/* Output/Chart folder icon-button rows and the folder-header reset (owner
-   packet item 3) are SHARED with /diagrams — see instrument-workbench.css's
-   `.dock-toggle-row`/`.dock-folder-header*` rules, pulled in transitively
-   through InstrumentWorkbench.tsx (both pages already rely on this for
-   `.gx-toggle` itself). Nothing charts-specific to add here. */
+/* Output/Chart folder icon-button rows (owner packet item 3) are SHARED
+   with /diagrams — see instrument-workbench.css's `.dock-toggle-row` rule,
+   pulled in transitively through InstrumentWorkbench.tsx (both pages
+   already rely on this for `.gx-toggle` itself). The folder-title-bar
+   reset directly below is Charts-only (`ChartsDock.tsx`'s own
+   `useFolderTitleReset` — /diagrams still uses the older
+   `.dock-folder-header*` row, unchanged). */
+
+/* Folder-title-bar reset (owner packet item 3): "OUTPUT ═══════ [reset]"
+   and "CHART ═══════ [reset]" live on the folder's OWN native lil-gui
+   title line rather than a separate row inside the folder body — that
+   line already draws its "═══" rule via `.title::after`
+   (`gallery-workbench.css`'s `.dn-floating-controls .lil-gui .lil-gui >
+   .title::after`, shared by every nested Dock folder); this only reserves
+   room in `.title`'s own padding for the `[reset]` button and positions
+   that button, mounted by `ChartsDock.tsx`'s `useFolderTitleReset` as a
+   plain DOM SIBLING of `.title` (lil-gui's title is a native `<button>`,
+   so nesting one inside it is invalid). The extra class selector below
+   matches gallery's own `.title` rule's specificity plus one, so the
+   `!important` padding override actually wins the cascade. */
+.charts-folder-reset { position: relative; }
+.dn-floating-controls .lil-gui .lil-gui.charts-folder-reset > .title {
+  padding-right: 52px !important;
+}
+.charts-folder-reset-button {
+  position: absolute; top: 0; right: 6px; height: var(--title-height, 24px);
+  display: flex; align-items: center;
+  background: none; border: 1px solid rgba(255, 232, 184, 0.3); color: rgba(255, 232, 184, 0.75);
+  font-size: 10px; letter-spacing: 0.22px; padding: 2px 6px; border-radius: 2px; cursor: pointer;
+}
+.charts-folder-reset-button:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
+
+/* Ticks row (owner packet item 1) — one row combining an "auto" checkbox
+   with a plain single-thumb slider, reusing `RangeSlider.tsx`'s own
+   `range-slider-track`/`-fill`/`-range`/`-number` classes (never real
+   lil-gui's own `.slider`/`.fill`, which paint a SECOND, conflicting set
+   of "[ ]" brackets — see that component's own doc). The checkbox is its
+   own `[x]`/`[ ]` bracket glyph, mirroring `gallery-workbench.css`'s
+   `.controller.boolean input[type="checkbox"]::before` treatment (whose
+   selector requires an ancestor `.controller.boolean` this row doesn't
+   carry, since it's a `.controller.number` row instead). */
+.charts-ticks-row-widget { display: flex; align-items: center; gap: 6px; padding-inline: 8px; }
+.charts-ticks-auto {
+  -webkit-appearance: none; appearance: none; width: 28px; height: 16px;
+  flex: 0 0 auto; cursor: pointer; position: relative;
+}
+.charts-ticks-auto::before {
+  content: "[ ]"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace; font-size: 10px;
+  color: rgba(255, 232, 184, 0.45); pointer-events: none; line-height: 1;
+}
+.charts-ticks-auto:hover::before { color: rgba(255, 232, 184, 0.75); }
+.charts-ticks-auto:checked::before { content: "[x]"; color: #38bdf8; }
+.charts-ticks-auto:checked:hover::before { color: #7dd3fc; }
+.charts-ticks-row-track { flex: 1 1 auto; }
+.charts-ticks-row-widget.is-disabled .range-slider-fill {
+  background: rgba(56, 189, 248, 0.4); border-color: rgba(56, 189, 248, 0.4); box-shadow: none;
+}
+.charts-ticks-row-widget.is-disabled .charts-ticks-row-track { cursor: not-allowed; }

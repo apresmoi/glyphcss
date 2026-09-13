@@ -8,6 +8,7 @@ import {
   type GlyphChartMark, type GlyphChartMarkOptions, type GlyphChartMarkType,
   type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
   type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
+  type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
 import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
@@ -28,6 +29,11 @@ export const CHART_DETAILS = ["auto", "faithful", "balanced", "simplified"] as c
 export const CHART_LEGEND_PLACEMENTS = ["bottom", "top-left", "top-right", "bottom-left", "bottom-right", "title"] as const;
 export const CHART_TITLE_ALIGNS = ["left", "center", "right"] as const;
 export const CHART_TITLE_POSITIONS = ["top", "bottom"] as const;
+/** `axes.x.titleAt` (library default `"center"`) — Dock item "Axis Title +
+ *  Title at": `axes.y.titleAt`'s own vocabulary is exactly `CHART_TITLE_POSITIONS`
+ *  above (`GlyphChartYAxisTitleAt` and `GlyphChartTitlePosition` are the
+ *  same `"top" | "bottom"` union), so it has no separate constant here. */
+export const CHART_X_AXIS_TITLE_ATS = ["start", "center", "end"] as const;
 export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"] as const;
 export const CHART_TRANSFORMS = ["none", "stack", "group", "normalize", "bin", "window"] as const;
 export const CHART_SCALE_TYPES = ["auto", "linear", "log", "sqrt", "time", "band"] as const;
@@ -176,8 +182,21 @@ export interface ChartsWorkbenchAxisColorState {
   readonly x: string;
   readonly y: string;
 }
+/** Axis title placement (Dock item "Axis Title + Title at") — kept in
+ *  `state.style`, beside `axisColor`, and written through `applyChartStyle`
+ *  only, never through `buildAxis`/`buildChartsWorkbenchSpec`: the same
+ *  reason `axisColor` lives here rather than in `state.axes` (whose own
+ *  `ticks`/`tickMarks`/`title`/`grid` build the base spec's axis options
+ *  directly). Defaults mirror the library's own (`"center"`/`"top"`), so a
+ *  reader who never opens this row omits `titleAt` entirely and renders
+ *  byte-identical to before this option existed. */
+export interface ChartsWorkbenchAxisTitlePlacementState {
+  readonly x: GlyphChartXAxisTitleAt;
+  readonly y: GlyphChartYAxisTitleAt;
+}
 export interface ChartsWorkbenchStyleState {
   readonly axisColor: ChartsWorkbenchAxisColorState;
+  readonly axisTitlePlacement: ChartsWorkbenchAxisTitlePlacementState;
 }
 
 export interface ChartsWorkbenchState {
@@ -232,7 +251,10 @@ export type ChartsWorkbenchAction =
   // Colour controls (this packet).
   | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
   | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
-  | { type: "set-mark-color"; id: number; color: string | readonly string[] | undefined };
+  | { type: "set-mark-color"; id: number; color: string | readonly string[] | undefined }
+  // Axis title placement (Dock item "Axis Title + Title at").
+  | { type: "set-axis-title-at"; axis: "x"; value: GlyphChartXAxisTitleAt }
+  | { type: "set-axis-title-at"; axis: "y"; value: GlyphChartYAxisTitleAt };
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
@@ -249,6 +271,7 @@ function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
 const autoScale = (): ChartsWorkbenchScale => ({ type: "auto", min: "", max: "" });
 const autoAxis = (): ChartsWorkbenchAxis => ({ ticks: 0, tickMarks: true, title: "", grid: false });
 const defaultAxisColor = (): ChartsWorkbenchAxisColorState => ({ mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR });
+const defaultAxisTitlePlacement = (): ChartsWorkbenchAxisTitlePlacementState => ({ x: "center", y: "top" });
 export function createChartsWorkbenchState(): ChartsWorkbenchState {
   const preset = CHART_PRESETS[0]!;
   return {
@@ -257,12 +280,15 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     chart: { title: preset.label, description: "", legend: true, legendPlacement: "bottom", titleAlign: "center", titlePosition: "top" },
     terminal: { NO_COLOR: false, FORCE_COLOR: false },
     data: { source: null, pipeline: [] },
-    style: { axisColor: defaultAxisColor() },
+    style: { axisColor: defaultAxisColor(), axisTitlePlacement: defaultAxisTitlePlacement() },
   };
 }
 function isDefaultAxisColor(axisColor: ChartsWorkbenchAxisColorState): boolean {
   return axisColor.mode === "shared" && axisColor.shared === CHARTS_AXIS_DEFAULT_COLOR
     && axisColor.x === CHARTS_AXIS_DEFAULT_COLOR && axisColor.y === CHARTS_AXIS_DEFAULT_COLOR;
+}
+function isDefaultAxisTitlePlacement(placement: ChartsWorkbenchAxisTitlePlacementState): boolean {
+  return placement.x === "center" && placement.y === "top";
 }
 
 /** Identity string for a data source — used only to decide whether picking
@@ -300,7 +326,8 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       const marks = state.marks.some((m) => m.color !== undefined)
         ? state.marks.map((m) => m.color === undefined ? m : { ...m, color: undefined })
         : state.marks;
-      const style = isDefaultAxisColor(state.style.axisColor) ? state.style : { axisColor: defaultAxisColor() };
+      const styleIsDefault = isDefaultAxisColor(state.style.axisColor) && isDefaultAxisTitlePlacement(state.style.axisTitlePlacement);
+      const style = styleIsDefault ? state.style : { axisColor: defaultAxisColor(), axisTitlePlacement: defaultAxisTitlePlacement() };
       const hasDomain = ([state.scales.x, state.scales.y] as const).some((s) => s.min.trim() || s.max.trim());
       const scales = hasDomain
         ? { x: { ...state.scales.x, min: "", max: "" }, y: { ...state.scales.y, min: "", max: "" } }
@@ -310,6 +337,7 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "set-axis-color-mode": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, mode: action.mode } } };
     case "set-axis-color": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, [action.which]: action.color } } };
     case "set-mark-color": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? { ...mark, color: action.color } : mark) };
+    case "set-axis-title-at": return { ...state, style: { ...state.style, axisTitlePlacement: { ...state.style.axisTitlePlacement, [action.axis]: action.value } } };
     case "set-scale": return { ...state, scales: { ...state.scales, [action.axis]: { ...state.scales[action.axis], ...action.patch } } };
     case "set-axis": return { ...state, axes: { ...state.axes, [action.axis]: { ...state.axes[action.axis], ...action.patch } } };
     case "set-chart": return { ...state, chart: { ...state.chart, ...action.patch } };

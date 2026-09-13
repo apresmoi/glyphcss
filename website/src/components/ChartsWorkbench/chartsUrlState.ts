@@ -14,8 +14,9 @@
 // gains a second branch the way synthUrlState.ts's `outerCodecFor` does.
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
-  CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHARTS_CUSTOM_MAX_BYTES,
-  type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchDataState,
+  CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
+  type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchAxisTitlePlacementState,
+  type ChartsWorkbenchDataState,
   type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
@@ -238,12 +239,32 @@ function validateAxisColorState(value: unknown): ChartsWorkbenchAxisColorState |
   if (!isChartsHex(shared) || !isChartsHex(x) || !isChartsHex(y)) return null;
   return { mode, shared, x, y };
 }
+// Axis title placement (Dock item "Axis Title + Title at"), appended after
+// `v1` already existed — a link with no `axisTitlePlacement` key at all
+// (every link saved before this feature existed, `style` present or not)
+// decodes to the library's own default (`"center"`/`"top"`), exactly
+// `createChartsWorkbenchState()`'s own default.
+function validateAxisTitlePlacement(value: unknown): ChartsWorkbenchAxisTitlePlacementState | null {
+  if (value === undefined) return { x: "center", y: "top" };
+  if (!isRecord(value)) return null;
+  const { x, y } = value;
+  if (!oneOf(x, CHART_X_AXIS_TITLE_ATS)) return null;
+  if (!oneOf(y, CHART_TITLE_POSITIONS)) return null;
+  return { x, y };
+}
 function validateStyleState(value: unknown): ChartsWorkbenchStyleState | null {
-  if (value === undefined) return { axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR } };
+  if (value === undefined) {
+    return {
+      axisColor: { mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR },
+      axisTitlePlacement: { x: "center", y: "top" },
+    };
+  }
   if (!isRecord(value)) return null;
   const axisColor = validateAxisColorState(value.axisColor);
   if (!axisColor) return null;
-  return { axisColor };
+  const axisTitlePlacement = validateAxisTitlePlacement(value.axisTitlePlacement);
+  if (!axisTitlePlacement) return null;
+  return { axisColor, axisTitlePlacement };
 }
 
 function validateDataState(value: unknown): ChartsWorkbenchDataState | null {

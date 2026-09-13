@@ -1,5 +1,6 @@
-import { useEffect, useMemo, type Dispatch } from "react";
+import { useEffect, useMemo, useRef, type Dispatch } from "react";
 import { createPortal } from "react-dom";
+import type { GUI } from "lil-gui";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
 import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
@@ -8,12 +9,13 @@ import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
-  CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS,
+  CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
   chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
   chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
+import { chartsWorkbenchActualTicks, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
 
 const options = <T extends string,>(values: readonly T[]): Record<T, T> => Object.fromEntries(values.map((value) => [value, value])) as Record<T, T>;
 
@@ -37,6 +39,101 @@ const TITLE_ALIGN_SYMBOL: Record<string, string> = { left: "⇤", center: "⇔",
 const TITLE_ALIGN_TOGGLE = CHART_TITLE_ALIGNS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{TITLE_ALIGN_SYMBOL[v]}</span>, label: v, desc: `Title align: ${v}` }));
 const TITLE_POSITION_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "top" ? "⇧" : "⇩"}</span>, label: v, desc: `Title position: ${v}` }));
 const AXIS_COLOR_MODE_LABEL: Record<string, string> = { shared: "shared", "per-axis": "per axis" };
+
+// Axis title placement (Dock item "Axis Title + Title at") — same icon-
+// toggle idiom as the chart's own Title-at row above; `x`'s vocabulary
+// (start/center/end) mirrors `TITLE_ALIGN_TOGGLE`'s symbols, `y`'s
+// (top/bottom) mirrors `TITLE_POSITION_TOGGLE`'s.
+const AXIS_X_TITLE_AT_SYMBOL: Record<string, string> = { start: "⇤", center: "⇔", end: "⇥" };
+const AXIS_X_TITLE_AT_TOGGLE = CHART_X_AXIS_TITLE_ATS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{AXIS_X_TITLE_AT_SYMBOL[v]}</span>, label: v, desc: `X title placement: ${v}` }));
+const AXIS_Y_TITLE_AT_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "top" ? "⇧" : "⇩"}</span>, label: v, desc: `Y title placement: ${v}` }));
+
+// Ticks row (owner packet item 1) — replaces the old flat "0 = auto"
+// slider with one row combining an [x]/[ ] auto checkbox and a plain
+// single-thumb slider, both custom (not real lil-gui controllers, since
+// lil-gui has no built-in checkbox+slider combo row) but built from the
+// SAME classes `RangeSlider.tsx`/`gallery-workbench.css` already give a
+// lil-gui-indistinguishable look: `controller number hasSlider` for the
+// outer row (name label + widget padding/colours), `range-slider-track`/
+// `-fill`/`-range`/`-number` for the slider itself — never the plain
+// `.slider`/`.fill`/`input[type=number]` classes real lil-gui's own
+// NumberController uses, which `RangeSlider.tsx`'s own doc explains draw a
+// SECOND, conflicting set of "[ ]" bracket pseudo-elements.
+const CHART_TICKS_MIN = 2;
+const CHART_TICKS_MAX = 40;
+function TicksRow({ axis, ticks, actualTicks, dispatch }: {
+  axis: "x" | "y";
+  ticks: number;
+  actualTicks: number | undefined;
+  dispatch: Dispatch<ChartsWorkbenchAction>;
+}) {
+  const AXIS = axis.toUpperCase();
+  const auto = ticks === 0;
+  // Unchecking auto seeds the slider from the axis's own last-rendered
+  // tick count (`chartsWorkbenchActualTicks`'s own doc) rather than
+  // reusing whatever number happened to sit on the disabled slider.
+  const seed = actualTicks ?? 6;
+  const shown = auto ? seed : ticks;
+  const setTicks = (value: number) => dispatch({ type: "set-axis", axis, patch: { ticks: Math.max(CHART_TICKS_MIN, Math.min(CHART_TICKS_MAX, Math.round(value))) } });
+  const pct = ((Math.min(CHART_TICKS_MAX, Math.max(CHART_TICKS_MIN, shown)) - CHART_TICKS_MIN) / (CHART_TICKS_MAX - CHART_TICKS_MIN)) * 100;
+  return <div className="controller number hasSlider charts-ticks-row">
+    <div className="name">{AXIS} ticks</div>
+    <div className={`widget charts-ticks-row-widget${auto ? " is-disabled" : ""}`}>
+      <input type="checkbox" className="charts-ticks-auto" checked={auto}
+        aria-label={`${AXIS} ticks: auto`}
+        onChange={(e) => dispatch({ type: "set-axis", axis, patch: { ticks: e.target.checked ? 0 : seed } })} />
+      <div className="slider range-slider-track charts-ticks-row-track">
+        <div className="fill range-slider-fill" style={{ left: 0, width: `${pct}%` }} />
+        <input type="range" className="range-slider-range" min={CHART_TICKS_MIN} max={CHART_TICKS_MAX} step={1} disabled={auto}
+          value={shown} aria-label={`${AXIS} ticks value`} aria-valuetext={String(shown)}
+          onChange={(e) => setTicks(Number(e.target.value))} />
+      </div>
+      <input className="range-slider-number" inputMode="decimal" disabled={auto}
+        aria-label={`${AXIS} ticks number`} value={shown}
+        onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) setTicks(n); }} />
+    </div>
+  </div>;
+}
+
+/**
+ * Folder-title-bar reset (owner packet item 3): "OUTPUT ═══════ [reset]"
+ * lives on the folder's OWN native title line — its "═══" rule is the same
+ * `.title::after` pseudo-element every nested Dock folder already draws
+ * (`gallery-workbench.css`) — rather than a separate row inside the
+ * folder body. lil-gui's `.title` is a native `<button>`, so the
+ * `[reset]` control is mounted as a plain DOM SIBLING appended directly to
+ * the folder's own root element (`folder.domElement`); `.charts-folder-
+ * reset` (`charts-workbench.css`) gives that element `position: relative`
+ * and reserves room in `.title`'s own padding for the overlaid button. The
+ * button paints on top of the (non-positioned) title row by ordinary CSS
+ * stacking order, so only its own small rect intercepts a click — the
+ * rest of the row still toggles the folder open/closed; `stopPropagation`
+ * on its own click is a defensive belt-and-braces (it's a SIBLING of
+ * `.title`, never a descendant, so a click on it was never going to reach
+ * `.title`'s own listener regardless). Replaces the old `useDockSlot({
+ * position: "top" })` header row.
+ */
+function useFolderTitleReset(folder: GUI | null, title: string, onReset: () => void): void {
+  const onResetRef = useRef(onReset);
+  onResetRef.current = onReset;
+  useEffect(() => {
+    if (!folder) return;
+    folder.domElement.classList.add("charts-folder-reset");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "charts-folder-reset-button";
+    button.textContent = "reset";
+    button.title = title;
+    const onClick = (e: MouseEvent) => { e.stopPropagation(); onResetRef.current(); };
+    button.addEventListener("click", onClick);
+    folder.domElement.appendChild(button);
+    return () => {
+      button.removeEventListener("click", onClick);
+      button.remove();
+      folder.domElement.classList.remove("charts-folder-reset");
+    };
+  }, [folder, title]);
+}
 
 /**
  * Dual-handle domain control (packet item 3) for one axis's Scales row —
@@ -116,7 +213,7 @@ function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, dispatch }: {
     })} />;
 }
 
-export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction> }) {
+export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction>; rendered?: ChartsWorkbenchRender }) {
   const gui = useDockGui();
   const controls = resolveGlyphChartsWorkbenchControls(state.controls);
   const setControl = (control: GlyphChartsWorkbenchControlAction) => dispatch({ type: "set-control", control });
@@ -129,14 +226,16 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   // the colour is still real state, just inert while `Color` is off.
   const colorDisabled = controls.color === "none";
   const colorDisabledReason = colorDisabled ? "Color mode is off — pick a colour mode below to see it painted." : undefined;
+  // Ticks rows (owner packet item 1) — the seed a reader gets when
+  // unchecking "auto" (`chartsWorkbenchActualTicks`'s own doc).
+  const actualXTicks = rendered?.ok ? chartsWorkbenchActualTicks(rendered.report.ledger, "x") : undefined;
+  const actualYTicks = rendered?.ok ? chartsWorkbenchActualTicks(rendered.report.ledger, "y") : undefined;
   const output = useFolder(gui, "Output", { open: true });
-  // Folder-header reset (owner packet item 3: "reset to target defaults
-  // could be something in the OUTPUT ======== [reset] folder header") —
-  // requested FIRST (`useDockSlot`'s own doc: a "top" slot must land before
-  // any sibling `use*` call to end up above them) so it renders as the
-  // folder's first row, standing in for lil-gui's own non-extensible title
-  // bar. Replaces the old standalone "Reset to target defaults" button.
-  const outputHeaderSlot = useDockSlot(output, { position: "top", className: "dock-folder-header-slot" });
+  // Folder-title-bar reset (owner packet item 3) — "OUTPUT ═══════ [reset]"
+  // on the folder's own native title line; see `useFolderTitleReset`'s own
+  // doc above. Replaces the old `useDockSlot({ position: "top" })` header
+  // row.
+  useFolderTitleReset(output, "Reset target, charset, color, width, height, and detail to this target's defaults", () => dispatch({ type: "reset-target" }));
   const targetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const charsetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
@@ -150,13 +249,13 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   // `ChartsDataFolder` directly in the rail body, so this Dock carries no
   // Data folder at all.
   const chart = useFolder(gui, "Chart", { open: true });
-  // Folder-header reset (P2-6, REVIEW-dock-colours-sliders-opus.md) — the
-  // Output folder's own header reset is scoped to output settings only
-  // (target/charset/color/width/height/detail) and no longer touches a
-  // hand-picked axis/mark colour or a typed scale domain, both of which
-  // live in THIS folder (and Scales, below it) — this is their own reset,
-  // same header idiom, requested FIRST for the same reason Output's is.
-  const chartHeaderSlot = useDockSlot(chart, { position: "top", className: "dock-folder-header-slot" });
+  // Folder-title-bar reset (P2-6, REVIEW-dock-colours-sliders-opus.md;
+  // owner packet item 3) — the Output folder's own reset is scoped to
+  // output settings only (target/charset/color/width/height/detail) and
+  // never touches a hand-picked axis/mark colour, a typed scale domain, or
+  // an axis title placement, all of which live in THIS folder (and Scales,
+  // below it) — this is their own reset, same title-bar idiom.
+  useFolderTitleReset(chart, "Reset axis colour, mark colours, and typed scale domains to their defaults", () => dispatch({ type: "reset-chart-style" }));
   useText(chart, "Title", state.chart.title, (title) => dispatch({ type: "set-chart", patch: { title } }));
   const titlePlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
   useText(chart, "Description", state.chart.description, (description) => dispatch({ type: "set-chart", patch: { description } }));
@@ -185,14 +284,19 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   const zeroAnchoredY = useMemo(() => chartsWorkbenchHasZeroAnchoredMark(state), [state]);
 
   const axes = useFolder(gui, "Axes", { open: false });
-  useSlider(axes, "X ticks (0 = auto)", { min: 0, max: 12, step: 1 }, state.axes.x.ticks, (ticks) => dispatch({ type: "set-axis", axis: "x", patch: { ticks } }));
+  const xTicksSlot = useDockSlot(axes, { position: "bottom", className: "charts-ticks-row-slot" });
   useToggle(axes, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
   useToggle(axes, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
   useText(axes, "X title", state.axes.x.title, (title) => dispatch({ type: "set-axis", axis: "x", patch: { title } }));
-  useSlider(axes, "Y ticks (0 = auto)", { min: 0, max: 12, step: 1 }, state.axes.y.ticks, (ticks) => dispatch({ type: "set-axis", axis: "y", patch: { ticks } }));
+  // Axis title placement (Dock item "Axis Title + Title at") — the same
+  // pair (text + placement toggle) the chart's own title row has, added
+  // right after each axis's existing Title text field.
+  const xTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
+  const yTicksSlot = useDockSlot(axes, { position: "bottom", className: "charts-ticks-row-slot" });
   useToggle(axes, "Y tick marks", state.axes.y.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "y", patch: { tickMarks } }));
   useToggle(axes, "Y grid", state.axes.y.grid, (grid) => dispatch({ type: "set-axis", axis: "y", patch: { grid } }));
   useText(axes, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
+  const yTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
 
   const terminal = useFolder(gui, "Terminal", { open: true });
   useToggle(terminal, "NO_COLOR", state.terminal.NO_COLOR, (value) => dispatch({ type: "set-terminal", flag: "NO_COLOR", value }));
@@ -200,22 +304,6 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
   return <>
-    {outputHeaderSlot && createPortal(
-      <div className="dock-folder-header">
-        <span>OUTPUT</span>
-        <span className="dock-folder-header-rule" />
-        <button type="button" className="dock-folder-header-reset" title="Reset target, charset, color, width, height, and detail to this target's defaults" onClick={() => dispatch({ type: "reset-target" })}>reset</button>
-      </div>,
-      outputHeaderSlot,
-    )}
-    {chartHeaderSlot && createPortal(
-      <div className="dock-folder-header">
-        <span>CHART</span>
-        <span className="dock-folder-header-rule" />
-        <button type="button" className="dock-folder-header-reset" title="Reset axis colour, mark colours, and typed scale domains to their defaults" onClick={() => dispatch({ type: "reset-chart-style" })}>reset</button>
-      </div>,
-      chartHeaderSlot,
-    )}
     {targetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Target</span>
@@ -286,6 +374,24 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
     {yDomainSlot && createPortal(
       <ScaleDomainControl axis="y" scale={state.scales.y} inferred={inferredDomains.y} zeroAnchored={zeroAnchoredY} dispatch={dispatch} />,
       yDomainSlot,
+    )}
+    {xTicksSlot && createPortal(<TicksRow axis="x" ticks={state.axes.x.ticks} actualTicks={actualXTicks} dispatch={dispatch} />, xTicksSlot)}
+    {yTicksSlot && createPortal(<TicksRow axis="y" ticks={state.axes.y.ticks} actualTicks={actualYTicks} dispatch={dispatch} />, yTicksSlot)}
+    {xTitleAtSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">X title at</span>
+        <IconToggle groupTitle="X axis title placement" options={AXIS_X_TITLE_AT_TOGGLE} value={state.style.axisTitlePlacement.x}
+          onChange={(value) => dispatch({ type: "set-axis-title-at", axis: "x", value: value as ChartsWorkbenchState["style"]["axisTitlePlacement"]["x"] })} />
+      </div>,
+      xTitleAtSlot,
+    )}
+    {yTitleAtSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Y title at</span>
+        <IconToggle groupTitle="Y axis title placement" options={AXIS_Y_TITLE_AT_TOGGLE} value={state.style.axisTitlePlacement.y}
+          onChange={(value) => dispatch({ type: "set-axis-title-at", axis: "y", value: value as ChartsWorkbenchState["style"]["axisTitlePlacement"]["y"] })} />
+      </div>,
+      yTitleAtSlot,
     )}
   </>;
 }

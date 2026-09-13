@@ -190,8 +190,17 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   function outputSize() {
     return ["Width", "Height"].map((name) => controller(name).querySelector("input")!.value);
   }
+  // Folder-title-bar reset (owner packet item 3) — `ChartsDock.tsx`'s
+  // `useFolderTitleReset` mounts one `.charts-folder-reset-button` per
+  // folder (Output, Chart) as a DOM sibling of that folder's own native
+  // `.title`; `startsWith` on the button's own `title` (the exact tooltip
+  // text `useFolderTitleReset` was given) picks the right one the same way
+  // the old `.dock-folder-header-reset` set was disambiguated.
+  function folderResetButton(titleStartsWith: string): HTMLButtonElement {
+    return Array.from(container.querySelectorAll<HTMLButtonElement>(".charts-folder-reset-button")).find((btn) => btn.title.startsWith(titleStartsWith))!;
+  }
   function resetOutputButton(): HTMLButtonElement {
-    return container.querySelector<HTMLButtonElement>(".dock-folder-header-reset")!;
+    return folderResetButton("Reset target, charset, color");
   }
   function button(label: string): HTMLButtonElement {
     return Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label)!;
@@ -280,6 +289,60 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(rows[rows.length - 1]).toContain("Line");
   });
 
+  // Owner packet item 1 — the ticks row replaces the old flat "0 = auto"
+  // slider with one row combining an `[x]`/`[ ]` auto checkbox and a
+  // plain single-thumb slider (`ChartsDock.tsx`'s `TicksRow`): unchecking
+  // auto writes an explicit tick count that reaches the built spec (and
+  // the live render), and re-checking auto drops `axes.x.ticks` entirely.
+  it("the X ticks row: unchecking auto writes an explicit count that reaches the render; auto removes it", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const row = controller("X ticks");
+    const autoCheckbox = row.querySelector<HTMLInputElement>(".charts-ticks-auto")!;
+    const slider = row.querySelector<HTMLInputElement>(".range-slider-range")!;
+    expect(autoCheckbox.checked).toBe(true);
+    expect(slider.disabled).toBe(true);
+    act(() => autoCheckbox.click());
+    expect(autoCheckbox.checked).toBe(false);
+    expect(slider.disabled).toBe(false);
+    const before = container.querySelector("pre.glyph-output")!.textContent!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(slider, "3");
+      slider.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const after = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(after).not.toBe(before);
+    act(() => button("Export").click());
+    expect(container.querySelector("#charts-export-panel code")!.textContent).toContain('"ticks": 3');
+    act(() => autoCheckbox.click());
+    expect(container.querySelector("#charts-export-panel code")!.textContent).not.toContain('"ticks"');
+  });
+
+  // Dock item "Axis Title + Title at" — the X/Y axis Title-at rows reach
+  // the real render; specifically, "Title at: end" moves the rendered
+  // x-title text to a later column than the library's own "center"
+  // default, not merely present-on-the-spec-object.
+  it("the Axes folder's X/Y title-at toggles reach the live render, moving the x-title column", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const xTitleInput = controller("X title").querySelector<HTMLInputElement>("input")!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => {
+      setter.call(xTitleInput, "Month");
+      xTitleInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(toggleRow("X title at")).toBeDefined();
+    expect(toggleRow("Y title at")).toBeDefined();
+    const titleColumn = () => {
+      const rows = container.querySelector("pre.glyph-output")!.textContent!.split("\n");
+      return rows.find((row) => row.includes("Month"))!.indexOf("Month");
+    };
+    const centerColumn = titleColumn();
+    pickToggle("X title at", "end");
+    expect(titleColumn()).toBeGreaterThan(centerColumn);
+    pickToggle("Y title at", "bottom");
+    expect(container.querySelector("pre.glyph-output")!.textContent).toContain("Month");
+  });
+
   // Mutation: target onChange updates an unused state or omits applying target defaults.
   it("applies terminal defaults through the actual target selector", () => {
     pickToggle("Target", "terminal");
@@ -365,11 +428,28 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(swatch.value).toBe("#ff0000");
     act(() => resetOutputButton().click());
     expect(swatch.value).toBe("#ff0000");
-    const chartHeaders = Array.from(container.querySelectorAll<HTMLButtonElement>(".dock-folder-header-reset"));
-    expect(chartHeaders).toHaveLength(2);
-    const chartReset = chartHeaders.find((btn) => btn.title.startsWith("Reset axis colour"))!;
+    const chartResetButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(".charts-folder-reset-button"));
+    expect(chartResetButtons).toHaveLength(2);
+    const chartReset = folderResetButton("Reset axis colour");
     act(() => chartReset.click());
     expect(swatch.value).not.toBe("#ff0000");
+  });
+
+  // Owner packet item 3 — the reset control is a plain DOM sibling of the
+  // folder's own native `.title` (lil-gui's title is a `<button>`, so
+  // nesting a control inside it is invalid), so a click on it must not
+  // ALSO toggle the folder open/closed, and the control itself must sit
+  // inside the folder's root element but outside `.title`.
+  it("the folder-title-bar reset sits inside the folder but outside .title, and clicking it never toggles the folder", () => {
+    const outputReset = resetOutputButton();
+    const outputFolder = outputReset.closest(".lil-gui.charts-folder-reset")!;
+    expect(outputFolder).not.toBeNull();
+    expect(outputFolder.contains(outputReset)).toBe(true);
+    const title = outputFolder.querySelector(":scope > .title")!;
+    expect(title.contains(outputReset)).toBe(false);
+    const wasClosed = outputFolder.classList.contains("closed");
+    act(() => outputReset.click());
+    expect(outputFolder.classList.contains("closed")).toBe(wasClosed);
   });
 
   // P3-6 (REVIEW-dock-colours-sliders-opus.md): under `Color: none` the
