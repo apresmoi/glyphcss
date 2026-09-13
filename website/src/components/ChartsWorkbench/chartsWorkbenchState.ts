@@ -14,7 +14,8 @@ import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/d
 import { profileRows } from "../../lib/dataProfile";
 import type { TabularRow } from "../../lib/tabularParse";
 import {
-  buildDatasetMark, CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate,
+  buildDatasetMark, candidateToTopRecommendation, CHARTS_CUSTOM_MAX_BYTES, chartsCandidatePick, profileChartsData,
+  resolveChartsDataRows, topChartsRecommendation, xChannelIsDate,
   type ChartsDataSource, type ChartsTopRecommendation,
 } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
@@ -24,6 +25,8 @@ export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendati
 export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, remoteDatasetRecommendationCheck, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
 export { CHARTS_DATASETS, findChartsDataset, randomChartsDatasetId } from "./datasets";
 export type { ChartsDataset } from "./datasets";
+export { randomChartsDatasetPick } from "./chartsRandomDataset";
+export type { ChartsRandomDatasetPick } from "./chartsRandomDataset";
 
 export const CHART_TARGETS = ["chat", "terminal", "web"] as const;
 export const CHART_CHARSETS = ["ascii", "box", "blocks", "braille"] as const;
@@ -309,7 +312,16 @@ export type ChartsWorkbenchAction =
   // `select-dataset`'s own curated-mapping commit but reading the general
   // profiler's top pick (a remote dataset carries no curated `recommended`
   // field) and stamping `data.source` as `{ kind: "remote", ref, ... }`.
-  | { type: "select-remote-dataset"; ref: string; title: string; description: string; source: { name: string; url: string; licence?: string }; rows: readonly TabularRow[] }
+  // `pick`/`seed` (both optional, omitted = today's plain top pick — byte-
+  // identical) are Random's own addition (AGENTS.md's "Charts" "Data
+  // layer" "Random"): `pick: "weighted-random"` routes through
+  // `chartsCandidatePick`/`candidateToTopRecommendation` instead of
+  // `topChartsRecommendation`, so pressing Random again on the SAME remote
+  // dataset can land on a different, still genuinely informative view
+  // (`chartsCandidatePick`'s own "weighted-random" doc) rather than always
+  // rebuilding the identical top-ranked chart; `seed` makes a specific pick
+  // reproducible for tests.
+  | { type: "select-remote-dataset"; ref: string; title: string; description: string; source: { name: string; url: string; licence?: string }; rows: readonly TabularRow[]; pick?: "weighted-random"; seed?: number }
   // Colour controls (this packet).
   | { type: "set-axis-color-mode"; mode: typeof CHART_AXIS_COLOR_MODES[number] }
   | { type: "set-axis-color"; which: "shared" | "x" | "y"; color: string }
@@ -353,10 +365,14 @@ function isDefaultAxisTitlePlacement(placement: ChartsWorkbenchAxisTitlePlacemen
   return placement.x === "center" && placement.y === "top";
 }
 
-/** Identity string for a data source — used only to decide whether picking
- *  a NEW source should drop the existing pipeline (its steps almost
- *  certainly name columns the new source doesn't have). */
-function dataSourceKey(source: ChartsDataSource | null): string {
+/** Identity string for a data source — used to decide whether picking a NEW
+ *  source should drop the existing pipeline (its steps almost certainly
+ *  name columns the new source doesn't have), and exported for
+ *  `ChartsWorkbench.tsx`'s own Random button: the SAME `dataset:<id>` /
+ *  `remote:<ref>` shape `chartsRandomDataset.ts`'s pool keys its own
+ *  entries by, so "exclude whatever is currently loaded" is one shared
+ *  string comparison rather than two independently-shaped `if` chains. */
+export function dataSourceKey(source: ChartsDataSource | null): string {
   if (!source) return "";
   if (source.kind === "dataset") return `dataset:${source.id}`;
   if (source.kind === "remote") return `remote:${source.ref}`;
@@ -476,11 +492,19 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "select-remote-dataset": {
       const profiled = profileChartsData(action.rows);
       // A remote dataset carries no curated `recommended` field (only the
-      // vendored `datasets/` entries do) — the general profiler's own top
-      // pick is the ONLY answer here, exactly the fallback branch
-      // `topChartsRecommendation` already takes for a `dataset: undefined`
-      // caller (a "Custom…" source, before this feature existed).
-      const top = topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
+      // vendored `datasets/` entries do), so the general profiler is the
+      // ONLY source of a mapping here: `action.pick === "weighted-random"`
+      // (Random's own remote pick) samples among near-top candidates
+      // through the SAME seam `chartsCandidatePick` exposes for it, and
+      // everything else — the search box's manual pick, a `?c=` remote
+      // re-fetch — takes the plain top pick exactly like a `dataset:
+      // undefined` caller already did before this option existed.
+      const top = action.pick === "weighted-random"
+        ? (() => {
+            const candidate = chartsCandidatePick(profiled.profile, { mode: "weighted-random", seed: action.seed });
+            return candidate ? candidateToTopRecommendation(candidate) : null;
+          })()
+        : topChartsRecommendation(undefined, profiled.profile, profiled.recommendations);
       const built = buildRecommendedMarkUpdate(state.nextMarkId, action.rows, top);
       if (!built) return state;
       return {

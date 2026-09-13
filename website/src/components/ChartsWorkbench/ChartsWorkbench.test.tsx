@@ -48,6 +48,7 @@ import {
 } from "./chartsWorkbenchRender";
 import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
 import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
+import { readRecentRemoteDatasets } from "./ChartsDatasetSearchBox";
 import * as urlStateModule from "../../lib/urlState";
 
 // ── Data overlay test helpers (AGENTS.md's "Charts" — "Data layer") — the
@@ -1031,8 +1032,18 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
 
   // Item 2 — same look/placement as GalleryWorkbench.tsx's own "Load
   // Random" button: picks a DIFFERENT dataset than the one currently
-  // loaded, immediately (no Apply step).
+  // loaded, immediately (no Apply step). Random's pool is now built-in +
+  // curated Hugging Face (AGENTS.md's "Charts" "Data layer" "Random"), so
+  // this test pins `Math.random` at 0 — a real HF pick is a network fetch
+  // this describe block never stubs, and that combined-pool behaviour has
+  // its own dedicated coverage below ("Random dataset pool"); this test
+  // stays about the built-in-only mechanics (immediate, no Apply step,
+  // always different, never blank). At `Math.random() === 0`,
+  // `randomChartsDatasetPick` always lands on index 0 of whatever remains
+  // after excluding the current pick — the front of the pool is entirely
+  // built-in datasets, so this never touches the network across 8 clicks.
   it("the rail's Random button loads a different dataset immediately", () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
     selectChartsDataset(container, "iris-flowers");
     const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
     for (let i = 0; i < 8; i++) {
@@ -1040,6 +1051,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
       act(() => randomButton.click());
       expect(chartsActiveDatasetTitle(container)).not.toBe(before);
       expect(chartsActiveDatasetTitle(container)).not.toBe("");
+      expect(CHARTS_DATASETS.map((d) => d.title)).toContain(chartsActiveDatasetTitle(container));
     }
   });
 
@@ -1544,12 +1556,18 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     act(() => {});
 
     // "Random" (never `selectChartsDataset`'s browse chevron), while the
-    // remote load above is still outstanding.
+    // remote load above is still outstanding. Random's own pool is now
+    // built-in + curated Hugging Face; pinned at `Math.random() === 0` so
+    // THIS click deterministically lands on a built-in pick (the race
+    // under test is about a STALE earlier remote response, not about
+    // which kind Random itself draws — that has its own coverage below).
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
     act(() => randomButton.click());
     const afterRandom = chartsActiveDatasetTitle(container);
     expect(CHARTS_DATASETS.map((d) => d.title)).toContain(afterRandom);
     expect(container.querySelector(".charts-data-loading")).toBeNull();
+    randomSpy.mockRestore();
 
     // Now let the STALE remote response resolve.
     resolveRows!(new Response(JSON.stringify({
@@ -1565,6 +1583,100 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     expect(chartsActiveDatasetTitle(container)).toBe(afterRandom);
     expect(container.querySelector(".charts-data-loading")).toBeNull();
     expect(container.querySelector(".charts-data-title")?.textContent).not.toBe(STUB_ID);
+  }, 10_000);
+
+  // Random's own combined pool (AGENTS.md's "Charts" — "Data layer" —
+  // "Random"): pinning `Math.random` at a value that lands on the FIRST
+  // curated Hugging Face entry (index `CHARTS_DATASETS.length` of the
+  // combined pool — `chartsRandomDataset.ts`'s own pool order, built-in
+  // then remote) forces Random to take the remote branch deterministically,
+  // with no dependency on real chance; the fixture computes that value from
+  // both lists' own lengths rather than a hard-coded fraction, so it stays
+  // correct if either grows.
+  const RANDOM_VALUE_FOR_FIRST_REMOTE_PICK = (CHARTS_DATASETS.length + 0.5) / (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length);
+
+  it("Random picking a curated Hugging Face dataset stubs the network and renders a real chart from the weighted-random pick", async () => {
+    // Deliberately NOT the dataset's real shape — `fetch` is fully stubbed,
+    // so the rows are this test's own, crafted with multiple genuinely
+    // close-scoring candidates (mirrors `chartsWorkbenchState.test.tsx`'s
+    // own weighted-random reducer fixture) so a weighted-random pick has
+    // real variety to draw from rather than one dominant answer.
+    stubFetch({
+      rows: {
+        features: [{ name: "month" }, { name: "region" }, { name: "revenue" }, { name: "cost" }],
+        rows: Array.from({ length: 24 }, (_, i) => ({
+          row_idx: i,
+          row: {
+            month: `2024-${String((i % 12) + 1).padStart(2, "0")}-01`,
+            region: i % 3 === 0 ? "North" : i % 3 === 1 ? "South" : "East",
+            revenue: 500 + i * 13 + ((i * 7) % 17),
+            cost: 300 + i * 9 + ((i * 5) % 13),
+          },
+        })),
+        num_rows_total: 24,
+      },
+    });
+    mount();
+    vi.spyOn(Math, "random").mockReturnValueOnce(RANDOM_VALUE_FOR_FIRST_REMOTE_PICK).mockReturnValue(0.5);
+    const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
+    act(() => randomButton.click());
+    const expectedTitle = CHARTS_REMOTE_DATASET_INDEX[0]!.title;
+    const start = Date.now();
+    while (chartsActiveDatasetTitle(container) !== expectedTitle) {
+      if (Date.now() - start > 3000) throw new Error("timed out waiting for the Hugging Face pick to load");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+    expect(container.querySelector(".charts-error")).toBeNull();
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+    expect(container.querySelector(".charts-data-loading")).toBeNull();
+  }, 10_000);
+
+  it("a Random pick whose curated dataset has no chartable column falls back to a random built-in dataset, with a notice naming what failed, and no Recent entry", async () => {
+    // `mstz/mushroom`'s real shape (`datasets/remoteIndex.ts`'s own P2-3
+    // doc: "every one of their real columns is categorical/boolean") — the
+    // load SUCCEEDS but `remoteDatasetRecommendationCheck` finds nothing to
+    // chart, exercising the NEW fallback branch this packet adds
+    // specifically for Random (`loadRemoteDataset`'s own `pickOptions` doc,
+    // `ChartsWorkbench.tsx`) — a manual search-box pick of the SAME shape
+    // stays on the current chart with only a notice (unchanged, existing
+    // behaviour), which is why this scenario is worth its own test rather
+    // than reusing the manual-pick coverage.
+    stubFetch({
+      rows: {
+        features: [{ name: "shape" }, { name: "color" }],
+        rows: [
+          { row_idx: 0, row: { shape: "round", color: "red" } },
+          { row_idx: 1, row: { shape: "square", color: "blue" } },
+          { row_idx: 2, row: { shape: "round", color: "green" } },
+        ],
+        num_rows_total: 3,
+      },
+    });
+    mount();
+    const recentBefore = readRecentRemoteDatasets().map((hit) => hit.ref);
+    vi.spyOn(Math, "random").mockReturnValueOnce(RANDOM_VALUE_FOR_FIRST_REMOTE_PICK).mockReturnValue(0.5);
+    const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
+    act(() => randomButton.click());
+    const start = Date.now();
+    const hasFallbackNotice = () => Array.from(container.querySelectorAll(".charts-readout")).some((el) => el.textContent?.includes("Couldn't pick a chart"));
+    while (!hasFallbackNotice()) {
+      if (Date.now() - start > 3000) throw new Error("timed out waiting for the unusable-columns fallback notice");
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    act(() => {});
+    // Fell back to a BUILT-IN dataset — never a blank chart, never left on
+    // the (nonexistent, this was a fresh mount) previous chart.
+    expect(CHARTS_DATASETS.map((d) => d.title)).toContain(chartsActiveDatasetTitle(container));
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+    expect(container.querySelector(".charts-data-loading")).toBeNull();
+    // Never recorded as Recent — a dataset nothing could be charted from
+    // has no business in "recently loaded" (compared against `recentBefore`
+    // rather than asserting emptiness/absence outright, since an earlier
+    // test in this same describe block may have already recorded this very
+    // ref through its own successful load).
+    const recentAfter = readRecentRemoteDatasets().map((hit) => hit.ref);
+    expect(recentAfter).toEqual(recentBefore);
   }, 10_000);
 });
 

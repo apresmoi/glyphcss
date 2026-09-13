@@ -60,8 +60,9 @@ const ID_LIKE_NAME_RE = /^(id|_id|index|idx|key|uuid|row|n|no\.?|number)$/i;
 const ID_LIKE_SUFFIX_RE = /_id$|Id$/;
 
 /** True when the column's NAME reads as a row identifier/ordinal, or every
- *  value it has is one integer 0..n-1 or 1..n (a real index/row-number
- *  sequence) — never mere `cardinality: "unique"` on its own.
+ *  value it has is one integer 0..n-1 or 1..n IN ROW ORDER (a real index/
+ *  row-number sequence) — never mere `cardinality: "unique"` on its own,
+ *  and never a shuffled permutation of the same value set.
  *
  * CHARTS-RESEARCH `REVIEW-batch4-fable.md` F-P1-4: a plain "every value is
  * distinct" rule (the previous `col.cardinality === "unique"` early
@@ -75,10 +76,25 @@ const ID_LIKE_SUFFIX_RE = /_id$|Id$/;
  * 0..n-1/1..n row-number SHAPE, does. Mutation M9 (`REVIEW-batch4-fable.md`)
  * deleted the old rule and left all 33 `chartCandidates` tests green — this
  * rule now has its own repro (`chartCandidates.test.ts`'s "F-P1-4" block).
+ *
+ * `REVIEW-batch4-fixes-opus.md` P1-8's own side effect: the SET check above
+ * (min/max/distinctCount) accepts a SHUFFLED `1..n` column just as readily
+ * as a real row-number sequence — a shuffled column is not an index, it's
+ * an ordinary distinct integer MEASURE that happens to enumerate every
+ * value in `[1, n]` (a shuffled deck, a randomized trial id that is
+ * genuinely a measurement). `col.monotonic` (`dataProfile.ts`'s own
+ * `monotonicity()`) is computed over the column's values IN ROW ORDER, so
+ * requiring `"increasing"` alongside the set check is exactly "the values
+ * in row order are the 0..n-1/1..n sequence, not merely that set" — a real
+ * index/row-number column is monotone by construction; a shuffled one
+ * almost never is (and on the astronomically rare permutation that happens
+ * to sort itself, the column has no way to be distinguished from a real
+ * index at all, so treating it as one is the only defensible answer left).
  */
 export function isIdLikeColumn(col: ColumnProfile, rowCount: number): boolean {
   if (ID_LIKE_NAME_RE.test(col.name) || ID_LIKE_SUFFIX_RE.test(col.name)) return true;
   if (col.type !== "integer") return false;
+  if (col.monotonic !== "increasing") return false;
   const nonNullCount = rowCount - col.nullCount;
   if (nonNullCount > 1 && typeof col.min === "number" && typeof col.max === "number" && col.distinctCount === nonNullCount) {
     if (col.min === 0 && col.max === nonNullCount - 1) return true;

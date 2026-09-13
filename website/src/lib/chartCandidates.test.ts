@@ -9,7 +9,7 @@
 // datasets' own curated mappings land where a reader would expect.
 import { describe, expect, it } from "vitest";
 import {
-  buildChartCandidates, CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD, pickChartCandidate, type ChartCandidate,
+  buildChartCandidates, CHART_CANDIDATE_WEIGHTED_RANDOM_THRESHOLD, isIdLikeColumn, pickChartCandidate, type ChartCandidate,
 } from "./chartCandidates";
 import { profileRows } from "./dataProfile";
 import type { TabularRow } from "./tabularParse";
@@ -390,6 +390,46 @@ describe("review cases", () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0]!.mark).toBe("bar");
     expect(candidates[0]!.channels).toEqual({});
+  });
+
+  // `REVIEW-batch4-fixes-opus.md` P1-8 side effect: the SET check
+  // (min/max/distinctCount) that makes `isIdLikeColumn` recognize a real
+  // 0..n-1/1..n row-number sequence also accepted a SHUFFLED permutation of
+  // that same set — a shuffled deck, a randomized trial id, is a genuine
+  // MEASURE (or at least not an index), not an identifier. The rule must
+  // require the sequence IN ROW ORDER, not merely the value set.
+  it("isIdLikeColumn accepts a real 0..n-1/1..n row-number sequence but refuses a shuffled permutation of the same values", () => {
+    const rowCount = 5;
+    const increasingFromOne = profileRows([1, 2, 3, 4, 5].map((v) => ({ trial: v })));
+    const increasingFromZero = profileRows([0, 1, 2, 3, 4].map((v) => ({ trial: v })));
+    const shuffled = profileRows([3, 1, 4, 5, 2].map((v) => ({ trial: v })));
+    const trialCol = (profile: ReturnType<typeof profileRows>) => profile.columns.find((c) => c.name === "trial")!;
+    expect(isIdLikeColumn(trialCol(increasingFromOne), rowCount)).toBe(true);
+    expect(isIdLikeColumn(trialCol(increasingFromZero), rowCount)).toBe(true);
+    // Same value SET (1..5, just reordered) — must stay a measure.
+    expect(isIdLikeColumn(trialCol(shuffled), rowCount)).toBe(false);
+    // A decreasing 5..1 sequence is also not the id shape (never monotone
+    // "increasing"), even though it's the exact reverse of a real index.
+    const decreasing = profileRows([5, 4, 3, 2, 1].map((v) => ({ trial: v })));
+    expect(isIdLikeColumn(trialCol(decreasing), rowCount)).toBe(false);
+    // The NAME-based rule is unaffected by any of this — a shuffled column
+    // literally named "id" is still excluded, regardless of row order.
+    const shuffledNamedId = profileRows([3, 1, 4, 5, 2].map((v) => ({ id: v })));
+    expect(isIdLikeColumn(shuffledNamedId.columns.find((c) => c.name === "id")!, rowCount)).toBe(true);
+  });
+
+  // Same defect, at `buildChartCandidates`' own public surface: a shuffled
+  // 1..n column with a non-identifier NAME ("trial") must still be usable
+  // as a real measure — never silently excluded the way `bronze`
+  // (P1-4/P1-8, above) used to be by the old blanket "distinct ⇒ id" rule.
+  it("a shuffled 1..n column with a measure-shaped name stays a usable measure, not an excluded id (P1-8 follow-up)", () => {
+    const rows: TabularRow[] = [
+      { trial: 3, score: 71 }, { trial: 1, score: 55 }, { trial: 4, score: 88 }, { trial: 5, score: 62 }, { trial: 2, score: 79 },
+    ];
+    const candidates = buildChartCandidates(profileRows(rows));
+    const chartsTrial = candidates.some((c) =>
+      c.channels.x === "trial" || c.channels.y === "trial" || c.channels.value === "trial" || c.channels.fill === "trial");
+    expect(chartsTrial).toBe(true);
   });
 
   // fable F-P1-4: an ordinary all-distinct INTEGER year column (never an

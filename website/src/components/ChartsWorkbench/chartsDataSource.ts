@@ -268,3 +268,17 @@ export function xChannelIsDate(profile: DataProfile, x: string | undefined): boo
 export function chartsCandidatePick(profile: DataProfile, options: ChartCandidatePickOptions): ChartCandidate | null {
   return pickChartCandidate(buildChartCandidates(profile), options);
 }
+
+/** Converts a `chartCandidates.ts` `ChartCandidate` (`chartsCandidatePick`'s
+ *  own return shape) into this module's `ChartsTopRecommendation` — what
+ *  lets a WEIGHTED-RANDOM pick (Random's own choice for a REMOTE dataset,
+ *  AGENTS.md's "Charts" "Data layer" "Random") feed the exact same
+ *  reshape/date-normalize/mark-build path (`buildRecommendedMarkUpdate`,
+ *  `chartsWorkbenchState.ts`) the plain top pick already goes through, so a
+ *  candidate built either way is built identically. `forwardableTransformKind`
+ *  is the SAME "only forward `reduce: sum`" narrowing `recommendChart`'s own
+ *  ranked recommendations already take (see its own doc, above) — a
+ *  candidate's `transform` is exactly a `ChartRecommendation`'s. */
+export function candidateToTopRecommendation(candidate: ChartCandidate): ChartsTopRecommendation {
+  return { mark: candidate.mark, channels: candidate.channels, reason: candidate.reason, pipeline: candidate.pipeline, transform: forwardableTransformKind(candidate.transform) };
+}
