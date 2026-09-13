@@ -281,11 +281,26 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
   width: min(340px, calc(100% - 24px));
   pointer-events: auto;
 }
+/* The field and "Random" share ONE height token: each used to size itself
+   (the field from its own padding + input line box, 30.19px; the button
+   from `.control-btn`'s own padding, 26px), so the row read as two
+   mismatched controls. `box-sizing: border-box` makes the token the outer
+   height for both, borders included. */
+.charts-data-overlay {
+  --charts-overlay-control-h: 30px;
+}
+.charts-dataset-search .instrument-search-field,
+.charts-random-btn {
+  box-sizing: border-box;
+  height: var(--charts-overlay-control-h);
+}
 .charts-random-btn {
   position: absolute;
   top: var(--overlay-top, 12px);
   left: calc(50% + 170px + 6px);
   z-index: 20;
+  display: inline-flex;
+  align-items: center;
   white-space: nowrap;
   pointer-events: auto;
 }
