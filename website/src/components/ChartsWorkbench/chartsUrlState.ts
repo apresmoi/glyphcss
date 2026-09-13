@@ -13,7 +13,7 @@
 // an EXISTING field bumps to `v2`, at which point `decodeChartsUrlState`
 // gains a second branch the way synthUrlState.ts's `outerCodecFor` does.
 import {
-  CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
+  CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES, CHART_REGION_FILLS,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
   CHARTS_DENSITY_MIN, chartsDensitySliderMax,
   createChartsWorkbenchState, findChartsDataset, randomChartsDatasetId, reduceChartsWorkbenchState,
@@ -361,7 +361,11 @@ function validateStyleState(value: unknown): ChartsWorkbenchStyleState | null {
   if (!axisColor) return null;
   const axisTitlePlacement = validateAxisTitlePlacement(value.axisTitlePlacement);
   if (!axisTitlePlacement) return null;
-  return { axisColor, axisTitlePlacement };
+  // Textures row, appended after `v1` existed: absent is `auto`, and `auto`
+  // itself is never written (the reducer drops the key), so an explicit
+  // `"auto"` in a hand-built link decodes to the same absent key.
+  if (value.regionFill !== undefined && !oneOf(value.regionFill, CHART_REGION_FILLS)) return null;
+  return { axisColor, axisTitlePlacement, ...(value.regionFill !== undefined && value.regionFill !== "auto" ? { regionFill: value.regionFill } : {}) };
 }
 
 function validateDataState(value: unknown): ChartsWorkbenchDataState | null {

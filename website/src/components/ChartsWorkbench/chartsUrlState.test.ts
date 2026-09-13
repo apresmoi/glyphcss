@@ -371,6 +371,30 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(badY)).toBeNull();
   });
 
+  // Textures row (DIAGNOSIS-solid-colour-fills.md): one more append-only
+  // optional `style` field. Absent is auto, and `auto` is never written.
+  it.each(["texture", "solid"] as const)("round-trips a Textures choice of %s", async (value) => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-region-fill", value });
+    const decoded = await decodeChartsUrlState(await encodeChartsUrlState(state));
+    expect(decoded).toEqual(state);
+    expect(decoded!.style.regionFill).toBe(value);
+  });
+
+  it("an untouched Textures row writes no key, and a link without one decodes to auto (absent)", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "set-region-fill", value: "auto" });
+    expect(JSON.stringify(chartsUrlStateForEncode(state))).not.toContain("regionFill");
+    const decoded = await decodeChartsUrlState(await encodeChartsUrlState(state));
+    expect("regionFill" in decoded!.style).toBe(false);
+    const handBuiltAuto = await encodeChartsUrlState({ ...state, style: { ...state.style, regionFill: "auto" } } as unknown as ChartsWorkbenchState);
+    expect("regionFill" in (await decodeChartsUrlState(handBuiltAuto))!.style).toBe(false);
+  });
+
+  it("rejects an unknown Textures value rather than guessing", async () => {
+    const base = createChartsWorkbenchState();
+    const bad = await encodeChartsUrlState({ ...base, style: { ...base.style, regionFill: "stripes" } } as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(bad)).toBeNull();
+  });
+
   it("rejects a malformed axis colour mode or a non-hex mark colour rather than guessing", async () => {
     const base = createChartsWorkbenchState();
     const badMode = await encodeChartsUrlState({ ...base, style: { axisColor: { ...base.style.axisColor, mode: "rainbow" } } } as unknown as ChartsWorkbenchState);

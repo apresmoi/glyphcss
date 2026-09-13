@@ -1,6 +1,6 @@
 import {
-  renderGlyphChart,
-  type GlyphChartCharset, type GlyphChartInput, type GlyphChartMeta, type GlyphChartRenderOptions,
+  glyphChartRegionFill, renderGlyphChart,
+  type GlyphChartCharset, type GlyphChartInput, type GlyphChartMeta, type GlyphChartRegionFillResolution, type GlyphChartRenderOptions,
   type GlyphChartReport, type GlyphChartSpec, type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
 import {
@@ -329,6 +329,36 @@ export function renderChartsWorkbenchState(state: ChartsWorkbenchState): ChartsW
   try {
     return renderSpec(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state), chartsWorkbenchEffectiveDensity(state.controls));
   } catch (error) { return failure(error); }
+}
+
+/** What the Dock's Textures row shows: what `auto` resolves to and why, and
+ *  why `off` (solid) is unavailable when it is. */
+export interface ChartsWorkbenchRegionFillStatus {
+  readonly auto: GlyphChartRegionFillResolution;
+  /** Set when an explicit `solid` could not show: the library would refuse it, or the target never shows colour. */
+  readonly solidUnavailable?: string;
+  /** Set when the chart has no bar/rect/area/pie fill, so the whole row does nothing. */
+  readonly inapplicable?: string;
+}
+export const CHARTS_CHAT_TEXTURE_REASON = "Chat never shows colour, so textures always stay on.";
+/**
+ * Asks the library's own resolver (`glyphChartRegionFill`, the function
+ * `renderGlyphChart` calls) with the SAME styled spec and options the render
+ * uses, so the row's reason can never disagree with the picture. `null` when
+ * the spec does not validate (the render is failing anyway).
+ */
+export function chartsWorkbenchRegionFillStatus(state: ChartsWorkbenchState): ChartsWorkbenchRegionFillStatus | null {
+  try {
+    const spec = buildStyledChartsWorkbenchSpec(state);
+    const options = chartsWorkbenchRenderOptions(state);
+    const auto = glyphChartRegionFill(spec, { ...options, regionFill: "auto" });
+    if (auto.reason === "no-region-mark") return { auto, inapplicable: auto.message };
+    // `TargetPreview` strips colour on chat whatever the render carries, so a
+    // solid fill could never reach the reader there.
+    if (options.target === "chat") return { auto, solidUnavailable: CHARTS_CHAT_TEXTURE_REASON };
+    const solid = glyphChartRegionFill(spec, { ...options, regionFill: "solid" });
+    return solid.fill === "solid" ? { auto } : { auto, solidUnavailable: solid.message };
+  } catch { return null; }
 }
 
 /**

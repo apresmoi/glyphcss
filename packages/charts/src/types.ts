@@ -257,6 +257,25 @@ export type GlyphChartTarget = "chat" | "terminal" | "web";
 export type GlyphChartCharset = "ascii" | "box" | "blocks" | "braille";
 export type GlyphChartColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
 export type GlyphChartDetail = "auto" | "faithful" | "balanced" | "simplified";
+/**
+ * How a region mark (bar/rect/area/arc) fills: `"texture"` gives each series
+ * its own shape glyph, `"solid"` a full block in each series' own colour, and
+ * `"auto"` is solid only where colour genuinely carries series identity
+ * (AGENTS.md's "Charts" "Series and shading").
+ */
+export type GlyphChartRegionFill = "auto" | "solid" | "texture";
+export type GlyphChartRegionFillReason =
+  | "no-region-mark" | "requested-texture" | "color-off" | "flow-mark" | "colors-collide"
+  | "target-terminal" | "target-chat" | "colors-distinct";
+/** What `glyphChartRegionFill` decided and why; `message` is one plain sentence a UI can show as-is. */
+export interface GlyphChartRegionFillResolution {
+  readonly requested: GlyphChartRegionFill;
+  readonly fill: "solid" | "texture";
+  readonly reason: GlyphChartRegionFillReason;
+  readonly message: string;
+  /** The first two series found sharing one colour, for `reason: "colors-collide"`. */
+  readonly colliding?: readonly [string, string];
+}
 
 export interface GlyphChartRenderOptions {
   /** Default `"web"` — the bare `renderGlyphChart(x)` call renders for the web target. */
@@ -294,6 +313,15 @@ export interface GlyphChartRenderOptions {
    * affordance never reaches a CLI/terminal/compiled exit.
    */
   readonly textScale?: number;
+  /**
+   * Region-mark fill, default `"auto"`. Applies to the COLOUR-carrying exits
+   * only (`html` under `css`, `text` under an ANSI mode): `grid` and a plain
+   * `text` always carry textures, so a coloured chart's plain text stays
+   * readable. An explicit `"solid"` that would make two series identical
+   * (colour off, two series sharing a colour, a sankey/funnel mark) is
+   * refused with a `region-fill-solid-refused` ledger entry.
+   */
+  readonly regionFill?: GlyphChartRegionFill;
 }
 
 export interface GlyphChartMeta {

@@ -74,8 +74,20 @@
  *    (web = braille) were re-derived from the current build; every other
  *    key is untouched.
  *
- * A NEW divergence found outside these nine is a real regression, not a
- * tenth exception to wave through — add it here, with its own dedicated
+ * 10. (`regionFill.ts`, CHARTS-RESEARCH `DIAGNOSIS-solid-colour-fills.md`)
+ *    A COLOURED render whose region marks (bar/rect/area/arc) have distinct
+ *    colours paints them solid in its colour-carrying exits only: `html`
+ *    under `css` and `text` under `truecolor`/`ansi256`/`ansi16` on the web
+ *    target. `grid`, plain `text`, every `color: "none"` exit, NO_COLOR and
+ *    the `terminal`/`chat` targets are untouched. `regionFill.test.ts` checks
+ *    all of it against `regionFillParentFixtures.json` (hashes from
+ *    `2ef7a70b`, the commit before the option existed): every key matches
+ *    except where `glyphChartRegionFill` resolves `solid`, and each of those
+ *    keys must DIFFER. No older fixture file changed, since every one of them
+ *    renders `color: "none"`.
+ *
+ * A NEW divergence found outside these ten is a real regression, not an
+ * eleventh exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
@@ -150,6 +162,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "invalid-rule-axis", spec: spec(glyphChartRule([0], { axis: "z" as never })) },
   { id: "bad-size", spec: spec(glyphChartLine([1, 2])), options: { width: 20.5, height: 6 } },
   { id: "bad-text-scale", spec: spec(glyphChartLine([1, 2])), options: { textScale: 1.5 } },
+  { id: "bad-region-fill", spec: spec(glyphChartLine([1, 2])), options: { regionFill: "stripes" as never } },
   { id: "non-finite-data", spec: spec(glyphChartLine([NaN, Infinity])) },
   { id: "non-finite-data", spec: spec(glyphChartLine([{ x: 1, y: Infinity }], { x: "x", y: "y" })) },
   { id: "bad-channels", spec: spec(glyphChartDot([1, 2], { size: [1, 2] } as never)) },

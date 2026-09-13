@@ -1845,3 +1845,80 @@ describe("ChartsMarkCard — CHART_MARK_TYPE_TOGGLE", () => {
     }
   });
 });
+
+// ── Textures row (CHARTS-RESEARCH `DIAGNOSIS-solid-colour-fills.md`) ──────
+// The energy stacked area is the reported case: on web/braille/css its bands
+// paint solid by default, Copy ASCII keeps every texture, and the Chart
+// folder's Textures row forces textures back on (or says why "off" cannot
+// apply).
+describe("ChartsWorkbench — Textures row", () => {
+  const TEXTURES = ["░", "▚", "╱"];
+  const energy = () => reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "energy-consumption-by-source" });
+  let container: HTMLDivElement;
+  let root: Root;
+  const mount = (state: ReturnType<typeof energy>) => act(() => root.render(<ChartsWorkbench initialState={state} />));
+  const row = () => Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === "Textures")!;
+  const option = (label: string) => Array.from(row().querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").startsWith(`Fill textures: ${label}`))!;
+  const output = () => container.querySelector("pre.glyph-output")!.textContent!;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  it("defaults to solid bands on web + css; toggling Textures on paints every texture with colour still on", () => {
+    // Mutation: drop `regionFill` from `chartsWorkbenchRenderOptions` -> the "on" half goes red.
+    mount(energy());
+    for (const glyph of TEXTURES) expect(output().includes(glyph), `default has ${glyph}`).toBe(false);
+    expect(option("auto").getAttribute("aria-pressed")).toBe("true");
+    expect(row().getAttribute("title")).toMatch(/solid now/);
+    act(() => option("on").click());
+    for (const glyph of TEXTURES) expect(output().includes(glyph), `textures on has ${glyph}`).toBe(true);
+    expect(container.querySelector("pre.glyph-output span[style*='color']")).not.toBeNull();
+    expect(option("on").getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("Copy ASCII of the coloured, solid chart still carries every series' texture", async () => {
+    // Mutation: build Copy ASCII from the html display instead of the grid -> red.
+    mount(energy());
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const copy = Array.from(container.querySelectorAll("button")).find((node) => node.textContent === "Copy ASCII")!;
+    await act(async () => copy.click());
+    const copied = writeText.mock.calls.at(-1)![0];
+    for (const glyph of TEXTURES) expect(copied.includes(glyph), `Copy ASCII has ${glyph}`).toBe(true);
+  });
+
+  it("dims 'off' with the reason that forced textures: colour off, a colliding ansi16 palette, chat", () => {
+    // Mutation: stop passing `solidUnavailable` into the toggle -> red.
+    const cases = [
+      { control: { type: "color", value: "none" }, reason: /Colour is off/ },
+      { control: { type: "color", value: "ansi16" }, reason: /"Fossil fuels" and "Renewables" paint the same colour in ansi16/ },
+      { control: { type: "target", value: "chat" }, reason: /Chat never shows colour/ },
+    ] as const;
+    for (const { control, reason } of cases) {
+      mount(reduceChartsWorkbenchState(energy(), { type: "set-control", control }));
+      expect(option("off").disabled, JSON.stringify(control)).toBe(true);
+      expect(option("off").getAttribute("title")).toMatch(reason);
+      expect(option("on").disabled).toBe(false);
+      act(() => root.unmount());
+      root = createRoot(container);
+    }
+    mount(reduceChartsWorkbenchState(energy(), { type: "set-control", control: { type: "target", value: "terminal" } }));
+    expect(option("off").disabled).toBe(false);
+    expect(row().getAttribute("title")).toMatch(/textures now — A terminal copy can lose its colour/);
+  });
+
+  it("the Chart folder reset clears the row back to auto, and choosing auto stores nothing", () => {
+    let state = reduceChartsWorkbenchState(energy(), { type: "set-region-fill", value: "texture" });
+    expect(state.style.regionFill).toBe("texture");
+    state = reduceChartsWorkbenchState(state, { type: "reset-chart-style" });
+    expect(state.style.regionFill).toBeUndefined();
+    expect("regionFill" in reduceChartsWorkbenchState(energy(), { type: "set-region-fill", value: "auto" }).style).toBe(false);
+  });
+});

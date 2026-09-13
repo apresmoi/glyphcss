@@ -38,7 +38,7 @@ The legend row shows whenever at least ONE series is named — not more than one
 
 **Braille-tier fills are `blocks`' own quadrant glyphs, not braille dot patterns.** `fillRect` (bar/area/rect/cell — anything painted as a region rather than traced as a curve) on `braille` used to reuse `subGlyph`, the SAME mask-to-glyph function `line()`/dots use, which meant a solid bar read as `⣿` (the braille full-block codepoint) rather than `█`. A fill is DENSITY, not a curve, so it gets its own table entry (`tiers.ts`'s `fillSubGlyph`, `undefined` on every tier but `braille`, where `canvas.ts`'s `fillRect` consults `fillSubGlyph ?? subGlyph`) pointing at the exact function `blocks` already uses — never a parallel table, so a braille bar/area/heatmap is pixel-identical to the same chart under `blocks`. `line()`'s own dots are untouched (still `subGlyph`), so a braille line chart still reads at genuine sub-cell resolution; a chart mixing a filled area with a braille line reads as a solid region next to a dotted curve, which is the whole point.
 
-Arcs paint all categories against one shared total, never one full disc per grouped series. Slice styles cycle a SHAPE-FAMILY glyph set, `GLYPH_CHART_SHADE_CYCLE_LENGTH` (8) long on every charset — see "Round 18" below for the full derivation and coverage table. The shade cycle stays active with colour enabled, so removing colour downstream preserves the picture. Slice and legend share the same shade; coloured output adds the matching series palette colour to both. These categorical full-cell shades use `canvas.text`, since the frozen canvas's continuous `fillRect` shading would instead produce subcell occupancy on blocks/braille. This leaves the continuous heatmap ramp unchanged.
+Arcs paint all categories against one shared total, never one full disc per grouped series. Slice styles cycle a SHAPE-FAMILY glyph set, `GLYPH_CHART_SHADE_CYCLE_LENGTH` (8) long on every charset — see "Round 18" below for the full derivation and coverage table. With colour on and every slice its own colour, the colour-carrying exits paint slices solid instead, while `grid` and plain `text` keep the shade cycle, so removing colour downstream still preserves the picture (see "Round 24" below). Slice and legend share the same glyph in every exit; coloured output adds the matching series palette colour to both. These categorical full-cell shades use `canvas.text`, since the frozen canvas's continuous `fillRect` shading would instead produce subcell occupancy on blocks/braille. This leaves the continuous heatmap ramp unchanged.
 
 Cell shading shares one value domain across all cell marks. Mixed signs ramp each side independently from zero (blank) out to its own extreme (full ink) — blank means "no signal" and is reserved for exactly zero, never for the domain's most extreme value: an earlier mapping anchored blank at the most-negative value and a medium shade at zero instead, so a gains/losses heatmap's biggest loss read as missing data while zero (genuinely nothing happening) read as visible ink — exactly backwards. Same-sign data use one sequential ramp including zero, where the domain minimum alone is blank and a `GLYPH_CHART_CELL_MIN_INK_SHADE` floor keeps every other value visibly inked. The ordered ramp preserves sign and never takes `Math.abs(value)`: `[-10, 0, 10]` produces full ink, blank, full ink rather than two identical extremes collapsing under an absolute-value fold. The cell canvas owns each tier's shade-to-glyph conversion.
 
@@ -899,3 +899,67 @@ Braille 96x32, after (the quadrant caps are the sub-cell silhouette):
 ```
 
 The /charts tray gains a "Stacked area" preset built from this dataset's own rows, its description carrying the CC BY credit (a preset clears the rail's dataset card).
+
+## Round 24: solid coloured fills (CHARTS-RESEARCH `DIAGNOSIS-solid-colour-fills.md`)
+
+The user's decision reverses part of "Round 18": textures are the default only where colour cannot carry series identity. On the web with colour, a stacked area, a stacked bar and a pie paint solid bands.
+
+**Why textures were wrong there.** Measured on the energy stacked area (web/braille/css 96x32) and Glyph Mono's own outlines (fontTools, upm 2048, `line-height: 1`):
+
+- `█` ink spans y −480..2226, overflowing its 2048-unit line box upward by 492 units. Under a solid band that overflow covers the bottom of the `▄` silhouette row, so the edge joins.
+- Under the sparse `╱` it floated as a detached bar.
+- `╱` itself spans −518..1932, so 198 units (9.7% of a row) of hatch poke into the sky above the top band.
+- 1-2 row `▚`/`░` bands read as noise at braille cell size, while colour alone already separated them.
+
+**One decision, whole-chart.** `regionFill.ts`'s `resolveGlyphChartRegionFill` answers once per render, so a legend can never mix a solid swatch with a textured one, and a UI can state one reason. `regionFill?: "auto" | "solid" | "texture"` is named for AGENTS.md's "region mark", not `fill`, which is already a mark channel. Rules in order:
+
+1. No bar/rect/area/arc series → texture (nothing to change, no second paint).
+2. `"texture"` → texture.
+3. Colour off (`none`, or NO_COLOR on an ANSI mode) → texture.
+4. A sankey or funnel mark → texture: `flowMarks.ts` paints its own `seriesShade`, and its ribbon painter keys its density/pattern table on that glyph.
+5. Two distinct region identities (series names; unnamed series are each their own) resolve to one colour at the render's depth → texture.
+6. `"auto"` with target `terminal`/`chat` → texture.
+7. Otherwise solid.
+
+An explicit `"solid"` skips rule 6, because that rule is a guess about where the output lands. It stops at 3-5 with `region-fill-solid-refused`: under those rules an all-`█` fill makes two series literally identical.
+
+**Colour distinctness, measured** (`nearestAnsiCanvasColor` over `SERIES_COLORS`):
+
+| depth | distinct of the 8 defaults | threshold |
+|---|---|---|
+| css / truecolor | 8 | 8 series; a 9th wraps to blue |
+| ansi256 | 8 | 8 series |
+| ansi16 | 7 | 2 series; blue and green both map to `#008080`, so a third series collides |
+
+Adjacent default colours sit 293-483 apart on redmean. The closest pair anywhere is orange/red at 116, never adjacent in a stack or a pie.
+
+**Per exit, not per render.** A solid fill must not reach a colour-free exit, or a coloured chart's Copy ASCII becomes a block of `█`.
+
+- `renderGlyphChart` always paints the textured canvas first. It feeds `grid`, plain `text`, `report`, and `html` under `none`.
+- When the resolution is solid, a second paint of the SAME resolved marks, scales and layout feeds only the colour-carrying exits: `html` under `css`, `text` under ANSI, ANSI `html` at `textScale > 1`. The second paint's ledger is discarded, since it is the same paint.
+- Consequence 1: `grid` and every plain `text` are byte-identical to the commit before the option for every spec and option.
+- Consequence 2: `/charts`' Copy ASCII (built from `grid`) needed no page change.
+- Consequence 3: Copy ANSI (`text` under an ANSI mode) carries solid colour.
+- Cost: one extra paint, only for a solid render that has region marks. Rejected alternative: substituting glyphs post-paint, which needs a per-cell record of which region painted each cell and which later painter overwrote it — more machinery than a repaint.
+
+**Glyph.** `regionFillGlyph(tier, index, total, fill)` is the one helper every region painter (`paintBar`, `paintRect`, the area glyph, `paintArc`) and both legend swatch paths (bottom/title row and corner) call. Solid is `█`, or `#` on ascii to stay 7-bit. The area silhouette's `fillSubGlyph` quadrants are unchanged and now sit on solid bands. `cell` is exempt: its ramp encodes value magnitude with one hue per sign, and `█` would erase the data.
+
+**Gates** (`regionFill.test.ts`):
+
+- **Byte identity.** For every `goodSpecs` entry × 4 charsets, compared against `fixtures/regionFillParentFixtures.json` (sha256 prefixes from `2ef7a70b`): `none` text/grid, `css` text/grid, all ANSI grids, NO_COLOR text and `terminal` text match exactly. Every colour-carrying exit matches under an explicit `regionFill: "texture"`, and under `auto` wherever the resolver says texture.
+- **Paint.** On box, the four chart shapes carry no texture glyph in `html`. On braille, every changed cell becomes `█` and the silhouette counts hold.
+- **Legend.** The swatch equals the fill in both states and both legend placements.
+- **Rules.** Each has its own case, and 11 mutations each redden at least one test (recorded in the diagnosis).
+
+**Page.** The Chart folder's "Textures" row is an `IconToggle`: `auto`/`on`/`off` map 1:1 to `auto`/`texture`/`solid`, so `?c=` stores the library value verbatim (`style.regionFill`, absent = auto, `auto` never written). It sits in Chart, not Output, because it restyles marks, like the axis and mark colours the Chart folder's reset already owns. `chartsWorkbenchRegionFillStatus` asks `glyphChartRegionFill` with the page's own styled spec and options:
+
+- **`off` dims** with the resolver's refusal message.
+- **Chat:** `off` dims with "Chat never shows colour", because `TargetPreview` strips colour there whatever the render carries.
+- **Auto's tooltip** says what it resolved to and why.
+
+**Residuals.**
+
+- **`╱` overflow under colour-off textures.** Fixing it by glyph choice changes colour-off bytes and the Round 18 coverage ordering. CSS cannot clip one glyph inside a single text node.
+- **Sankey and funnel stay textured,** pending a pass over `flowMarks.ts`.
+- **Distinctness is exact colour equality.** Two hand-picked near-identical hexes count as distinct.
+- **The CLI has no `--region-fill` flag.** It defaults to `terminal`, which resolves texture anyway.

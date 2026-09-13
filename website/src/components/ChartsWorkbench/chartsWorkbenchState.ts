@@ -6,7 +6,7 @@ import {
   type GlyphChartAxisOptions, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartDetail,
   type GlyphChartLegendPlacement,
   type GlyphChartMark, type GlyphChartMarkOptions, type GlyphChartMarkType,
-  type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
+  type GlyphChartRegionFill, type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
   type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
   type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
@@ -33,6 +33,7 @@ export const CHART_TARGETS = ["chat", "terminal", "web"] as const;
 export const CHART_CHARSETS = ["ascii", "box", "blocks", "braille"] as const;
 export const CHART_COLORS = ["none", "ansi16", "ansi256", "truecolor", "css"] as const;
 export const CHART_DETAILS = ["auto", "faithful", "balanced", "simplified"] as const;
+export const CHART_REGION_FILLS = ["auto", "texture", "solid"] as const satisfies readonly GlyphChartRegionFill[];
 // Owner packet items 1/2/3 — legend placement and title align/position, each
 // with a matching icon-button group in the Chart dock folder (`ChartsDock.tsx`).
 export const CHART_LEGEND_PLACEMENTS = ["bottom", "top-left", "top-right", "bottom-left", "bottom-right", "title"] as const;
@@ -271,6 +272,10 @@ export interface ChartsWorkbenchAxisTitlePlacementState {
 export interface ChartsWorkbenchStyleState {
   readonly axisColor: ChartsWorkbenchAxisColorState;
   readonly axisTitlePlacement: ChartsWorkbenchAxisTitlePlacementState;
+  /** The Dock's Textures row (`@glyphcss/charts`' `regionFill`). Absent is
+   *  `"auto"`, so every state and `?c=` link from before the row existed
+   *  renders exactly as the library's own default. */
+  readonly regionFill?: GlyphChartRegionFill;
 }
 
 export interface ChartsWorkbenchState {
@@ -333,7 +338,9 @@ export type ChartsWorkbenchAction =
   | { type: "set-mark-color"; id: number; color: string | readonly string[] | undefined }
   // Axis title placement (Dock item "Axis Title + Title at").
   | { type: "set-axis-title-at"; axis: "x"; value: GlyphChartXAxisTitleAt }
-  | { type: "set-axis-title-at"; axis: "y"; value: GlyphChartYAxisTitleAt };
+  | { type: "set-axis-title-at"; axis: "y"; value: GlyphChartYAxisTitleAt }
+  // Textures row (DIAGNOSIS-solid-colour-fills.md).
+  | { type: "set-region-fill"; value: GlyphChartRegionFill };
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
@@ -443,7 +450,7 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       const marks = state.marks.some((m) => m.color !== undefined)
         ? state.marks.map((m) => m.color === undefined ? m : { ...m, color: undefined })
         : state.marks;
-      const styleIsDefault = isDefaultAxisColor(state.style.axisColor) && isDefaultAxisTitlePlacement(state.style.axisTitlePlacement);
+      const styleIsDefault = isDefaultAxisColor(state.style.axisColor) && isDefaultAxisTitlePlacement(state.style.axisTitlePlacement) && state.style.regionFill === undefined;
       const style = styleIsDefault ? state.style : { axisColor: defaultAxisColor(), axisTitlePlacement: defaultAxisTitlePlacement() };
       const hasDomain = ([state.scales.x, state.scales.y] as const).some((s) => s.min.trim() || s.max.trim());
       const scales = hasDomain
@@ -463,6 +470,12 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "set-axis-color": return { ...state, style: { ...state.style, axisColor: { ...state.style.axisColor, [action.which]: action.color } } };
     case "set-mark-color": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? { ...mark, color: action.color } : mark) };
     case "set-axis-title-at": return { ...state, style: { ...state.style, axisTitlePlacement: { ...state.style.axisTitlePlacement, [action.axis]: action.value } } };
+    case "set-region-fill": {
+      // `auto` REMOVES the key rather than storing it, so choosing it is
+      // indistinguishable from never touching the row (state, `?c=`, snippet).
+      const { regionFill: _previous, ...rest } = state.style;
+      return { ...state, style: action.value === "auto" ? rest : { ...rest, regionFill: action.value } };
+    }
     case "set-scale": return { ...state, scales: { ...state.scales, [action.axis]: { ...state.scales[action.axis], ...action.patch } } };
     case "set-axis": return { ...state, axes: { ...state.axes, [action.axis]: { ...state.axes[action.axis], ...action.patch } } };
     case "set-chart": return { ...state, chart: { ...state.chart, ...action.patch } };
@@ -900,6 +913,8 @@ export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): Glyph
     // keeps the generated TypeScript snippet and every option-object
     // snapshot untouched at the page's own default density.
     ...(textScale !== 1 ? { textScale } : {}),
+    // Omitted at `auto` (the library default), like `textScale` above.
+    ...(state.style.regionFill !== undefined ? { regionFill: state.style.regionFill } : {}),
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
 export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState) {

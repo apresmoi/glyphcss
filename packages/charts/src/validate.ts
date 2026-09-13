@@ -9,7 +9,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
-  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale",
+  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale", "bad-region-fill",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -259,6 +259,13 @@ export function validateGlyphChartRenderSize(width: number, height: number): voi
 export function validateGlyphChartTextScale(textScale: number): void {
   if (!Number.isInteger(textScale) || textScale < 1) chartError("bad-text-scale", `textScale must be a positive integer, got ${textScale}.`);
 }
+
+export const REGION_FILLS = ["auto", "solid", "texture"] as const;
+/** `options.regionFill` (AGENTS.md's "Charts" "Series and shading") — one of `REGION_FILLS`; omitted is `"auto"`. */
+export function validateGlyphChartRegionFill(regionFill: unknown): void {
+  if (regionFill === undefined) return;
+  if (!(REGION_FILLS as readonly unknown[]).includes(regionFill)) chartError("bad-region-fill", `regionFill must be one of ${REGION_FILLS.join(", ")}, got ${JSON.stringify(regionFill)}.`);
+}
 const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "empty-marks": "Add at least one mark to spec.marks, e.g. glyphChartLine([...]).",
   "unknown-mark-type": `Use one of: ${MARK_TYPES.join(", ")}.`,
@@ -289,6 +296,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-stroke-width": "Set options.strokeWidth to 1, 2, or 3.",
   "bad-tick-format": "Use a known preset name, { preset, ...params } with valid params, or (TS/JS only) a callback (value, index, ticks) => string.",
   "bad-text-scale": "Set textScale to a positive integer (1 or omitted is the default).",
+  "bad-region-fill": `Set regionFill to one of ${REGION_FILLS.join("/")}, or omit it for auto.`,
 };
 
 /**

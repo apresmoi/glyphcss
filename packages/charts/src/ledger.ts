@@ -216,6 +216,16 @@ export function ledgerMarkColorUnused(opts: { readonly markType: string; readonl
   return entry("mark-color-unused", `This ${opts.markType} mark's color option lists ${opts.provided} colors but only ${opts.used} ${plural} used.`, { ...opts });
 }
 
+/**
+ * An explicit `regionFill: "solid"` the render cannot honour without making
+ * two series identical (`regionFill.ts`) — colour off, two series resolving
+ * to one colour, or a sankey/funnel mark that still paints textures. The
+ * render falls back to textures; `reason` is the resolver's own code.
+ */
+export function ledgerRegionFillSolidRefused(opts: { readonly reason: string; readonly explanation: string; readonly colliding?: readonly [string, string] }): GlyphChartLedgerEntry {
+  return entry("region-fill-solid-refused", `Kept textured fills instead of solid ones. ${opts.explanation}`, { reason: opts.reason, ...(opts.colliding ? { colliding: opts.colliding } : {}) });
+}
+
 export function ledgerSeriesColorConflict(opts: { readonly name: string; readonly kept: string; readonly rejected: string }): GlyphChartLedgerEntry {
   return entry("series-color-conflict", `Series "${opts.name}" was given two different colors across marks — kept ${opts.kept} and dropped ${opts.rejected}.`, { ...opts });
 }

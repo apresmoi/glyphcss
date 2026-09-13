@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Ajv2020 from "ajv/dist/2020";
 import { glyphChartJsonSchema } from "./schema";
-import { GLYPH_CHART_VALIDATION_RULES, glyphChartRepairHint, validateGlyphChartSpec } from "./validate";
+import { GLYPH_CHART_VALIDATION_RULES, glyphChartRepairHint, REGION_FILLS, validateGlyphChartSpec } from "./validate";
 import { renderGlyphChart } from "./render";
 import { goodSpecs, badSpecs } from "./reviewFixtures";
 
@@ -29,15 +29,17 @@ describe("schema and runtime enforce one contract (review 10/11)", () => {
     expect(() => renderGlyphChart(spec, options)).toThrow(expect.objectContaining({ code: id }));
     if (options) {
       // Shared shape for every render-OPTION-level rejection (never a spec
-      // field): `bad-size` (width/height) and `bad-text-scale` (textScale)
-      // both reject through this same schema — not `glyphChartJsonSchema()`
-      // itself, which describes `GlyphChartSpec`, not `GlyphChartRenderOptions`.
+      // field): `bad-size` (width/height), `bad-text-scale` (textScale) and
+      // `bad-region-fill` (regionFill) all reject through this same schema —
+      // not `glyphChartJsonSchema()` itself, which describes
+      // `GlyphChartSpec`, not `GlyphChartRenderOptions`.
       const optionsSchema = ajv.compile({
         type: "object",
         properties: {
           width: { type: "integer", minimum: 1 },
           height: { type: "integer", minimum: 1 },
           textScale: { type: "integer", minimum: 1 },
+          regionFill: { enum: [...REGION_FILLS] },
         },
       });
       expect(optionsSchema(options)).toBe(false);

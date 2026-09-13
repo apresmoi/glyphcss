@@ -39,13 +39,14 @@ import {
   createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor,
 } from "glyphcss";
 import { layoutGlyphChart, resolveGlyphChartLegendOption, seriesNames } from "./layout";
-import { chartLedgerEntryFromCanvasMessage } from "./ledger";
+import { chartLedgerEntryFromCanvasMessage, ledgerRegionFillSolidRefused } from "./ledger";
 import { paintGlyphChart } from "./paint";
+import { glyphChartColorEnabled, resolveGlyphChartRegionFill } from "./regionFill";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { normalizeGlyphChartInput } from "./spec";
 import {
-  validateGlyphChartLegendOption, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
+  validateGlyphChartLegendOption, validateGlyphChartRegionFill, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
 } from "./validate";
 import type {
   GlyphChartCharset,
@@ -53,6 +54,7 @@ import type {
   GlyphChartDetail,
   GlyphChartInput,
   GlyphChartLedgerEntry,
+  GlyphChartRegionFillResolution,
   GlyphChartRenderOptions,
   GlyphChartResult,
   GlyphChartTarget,
@@ -116,6 +118,23 @@ function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
   return "truecolor";
 }
 
+/**
+ * The region fill `renderGlyphChart` would paint for these exact inputs,
+ * and why — the SAME resolver the render calls, so a UI (the `/charts`
+ * Dock's Textures row) can state the reason without re-deriving the rule.
+ * Reads only the options that decide it (`target`, `color`, `env`,
+ * `regionFill`); throws the same tagged errors the render would.
+ */
+export function glyphChartRegionFill(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartRegionFillResolution {
+  const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
+  validateGlyphChartRegionFill(options.regionFill);
+  const target: GlyphChartTarget = options.target ?? "web";
+  const color: GlyphChartColorMode = options.color ?? GLYPH_CHART_TARGET_DEFAULTS[target].color;
+  return resolveGlyphChartRegionFill(resolveGlyphChartSpec(spec), {
+    requested: options.regionFill ?? "auto", color, colorEnabled: glyphChartColorEnabled(color, options.env), target,
+  });
+}
+
 export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartResult {
   const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
   // `spec.title`/`spec.legend` are validated inside `validateGlyphChartSpec`
@@ -134,6 +153,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const cellAspect = options.cellAspect ?? defaults.cellAspect;
   const textScale = options.textScale ?? 1;
   validateGlyphChartTextScale(textScale);
+  validateGlyphChartRegionFill(options.regionFill);
 
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
@@ -145,10 +165,21 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
   // The ANSI encoder's non-empty env flags also determine whether colour
   // can carry series identity; suppressed colour needs monochrome styles.
-  const ansi = color !== "none" && color !== "css";
-  const noColor = Boolean(options.env?.NO_COLOR) && !options.env?.FORCE_COLOR;
-  const colorEnabled = color !== "none" && !(ansi && noColor);
+  const colorEnabled = glyphChartColorEnabled(color, options.env);
+  const regionFill = resolveGlyphChartRegionFill(marks, { requested: options.regionFill ?? "auto", color, colorEnabled, target });
+  // `canvas` is ALWAYS the textured paint: it feeds `grid` and every
+  // colour-free exit, so a coloured chart's plain text still tells its
+  // series apart. A solid resolution paints a second canvas that only the
+  // colour-carrying exits read; its ledger is the same paint's and is
+  // discarded (`DIAGNOSIS-solid-colour-fills.md` §4).
   paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale }, ledger);
+  let colorCanvas = canvas;
+  if (regionFill.fill === "solid") {
+    colorCanvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
+    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid" }, []);
+  } else if (options.regionFill === "solid" && regionFill.reason !== "no-region-mark") {
+    ledger.push(ledgerRegionFillSolidRefused({ reason: regionFill.reason, explanation: regionFill.message, ...(regionFill.colliding ? { colliding: regionFill.colliding } : {}) }));
+  }
 
   let text: string;
   let html: string | undefined;
@@ -161,9 +192,9 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
     if (textScale > 1) html = encodeGlyphCanvasHtml(canvas);
   } else if (color === "css") {
     text = encodeGlyphCanvasText(canvas);
-    html = encodeGlyphCanvasHtml(canvas);
+    html = encodeGlyphCanvasHtml(colorCanvas);
   } else {
-    text = encodeGlyphCanvasAnsi(canvas, { colors: ansiColorMode(color), env: options.env });
+    text = encodeGlyphCanvasAnsi(colorCanvas, { colors: ansiColorMode(color), env: options.env });
     if (textScale > 1) {
       // `truecolor`'s `colorEnabled` is identical to `css`'s own, so its
       // canvas (and thus its `html`) is already byte-identical — no
@@ -172,7 +203,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
       const recolor = color === "truecolor"
         ? undefined
         : (hex: string) => nearestAnsiCanvasColor(hex, color === "ansi16" ? "16" : "256");
-      html = encodeGlyphCanvasHtml(canvas, recolor ? { recolor } : {});
+      html = encodeGlyphCanvasHtml(colorCanvas, recolor ? { recolor } : {});
     }
   }
 

@@ -9,7 +9,7 @@ import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import {
-  CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
+  CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_REGION_FILLS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
   CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX, CHARTS_DENSITY_STEP,
   chartsDensitySliderMax, chartsNumberToScaleBound, chartsScaleBoundToNumber, chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay,
@@ -17,7 +17,7 @@ import {
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
 } from "./chartsWorkbenchState";
-import { chartsWorkbenchActualTicks, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
+import { chartsWorkbenchActualTicks, chartsWorkbenchRegionFillStatus, type ChartsWorkbenchRegionFillStatus, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
 
 const options = <T extends string,>(values: readonly T[]): Record<T, T> => Object.fromEntries(values.map((value) => [value, value])) as Record<T, T>;
 
@@ -41,6 +41,24 @@ const TITLE_ALIGN_SYMBOL: Record<string, string> = { left: "⇤", center: "⇔",
 const TITLE_ALIGN_TOGGLE = CHART_TITLE_ALIGNS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{TITLE_ALIGN_SYMBOL[v]}</span>, label: v, desc: `Title align: ${v}` }));
 const TITLE_POSITION_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "top" ? "⇧" : "⇩"}</span>, label: v, desc: `Title position: ${v}` }));
 const AXIS_COLOR_MODE_LABEL: Record<string, string> = { shared: "shared", "per-axis": "per axis" };
+
+// Textures row (CHARTS-RESEARCH `DIAGNOSIS-solid-colour-fills.md` §4): three
+// states mapping 1:1 onto the library's `regionFill`, because `auto` depends
+// on more than colour (target, colour collisions, flow marks) and a two-state
+// "follows colour" switch could not say which one decided. `on` = textures
+// forced, `off` = solid forced.
+const REGION_FILL_LABEL: Record<string, string> = { auto: "auto", texture: "on", solid: "off" };
+export function chartsRegionFillToggle(status: ChartsWorkbenchRegionFillStatus | null) {
+  const autoSays = status ? `${status.auto.fill === "solid" ? "solid" : "textures"} now — ${status.auto.message}` : "follows colour";
+  return CHART_REGION_FILLS.map((v) => {
+    const disabledReason = status?.inapplicable ?? (v === "solid" ? status?.solidUnavailable : undefined);
+    return {
+      value: v as string, icon: <span className="gx-toggle-text">{REGION_FILL_LABEL[v]}</span>, label: REGION_FILL_LABEL[v]!,
+      desc: v === "auto" ? `Textures: auto, ${autoSays}` : v === "texture" ? "Textures on: every series keeps its own fill pattern" : "Textures off: solid colour fills",
+      ...(disabledReason ? { disabled: true, disabledReason } : {}),
+    };
+  });
+}
 
 // Axis title placement (Dock item "Axis Title + Title at") — same icon-
 // toggle idiom as the chart's own Title-at row above; `x`'s vocabulary
@@ -306,12 +324,15 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
   // not Chart-folder ones) — folded honestly into ONE reset and ONE
   // tooltip naming everything it touches, rather than a second reset on
   // the Axes folder for just those two.
-  useFolderTitleReset(chart, "Reset axis colour, mark colours, typed scale domains, axis title placement, and tick counts to their defaults", () => dispatch({ type: "reset-chart-style" }));
+  useFolderTitleReset(chart, "Reset axis colour, mark colours, textures, typed scale domains, axis title placement, and tick counts to their defaults", () => dispatch({ type: "reset-chart-style" }));
   useText(chart, "Title", state.chart.title, (title) => dispatch({ type: "set-chart", patch: { title } }));
   const titlePlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
   useText(chart, "Description", state.chart.description, (description) => dispatch({ type: "set-chart", patch: { description } }));
   useToggle(chart, "Legend", state.chart.legend, (legend) => dispatch({ type: "set-chart", patch: { legend } }));
   const legendPlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
+  const regionFillSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
+  const regionFillStatus = useMemo(() => chartsWorkbenchRegionFillStatus(state), [state]);
+  const regionFillToggle = useMemo(() => chartsRegionFillToggle(regionFillStatus), [regionFillStatus]);
 
   const scales = useFolder(gui, "Scales", { open: true });
   useOption(scales, "X type", options(CHART_SCALE_TYPES), state.scales.x.type, (type) => dispatch({ type: "set-scale", axis: "x", patch: { type } }));
@@ -401,6 +422,14 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
         <IconToggle groupTitle="Legend placement" options={LEGEND_TOGGLE} value={state.chart.legendPlacement} onChange={(legendPlacement) => dispatch({ type: "set-chart", patch: { legendPlacement: legendPlacement as ChartsWorkbenchState["chart"]["legendPlacement"] } })} />
       </div>,
       legendPlacementSlot,
+    )}
+    {regionFillSlot && createPortal(
+      <div className="dock-toggle-row" title={regionFillStatus?.inapplicable ?? regionFillToggle[0]!.desc}>
+        <span className="dock-toggle-row-label">Textures</span>
+        <IconToggle groupTitle="Fill textures" options={regionFillToggle} value={state.style.regionFill ?? "auto"}
+          onChange={(value) => dispatch({ type: "set-region-fill", value: value as typeof CHART_REGION_FILLS[number] })} />
+      </div>,
+      regionFillSlot,
     )}
     {axisColorSlot && createPortal(
       <div className="charts-axis-color">

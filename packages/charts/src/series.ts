@@ -85,6 +85,17 @@ export function seriesShade(tier: GlyphChartCharset, index: number, total = inde
   const ramp = tier === "ascii" && total <= ASCII_SHADE_COMPACT.length ? ASCII_SHADE_COMPACT : SHADE_RAMPS[tier];
   return ramp[index % ramp.length]!;
 }
+/**
+ * A region mark's fill glyph under the render's resolved fill
+ * (`regionFill.ts`): a solid block when colour carries series identity, the
+ * series' own `seriesShade` texture otherwise. Every region painter and both
+ * legend swatch paths go through here, so a swatch always equals its fill.
+ * `ascii` stays 7-bit.
+ */
+export function regionFillGlyph(tier: GlyphChartCharset, index: number, total: number, fill: "solid" | "texture"): string {
+  if (fill === "solid") return tier === "ascii" ? "#" : "█";
+  return seriesShade(tier, index, total);
+}
 export interface ChartSeries extends GlyphChartResolvedMark {
   readonly name?: string;
   readonly styleIndex: number;
