@@ -1,11 +1,11 @@
 import { glyphGraphFromMermaid } from "./mermaid";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
-import { canonicalizeGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayout } from "./pipeline";
-import { routeGlyphGraphEdges } from "./route";
+import { canonicalizeGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions } from "./pipeline";
+import { routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import { paintGlyphDiagram } from "./paint";
-import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph } from "./degrade";
-import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
+import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph, GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR } from "./degrade";
+import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
 
@@ -42,21 +42,56 @@ function centered(layout: GlyphDiagramLayout, width: number, height: number): Gl
   return { ...layout, nodes: layout.nodes.map((n) => ({ ...n, x0: n.x0 + dx, x1: n.x1 + dx, y0: n.y0 + dy, y1: n.y1 + dy })),
     ports: layout.ports.map((p) => ({ ...p, anchor: { x: p.anchor.x + dx, y: p.anchor.y + dy }, escape: { x: p.escape.x + dx, y: p.escape.y + dy } })) };
 }
+interface GlyphDiagramAttempt { readonly layout: GlyphDiagramLayout; readonly routing: GlyphDiagramRoutingResult; readonly fits: boolean; readonly okay: boolean }
 export async function renderGlyphDiagram(input: GlyphGraph | string, options: GlyphDiagramRenderOptions = {}): Promise<GlyphDiagramResult> {
   const opts = resolvedOptions(options);
   const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
   const ledger: GlyphDiagramLedgerEntry[] = [], unroutable = new Set<string>();
-  const attempt = async (candidate: GlyphGraph) => {
-    const rawLayout = await layoutGlyphGraph(candidate, { ...opts, labelWidth: opts.labelWidth ?? Math.max(1, Math.min(18, opts.width - 8)) });
+  // Once the compaction rung (below) finds a tighter margin/spacing that fits,
+  // it stays in effect for every later attempt in this render — there is no
+  // reason to revert it before decoration/duplicates/leaf-clusters/split,
+  // which can only benefit from the same tightening.
+  let spacing: Partial<Pick<GlyphDiagramLayoutOptions, "nodesep" | "ranksep" | "margin">> = {};
+  const attempt = async (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => {
+    const rawLayout = await layoutGlyphGraph(candidate, { ...opts, ...spacing, labelWidth: opts.labelWidth ?? Math.max(1, Math.min(18, opts.width - 8)) });
     const layout = centered(rawLayout, opts.width, opts.height);
     const fits = rawLayout.width <= opts.width && rawLayout.height <= opts.height;
     const routing = routeGlyphGraphEdges(layout, { width: opts.width, height: opts.height });
     return { layout, routing, fits, okay: fits && glyphDiagramWithinBudget(candidate) && routing.unroutable.length === 0 };
   };
+  // RC4 (DIAGNOSIS-diagrams-fanout.md): a layout that doesn't fit is a SIZE
+  // overflow, never a routing failure — `attempt()` still routes against the
+  // requested viewport for diagnostics, but a port landing outside it is a
+  // consequence of the overflow, not something A* could have avoided.
+  const overflowOrRoutingAttempt = (current: GlyphDiagramAttempt, stage: "degrade" | "split"): GlyphDiagramLedgerEntry[] =>
+    current.fits
+      ? current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage }))
+      : [ledgerLayoutOverflow({ stage, width: current.layout.width, height: current.layout.height, requestedWidth: opts.width, requestedHeight: opts.height })];
   let current = await attempt(graph);
   if (opts.detail === "simplified" || !current.okay) {
-    ledger.push(...current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage: "degrade" })));
+    ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
+    // RC2: a compaction rung before any semantic degradation. Neither
+    // candidate touches the graph's content, so it applies in every detail
+    // mode including "faithful". Tried in order — a smaller margin first
+    // (free: it only removes the engine's own leading whitespace), then the
+    // smallest nodesep/ranksep the port-lane reservation still tolerates
+    // (`GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR`) — and kept only if it actually
+    // fits; a candidate that doesn't help is discarded rather than left
+    // partially applied.
+    if (!current.fits) {
+      const nodesep = opts.nodesep ?? 4, ranksep = opts.ranksep ?? 4;
+      const candidates: Array<typeof spacing> = [{ margin: 0 }];
+      if (nodesep > GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR || ranksep > GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR) {
+        candidates.push({ margin: 0, nodesep: Math.min(nodesep, GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR), ranksep: Math.min(ranksep, GLYPH_DIAGRAM_COMPACT_SPACING_FLOOR) });
+      }
+      for (const candidate of candidates) {
+        spacing = candidate;
+        const compacted = await attempt(graph);
+        if (compacted.fits) { current = compacted; ledger.push(ledgerBudgetStage("compaction")); break; }
+        spacing = {};
+      }
+    }
     if (opts.detail !== "faithful") {
       ledger.push(ledgerBudgetStage("decoration"));
       graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
@@ -72,7 +107,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   }
   const attempts = [current];
   if (!current.okay) {
-    ledger.push(...current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage: "split" })), ledgerBudgetStage("split"));
+    ledger.push(...overflowOrRoutingAttempt(current, "split"), ledgerBudgetStage("split"));
     attempts.length = 0;
     for (const panel of splitGlyphGraph(graph)) attempts.push(await attempt(panel));
   }

@@ -149,3 +149,55 @@ describe("render contracts", () => {
     await expect(renderGlyphDiagram("graph LR; A", { ranksep: 0 })).rejects.toMatchObject({ code: "bad-options" });
   });
 });
+
+// DIAGNOSIS-diagrams-fanout.md: no fixture had two LR siblings in one rank,
+// every fixture render overrode chat's real 72x24 default to 80x32, and none
+// had 4 ranks -- the exact gaps that let RC1/RC2/RC3/RC4 ship unnoticed.
+describe("RC1-RC4: LR fan-out/fan-in at the real chat size", () => {
+  for (const name of ["fan-out-lr", "fan-2"]) {
+    it(`${name} renders in one panel at chat's real default 72x24 and at 96x32, every edge routed`, async () => {
+      const graph = fixture(name);
+      for (const options of [{ target: "chat" as const }, { width: 96, height: 32 }]) {
+        const result = await renderGlyphDiagram(graph, options);
+        // Mutation: drop `edgesep: 1` from pipeline.ts's `setGraph` call ->
+        // dagre's own default (20) spaces LR siblings ~15x too far apart and
+        // this splits into 7 panels at both sizes.
+        expect(result.pages).toHaveLength(1);
+        expect(result.report.unroutable).toEqual([]);
+        expect(result.routes).toHaveLength(result.meta.edges.length);
+        expect(result.report.ledger.some((entry) => entry.code === "routing-attempt")).toBe(false);
+        expect(result.layout.width).toBeLessThanOrEqual(result.grid.cols);
+        expect(result.layout.height).toBeLessThanOrEqual(result.grid.rows);
+      }
+    });
+  }
+
+  it("a 4-rank TB graph renders in one panel at chat's 72x24 via compaction, with a budget-compaction ledger entry", async () => {
+    // The same fan-out/fan-in graph, read as TB: O; {T,S,D}; M; R is 4 ranks,
+    // whose default-spacing height (4*3 + 3*4 + 2*margin = 26) overflows
+    // chat's 24 rows by exactly the 2 rows `margin: 0` recovers (RC2).
+    const result = await renderGlyphDiagram(fixture("fan-out-lr"), { target: "chat", direction: "TB" });
+    expect(result.pages).toHaveLength(1);
+    expect(result.report.unroutable).toEqual([]);
+    expect(result.routes).toHaveLength(result.meta.edges.length);
+    expect(result.report.ledger.some((entry) => entry.code === "budget-compaction")).toBe(true);
+    // Mutation: remove the compaction rung -> this falls through straight to
+    // `split` (no rung can shrink a fan's HEIGHT except leaf-clusters, which
+    // deletes the fan) and renders as 7 panels instead of 1.
+    expect(result.report.ledger.some((entry) => entry.code === "routing-attempt")).toBe(false);
+  });
+
+  it("reports a size overflow as layout-overflow, never a misreported routing-attempt, even when it still reaches split", async () => {
+    const result = await renderGlyphDiagram(fixture("fan-out-lr"), { width: 10, height: 6 });
+    expect(result.pages.length).toBeGreaterThan(1);
+    expect(result.report.ledger.some((entry) => entry.code === "layout-overflow")).toBe(true);
+    expect(result.report.ledger.some((entry) => entry.code === "budget-split")).toBe(true);
+    // Mutation: revert `overflowOrRoutingAttempt` to always log
+    // `routing-attempt` off out-of-bounds ports -> this goes red, since every
+    // one of these entries came from a layout too large for the viewport,
+    // never from an A* failure inside a layout that fit.
+    expect(result.report.ledger.some((entry) => entry.code === "routing-attempt")).toBe(false);
+    const overflow = result.report.ledger.find((entry) => entry.code === "layout-overflow")!;
+    expect(overflow.detail).toMatchObject({ requestedWidth: 10, requestedHeight: 6 });
+  });
+});
