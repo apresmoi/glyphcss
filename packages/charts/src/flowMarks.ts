@@ -19,7 +19,7 @@ import { accessorFor, identity, index, isNumericArray } from "./channels";
 import { abbreviateChartText, chartText } from "./labels";
 import {
   ledgerEmptyTotal, ledgerFunnelBadReference, ledgerFunnelFoldedStages, ledgerFunnelNotMonotone, ledgerFunnelThinStage,
-  ledgerLabelDropped, ledgerSankeyBandBroken, ledgerSankeyColumnsFolded, ledgerSankeyCrossingsMerged, ledgerSankeyFoldedFlows, ledgerSankeyImbalance,
+  ledgerLabelDropped, ledgerSankeyAirDropped, ledgerSankeyBandBroken, ledgerSankeyColumnsFolded, ledgerSankeyCrossingsMerged, ledgerSankeyFoldedFlows, ledgerSankeyImbalance,
   ledgerSankeyNodesDropped,
   type GlyphChartLedgerEntry,
 } from "./ledger";
@@ -298,16 +298,28 @@ function uniqueSankeyFoldName(realNodeIds: ReadonlySet<string>): string {
   return `(other) (${n})`;
 }
 
-function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: number, realNodeIds: ReadonlySet<string>): { readonly finalLinks: readonly SankeyOutLink[]; readonly heights: readonly number[]; readonly foldedFlows: readonly string[] } {
+/**
+ * `gapRows` (`GLYPH_CHART_SANKEY_LINK_GAP_ROWS`, degraded by `sankeyAirGap`
+ * — see its own doc) is reserved from `boxHeight` BEFORE the cumulative
+ * split, recomputed every round against the CURRENT candidate count (it
+ * only ever shrinks as folding removes candidates, so the fixed-point
+ * proof below is unaffected — a round that doesn't return still strictly
+ * shrinks `keptReal`). The returned `gap` is what the caller spaces the
+ * final bands apart by; it is 0 whenever `candidates.length <= 1` (nothing
+ * to put air between) or the row budget couldn't afford it at all.
+ */
+function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: number, realNodeIds: ReadonlySet<string>): { readonly finalLinks: readonly SankeyOutLink[]; readonly heights: readonly number[]; readonly foldedFlows: readonly string[]; readonly gap: number } {
   const foldName = uniqueSankeyFoldName(realNodeIds);
   let keptReal = [...outLinks];
   let otherValue = 0;
   const foldedFlows: string[] = [];
   for (let iter = 0; iter <= outLinks.length; iter++) {
     const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: foldName, value: otherValue, folded: true }] : [...keptReal];
-    const heights = distributeCumulative(candidates.map((l) => l.value), boxHeight);
+    const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS, candidates.length, boxHeight);
+    const capacity = Math.max(0, boxHeight - gap * (candidates.length - 1));
+    const heights = distributeCumulative(candidates.map((l) => l.value), capacity);
     const zeroReal = keptReal.filter((l, i) => heights[i] === 0 && l.value > 0);
-    if (zeroReal.length === 0) return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows };
+    if (zeroReal.length === 0) return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows, gap };
     keptReal = keptReal.filter((l, i) => !(heights[i] === 0 && l.value > 0));
     otherValue += zeroReal.reduce((a, b) => a + b.value, 0);
     foldedFlows.push(...zeroReal.map((l) => l.target));
@@ -316,8 +328,10 @@ function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: numbe
   // rounds — each round that doesn't return strictly shrinks `keptReal`),
   // kept only so the function is total under TypeScript's control-flow check.
   const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: foldName, value: otherValue, folded: true }] : keptReal;
-  const heights = distributeCumulative(candidates.map((l) => l.value), boxHeight);
-  return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows };
+  const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS, candidates.length, boxHeight);
+  const capacity = Math.max(0, boxHeight - gap * (candidates.length - 1));
+  const heights = distributeCumulative(candidates.map((l) => l.value), capacity);
+  return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows, gap };
 }
 
 function fillGlyphRegion(canvas: GlyphCanvas, x0: number, y0: number, x1: number, y1: number, glyph: string, color: string | null): void {
@@ -331,6 +345,39 @@ function fillGlyphRegion(canvas: GlyphCanvas, x0: number, y0: number, x1: number
 const GLYPH_CHART_SANKEY_NODE_WIDTH_CAP = 16;
 const GLYPH_CHART_SANKEY_MIN_NODE_WIDTH = 3;
 const GLYPH_CHART_SANKEY_MIN_GAP = 3;
+
+/**
+ * Visual AIR, reserved at the LAYOUT layer (AGENTS.md's "Charts" sankey
+ * clause) — never in the painter, which has no way to tell a planned gap
+ * from a genuinely lost cell (`docs/design/charts.md`'s "Sankey ribbon
+ * rendering", the superseded painter-level attempt). `NODE_PADDING_ROWS`
+ * separates stacked node boxes within one column; `LINK_GAP_ROWS` separates
+ * consecutive bands leaving (or entering) one node. Both are DESIRED
+ * values, degraded per column/node by `sankeyAirGap` when the rows can't
+ * afford them — never below 0, and never at the cost of squeezing an item
+ * under 1 row.
+ */
+export const GLYPH_CHART_SANKEY_NODE_PADDING_ROWS = 2;
+export const GLYPH_CHART_SANKEY_LINK_GAP_ROWS = 1;
+
+/**
+ * The actual gap (rows) to place between `count` items sharing `capacity`
+ * rows before any of them is split off it, given a DESIRED gap — the
+ * largest `g` in `[0, desired]` such that reserving `g * (count - 1)` rows
+ * for the gaps still leaves at least `count` rows for the items themselves
+ * (`capacity - g * (count - 1) >= count`). This is what makes the applied
+ * gap SCALE with the room available: it lands on `desired` when there's
+ * slack, degrades toward 1 as the column/node gets tighter, and only drops
+ * to 0 when even a single row of air would starve an item. `count <= 1`
+ * needs no gap between anything and returns 0 unconditionally.
+ */
+function sankeyAirGap(desired: number, count: number, capacity: number): number {
+  if (count <= 1) return 0;
+  for (let g = desired; g > 0; g--) {
+    if (capacity - g * (count - 1) >= count) return g;
+  }
+  return 0;
+}
 
 interface SankeyNodeBox {
   readonly id: string;
@@ -480,8 +527,8 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     const colNodes = nodeOrder.filter((id) => depthOf(id) === col);
     if (colNodes.length === 0) continue;
     const n = colNodes.length;
-    const gapRows = n > 1 && plotHeight - (n - 1) >= n ? n - 1 : 0;
-    const capacity = Math.max(0, plotHeight - gapRows);
+    const padGap = n > 1 ? sankeyAirGap(GLYPH_CHART_SANKEY_NODE_PADDING_ROWS, n, plotHeight) : 0;
+    const capacity = Math.max(0, plotHeight - padGap * (n - 1));
     const totalValue = colNodes.reduce((a, id) => a + (nodeValueById.get(id) ?? 0), 0);
     if (totalValue > 0 && capacity > 0) rowsPerUnit = Math.min(rowsPerUnit, capacity / totalValue);
   }
@@ -492,8 +539,16 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     const colNodes = nodeOrder.filter((id) => depthOf(id) === col).sort((a, b) => (nodeY0ById.get(a) ?? 0) - (nodeY0ById.get(b) ?? 0));
     if (colNodes.length === 0) continue;
     const n = colNodes.length;
-    const gapRows = n > 1 && plotHeight - (n - 1) >= n ? n - 1 : 0;
-    const capacity = Math.max(0, plotHeight - gapRows);
+    // `sankeyAirGap` picks the largest padding `<= NODE_PADDING_ROWS` this
+    // column's own height can afford (0 when even one row of air would
+    // starve a node) — a PLANNED absence: a padding row is never part of
+    // any node's own box, so nothing downstream can mistake it for a lost
+    // cell (AGENTS.md's "Charts" sankey clause, replacing the superseded
+    // painter-level attempt in `docs/design/charts.md`'s "Sankey ribbon
+    // rendering").
+    const padGap = n > 1 ? sankeyAirGap(GLYPH_CHART_SANKEY_NODE_PADDING_ROWS, n, plotHeight) : 0;
+    if (n > 1 && padGap === 0) ledger.push(ledgerSankeyAirDropped({ where: "node padding", id: `column ${col}`, requestedRows: GLYPH_CHART_SANKEY_NODE_PADDING_ROWS }));
+    const capacity = Math.max(0, plotHeight - padGap * (n - 1));
     const values = colNodes.map((id) => nodeValueById.get(id) ?? 0);
     const { heights, stillZero } = ensureMinimumHeights(distributeByRate(values, rowsPerUnit), values, capacity);
     if (stillZero.length > 0) ledger.push(ledgerSankeyNodesDropped({ nodes: stillZero.map((i) => colNodes[i]!) }));
@@ -506,7 +561,7 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
       // No gap row after the LAST node — `capacity` only ever budgeted
       // `n - 1` of them, and a trailing one would let `cursor` walk one
       // row past what the column actually accounted for.
-      cursor += h + (gapRows > 0 && i < colNodes.length - 1 ? 1 : 0);
+      cursor += h + (i < colNodes.length - 1 ? padGap : 0);
     });
   }
 
@@ -527,17 +582,18 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     const outLinks = [...g.rows]
       .sort((a, b) => (nodeBoxes.get(String(a.label))?.y0 ?? 0) - (nodeBoxes.get(String(b.label))?.y0 ?? 0))
       .map((r) => ({ target: String(r.label), value: numeric(r.y) }));
-    const { finalLinks, heights, foldedFlows } = foldSankeyOutLinks(outLinks, box.height, seenNode);
+    const { finalLinks, heights, foldedFlows, gap } = foldSankeyOutLinks(outLinks, box.height, seenNode);
     if (foldedFlows.length > 0) {
       const stubIdx = finalLinks.findIndex((l) => l.folded);
       const stubVisible = stubIdx === -1 || heights[stubIdx]! > 0;
       ledger.push(ledgerSankeyFoldedFlows({ source: nodeId, flows: foldedFlows.map((t) => `${nodeId} → ${t}`), stubVisible }));
     }
+    if (finalLinks.length > 1 && gap === 0) ledger.push(ledgerSankeyAirDropped({ where: "link gap", id: nodeId, requestedRows: GLYPH_CHART_SANKEY_LINK_GAP_ROWS }));
     let cursor = box.y0;
     finalLinks.forEach((l, i) => {
       const h = heights[i]!;
       const range: readonly [number, number] = [cursor, cursor + h - 1];
-      cursor += h;
+      cursor += h + (i < finalLinks.length - 1 ? gap : 0);
       bands.push({ source: nodeId, target: l.target, value: l.value, styleIndex: g.styleIndex, color: g.color, sourceRowRange: range, folded: Boolean(l.folded) });
     });
   }
@@ -558,12 +614,15 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     // Mirror the outgoing side: stub rows in SOURCE-column order, so bands
     // entering low/high land near where their sources already are.
     const list = [...unsorted].sort((a, b) => (nodeBoxes.get(a.source)?.y0 ?? 0) - (nodeBoxes.get(b.source)?.y0 ?? 0));
-    const heights = distributeCumulative(list.map((b) => b.value), box.height);
+    const gap = sankeyAirGap(GLYPH_CHART_SANKEY_LINK_GAP_ROWS, list.length, box.height);
+    if (list.length > 1 && gap === 0) ledger.push(ledgerSankeyAirDropped({ where: "link gap", id: targetId, requestedRows: GLYPH_CHART_SANKEY_LINK_GAP_ROWS }));
+    const capacity = Math.max(0, box.height - gap * (list.length - 1));
+    const heights = distributeCumulative(list.map((b) => b.value), capacity);
     let cursor = box.y0;
     list.forEach((b, i) => {
       const h = heights[i]!;
       b.targetRowRange = [cursor, cursor + h - 1];
-      cursor += h;
+      cursor += h + (i < list.length - 1 ? gap : 0);
     });
   }
 
@@ -1250,13 +1309,29 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
   // silently drop one's cells with no ledger entry). Counting `paintCell`'s
   // own real refusals, per band, minus self-overlap, is ground truth for
   // both paths at once.
+  //
+  // The refusal SET (not a running counter — sankey round-4 review, N3,
+  // relocated agy P2-1): several ROWS of one multi-row band can cross the
+  // SAME foreign-owned cell (the identical shared free-row detour that
+  // makes self-revisits routine above), and a counter added a fresh unit
+  // for every one of those revisits — measured on the energy dataset's own
+  // `Natural Gas -> Industrial` at 140x40, a counter reported 576 while the
+  // band's own DISTINCT lost cells numbered 111. A `Set` of cell indices
+  // per band is the fix: revisiting an already-refused cell (whether by
+  // the SAME row again or a DIFFERENT row of the same band) adds nothing.
+  // A gap row from the visual-air feature never reaches this at all — it
+  // was never assigned to any band's row range, so `paintForBand` is never
+  // CALLED for it, planned or not; this Set only ever sees cells that are
+  // genuinely part of some band's own routed/ribbon footprint.
   const cellOwner = new Map<number, SankeyBand>();
-  const refusedByBand = new Map<SankeyBand, number>();
+  const refusedCellsByBand = new Map<SankeyBand, Set<number>>();
   const paintForBand = (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined): void => {
     const idx = y * canvas.cols + x;
     if (paintCell(x, y, glyph, color)) { cellOwner.set(idx, band); return; }
     if (cellOwner.get(idx) !== band) {
-      refusedByBand.set(band, (refusedByBand.get(band) ?? 0) + 1);
+      const cells = refusedCellsByBand.get(band) ?? new Set<number>();
+      cells.add(idx);
+      refusedCellsByBand.set(band, cells);
     }
   };
 
@@ -1287,8 +1362,8 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     }
   }
   paintSankeyRoutedRowsFallback(canvas, fallbackRows, paintForBand, ribbon);
-  for (const [band, cells] of refusedByBand) {
-    if (cells > 0) ledger.push(ledgerSankeyBandBroken({ source: band.source, target: band.target, cells }));
+  for (const [band, cells] of refusedCellsByBand) {
+    if (cells.size > 0) ledger.push(ledgerSankeyBandBroken({ source: band.source, target: band.target, cells: cells.size }));
   }
 
   paintSankeyNodeBoxes(canvas, layout, ledger, paintCell, claimedBy, textScale);

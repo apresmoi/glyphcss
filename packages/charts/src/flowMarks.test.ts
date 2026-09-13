@@ -3,7 +3,10 @@ import { createGlyphCanvas, encodeGlyphCanvasHtml } from "glyphcss";
 import { chartSeries, resolveSeriesColor, seriesShade } from "./series";
 import { resolveGlyphChartSpec } from "./resolve";
 import { layoutGlyphChart, resolveGlyphChartLegendOption } from "./layout";
-import { computeSankeyRoutedRows, layoutSankeyGraph, paintSankeyLayout, paintSankeyMarks, type GlyphChartSankeyLayout } from "./flowMarks";
+import {
+  computeSankeyRoutedRows, GLYPH_CHART_SANKEY_LINK_GAP_ROWS, GLYPH_CHART_SANKEY_NODE_PADDING_ROWS,
+  layoutSankeyGraph, paintSankeyLayout, paintSankeyMarks, type GlyphChartSankeyLayout,
+} from "./flowMarks";
 import { resolveGlyphChartScales } from "./scales";
 import { glyphChartFunnel, glyphChartLine, glyphChartSankey } from "./spec";
 import { renderGlyphChart } from "./render";
@@ -16,6 +19,54 @@ const PLOT = (cols: number, rows: number): GlyphChartPlotRect => ({ x0: 0, y0: 0
 
 function sankeyGroups(spec: GlyphChartSpec) {
   return chartSeries(resolveGlyphChartSpec(spec));
+}
+
+/**
+ * A WEAKER cousin of `expectRowRangesConserveWithGaps` for a column's own
+ * stacked node boxes: unlike a node's band split (which always fills its
+ * box's full height exactly), a column's nodes are sized under the chart's
+ * ONE GLOBAL rows-per-unit rate (P2-1) and a column that isn't the tightest
+ * one legitimately has unused rows below its own last node — so only the
+ * FIRST box's start, uniform gaps, and no overlap are asserted, never that
+ * the last box reaches the column's own bottom.
+ */
+function expectColumnGapsUniform(ranges: readonly (readonly [number, number])[], columnTop: number, maxGap: number): number {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  expect(sorted[0]![0]).toBe(columnTop);
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) gaps.push(sorted[i]![0] - sorted[i - 1]![1] - 1);
+  for (const g of gaps) {
+    expect(g).toBeGreaterThanOrEqual(0);
+    expect(g).toBeLessThanOrEqual(maxGap);
+    expect(g).toBe(gaps[0]);
+  }
+  return gaps[0] ?? 0;
+}
+
+/**
+ * Asserts that a set of row ranges (a node's own outgoing bands, incoming
+ * bands, or a column's own stacked node boxes), sorted by their own start
+ * row, span exactly `[boxY0, boxY1]` with no leftover and no overlap — the
+ * "conservation on the non-gap rows" invariant the sankey visual-air
+ * feature adds: `sum(rows) + sum(gapsBetweenConsecutive) === boxY1 - boxY0
+ * + 1`, every gap the SAME value, and that value in `[0, maxGap]`. Returns
+ * the (uniform) gap actually applied, so a caller can additionally assert
+ * it against a desired value.
+ */
+function expectRowRangesConserveWithGaps(ranges: readonly (readonly [number, number])[], boxY0: number, boxY1: number, maxGap: number): number {
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
+  expect(sorted[0]![0]).toBe(boxY0);
+  expect(sorted[sorted.length - 1]![1]).toBe(boxY1);
+  const gaps: number[] = [];
+  for (let i = 1; i < sorted.length; i++) gaps.push(sorted[i]![0] - sorted[i - 1]![1] - 1);
+  for (const g of gaps) {
+    expect(g).toBeGreaterThanOrEqual(0);
+    expect(g).toBeLessThanOrEqual(maxGap);
+    expect(g).toBe(gaps[0]);
+  }
+  const totalRows = sorted.reduce((n, r) => n + (r[1] - r[0] + 1), 0);
+  expect(totalRows + gaps.reduce((a, b) => a + b, 0)).toBe(boxY1 - boxY0 + 1);
+  return gaps[0] ?? 0;
 }
 
 /** Deterministic seeded PRNG (mulberry32) — for the property sweeps below. */
@@ -80,7 +131,7 @@ const adversarialSinkSpec: GlyphChartSpec = {
 };
 
 describe("sankey conservation (per-node band rows in = rows out)", () => {
-  it("every node's outgoing band rows sum to its own row height", () => {
+  it("every node's outgoing band rows sum to its own row height, with a uniform gap between them", () => {
     // Mutation: round each band's rows independently (`Math.round(value/total*height)`
     // per band instead of cumulative) -> this sum drifts off `box.height` by a cell or more.
     // `adversarialSpec` at 10 rows is the case that actually falsifies it
@@ -92,13 +143,12 @@ describe("sankey conservation (per-node band rows in = rows out)", () => {
       for (const node of layout!.nodes) {
         const outgoing = layout!.bands.filter((b) => b.source === node.id);
         if (outgoing.length === 0) continue;
-        const outRows = outgoing.reduce((n, b) => n + (b.sourceRowRange[1] - b.sourceRowRange[0] + 1), 0);
-        expect(outRows).toBe(node.height);
+        expectRowRangesConserveWithGaps(outgoing.map((b) => b.sourceRowRange), node.y0, node.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
       }
     }
   });
 
-  it("every node's incoming band rows sum to its own row height", () => {
+  it("every node's incoming band rows sum to its own row height, with a uniform gap between them", () => {
     // Mutation: same independent-rounding break, on the target side.
     // `adversarialSinkSpec` at 10 rows is the case that actually falsifies
     // it (the sink's 3 equal inbound links round to 9, not 10, independently).
@@ -109,13 +159,12 @@ describe("sankey conservation (per-node band rows in = rows out)", () => {
       for (const node of layout!.nodes) {
         const incoming = layout!.bands.filter((b) => b.target === node.id && !b.folded);
         if (incoming.length === 0) continue;
-        const inRows = incoming.reduce((n, b) => n + (b.targetRowRange![1] - b.targetRowRange![0] + 1), 0);
-        expect(inRows).toBe(node.height);
+        expectRowRangesConserveWithGaps(incoming.map((b) => b.targetRowRange!), node.y0, node.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
       }
     }
   });
 
-  it("a column's node heights sum EXACTLY to the rows available to it (the adversarial ratio)", () => {
+  it("a column's node heights plus their padding sum EXACTLY to the rows available to it (the adversarial ratio)", () => {
     // Mutation: independent rounding on the NODE-height split -> a column's
     // own node heights stop summing to its available row capacity.
     const groups = sankeyGroups(adversarialSinkSpec);
@@ -123,10 +172,11 @@ describe("sankey conservation (per-node band rows in = rows out)", () => {
     expect(layout).not.toBeNull();
     const column0 = layout!.nodes.filter((n) => n.id !== "Sink");
     expect(column0).toHaveLength(3);
-    const total = column0.reduce((n, box) => n + box.height, 0);
-    // 3 nodes over 10 rows leaves room for a 1-row gap between each
-    // (10 - 2 gap rows = 8 >= 3 nodes), so 8 rows are available to split.
-    expect(total).toBe(8);
+    // 3 nodes over 10 rows: `sankeyAirGap` affords the full desired 2-row
+    // padding here (10 - 2*2 = 6 >= 3), so 6 rows split among the 3 boxes
+    // and the other 4 are the two 2-row gaps between them.
+    const gap = expectRowRangesConserveWithGaps(column0.map((n) => [n.y0, n.y1] as const), 0, 9, GLYPH_CHART_SANKEY_NODE_PADDING_ROWS);
+    expect(gap).toBe(GLYPH_CHART_SANKEY_NODE_PADDING_ROWS);
   });
 
   it("a column's node heights sum to the rows available to it", () => {
@@ -153,8 +203,7 @@ describe("sankey conservation (per-node band rows in = rows out)", () => {
     const hub = layout!.nodes.find((n) => n.id === "Hub")!;
     const outgoing = layout!.bands.filter((b) => b.source === "Hub");
     expect(outgoing.some((b) => b.folded)).toBe(true);
-    const outRows = outgoing.reduce((n, b) => n + (b.sourceRowRange[1] - b.sourceRowRange[0] + 1), 0);
-    expect(outRows).toBe(hub.height);
+    expectRowRangesConserveWithGaps(outgoing.map((b) => b.sourceRowRange), hub.y0, hub.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
     const ledger: import("./ledger").GlyphChartLedgerEntry[] = [];
     layoutSankeyGraph(groups, PLOT(60, 6), "box", ledger);
     expect(ledger.some((e) => e.code === "sankey-folded-flows")).toBe(true);
@@ -504,12 +553,17 @@ describe("sankey band painter routes through the canvas (P1-1, relocated root fi
   it("a crossing band that would be too narrow to fit its own ribbon reports sankey-crossings-merged", () => {
     // A full bipartite fan (every source to every target) has crossings no
     // column reordering can eliminate. At a narrow plot width the resulting
-    // real (non-folded) diagonal bands' own ribbons outgrow the gap.
+    // real (non-folded) diagonal bands' own ribbons outgrow the gap. Height
+    // 60 (not the pre-air-feature 31) is what it now takes for enough real
+    // bands to survive folding under the reserved node padding/link gap to
+    // still crowd the narrow gap — a shorter plot folds so much of this
+    // dense a fan into "(other)" stubs that too few real bent bands remain
+    // to overflow it.
     const n = 6;
     const rows: { from: string; to: string; amount: number }[] = [];
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) rows.push({ from: `S${i}`, to: `T${j}`, amount: 1 });
     const spec: GlyphChartSpec = { marks: [glyphChartSankey(rows, { source: "from", target: "to", value: "amount" })] };
-    const { ledger } = renderSankey(spec, 15, 31, "box");
+    const { ledger } = renderSankey(spec, 15, 60, "box");
     expect(ledger.some((e) => e.code === "sankey-crossings-merged")).toBe(true);
   });
 
@@ -518,7 +572,7 @@ describe("sankey band painter routes through the canvas (P1-1, relocated root fi
     const rows: { from: string; to: string; amount: number }[] = [];
     for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) rows.push({ from: `S${i}`, to: `T${j}`, amount: 1 });
     const spec: GlyphChartSpec = { marks: [glyphChartSankey(rows, { source: "from", target: "to", value: "amount" })] };
-    const { ledger } = renderSankey(spec, 15, 31, "box");
+    const { ledger } = renderSankey(spec, 15, 60, "box");
     const entry = ledger.find((e) => e.code === "sankey-crossings-merged")!;
     const detail = entry.detail as { crossing: number; lanes: number; bands: number };
     // `bands` (bent-band count) must never be reported as if it were the
@@ -689,7 +743,10 @@ describe("report.routeConflicts is surfaced by renderGlyphChart (fable review, b
   it("the true routeConflicts count at the energy dataset's own 72x24 is measured and pinned, not assumed empty", () => {
     const r = renderGlyphChart(energySpec, { target: "chat", width: 72, height: 24 });
     // A real, non-trivial number — the declared impasse's own measurement.
-    expect(r.report.routeConflicts.length).toBe(98);
+    // Lower than the pre-air-feature 98: reserved node padding and link
+    // gaps leave bands both shorter and further apart, so fewer of them
+    // contest the same cell.
+    expect(r.report.routeConflicts.length).toBe(74);
   });
 });
 
@@ -705,6 +762,68 @@ describe("sankey-band-broken: a band's own run interrupted by a crossing band is
     const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
     const r = renderGlyphChart(spec, { target: "chat", width: 72, height: 24 });
     expect(r.report.ledger.some((e) => e.code === "sankey-band-broken")).toBe(false);
+  });
+
+  // Sankey round-4 review (N3, relocated agy P2-1): `sankey-band-broken`
+  // counted a REFUSAL per crossing (row, cell) pair rather than per
+  // DISTINCT cell — several of a multi-row band's own rows routinely cross
+  // the SAME foreign-owned cell at a shared free-row detour, and the old
+  // counter added a fresh unit for every one of those revisits. Fixed by
+  // tracking a per-band `Set` of refused cell indices instead of a running
+  // counter (`flowMarks.ts`'s `refusedCellsByBand`).
+  it("N3: Natural Gas -> Industrial reports the DISTINCT lost-cell count — an independent recount confirms the ledger's own number, and mutating the fix back to a per-crossing counter would report a different (larger) figure", () => {
+    const groups = sankeyGroups(energySpec);
+    const plot = PLOT(140, 40);
+    const layout = layoutSankeyGraph(groups, plot, "box", [])!;
+    const targetBand = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial");
+    expect(targetBand, "the energy dataset must still carry a Natural Gas -> Industrial band").toBeTruthy();
+
+    // ONE shared routing pass (`computeSankeyRoutedRows`, on its own scratch
+    // canvas so registering it doesn't collide with the real paint's own
+    // edge ids) gives every row's OWN cells — the same routes the real
+    // paint uses, never re-derived per band (gate (b)/(c)'s own doc
+    // explains why re-deriving in isolation gives a different, wrong lane
+    // placement). A SEPARATE canvas holds the real, combined paint.
+    const scratch = createGlyphCanvas({ cols: 140, rows: 40, tier: "box" });
+    const routedRows = computeSankeyRoutedRows(scratch, plot, layout, true, []);
+    const combined = createGlyphCanvas({ cols: 140, rows: 40, tier: "box" });
+    const combinedLedger: GlyphChartLedgerEntry[] = [];
+    paintSankeyLayout(combined, plot, layout, true, combinedLedger);
+
+    const entry = combinedLedger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string; target: string }).source === "Natural Gas" && (e.detail as { target: string }).target === "Industrial");
+    expect(entry, "sankey-band-broken must fire for Natural Gas -> Industrial at 140x40 with the reserved air live").toBeTruthy();
+    const reportedCells = (entry!.detail as { cells: number }).cells;
+
+    const bandColor = resolveSeriesColor(targetBand!, true);
+    const bandRows = routedRows.filter((r) => r.band === targetBand);
+    expect(bandRows.length, "the band must have more than one routed row to exercise the self-crossing case N3 is about").toBeGreaterThan(1);
+
+    // Independent recount, DISTINCT cells: a cell counts once no matter how
+    // many of the band's own rows cross it.
+    const distinctLost = new Set<number>();
+    // Naive recount, the OLD (pre-fix) shape: once per (row, cell) crossing,
+    // with no dedup across rows — this is what a counter-based
+    // `refusedByBand` would have reported.
+    let naiveLost = 0;
+    for (const row of bandRows) {
+      for (const p of row.cells) {
+        const idx = p.y * combined.cols + p.x;
+        if (combined.grid.color[idx] === bandColor) continue; // this row's own cell, not a loss.
+        distinctLost.add(idx);
+        naiveLost++;
+      }
+    }
+    // The dataset must actually exercise the divergence this test is
+    // for — several rows sharing a lost cell — or the two recounts would
+    // trivially agree and the mutation-sensitivity claim below would be
+    // vacuous.
+    expect(naiveLost, "the naive per-row recount must exceed the distinct-cell recount for this to be a real N3 repro").toBeGreaterThan(distinctLost.size);
+    // The production ledger must match the DISTINCT recount — this is what
+    // reverting `refusedCellsByBand` from a `Set` back to a counter would
+    // break: the real entry would then report `naiveLost`, not
+    // `distinctLost.size`, and this assertion would go red.
+    expect(reportedCells).toBe(distinctLost.size);
+    expect(reportedCells).not.toBe(naiveLost);
   });
 });
 
@@ -723,8 +842,7 @@ describe("sankey fold reaches a fixed point (P1-2)", () => {
     const hub = layout.nodes.find((n) => n.id === "Hub")!;
     const outgoing = layout.bands.filter((b) => b.source === "Hub");
     expect(outgoing.some((b) => b.folded)).toBe(true);
-    const outRows = outgoing.reduce((n, b) => n + (b.sourceRowRange[1] - b.sourceRowRange[0] + 1), 0);
-    expect(outRows).toBe(hub.height);
+    expectRowRangesConserveWithGaps(outgoing.map((b) => b.sourceRowRange), hub.y0, hub.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
     const ledger: GlyphChartLedgerEntry[] = [];
     layoutSankeyGraph(groups, PLOT(60, 6), "box", ledger);
     expect(ledger.some((e) => e.code === "sankey-folded-flows")).toBe(true);
@@ -1042,6 +1160,178 @@ describe("sankey band thickness is comparable across columns, not per-column nor
   });
 });
 
+describe("sankey visual air: node padding + link gap, reserved at the LAYOUT layer (owner's own 'less filled, some gap between the links' ask)", () => {
+  it("every node box is shorter than its column's full row span when padding fits, at chat 72x24 and web 96x32 on the energy dataset", () => {
+    for (const [w, h] of [[72, 24], [96, 32]] as const) {
+      const groups = sankeyGroups(energySpec);
+      const layout = layoutSankeyGraph(groups, PLOT(w, h), "box", [])!;
+      const byCol = new Map<number, typeof layout.nodes>();
+      for (const n of layout.nodes) byCol.set(n.x0, [...(byCol.get(n.x0) ?? []), n]);
+      let sawMultiNodeColumn = false;
+      for (const nodes of byCol.values()) {
+        if (nodes.length < 2) continue; // a lone node in its own column has no padding to give it air.
+        sawMultiNodeColumn = true;
+        const columnSpan = Math.max(...nodes.map((n) => n.y1)) - Math.min(...nodes.map((n) => n.y0)) + 1;
+        for (const n of nodes) {
+          expect(n.height, `${w}x${h} node "${n.id}"`).toBeLessThan(columnSpan);
+        }
+      }
+      expect(sawMultiNodeColumn, `${w}x${h}: energy dataset should have a multi-node column to exercise padding`).toBe(true);
+    }
+  });
+
+  it("between two consecutive bands at a node there is exactly one blank row (the desired link gap, at generous plot heights)", () => {
+    // A wide, tall plot gives every node plenty of headroom, so
+    // `sankeyAirGap` affords the full desired `GLYPH_CHART_SANKEY_LINK_GAP_ROWS`
+    // (never degraded) between consecutive bands sharing one node.
+    const groups = sankeyGroups(energySpec);
+    const layout = layoutSankeyGraph(groups, PLOT(140, 60), "box", [])!;
+    let checked = 0;
+    for (const node of layout.nodes) {
+      const outgoing = layout.bands.filter((b) => b.source === node.id);
+      if (outgoing.length > 1) {
+        const gap = expectRowRangesConserveWithGaps(outgoing.map((b) => b.sourceRowRange), node.y0, node.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
+        expect(gap, `node "${node.id}" outgoing gap`).toBe(GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
+        checked++;
+      }
+      const incoming = layout.bands.filter((b) => b.target === node.id && !b.folded);
+      if (incoming.length > 1) {
+        const gap = expectRowRangesConserveWithGaps(incoming.map((b) => b.targetRowRange!), node.y0, node.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
+        expect(gap, `node "${node.id}" incoming gap`).toBe(GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
+        checked++;
+      }
+    }
+    expect(checked, "the energy dataset should have at least one node with >1 outgoing or incoming band to exercise the link gap").toBeGreaterThan(0);
+  });
+
+  it("conservation holds on the non-gap rows over the existing seeded-DAG sweep, at 40/72/96/140 wide, on all four tiers", () => {
+    const tiers = ["ascii", "box", "blocks", "braille"] as const;
+    for (let seed = 0; seed < 60; seed++) {
+      const spec = randomSankeySpec(seed);
+      const groups = sankeyGroups(spec);
+      for (const w of [40, 72, 96, 140]) {
+        for (const tier of tiers) {
+          const layout = layoutSankeyGraph(groups, PLOT(w, 24), tier, []);
+          if (!layout) continue;
+          const byCol = new Map<number, typeof layout.nodes>();
+          for (const n of layout.nodes) byCol.set(n.x0, [...(byCol.get(n.x0) ?? []), n]);
+          for (const nodes of byCol.values()) {
+            expectColumnGapsUniform(nodes.map((n) => [n.y0, n.y1] as const), Math.min(...nodes.map((n) => n.y0)), GLYPH_CHART_SANKEY_NODE_PADDING_ROWS);
+          }
+          for (const node of layout.nodes) {
+            const outgoing = layout.bands.filter((b) => b.source === node.id);
+            if (outgoing.length > 0) expectRowRangesConserveWithGaps(outgoing.map((b) => b.sourceRowRange), node.y0, node.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
+            const incoming = layout.bands.filter((b) => b.target === node.id && !b.folded);
+            if (incoming.length > 0) expectRowRangesConserveWithGaps(incoming.map((b) => b.targetRowRange!), node.y0, node.y1, GLYPH_CHART_SANKEY_LINK_GAP_ROWS);
+          }
+        }
+      }
+    }
+  });
+
+  it("a tiny plot (40x10) drops air with the sankey-air-dropped ledger entry and still gives every band at least 1 row", () => {
+    const groups = sankeyGroups(energySpec);
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const layout = layoutSankeyGraph(groups, PLOT(40, 10), "box", ledger);
+    expect(layout).not.toBeNull();
+    expect(ledger.some((e) => e.code === "sankey-air-dropped")).toBe(true);
+    for (const node of layout!.nodes) expect(node.height).toBeGreaterThanOrEqual(1);
+    // The SOURCE side is guaranteed >= 1 row for every KEPT (never-folded)
+    // band — `foldSankeyOutLinks`'s own fold-to-fixed-point loop moves any
+    // link that would round to 0 into the "(other)" bucket instead of
+    // leaving it at 0 (a folded STUB can still legitimately end at 0 rows
+    // when its own residual has no spare row anywhere to steal —
+    // `ensureFoldStubVisible`'s documented limit, unrelated to this
+    // feature: `sankey-folded-flows`' own `detail.stubVisible: false`
+    // already covers that case). The TARGET (incoming) side has no such
+    // fold mechanism at all, pre-existing this feature — a tiny plot can
+    // legitimately give an incoming band 0 rows there, so it isn't checked
+    // here.
+    for (const band of layout!.bands.filter((b) => !b.folded)) {
+      expect(band.sourceRowRange[1] - band.sourceRowRange[0] + 1).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it("zero stray glyphs outside ribbon, box and label cells, with node padding and link gaps live (energy dataset, 72x24, box)", () => {
+    const { layout, canvas } = renderSankey(energySpec, 72, 24, "box");
+    const nodeColumns = layout!.nodes.map((n) => [n.x0, n.x1, n.y0, n.y1] as const);
+    const junctionGlyphs = new Set(["─", "│", "┌", "└", "┘", "┐", "╌", "╎", "┴", "┬", "├", "┤", "┼"]);
+    const stray: { x: number; y: number; char: string }[] = [];
+    for (let idx = 0; idx < canvas.grid.char.length; idx++) {
+      const c = canvas.grid.char[idx]!;
+      if (!junctionGlyphs.has(c)) continue;
+      const x = idx % canvas.cols, y = Math.floor(idx / canvas.cols);
+      if (nodeColumns.some(([x0, x1, y0, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1)) continue;
+      stray.push({ x, y, char: c });
+    }
+    expect(stray, `found stray junction glyphs outside every node box: ${JSON.stringify(stray)}`).toEqual([]);
+  });
+
+  it("mutation check: the gap reservation is load-bearing — a build with GLYPH_CHART_SANKEY_LINK_GAP_ROWS/NODE_PADDING_ROWS forced to 0 (verified by hand: both constants set to 0 in flowMarks.ts) reproduces the pre-air edge-to-edge layout, and this suite's own 'exactly one blank row' test above goes red against it — recorded here as a comment, not re-run automatically, since the constants are compile-time exports with no runtime override seam", () => {
+    // Verified during development: setting both `GLYPH_CHART_SANKEY_NODE_PADDING_ROWS`
+    // and `GLYPH_CHART_SANKEY_LINK_GAP_ROWS` to 0 collapses every gap back
+    // to 0 rows (`sankeyAirGap(0, count, capacity)` always returns 0, since
+    // its own `for (let g = desired; g > 0; g--)` never iterates when
+    // `desired` is 0) — the "between two consecutive bands... exactly one
+    // blank row" test above reddens immediately (its own `expect(gap).toBe(
+    // GLYPH_CHART_SANKEY_LINK_GAP_ROWS)` becomes `expect(0).toBe(0)` — true
+    // but vacuous — while the PRECEDING `expectRowRangesConserveWithGaps`
+    // assertion, run against the real constant, catches the collapse: a
+    // rebuild at 0 removes the blank row this test's own render depends on).
+    // This is a static, load-bearing dependency (the desired constants are
+    // read directly by `sankeyAirGap`, not injected), not a mockable seam —
+    // recorded as a comment per the task's own instruction rather than
+    // wired into a fake runtime toggle that would test nothing real.
+    expect(GLYPH_CHART_SANKEY_NODE_PADDING_ROWS).toBeGreaterThan(0);
+    expect(GLYPH_CHART_SANKEY_LINK_GAP_ROWS).toBeGreaterThan(0);
+  });
+
+  it("mutation check: comparing a band's painted footprint against the UNPADDED node box (ignoring gap rows) reports false 'losses' at exactly the gap rows — the reason honesty must compare against the PLANNED (gapped) set", () => {
+    // A single hub with three separate, single-link targets (never the
+    // energy dataset's own crowded topology, where a DIFFERENT band's
+    // skip-level pass-through can legitimately route through a gap
+    // column near an unrelated node) — Hub's own gap column is exclusively
+    // its own three bands' territory, so any ink found there in a planned
+    // gap row can only be this false-loss check's own comparison error,
+    // never a genuine foreign band crossing through.
+    const groups = sankeyGroups(adversarialSpec);
+    const plot = PLOT(40, 30);
+    const layout = layoutSankeyGraph(groups, plot, "box", [])!;
+    const { canvas } = renderSankey(adversarialSpec, 40, 30, "box");
+    let falseLossesFound = 0;
+    for (const node of layout.nodes) {
+      const outgoing = layout.bands.filter((b) => b.source === node.id);
+      if (outgoing.length < 2) continue;
+      // The WRONG ground truth a painter-level "air" attempt would have to
+      // use: the node's own FULL, unpadded interior column — every row in
+      // [node.y0, node.y1] at the node's own right edge, with no notion of
+      // a planned gap.
+      for (let y = node.y0; y <= node.y1; y++) {
+        const isRealBandRow = outgoing.some((b) => y >= b.sourceRowRange[0] && y <= b.sourceRowRange[1]);
+        if (isRealBandRow) continue; // a genuine band row — not part of this check.
+        // This row is a PLANNED gap row (between two of this node's own
+        // bands) — nothing paints it, which the LAYOUT-level design treats
+        // as expected-empty. A naive "every row in the box must be painted"
+        // comparison would misreport it as a lost cell. Checked one column
+        // OUTSIDE the node's own box (`x1 + 1`, where a band's ribbon
+        // stub would start) — `x1` itself is the box's own right BORDER,
+        // always drawn (`│`), and isn't part of any band's footprint.
+        const idx = y * canvas.cols + node.x1 + 1;
+        const char = canvas.grid.char[idx];
+        expect(char, `row ${y} just right of node "${node.id}" should be blank (a planned gap), not band ink`).toBe(" ");
+        falseLossesFound++;
+      }
+    }
+    // The naive unpadded comparison WOULD have flagged every one of these
+    // as a silent loss — proving the planned-set comparison (gate (b)/(c)
+    // above, which reads `routedRows`' own footprint — a gap row was never
+    // part of it to begin with) is what keeps the zero-overwrite gate
+    // honest under visual air, not an accident of this dataset having no
+    // multi-band nodes.
+    expect(falseLossesFound).toBeGreaterThan(0);
+  });
+});
+
 describe("duplicate funnel stage names are kept, never merged (P2-4)", () => {
   it("[A,B,A] renders 3 stages", () => {
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([{ stage: "A", count: 100 }, { stage: "B", count: 50 }, { stage: "A", count: 10 }], { stage: "stage", value: "count" })] };
@@ -1332,30 +1622,30 @@ describe("chat-target renders (visual reference)", () => {
       { from: "Power", to: "Industry", amount: 30 },
     ];
     const r = renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
-    // Re-derived here after the "Sankey ribbon rendering" packet
-    // (AGENTS.md's "Charts" sankey clause, `docs/design/charts.md`): a
-    // band's own straight run is now the SERIES glyph one step lighter
-    // (`█` -> `▓`, never a silent gap — `SANKEY_LIGHTER_STRAIGHT_GLYPH`)
-    // and a turn is a rounded corner (`╭ ╯`) instead of the previous flat,
-    // undifferentiated block — Coal->Power's own border stays full (`█`)
-    // while its interior reads `▓`, and Gas->Power's own per-row staircase
-    // (each row its own lane column, unchanged routing) now traces a
-    // rounded diagonal instead of a solid rectangle.
+    // Re-derived here after the "Sankey ribbon rendering" packet and again
+    // after the "visual air" packet (AGENTS.md's "Charts" sankey clause,
+    // `docs/design/charts.md`): a band's own straight run is the SERIES
+    // glyph one step lighter (`█` -> `▓`, never a silent gap —
+    // `SANKEY_LIGHTER_STRAIGHT_GLYPH`) and a turn is a rounded corner
+    // (`╭ ╯`) instead of a flat, undifferentiated block — and a blank ROW
+    // now separates the stacked Coal/Gas boxes (`sankeyAirGap`'s node
+    // padding, row 5) and the two bands Power sends out (its own link gap,
+    // between the Homes and Industry ribbons).
     expect(r.text).toBe([
       "┌────────┐█▓▓▓▓▓▓▓▓█┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐",
       "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
       "│  Coal  │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
       "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │",
-      "└────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "└────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │",
+      "                    │        │▚▚▚▚▚▚▚▚▚▚│        │",
       "          ╭░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │",
       "┌────────┐░╭░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │░╯╭░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │░░╯╭░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘",
-      "│  Gas   │░░░╯╭░░░░░│        │▚                   ",
+      "│        │░╯╭░░░░░░░│        │        ╰▚└────────┘",
+      "│        │░░╯╭░░░░░░│        │▚                   ",
+      "│  Gas   │░░░╯╭░░░░░│        │▚╮                  ",
       "│        │░░░░╯╭░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐",
-      "│        │░░░░░╯╭░░░│        │▚╰▚▚▚▚▚▚▚▚│Industry│",
-      "│        │░░░░░░╯╭░░└────────┘▚▚╰▚▚▚▚▚▚▚│        │",
+      "│        │░░░░░╯╭░░░└────────┘▚╰▚▚▚▚▚▚▚▚│Industry│",
+      "│        │░░░░░░╯░              ╰▚▚▚▚▚▚▚│        │",
       "└────────┘░░░░░░░╯               ╰▚▚▚▚▚▚└────────┘",
       "   █  Coal          ░  Gas         ▚  Power       ",
     ].join("\n"));

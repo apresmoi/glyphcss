@@ -115,9 +115,13 @@ export function ledgerSankeyImbalance(opts: { readonly node: string; readonly in
  * crossing — border cells and node conservation stay exact (never a
  * silent loss of the QUANTITY), but the reader-visible run itself can
  * split into two or more disconnected pieces (sankey round-3 review,
- * finding k). `cells` is the LONGEST single interior gap across the
- * band's own rows, the same "longest contiguous interruption" metric the
- * review measured.
+ * finding k). `cells` is the COUNT of the band's own DISTINCT cells lost
+ * to another band's (or an earlier mark's) genuine claim — a `Set` of cell
+ * indices per band, not a running counter (sankey round-4 review, N3): a
+ * multi-row band's own several rows routinely cross the SAME foreign-owned
+ * cell at a shared free-row detour, and counting each crossing as its own
+ * unit over-reported by 5x on the energy dataset's own `Natural Gas ->
+ * Industrial` (576 counted vs 111 distinct cells at 140x40).
  */
 export function ledgerSankeyBandBroken(opts: { readonly source: string; readonly target: string; readonly cells: number }): GlyphChartLedgerEntry {
   const plural = opts.cells === 1 ? "" : "s";
@@ -165,6 +169,23 @@ export function ledgerSankeyColumnsFolded(opts: { readonly folded: number; reado
 export function ledgerSankeyNodesDropped(opts: { readonly nodes: readonly string[] }): GlyphChartLedgerEntry {
   const plural = opts.nodes.length === 1 ? "" : "s";
   return entry("sankey-nodes-dropped", `${opts.nodes.length} node${plural} had no room left in their own column and aren't drawn — ${opts.nodes.join(", ")}.`, { ...opts });
+}
+
+/**
+ * A sankey's visual AIR — `GLYPH_CHART_SANKEY_NODE_PADDING_ROWS` between
+ * stacked node boxes in one column, `GLYPH_CHART_SANKEY_LINK_GAP_ROWS`
+ * between consecutive bands leaving/entering one node — is a LAYOUT
+ * decision (`flowMarks.ts`'s `sankeyAirGap`), reserved from the available
+ * rows BEFORE the cumulative-rounding split so a degraded gap is a planned
+ * absence, never a lost cell. Reported once per column (`where: "node
+ * padding"`) or once per node (`where: "link gap"`) only when the gap was
+ * fully dropped (0 rows), never merely scaled down from its desired size.
+ */
+export function ledgerSankeyAirDropped(opts: { readonly where: "node padding" | "link gap"; readonly id: string; readonly requestedRows: number }): GlyphChartLedgerEntry {
+  const subject = opts.where === "node padding"
+    ? `the gap between "${opts.id}"'s own stacked node boxes`
+    : `the gap between "${opts.id}"'s own bands`;
+  return entry("sankey-air-dropped", `There isn't room for ${subject} — drawing them without it.`, { ...opts });
 }
 
 export function ledgerFunnelFoldedStages(opts: { readonly stages: readonly string[] }): GlyphChartLedgerEntry {

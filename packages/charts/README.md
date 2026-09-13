@@ -205,7 +205,7 @@ Like `bar`, but drawn as a plain 1-cell-wide column at each `x`/`y` pair rather 
 
 ### `glyphChartSankey`
 
-Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`); row height is ∝ throughput under ONE global rows-per-unit scale (never independently normalised per column, which could draw a larger value thinner than a smaller one elsewhere), and a flow's band is ∝ value at BOTH ends — every row split uses the same cumulative-rounding technique `bar`/`rect` dodging uses, so a node's own row height and the sum of its outgoing/incoming band rows always conserve exactly, and folding a too-small flow into a single `(other)` band iterates to a fixed point (`sankey-folded-flows`). Each band of k rows is painted as k parallel single-cell-wide routes through the cell canvas's own edge/route contract, each reserving a column within an interval-coloured ribbon — two bands share a ribbon slot only when their vertical extents never overlap, so two overlapping crossing bands land on different columns and a crossing reads as two bands passing rather than one erasing the other (`sankey-crossings-merged` when a gap is too narrow for every ribbon). A row's own first and last cell (touching its source/target border) are claimed with absolute priority ahead of any other band's transit, so every band reaches both its own borders regardless of any crossing through it; `report.routeConflicts` is not fully empty in practice (two ribbons sharing one border column can still coincide at a single cell along their own axis), but a conflict cell always paints a real contending band's own colour, never a blank or foreign one. A non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive value or a missing channel rejects with `sankey-bad-value` (a non-finite value in the data itself rejects earlier and generically with `non-finite-data`); a typo'd channel name rejects with `sankey-missing-channel` rather than a misleading cycle error; a genuine cycle rejects with `sankey-cycle`. Legend: one entry per source node.
+Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`); row height is ∝ throughput under ONE global rows-per-unit scale (never independently normalised per column, which could draw a larger value thinner than a smaller one elsewhere), and a flow's band is ∝ value at BOTH ends — every row split uses the same cumulative-rounding technique `bar`/`rect` dodging uses, so a node's own row height and the sum of its outgoing/incoming band rows always conserve exactly, and folding a too-small flow into a single `(other)` band iterates to a fixed point (`sankey-folded-flows`). A gap row (`GLYPH_CHART_SANKEY_NODE_PADDING_ROWS`, `GLYPH_CHART_SANKEY_LINK_GAP_ROWS`) is reserved BEFORE that split — between stacked node boxes in one column, and between consecutive bands leaving or entering one node — so a box is visibly shorter than its column and bands don't stack edge to edge; the gap is a planned absence baked into the row math itself, degrading toward 0 (never below 1 row for a band) when the plot is too tight to afford it. Each band of k rows is painted as k parallel single-cell-wide routes through the cell canvas's own edge/route contract on `ascii`/`box` (a rounded corner at each turn, its own series glyph one step lighter on a straight run) or as a genuine per-dot-column smooth ribbon on `braille`/`blocks`, each reserving a column within an interval-coloured ribbon — two bands share a ribbon slot only when their vertical extents never overlap, so two overlapping crossing bands land on different columns and a crossing reads as two bands passing rather than one erasing the other (`sankey-crossings-merged` when a gap is too narrow for every ribbon). A row's own first and last cell (touching its source/target border) are claimed with absolute priority ahead of any other band's transit, so every band reaches both its own borders regardless of any crossing through it; `report.routeConflicts` is not fully empty in practice (two ribbons sharing one border column can still coincide at a single cell along their own axis), but a conflict cell always paints a real contending band's own colour, never a blank or foreign one. A non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive value or a missing channel rejects with `sankey-bad-value` (a non-finite value in the data itself rejects earlier and generically with `non-finite-data`); a typo'd channel name rejects with `sankey-missing-channel` rather than a misleading cycle error; a genuine cycle rejects with `sankey-cycle`. Legend: one entry per source node.
 
 ```ts
 const data = [
@@ -217,21 +217,21 @@ const data = [
 renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
 ```
 ```
-┌────────┐██████████┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐
-│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
-│  Coal  │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
-│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
-│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │
-└────────┘██████████│        │▚▚▚▚▚▚▚▚▚▚│        │
-          ░░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │
-┌────────┐░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
-│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
-│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘
-│  Gas   │░░░░░░░░░░│        │▚                   
-│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐
-│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│Industry│
-│        │░░░░░░░░░░└────────┘▚▚▚▚▚▚▚▚▚▚│        │
-└────────┘░░░░░░░░               ▚▚▚▚▚▚▚└────────┘
+┌────────┐█▓▓▓▓▓▓▓▓█┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐
+│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+│  Coal  │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
+└────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │
+                    │        │▚▚▚▚▚▚▚▚▚▚│        │
+          ╭░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │
+┌────────┐░╭░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
+│        │░╯╭░░░░░░░│        │        ╰▚└────────┘
+│        │░░╯╭░░░░░░│        │▚                   
+│  Gas   │░░░╯╭░░░░░│        │▚╮                  
+│        │░░░░╯╭░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐
+│        │░░░░░╯╭░░░└────────┘▚╰▚▚▚▚▚▚▚▚│Industry│
+│        │░░░░░░╯░              ╰▚▚▚▚▚▚▚│        │
+└────────┘░░░░░░░╯               ╰▚▚▚▚▚▚└────────┘
    █  Coal          ░  Gas         ▚  Power       
 ```
 

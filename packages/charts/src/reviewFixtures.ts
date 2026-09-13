@@ -47,8 +47,20 @@
  *    (fixed) build — every other key in each file is untouched, still the
  *    real 926ab7b0/pre-feature parent output.
  *
- * A NEW divergence found outside these seven is a real regression, not an
- * eighth exception to wave through — add it here, with its own dedicated
+ * 8. (`flowMarks.ts`'s `sankeyAirGap`) Visual AIR — a gap between stacked
+ *    node boxes in one column, and a gap between consecutive bands leaving
+ *    or entering one node — is now reserved at the LAYOUT layer before any
+ *    row is split among nodes/bands, so a sankey's boxes are visibly
+ *    shorter than their column and its links no longer stack edge to edge.
+ *    Affects `goodSpecs[17]` (`sankeySample`) on EVERY tier (unlike #7,
+ *    this changes row math the fallback path shares too) — the four
+ *    fixture files that carry index 17 (`strokeWidthParentFixtures.json`,
+ *    `textScaleParentFixtures.json`, `tickFormatParentFixtures.json`,
+ *    `axisTitleParentGoodSpecs.json`) have that one key's own value
+ *    re-derived from the current build; every other key is untouched.
+ *
+ * A NEW divergence found outside these eight is a real regression, not a
+ * ninth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
