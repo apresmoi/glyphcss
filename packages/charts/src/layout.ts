@@ -9,7 +9,7 @@
  */
 
 import { timeFormat } from "d3-time-format";
-import { chartSeries, chartSeriesColors, SERIES_COLORS } from "./series";
+import { chartSeries, chartSeriesColors } from "./series";
 import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
 import { ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped, ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry } from "./ledger";
@@ -448,9 +448,12 @@ export function layoutGlyphChart(
   // A mark's own `options.color` override (`chartSeries`' own resolution,
   // never re-derived here) repaints the legend swatch too — falls back to
   // the shared palette by first-appearance order exactly as before this
-  // option existed.
+  // option existed. No further fallback here: `names` and `seriesColors`
+  // both derive from the same `chartSeries` pass, so every name in `names`
+  // is already a key of `seriesColors` (a `SERIES_COLORS[i % …]` fallback
+  // here was previously unreachable dead code).
   const seriesColors = chartSeriesColors(marks);
-  const items = names.map((label, i) => ({ label, color: seriesColors.get(label) ?? SERIES_COLORS[i % SERIES_COLORS.length] }));
+  const items = names.map((label) => ({ label, color: seriesColors.get(label)! }));
   const reserveBottomLegend = (): boolean => {
     const legendWide = cols >= 12 && rows - top - 3 > 2;
     if (legendWide) { legend = { placement: "bottom", row: bottom, items }; bottom -= 1; }

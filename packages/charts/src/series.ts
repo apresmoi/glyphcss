@@ -1,5 +1,5 @@
 import type { GlyphCanvasLineStyle } from "glyphcss";
-import { ledgerMarkColorUnused, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerMarkColorUnused, ledgerSeriesColorConflict, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartCharset, GlyphChartMarkRow } from "./types";
 
@@ -106,7 +106,30 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       if (arr.length > groups.size) ledger.push(ledgerMarkColorUnused({ markType: mark.type, provided: arr.length, used: groups.size }));
     }
   }
-  return out;
+  // A series NAME is one identity shared across every mark that names it
+  // (this file's own header, above: "their identities must agree") — so its
+  // colour is resolved ONCE, by name, first-appearance order (the same rule
+  // `chartSeriesColors` already applies for the legend), never by each
+  // mark's own `sliceIndex` position. Without this, mark A's "B" and mark
+  // B's "B" could paint two different colours under one legend swatch, with
+  // nothing in `report.ledger` to say so (review finding P2-2).
+  const namedColor = new Map<string, string>();
+  const namedExplicit = new Map<string, string>();
+  for (const s of out) {
+    if (s.name === undefined) continue;
+    if (!namedColor.has(s.name)) namedColor.set(s.name, s.color ?? SERIES_COLORS[s.styleIndex % SERIES_COLORS.length]!);
+    if (s.color !== null) {
+      const prior = namedExplicit.get(s.name);
+      if (prior === undefined) namedExplicit.set(s.name, s.color);
+      // Only two EXPLICIT overrides disagreeing counts as a conflict — a
+      // name whose first occurrence had no override at all simply adopts
+      // whatever colour (override or palette default) that first
+      // occurrence resolved to, exactly like `chartSeriesColors` already
+      // does; that is a silent "first wins", not a disagreement to log.
+      else if (prior !== s.color && ledger) ledger.push(ledgerSeriesColorConflict({ name: s.name, kept: prior, rejected: s.color }));
+    }
+  }
+  return out.map((s) => s.name === undefined ? s : { ...s, color: namedColor.get(s.name)! });
 }
 
 /**
@@ -120,7 +143,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
 export function chartSeriesColors(marks: readonly GlyphChartResolvedMark[]): ReadonlyMap<string, string> {
   const map = new Map<string, string>();
   for (const s of chartSeries(marks)) {
-    if (s.name !== undefined && !map.has(s.name)) map.set(s.name, s.color ?? SERIES_COLORS[s.styleIndex % SERIES_COLORS.length]!);
+    if (s.name !== undefined && !map.has(s.name)) map.set(s.name, resolveSeriesColor(s, true)!);
   }
   return map;
 }

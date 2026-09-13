@@ -466,7 +466,7 @@ Every mark's own `options.color?: string | string[]` overrides its palette colou
 glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: ["#e11d48", "#0ea5e9"] });
 ```
 
-`arc` colours per slice; `cell` takes a single ink colour, or `[losses, gains]` for a diverging (mixed-sign) domain; `sankey` colours per source node; `funnel` colours per stage. `renderGlyphChart(..., { color: "none" })` drops every one of these exactly as it always dropped the palette — a spec with no colour options at all renders byte-identically whether or not this feature exists.
+`arc` colours per slice; `cell` takes a single ink colour, or `[losses, gains]` for a diverging (mixed-sign) domain; `sankey` colours per source node; `funnel` colours per stage. `renderGlyphChart(..., { color: "none" })` drops every one of these exactly as it always dropped the palette — under `color: "none"`, a spec with no colour options at all renders byte-identically whether or not this feature exists. With colour ON, a spec with no colour options is exactly the case whose axes now default to `GLYPH_CHART_AXIS_DEFAULT_COLOR` above, so that render is NOT byte-identical to before this feature existed.
 
 ## Scales, series and labels
 
