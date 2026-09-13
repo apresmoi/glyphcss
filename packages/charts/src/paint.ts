@@ -634,6 +634,34 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
 
 // ── marks (line / dot / rule) ───────────────────────────────────────────
 
+/** Default `1` — every mark's `options.strokeWidth`, already validated to
+ * `1 | 2 | 3` or absent by `validate.ts`'s `bad-stroke-width` rule. */
+function resolveStrokeWidth(options: { readonly strokeWidth?: 1 | 2 | 3 } | undefined): 1 | 2 | 3 {
+  return options?.strokeWidth ?? 1;
+}
+
+/**
+ * A width>=2 stroke on `braille`/`blocks` adds real ink up to ONE DOT
+ * perpendicular to the segment (`glyphcss`'s `paintSubcellLine`) — at most
+ * one whole CELL over, since a cell holds only 2 dot columns (or 4 dot
+ * rows), so a dot at a cell's own far edge steps into its neighbour. `plot`
+ * is inset by exactly that one-cell margin before a wide line's own
+ * endpoints are clipped to it, which is what keeps "clips to the plot rect
+ * like every mark" true at width 2/3 too. `ascii`/`box` never need this —
+ * width there only substitutes a heavier GLYPH on the identical walked
+ * cells (`canvas.ts`'s own doc) — and `width <= 1` returns `plot` verbatim,
+ * so a plain line's clip is byte-identical to before this option existed.
+ */
+function strokeClipPlot(plot: GlyphChartPlotRect, subcell: boolean, width: 1 | 2 | 3): GlyphChartPlotRect {
+  if (!subcell || width <= 1) return plot;
+  return {
+    x0: Math.min(plot.x1, plot.x0 + 1),
+    x1: Math.max(plot.x0, plot.x1 - 1),
+    y0: Math.min(plot.y1, plot.y0 + 1),
+    y1: Math.max(plot.y0, plot.y1 - 1),
+  };
+}
+
 /**
  * `canvas.line()` itself bounds a run only to the whole GRID (0..cols,
  * 0..rows) — it has no notion of the chart's own, possibly narrower, plot
@@ -642,17 +670,20 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
  * paint straight through the title row, the axis line, and the tick labels
  * (review finding 2) — `clipSegmentToPlot` is what `paintDot`'s own
  * plot-rect bounds check already does for a single point, generalised to a
- * segment.
+ * segment. `width` (default `1`, byte-identical when absent) is the mark's
+ * own `options.strokeWidth`, forwarded to `canvas.line()` — see
+ * `strokeClipPlot`'s doc for why width 2/3 clips against a tighter rect.
  */
-function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid"): void {
+function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid", width: 1 | 2 | 3 = 1): void {
   const points = rows
     .map((r) => ({ x: scaleToCol(scales.x, layout.plot, r.x), y: scaleToRow(scales.y, layout.plot, r.y) }));
+  const clipPlot = strokeClipPlot(layout.plot, GLYPH_CANVAS_TIERS[canvas.tier].subcell, width);
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]!, b = points[i + 1]!;
     if (!Number.isFinite(a.x) || !Number.isFinite(a.y) || !Number.isFinite(b.x) || !Number.isFinite(b.y)) continue;
-    const clipped = clipSegmentToPlot(a, b, layout.plot);
+    const clipped = clipSegmentToPlot(a, b, clipPlot);
     if (!clipped) continue;
-    canvas.line(clipped[0], clipped[1], { color, style });
+    canvas.line(clipped[0], clipped[1], { color, style, width });
   }
 }
 
@@ -745,8 +776,11 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
 
 // `glyphChartRule` marks are structural (a reference line), not a DATA
 // series, so they stay whole-cell like axes/gridlines/tick marks — the same
-// `subcell: false` override, not a second mechanism.
-function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, values: readonly number[], axis: "x" | "y", color: string | null): void {
+// `subcell: false` override, not a second mechanism. `subcell: false` also
+// means a rule's own footprint never depends on `width` (`canvas.ts`'s
+// whole-cell path only substitutes a heavier glyph), so `strokeClipPlot`'s
+// margin is never needed here.
+function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, values: readonly number[], axis: "x" | "y", color: string | null, width: 1 | 2 | 3 = 1): void {
   for (const v of values) {
     if (axis === "y") {
       const row = scaleToRow(scales.y, layout.plot, v);
@@ -758,12 +792,12 @@ function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
       // tick-mark junction glyphs for a line that reads identically to
       // the axis rule wherever both are plain "─" anyway.
       if (row === layout.xAxisLineRow) continue;
-      canvas.line({ x: layout.plot.x0, y: row }, { x: layout.plot.x1, y: row }, { color, style: "dashed", subcell: false });
+      canvas.line({ x: layout.plot.x0, y: row }, { x: layout.plot.x1, y: row }, { color, style: "dashed", subcell: false, width });
     } else {
       const col = scaleToCol(scales.x, layout.plot, v);
       if (col < layout.plot.x0 || col > layout.plot.x1) continue;
       if (col === layout.yAxisCol) continue;
-      canvas.line({ x: col, y: layout.plot.y0 }, { x: col, y: layout.plot.y1 }, { color, style: "dashed", subcell: false });
+      canvas.line({ x: col, y: layout.plot.y0 }, { x: col, y: layout.plot.y1 }, { color, style: "dashed", subcell: false, width });
     }
   }
 }
@@ -877,7 +911,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color });
     else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex)], { color });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color });
-    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4] });
+    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color });
   }
   if (covered > 0) ledger.push(ledgerLegendOverlapsMarks({ placement: legend.placement, covered }));
@@ -1014,13 +1048,14 @@ export function paintGlyphChart(
     const color = resolveSeriesColor(entry, opts.colorEnabled);
     const style = opts.colorEnabled ? "solid" : SERIES_STYLES[styleIndex % SERIES_STYLES.length]!;
     const guarded = guardedCanvas(canvas, mark.type);
-    if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, style);
+    const width = resolveStrokeWidth(mark.options);
+    if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, style, width);
     // Area boundaries carry the same monochrome series vocabulary as lines.
     if (mark.type === "area" && !opts.colorEnabled && series.some((s) => s.name !== undefined)) {
-      for (const layer of areaLayers(rows)) paintLine(guarded, layout, scales, layer.map((r) => ({ ...r, y: r.y1 ?? r.y })), color, style);
+      for (const layer of areaLayers(rows)) paintLine(guarded, layout, scales, layer.map((r) => ({ ...r, y: r.y1 ?? r.y })), color, style, width);
     }
     if (mark.type === "dot") paintDot(guarded, layout, scales, rows, color, opts.colorEnabled ? 0 : styleIndex);
-    if (mark.type === "rule") paintRule(guarded, layout, scales, ruleValues ?? [], mark.options?.axis ?? "y", color);
+    if (mark.type === "rule") paintRule(guarded, layout, scales, ruleValues ?? [], mark.options?.axis ?? "y", color, width);
   }
 
   // labels: title, legend, then any explicit `text` marks and rule/data
@@ -1136,7 +1171,7 @@ export function paintGlyphChart(
         guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex)], { color });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color });
-      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4] });
+      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
       guardedLabels.text(label.x, label.y, [label.text], { color });
     } else if (textColors.has(label.id)) {
       guardedLabels.text(label.x, label.y, [label.text], { color: textColors.get(label.id)! });

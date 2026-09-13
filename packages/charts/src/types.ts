@@ -79,6 +79,17 @@ export interface GlyphChartMarkOptions {
    * `sankey`: per source node. `funnel`: per stage.
    */
   readonly color?: string | readonly string[];
+  /**
+   * `line`/`rule`, and an `area`'s own boundary-line legend swatch: stroke
+   * thickness, `1` (default, byte-identical when absent) to `3`. `ascii`/
+   * `box` widen by substituting a heavier glyph on the SAME walked cells
+   * (`glyphcss`'s `GlyphCanvasLineOptions.width`); `blocks`/`braille` widen
+   * in real sub-cell DOTS, offset perpendicular to the segment. Series
+   * identity is unaffected — a dashed wide line stays dashed, and the
+   * legend swatch reflects the width. Any other value rejects with
+   * `bad-stroke-width`.
+   */
+  readonly strokeWidth?: 1 | 2 | 3;
 }
 
 export type GlyphChartTransformKind = "bin" | "stack" | "group" | "normalize" | "window";

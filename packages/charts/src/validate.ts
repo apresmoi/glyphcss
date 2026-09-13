@@ -8,7 +8,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
-  "funnel-missing-value",
+  "funnel-missing-value", "bad-stroke-width",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -148,11 +148,12 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   }
   if (mark.options !== undefined) {
     const o = mark.options;
-    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, and labels are supported options; size/shape/curve are not supported.");
+    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels", "strokeWidth"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, labels, and strokeWidth are supported options; size/shape/curve are not supported.");
     if (o.innerRadius !== undefined && (typeof o.innerRadius !== "number" || !Number.isFinite(o.innerRadius) || o.innerRadius < 0 || o.innerRadius >= 1)) chartError("invalid-inner-radius", "innerRadius must be in [0, 1).");
     if (o.axis !== undefined && o.axis !== "x" && o.axis !== "y") chartError("invalid-rule-axis", "axis must be x or y.");
     if (o.color !== undefined) validateMarkColor(o.color);
     if (o.labels !== undefined && o.labels !== "callout" && o.labels !== "legend-only") chartError("bad-options", "labels must be callout or legend-only.");
+    if (o.strokeWidth !== undefined && o.strokeWidth !== 1 && o.strokeWidth !== 2 && o.strokeWidth !== 3) chartError("bad-stroke-width", `strokeWidth must be 1, 2, or 3, got ${JSON.stringify(o.strokeWidth)}.`);
   }
 }
 
@@ -262,6 +263,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color, axes.x.color, and axes.y.color.",
   "bad-axis-title-at": `Use one of ${X_AXIS_TITLE_ATS.join("/")} for axes.x.titleAt, or one of ${Y_AXIS_TITLE_ATS.join("/")} for axes.y.titleAt.`,
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
+  "bad-stroke-width": "Set options.strokeWidth to 1, 2, or 3.",
 };
 
 /**
