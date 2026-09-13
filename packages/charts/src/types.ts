@@ -131,6 +131,33 @@ export interface GlyphChartAxisOptions {
 }
 
 /**
+ * Where the x-axis title sits on its own row under the tick labels:
+ * left-aligned at the plot's left edge, centred (`"center"`, the default —
+ * byte-identical when `titleAt` is absent), or right-aligned at the plot's
+ * right edge. Applies to both an explicit `title` and the automatic
+ * field-name default alike; the row-reservation gating (rows>=20, field name
+ * longer than two characters) is unchanged.
+ */
+export type GlyphChartXAxisTitleAt = "start" | "center" | "end";
+export interface GlyphChartXAxisOptions extends GlyphChartAxisOptions {
+  readonly titleAt?: GlyphChartXAxisTitleAt;
+}
+
+/**
+ * Where the y-axis title sits: `"top"` (the default — top-left, above the
+ * axis, byte-identical when `titleAt` is absent) or `"bottom"` — below the
+ * plot at the axis column, on its own row, which then costs a row exactly
+ * as the x-axis title does. When both axis titles land at the bottom, the
+ * y title shares the x title's row if it fits to the LEFT of it (painted at
+ * column 0, mirroring `"top"`'s own column); otherwise it claims its own
+ * row and an `axis-title-stacked` ledger entry records the fallback.
+ */
+export type GlyphChartYAxisTitleAt = "top" | "bottom";
+export interface GlyphChartYAxisOptions extends GlyphChartAxisOptions {
+  readonly titleAt?: GlyphChartYAxisTitleAt;
+}
+
+/**
  * Legend placement (owner packet: "legends only have on or off but no
  * placements"). `true`/omitted is `"bottom"` — byte-identical to the chart
  * before this option existed. The four corner placements paint INSIDE the
@@ -161,8 +188,8 @@ export interface GlyphChartSpec {
   readonly axes?: {
     /** Canonical `#rrggbb`; both axes' line, tick marks, tick labels, title, and grid — a mid grey (`GLYPH_CHART_AXIS_DEFAULT_COLOR`) when colour is on and neither this nor a per-axis `color` is set. */
     readonly color?: string;
-    readonly x?: GlyphChartAxisOptions;
-    readonly y?: GlyphChartAxisOptions;
+    readonly x?: GlyphChartXAxisOptions;
+    readonly y?: GlyphChartYAxisOptions;
   };
   readonly title?: GlyphChartTitleOption;
   readonly description?: string;

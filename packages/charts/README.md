@@ -451,6 +451,16 @@ value
 
 `y`'s title (`value`, defaulted from the channel field name) sits top-left above the axis — a rotated column of glyphs has no character-grid analogue — while `x`'s title (`month`) is centred under its own tick-label row. An auto title like these only shows with genuine room for it (`rows >= 20` for the x title, `cols >= 60` for the y title, hence the larger canvas above) and a field name longer than two characters; an EXPLICIT `axes.x.title`/`axes.y.title` (including `""` to suppress the default) always shows regardless of size. `tickMarks: false` on either axis reverts to a plain, undecorated rule. Index/integer data never shows a fractional tick (`0.5`, `1.5`, …), even where d3's own "nice" ladder for a small domain would otherwise reach for one.
 
+`axes.x.titleAt: "start" | "center" | "end"` (default `"center"`) moves the x title off its centred default to the plot's own left or right edge; `axes.y.titleAt: "top" | "bottom"` (default `"top"`) moves the y title from its top-left default to below the plot, at column 0, on its own row exactly like the x title's:
+
+```ts
+renderGlyphChart(spec, {
+  target: "chat", charset: "box", color: "none", width: 64, height: 22,
+}).text; // spec.axes: { x: { titleAt: "end" }, y: { titleAt: "bottom" } }
+```
+
+When both titles land at the bottom, the y title shares the x title's row if it fits to the LEFT of it; otherwise it claims a second row and `report.ledger` gets an `axis-title-stacked` entry. Applies to an explicit title and the automatic field-name default alike — the room-gating rules above are unchanged. Each axis has its own vocabulary (`axes.x.titleAt` never accepts `"top"`/`"bottom"`, and vice versa); an out-of-vocabulary value rejects with `bad-axis-title-at`.
+
 ## Colours
 
 `spec.axes.color?: string` (a canonical `#rrggbb`) sets both axes' line, tick marks, tick labels, title, and grid; `spec.axes.{x,y}.color` overrides it per axis. With colour on and no colour set, axes default to a muted mid grey (`GLYPH_CHART_AXIS_DEFAULT_COLOR`, `"#7a7f8a"`) rather than the reader's own foreground colour, so a chart's data marks read brighter than its frame:

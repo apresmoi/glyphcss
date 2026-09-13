@@ -32,6 +32,17 @@ export function ledgerTitleDropped(opts: { readonly cols: number; readonly rows:
   return entry("title-dropped", `Dropped the chart title to fit the chart in ${opts.cols}×${opts.rows}.`, { ...opts });
 }
 
+/**
+ * `axes.y.titleAt: "bottom"` shares the x-axis title's own row when the y
+ * title fits to its left; when it doesn't (both titles genuinely want the
+ * bottom row and there isn't room to fit both on one), the y title claims a
+ * second row of its own instead — this records that fallback, mirroring
+ * `legend-placement-degraded`'s own "moved it, here's why" shape.
+ */
+export function ledgerAxisTitleStacked(opts: { readonly cols: number; readonly rows: number }): GlyphChartLedgerEntry {
+  return entry("axis-title-stacked", `Gave the y-axis title its own row below the x-axis title — they don't fit side by side in ${opts.cols}×${opts.rows}.`, { ...opts });
+}
+
 export function ledgerLegendDropped(opts: { readonly series: number; readonly cols: number; readonly rows: number }): GlyphChartLedgerEntry {
   return entry("legend-dropped", `Dropped the legend to fit the chart in ${opts.cols}×${opts.rows}.`, { ...opts });
 }

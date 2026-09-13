@@ -1,6 +1,7 @@
 import {
   CHANNELS, GLYPH_CHART_VALIDATION_RULES, ISO_DATE_PATTERN, LEGEND_PLACEMENTS, MARK_TYPES, REDUCERS,
-  SCALE_TYPES, TITLE_ALIGNS, TITLE_POSITIONS, TRANSFORM_KINDS, XY_MARK_TYPES, glyphChartRepairHint,
+  SCALE_TYPES, TITLE_ALIGNS, TITLE_POSITIONS, TRANSFORM_KINDS, X_AXIS_TITLE_ATS, XY_MARK_TYPES,
+  Y_AXIS_TITLE_ATS, glyphChartRepairHint,
   type GlyphChartValidationRuleId,
 } from "./validate";
 
@@ -19,7 +20,8 @@ const NUMERIC_DOMAIN = { type: "array", minItems: 2, maxItems: 2, items: { type:
 // (`schema.test.ts`) compares this pattern's verdict against that regex.
 const HEX_COLOR_SCHEMA = { type: "string", pattern: "^#[0-9a-f]{6}$" };
 const MARK_COLOR_SCHEMA = { anyOf: [HEX_COLOR_SCHEMA, { type: "array", minItems: 1, items: HEX_COLOR_SCHEMA }] };
-const AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA } };
+const X_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: X_AXIS_TITLE_ATS } } };
+const Y_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: Y_AXIS_TITLE_ATS } } };
 const SCALE_SCHEMA = {
   type: "object",
   properties: { type: { enum: SCALE_TYPES }, nice: { type: "boolean" }, domain: { type: "array", minItems: 2, items: { anyOf: [{ type: "number" }, { type: "string" }] } } },
@@ -86,11 +88,11 @@ export function glyphChartJsonSchema(): GlyphChartJsonSchema {
     properties: {
       marks: { type: "array", minItems: 1, items: MARK_SCHEMA },
       scales: { type: "object", properties: { x: SCALE_SCHEMA, y: SCALE_SCHEMA }, additionalProperties: false },
-      // Only `color` is modelled (this rule's own scope) — `ticks`/
-      // `tickMarks`/`title`/`grid` have no runtime validation to mirror yet,
-      // so `additionalProperties` is left open rather than rejecting a
-      // legitimate axis option this schema doesn't know about.
-      axes: { type: "object", properties: { color: HEX_COLOR_SCHEMA, x: AXIS_SCHEMA, y: AXIS_SCHEMA } },
+      // Only `color` and `titleAt` are modelled (this rule's own scope) —
+      // `ticks`/`tickMarks`/`title`/`grid` have no runtime validation to
+      // mirror yet, so `additionalProperties` is left open rather than
+      // rejecting a legitimate axis option this schema doesn't know about.
+      axes: { type: "object", properties: { color: HEX_COLOR_SCHEMA, x: X_AXIS_SCHEMA, y: Y_AXIS_SCHEMA } },
       title: {
         anyOf: [
           { type: "string" },

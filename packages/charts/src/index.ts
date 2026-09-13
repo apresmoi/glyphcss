@@ -49,6 +49,7 @@ export { glyphChartSeriesPreview } from "./seriesPublic";
 export type { GlyphChartSeriesPreviewEntry } from "./seriesPublic";
 
 export type {
+  GlyphChartAxisOptions,
   GlyphChartCharset,
   GlyphChartChannels,
   GlyphChartChannelValue,
@@ -74,4 +75,8 @@ export type {
   GlyphChartTitlePosition,
   GlyphChartTransform,
   GlyphChartTransformKind,
+  GlyphChartXAxisOptions,
+  GlyphChartXAxisTitleAt,
+  GlyphChartYAxisOptions,
+  GlyphChartYAxisTitleAt,
 } from "./types";
