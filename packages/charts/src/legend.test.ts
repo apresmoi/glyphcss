@@ -71,4 +71,29 @@ describe("chart legends — named marks (packet item 4)", () => {
     expect(r.meta.series).toEqual(["Revenue", "Visits"]);
     expect(() => legendRow(r.text, "Revenue", "Visits")).toThrow();
   });
+
+  // fable review, batch 3, finding (b): a corner legend's swatch used to be
+  // a zero-length `canvas.line(p, p)` — one braille dot under a sub-cell
+  // tier, no room for the style cycle — so two line series became
+  // indistinguishable in monochrome output. Braille + color:"none" is the
+  // most sensitive combination: it is the web default AND drops colour as
+  // a distinguishing channel, leaving only the line style.
+  it("a corner legend keeps series distinguishable under braille + color:'none' (finding b)", () => {
+    const spec = glyphChartPlot({
+      marks: [
+        glyphChartLine(data, { x: "x", y: "y" }, { name: "North" }),
+        glyphChartLine(data, { x: "x", y: "y" }, { name: "South" }),
+      ],
+    });
+    const r = renderGlyphChart(spec, { target: "web", charset: "braille", color: "none", width: 40, height: 14, legend: { placement: "top-right" } });
+    // A corner legend paints one entry per ROW (unlike the bottom legend's
+    // single shared row), so each swatch is read off its own line.
+    const northRow = legendRow(r.text, "North");
+    const southRow = legendRow(r.text, "South");
+    const northSwatch = swatchBefore(northRow, "North");
+    const southSwatch = swatchBefore(southRow, "South");
+    expect(northSwatch.trim()).not.toBe("");
+    expect(southSwatch.trim()).not.toBe("");
+    expect(northSwatch).not.toBe(southSwatch);
+  });
 });

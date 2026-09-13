@@ -7,6 +7,7 @@
  * (or a bare array/mark), normalising through `normalizeGlyphChartInput`.
  */
 
+import type { GlyphCanvasRouteConflict } from "glyphcss";
 import type { GlyphChartLedgerEntry } from "./ledger";
 export type { GlyphChartLedgerEntry };
 
@@ -204,6 +205,17 @@ export interface GlyphChartMeta {
 export interface GlyphChartReport {
   readonly ledger: readonly GlyphChartLedgerEntry[];
   readonly unsupportedGlyphs: readonly string[];
+  /**
+   * The cell canvas's own `GlyphCanvasRouteConflict[]` (`glyphcss`,
+   * `resolveJunctions()`'s "not fully empty in practice" quantity AGENTS.md's
+   * "Charts" sankey clause discusses), forwarded UNCHANGED — a sankey band's
+   * ribbon claim can still coincide with another band's at a single cell
+   * along its own axis (never a whole run), and this is how a caller
+   * verifies that count directly rather than taking the design doc's word
+   * for it (fable review, batch 3, finding e). Empty for every spec with no
+   * sankey mark, byte-identical to before this field existed.
+   */
+  readonly routeConflicts: readonly GlyphCanvasRouteConflict[];
 }
 
 export interface GlyphChartResult {

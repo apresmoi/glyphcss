@@ -26,8 +26,8 @@ import {
   type GlyphChartLegendLayout,
 } from "./layout";
 import { abbreviateChartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
-import { paintFunnelMark, paintSankeyMark } from "./flowMarks";
+import { ledgerEmptyTotal, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { computeSankeyRoutedRows, layoutSankeyGraph, paintFunnelMark, paintSankeyRoutedRows, type GlyphChartSankeyLayout, type SankeyRoutedRow } from "./flowMarks";
 import { areaLayers, chartSeries, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScales } from "./scales";
@@ -643,25 +643,51 @@ function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
  * design; every covered non-blank cell is counted and reported via
  * `legend-overlaps-marks` so a caller knows their data was covered rather
  * than discovering it by eye.
+ *
+ * Two more drops the BOTTOM placement already reports (`ledgerLegendDropped`,
+ * `layout.ts`) used to happen here with no ledger entry at all (fable
+ * review, batch 3, finding f): a `plotWidth < 3` plot dropping the WHOLE
+ * legend, and `items.slice(0, usableRows)` silently truncating past the
+ * available rows. Both now push the SAME `legend-dropped` code bottom
+ * placement uses, naming how many entries were lost. The available ROWS
+ * also exclude the x-axis LINE row when it sits at the plot's own bottom
+ * edge (the common all-nonnegative/zero-anchored case) — the axis's own
+ * rule glyph would otherwise be the corner legend's last-painted row,
+ * silently erasing it (CHARTS-RESEARCH B1's row folded into the plot is
+ * exactly the row a `bottom-*`/tall `top-*` legend would otherwise reach).
  */
 function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
   const { plot } = layout;
   const plotWidth = plot.x1 - plot.x0 + 1;
-  const plotHeight = plot.y1 - plot.y0 + 1;
-  if (plotWidth < 3 || plotHeight < 1) return;
+  const maxRow = layout.xAxisLineRow === plot.y1 ? plot.y1 - 1 : plot.y1;
+  const plotHeight = maxRow - plot.y0 + 1;
+  if (plotWidth < 3 || plotHeight < 1) {
+    if (legend.items.length > 0) ledger.push(ledgerLegendDropped({ series: legend.items.length, cols: plotWidth, rows: Math.max(0, plotHeight) }));
+    return;
+  }
   const isRight = legend.placement === "top-right" || legend.placement === "bottom-right";
   const isBottom = legend.placement === "bottom-left" || legend.placement === "bottom-right";
   const items = legend.items.slice(0, plotHeight);
+  if (legend.items.length > items.length) {
+    ledger.push(ledgerLegendDropped({ series: legend.items.length - items.length, cols: plotWidth, rows: plotHeight }));
+  }
   const maxTextWidth = Math.max(1, plotWidth - 2);
   let covered = 0;
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
-    const row = isBottom ? plot.y1 - items.length + 1 + i : plot.y0 + i;
+    const row = isBottom ? maxRow - items.length + 1 + i : plot.y0 + i;
     const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false);
     if (dropped || !text) continue;
-    const blockWidth = Math.min(plotWidth, text.length + 2);
+    // 3-cell gutter (not 2) so a LINE-style swatch (the trailing `else`
+    // below) has room for the same 3-cell styled run the bottom legend
+    // paints (`paint.ts`'s own label-phase swatch, `swatchX .. label.x -
+    // 1`) — a single-cell `canvas.line(p, p)` degenerates to one braille
+    // dot under a sub-cell tier and can never show the solid/dashed/
+    // dotted/double cycle that carries series identity when colour is off
+    // (fable review, batch 3, finding b).
+    const blockWidth = Math.min(plotWidth, text.length + 3);
     const startCol = isRight ? plot.x1 - blockWidth + 1 : plot.x0;
-    const textCol = Math.min(plot.x1, startCol + 2);
+    const textCol = Math.min(plot.x1, startCol + 3);
     for (let c = startCol; c <= Math.min(plot.x1, startCol + blockWidth - 1); c++) {
       if (canvas.grid.char[row * canvas.cols + c] !== " ") covered++;
     }
@@ -673,7 +699,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color });
     else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex)], { color });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color });
-    else canvas.line({ x: startCol, y: row }, { x: startCol, y: row }, { color, style: SERIES_STYLES[styleIdx % 4] });
+    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4] });
     canvas.text(textCol, row, [text], { color });
   }
   if (covered > 0) ledger.push(ledgerLegendOverlapsMarks({ placement: legend.placement, covered }));
@@ -733,11 +759,42 @@ export function paintGlyphChart(
   };
   paintGrid(canvas, layout, opts.colorEnabled);
   const dodgeDegraded = new Set<number>();
+  // Every sankey mark's routes are registered and junction-resolved in ONE
+  // batch, ahead of the per-mark paint loop below (`flowMarks.ts`'s own doc
+  // on `paintSankeyRoutedRows`, finding c): `canvas.resolveJunctions()`
+  // reads the canvas's SHARED, cross-mark edge bookkeeping, so calling it
+  // once per sankey mark re-derives (and can corrupt) an EARLIER mark's
+  // already-claimed cells, and two marks' own edge ids collide unless
+  // namespaced by index. The actual PAINT of each mark's own bands/boxes
+  // still happens at that mark's own turn in the loop below (through the
+  // shared `sankeyClaimedBy`), so a sankey's z-order relative to every
+  // OTHER mark type is unchanged — only the sankey-vs-sankey registration
+  // step is batched.
+  const sankeyMarks = marks.filter((m) => m.mark.type === "sankey");
+  const sankeyRouted = new Map<GlyphChartResolvedMark["mark"], { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[] }>();
+  if (sankeyMarks.length > 0) {
+    const guardedSankey = guardedCanvas(canvas, "sankey");
+    const registered: { readonly mark: GlyphChartResolvedMark["mark"]; readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[] }[] = [];
+    for (let i = 0; i < sankeyMarks.length; i++) {
+      const { mark } = sankeyMarks[i]!;
+      const groups = series.filter((s) => s.mark === mark);
+      const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger);
+      if (!sankeyLayout) continue;
+      const routedRows = computeSankeyRoutedRows(guardedSankey, layout.plot, sankeyLayout, opts.colorEnabled, ledger, `sankey${i}:`);
+      registered.push({ mark, layout: sankeyLayout, routedRows });
+    }
+    if (registered.length > 0) canvas.resolveJunctions();
+    for (const r of registered) sankeyRouted.set(r.mark, { layout: r.layout, routedRows: r.routedRows });
+  }
+  const sankeyClaimedBy = new Set<number>();
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
     if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length);
-    else if (mark.type === "sankey") paintSankeyMark(guarded, layout.plot, groups, opts.colorEnabled, ledger);
+    else if (mark.type === "sankey") {
+      const r = sankeyRouted.get(mark);
+      if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy);
+    }
     else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger);
     else for (let i = 0; i < groups.length; i++) {
       const group = groups[i]!;

@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { resolveGlyphChartScales } from "./scales";
 import { resolveGlyphChartSpec } from "./resolve";
-import { glyphChartDot, glyphChartLine, glyphChartPlot } from "./spec";
+import { glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot, glyphChartRect } from "./spec";
 import { layoutGlyphChart } from "./layout";
+import { renderGlyphChart } from "./render";
 import type { GlyphChartLedgerEntry } from "./ledger";
 
 describe("resolveGlyphChartScales — one scale per axis", () => {
@@ -65,4 +66,46 @@ it("numeric tick formatters emit ASCII even for negative micro units", () => {
   const scales = resolveGlyphChartScales(marks, undefined);
   expect(scales.y.format(-0.000001)).toBe("-1u");
   for (const tick of scales.y.ticks(5)) expect(tick.label).toMatch(/^[\x20-\x7e]*$/);
+});
+
+describe("a band-only mark (bar/rect/cell) keeps band x for an all-ISO-date-string column (fable review, batch 3, finding a)", () => {
+  const isoDates = ["2024-01-01", "2024-02-01", "2024-03-01", "2024-04-01"];
+
+  it("glyphChartBar over ISO strings resolves x as band, never time", () => {
+    const marks = resolveGlyphChartSpec(glyphChartPlot({ marks: [glyphChartBar(isoDates.map((d, i) => ({ d, v: i + 1 })), { x: "d", y: "v" })] }));
+    const scales = resolveGlyphChartScales(marks, undefined);
+    expect(scales.x.type).toBe("band");
+    expect(scales.x.bandRange).toBeDefined();
+  });
+
+  it("glyphChartRect over ISO strings resolves x as band, never time", () => {
+    const marks = resolveGlyphChartSpec(glyphChartPlot({ marks: [glyphChartRect(isoDates.map((d, i) => ({ d, v: i + 1 })), { x: "d", y: "v" })] }));
+    const scales = resolveGlyphChartScales(marks, undefined);
+    expect(scales.x.type).toBe("band");
+  });
+
+  it("glyphChartCell over ISO strings resolves x as band, never time", () => {
+    const marks = resolveGlyphChartSpec(glyphChartPlot({ marks: [glyphChartCell(isoDates.map((d, i) => ({ d, y: "row", v: i + 1 })), { x: "d", y: "y", fill: "v" })] }));
+    const scales = resolveGlyphChartScales(marks, undefined);
+    expect(scales.x.type).toBe("band");
+  });
+
+  it("a continuous mark (line) sharing NO band-only mark still infers time from an all-ISO column, unaffected", () => {
+    const marks = resolveGlyphChartSpec(glyphChartPlot({ marks: [glyphChartLine(isoDates.map((d, i) => ({ d, v: i + 1 })), { x: "d", y: "v" })] }));
+    const scales = resolveGlyphChartScales(marks, undefined);
+    expect(scales.x.type).toBe("time");
+  });
+
+  it("a rendered bar's first/last columns reach the plot edges (band coverage) rather than a time scale's clipped half-width stub", () => {
+    const spec = glyphChartPlot({ marks: [glyphChartBar(isoDates.map((d, i) => ({ d, v: i + 1 })), { x: "d", y: "v" })] });
+    const r = renderGlyphChart(spec, { target: "chat", charset: "ascii", width: 60, height: 14 });
+    expect(r.report.ledger.some((e) => e.code === "mixed-x-scale")).toBe(false);
+    // A band-scale bar's bars touch the plot's own left/right columns
+    // (padding aside); a mis-inferred time scale instead centres each bar
+    // on its tick, clipping the first/last bar's half-width off both edges
+    // — this reddens on the `allowDateStrings` mutation below.
+    const rows = r.text.split("\n");
+    const barRows = rows.filter((row) => /[#%+.]/.test(row));
+    expect(barRows.length).toBeGreaterThan(0);
+  });
 });

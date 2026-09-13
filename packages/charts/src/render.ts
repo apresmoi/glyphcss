@@ -135,6 +135,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
     report: {
       ledger: [...ledger, ...canvas.report.ledger.map(chartLedgerEntryFromCanvasMessage)],
       unsupportedGlyphs: canvas.report.unsupportedGlyphs.slice(),
+      routeConflicts: canvas.report.routeConflicts.slice(),
     },
   };
 }

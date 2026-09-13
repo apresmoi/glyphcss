@@ -64,6 +64,12 @@ const MARK_SCHEMA = {
     if: { properties: { type: { enum: ["sankey", "funnel"] } }, required: ["type"] },
     then: { not: { required: ["transform"] } },
   }, {
+    // Mirrors the `arc-missing-value` clause above: a funnel over RECORD
+    // data (never the bare `number[]` shorthand) needs its own `value`
+    // channel, structurally checkable (`validate.ts`'s `funnel-missing-value`).
+    if: { properties: { type: { const: "funnel" }, data: { contains: { type: "object" } } }, required: ["type", "data"] },
+    then: { properties: { channels: { required: ["value"] } } },
+  }, {
     // The funnel's own bare `number[]` shorthand IS a literal value list, so
     // "finite and not negative" is schema-expressible for exactly that shape
     // — unlike an accessor/field-named `value` channel, whose resolved sign

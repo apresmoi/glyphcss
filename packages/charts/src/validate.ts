@@ -8,6 +8,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-mark-color", "funnel-bad-value",
+  "funnel-missing-value",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -87,6 +88,17 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   validateFiniteData(mark.channels);
   if (XY_MARK_TYPES.includes(mark.type) && !mark.data.every((v) => typeof v === "number") && (mark.channels.x === undefined || mark.channels.y === undefined)) chartError("missing-xy-channels", "Record data needs both x and y channels.");
   if (mark.type === "arc" && !mark.data.every((v) => typeof v === "number") && mark.channels.y === undefined) chartError("arc-missing-value", "Arc record data needs a y value channel.");
+  // Mirrors `arc-missing-value` exactly: a funnel over RECORD data (never
+  // the bare `number[]` shorthand, which needs no channel at all) with no
+  // `value` channel used to resolve every row's value to `NaN`
+  // (`resolveFunnelRows`) and reject downstream as the generic
+  // `non-finite-data` — true, but it names no channel and is the state
+  // every mark-type switch or dataset Apply with no `value` mapping yet
+  // lands in (fable review, batch 3, finding d). Schema-expressible
+  // structurally, exactly like `arc-missing-value`.
+  if (mark.type === "funnel" && !mark.data.every((v) => typeof v === "number") && mark.channels.value === undefined) {
+    chartError("funnel-missing-value", "Funnel record data needs a value channel.");
+  }
   // Structural half of `sankey-bad-value` (mirrors `arc-missing-value`'s own
   // presence check, and is what a declarative JSON Schema clause CAN prove);
   // the deeper "every resolved value is finite and > 0" half is a per-row
@@ -226,6 +238,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,
   "sankey-bad-value": "Supply source, target, and value channels, and make sure every resolved value is finite and greater than 0.",
   "funnel-bad-value": "Make sure every resolved funnel value is finite and not negative (zero is allowed).",
+  "funnel-missing-value": "Supply channels.value for funnel record data (a stage channel too, or the row index is used), or pass number[].",
   "bad-axes": "Make axes (and axes.x/axes.y, if present) a plain object, or omit it entirely.",
   "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color, axes.x.color, and axes.y.color.",
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",

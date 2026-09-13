@@ -80,12 +80,37 @@ export function ledgerLabelDropped(opts: { readonly role: string; readonly text:
   return entry("label-dropped", `Dropped the ${opts.role} "${opts.text}" — ${opts.reason}.`, { ...opts });
 }
 
-export function ledgerSankeyFoldedFlows(opts: { readonly source: string; readonly flows: readonly string[] }): GlyphChartLedgerEntry {
-  return entry("sankey-folded-flows", `Combined ${opts.flows.length} thin flow${opts.flows.length === 1 ? "" : "s"} out of "${opts.source}" into one "other" band: ${opts.flows.join(", ")}.`, { ...opts });
+/**
+ * `stubVisible` (default `true`) — the folded bucket itself can round to 0
+ * rows when its own residual is negligible against the kept links' share
+ * (`ensureFoldStubVisible`'s reclaim finds no spare row anywhere), so a
+ * reader has every folded flow NAMED here but no cell on the chart to
+ * point at (sankey round-3 review, finding l/R6: measured on 2,028 of
+ * 6,400 swept fold configurations). `false` says so explicitly rather than
+ * leaving the reader to notice the missing band on their own.
+ */
+export function ledgerSankeyFoldedFlows(opts: { readonly source: string; readonly flows: readonly string[]; readonly stubVisible?: boolean }): GlyphChartLedgerEntry {
+  const invisible = opts.stubVisible === false;
+  const suffix = invisible ? " — the combined band itself rounded to 0 rows and isn't drawn" : "";
+  return entry("sankey-folded-flows", `Combined ${opts.flows.length} thin flow${opts.flows.length === 1 ? "" : "s"} out of "${opts.source}" into one "other" band: ${opts.flows.join(", ")}${suffix}.`, { ...opts });
 }
 
 export function ledgerSankeyImbalance(opts: { readonly node: string; readonly inflow: number; readonly outflow: number }): GlyphChartLedgerEntry {
   return entry("sankey-imbalance", `Node "${opts.node}" is unbalanced — ${opts.inflow} in vs ${opts.outflow} out.`, { ...opts });
+}
+
+/**
+ * A band's own painted run was interrupted by another band's genuine
+ * crossing — border cells and node conservation stay exact (never a
+ * silent loss of the QUANTITY), but the reader-visible run itself can
+ * split into two or more disconnected pieces (sankey round-3 review,
+ * finding k). `cells` is the LONGEST single interior gap across the
+ * band's own rows, the same "longest contiguous interruption" metric the
+ * review measured.
+ */
+export function ledgerSankeyBandBroken(opts: { readonly source: string; readonly target: string; readonly cells: number }): GlyphChartLedgerEntry {
+  const plural = opts.cells === 1 ? "" : "s";
+  return entry("sankey-band-broken", `The "${opts.source} → ${opts.target}" band's own run is broken by a crossing band for ${opts.cells} cell${plural}.`, { ...opts });
 }
 
 export function ledgerFunnelNotMonotone(opts: { readonly stage: string; readonly value: number; readonly previousStage: string; readonly previousValue: number }): GlyphChartLedgerEntry {
@@ -96,9 +121,20 @@ export function ledgerFunnelThinStage(opts: { readonly stage: string; readonly v
   return entry("funnel-thin-stage", `Stage "${opts.stage}" is too small to draw proportionally — drew a one-cell stub instead.`, { ...opts });
 }
 
-export function ledgerSankeyCrossingsMerged(opts: { readonly gapX0: number; readonly gapX1: number; readonly crossing: number; readonly lanes: number }): GlyphChartLedgerEntry {
-  const plural = opts.lanes === 1 ? "" : "s";
-  return entry("sankey-crossings-merged", `Merged ${opts.crossing} crossing flows onto ${opts.lanes} lane${plural} — the gap between columns is too narrow to give each its own.`, { ...opts });
+/**
+ * `crossing`/`lanes` are COLUMN counts (the packed ribbon width against
+ * what actually fit), not a count of flows — a gap holding 4 bent bands
+ * can legitimately reserve 15 columns (7+4+4) against 12 available, and
+ * the earlier wording ("merged 15 crossing FLOWS") reported that width as
+ * if it were the band count, understating how many columns a SINGLE wide
+ * band needs and overstating how many bands were actually involved
+ * (sankey round-3 review, finding l/R3). `bands` is the actual bent-band
+ * count sharing this gap.
+ */
+export function ledgerSankeyCrossingsMerged(opts: { readonly gapX0: number; readonly gapX1: number; readonly crossing: number; readonly lanes: number; readonly bands: number }): GlyphChartLedgerEntry {
+  const bandPlural = opts.bands === 1 ? "" : "s";
+  const colPlural = opts.lanes === 1 ? "" : "s";
+  return entry("sankey-crossings-merged", `Packed ${opts.bands} crossing band${bandPlural} into ${opts.crossing} columns, but only ${opts.lanes} column${colPlural} fit — the gap between columns is too narrow to give each its own.`, { ...opts });
 }
 
 export function ledgerSankeyColumnsFolded(opts: { readonly folded: number; readonly total: number; readonly droppedLinks?: readonly string[] }): GlyphChartLedgerEntry {

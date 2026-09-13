@@ -47,4 +47,9 @@ describe("inferGlyphChartScaleType", () => {
     expect(inferGlyphChartScaleType(["2024-01-01", 5])).toBe("band");
     expect(inferGlyphChartScaleType([5, "2024-01-01"])).toBe("linear");
   });
+
+  it("allowDateStrings: false keeps an all-ISO column band regardless of shape — `scales.ts`'s escape hatch for a band-only mark (bar/rect/cell) sharing the axis", () => {
+    expect(inferGlyphChartScaleType(["2011-01-01", "2012-01-01", "2013-01-01"], { allowDateStrings: false })).toBe("band");
+    expect(inferGlyphChartScaleType(["2011-01-01", "2012-01-01"], { allowDateStrings: true })).toBe("time");
+  });
 });

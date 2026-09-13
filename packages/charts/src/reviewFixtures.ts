@@ -93,6 +93,12 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   // NOT independently Ajv-checkable (the same asymmetry `sankey-bad-value`
   // documents) — the shorthand array is the one shape schema CAN see.
   { id: "funnel-bad-value", spec: spec(glyphChartFunnel([-5, 10])) },
+  // `funnel-missing-value`: record data with no `value` channel at all —
+  // the state every mark-type switch or dataset Apply with no `value`
+  // mapping lands in (fable review, batch 3, finding d). Mirrors
+  // `arc-missing-value` exactly; the bare `number[]` shorthand needs no
+  // channel and never trips this.
+  { id: "funnel-missing-value", spec: spec(glyphChartFunnel([{ stage: "a" }, { stage: "b" }], { stage: "stage" })) },
   // `bad-options`: a transform on a flow mark, which has no x/y scale for
   // one to act on (P3-5) — structurally rejected by schema too (the
   // sankey/funnel `not: { required: ["transform"] }` clause).

@@ -19,7 +19,7 @@ import { accessorFor, identity, index, isNumericArray } from "./channels";
 import { abbreviateChartText, chartText } from "./labels";
 import {
   ledgerEmptyTotal, ledgerFunnelBadReference, ledgerFunnelFoldedStages, ledgerFunnelNotMonotone, ledgerFunnelThinStage,
-  ledgerLabelDropped, ledgerSankeyColumnsFolded, ledgerSankeyCrossingsMerged, ledgerSankeyFoldedFlows, ledgerSankeyImbalance,
+  ledgerLabelDropped, ledgerSankeyBandBroken, ledgerSankeyColumnsFolded, ledgerSankeyCrossingsMerged, ledgerSankeyFoldedFlows, ledgerSankeyImbalance,
   ledgerSankeyNodesDropped,
   type GlyphChartLedgerEntry,
 } from "./ledger";
@@ -277,12 +277,34 @@ function ensureFoldStubVisible(finalLinks: readonly SankeyOutLink[], heights: re
   return result;
 }
 
-function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: number): { readonly finalLinks: readonly SankeyOutLink[]; readonly heights: readonly number[]; readonly foldedFlows: readonly string[] } {
+/**
+ * The synthetic fold bucket's node id must never collide with a REAL node
+ * id anywhere in the graph (not just this source's own out-links) —
+ * `nodeBoxes` (built from the actual `d3-sankey` graph, which never sees
+ * the fold at all) is keyed by plain string id, so a genuine node
+ * literally named `"(other)"` and the synthetic bucket sharing that exact
+ * string used to route the fold band onto the REAL node's box, silently
+ * merging two unrelated flows (sankey round-3 review, finding l/N10: `Hub
+ * -> "(other)"` (a real node) plus a separately-folded `Hub -> Tiny` both
+ * rendered as one `Hub`-coloured band, and `sankey-folded-flows` named
+ * neither as the fold target). Suffixed exactly like `series.ts`'s funnel
+ * stage disambiguation: `"(other)"`, then `"(other) (2)"`, etc., until the
+ * candidate isn't any real node's id.
+ */
+function uniqueSankeyFoldName(realNodeIds: ReadonlySet<string>): string {
+  if (!realNodeIds.has("(other)")) return "(other)";
+  let n = 2;
+  while (realNodeIds.has(`(other) (${n})`)) n++;
+  return `(other) (${n})`;
+}
+
+function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: number, realNodeIds: ReadonlySet<string>): { readonly finalLinks: readonly SankeyOutLink[]; readonly heights: readonly number[]; readonly foldedFlows: readonly string[] } {
+  const foldName = uniqueSankeyFoldName(realNodeIds);
   let keptReal = [...outLinks];
   let otherValue = 0;
   const foldedFlows: string[] = [];
   for (let iter = 0; iter <= outLinks.length; iter++) {
-    const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: "(other)", value: otherValue, folded: true }] : [...keptReal];
+    const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: foldName, value: otherValue, folded: true }] : [...keptReal];
     const heights = distributeCumulative(candidates.map((l) => l.value), boxHeight);
     const zeroReal = keptReal.filter((l, i) => heights[i] === 0 && l.value > 0);
     if (zeroReal.length === 0) return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows };
@@ -293,7 +315,7 @@ function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: numbe
   // Unreachable (the loop above always returns within `outLinks.length + 1`
   // rounds — each round that doesn't return strictly shrinks `keptReal`),
   // kept only so the function is total under TypeScript's control-flow check.
-  const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: "(other)", value: otherValue, folded: true }] : keptReal;
+  const candidates: SankeyOutLink[] = otherValue > 0 ? [...keptReal, { target: foldName, value: otherValue, folded: true }] : keptReal;
   const heights = distributeCumulative(candidates.map((l) => l.value), boxHeight);
   return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows };
 }
@@ -401,10 +423,26 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // outside the rect; a link between two now-merged depths becomes a
   // same-column band and is silently skipped by the painter's own
   // `gapX1 < gapX0` guard — a real, reported degradation, not a crash.
+  //
+  // The fit check and `maxColsFit` below MUST use the layout's own true
+  // floor gap (1 cell, `GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP` — what the
+  // defensive `while` loop right below already accepts), never
+  // `GLYPH_CHART_SANKEY_MIN_GAP` (3, the PREFERRED spacing `gap <
+  // MIN_GAP` above reflows node width to reclaim). Using the preferred
+  // gap here folded columns the layout could actually place at gap 1-2 —
+  // measured harmful, not merely imprecise (sankey round-3 review,
+  // finding h): HEAD silenced MORE links than no fold at all in 1,344 of
+  // 1,992 swept `(columns, width)` configurations and fewer in 0, e.g. a
+  // 19-column chain at the chat default 72 wide dropped 7 links where the
+  // layout could have placed all but 1. `foldedColumns` is therefore only
+  // ever nonzero when the columns genuinely cannot fit even at gap 1 — the
+  // while loop below becomes the defensive check its own comment always
+  // claimed it was, not a second, silently-firing fold pass.
   const originalNumCols = numCols;
   let foldedColumns = 0;
-  if (numCols > 1 && numCols * GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + (numCols - 1) * GLYPH_CHART_SANKEY_MIN_GAP > plotWidth) {
-    const maxColsFit = Math.max(1, Math.floor((plotWidth + GLYPH_CHART_SANKEY_MIN_GAP) / (GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + GLYPH_CHART_SANKEY_MIN_GAP)));
+  const GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP = 1;
+  if (numCols > 1 && numCols * GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + (numCols - 1) * GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP > plotWidth) {
+    const maxColsFit = Math.max(1, Math.floor((plotWidth + GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP) / (GLYPH_CHART_SANKEY_MIN_NODE_WIDTH + GLYPH_CHART_SANKEY_MIN_LAYOUT_GAP)));
     if (maxColsFit < numCols) {
       foldedColumns = numCols - maxColsFit;
       numCols = maxColsFit;
@@ -489,9 +527,11 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     const outLinks = [...g.rows]
       .sort((a, b) => (nodeBoxes.get(String(a.label))?.y0 ?? 0) - (nodeBoxes.get(String(b.label))?.y0 ?? 0))
       .map((r) => ({ target: String(r.label), value: numeric(r.y) }));
-    const { finalLinks, heights, foldedFlows } = foldSankeyOutLinks(outLinks, box.height);
+    const { finalLinks, heights, foldedFlows } = foldSankeyOutLinks(outLinks, box.height, seenNode);
     if (foldedFlows.length > 0) {
-      ledger.push(ledgerSankeyFoldedFlows({ source: nodeId, flows: foldedFlows.map((t) => `${nodeId} → ${t}`) }));
+      const stubIdx = finalLinks.findIndex((l) => l.folded);
+      const stubVisible = stubIdx === -1 || heights[stubIdx]! > 0;
+      ledger.push(ledgerSankeyFoldedFlows({ source: nodeId, flows: foldedFlows.map((t) => `${nodeId} → ${t}`), stubVisible }));
     }
     let cursor = box.y0;
     finalLinks.forEach((l, i) => {
@@ -714,7 +754,7 @@ function assignSankeyLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<
     const slotStart: number[] = [];
     let packedWidth = 0;
     for (let s = 0; s < slotCount; s++) { slotStart.push(packedWidth); packedWidth += slotWidth.get(s) ?? 1; }
-    if (packedWidth > gapWidth) ledger.push(ledgerSankeyCrossingsMerged({ gapX0, gapX1, crossing: packedWidth, lanes: gapWidth }));
+    if (packedWidth > gapWidth) ledger.push(ledgerSankeyCrossingsMerged({ gapX0, gapX1, crossing: packedWidth, lanes: gapWidth, bands: items.length }));
     for (const item of sorted) {
       const start = slotStart[slotOf.get(item)!]!;
       const column = packedWidth > gapWidth ? gapX0 + (start % gapWidth) : gapX0 + start;
@@ -724,7 +764,7 @@ function assignSankeyLanes(bands: readonly SankeyBand[], nodeBoxes: ReadonlyMap<
   return laneStartByBand;
 }
 
-interface SankeyRoutedRow { readonly band: SankeyBand; readonly cells: readonly GlyphCanvasPoint[]; readonly glyph: string; readonly color: string | null }
+export interface SankeyRoutedRow { readonly band: SankeyBand; readonly cells: readonly GlyphCanvasPoint[]; readonly glyph: string; readonly color: string | null }
 
 /**
  * Paints a `GlyphChartSankeyLayout` through the cell canvas's own edge/route
@@ -759,8 +799,18 @@ interface SankeyRoutedRow { readonly band: SankeyBand; readonly cells: readonly 
  * route) as a side effect, exactly as `paintSankeyLayout` needs before
  * calling `resolveJunctions()`; the caller decides how to paint from the
  * returned list.
+ *
+ * `edgeIdPrefix` (default `""`, byte-identical for a single sankey mark)
+ * namespaces the edge ids this call registers on `canvas` — the canvas's
+ * own edge/route store is keyed by plain id STRING and is SHARED across
+ * every `canvas.edge()`/`route()` caller in one render (`junctions.ts`'s own
+ * doc: "a second `route()` call for the same edge id REPLACES its route
+ * entirely"), so two sankey marks both starting their own `order` at `0`
+ * silently clobbered each other's routes rather than merely overlapping
+ * visually (fable review, batch 3, finding c). `paintGlyphChart` passes
+ * each sankey mark's own index.
  */
-export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): readonly SankeyRoutedRow[] {
+export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = ""): readonly SankeyRoutedRow[] {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const { bands, gap } = layout;
   const cols = sankeyColumnsByX0(nodeBoxes);
@@ -787,7 +837,7 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
       for (let row = sr0; row <= sr1; row++) {
         const cells: GlyphCanvasPoint[] = [];
         for (let x = x0; x <= x1; x++) cells.push({ x, y: row });
-        const edgeId = `${order}`;
+        const edgeId = `${edgeIdPrefix}${order}`;
         canvas.edge(edgeId, { from: band.source, to: foldNode });
         canvas.route(edgeId, cells);
         routedRows.push({ band, cells, glyph, color });
@@ -833,7 +883,7 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
           }
         }
       }
-      const edgeId = `${order}`;
+      const edgeId = `${edgeIdPrefix}${order}`;
       canvas.edge(edgeId, { from: band.source, to: band.target });
       canvas.route(edgeId, cells);
       routedRows.push({ band, cells, glyph, color });
@@ -846,17 +896,51 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
 /**
  * Paints a `GlyphChartSankeyLayout` through the cell canvas's own edge/route
  * routing contract — see `computeSankeyRoutedRows` for the routing itself.
+ *
+ * `claimedBy` (default a fresh, per-call set — byte-identical for a single
+ * sankey mark) is the SAME cell-ownership set every sankey mark painted
+ * onto this canvas shares when `paintGlyphChart` passes one down — sharing
+ * it is what makes "no cell is silently overwritten" a property of the
+ * RENDER rather than of one mark's own call: a second sankey's band OR
+ * node box reaching a cell the first sankey already claimed (bands, box
+ * borders, and box labels alike) loses that cell exactly like a later band
+ * within ONE sankey does, instead of blindly painting over it (fable
+ * review, batch 3, finding c). `edgeIdPrefix` is `computeSankeyRoutedRows`'
+ * own namespace (see its doc).
  */
-export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
-  const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger);
-  const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
-
+export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = ""): void {
+  const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, edgeIdPrefix);
   canvas.resolveJunctions();
+  paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy);
+}
+
+/**
+ * The claim-respecting repaint half of `paintSankeyLayout`, split out so a
+ * MULTI-sankey render (`paint.ts`'s own `paintSankeyMarks`) can call
+ * `canvas.resolveJunctions()` exactly ONCE, after every sankey mark has
+ * registered its routes, rather than once per mark. `resolveJunctions()`
+ * writes `grid.char` directly from the canvas's SHARED, cross-mark
+ * `cellEdges` bookkeeping (`junctions.ts`'s own doc) — calling it again
+ * for mark #2 re-derives a junction glyph for every cell with ANY
+ * registered edge, INCLUDING mark #1's, and nothing repaints those cells
+ * back afterward unless they're also part of mark #2's own `routedRows`.
+ * That is a distinct corruption from the edge-id collision `edgeIdPrefix`
+ * fixes: it survives even with namespaced ids, because it needs no id
+ * collision at all — two DIFFERENT ids at the same cell are still a
+ * "crossing" to `resolveGlyphCanvasJunctions`. Splitting this function out
+ * is the fix: register every mark's routes, resolve junctions once, THEN
+ * repaint every mark from its own already-computed `routedRows`.
+ */
+export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSankeyLayout, routedRows: readonly SankeyRoutedRow[], ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set()): void {
+  const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
 
   // Repaint in the SAME registration order `resolveJunctions()` itself
   // broke ties by: the first band/row to reach a cell keeps it, every later
   // one draws nothing there — a real crossing costs the loser exactly the
-  // cells the two routes actually share, never its whole run.
+  // cells the two routes actually share, never its whole run. A cell
+  // already claimed by an EARLIER SANKEY MARK (this render's shared
+  // `claimedBy`) is refused the same way, before this mark's own
+  // within-mark priority rules ever see it.
   //
   // BORDER cells go FIRST, and unconditionally: a row's own first cell
   // (adjacent to its source) and last cell (adjacent to its target) are
@@ -871,20 +955,54 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
   // the exact failure this ordering exists to close: a later ribbon's
   // sweep toward its own lane erasing an earlier row's proof of reaching
   // its own border.
-  const claimedBy = new Map<number, SankeyBand>();
-  const paint = (p: GlyphCanvasPoint, band: SankeyBand, glyph: string, color: string | null): void => {
-    const idx = p.y * canvas.cols + p.x;
-    const owner = claimedBy.get(idx);
-    if (owner !== undefined && owner !== band) return;
-    claimedBy.set(idx, band);
-    canvas.text(p.x, p.y, [glyph], { color });
+  const paintCell = (x: number, y: number, glyph: string, color: string | null | undefined): void => {
+    const idx = y * canvas.cols + x;
+    if (claimedBy.has(idx)) return;
+    claimedBy.add(idx);
+    canvas.text(x, y, [glyph], { color: color ?? null });
   };
-  for (const { band, cells, glyph, color } of routedRows) {
-    paint(cells[0]!, band, glyph, color);
-    paint(cells[cells.length - 1]!, band, glyph, color);
+  for (const { cells, glyph, color } of routedRows) {
+    paintCell(cells[0]!.x, cells[0]!.y, glyph, color);
+    const last = cells[cells.length - 1]!;
+    paintCell(last.x, last.y, glyph, color);
   }
-  for (const { band, cells, glyph, color } of routedRows) {
-    for (const p of cells) paint(p, band, glyph, color);
+  for (const { cells, glyph, color } of routedRows) {
+    for (const p of cells) paintCell(p.x, p.y, glyph, color);
+  }
+
+  // `sankey-band-broken` (finding k/j): border cells and node conservation
+  // stay exact, but a band's own run can still be split into disconnected
+  // pieces by another band's genuine crossing (measured up to 22 cells on
+  // the energy dataset at 140x40, with no ledger entry when the gap is
+  // narrower than a `sankey-crossings-merged` fold). Detecting it needs
+  // OWNERSHIP BY THIS MARK'S OWN ROWS, not the cross-mark `claimedBy`
+  // (whose values are `1`, with no band identity) — so this replays the
+  // SAME border-first-then-full-walk registration order locally, over
+  // `routedRows` alone, exactly like the painter's own two passes above.
+  const ownerRowIdx = new Map<number, number>();
+  const claimLocal = (x: number, y: number, rowIndex: number): void => {
+    const idx = y * canvas.cols + x;
+    if (!ownerRowIdx.has(idx)) ownerRowIdx.set(idx, rowIndex);
+  };
+  routedRows.forEach(({ cells }, i) => {
+    claimLocal(cells[0]!.x, cells[0]!.y, i);
+    const last = cells[cells.length - 1]!;
+    claimLocal(last.x, last.y, i);
+  });
+  routedRows.forEach(({ cells }, i) => { for (const p of cells) claimLocal(p.x, p.y, i); });
+  const longestGapByBand = new Map<SankeyBand, number>();
+  routedRows.forEach(({ band, cells }, i) => {
+    let longestGap = 0;
+    let curGap = 0;
+    for (let ci = 1; ci < cells.length - 1; ci++) {
+      const p = cells[ci]!;
+      if (ownerRowIdx.get(p.y * canvas.cols + p.x) !== i) { curGap++; longestGap = Math.max(longestGap, curGap); }
+      else curGap = 0;
+    }
+    if (longestGap > (longestGapByBand.get(band) ?? 0)) longestGapByBand.set(band, longestGap);
+  });
+  for (const [band, cells] of longestGapByBand) {
+    if (cells > 0) ledger.push(ledgerSankeyBandBroken({ source: band.source, target: band.target, cells }));
   }
 
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
@@ -895,6 +1013,28 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
   const cornerTR = tier.junction[S | W]!;
   const cornerBL = tier.junction[N | E]!;
   const cornerBR = tier.junction[N | W]!;
+  // Node boxes go through the SAME per-cell `paintCell` claim as bands
+  // (never a bulk `canvas.text(x, y, [wholeLine])`) so a cell another
+  // sankey mark already claimed — a band's ribbon OR another mark's own
+  // box — keeps what it has instead of one mark's border/label silently
+  // erasing it. `paintRun` claims every cell it touches (real content:
+  // corners, border lines, the label); `fillRun` is the interior BLANK
+  // padding alone — it refuses to overwrite a cell another mark already
+  // claimed (so a foreign box/band shows through a box's own empty
+  // interior) but does NOT itself claim a cell, because the label text
+  // painted moments later, in the SAME mark's own call, lands on exactly
+  // those interior cells and must not find them already "claimed" by its
+  // own box's blank filler.
+  const paintRun = (x0: number, y: number, run: string): void => {
+    for (let i = 0; i < run.length; i++) paintCell(x0 + i, y, run[i]!, null);
+  };
+  const fillRun = (x0: number, y: number, run: string): void => {
+    for (let i = 0; i < run.length; i++) {
+      const x = x0 + i;
+      if (claimedBy.has(y * canvas.cols + x)) continue;
+      canvas.text(x, y, [run[i]!], { color: null });
+    }
+  };
   for (const box of nodeBoxes.values()) {
     if (box.height <= 0) continue;
     const width = box.x1 - box.x0 + 1;
@@ -903,12 +1043,16 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
     const { text } = abbreviateChartText(box.id, inner, canvas.tier);
     if (box.y0 === box.y1) {
       const line = width >= 3 ? `${cornerTL}${text.padEnd(inner)}${cornerTR}` : text.padEnd(width);
-      canvas.text(box.x0, box.y0, [line.slice(0, width)]);
+      paintRun(box.x0, box.y0, line.slice(0, width));
       continue;
     }
-    canvas.text(box.x0, box.y0, [`${cornerTL}${hLine.repeat(inner)}${cornerTR}`]);
-    for (let row = box.y0 + 1; row < box.y1; row++) canvas.text(box.x0, row, [`${vLine}${" ".repeat(inner)}${vLine}`]);
-    canvas.text(box.x0, box.y1, [`${cornerBL}${hLine.repeat(inner)}${cornerBR}`]);
+    paintRun(box.x0, box.y0, `${cornerTL}${hLine.repeat(inner)}${cornerTR}`);
+    for (let row = box.y0 + 1; row < box.y1; row++) {
+      paintCell(box.x0, row, vLine, null);
+      fillRun(box.x0 + 1, row, " ".repeat(inner));
+      paintCell(box.x0 + 1 + inner, row, vLine, null);
+    }
+    paintRun(box.x0, box.y1, `${cornerBL}${hLine.repeat(inner)}${cornerBR}`);
     // A 2-row box has no interior row: its only two rows ARE the top and
     // bottom border, and `midRow` (their floor-averaged row) lands on the
     // top one — painting the label there overwrote its own border (P3-4).
@@ -920,14 +1064,44 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
     }
     const midRow = Math.floor((box.y0 + box.y1) / 2);
     const pad = Math.max(0, Math.floor((inner - text.length) / 2));
-    canvas.text(box.x0 + 1 + pad, midRow, [text]);
+    paintRun(box.x0 + 1 + pad, midRow, text);
   }
 }
 
-/** `paint.ts`'s own call site — lays out then paints in one step. */
-export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+/** `paint.ts`'s own call site for a SINGLE sankey mark — lays out then paints
+ * in one step, `resolveJunctions()` included. For more than one sankey mark
+ * in a render, use `paintSankeyMarks` instead (see its own doc for why). */
+export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = ""): void {
   const layout = layoutSankeyGraph(groups, plot, canvas.tier, ledger);
-  if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger);
+  if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger, claimedBy, edgeIdPrefix);
+}
+
+/**
+ * `paint.ts`'s own call site for EVERY sankey mark in one render, called
+ * once regardless of how many there are. Registers every mark's routes
+ * first (namespaced edge ids, `computeSankeyRoutedRows`), calls
+ * `canvas.resolveJunctions()` exactly ONCE (see `paintSankeyRoutedRows`'s
+ * own doc for why calling it per mark corrupts an earlier mark's cells),
+ * then repaints each mark from its own already-computed `routedRows`
+ * through the ONE shared `claimedBy` — so a later sankey's band or node box
+ * can never silently overwrite an earlier one's already-claimed cell, and
+ * two marks' routes can never collide on a shared edge id. A spec with
+ * zero or one sankey mark takes this same path and is byte-identical to
+ * calling `paintSankeyMark` directly (one iteration, one registration
+ * batch, one `resolveJunctions()` call — indistinguishable from today's).
+ */
+export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[] }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+  const registered: { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[] }[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    const layout = layoutSankeyGraph(entries[i]!.groups, plot, canvas.tier, ledger);
+    if (!layout) continue;
+    const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, `sankey${i}:`);
+    registered.push({ layout, routedRows });
+  }
+  if (registered.length === 0) return;
+  canvas.resolveJunctions();
+  const claimedBy = new Set<number>();
+  for (const { layout, routedRows } of registered) paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy);
 }
 
 // ── funnel ───────────────────────────────────────────────────────────────
@@ -989,7 +1163,14 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     const kept = rawStages.slice(0, keepCount);
     const folded = rawStages.slice(keepCount);
     if (folded.length > 0) {
-      stages = [...kept, { name: `other (${folded.length} more)`, value: folded[0]!.value, styleIndex: folded[0]!.styleIndex, color: folded[0]!.color }];
+      // AGENTS.md's Charts section promises the fold keeps "the LARGEST
+      // folded value" so the funnel's monotone shape stays plausible — a
+      // non-monotone input (already flagged above with
+      // `funnel-not-monotone`) can otherwise put the largest folded value
+      // anywhere in the tail, not just at its first element.
+      const foldedMax = folded.reduce((m, s) => Math.max(m, s.value), -Infinity);
+      const representative = folded.find((s) => s.value === foldedMax) ?? folded[0]!;
+      stages = [...kept, { name: `other (${folded.length} more)`, value: foldedMax, styleIndex: representative.styleIndex, color: representative.color }];
       ledger.push(ledgerFunnelFoldedStages({ stages: folded.map((s) => s.name) }));
     }
   }

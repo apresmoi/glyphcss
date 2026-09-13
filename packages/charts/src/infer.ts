@@ -17,8 +17,18 @@
  * Inference looks at every value once it commits to checking strings (a
  * `Date`/`number` still short-circuits on the FIRST non-nullish value,
  * preserving the "homogeneous by construction" assumption there).
+ *
+ * `allowDateStrings` (default `true`) is `scales.ts`'s own escape hatch for
+ * a BAND-ONLY mark (`bar`/`rect`/`cell`, "Band marks use the scale's own
+ * bounds") sharing this axis: such a mark must paint an exact, gapless
+ * column per category, which a continuous time scale cannot give it (the
+ * first/last column would clip at the plot edges and ticks would stop
+ * landing on the data's own dates — fable review, batch 3, finding (a)).
+ * `false` makes a string column resolve `band` exactly as it did before
+ * ISO-string inference existed, regardless of the strings' own shape; a
+ * CONTINUOUS mark (`line`/`area`/`dot`/`rule`) sharing the same string
+ * column with no band-only mark present still infers `time`.
  */
-
 import { ISO_DATE_PATTERN } from "./validate";
 
 export type GlyphChartInferredScaleType = "time" | "band" | "linear";
@@ -28,7 +38,11 @@ export type GlyphChartInferredScaleType = "time" | "band" | "linear";
 // (`timeValue`), so "infers time" and "validates as time" never disagree.
 const ISO_DATE_ONLY_REGEX = new RegExp(ISO_DATE_PATTERN);
 
-export function inferGlyphChartScaleType(values: readonly unknown[]): GlyphChartInferredScaleType {
+export function inferGlyphChartScaleType(
+  values: readonly unknown[],
+  opts?: { readonly allowDateStrings?: boolean },
+): GlyphChartInferredScaleType {
+  const allowDateStrings = opts?.allowDateStrings ?? true;
   // Short-circuits on the FIRST value whose type settles the answer — kept
   // exactly as before (a `number` still commits to "linear" immediately,
   // a non-date `string` still commits to "band" immediately) because
@@ -50,7 +64,7 @@ export function inferGlyphChartScaleType(values: readonly unknown[]): GlyphChart
     if (v instanceof Date) return "time"; // a real Date is a controlled, already-homogeneous source.
     if (typeof v === "number") return sawDateStringOnly ? "band" : "linear";
     if (typeof v === "string") {
-      if (!ISO_DATE_ONLY_REGEX.test(v)) return "band"; // one non-date string settles it.
+      if (!allowDateStrings || !ISO_DATE_ONLY_REGEX.test(v)) return "band"; // one non-date string (or date strings disallowed here) settles it.
       sawDateStringOnly = true; // a valid date string so far — keep scanning.
     }
   }

@@ -131,3 +131,39 @@ describe("title placement (owner packet item 2)", () => {
     expect(b.meta.title).toBeNull();
   });
 });
+
+describe("corner legend reports the drops the bottom placement already reports, and never overwrites the x-axis row (fable review, batch 3, finding f)", () => {
+  it("a plot too narrow for any corner legend content reports legend-dropped, exactly like the bottom placement's own drop", () => {
+    const spec = glyphChartPlot({ marks: [glyphChartLine(data, { x: "x", y: "y" }, { name: "Revenue" })], legend: { placement: "top-right" } });
+    const r = renderGlyphChart(spec, { target: "chat", width: 5, height: 14 });
+    expect(r.report.ledger.some((e) => e.code === "legend-dropped")).toBe(true);
+  });
+
+  it("more series than the plot has rows drops the excess and reports legend-dropped naming the dropped count", () => {
+    const marks = Array.from({ length: 10 }, (_, i) => glyphChartLine(data, { x: "x", y: "y" }, { name: `S${i}` }));
+    const spec = glyphChartPlot({ marks, legend: { placement: "top-right" } });
+    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 8 });
+    const entry = r.report.ledger.find((e) => e.code === "legend-dropped");
+    expect(entry).toBeDefined();
+    expect((entry!.detail as { series: number }).series).toBeGreaterThan(0);
+    // Only the surviving entries paint — S9 (the last, lowest-priority
+    // series) is among the ones cut.
+    expect(r.text).not.toContain("S9");
+  });
+
+  it("a bottom-right legend never overwrites the x-axis rule row, even when it would otherwise reach the plot's own last row", () => {
+    const marks = Array.from({ length: 6 }, (_, i) => glyphChartBar(data, { x: "x", y: "y" }, { name: `S${i}` }));
+    const spec = glyphChartPlot({ marks, legend: { placement: "bottom-right" } });
+    const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 7 });
+    const rows = r.text.split("\n");
+    // The x-axis rule row is the one whose left cell is the corner glyph
+    // '└' (a plain, non-interior x-axis line — the common case here).
+    const axisRow = rows.find((row) => row.trimStart().startsWith("0 └") || row.startsWith("└"));
+    expect(axisRow, "no x-axis rule row found in the rendered output").toBeDefined();
+    // The axis row's own rule glyphs survive intact — no legend swatch or
+    // series label character landed on it. Before the fix, the corner
+    // legend's own bottom row was mapped onto exactly this row (`plot.y1`),
+    // painting a series name over the axis rule.
+    expect(axisRow).toMatch(/^[└┴─\s0]+$/);
+  });
+});

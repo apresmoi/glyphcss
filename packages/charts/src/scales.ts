@@ -69,6 +69,19 @@ export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): b
   return marks.some((m) => ["bar", "area", "rect"].includes(m.mark.type));
 }
 
+// `bar`/`rect`/`cell` are BAND-ONLY marks (`paintRect`'s own doc, "Band
+// marks use the scale's own bounds") — they paint an exact, gapless column
+// per category and cannot sit on a continuous time scale (`infer.ts`'s own
+// doc). Sharing an x axis with one of these keeps a string column `band`
+// regardless of ISO shape; a continuous mark (line/area/dot/rule) with no
+// band-only mark on the same axis still infers `time` from an all-ISO
+// column exactly as before.
+const BAND_ONLY_MARK_TYPES = new Set(["bar", "rect", "cell"]);
+
+function axisHasBandOnlyMark(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"): boolean {
+  return axis === "x" && marks.some((m) => BAND_ONLY_MARK_TYPES.has(m.mark.type));
+}
+
 type GlyphChartValueClass = "band" | "time" | "linear";
 
 function classifyScaleValue(v: unknown): GlyphChartValueClass | undefined {
@@ -246,7 +259,7 @@ export function resolveGlyphChartScale(
   if (axis === "x" && !opts?.type && detectMixedScaleTypes(values) && numericValuesUnplaceableOnBand(values)) mixedXScaleError();
   const type = opts?.type
     ? (opts.type === "ordinal" ? "band" : opts.type)
-    : inferGlyphChartScaleType(values);
+    : inferGlyphChartScaleType(values, { allowDateStrings: !axisHasBandOnlyMark(marks, axis) });
   const includeZero = axis === "y" && hasZeroAnchoredMark(marks);
   if (includeZero && (type === "band" || type === "time")) chartError("bad-scale", "Bar/rect/area y scales must be numeric and include zero.");
   if (type === "band") return buildBand(values, opts);

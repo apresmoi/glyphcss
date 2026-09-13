@@ -116,12 +116,31 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     // correct, not a side effect: two stages drawn identically labelled
     // were already ambiguous on the chart itself.
     if (mark.type === "funnel") {
+      // AUTHORED names (every original label, including one that already
+      // looks like a generated suffix, e.g. a genuine "A (2)" stage) are
+      // reserved up front, so a COUNT-based candidate this loop is about to
+      // mint can never collide with one — the residual collision a plain
+      // "count occurrences" pass leaves behind: `["A","A","A (2)"]` used to
+      // rename the second "A" to "A (2)", landing squarely on the THIRD
+      // stage's own authored name, so two rows (both drawn, coloured and
+      // keyed identically) shared one display name while `meta.series` and
+      // `chartSeries`' own `named` pool only ever saw one of them.
+      const reserved = new Set(displayNameByGroupKey.values());
       const seen = new Map<string, number>();
       for (const [groupKey, name] of displayNameByGroupKey) {
         if (name === undefined) continue;
-        const count = (seen.get(name) ?? 0) + 1;
+        let count = (seen.get(name) ?? 0) + 1;
         seen.set(name, count);
-        if (count > 1) displayNameByGroupKey.set(groupKey, `${name} (${count})`);
+        if (count > 1) {
+          let candidate = `${name} (${count})`;
+          while (reserved.has(candidate)) {
+            count++;
+            seen.set(name, count);
+            candidate = `${name} (${count})`;
+          }
+          displayNameByGroupKey.set(groupKey, candidate);
+          reserved.add(candidate);
+        }
       }
     }
     let sliceIndex = 0;
