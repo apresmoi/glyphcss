@@ -265,7 +265,7 @@ export type GlyphChartDetail = "auto" | "faithful" | "balanced" | "simplified";
  */
 export type GlyphChartRegionFill = "auto" | "solid" | "texture";
 export type GlyphChartRegionFillReason =
-  | "no-region-mark" | "requested-texture" | "color-off" | "flow-mark" | "colors-collide"
+  | "no-region-mark" | "requested-texture" | "color-off" | "colors-collide"
   | "target-terminal" | "target-chat" | "colors-distinct";
 /** What `glyphChartRegionFill` decided and why; `message` is one plain sentence a UI can show as-is. */
 export interface GlyphChartRegionFillResolution {

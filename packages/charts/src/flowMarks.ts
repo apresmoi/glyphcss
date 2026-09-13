@@ -24,7 +24,10 @@ import {
   type GlyphChartLedgerEntry,
 } from "./ledger";
 import type { GlyphChartPlotRect } from "./layout";
-import { resolveSeriesColor, seriesShade, type ChartSeries } from "./series";
+import { regionFillGlyph, resolveSeriesColor, seriesShade, type ChartSeries } from "./series";
+
+/** A resolved region fill (`regionFill.ts`); kept local so this module never imports `paint.ts`, which imports it. */
+type SankeyRegionFill = "solid" | "texture";
 import { chartError } from "./validate";
 import type { GlyphChartMark, GlyphChartMarkRow } from "./types";
 
@@ -1627,8 +1630,18 @@ function paintSankeyRibbonSmooth(
   tgtBox: SankeyNodeBox,
   ribbon: GlyphChartSankeyRibbon,
   phase: "border" | "interior" | "both" = "both",
+  fill: SankeyRegionFill = "texture",
 ): void {
-  const subGlyph = GLYPH_CANVAS_TIERS[tierName].subGlyph!;
+  // SOLID (`regionFill.ts`): every dot between the two edges is ink and the
+  // tier's FILL glyph (the quadrant table, `█` inside) paints it, so the
+  // ribbon reads as one colour block with half-cell edges. Only the glyph
+  // changes: a cell is written exactly when its mask is non-zero, and the
+  // two edge dots are ink under every texture too, so the cells claimed
+  // (and every border/break/zero-overwrite count built on them) are the
+  // texture paint's own.
+  const tier = GLYPH_CANVAS_TIERS[tierName];
+  const solid = fill === "solid";
+  const subGlyph = solid ? (tier.fillSubGlyph ?? tier.subGlyph)! : tier.subGlyph!;
   const xSrcCell = srcBox.x1 + 1;
   const xTgtCell = tgtBox.x0 - 1;
   if (xTgtCell < xSrcCell) return;
@@ -1642,6 +1655,7 @@ function paintSankeyRibbonSmooth(
     const [rowMin, rowMax] = sankeyRibbonColumnRows(band, xSrcCell, xTgtCell, x, rows);
     for (let r = rowMin; r <= rowMax; r++) {
       let mask = 0;
+      let spanMask = 0;
       for (let localCol = 0; localCol < 2; localCol++) {
         const [top, bot] = edgesByLocalCol[localCol]!;
         const topD = Math.max(0, Math.min(maxDotRow, Math.round(top)));
@@ -1657,6 +1671,7 @@ function paintSankeyRibbonSmooth(
           // is now genuinely blank, never a leftover routing glyph.
           const inSpan = ribbon === "outline" ? (dotRow === topD || dotRow === botD) : (dotRow >= topD && dotRow <= botD);
           if (!inSpan) continue;
+          spanMask |= 1 << sankeyDotBit(localCol, localRow);
           // The EDGE dots themselves (`topD`/`botD`) always paint — texture
           // only thins the FILL strictly between them — which is what keeps
           // the top/bottom edge a clean, traceable line (the monotone-edge
@@ -1666,7 +1681,13 @@ function paintSankeyRibbonSmooth(
           if (on) mask |= 1 << sankeyDotBit(localCol, localRow);
         }
       }
+      // A cell is claimed exactly when the TEXTURE paint claims it, under
+      // either fill: `report` (border touches, `sankey-band-broken`) comes
+      // from the texture paint and must describe the solid picture too. The
+      // two differ only where one dot column's sliver meets a texture with
+      // no ink in that column (`▌`'s right half), which both leave empty.
       if (mask === 0) continue;
+      if (solid) mask = spanMask;
       // A crossing smooth ribbon's own claim can refuse this cell (two
       // adjacent bands' curves genuinely overlap, or an earlier mark/band
       // already painted it) — the smooth path used to ignore that refusal
@@ -1694,10 +1715,10 @@ function paintSankeyRibbonSmooth(
  * review, batch 3, finding c). `edgeIdPrefix` is `computeSankeyRoutedRows`'
  * own namespace (see its doc).
  */
-export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
+export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1, fill: SankeyRegionFill = "texture"): void {
   const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, edgeIdPrefix, textScale);
   canvas.resolveJunctions();
-  paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale);
+  paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale, fill);
 }
 
 /**
@@ -1717,7 +1738,7 @@ export function paintSankeyLayout(canvas: GlyphCanvas, plot: GlyphChartPlotRect,
  * is the fix: register every mark's routes, resolve junctions once, THEN
  * repaint every mark from its own already-computed `routedRows`.
  */
-export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSankeyLayout, routedRows: readonly SankeyRoutedRow[], ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
+export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSankeyLayout, routedRows: readonly SankeyRoutedRow[], ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1, fill: SankeyRegionFill = "texture"): void {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
   const cols = sankeyColumnsByX0(nodeBoxes);
@@ -1836,9 +1857,9 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     const tgtBox = band.targetRowRange ? nodeBoxes.get(band.target) : undefined;
     if (sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable)) {
       const { glyph, color } = rows[0]!;
-      paintSankeyRibbonSmooth(paintForBand, canvas.rows, canvas.tier, band, glyph, color, srcBox!, tgtBox!, ribbon, "border");
+      paintSankeyRibbonSmooth(paintForBand, canvas.rows, canvas.tier, band, glyph, color, srcBox!, tgtBox!, ribbon, "border", fill);
     } else {
-      paintSankeyRoutedRowsFallback(canvas, rows, paintForBand, ribbon, "border");
+      paintSankeyRoutedRowsFallback(canvas, rows, paintForBand, ribbon, "border", fill);
     }
   }
   for (const band of bandOrder) {
@@ -1847,9 +1868,9 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     const tgtBox = band.targetRowRange ? nodeBoxes.get(band.target) : undefined;
     if (sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable)) {
       const { glyph, color } = rows[0]!;
-      paintSankeyRibbonSmooth(paintForBand, canvas.rows, canvas.tier, band, glyph, color, srcBox!, tgtBox!, ribbon, "interior");
+      paintSankeyRibbonSmooth(paintForBand, canvas.rows, canvas.tier, band, glyph, color, srcBox!, tgtBox!, ribbon, "interior", fill);
     } else {
-      paintSankeyRoutedRowsFallback(canvas, rows, paintForBand, ribbon, "interior");
+      paintSankeyRoutedRowsFallback(canvas, rows, paintForBand, ribbon, "interior", fill);
     }
   }
   for (const [band, cells] of refusedCellsByBand) {
@@ -1900,10 +1921,20 @@ function paintSankeyRoutedRowsFallback(
   paintCell: (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined) => void,
   ribbon: GlyphChartSankeyRibbon,
   phase: "border" | "interior" | "both" = "both",
+  fill: SankeyRegionFill = "texture",
 ): void {
   const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
   const ascii = canvas.tier === "ascii";
   const blank = tierTable.subcell ? tierTable.subGlyph!(0) : " ";
+  // SOLID (`regionFill.ts`): the band's own colour carries its identity, so
+  // a filled cell is the tier's solid glyph — no lighter straight-run step,
+  // no texture mask, and on `ascii`/`box` no one-stroke corner glyph (a thin
+  // arc inside a solid run reads as a hole). `braille`/`blocks` keep the
+  // rounded quadrant corner, itself a solid shape, drawn from the FILL
+  // glyph table. The same cells are painted either way.
+  const solid = fill === "solid";
+  const solidGlyph = regionFillGlyph(canvas.tier, 0, 1, "solid");
+  const cellSubGlyph = solid ? (tierTable.fillSubGlyph ?? tierTable.subGlyph) : tierTable.subGlyph;
   // A row's SECOND visit to its own already-painted border cell (loop 2
   // below walks only the INTERIOR cells, `ci` in `[1, length - 2]`) never
   // reaches `paintCell` at all, so a border a row claims in loop 1 can
@@ -1928,25 +1959,27 @@ function paintSankeyRoutedRowsFallback(
     const next = ci < cells.length - 1 ? sankeyDirOf(cells[ci]!, cells[ci + 1]!) : null;
     const isCorner = prev !== null && next !== null && prev !== next;
     if (tierTable.subcell) {
-      const subGlyph = tierTable.subGlyph!;
+      const subGlyph = cellSubGlyph!;
       if (isBorder) return subGlyph(SANKEY_FULL_SUB_MASK);
       if (isCorner) {
         const q = sankeyCornerMissingQuadrant(prev!, next!);
         return subGlyph(q === null ? SANKEY_FULL_SUB_MASK : sankeySubMaskExcludingQuadrant(q));
       }
       if (ribbon === "outline") return blank;
+      if (solid) return subGlyph(SANKEY_FULL_SUB_MASK);
       let mask = 0;
       for (let lc = 0; lc < 2; lc++) for (let lr = 0; lr < 4; lr++) {
         if (sankeyRibbonTextureOn(glyph, cells[ci]!.x * 2 + lc, cells[ci]!.y * 4 + lr)) mask |= 1 << sankeyDotBit(lc, lr);
       }
       return subGlyph(mask);
     }
-    if (isBorder) return glyph;
-    if (isCorner) {
+    if (isBorder) return solid ? solidGlyph : glyph;
+    if (isCorner && !(solid && ribbon === "filled")) {
       const g = sankeyBoxCornerGlyph(prev!, next!, ascii);
       if (g) return g;
     }
     if (ribbon === "outline") return blank;
+    if (solid) return solidGlyph;
     return SANKEY_LIGHTER_STRAIGHT_GLYPH[glyph] ?? glyph;
   };
 
@@ -2085,9 +2118,9 @@ function paintSankeyNodeBoxes(
 /** `paint.ts`'s own call site for a SINGLE sankey mark — lays out then paints
  * in one step, `resolveJunctions()` included. For more than one sankey mark
  * in a render, use `paintSankeyMarks` instead (see its own doc for why). */
-export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1): void {
+export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], claimedBy: Set<number> = new Set(), edgeIdPrefix = "", ribbon: GlyphChartSankeyRibbon = "filled", textScale = 1, fill: SankeyRegionFill = "texture"): void {
   const layout = layoutSankeyGraph(groups, plot, canvas.tier, ledger, textScale);
-  if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger, claimedBy, edgeIdPrefix, ribbon, textScale);
+  if (layout) paintSankeyLayout(canvas, plot, layout, colorEnabled, ledger, claimedBy, edgeIdPrefix, ribbon, textScale, fill);
 }
 
 /**
@@ -2104,7 +2137,7 @@ export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
  * calling `paintSankeyMark` directly (one iteration, one registration
  * batch, one `resolveJunctions()` call — indistinguishable from today's).
  */
-export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[]; readonly ribbon?: GlyphChartSankeyRibbon }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
+export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[]; readonly ribbon?: GlyphChartSankeyRibbon }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture"): void {
   const registered: { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[]; readonly ribbon: GlyphChartSankeyRibbon }[] = [];
   for (let i = 0; i < entries.length; i++) {
     const layout = layoutSankeyGraph(entries[i]!.groups, plot, canvas.tier, ledger, textScale);
@@ -2115,7 +2148,7 @@ export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, 
   if (registered.length === 0) return;
   canvas.resolveJunctions();
   const claimedBy = new Set<number>();
-  for (const { layout, routedRows, ribbon } of registered) paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale);
+  for (const { layout, routedRows, ribbon } of registered) paintSankeyRoutedRows(canvas, layout, routedRows, ledger, claimedBy, ribbon, textScale, fill);
 }
 
 // ── funnel ───────────────────────────────────────────────────────────────
@@ -2145,7 +2178,7 @@ function formatFunnelValueCandidates(v: number): readonly string[] {
  * moved). Stage identity is by ROW, not name (`series.ts`'s `chartSeries`
  * keys a funnel by index) — two stages sharing a label are still two rows.
  */
-export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
+export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture"): void {
   const rawStages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex, color: g.color }));
   if (rawStages.length === 0) return;
   const plotWidth = plot.x1 - plot.x0 + 1;
@@ -2222,7 +2255,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     if (rowStart > plot.y1) break;
     const midRow = Math.floor((rowStart + rowEnd) / 2);
 
-    const glyph = seriesShade(canvas.tier, stage.styleIndex, n);
+    const glyph = regionFillGlyph(canvas.tier, stage.styleIndex, n, fill);
     const color = resolveSeriesColor(stage, colorEnabled);
     let barWidth = maxValue > 0 ? Math.round((stage.value / maxValue) * innerWidth) : 0;
     if (stage.value > 0 && barWidth < 1) {

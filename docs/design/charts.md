@@ -960,7 +960,7 @@ The user's decision reverses part of "Round 18": textures are the default only w
 1. No bar/rect/area/arc series → texture (nothing to change, no second paint).
 2. `"texture"` → texture.
 3. Colour off (`none`, or NO_COLOR on an ANSI mode) → texture.
-4. A sankey or funnel mark → texture: `flowMarks.ts` paints its own `seriesShade`, and its ribbon painter keys its density/pattern table on that glyph.
+4. (Removed in Round 25.) A sankey or funnel mark used to force texture on the whole chart, because `flowMarks.ts` painted its own `seriesShade`; it now follows rules 3, 5 and 6 like every other region mark.
 5. Two distinct region identities (series names; unnamed series are each their own) resolve to one colour at the render's depth → texture.
 6. `"auto"` with target `terminal`/`chat` → texture.
 7. Otherwise solid.
@@ -1004,6 +1004,98 @@ Adjacent default colours sit 293-483 apart on redmean. The closest pair anywhere
 **Residuals.**
 
 - **`╱` overflow under colour-off textures.** Fixing it by glyph choice changes colour-off bytes and the Round 18 coverage ordering. CSS cannot clip one glyph inside a single text node.
-- **Sankey and funnel stay textured,** pending a pass over `flowMarks.ts`.
+- **Sankey and funnel stayed textured** here; closed in Round 25.
 - **Distinctness is exact colour equality.** Two hand-picked near-identical hexes count as distinct.
 - **The CLI has no `--region-fill` flag.** It defaults to `terminal`, which resolves texture anyway.
+
+## Round 25: sankey/funnel follow `regionFill`; half-cell boundaries between solid bands
+
+Two follow-ups to Round 24, both only where `regionFill` resolves solid. Texture output is byte-identical to `b662a509` for every `goodSpecs` entry plus the energy area, a stacked bar, the energy sankey and the funnel, on every charset at 60x24 and 96x32. That covers 14 exits per combination, 4,368 hashes in `fixtures/solidSubcellParentFixtures.json`, generated from `b662a509` before any render change.
+
+### A. Sankey and funnel
+
+**The claim footprint was the question, and the texture barely touches it.** A smooth ribbon cell is written when its dot mask is non-zero. The two edge dots are ink under every texture, and every texture puts ink in any full 2x4 cell, so the texture thins a band's ink and almost never decides which cells it claims. The fallback path paints every route cell in `"filled"` mode whatever its glyph. So a solid paint claims the same cells, and every gate built on claims holds unchanged: border touch, `sankey-band-broken`'s refusal set, and zero silent overwrite. `solidSubcell.test.ts` checks this with fresh paints in both modes, comparing the non-blank footprint, the ledger, `routeConflicts` and every cell's colour. It covers the energy sankey, a fan, the funnel and an outline ribbon, on 4 charsets × 4 sizes.
+
+**The one exception.** A sliver covering only ONE dot column of a cell, under a texture with no ink in that column, has a zero mask. That happens with `▌`, the fifth series' vertical stripe. The texture paint never claims such a cell. Measured over that sweep: 2 cells (energy sankey, `blocks` and `braille`, 40x20), and 0 everywhere else. Painting the full span there would make the solid picture differ from the `report` computed off the texture paint. So a solid cell is claimed exactly when the texture paint claims it, and the two cells stay empty in both. The real fix is to claim on the span in the texture paint too, and that is a texture-byte change this round was not allowed to make.
+
+**Glyphs.**
+
+- **`braille`/`blocks` smooth ribbon:** the full span, inked through the FILL glyph table (quadrants, `█` inside). Braille dots would read as a dotted texture, not a colour block. The quadrant mapping ORs a quadrant's two dots, so an edge is drawn up to one dot outward, never inward.
+- **`ascii`/`box` fallback:** `█`/`#` on straight runs and corners. The lighter straight-run step was a density device for textures. A one-stroke `╭` inside a solid run reads as a hole.
+- **`braille`/`blocks` fallback corners:** these keep their quadrant rounding, which is itself solid.
+- **Funnel bars and all legend swatches** go through `regionFillGlyph`.
+
+**Crossings stay distinguishable by colour.** A band's colour is its SOURCE node's. The whole-chart collision check (Round 24, rule 5) now counts sankey sources and funnel stages. So one hex for every source falls back to texture, and so does `ansi16` on the energy sankey, where Coal and Nuclear both quantise to `#008080`. The rule 4 flow-mark exclusion is gone.
+
+### B. Half-cell boundaries between solid bands
+
+**The premise that fell.** Round 23 kept internal boundaries whole-cell because "a cell holds one glyph", and a quadrant there would cost a thin band its identity glyph. Under a SOLID fill, identity is colour, and a cell carries two: the glyph's ink and the canvas `bg`. `canvas.text` gained a `bg` option (`fillRect`'s contract) so one call writes both.
+
+**Every exit carries `bg`.**
+
+- `encodeGlyphCanvasHtml` emits `color` + `background-color` per run.
+- `encodeGlyphCanvasAnsi` emits fg and bg SGR.
+- `ansi16`/`ansi256` quantise fg and bg through the same `nearestAnsiCanvasColor`, so a two-colour cell matches its solid neighbours. A depth at which two bands collide already resolves texture.
+- Cell for cell, the truecolor ANSI exit matches the css html glyph, fg and bg. `solidSubcell.test.ts` checks this.
+
+**Rounding: the nearest half cell.** `paintSolidRegions` samples each cell at its four QUADRANT centres, the stacked-area silhouette's own sampling, now applied to every boundary. A boundary within a quarter row of a cell edge stays whole-cell. One within a quarter row of the middle becomes `▄`/`▀`. The worst-case error is a quarter row. Whole cells give half a row. A "middle third" rule would give a third of a row, so it was not taken.
+
+**At most two colours per cell.** The quadrants add the horizontal half a slope needs (`▟`, `▛`). Four quadrants could hold four bands, though. So a cell whose quadrants hold three owners (the sky counts as one) drops to column-centre half-blocks, which can never hold more than two.
+
+**Which colour is ink.** The owner with more BOTTOM quadrants is the ink, so a horizontal boundary is `▄` in the lower band over the upper band's `bg`. This is the placement with no seam on Glyph Mono at `line-height: 1`. The ink overflows downward into the row painted after it. The `bg` content area (half-leading −166 units) overflows into the upper band's own row above, and into the next row, under that row's `█`, whose ink rises 492 units.
+
+**The floor.** A STACK layer non-zero in a column but reaching no sample point there takes the half nearest its own midpoint. It prefers a half whose owner stays visible elsewhere, and the column is re-resolved until every such layer shows. A thin band is therefore drawn half a row thick wherever the data is non-zero, never omitted. A crowd of thin layers moves by at most the crowd's own size: forced and unsafe halves form one contiguous block, and the nearest safe half lies just past it.
+
+A quarter-row window around each layer's extent was tried first and removed. It never engaged on real data, since its mutation stayed green. Worse, it could leave a crowded layer with no half at all.
+
+**The zero snap.** A band meeting the zero row snaps to the axis row's own edge. The axis is `Math.round` of the exact zero row, so an exact edge a quarter row past a cell boundary would float a bar half a row off its axis.
+
+**Where it applies.** Area marks (stacked and unstacked) and bar marks, on `braille`/`blocks` only, the tiers with a sub-cell fill vocabulary. `rect`, the funnel's horizontal ends and `box`/`ascii` stay whole-cell. A sankey ribbon's edges are already sub-cell through its quadrant glyphs, and ribbons never share a cell (claims), so they need no `bg`.
+
+**Quadrant sampling reads one segment.** At a data vertex, `areaSpansAt` takes the union of the vertex's two segments. That is right at the column centre, where they meet, but a quarter column either side they give different rows. `areaSpansAtQuadrant` reads only the segment that spans `x`.
+
+**Measured.** Energy stacked area, web/braille/css 96x32:
+
+| | before (b662a509) | after |
+|---|---|---|
+| Renewables visible, plot columns | 59 of 90 | 90 of 90 |
+| two-colour (`bg`) cells | 0 | 150 |
+| `▄` | 23 | 161 |
+| other quadrants (`▟ ▛ …`) | 7 (`▗`) | 38+ |
+
+On the energy sankey, the braille dot glyphs (1,008 cells before) are gone. The ribbons read as `█` with quadrant edges.
+
+**Solid output elsewhere.** It changes only where a boundary straddles a cell's middle half, or where a floored layer lands. Where every boundary sits near a cell edge, the output is the whole-cell paint exactly. `solidSubcell.test.ts` rebuilds the whole-cell picture from the texture html and checks every differing cell. Box never differs.
+
+**Mutation checks** (`solidSubcell.test.ts`, `regionFill.test.ts`, glyphcss `text.test.ts`). Every one reddened at least one test:
+
+| id | mutation | tests red |
+|---|---|---|
+| A1 | sankey/funnel dropped from the solid-capable set | 5 |
+| A2 | solid smooth ribbon keeps braille dots | 1 |
+| A3 | solid box fallback keeps the lighter straight-run glyph | 1 |
+| A4 | solid box fallback keeps rounded corner glyphs | 1 |
+| A5 | solid claims the full span instead of the texture paint's cells | 1 |
+| A6 | sankey/funnel legend swatch back on `seriesShade` | 3 |
+| A7 | funnel bar back on `seriesShade` | 1 |
+| B1 | halves sampled at the cell centre (whole cells) | 5 |
+| B2 | no thin-band floor | 2 |
+| B3 | fg/bg swapped in a two-band cell | 1 |
+| B4 | `canvas.text` drops its `bg` write | 6 (+1 in glyphcss) |
+| B5 | a whole cell writes a `bg` too | 1 |
+| B6 | no zero-row snap | 1 |
+| B7 | the floor takes the first safe half from the top, not the nearest | 2 |
+| B8 | quadrant columns read the union of a vertex's two segments | 1 |
+| B9 | the quadrant sampler drops the last segment past the data | 1 |
+| R1 | ansi256 quantisation removed from the collision check | 2 |
+| R2 | repeated series names no longer skipped in the collision check | 1 |
+| R3 | the solid paint's ledger reaches `report` (entries twice) | 1 |
+| T1 | the texture canvas paints solid smooth ribbons | 3 |
+| T2 | the texture canvas uses the solid compositor for areas | 3 |
+
+**Residuals.**
+
+- **The two texture-thinned sankey cells** (section A): empty in both modes.
+- **Lines and dots over a two-colour cell** keep its `bg`. A mark crossing a solid band shows over that band's colour in a straddling cell and over the page background in a `█` cell, since `canvas.line` has no `bg` option.
+- **Unstacked areas have no floor.** A band hidden behind a later series is legitimately hidden.
+- **Distinctness is still exact colour equality** after quantisation.

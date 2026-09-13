@@ -1,6 +1,24 @@
 import { describe, expect, it } from "vitest";
 import { createGlyphCanvas } from "./canvas";
 
+describe("cell canvas: text() bg option", () => {
+  it("writes the background of every origin cell, leaves it alone when omitted, and clears it on null (mutation: drop the bg write -> red)", () => {
+    const canvas = createGlyphCanvas({ cols: 6, rows: 2, tier: "braille" });
+    canvas.text(0, 0, ["▄▄"], { color: "#22c55e", bg: "#ef4444" });
+    expect(canvas.bg.slice(0, 3)).toEqual(["#ef4444", "#ef4444", null]);
+    expect(canvas.grid.color[0]).toBe("#22c55e");
+    canvas.text(0, 0, ["█"], { color: "#22c55e" });
+    expect(canvas.bg[0]).toBe("#ef4444");
+    canvas.text(1, 0, ["x"], { bg: null });
+    expect(canvas.bg[1]).toBeNull();
+  });
+
+  it("rejects a non-canonical bg like every other colour it accepts", () => {
+    const canvas = createGlyphCanvas({ cols: 4, rows: 1, tier: "box" });
+    expect(() => canvas.text(0, 0, ["a"], { bg: "#FFF" })).toThrow(TypeError);
+  });
+});
+
 describe("cell canvas: text() never rasterises", () => {
   it("a label written over a filled rect keeps its exact characters", () => {
     const canvas = createGlyphCanvas({ cols: 10, rows: 3, tier: "box" });

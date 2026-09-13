@@ -11,6 +11,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
 import { glyphChartRegionFill, renderGlyphChart } from "./render";
 import { goodSpecs } from "./reviewFixtures";
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartSankey } from "./spec";
@@ -19,6 +20,8 @@ import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartRenderOptions, G
 const CHARSETS: readonly GlyphChartCharset[] = ["ascii", "box", "blocks", "braille"];
 /** Every non-solid glyph `seriesShade` can hand a region fill on box/blocks/braille. */
 const TEXTURE_GLYPHS = ["░", "▚", "╱", "▌", "═", "▓", "▒"];
+/** The blocks quadrant table (`fillSubGlyph`): a solid fill's boundary cells on braille/blocks. */
+const QUADRANT_GLYPHS = ["▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"];
 /** The subset no sub-cell silhouette quadrant (`fillSubGlyph`) can also be. */
 const PURE_TEXTURE_GLYPHS = ["░", "╱", "═", "▓", "▒"];
 
@@ -41,7 +44,9 @@ const energy: GlyphChartSpec = { marks: [{ ...glyphChartArea(energyRows, { x: "y
 const stackedBar: GlyphChartSpec = { marks: [{ ...glyphChartBar([{ x: "a", y: 3, s: "P" }, { x: "a", y: 2, s: "Q" }, { x: "a", y: 4, s: "R" }, { x: "b", y: 4, s: "P" }, { x: "b", y: 1, s: "Q" }, { x: "b", y: 2, s: "R" }], { x: "x", y: "y", fill: "s" }), transform: { kind: "stack" } }] };
 const shares = [{ s: "Coal", v: 35 }, { s: "Gas", v: 23 }, { s: "Hydro", v: 15 }, { s: "Nuclear", v: 9 }, { s: "Wind", v: 8 }];
 const pie: GlyphChartSpec = { marks: [glyphChartArc(shares, { fill: "s", y: "v" })] };
-const donut: GlyphChartSpec = { marks: [glyphChartArc(shares, { fill: "s", y: "v" }, { innerRadius: 0.5 })] };
+/** Two series one ANSI256 slot apart: distinct as hex, identical once quantised to 256 colours. */
+const nearReds: GlyphChartSpec = { marks: [{ ...glyphChartArc([{ s: "A", v: 1 }, { s: "B", v: 2 }], { fill: "s", y: "v" }), options: { color: ["#ff0000", "#ff0100"] } }] };
+const donut: GlyphChartSpec ={ marks: [glyphChartArc(shares, { fill: "s", y: "v" }, { innerRadius: 0.5 })] };
 
 function htmlRows(html: string): string[] {
   const text = html.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&amp;/g, "&");
@@ -99,18 +104,60 @@ describe("auto resolution — solid only where colour carries identity", () => {
     expect(glyphChartRegionFill(twoSeries, { color: "ansi16" })).toMatchObject({ fill: "solid" });
   });
 
+  it("ansi256 collision protection: two hexes one SGR slot apart resolve texture under auto, naming both series", () => {
+    // Mutation: drop the ansi256 branch of `displayColor` (compare raw hex at 256 colours) -> red.
+    expect(glyphChartRegionFill(nearReds, { color: "css" })).toMatchObject({ fill: "solid" });
+    const auto = glyphChartRegionFill(nearReds, { color: "ansi256" });
+    expect(auto).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["A", "B"] });
+    expect(auto.message).toMatch(/"A" and "B" paint the same colour in ansi256/);
+  });
+
+  it("ansi256 collision protection: an explicit solid is refused with `region-fill-solid-refused` and falls back to textures", () => {
+    // Mutation: drop the ansi256 branch of `displayColor` -> red.
+    const refused = renderGlyphChart(nearReds, { color: "ansi256", regionFill: "solid", charset: "box" });
+    expect(refused.report.ledger).toContainEqual(expect.objectContaining({ code: "region-fill-solid-refused", detail: expect.objectContaining({ reason: "colors-collide", colliding: ["A", "B"] }) }));
+    // It fell back to textures: B's `░` is in the ANSI exit, not a second `█`.
+    expect(refused.text.replace(/\x1b\[[0-9;]*m/g, "")).toContain("░");
+  });
+
+  it("a series name shared across marks is ONE identity: it never collides with itself", () => {
+    // Mutation: drop the repeated-name skip in the collision loop -> red ("Revenue" and "Revenue" paint the same colour).
+    const revenue: GlyphChartSpec = { marks: [
+      glyphChartBar([{ x: "a", y: 3 }, { x: "b", y: 4 }], { x: "x", y: "y" }, { name: "Revenue" }),
+      glyphChartBar([{ x: "c", y: 2 }, { x: "d", y: 5 }], { x: "x", y: "y" }, { name: "Revenue" }),
+    ] };
+    expect(glyphChartRegionFill(revenue, { color: "css" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
+  });
+
+  it("the solid paint's ledger is discarded: a solid render reports exactly the textured render's ledger, never an entry twice", () => {
+    // Mutation: hand the solid paint the real ledger in `renderGlyphChart` -> red (every paint-time entry is reported twice).
+    const zeroSlice: GlyphChartSpec = { marks: [glyphChartArc([{ s: "A", v: 3 }, { s: "B", v: 0 }, { s: "C", v: 2 }], { fill: "s", y: "v" })] };
+    const sankey: GlyphChartSpec = { marks: [glyphChartSankey(ENERGY_FLOW_SANKEY_DATA, { source: "from", target: "to", value: "amount" })] };
+    for (const [spec, opts] of [[zeroSlice, {}], [sankey, { width: 40, height: 20 }], [energy, {}]] as const) {
+      const base: GlyphChartRenderOptions = { color: "css", ...opts };
+      expect(glyphChartRegionFill(spec, base).fill).toBe("solid");
+      const solid = renderGlyphChart(spec, base).report.ledger;
+      const texture = renderGlyphChart(spec, { ...base, regionFill: "texture" }).report.ledger;
+      expect(solid).toEqual(texture);
+      expect(new Set(solid.map((e) => JSON.stringify(e))).size).toBe(solid.length);
+    }
+    expect(renderGlyphChart(zeroSlice, { color: "css" }).report.ledger.map((e) => e.code)).toContain("slice-dropped");
+    expect(renderGlyphChart(sankey, { color: "css", width: 40, height: 20 }).report.ledger.length).toBeGreaterThan(0);
+  });
+
   it("the default palette separates 8 pie slices; a 9th repeats blue and falls back to textures", () => {
     const slices = (n: number) => ({ marks: [glyphChartArc(Array.from({ length: n }, (_, i) => ({ s: `S${i}`, v: 1 })), { fill: "s", y: "v" })] });
     expect(glyphChartRegionFill(slices(8), { color: "css" }).fill).toBe("solid");
     expect(glyphChartRegionFill(slices(9), { color: "css" })).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["S0", "S8"] });
   });
 
-  it("colour off, NO_COLOR, a flow mark, and a chart with no region mark all resolve texture", () => {
+  it("colour off, NO_COLOR and a chart with no region mark resolve texture; a flow mark no longer forces it", () => {
     expect(glyphChartRegionFill(energy, { color: "none" }).reason).toBe("color-off");
     expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1" } }).reason).toBe("color-off");
     expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1", FORCE_COLOR: "1" } }).fill).toBe("solid");
     const withSankey = { marks: [...stackedBar.marks, glyphChartSankey([{ a: "X", b: "Y", v: 1 }], { source: "a", target: "b", value: "v" })] };
-    expect(glyphChartRegionFill(withSankey, { color: "css" }).reason).toBe("flow-mark");
+    // Sankey ribbons follow the rule like every other region mark (solidSubcell.test.ts).
+    expect(glyphChartRegionFill(withSankey, { color: "css" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
     expect(glyphChartRegionFill({ marks: [goodSpecs[0]!.marks[0]!] }, { color: "css" }).reason).toBe("no-region-mark");
   });
 
@@ -141,7 +188,7 @@ describe("the solid paint", () => {
     }
   });
 
-  it("braille: the stacked area's bands are solid while the sub-cell silhouette is kept", () => {
+  it("braille: the stacked area's bands are solid, their boundaries in quadrant blocks (the half-cell rule is solidSubcell.test.ts')", () => {
     const colour = renderGlyphChart(energy, { color: "css" });
     const solid = htmlRows(colour.html!);
     const texture = gridRows(colour);
@@ -153,14 +200,13 @@ describe("the solid paint", () => {
       for (let x = 0; x < a.length; x++) {
         if (a[x] === b[x]) continue;
         changed++;
-        expect(b[x], `row ${y} col ${x}: ${a[x]} became ${b[x]}`).toBe("█");
-        expect(TEXTURE_GLYPHS).toContain(a[x]);
+        expect(QUADRANT_GLYPHS, `row ${y} col ${x}: ${a[x]} became ${b[x]}`).toContain(b[x]);
+        expect([...TEXTURE_GLYPHS, ...QUADRANT_GLYPHS], `row ${y} col ${x} was ${a[x]}`).toContain(a[x]);
       }
     }
     expect(changed).toBeGreaterThan(200);
-    // The `▄`/`▗` outer edge is painted identically on both canvases, now sitting on a solid band.
-    expect(count(solid, "▄")).toBe(count(texture, "▄"));
-    expect(count(solid, "▗")).toBe(count(texture, "▗"));
+    // Every half-cell edge the texture paint drew survives; boundaries between bands add more.
+    expect(count(solid, "▄")).toBeGreaterThanOrEqual(count(texture, "▄"));
   });
 
   it("ascii solid is `#`, 7-bit", () => {

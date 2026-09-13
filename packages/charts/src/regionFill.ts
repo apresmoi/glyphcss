@@ -10,9 +10,8 @@
  * one, and a caller (the `/charts` Dock) could no longer state ONE reason.
  *
  * Solid only when colour genuinely carries identity in THIS render: colour
- * on, no flow mark (`flowMarks.ts` still paints its own textures), and no two
- * distinct region series resolving to the same colour at the render's own
- * depth — `ansi16` quantises the default palette's blue and green to the
+ * on, and no two distinct region series (sankey sources and funnel stages
+ * included) resolving to the same colour at the render's own depth — `ansi16` quantises the default palette's blue and green to the
  * same teal, so a third series already collides there. `auto` additionally
  * keeps textures for `terminal`/`chat`, where a copy/paste or a monochrome
  * theme drops the colour the solid fill relies on; an explicit `"solid"`
@@ -26,9 +25,8 @@ import type { GlyphChartResolvedMark } from "./resolve";
 import { chartSeries, resolveSeriesColor } from "./series";
 import type { GlyphChartColorMode, GlyphChartRegionFill, GlyphChartRegionFillResolution, GlyphChartTarget } from "./types";
 
-/** Mark types whose fill glyph `regionFillGlyph` picks. `cell` shades by VALUE, and `sankey`/`funnel` paint in `flowMarks.ts`. */
-const SOLID_CAPABLE_MARK_TYPES = new Set(["bar", "rect", "area", "arc"]);
-const FLOW_MARK_TYPES = new Set(["sankey", "funnel"]);
+/** Mark types whose fill glyph `regionFillGlyph` picks. `cell` shades by VALUE, so it never takes a solid fill. */
+const SOLID_CAPABLE_MARK_TYPES = new Set(["bar", "rect", "area", "arc", "sankey", "funnel"]);
 
 /** Whether a render paints colour at all — shared by `renderGlyphChart` and `glyphChartRegionFill` so the two can never disagree. */
 export function glyphChartColorEnabled(color: GlyphChartColorMode, env: Readonly<Record<string, string | undefined>> | undefined): boolean {
@@ -56,10 +54,9 @@ export function resolveGlyphChartRegionFill(marks: readonly GlyphChartResolvedMa
     ({ requested, fill: "texture", reason, message, ...(colliding ? { colliding } : {}) });
   const series = chartSeries(marks);
   const region = series.filter((s) => SOLID_CAPABLE_MARK_TYPES.has(s.mark.type));
-  if (region.length === 0) return texture("no-region-mark", "No bar, rect, area or pie mark has a fill to texture.");
+  if (region.length === 0) return texture("no-region-mark", "No bar, rect, area, pie, sankey or funnel mark has a fill to texture.");
   if (requested === "texture") return texture("requested-texture", "Textures were requested.");
   if (!ctx.colorEnabled) return texture("color-off", "Colour is off, so textures tell the series apart.");
-  if (marks.some((m) => FLOW_MARK_TYPES.has(m.mark.type))) return texture("flow-mark", "Sankey and funnel marks still paint textures, so the whole chart keeps them.");
   const identityByColor = new Map<string, string>();
   const seen = new Set<string>();
   for (let i = 0; i < region.length; i++) {

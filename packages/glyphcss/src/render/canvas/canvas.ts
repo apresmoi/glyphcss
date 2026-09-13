@@ -90,6 +90,14 @@ export interface GlyphCanvasTextOptions {
   readonly align?: GlyphCanvasTextAlign;
   readonly color?: string | null;
   /**
+   * Background of every ORIGIN cell this call writes — `fillRect`'s own
+   * contract: omitted leaves the existing `bg` untouched (every caller before
+   * this option existed, byte-identical), `null` explicitly clears it. Lets a
+   * two-colour half-block (`▄` in one colour over another) be written in ONE
+   * call; `@glyphcss/charts`' solid region fills are the consumer.
+   */
+  readonly bg?: string | null;
+  /**
    * Accepted so a later phase's obstacle-aware label layout can call this
    * signature unchanged. Phase 0 has no collision/arbitration system to
    * feed it into — `canvas.text` never rations or drops a label on its own,
@@ -825,6 +833,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       assertIntegerCellCoords("text", [x0, y0]);
       const align = opts.align ?? "left";
       const color = assertCanvasColor(opts.color, "text");
+      const bgColor = opts.bg === undefined ? undefined : assertCanvasColor(opts.bg, "text");
       const scale = opts.scale ?? 1;
       if (!Number.isInteger(scale) || scale < 1) {
         throw new RangeError(`glyphcss: text() requires an integer scale >= 1, got ${scale}.`);
@@ -857,6 +866,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) continue;
           grid.char[idx] = resolveTextGlyph(graphemes[i]!, report, x, y);
           grid.color[idx] = color;
+          if (bgColor !== undefined) bg[idx] = bgColor;
           if (scale <= 1) continue;
           textScale[idx] = scale;
           // The remaining `scale*scale - 1` cells of this glyph's box: mark

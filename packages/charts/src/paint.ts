@@ -45,9 +45,8 @@ export interface GlyphChartPaintOptions {
   /**
    * Region-mark fill (bar/rect/area/arc and their legend swatches), already
    * resolved by `regionFill.ts`. Default `"texture"`, the pre-option paint.
-   * `cell` ignores it (its ramp encodes value, not series), and so do
-   * sankey/funnel, which `flowMarks.ts` paints — a chart holding one always
-   * resolves to texture.
+   * `cell` ignores it (its ramp encodes value, not series); sankey ribbons
+   * and funnel bars take it through `flowMarks.ts`.
    */
   readonly regionFill?: GlyphChartResolvedRegionFill;
   /**
@@ -212,6 +211,33 @@ function areaSpansAt(layer: AreaLayerEdges, col: number, x: number): [number, nu
 }
 
 /**
+ * `areaSpansAt` for a QUADRANT column of `col` (`x` a quarter column off its
+ * centre), reading only the segment that actually spans `x`. The union
+ * `areaSpansAt` takes is right at the centre, where every segment through a
+ * data vertex meets at that vertex; a quarter column either side, the two
+ * segments of a vertex give different rows, and their union made two stacked
+ * layers both cover one quadrant, handing it to the later (upper) layer below
+ * the lower one. A segment whose two points share a column still counts for
+ * that whole column (dense data), and `x` past the data clamps to its end.
+ */
+function areaSpansAtQuadrant(layer: AreaLayerEdges, col: number, x: number): [number, number][] {
+  const first = layer.cols[0]!, last = layer.cols[layer.cols.length - 1]!;
+  const cx = Math.min(last, Math.max(first, x));
+  const spans: [number, number][] = [];
+  for (let i = 0; i < layer.cols.length - 1; i++) {
+    const c0 = layer.cols[i]!, c1 = layer.cols[i + 1]!;
+    if (c0 === c1) {
+      if (c0 === col) spans.push([layer.tops[i]!, layer.bases[i]!]);
+      continue;
+    }
+    if (cx < c0 || cx > c1 || (cx === c1 && x > cx && i < layer.cols.length - 2) || (cx === c0 && x < cx && i > 0)) continue;
+    const t = (cx - c0) / (c1 - c0);
+    spans.push([layer.tops[i]! + (layer.tops[i + 1]! - layer.tops[i]!) * t, layer.bases[i]! + (layer.bases[i + 1]! - layer.bases[i]!) * t]);
+  }
+  return spans;
+}
+
+/**
  * Whether a point at exact row coordinate `y` lies inside the band between
  * `top` (the value's row) and `base` (the baseline's row). The band runs
  * from the value's row to the row strictly beyond the baseline's — the bar
@@ -258,13 +284,24 @@ const AREA_QUADRANT_SUB_BITS: readonly number[] = [0b00000011, 0b00011000, 0b010
  * as its own group, painted in series order (later series in front, exactly
  * as before).
  */
-function paintAreaMark(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, series: readonly AreaSeriesPaint[], stacked: boolean, silhouette: boolean): void {
+function paintAreaMark(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, series: readonly AreaSeriesPaint[], stacked: boolean, silhouette: boolean, fill: GlyphChartResolvedRegionFill = "texture"): void {
   const { plot } = layout;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const subFill = tier.subcell ? (tier.fillSubGlyph ?? tier.subGlyph) : undefined;
   const layersOf = (s: AreaSeriesPaint): AreaLayerEdges[] => areaLayers(s.rows)
     .map((layer) => areaLayerEdges(layout, scales, layer, s.color, s.glyph))
     .filter((l): l is AreaLayerEdges => l !== null);
+  if (fill === "solid" && subFill) {
+    // Every layer of every series in ONE compositor pass, later layers in
+    // front exactly as the whole-cell paint orders them.
+    const snap = zeroRowSnap(scales, plot);
+    const layers = series.flatMap(layersOf).map((l): SolidRegionLayer => {
+      const snapped: AreaLayerEdges = { ...l, tops: l.tops.map(snap), bases: l.bases.map(snap) };
+      return { color: l.color, c0: l.cols[0]!, c1: l.cols[l.cols.length - 1]!, floor: stacked, spansAt: (col, x) => (x === col ? areaSpansAt(snapped, col, col) : areaSpansAtQuadrant(snapped, col, x)) };
+    });
+    paintSolidRegions(canvas, layout, layers);
+    return;
+  }
   const groups: AreaLayerEdges[][] = stacked ? [series.flatMap(layersOf)] : series.map(layersOf);
   for (const group of groups) {
     let groupC0 = Infinity, groupC1 = -Infinity;
@@ -301,6 +338,212 @@ function paintAreaMark(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: Gl
       }
     }
   }
+}
+
+/**
+ * One layer the SOLID sub-cell compositor (`paintSolidRegions`) owns: its
+ * colour, the plot columns it spans, and its exact `[top, base]` row spans
+ * at a column (`spansAt(col, x)`, `x` the column itself or one of its two
+ * quadrant columns). `floor` marks a STACK layer, which must stay visible in
+ * every column where it is non-zero.
+ */
+interface SolidRegionLayer {
+  readonly color: string | null;
+  readonly c0: number;
+  readonly c1: number;
+  readonly floor: boolean;
+  spansAt(col: number, x: number): readonly (readonly [number, number])[];
+}
+
+const NO_OWNER = -1;
+
+/** A painted cell: foreground layer, background layer (or none), and the foreground's quadrants (bit0 TL, bit1 TR, bit2 BL, bit3 BR). */
+interface SolidCell { readonly fg: number; readonly bg: number; readonly mask: number }
+
+/**
+ * One cell from its four quadrant owners and its two column-centre half
+ * owners (`up`, `down`). Two colours per cell is the limit (a glyph's ink
+ * plus its background), so:
+ * - one owner: its own quadrants, over the page (the silhouette rule);
+ * - two owners and no sky: the one holding more BOTTOM quadrants is the ink
+ *   (ties: more quadrants, then the later layer), the other the background —
+ *   so a boundary through the middle is `▄` in the lower band over the upper
+ *   one, whose overflowing ink lands in the row painted after it;
+ * - three (the sky counts): drop to column-centre half-blocks, which can
+ *   never hold more than two.
+ */
+function resolveSolidCell(q: readonly number[], up: number, down: number): SolidCell | null {
+  const owners = [...new Set(q.filter((o) => o !== NO_OWNER))];
+  if (owners.length === 0) return null;
+  const maskOf = (o: number): number => q.reduce((m, v, i) => (v === o ? m | (1 << i) : m), 0);
+  const bits = (m: number): number => (m & 1) + ((m >> 1) & 1) + ((m >> 2) & 1) + ((m >> 3) & 1);
+  if (owners.length === 1) return { fg: owners[0]!, bg: NO_OWNER, mask: maskOf(owners[0]!) };
+  if (owners.length === 2 && !q.includes(NO_OWNER)) {
+    const rank = (o: number): readonly number[] => { const m = maskOf(o); return [bits(m & 0b1100), bits(m), o]; };
+    const [a, b] = owners as [number, number];
+    const ra = rank(a), rb = rank(b);
+    const aWins = ra[0]! !== rb[0]! ? ra[0]! > rb[0]! : ra[1]! !== rb[1]! ? ra[1]! > rb[1]! : a > b;
+    const fg = aWins ? a : b;
+    return { fg, bg: aWins ? b : a, mask: maskOf(fg) };
+  }
+  if (up === down) {
+    if (up !== NO_OWNER) return { fg: up, bg: NO_OWNER, mask: 0b1111 };
+    let best = owners[0]!;
+    for (const o of owners) if (bits(maskOf(o)) >= bits(maskOf(best))) best = o;
+    return { fg: best, bg: NO_OWNER, mask: maskOf(best) };
+  }
+  if (down !== NO_OWNER) return { fg: down, bg: up, mask: 0b1100 };
+  return { fg: up, bg: NO_OWNER, mask: 0b0011 };
+}
+
+/**
+ * SOLID region fills on `braille`/`blocks` (`regionFill.ts` resolved solid):
+ * every cell is sampled at its four QUADRANT centres (the stacked-area
+ * silhouette's own sampling, now applied to every boundary) and painted in
+ * at most two colours — the tier's quadrant glyph in one layer's colour over
+ * the canvas `bg` of the other. A boundary is therefore drawn at the NEAREST
+ * HALF CELL: within a quarter row of a cell edge it stays a whole-cell
+ * transition (exactly the texture paint's cells), within a quarter row of the
+ * middle it becomes `▄`/`▀`. That is the smallest worst-case error a
+ * two-slot cell allows (a quarter row, against half a row for whole cells).
+ *
+ * The floor: a STACK layer that is non-zero in a column but reaches no
+ * sample point there is given the half cell nearest its own midpoint,
+ * preferring a half whose owner stays visible elsewhere in the column — and
+ * the column is re-resolved until every such layer shows, since a
+ * three-colour cell can drop a quadrant. A layer thinner than half a row is
+ * thus drawn half a row thick where the data is non-zero, never omitted.
+ *
+ * `layout.xAxisLineRow` is never painted: the axis owns it.
+ */
+function paintSolidRegions(canvas: GlyphCanvas, layout: GlyphChartLayout, layers: readonly SolidRegionLayer[]): void {
+  const { plot } = layout;
+  const tier = GLYPH_CANVAS_TIERS[canvas.tier];
+  const quad = (tier.fillSubGlyph ?? tier.subGlyph)!;
+  const halves = (plot.y1 - plot.y0 + 1) * 2;
+  const skipRow = layout.xAxisLineRow;
+  const slotY = (h: number): number => plot.y0 - 0.25 + h * 0.5;
+  let c0 = Infinity, c1 = -Infinity;
+  for (const l of layers) { c0 = Math.min(c0, Math.max(plot.x0, l.c0)); c1 = Math.max(c1, Math.min(plot.x1, l.c1)); }
+  const left = new Int32Array(halves), centre = new Int32Array(halves), right = new Int32Array(halves);
+  for (let col = c0; col <= c1; col++) {
+    const active: number[] = [];
+    for (let i = 0; i < layers.length; i++) if (col >= layers[i]!.c0 && col <= layers[i]!.c1) active.push(i);
+    if (active.length === 0) continue;
+    const sampled = active.map((i) => [layers[i]!.spansAt(col, col - 0.25), layers[i]!.spansAt(col, col), layers[i]!.spansAt(col, col + 0.25)] as const);
+    left.fill(NO_OWNER); centre.fill(NO_OWNER); right.fill(NO_OWNER);
+    for (let h = 0; h < halves; h++) {
+      if (plot.y0 + (h >> 1) === skipRow) continue;
+      const y = slotY(h);
+      for (let a = 0; a < active.length; a++) {
+        const [l, c, r] = sampled[a]!;
+        if (l.some(([t, b]) => areaCovers(t, b, y))) left[h] = active[a]!;
+        if (c.some(([t, b]) => areaCovers(t, b, y))) centre[h] = active[a]!;
+        if (r.some(([t, b]) => areaCovers(t, b, y))) right[h] = active[a]!;
+      }
+    }
+    const resolveColumn = (): (SolidCell | null)[] => {
+      const cells: (SolidCell | null)[] = [];
+      for (let k = 0; k < halves / 2; k++) {
+        if (plot.y0 + k === skipRow) { cells.push(null); continue; }
+        const t = 2 * k, b = 2 * k + 1;
+        cells.push(resolveSolidCell([left[t]!, right[t]!, left[b]!, right[b]!], centre[t]!, centre[b]!));
+      }
+      return cells;
+    };
+    let cells = resolveColumn();
+    const forced = new Set<number>();
+    for (let round = 0; round < active.length; round++) {
+      const visible = new Set<number>();
+      for (const c of cells) if (c) { visible.add(c.fg); if (c.bg !== NO_OWNER) visible.add(c.bg); }
+      const missing: { readonly layer: number; readonly mid: number }[] = [];
+      for (let a = 0; a < active.length; a++) {
+        const li = active[a]!;
+        if (!layers[li]!.floor || visible.has(li)) continue;
+        let span: readonly [number, number] | undefined;
+        for (const s of sampled[a]![1]) if (!span || Math.abs(s[1] - s[0]) > Math.abs(span[1] - span[0])) span = s;
+        if (!span || span[0] === span[1]) continue;
+        const [t, b] = span;
+        const lo = t < b ? t - 0.5 : b + 0.5, hi = t < b ? b - 0.5 : t + 0.5;
+        if (hi < plot.y0 - 0.5 || lo > plot.y1 + 0.5) continue;
+        missing.push({ layer: li, mid: (lo + hi) / 2 });
+      }
+      if (missing.length === 0) break;
+      for (const { layer, mid } of missing) {
+        const elsewhere = (owner: number, h: number): boolean => {
+          if (owner === NO_OWNER || owner === layer) return true;
+          for (let j = 0; j < halves; j++) if (j !== h && (left[j] === owner || centre[j] === owner || right[j] === owner)) return true;
+          return false;
+        };
+        // The nearest half whose owner stays visible elsewhere, else the
+        // nearest free half: unsafe and already-floored halves form one
+        // contiguous block around a crowd of thin layers, so the nearest safe
+        // half is the one just past that block — a displacement no larger
+        // than the crowd itself.
+        let pick = -1, pickSafe = false, pickDist = Infinity;
+        for (let h = 0; h < halves; h++) {
+          if (forced.has(h) || plot.y0 + (h >> 1) === skipRow) continue;
+          const safe = elsewhere(left[h]!, h) && elsewhere(centre[h]!, h) && elsewhere(right[h]!, h);
+          const dist = Math.abs(slotY(h) - mid);
+          if ((safe && !pickSafe) || (safe === pickSafe && dist < pickDist)) { pick = h; pickSafe = safe; pickDist = dist; }
+        }
+        if (pick < 0) continue;
+        forced.add(pick);
+        left[pick] = centre[pick] = right[pick] = layer;
+      }
+      cells = resolveColumn();
+    }
+    for (let k = 0; k < cells.length; k++) {
+      const c = cells[k];
+      if (!c) continue;
+      let sub = 0;
+      for (let q = 0; q < 4; q++) if (c.mask & (1 << q)) sub |= AREA_QUADRANT_SUB_BITS[q]!;
+      canvas.text(col, plot.y0 + k, [quad(sub)], { color: layers[c.fg]!.color, bg: c.bg === NO_OWNER ? null : layers[c.bg]!.color });
+    }
+  }
+}
+
+/** Rows that meet the zero baseline snap to the axis row's own edge, so a solid band never floats half a row above the axis it stands on. */
+function zeroRowSnap(scales: GlyphChartResolvedScales, plot: GlyphChartPlotRect): (row: number) => number {
+  const zero = scaleToRowExact(scales.y, plot, 0);
+  return (row) => (Number.isFinite(zero) && Math.abs(row - zero) < 1e-9 ? Math.round(row) : row);
+}
+
+/**
+ * `paintBar`'s segments as solid compositor layers — the same band/dodge
+ * column range, but EXACT rows for the value and the stack boundaries, so
+ * `paintSolidRegions` can put a boundary at the nearest half cell. A stacked
+ * segment is floored. A segment whose exact rows coincide is empty (a zero
+ * bar paints nothing).
+ */
+function solidBarLayers(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): SolidRegionLayer[] {
+  const snap = zeroRowSnap(scales, layout.plot);
+  const baseline = snap(scaleToRowExact(scales.y, layout.plot, 0));
+  const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
+  const out: SolidRegionLayer[] = [];
+  for (const row of rows) {
+    const stacked = row.y1 !== undefined;
+    const topValue = stacked ? row.y1! : numeric(row.y);
+    if (!Number.isFinite(topValue)) continue;
+    const top = snap(scaleToRowExact(scales.y, layout.plot, topValue));
+    const base = stacked ? snap(scaleToRowExact(scales.y, layout.plot, row.y0 ?? 0)) : baseline;
+    if (!Number.isFinite(top) || !Number.isFinite(base) || top === base) continue;
+    const band = bandColRange(scales.x, layout.plot, row.x);
+    let range: readonly [number, number];
+    if (band) {
+      range = band;
+    } else {
+      const col = scaleToCol(scales.x, layout.plot, row.x);
+      const half = Math.floor(fallbackWidth / 2);
+      range = [col - half, col - half + fallbackWidth - 1];
+    }
+    if (!stacked && dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
+    const x0 = Math.max(layout.plot.x0, range[0]), x1 = Math.min(layout.plot.x1, range[1]);
+    if (x0 > x1) continue;
+    const span: readonly (readonly [number, number])[] = [[top, base]];
+    out.push({ color, c0: x0, c1: x1, floor: stacked, spansAt: () => span });
+  }
+  return out;
 }
 
 /**
@@ -1139,8 +1382,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill)], { color, scale: textScale });
-    else if (entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex, shadeTotal)], { color, scale: textScale });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color, scale: textScale });
@@ -1242,23 +1484,30 @@ export function paintGlyphChart(
     if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill);
     else if (mark.type === "sankey") {
       const r = sankeyRouted.get(mark);
-      if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy, mark.options?.ribbon ?? "filled", textScale);
+      if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy, mark.options?.ribbon ?? "filled", textScale, fill);
     }
-    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale);
+    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale, fill);
     else if (mark.type === "area") {
       // One call per mark, not per series: a stack's silhouette is the edge
       // of ALL its layers together. An unstacked area whose boundary LINE
       // is drawn below takes that line as its edge instead of a sub-cell
       // silhouette, so the edge is drawn once.
       const stacked = isStackedArea(resolvedRows);
-      paintAreaMark(guarded, layout, scales, groups.map((g) => ({ rows: g.rows, color: resolveSeriesColor(g, opts.colorEnabled), glyph: regionFillGlyph(canvas.tier, g.styleIndex, groups.length, fill) })), stacked, stacked || !areaBoundaryLines);
+      paintAreaMark(guarded, layout, scales, groups.map((g) => ({ rows: g.rows, color: resolveSeriesColor(g, opts.colorEnabled), glyph: regionFillGlyph(canvas.tier, g.styleIndex, groups.length, fill) })), stacked, stacked || !areaBoundaryLines, fill);
     }
-    else for (let i = 0; i < groups.length; i++) {
+    else {
+    // A solid bar mark on `braille`/`blocks` goes through the sub-cell
+    // compositor as ONE pass over every series' segments, so a stack
+    // boundary through the middle of a cell shows both segments' colours.
+    const solidBars: SolidRegionLayer[] = [];
+    const solidSubcell = fill === "solid" && GLYPH_CANVAS_TIERS[canvas.tier].subcell;
+    for (let i = 0; i < groups.length; i++) {
       const group = groups[i]!;
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
       const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill);
-      if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
+      if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded));
+      else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check
@@ -1274,6 +1523,8 @@ export function paintGlyphChart(
         }
         paintCell(guarded, layout, scales, rows, color, shadeFor, cellSigned, opts.colorEnabled, rawColor);
       }
+    }
+    if (solidBars.length > 0) paintSolidRegions(guarded, layout, solidBars);
     }
   }
   // Axes paint BEFORE marks (PLAN.md Phase 1's original order, kept): a
@@ -1429,14 +1680,10 @@ export function paintGlyphChart(
       // has no per-series shade cycle of its own (`paintCell` shades by
       // continuous VALUE, not by series) — its swatch is the ramp's own
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
-      // it can paint. A bar/rect/area swatch follows the render's resolved
-      // `fill` exactly as its plot fill does; sankey/funnel paint textures in
-      // `flowMarks.ts` regardless (a chart holding one resolves to texture).
-      else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area") {
+      // it can paint. A bar/rect/area/sankey/funnel swatch follows the
+      // render's resolved `fill` exactly as its plot fill does.
+      else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
         guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill)], { color, scale: label.scale });
-      }
-      else if (entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
-        guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex, shadeTotal)], { color, scale: label.scale });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });
       // A line-style swatch (`canvas.line`) has no `textScale` analogue —
