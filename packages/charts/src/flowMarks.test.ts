@@ -743,10 +743,14 @@ describe("report.routeConflicts is surfaced by renderGlyphChart (fable review, b
   it("the true routeConflicts count at the energy dataset's own 72x24 is measured and pinned, not assumed empty", () => {
     const r = renderGlyphChart(energySpec, { target: "chat", width: 72, height: 24 });
     // A real, non-trivial number — the declared impasse's own measurement.
-    // Lower than the pre-air-feature 98: reserved node padding and link
-    // gaps leave bands both shorter and further apart, so fewer of them
-    // contest the same cell.
-    expect(r.report.routeConflicts.length).toBe(74);
+    // Lower than the pre-air-feature 98, and lower again (74 -> 36) after
+    // DIAGNOSIS-sankey-column-jump.md's fix: a skip-level band's own k rows
+    // now spread across distinct pass-through rows and final-lane columns
+    // instead of collapsing onto one shared cell each, which is exactly what
+    // used to manufacture most of these conflicts (every one of a tall
+    // band's own rows converging on the SAME single cell as every other
+    // band crossing that cell). Genuine crossings remain — see gate (d).
+    expect(r.report.routeConflicts.length).toBe(36);
   });
 });
 
@@ -771,9 +775,21 @@ describe("sankey-band-broken: a band's own run interrupted by a crossing band is
   // counter added a fresh unit for every one of those revisits. Fixed by
   // tracking a per-band `Set` of refused cell indices instead of a running
   // counter (`flowMarks.ts`'s `refusedCellsByBand`).
+  //
+  // Sized at 72x40, not the original 140x40: DIAGNOSIS-sankey-column-jump.md's
+  // fix gives every row of a skip-level band its OWN pass-through row and
+  // final-lane column, so at the original 140x40 (whose gaps are wide
+  // enough to spread every row without ever reusing one) the self-overlap
+  // this test exists to exercise no longer occurs there at all — measured,
+  // naive and distinct now agree exactly (20 == 20) at 140x40. 72x40 is
+  // narrower, forcing `pickSankeyFreeRowBand`/`assignSankeyFinalLanes`'s own
+  // documented degrade (fewer clear rows/lanes than the band's own `k` than
+  // it needs to give every row a fully distinct one), which is what still
+  // reproduces real, measured row self-overlap (naive 37 vs distinct 25) —
+  // the residual the fix's own doc calls out, not a defect.
   it("N3: Natural Gas -> Industrial reports the DISTINCT lost-cell count — an independent recount confirms the ledger's own number, and mutating the fix back to a per-crossing counter would report a different (larger) figure", () => {
     const groups = sankeyGroups(energySpec);
-    const plot = PLOT(140, 40);
+    const plot = PLOT(72, 40);
     const layout = layoutSankeyGraph(groups, plot, "box", [])!;
     const targetBand = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial");
     expect(targetBand, "the energy dataset must still carry a Natural Gas -> Industrial band").toBeTruthy();
@@ -784,14 +800,14 @@ describe("sankey-band-broken: a band's own run interrupted by a crossing band is
     // paint uses, never re-derived per band (gate (b)/(c)'s own doc
     // explains why re-deriving in isolation gives a different, wrong lane
     // placement). A SEPARATE canvas holds the real, combined paint.
-    const scratch = createGlyphCanvas({ cols: 140, rows: 40, tier: "box" });
+    const scratch = createGlyphCanvas({ cols: 72, rows: 40, tier: "box" });
     const routedRows = computeSankeyRoutedRows(scratch, plot, layout, true, []);
-    const combined = createGlyphCanvas({ cols: 140, rows: 40, tier: "box" });
+    const combined = createGlyphCanvas({ cols: 72, rows: 40, tier: "box" });
     const combinedLedger: GlyphChartLedgerEntry[] = [];
     paintSankeyLayout(combined, plot, layout, true, combinedLedger);
 
     const entry = combinedLedger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string; target: string }).source === "Natural Gas" && (e.detail as { target: string }).target === "Industrial");
-    expect(entry, "sankey-band-broken must fire for Natural Gas -> Industrial at 140x40 with the reserved air live").toBeTruthy();
+    expect(entry, "sankey-band-broken must fire for Natural Gas -> Industrial at 72x40 with the reserved air live").toBeTruthy();
     const reportedCells = (entry!.detail as { cells: number }).cells;
 
     const bandColor = resolveSeriesColor(targetBand!, true);
@@ -2199,7 +2215,12 @@ describe("batch-4 review: smooth ribbon junction residue, crossing refusals, and
       { target: "chat", width: 72, height: 40 },
     );
     const bySource = (source: string) => r.report.ledger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string }).source === source);
-    expect(bySource("A"), "A->C's own multi-row self-overlap must not be reported as a break").toBeUndefined();
+    // B->C must exist for C to sit at depth 2 (what makes A->C skip-level),
+    // and its approach into C must cross A->C's final-lane descent: a genuine
+    // 1-cell crossing (DIAGNOSIS-sankey-column-jump.md point 3). Self-overlap
+    // miscounted as refusal (the defect guarded here) reports dozens of cells.
+    const entryA = bySource("A");
+    if (entryA) expect((entryA.detail as { cells: number }).cells, "A->C's own multi-row self-overlap must not be reported as a break").toBeLessThan(5);
   });
 
   it("mutation-check baseline: a band with no crossing at all still reports nothing (unaffected by the ownership fix)", () => {
