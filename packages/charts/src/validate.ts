@@ -250,6 +250,7 @@ const RUNTIME_REPAIR_HINTS: Readonly<Record<string, string>> = {
   "GLYPH_CHART_INTERNAL_COORD": "Check the named mark's x/y channels resolve to values already in-domain (a band scale needs a matching category; a continuous scale needs a finite number).",
   "sankey-cycle": "Remove the cyclic source -> target link — a sankey's node columns are a DAG's depth order and have no honest position for a cycle.",
   "sankey-missing-channel": "Check the source/target channel's field name against the actual data keys — a typo resolves every row to the same missing value instead of a real node.",
+  "bad-chart-input": "Pass a GlyphChartSpec ({ marks: [...] }), a single mark object, an array of marks, or a plain number[] shorthand.",
 };
 
 export function glyphChartRepairHint(id: string): string | undefined {

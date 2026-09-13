@@ -633,6 +633,18 @@ export interface ChartsScaleSliderBounds {
    *  position can ever push the committed domain's minimum above zero or
    *  its maximum below zero (P1: `bar-domain-excludes-zero`). */
   readonly loCeiling?: number;
+  /** Log scale only: the absolute floor for BOTH ends — a small positive
+   *  value derived from the domain's own extent (NOT the padded `min`
+   *  above, which a typed value is otherwise free to undercut — `0.001` on
+   *  a `[1, 1000]` domain still renders fine and must stay reachable).
+   *  Guarantees a typed or dragged min/max can never reach `0` or go
+   *  negative, which trips the library's own `log-domain` rule and used to
+   *  blank the whole chart (NEW-1, REVIEW-dock-colours-sliders-opus-
+   *  round2.md — a log domain must keep one sign on both ends, not just
+   *  the minimum). `RangeSlider`'s own `loFloor` applies it to both
+   *  thumbs' commits without touching either one's native HTML attribute
+   *  — see that component's own doc for why. */
+  readonly loFloor?: number;
   readonly hiFloor?: number;
 }
 
@@ -652,7 +664,15 @@ export interface ChartsScaleSliderBounds {
  *   `domainMin` is already `> 0` here (a non-positive log domain fails
  *   inference upstream and never reaches this function with a real
  *   domain — `chartsWorkbenchInferredDomains`'s `disabledReason` path
- *   handles that case separately, with `zeroAnchored` forced off).
+ *   handles that case separately, with `zeroAnchored` forced off). BOTH
+ *   ends additionally get `loFloor` (NEW-1: the SAME cap MECHANISM the
+ *   zero-anchored case uses below, applied to the opposite kind of
+ *   boundary — a sign/zero exclusion rather than a zero-anchor) — a tiny
+ *   positive value derived from `domainMin`, never the padded `min` itself,
+ *   so a typed value well outside the padded bounds but still legitimately
+ *   positive (`0.001` on a `[1, 1000]` domain) stays reachable exactly as
+ *   P2-1 already allows; only `0` and negative values (the actual
+ *   `log-domain` violation) are refused.
  * - zero-anchored (`zeroAnchored`): pad AWAY from zero only — the low
  *   bound moves further negative only when it's already negative, the
  *   high bound further positive only when it's already positive — and the
@@ -669,7 +689,10 @@ export function chartsScaleSliderBounds(
   zeroAnchored: boolean,
 ): ChartsScaleSliderBounds {
   const span = domainMax - domainMin;
-  if (type === "log") return { min: domainMin / 1.2, max: domainMax * 1.2 };
+  if (type === "log") {
+    const loFloor = domainMin > 0 ? domainMin * 1e-6 : Number.MIN_VALUE;
+    return { min: domainMin / 1.2, max: domainMax * 1.2, loFloor };
+  }
   // `domainMin <= 0 <= domainMax` already holds whenever `zeroAnchored` —
   // subtracting from a non-positive `domainMin` and adding to a
   // non-negative `domainMax` can only move EACH bound further from zero,

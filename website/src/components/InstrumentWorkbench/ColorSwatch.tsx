@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { parseHex } from "../InstrumentWorkbench/colorHex";
+import { parseHex } from "./colorHex";
 
 /**
  * A native `<input type="color">` swatch bar plus an editable hex field,
@@ -15,8 +15,16 @@ import { parseHex } from "../InstrumentWorkbench/colorHex";
  * (`@glyphcss/maps`' `mapDirectionLocked` idiom) — for `Color: none`, where
  * the picked value is real but nothing paints it, so leaving the row fully
  * live with no signal reads as broken rather than inert.
+ *
+ * Lives here, not under `ChartsWorkbench/`, as the shared colour control
+ * (P3-1, REVIEW-dock-colours-sliders-opus-round2.md) — `/charts` is its
+ * only consumer today, but `@glyphcss/maps`' own `ColorRow`
+ * (`MapsWorkbench/mapsKit.tsx`) duplicates this exact markup and is the
+ * next one to fold in. Its `charts-color-*` class names (`charts-workbench.css`)
+ * stay as they are for now — renaming them is its own change, not part of
+ * this move.
  */
-export function ChartsColorSwatch({ label, value, onChange, title, disabled, disabledReason }: {
+export function ColorSwatch({ label, value, onChange, title, disabled, disabledReason }: {
   label: string;
   value: string;
   onChange: (next: string) => void;

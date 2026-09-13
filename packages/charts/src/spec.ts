@@ -136,9 +136,16 @@ function isSpec(v: unknown): v is GlyphChartSpec {
 }
 
 /**
- * `renderGlyphChart`'s own front door: accepts a bare number array (sugar
- * for a one-mark line chart, matching the constructors' own shorthand), a
- * lone mark, an array of marks, or a full spec — and always returns a spec.
+ * Every public entry's own front door — `renderGlyphChart`, `glyphChartScaleDomains`,
+ * `glyphChartSeriesPreview` — accepts a bare number array (sugar for a
+ * one-mark line chart, matching the constructors' own shorthand), a lone
+ * mark, an array of marks, or a full spec, and always returns a spec.
+ *
+ * The rejection is TAGGED (`code: "bad-chart-input"`), like every other
+ * validation failure, and names no specific caller — this guard runs BEFORE
+ * any of them knows which one invoked it, so a hardcoded function name here
+ * used to be wrong for every caller except the one it happened to be
+ * written for (review finding NEW-7, REVIEW-dock-colours-sliders-opus-round2.md).
  */
 export function normalizeGlyphChartInput(input: GlyphChartInput): GlyphChartSpec {
   if (isSpec(input)) return input;
@@ -147,5 +154,8 @@ export function normalizeGlyphChartInput(input: GlyphChartInput): GlyphChartSpec
     if (input.length > 0 && isMark(input[0])) return glyphChartPlot({ marks: input as GlyphChartMark[] });
     return glyphChartPlot({ marks: [glyphChartLine(input as readonly number[])] });
   }
-  throw new TypeError("glyphcss: renderGlyphChart() input must be a spec, a mark, an array of marks, or a number array.");
+  throw Object.assign(
+    new TypeError("glyphcss: bad-chart-input: input must be a spec, a mark, an array of marks, or a number array."),
+    { code: "bad-chart-input" },
+  );
 }

@@ -411,6 +411,24 @@ describe("chartsScaleSliderBounds", () => {
     }
   });
 
+  // NEW-1 (REVIEW-dock-colours-sliders-opus-round2.md): a log scale's own
+  // sign/zero-exclusion rule (`log-domain`) has no ceiling/floor analogue
+  // in the zero-anchored branch above — `loFloor`/`hiFloor` are the log
+  // branch's OWN cap, small enough to leave a legitimately narrow typed
+  // value (0.001 on this same [1, 1000] domain) reachable, per P2-1.
+  it("a log domain's loFloor stays strictly positive and far below any realistic typed minimum, and sets no hiFloor (native-attribute-free)", () => {
+    const bounds = chartsScaleSliderBounds("log", 1, 1000, false);
+    expect(bounds.loFloor).toBeGreaterThan(0);
+    expect(bounds.hiFloor).toBeUndefined();
+    expect(bounds.loFloor!).toBeLessThan(0.001);
+    // Mutation: a `loFloor` derived from `domainMax` instead of `domainMin`
+    // (or hardcoded to `bounds.min`) would swallow this — pin it against a
+    // domain where the two diverge by orders of magnitude.
+    const wide = chartsScaleSliderBounds("log", 1e-3, 1e9, false);
+    expect(wide.loFloor!).toBeGreaterThan(0);
+    expect(wide.loFloor!).toBeLessThan(1e-3);
+  });
+
   it("an ordinary (non-zero-anchored) scale keeps the original symmetric +/-20% pad, and sets no thumb cap", () => {
     const bounds = chartsScaleSliderBounds("linear", 2, 8, false);
     expect(bounds.min).toBeCloseTo(0.8);

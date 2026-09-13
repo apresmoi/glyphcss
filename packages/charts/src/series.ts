@@ -100,6 +100,30 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       groups.get(groupKey)!.push(row);
     }
     if (!groups.size && !["arc", "sankey", "funnel"].includes(mark.type)) { groups.set(mark.options?.name, []); displayNameByGroupKey.set(mark.options?.name, mark.options?.name); }
+    // A funnel's `groupKey` (row index) can disagree with its display
+    // `name` (two "Retry" stages are two rows, one name) — everywhere
+    // else `groupKey === name`, so two groups can never legitimately share
+    // a name. Left alone, that shared name flows into the cross-mark
+    // `named`/`namedColor` pooling below (whose whole POINT is "one name,
+    // one identity"), which then silently re-merges the two stages'
+    // colours after `chartSeries` just went out of its way to keep them as
+    // two rows — the exact NEW-3 defect (a `glyphChartSeriesPreview` entry
+    // count exceeding `meta.series`, a duplicate legend/swatch key, and a
+    // swatch edit on the second stage snapping back to the first's colour).
+    // Suffixing every repeat occurrence ("Retry", "Retry (2)", …) in
+    // FIRST-SEEN order gives each row its own honest identity, so it also
+    // becomes the label `paintFunnelMark` paints for that stage — which is
+    // correct, not a side effect: two stages drawn identically labelled
+    // were already ambiguous on the chart itself.
+    if (mark.type === "funnel") {
+      const seen = new Map<string, number>();
+      for (const [groupKey, name] of displayNameByGroupKey) {
+        if (name === undefined) continue;
+        const count = (seen.get(name) ?? 0) + 1;
+        seen.set(name, count);
+        if (count > 1) displayNameByGroupKey.set(groupKey, `${name} (${count})`);
+      }
+    }
     let sliceIndex = 0;
     for (const [groupKey, seriesRows] of groups) {
       const name = displayNameByGroupKey.get(groupKey);

@@ -5,7 +5,7 @@ import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
 import { RangeSlider } from "../InstrumentWorkbench/RangeSlider";
-import { ChartsColorSwatch } from "./ChartsColorSwatch";
+import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { ChartsDataFolder } from "./ChartsDataFolder";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
@@ -93,8 +93,20 @@ function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, dispatch }: {
   const value: readonly [number | null, number | null] | null = scale.min.trim() || scale.max.trim() ? [explicitLo, explicitHi] : null;
   const format = (n: number) => type === "time" ? chartsTimeBoundDisplay(n) : String(Math.round(n * 1000) / 1000);
   const parse = (raw: string) => type === "time" ? chartsTimeBoundFromDisplay(raw) : (Number.isFinite(Number(raw)) ? Number(raw) : null);
+  // NEW-1/NEW-4 (REVIEW-dock-colours-sliders-opus-round2.md): a TYPED value
+  // that would need `loFloor`/`loCeiling`/`hiFloor` to clamp it is refused
+  // outright, with this reason shown inline, rather than silently
+  // substituted — the log rule (`bounds.loFloor`, this axis's own sign/
+  // zero-exclusion cap) and the zero-anchored rule (`bounds.loCeiling`/
+  // `hiFloor`) are the only two ways this control ever caps a thumb, so one
+  // reason string per axis covers both (they're mutually exclusive — see
+  // `chartsScaleSliderBounds`).
+  const capReason = !disabled && type === "log" ? "A log domain must have one sign and exclude zero."
+    : !disabled && zeroAnchored ? "A bar, area, or rect chart's Y domain must include zero."
+    : undefined;
   return <RangeSlider label={`${axis.toUpperCase()} domain`} min={min} max={max} domain={[domainMin, domainMax]}
-    loCeiling={bounds.loCeiling} hiFloor={bounds.hiFloor} disabled={disabled} disabledReason={inferred.disabledReason}
+    loFloor={bounds.loFloor} loCeiling={bounds.loCeiling} hiFloor={bounds.hiFloor} capReason={capReason}
+    disabled={disabled} disabledReason={inferred.disabledReason}
     value={value} format={format} parse={parse}
     onChange={(next) => dispatch({
       type: "set-scale", axis,
@@ -265,10 +277,10 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
           </button>
         </div>
         {state.style.axisColor.mode === "shared"
-          ? <ChartsColorSwatch label="Colour" value={state.style.axisColor.shared} onChange={(color) => dispatch({ type: "set-axis-color", which: "shared", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
+          ? <ColorSwatch label="Colour" value={state.style.axisColor.shared} onChange={(color) => dispatch({ type: "set-axis-color", which: "shared", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
           : <>
-              <ChartsColorSwatch label="X" value={state.style.axisColor.x} onChange={(color) => dispatch({ type: "set-axis-color", which: "x", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
-              <ChartsColorSwatch label="Y" value={state.style.axisColor.y} onChange={(color) => dispatch({ type: "set-axis-color", which: "y", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
+              <ColorSwatch label="X" value={state.style.axisColor.x} onChange={(color) => dispatch({ type: "set-axis-color", which: "x", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
+              <ColorSwatch label="Y" value={state.style.axisColor.y} onChange={(color) => dispatch({ type: "set-axis-color", which: "y", color })} disabled={colorDisabled} disabledReason={colorDisabledReason} />
             </>}
       </div>,
       axisColorSlot,

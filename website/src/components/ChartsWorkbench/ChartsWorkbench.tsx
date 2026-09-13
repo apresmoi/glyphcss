@@ -79,13 +79,19 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
   // transform, a short colour array's cycled entry). `[]` on an invalid
   // spec (bad mark JSON mid-edit) — every card then falls back to
   // `CHARTS_DEFAULT_SWATCH_COLOR`.
-  const seriesPreview = useMemo<readonly GlyphChartSeriesPreviewEntry[]>(() => {
-    try { return glyphChartSeriesPreview(buildStyledChartsWorkbenchSpec(state)); }
-    catch { return []; }
-  }, [state]);
   // P3-6 — dims every mark-card swatch (with a reason) under `Color: none`,
   // mirroring the Chart folder's own axis-colour swatches (`ChartsDock.tsx`).
   const colorDisabled = resolveGlyphChartsWorkbenchControls(state.controls).color === "none";
+  // NEW-8 (REVIEW-dock-colours-sliders-opus-round2.md): the preview takes
+  // the SAME `color` the real render will use, so `Color: none` returns a
+  // `null` colour per series (never a colour the render itself won't
+  // paint) — `ChartsMarkColorControls` reads that `null` for its swatch's
+  // OWN display fallback, and `colorDisabled` above still drives the
+  // `disabled`/reason attributes (a distinct concern from what to SHOW).
+  const seriesPreview = useMemo<readonly GlyphChartSeriesPreviewEntry[]>(() => {
+    try { return glyphChartSeriesPreview(buildStyledChartsWorkbenchSpec(state), { color: colorDisabled ? "none" : undefined }); }
+    catch { return []; }
+  }, [state, colorDisabled]);
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
   const snippets = useMemo(() => {
     try { return generateChartsWorkbenchSnippets(state); }

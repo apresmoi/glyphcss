@@ -5,7 +5,7 @@ import {
   chartRelevantChannels, nextChartTableColumnName,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
-import { ChartsColorSwatch } from "./ChartsColorSwatch";
+import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 
 /**
  * Per-mark/per-series colour swatches (packet item 2), next to the mark's
@@ -23,22 +23,48 @@ import { ChartsColorSwatch } from "./ChartsColorSwatch";
  * series keeps its current — prefilled or overridden — colour) rather than
  * leaving a sparse array, so a later series's default never silently shifts
  * under an earlier edit.
+ *
+ * `s.color` is `null` under `Color: none` (`glyphChartSeriesPreview`'s own
+ * `options.color`, NEW-8) — `swatchValue` below is the ONLY place that
+ * falls back to `CHARTS_DEFAULT_SWATCH_COLOR` for display, so the
+ * `<input type="color">` never receives `null`.
+ *
+ * NEW-5 (REVIEW-dock-colours-sliders-opus-round2.md): a series NAME an
+ * EARLIER mark already used keeps that mark's colour — the library's own
+ * name-keyed "first wins" pooling (`series.ts`'s `chartSeries`). Editing
+ * such a swatch is honest (it never shows a colour the render doesn't
+ * paint) but was previously unexplained: it snaps straight back with no
+ * visible reason. Disabled with the reason on its title, the same idiom
+ * `colorDisabled` already uses for `Color: none`.
  */
 function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch }: {
   mark: ChartsWorkbenchMark; index: number; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
   const markSeries = series.filter((s) => s.markIndex === index);
   const setColor = (color: string | readonly string[] | undefined) => dispatch({ type: "set-mark-color", id: mark.id, color });
-  const disabledReason = colorDisabled ? "Color mode is off — pick a colour mode in the Output folder to see it painted." : undefined;
+  const swatchValue = (s: GlyphChartSeriesPreviewEntry | undefined) => s?.color ?? CHARTS_DEFAULT_SWATCH_COLOR;
+  // The mark index of the EARLIEST series (across the whole chart, not
+  // just this one) that already carries this name — `undefined` when this
+  // mark's own occurrence is the first (or only) one.
+  const earlierOwnerOf = (s: GlyphChartSeriesPreviewEntry) => series.find((other) => other.name === s.name && other.markIndex < index)?.markIndex;
+  const reasonFor = (s: GlyphChartSeriesPreviewEntry | undefined): string | undefined => {
+    if (colorDisabled) return "Color mode is off — pick a colour mode in the Output folder to see it painted.";
+    const owner = s !== undefined ? earlierOwnerOf(s) : undefined;
+    return owner !== undefined ? `Coloured by mark ${owner + 1} — this name's colour already comes from there.` : undefined;
+  };
   if (markSeries.length <= 1) {
-    const value = markSeries[0]?.color ?? CHARTS_DEFAULT_SWATCH_COLOR;
-    return <div className="charts-mark-colors"><ChartsColorSwatch label="Colour" value={value} onChange={setColor} disabled={colorDisabled} disabledReason={disabledReason} /></div>;
+    const s = markSeries[0];
+    const reason = reasonFor(s);
+    return <div className="charts-mark-colors"><ColorSwatch label="Colour" value={swatchValue(s)} onChange={setColor} disabled={colorDisabled || reason !== undefined} disabledReason={reason} /></div>;
   }
   const current = Array.isArray(mark.color) ? mark.color : undefined;
-  const paletteFor = (i: number) => current?.[i] ?? markSeries[i]!.color;
+  const paletteFor = (i: number) => current?.[i] ?? swatchValue(markSeries[i]);
   const setSeriesColor = (i: number, color: string) => setColor(markSeries.map((_, idx) => idx === i ? color : paletteFor(idx)));
   return <div className="charts-mark-colors">
-    {markSeries.map((s, i) => <ChartsColorSwatch key={s.name} label={s.name} value={paletteFor(i)} onChange={(color) => setSeriesColor(i, color)} disabled={colorDisabled} disabledReason={disabledReason} />)}
+    {markSeries.map((s, i) => {
+      const reason = reasonFor(s);
+      return <ColorSwatch key={s.name} label={s.name} value={paletteFor(i)} onChange={(color) => setSeriesColor(i, color)} disabled={colorDisabled || reason !== undefined} disabledReason={reason} />;
+    })}
   </div>;
 }
 

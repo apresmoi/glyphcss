@@ -2,24 +2,42 @@ import { normalizeGlyphChartInput } from "./spec";
 import { validateGlyphChartSpec } from "./validate";
 import { resolveGlyphChartSpec } from "./resolve";
 import { chartSeries, resolveSeriesColor } from "./series";
-import type { GlyphChartInput, GlyphChartMark } from "./types";
+import type { GlyphChartColorMode, GlyphChartInput, GlyphChartMark } from "./types";
 
 export interface GlyphChartSeriesPreviewEntry {
   /** The series' display name — a categorical fill/stroke value, an arc
    *  slice/sankey node/funnel stage name, or the mark's own `options.name`.
    *  A single-series mark with no name of its own falls back to `Mark <n>`
    *  (1-based `markIndex + 1`), so a caller driving one swatch per mark
-   *  never has to special-case the unnamed case. */
+   *  never has to special-case the unnamed case. A funnel's own repeated
+   *  stage names are disambiguated ("Retry", "Retry (2)", …) so every
+   *  entry's name is unique within its mark (`series.ts`'s `chartSeries`),
+   *  matching `meta.series` exactly for that mark. */
   readonly name: string;
   /** Index into the INPUT's own `marks` array this series belongs to. */
   readonly markIndex: number;
   /** The shared, cross-mark style/palette index `paintGlyphChart` itself
    *  cycles line styles and the default colour palette on. */
   readonly styleIndex: number;
-  /** The colour a real render would paint this series with — its own
-   *  mark-level `options.color` override when it has one, else the shared
-   *  default palette entry at `styleIndex`, exactly like `resolveSeriesColor`. */
-  readonly color: string;
+  /** This series' own mark-level `options.color` override when it has one,
+   *  else the shared default palette entry at `styleIndex` — exactly like
+   *  `resolveSeriesColor`, and `null` under `options.color: "none"` (see
+   *  `GlyphChartSeriesPreviewOptions.color`), matching a real render's own
+   *  `renderGlyphChart(..., { color: "none" })` paint nothing. */
+  readonly color: string | null;
+}
+
+/** The subset of `GlyphChartRenderOptions` that changes what colour a
+ *  series would resolve to — nothing else (target/charset/width/…) affects
+ *  identity or colour, so `glyphChartSeriesPreview` takes only this. */
+export interface GlyphChartSeriesPreviewOptions {
+  /** Default: colour enabled (as if the caller had not chosen `"none"`) —
+   *  a caller with no colour mode of its own (an agent, a script) gets the
+   *  library's real default palette back, matching this function's
+   *  behaviour before this option existed. Pass the SAME `color` the
+   *  eventual `renderGlyphChart` call will use (`"none"` in particular) so
+   *  a preview never claims a colour the render itself won't paint. */
+  readonly color?: GlyphChartColorMode;
 }
 
 /**
@@ -36,8 +54,14 @@ export interface GlyphChartSeriesPreviewEntry {
  * — which used to diverge from the real render on a numeric `fill` channel
  * and under `group`/`normalize` transforms (AGENTS.md's "Charts" —
  * "Colours"; see also `docs/design/charts.md`).
+ *
+ * Throws only a TAGGED error (`normalizeGlyphChartInput`'s `bad-chart-input`
+ * for a malformed shape, or a `GLYPH_CHART_VALIDATION_RULES` id from
+ * `validateGlyphChartSpec`) — never a raw, uncoded `TypeError` naming a
+ * different entry point.
  */
-export function glyphChartSeriesPreview(input: GlyphChartInput): readonly GlyphChartSeriesPreviewEntry[] {
+export function glyphChartSeriesPreview(input: GlyphChartInput, options: GlyphChartSeriesPreviewOptions = {}): readonly GlyphChartSeriesPreviewEntry[] {
+  const colorEnabled = options.color !== "none";
   const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
   const resolved = resolveGlyphChartSpec(spec);
   const markIndexOf = new Map<GlyphChartMark, number>();
@@ -48,7 +72,7 @@ export function glyphChartSeriesPreview(input: GlyphChartInput): readonly GlyphC
       name: series.name ?? `Mark ${markIndex + 1}`,
       markIndex,
       styleIndex: series.styleIndex,
-      color: resolveSeriesColor(series, true)!,
+      color: resolveSeriesColor(series, colorEnabled),
     };
   });
 }

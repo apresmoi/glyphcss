@@ -1069,3 +1069,8 @@
 .range-slider-range:disabled::-webkit-slider-thumb { background: rgba(56, 189, 248, 0.4); cursor: not-allowed; }
 .range-slider-range:disabled::-moz-range-thumb { background: rgba(56, 189, 248, 0.4); cursor: not-allowed; }
 .range-slider.is-disabled .range-slider-fill { background: rgba(56, 189, 248, 0.4); }
+/* NEW-1/NEW-4 (REVIEW-dock-colours-sliders-opus-round2.md): a typed value
+   the slider refused (a cap violation with `capReason` set) — matches
+   `charts-workbench.css`'s own `.charts-error` colour/size so it reads as
+   the same "inline validation message" idiom across the page. */
+.range-slider-error { margin: 0; font-size: 10px; line-height: 1.4; color: #fda4af; }
