@@ -214,10 +214,11 @@ describe("exact Phase 1 review regressions", () => {
     const rowAt = (v: number) => Array.from({ length: p.layout.plot.x1 - p.layout.plot.x0 + 1 }, (_, i) => p.at(p.layout.plot.x0 + i, scaleToRow(p.scales.y, p.layout.plot, v))).join("");
     // Series "3" (styleIndex 3, y=7..0) is the tallest and so is the last
     // fill drawn — it covers rows 3 and 5 too, which is now its own shade
-    // glyph "░" (CHARTS-RESEARCH B2: a region series' fill glyph, not a
+    // glyph "╱" (CHARTS-RESEARCH B2/`DIAGNOSIS-pie-contrast.md`'s shape-
+    // family ramp, `█ ░ ▚ ╱ ▌ ═ ▓ ▒`: a region series' fill glyph, not a
     // uniform "█") wherever a shorter series' own dashed/dotted boundary
     // doesn't interrupt it.
-    expect(rowAt(3)).toContain("──░──░"); expect(rowAt(5)).toContain("·░·░·"); expect(rowAt(7)).toContain("══");
+    expect(rowAt(3)).toContain("──╱──╱"); expect(rowAt(5)).toContain("·╱·╱·"); expect(rowAt(7)).toContain("══");
   });
   it("4: the exact stacked area fills the full five-unit stack, with no sloping gap", () => {
     // Mutation: read original y rather than y0/y1 -> top two units remain empty.

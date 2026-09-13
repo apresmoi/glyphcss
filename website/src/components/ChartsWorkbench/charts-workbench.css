@@ -204,9 +204,19 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
 }
 /* Deliberately the browser/chat-client monospace stack, NOT "Glyph Mono" —
    the whole point of this frame is to show what a real chat client's own
-   font does to the output (see AGENTS.md's "Charts" font paragraph). */
+   font does to the output (see AGENTS.md's "Charts" font paragraph).
+   `line-height: 1` is NOT optional here (CHARTS-RESEARCH
+   DIAGNOSIS-pie-contrast.md C4): this rule set family/colour/padding only,
+   so the fence's `<pre>` fell back to the bubble's inherited 1.35 —
+   measured 16.2px at 12px font-size — and Menlo/SF Mono's block glyphs
+   (`█▓▒░`, box-drawing) are ~1.0em tall against Glyph Mono's own 1.32em, so
+   every row of block fill left a ~24% blank stripe under it and read as a
+   stack of bars rather than a solid column. The web `<pre>` rule and the
+   terminal frame both already pin `line-height: 1` for the same reason;
+   this rule just needed the same pin. */
 .target-preview__fence .glyph-output {
   font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
+  line-height: 1;
   background: #0d0d0d;
   color: #e5e5e5;
   margin: 0;

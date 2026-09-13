@@ -50,6 +50,13 @@ function fixturePath(relative: string): string {
 // "chat", width: 60, height: 24, charset: "box", color: "none" })`. No
 // `goodSpecs` entry sets `axes.*.format`, so every one of these must still
 // match byte for byte.
+//
+// Regenerated for `series.ts`'s shade-ramp fix (CHARTS-RESEARCH
+// `DIAGNOSIS-pie-contrast.md`): indices 17-22 (`sankeySample`,
+// `funnelSample`, `[1000,500,100]`, the three `browserShares` arc specs)
+// changed at `box` — the fix's whole point is that a multi-series
+// region/arc mark's fill glyph is no longer a single density ramp. Every
+// single-series entry is byte-identical.
 const parentFixtures: Record<string, string> = JSON.parse(readFileSync(fixturePath("fixtures/tickFormatParentFixtures.json"), "utf8"));
 
 describe("format absent: byte-identical to the parent build (926ab7b0, before axes.*.format existed)", () => {

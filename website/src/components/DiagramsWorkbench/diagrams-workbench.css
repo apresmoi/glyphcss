@@ -156,9 +156,15 @@
 }
 /* Deliberately the browser/chat-client monospace stack, NOT "Glyph Mono" —
    the whole point of this frame is to show what a real chat client's own
-   font does to the output (see AGENTS.md's "Diagrams" font paragraph). */
+   font does to the output (see AGENTS.md's "Diagrams" font paragraph).
+   `line-height: 1` mirrors the ChartsWorkbench twin of this rule
+   (CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md C4) — this rule set family/
+   colour/padding only, so the fence's `<pre>` fell back to the bubble's
+   inherited 1.35 line-height and every block-glyph row left a blank
+   stripe under it. */
 .target-preview__fence .glyph-output {
   font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
+  line-height: 1;
   background: #0d0d0d;
   color: #e5e5e5;
   margin: 0;

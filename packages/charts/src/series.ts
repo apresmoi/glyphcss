@@ -1,5 +1,5 @@
 import type { GlyphCanvasLineStyle } from "glyphcss";
-import { ledgerMarkColorUnused, ledgerSeriesColorConflict, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerMarkColorUnused, ledgerSeriesColorConflict, ledgerSeriesShadeRepeat, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartCharset, GlyphChartMarkRow } from "./types";
 
@@ -36,21 +36,59 @@ export function resolveSeriesColor(entry: { readonly color: string | null; reado
 export function seriesDot(tier: string, index: number): string {
   return (tier === "ascii" ? ["o", "x", "+", "*"] : ["●", "×", "+", "◆"])[index % 4]!;
 }
+
+/**
+ * Categorical fills use SHAPE-FAMILY glyphs, never a single density ramp
+ * (CHARTS-RESEARCH `DIAGNOSIS-pie-contrast.md` C1/C2, measured ink coverage
+ * per glyph in Glyph Mono/Menlo/SF Mono, `fixtures/glyphInkCoverage.json`):
+ * a 4-step density-only cycle (the old `█ ▓ ▒ ░`/`# % + .`) fails a 0.15
+ * adjacent-pair coverage gap in every measured monospace font, and ASCII's
+ * WHOLE repertoire spans only 0.03-0.32 coverage there — four density steps
+ * cannot exist in ANY font, so density alone can never carry ASCII. Adjacent
+ * glyphs differ in ORIENTATION (solid / stipple / diagonal / vertical /
+ * horizontal / checker) so a reader tells slices apart by shape, not shade.
+ * `box`/`blocks`/`braille` share one 8-glyph set, prefix-consistent — an
+ * n-series chart uses the first n, so growing from 4 to 5 series never
+ * changes the first four. ASCII alone needs two tables: a density-first
+ * 4-set (`# . @ -`) clears a >=0.15 gap in every measured font but ASCII
+ * cannot sustain that past 4 entries, so a total over 4 switches to the
+ * shape-first 8-set (`# . = / @ : | -`) — NOT a superset of the 4-set
+ * (index 3 is `-` in one, `/` in the other), because the two orderings
+ * optimise different, conflicting objectives.
+ */
 const SHADE_RAMPS: Readonly<Record<GlyphChartCharset, readonly string[]>> = {
-  ascii: ["#", "%", "+", "."],
-  box: ["█", "▓", "▒", "░"],
-  blocks: ["█", "▓", "▒", "░"],
-  braille: ["█", "▓", "▒", "░"],
+  ascii: ["#", ".", "=", "/", "@", ":", "|", "-"],
+  box: ["█", "░", "▚", "╱", "▌", "═", "▓", "▒"],
+  blocks: ["█", "░", "▚", "╱", "▌", "═", "▓", "▒"],
+  braille: ["█", "░", "▚", "╱", "▌", "═", "▓", "▒"],
 };
-/** Categorical fills use the same four-style cycle as lines, independent of colour. */
-export function seriesShade(tier: GlyphChartCharset, index: number): string {
-  const ramp = SHADE_RAMPS[tier];
+const ASCII_SHADE_COMPACT: readonly string[] = ["#", ".", "@", "-"];
+
+/** Every charset's shade family is this many glyphs long — the point past which `seriesShade` wraps and two series can share a fill. */
+export const GLYPH_CHART_SHADE_CYCLE_LENGTH = SHADE_RAMPS.box.length;
+
+/**
+ * `total` is the number of series sharing this one cycle (the caller's own
+ * slice/group count) — needed only to pick ASCII's compact-vs-extended
+ * table (`total <= 4` keeps the denser 4-set); every other charset's ramp
+ * is fixed regardless of `total`. Defaults to `index + 1` for a caller with
+ * no total to give (a single always-index-0 call, e.g. a `cell` mark's
+ * swatch) — a caller with more than one series MUST pass its own real
+ * total, since a default derived per-call from `index` alone cannot see
+ * that a later index belongs to the same cycle and would silently switch
+ * tables mid-cycle. Cycles modulo the active ramp's length past
+ * `GLYPH_CHART_SHADE_CYCLE_LENGTH` series; `chartSeries` reports the
+ * resulting repeat once per pair via `ledgerSeriesShadeRepeat` — this
+ * function itself never throws or logs.
+ */
+export function seriesShade(tier: GlyphChartCharset, index: number, total = index + 1): string {
+  const ramp = tier === "ascii" && total <= ASCII_SHADE_COMPACT.length ? ASCII_SHADE_COMPACT : SHADE_RAMPS[tier];
   return ramp[index % ramp.length]!;
 }
 export interface ChartSeries extends GlyphChartResolvedMark {
   readonly name?: string;
   readonly styleIndex: number;
-  /** Arc-local cycle: the closing slice must also differ from the opening one. */
+  /** Arc-local shade cycle — this slice's own position modulo `GLYPH_CHART_SHADE_CYCLE_LENGTH`, independent of every other arc mark's own slices. */
   readonly shadeIndex?: number;
   /** This series' own mark-level colour override, or `null` for none — see `resolveMarkColorAt`/`resolveSeriesColor`. */
   readonly color: string | null;
@@ -144,13 +182,29 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       }
     }
     let sliceIndex = 0;
+    // Named per arc-local `shadeIndex` (or a synthetic "slice N" for an
+    // unnamed one) — collected only to report a wrap-around repeat below;
+    // a mark with <= GLYPH_CHART_SHADE_CYCLE_LENGTH slices never reads it.
+    const arcSliceNames: string[] = [];
     for (const [groupKey, seriesRows] of groups) {
       const name = displayNameByGroupKey.get(groupKey);
       if (name !== undefined && !named.has(name)) named.set(name, named.size);
-      const shadeIndex = sliceIndex > 0 && sliceIndex === groups.size - 1 && sliceIndex % SERIES_STYLES.length === 0 ? sliceIndex + 1 : sliceIndex;
+      const shadeIndex = sliceIndex % GLYPH_CHART_SHADE_CYCLE_LENGTH;
       const color = resolveMarkColorAt(mark.options?.color, sliceIndex);
       out.push({ ...resolved, rows: seriesRows, name, styleIndex: name === undefined ? 0 : named.get(name)!, color, ...(mark.type === "arc" ? { shadeIndex } : {}) });
+      if (mark.type === "arc") arcSliceNames.push(name ?? `slice ${sliceIndex + 1}`);
       sliceIndex++;
+    }
+    // A pie's own slices cycle `seriesShade` independently of every other
+    // mark (`shadeIndex` is arc-local, never the cross-mark `styleIndex`) —
+    // past GLYPH_CHART_SHADE_CYCLE_LENGTH slices the fill glyph repeats,
+    // and unlike a colour (which just runs out of hues gracefully) a
+    // repeated monochrome fill makes two categories genuinely
+    // indistinguishable with colour off, so it is reported, once per pair.
+    if (ledger) {
+      for (let i = GLYPH_CHART_SHADE_CYCLE_LENGTH; i < arcSliceNames.length; i++) {
+        ledger.push(ledgerSeriesShadeRepeat({ repeated: arcSliceNames[i]!, reused: arcSliceNames[i % GLYPH_CHART_SHADE_CYCLE_LENGTH]! }));
+      }
     }
     // `cell` always produces exactly ONE series (its rows are never split by
     // name — see `paint.ts`'s own doc at `paintCell`), so `groups.size` here
@@ -184,6 +238,31 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       // occurrence resolved to, exactly like `chartSeriesColors` already
       // does; that is a silent "first wins", not a disagreement to log.
       else if (prior !== s.color && ledger) ledger.push(ledgerSeriesColorConflict({ name: s.name, kept: prior, rejected: s.color }));
+    }
+  }
+  // Region marks (bar/rect/area/cell/sankey/funnel) paint their fill via
+  // `seriesShade(tier, styleIndex)` — the CROSS-MARK `named` index, never
+  // an arc's own local `shadeIndex` — so a wrap here is a wrap of that
+  // shared identity: a "Revenue" bar and a "Revenue" rect both use the
+  // same glyph by design, but a NINTH distinct named region series reuses
+  // the first's. Only the region-mark types actually consult `seriesShade`
+  // for their fill (a line/dot's own name may sit at the same `styleIndex`
+  // with no collision at all — it cycles line styles or dot glyphs on a
+  // different, unrelated period), so only they are checked here.
+  if (ledger) {
+    const REGION_SHADE_MARK_TYPES = new Set(["bar", "rect", "area", "cell", "sankey", "funnel"]);
+    const nameByShadeIndex = new Map<number, string>();
+    for (const s of out) {
+      if (s.name === undefined || !REGION_SHADE_MARK_TYPES.has(s.mark.type)) continue;
+      if (!nameByShadeIndex.has(s.styleIndex)) nameByShadeIndex.set(s.styleIndex, s.name);
+    }
+    const reported = new Set<number>();
+    for (const [index, name] of nameByShadeIndex) {
+      if (index < GLYPH_CHART_SHADE_CYCLE_LENGTH || reported.has(index)) continue;
+      const reused = nameByShadeIndex.get(index % GLYPH_CHART_SHADE_CYCLE_LENGTH);
+      if (reused === undefined) continue;
+      reported.add(index);
+      ledger.push(ledgerSeriesShadeRepeat({ repeated: name, reused }));
     }
   }
   return out.map((s) => s.name === undefined ? s : { ...s, color: namedColor.get(s.name)! });

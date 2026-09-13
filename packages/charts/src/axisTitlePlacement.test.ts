@@ -36,6 +36,16 @@ function fixturePath(relative: string): string {
 // pre-titleAt build's bytes for an arc chart are no longer what this build
 // produces even with `titleAt` absent. Every other (non-arc) entry is
 // untouched.
+//
+// Multi-series entries (indices 17-22: `sankeySample`, `funnelSample`, the
+// bare `[1000,500,100]` funnel, and the three `browserShares` arc specs)
+// were regenerated AGAIN for `series.ts`'s shade-ramp fix
+// (CHARTS-RESEARCH `DIAGNOSIS-pie-contrast.md`): the old `█ ▓ ▒ ░`/`# % + .`
+// density-only cycle failed a 0.15 ink-coverage adjacency gap in every
+// measured monospace font, replaced by a shape-family ramp — this changes
+// every region/arc mark with 2+ series, byte for byte, everywhere. A
+// single-series entry's own `█`/`#` fill glyph is unaffected (index 0-16,
+// 23-33 stayed byte-identical).
 const parentGoodSpecs: { i: number; text: string }[] = JSON.parse(readFileSync(fixturePath("fixtures/axisTitleParentGoodSpecs.json"), "utf8"));
 
 /**

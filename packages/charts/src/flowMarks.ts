@@ -816,12 +816,18 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
   const cols = sankeyColumnsByX0(nodeBoxes);
   const laneStartByBand = assignSankeyLanes(bands, nodeBoxes, cols, ledger);
 
+  // A sankey's shade identity is per SOURCE node (AGENTS.md's "Charts" —
+  // "a sankey groups by SOURCE node") — `band.styleIndex` is the cross-mark
+  // `chartSeries` index, so the count of distinct values here is this
+  // mark's own source count, matching `seriesShade`'s own ASCII
+  // compact-vs-extended threshold.
+  const sourceCount = new Set(bands.map((b) => b.styleIndex)).size;
   const routedRows: SankeyRoutedRow[] = [];
   let order = 0;
   for (const band of bands) {
     const srcBox = nodeBoxes.get(band.source);
     if (!srcBox) continue;
-    const glyph = seriesShade(canvas.tier, band.styleIndex);
+    const glyph = seriesShade(canvas.tier, band.styleIndex, sourceCount);
     const color = resolveSeriesColor(band, colorEnabled);
     const [sr0, sr1] = band.sourceRowRange;
     if (sr0 > sr1) continue;
@@ -1204,7 +1210,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     if (rowStart > plot.y1) break;
     const midRow = Math.floor((rowStart + rowEnd) / 2);
 
-    const glyph = seriesShade(canvas.tier, stage.styleIndex);
+    const glyph = seriesShade(canvas.tier, stage.styleIndex, n);
     const color = resolveSeriesColor(stage, colorEnabled);
     let barWidth = maxValue > 0 ? Math.round((stage.value / maxValue) * innerWidth) : 0;
     if (stage.value > 0 && barWidth < 1) {

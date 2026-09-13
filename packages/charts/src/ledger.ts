@@ -186,6 +186,18 @@ export function ledgerSeriesColorConflict(opts: { readonly name: string; readonl
 }
 
 /**
+ * `series.ts`'s `seriesShade` cycles a fixed-length monochrome fill/shade
+ * glyph set (`GLYPH_CHART_SHADE_CYCLE_LENGTH`, 8 on every charset) — past
+ * that many series in one shade family the glyph is no longer injective, so
+ * two categories read as the same fill with colour off. Reported once per
+ * repeated pair (never per cell painted), naming both series by name so a
+ * reader of `report.ledger` knows exactly which two collided.
+ */
+export function ledgerSeriesShadeRepeat(opts: { readonly repeated: string; readonly reused: string }): GlyphChartLedgerEntry {
+  return entry("series-shade-repeat", `Series "${opts.repeated}" and series "${opts.reused}" share a fill glyph because there are more series than distinct monochrome fills.`, { ...opts });
+}
+
+/**
  * The cell canvas (`glyphcss`) still reports its own "double style has no
  * diagonal analogue" note as a free-text string (`GlyphCanvasReport.ledger`
  * is shared with `@glyphcss/diagrams` too, and is out of this package's

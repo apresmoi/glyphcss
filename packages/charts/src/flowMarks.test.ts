@@ -210,7 +210,7 @@ describe("funnel widths are proportional to value", () => {
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([1000, 500, 250])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 60, height: 12, charset: "box" });
     const rows = r.text.split("\n");
-    const rowWidths = rows.map((row) => (row.match(/[█▓▒░]/g) ?? []).length);
+    const rowWidths = rows.map((row) => (row.match(/[█░▚╱▌═▓▒]/g) ?? []).length);
     // Group consecutive glyph-carrying rows into stage bands, separated by
     // the blank gap row `layoutFunnelStages`'s own spacing leaves between
     // stages, and take each band's own maximum painted width.
@@ -440,7 +440,13 @@ describe("sankey band painter routes through the canvas (P1-1, relocated root fi
         expect(contendingColors.has(painted), `${w}x${h} conflict (${conflict.kind}) at (${conflict.col},${conflict.row})`).toBe(true);
       }
     }
-  });
+    // Real work, not padding for a slow runner: 200 seeded random DAGs x 3
+    // heights, each laid out AND rendered twice (a throwaway probe canvas
+    // plus a real `paintSankeyLayout()` pass) to read every route-conflict
+    // cell's actual painted colour — vitest's 5s default timed out once
+    // under machine load (AGENTS.md's "Settle on the component's own idle
+    // signal" budget convention).
+  }, 30_000);
 
   it("a band routed through a depth-skipping gap never enters an intermediate node's own box (assert), and the energy dataset's Natural Gas -> Industrial is fully connected", () => {
     // This used to route straight through Electricity Generation's own
@@ -1093,7 +1099,7 @@ describe("funnel accepts what it draws and reports what it doesn't (P2-5)", () =
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([0, 0, 0])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 10 });
     expect(r.report.ledger.some((e) => e.code === "empty-total")).toBe(true);
-    expect(r.text).not.toMatch(/[█▓▒░]/);
+    expect(r.text).not.toMatch(/[█░▚╱▌═▓▒]/);
   });
 
   it("a MIXED zero/positive funnel still draws (not all-zero) with no fabricated percent for the zero stage's own reference", () => {
@@ -1263,7 +1269,7 @@ describe("dead guarantees now covered by tests (P2-7)", () => {
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([100000, 1])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 10, charset: "box" });
     const rows = r.text.split("\n");
-    const rowWidths = rows.map((row) => (row.match(/[█▓▒░]/g) ?? []).length);
+    const rowWidths = rows.map((row) => (row.match(/[█░▚╱▌═▓▒]/g) ?? []).length);
     const bandWidths: number[] = [];
     let current = 0;
     for (const w of rowWidths) {
@@ -1326,23 +1332,26 @@ describe("chat-target renders (visual reference)", () => {
       { from: "Power", to: "Industry", amount: 30 },
     ];
     const r = renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
+    // CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md's fix (`█ ░ ▚ ╱ ▌ ═ ▓ ▒`,
+    // series.ts's SHADE_RAMPS) replaced the density-only 4-cycle — Gas now
+    // reads `░`, Power `▚`, a genuine render-byte change re-derived here.
     expect(r.text).toBe([
-      "┌────────┐██████████┌────────┐▒▒▒▒▒▒▒▒▒▒┌────────┐",
-      "│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │",
-      "│  Coal  │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │",
-      "│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│        │",
-      "│        │██████████│        │▒▒▒▒▒▒▒▒▒▒│ Homes  │",
-      "└────────┘██████████│        │▒▒▒▒▒▒▒▒▒▒│        │",
-      "          ▓▓▓▓▓▓▓▓▓▓│ Power  │▒▒▒▒▒▒▒▒▒▒│        │",
-      "┌────────┐▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │",
-      "│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│        │",
-      "│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒└────────┘",
-      "│  Gas   │▓▓▓▓▓▓▓▓▓▓│        │▒                   ",
-      "│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒┌────────┐",
-      "│        │▓▓▓▓▓▓▓▓▓▓│        │▒▒▒▒▒▒▒▒▒▒│Industry│",
-      "│        │▓▓▓▓▓▓▓▓▓▓└────────┘▒▒▒▒▒▒▒▒▒▒│        │",
-      "└────────┘▓▓▓▓▓▓▓▓               ▒▒▒▒▒▒▒└────────┘",
-      "   █  Coal          ▓  Gas         ▒  Power       ",
+      "┌────────┐██████████┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐",
+      "│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│  Coal  │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │██████████│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │",
+      "└────────┘██████████│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "          ░░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │",
+      "┌────────┐░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
+      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚└────────┘",
+      "│  Gas   │░░░░░░░░░░│        │▚                   ",
+      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐",
+      "│        │░░░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│Industry│",
+      "│        │░░░░░░░░░░└────────┘▚▚▚▚▚▚▚▚▚▚│        │",
+      "└────────┘░░░░░░░░               ▚▚▚▚▚▚▚└────────┘",
+      "   █  Coal          ░  Gas         ▚  Power       ",
     ].join("\n"));
   });
 });
