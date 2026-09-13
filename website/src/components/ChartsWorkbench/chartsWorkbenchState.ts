@@ -802,6 +802,27 @@ export function chartsWorkbenchHasZeroAnchoredMark(state: ChartsWorkbenchState):
   return state.marks.some((mark) => ["bar", "area", "rect"].includes(mark.type));
 }
 
+/** `arc`/`sankey`/`funnel` are non-cartesian (AGENTS.md's "Charts" — "plumbed
+ *  exactly like `arc`": excluded from the x/y scales, from the cartesian
+ *  layout gutter, from `transform`). `glyphChartScaleDomains` still resolves
+ *  SOME `{ type: "linear", domain: [0, 1] }` for such a spec regardless —
+ *  it has no "no scale" answer to give, since a scale is exactly what these
+ *  mark types don't have — so a Dock reading that placeholder as a real,
+ *  draggable domain (DIAGNOSIS-scale-domain.md P3-4) is this state layer's
+ *  own bug to close, not the library's: nothing downstream of a committed
+ *  drag on that fabricated `[0, 1]` range ever reads `scales.x`/`scales.y`
+ *  for a chart made only of these mark types, so the control was live over
+ *  a domain the render could never see. */
+const CHARTS_NON_CARTESIAN_MARK_TYPES: ReadonlySet<GlyphChartMarkType> = new Set(["arc", "sankey", "funnel"]);
+/** `true` iff at least one mark actually reads an x/y scale — `false` only
+ *  when EVERY mark is `arc`/`sankey`/`funnel`, which is what the Dock's
+ *  Scales rows key their "this chart type has no x/y scale" disabled state
+ *  on (`ScaleDomainControl`, `ChartsDock.tsx`) instead of trusting
+ *  `chartsWorkbenchInferredDomains`' placeholder domain. */
+export function chartsWorkbenchHasCartesianMark(state: ChartsWorkbenchState): boolean {
+  return state.marks.some((mark) => !CHARTS_NON_CARTESIAN_MARK_TYPES.has(mark.type));
+}
+
 /** A `RangeSlider`'s numeric domain is timestamps for a `"time"` scale,
  *  the raw number otherwise — the same two cases `buildScale`'s own
  *  `parse`/domain-mapping already distinguish. `null` for an unparsed or

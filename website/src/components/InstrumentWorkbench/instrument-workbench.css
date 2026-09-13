@@ -1002,13 +1002,31 @@
 .dn-floating-controls .lil-gui .lil-gui.dock-folder-title-reset > .title {
   padding-right: 52px !important;
 }
-.dock-folder-title-reset-button {
+/* `width` was never this button's own — lil-gui's `.lil-gui button {
+   width: 100% }` (0,1,1) beats the bare `.dock-folder-title-reset-button`
+   selector below (0,1,0) once this is mounted inside a real `.lil-gui`
+   panel, and `position: absolute` resolves that 100% against the folder
+   ROOT (its own containing block, `position: relative` above) — a button
+   as wide as the whole title row, `right: 6px` pinning its RIGHT edge
+   correctly while its LEFT edge reaches almost to the folder's own left
+   edge, with `justify-content` defaulting to flex-start inside its own
+   `display: flex`. The visible defect is exactly that: "reset" renders
+   flush left, overlapping the folder's own name, not floated at the right
+   the way `top`/`right` alone implied (DIAGNOSIS bundle item 8). Scoped
+   under `.lil-gui` (two classes, (0,2,0)) to beat lil-gui's rule and given
+   its own `width: auto`/`flex: 0 0 auto`, the button shrinks back to its
+   content and `right: 6px` alone is then what places it — no `left`
+   needed, since an absolutely positioned box with only one inset set
+   sizes to its content by default UNLESS something else (here, lil-gui's
+   button rule) claims `width` first. */
+.lil-gui .dock-folder-title-reset-button {
   position: absolute; top: 0; right: 6px; height: var(--title-height, 24px);
-  display: flex; align-items: center;
+  display: flex; align-items: center; justify-content: center;
+  width: auto; flex: 0 0 auto;
   background: none; border: 1px solid rgba(255, 232, 184, 0.3); color: rgba(255, 232, 184, 0.75);
   font-size: 10px; letter-spacing: 0.22px; padding: 2px 6px; border-radius: 2px; cursor: pointer;
 }
-.dock-folder-title-reset-button:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
+.lil-gui .dock-folder-title-reset-button:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
 
 /* Ramp picker density bars — portaled below the "Ramp" dropdown in the
    Output folder (`useDockSlot(out, { position: "bottom" })` in
@@ -1223,47 +1241,87 @@
    lil-gui hook classes this component ALSO carries (so it reads as the
    same row family as Width/Height in the same folder); `.range-slider`/
    `.range-slider-*` are this component's own, kept as the test suite's
-   selectors. */
+   selectors.
+
+   CARRYING those lil-gui hook classes is exactly what puts every element
+   below in the path of lil-gui's OWN element rules once this component is
+   actually mounted inside a real `.lil-gui` panel — `.lil-gui button {
+   width: 100% }` (0,1,1), `.lil-gui .controller.number.hasSlider input`
+   (0,3,1), `.lil-gui .controller.number .slider` (0,3,0, and it matches
+   `.range-slider-track` too — that element also carries a bare `slider`
+   class for exactly this "read as a real number-slider row" reason) and
+   `.lil-gui input { height: var(--widget-height) }` (0,1,1) all
+   out-specificity this file's OLD bare single-class rules (0,1,0). That
+   stretched the auto button across the whole 170px widget and pushed the
+   min field, the track and the max field off the panel entirely
+   (DIAGNOSIS-scale-domain.md P1), and floored the track at lil-gui's own
+   24px `min-width` once the rest was reachable (P2). Every rule from here
+   down that lil-gui could contest is therefore written under the row's own
+   FULL hook-class chain, `.lil-gui .controller.number.hasSlider.range-
+   slider …` (six classes), which beats every one of those — repeating a
+   property even where the value matches this file's unscoped rule above,
+   because a value that only happens to match by accident is not a value
+   that is WINNING the cascade. Layout budget at the Dock's fixed width
+   (measured, real browser, `gallery-workbench.css`'s theme loaded): widget
+   content ~170px; `auto` ~34px + its own 4px trailing margin, each number
+   field 27px, the track's own 8px-per-side bracket margin doubling as the
+   row's ONLY inter-element gap (no separate flex `gap` — that would double-
+   charge the spacing the track's margin already provides and starve the
+   track itself, which is the exact shape of P2) — leaves the track's own
+   content width ~62px, comfortably over the 60px floor `RangeSlider.test.ts`
+   pins and well clear of lil-gui's own 24px `min-width`. */
 .range-slider { display: flex; align-items: center; padding: 0 6px; margin: 5px 0; }
 .range-slider-label {
   min-width: 45%; flex-shrink: 0; padding-right: 5px;
   font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; line-height: 24px;
 }
-.range-slider-widget { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; min-height: 24px; }
-.range-slider-auto {
-  flex: 0 0 auto; line-height: 1;
+.range-slider-widget { display: flex; align-items: center; gap: 0; width: 100%; min-width: 0; min-height: 24px; }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto {
+  flex: 0 0 auto; width: auto; min-width: 0; height: auto; line-height: 1;
+  margin: 0 4px 0 0;
   font: inherit; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 3px 6px; background: rgba(255, 232, 184, 0.04); color: rgba(255, 232, 184, 0.5);
+  padding: 3px 4px; background: rgba(255, 232, 184, 0.04); color: rgba(255, 232, 184, 0.5);
   border: 1px solid rgba(255, 232, 184, 0.25); border-radius: 0; cursor: pointer;
 }
-.range-slider-auto:hover:not(:disabled) { color: rgba(255, 232, 184, 0.85); border-color: rgba(255, 232, 184, 0.5); background: rgba(255, 232, 184, 0.08); }
-.range-slider-auto.is-active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.7); background: rgba(56, 189, 248, 0.12); }
-.range-slider-auto:disabled { opacity: 0.4; cursor: not-allowed; }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto:hover:not(:disabled) { color: rgba(255, 232, 184, 0.85); border-color: rgba(255, 232, 184, 0.5); background: rgba(255, 232, 184, 0.08); }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto.is-active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.7); background: rgba(56, 189, 248, 0.12); }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto:disabled { opacity: 0.4; cursor: not-allowed; }
 /* Number fields — the exact `.voice-slider-readout` treatment (border-bottom
    dotted, transparent background, right-aligned cyan text, no native
    spinner chrome) rather than the old boxed `#0d1118` field, since this IS
-   a lil-gui number field now, not a standalone input. */
-.range-slider-number {
-  box-sizing: border-box; flex: 0 0 auto; width: 40px; min-width: 0;
+   a lil-gui number field now, not a standalone input. 27px (not the
+   original 40px) is the layout-budget trade documented above — the field
+   still shows a short number/date in full and scrolls its own text for a
+   longer one, exactly like any fixed-width text input, which is a strictly
+   better failure than the track it used to steal the width from. */
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number {
+  box-sizing: border-box; flex: 0 0 auto; width: 27px; min-width: 0; height: auto;
   font: inherit; font-size: 11px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
-  color: #38bdf8; text-align: right; padding: 1px 3px; margin: 0;
+  color: #38bdf8; text-align: right; padding: 1px 2px; margin: 0;
   background: transparent; border: none; border-bottom: 1px dotted rgba(255, 232, 184, 0.18); border-radius: 0;
   -webkit-appearance: none; appearance: none;
 }
-.range-slider-number:hover:not(:disabled) { border-bottom-color: rgba(255, 232, 184, 0.4); }
-.range-slider-number:focus-visible {
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number:hover:not(:disabled) { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number:focus-visible {
   outline: 1px solid rgba(56, 189, 248, 0.6); outline-offset: 1px; border-bottom-color: rgba(56, 189, 248, 0.8);
 }
-.range-slider-number:disabled { opacity: 0.5; cursor: not-allowed; }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number:disabled { opacity: 0.5; cursor: not-allowed; }
 /* The bar — same 10px bracketed `[ ─█──── ]` track as
    `.dn-floating-controls .lil-gui .controller.number .slider`, `margin-inline`
    (not `padding-inline`) reserving the bracket glyphs' own space so they sit
    clear of the neighbouring min/max fields regardless of how much of the
-   row's width the track itself ends up with. */
-.range-slider-track {
-  position: relative; flex: 1 1 auto; min-width: 24px; height: 10px; margin-inline: 8px;
+   row's width the track itself ends up with — and, since the row's flex
+   `gap` was removed above, this margin is now the ONLY separation between
+   the track and either number field, not an addition on top of one.
+   `overflow: visible` and `padding-right: 0` explicitly undo lil-gui's own
+   `.controller.number .slider` rule (`overflow: hidden`, a 2px knob-width
+   padding) — its `overflow: hidden` would otherwise clip the `[`/`]`
+   pseudo-elements below, which sit outside the track's own border box by
+   design (`left`/`right: -8px`). */
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-track {
+  position: relative; flex: 1 1 auto; min-width: 60px; height: 10px; margin-inline: 8px;
   border: 1px solid rgba(255, 232, 184, 0.28); background: rgba(255, 232, 184, 0.04); border-radius: 0;
-  cursor: ew-resize;
+  cursor: ew-resize; overflow: visible; padding-right: 0;
 }
 .range-slider-track::before,
 .range-slider-track::after {
@@ -1278,7 +1336,8 @@
    edges (`border-left`/`border-right` + glow) ARE the two visible knobs,
    the same cap `.voice-slider`'s single fill edge already draws, doubled
    onto both ends of the band rather than a third, separately-drawn knob
-   element. */
+   element. Not itself an `input`/`button`, so no lil-gui element rule
+   contests it — no extra scoping needed. */
 .range-slider-fill {
   position: absolute; top: 0; height: 100%; pointer-events: none;
   background: linear-gradient(to right, rgba(56, 189, 248, 0.55), #38bdf8);
@@ -1297,14 +1356,17 @@
    over both base values: whichever thumb sits on the side of the
    coincident point the pointer is currently hovering gets it, so
    approaching from the left re-grabs the low thumb and approaching from
-   the right re-grabs the high one. */
-.range-slider-range {
-  position: absolute; inset: 0; width: 100%; margin: 0;
+   the right re-grabs the high one. Scoped like the auto button/number
+   fields above — these ARE `input`s inside `.controller.number.hasSlider`,
+   so lil-gui's own `input` rules (width, height, margin-left) reach them
+   too. */
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-range {
+  position: absolute; inset: 0; width: 100%; height: 10px; margin: 0;
   -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
   z-index: 1;
 }
-.range-slider-range--hi { z-index: 2; }
-.range-slider-range.is-front { z-index: 3; }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-range--hi { z-index: 2; }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-range.is-front { z-index: 3; }
 .range-slider-range::-webkit-slider-runnable-track { background: transparent; height: 10px; }
 .range-slider-range::-moz-range-track { background: transparent; height: 10px; }
 .range-slider-range::-webkit-slider-thumb {
@@ -1314,12 +1376,19 @@
 .range-slider-range::-moz-range-thumb {
   pointer-events: auto; width: 14px; height: 10px; background: transparent; border: none; border-radius: 0; cursor: ew-resize;
 }
-.range-slider.is-disabled .range-slider-fill {
+.lil-gui .controller.number.hasSlider.range-slider.is-disabled .range-slider-fill {
   background: rgba(56, 189, 248, 0.4); border-color: rgba(56, 189, 248, 0.4); box-shadow: none;
 }
-.range-slider.is-disabled .range-slider-track { cursor: not-allowed; }
+.lil-gui .controller.number.hasSlider.range-slider.is-disabled .range-slider-track { cursor: not-allowed; }
 /* NEW-1/NEW-4 (REVIEW-dock-colours-sliders-opus-round2.md): a typed value
    the slider refused (a cap violation with `capReason` set) — matches
    `charts-workbench.css`'s own `.charts-error` colour/size so it reads as
-   the same "inline validation message" idiom across the page. */
+   the same "inline validation message" idiom across the page. `commit`
+   (`RangeSlider.tsx`) now shows this SAME paragraph when a DRAG or
+   Shift+arrow nudge lands a thumb ON a `loCeiling`/`hiFloor`/`loFloor` cap
+   (P3, DIAGNOSIS-scale-domain.md — a zero-anchored Y drag used to snap
+   back with no signal at all), clearing again the moment the thumb moves
+   off the cap — a continuous gesture still settles at the boundary with
+   no interruption (AGENTS.md's own rule for this control), it just no
+   longer does so silently. */
 .range-slider-error { margin: 0; font-size: 10px; line-height: 1.4; color: #fda4af; }
