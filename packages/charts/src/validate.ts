@@ -7,7 +7,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "unknown-transform", "invalid-transform-n", "invalid-inner-radius", "invalid-rule-axis",
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
-  "sankey-bad-value", "bad-axis-color", "bad-mark-color",
+  "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-mark-color",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -38,6 +38,22 @@ function channel(v: unknown): boolean { return typeof v === "string" || typeof v
 const CANONICAL_HEX_COLOR = /^#[0-9a-f]{6}$/;
 function isCanonicalHexColor(v: unknown): v is string {
   return typeof v === "string" && CANONICAL_HEX_COLOR.test(v);
+}
+
+/**
+ * `spec.axes` and `spec.axes.{x,y}` must each be a plain object when
+ * present, matching the JSON Schema's own `type: "object"` on all three
+ * (`schema.ts`'s `AXIS_SCHEMA`) — an Ajv/runtime parity hole otherwise:
+ * `axes: null`/`"red"`/`{ x: null }`/`{ x: 5 }` all rejected via Ajv while
+ * `axes?.color`'s optional chaining silently accepted every one of them at
+ * runtime and rendered anyway (review finding P3-3). Runtime rejects, since
+ * a spec this malformed reaching the canvas is the worse contract.
+ */
+export function validateGlyphChartAxes(axes: unknown): void {
+  if (axes === undefined) return;
+  if (!object(axes)) chartError("bad-axes", `axes must be an object, got ${JSON.stringify(axes)}.`);
+  if (axes.x !== undefined && !object(axes.x)) chartError("bad-axes", `axes.x must be an object, got ${JSON.stringify(axes.x)}.`);
+  if (axes.y !== undefined && !object(axes.y)) chartError("bad-axes", `axes.y must be an object, got ${JSON.stringify(axes.y)}.`);
 }
 
 /** `spec.axes?.color` and `spec.axes?.{x,y}?.color` (AGENTS.md's "Charts" "Colours"). */
@@ -143,6 +159,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
   if (spec.description !== undefined && typeof spec.description !== "string") chartError("bad-options", "description must be a string.");
   validateGlyphChartTitleOption(spec.title);
   validateGlyphChartLegendOption(spec.legend);
+  validateGlyphChartAxes(spec.axes);
   validateGlyphChartAxisColor(spec.axes);
   if (spec.scales !== undefined && !object(spec.scales)) chartError("bad-scale", "scales must be an object.");
   const scales = { ...spec.scales };
@@ -194,6 +211,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-title": `Use a string, or { text, align?, position? } with align in ${TITLE_ALIGNS.join("/")} and position in ${TITLE_POSITIONS.join("/")}.`,
   "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,
   "sankey-bad-value": "Supply source, target, and value channels, and make sure every resolved value is finite and greater than 0.",
+  "bad-axes": "Make axes (and axes.x/axes.y, if present) a plain object, or omit it entirely.",
   "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color, axes.x.color, and axes.y.color.",
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
 };

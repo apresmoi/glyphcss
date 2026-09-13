@@ -838,15 +838,30 @@ export function paintGlyphChart(
     }
   }
   let textIndex = 0;
+  // A `text` mark's own `options.color` (AGENTS.md's "Charts" "Colours":
+  // "Every mark's `options.color`… overrides its palette colour" — a `text`
+  // mark is a mark like any other, and its label IS its own ink) resolved
+  // once per mark via `resolveSeriesColor`, the SAME resolution every other
+  // mark type shares — never a second colour rule, and never inert while
+  // `chartSeries` counts this mark's one series as a USED colour slot
+  // (review finding P3-2). Colours are looked up by candidate id below,
+  // since `GlyphChartLabelCandidate` carries no colour field of its own —
+  // the title/legend candidates that share this same placement pass must
+  // stay uncoloured by this map.
+  const textColors = new Map<string, string | null>();
   for (const { mark, rows } of marks) {
     if (mark.type !== "text") continue;
+    const textEntry = series.find((s) => s.mark === mark);
+    const textColor = textEntry ? resolveSeriesColor(textEntry, opts.colorEnabled) : null;
     for (const row of rows) {
       const label = row.label !== undefined ? String(row.label) : row.y !== undefined ? String(row.y) : "";
       if (!label) continue;
       const col = scaleToCol(scales.x, layout.plot, row.x);
       const r = row.y !== undefined ? scaleToRow(scales.y, layout.plot, row.y) : layout.plot.y0;
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
-      candidates.push({ id: `text:${textIndex++}`, x: col, y: r, text: label, priority: 10, role: "data label" });
+      const id = `text:${textIndex++}`;
+      textColors.set(id, textColor);
+      candidates.push({ id, x: col, y: r, text: label, priority: 10, role: "data label" });
     }
   }
 
@@ -888,6 +903,8 @@ export function paintGlyphChart(
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color });
       else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4] });
       guardedLabels.text(label.x, label.y, [label.text], { color });
+    } else if (textColors.has(label.id)) {
+      guardedLabels.text(label.x, label.y, [label.text], { color: textColors.get(label.id)! });
     } else guardedLabels.text(label.x, label.y, [label.text]);
   }
   if (layout.legend && layout.legend.row === undefined) {

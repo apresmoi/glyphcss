@@ -14,7 +14,7 @@ import { paintGlyphChart } from "./paint";
 import { renderGlyphChart } from "./render";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
-import { glyphChartBar, glyphChartCell, glyphChartFunnel, glyphChartLine, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
+import { glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartSankey, glyphChartText, normalizeGlyphChartInput } from "./spec";
 import { glyphChartJsonSchema } from "./schema";
 import { GLYPH_CHART_VALIDATION_RULES, glyphChartRepairHint } from "./validate";
 import { categoricalSeriesData } from "./reviewFixtures";
@@ -29,6 +29,25 @@ function picture(input: GlyphChartInput, width: number, height: number, colorEna
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
   paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled }, ledger);
   return { canvas, layout, ledger };
+}
+
+/**
+ * Count of cells INSIDE `layout.plot` (the actual data area — never the
+ * legend, which sits outside it for the "bottom" placement used throughout
+ * this file) carrying an exact colour. Used where a "mark ink" assertion
+ * must not be satisfiable by the legend swatch painted in the same colour
+ * (review finding P3-5: `colors.test.ts`'s own "overrides both the painted
+ * series and its legend swatch" test asserted only the whole-canvas set,
+ * which the swatch alone satisfies).
+ */
+function plotCellsWithColor(p: ReturnType<typeof picture>, color: string): number {
+  let n = 0;
+  for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) {
+    for (let x = p.layout.plot.x0; x <= p.layout.plot.x1; x++) {
+      if (p.canvas.grid.color![y * p.canvas.cols + x] === color) n++;
+    }
+  }
+  return n;
 }
 
 describe("axes.color (a, b)", () => {
@@ -63,15 +82,95 @@ describe("axes.color (a, b)", () => {
   });
 });
 
+describe("axes.color also colours gridlines, tick labels, and axis titles (P2-1)", () => {
+  // AGENTS.md's "Charts" "Colours": axes.color covers "line, tick marks,
+  // tick labels, title, and grid" — before this, only the axis LINE itself
+  // (`colors.test.ts`'s own "(a)" case) had a positional gate; deleting the
+  // `{ color }` argument from `paintGrid`'s tick-label/title writes left the
+  // whole 901-test suite green (REVIEW-colours-opus.md's M5/M6/M7). Two
+  // points positioned by an EXPLICIT scale domain so neither ever lands on
+  // the probed cells below — every assertion is then reddened only by the
+  // paint call it targets, never by mark ink crossing the same cell.
+  const probeMark = glyphChartDot([{ x: 1, y: 3 }, { x: 2, y: 4 }], { x: "x", y: "y" });
+  const domains = { scales: { x: { domain: [0, 5] as [number, number] }, y: { domain: [0, 10] as [number, number] } } };
+
+  it("x axis: gridline, tick label, and title", () => {
+    // Mutation: `paintGrid`'s xColor -> null redddens the gridline
+    // assertion; the tick-label write losing `{ color }` reddens the
+    // second; the title write losing it reddens the third.
+    const spec: GlyphChartSpec = { marks: [probeMark], ...domains, axes: { x: { grid: true, title: "X title", color: "#111111" }, y: { color: "#222222" } } };
+    const p = picture(spec, 40, 16, true);
+    const idx = (x: number, y: number) => y * p.canvas.cols + x;
+    expect(p.layout.xGrid).toBe(true);
+    // Gridline: any x-tick column at the plot's TOP row — the y domain's
+    // max (10) never coincides with the probe dots' own y values (3, 4),
+    // and the top row is never `xAxisLineRow` (the y=0 row, at the BOTTOM
+    // of a [0, 10] domain), so only the grid itself can have inked it.
+    const xTick = p.layout.xTicks[0]!;
+    expect(p.canvas.grid.color![idx(xTick.cell, p.layout.plot.y0)]).toBe("#111111");
+    // Tick label: `xAxisLabelRow` is a dedicated row below the plot rect,
+    // so it never collides with mark ink.
+    expect(p.canvas.grid.color![idx(xTick.labelStart, p.layout.xAxisLabelRow)]).toBe("#111111");
+    // Title: an explicit title always shows (AGENTS.md's "Charts" "Axes").
+    expect(p.layout.xAxisTitleRow).toBeGreaterThanOrEqual(0);
+    const titleCol = [...Array(p.canvas.cols).keys()].find((x) => p.canvas.grid.char[idx(x, p.layout.xAxisTitleRow)] !== " ")!;
+    expect(p.canvas.grid.color![idx(titleCol, p.layout.xAxisTitleRow)]).toBe("#111111");
+  });
+
+  it("y axis: gridline, tick label, and title", () => {
+    const spec: GlyphChartSpec = { marks: [probeMark], ...domains, axes: { x: { color: "#111111" }, y: { grid: true, title: "Y title", color: "#222222" } } };
+    const p = picture(spec, 40, 16, true);
+    const idx = (x: number, y: number) => y * p.canvas.cols + x;
+    expect(p.layout.yGrid).toBe(true);
+    // Gridline: a y-tick row other than the x-axis line's own row (which
+    // `paintAxes` repaints in xColor, not yColor) at the plot's leftmost
+    // column — neither probe dot (x = 1, 2 of a [0, 5] domain) lands there.
+    const yTick = p.layout.yTicks.find((t) => t.cell !== p.layout.xAxisLineRow)!;
+    expect(p.canvas.grid.color![idx(p.layout.plot.x0, yTick.cell)]).toBe("#222222");
+    // Tick label: `labelStart` sits left of `yAxisCol`, outside the plot.
+    expect(p.canvas.grid.color![idx(yTick.labelStart, yTick.cell)]).toBe("#222222");
+    expect(p.layout.yAxisTitleRow).toBeGreaterThanOrEqual(0);
+    expect(p.canvas.grid.color![idx(0, p.layout.yAxisTitleRow)]).toBe("#222222");
+  });
+});
+
 describe("options.color (c)", () => {
   it("(c) a per-series array overrides both the painted series and its legend swatch", () => {
+    // Mutation: `resolveSeriesColor` dropping `entry.color` (M9) must
+    // redden THIS test, not just the funnel one below (review finding
+    // P3-5) — asserted on cells INSIDE `layout.plot`, never satisfiable by
+    // the legend swatch alone, which sits below the plot for this size.
     const mark = glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: ["#123456", "#abcdef"] });
     const p = picture(mark, 24, 10, true);
     expect(p.layout.legend!.items.find((it) => it.label === "A")?.color).toBe("#123456");
     expect(p.layout.legend!.items.find((it) => it.label === "B")?.color).toBe("#abcdef");
-    const colors = new Set(p.canvas.grid.color!.filter(Boolean));
-    expect(colors).toContain("#123456");
-    expect(colors).toContain("#abcdef");
+    expect(plotCellsWithColor(p, "#123456")).toBeGreaterThan(0);
+    expect(plotCellsWithColor(p, "#abcdef")).toBeGreaterThan(0);
+  });
+
+  it("(c) a series NAME shared by two marks resolves to ONE colour everywhere (P2-2)", () => {
+    // REVIEW-colours-opus.md's own repro: two line marks each carry a "B"
+    // series with a different explicit override. The FIRST mark's colour
+    // for "B" must win for both the legend swatch AND mark 2's own ink, and
+    // the conflict must be reported — never a silent per-mark divergence.
+    const d1 = [{ x: 0, y: 1, s: "A" }, { x: 1, y: 2, s: "A" }, { x: 0, y: 5, s: "B" }, { x: 1, y: 6, s: "B" }];
+    const d2 = [{ x: 0, y: 3, s: "B" }, { x: 1, y: 4, s: "B" }, { x: 0, y: 8, s: "C" }, { x: 1, y: 9, s: "C" }];
+    const spec: GlyphChartSpec = {
+      marks: [
+        glyphChartLine(d1, { x: "x", y: "y", stroke: "s" }, { color: ["#111111", "#222222"] }),
+        glyphChartLine(d2, { x: "x", y: "y", stroke: "s" }, { color: ["#aa1111", "#aa2222"] }),
+      ],
+    };
+    const p = picture(spec, 24, 10, true);
+    expect(p.layout.legend!.items.find((it) => it.label === "B")?.color).toBe("#222222");
+    // Mark 2's own "B" ink must agree with the legend — never its own
+    // mark-local override (#aa1111).
+    expect(plotCellsWithColor(p, "#222222")).toBeGreaterThan(0);
+    expect(p.canvas.grid.color!.filter(Boolean)).not.toContain("#aa1111");
+    expect(p.ledger).toContainEqual(expect.objectContaining({
+      code: "series-color-conflict",
+      detail: expect.objectContaining({ name: "B", kept: "#222222", rejected: "#aa1111" }),
+    }));
   });
 
   it("(c) a single string broadcasts (cycles) to every series of that mark", () => {
@@ -104,6 +203,17 @@ describe("options.color (c)", () => {
     expect(colors).toContain("#ff0000");
     expect(colors).toContain("#00ff00");
   });
+
+  it("(c) a text mark's own label is painted in its color option (P3-2)", () => {
+    // A `text` mark is a mark like any other — before this its label
+    // was always plain, and `mark-color-unused` billed its one series a
+    // USED slot it never actually consumed (review finding P3-2).
+    const mark = glyphChartText([{ x: 0, y: 1, label: "hi" }], { x: "x", y: "y", label: "label" }, { color: "#123456" });
+    const p = picture(mark, 24, 10, true);
+    expect(plotCellsWithColor(p, "#123456")).toBeGreaterThan(0);
+    const r = renderGlyphChart(mark, { width: 24, height: 10, color: "css" });
+    expect(r.report.ledger.some((e) => e.code === "mark-color-unused")).toBe(false);
+  });
 });
 
 describe("color: \"none\" byte-identity (d)", () => {
@@ -123,6 +233,21 @@ describe("color: \"none\" byte-identity (d)", () => {
 describe("validation (e)", () => {
   const ajv = new Ajv2020({ strict: false, strictNumbers: true });
   const validate = ajv.compile(glyphChartJsonSchema());
+
+  it("bad-axes rejects a non-object axes/axes.x at runtime AND via the JSON Schema (P3-3)", () => {
+    // Ajv/runtime parity: `axes?.color`'s optional chaining used to accept
+    // every one of these silently (review finding P3-3) while real Ajv
+    // already rejected them — see `reviewFixtures.ts`'s own `bad-axes` rows.
+    for (const badSpec of [
+      { marks: [glyphChartLine([1, 2])], axes: null as never },
+      { marks: [glyphChartLine([1, 2])], axes: "red" as never },
+      { marks: [glyphChartLine([1, 2])], axes: { x: null } as never },
+      { marks: [glyphChartLine([1, 2])], axes: { x: 5 } as never },
+    ] satisfies GlyphChartSpec[]) {
+      expect(() => renderGlyphChart(badSpec)).toThrow(expect.objectContaining({ code: "bad-axes" }));
+      expect(validate(badSpec)).toBe(false);
+    }
+  });
 
   it("bad-axis-color rejects at runtime and via the JSON Schema — 'none' included", () => {
     const badAxes: GlyphChartSpec = { marks: [glyphChartLine([1, 2])], axes: { color: "none" as never } };
@@ -163,8 +288,18 @@ describe("mark-color-unused (f)", () => {
     }));
   });
 
-  it("no entry when the array exactly matches (or is shorter than, cycling) the series count", () => {
+  it("no entry when the array is shorter than the series count (cycling)", () => {
     const mark = glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: ["#111111"] });
+    const r = renderGlyphChart(mark, { width: 24, height: 10 });
+    expect(r.report.ledger.some((e) => e.code === "mark-color-unused")).toBe(false);
+  });
+
+  it("no entry when the array length EXACTLY matches the series count (P3-1)", () => {
+    // The `>` boundary itself, not the shorter/cycling case above — a
+    // mutated `>` -> `>=` (review finding P3-1) reddens THIS test: it would
+    // wrongly log `mark-color-unused` for a 2-colour array over exactly 2
+    // series ("A", "B").
+    const mark = glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: ["#123456", "#abcdef"] });
     const r = renderGlyphChart(mark, { width: 24, height: 10 });
     expect(r.report.ledger.some((e) => e.code === "mark-color-unused")).toBe(false);
   });

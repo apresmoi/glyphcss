@@ -91,6 +91,10 @@ export function ledgerMarkColorUnused(opts: { readonly markType: string; readonl
   return entry("mark-color-unused", `This ${opts.markType} mark's color option lists ${opts.provided} colors but only ${opts.used} ${plural} used.`, { ...opts });
 }
 
+export function ledgerSeriesColorConflict(opts: { readonly name: string; readonly kept: string; readonly rejected: string }): GlyphChartLedgerEntry {
+  return entry("series-color-conflict", `Series "${opts.name}" was given two different colors across marks — kept ${opts.kept} and dropped ${opts.rejected}.`, { ...opts });
+}
+
 /**
  * The cell canvas (`glyphcss`) still reports its own "double style has no
  * diagonal analogue" note as a free-text string (`GlyphCanvasReport.ledger`
