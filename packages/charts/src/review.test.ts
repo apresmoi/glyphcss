@@ -190,7 +190,7 @@ describe("exact Phase 1 review regressions", () => {
     const data = [0, 1, 2, 3].map((i) => ({ x: i, y: i, s: String(i) }));
     const p = picture(glyphChartDot(data, { x: "x", y: "y", fill: "s" }), 30, 12, false, "braille");
     expect(p.layout.legend).not.toBeNull();
-    const row = p.layout.legend!.row;
+    const row = p.layout.legend!.row!;
     const legendChars: string[] = [];
     for (let x = 0; x < 30; x++) legendChars.push(p.at(x, row) ?? " ");
     expect(legendChars.some((c) => "●×+◆".includes(c))).toBe(false);

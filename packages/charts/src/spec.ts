@@ -72,12 +72,13 @@ export interface GlyphChartPlotOptions {
   readonly marks: readonly GlyphChartMark[];
   readonly scales?: GlyphChartSpec["scales"];
   readonly axes?: GlyphChartSpec["axes"];
-  readonly title?: string;
+  readonly title?: GlyphChartSpec["title"];
   readonly description?: string;
+  readonly legend?: GlyphChartSpec["legend"];
 }
 
 export function glyphChartPlot(opts: GlyphChartPlotOptions): GlyphChartSpec {
-  return { marks: opts.marks, scales: opts.scales, axes: opts.axes, title: opts.title, description: opts.description };
+  return { marks: opts.marks, scales: opts.scales, axes: opts.axes, title: opts.title, description: opts.description, legend: opts.legend };
 }
 
 function isMark(v: unknown): v is GlyphChartMark {

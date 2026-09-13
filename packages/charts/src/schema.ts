@@ -1,4 +1,8 @@
-import { CHANNELS, GLYPH_CHART_VALIDATION_RULES, ISO_DATE_PATTERN, MARK_TYPES, REDUCERS, SCALE_TYPES, TRANSFORM_KINDS, XY_MARK_TYPES, glyphChartRepairHint, type GlyphChartValidationRuleId } from "./validate";
+import {
+  CHANNELS, GLYPH_CHART_VALIDATION_RULES, ISO_DATE_PATTERN, LEGEND_PLACEMENTS, MARK_TYPES, REDUCERS,
+  SCALE_TYPES, TITLE_ALIGNS, TITLE_POSITIONS, TRANSFORM_KINDS, XY_MARK_TYPES, glyphChartRepairHint,
+  type GlyphChartValidationRuleId,
+} from "./validate";
 
 export interface GlyphChartJsonSchema {
   readonly $schema: string;
@@ -51,7 +55,19 @@ export function glyphChartJsonSchema(): GlyphChartJsonSchema {
     properties: {
       marks: { type: "array", minItems: 1, items: MARK_SCHEMA },
       scales: { type: "object", properties: { x: SCALE_SCHEMA, y: SCALE_SCHEMA }, additionalProperties: false },
-      title: { type: "string" }, description: { type: "string" },
+      title: {
+        anyOf: [
+          { type: "string" },
+          { type: "object", required: ["text"], additionalProperties: false, properties: { text: { type: "string" }, align: { enum: TITLE_ALIGNS }, position: { enum: TITLE_POSITIONS } } },
+        ],
+      },
+      description: { type: "string" },
+      legend: {
+        anyOf: [
+          { type: "boolean" },
+          { type: "object", required: ["placement"], additionalProperties: false, properties: { placement: { enum: LEGEND_PLACEMENTS } } },
+        ],
+      },
     },
     allOf: [{
       if: { properties: { marks: { contains: { properties: { type: { enum: ["bar", "rect", "area"] } }, required: ["type"] } } } },

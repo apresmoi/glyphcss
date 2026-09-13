@@ -6,7 +6,7 @@ import ChartsWorkbench from "./ChartsWorkbench";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import {
-  CHART_MARK_TYPES, CHART_PRESETS, buildChartsWorkbenchSpec, chartMarkFields,
+  CHART_MARK_TYPES, CHART_PRESETS, buildChartsWorkbenchSpec, chartMarkFields, chartsWorkbenchRenderOptions,
   createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState,
   resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
@@ -91,6 +91,39 @@ describe("ChartsWorkbench state", () => {
     expect(built.axes?.y).toEqual({ tickMarks: false, grid: false });
   });
 
+  // Owner packet items 1/2/3 — legend/title placement dispatch through the
+  // existing generic "set-chart" action; this pins the reducer AND that
+  // buildChartsWorkbenchSpec actually carries the chosen placement into the
+  // built spec (never just into unused state), and that a render option
+  // never reintroduces the plain-boolean default over it (`chartsWorkbenchRenderOptions`'s own doc).
+  it("legend/title placement dispatch through set-chart and reach the built spec", () => {
+    const defaultChart = buildChartsWorkbenchSpec(initial());
+    expect(defaultChart.legend).toEqual({ placement: "bottom" });
+    expect(defaultChart.title).toMatchObject({ align: "center", position: "top" });
+
+    const state = reduceChartsWorkbenchState(initial(), {
+      type: "set-chart",
+      patch: { legendPlacement: "top-right", titleAlign: "left", titlePosition: "bottom" },
+    });
+    expect(state.chart.legendPlacement).toBe("top-right");
+    expect(state.chart.titleAlign).toBe("left");
+    expect(state.chart.titlePosition).toBe("bottom");
+    const built = buildChartsWorkbenchSpec(state);
+    expect(built.legend).toEqual({ placement: "top-right" });
+    expect(built.title).toMatchObject({ align: "left", position: "bottom" });
+
+    const options = chartsWorkbenchRenderOptions(state);
+    expect(options).not.toHaveProperty("legend");
+  });
+
+  it("turning the legend off drops the placement object entirely, matching legend: false", () => {
+    const state = reduceChartsWorkbenchState(
+      reduceChartsWorkbenchState(initial(), { type: "set-chart", patch: { legendPlacement: "top-left" } }),
+      { type: "set-chart", patch: { legend: false } },
+    );
+    expect(buildChartsWorkbenchSpec(state).legend).toBe(false);
+  });
+
   it("applying a preset resets the axes controls to auto", () => {
     const withAxis = reduceChartsWorkbenchState(initial(), { type: "set-axis", axis: "x", patch: { ticks: 5, title: "custom" } });
     const reset = reduceChartsWorkbenchState(withAxis, { type: "apply-preset", id: "bar" });
@@ -132,9 +165,16 @@ describe("ChartsWorkbench generated TypeScript", () => {
   it.each(["chat", "terminal", "web"] as const)("round-trips the emitted %s call through renderGlyphChartJson", (target) => {
     let state = presetState("multi-line");
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: target } });
-    state = { ...state, controls: { target, overrides: { width: 57, height: 19, charset: "ascii", detail: "faithful", color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none" } }, chart: { title: "Edited title", description: "Two regions", legend: true }, terminal: { NO_COLOR: true, FORCE_COLOR: true } };
+    state = {
+      ...state,
+      controls: { target, overrides: { width: 57, height: 19, charset: "ascii", detail: "faithful", color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none" } },
+      // `legend`'s placement rides in the built SPEC now (`buildChartsWorkbenchSpec`),
+      // not in the render options — see `chartsWorkbenchRenderOptions`'s own doc.
+      chart: { title: "Edited title", description: "Two regions", legend: true, legendPlacement: "bottom", titleAlign: "center", titlePosition: "top" },
+      terminal: { NO_COLOR: true, FORCE_COLOR: true },
+    };
     const emitted = executeSnippet(state);
-    expect(emitted.options).toEqual({ target, width: 57, height: 19, charset: "ascii", detail: "faithful", legend: true, color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
+    expect(emitted.options).toEqual({ target, width: 57, height: 19, charset: "ascii", detail: "faithful", color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
     expect(JSON.parse(emitted.json)).toEqual(emitted.spec);
     const live = renderChartsWorkbenchState(state);
     expect(live.ok).toBe(true);

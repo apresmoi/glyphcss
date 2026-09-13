@@ -1,4 +1,4 @@
-import type { GlyphChartMark, GlyphChartMarkType, GlyphChartSpec } from "./types";
+import type { GlyphChartLegendOption, GlyphChartMark, GlyphChartMarkType, GlyphChartSpec, GlyphChartTitleOption } from "./types";
 
 // Schema generation shares the vocabulary and repair rules; schema.test uses
 // an independent JSON Schema evaluator for the structural and domain clauses.
@@ -6,7 +6,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "empty-marks", "unknown-mark-type", "empty-data", "missing-xy-channels", "arc-missing-value",
   "unknown-transform", "invalid-transform-n", "invalid-inner-radius", "invalid-rule-axis",
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
-  "log-domain", "bar-domain-excludes-zero", "bad-time-domain",
+  "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -21,6 +21,9 @@ export const TRANSFORM_KINDS = ["bin", "stack", "group", "normalize", "window"];
 export const CHANNELS = ["x", "y", "fill", "stroke", "label"];
 export const SCALE_TYPES = ["linear", "log", "sqrt", "time", "band", "ordinal"];
 export const REDUCERS = ["mean", "sum", "min", "max"];
+export const TITLE_ALIGNS = ["left", "center", "right"];
+export const TITLE_POSITIONS = ["top", "bottom"];
+export const LEGEND_PLACEMENTS = ["bottom", "top-left", "top-right", "bottom-left", "bottom-right", "title"];
 
 function object(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -70,10 +73,39 @@ export function validateLogDomain(domain: readonly number[]): void {
   if (domain.some((v) => !Number.isFinite(v) || v === 0) || domain.some((v) => Math.sign(v) !== Math.sign(domain[0]!))) chartError("log-domain", "A log domain must have one sign and exclude zero.");
 }
 
+/**
+ * `title: string | { text, align?, position? }` (owner packet: "the title
+ * has to have some placement controls"). A bare string is the pre-existing
+ * shape; an object requires `text` and rejects any unknown key or
+ * out-of-vocabulary `align`/`position`.
+ */
+export function validateGlyphChartTitleOption(title: GlyphChartTitleOption | undefined): void {
+  if (title === undefined || typeof title === "string") return;
+  if (
+    !object(title) || typeof title.text !== "string"
+    || (title.align !== undefined && !TITLE_ALIGNS.includes(title.align as string))
+    || (title.position !== undefined && !TITLE_POSITIONS.includes(title.position as string))
+    || Object.keys(title).some((k) => !["text", "align", "position"].includes(k))
+  ) chartError("bad-title", "title must be a string, or { text, align?, position? } with align in left/center/right and position in top/bottom.");
+}
+
+/**
+ * `legend: boolean | { placement }` (owner packet: "legends only have on or
+ * off but no placements").
+ */
+export function validateGlyphChartLegendOption(legend: GlyphChartLegendOption | undefined): void {
+  if (legend === undefined || typeof legend === "boolean") return;
+  if (!object(legend) || !LEGEND_PLACEMENTS.includes(legend.placement as string) || Object.keys(legend).some((k) => k !== "placement")) {
+    chartError("bad-legend", `legend must be a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`);
+  }
+}
+
 export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
   if (!object(spec) || !Array.isArray(spec.marks) || spec.marks.length === 0) chartError("empty-marks", "A spec requires at least one mark.");
   spec.marks.forEach(validateMark);
-  if ((spec.title !== undefined && typeof spec.title !== "string") || (spec.description !== undefined && typeof spec.description !== "string")) chartError("bad-options", "title and description must be strings.");
+  if (spec.description !== undefined && typeof spec.description !== "string") chartError("bad-options", "description must be a string.");
+  validateGlyphChartTitleOption(spec.title);
+  validateGlyphChartLegendOption(spec.legend);
   if (spec.scales !== undefined && !object(spec.scales)) chartError("bad-scale", "scales must be an object.");
   const scales = { ...spec.scales };
   for (const [axis, opts] of Object.entries(spec.scales ?? {})) {
@@ -121,6 +153,8 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "log-domain": "Use a strictly positive or strictly negative log domain; bars require a zero-capable scale.",
   "bar-domain-excludes-zero": "Extend the explicit bar/rect/area domain to include zero.",
   "bad-time-domain": "Use valid ISO strings or Date objects for time values and domains.",
+  "bad-title": `Use a string, or { text, align?, position? } with align in ${TITLE_ALIGNS.join("/")} and position in ${TITLE_POSITIONS.join("/")}.`,
+  "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,
 };
 
 /**

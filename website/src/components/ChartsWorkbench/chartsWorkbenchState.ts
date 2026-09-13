@@ -4,15 +4,21 @@ import {
   glyphChartLine, glyphChartPlot, glyphChartRect, glyphChartRule, glyphChartText,
   glyphChartScaleDomains,
   type GlyphChartAxisOptions, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartDetail,
+  type GlyphChartLegendPlacement,
   type GlyphChartMark, type GlyphChartMarkOptions, type GlyphChartMarkType,
   type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
-  type GlyphChartTarget, type GlyphChartTransformKind,
+  type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
 } from "@glyphcss/charts";
 
 export const CHART_TARGETS = ["chat", "terminal", "web"] as const;
 export const CHART_CHARSETS = ["ascii", "box", "blocks", "braille"] as const;
 export const CHART_COLORS = ["none", "ansi16", "ansi256", "truecolor", "css"] as const;
 export const CHART_DETAILS = ["auto", "faithful", "balanced", "simplified"] as const;
+// Owner packet items 1/2/3 — legend placement and title align/position, each
+// with a matching icon-button group in the Chart dock folder (`ChartsDock.tsx`).
+export const CHART_LEGEND_PLACEMENTS = ["bottom", "top-left", "top-right", "bottom-left", "bottom-right", "title"] as const;
+export const CHART_TITLE_ALIGNS = ["left", "center", "right"] as const;
+export const CHART_TITLE_POSITIONS = ["top", "bottom"] as const;
 export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule"] as const;
 export const CHART_TRANSFORMS = ["none", "stack", "group", "normalize", "bin", "window"] as const;
 export const CHART_SCALE_TYPES = ["auto", "linear", "log", "sqrt", "time", "band"] as const;
@@ -117,7 +123,11 @@ export interface ChartsWorkbenchState {
   readonly controls: GlyphChartsWorkbenchControls;
   readonly scales: Readonly<Record<"x" | "y", ChartsWorkbenchScale>>;
   readonly axes: Readonly<Record<"x" | "y", ChartsWorkbenchAxis>>;
-  readonly chart: { readonly title: string; readonly description: string; readonly legend: boolean };
+  readonly chart: {
+    readonly title: string; readonly description: string; readonly legend: boolean;
+    readonly legendPlacement: GlyphChartLegendPlacement;
+    readonly titleAlign: GlyphChartTitleAlign; readonly titlePosition: GlyphChartTitlePosition;
+  };
   readonly terminal: { readonly NO_COLOR: boolean; readonly FORCE_COLOR: boolean };
 }
 export type ChartsWorkbenchAction =
@@ -159,7 +169,8 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
   return {
     marks: preset.spec.marks.map((mark, i) => editableMark(mark, i + 1)), nextMarkId: preset.spec.marks.length + 1,
     controls: { target: "web", overrides: {} }, scales: { x: autoScale(), y: autoScale() }, axes: { x: autoAxis(), y: autoAxis() },
-    chart: { title: preset.label, description: "", legend: true }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
+    chart: { title: preset.label, description: "", legend: true, legendPlacement: "bottom", titleAlign: "center", titlePosition: "top" },
+    terminal: { NO_COLOR: false, FORCE_COLOR: false },
   };
 }
 export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: ChartsWorkbenchAction): ChartsWorkbenchState {
@@ -368,14 +379,20 @@ export function buildChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChar
   const spec = glyphChartPlot({
     marks: state.marks.map(buildMark), scales: { x: scaleType(state.scales.x), y: scaleType(state.scales.y) },
     axes: { x: buildAxis(state.axes.x), y: buildAxis(state.axes.y) },
-    title: state.chart.title, description: state.chart.description,
+    title: { text: state.chart.title, align: state.chart.titleAlign, position: state.chart.titlePosition },
+    description: state.chart.description,
+    legend: state.chart.legend ? { placement: state.chart.legendPlacement } : false,
   });
   const needsDomain = [state.scales.x, state.scales.y].some((scale) => scale.min.trim() || scale.max.trim());
   const inferred = needsDomain ? glyphChartScaleDomains(spec) : undefined;
   return { ...spec, scales: { x: buildScale(state.scales.x, inferred?.x), y: buildScale(state.scales.y, inferred?.y) } };
 }
 export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): GlyphChartRenderOptions {
-  return { ...resolveGlyphChartsWorkbenchControls(state.controls), detail: state.controls.overrides.detail ?? "auto", legend: state.chart.legend,
+  // `legend` is NOT set here — it already rides in the built spec
+  // (`buildChartsWorkbenchSpec`, carrying the chosen placement), and a
+  // render `options.legend` would OVERRIDE that placement object with a
+  // plain boolean (`resolveGlyphChartLegendOption`'s documented precedence).
+  return { ...resolveGlyphChartsWorkbenchControls(state.controls), detail: state.controls.overrides.detail ?? "auto",
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
 export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState) {

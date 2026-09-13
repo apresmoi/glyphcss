@@ -13,8 +13,8 @@
 // an EXISTING field bumps to `v2`, at which point `decodeChartsUrlState`
 // gains a second branch the way synthUrlState.ts's `outerCodecFor` does.
 import {
-  CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_MARK_TYPES,
-  CHART_SCALE_TYPES, CHART_TARGETS, CHART_TRANSFORMS,
+  CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
+  CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS,
   type ChartsWorkbenchAxis, type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
@@ -142,6 +142,14 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
 
   if (!isRecord(chart)) return null;
   if (typeof chart.title !== "string" || typeof chart.description !== "string" || typeof chart.legend !== "boolean") return null;
+  // Append-only additions (owner packet items 1/2/3): a `v1` link saved
+  // before legend/title placement existed carries none of these three keys
+  // at all — optional and defaulted here, never bumping the envelope
+  // version, so that old link keeps decoding to today's shape exactly as
+  // AGENTS.md's "URL state" section requires.
+  if (chart.legendPlacement !== undefined && !oneOf(chart.legendPlacement, CHART_LEGEND_PLACEMENTS)) return null;
+  if (chart.titleAlign !== undefined && !oneOf(chart.titleAlign, CHART_TITLE_ALIGNS)) return null;
+  if (chart.titlePosition !== undefined && !oneOf(chart.titlePosition, CHART_TITLE_POSITIONS)) return null;
 
   if (!isRecord(terminal)) return null;
   if (typeof terminal.NO_COLOR !== "boolean" || typeof terminal.FORCE_COLOR !== "boolean") return null;
@@ -152,7 +160,12 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
     controls: cleanControls,
     scales: { x: scaleX, y: scaleY },
     axes: { x: axisX, y: axisY },
-    chart: { title: chart.title, description: chart.description, legend: chart.legend },
+    chart: {
+      title: chart.title, description: chart.description, legend: chart.legend,
+      legendPlacement: chart.legendPlacement ?? "bottom",
+      titleAlign: chart.titleAlign ?? "center",
+      titlePosition: chart.titlePosition ?? "top",
+    },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
   };
 }

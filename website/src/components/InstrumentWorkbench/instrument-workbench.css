@@ -784,6 +784,35 @@
 .dock-subcell .gx-toggle { flex: 1 1 auto; }
 .dock-subcell .gx-toggle-btn { padding: 3px 0; }
 
+/* Output/Chart folder icon-button rows (charts/diagrams owner packet item
+   3: "target, charset, color and detail should be buttons with symbols not
+   dropdowns") — shared by ChartsDock.tsx and DiagramsDock.tsx, each
+   portaled via `useDockSlot`. Same label treatment as `.dock-subcell-label`
+   above (lil-gui's own computed `.controller .name` metrics) so a toggle
+   row reads as an ordinary folder row, not a differently-lit strip. */
+.dock-toggle-row { display: flex; align-items: center; min-height: 20px; padding: 0 var(--padding, 6px); }
+.dock-toggle-row-label {
+  flex: 0 0 var(--name-width, 45%);
+  font-size: 11px; letter-spacing: 0.22px; line-height: 20px; text-transform: none;
+  color: rgba(255, 232, 184, 0.7);
+  padding-right: var(--spacing, 5px);
+}
+.dock-toggle-row .gx-toggle { flex: 1 1 auto; gap: 0; }
+.dock-toggle-row + .dock-toggle-row .gx-toggle-btn { padding: 3px 0; }
+
+/* Folder-header reset ("OUTPUT ======== [reset]", owner packet item 3) — a
+   `useDockSlot({ position: "top" })` row standing in for lil-gui's own
+   non-extensible folder title bar; replaces a separate "Reset to target
+   defaults" button row. */
+.dock-folder-header { display: flex; align-items: center; gap: 6px; padding: 4px var(--padding, 6px) 6px; }
+.dock-folder-header > span:first-child { font-size: 11px; letter-spacing: 0.22px; color: rgba(255, 232, 184, 0.7); }
+.dock-folder-header-rule { flex: 1 1 auto; border-top: 1px dashed rgba(255, 232, 184, 0.25); }
+.dock-folder-header-reset {
+  flex: 0 0 auto; background: none; border: 1px solid rgba(255, 232, 184, 0.3); color: rgba(255, 232, 184, 0.75);
+  font-size: 10px; letter-spacing: 0.22px; padding: 2px 6px; border-radius: 2px; cursor: pointer;
+}
+.dock-folder-header-reset:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
+
 /* Ramp picker density bars — portaled below the "Ramp" dropdown in the
    Output folder (`useDockSlot(out, { position: "bottom" })` in
    SynthWorkbench.tsx). Each swatch's bar heights are REAL measured ink

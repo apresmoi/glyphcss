@@ -271,6 +271,60 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
 
 Distinct swatches: a solid rule for the first series, a dashed one for the second — the same `SERIES_STYLES` cycle a categorical `fill`/`stroke` split already uses. Colour-enabled renders use distinct palette colours instead. `legend: false` hides the row without changing `meta.series`.
 
+### Legend and title placement
+
+`legend: boolean | { placement }` — `"bottom"` (default, same as `true`), a plot corner (`"top-left"`/`"top-right"`/`"bottom-left"`/`"bottom-right"`, painted inside the plot with no row reserved), or `"title"` (shares the title's own row):
+
+```ts
+const spec = glyphChartPlot({
+  marks: [glyphChartLine([3, 5, 2, 8, 6, 9, 4], undefined, { name: "Revenue" })],
+  legend: { placement: "top-left" },
+});
+renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 44, height: 14 }).text;
+```
+```
+  │─ Revenue                       /\       
+  │                               //\\      
+8 ┤                    \\        //  \\     
+  │                   //\\\     //    \\    
+  │                  //    \\\ //      \    
+6 ┤                  /       \//        \   
+  │                 //                  \\  
+  │      /\\       //                    \\ 
+  │    /// \\     //                      \\
+4 ┤ ///     \\    /                        \
+  │//        \\  //                         
+  │           \\//                          
+2 └┴───────────\/─────────────┴────────────┴
+   0            2             4            6
+```
+
+An overlap with painted data at a corner logs `legend-overlaps-marks` with the covered cell count, rather than covering it silently. `title: string | { text, align?, position? }` — a bare string is `{ align: "center", position: "top" }`; `align: "left"`/`"right"` moves the title's own row, `position: "bottom"` moves it to the chart's LAST row (below the legend and axis rows, which claim their space first):
+
+```ts
+const spec = glyphChartPlot({
+  marks: [glyphChartLine([3, 5, 2, 8, 6, 9, 4], undefined, { name: "Revenue" })],
+  title: { text: "Weekly revenue", align: "left", position: "bottom" },
+});
+renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 44, height: 14 }).text;
+```
+```
+  │                                /\       
+8 ┤                    \\         // \      
+  │                   //\\\     ///   \     
+  │                  //    \\\ //      \    
+6 ┤                 //       \//        \   
+  │                 /                    \  
+  │      /\\       /                      \ 
+4 ┤    /// \\     //                       \
+  │ ///     \\\  //                         
+  │//         \\//                          
+2 └┴───────────\/─────────────┴────────────┴
+   0            2             4            6
+                ───Revenue                  
+Weekly revenue
+```
+
 ## Axes
 
 `spec.axes?.{x,y}: { ticks?, tickMarks?, title?, grid? }`. Tick marks are on by default — `┤`/`┴` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):

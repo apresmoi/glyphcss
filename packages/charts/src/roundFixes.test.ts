@@ -132,7 +132,7 @@ describe("item 3 (B2/B6d) — region-mark series are distinguishable in monochro
     // never a line style (`─`/`╌`/`═`/`·`), which is what a bar chart's
     // legend used to show (diagnosis B2: "───North" under a "█" bar).
     expect(p.layout.legend).not.toBeNull();
-    const legendRow = p.layout.legend!.row;
+    const legendRow = p.layout.legend!.row!;
     const legendGlyphs = new Set<string>();
     for (let x = 0; x < 40; x++) {
       const c = p.at(x, legendRow)!;
@@ -166,7 +166,7 @@ describe("item 3 (B2/B6d) — region-mark series are distinguishable in monochro
     expect(glyphsInPlot.size).toBeGreaterThan(0);
     for (const c of glyphsInPlot) expect(" ░▒▓█".includes(c)).toBe(true);
     expect(p.layout.legend).not.toBeNull();
-    const legendRow = p.layout.legend!.row;
+    const legendRow = p.layout.legend!.row!;
     let sawShade = false;
     for (let x = 0; x < 30; x++) { if (p.at(x, legendRow) === "█") sawShade = true; }
     expect(sawShade).toBe(true);

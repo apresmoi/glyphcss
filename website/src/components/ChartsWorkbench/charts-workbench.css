@@ -165,3 +165,9 @@
 @media (max-width: 760px) {
   .charts-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }
 }
+
+/* Output/Chart folder icon-button rows and the folder-header reset (owner
+   packet item 3) are SHARED with /diagrams — see instrument-workbench.css's
+   `.dock-toggle-row`/`.dock-folder-header*` rules, pulled in transitively
+   through InstrumentWorkbench.tsx (both pages already rely on this for
+   `.gx-toggle` itself). Nothing charts-specific to add here. */

@@ -23,6 +23,9 @@ export const goodSpecs: GlyphChartSpec[] = [
   { marks: [glyphChartDot([1, 10, 100])], scales: { y: { type: "log" } } },
   { marks: [glyphChartDot([0, 1, 4])], scales: { y: { type: "sqrt" } } },
   { marks: [glyphChartLine([1, 2]), glyphChartDot([1, 2]), glyphChartRule([0])], title: "<b>&x" },
+  // Legend/title placement (owner packet items 1/2): an object title (align
+  // + position) alongside a corner legend placement, both new option shapes.
+  { marks: [glyphChartLine([1, 2, 3], undefined, { name: "A" })], title: { text: "Left title", align: "left", position: "bottom" }, legend: { placement: "top-right" } },
   ...(["bin", "stack", "group", "normalize", "window"] as const).map((kind) => spec({ ...glyphChartBar([1, 2, 4]), transform: { kind } })),
 ];
 
@@ -53,4 +56,6 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   ...([glyphChartBar, glyphChartRect] as const).map((fn) => ({ id: "bar-domain-excludes-zero", spec: { marks: [fn([5, 10])], scales: { y: { domain: [5, 10] } } } })),
   ...["2026-02-30", "2026-99-01", "2026-01-01T25:00:00Z"].map((date) => ({ id: "bad-time-domain", spec: { marks: [hourlyLine], scales: { x: { type: "time" as const, domain: [date, "2026-01-02"] } } } })),
   { id: "bad-time-domain", spec: { marks: [hourlyLine], scales: { x: { type: "time", domain: ["invalid", "2026-01-02"] } } } },
+  { id: "bad-title", spec: { marks: [glyphChartLine([1, 2])], title: { text: "x", align: "diagonal" } as never } },
+  { id: "bad-legend", spec: { marks: [glyphChartLine([1, 2])], legend: { placement: "middle" } as never } },
 ];

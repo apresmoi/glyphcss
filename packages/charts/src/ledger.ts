@@ -36,6 +36,15 @@ export function ledgerLegendDropped(opts: { readonly series: number; readonly co
   return entry("legend-dropped", `Dropped the legend to fit the chart in ${opts.cols}×${opts.rows}.`, { ...opts });
 }
 
+export function ledgerLegendPlacementDegraded(opts: { readonly placement: string; readonly reason: string }): GlyphChartLedgerEntry {
+  return entry("legend-placement-degraded", `Moved the legend to the bottom — ${opts.reason}.`, { ...opts });
+}
+
+export function ledgerLegendOverlapsMarks(opts: { readonly placement: string; readonly covered: number }): GlyphChartLedgerEntry {
+  const plural = opts.covered === 1 ? "" : "s";
+  return entry("legend-overlaps-marks", `The legend at the ${opts.placement} corner covers ${opts.covered} cell${plural} of chart data.`, { ...opts });
+}
+
 export function ledgerSeriesDodgeDegraded(opts: { readonly count: number; readonly width: number }): GlyphChartLedgerEntry {
   return entry("series-dodge-degraded", `There isn't room for ${opts.count} series side by side in a ${opts.width}-cell band, so they overlap.`, { ...opts });
 }

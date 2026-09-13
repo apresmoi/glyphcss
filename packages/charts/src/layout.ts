@@ -12,10 +12,35 @@ import { timeFormat } from "d3-time-format";
 import { chartSeries, SERIES_COLORS } from "./series";
 import { abbreviateChartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
-import { ledgerLegendDropped, ledgerTickDuplicateDropped, ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped, ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScale, GlyphChartResolvedScales, GlyphChartTick } from "./scales";
-import type { GlyphChartCharset, GlyphChartDetail, GlyphChartSpec } from "./types";
+import type {
+  GlyphChartCharset, GlyphChartDetail, GlyphChartLegendOption, GlyphChartLegendPlacement,
+  GlyphChartSpec, GlyphChartTitleAlign, GlyphChartTitleOption, GlyphChartTitlePosition,
+} from "./types";
+
+/** `title: string` is `{ text, align: "center", position: "top" }` — byte-identical to before this option existed. */
+export interface GlyphChartResolvedTitle {
+  readonly text: string | null;
+  readonly align: GlyphChartTitleAlign;
+  readonly position: GlyphChartTitlePosition;
+}
+export function resolveGlyphChartTitle(title: GlyphChartTitleOption | undefined): GlyphChartResolvedTitle {
+  if (title === undefined) return { text: null, align: "center", position: "top" };
+  if (typeof title === "string") return { text: title || null, align: "center", position: "top" };
+  return { text: title.text || null, align: title.align ?? "center", position: title.position ?? "top" };
+}
+
+/** `legend: true`/omitted is `{ show: true, placement: "bottom" }` — byte-identical to before this option existed. A render `options.legend` overrides `spec.legend`. */
+export interface GlyphChartResolvedLegendOption {
+  readonly show: boolean;
+  readonly placement: GlyphChartLegendPlacement;
+}
+export function resolveGlyphChartLegendOption(specLegend: GlyphChartLegendOption | undefined, optionLegend: GlyphChartLegendOption | undefined): GlyphChartResolvedLegendOption {
+  const source = optionLegend ?? specLegend ?? true;
+  return typeof source === "boolean" ? { show: source, placement: "bottom" } : { show: true, placement: source.placement };
+}
 
 export interface GlyphChartLayoutTick {
   readonly value: unknown;
@@ -38,6 +63,17 @@ export interface GlyphChartLegendItem {
   readonly color?: string;
 }
 
+/**
+ * `row` is present only for the two ROW-RESERVING placements (`"bottom"`,
+ * `"title"`) — the four corner placements paint inside `layout.plot` at
+ * paint time (no row reserved, so no fixed row to record here).
+ */
+export interface GlyphChartLegendLayout {
+  readonly placement: GlyphChartLegendPlacement;
+  readonly items: readonly GlyphChartLegendItem[];
+  readonly row?: number;
+}
+
 export interface GlyphChartLayout {
   readonly cols: number;
   readonly rows: number;
@@ -45,6 +81,9 @@ export interface GlyphChartLayout {
   readonly xTicks: readonly GlyphChartLayoutTick[];
   readonly yTicks: readonly GlyphChartLayoutTick[];
   readonly titleRow: number | null;
+  /** `null` when there's no title text at all (distinct from `titleRow === null`, which can also mean "dropped for lack of room"). */
+  readonly titleText: string | null;
+  readonly titleAlign: GlyphChartTitleAlign;
   readonly xAxisLineRow: number;
   readonly xAxisLabelRow: number;
   readonly yAxisCol: number;
@@ -59,7 +98,7 @@ export interface GlyphChartLayout {
   readonly xAxisTitleRow: number;
   /** Top-left, above the y-axis — see `GlyphChartAxisOptions.title`'s doc. */
   readonly yAxisTitleRow: number;
-  readonly legend: { readonly row: number; readonly items: readonly GlyphChartLegendItem[] } | null;
+  readonly legend: GlyphChartLegendLayout | null;
   /** `false` for an arc/text-only spec — see `layoutGlyphChart`'s own comment. `paintAxes` reads this to skip drawing an axis nobody needs. */
   readonly hasCartesianAxes: boolean;
 }
@@ -311,7 +350,7 @@ export function layoutGlyphChart(
   detail: GlyphChartDetail,
   ledger: GlyphChartLedgerEntry[],
   charset: GlyphChartCharset = "box",
-  showLegend = true,
+  legendOption: GlyphChartResolvedLegendOption = { show: true, placement: "bottom" },
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
@@ -347,11 +386,21 @@ export function layoutGlyphChart(
   const xAxisTitleText = cartesian ? (xAxisOpts?.title !== undefined ? xAxisOpts.title : (autoXTitleFits ? xFieldName : undefined)) : undefined;
   const yAxisTitleText = cartesian ? (yAxisOpts?.title !== undefined ? yAxisOpts.title : (autoYTitleFits ? yFieldName : undefined)) : undefined;
 
+  // Title placement (owner packet: "the title has to have some placement
+  // controls"). Resolved once, up front, because BOTH the title's own row
+  // reservation AND the legend's optional "title" placement (below) need to
+  // know whether/where it landed. `position: "top"` claims a row the SAME
+  // way the pre-existing unconditional title row did (byte-identical for
+  // the default `title: string` shape); `position: "bottom"` claims the
+  // chart's LAST row instead, reserved here — before the legend/axis
+  // sections below get to `bottom` — so it is genuinely the bottommost row
+  // of the whole chart, with the legend and axis rows stacking above it.
+  const resolvedTitle = resolveGlyphChartTitle(spec.title);
   let titleRow: number | null = null;
-  if (spec.title && detail !== "simplified" && rows > 4) {
-    titleRow = top;
-    top += 1;
-  } else if (spec.title) {
+  if (resolvedTitle.text && detail !== "simplified" && rows > 4) {
+    if (resolvedTitle.position === "bottom") { titleRow = bottom; bottom -= 1; }
+    else { titleRow = top; top += 1; }
+  } else if (resolvedTitle.text) {
     ledger.push(ledgerTitleDropped({ cols, rows }));
   }
 
@@ -370,11 +419,36 @@ export function layoutGlyphChart(
   // (nothing named anything) omits the row entirely.
   const names = seriesNames(marks);
   let legend: GlyphChartLayout["legend"] = null;
-  const legendWide = names.length > 0 && cols >= 12 && rows - top - 3 > 2;
-  if (showLegend && legendWide && detail !== "simplified") {
-    legend = { row: bottom, items: names.map((label, i) => ({ label, color: SERIES_COLORS[i % SERIES_COLORS.length] })) };
-    bottom -= 1;
-  } else if (showLegend && names.length > 0) {
+  const items = names.map((label, i) => ({ label, color: SERIES_COLORS[i % SERIES_COLORS.length] }));
+  const reserveBottomLegend = (): boolean => {
+    const legendWide = cols >= 12 && rows - top - 3 > 2;
+    if (legendWide) { legend = { placement: "bottom", row: bottom, items }; bottom -= 1; }
+    return legendWide;
+  };
+  if (legendOption.show && names.length > 0 && detail !== "simplified") {
+    if (legendOption.placement === "bottom") {
+      if (!reserveBottomLegend()) ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
+    } else if (legendOption.placement === "title") {
+      // Shares the title's own row (no extra row reserved) — a rough width
+      // check up front (paint-time collision-avoidance still nudges each
+      // entry clear of the title text itself); degrades to "bottom" with a
+      // ledger entry when there's no title row at all, or the entries
+      // plainly can't fit beside it.
+      const entriesWidth = items.reduce((w, it) => w + it.label.length + 3, 0);
+      const fits = titleRow !== null && cols >= 12 && entriesWidth <= cols - (resolvedTitle.text?.length ?? 0) - 2;
+      if (fits) {
+        legend = { placement: "title", row: titleRow!, items };
+      } else if (reserveBottomLegend()) {
+        ledger.push(ledgerLegendPlacementDegraded({ placement: "title", reason: titleRow === null ? "there's no title row to share" : "the entries don't fit beside the title" }));
+      } else {
+        ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
+      }
+    } else {
+      // Corner placements paint INSIDE the plot rect at paint time — no
+      // chart row reserved here at all.
+      legend = { placement: legendOption.placement, items };
+    }
+  } else if (legendOption.show && names.length > 0) {
     ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
   }
 
@@ -575,6 +649,8 @@ export function layoutGlyphChart(
     xTicks,
     yTicks,
     titleRow,
+    titleText: resolvedTitle.text,
+    titleAlign: resolvedTitle.align,
     xAxisLineRow,
     xAxisLabelRow,
     yAxisCol,

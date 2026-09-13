@@ -108,6 +108,28 @@ export interface GlyphChartAxisOptions {
   readonly grid?: boolean;
 }
 
+/**
+ * Legend placement (owner packet: "legends only have on or off but no
+ * placements"). `true`/omitted is `"bottom"` — byte-identical to the chart
+ * before this option existed. The four corner placements paint INSIDE the
+ * plot rect (no chart row reserved); `"title"` shares the title's own row,
+ * after the title text, degrading to `"bottom"` (with a ledger entry) when
+ * there's no title row or the entries don't fit beside it.
+ */
+export type GlyphChartLegendPlacement = "bottom" | "top-left" | "top-right" | "bottom-left" | "bottom-right" | "title";
+export type GlyphChartLegendOption = boolean | { readonly placement: GlyphChartLegendPlacement };
+
+/**
+ * Title placement (owner packet: "the title has to have some placement
+ * controls"). A bare string is `{ align: "center", position: "top" }` —
+ * byte-identical to the chart before this option existed. `position:
+ * "bottom"` reserves the LAST row of the chart (below the legend and axis
+ * labels/title, which claim their own rows first).
+ */
+export type GlyphChartTitleAlign = "left" | "center" | "right";
+export type GlyphChartTitlePosition = "top" | "bottom";
+export type GlyphChartTitleOption = string | { readonly text: string; readonly align?: GlyphChartTitleAlign; readonly position?: GlyphChartTitlePosition };
+
 export interface GlyphChartSpec {
   readonly marks: readonly GlyphChartMark[];
   readonly scales?: {
@@ -118,8 +140,9 @@ export interface GlyphChartSpec {
     readonly x?: GlyphChartAxisOptions;
     readonly y?: GlyphChartAxisOptions;
   };
-  readonly title?: string;
+  readonly title?: GlyphChartTitleOption;
   readonly description?: string;
+  readonly legend?: GlyphChartLegendOption;
 }
 
 /** Anything `renderGlyphChart`/`glyphChartPlot` accept as "the chart". */
@@ -142,8 +165,8 @@ export interface GlyphChartRenderOptions {
   readonly width?: number;
   readonly height?: number;
   readonly detail?: GlyphChartDetail;
-  /** Whether layout may show the series legend; defaults to true. */
-  readonly legend?: boolean;
+  /** Whether/where layout shows the series legend; defaults to true (`"bottom"`). Overrides `spec.legend`. */
+  readonly legend?: GlyphChartLegendOption;
   /** Read only for `NO_COLOR`/`FORCE_COLOR`, exactly like the canvas's own ANSI encoder — never `process.env` implicitly. */
   readonly env?: Readonly<Record<string, string | undefined>>;
 }

@@ -149,22 +149,33 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     vi.restoreAllMocks();
   });
 
-  function select(name: string, value: string): void {
-    const field = controller(name).querySelector("select")!;
-    act(() => {
-      field.selectedIndex = Array.from(field.options).findIndex((option) => option.textContent === value);
-      field.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+  // Target/Charset/Color/Detail are icon-button toggle rows (owner packet
+  // item 3: "buttons with symbols not dropdowns"), not lil-gui `<select>`
+  // controllers — `toggleRow` finds the row by its own `.dock-toggle-row-
+  // label` text, and `pickToggle`/`activeToggleLabel` drive/read it by each
+  // button's `aria-label` (`IconToggle`'s own convention: `aria-label={
+  // option.label}`, the raw enum value).
+  function toggleRow(label: string): Element {
+    return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;
   }
-
+  function pickToggle(rowLabel: string, optionLabel: string): void {
+    const btn = Array.from(toggleRow(rowLabel).querySelectorAll<HTMLButtonElement>("button")).find((b) => b.getAttribute("aria-label") === optionLabel)!;
+    act(() => btn.click());
+  }
+  function activeToggleLabel(rowLabel: string): string {
+    return toggleRow(rowLabel).querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active")!.getAttribute("aria-label")!;
+  }
   function controller(name: string): Element {
     return Array.from(container.querySelectorAll("#charts-controls-panel .controller")).find((node) => node.querySelector(".name")?.textContent?.toLowerCase() === name.toLowerCase())!;
   }
   function outputControls() {
-    return ["Target", "Charset", "Color"].map((name) => (() => { const select = controller(name).querySelector("select")!; return select.options[select.selectedIndex]!.textContent; })());
+    return ["Target", "Charset", "Color"].map((name) => activeToggleLabel(name));
   }
   function outputSize() {
     return ["Width", "Height"].map((name) => controller(name).querySelector("input")!.value);
+  }
+  function resetOutputButton(): HTMLButtonElement {
+    return container.querySelector<HTMLButtonElement>(".dock-folder-header-reset")!;
   }
   function button(label: string): HTMLButtonElement {
     return Array.from(container.querySelectorAll("button")).find((node) => node.textContent === label)!;
@@ -233,9 +244,29 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("pre.glyph-output")!.textContent).toBe(before);
   });
 
+  // Owner packet items 1/2/3 — the Chart folder's legend-placement and
+  // title-align/position rows are icon toggles like the Output folder's,
+  // not lil-gui dropdowns; this exercises them through the real mounted
+  // Dock rather than only through the pure reducer (chartsWorkbenchState.test.tsx).
+  it("the Chart folder's legend-placement and title-align/position toggles reach the live render", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const before = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(toggleRow("Legend at")).toBeDefined();
+    expect(toggleRow("Title at")).toBeDefined();
+    pickToggle("Legend at", "top-left");
+    const afterLegendMove = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(afterLegendMove).not.toBe(before);
+    pickToggle("Title at", "left");
+    pickToggle("Title at", "bottom");
+    const afterTitleMove = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(afterTitleMove).not.toBe(afterLegendMove);
+    const rows = afterTitleMove.split("\n");
+    expect(rows[rows.length - 1]).toContain("Line");
+  });
+
   // Mutation: target onChange updates an unused state or omits applying target defaults.
   it("applies terminal defaults through the actual target selector", () => {
-    select("target", "terminal");
+    pickToggle("Target", "terminal");
     expect(outputControls()).toEqual(["terminal", "braille", "truecolor"]);
     expect(outputSize()).toEqual(["80", "24"]);
     expect(container.querySelector("pre")!.textContent!.split("\n")).toHaveLength(24);
@@ -244,18 +275,18 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
 
   // Mutation: reset leaves overrides in state, or the button does not dispatch reset.
   it("resets explicit controls to the current target's defaults", () => {
-    select("charset", "ascii");
-    select("color", "ansi16");
-    select("target", "web");
+    pickToggle("Charset", "ascii");
+    pickToggle("Color", "ansi16");
+    pickToggle("Target", "web");
     expect(outputControls()).toEqual(["web", "ascii", "ansi16"]);
-    act(() => button("Reset to target defaults").dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    act(() => resetOutputButton().click());
     expect(outputControls()).toEqual(["web", "braille", "css"]);
     expect(outputSize()).toEqual(["96", "32"]);
   });
 
   // Mutation: inject result.text with SGR into <pre>, or remove the ANSI explanation.
   it("shows a decoded-colour terminal frame with the copy explanation, never raw SGR bytes", () => {
-    select("target", "terminal");
+    pickToggle("Target", "terminal");
     expect(container.querySelector(".target-preview--terminal")).not.toBeNull();
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
     expect(container.querySelector("pre span[style]")).not.toBeNull();
@@ -265,8 +296,8 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
 
   // Mutation: show an ANSI copy affordance/notice for a terminal render explicitly set to no colour.
   it("shows plain text without ANSI controls for a terminal with color none", () => {
-    select("target", "terminal");
-    select("color", "none");
+    pickToggle("Target", "terminal");
+    pickToggle("Color", "none");
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
     expect(container.querySelector("pre span")).toBeNull();
     expect(container.querySelector('[role="status"]')).toBeNull();
@@ -275,7 +306,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
 
   // Mutation: choose plain display for the web target or escape its HTML rather than mounting the spans.
   it("renders the web target's coloured HTML in the preview", () => {
-    select("target", "web");
+    pickToggle("Target", "web");
     expect(container.querySelector("pre span[style]")).not.toBeNull();
     expect(container.querySelector("pre")!.textContent).not.toContain("<span");
     expect(container.querySelector("pre")!.textContent).not.toContain("\x1b");
@@ -284,7 +315,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // Mutation: copy result.text (the ANSI encoding) from Copy ASCII, or copy plain cells from Copy ANSI.
   it("copies plain cells from Copy ASCII and escapes from Copy ANSI", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
-    select("target", "terminal");
+    pickToggle("Target", "terminal");
     const plain = container.querySelector("pre")!.textContent!;
     await act(async () => button("Copy ASCII").click());
     expect(writeText).toHaveBeenLastCalledWith(plain);

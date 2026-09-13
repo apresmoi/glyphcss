@@ -67,6 +67,32 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(raw)).toEqual(state);
   });
 
+  // Owner packet item 1/2/3 — legend/title placement additions. Append-only:
+  // `validateChartsWorkbenchState` defaults these three to "bottom"/"center"/
+  // "top" when absent (see the fixed historical link below, encoded before
+  // this feature existed, which still decodes correctly for that reason),
+  // so this test's own job is the OTHER half — a link saved WITH an explicit
+  // non-default choice must round-trip that choice exactly, not silently
+  // fall back to the default on decode.
+  it("round-trips non-default legend placement and title align/position", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-chart", patch: { legendPlacement: "top-right", titleAlign: "left", titlePosition: "bottom" } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart.legendPlacement).toBe("top-right");
+    expect(decoded!.chart.titleAlign).toBe("left");
+    expect(decoded!.chart.titlePosition).toBe("bottom");
+  });
+
+  it("rejects an out-of-vocabulary legendPlacement/titleAlign/titlePosition rather than guessing", async () => {
+    const base = createChartsWorkbenchState();
+    for (const patch of [{ legendPlacement: "middle" }, { titleAlign: "diagonal" }, { titlePosition: "middle" }]) {
+      const raw = await encodeChartsUrlState({ ...base, chart: { ...base.chart, ...patch } } as unknown as ChartsWorkbenchState);
+      expect(await decodeChartsUrlState(raw)).toBeNull();
+    }
+  });
+
   it("malformed input decodes to null (page falls back to the default state)", async () => {
     expect(await decodeChartsUrlState(null)).toBeNull();
     expect(await decodeChartsUrlState("")).toBeNull();

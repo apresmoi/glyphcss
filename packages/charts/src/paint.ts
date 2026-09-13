@@ -23,9 +23,10 @@ import {
   scaleToRow,
   scaleToRowExact,
   type GlyphChartLayout,
+  type GlyphChartLegendLayout,
 } from "./layout";
-import { glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { abbreviateChartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
+import { ledgerEmptyTotal, ledgerLegendOverlapsMarks, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { areaLayers, chartSeries, SERIES_COLORS, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScales } from "./scales";
@@ -617,6 +618,50 @@ function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
   };
 }
 
+/**
+ * Corner legend placements paint INSIDE `layout.plot`, one item per row, at
+ * paint time — the four corners reserve no chart row at all (owner packet
+ * item 1: "reserving no chart rows"). Called from the label phase, after
+ * axes/marks, so the legend box paints OVER whatever's underneath by
+ * design; every covered non-blank cell is counted and reported via
+ * `legend-overlaps-marks` so a caller knows their data was covered rather
+ * than discovering it by eye.
+ */
+function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+  const { plot } = layout;
+  const plotWidth = plot.x1 - plot.x0 + 1;
+  const plotHeight = plot.y1 - plot.y0 + 1;
+  if (plotWidth < 3 || plotHeight < 1) return;
+  const isRight = legend.placement === "top-right" || legend.placement === "bottom-right";
+  const isBottom = legend.placement === "bottom-left" || legend.placement === "bottom-right";
+  const items = legend.items.slice(0, plotHeight);
+  const maxTextWidth = Math.max(1, plotWidth - 2);
+  let covered = 0;
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]!;
+    const row = isBottom ? plot.y1 - items.length + 1 + i : plot.y0 + i;
+    const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false);
+    if (dropped || !text) continue;
+    const blockWidth = Math.min(plotWidth, text.length + 2);
+    const startCol = isRight ? plot.x1 - blockWidth + 1 : plot.x0;
+    const textCol = Math.min(plot.x1, startCol + 2);
+    for (let c = startCol; c <= Math.min(plot.x1, startCol + blockWidth - 1); c++) {
+      if (canvas.grid.char[row * canvas.cols + c] !== " ") covered++;
+    }
+    const entry = series.find((s) => s.name === item.label);
+    const color = colorEnabled ? item.color ?? null : null;
+    const styleIdx = entry ? (entry.mark.type === "arc" ? entry.shadeIndex! : entry.styleIndex) : i;
+    if (entry?.mark.type === "arc") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
+    else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
+    else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex)], { color });
+    else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color });
+    else canvas.line({ x: startCol, y: row }, { x: startCol, y: row }, { color, style: SERIES_STYLES[styleIdx % 4] });
+    canvas.text(textCol, row, [text], { color });
+  }
+  if (covered > 0) ledger.push(ledgerLegendOverlapsMarks({ placement: legend.placement, covered }));
+}
+
 // ── orchestration ───────────────────────────────────────────────────────
 
 export function paintGlyphChart(
@@ -713,14 +758,49 @@ export function paintGlyphChart(
   // labels — all through `glyphChartLabelLayout` so a long one abbreviates
   // instead of overflowing, and later labels dodge earlier ones.
   const candidates: GlyphChartLabelCandidate[] = [];
-  if (layout.titleRow !== null && spec.title) {
-    candidates.push({ id: "title", x: Math.floor(layout.cols / 2), y: layout.titleRow, text: spec.title, priority: 100, role: "chart title" });
+  if (layout.titleRow !== null && layout.titleText) {
+    // `x` is a CENTRE anchor (`glyphChartLabelLayout`'s own convention) — for
+    // left/right align this is approximated from the title's own (raw,
+    // pre-abbreviation) length so the label lands flush with that edge,
+    // exactly the way the existing centred default (`floor(cols/2)`) always
+    // has for the centre case.
+    const half = Math.floor(layout.titleText.length / 2);
+    const x = layout.titleAlign === "left" ? Math.min(layout.cols - 1, half)
+      : layout.titleAlign === "right" ? Math.max(0, layout.cols - 1 - half)
+      : Math.floor(layout.cols / 2);
+    candidates.push({ id: "title", x, y: layout.titleRow, text: layout.titleText, priority: 100, role: "chart title" });
   }
-  if (layout.legend) {
-    const slot = Math.max(1, Math.floor(layout.cols / layout.legend.items.length));
+  if (layout.legend && layout.legend.row !== undefined) {
+    const legendRow = layout.legend.row;
+    const isTitleRow = layout.legend.placement === "title";
+    // "title" placement shares the title's own row: entries are laid out in
+    // the region AFTER the title text (before it, for a right-aligned title,
+    // which has no room to its right) — never the full row — so they read as
+    // "next to the title", not scattered wherever the generic collision
+    // nudge below happens to find room (a centred title has free space on
+    // BOTH sides, so that nudge has no directional preference on its own).
+    // Priority still sits below the title's (100) as a safety net in case
+    // this estimate and the title's own (possibly abbreviated) painted width
+    // disagree by a cell or two.
+    let regionStart = 0;
+    let regionWidth = layout.cols;
+    if (isTitleRow && layout.titleText) {
+      const titleLen = layout.titleText.length;
+      if (layout.titleAlign === "right") {
+        const titleStart = Math.max(0, layout.cols - titleLen);
+        regionStart = 0;
+        regionWidth = Math.max(1, titleStart - 1);
+      } else {
+        const titleEnd = layout.titleAlign === "left" ? titleLen - 1 : Math.floor(layout.cols / 2) + Math.ceil(titleLen / 2) - 1;
+        regionStart = Math.min(layout.cols - 1, titleEnd + 2);
+        regionWidth = Math.max(1, layout.cols - regionStart);
+      }
+    }
+    const priority = isTitleRow ? 90 : 50;
+    const slot = Math.max(1, Math.floor(regionWidth / layout.legend.items.length));
     for (let i = 0; i < layout.legend.items.length; i++) {
       const item = layout.legend.items[i]!;
-      candidates.push({ id: `legend:${i}`, x: i * slot + Math.floor(slot / 2), y: layout.legend.row, text: item.label, maxWidth: Math.max(1, slot - 3), priority: 50, role: "legend label" });
+      candidates.push({ id: `legend:${i}`, x: regionStart + i * slot + Math.floor(slot / 2), y: legendRow, text: item.label, maxWidth: Math.max(1, slot - 3), priority, role: "legend label" });
     }
   }
   let textIndex = 0;
@@ -774,5 +854,8 @@ export function paintGlyphChart(
       else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4] });
       guardedLabels.text(label.x, label.y, [label.text], { color });
     } else guardedLabels.text(label.x, label.y, [label.text]);
+  }
+  if (layout.legend && layout.legend.row === undefined) {
+    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger);
   }
 }

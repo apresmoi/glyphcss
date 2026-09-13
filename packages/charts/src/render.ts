@@ -15,13 +15,13 @@
  */
 
 import { createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText } from "glyphcss";
-import { layoutGlyphChart, seriesNames } from "./layout";
+import { layoutGlyphChart, resolveGlyphChartLegendOption, seriesNames } from "./layout";
 import { chartLedgerEntryFromCanvasMessage } from "./ledger";
 import { paintGlyphChart } from "./paint";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { normalizeGlyphChartInput } from "./spec";
-import { validateGlyphChartRenderSize, validateGlyphChartSpec } from "./validate";
+import { validateGlyphChartLegendOption, validateGlyphChartRenderSize, validateGlyphChartSpec } from "./validate";
 import type {
   GlyphChartCharset,
   GlyphChartColorMode,
@@ -76,6 +76,10 @@ function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
 
 export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartResult {
   const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
+  // `spec.title`/`spec.legend` are validated inside `validateGlyphChartSpec`
+  // above; `options.legend` is a render-only override with the identical
+  // shape, validated here since it never reaches the spec.
+  validateGlyphChartLegendOption(options.legend);
 
   const target: GlyphChartTarget = options.target ?? "web";
   const defaults = GLYPH_CHART_TARGET_DEFAULTS[target];
@@ -90,7 +94,8 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const scales = resolveGlyphChartScales(marks, spec.scales);
 
   const ledger: GlyphChartLedgerEntry[] = [];
-  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, options.legend ?? true);
+  const legendOption = resolveGlyphChartLegendOption(spec.legend, options.legend);
+  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, legendOption);
 
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
   // The ANSI encoder's non-empty env flags also determine whether colour
@@ -122,7 +127,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
     ...(html !== undefined ? { html } : {}),
     grid: { cols: width, rows: height, char: canvas.grid.char.slice() },
     meta: {
-      title: spec.title ?? null,
+      title: spec.title === undefined ? null : typeof spec.title === "string" ? spec.title : spec.title.text,
       series,
       values,
       description: spec.description ?? null,

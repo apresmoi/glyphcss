@@ -51,6 +51,8 @@ export type {
   GlyphChartDatum,
   GlyphChartDetail,
   GlyphChartInput,
+  GlyphChartLegendOption,
+  GlyphChartLegendPlacement,
   GlyphChartMark,
   GlyphChartMarkOptions,
   GlyphChartMarkRow,
@@ -62,6 +64,9 @@ export type {
   GlyphChartScaleOptions,
   GlyphChartSpec,
   GlyphChartTarget,
+  GlyphChartTitleAlign,
+  GlyphChartTitleOption,
+  GlyphChartTitlePosition,
   GlyphChartTransform,
   GlyphChartTransformKind,
 } from "./types";

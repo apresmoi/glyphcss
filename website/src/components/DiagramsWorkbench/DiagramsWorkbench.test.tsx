@@ -56,13 +56,30 @@ describe("DiagramsWorkbench mounted integration", () => {
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
     }, { timeout: 2000, interval: 10 });
   }
+  // Target/Charset/Color are icon-button toggle rows (owner packet item 3:
+  // "buttons with symbols not dropdowns"), like ChartsDock.tsx's own —
+  // Direction/Engine/Detail stay plain `<select>`s, so `select()` still
+  // handles those.
+  const TOGGLE_ROWS = ["Target", "Charset", "Color"];
+  function toggleRow(label: string): Element {
+    return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;
+  }
   async function select(name: string, value: string) {
-    await act(async () => {
-      const field = controller(name).querySelector("select")!;
-      field.selectedIndex = Array.from(field.options).findIndex((option) => option.textContent === value);
-      field.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    if (TOGGLE_ROWS.includes(name)) {
+      await act(async () => {
+        Array.from(toggleRow(name).querySelectorAll<HTMLButtonElement>("button")).find((b) => b.getAttribute("aria-label") === value)!.click();
+      });
+    } else {
+      await act(async () => {
+        const field = controller(name).querySelector("select")!;
+        field.selectedIndex = Array.from(field.options).findIndex((option) => option.textContent === value);
+        field.dispatchEvent(new Event("change", { bubbles: true }));
+      });
+    }
     await settlePreview();
+  }
+  function resetOutputButton(): HTMLButtonElement {
+    return container.querySelector<HTMLButtonElement>(".dock-folder-header-reset")!;
   }
   async function edit(value: string, settle = true) {
     await act(async () => {
@@ -133,7 +150,7 @@ describe("DiagramsWorkbench mounted integration", () => {
     await select("Target", "web");
     expect(preview().textContent).toMatch(/^[\x00-\x7f]+$/);
     expect(preview().querySelector("span")).toBeNull();
-    await act(async () => button("Reset to target defaults").click());
+    await act(async () => resetOutputButton().click());
     await settlePreview();
     expect(controller("Width").querySelector("input")!.value).toBe("96");
     expect(controller("Height").querySelector("input")!.value).toBe("32");
