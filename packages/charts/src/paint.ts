@@ -27,7 +27,7 @@ import {
   type GlyphChartPlotRect,
 } from "./layout";
 import { abbreviateChartText, chartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { computeSankeyRoutedRows, layoutSankeyGraph, paintFunnelMark, paintSankeyRoutedRows, type GlyphChartSankeyLayout, type SankeyRoutedRow } from "./flowMarks";
 import { areaLayers, chartSeries, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
@@ -374,8 +374,14 @@ interface ArcRadii {
  * `GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS`-wide strip on each side when
  * callouts are wanted and the plot is wide enough to spare it; the centre
  * (`cx`/`cy`) is unchanged either way since the gutters are symmetric.
+ * `textScale` (AGENTS.md's "Charts" "Density") multiplies the WHOLE
+ * `min(GUTTER_COLS, floor(plotCols/4))` expression rather than just the raw
+ * budget — `min(s*a, s*b) === s*min(a,b)` for `s > 0`, so the cap scales
+ * WITH the budget it caps, and a scale-2 callout label gets a genuinely
+ * bigger reservation rather than the same flat column count a bigger glyph
+ * would then overflow.
  */
-function arcRadii(plot: GlyphChartPlotRect, cellAspect: number, wantCallouts: boolean): ArcRadii {
+function arcRadii(plot: GlyphChartPlotRect, cellAspect: number, wantCallouts: boolean, textScale = 1): ArcRadii {
   const plotCols = plot.x1 - plot.x0 + 1;
   const plotRows = plot.y1 - plot.y0 + 1;
   const aspect = cellAspect > 0 && Number.isFinite(cellAspect) ? cellAspect : 0.5;
@@ -394,7 +400,7 @@ function arcRadii(plot: GlyphChartPlotRect, cellAspect: number, wantCallouts: bo
   // columns, well under every target's own width) and keeps the property
   // the fixed budget was FOR (independent of label text) while no longer
   // trading the majority of the disc away on a narrow/tall grid.
-  const gutter = Math.min(GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS, Math.floor(plotCols / 4));
+  const gutter = textScale * Math.min(GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS, Math.floor(plotCols / 4));
   const calloutsFit = wantCallouts && plotCols - 2 * gutter >= 3 && plotRows >= 3;
   const availableCols = calloutsFit ? plotCols - 2 * gutter : plotCols;
   const diameter = Math.max(1, Math.min(plotRows, availableCols * aspect)) * GLYPH_CHART_ARC_FILL;
@@ -422,11 +428,19 @@ interface ArcCalloutCandidate {
  * across a whole side's angular domain (monotonic there: `(-90°,90°]` for
  * the right half, `(90°,270°]` for the left, and `sin` is monotonic on
  * each), so this IS "sort by angle", just read off the row it already
- * implies — then rows are pushed apart by at least one so two labels never
- * share a row, and a label pushed past the plot's own bottom row is
+ * implies — then rows are pushed apart by at least `textScale` (AGENTS.md's
+ * "Charts" "Density" — a callout label now reserves a `textScale`-row band,
+ * `canvas.text`'s own `scale`-row pitch, not a single row) so two labels
+ * never share a band, and a label pushed past the plot's own bottom row is
  * dropped (`label-dropped`) rather than overlapping the next one down.
+ *
+ * The trailing `· NN%` is never itself abbreviated — a name that doesn't fit
+ * abbreviates (through `glyphChartLabelLayout`'s own `scale` field, the SAME
+ * mechanism an axis tick label uses, `layout.ts`'s `axisTicks`) or drops
+ * whole, but the percentage is never truncated into a different, wrong
+ * number.
  */
-function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices: readonly ArcSlice[], radii: ArcRadii, ledger: GlyphChartLedgerEntry[]): void {
+function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices: readonly ArcSlice[], radii: ArcRadii, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   const { cx, cy, rx, ry } = radii;
   const total = slices.reduce((sum, sl) => sum + sl.value, 0);
   const candidates: ArcCalloutCandidate[] = [];
@@ -443,10 +457,10 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
   for (const side of ["left", "right"] as const) {
     const group = candidates.filter((c) => c.side === side).sort((a, b) => a.targetRow - b.targetRow);
     const sign = side === "right" ? 1 : -1;
-    let lastRow = plot.y0 - 1;
+    let lastRow = plot.y0 - textScale;
     for (const c of group) {
-      const row = Math.max(c.targetRow, lastRow + 1);
-      if (row > plot.y1) {
+      const row = Math.max(c.targetRow, lastRow + textScale);
+      if (row + textScale - 1 > plot.y1) {
         ledger.push(ledgerLabelDropped({ role: "pie callout", text: `${c.name} · ${c.pct}%`, reason: "there was no row left for it on this side of the pie" }));
         continue;
       }
@@ -463,30 +477,61 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
       const outCol = discEdgeCol + sign * GLYPH_CHART_ARC_CALLOUT_DISC_GAP;
       const elbow: GlyphCanvasPoint = { x: outCol + sign * GLYPH_CHART_ARC_CALLOUT_DIAG_COLS, y: row };
       const stubEnd: GlyphCanvasPoint = { x: elbow.x + sign * GLYPH_CHART_ARC_CALLOUT_STUB_COLS, y: row };
-      const textCol = stubEnd.x + sign * GLYPH_CHART_ARC_CALLOUT_TEXT_GAP;
-      const maxWidth = side === "right" ? plot.x1 - textCol + 1 : textCol - plot.x0 + 1;
-      if (maxWidth < 1) {
+      // THE RESERVATION: the label's own near (leader-facing) edge is
+      // measured from `textCol`, one full `textScale`-wide glyph-box short
+      // of the leader's own last painted cell (`stubEnd`) — a flat 1-cell
+      // gap at `textScale === 1`, byte-identical to before this option
+      // existed, and a genuinely bigger blank buffer at scale > 1 so a
+      // bigger glyph's own box never swallows into the leader. Every box
+      // edge painted below is measured FROM this column, on both sides, so
+      // a leader can never end inside the label it points at.
+      const textCol = stubEnd.x + sign * GLYPH_CHART_ARC_CALLOUT_TEXT_GAP * textScale;
+      const maxWidthCols = side === "right" ? plot.x1 - textCol + 1 : textCol - plot.x0 + 1;
+      if (maxWidthCols < 1) {
         ledger.push(ledgerLabelDropped({ role: "pie callout", text: `${c.name} · ${c.pct}%`, reason: "there was no room for the label" }));
         continue;
       }
 
       const full = `${c.name} · ${c.pct}%`;
+      const fullFolded = chartText(full, canvas.tier);
+      const maxWidthChars = Math.max(1, Math.floor(maxWidthCols / textScale));
       let text: string;
-      if (chartText(full, canvas.tier).length <= maxWidth) {
-        text = chartText(full, canvas.tier);
+      if (fullFolded.length <= maxWidthChars) {
+        text = fullFolded;
       } else {
-        const fitted = abbreviateChartText(c.name, maxWidth, canvas.tier, false);
-        if (fitted.text === "") {
+        // `x`/`y` here are never read for placement (only `.text` is used —
+        // this call's own box math is discarded in favour of the leader-
+        // relative `textCol` geometry below), so any in-bounds anchor
+        // works; `obstacles: []` means this can never itself drop for lack
+        // of space, only for a non-finite/out-of-viewport `y` (never the
+        // case here) — the SAME per-candidate pattern `axisTicks` uses to
+        // fold a tick's own scale into its abbreviation budget.
+        const nameResult = glyphChartLabelLayout([{
+          id: "arc-callout-name", x: textCol, y: row, text: c.name,
+          maxWidth: maxWidthCols, role: "pie callout", scale: textScale,
+        }], { obstacles: [], viewport: { cols: canvas.cols, rows: canvas.rows }, charset: canvas.tier });
+        ledger.push(...nameResult.ledger);
+        text = nameResult.placed[0]!.text;
+        if (text === "") {
           ledger.push(ledgerLabelDropped({ role: "pie callout", text: full, reason: "there was no room for even the slice's own name" }));
           continue;
         }
-        text = fitted.text;
-        ledger.push(ledgerLabelAbbreviated({ role: "pie callout", before: full, after: text }));
       }
 
       canvas.line({ x: outCol, y: outRow }, elbow, { subcell: false, color: c.color });
       canvas.line(elbow, stubEnd, { subcell: false, color: c.color });
-      canvas.text(textCol, row, [text], { align: side === "right" ? "left" : "right", color: c.color });
+      // Always painted `align: "left"` from an EXPLICITLY computed left
+      // edge (never `canvas.text`'s own `align: "right"`, whose box grows
+      // from `x0 - boxWidth + scale`, i.e. `scale - 1` columns past `x0`)
+      // so `textCol` is the box's near edge on BOTH sides, symmetrically —
+      // the property the leader-gap reservation above depends on. Dropping
+      // this offset on the left side (using `textCol` as the box's LEFT
+      // edge instead of its right) grows the box back TOWARD the leader
+      // instead of away from it, which is exactly the reservation this
+      // function exists to prevent.
+      const boxWidth = text.length * textScale;
+      const boxLeftCol = side === "right" ? textCol : textCol - boxWidth + 1;
+      canvas.text(boxLeftCol, row, [text], { align: "left", color: c.color, scale: textScale });
     }
   }
 }
@@ -497,7 +542,7 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
  * blocks/braille retain the same full-cell shade vocabulary as the legend,
  * instead of substituting subcell occupancy for slice identity.
  */
-function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number, labels: "callout" | "legend-only"): void {
+function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number, labels: "callout" | "legend-only", textScale = 1): void {
   const values = series.map((s) => s.rows.reduce((sum, r) => sum + numeric(r.y), 0));
   const total = values.reduce((a, b) => a + b, 0);
   if (total === 0) { ledger.push(ledgerEmptyTotal("pie")); return; }
@@ -513,7 +558,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
   if (shownRows < resolvedRowCount) {
     ledger.push(ledgerSliceDropped({ dropped: resolvedRowCount - shownRows, total: resolvedRowCount }));
   }
-  const radii = arcRadii(layout.plot, canvas.cellAspect, labels === "callout");
+  const radii = arcRadii(layout.plot, canvas.cellAspect, labels === "callout", textScale);
   const { cx, cy, rx, ry } = radii;
   let start = -Math.PI / 2;
   const slices: ArcSlice[] = values.map((v, i) => {
@@ -535,7 +580,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
       canvas.text(x, y, [slice.glyph], { color: slice.color });
     }
   }
-  if (radii.calloutsFit) paintArcCallouts(canvas, layout.plot, slices, radii, ledger);
+  if (radii.calloutsFit) paintArcCallouts(canvas, layout.plot, slices, radii, ledger, textScale);
 }
 
 // ── axes ─────────────────────────────────────────────────────────────────
@@ -895,41 +940,53 @@ function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
  * rule glyph would otherwise be the corner legend's last-painted row,
  * silently erasing it (CHARTS-RESEARCH B1's row folded into the plot is
  * exactly the row a `bottom-*`/tall `top-*` legend would otherwise reach).
+ *
+ * `textScale` (AGENTS.md's "Charts" "Density") reserves an `s`-row-tall band
+ * per entry — `canvas.text`'s own `scale`-row pitch — with a `3*s`-wide
+ * swatch gutter, exactly the `3 * textScale` the bottom-placed legend's own
+ * `swatchGutter` uses, so entries never crowd tighter than a scale-2 swatch's
+ * own `2x2` box needs. Every expression below reduces to the pre-`textScale`
+ * one at `textScale === 1` (`3*1 === 3`, `floor(plotHeight/1) === plotHeight`,
+ * …), so this is byte-identical there.
  */
-function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[]): void {
+function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   const { plot } = layout;
   const plotWidth = plot.x1 - plot.x0 + 1;
   const maxRow = layout.xAxisLineRow === plot.y1 ? plot.y1 - 1 : plot.y1;
   const plotHeight = maxRow - plot.y0 + 1;
-  if (plotWidth < 3 || plotHeight < 1) {
+  if (plotWidth < 3 * textScale || plotHeight < textScale) {
     if (legend.items.length > 0) ledger.push(ledgerLegendDropped({ series: legend.items.length, cols: plotWidth, rows: Math.max(0, plotHeight) }));
     return;
   }
   const isRight = legend.placement === "top-right" || legend.placement === "bottom-right";
   const isBottom = legend.placement === "bottom-left" || legend.placement === "bottom-right";
-  const items = legend.items.slice(0, plotHeight);
+  const maxItems = Math.max(0, Math.floor(plotHeight / textScale));
+  const items = legend.items.slice(0, maxItems);
   if (legend.items.length > items.length) {
     ledger.push(ledgerLegendDropped({ series: legend.items.length - items.length, cols: plotWidth, rows: plotHeight }));
   }
-  const maxTextWidth = Math.max(1, plotWidth - 2);
+  const swatchGutterCols = 3 * textScale;
+  const maxTextWidth = Math.max(1, Math.floor((plotWidth - 2) / textScale));
   let covered = 0;
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
-    const row = isBottom ? maxRow - items.length + 1 + i : plot.y0 + i;
+    const row = isBottom ? maxRow - items.length * textScale + 1 + i * textScale : plot.y0 + i * textScale;
     const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false);
     if (dropped || !text) continue;
-    // 3-cell gutter (not 2) so a LINE-style swatch (the trailing `else`
-    // below) has room for the same 3-cell styled run the bottom legend
-    // paints (`paint.ts`'s own label-phase swatch, `swatchX .. label.x -
-    // 1`) — a single-cell `canvas.line(p, p)` degenerates to one braille
-    // dot under a sub-cell tier and can never show the solid/dashed/
-    // dotted/double cycle that carries series identity when colour is off
-    // (fable review, batch 3, finding b).
-    const blockWidth = Math.min(plotWidth, text.length + 3);
+    // `swatchGutterCols` (not `2 * textScale`) so a LINE-style swatch (the
+    // trailing `else` below) has room for the same styled run the bottom
+    // legend paints (`paint.ts`'s own label-phase swatch, `swatchX ..
+    // label.x - 1`) — a single-cell `canvas.line(p, p)` degenerates to one
+    // braille dot under a sub-cell tier and can never show the
+    // solid/dashed/dotted/double cycle that carries series identity when
+    // colour is off (fable review, batch 3, finding b).
+    const blockWidth = Math.min(plotWidth, text.length * textScale + swatchGutterCols);
     const startCol = isRight ? plot.x1 - blockWidth + 1 : plot.x0;
-    const textCol = Math.min(plot.x1, startCol + 3);
-    for (let c = startCol; c <= Math.min(plot.x1, startCol + blockWidth - 1); c++) {
-      if (canvas.grid.char[row * canvas.cols + c] !== " ") covered++;
+    const textCol = Math.min(plot.x1, startCol + swatchGutterCols);
+    for (let rr = row; rr < row + textScale; rr++) {
+      for (let c = startCol; c <= Math.min(plot.x1, startCol + blockWidth - 1); c++) {
+        if (canvas.grid.char[rr * canvas.cols + c] !== " ") covered++;
+      }
     }
     const entry = series.find((s) => s.name === item.label);
     const color = colorEnabled ? item.color ?? null : null;
@@ -939,13 +996,13 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     // the legend swatch always picks the same table (compact-vs-extended
     // ASCII) the plot itself painted with.
     const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
-    if (entry?.mark.type === "arc") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.shadeIndex!, shadeTotal)], { color });
+    if (entry?.mark.type === "arc") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.shadeIndex!, shadeTotal)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
-    else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex, shadeTotal)], { color });
-    else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color });
+    else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [seriesShade(canvas.tier, entry.styleIndex, shadeTotal)], { color, scale: textScale });
+    else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
-    canvas.text(textCol, row, [text], { color });
+    canvas.text(textCol, row, [text], { color, scale: textScale });
   }
   if (covered > 0) ledger.push(ledgerLegendOverlapsMarks({ placement: legend.placement, covered }));
 }
@@ -1039,7 +1096,7 @@ export function paintGlyphChart(
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
-    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout");
+    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale);
     else if (mark.type === "sankey") {
       const r = sankeyRouted.get(mark);
       if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy);
@@ -1230,6 +1287,6 @@ export function paintGlyphChart(
     } else guardedLabels.text(label.x, label.y, [label.text], { scale: label.scale });
   }
   if (layout.legend && layout.legend.row === undefined) {
-    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger);
+    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale);
   }
 }
