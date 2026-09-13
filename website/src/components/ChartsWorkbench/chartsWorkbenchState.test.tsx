@@ -63,9 +63,9 @@ describe("ChartsWorkbench state", () => {
     let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "width", value: 72 } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "detail", value: "faithful" } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
-    expect(resolveGlyphChartsWorkbenchControls(state.controls)).toEqual({ target: "web", width: 72, height: 32, color: "css", charset: "braille", detail: "faithful" });
+    expect(resolveGlyphChartsWorkbenchControls(state.controls)).toEqual({ target: "web", width: 72, height: 32, color: "css", charset: "braille", cellAspect: 0.5859375, detail: "faithful" });
     const reset = reduceChartsWorkbenchState(state, { type: "reset-target" });
-    expect(resolveGlyphChartsWorkbenchControls(reset.controls)).toEqual({ target: "web", width: 96, height: 32, color: "css", charset: "braille" });
+    expect(resolveGlyphChartsWorkbenchControls(reset.controls)).toEqual({ target: "web", width: 96, height: 32, color: "css", charset: "braille", cellAspect: 0.5859375 });
     expect(reset.controls.overrides).toEqual({});
     expect(reset.marks).toBe(state.marks);
   });
@@ -266,7 +266,8 @@ describe("ChartsWorkbench generated TypeScript", () => {
       terminal: { NO_COLOR: true, FORCE_COLOR: true },
     };
     const emitted = executeSnippet(state);
-    expect(emitted.options).toEqual({ target, width: 57, height: 19, charset: "ascii", detail: "faithful", color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
+    const cellAspect = target === "web" ? 0.5859375 : 0.5;
+    expect(emitted.options).toEqual({ target, width: 57, height: 19, charset: "ascii", detail: "faithful", cellAspect, color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
     expect(JSON.parse(emitted.json)).toEqual(emitted.spec);
     const live = renderChartsWorkbenchState(state);
     expect(live.ok).toBe(true);

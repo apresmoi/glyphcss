@@ -322,6 +322,17 @@ export function resolveGlyphCanvasJunctions(
   tier: GlyphCanvasTier,
   report: GlyphCanvasReport,
 ): void {
+  // P2-1 (REVIEW-arc-density-search-opus.md): every cell's resolved GLYPH
+  // is an overwrite (idempotent by construction — `grid.char[idx] = ...`
+  // always reflects the same `state`), but `report.routeConflicts.push(...)`
+  // below is an ACCUMULATOR with no matching clear, so a second call with
+  // no new registration re-derived and re-pushed every already-reported
+  // conflict a second time. `routeConflicts` has exactly one writer in this
+  // module (grepped) and nothing else populates it, so truncating it here
+  // makes the whole function a PURE function of `state`/`grid`: two calls
+  // with the same routes registered produce an identical report, not a
+  // doubled one.
+  report.routeConflicts.length = 0;
   const cols = grid.cols;
   for (const [idx, edgeIds] of state.cellEdges) {
     if (grid.occluded && grid.occluded[idx] === 1) continue;

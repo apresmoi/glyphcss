@@ -11,14 +11,23 @@
 // `/rows`) at the time this file was written — a real HTTP round trip per
 // id, not merely "looks right by name". Most are `mstz/*` — a single
 // Hugging Face author's mirror of the UCI Machine Learning Repository's
-// classic small tabular datasets (titanic, wine, mushroom, …), which is
-// where most of "well-known small public tabular dataset" naturally lives
-// on the Hub; `scikit-learn/iris` (the maintainer's own canonical mirror)
-// and `lukebarousse/data_jobs` round it out. If the Hub's live index is
-// ever unreachable, this list — and the dataset each entry actually
-// contains — still ages: an id that later moves/is deleted degrades
-// through `lib/datasetLoad.ts`'s own structured error, exactly like a live
-// search hit that goes stale between page loads.
+// classic small tabular datasets (titanic, wine, …), which is where most
+// of "well-known small public tabular dataset" naturally lives on the Hub;
+// `scikit-learn/iris` (the maintainer's own canonical mirror) and
+// `lukebarousse/data_jobs` round it out. If the Hub's live index is ever
+// unreachable, this list — and the dataset each entry actually contains —
+// still ages: an id that later moves/is deleted degrades through
+// `lib/datasetLoad.ts`'s own structured error, exactly like a live search
+// hit that goes stale between page loads.
+//
+// P2-3 (REVIEW-arc-density-search-opus.md): "loads" is not "charts" — three
+// ids that DID resolve here (`mstz/mushroom`, `mstz/car`, `mstz/tic_tac_toe`)
+// were dropped because every one of their real columns is categorical/
+// boolean, so `recommendChart` (`lib/dataProfile.ts`) has no numeric or
+// date column to build a chart from at all (`{ mark: "bar", channels: {} }`)
+// — a click on any of the three loaded, then silently did nothing. Verified
+// directly against the real profiler/recommender with each dataset's own
+// live column shapes, not merely "loads".
 import type { DatasetHit } from "../../../lib/datasetSearch";
 
 export const CHARTS_REMOTE_DATASET_INDEX: readonly DatasetHit[] = [
@@ -27,8 +36,6 @@ export const CHARTS_REMOTE_DATASET_INDEX: readonly DatasetHit[] = [
   { id: "mstz/heart", kind: "hf", ref: "mstz/heart", title: "Heart disease (Cleveland)", description: "Clinical measurements and a heart-disease diagnosis from the UCI Cleveland cohort.", url: "https://huggingface.co/datasets/mstz/heart" },
   { id: "mstz/heart_failure", kind: "hf", ref: "mstz/heart_failure", title: "Heart failure clinical records", description: "Follow-up clinical records for heart-failure patients, with a survival outcome.", url: "https://huggingface.co/datasets/mstz/heart_failure" },
   { id: "mstz/abalone", kind: "hf", ref: "mstz/abalone", title: "Abalone age", description: "Physical measurements of abalone shells used to predict age (ring count) without cutting the shell.", url: "https://huggingface.co/datasets/mstz/abalone" },
-  { id: "mstz/car", kind: "hf", ref: "mstz/car", title: "Car evaluation", description: "Categorical car attributes (price, safety, capacity) and an overall acceptability rating.", url: "https://huggingface.co/datasets/mstz/car" },
-  { id: "mstz/mushroom", kind: "hf", ref: "mstz/mushroom", title: "Mushroom edibility", description: "Physical characteristics of mushroom species labelled edible or poisonous.", url: "https://huggingface.co/datasets/mstz/mushroom" },
   { id: "mstz/glass", kind: "hf", ref: "mstz/glass", title: "Glass identification", description: "Refractive index and oxide content used to classify glass fragments by type — a forensic-science classic.", url: "https://huggingface.co/datasets/mstz/glass" },
   { id: "mstz/seeds", kind: "hf", ref: "mstz/seeds", title: "Wheat seed measurements", description: "Geometric measurements of wheat kernels from three varieties, via soft X-ray imaging.", url: "https://huggingface.co/datasets/mstz/seeds" },
   { id: "mstz/pima", kind: "hf", ref: "mstz/pima", title: "Pima Indians diabetes", description: "Diagnostic measurements for female Pima Indian patients used to predict diabetes onset.", url: "https://huggingface.co/datasets/mstz/pima" },
@@ -42,7 +49,6 @@ export const CHARTS_REMOTE_DATASET_INDEX: readonly DatasetHit[] = [
   { id: "mstz/spambase", kind: "hf", ref: "mstz/spambase", title: "Spambase", description: "Word/character frequency features from email messages, labelled spam or not.", url: "https://huggingface.co/datasets/mstz/spambase" },
   { id: "mstz/sonar", kind: "hf", ref: "mstz/sonar", title: "Sonar: mines vs. rocks", description: "Sonar-return signal strengths at various angles, classified as a metal cylinder or a rock.", url: "https://huggingface.co/datasets/mstz/sonar" },
   { id: "mstz/vertebral_column", kind: "hf", ref: "mstz/vertebral_column", title: "Vertebral column pathology", description: "Biomechanical spine measurements used to classify orthopaedic pathology.", url: "https://huggingface.co/datasets/mstz/vertebral_column" },
-  { id: "mstz/tic_tac_toe", kind: "hf", ref: "mstz/tic_tac_toe", title: "Tic-tac-toe endgame", description: "Every possible tic-tac-toe board endgame, labelled whether \"x\" won.", url: "https://huggingface.co/datasets/mstz/tic_tac_toe" },
   { id: "mstz/segment", kind: "hf", ref: "mstz/segment", title: "Image segmentation", description: "Statistical/shape features of 3x3 image patches drawn from seven outdoor scene classes.", url: "https://huggingface.co/datasets/mstz/segment" },
   { id: "mstz/waveform_noise_v1", kind: "hf", ref: "mstz/waveform_noise_v1", title: "Waveform (with noise)", description: "Synthetic three-class waveform data with added noise attributes — a classic signal-classification benchmark.", url: "https://huggingface.co/datasets/mstz/waveform_noise_v1" },
   { id: "mstz/steel_plates", kind: "hf", ref: "mstz/steel_plates", title: "Steel plates faults", description: "Geometric and luminosity measurements of steel-plate surface faults, by fault type.", url: "https://huggingface.co/datasets/mstz/steel_plates" },
@@ -51,5 +57,6 @@ export const CHARTS_REMOTE_DATASET_INDEX: readonly DatasetHit[] = [
   { id: "mstz/student_performance", kind: "hf", ref: "mstz/student_performance", title: "Student performance", description: "Demographic and study-habit attributes for secondary-school students, with final grades.", url: "https://huggingface.co/datasets/mstz/student_performance" },
   { id: "mstz/compas", kind: "hf", ref: "mstz/compas", title: "COMPAS recidivism", description: "Criminal-history and demographic records used in the widely studied COMPAS recidivism-risk analysis.", url: "https://huggingface.co/datasets/mstz/compas" },
   { id: "mstz/australian_credit", kind: "hf", ref: "mstz/australian_credit", title: "Australian credit approval", description: "Anonymised credit-card application attributes with an approval outcome.", url: "https://huggingface.co/datasets/mstz/australian_credit" },
+  { id: "scikit-learn/iris", kind: "hf", ref: "scikit-learn/iris", title: "Iris species", description: "Fisher's classic 1936 sepal/petal measurements across three iris species.", url: "https://huggingface.co/datasets/scikit-learn/iris" },
   { id: "lukebarousse/data_jobs", kind: "hf", ref: "lukebarousse/data_jobs", title: "Data job postings", description: "Real data-analyst/scientist/engineer job postings — title, company, location, salary and required skills.", url: "https://huggingface.co/datasets/lukebarousse/data_jobs" },
 ];

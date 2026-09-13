@@ -66,6 +66,22 @@ export interface GlyphCanvasLineOptions {
    * capability the caller asks for.
    */
   readonly subcell?: boolean;
+  /**
+   * Stroke width in TIER-NATIVE units, `1` (default, byte-identical when
+   * absent) to `3`. `ascii`/`box` have no per-cell sub-resolution to widen
+   * into, so "wider" there means a HEAVIER GLYPH on the exact same walked
+   * cells — width 3 reuses the tier's own `double` glyph on a straight run
+   * (the one width the tier table already has a dedicated glyph for);
+   * every other case (width 2 anywhere, width 3 on a diagonal, which has no
+   * `double` analogue any more than `style: "double"` does) falls back to
+   * the tier's own full-ink `shadeRamp` glyph. `blocks`/`braille` instead
+   * widen in real sub-cell DOTS — `paintSubcellLine` offsets the walk one
+   * dot perpendicular to the segment (two dots for width 3, one either
+   * side) — because a `@glyphcss/charts` line at those tiers already
+   * rasterises at dot resolution and has room to add real ink rather than
+   * substitute a glyph.
+   */
+  readonly width?: 1 | 2 | 3;
 }
 
 export type GlyphCanvasTextAlign = "left" | "center" | "right";
@@ -362,22 +378,45 @@ function paintSubcellLine(
   color: string | null,
   horizontal: boolean,
   vertical: boolean,
+  width: 1 | 2 | 3,
 ): void {
-  const dots = walkGlyphCanvasSubcellDots(toSubcellSpace(a), toSubcellSpace(b));
+  const pa = toSubcellSpace(a);
+  const pb = toSubcellSpace(b);
+  const dots = walkGlyphCanvasSubcellDots(pa, pb);
 
   // `horizontal`/`vertical`/(implicitly) `diagonal` are the same mutually
   // exclusive, exhaustive classification `line()`'s whole-cell path already
   // computes from cell-space `dx`/`dy` — the `else` below IS the diagonal
   // case.
-  let offsetDots: readonly GlyphCanvasDot[] | null = null;
+  let styleOffsetDots: readonly GlyphCanvasDot[] | null = null;
   if (style === "double") {
-    if (horizontal) offsetDots = dots.map((d) => ({ x: d.x, y: d.y + 1 }));
-    else if (vertical) offsetDots = dots.map((d) => ({ x: d.x + 1, y: d.y }));
+    if (horizontal) styleOffsetDots = dots.map((d) => ({ x: d.x, y: d.y + 1 }));
+    else if (vertical) styleOffsetDots = dots.map((d) => ({ x: d.x + 1, y: d.y }));
     else {
       report.ledger.push(
         `line(): "double" style has no diagonal analogue on a sub-cell tier and rendered solid starting at cell (${Math.round(a.x)}, ${Math.round(a.y)}).`,
       );
     }
+  }
+
+  // Stroke WIDTH (`GlyphCanvasLineOptions.width`'s own doc): real extra
+  // ink, offsetting the SAME dot walk one dot perpendicular to the
+  // segment — never re-walking at whole-CELL resolution. The perpendicular
+  // AXIS is whichever one the segment travels LESS along (a near-horizontal
+  // run gains a dot below it, a near-vertical run a dot to its right) — the
+  // same convention `style: "double"` above already uses for its own two
+  // exactly-axis-aligned cases, generalized here to every slope so a
+  // DIAGONAL line can widen too (`style: "double"` deliberately cannot).
+  let widthOffsetPos: readonly GlyphCanvasDot[] | null = null;
+  let widthOffsetNeg: readonly GlyphCanvasDot[] | null = null;
+  if (width >= 2) {
+    const ddx = pb.x - pa.x;
+    const ddy = pb.y - pa.y;
+    const moreHorizontal = Math.abs(ddx) >= Math.abs(ddy);
+    const perpX = moreHorizontal ? 0 : 1;
+    const perpY = moreHorizontal ? 1 : 0;
+    widthOffsetPos = dots.map((d) => ({ x: d.x + perpX, y: d.y + perpY }));
+    if (width >= 3) widthOffsetNeg = dots.map((d) => ({ x: d.x - perpX, y: d.y - perpY }));
   }
 
   const plotDot = (d: GlyphCanvasDot): void => {
@@ -404,7 +443,9 @@ function paintSubcellLine(
     const paint = style === "dotted" ? patternIndex % 2 === 1 : style === "dashed" ? patternIndex % 3 !== 0 : true;
     if (!paint) continue;
     plotDot(dots[i]!);
-    if (offsetDots) plotDot(offsetDots[i]!);
+    if (styleOffsetDots) plotDot(styleOffsetDots[i]!);
+    if (widthOffsetPos) plotDot(widthOffsetPos[i]!);
+    if (widthOffsetNeg) plotDot(widthOffsetNeg[i]!);
   }
 }
 
@@ -618,6 +659,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
     line(a, b, opts = {}) {
       const tierTable = GLYPH_CANVAS_TIERS[tier];
       const style = opts.style ?? "solid";
+      const width = opts.width ?? 1;
       const color = assertCanvasColor(opts.color, "line");
       const dx = b.x - a.x;
       const dy = b.y - a.y;
@@ -633,10 +675,14 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       // `GlyphCanvasLineOptions.subcell`'s doc.
       const useSubcell = opts.subcell ?? tierTable.subcell;
       if (useSubcell) {
-        paintSubcellLine(grid, sub, cols, rows, report, tierTable, a, b, opts.depth, style, color, horizontal, vertical);
+        paintSubcellLine(grid, sub, cols, rows, report, tierTable, a, b, opts.depth, style, color, horizontal, vertical, width);
         return;
       }
 
+      // The width>=2 fallback glyph (`GlyphCanvasLineOptions.width`'s own
+      // doc) — the tier's own full-ink `shadeRamp` entry, computed once per
+      // call rather than per cell.
+      const fillGlyph = tierTable.shadeRamp[tierTable.shadeRamp.length - 1]!;
       let patternIndex = 0;
       let loggedDoubleDiagonal = false;
       for (const { col: cx, row: cy, px, py } of walkGlyphCanvasLine(a, b)) {
@@ -675,6 +721,17 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           if (style === "double") baseGlyph = horizontal ? tierTable.double.h : tierTable.double.v;
           else if (style === "dotted") baseGlyph = tierTable.dot;
           else baseGlyph = axisGlyph;
+        }
+
+        // Stroke WIDTH overrides the GLYPH only, never which cells the walk
+        // visits — `ascii`/`box` have no per-cell sub-resolution to widen
+        // into, so "wider" reads as "heavier ink" on the exact same
+        // footprint (`GlyphCanvasLineOptions.width`'s own doc): width 3
+        // reuses the tier's own `double` glyph on a straight run, and every
+        // other case (width 2 anywhere, width 3 on a diagonal) falls back
+        // to `fillGlyph`.
+        if (width >= 2) {
+          baseGlyph = width === 3 && !diagonal ? (horizontal ? tierTable.double.h : tierTable.double.v) : fillGlyph;
         }
 
         // Dashed/dotted skip cells on a sloped run exactly as on an

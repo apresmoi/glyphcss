@@ -17,8 +17,8 @@ import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
-  generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, resolveGlyphChartsWorkbenchControls,
-  type ChartsWorkbenchState,
+  generateChartsWorkbenchSnippets, randomChartsDatasetId, reduceChartsWorkbenchState, remoteDatasetRecommendationCheck,
+  resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
@@ -38,7 +38,7 @@ const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "json", la
  * (`chartsUrlState.test.ts`) and every test that wants a fixed, dataset-free
  * starting point still get it — this is the ONE new entry point that layers
  * a real dataset selection on top via the same `select-dataset` reducer
- * action the rail's own dropdown and "⚄ Random" button dispatch.
+ * action the rail's own dropdown and "Random" button dispatch.
  */
 function createRandomChartsWorkbenchState(): ChartsWorkbenchState {
   return reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: randomChartsDatasetId() });
@@ -186,13 +186,54 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // kind) falls back to a random VENDORED dataset with the error shown in
   // the feedback banner, rather than leaving the page on a stale or
   // half-loaded chart.
+  //
+  // P2-5 (REVIEW-arc-density-search-opus.md): two picks in a row used to
+  // race — no `signal` and no in-flight guard meant the LAST LOAD TO
+  // SETTLE won (clearing "Loading…" and dispatching last), not the last
+  // one clicked, and the loads are genuinely not fast (the siblings
+  // fallback is 3 sequential requests). `remoteLoadRef` holds the current
+  // in-flight `AbortController` (aborted at the top of every new call and
+  // on unmount) and `remoteLoadSeq` is a generation counter — a settled
+  // result whose sequence number is no longer current is dropped rather
+  // than touching `remoteLoading`/`feedback`/`dispatch`, so the load a
+  // reader is actually waiting on is always the one that wins.
+  const remoteLoadController = useRef<AbortController | null>(null);
+  const remoteLoadSeq = useRef(0);
+  useEffect(() => () => remoteLoadController.current?.abort(), []);
   const loadRemoteDataset = useCallback(async (hit: DatasetHit) => {
+    remoteLoadController.current?.abort();
+    const controller = new AbortController();
+    remoteLoadController.current = controller;
+    const seq = ++remoteLoadSeq.current;
     setRemoteLoading(true);
-    const result = await loadDatasetRows(hit);
+    let result: Awaited<ReturnType<typeof loadDatasetRows>>;
+    try {
+      result = await loadDatasetRows(hit, { signal: controller.signal });
+    } catch {
+      // An aborted load (superseded by a later pick, or the component
+      // unmounting) rejects rather than resolving `{ ok: false }` — a
+      // newer load (or nothing) already owns the UI, so there's nothing
+      // to report and nothing to touch.
+      if (seq === remoteLoadSeq.current) setRemoteLoading(false);
+      return;
+    }
+    if (seq !== remoteLoadSeq.current) return; // superseded while in flight
     setRemoteLoading(false);
     if (!result.ok) {
       dispatch({ type: "select-dataset", id: randomChartsDatasetId() });
       setFeedback(`Couldn't load "${hit.title}": ${result.error}`);
+      return;
+    }
+    // P2-3: a load can succeed and still have NO usable chart at all —
+    // every column reads as category/boolean (`mstz/mushroom`'s real
+    // shape). Checked before either the dispatch or `pushRecentRemoteDataset`
+    // so a dataset nothing can be charted from is never dispatched (which
+    // would silently no-op — `chartsWorkbenchState.ts`'s A1 guard) and
+    // never recorded as Recent, and the reader sees exactly why nothing
+    // changed instead of a mute "Loading…" that just goes away.
+    const check = remoteDatasetRecommendationCheck(result.rows);
+    if (!check.ok) {
+      setFeedback(`Couldn't pick a chart for "${hit.title}": columns ${check.columns.join(", ")}.`);
       return;
     }
     pushRecentRemoteDataset(hit);

@@ -38,6 +38,23 @@ interface GlyphChartTargetDefaults {
   readonly height: number;
   readonly charset: GlyphChartCharset;
   readonly color: GlyphChartColorMode;
+  /**
+   * Column-width / row-height ratio for THIS target's own monospace grid —
+   * fed to `createGlyphCanvas({ cellAspect })`, which only `arcRadii` reads
+   * (`paint.ts`'s "Arc shape and callouts" doc); no other painter, tier
+   * table, junction resolver or encoder consults it (grepped, and pinned by
+   * `render.byteIdentity.test.ts`'s per-target non-arc fixtures). `web`:
+   * `0.5859375` = 1200/2048 em, Glyph Mono's OWN measured advance
+   * (`fontTools` on `website/public/fonts/glyph-mono.woff2`) at the chart
+   * `<pre>`'s `line-height: 1` (AGENTS.md's "Charts" font-atlas paragraph
+   * — the override is load-bearing, so `line-height: normal`'s 0.5042 is
+   * NOT the right constant here). `terminal`: `0.5`, a typical terminal
+   * cell's own ratio. `chat`: `0.5` too, but only as a documented GUESS —
+   * a chat client's fenced-code-block font is outside this package's
+   * control (see `GLYPH_CHART_TARGET_DEFAULTS`'s own `chat` doc below), so
+   * there is no real measurement to cite for it.
+   */
+  readonly cellAspect: number;
 }
 
 /**
@@ -63,9 +80,9 @@ interface GlyphChartTargetDefaults {
  * braille/box coverage, so nothing here depends on the visitor's system font.
  */
 export const GLYPH_CHART_TARGET_DEFAULTS: Readonly<Record<GlyphChartTarget, GlyphChartTargetDefaults>> = {
-  chat: { width: 72, height: 24, charset: "box", color: "none" },
-  terminal: { width: 80, height: 24, charset: "braille", color: "truecolor" },
-  web: { width: 96, height: 32, charset: "braille", color: "css" },
+  chat: { width: 72, height: 24, charset: "box", color: "none", cellAspect: 0.5 },
+  terminal: { width: 80, height: 24, charset: "braille", color: "truecolor", cellAspect: 0.5 },
+  web: { width: 96, height: 32, charset: "braille", color: "css", cellAspect: 0.5859375 },
 };
 
 function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
@@ -89,6 +106,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const charset: GlyphChartCharset = options.charset ?? defaults.charset;
   const color: GlyphChartColorMode = options.color ?? defaults.color;
   const detail: GlyphChartDetail = options.detail ?? "auto";
+  const cellAspect = options.cellAspect ?? defaults.cellAspect;
 
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
@@ -97,7 +115,7 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   const legendOption = resolveGlyphChartLegendOption(spec.legend, options.legend);
   const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, legendOption);
 
-  const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
+  const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
   // The ANSI encoder's non-empty env flags also determine whether colour
   // can carry series identity; suppressed colour needs monochrome styles.
   const ansi = color !== "none" && color !== "css";

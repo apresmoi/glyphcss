@@ -84,6 +84,24 @@ describe("chartsUrlState — round trip", () => {
     expect(await decodeChartsUrlState(raw)).toEqual(state);
   });
 
+  // P3-11 (REVIEW-arc-density-search-opus.md): a hand-edited/hostile link
+  // could carry ANY finite width/height/density — `createGlyphCanvas`
+  // allocates `cols * rows` typed arrays for whatever comes out, so an
+  // absurd value is an allocation-size class, not merely a display bug.
+  // Clamped to the exact ranges the page's own sliders enforce.
+  it("clamps an out-of-range width/height/density on decode to the Dock's own slider bounds, rather than rejecting or allocating unbounded", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 1_000_000 } });
+    const raw = await encodeChartsUrlState({ ...state, controls: { ...state.controls, overrides: { ...state.controls.overrides, height: -50, density: 999 } } });
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.controls.overrides.width).toBe(240); // CHARTS_WIDTH_SLIDER_MAX
+    expect(decoded!.controls.overrides.height).toBe(6); // CHARTS_HEIGHT_SLIDER_MIN
+    expect(decoded!.controls.overrides.density).toBeLessThanOrEqual(4); // CHARTS_DENSITY_MAX
+    expect(decoded!.controls.overrides.density).toBeGreaterThanOrEqual(1); // CHARTS_DENSITY_MIN
+  });
+
   it("decodes a pre-density link (no density key) to the default, unmaterialized overrides", async () => {
     const state = createChartsWorkbenchState();
     const raw = await encodeChartsUrlState(state);
@@ -150,11 +168,18 @@ describe("chartsUrlState — round trip", () => {
     }
   });
 
-  it("chartsUrlStateForEncode blanks a stock-dataset mark's dataText to the omission sentinel", async () => {
+  // P3-1 follow-up (REVIEW-arc-density-search-opus.md): `dataText` is
+  // OMITTED from the wire entirely for an omitted mark now (never the
+  // `"[]"` sentinel string), so a reader that doesn't understand
+  // `dataOmitted` sees a genuinely missing field instead of a
+  // plausible-but-wrong empty array.
+  it("chartsUrlStateForEncode omits a stock-dataset mark's dataText KEY entirely, flagged by dataOmitted", async () => {
     const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "world-population-by-country" });
     const forEncode = chartsUrlStateForEncode(state);
     expect(forEncode.data.source).toEqual(state.data.source);
-    expect(forEncode.marks[0]!.dataText).toBe("[]");
+    expect(forEncode.marks[0]!.dataText).toBeUndefined();
+    expect(Object.hasOwn(forEncode.marks[0]!, "dataText")).toBe(false);
+    expect(forEncode.marks[0]!.dataOmitted).toBe(true);
     // The mark's real content never changes in the reader's own state —
     // only the copy handed to the encoder.
     expect(state.marks[0]!.dataText).not.toBe("[]");
@@ -169,12 +194,12 @@ describe("chartsUrlState — round trip", () => {
   // `chartsUrlStateForEncode` to the identity function makes every
   // iteration's `dataText`/size assertion fail, for all 16 datasets — not
   // just the one dataset the pre-existing test happened to cover.
-  it("every vendored dataset's link carries no rows: dataText is the sentinel and the encoded envelope stays small", async () => {
+  it("every vendored dataset's link carries no rows: dataText is omitted and the encoded envelope stays small", async () => {
     for (const dataset of CHARTS_DATASETS) {
       const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: dataset.id });
       expect(state.marks[0]!.dataText.length).toBeGreaterThan(2); // sanity: the mark really did get real rows first
       const info = await encodeChartsUrlStateInfo(state);
-      expect(chartsUrlStateForEncode(state).marks[0]!.dataText, `dataset ${dataset.id}`).toBe("[]");
+      expect(chartsUrlStateForEncode(state).marks[0]!.dataText, `dataset ${dataset.id}`).toBeUndefined();
       expect(info.sizeBytes, `dataset ${dataset.id}`).toBeLessThan(2048);
     }
   });
@@ -202,6 +227,20 @@ describe("chartsUrlState — round trip", () => {
     const decoded = await decodeChartsUrlState(raw);
     expect(decoded).toEqual(state);
     expect(decoded!.marks[0]!.dataText).toBe(state.marks[0]!.dataText);
+  });
+
+  // P3-1 follow-up: a link built by an OLDER version of this page (before
+  // this fix) still writes the literal `"[]"` string ALONGSIDE
+  // `dataOmitted: true` — `validateMark` must still accept that shape
+  // identically to the new omitted-key one, and rehydration must still
+  // fire either way.
+  it("a hand-built link carrying the OLDER literal \"[]\" string plus dataOmitted:true still rehydrates (backward-compat wire shape)", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id: "world-population-by-country" });
+    const oldShaped = { ...state, marks: [{ ...state.marks[0]!, dataText: "[]", dataOmitted: true as const }] };
+    const raw = await encodeChartsUrlState(oldShaped);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.marks[0]!.dataText).toBe(state.marks[0]!.dataText);
+    expect(decoded!.marks[0]!.dataOmitted).toBeUndefined();
   });
 
   // A mark whose data genuinely diverges from a fresh derivation — a
@@ -428,7 +467,8 @@ describe("chartsUrlState — remote dataset", () => {
 
   it("blanks every mark's dataText unconditionally (no byte-match comparison, unlike a stock dataset)", () => {
     const encoded = chartsUrlStateForEncode(remoteState());
-    expect(encoded.marks[0]!.dataText).toBe("[]");
+    expect(encoded.marks[0]!.dataText).toBeUndefined();
+    expect(Object.hasOwn(encoded.marks[0]!, "dataText")).toBe(false);
     expect(encoded.marks[0]!.dataOmitted).toBe(true);
   });
 
@@ -449,6 +489,38 @@ describe("chartsUrlState — remote dataset", () => {
     expect(result.remoteRef).toBe("mstz/titanic");
     expect(result.notice).toBeUndefined();
     expect(result.state).toBe(state);
+  });
+
+  // P3-8 (REVIEW-arc-density-search-opus.md): the credit `url` is rendered
+  // as `<a href>` alongside fully attacker-controlled `title`/`description`
+  // — a crafted link could present arbitrary provenance while pointing
+  // anywhere `javascript:`/`data:`/an attacker domain could reach. Every
+  // real source this loader produces is `http(s)`, so anything else is
+  // rejected outright (the whole envelope, same as every other malformed
+  // field here).
+  it.each(["javascript:alert(1)", "data:text/html,<script>1</script>", "ftp://example.com/x"])(
+    "rejects the whole envelope when a remote source's credit url is not http(s): %s",
+    async (badUrl) => {
+      const state = remoteState();
+      const tampered: ChartsWorkbenchState = {
+        ...state,
+        data: { ...state.data, source: { ...(state.data.source as Extract<typeof state.data.source, { kind: "remote" }>), source: { name: "x", url: badUrl } } },
+      };
+      const raw = await encodeChartsUrlState(tampered);
+      expect(await decodeChartsUrlState(raw)).toBeNull();
+    },
+  );
+
+  it("still accepts a plain http:// credit url (not just https)", async () => {
+    const state = remoteState();
+    const tampered: ChartsWorkbenchState = {
+      ...state,
+      data: { ...state.data, source: { ...(state.data.source as Extract<typeof state.data.source, { kind: "remote" }>), source: { name: "x", url: "http://example.com/data" } } },
+    };
+    const raw = await encodeChartsUrlState(tampered);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect((decoded!.data.source as Extract<typeof state.data.source, { kind: "remote" }>).source.url).toBe("http://example.com/data");
   });
 });
 

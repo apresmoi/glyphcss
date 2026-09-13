@@ -60,6 +60,50 @@ describe("Phase 1 round 2 arc regressions", () => {
     }
   });
 
+  // P3-3 (REVIEW-arc-density-search-opus.md): every case above renders
+  // with `labels: "legend-only"` specifically so a callout's own
+  // leader/label glyphs never land in the disc's own glyph-area ratio —
+  // which means NOTHING in this suite pins the area ratio under the
+  // SHIPPED DEFAULT (`labels: "callout"`) any more. This case closes that:
+  // it renders at the real default (no `labels` override at all), then
+  // restricts the area count to cells the ellipse test says are genuinely
+  // part of the disc (the same independent geometry `arcShape.test.ts`
+  // re-derives, never importing the private `arcRadii`) — so a leader/
+  // label cell painted just outside the disc can't skew the ratio, and a
+  // regression that leaked callout ink INTO the disc (corrupting a real
+  // slice's own glyph) would still be caught.
+  it("[50,25,25] at 72x24 retains 2:1:1 glyph areas under the SHIPPED DEFAULT (labels: callout), counting only cells inside the disc ellipse", () => {
+    const width = 72, height = 24;
+    const r = renderGlyphChart(glyphChartArc([50, 25, 25]), { target: "chat", width, height, legend: false });
+    // Independent re-derivation of `arcRadii`'s own formula (mirrors
+    // `arcShape.test.ts`'s `expectedRadii`) — `legend: false` means
+    // `layout.plot` is exactly the full grid, and callouts (angular spans
+    // 180°/90°/90°, all well past the 8° minimum) always fit at 72 columns.
+    const GUTTER = 12; // GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS
+    const cappedGutter = Math.min(GUTTER, Math.floor(width / 4));
+    const availableCols = width - 2 * cappedGutter;
+    const cellAspect = 0.5; // chat target
+    const diameter = Math.min(height, availableCols * cellAspect) * 0.8; // GLYPH_CHART_ARC_FILL
+    const ry = Math.max(0.5, diameter / 2);
+    const rx = ry / cellAspect;
+    const cx = (width - 1) / 2;
+    const cy = (height - 1) / 2;
+
+    const glyphs = ["█", "▓", "▒"];
+    const insideDisc: string[] = [];
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const c = r.grid.char[y * width + x]!;
+        if (!glyphs.includes(c)) continue;
+        const dx = (x - cx) / rx, dy = (y - cy) / ry;
+        if (dx * dx + dy * dy <= 1) insideDisc.push(c);
+      }
+    }
+    expect(insideDisc.length).toBeGreaterThan(0);
+    expect(new Set(insideDisc)).toEqual(new Set(glyphs));
+    shares(insideDisc, glyphs).forEach((share, i) => expect(Math.abs(share - [0.5, 0.25, 0.25][i]!)).toBeLessThan(0.05));
+  });
+
   it.each(["box", "ascii"] as const)("cycles four %s shades and keeps the closing neighbours distinct after wrapping", (charset) => {
     // Mutation: always use index % 4, including the closing slice -> slice 5 matches slice 1.
     const r = renderGlyphChart(glyphChartArc([20, 20, 20, 20, 20], undefined, { labels: "legend-only" }), { target: "chat", width: 80, height: 24, charset });

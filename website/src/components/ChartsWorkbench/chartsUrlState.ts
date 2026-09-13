@@ -15,6 +15,7 @@
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
+  CHARTS_DENSITY_MIN, chartsDensitySliderMax,
   createChartsWorkbenchState, findChartsDataset, randomChartsDatasetId, reduceChartsWorkbenchState,
   type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchAxisTitlePlacementState,
   type ChartsWorkbenchDataState,
@@ -33,6 +34,18 @@ const VERSION = "v1";
 /** Past this, the page shows a one-line "link is N KB" notice next to the
  *  Copy buttons — the link is still written in full, this is advisory only. */
 export const CHARTS_URL_SIZE_WARN_BYTES = 8192;
+
+// P3-11: the exact bounds `ChartsDock.tsx`'s own Width/Height `useSlider`
+// calls enforce (`{ min: 12, max: 240 }` / `{ min: 6, max: 120 }`) — kept
+// here, not imported, since the Dock is a page component this state/codec
+// layer has no business depending on.
+const CHARTS_WIDTH_SLIDER_MIN = 12;
+const CHARTS_WIDTH_SLIDER_MAX = 240;
+const CHARTS_HEIGHT_SLIDER_MIN = 6;
+const CHARTS_HEIGHT_SLIDER_MAX = 120;
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -57,20 +70,49 @@ function validateMarkColor(value: unknown): string | readonly string[] | null | 
 
 function validateMark(value: unknown): ChartsWorkbenchMark | null {
   if (!isRecord(value)) return null;
-  const { id, type, dataText, channels, transform, options, color: rawColor, dataOmitted } = value;
+  const { id, type, dataText: rawDataText, channels, transform, options, color: rawColor, dataOmitted } = value;
   if (typeof id !== "number" || !Number.isFinite(id)) return null;
   if (!oneOf(type, CHART_MARK_TYPES)) return null;
-  if (typeof dataText !== "string") return null;
-  // A hand-built link (never one this page's own `encodeChartsUrlStateInfo`
-  // wrote — see its own doc) can carry a `dataText` of any size at all; the
-  // reducer-level `CHARTS_CUSTOM_MAX_BYTES` cap on a paste/upload never
-  // applies to a decoded payload, and this field is the mark's actual
-  // render data (unlike `data.source.raw`, which is only a re-editable
-  // copy) — 233 KB decoded and rendered with no cap at all. Same cap, same
-  // treatment as every other malformed field here: the whole envelope
-  // fails to decode and the page falls back to its default state, rather
-  // than accepting a payload with no bound.
-  if (new TextEncoder().encode(dataText).length > CHARTS_CUSTOM_MAX_BYTES) return null;
+  // P3-1/P3-2 (review fix): a NEW field, never a reinterpretation of
+  // `dataText`'s own value space — see `ChartsWorkbenchMark.dataOmitted`'s
+  // own doc. Absent on every link written before this flag existed, so
+  // such a link's `dataText` (including a genuine `"[]"` a reader's own
+  // edit produced, pre-showcase) is never mistaken for the omission
+  // sentinel. Checked before `dataText` below because it changes what
+  // shape `dataText` is even allowed to be.
+  if (dataOmitted !== undefined && dataOmitted !== true) return null;
+  let dataText: string;
+  if (dataOmitted === true && rawDataText === undefined) {
+    // P3-1 follow-up (REVIEW-arc-density-search-opus.md): `dataText` is now
+    // OMITTED from the wire entirely for a data-omitted mark (never the
+    // `"[]"` sentinel string) — `chartsUrlStateForEncode`'s own doc. A link
+    // built by an OLDER version of this page still writes the literal
+    // `"[]"` string, which the branch below still accepts identically
+    // (`typeof rawDataText === "string"`), so this is additive: it widens
+    // what decodes, never narrows it. Materialized back to `"[]"` here so
+    // every downstream reader of `ChartsWorkbenchMark.dataText` (a required
+    // string) still gets one — `chartsUrlStateRehydrated` immediately
+    // overwrites it with the real rows for a "dataset" source, and the
+    // page's own remote re-fetch does the same for a "remote" one; if
+    // NEITHER re-derivation succeeds (a removed dataset, an unreachable
+    // remote ref), the mark legitimately has no data left and correctly
+    // falls back to an empty-data render rather than a stale one.
+    dataText = "[]";
+  } else {
+    if (typeof rawDataText !== "string") return null;
+    // A hand-built link (never one this page's own
+    // `encodeChartsUrlStateInfo` wrote — see its own doc) can carry a
+    // `dataText` of any size at all; the reducer-level
+    // `CHARTS_CUSTOM_MAX_BYTES` cap on a paste/upload never applies to a
+    // decoded payload, and this field is the mark's actual render data
+    // (unlike `data.source.raw`, which is only a re-editable copy) —
+    // 233 KB decoded and rendered with no cap at all. Same cap, same
+    // treatment as every other malformed field here: the whole envelope
+    // fails to decode and the page falls back to its default state, rather
+    // than accepting a payload with no bound.
+    if (new TextEncoder().encode(rawDataText).length > CHARTS_CUSTOM_MAX_BYTES) return null;
+    dataText = rawDataText;
+  }
   if (!isRecord(channels)) return null;
   const cleanChannels: Partial<Record<typeof CHART_CHANNELS[number], string>> = {};
   for (const key of CHART_CHANNELS) {
@@ -102,13 +144,6 @@ function validateMark(value: unknown): ChartsWorkbenchMark | null {
   // `editableMark`'s default.
   const color = validateMarkColor(rawColor);
   if (color === null) return null;
-  // P3-1/P3-2 (review fix): a NEW field, never a reinterpretation of
-  // `dataText`'s own value space — see `ChartsWorkbenchMark.dataOmitted`'s
-  // own doc. Absent on every link written before this flag existed, so
-  // such a link's `dataText` (including a genuine `"[]"` a reader's own
-  // edit produced, pre-showcase) is never mistaken for the omission
-  // sentinel.
-  if (dataOmitted !== undefined && dataOmitted !== true) return null;
   return { id, type, dataText, channels: cleanChannels, transform: transform as ChartsWorkbenchMark["transform"], options: cleanOptions, ...(color !== undefined ? { color } : {}), ...(dataOmitted === true ? { dataOmitted: true as const } : {}) };
 }
 
@@ -144,13 +179,24 @@ function validateControls(value: unknown): GlyphChartsWorkbenchControls | null {
     if (!oneOf(overrides.color, CHART_COLORS)) return null;
     clean.color = overrides.color;
   }
+  // P3-11 (REVIEW-arc-density-search-opus.md): `width`/`height`/`density`
+  // used to accept ANY finite number — a hand-edited or hostile link could
+  // multiply the render grid arbitrarily (`chartsWorkbenchRenderOptions`
+  // computes `round(width * density)`, and `createGlyphCanvas` allocates
+  // `cols * rows` typed arrays for whatever comes out). Clamped, not
+  // rejected, to the exact ranges the Dock's own sliders already enforce
+  // (`ChartsDock.tsx`'s Width/Height/Density `useSlider` calls) — a value
+  // outside them is honest INTENT (a reader wants it bigger/smaller than
+  // the slider allows) that degrades to the nearest reachable value,
+  // exactly like every other slider-backed control already does when a
+  // link's number falls outside what the UI itself can produce.
   if (overrides.width !== undefined) {
     if (typeof overrides.width !== "number" || !Number.isFinite(overrides.width)) return null;
-    clean.width = overrides.width;
+    clean.width = clamp(overrides.width, CHARTS_WIDTH_SLIDER_MIN, CHARTS_WIDTH_SLIDER_MAX);
   }
   if (overrides.height !== undefined) {
     if (typeof overrides.height !== "number" || !Number.isFinite(overrides.height)) return null;
-    clean.height = overrides.height;
+    clean.height = clamp(overrides.height, CHARTS_HEIGHT_SLIDER_MIN, CHARTS_HEIGHT_SLIDER_MAX);
   }
   if (overrides.detail !== undefined) {
     if (!oneOf(overrides.detail, CHART_DETAILS)) return null;
@@ -162,7 +208,7 @@ function validateControls(value: unknown): GlyphChartsWorkbenchControls | null {
   // like a `width`/`height` never typed decodes to the target's own default.
   if (overrides.density !== undefined) {
     if (typeof overrides.density !== "number" || !Number.isFinite(overrides.density)) return null;
-    clean.density = overrides.density;
+    clean.density = clamp(overrides.density, CHARTS_DENSITY_MIN, chartsDensitySliderMax());
   }
   return { target, overrides: clean };
 }
@@ -183,6 +229,16 @@ function validateDataSource(value: unknown): ChartsDataSource | null {
     if (!isRecord(value.source)) return null;
     const { name, url, licence } = value.source;
     if (typeof name !== "string" || typeof url !== "string") return null;
+    // P3-8 (REVIEW-arc-density-search-opus.md): this `url` becomes the
+    // dataset card's credit `<a href>`, rendered with an attacker-controlled
+    // `name`/`title`/`description` right beside it — a crafted `?c=` link
+    // could otherwise present arbitrary provenance ("Hugging Face — World
+    // Bank Data") while linking anywhere. The loader itself only ever
+    // produces `https://huggingface.co/…` or the pasted raw URL (both
+    // `http(s)`), so anything else is not a shape this page's own encoder
+    // could have written — rejected here (the whole source, same as every
+    // other malformed field in this file) rather than rendered.
+    if (!/^https?:\/\//i.test(url)) return null;
     if (licence !== undefined && typeof licence !== "string") return null;
     return { kind: "remote", ref: value.ref, title: value.title, description: value.description, source: { name, url, ...(licence !== undefined ? { licence } : {}) } };
   }
@@ -416,6 +472,31 @@ function chartsDatasetDerivedDataText(datasetId: string, xChannel: string | unde
 }
 
 /**
+ * A mark carrying `dataOmitted: true` with NO `dataText` KEY at all — P3-1
+ * follow-up (REVIEW-arc-density-search-opus.md): the field used to be
+ * OVERWRITTEN with the sentinel string `"[]"`, which meant a link written
+ * by THIS build still decoded, byte for byte, as if the chart genuinely
+ * had zero rows on any reader that doesn't specifically know to rehydrate
+ * `dataOmitted` (an older shipped build, or a moment before this page's
+ * own rehydration effect runs). Omitting the key outright — `JSON.
+ * stringify` drops an `undefined`-valued property on its own, so this
+ * needs no envelope-format change — means a reader that doesn't understand
+ * `dataOmitted` sees a genuinely MISSING field rather than a plausible-but-
+ * wrong empty array, and `validateMark` materializes it back to `"[]"`
+ * only for its own internal bookkeeping (immediately overwritten by
+ * rehydration when that succeeds). The runtime `ChartsWorkbenchMark.
+ * dataText` is a required `string` — this is a stringify-time cast, valid
+ * only because `chartsUrlEnvelope.encode` JSON-serializes the object and
+ * never reads this field back as a real mark afterward. */
+function markWithDataOmitted(mark: ChartsWorkbenchMark): ChartsWorkbenchMark {
+  const { dataText: _dataText, ...rest } = mark;
+  return { ...rest, dataOmitted: true as const } as ChartsWorkbenchMark;
+}
+function markIsDataOmitted(mark: ChartsWorkbenchMark): boolean {
+  return mark.dataOmitted === true && !Object.hasOwn(mark, "dataText");
+}
+
+/**
  * Exported for its own direct test: the state actually handed to the JSON
  * envelope for encoding. A `"remote"` source blanks EVERY mark
  * unconditionally (there is no local copy to compare against — decode
@@ -432,7 +513,7 @@ function chartsDatasetDerivedDataText(datasetId: string, xChannel: string | unde
 export function chartsUrlStateForEncode(state: ChartsWorkbenchState): ChartsWorkbenchState {
   const source = state.data.source;
   if (source?.kind === "remote") {
-    const marks = state.marks.map((mark) => mark.dataText === "[]" && mark.dataOmitted === true ? mark : { ...mark, dataText: "[]", dataOmitted: true as const });
+    const marks = state.marks.map((mark) => markIsDataOmitted(mark) ? mark : markWithDataOmitted(mark));
     return marks.some((mark, i) => mark !== state.marks[i]) ? { ...state, marks } : state;
   }
   if (source?.kind !== "dataset") return state;
@@ -441,7 +522,7 @@ export function chartsUrlStateForEncode(state: ChartsWorkbenchState): ChartsWork
     const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
     if (derived === null || derived !== mark.dataText) return mark;
     changed = true;
-    return { ...mark, dataText: "[]", dataOmitted: true as const };
+    return markWithDataOmitted(mark);
   });
   return changed ? { ...state, marks } : state;
 }

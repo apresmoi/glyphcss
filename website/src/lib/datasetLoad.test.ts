@@ -102,6 +102,79 @@ describe("loadDatasetRows — Hugging Face rows-server path", () => {
     if (result.ok) expect(result.rows).toEqual([{ a: 1, b: 2 }, { a: 3, b: 4 }]);
   });
 
+  // P3-5 (REVIEW-arc-density-search-opus.md): `dataset_infos.json` sorts
+  // ahead of the real data file in a repo's listing order routinely —
+  // picking the FIRST `.csv|.tsv|.json` match used to grab it (repo
+  // metadata, not data) instead.
+  it("skips dataset_infos.json/config.json and picks the real CSV file, regardless of listing order", async () => {
+    const fetchImpl: DatasetLoadFetch = async (url) => {
+      if (url.includes("/splits?")) return res(200, JSON.stringify({ splits: [] }));
+      if (url.includes("/api/datasets/")) {
+        return res(200, JSON.stringify({ siblings: [
+          { rfilename: "dataset_infos.json" }, { rfilename: "config.json" }, { rfilename: ".gitattributes" }, { rfilename: "iris.csv" },
+        ] }));
+      }
+      if (url.endsWith("/resolve/main/iris.csv")) return res(200, "a,b\n1,2\n");
+      throw new Error(`unexpected url ${url}`);
+    };
+    const result = await loadDatasetRows(hfHit, { fetch: fetchImpl });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.rows).toEqual([{ a: 1, b: 2 }]);
+  });
+
+  it("prefers a .csv file over a .json file when both are present (and neither is denied)", async () => {
+    const fetchImpl: DatasetLoadFetch = async (url) => {
+      if (url.includes("/splits?")) return res(200, JSON.stringify({ splits: [] }));
+      if (url.includes("/api/datasets/")) {
+        return res(200, JSON.stringify({ siblings: [{ rfilename: "notes.json" }, { rfilename: "iris.csv" }] }));
+      }
+      if (url.endsWith("/resolve/main/iris.csv")) return res(200, "a,b\n1,2\n");
+      throw new Error(`unexpected url ${url}`);
+    };
+    const result = await loadDatasetRows(hfHit, { fetch: fetchImpl });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.rows).toEqual([{ a: 1, b: 2 }]);
+  });
+
+  it("still falls back to .json when it's the only real candidate", async () => {
+    const fetchImpl: DatasetLoadFetch = async (url) => {
+      if (url.includes("/splits?")) return res(200, JSON.stringify({ splits: [] }));
+      if (url.includes("/api/datasets/")) {
+        return res(200, JSON.stringify({ siblings: [{ rfilename: "dataset_infos.json" }, { rfilename: "data.json" }] }));
+      }
+      if (url.endsWith("/resolve/main/data.json")) return res(200, JSON.stringify([{ a: 1 }]));
+      throw new Error(`unexpected url ${url}`);
+    };
+    const result = await loadDatasetRows(hfHit, { fetch: fetchImpl });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.rows).toEqual([{ a: 1 }]);
+  });
+
+  // P3-7: the rows-server page loop is bounded by PAGES fetched, not only
+  // by usable rows — a page whose rows are all unusable (`.row` missing or
+  // not an object) used to leave `rows.length` static forever, so the loop
+  // never terminated on its own without `num_rows_total`/an empty page.
+  it("does not hang forever when every page's rows are unusable (no num_rows_total, never an empty page)", async () => {
+    let rowRequests = 0;
+    const fetchImpl: DatasetLoadFetch = async (url) => {
+      if (url.includes("/splits?")) return res(200, JSON.stringify({ splits: [{ config: "default", split: "train" }] }));
+      if (url.includes("/api/datasets/")) return res(200, JSON.stringify({ siblings: [] }));
+      rowRequests++;
+      // Every page returns 100 entries whose `.row` is missing — none
+      // usable — and never reports `num_rows_total`.
+      const pageRows = Array.from({ length: 100 }, () => ({ row_idx: 0 }));
+      return res(200, JSON.stringify({ rows: pageRows }));
+    };
+    const result = await loadDatasetRows(hfHit, { fetch: fetchImpl, maxRows: 200 });
+    // Falls through to the raw-file fallback (no usable rows at all), which
+    // also fails here (empty siblings) — the point is it TERMINATES rather
+    // than looping forever.
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.kind).toBe("not-tabular");
+    // maxRows 200 / page size 100 -> maxPages 3; bounded, not unbounded.
+    expect(rowRequests).toBeLessThanOrEqual(3);
+  });
+
   it("kind: not-found when neither the rows-server nor the metadata listing knows the id", async () => {
     const fetchImpl: DatasetLoadFetch = async (url) => {
       if (url.includes("/splits?")) return res(404, "");
@@ -150,7 +223,17 @@ describe("loadDatasetRows — raw URL (pasted GitHub/HF-resolve link)", () => {
     };
     const result = await loadDatasetRows(urlHit, { fetch: fetchImpl, maxBytes: 1024 });
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.kind).toBe("too-big");
+    if (!result.ok) {
+      expect(result.kind).toBe("too-big");
+      // P3-9 (REVIEW-arc-density-search-opus.md): the message used to name
+      // `maxBytes` (1 KB here) as the limit that rejected the file, but the
+      // actual threshold this branch compares against is `maxBytes * 4` —
+      // a file between the two streams and TRUNCATES successfully instead
+      // of failing. Named honestly rather than citing a number that isn't
+      // the one that fired.
+      expect(result.error).not.toContain("1 KB limit");
+      expect(result.error).toContain("too large to load even truncated");
+    }
     expect(textCalled).toBe(false);
   });
 

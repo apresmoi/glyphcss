@@ -126,4 +126,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   // one to act on (P3-5) — structurally rejected by schema too (the
   // sankey/funnel `not: { required: ["transform"] }` clause).
   { id: "bad-options", spec: spec({ ...glyphChartSankey([{ from: "A", to: "B", amount: 1 }], { source: "from", target: "to", value: "amount" }), transform: { kind: "stack" } }) },
+  // Mutation: drop the runtime strokeWidth check, its rule/hint entry, or
+  // the schema's `strokeWidth` enum -> Ajv/runtime parity goes red.
+  { id: "bad-stroke-width", spec: spec(glyphChartLine([1, 2], undefined, { strokeWidth: 4 as never })) },
 ];
