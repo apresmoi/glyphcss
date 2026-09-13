@@ -2451,7 +2451,7 @@ function useRowReset(
     if (!name) return;
     const el = document.createElement("button");
     el.type = "button";
-    el.className = "maps-view-reset";
+    el.className = "maps-view-reset instrument-row-reset";
     el.textContent = "[reset]";
     el.addEventListener("click", () => onResetRef.current());
     name.classList.add("maps-view-name");

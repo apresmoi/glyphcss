@@ -56,7 +56,7 @@ describe("RangeSlider", () => {
     const { lo, hi } = ranges(host);
     expect(lo.value).toBe("0");
     expect(hi.value).toBe("100");
-    expect(host.querySelector(".range-slider-auto")!.classList.contains("is-active")).toBe(true);
+    expect(host.querySelector<HTMLButtonElement>(".range-slider-label .range-slider-reset")!.disabled).toBe(true);
   });
 
   it("pointer drag on either thumb (a native range input's own value+change) updates the reported value", () => {
@@ -152,18 +152,16 @@ describe("RangeSlider", () => {
     expect(ranges(host).hi.value).toBe("80");
   });
 
-  it("the auto button reverts to null (the full domain), and re-clicking materialises the DOMAIN (not the padded bounds)", () => {
+  it("[reset] sits in the label cell, reverts an explicit domain to null (both ends), and is disabled while already auto", () => {
     const host = render(<Harness min={-20} max={120} domain={[0, 100]} initial={[20, 80]} label="Domain" />);
-    const autoBtn = host.querySelector<HTMLButtonElement>(".range-slider-auto")!;
-    act(() => autoBtn.click());
-    expect(ranges(host).lo.value).toBe("0"); // shows the wider PADDED bounds' own min while auto
-    expect(autoBtn.classList.contains("is-active")).toBe(true);
-    act(() => autoBtn.click());
-    // Materialised to the DOMAIN (0, 100), never the padded bounds
-    // (-20, 120) — a click from auto must never itself change the render.
-    expect(ranges(host).lo.value).toBe("0");
+    const reset = host.querySelector<HTMLButtonElement>(".range-slider-label .range-slider-reset")!;
+    expect(reset.textContent).toBe("[reset]");
+    expect(reset.disabled).toBe(false);
+    act(() => reset.click());
+    expect(ranges(host).lo.value).toBe("0"); // back on the data's own domain
     expect(ranges(host).hi.value).toBe("100");
-    expect(autoBtn.classList.contains("is-active")).toBe(false);
+    expect(reset.disabled).toBe(true);
+    expect(host.querySelector(".range-slider-widget button")).toBeNull(); // nothing left in the slider row itself
   });
 
   it("a typed value may exceed min/max — the component never clamps a text-field commit to its own bounds (P2-1)", () => {

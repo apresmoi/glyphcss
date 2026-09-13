@@ -1285,16 +1285,24 @@
   font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; line-height: 24px;
 }
 .range-slider-widget { display: flex; align-items: center; gap: 0; width: 100%; min-width: 0; min-height: 24px; }
-.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto {
-  flex: 0 0 auto; width: auto; min-width: 0; height: auto; line-height: 1;
-  margin: 0 4px 0 0;
-  font: inherit; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase;
-  padding: 3px 4px; background: rgba(255, 232, 184, 0.04); color: rgba(255, 232, 184, 0.5);
-  border: 1px solid rgba(255, 232, 184, 0.25); border-radius: 0; cursor: pointer;
+.range-slider-label { display: flex; align-items: center; gap: 6px; }
+/* Tiny inline `[reset]` in a Dock row's own NAME cell — `/maps`' Tilt/Bearing
+   reset, lifted here so every workbench shares one look (the user's own ask:
+   "call it reset and put it next to the X domain label like we did to reset
+   the bearing"). 9px monospace, borderless, sized to its own text: lil-gui's
+   `.lil-gui .controller button` assumes a button OWNS its row (full width,
+   `--widget-height` tall), which is exactly the shape this is not. Disabled
+   when there is nothing to undo. */
+.lil-gui .controller .instrument-row-reset {
+  flex: 0 0 auto; width: auto; height: auto;
+  font: inherit; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 9px; line-height: 1; letter-spacing: 0.02em; padding: 1px 2px;
+  background: transparent; border: none; border-radius: 0;
+  color: rgba(255, 232, 184, 0.45); cursor: pointer;
 }
-.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto:hover:not(:disabled) { color: rgba(255, 232, 184, 0.85); border-color: rgba(255, 232, 184, 0.5); background: rgba(255, 232, 184, 0.08); }
-.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto.is-active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.7); background: rgba(56, 189, 248, 0.12); }
-.lil-gui .controller.number.hasSlider.range-slider .range-slider-auto:disabled { opacity: 0.4; cursor: not-allowed; }
+.lil-gui .controller .instrument-row-reset:hover:not(:disabled),
+.lil-gui .controller .instrument-row-reset:focus-visible { color: #38bdf8; }
+.lil-gui .controller .instrument-row-reset:disabled { color: rgba(255, 232, 184, 0.38); opacity: 0.5; cursor: default; }
 /* Number fields — the exact `.voice-slider-readout` treatment (border-bottom
    dotted, transparent background, right-aligned cyan text, no native
    spinner chrome) rather than the old boxed `#0d1118` field, since this IS

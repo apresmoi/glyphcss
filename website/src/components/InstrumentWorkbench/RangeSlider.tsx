@@ -106,8 +106,9 @@ function pct(v: number, min: number, max: number): number {
  * A two-thumb range slider for a scale's domain min/max (Chart folder's
  * Scales rows) — one ROW, styled to be indistinguishable from a lil-gui
  * number controller's own row (the Output folder's Width/Height sliders):
- * `.name` label column, then in the `.widget` column left to right
- * `[auto] [min] [slider] [max]` — the small "auto" toggle button, the min
+ * `.name` label column (carrying a tiny `[reset]` back to the auto domain,
+ * `/maps`' own Tilt/Bearing idiom), then in the `.widget` column left to right
+ * `[min] [slider] [max]` — the min
  * number field, the bracketed `[ ─█──── ]` bar (bare track background
  * outside the selection, ONE cyan gradient fill band between the two
  * thumbs' own positions, no third visual element), and the max number
@@ -159,10 +160,8 @@ function pct(v: number, min: number, max: number): number {
  * single thumb nudge or typed edit never silently pins the other end to a
  * concrete number it was never asked to change (NEW-2, REVIEW-dock-
  * colours-sliders-opus-round2.md) — a later data change still re-infers
- * that untouched end on its own next render. The `auto` button is the one
- * exception, by design: going from fully-auto to explicit MATERIALISES
- * both ends at once, at the exact values already on screen, so the one
- * click that turns the toggle on never itself changes the render.
+ * that untouched end on its own next render. `[reset]` clears BOTH ends
+ * back to auto at once, and is disabled while the domain is already auto.
  */
 export function RangeSlider({
   min, max, domain, value, onChange, loCeiling, loFloor, hiFloor, step, format = String, parse, label, disabled, disabledReason, capReason,
@@ -283,11 +282,12 @@ export function RangeSlider({
   // `.range-slider`/`.is-disabled` are this component's own, kept for the
   // existing test suite's selectors.
   return <div className={`controller number hasSlider range-slider${disabled ? " disabled is-disabled" : ""}`} title={title}>
-    {label && <div className="name range-slider-label">{label}</div>}
+    {label && <div className="name range-slider-label">{label}
+      <button type="button" className="range-slider-reset instrument-row-reset" disabled={disabled || value === null}
+        title={title ?? (value === null ? "Already fitted to the data" : "Reset to the data's own domain")}
+        aria-label={`${label} reset${title ? ` — ${title}` : ""}`}
+        onClick={() => onChange(null)}>[reset]</button></div>}
     <div className="widget range-slider-widget">
-      <button type="button" className={`range-slider-auto${value === null ? " is-active" : ""}`} disabled={disabled}
-        aria-pressed={value === null} title={title} aria-label={title ? `${label ?? "Range"} auto — ${title}` : undefined}
-        onClick={() => onChange(value === null ? [domainLo, domainHi] : null)}>auto</button>
       <input className="range-slider-number" inputMode="decimal" aria-label={`${label ?? "Range"} minimum`} disabled={disabled} title={title}
         value={loDraft ?? format(lo)}
         onChange={(e) => { setLoDraft(e.target.value); if (capError === "lo") setCapError(null); }}

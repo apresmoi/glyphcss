@@ -101,14 +101,14 @@ describe("RangeSlider inside a real .lil-gui panel (P1/P2)", () => {
   it("wins width/layout properties against lil-gui's own element rules (real theme + real component CSS)", () => {
     loadCss(LIL_GUI_CSS, INSTRUMENT_CSS);
     const host = mountRangeSlider();
-    const auto = host.querySelector(".range-slider-auto")!;
+    const reset = host.querySelector(".range-slider-label .instrument-row-reset")!;
     const numbers = host.querySelectorAll(".range-slider-number");
     const track = host.querySelector(".range-slider-track")!;
 
-    // `.lil-gui button { width: 100% }` is exactly what stretched the auto
-    // button across the whole row (DIAGNOSIS P1) — our own rule's declared
-    // `width: auto` must be the one that wins.
-    expect(getComputedStyle(auto).width).toBe("auto");
+    // `.lil-gui button { width: 100% }` is exactly what stretched the old
+    // in-row auto button across the whole row (DIAGNOSIS P1) — the label
+    // cell's `[reset]` must keep its own `width: auto`.
+    expect(getComputedStyle(reset).width).toBe("auto");
     // `.lil-gui .controller.number.hasSlider input { width: var(--slider-
     // input-width); min-width: var(--slider-input-min-width) }` (27%, 45px)
     // is what grew each number field past the panel edge — our own 27px
@@ -127,13 +127,13 @@ describe("RangeSlider inside a real .lil-gui panel (P1/P2)", () => {
   });
 
   // P1 mutation check — drop exactly the scoping prefix the fix adds
-  // (leaving the bare `.range-slider-auto`/`.range-slider-number`/
+  // (leaving the bare `.range-slider-number`/
   // `.range-slider-track` selectors this file HAD before the fix) and
   // confirm lil-gui's own rules win again. A red result here on the real
   // source file (not this mutated copy) is the regression this whole test
   // exists to catch.
   it("MUTATION: with the scoping prefix stripped, lil-gui's own rules win again", () => {
-    const mutatedInstrumentCss = stripScope(INSTRUMENT_CSS, RANGE_SLIDER_SCOPE, ".range-slider-auto")
+    const mutatedInstrumentCss = INSTRUMENT_CSS
       .split("\n").map((line) => stripScope(line, RANGE_SLIDER_SCOPE, ".range-slider-number"))
       .map((line) => stripScope(line, RANGE_SLIDER_SCOPE, ".range-slider-track"))
       .join("\n");
@@ -141,13 +141,11 @@ describe("RangeSlider inside a real .lil-gui panel (P1/P2)", () => {
     // regex above matched something) — otherwise this "mutation" test would
     // pass for the wrong reason (identical CSS, nothing dropped).
     expect(mutatedInstrumentCss).not.toEqual(INSTRUMENT_CSS);
-    expect(mutatedInstrumentCss).not.toContain(`${RANGE_SLIDER_SCOPE}.range-slider-auto`);
+    expect(mutatedInstrumentCss).not.toContain(`${RANGE_SLIDER_SCOPE}.range-slider-number`);
     loadCss(LIL_GUI_CSS, mutatedInstrumentCss);
     const host = mountRangeSlider();
-    const auto = host.querySelector(".range-slider-auto")!;
     const numbers = host.querySelectorAll(".range-slider-number");
     const track = host.querySelector(".range-slider-track")!;
-    expect(getComputedStyle(auto).width).toBe("100%");
     // lil-gui's own `--slider-input-width: 27%` custom property, resolved.
     expect(getComputedStyle(numbers[0]!).width).toBe("27%");
     expect(getComputedStyle(track).overflow).toBe("hidden");
