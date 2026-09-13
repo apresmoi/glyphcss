@@ -28,8 +28,19 @@ describe("schema and runtime enforce one contract (review 10/11)", () => {
     expect(schema["x-glyphcss-validation-rules"][id as keyof typeof schema["x-glyphcss-validation-rules"]]).toBeTruthy();
     expect(() => renderGlyphChart(spec, options)).toThrow(expect.objectContaining({ code: id }));
     if (options) {
-      const sizeSchema = ajv.compile({ type: "object", properties: { width: { type: "integer", minimum: 1 }, height: { type: "integer", minimum: 1 } } });
-      expect(sizeSchema(options)).toBe(false);
+      // Shared shape for every render-OPTION-level rejection (never a spec
+      // field): `bad-size` (width/height) and `bad-text-scale` (textScale)
+      // both reject through this same schema — not `glyphChartJsonSchema()`
+      // itself, which describes `GlyphChartSpec`, not `GlyphChartRenderOptions`.
+      const optionsSchema = ajv.compile({
+        type: "object",
+        properties: {
+          width: { type: "integer", minimum: 1 },
+          height: { type: "integer", minimum: 1 },
+          textScale: { type: "integer", minimum: 1 },
+        },
+      });
+      expect(optionsSchema(options)).toBe(false);
     } else {
       expect(validate(spec), JSON.stringify(validate.errors)).toBe(false);
       expect(validate(spec)).toBe(runtime(spec));

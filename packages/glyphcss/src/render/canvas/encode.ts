@@ -231,6 +231,8 @@ function escapeCanvasHtml(glyph: string): string {
 export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
   const { cols, rows, char, color } = canvas.grid;
   const bg = canvas.bg;
+  const textScale = canvas.textScale;
+  const textFiller = canvas.textFiller;
   const lines: string[] = [];
   for (let r = 0; r < rows; r++) {
     let line = "";
@@ -253,6 +255,40 @@ export function encodeGlyphCanvasHtml(canvas: GlyphCanvas): string {
     };
     for (let c = 0; c < cols; c++) {
       const idx = r * cols + c;
+      // A `text({ scale })` FILLER cell (`GlyphCanvas.textFiller`'s own
+      // doc) emits NOTHING — no span, no blank glyph — so the origin
+      // glyph's own font-size-scaled advance width is what fills this
+      // column, instead of a literal blank character doubling the space.
+      if (textFiller[idx] === 1) continue;
+      const scale = textScale[idx]!;
+      if (scale > 1) {
+        // A scaled-text ORIGIN is its own standalone run: flush whatever
+        // was accumulating, emit ONE `<span class="glyph-text">` (colour +
+        // background folded into its own `style`, never nested inside the
+        // plain-run `<span>` above), then resume normal accumulation.
+        flush();
+        const glyph = char[idx]!;
+        const fg = color[idx] ?? null;
+        const bgc = bg[idx] ?? null;
+        // `line-height: calc(1 / scale)` (unitless — CSS inherits/computes
+        // it against THIS element's own, already `scale`-times-bigger,
+        // font-size) cancels the growth back to exactly ONE normal row:
+        // `(1/scale) * (scale * P) === P`. Without it, an inline element's
+        // own line-height grows the WHOLE line box it sits on (pushing
+        // every later `\n`-separated row in the `<pre>` down), double-
+        // reserving vertical space on top of the `scale - 1` already-blank
+        // filler rows below the origin — this keeps the origin's own row
+        // exactly one normal row tall in layout terms, so the bigger GLYPH
+        // (still `scale`-times taller in ink) simply overflows past its
+        // own line box, downward (`vertical-align: top`, the page's own
+        // `.glyph-text` rule) into the space those already-blank filler
+        // rows reserve.
+        const styleParts = [`font-size:${scale}em`, `line-height:calc(1 / ${scale})`];
+        if (fg !== null) styleParts.push(`color:${fg}`);
+        if (bgc !== null) styleParts.push(`background-color:${bgc}`);
+        line += `<span class="glyph-text" style="${styleParts.join(";")}">${escapeCanvasHtml(glyph)}</span>`;
+        continue;
+      }
       const glyph = char[idx]!;
       // See the matching comment in `encodeGlyphCanvasAnsi`: `bg` is read
       // unconditionally, independent of the glyph occupying the cell.

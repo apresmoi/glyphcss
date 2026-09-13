@@ -69,6 +69,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "invalid-inner-radius", spec: spec(glyphChartArc([1, 2], {}, { innerRadius: 1.5 })) },
   { id: "invalid-rule-axis", spec: spec(glyphChartRule([0], { axis: "z" as never })) },
   { id: "bad-size", spec: spec(glyphChartLine([1, 2])), options: { width: 20.5, height: 6 } },
+  { id: "bad-text-scale", spec: spec(glyphChartLine([1, 2])), options: { textScale: 1.5 } },
   { id: "non-finite-data", spec: spec(glyphChartLine([NaN, Infinity])) },
   { id: "non-finite-data", spec: spec(glyphChartLine([{ x: 1, y: Infinity }], { x: "x", y: "y" })) },
   { id: "bad-channels", spec: spec(glyphChartDot([1, 2], { size: [1, 2] } as never)) },

@@ -9,7 +9,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
-  "funnel-missing-value", "bad-stroke-width", "bad-tick-format",
+  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -253,6 +253,11 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
 export function validateGlyphChartRenderSize(width: number, height: number): void {
   if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) chartError("bad-size", `width/height must be positive integers, got ${width}x${height}.`);
 }
+
+/** `options.textScale` (AGENTS.md's "Charts" "Density" paragraph) — an integer `>= 1`; `1` is the byte-identical default. */
+export function validateGlyphChartTextScale(textScale: number): void {
+  if (!Number.isInteger(textScale) || textScale < 1) chartError("bad-text-scale", `textScale must be a positive integer, got ${textScale}.`);
+}
 const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "empty-marks": "Add at least one mark to spec.marks, e.g. glyphChartLine([...]).",
   "unknown-mark-type": `Use one of: ${MARK_TYPES.join(", ")}.`,
@@ -282,6 +287,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-mark-color": "Use a canonical lowercase #rrggbb string, or a non-empty array of them, for options.color.",
   "bad-stroke-width": "Set options.strokeWidth to 1, 2, or 3.",
   "bad-tick-format": "Use a known preset name, { preset, ...params } with valid params, or (TS/JS only) a callback (value, index, ticks) => string.",
+  "bad-text-scale": "Set textScale to a positive integer (1 or omitted is the default).",
 };
 
 /**

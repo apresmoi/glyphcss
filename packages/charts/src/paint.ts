@@ -39,6 +39,15 @@ const GLYPH_CHART_CELL_MIN_INK_SHADE = 0.15;
 
 export interface GlyphChartPaintOptions {
   readonly colorEnabled: boolean;
+  /**
+   * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
+   * paragraph) — forwarded to `canvas.text({ scale })` for every chart-level
+   * TEXT this module paints (title, axis titles, tick labels, legend names
+   * + swatches, arc callout labels); a mark's own data labels (`text`
+   * marks) are unaffected, since they're the mark's own ink, not chrome.
+   * Default `1`, byte-identical to before this option existed.
+   */
+  readonly textScale?: number;
 }
 
 function numeric(v: unknown): number {
@@ -578,7 +587,7 @@ function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
  * canvas" / "sub-cell data marks, whole-cell axes"), and `canvas.text()`
  * never rasterises sub-cell regardless of tier.
  */
-function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean): void {
+function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean, textScale = 1): void {
   if (!layout.hasCartesianAxes) return;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const yTickRows = new Set(layout.yTicks.map((t) => t.cell));
@@ -622,10 +631,10 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
   }
 
   for (const t of layout.xTicks) {
-    canvas.text(t.labelStart, layout.xAxisLabelRow, [t.label], { color: xColor });
+    canvas.text(t.labelStart, layout.xAxisLabelRow, [t.label], { color: xColor, scale: textScale });
   }
   for (const t of layout.yTicks) {
-    canvas.text(t.labelStart, t.cell, [t.label], { color: yColor });
+    canvas.text(t.labelStart, t.cell, [t.label], { color: yColor, scale: textScale });
   }
 
   // Titles (packet item 6): x defaults to centred under its own tick-label
@@ -637,13 +646,17 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
   // it never needs its own alignment field.
   if (layout.xAxisTitle) {
     const width = layout.plot.x1 - layout.plot.x0 + 1;
+    // The title's actual footprint is `length * textScale` columns once
+    // painted at scale — the start/end/center formulas below are the
+    // originals with `layout.xAxisTitle.length` generalized to it.
+    const titleCols = layout.xAxisTitle.length * textScale;
     const x = layout.xAxisTitleAt === "start" ? layout.plot.x0
-      : layout.xAxisTitleAt === "end" ? Math.max(layout.plot.x0, layout.plot.x1 - layout.xAxisTitle.length + 1)
-      : Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - layout.xAxisTitle.length) / 2));
-    canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle], { color: xColor });
+      : layout.xAxisTitleAt === "end" ? Math.max(layout.plot.x0, layout.plot.x1 - titleCols + 1)
+      : Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - titleCols) / 2));
+    canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle], { color: xColor, scale: textScale });
   }
   if (layout.yAxisTitle) {
-    canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle], { color: yColor });
+    canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle], { color: yColor, scale: textScale });
   }
 }
 
@@ -943,6 +956,10 @@ export function paintGlyphChart(
   opts: GlyphChartPaintOptions,
   ledger: GlyphChartLedgerEntry[],
 ): void {
+  // Web-only affordance — see `GlyphChartPaintOptions.textScale`'s own doc.
+  // Default `1`, so every `scale: textScale` forwarded below is `scale: 1`
+  // (canvas.text's own byte-identical default) when the caller never set it.
+  const textScale = opts.textScale ?? 1;
   const series = chartSeries(marks, ledger);
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
@@ -1057,7 +1074,7 @@ export function paintGlyphChart(
   // ONE column a mark actually touches may show sub-cell ink on the axis
   // row under braille/blocks; `paintGrid`'s own faint gridlines still
   // paint first, so marks correctly sit on top of them either way.
-  paintAxes(canvas, layout, opts.colorEnabled);
+  paintAxes(canvas, layout, opts.colorEnabled, textScale);
   for (const entry of series) {
     const { mark, rows, ruleValues, styleIndex } = entry;
     const color = resolveSeriesColor(entry, opts.colorEnabled);
@@ -1083,11 +1100,11 @@ export function paintGlyphChart(
     // pre-abbreviation) length so the label lands flush with that edge,
     // exactly the way the existing centred default (`floor(cols/2)`) always
     // has for the centre case.
-    const half = Math.floor(layout.titleText.length / 2);
+    const half = Math.floor((layout.titleText.length * textScale) / 2);
     const x = layout.titleAlign === "left" ? Math.min(layout.cols - 1, half)
       : layout.titleAlign === "right" ? Math.max(0, layout.cols - 1 - half)
       : Math.floor(layout.cols / 2);
-    candidates.push({ id: "title", x, y: layout.titleRow, text: layout.titleText, priority: 100, role: "chart title" });
+    candidates.push({ id: "title", x, y: layout.titleRow, text: layout.titleText, priority: 100, role: "chart title", scale: textScale });
   }
   if (layout.legend && layout.legend.row !== undefined) {
     const legendRow = layout.legend.row;
@@ -1104,7 +1121,9 @@ export function paintGlyphChart(
     let regionStart = 0;
     let regionWidth = layout.cols;
     if (isTitleRow && layout.titleText) {
-      const titleLen = layout.titleText.length;
+      // The title's own footprint is `titleLen * textScale` columns once
+      // painted at scale.
+      const titleLen = layout.titleText.length * textScale;
       if (layout.titleAlign === "right") {
         const titleStart = Math.max(0, layout.cols - titleLen);
         regionStart = 0;
@@ -1117,9 +1136,14 @@ export function paintGlyphChart(
     }
     const priority = isTitleRow ? 90 : 50;
     const slot = Math.max(1, Math.floor(regionWidth / layout.legend.items.length));
+    // The swatch itself paints at `scale: textScale` too (legend "names +
+    // swatches" both scale, AGENTS.md's "Charts" "Density" paragraph), so
+    // its own gutter before the label scales the same way the original
+    // flat 3-column gutter did at `textScale === 1`.
+    const swatchGutter = 3 * textScale;
     for (let i = 0; i < layout.legend.items.length; i++) {
       const item = layout.legend.items[i]!;
-      candidates.push({ id: `legend:${i}`, x: regionStart + i * slot + Math.floor(slot / 2), y: legendRow, text: item.label, maxWidth: Math.max(1, slot - 3), priority, role: "legend label" });
+      candidates.push({ id: `legend:${i}`, x: regionStart + i * slot + Math.floor(slot / 2), y: legendRow, text: item.label, maxWidth: Math.max(1, slot - swatchGutter), priority, role: "legend label", scale: textScale });
     }
   }
   let textIndex = 0;
@@ -1164,16 +1188,20 @@ export function paintGlyphChart(
       const item = layout.legend!.items[i]!;
       const color = opts.colorEnabled ? item.color ?? null : null;
       const entry = series.find((s) => s.name === item.label);
-      const swatchX = Math.max(0, label.x - 3);
-      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!)], { color });
+      // The swatch itself paints at `label.scale` too (AGENTS.md's
+      // "Charts" "Density" — legend "names + swatches" both scale), so its
+      // own gutter matches the candidate's own `swatchGutter` above.
+      const swatchX = Math.max(0, label.x - 3 * label.scale);
+      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.shadeIndex!)], { color, scale: label.scale });
       else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {
         // Under braille/blocks the plot itself paints a 2x2 dot cluster
         // (CHARTS-RESEARCH diagnosis B6b), never the whole-cell "● × + ◆"
         // glyph `seriesDot` returns — the legend must show the SAME mark
-        // `paintDot` actually painted, via the same helper.
+        // `paintDot` actually painted, via the same helper. `textScale` has
+        // no sub-cell analogue, so this one swatch stays unscaled.
         paintSubcellDot(guardedLabels, swatchX, label.y, color);
       }
-      else if (entry?.mark.type === "dot") guardedLabels.text(swatchX, label.y, [seriesDot(canvas.tier, i)], { color });
+      else if (entry?.mark.type === "dot") guardedLabels.text(swatchX, label.y, [seriesDot(canvas.tier, i)], { color, scale: label.scale });
       // Region marks (bar/rect/area/cell) carry series identity through
       // their own FILL GLYPH, never a line style (CHARTS-RESEARCH diagnosis
       // B2/B6d) — the legend swatch must show that same glyph, so a bar
@@ -1183,14 +1211,16 @@ export function paintGlyphChart(
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
       // it can paint.
       else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
-        guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex)], { color });
+        guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, entry.styleIndex)], { color, scale: label.scale });
       }
-      else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color });
+      else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });
+      // A line-style swatch (`canvas.line`) has no `textScale` analogue —
+      // stays a single row regardless of `label.scale`.
       else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
-      guardedLabels.text(label.x, label.y, [label.text], { color });
+      guardedLabels.text(label.x, label.y, [label.text], { color, scale: label.scale });
     } else if (textColors.has(label.id)) {
-      guardedLabels.text(label.x, label.y, [label.text], { color: textColors.get(label.id)! });
-    } else guardedLabels.text(label.x, label.y, [label.text]);
+      guardedLabels.text(label.x, label.y, [label.text], { color: textColors.get(label.id)!, scale: label.scale });
+    } else guardedLabels.text(label.x, label.y, [label.text], { scale: label.scale });
   }
   if (layout.legend && layout.legend.row === undefined) {
     paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger);

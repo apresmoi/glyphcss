@@ -97,6 +97,28 @@ export interface GlyphCanvasTextOptions {
    * rule) rather than reserving space ahead of time.
    */
   readonly priority?: number;
+  /**
+   * Web-only affordance for `@glyphcss/charts`' `textScale` (AGENTS.md's
+   * "Density (web only)"): each glyph is laid out on an `s`x`s` cell PITCH
+   * — glyph `i` of the run lands at column `x0 + i*s`, not `x0 + i` — and
+   * writes the real glyph only at its own run's ORIGIN cell (`(x0+i*s,
+   * y0)`); the remaining `s*s - 1` cells of that glyph's box are marked
+   * OCCUPIED (`GlyphCanvas`'s own per-cell flag, not `CellGrid`'s) and
+   * explicitly blanked (`" "`, no colour) so a mark painted before this
+   * call (fills/axes/marks all run earlier in `@glyphcss/charts`' fixed
+   * pipeline) never shows through a filler cell in the plain-text/ANSI
+   * exits. Every other painter refuses to write into an occupied cell,
+   * mirroring `isOccludedCell`. `encodeGlyphCanvasHtml` reads the flag to
+   * emit ONE scaled `<span class="glyph-text">` per origin glyph and
+   * NOTHING for its filler cells (never a blank glyph — the point is for
+   * the browser's own font-size-scaled advance width to fill that space,
+   * which a literal blank character would double). `encodeGlyphCanvasText`/
+   * `encodeGlyphCanvasAnsi` ignore the flag entirely and simply see the
+   * origin glyph plus real blanks — a web-only affordance never reaches a
+   * CLI/terminal exit. Default `1`, byte-identical to before this option
+   * existed (no buffer write beyond what `text()` always did).
+   */
+  readonly scale?: number;
 }
 
 export interface GlyphCanvasArrowheadOptions {
@@ -135,6 +157,24 @@ export interface GlyphCanvas {
    * quadrant is "on" when either of its two constituent dots is).
    */
   readonly sub: Uint8Array;
+  /**
+   * Per-cell scale of the SCALED TEXT run whose ORIGIN sits here (`s > 1`,
+   * `GlyphCanvasTextOptions.scale`'s own doc) — `0` everywhere a scale-1
+   * (or no) `text()` glyph was written, so an all-zero buffer (the case for
+   * every existing caller) makes every reader of it a no-op. Read by
+   * `encodeGlyphCanvasHtml` to size the origin's own `<span>`.
+   */
+  readonly textScale: Uint8Array;
+  /**
+   * `1` where a scaled `text()` glyph's box covers this cell but does not
+   * originate here — the OCCUPIED-BY-TEXT flag: every painter refuses to
+   * write into it (mirrors `occluded` on `CellGrid`), and
+   * `encodeGlyphCanvasHtml` skips it outright (no span, no blank glyph) so
+   * the origin's own font-size-scaled advance width is what fills the
+   * space. `0` everywhere else, so an all-zero buffer (no caller has ever
+   * used `text()`'s `scale` option) makes every reader of it a no-op.
+   */
+  readonly textFiller: Uint8Array;
   readonly report: GlyphCanvasReport;
 
   fillRect(x0: number, y0: number, x1: number, y1: number, opts: GlyphCanvasFillOptions): void;
@@ -156,6 +196,11 @@ export interface GlyphCanvas {
 
 function isOccludedCell(grid: CellGrid, idx: number): boolean {
   return grid.occluded !== undefined && grid.occluded[idx] === 1;
+}
+
+/** See `GlyphCanvas.textFiller`'s own doc. */
+function isTextFillerCell(textFiller: Uint8Array, idx: number): boolean {
+  return textFiller[idx] === 1;
 }
 
 const AXIS_EPSILON = 1e-6;
@@ -367,6 +412,7 @@ function subcellDotBit(localCol: number, localRow: number): number {
 function paintSubcellLine(
   grid: CellGrid,
   sub: Uint8Array,
+  textFiller: Uint8Array,
   cols: number,
   rows: number,
   report: GlyphCanvasReport,
@@ -424,7 +470,7 @@ function paintSubcellLine(
     const cellRow = Math.floor(d.y / SUBCELL_DOT_ROWS);
     if (cellCol < 0 || cellCol >= cols || cellRow < 0 || cellRow >= rows) return;
     const idx = cellRow * cols + cellCol;
-    if (isOccludedCell(grid, idx)) return;
+    if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) return;
     const localCol = d.x - cellCol * SUBCELL_DOT_COLS;
     const localRow = d.y - cellRow * SUBCELL_DOT_ROWS;
     sub[idx] |= 1 << subcellDotBit(localCol, localRow);
@@ -611,6 +657,8 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
   const grid = buildCellGrid(new Array<string>(n).fill(" "), null, null, cols, rows);
   const bg: (string | null)[] = new Array(n).fill(null);
   const sub = new Uint8Array(n);
+  const textScale = new Uint8Array(n);
+  const textFiller = new Uint8Array(n);
   const report: GlyphCanvasReport = createGlyphCanvasReport();
   const edgeState: GlyphCanvasEdgeState = createGlyphCanvasEdgeState();
 
@@ -622,6 +670,8 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
     grid,
     bg,
     sub,
+    textScale,
+    textFiller,
     report,
 
     fillRect(x0, y0, x1, y1, opts) {
@@ -637,7 +687,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       for (let y = cyLo; y <= cyHi; y++) {
         for (let x = cxLo; x <= cxHi; x++) {
           const idx = y * cols + x;
-          if (isOccludedCell(grid, idx)) continue;
+          if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) continue;
           if (tierTable.subcell) {
             const mask = subMaskForShade(shade);
             sub[idx] = mask;
@@ -675,7 +725,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       // `GlyphCanvasLineOptions.subcell`'s doc.
       const useSubcell = opts.subcell ?? tierTable.subcell;
       if (useSubcell) {
-        paintSubcellLine(grid, sub, cols, rows, report, tierTable, a, b, opts.depth, style, color, horizontal, vertical, width);
+        paintSubcellLine(grid, sub, textFiller, cols, rows, report, tierTable, a, b, opts.depth, style, color, horizontal, vertical, width);
         return;
       }
 
@@ -696,7 +746,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
         // visible cells the pattern shows or hides — occlusion changed the
         // pattern everywhere downstream of it, not just at the hidden cell.
         patternIndex++;
-        if (isOccludedCell(grid, idx)) continue;
+        if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) continue;
 
         let baseGlyph: string | undefined;
         if (diagonal) {
@@ -752,23 +802,58 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       assertIntegerCellCoords("text", [x0, y0]);
       const align = opts.align ?? "left";
       const color = assertCanvasColor(opts.color, "text");
+      const scale = opts.scale ?? 1;
+      if (!Number.isInteger(scale) || scale < 1) {
+        throw new RangeError(`glyphcss: text() requires an integer scale >= 1, got ${scale}.`);
+      }
       for (let r = 0; r < lines.length; r++) {
-        const y = y0 + r;
+        // Each LINE occupies its own `scale`-row band, not one row per line
+        // (`GlyphCanvasTextOptions.scale`'s own doc) — byte-identical to the
+        // original `y0 + r` at `scale === 1`.
+        const y = y0 + r * scale;
         if (y < 0 || y >= rows) continue;
         const graphemes = segmentGraphemes(lines[r]!);
         const width = graphemes.length;
+        // The run's total box width in cells is `width * scale` (one
+        // `scale`-wide box per glyph) — the ORIGINAL left/right/center
+        // formulas below, verbatim, with `width` generalized to that box
+        // width; at `scale === 1` this is `width` itself, so the formulas
+        // (and their output) are unchanged.
+        const boxWidth = width * scale;
         const startX = align === "left"
           ? x0
           : align === "right"
-            ? x0 - width + 1
-            : x0 - Math.floor(width / 2);
+            ? x0 - boxWidth + scale
+            : x0 - Math.floor(boxWidth / 2);
         for (let i = 0; i < graphemes.length; i++) {
-          const x = startX + i;
+          // Glyph `i` lands on the `scale`-wide PITCH, not the original
+          // `startX + i` — identical to it at `scale === 1`.
+          const x = startX + i * scale;
           if (x < 0 || x >= cols) continue;
           const idx = y * cols + x;
-          if (isOccludedCell(grid, idx)) continue;
+          if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) continue;
           grid.char[idx] = resolveTextGlyph(graphemes[i]!, report, x, y);
           grid.color[idx] = color;
+          if (scale <= 1) continue;
+          textScale[idx] = scale;
+          // The remaining `scale*scale - 1` cells of this glyph's box: mark
+          // OCCUPIED and explicitly blank — a mark painted earlier in
+          // `@glyphcss/charts`' fixed pipeline (fills/axes/marks all run
+          // before labels) must not show through in the plain-text/ANSI
+          // exits, which ignore `textScale`/`textFiller` entirely and read
+          // `grid.char`/`grid.color` as-is.
+          for (let dy = 0; dy < scale; dy++) {
+            for (let dx = 0; dx < scale; dx++) {
+              if (dx === 0 && dy === 0) continue;
+              const fx = x + dx;
+              const fy = y + dy;
+              if (fx < 0 || fx >= cols || fy < 0 || fy >= rows) continue;
+              const fidx = fy * cols + fx;
+              textFiller[fidx] = 1;
+              grid.char[fidx] = " ";
+              grid.color[fidx] = null;
+            }
+          }
         }
       }
     },
@@ -778,7 +863,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       const color = assertCanvasColor(opts.color, "arrowhead");
       if (x < 0 || x >= cols || y < 0 || y >= rows) return;
       const idx = y * cols + x;
-      if (isOccludedCell(grid, idx)) return;
+      if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) return;
       grid.char[idx] = GLYPH_CANVAS_TIERS[tier].arrow[dir];
       grid.color[idx] = color;
     },

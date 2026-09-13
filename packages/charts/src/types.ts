@@ -268,6 +268,23 @@ export interface GlyphChartRenderOptions {
   readonly legend?: GlyphChartLegendOption;
   /** Read only for `NO_COLOR`/`FORCE_COLOR`, exactly like the canvas's own ANSI encoder — never `process.env` implicitly. */
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Web-only affordance (AGENTS.md's "Charts" "Density" paragraph):
+   * lays out and paints every TEXT the chart draws — title, axis titles,
+   * tick labels, legend names/swatches, arc callout labels, funnel labels,
+   * sankey node labels — as if each glyph occupied `s x s` cells instead of
+   * one, via `glyphcss`'s `canvas.text({ scale })`. Layout reserves label
+   * rows/columns in multiples of `s`; the HTML exit (`color: "css"`) emits
+   * each origin glyph inside a `font-size:<s>em` span and nothing for its
+   * filler cells, so the browser's own font-size-scaled advance width fills
+   * the reserved box — no second grid, one render. Default `1`,
+   * BYTE-IDENTICAL to before this option existed (verified against a real
+   * build of the commit before it landed). An integer `>= 1`; a caller
+   * passes `Math.round(density)`. The plain-text/ANSI exits and
+   * `@glyphcss/compile`'s static output ignore it entirely — a web-only
+   * affordance never reaches a CLI/terminal/compiled exit.
+   */
+  readonly textScale?: number;
 }
 
 export interface GlyphChartMeta {

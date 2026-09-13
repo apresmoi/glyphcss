@@ -397,3 +397,37 @@ describe("encodeGlyphCanvasAnsi: NO_COLOR / FORCE_COLOR — non-empty counts, em
     }
   });
 });
+
+describe("encodeGlyphCanvasHtml: text({ scale }) — the web textScale affordance", () => {
+  it("emits a single <span class=\"glyph-text\"> per origin glyph, styled font-size:<s>em, and nothing for its filler cells (mutation: emit a blank glyph for fillers -> red)", () => {
+    const canvas = createGlyphCanvas({ cols: 6, rows: 2, tier: "box" });
+    canvas.text(0, 0, ["a"], { color: "#ff0000", scale: 2 });
+    const html = encodeGlyphCanvasHtml(canvas);
+    expect(html).toContain('<span class="glyph-text" style="font-size:2em;line-height:calc(1 / 2);color:#ff0000">a</span>');
+    // Row 0: "a" span, then columns 2..5 are still blank (never a literal
+    // space belonging to the origin's own box).
+    const rows = html.split("\n");
+    expect(rows[0]).toBe('<span class="glyph-text" style="font-size:2em;line-height:calc(1 / 2);color:#ff0000">a</span>    ');
+    // Row 1: columns 0-1 are FILLER (the origin's own box) and emit
+    // nothing at all — not even a blank space, which would double the
+    // horizontal space the origin's own font-size-scaled advance already
+    // fills; columns 2-5 are ordinary blank cells and emit real spaces.
+    expect(rows[1]).toBe("    ");
+  });
+
+  it("a scale-1 (default) label renders exactly like before this option existed — no glyph-text span anywhere", () => {
+    const canvas = createGlyphCanvas({ cols: 6, rows: 1, tier: "box" });
+    canvas.text(0, 0, ["ab"], { color: "#ff0000" });
+    const html = encodeGlyphCanvasHtml(canvas);
+    expect(html).not.toContain("glyph-text");
+  });
+
+  it("the plain text exit and ANSI ignore textScale entirely: origin glyph + real blanks, never a span", () => {
+    const canvas = createGlyphCanvas({ cols: 4, rows: 2, tier: "box" });
+    canvas.text(0, 0, ["a"], { color: "#ff0000", scale: 2 });
+    expect(encodeGlyphCanvasText(canvas)).toBe("a   \n    ");
+    const ansi = encodeGlyphCanvasAnsi(canvas, { colors: "truecolor" });
+    expect(ansi).not.toContain("glyph-text");
+    expect(ansi).not.toContain("<span");
+  });
+});
