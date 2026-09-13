@@ -2,7 +2,7 @@ import {
   GLYPH_DIAGRAM_TARGET_DEFAULTS, glyphGraphFromJson, glyphGraphFromMermaid,
   type GlyphDiagramCharset, type GlyphDiagramColorMode, type GlyphDiagramDetail,
   type GlyphDiagramRenderOptions, type GlyphDiagramTarget, type GlyphGraph,
-  type GlyphGraphEdge, type GlyphGraphNode,
+  type GlyphGraphDirection, type GlyphGraphEdge, type GlyphGraphGroup, type GlyphGraphNode,
 } from "@glyphcss/diagrams";
 import chain from "../../../../packages/diagrams/fixtures/chain.mmd?raw";
 import diamond from "../../../../packages/diagrams/fixtures/diamond.mmd?raw";
@@ -67,6 +67,18 @@ export interface GlyphDiagramsWorkbenchState {
    * back out never silently drops them. */
   readonly nodes: readonly GlyphGraphNode[];
   readonly edges: readonly GlyphGraphEdge[];
+  /** GRAPH-level fields the table doesn't expose — `groups` and the
+   * source's own `direction` — carried verbatim beside `nodes`/`edges` so
+   * a table edit never silently drops them (final-gate-2 review, both P1
+   * #4/#2: without this, `buildGlyphDiagramsWorkbenchGraph`'s table branch
+   * rebuilt `{ nodes, edges, direction: "TB" }` with no `groups` at all,
+   * so editing one cell on the Subgraph/CrewAI presets replaced the whole
+   * render with an `unknown-group` error and silently reset LR to TB).
+   * Updated together with `nodes`/`edges` everywhere they're set from a
+   * freshly parsed graph (initial state, `apply-preset`, switching INTO
+   * the table); untouched by every table-only edit (`set-node`,
+   * `add-edge`, ...), which only ever touch `nodes`/`edges`. */
+  readonly tableGraph: { readonly groups?: readonly GlyphGraphGroup[]; readonly direction: GlyphGraphDirection };
   readonly controls: GlyphDiagramsWorkbenchControls;
   readonly layout: { readonly direction?: GlyphGraph["direction"]; readonly engine: "dagre"; readonly nodesep: number; readonly ranksep: number };
   readonly diagram: { readonly title: string; readonly detail: GlyphDiagramDetail };
@@ -100,6 +112,7 @@ export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState
   return {
     editor: "mermaid", sourceKind: "mermaid", mermaid: langgraph, json: JSON.stringify(initialGraph, null, 2),
     nodes: initialGraph.nodes, edges: initialGraph.edges,
+    tableGraph: { groups: initialGraph.groups, direction: initialGraph.direction },
     controls: { target: "web", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
   };
@@ -107,7 +120,7 @@ export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState
 export function buildGlyphDiagramsWorkbenchGraph(state: GlyphDiagramsWorkbenchState): GlyphGraph {
   const graph = state.sourceKind === "mermaid" ? glyphGraphFromMermaid(state.mermaid)
     : state.sourceKind === "json" ? glyphGraphFromJson(JSON.parse(state.json))
-    : { nodes: state.nodes, edges: state.edges, direction: state.layout.direction ?? "TB" };
+    : { nodes: state.nodes, edges: state.edges, groups: state.tableGraph.groups, direction: state.tableGraph.direction };
   return state.layout.direction ? { ...graph, direction: state.layout.direction } : graph;
 }
 
@@ -125,7 +138,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
         const graph = buildGlyphDiagramsWorkbenchGraph(state);
         if (action.editor === "json") return { ...state, editor: "json", json: JSON.stringify(graph, null, 2) };
         if (action.editor === "mermaid") return { ...state, editor: "mermaid", mermaid: glyphDiagramsWorkbenchMermaid(graph) };
-        return { ...state, editor: "table", nodes: graph.nodes, edges: graph.edges };
+        return { ...state, editor: "table", nodes: graph.nodes, edges: graph.edges, tableGraph: { groups: graph.groups, direction: graph.direction } };
       } catch {
         return { ...state, editor: action.editor, sourceKind: action.editor };
       }
@@ -136,6 +149,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
       if (!preset) return state;
       const graph = glyphGraphFromMermaid(preset.source);
       return { ...state, sourceKind: "mermaid", mermaid: preset.source, json: JSON.stringify(graph, null, 2), nodes: graph.nodes, edges: graph.edges,
+        tableGraph: { groups: graph.groups, direction: graph.direction },
         layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label } };
     }
     case "set-control": return { ...state, controls: reduceGlyphDiagramsWorkbenchControls(state.controls, action.control) };

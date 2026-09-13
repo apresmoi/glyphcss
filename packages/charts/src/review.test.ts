@@ -233,7 +233,27 @@ describe("exact Phase 1 review regressions", () => {
     // Mutation: revert to the pre-fix mapping (blank at the domain minimum,
     // medium ink at zero) -> a/b swap back to [" ", "▒"] and this reddens.
     const p = picture(signedCells, 24, 6);
-    expect(["a", "b", "c"].map((x) => p.atValue(x, "v"))).toEqual(["█", " ", "█"]);
+    expect(["a", "b", "c"].map((x) => p.atValue(x, "v"))).toEqual(["▙", " ", "█"]);
+  });
+  it("final-gate-2 (codex finding 3): [-10, 0, 10] — the loss and the gain differ in GLYPH and in COLOUR, and zero is blank", () => {
+    // Mutation: paint both sides of a signed heatmap through the same
+    // GLYPH_CHART_CELL_GAIN_RAMP (dropping the `negative` branch in
+    // `paintCell`) -> "a" (-10) and "c" (10) both render "█" -> red.
+    // Mutation: paint both sides in the same colour (dropping the
+    // `negative` ternary on `cellColor`) -> both cells' spans get
+    // `#3b82f6` -> red.
+    const p = picture(signedCells, 24, 6, true); // colorEnabled: true
+    const colAt = (x: string) => scaleToCol(p.scales.x, p.layout.plot, x);
+    const rowAt = scaleToRow(p.scales.y, p.layout.plot, "v");
+    const glyphAt = (x: string) => p.canvas.grid.char[rowAt * 24 + colAt(x)];
+    const colorAt = (x: string) => p.canvas.grid.color![rowAt * 24 + colAt(x)];
+    expect(glyphAt("a")).toBe("▙"); // -10: loss ramp, full ink.
+    expect(glyphAt("c")).toBe("█"); // +10: gain ramp, full ink.
+    expect(glyphAt("a")).not.toBe(glyphAt("c")); // never the same glyph family.
+    expect(glyphAt("b")).toBe(" "); // 0: always blank.
+    expect(colorAt("a")).toBe("#ef4444"); // loss: red.
+    expect(colorAt("c")).toBe("#3b82f6"); // gain: blue.
+    expect(colorAt("a")).not.toBe(colorAt("c")); // never the same colour.
   });
   it("final-gate: a diverging cell ramp's most-negative value is never blank, blank is reserved for exactly 0, and a value near zero on either side still gets visible (non-blank) ink", () => {
     // Mutation: revert `shadeFor`'s diverging branch to the pre-fix
@@ -670,12 +690,21 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     }
   });
 
-  it("final-gate: bandRowRange partitions the plot rows with no gaps, never empty, and disjoint once there are at least as many plot rows as bands, for every band count 1..12 and every chart height 3..20; labels land at each band's own centre", () => {
+  it("final-gate: bandRowRange partitions the plot rows with no gaps, never empty, and disjoint once there are at least as many available rows as bands, for every band count 1..12 and every chart height 3..20; labels land at each band's own centre, and the x-axis LINE row is never claimed by any category", () => {
     // Mutation: any change that restores the continuous-fraction `[b+1, a]`
     // derivation, drops the matching y-tick fraction correction, or lets
     // `bandPartitionRowRange` hand back an empty range when bands outnumber
     // rows, reddens this — either the coverage/disjointness assertions
     // below, a band going empty, or a tick landing outside its band.
+    //
+    // Final-gate-2 review finding 1 (Opus): a band y-scale's `xAxisLineRow`
+    // is always `plot.y1` (a band scale never admits a zero fraction), so a
+    // partition that used to claim `plot.y1` for the bottommost category
+    // handed that category's row to `paintCell` — which `paintAxes` (run
+    // AFTER it) then unconditionally overwrote. `bandCategoryPlot` now
+    // excludes that row from the partition entirely, exactly like a bar's
+    // own fill stops one row short of the baseline; the expected coverage
+    // below is therefore `plot.y0 .. plot.y1 - 1`, not the whole plot rect.
     for (let bands = 1; bands <= 12; bands++) {
       for (let height = 3; height <= 20; height++) {
         const categories = Array.from({ length: bands }, (_, i) => `r${i}`);
@@ -686,16 +715,29 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
         const ledger: GlyphChartLedgerEntry[] = [];
         const layout = layoutGlyphChart(spec, marks, scales, 24, height, "auto", ledger);
         const ranges = categories.map((k) => bandRowRange(scales.y, layout.plot, k)!);
-        const plotRows: number[] = [];
-        for (let row = layout.plot.y0; row <= layout.plot.y1; row++) plotRows.push(row);
-        // Every band is non-empty, unconditionally — the plot's own row
-        // budget (not the outer chart height, which also spends rows on
-        // axis chrome) is what pigeonholes disjointness, never emptiness.
+        // Available rows for CATEGORIES excludes the axis line row at
+        // `plot.y1` (degrading to the full rect only when that would leave
+        // nothing at all — the same one-row-plot edge case
+        // `bandCategoryPlot` itself degrades on).
+        const categoryTop = layout.plot.y0;
+        const categoryBottom = layout.plot.y1 - 1 >= layout.plot.y0 ? layout.plot.y1 - 1 : layout.plot.y1;
+        const availableRows: number[] = [];
+        for (let row = categoryTop; row <= categoryBottom; row++) availableRows.push(row);
+        // Every band is non-empty, unconditionally — the plot's own
+        // category-row budget (never the outer chart height, which also
+        // spends rows on axis chrome, and never the axis line row itself)
+        // is what pigeonholes disjointness, never emptiness.
         for (const [a, b] of ranges) expect(a).toBeLessThanOrEqual(b);
         const covered = new Set<number>();
         for (const [a, b] of ranges) for (let row = a; row <= b; row++) covered.add(row);
-        expect([...covered].sort((x, y) => x - y)).toEqual(plotRows); // union == plot rows exactly
-        if (plotRows.length >= bands) {
+        expect([...covered].sort((x, y) => x - y)).toEqual(availableRows); // union == available rows exactly
+        // The axis LINE row is never inside any category's own range,
+        // except in the one-row-plot degenerate case where there is
+        // nowhere else for it to be.
+        if (categoryBottom < layout.plot.y1) {
+          for (const [a, b] of ranges) expect(layout.plot.y1 >= a && layout.plot.y1 <= b).toBe(false);
+        }
+        if (availableRows.length >= bands) {
           const seen = new Set<number>();
           for (const [a, b] of ranges) for (let row = a; row <= b; row++) {
             expect(seen.has(row)).toBe(false); // pairwise disjoint once rows suffice
@@ -710,6 +752,35 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
           expect(tick.cell).toBeLessThanOrEqual(b);
         }
       }
+    }
+  });
+
+  it("final-gate-2 (Opus finding 1): the heatmap's BOTTOM category is never painted into the x-axis row and erased — 6 bands at 20x8, per-band assertion on the actual shade glyph, never the axis dash/junction", () => {
+    // Mutation: let `paintCell` (or `bandRowRange`) cover `xAxisLineRow` ->
+    // the bottommost category's whole chunk becomes exactly that one row,
+    // `paintAxes` (which runs after `paintCell`) overwrites it with a plain
+    // axis glyph, and this test catches it directly by asserting the
+    // SPECIFIC shade-ramp glyph rather than merely "not a space" — the
+    // review's own diagnosis of why the prior gate at this shape passed
+    // even with the defect present (an axis dash/junction is not a space
+    // either).
+    const categories = Array.from({ length: 6 }, (_, i) => `r${i}`);
+    const data = categories.map((k, i) => ({ k, v: i + 1 }));
+    const p = picture(glyphChartCell(data, { x: "v", y: "k", fill: "v" }), 20, 8);
+    const shadeGlyphs = new Set(["░", "▒", "▓", "█"]);
+    const axisGlyphs = new Set(["─", "│", "┤", "┴", "├", "└", "┼"]);
+    for (const k of categories) {
+      const [a, b] = bandRowRange(p.scales.y, p.layout.plot, k)!;
+      expect(a).toBeLessThanOrEqual(b);
+      // The category's own range must never include the axis line row.
+      expect(p.layout.xAxisLineRow >= a && p.layout.xAxisLineRow <= b).toBe(false);
+      let inked = false;
+      for (let row = a; row <= b; row++) for (let col = p.layout.plot.x0; col <= p.layout.plot.x1; col++) {
+        const ch = p.at(col, row);
+        if (shadeGlyphs.has(ch)) inked = true;
+        expect(axisGlyphs.has(ch)).toBe(false); // never the axis rule standing in for real ink
+      }
+      expect(inked).toBe(true);
     }
   });
 

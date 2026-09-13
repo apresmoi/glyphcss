@@ -85,7 +85,7 @@ export const CHART_PRESETS: readonly { readonly id: string; readonly label: stri
   { id: "pie", label: "Pie", spec: glyphChartPlot({ marks: [sampleChartMark("arc")], title: "Pie" }) },
   { id: "donut", label: "Donut", spec: glyphChartPlot({ marks: [glyphChartArc(SHARES, { y: "share", fill: "browser" }, { innerRadius: 0.5 })], title: "Donut" }) },
   { id: "heatmap", label: "Heatmap", spec: glyphChartPlot({ marks: [glyphChartCell(HEATMAP, { x: "day", y: "hour", fill: "value" }, { name: "Activity" })], title: "Heatmap" }) },
-  { id: "line-rule", label: "Line + rule", spec: glyphChartPlot({ marks: [glyphChartLine(SAMPLE, undefined, { name: "Revenue" }), { ...glyphChartRule([5]), options: { ...glyphChartRule([5]).options, name: "Target" } }], title: "Line + rule" }) },
+  { id: "line-rule", label: "Line + rule", spec: glyphChartPlot({ marks: [glyphChartLine(SAMPLE, undefined, { name: "Revenue" }), glyphChartRule([5], { name: "Target" })], title: "Line + rule" }) },
 ];
 
 export interface ChartsWorkbenchMark {
@@ -186,7 +186,20 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "remove-row": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableRemoveRow(t, action.row)) : mark) };
     case "add-column": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableAddColumn(t, action.column)) : mark) };
     case "remove-column": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableRemoveColumn(t, action.column)) : mark) };
-    case "rename-column": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? withTable(mark, (t) => tableRenameColumn(t, action.column, action.next)) : mark) };
+    case "rename-column": return { ...state, marks: state.marks.map((mark) => {
+      if (mark.id !== action.id) return mark;
+      const renamed = withTable(mark, (t) => tableRenameColumn(t, action.column, action.next));
+      if (renamed === mark || renamed.dataText === mark.dataText) return renamed;
+      // final-gate-2 (codex #6): a channel naming the OLD column (e.g.
+      // `x: "month"`) went stale the moment the column itself was renamed
+      // — the data no longer has that field at all, and the mark then
+      // reached the canvas with an unresolved channel, thrown as
+      // GLYPH_CHART_INTERNAL_COORD. Every channel that named exactly the
+      // renamed column follows it to the new name; any other channel value
+      // (a different field, an accessor, "index"/"value") is untouched.
+      const channels = Object.fromEntries(Object.entries(renamed.channels).map(([key, value]) => [key, value === action.column ? action.next : value])) as ChartsWorkbenchMark["channels"];
+      return { ...renamed, channels };
+    }) };
   }
 }
 

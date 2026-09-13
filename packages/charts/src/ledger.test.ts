@@ -28,11 +28,29 @@ const SAMPLES = [
   ledgerLabelAbbreviated({ role: "y-axis label", before: "1500000", after: "1.5M" }),
   ledgerLabelDropped({ role: "legend label", text: "North America", reason: "there was no free space left for it" }),
   ledgerLabelDropped({ role: "y-axis label", text: "1.5M", reason: "the number couldn't be abbreviated to fit" }),
+  // Final-gate-2 review (codex #12): quoted USER TEXT (a data label, a
+  // series name, ...) can legitimately contain a colon or arrow of its
+  // own — a metric literally named "p95: latency" is real, authored data,
+  // not this package's own generated wording. The "no colon or arrow" gate
+  // exists to keep the GENERATED prose around a quoted value from turning
+  // into an internal log line (`layout: dropped tick ->`), so it must
+  // apply to the message with quoted spans removed, never to the raw
+  // string.
+  ledgerLabelDropped({ role: "data label", text: "p95: latency", reason: "no room" }),
 ];
 
+/** Quoted user text is exempt from the sentence-shape checks below — see
+ * the `p95: latency` sample's own comment. */
+function stripQuoted(message: string): string {
+  return message.replace(/"[^"]*"/g, '"…"');
+}
+
 describe("chart ledger entries read like sentences, not internal logs", () => {
-  it("every message starts capitalised, ends with a period, and has no colon or arrow", () => {
-    for (const entry of SAMPLES) expect(entry.message).toMatch(/^[A-Z][^:>]*\.$/);
+  it("every message starts capitalised, ends with a period, and has no colon or arrow OUTSIDE quoted user text", () => {
+    // Mutation: apply the regex to the raw `entry.message` instead of
+    // `stripQuoted(entry.message)` -> the "p95: latency" sample's own
+    // colon (inside its quotes) fails the match -> red.
+    for (const entry of SAMPLES) expect(stripQuoted(entry.message)).toMatch(/^[A-Z][^:>]*\.$/);
   });
   it("no message has a broken ordinal (2th) — 1st/2nd/3rd are the only correct forms", () => {
     for (const entry of SAMPLES) expect(entry.message).not.toMatch(/\b[123]th\b/);

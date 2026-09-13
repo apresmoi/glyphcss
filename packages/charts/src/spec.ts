@@ -56,10 +56,16 @@ export function glyphChartText(data: GlyphChartMark["data"], channels?: GlyphCha
 /**
  * A rule mark takes raw axis positions directly (à la Plot's `ruleY`/`ruleX`)
  * rather than a channel — `glyphChartRule([0])` draws one horizontal rule at
- * `y = 0`; `{ axis: "x" }` draws vertical rules instead.
+ * `y = 0`; `{ axis: "x" }` draws vertical rules instead. Takes the full
+ * `GlyphChartMarkOptions` (not a private `{ axis? }` shape) so `name` reaches
+ * the legend exactly like every other mark constructor — final-gate-2
+ * review (codex #11): `glyphChartRule([1], { name: "Target" })` used to
+ * discard `name` at the constructor, so the equivalent hand-authored JSON
+ * mark (which passes `options` straight through) kept its name while the
+ * constructor's own result silently lost it.
  */
-export function glyphChartRule(values: readonly number[], options: { readonly axis?: "x" | "y" } = {}): GlyphChartMark {
-  return mark("rule", values, {}, { axis: options.axis ?? "y" });
+export function glyphChartRule(values: readonly number[], options: GlyphChartMarkOptions = {}): GlyphChartMark {
+  return mark("rule", values, {}, { ...options, axis: options.axis ?? "y" });
 }
 
 export interface GlyphChartPlotOptions {

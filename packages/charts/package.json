@@ -39,7 +39,8 @@
   },
   "scripts": {
     "build": "tsup",
-    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "npm run typecheck && vitest run --passWithNoTests",
     "test:coverage": "vitest run --coverage --passWithNoTests",
     "prepublishOnly": "npm run build"
   },

@@ -153,9 +153,14 @@
   padding: 10px 12px;
 }
 
-/* Static 24x8 character previews occupy the same square as PresetTile scenes. */
+/* Static 24x8 character previews occupy the same square as PresetTile scenes.
+   Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
+   the same A4/A5 cascade defect this file's `.charts-grid-scroll >
+   .glyph-output` rule already documents: `inherit` here took `.dn-root`'s
+   own fallback stack with no "Glyph Mono" in it, measuring every braille
+   cell ~13.6% wider than a box-drawing/ASCII one in this exact tile). */
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
-.charts-tile-preview pre { margin: 0; padding: 0; font-family: inherit; font-size: 6px; line-height: 1.8; white-space: pre; }
+.charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
 
 @media (max-width: 760px) {
   .charts-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }

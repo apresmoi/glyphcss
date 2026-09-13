@@ -4,11 +4,11 @@ import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import { InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail, InstrumentShell, InstrumentTray, InstrumentViewport } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
-import { readUrlParam } from "../../lib/urlState";
+import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
 import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
-import { DIAGRAMS_URL_PARAM, DIAGRAMS_URL_SIZE_WARN_BYTES, createDiagramsUrlWriter, decodeDiagramsUrlState } from "./diagramsUrlState";
+import { DIAGRAMS_URL_PARAM, DIAGRAMS_URL_SIZE_WARN_BYTES, createDiagramsUrlWriter, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
 import { renderGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchRender } from "./diagramsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
@@ -138,9 +138,23 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     try { await navigator.clipboard.writeText(value); setFeedback(encoding === "text" ? "Copied text" : "Copied ANSI"); }
     catch { setFeedback("Copy failed — select the diagram to copy it manually."); }
   };
+  // Final-gate-2 review (codex #7, same fix as ChartsWorkbench.tsx's own
+  // `copyLink`): copying `window.location.href` directly copied whatever
+  // the 150ms-debounced `urlWriter` had last committed, not the state on
+  // screen. Encode `state` fresh at click time and build the link from
+  // that instead of reading the address bar back.
   const copyLink = async () => {
-    try { await navigator.clipboard.writeText(window.location.href); setFeedback("Copied link"); }
-    catch { setFeedback("Copy failed — copy the address bar manually."); }
+    try {
+      const raw = await encodeDiagramsUrlState(state);
+      setUrlSizeBytes(new TextEncoder().encode(raw).length);
+      writeUrlParam(DIAGRAMS_URL_PARAM, raw || null);
+      const params = new URLSearchParams(window.location.search);
+      if (raw) params.set(DIAGRAMS_URL_PARAM, raw); else params.delete(DIAGRAMS_URL_PARAM);
+      const search = params.toString();
+      const link = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
+      await navigator.clipboard.writeText(link);
+      setFeedback("Copied link");
+    } catch { setFeedback("Copy failed — copy the address bar manually."); }
   };
   const download = () => {
     try { setFeedback(downloadGlyphSvg(preRef.current, "glyphcss-diagram.svg") ? "Downloaded SVG" : "Download failed"); }

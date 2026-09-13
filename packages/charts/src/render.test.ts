@@ -91,6 +91,18 @@ describe("renderGlyphChart — legend option", () => {
     expect(renderGlyphChart(mark, { width: 10, height: 6, legend: true }).report.ledger.some((entry) => entry.code === "legend-dropped")).toBe(true);
     expect(renderGlyphChart(mark, { width: 10, height: 6, legend: false }).report.ledger.some((entry) => entry.code === "legend-dropped")).toBe(false);
   });
+
+  // Final-gate-2 review (codex #11): the constructor and the equivalent
+  // hand-authored JSON mark must render identically. Mutation: revert
+  // `glyphChartRule`'s options type to drop `name` -> `meta.series` loses
+  // "Target" and the legend row's `─ Target` text disappears -> red.
+  it("a named rule mark contributes its own legend entry, identically via the constructor and raw JSON", () => {
+    const viaConstructor = renderGlyphChart(glyphChartPlot({ marks: [glyphChartLine([1, 2, 3]), glyphChartRule([2], { name: "Target" })] }), { width: 40, height: 12, charset: "box" });
+    const viaJson = renderGlyphChart(glyphChartPlot({ marks: [glyphChartLine([1, 2, 3]), { type: "rule", data: [2], channels: {}, options: { axis: "y", name: "Target" } }] }), { width: 40, height: 12, charset: "box" });
+    expect(viaConstructor.meta.series).toContain("Target");
+    expect(viaConstructor.text).toBe(viaJson.text);
+    expect(viaConstructor.text).toMatch(/─\s*Target/);
+  });
 });
 
 describe("renderGlyphChart — honesty", () => {

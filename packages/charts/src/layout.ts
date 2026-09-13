@@ -137,11 +137,25 @@ function axisTicks(
   } else if (!band && sorted.length > requestedCount && requestedCount > 0) {
     stride = Math.ceil(sorted.length / requestedCount);
   }
-  // Priority ticks (the zero baseline, a log axis's decades, a time axis's
-  // date boundaries) survive the stride sample regardless of index parity —
-  // the SAME "never lose a priority tick" guarantee the collision loop
-  // below already gives them, extended to this earlier thinning pass.
-  const strided = sorted.filter((t, i) => i % stride === 0 || priorityValuesEffective.has(t.value));
+  // Final-gate-2 review (Opus finding 6 / codex #9): the overshoot stride
+  // above samples `sorted` by RAW INDEX, and `sorted` is ordered by CELL —
+  // ascending row number, which for the y-axis's `fractionToRow` mapping is
+  // DESCENDING value (a bigger value sits at a SMALLER row). Index 0 is
+  // therefore the domain's MAXIMUM, so `i % stride === 0` anchors the kept
+  // sequence at the max and works backward — and the zero baseline, forced
+  // to survive via `priorityValuesEffective` regardless of its own index
+  // parity, then lands at whatever offset the max-anchored stride left it
+  // at, one gap short of uniform (the Area preset at heights 22-24: kept
+  // ticks 9,7,5,3,1,0 — gaps 2,2,2,2,1 — because index 0 is the value 9,
+  // not 0). Anchoring the modulo at the ZERO tick's own index instead (or,
+  // when 0 isn't among the candidates, at the LAST index — `sorted`'s
+  // domain-minimum end) makes the stride phase-align with the one tick a
+  // zero-anchored chart already always keeps, so the sampled sequence is
+  // arithmetic from zero (or from the minimum) by construction rather than
+  // by coincidence.
+  const zeroIndex = sorted.findIndex((t) => t.value === 0);
+  const strideAnchor = zeroIndex >= 0 ? zeroIndex : sorted.length - 1;
+  const strided = sorted.filter((t, i) => (((i - strideAnchor) % stride) + stride) % stride === 0 || priorityValuesEffective.has(t.value));
   // Priority ticks (a bar/rect y-axis's zero baseline, a log axis's own
   // decade values) go through the greedy collision test FIRST, so they can
   // never lose their cell to an ordinary neighbour that merely happened to
@@ -402,18 +416,22 @@ export function layoutGlyphChart(
     // `axes.y.ticks` (packet item 6) overrides this budget outright — a
     // caller-requested count, not a fitting heuristic; `axisTicks`'s own
     // collision/stride thinning still applies underneath it.
-    // Off-by-one (CHARTS-RESEARCH diagnosis B3): `bottom - top` is the
-    // number of ROW-INTERVALS the plot's `bottom - top + 1` rows span (one
-    // fewer than the row count), and a minimum 2-row spacing between
-    // adjacent ticks (`axisTicks`'s own y-collision rule) admits at most
-    // `floor(intervals / 2) + 1` of them — the previous `+ 1` inside the
-    // `floor` counted the row count instead of the interval count, so it
-    // over-asked d3 by one tick at every height, and `axisTicks`'s
-    // pre-existing overshoot-stride thinning (only engaged when d3 returns
-    // MORE than requested) never triggered because the over-ask matched
-    // d3's own overshoot exactly — leaving the flat collision loop to drop
-    // an arbitrary interior rung instead of asking for (or striding down
-    // to) a coarser, evenly-spaced ladder.
+    // `bottom - top` is the number of ROW-INTERVALS the plot's `bottom -
+    // top + 1` rows span (one fewer than the row count), and a minimum
+    // 2-row spacing between adjacent ticks (`axisTicks`'s own y-collision
+    // rule) admits at most `floor(intervals / 2) + 1` of them. This is only
+    // ever a STARTING GUESS, never the final count: `fitTicksToRowSpacing`
+    // below re-asks d3 for one fewer tick at a time until the ladder it
+    // gets back already clears the minimum spacing on its own, so the
+    // final ladder converges to the same answer regardless of which
+    // reasonable count this seeds it with — final-gate-2 review (Opus
+    // finding 9, "the yRowBudget off-by-one fix is inert") measured this
+    // directly: restoring the interval-vs-row-count off-by-one this
+    // replaced (`floor((bottom - top + 1) / 2) + 1`) leaves every kept
+    // y-ladder byte-identical across every tray-preset/width/height this
+    // package sweeps. Kept in its now-correct (interval-counting) form
+    // because it is the more honest formula for what this variable is
+    // actually named, not because a wrong seed would change the result.
     const yRowBudget = yAxisOpts?.ticks ?? Math.max(2, Math.min(8, Math.floor((bottom - top) / 2) + 1));
     // Only the auto-computed budget gets shrunk to fit actual row spacing —
     // an explicit `axes.y.ticks` count is a caller request, not a fitting
@@ -423,7 +441,7 @@ export function layoutGlyphChart(
     const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
       ? scales.y.ticks(yRowBudget)
       : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottom, 2);
-    let yTicksRaw: GlyphChartTick[] = integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
+    let yTicksRaw: readonly GlyphChartTick[] = integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y"));
     const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
     // The zero baseline is the one tick a bar/rect/area chart must always
     // label, whether or not d3's own "nice" set happened to include it.
@@ -475,7 +493,7 @@ export function layoutGlyphChart(
       yTicksRaw = yTicksRaw.map((t) => {
         const index = scales.y.domain.indexOf(String(t.value));
         if (index < 0 || total === 0) return t;
-        const [chunkTop, chunkBottom] = bandPartitionRowRange(plotForTicks, total, total - 1 - index);
+        const [chunkTop, chunkBottom] = bandPartitionRowRange(bandCategoryPlot(plotForTicks), total, total - 1 - index);
         const center = Math.round((chunkTop + chunkBottom) / 2);
         const fraction = plotHeight > 1 ? (plotForTicks.y1 - center) / (plotHeight - 1) : t.fraction;
         return { ...t, fraction };
@@ -628,6 +646,31 @@ export function bandColRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
 }
 
 /**
+ * The rect a y-band category partition actually has available for
+ * CATEGORIES, never the axis LINE row. Whenever `y` is a band scale,
+ * `xAxisLineRow` unconditionally falls back to `plot.y1` (`layoutGlyphChart`'s
+ * own derivation — a band/time y scale never admits a zero fraction), so
+ * `plot.y1` IS the axis row for every band-y chart, heatmaps included. A
+ * category partition that includes it hands a `cell` mark's bottommost
+ * category a chunk `paintAxes` — which runs AFTER `paintCell` — then
+ * unconditionally overwrites; when that chunk is exactly one row (as many
+ * real category counts produce), the whole category's ink is erased with
+ * no ledger entry (final-gate review finding 1). Bars/rects/areas already
+ * stop one row short of the axis line for the identical reason
+ * (`paintBar`'s own `(rowTop < rowBottom ? 1 : 0)` exclusion of the
+ * baseline row) — this gives band-y categories the same guarantee, and
+ * both `bandRowRange` (what `paintCell` paints into) and the y-tick label
+ * centering below call this so a category's label always lands inside the
+ * same rows it's actually painted into. Degrades to the full rect only
+ * when excluding the axis row would leave nothing at all (a one-row plot)
+ * — the same "never hand back an empty range" rule `bandPartitionRowRange`
+ * itself already keeps.
+ */
+function bandCategoryPlot(plot: GlyphChartPlotRect): GlyphChartPlotRect {
+  return plot.y1 - 1 >= plot.y0 ? { ...plot, y1: plot.y1 - 1 } : plot;
+}
+
+/**
  * Partitions `plot`'s `count` rows into `total` contiguous, gapless,
  * non-overlapping chunks (the SAME "first `total % count` chunks get one
  * extra cell" scheme `dodgeColRange` uses for columns) and returns the one
@@ -689,7 +732,7 @@ export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
   const total = scale.domain.length;
   const index = scale.domain.indexOf(String(value));
   if (index < 0 || total === 0) return undefined;
-  return bandPartitionRowRange(plot, total, total - 1 - index);
+  return bandPartitionRowRange(bandCategoryPlot(plot), total, total - 1 - index);
 }
 
 /**

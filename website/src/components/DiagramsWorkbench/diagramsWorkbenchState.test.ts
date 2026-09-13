@@ -1,9 +1,31 @@
 import { describe, expect, it } from "vitest";
 import { glyphGraphFromMermaid, renderGlyphDiagram, type GlyphDiagramRenderOptions } from "@glyphcss/diagrams";
-import { buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, glyphDiagramsWorkbenchMermaid, reduceGlyphDiagramsWorkbenchControls, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls } from "./diagramsWorkbenchState";
+import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, glyphDiagramsWorkbenchMermaid, reduceGlyphDiagramsWorkbenchControls, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls } from "./diagramsWorkbenchState";
 import { renderGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchRender";
 
 describe("diagram workbench state and exports", () => {
+  it.each(["subgraph", "crew"])("final-gate-2 (both P1 #4/#2): applying the '%s' preset, switching to Table, and editing one node keeps rendering — groups and direction survive the table edit", async (id) => {
+    // Mutation: drop `groups`/`direction` back out of `tableGraph` in
+    // `buildGlyphDiagramsWorkbenchGraph`'s table branch (the pre-fix
+    // `{ nodes: state.nodes, edges: state.edges, direction: state.layout
+    // .direction ?? "TB" }`) -> a node whose `group` names a real group the
+    // rebuilt graph no longer declares -> `renderGlyphDiagramsWorkbenchState`
+    // returns `{ ok: false, code: "unknown-group" }` -> red. LR also silently
+    // resets to TB, which the direction assertion below catches too.
+    const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => p.id === id)!;
+    const sourceGraph = glyphGraphFromMermaid(preset.source);
+    expect(sourceGraph.groups?.length ?? 0).toBeGreaterThan(0); // sanity: the fixture actually has a group.
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-preset", id });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: `${state.nodes[0]!.label} (edited)` } });
+    const graph = buildGlyphDiagramsWorkbenchGraph(state);
+    expect(graph.groups).toEqual(sourceGraph.groups);
+    expect(graph.direction).toBe(sourceGraph.direction);
+    const rendered = await renderGlyphDiagramsWorkbenchState(state);
+    expect(rendered.ok).toBe(true);
+  });
+
+
   it.each([
     { type: "charset", value: "box" }, { type: "color", value: "none" }, { type: "width", value: 72 }, { type: "height", value: 24 },
   ] as const)("keeps explicitly choosing the old default for $type across a target change", (action) => {

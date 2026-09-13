@@ -12,7 +12,7 @@ import {
   type GlyphDiagramsWorkbenchControls,
   type GlyphDiagramsWorkbenchState,
 } from "./diagramsWorkbenchState";
-import type { GlyphDiagramCharset, GlyphDiagramColorMode, GlyphDiagramDetail, GlyphDiagramTarget, GlyphGraph, GlyphGraphEdge, GlyphGraphNode } from "@glyphcss/diagrams";
+import type { GlyphDiagramCharset, GlyphDiagramColorMode, GlyphDiagramDetail, GlyphDiagramTarget, GlyphGraph, GlyphGraphEdge, GlyphGraphGroup, GlyphGraphNode } from "@glyphcss/diagrams";
 import { createDebouncedJsonUrlWriter, createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 
 export const DIAGRAMS_URL_PARAM = "d";
@@ -45,6 +45,15 @@ function validateNode(value: unknown): GlyphGraphNode | null {
   if (group !== undefined && typeof group !== "string") return null;
   if (shape !== undefined && !oneOf(shape, GRAPH_NODE_SHAPES)) return null;
   return { id, label, ...(kind !== undefined ? { kind } : {}), ...(group !== undefined ? { group } : {}), ...(shape !== undefined ? { shape } : {}) };
+}
+
+function validateGroup(value: unknown): GlyphGraphGroup | null {
+  if (!isRecord(value)) return null;
+  const { id, label, members } = value;
+  if (typeof id !== "string") return null;
+  if (label !== undefined && typeof label !== "string") return null;
+  if (!Array.isArray(members) || !members.every((m) => typeof m === "string")) return null;
+  return { id, members, ...(label !== undefined ? { label } : {}) };
 }
 
 function validateEdge(value: unknown): GlyphGraphEdge | null {
@@ -89,7 +98,7 @@ function validateControls(value: unknown): GlyphDiagramsWorkbenchControls | null
 
 function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchState | null {
   if (!isRecord(value)) return null;
-  const { editor, sourceKind, mermaid, json, nodes, edges, controls, layout, diagram, terminal } = value;
+  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal } = value;
 
   if (!oneOf(editor, EDITOR_KINDS) || !oneOf(sourceKind, EDITOR_KINDS)) return null;
   if (typeof mermaid !== "string" || typeof json !== "string") return null;
@@ -106,6 +115,30 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     const edge = validateEdge(rawEdge);
     if (!edge) return null;
     cleanEdges.push(edge);
+  }
+
+  // `tableGraph` (final-gate-2 review, both P1 #4/#2) is APPEND-ONLY: an
+  // older link encoded before this field existed simply omits it, and
+  // decodes to `{ direction: "TB" }` — the exact default the pre-fix state
+  // always built anyway, so an old link's behaviour doesn't change; only a
+  // link saved AFTER a table edit on a grouped preset now round-trips its
+  // `groups` too.
+  let cleanTableGraph: GlyphDiagramsWorkbenchState["tableGraph"] = { direction: "TB" };
+  if (tableGraph !== undefined) {
+    if (!isRecord(tableGraph)) return null;
+    const { groups, direction: tableDirection } = tableGraph;
+    if (tableDirection !== undefined && !oneOf(tableDirection, GRAPH_DIRECTIONS)) return null;
+    let cleanGroups: GlyphGraphGroup[] | undefined;
+    if (groups !== undefined) {
+      if (!Array.isArray(groups)) return null;
+      cleanGroups = [];
+      for (const rawGroup of groups) {
+        const group = validateGroup(rawGroup);
+        if (!group) return null;
+        cleanGroups.push(group);
+      }
+    }
+    cleanTableGraph = { direction: tableDirection ?? "TB", ...(cleanGroups !== undefined ? { groups: cleanGroups } : {}) };
   }
 
   const cleanControls = validateControls(controls);
@@ -126,6 +159,7 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
 
   return {
     editor, sourceKind, mermaid, json, nodes: cleanNodes, edges: cleanEdges,
+    tableGraph: cleanTableGraph,
     controls: cleanControls,
     layout: { engine: "dagre", nodesep, ranksep, ...(direction !== undefined ? { direction } : {}) },
     diagram: { title: diagram.title, detail: diagram.detail },

@@ -12,17 +12,43 @@ const DATA_VIEWS = [{ id: "table", label: "Table" }, { id: "json", label: "JSON"
  * `addRow`/`removeRow`/`addColumn`/`removeColumn`/`renameColumn` actions
  * (`chartsWorkbenchState.ts`), so the table and the JSON textarea below are
  * exactly one piece of state (`mark.dataText`) viewed two ways.
+ *
+ * Final-gate-2 review (codex #5/#6): a cell/header `<input>` used to be
+ * CONTROLLED straight off the committed, already-PARSED value and dispatch
+ * on every keystroke — so typing "3." parsed to the number `3`, redisplayed
+ * as "3", and the next keystroke "5" landed after that "3" ("35", not
+ * "3.5"); and a column-rename input was keyed by the column's OWN NAME,
+ * which the same immediate dispatch changed on every keystroke, remounting
+ * the input (and its focus) out from under the person still typing. Both
+ * are fixed the same way: an uncommitted EDITING STRING lives in local
+ * component state, keyed by `${row}:${column}` (cells) or the column's
+ * INDEX (header, stable across a rename), shown instead of the committed
+ * value while it exists, and committed to the reducer (parsed, for cells)
+ * only on blur or Enter — never per keystroke.
  */
 function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark; index: number; dispatch: Dispatch<ChartsWorkbenchAction> }) {
   const table = chartMarkTable(mark);
+  const [editingCell, setEditingCell] = useState<{ key: string; value: string } | null>(null);
+  const [editingColumn, setEditingColumn] = useState<{ index: number; value: string } | null>(null);
   if (!table.ok) return <p className="charts-error" role="alert">Invalid JSON — fix it in the JSON tab.</p>;
+  const commitCell = (row: number, column: string, value: string) => {
+    setEditingCell(null);
+    dispatch({ type: "set-cell", id: mark.id, row, column, value });
+  };
+  const commitColumn = (column: string, next: string) => {
+    setEditingColumn(null);
+    if (next !== column) dispatch({ type: "rename-column", id: mark.id, column, next });
+  };
   return <div className="charts-table-wrap">
     <table className="charts-table">
       <thead>
         <tr>
-          {table.columns.map((column) => <th key={column}>
-            <input className="charts-table-header" value={column} aria-label={`Rename column ${column}`}
-              onChange={(event) => dispatch({ type: "rename-column", id: mark.id, column, next: event.target.value })} />
+          {table.columns.map((column, c) => <th key={c}>
+            <input className="charts-table-header" value={editingColumn?.index === c ? editingColumn.value : column} aria-label={`Rename column ${column}`}
+              onChange={(event) => setEditingColumn({ index: c, value: event.target.value })}
+              onFocus={() => setEditingColumn({ index: c, value: column })}
+              onBlur={(event) => commitColumn(column, event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
             <button type="button" className="charts-table-remove" title={`Remove column ${column}`} aria-label={`Remove column ${column}`}
               onClick={() => dispatch({ type: "remove-column", id: mark.id, column })}>×</button>
           </th>)}
@@ -32,10 +58,17 @@ function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark;
       </thead>
       <tbody>
         {table.rows.map((row, r) => <tr key={r}>
-          {table.columns.map((column) => <td key={column}>
-            <input value={String(row[column] ?? "")} aria-label={`Mark ${index + 1} row ${r + 1} ${column}`}
-              onChange={(event) => dispatch({ type: "set-cell", id: mark.id, row: r, column, value: event.target.value })} />
-          </td>)}
+          {table.columns.map((column) => {
+            const key = `${r}:${column}`;
+            const committed = String(row[column] ?? "");
+            return <td key={column}>
+              <input value={editingCell?.key === key ? editingCell.value : committed} aria-label={`Mark ${index + 1} row ${r + 1} ${column}`}
+                onChange={(event) => setEditingCell({ key, value: event.target.value })}
+                onFocus={() => setEditingCell({ key, value: committed })}
+                onBlur={(event) => commitCell(r, column, event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
+            </td>;
+          })}
           <td><button type="button" className="charts-table-remove" title={`Remove row ${r + 1}`} aria-label={`Remove row ${r + 1}`}
             onClick={() => dispatch({ type: "remove-row", id: mark.id, row: r })}>×</button></td>
         </tr>)}

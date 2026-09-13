@@ -7,12 +7,12 @@ import {
   InstrumentShell, InstrumentTray, InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
-import { readUrlParam } from "../../lib/urlState";
+import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { CHART_PRESETS, createChartsWorkbenchState, generateChartsWorkbenchSnippets, reduceChartsWorkbenchState, type ChartsWorkbenchState } from "./chartsWorkbenchState";
-import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState } from "./chartsUrlState";
+import { CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
 import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
@@ -95,9 +95,28 @@ function ChartsWorkbenchInner({ initialState }: { initialState: ChartsWorkbenchS
     try { await navigator.clipboard.writeText(value); setFeedback(encoding === "ascii" ? "Copied ASCII" : "Copied ANSI"); }
     catch { setFeedback("Copy failed — select the chart to copy it manually."); }
   };
+  // Final-gate-2 review (codex #7): copying `window.location.href` directly
+  // copied whatever the 150ms-DEBOUNCED `urlWriter` had last committed —
+  // selecting a preset and immediately clicking Copy link copied the
+  // PREVIOUS chart's payload, with the address bar catching up only later.
+  // Encoding `state` fresh at click time and building the link from that
+  // (never re-reading `window.location.href` back, which `writeUrlParam`'s
+  // own WebKit burst-safety limiting can defer) makes the copied link
+  // always the CURRENT state, independent of the debounce or the address
+  // bar's own write timing; `writeUrlParam` still runs too so the visible
+  // address bar is brought current in the same click.
   const copyLink = async () => {
-    try { await navigator.clipboard.writeText(window.location.href); setFeedback("Copied link"); }
-    catch { setFeedback("Copy failed — copy the address bar manually."); }
+    try {
+      const raw = await encodeChartsUrlState(state);
+      setUrlSizeBytes(new TextEncoder().encode(raw).length);
+      writeUrlParam(CHARTS_URL_PARAM, raw || null);
+      const params = new URLSearchParams(window.location.search);
+      if (raw) params.set(CHARTS_URL_PARAM, raw); else params.delete(CHARTS_URL_PARAM);
+      const search = params.toString();
+      const link = `${window.location.origin}${window.location.pathname}${search ? `?${search}` : ""}${window.location.hash}`;
+      await navigator.clipboard.writeText(link);
+      setFeedback("Copied link");
+    } catch { setFeedback("Copy failed — copy the address bar manually."); }
   };
   const download = () => {
     try { setFeedback(downloadGlyphSvg(preRef.current, "glyphcss-chart.svg") ? "Downloaded SVG" : "Download failed"); }

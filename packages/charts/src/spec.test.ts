@@ -37,4 +37,13 @@ describe("glyphChartRule", () => {
   it("honours an explicit axis", () => {
     expect(glyphChartRule([0], { axis: "x" }).options?.axis).toBe("x");
   });
+  // Final-gate-2 review (codex #11): a hand-authored JSON rule mark keeps
+  // its `name` (options pass through verbatim); the constructor used to
+  // accept only `{ axis? }` and silently drop it, so the two disagreed.
+  // Mutation: revert `glyphChartRule`'s param type back to `{ axis?: "x" |
+  // "y" }` -> `.options?.name` reads undefined -> red.
+  it("keeps a caller-supplied name, exactly like every other mark constructor", () => {
+    expect(glyphChartRule([5], { name: "Target" }).options?.name).toBe("Target");
+    expect(glyphChartRule([5], { axis: "x", name: "Target" }).options).toEqual({ axis: "x", name: "Target" });
+  });
 });

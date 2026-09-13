@@ -14,7 +14,7 @@ import { paintGlyphChart } from "./paint";
 import { renderGlyphChart } from "./render";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
-import { glyphChartBar, glyphChartCell, glyphChartPlot, normalizeGlyphChartInput } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot, glyphChartRule, normalizeGlyphChartInput } from "./spec";
 import type { GlyphChartCharset, GlyphChartInput, GlyphChartLedgerEntry } from "./types";
 
 function picture(input: GlyphChartInput, width: number, height: number, colorEnabled = false, charset: GlyphChartCharset = "box") {
@@ -182,9 +182,18 @@ describe("item 4 (B3) — tick ladders are always evenly spaced, never a collisi
   }
 
   it.each(Array.from({ length: 17 }, (_, i) => i + 8))("height %i: the 3:5:2:8 bar preset's kept y ticks form an arithmetic sequence", (height) => {
-    // Mutation: restore `yRowBudget`'s `+ 1` inside the `floor` (the B3
-    // off-by-one) -> at height 13/14 the kept ladder becomes 8,6,2,0 (gaps
-    // 2,4,2 — not arithmetic) -> red.
+    // This single-series preset's own ladder turns out robust to both
+    // mutations below at every height 8..24 — its coverage is the
+    // stacked-bar sweep just below (which DOES redden removing
+    // `fitTicksToRowSpacing`'s shrink loop, at height 9) and the
+    // final-gate-2 tray-preset sweep further down (19 reddened cases
+    // across line/multi-line/dot/area/stacked-bar/line-rule). Restoring
+    // the OLD `yRowBudget` interval/row-count off-by-one this describe
+    // block's name once cited does NOT redden any test here — final-gate-2
+    // review (Opus finding 9) measured it byte-identical, because
+    // `fitTicksToRowSpacing` converges to the same final count however
+    // it's seeded; `layout.ts`'s own comment on `yRowBudget` records this.
+    // Kept as a plain regression pin for this preset's shape.
     const spec = page([glyphChartBar(BARS, { x: "month", y: "value" }, { name: "Sales" })]);
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
@@ -195,6 +204,9 @@ describe("item 4 (B3) — tick ladders are always evenly spaced, never a collisi
   });
 
   it.each(Array.from({ length: 17 }, (_, i) => i + 8))("height %i: the stacked-bar preset's kept y ticks form an arithmetic sequence", (height) => {
+    // Mutation: remove `fitTicksToRowSpacing`'s shrink-until-it-fits loop
+    // (return `ticksFor(initialCount)` unconditionally) -> height 9's
+    // ladder is no longer evenly spaced -> red.
     const spec = page([{ ...glyphChartBar(STACKED, { x: "month", y: "value", fill: "region" }), transform: { kind: "stack" as const } }]);
     const marks = resolveGlyphChartSpec(spec);
     const scales = resolveGlyphChartScales(marks, spec.scales);
@@ -203,6 +215,47 @@ describe("item 4 (B3) — tick ladders are always evenly spaced, never a collisi
     const numericTicks = layout.yTicks.map((t) => t.value).filter((v): v is number => typeof v === "number");
     expect(isArithmetic(numericTicks)).toBe(true);
   });
+
+  // Final-gate-2 review (Opus finding 6 / codex #9): the bar/stacked-bar
+  // sweeps above already caught the y-row-budget off-by-one, but missed the
+  // SEPARATE max-anchored-stride defect the Area preset exposed at heights
+  // 22-24 (a line/area/dot mark's y-ticks go through the exact same
+  // `axisTicks` stride path bar/rect do). Extended here to every shipped
+  // tray-preset MARK TYPE (`website/src/components/ChartsWorkbench/
+  // chartsWorkbenchState.ts`'s `CHART_PRESETS`, reproduced locally — this
+  // package can't import from `website/`) across every width the review
+  // swept (20/40/80) and every height 8..24. `pie`/`donut` (arc-only, no
+  // cartesian y-axis) and `heatmap` (band y-scale, no numeric ticks) are
+  // included for completeness and pass vacuously (`isArithmetic` on an
+  // empty/short list is trivially true) — the meaningful coverage is
+  // line/multi-line/bar/stacked-bar/dot/area/line-rule.
+  const SHARES = [{ browser: "Chrome", share: 65 }, { browser: "Safari", share: 20 }, { browser: "Firefox", share: 15 }];
+  const SERIES = ["North", "South"].flatMap((region, i) => SAMPLE.map((value, month) => ({ month, value: value + i * 2, region })));
+  const HEATMAP = ["Mon", "Tue", "Wed", "Thu"].flatMap((day, x) => ["AM", "Noon", "PM"].map((hour, y) => ({ day, hour, value: (x + 1) * (y + 1) })));
+  const TRAY_PRESET_SPECS: Readonly<Record<string, ReturnType<typeof glyphChartPlot>>> = {
+    line: page([glyphChartLine(SAMPLE, undefined, { name: "Revenue" })]),
+    "multi-line": page([glyphChartLine(SERIES, { x: "month", y: "value", fill: "region" })]),
+    bar: page([glyphChartBar(BARS, { x: "month", y: "value" }, { name: "Sales" })]),
+    "stacked-bar": page([{ ...glyphChartBar(STACKED, { x: "month", y: "value", fill: "region" }), transform: { kind: "stack" as const } }]),
+    dot: page([glyphChartDot(SAMPLE, undefined, { name: "Visits" })]),
+    area: page([glyphChartArea(SAMPLE, undefined, { name: "Traffic" })]),
+    pie: page([glyphChartArc(SHARES, { y: "share", fill: "browser" })]),
+    donut: page([glyphChartArc(SHARES, { y: "share", fill: "browser" }, { innerRadius: 0.5 })]),
+    heatmap: page([glyphChartCell(HEATMAP, { x: "day", y: "hour", fill: "value" }, { name: "Activity" })]),
+    "line-rule": page([glyphChartLine(SAMPLE, undefined, { name: "Revenue" }), glyphChartRule([5])]),
+  };
+  for (const [id, spec] of Object.entries(TRAY_PRESET_SPECS)) {
+    for (const width of [20, 40, 80]) {
+      it.each(Array.from({ length: 17 }, (_, i) => i + 8))(`final-gate-2: tray preset "${id}" at ${width}x%i keeps an arithmetic y ladder`, (height) => {
+        const marks = resolveGlyphChartSpec(spec);
+        const scales = resolveGlyphChartScales(marks, spec.scales);
+        const ledger: GlyphChartLedgerEntry[] = [];
+        const layout = layoutGlyphChart(spec, marks, scales, width, height, "auto", ledger, "box");
+        const numericTicks = layout.yTicks.map((t) => t.value).filter((v): v is number => typeof v === "number");
+        expect(isArithmetic(numericTicks)).toBe(true);
+      });
+    }
+  }
 });
 
 describe("item 6 — mixed-sign zero row, and band ticks centred on their band", () => {

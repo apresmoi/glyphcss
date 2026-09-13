@@ -14,11 +14,14 @@ vi.hoisted(async () => {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
   }
 });
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
 import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import { decodeDiagramsUrlState } from "./diagramsUrlState";
 import * as renderModule from "./diagramsWorkbenchRender";
 import langgraph from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
 
@@ -69,6 +72,30 @@ describe("DiagramsWorkbench mounted integration", () => {
     });
     if (settle) await settlePreview();
   }
+
+  it("final-gate-2 (Opus finding 3, closing the missing M5 gate): the diagrams CSS declares Glyph Mono + line-height 1 on the main pre, the terminal frame, AND the tray tile previews, never font-family: inherit", () => {
+    // happy-dom does not compute CSS cascade, so this mirrors
+    // ChartsWorkbench.test.tsx's own A4 test exactly: confirm the DOM shape
+    // the rule selects, and that the CSS source itself declares an
+    // explicit, non-"inherit" font-family starting with "Glyph Mono" plus
+    // line-height: 1. Mutation: revert any of these three rules in
+    // diagrams-workbench.css to font-family: inherit -> red.
+    const pre = container.querySelector(".diagrams-grid-scroll > pre.glyph-output");
+    expect(pre).not.toBeNull();
+    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const mainRule = css.match(/\.diagrams-grid-scroll > \.glyph-output \{[^}]*\}/)![0];
+    expect(mainRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(mainRule).not.toContain("font-family: inherit");
+    expect(mainRule).toMatch(/line-height:\s*1\s*;/);
+    const terminalRule = css.match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
+    expect(terminalRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(terminalRule).not.toContain("font-family: inherit");
+    expect(terminalRule).toMatch(/line-height:\s*1\s*;/);
+    const tileRule = css.match(/\.diagrams-tile-preview pre \{[^}]*\}/)![0];
+    expect(tileRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(tileRule).not.toContain("font-family: inherit");
+    expect(tileRule).toMatch(/line-height:\s*1\s*;/);
+  });
 
   it("preloads the vendored LangGraph bytes and mounts the shared instrument shell", () => {
     expect(container.querySelector("textarea")!.value).toBe(langgraph);
@@ -225,6 +252,23 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(container.querySelector("#diagrams-controls-panel")!.classList.contains("is-mobile-open")).toBe(true);
     await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
     expect(container.querySelectorAll(".is-mobile-open")).toHaveLength(0);
+  });
+
+  it("final-gate-2 (codex #7): Copy link encodes the CURRENT state at click time, not whatever the debounced URL writer last committed", async () => {
+    // Mutation: revert `copyLink` to `navigator.clipboard.writeText(window
+    // .location.href)` -> applying Chain and copying immediately (before
+    // the 150ms debounce fires) copies the PREVIOUS (default LangGraph)
+    // diagram's link -> the decoded mermaid source below reddens.
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    await act(async () => container.querySelector<HTMLButtonElement>("[aria-label='Apply Chain']")!.click());
+    // No settlePreview()/timer advance — the debounced urlWriter has NOT fired yet.
+    act(() => button("Copy link").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalled()); });
+    const link = writeText.mock.calls.at(-1)![0] as string;
+    const param = new URLSearchParams(link.split("?")[1] ?? "").get("d");
+    const decoded = await decodeDiagramsUrlState(param);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.diagram.title).toBe("Chain");
   });
 
   // Mutation: remove the effect cleanup guard and let the older Promise win.

@@ -20,6 +20,16 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph"]) for (co
 }
 
 describe("render contracts", () => {
+  it("final-gate-2 codex #8 / Opus P3: a bare renderGlyphDiagram call defaults to target web (96x32 braille/css, HTML present), mirroring renderGlyphChart", async () => {
+    // Mutation: restore `options.target ?? "chat"` in `resolvedOptions` ->
+    // a bare call returns 72x24 with no `html` -> red.
+    const result = await renderGlyphDiagram("graph LR; A --> B");
+    expect(result.grid.cols).toBe(96);
+    expect(result.grid.rows).toBe(32);
+    expect(result.html).toBeDefined();
+    const json = JSON.parse(await renderGlyphDiagramJson(JSON.stringify({ nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }], edges: [{ from: "a", to: "b" }] })));
+    expect(json.html).toBeDefined();
+  });
   it("uses vertical glyphs on single-cell box sides", async () => {
     const result = await renderGlyphDiagram("graph LR; A[Alpha] --> B[[Beta]]", { charset: "ascii" });
     for (const n of result.layout.nodes) {

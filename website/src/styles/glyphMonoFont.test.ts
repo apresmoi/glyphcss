@@ -28,12 +28,28 @@ describe("Glyph Mono web font", () => {
     for (const stack of glyphOutputStacks) expect(stack.trim().startsWith('"Glyph Mono"')).toBe(true);
   });
 
-  it.each(["charts", "diagrams", "maps", "synth"])("the %s page's rendered font stack starts with Glyph Mono", (page) => {
+  it.each(["charts", "diagrams", "synth"])("the %s page's rendered font stack starts with Glyph Mono", (page) => {
     const astroPath = fileURLToPath(new URL(`../pages/${page}.astro`, import.meta.url));
     const source = readFileSync(astroPath, "utf8");
     expect(source).toContain("import '../styles/glyph-demo.css';");
     const match = source.match(/font-family:\s*([^;]+);/);
     expect(match).not.toBeNull();
     expect(match![1]!.trim().startsWith('"Glyph Mono"')).toBe(true);
+  });
+
+  // Final-gate-2 review (Opus finding 7): `/maps` never renders text through
+  // this cascade at all — its own `<pre>` pins a family inline, per the
+  // colour font-atlas path, at render time — so importing this stylesheet
+  // bought it nothing but a render-blocking fetch of the THIRD-PARTY
+  // `github-dark.min.css` this file's own first line pulls in. Reverted so
+  // `/maps` is byte-identical to `main`; unlike `/synth` (which already
+  // carried this import before this feature branch existed and is out of
+  // this fix's scope), `/maps`'s import was new on this branch.
+  // Mutation: reintroduce `import '../styles/glyph-demo.css';` in
+  // maps.astro -> red.
+  it("the maps page does NOT import glyph-demo.css (its <pre> never uses this cascade)", () => {
+    const astroPath = fileURLToPath(new URL("../pages/maps.astro", import.meta.url));
+    const source = readFileSync(astroPath, "utf8");
+    expect(source).not.toContain("glyph-demo.css");
   });
 });

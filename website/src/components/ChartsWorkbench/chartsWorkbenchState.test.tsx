@@ -146,6 +146,42 @@ describe("ChartsWorkbench generated TypeScript", () => {
   });
 });
 
+describe("final-gate-2 (Opus finding 1): the Heatmap tray preset paints every category", () => {
+  it("no plot-body row is left as bare axis chrome with no cell ink — the bottommost category (whose label IS shown) and every row above the axis rule all carry real shade glyphs", () => {
+    // Mutation: let `paintCell`'s row range include `xAxisLineRow` again
+    // (the pre-fix `bandRowRange` behaviour) -> the bottommost category's
+    // whole chunk collapses onto the axis line row, `paintAxes` (which runs
+    // after `paintCell`) overwrites it, and that row shows only the axis
+    // rule/corner glyph with zero shade ink -> red. `AM` and `PM` get
+    // checked by their own visible tick label; `Noon`'s label is thinned by
+    // the (unrelated, pre-existing) tick-collision logic at this size, so
+    // its row is instead covered by the "every plot-body row" sweep below.
+    let state = reduceChartsWorkbenchState(presetState("heatmap"), { type: "set-control", control: { type: "charset", value: "box" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "color", value: "none" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 24 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 8 } });
+    const rendered = renderChartsWorkbenchState(state);
+    expect(rendered.ok).toBe(true);
+    if (!rendered.ok) return;
+    const lines = rendered.text.split("\n");
+    const shadeGlyphs = /[░▒▓█]/;
+    for (const label of ["AM", "PM"]) {
+      const line = lines.find((l) => l.includes(label));
+      expect(line, `expected a tick-label row for "${label}" in:\n${rendered.text}`).toBeDefined();
+      expect(line, `"${label}"'s own row carries no cell ink — only axis chrome:\n${rendered.text}`).toMatch(shadeGlyphs);
+    }
+    // The axis LINE row itself (the corner "└"/tick-junction "┴" row) is
+    // chrome, not data — real ink never reaches it, and every plot-body
+    // row strictly above it must carry ink (never bare axis characters).
+    const axisRowIndex = lines.findIndex((l) => l.includes("└"));
+    expect(axisRowIndex).toBeGreaterThan(0);
+    const titleRowIndex = lines.findIndex((l) => l.includes("Heatmap"));
+    for (let i = titleRowIndex + 1; i < axisRowIndex; i++) {
+      expect(lines[i], `row ${i} between the title and the axis line has no cell ink:\n${rendered.text}`).toMatch(shadeGlyphs);
+    }
+  });
+});
+
 describe("ChartsWorkbench presets through the page", () => {
   it.each(CHART_PRESETS)("renders $label as nonempty 7-bit text in the actual viewport", (preset) => {
     let state = reduceChartsWorkbenchState(presetState(preset.id), { type: "set-control", control: { type: "charset", value: "ascii" } });

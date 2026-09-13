@@ -29,7 +29,7 @@ import { ledgerEmptyTotal, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type G
 import { areaLayers, chartSeries, SERIES_COLORS, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScales } from "./scales";
-import type { GlyphChartMarkRow, GlyphChartSpec } from "./types";
+import type { GlyphChartCharset, GlyphChartMarkRow, GlyphChartSpec } from "./types";
 
 const PALETTE = SERIES_COLORS;
 
@@ -205,6 +205,37 @@ function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
 }
 
 /**
+ * A SIGNED heatmap (final-gate-2 review, codex finding 3): `shadeFor`
+ * already maps each side of a mixed-sign domain independently, from zero
+ * (blank) out to its OWN extreme (full ink) — but painting both sides
+ * through the same glyph ramp AND the same series colour made the biggest
+ * loss and the biggest gain indistinguishable (both `█`, both the same
+ * `#3b82f6`), which relocated rather than fixed the earlier "blank means
+ * missing" defect: now the SIGN, not just the value, reads as no signal.
+ * Gains keep the existing solid-shade ramp unchanged; losses get a HATCH
+ * ramp of the identical length (quadrant/partial-block glyphs, not a
+ * darker/lighter cousin of the same shape) so the two are still tellable
+ * apart in monochrome/`NO_COLOR`, and colour (when enabled) is a distinct
+ * hue per side — blue for gains, red for losses — never two shades of one
+ * colour. Both ramps share index 0 (blank) with `shadeFor`'s own "zero is
+ * always blank" rule.
+ */
+const GLYPH_CHART_CELL_GAIN_RAMP: Readonly<Record<GlyphChartCharset, readonly string[]>> = {
+  ascii: [" ", ".", "+", "*", "#"],
+  box: [" ", "░", "▒", "▓", "█"],
+  blocks: [" ", "░", "▒", "▓", "█"],
+  braille: [" ", "░", "▒", "▓", "█"],
+};
+const GLYPH_CHART_CELL_LOSS_RAMP: Readonly<Record<GlyphChartCharset, readonly string[]>> = {
+  ascii: [" ", ",", "x", "%", "@"],
+  box: [" ", "▖", "▞", "▚", "▙"],
+  blocks: [" ", "▖", "▞", "▚", "▙"],
+  braille: [" ", "▖", "▞", "▚", "▙"],
+};
+const GLYPH_CHART_CELL_GAIN_COLOR = "#3b82f6";
+const GLYPH_CHART_CELL_LOSS_COLOR = "#ef4444";
+
+/**
  * Heatmap cells (CHARTS-RESEARCH diagnosis B6d): `fillRect`'s own subcell
  * path (`blocks`/`braille`) derives its glyph from PARTIAL sub-cell dot
  * COVERAGE, which is right for a fill that reads as density (a bar, an
@@ -217,9 +248,13 @@ function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
  * (never `fillRect`) so `ascii`/`box` stay on `fillRect`'s existing,
  * unaffected, per-tier path (this function is the ONE exception) and
  * `blocks`/`braille` never touch the sub-cell occupancy buffer for a cell
- * mark at all.
+ * mark at all. `signed` (whether the mark's OWN fill domain crosses zero,
+ * decided once by `paintGlyphChart`) additionally routes through the
+ * gain/loss ramp pair above — for every tier, including `ascii`/`box`,
+ * since `fillRect` has no way to select between two glyph FAMILIES for one
+ * shade value.
  */
-function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number): void {
+function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number, signed: boolean, colorEnabled: boolean): void {
   const fallbackCols = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) * (scales.x.bandStep ?? 1 / Math.max(1, rows.length))));
   const fallbackRows = Math.max(1, Math.round((layout.plot.y1 - layout.plot.y0 + 1) * (scales.y.bandStep ?? 1 / Math.max(1, rows.length))));
   const subcellTier = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
@@ -235,8 +270,15 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     x0 = Math.max(layout.plot.x0, x0); x1 = Math.min(layout.plot.x1, x1);
     y0 = Math.max(layout.plot.y0, y0); y1 = Math.min(layout.plot.y1, y1);
     if (x0 > x1 || y0 > y1) continue;
-    const shade = row.fill !== undefined ? shadeFor(numeric(row.fill)) : 1;
-    if (subcellTier) {
+    const value = row.fill !== undefined ? numeric(row.fill) : NaN;
+    const shade = Number.isFinite(value) ? shadeFor(value) : 1;
+    if (signed) {
+      const negative = value < 0;
+      const ramp = negative ? GLYPH_CHART_CELL_LOSS_RAMP[canvas.tier] : GLYPH_CHART_CELL_GAIN_RAMP[canvas.tier];
+      const cellColor = colorEnabled ? (negative ? GLYPH_CHART_CELL_LOSS_COLOR : GLYPH_CHART_CELL_GAIN_COLOR) : null;
+      const level = Number.isFinite(shade) ? Math.round(shade * (ramp.length - 1)) : ramp.length - 1;
+      fillRegionShade(canvas, x0, y0, x1, y1, ramp[level]!, cellColor);
+    } else if (subcellTier) {
       const level = Number.isFinite(shade) ? Math.round(shade * (cellRamp.length - 1)) : cellRamp.length - 1;
       fillRegionShade(canvas, x0, y0, x1, y1, cellRamp[level]!, color);
     } else {
@@ -589,6 +631,7 @@ export function paintGlyphChart(
   const series = chartSeries(marks);
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
+  const cellSigned = lo < 0 && hi > 0;
   const shadeFor = (v: number): number => {
     // Mixed signs: blank means "no signal" — reserved for exactly `v === 0`,
     // never for the domain's most extreme value. The old mapping anchored
@@ -600,7 +643,7 @@ export function paintGlyphChart(
     // `GLYPH_CHART_CELL_MIN_INK_SHADE` floor the same-sign branch below
     // uses, so a value arbitrarily close to zero on EITHER side still never
     // rounds down to the same blank glyph zero itself gets.
-    if (lo < 0 && hi > 0) {
+    if (cellSigned) {
       if (v === 0) return 0;
       const raw = v < 0 ? v / lo : v / hi;
       return GLYPH_CHART_CELL_MIN_INK_SHADE + (1 - GLYPH_CHART_CELL_MIN_INK_SHADE) * raw;
@@ -638,7 +681,7 @@ export function paintGlyphChart(
       if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "area") paintArea(guarded, layout, scales, rows, color, styleIndex);
       if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, styleIndex, { index: i, count: groups.length }, ledger, dodgeDegraded);
-      if (mark.type === "cell") paintCell(guarded, layout, scales, rows, color, shadeFor);
+      if (mark.type === "cell") paintCell(guarded, layout, scales, rows, color, shadeFor, cellSigned, opts.colorEnabled);
     }
   }
   // Axes paint BEFORE marks (PLAN.md Phase 1's original order, kept): a

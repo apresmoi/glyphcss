@@ -9,7 +9,7 @@
  * nothing here touches `process.argv` at module load.
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { renderGlyphChart, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartInput, type GlyphChartTarget } from "@glyphcss/charts";
+import { renderGlyphChart, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartInput, type GlyphChartLedgerEntry, type GlyphChartTarget } from "@glyphcss/charts";
 
 export interface ChartCliOptions {
   readonly target?: GlyphChartTarget;
@@ -71,7 +71,7 @@ export function resolveChartCliOutput(
   input: GlyphChartInput,
   opts: ChartCliOptions,
   env: { readonly isTTY: boolean; readonly vars?: Readonly<Record<string, string | undefined>> },
-): string {
+): { readonly text: string; readonly ledger: readonly GlyphChartLedgerEntry[] } {
   const target = opts.target ?? "terminal";
   const color = opts.color ?? (env.isTTY ? undefined : "none");
   const result = renderGlyphChart(input, {
@@ -82,7 +82,7 @@ export function resolveChartCliOutput(
     height: opts.height,
     env: env.vars,
   });
-  return result.text;
+  return { text: result.text, ledger: result.report.ledger };
 }
 
 export async function runChart(argv: string[]): Promise<void> {
@@ -94,13 +94,20 @@ export async function runChart(argv: string[]): Promise<void> {
   }
   try {
     const spec = JSON.parse(await readFile(file, "utf8")) as GlyphChartInput;
-    const output = resolveChartCliOutput(spec, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env });
+    const { text, ledger } = resolveChartCliOutput(spec, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env });
     if (out) {
-      await writeFile(out, output, "utf8");
+      await writeFile(out, text, "utf8");
       process.stderr.write(`glyphcss: wrote ${out}\n`);
     } else {
-      process.stdout.write(output + "\n");
+      process.stdout.write(text + "\n");
     }
+    // Final-gate-2 review (both P2 #5/#10): the diagram CLI already prints
+    // its fidelity ledger to stderr; the chart CLI discarded `report`
+    // entirely, so `glyphcss chart` was the ONLY place `report.ledger`
+    // (AGENTS.md's "the structured ledger is for the CLI and agents reading
+    // `report`, not the page") could never actually be read by a
+    // non-programmatic caller. Same format as `diagramCli.ts`.
+    for (const entry of ledger) process.stderr.write(`glyphcss: ${entry.code}: ${entry.message}\n`);
   } catch (error) {
     // Chart rule ids must survive the CLI boundary so callers can repair JSON or flags without parsing prose.
     const code = error instanceof Error && "code" in error ? `${String(error.code)}: ` : "";

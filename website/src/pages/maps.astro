@@ -2,7 +2,6 @@
 import MapsWorkbench from '../components/MapsWorkbench/MapsWorkbench.tsx';
 import DocsHeader from '../components/DocsHeader.astro';
 import BaseHead from '../components/BaseHead.astro';
-import '../styles/glyph-demo.css';
 
 const title = 'Maps — ASCII terrain renderer | glyphcss';
 const description = 'Real ETOPO1 terrain rendered as colored ASCII — pan and zoom across equirectangular, Mercator and globe projections, built on glyphcss.';
@@ -28,7 +27,7 @@ const description = 'Real ETOPO1 terrain rendered as colored ASCII — pan and z
       margin: 0;
       background: #07090d;
       color: rgba(255, 232, 184, 0.94);
-      font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+      font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
     }
     :global(body) { min-height: 100vh; overflow: hidden; }
   </style>

@@ -31,6 +31,7 @@ import {
   type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
 import { renderChartsWorkbenchSpec } from "./chartsWorkbenchRender";
+import { decodeChartsUrlState } from "./chartsUrlState";
 
 // happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
 vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
@@ -190,6 +191,14 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const terminalRule = css.match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
     expect(terminalRule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(terminalRule).toMatch(/line-height:\s*1\s*;/);
+    // Final-gate-2 review (Opus finding 4): the tray THUMBNAIL `<pre>` had
+    // the identical `inherit` defect, measured live at braille 4.102px
+    // against 3.612px for every other glyph (+13.6%). Mutation: revert
+    // `.charts-tile-preview pre` to `font-family: inherit` -> red.
+    const tileRule = css.match(/\.charts-tile-preview pre \{[^}]*\}/)![0];
+    expect(tileRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(tileRule).not.toContain("font-family: inherit");
+    expect(tileRule).toMatch(/line-height:\s*1\s*;/);
   });
 
   it("shows exactly TypeScript and JSON tabs and copies each current snippet", async () => {
@@ -294,6 +303,23 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("pre")!.textContent).toContain("Bar");
   });
 
+  it("final-gate-2 (codex #7): Copy link encodes the CURRENT state at click time, not whatever the debounced URL writer last committed", async () => {
+    // Mutation: revert `copyLink` to `navigator.clipboard.writeText(window
+    // .location.href)` -> selecting Area and copying immediately (before
+    // the 150ms debounce fires) copies the PREVIOUS (default "Line")
+    // chart's link -> the decoded title below reddens.
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Area"]')!.click());
+    // No timer advance — the debounced urlWriter has NOT fired yet.
+    act(() => button("Copy link").click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalled()); });
+    const link = writeText.mock.calls.at(-1)![0] as string;
+    const param = new URLSearchParams(link.split("?")[1] ?? "").get("c");
+    const decoded = await decodeChartsUrlState(param);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.chart.title).toBe("Area");
+  });
+
   it("edits a mark's JSON live, reports malformed drafts and recovers via sample", () => {
     const before = container.querySelector(".synth-viewport pre")!.textContent;
     const textarea = container.querySelector("textarea")!;
@@ -311,20 +337,71 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   });
 
   // Packet item 7 — the table is the PRIMARY (default) data view; editing a
-  // cell there must reach the same `dataText` the JSON tab shows.
-  it("the table editor is the default data view and edits a cell live", () => {
+  // cell there must reach the same `dataText` the JSON tab shows, once
+  // committed (final-gate-2 codex #5: a cell now holds an uncommitted
+  // EDITING STRING until blur/Enter, so the value only reaches the reducer
+  // — and the preview — after that, never on every keystroke).
+  it("the table editor is the default data view and commits a cell edit on blur", () => {
     const tableTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "Table") as HTMLButtonElement;
     expect(tableTab.getAttribute("aria-selected")).toBe("true");
     const before = container.querySelector(".synth-viewport pre")!.textContent;
     const valueInput = container.querySelector<HTMLInputElement>('.charts-table tbody tr:first-child td input')!;
+    act(() => { valueInput.focus(); valueInput.dispatchEvent(new Event("focusin", { bubbles: true })); });
     act(() => {
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(valueInput, "42");
       valueInput.dispatchEvent(new Event("input", { bubbles: true }));
     });
+    // Still uncommitted — typing alone must not yet reach the reducer/preview.
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toBe(before);
+    act(() => { valueInput.blur(); valueInput.dispatchEvent(new Event("focusout", { bubbles: true })); });
     expect(container.querySelector(".synth-viewport pre")!.textContent).not.toBe(before);
     const jsonTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
     act(() => jsonTab.click());
     expect(JSON.parse(container.querySelector("textarea")!.value)[0]).toBe(42);
+  });
+  it("final-gate-2 (codex #5): typing '3.' then '5' into a numeric cell commits 3.5, not 35 — the display never round-trips through the already-parsed number mid-keystroke", () => {
+    const valueInput = container.querySelector<HTMLInputElement>('.charts-table tbody tr:first-child td input')!;
+    const type = (value: string) => act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(valueInput, value);
+      valueInput.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => { valueInput.focus(); valueInput.dispatchEvent(new Event("focusin", { bubbles: true })); });
+    type("3.");
+    expect(valueInput.value).toBe("3."); // still the literal typed text, not re-parsed to "3".
+    type("3.5");
+    act(() => { valueInput.blur(); valueInput.dispatchEvent(new Event("focusout", { bubbles: true })); });
+    const jsonTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
+    act(() => jsonTab.click());
+    expect(JSON.parse(container.querySelector("textarea")!.value)[0]).toBe(3.5);
+  });
+  it("final-gate-2 (codex #6): renaming a column commits on blur, updates the chart's channel reference, and never disconnects the focused input", () => {
+    // Reproduces the review's exact scenario: the Bar preset's `x` channel
+    // names its "month" field, so renaming that column must carry the
+    // channel reference along or the mark points at a field that no
+    // longer exists.
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
+    const header = Array.from(container.querySelectorAll<HTMLInputElement>(".charts-table thead th .charts-table-header")).find((input) => input.value === "month")!;
+    const originalColumn = header.value;
+    act(() => { header.focus(); header.dispatchEvent(new Event("focusin", { bubbles: true })); });
+    act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(header, `${originalColumn}X`);
+      header.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    // Same DOM node — the input was never remounted mid-edit.
+    expect(container.querySelector<HTMLInputElement>(".charts-table thead th .charts-table-header")).toBe(header);
+    act(() => { header.blur(); header.dispatchEvent(new Event("focusout", { bubbles: true })); });
+    expect(container.querySelector('[role="alert"]')).toBeNull(); // no GLYPH_CHART_INTERNAL_COORD from a stale channel reference.
+    const dataTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
+    act(() => dataTab.click());
+    expect(container.querySelector("textarea")!.value).toContain(`${originalColumn}X`);
+    // Mutation: drop the `channels` rewrite in the reducer's "rename-column"
+    // case -> the mark's `x` channel stays the literal string "month" while
+    // every row is now keyed "monthX" -> this reddens.
+    act(() => button("Export").click());
+    const exportPanel = container.querySelector("#charts-export-panel")!;
+    act(() => Array.from(exportPanel.querySelectorAll<HTMLButtonElement>(".gw-code-panel__tab")).find((tab) => tab.textContent === "JSON")!.click());
+    const spec = JSON.parse(exportPanel.querySelector("code")!.textContent!);
+    expect(spec.marks[0].channels.x).toBe(`${originalColumn}X`);
   });
 
   it("add row / add column / remove row / remove column all reach the same state as the JSON tab", () => {

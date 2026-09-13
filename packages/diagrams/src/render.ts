@@ -21,7 +21,10 @@ export const GLYPH_DIAGRAM_TARGET_DEFAULTS: Readonly<Record<GlyphDiagramTarget, 
   web: { width: 96, height: 32, charset: "braille", color: "css" },
 });
 function resolvedOptions(options: GlyphDiagramRenderOptions) {
-  const target = options.target ?? "chat";
+  // Default "web" (final-gate-2 review, codex #8 / Opus P3): mirrors
+  // `@glyphcss/charts`' bare `renderGlyphChart(x)` default exactly — "targets
+  // mirror charts" was documentation until this matched it in code too.
+  const target = options.target ?? "web";
   if (!["chat", "terminal", "web"].includes(target)) glyphDiagramError("bad-options", "target must be chat, terminal, or web.");
   const defaults = GLYPH_DIAGRAM_TARGET_DEFAULTS[target];
   const result = { ...options, target, width: options.width ?? defaults.width, height: options.height ?? defaults.height,
