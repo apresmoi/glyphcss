@@ -1,4 +1,4 @@
-import { useState, type Dispatch } from "react";
+import { Fragment, useRef, useState, type Dispatch, type KeyboardEvent } from "react";
 import {
   CHART_CHANNELS, CHART_MARK_TYPES, CHART_TRANSFORMS, chartMarkFields, chartMarkTable, nextChartTableColumnName,
   type ChartsWorkbenchAction, type ChartsWorkbenchMark,
@@ -7,30 +7,43 @@ import {
 const DATA_VIEWS = [{ id: "table", label: "Table" }, { id: "json", label: "JSON" }] as const;
 
 /**
- * Packet item 7's table editor — the PRIMARY data view (default tab), one
- * `<input>` per cell dispatching straight to the reducer's own `setCell`/
- * `addRow`/`removeRow`/`addColumn`/`removeColumn`/`renameColumn` actions
- * (`chartsWorkbenchState.ts`), so the table and the JSON textarea below are
- * exactly one piece of state (`mark.dataText`) viewed two ways.
+ * Packet item 1's table rebuild — one CSS-GRID (`grid-template-columns:
+ * repeat(N, minmax(6ch, 1fr)) 2ch`, the last track the row-remove column),
+ * so every cell lives at an exact `(row, col)` grid coordinate instead of
+ * an HTML `<table>`'s row-then-cell nesting — the previous `<table>` markup
+ * is what let the per-row `×` drift out of alignment with its own row once
+ * a column's content width differed from its header's. Header row = column
+ * names (rename inline); add-row/add-column live in one FOOTER row instead
+ * of a header `<th>`, so the header row holds only real columns. Numeric
+ * cells right-align via `.is-numeric`. The grid's own intrinsic width
+ * (never below N x 6ch) is what makes `.charts-grid-wrap`'s `overflow-x:
+ * auto` produce real horizontal scrolling for a wide table instead of
+ * squeezing every column unreadably thin.
  *
- * Final-gate-2 review (codex #5/#6): a cell/header `<input>` used to be
- * CONTROLLED straight off the committed, already-PARSED value and dispatch
- * on every keystroke — so typing "3." parsed to the number `3`, redisplayed
- * as "3", and the next keystroke "5" landed after that "3" ("35", not
- * "3.5"); and a column-rename input was keyed by the column's OWN NAME,
- * which the same immediate dispatch changed on every keystroke, remounting
- * the input (and its focus) out from under the person still typing. Both
- * are fixed the same way: an uncommitted EDITING STRING lives in local
- * component state, keyed by `${row}:${column}` (cells) or the column's
- * INDEX (header, stable across a rename), shown instead of the committed
- * value while it exists, and committed to the reducer (parsed, for cells)
- * only on blur or Enter — never per keystroke.
+ * Keeps the exact reducer API from before (`chartMarkTable`/`setCell`/
+ * `addRow`/`removeRow`/`addColumn`/`removeColumn`/`renameColumn`) — this is
+ * a rendering rebuild, not a state rewrite — and the exact uncommitted-
+ * EDITING-STRING pattern final-gate-2 (codex #5/#6) fixed: a cell/header
+ * `<input>` is CONTROLLED off local component state while focused (keyed by
+ * `${row}:${column}` for a cell, the column's own INDEX for a header — an
+ * index survives a rename, where the old name-keyed scheme remounted the
+ * input mid-edit) and commits (parsed, for cells) to the reducer only on
+ * blur or Enter, never per keystroke.
+ *
+ * Keyboard navigation: Tab/Shift+Tab already move through cells in the
+ * grid's own DOM order (header row, then each data row, left to right) —
+ * no extra wiring needed. Arrow keys and Enter move the FOCUS between
+ * cells via `data-row`/`data-col` coordinates on every `<input>` (header
+ * row is `data-row="-1"`), independent of Tab order so a reader can
+ * navigate like a spreadsheet without leaving the keyboard.
  */
 function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark; index: number; dispatch: Dispatch<ChartsWorkbenchAction> }) {
   const table = chartMarkTable(mark);
   const [editingCell, setEditingCell] = useState<{ key: string; value: string } | null>(null);
   const [editingColumn, setEditingColumn] = useState<{ index: number; value: string } | null>(null);
+  const gridRef = useRef<HTMLDivElement | null>(null);
   if (!table.ok) return <p className="charts-error" role="alert">Invalid JSON — fix it in the JSON tab.</p>;
+
   const commitCell = (row: number, column: string, value: string) => {
     setEditingCell(null);
     dispatch({ type: "set-cell", id: mark.id, row, column, value });
@@ -39,42 +52,72 @@ function ChartsMarkTable({ mark, index, dispatch }: { mark: ChartsWorkbenchMark;
     setEditingColumn(null);
     if (next !== column) dispatch({ type: "rename-column", id: mark.id, column, next });
   };
-  return <div className="charts-table-wrap">
-    <table className="charts-table">
-      <thead>
-        <tr>
-          {table.columns.map((column, c) => <th key={c}>
-            <input className="charts-table-header" value={editingColumn?.index === c ? editingColumn.value : column} aria-label={`Rename column ${column}`}
-              onChange={(event) => setEditingColumn({ index: c, value: event.target.value })}
-              onFocus={() => setEditingColumn({ index: c, value: column })}
-              onBlur={(event) => commitColumn(column, event.target.value)}
-              onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-            <button type="button" className="charts-table-remove" title={`Remove column ${column}`} aria-label={`Remove column ${column}`}
-              onClick={() => dispatch({ type: "remove-column", id: mark.id, column })}>×</button>
-          </th>)}
-          <th><button type="button" className="charts-table-add" title="Add column" aria-label="Add column"
-            onClick={() => dispatch({ type: "add-column", id: mark.id, column: nextChartTableColumnName(table.columns) })}>+</button></th>
-        </tr>
-      </thead>
-      <tbody>
-        {table.rows.map((row, r) => <tr key={r}>
-          {table.columns.map((column) => {
-            const key = `${r}:${column}`;
-            const committed = String(row[column] ?? "");
-            return <td key={column}>
-              <input value={editingCell?.key === key ? editingCell.value : committed} aria-label={`Mark ${index + 1} row ${r + 1} ${column}`}
-                onChange={(event) => setEditingCell({ key, value: event.target.value })}
-                onFocus={() => setEditingCell({ key, value: committed })}
-                onBlur={(event) => commitCell(r, column, event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />
-            </td>;
-          })}
-          <td><button type="button" className="charts-table-remove" title={`Remove row ${r + 1}`} aria-label={`Remove row ${r + 1}`}
-            onClick={() => dispatch({ type: "remove-row", id: mark.id, row: r })}>×</button></td>
-        </tr>)}
-      </tbody>
-    </table>
-    <button type="button" className="gw-code-panel__action charts-table-add-row" onClick={() => dispatch({ type: "add-row", id: mark.id })}>+ row</button>
+
+  const focusCell = (row: number, col: number) => {
+    const clampedRow = Math.max(-1, Math.min(row, table.rows.length - 1));
+    const clampedCol = Math.max(0, Math.min(col, table.columns.length - 1));
+    gridRef.current?.querySelector<HTMLInputElement>(`input[data-row="${clampedRow}"][data-col="${clampedCol}"]`)?.focus();
+  };
+  const onCellKeyDown = (event: KeyboardEvent<HTMLInputElement>, row: number, col: number) => {
+    switch (event.key) {
+      case "ArrowDown": event.preventDefault(); focusCell(row + 1, col); return;
+      case "ArrowUp": event.preventDefault(); focusCell(row - 1, col); return;
+      case "ArrowRight":
+        if (event.currentTarget.selectionStart !== event.currentTarget.value.length) return;
+        event.preventDefault(); focusCell(row, col + 1); return;
+      case "ArrowLeft":
+        if (event.currentTarget.selectionStart !== 0) return;
+        event.preventDefault(); focusCell(row, col - 1); return;
+      case "Enter": event.currentTarget.blur(); focusCell(row + 1, col); return;
+    }
+  };
+
+  const gridStyle = { gridTemplateColumns: `repeat(${table.columns.length}, minmax(6ch, 1fr)) 2ch` };
+  return <div className="charts-grid-wrap">
+    <div className="charts-grid" role="grid" aria-label={`Mark ${index + 1} data table`} style={gridStyle} ref={gridRef}>
+      {table.columns.map((column, c) => <div className="charts-grid-header" role="columnheader" key={`h-${c}`}>
+        <input className="charts-table-header" data-row={-1} data-col={c}
+          value={editingColumn?.index === c ? editingColumn.value : column} aria-label={`Rename column ${column}`}
+          onChange={(event) => setEditingColumn({ index: c, value: event.target.value })}
+          onFocus={() => setEditingColumn({ index: c, value: column })}
+          onBlur={(event) => commitColumn(column, event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") { event.currentTarget.blur(); focusCell(0, c); }
+            else if (event.key === "ArrowDown") { event.preventDefault(); focusCell(0, c); }
+            else if (event.key === "ArrowRight" && event.currentTarget.selectionStart === event.currentTarget.value.length) { event.preventDefault(); focusCell(-1, c + 1); }
+            else if (event.key === "ArrowLeft" && event.currentTarget.selectionStart === 0) { event.preventDefault(); focusCell(-1, c - 1); }
+          }} />
+        <button type="button" className="charts-table-remove" title={`Remove column ${column}`} aria-label={`Remove column ${column}`}
+          onClick={() => dispatch({ type: "remove-column", id: mark.id, column })}>×</button>
+      </div>)}
+      <div className="charts-grid-header charts-grid-header--spacer" role="columnheader" aria-hidden="true" />
+
+      {table.rows.map((row, r) => <Fragment key={r}>
+        {table.columns.map((column, c) => {
+          const key = `${r}:${column}`;
+          const committed = row[column] ?? "";
+          const isNumeric = typeof committed === "number";
+          return <div className={`charts-grid-cell${isNumeric ? " is-numeric" : ""}`} role="gridcell" key={`${r}-${column}`}>
+            <input value={editingCell?.key === key ? editingCell.value : String(committed)} aria-label={`Mark ${index + 1} row ${r + 1} ${column}`}
+              data-row={r} data-col={c}
+              onChange={(event) => setEditingCell({ key, value: event.target.value })}
+              onFocus={() => setEditingCell({ key, value: String(committed) })}
+              onBlur={(event) => commitCell(r, column, event.target.value)}
+              onKeyDown={(event) => onCellKeyDown(event, r, c)} />
+          </div>;
+        })}
+        <div className="charts-grid-cell charts-grid-cell--remove" role="gridcell">
+          <button type="button" className="charts-table-remove" title={`Remove row ${r + 1}`} aria-label={`Remove row ${r + 1}`}
+            onClick={() => dispatch({ type: "remove-row", id: mark.id, row: r })}>×</button>
+        </div>
+      </Fragment>)}
+
+      <div className="charts-grid-footer" role="row">
+        <button type="button" className="gw-code-panel__action charts-table-add-row" onClick={() => dispatch({ type: "add-row", id: mark.id })}>+ row</button>
+        <button type="button" className="gw-code-panel__action charts-table-add" title="Add column" aria-label="Add column"
+          onClick={() => dispatch({ type: "add-column", id: mark.id, column: nextChartTableColumnName(table.columns) })}>+ column</button>
+      </div>
+    </div>
   </div>;
 }
 

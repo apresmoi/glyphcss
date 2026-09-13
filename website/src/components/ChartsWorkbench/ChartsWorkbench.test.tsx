@@ -376,7 +376,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const tableTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "Table") as HTMLButtonElement;
     expect(tableTab.getAttribute("aria-selected")).toBe("true");
     const before = container.querySelector(".synth-viewport pre")!.textContent;
-    const valueInput = container.querySelector<HTMLInputElement>('.charts-table tbody tr:first-child td input')!;
+    const valueInput = container.querySelector<HTMLInputElement>('.charts-grid input[data-row="0"][data-col="0"]')!;
     act(() => { valueInput.focus(); valueInput.dispatchEvent(new Event("focusin", { bubbles: true })); });
     act(() => {
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(valueInput, "42");
@@ -391,7 +391,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(JSON.parse(container.querySelector("textarea")!.value)[0]).toBe(42);
   });
   it("final-gate-2 (codex #5): typing '3.' then '5' into a numeric cell commits 3.5, not 35 — the display never round-trips through the already-parsed number mid-keystroke", () => {
-    const valueInput = container.querySelector<HTMLInputElement>('.charts-table tbody tr:first-child td input')!;
+    const valueInput = container.querySelector<HTMLInputElement>('.charts-grid input[data-row="0"][data-col="0"]')!;
     const type = (value: string) => act(() => {
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(valueInput, value);
       valueInput.dispatchEvent(new Event("input", { bubbles: true }));
@@ -411,7 +411,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     // channel reference along or the mark points at a field that no
     // longer exists.
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
-    const header = Array.from(container.querySelectorAll<HTMLInputElement>(".charts-table thead th .charts-table-header")).find((input) => input.value === "month")!;
+    const header = Array.from(container.querySelectorAll<HTMLInputElement>(".charts-grid-header .charts-table-header")).find((input) => input.value === "month")!;
     const originalColumn = header.value;
     act(() => { header.focus(); header.dispatchEvent(new Event("focusin", { bubbles: true })); });
     act(() => {
@@ -419,7 +419,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
       header.dispatchEvent(new Event("input", { bubbles: true }));
     });
     // Same DOM node — the input was never remounted mid-edit.
-    expect(container.querySelector<HTMLInputElement>(".charts-table thead th .charts-table-header")).toBe(header);
+    expect(container.querySelector<HTMLInputElement>(".charts-grid-header .charts-table-header")).toBe(header);
     act(() => { header.blur(); header.dispatchEvent(new Event("focusout", { bubbles: true })); });
     expect(container.querySelector('[role="alert"]')).toBeNull(); // no GLYPH_CHART_INTERNAL_COORD from a stale channel reference.
     const dataTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
@@ -438,16 +438,46 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   it("add row / add column / remove row / remove column all reach the same state as the JSON tab", () => {
     act(() => button("+ Add mark").click());
     const dotCard = container.querySelectorAll(".voice-card")[1]!;
-    const rowsBefore = dotCard.querySelectorAll(".charts-table tbody tr").length;
+    const bodyFirstColumnCells = '.charts-grid input:not([data-row="-1"])[data-col="0"]';
+    const rowsBefore = dotCard.querySelectorAll(bodyFirstColumnCells).length;
     act(() => dotCard.querySelector<HTMLButtonElement>(".charts-table-add-row")!.click());
-    expect(dotCard.querySelectorAll(".charts-table tbody tr").length).toBe(rowsBefore + 1);
+    expect(dotCard.querySelectorAll(bodyFirstColumnCells).length).toBe(rowsBefore + 1);
     act(() => dotCard.querySelector<HTMLButtonElement>('.charts-table-remove[title^="Remove row"]')!.click());
-    expect(dotCard.querySelectorAll(".charts-table tbody tr").length).toBe(rowsBefore);
-    const columnsBefore = dotCard.querySelectorAll(".charts-table thead th").length;
+    expect(dotCard.querySelectorAll(bodyFirstColumnCells).length).toBe(rowsBefore);
+    const columnsBefore = dotCard.querySelectorAll(".charts-grid-header").length;
     act(() => dotCard.querySelector<HTMLButtonElement>(".charts-table-add")!.click());
-    expect(dotCard.querySelectorAll(".charts-table thead th").length).toBe(columnsBefore + 1);
+    expect(dotCard.querySelectorAll(".charts-grid-header").length).toBe(columnsBefore + 1);
     act(() => dotCard.querySelector<HTMLButtonElement>('.charts-table-remove[title^="Remove column"]')!.click());
-    expect(dotCard.querySelectorAll(".charts-table thead th").length).toBe(columnsBefore);
+    expect(dotCard.querySelectorAll(".charts-grid-header").length).toBe(columnsBefore);
+  });
+
+  it("packet item 1 — arrow keys move focus between grid cells like a spreadsheet", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Bar"]')!.click());
+    const grid = container.querySelector(".charts-grid")!;
+    const cell = (row: number, col: number) => grid.querySelector<HTMLInputElement>(`input[data-row="${row}"][data-col="${col}"]`)!;
+    const press = (element: HTMLElement, key: string) => act(() => element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    // Left/Right only jump cells once the caret sits at the text's own edge
+    // (otherwise they move the caret through the cell's text, same as a
+    // real spreadsheet's in-cell edit mode) — every press below places the
+    // caret at the boundary it's testing before dispatching the key.
+    const atEnd = (input: HTMLInputElement) => input.setSelectionRange(input.value.length, input.value.length);
+    const atStart = (input: HTMLInputElement) => input.setSelectionRange(0, 0);
+    act(() => cell(0, 0).focus());
+    press(cell(0, 0), "ArrowDown");
+    expect(document.activeElement).toBe(cell(1, 0));
+    atEnd(cell(1, 0));
+    press(cell(1, 0), "ArrowRight");
+    expect(document.activeElement).toBe(cell(1, 1));
+    press(cell(1, 1), "ArrowUp");
+    expect(document.activeElement).toBe(cell(0, 1));
+    atStart(cell(0, 1));
+    press(cell(0, 1), "ArrowLeft");
+    expect(document.activeElement).toBe(cell(0, 0));
+    // From the header row, ArrowDown enters the first data row of that column.
+    const header = grid.querySelector<HTMLInputElement>('input[data-row="-1"][data-col="0"]')!;
+    act(() => header.focus());
+    press(header, "ArrowDown");
+    expect(document.activeElement).toBe(cell(0, 0));
   });
 
   it("adds and removes real rail cards", () => {
@@ -456,6 +486,61 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     act(() => container.querySelector<HTMLButtonElement>('[aria-label="Remove mark 1"]')!.click());
     expect(container.querySelectorAll(".voice-card")).toHaveLength(1);
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
+  });
+
+  // Data folder end-to-end (AGENTS.md's "Charts" — "Data layer"): picking a
+  // real vendored dataset and clicking Apply must replace the marks with
+  // the recommended mapping AND set an explicit time x-scale (see
+  // chartsDatasetDateAxis.test.ts's header comment — a date column is a
+  // plain ISO string, so nothing downstream infers "time" on its own).
+  it("Data folder: choosing a dataset and clicking Apply replaces marks with its recommended mapping and a real time x-scale", () => {
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      datasetSelect.selectedIndex = Array.from(datasetSelect.options).findIndex((o) => o.value === "global-temperature");
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector(".charts-data-info")!.textContent).toContain("NASA GISS");
+    const applyButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Apply")!;
+    act(() => applyButton.click());
+    expect(container.querySelectorAll(".voice-card")).toHaveLength(1);
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 type"]')!.value).toBe("line");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 x"]')!.value).toBe("year");
+    expect(container.querySelector<HTMLSelectElement>('[aria-label="Mark 1 y"]')!.value).toBe("anomaly_c");
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toContain("Global temperature anomaly");
+    // The x scale's "auto" default would infer `band` for a plain ISO
+    // string column (see this file's header comment) — Apply must have
+    // forced `time` explicitly, which is directly observable in the
+    // rendered preview: a real multi-scale year label, never a raw ISO
+    // string fragment.
+    expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\b(19|20)\d{2}\b/);
+    expect(container.querySelector(".synth-viewport pre")!.textContent).not.toContain("T00:00:00");
+  });
+
+  it("Data folder: a pipeline filter step narrows the applied mark's data", () => {
+    const datasetSelect = container.querySelector<HTMLSelectElement>('select[aria-label="Dataset"]')!;
+    act(() => {
+      datasetSelect.selectedIndex = Array.from(datasetSelect.options).findIndex((o) => o.value === "world-population-by-country");
+      datasetSelect.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    act(() => container.querySelector<HTMLButtonElement>(".charts-data-folder .charts-table-add-row")!.click());
+    // A freshly added step already defaults to kind "filter" — no need to
+    // touch its own kind `<select>`, only the fields it renders.
+    // A "filter" step renders exactly two `.charts-pipeline-input`s
+    // (column, value) plus one `.charts-pipeline-select` (operator) in between.
+    const [columnInput, valueInput] = Array.from(container.querySelectorAll<HTMLInputElement>(".charts-pipeline-input"));
+    const setValue = (input: HTMLInputElement, value: string) => act(() => {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(input, value);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    setValue(columnInput!, "country");
+    setValue(valueInput!, "Germany");
+    const applyButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Apply")!;
+    act(() => applyButton.click());
+    const jsonTab = Array.from(container.querySelectorAll('[role="tab"]')).find((node) => node.textContent === "JSON") as HTMLButtonElement;
+    act(() => jsonTab.click());
+    const rows = JSON.parse(container.querySelector("textarea")!.value) as Array<{ country: string }>;
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.country === "Germany")).toBe(true);
   });
 
   it("opens only the selected mobile drawer and closes it with Escape", () => {

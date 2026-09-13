@@ -22,25 +22,38 @@
 }
 .charts-mark-data:focus-visible { outline: 1px solid #38bdf8; }
 
-/* Table editor (packet item 7) — the PRIMARY data view; the JSON textarea
-   above is the secondary tab, same `mark.dataText` underneath both. */
+/* Table editor (packet item 1 rebuild) — the PRIMARY data view; the JSON
+   textarea above is the secondary tab, same `mark.dataText` underneath
+   both. A real CSS-GRID table (`ChartsMarkCard.tsx`'s own doc): one grid,
+   `grid-template-columns: repeat(N, minmax(6ch, 1fr)) 2ch` (the trailing
+   2ch track is the per-row remove column), header row then each data row
+   in DOM order, a full-width footer row for +row/+column. Every cell sits
+   at its own exact grid coordinate, so a row's `×` can never drift out of
+   alignment with its own row the way the previous `<table>` markup let it
+   when a column's content width disagreed with its header's. */
 .charts-data-tabs { margin: 4px 0; }
-.charts-table-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
-.charts-table { border-collapse: collapse; width: 100%; font-size: 11px; }
-.charts-table th, .charts-table td { border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px; white-space: nowrap; }
-.charts-table th { background: #0d1118; }
-.charts-table input {
-  width: 100%; min-width: 48px; box-sizing: border-box; background: transparent; color: inherit;
+.charts-grid-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
+.charts-grid { display: grid; font-size: 11px; }
+.charts-grid-header, .charts-grid-cell {
+  display: flex; align-items: center; gap: 2px; border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px; min-width: 0;
+}
+.charts-grid-header { background: #0d1118; }
+.charts-grid-header--spacer { background: #0d1118; }
+.charts-grid-cell--remove { justify-content: center; }
+.charts-grid input {
+  width: 100%; min-width: 0; box-sizing: border-box; background: transparent; color: inherit;
   border: none; font: inherit; padding: 2px 4px;
 }
-.charts-table input:focus-visible { outline: 1px solid #38bdf8; }
+.charts-grid input:focus-visible { outline: 1px solid #38bdf8; }
+/* Numeric cells right-align (packet item 1). */
+.charts-grid-cell.is-numeric input { text-align: right; }
 .charts-table-header { font-weight: 700; }
-.charts-table-remove, .charts-table-add {
+.charts-table-remove, .charts-table-add, .charts-table-add-row {
   background: transparent; color: rgba(255, 232, 184, 0.65); border: 1px solid rgba(255, 232, 184, 0.22);
-  cursor: pointer; line-height: 1; padding: 1px 5px; border-radius: 0;
+  cursor: pointer; line-height: 1; padding: 1px 5px; border-radius: 0; flex: 0 0 auto;
 }
-.charts-table-remove:hover, .charts-table-add:hover { color: #fda4af; border-color: #fda4af; }
-.charts-table-add-row { margin-top: 4px; }
+.charts-table-remove:hover, .charts-table-add:hover, .charts-table-add-row:hover { color: #fda4af; border-color: #fda4af; }
+.charts-grid-footer { grid-column: 1 / -1; display: flex; gap: 6px; padding: 4px 2px; }
 
 /* A chart has a fixed cell budget, so scroll its text instead of clipping it.
    Leave the floating Dock's lane free; the shared shell still positions it. */
@@ -161,6 +174,27 @@
    cell ~13.6% wider than a box-drawing/ASCII one in this exact tile). */
 .charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
 .charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
+
+/* Data folder (packet items 2/3) — dataset picker, custom upload, pipeline
+   row editor, recommendation readout. Plain flow inside one dock slot. */
+.charts-data-folder { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.charts-data-info { display: flex; flex-direction: column; gap: 2px; }
+.charts-data-info a { color: #38bdf8; }
+.charts-data-custom { display: flex; flex-direction: column; gap: 4px; }
+.charts-data-recommend { display: flex; flex-direction: column; gap: 4px; }
+.charts-data-runnerups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.charts-data-runnerup {
+  width: 100%; text-align: left; background: transparent; color: rgba(255, 232, 184, 0.65);
+  border: 1px solid rgba(255, 232, 184, 0.14); cursor: pointer; padding: 2px 6px; font-size: 10px; border-radius: 0;
+}
+.charts-data-runnerup:hover { color: #fda4af; border-color: #fda4af; }
+.charts-pipeline { display: flex; flex-direction: column; gap: 4px; }
+.charts-pipeline-step { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.charts-pipeline-select, .charts-pipeline-input {
+  font: inherit; font-size: 11px; background: #0d1118; color: inherit; border: 1px solid rgba(255, 232, 184, 0.22); padding: 2px 4px;
+}
+.charts-pipeline-input { flex: 1 1 8ch; min-width: 8ch; }
+.charts-pipeline-step-actions { display: flex; gap: 2px; margin-left: auto; }
 
 @media (max-width: 760px) {
   .charts-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }

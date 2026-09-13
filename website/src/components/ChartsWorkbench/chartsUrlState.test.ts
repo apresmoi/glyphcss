@@ -93,6 +93,41 @@ describe("chartsUrlState — round trip", () => {
     }
   });
 
+  // Data folder (AGENTS.md's "Charts" — "Data layer"), appended after `v1`
+  // already existed: an old link with no `data` key at all still decodes to
+  // today's default `{ source: null, pipeline: [] }` (proven by the fixed
+  // historical link below, encoded before this field existed), so this
+  // test's own job is round-tripping a source/pipeline a reader DID set.
+  it("round-trips a dataset source with pipeline steps", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "dataset", id: "world-population-by-country" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-pipeline", pipeline: [
+      { kind: "filter", column: "country", operator: "==", value: "Germany" },
+      { kind: "sort", column: "year", direction: "desc" },
+      { kind: "limit", count: 10 },
+    ] });
+    state = reduceChartsWorkbenchState(state, { type: "apply-data", mark: "line", channels: { x: "year", y: "population" } });
+    const raw = await encodeChartsUrlState(state);
+    expect(await decodeChartsUrlState(raw)).toEqual(state);
+  });
+
+  it("round-trips a custom pasted source with a select/flatten/derive pipeline", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-data-source", source: { kind: "custom", raw: '{"items":[{"id":1,"meta":{"n":"a"}}]}', filename: "data.json" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-pipeline", pipeline: [
+      { kind: "select", path: "items[*]" }, { kind: "flatten" }, { kind: "derive", column: "double", expression: "id * 2" },
+    ] });
+    const raw = await encodeChartsUrlState(state);
+    expect(await decodeChartsUrlState(raw)).toEqual(state);
+  });
+
+  it("rejects a pipeline step with an out-of-vocabulary operator/kind", async () => {
+    const base = createChartsWorkbenchState();
+    const withBadStep = { ...base, data: { source: null, pipeline: [{ kind: "filter", column: "a", operator: "~=", value: "1" }] } };
+    const raw = await encodeChartsUrlState(withBadStep as unknown as ChartsWorkbenchState);
+    expect(await decodeChartsUrlState(raw)).toBeNull();
+  });
+
   it("malformed input decodes to null (page falls back to the default state)", async () => {
     expect(await decodeChartsUrlState(null)).toBeNull();
     expect(await decodeChartsUrlState("")).toBeNull();

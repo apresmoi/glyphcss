@@ -15,9 +15,10 @@
 import {
   CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS,
-  type ChartsWorkbenchAxis, type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState,
-  type GlyphChartsWorkbenchControls,
+  type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchDataState, type ChartsWorkbenchMark,
+  type ChartsWorkbenchScale, type ChartsWorkbenchState, type GlyphChartsWorkbenchControls,
 } from "./chartsWorkbenchState";
+import { FILTER_OPERATORS, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
 import { createDebouncedJsonUrlWriter, createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 
 export const CHARTS_URL_PARAM = "c";
@@ -114,9 +115,85 @@ function validateControls(value: unknown): GlyphChartsWorkbenchControls | null {
   return { target, overrides: clean };
 }
 
+// Data folder (AGENTS.md's "Charts" — "Data layer"), appended after the
+// original `v1` fields ever existed — an old link with no `data` key at all
+// decodes to `{ source: null, pipeline: [] }` (`state.data` at
+// `createChartsWorkbenchState()`), exactly the "Data folder untouched"
+// state, so nothing about a pre-existing link changes.
+function validateDataSource(value: unknown): ChartsDataSource | null {
+  if (value === null) return null;
+  if (!isRecord(value)) return null;
+  if (value.kind === "dataset") {
+    return typeof value.id === "string" ? { kind: "dataset", id: value.id } : null;
+  }
+  if (value.kind === "custom") {
+    if (typeof value.raw !== "string") return null;
+    const source: { kind: "custom"; raw: string; filename?: string; mimeType?: string } = { kind: "custom", raw: value.raw };
+    if (value.filename !== undefined) { if (typeof value.filename !== "string") return null; source.filename = value.filename; }
+    if (value.mimeType !== undefined) { if (typeof value.mimeType !== "string") return null; source.mimeType = value.mimeType; }
+    return source;
+  }
+  return null;
+}
+
+function validatePipelineStep(value: unknown): PipelineStep | null {
+  if (!isRecord(value)) return null;
+  if (!oneOf(value.kind, PIPELINE_STEP_KINDS)) return null;
+  switch (value.kind) {
+    case "select":
+      return typeof value.path === "string" ? { kind: "select", path: value.path } : null;
+    case "flatten":
+      return { kind: "flatten" };
+    case "pivotLonger": {
+      if (!Array.isArray(value.idColumns) || value.idColumns.some((c) => typeof c !== "string")) return null;
+      if (value.keyColumn !== undefined && typeof value.keyColumn !== "string") return null;
+      if (value.valueColumn !== undefined && typeof value.valueColumn !== "string") return null;
+      return { kind: "pivotLonger", idColumns: value.idColumns as string[], keyColumn: value.keyColumn, valueColumn: value.valueColumn };
+    }
+    case "pivotWider":
+      return typeof value.keyColumn === "string" && typeof value.valueColumn === "string"
+        ? { kind: "pivotWider", keyColumn: value.keyColumn, valueColumn: value.valueColumn } : null;
+    case "filter":
+      return typeof value.column === "string" && oneOf(value.operator, FILTER_OPERATORS) && typeof value.value === "string"
+        ? { kind: "filter", column: value.column, operator: value.operator, value: value.value } : null;
+    case "derive":
+      return typeof value.column === "string" && typeof value.expression === "string"
+        ? { kind: "derive", column: value.column, expression: value.expression } : null;
+    case "sort": {
+      if (typeof value.column !== "string") return null;
+      if (value.direction !== undefined && value.direction !== "asc" && value.direction !== "desc") return null;
+      return { kind: "sort", column: value.column, direction: value.direction };
+    }
+    case "limit":
+      return typeof value.count === "number" && Number.isFinite(value.count) ? { kind: "limit", count: value.count } : null;
+    case "parseDate": {
+      if (typeof value.column !== "string") return null;
+      if (value.format !== undefined && typeof value.format !== "string") return null;
+      return { kind: "parseDate", column: value.column, format: value.format };
+    }
+    default:
+      return null;
+  }
+}
+
+function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
+  if (value === undefined) return { source: null, pipeline: [] };
+  if (!isRecord(value)) return null;
+  const source = validateDataSource(value.source ?? null);
+  if (value.source !== undefined && value.source !== null && source === null) return null;
+  if (!Array.isArray(value.pipeline)) return null;
+  const pipeline: PipelineStep[] = [];
+  for (const raw of value.pipeline) {
+    const step = validatePipelineStep(raw);
+    if (!step) return null;
+    pipeline.push(step);
+  }
+  return { source, pipeline };
+}
+
 function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | null {
   if (!isRecord(value)) return null;
-  const { marks, nextMarkId, controls, scales, axes, chart, terminal } = value;
+  const { marks, nextMarkId, controls, scales, axes, chart, terminal, data } = value;
 
   if (!Array.isArray(marks)) return null;
   const cleanMarks: ChartsWorkbenchMark[] = [];
@@ -154,6 +231,9 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
   if (!isRecord(terminal)) return null;
   if (typeof terminal.NO_COLOR !== "boolean" || typeof terminal.FORCE_COLOR !== "boolean") return null;
 
+  const cleanData = validateDataState(data);
+  if (!cleanData) return null;
+
   return {
     marks: cleanMarks,
     nextMarkId,
@@ -167,6 +247,7 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
       titlePosition: chart.titlePosition ?? "top",
     },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
+    data: cleanData,
   };
 }
 

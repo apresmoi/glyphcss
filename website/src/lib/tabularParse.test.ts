@@ -1,0 +1,74 @@
+import { describe, expect, it } from "vitest";
+import { parseTabular } from "./tabularParse";
+
+describe("parseTabular", () => {
+  it("parses CSV with quoted fields and embedded commas", () => {
+    const csv = 'name,note\n"Acme, Inc.",42\nBob,"line1\nline2"';
+    const result = parseTabular(csv);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([
+      { name: "Acme, Inc.", note: 42 },
+      { name: "Bob", note: "line1\nline2" },
+    ]);
+  });
+
+  it("detects TSV by tab count in the first line", () => {
+    const tsv = "a\tb\n1\t2";
+    const result = parseTabular(tsv);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ a: 1, b: 2 }]);
+  });
+
+  it("forces TSV/CSV via a filename hint", () => {
+    const oneColumn = "a,b\n1,2"; // would be sniffed as CSV; force TSV instead
+    const result = parseTabular(oneColumn, { filename: "data.tsv" });
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    // No real tab in the text, so the whole line is one column.
+    expect(result.rows[0]).toEqual({ "a,b": "1,2" });
+  });
+
+  it("parses a JSON array of records directly", () => {
+    const json = JSON.stringify([{ x: 1, y: "a" }, { x: 2, y: "b" }]);
+    const result = parseTabular(json);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ x: 1, y: "a" }, { x: 2, y: "b" }]);
+  });
+
+  it("parses a JSON array of arrays with a header row", () => {
+    const json = JSON.stringify([["a", "b"], [1, 2], [3, 4]]);
+    const result = parseTabular(json);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows).toEqual([{ a: 1, b: 2 }, { a: 3, b: 4 }]);
+  });
+
+  it("hands back a nested JSON object as kind 'json' for the pipeline to select from", () => {
+    const json = JSON.stringify({ meta: { count: 2 }, items: [{ id: 1 }, { id: 2 }] });
+    const result = parseTabular(json);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "json") throw new Error("expected json");
+    expect(result.value).toEqual({ meta: { count: 2 }, items: [{ id: 1 }, { id: 2 }] });
+  });
+
+  it("rejects empty input", () => {
+    const result = parseTabular("   ");
+    expect(result).toEqual({ ok: false, error: "Empty input." });
+  });
+
+  it("reports a JSON syntax error instead of throwing", () => {
+    const result = parseTabular("{ bad json", { filename: "data.json" });
+    expect(result.ok).toBe(false);
+  });
+
+  it("coerces booleans and numbers, leaves other strings alone", () => {
+    const csv = "flag,count,label\ntrue,3.5,hello";
+    const result = parseTabular(csv);
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.kind !== "rows") throw new Error("expected rows");
+    expect(result.rows[0]).toEqual({ flag: true, count: 3.5, label: "hello" });
+  });
+});

@@ -4,6 +4,7 @@ import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphCha
 import { useDockSlot, useFolder, useOption, useReadonlyText, useSlider, useText, useToggle } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
+import { ChartsDataFolder } from "./ChartsDataFolder";
 import {
   CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS,
@@ -52,6 +53,15 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
   const detailSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
 
+  // Data folder (AGENTS.md's "Charts" — "Data layer"), positioned ahead of
+  // Chart: picking a dataset (or Custom…) and its pipeline is the FIRST
+  // decision a reader makes, before title/legend/axis polish. One slot
+  // portals the whole rich panel (`ChartsDataFolder.tsx`) — the picker,
+  // pipeline row editor and ranked recommendation readout all need real
+  // DOM structure lil-gui's own `add()` controls have no equivalent for.
+  const dataFolder = useFolder(gui, "Data", { open: true });
+  const dataSlot = useDockSlot(dataFolder, { position: "bottom", className: "charts-data-folder-slot" });
+
   const chart = useFolder(gui, "Chart", { open: true });
   useText(chart, "Title", state.chart.title, (title) => dispatch({ type: "set-chart", patch: { title } }));
   const titlePlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
@@ -84,6 +94,7 @@ export function ChartsDock({ state, dispatch }: { state: ChartsWorkbenchState; d
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
   return <>
+    {dataSlot && createPortal(<ChartsDataFolder data={state.data} dispatch={dispatch} />, dataSlot)}
     {outputHeaderSlot && createPortal(
       <div className="dock-folder-header">
         <span>OUTPUT</span>

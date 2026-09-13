@@ -9,6 +9,14 @@ import {
   type GlyphChartRenderOptions, type GlyphChartScaleOptions, type GlyphChartSpec,
   type GlyphChartTarget, type GlyphChartTitleAlign, type GlyphChartTitlePosition, type GlyphChartTransformKind,
 } from "@glyphcss/charts";
+import type { PipelineStep } from "../../lib/dataPipeline";
+import { profileRows } from "../../lib/dataProfile";
+import { buildDatasetMark, resolveChartsDataRows, xChannelIsDate, type ChartsDataSource, type ChartsRecommendedChannels } from "./chartsDataSource";
+
+export type { ChartsDataSource, ChartsRecommendedChannels } from "./chartsDataSource";
+export { profileChartsData, resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
+export { CHARTS_DATASETS, findChartsDataset } from "./datasets";
+export type { ChartsDataset } from "./datasets";
 
 export const CHART_TARGETS = ["chat", "terminal", "web"] as const;
 export const CHART_CHARSETS = ["ascii", "box", "blocks", "braille"] as const;
@@ -117,6 +125,17 @@ export interface ChartsWorkbenchAxis {
   readonly title: string;
   readonly grid: boolean;
 }
+/** The Data folder's own state (AGENTS.md's "Charts" — "Data layer"):
+ *  `source` is either a stock `datasets/` entry or a "Custom…" paste/upload,
+ *  `pipeline` is the ordered transform list running on top of it. `null`
+ *  source is the default — the Data folder shows the picker with nothing
+ *  applied yet, and every mark stays exactly what direct table/JSON editing
+ *  (or a preset) put there. */
+export interface ChartsWorkbenchDataState {
+  readonly source: ChartsDataSource | null;
+  readonly pipeline: readonly PipelineStep[];
+}
+
 export interface ChartsWorkbenchState {
   readonly marks: readonly ChartsWorkbenchMark[];
   readonly nextMarkId: number;
@@ -129,6 +148,7 @@ export interface ChartsWorkbenchState {
     readonly titleAlign: GlyphChartTitleAlign; readonly titlePosition: GlyphChartTitlePosition;
   };
   readonly terminal: { readonly NO_COLOR: boolean; readonly FORCE_COLOR: boolean };
+  readonly data: ChartsWorkbenchDataState;
 }
 export type ChartsWorkbenchAction =
   | { type: "add-mark"; markType?: GlyphChartMarkType }
@@ -150,7 +170,15 @@ export type ChartsWorkbenchAction =
   | { type: "remove-row"; id: number; row: number }
   | { type: "add-column"; id: number; column: string }
   | { type: "remove-column"; id: number; column: string }
-  | { type: "rename-column"; id: number; column: string; next: string };
+  | { type: "rename-column"; id: number; column: string; next: string }
+  // Data folder (AGENTS.md's "Charts" — "Data layer"): picking a dataset or
+  // custom source, editing the pipeline, and committing ("Apply") a mark
+  // type + channel mapping built from the resolved rows are three separate
+  // actions because Apply needs the OTHER two already reduced (a portal
+  // component reads `state.data` to compute what Apply's own button offers).
+  | { type: "set-data-source"; source: ChartsDataSource | null }
+  | { type: "set-pipeline"; pipeline: readonly PipelineStep[] }
+  | { type: "apply-data"; mark: GlyphChartMarkType; channels: ChartsRecommendedChannels };
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
@@ -171,7 +199,16 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     controls: { target: "web", overrides: {} }, scales: { x: autoScale(), y: autoScale() }, axes: { x: autoAxis(), y: autoAxis() },
     chart: { title: preset.label, description: "", legend: true, legendPlacement: "bottom", titleAlign: "center", titlePosition: "top" },
     terminal: { NO_COLOR: false, FORCE_COLOR: false },
+    data: { source: null, pipeline: [] },
   };
+}
+
+/** Identity string for a data source — used only to decide whether picking
+ *  a NEW source should drop the existing pipeline (its steps almost
+ *  certainly name columns the new source doesn't have). */
+function dataSourceKey(source: ChartsDataSource | null): string {
+  if (!source) return "";
+  return source.kind === "dataset" ? `dataset:${source.id}` : `custom:${source.filename ?? ""}`;
 }
 export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: ChartsWorkbenchAction): ChartsWorkbenchState {
   switch (action.type) {
@@ -211,6 +248,28 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       const channels = Object.fromEntries(Object.entries(renamed.channels).map(([key, value]) => [key, value === action.column ? action.next : value])) as ChartsWorkbenchMark["channels"];
       return { ...renamed, channels };
     }) };
+    case "set-data-source": {
+      // A new source's pipeline steps almost certainly name columns the
+      // OLD source doesn't share — picking a genuinely different source
+      // drops them; re-picking the same one (e.g. toggling Custom's file
+      // input) keeps whatever the reader already built.
+      const samePipeline = dataSourceKey(action.source) === dataSourceKey(state.data.source);
+      return { ...state, data: { source: action.source, pipeline: samePipeline ? state.data.pipeline : [] } };
+    }
+    case "set-pipeline": return { ...state, data: { ...state.data, pipeline: action.pipeline } };
+    case "apply-data": {
+      if (!state.data.source) return state;
+      const resolved = resolveChartsDataRows(state.data.source, state.data.pipeline);
+      if (!resolved.ok) return state;
+      const mark = buildDatasetMark(state.nextMarkId, action.mark, resolved.rows, action.channels);
+      const isDate = xChannelIsDate(profileRows(resolved.rows), action.channels.x);
+      return {
+        ...state, marks: [mark], nextMarkId: state.nextMarkId + 1,
+        scales: { x: isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
+        axes: { x: autoAxis(), y: autoAxis() },
+        chart: resolved.dataset ? { ...state.chart, title: resolved.dataset.title, description: resolved.dataset.description } : state.chart,
+      };
+    }
   }
 }
 
