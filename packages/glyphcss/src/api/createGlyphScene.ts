@@ -861,11 +861,27 @@ export function createGlyphScene(
   // `resolvedTextureSamplers()` — see contract 9. A plain `Map`, not derived
   // per-render, so mounting/removing an object is the only write.
   let objectSamplers: Map<string, TextureSampler> | null = null;
+  // Test-only allocation probe (fix round 2): mirrors the `__glyphPerf`/
+  // `__glyphRenderStage` idiom — an opt-in global hook, inert unless a test
+  // sets it, fired exactly once per map at the moment it is actually
+  // allocated — so "allocates lazily" is a seam a mutation (allocating
+  // eagerly) can redden, not just an output-equality proxy for it.
+  function reportObjectMapsAlloc(which: "entries" | "samplers"): void {
+    (globalThis as { __glyphSceneObjectMapsAlloc?: (which: "entries" | "samplers") => void }).__glyphSceneObjectMapsAlloc?.(which);
+  }
   function objectEntriesMap(): Map<string, GlyphSceneObjectEntry> {
-    return (objectEntries ??= new Map());
+    if (!objectEntries) {
+      objectEntries = new Map();
+      reportObjectMapsAlloc("entries");
+    }
+    return objectEntries;
   }
   function objectSamplersMap(): Map<string, TextureSampler> {
-    return (objectSamplers ??= new Map());
+    if (!objectSamplers) {
+      objectSamplers = new Map();
+      reportObjectMapsAlloc("samplers");
+    }
+    return objectSamplers;
   }
   let pendingRender = false;
   let renderGeneration = 0;

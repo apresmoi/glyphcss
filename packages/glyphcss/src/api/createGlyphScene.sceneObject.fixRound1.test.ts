@@ -43,30 +43,67 @@ function boundsAll(): { min: [number, number, number]; max: [number, number, num
 }
 
 describe("F4 fix round 1 — codex static review", () => {
-  it("P1-a: setTransform re-plants an object's hotspots at the new world position", async () => {
+  it("P1-a: chained setTransform() calls (A -> B -> A) re-plant hotspots AND meshes on EVERY call, not only the first", async () => {
+    // Reference renders: the object mounted DIRECTLY at each position (never
+    // via setTransform), so both the hotspot's planted style and the mesh's
+    // rasterized output are independent ground truth for "correctly at A" /
+    // "correctly at B" — a mutation that re-plants only on the first
+    // `setTransform()` call would leave the SECOND (back-to-A) step stuck at
+    // B, which a single-call test (fix round 1's original) cannot see.
+    const posA: [number, number, number] = [0, 0, 0];
+    const posB: [number, number, number] = [10, 3, 0];
+    async function referenceRender(pos: [number, number, number]): Promise<{ html: string; hotspotStyle: string }> {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const scene = createGlyphScene(host, baseSceneOptions);
+      scene.addObject({
+        id: "obj-1",
+        meshes: [{ name: "m", polygons: quad(0, 0) }],
+        hotspots: [{ id: "h1", at: [0, 0, 0] }],
+        bounds: boundsAll(),
+      }, { position: pos });
+      await flushRenders();
+      const html = scene.output.innerHTML;
+      const el = host.querySelector('[data-hotspot-id="h1"]') as HTMLElement;
+      const hotspotStyle = `${el.style.left},${el.style.top}`;
+      scene.destroy();
+      return { html, hotspotStyle };
+    }
+    const refA = await referenceRender(posA);
+    const refB = await referenceRender(posB);
+    expect(refA.hotspotStyle).not.toBe(refB.hotspotStyle);
+    expect(refA.html).not.toBe(refB.html);
+
     const host = document.createElement("div");
     document.body.appendChild(host);
     const scene = createGlyphScene(host, baseSceneOptions);
     const handle = scene.addObject({
       id: "obj-1",
-      meshes: [],
+      meshes: [{ name: "m", polygons: quad(0, 0) }],
       hotspots: [{ id: "h1", at: [0, 0, 0] }],
       bounds: boundsAll(),
-    });
+    }, { position: posA });
     await flushRenders();
-
     const el = host.querySelector('[data-hotspot-id="h1"]') as HTMLElement;
     expect(el).toBeTruthy();
-    const initialLeft = el.style.left;
-    const initialTop = el.style.top;
+    expect(`${el.style.left},${el.style.top}`).toBe(refA.hotspotStyle);
+    expect(scene.output.innerHTML).toBe(refA.html);
 
-    handle.setTransform({ position: [10, 0, 0] });
+    // Call 1: A -> B.
+    handle.setTransform({ position: posB });
     await flushRenders();
+    expect(host.querySelector('[data-hotspot-id="h1"]')).toBe(el); // never re-created
+    expect(`${el.style.left},${el.style.top}`).toBe(refB.hotspotStyle);
+    expect(scene.output.innerHTML).toBe(refB.html);
 
-    // Same element (never re-created), but re-planted at the moved position.
-    const elAfter = host.querySelector('[data-hotspot-id="h1"]') as HTMLElement;
-    expect(elAfter).toBe(el);
-    expect(`${elAfter.style.left},${elAfter.style.top}`).not.toBe(`${initialLeft},${initialTop}`);
+    // Call 2: B -> A. A "re-plant only on the first call" mutation would
+    // leave both the hotspot and the geometry stuck at B here.
+    handle.setTransform({ position: posA });
+    await flushRenders();
+    expect(host.querySelector('[data-hotspot-id="h1"]')).toBe(el);
+    expect(`${el.style.left},${el.style.top}`).toBe(refA.hotspotStyle);
+    expect(scene.output.innerHTML).toBe(refA.html);
+
     scene.destroy();
   });
 
@@ -118,6 +155,113 @@ describe("F4 fix round 1 — codex static review", () => {
     await flushRenders();
 
     expect(scene.output.innerHTML).toBe(soloOutput);
+    scene.destroy();
+  });
+
+  it("update() after setTransform() remounts meshes AND hotspots under the CURRENT (moved) transform, not the mount-time one", async () => {
+    // Reference: an object mounted DIRECTLY at the moved position, already
+    // carrying the NEW post-update spec — ground truth for "update() used
+    // the current transform." A mutation that makes update() ignore
+    // `entry.transform` (e.g. remount at an identity/default transform)
+    // would remount the new spec back at the origin instead.
+    const movedPos: [number, number, number] = [12, -3, 0];
+    async function referenceRender(): Promise<{ html: string; hotspotStyle: string }> {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const scene = createGlyphScene(host, baseSceneOptions);
+      scene.addObject({
+        id: "obj-1",
+        meshes: [{ name: "m2", polygons: quad(0, 0, 1, "#ff00ff") }],
+        hotspots: [{ id: "h2", at: [0, 0, 0] }],
+        bounds: boundsAll(),
+      }, { position: movedPos });
+      await flushRenders();
+      const html = scene.output.innerHTML;
+      const el = host.querySelector('[data-hotspot-id="h2"]') as HTMLElement;
+      const hotspotStyle = `${el.style.left},${el.style.top}`;
+      scene.destroy();
+      return { html, hotspotStyle };
+    }
+    const ref = await referenceRender();
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, baseSceneOptions);
+    const handle = scene.addObject({
+      id: "obj-1",
+      meshes: [{ name: "m1", polygons: quad(0, 0) }],
+      hotspots: [{ id: "h1", at: [0, 0, 0] }],
+      bounds: boundsAll(),
+    });
+    await flushRenders();
+
+    handle.setTransform({ position: movedPos });
+    await flushRenders();
+
+    handle.update({
+      id: "obj-1",
+      meshes: [{ name: "m2", polygons: quad(0, 0, 1, "#ff00ff") }],
+      hotspots: [{ id: "h2", at: [0, 0, 0] }],
+      bounds: boundsAll(),
+    });
+    await flushRenders();
+
+    expect(host.querySelector('[data-hotspot-id="h1"]')).toBeFalsy();
+    const el = host.querySelector('[data-hotspot-id="h2"]') as HTMLElement;
+    expect(el).toBeTruthy();
+    expect(`${el.style.left},${el.style.top}`).toBe(ref.hotspotStyle);
+    expect(scene.output.innerHTML).toBe(ref.html);
+    scene.destroy();
+  });
+
+  it("a rejected update() (duplicate mesh names) leaves the EXISTING object fully mounted — same meshes, hotspots, samplers and overlays as before the call", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, baseSceneOptions);
+
+    const sampler: TextureSampler = { width: 1, height: 1, lowDetail: false, data: new Uint8ClampedArray([10, 20, 30, 255]) };
+    const key = encodeGlyphSceneObjectSamplerKey("obj", "tex");
+    const texturedMesh: Polygon = { ...quad(10, 0, 2)[0]!, texture: key, uvs: [[0, 1], [1, 1], [1, 0], [0, 0]] };
+    let overlaySeen = 0;
+
+    const handle = scene.addObject({
+      id: "obj",
+      meshes: [{ name: "m1", polygons: quad(-10, 0) }, { name: "m2", polygons: [texturedMesh] }],
+      hotspots: [{ id: "h1", at: [-10, 0, 0] }],
+      textureSamplers: new Map([["tex", sampler]]),
+      overlays: [{ id: "ov", stamp(): void { overlaySeen++; } }],
+      bounds: boundsAll(),
+    });
+    await flushRenders();
+
+    const beforeHtml = scene.output.innerHTML;
+    const beforeHandles = new Map(handle.meshes);
+    const elBefore = host.querySelector('[data-hotspot-id="h1"]');
+    overlaySeen = 0;
+
+    expect(() => handle.update({
+      id: "obj",
+      meshes: [{ name: "dup", polygons: quad(0, 0) }, { name: "dup", polygons: quad(5, 0) }],
+      bounds: boundsAll(),
+    })).toThrow(RangeError);
+    // The rejected update() never called `scheduleRender()`, so force one
+    // to prove the overlay is still registered and still stamps this frame.
+    scene.rerender();
+    await flushRenders();
+
+    // The EXISTING object — not the rejected one — must still be fully
+    // mounted: the same live mesh-handle Map entries (never torn down),
+    // the same hotspot element, a byte-identical render, and its overlay
+    // must still run this frame. A "validate after teardown" mutation would
+    // tear the existing object down before the duplicate-name check throws,
+    // leaving nothing mounted at all.
+    expect(handle.meshes.size).toBe(beforeHandles.size);
+    for (const [name, meshHandle] of beforeHandles) {
+      expect(handle.meshes.get(name)).toBe(meshHandle);
+    }
+    expect(host.querySelector('[data-hotspot-id="h1"]')).toBe(elBefore);
+    expect(scene.output.innerHTML).toBe(beforeHtml);
+    expect(overlaySeen).toBeGreaterThan(0);
     scene.destroy();
   });
 
@@ -182,11 +326,41 @@ describe("F4 fix round 1 — codex static review", () => {
     expect(orderA).not.toContain("ZZZ");
   });
 
-  it("P2-d: no object mounted allocates the object registry lazily — mounting the FIRST object is the only allocation point (checked indirectly: addObject/remove/addObject again behaves identically to a fresh scene)", async () => {
-    // Direct allocation isn't publicly observable; this pins the OBSERVABLE
-    // contract instead — a scene that never sees addObject renders exactly
-    // like one that mounted and fully removed an object, proving no residual
-    // per-object state leaks either way.
+  it("P2-d: the object registry allocates lazily — no object-maps exist before the first addObject() (mutation: allocate eagerly)", async () => {
+    // Direct test via the `__glyphSceneObjectMapsAlloc` probe (fix round 2)
+    // — the same opt-in-global idiom `__glyphPerf`/`__glyphRenderStage`
+    // already use elsewhere in this file. Unlike an output-equality proxy,
+    // this reddens under the actual named mutation (allocating the maps
+    // eagerly at scene creation, before any `addObject` call).
+    const seen: Array<"entries" | "samplers"> = [];
+    (globalThis as { __glyphSceneObjectMapsAlloc?: (which: "entries" | "samplers") => void }).__glyphSceneObjectMapsAlloc =
+      (which) => seen.push(which);
+    try {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const scene = createGlyphScene(host, baseSceneOptions);
+      scene.add(quad(0, 0));
+      await flushRenders();
+      // No object was ever mounted — neither map may have allocated yet.
+      expect(seen).toEqual([]);
+
+      scene.addObject({ id: "temp", meshes: [{ name: "m", polygons: quad(20, 0) }], bounds: boundsAll() });
+      await flushRenders();
+      // The FIRST addObject() is the only allocation point for the entries
+      // map; no sampler was ever supplied, so the sampler map must still
+      // be untouched.
+      expect(seen).toEqual(["entries"]);
+
+      scene.destroy();
+    } finally {
+      delete (globalThis as { __glyphSceneObjectMapsAlloc?: unknown }).__glyphSceneObjectMapsAlloc;
+    }
+  });
+
+  it("P2-d: addObject/remove/addObject again behaves identically to a fresh scene (no residual per-object state leaks either way)", async () => {
+    // Complements the direct allocation probe above with the OBSERVABLE,
+    // behavioural contract: a scene that never sees addObject renders
+    // exactly like one that mounted and fully removed an object.
     const hostA = document.createElement("div");
     document.body.appendChild(hostA);
     const untouched = createGlyphScene(hostA, baseSceneOptions);
