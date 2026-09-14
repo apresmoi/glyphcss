@@ -689,6 +689,32 @@ describe("chartsUrlState — 3D (dimension/chart3d)", () => {
     expect(await decodeChartsUrlState(raw)).toEqual(state);
   });
 
+  // C3 fix round 1, P1-1 (codex review): a trackball drag records its real
+  // orientation into `camera.mat`/`useMat` (`Charts3dViewport.tsx`'s own
+  // `onEnd` handler), distinct from `rotX`/`rotY` (which ride along as the
+  // last TURNTABLE pose, per `Charts3dCamera.mat`'s own doc). Before this
+  // fix, `validateCharts3dCamera` dropped both on decode, so a shared link
+  // silently replaced a rolled trackball pose with a stale Euler one —
+  // mutation check: deleting the `mat`/`useMat` branch from either the
+  // encode or decode side would still pass every OTHER 3D test in this
+  // file (none of them set a matrix), but this one pins the round trip
+  // exactly, including a non-identity roll no Euler `rotX`/`rotY` pair can
+  // express.
+  it("round-trips a rolled trackball camera pose — camera.mat/useMat exactly, not lost to rotX/rotY", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const rolledMat = [0.36, 0.48, -0.8, -0.8, 0.6, 0, 0.48, 0.64, 0.6] as const; // a real rotation matrix with roll — not reachable via any rotX/rotY pair
+    state = reduceChartsWorkbenchState(state, {
+      type: "set-3d-camera",
+      camera: { rotX: 65, rotY: 45, zoom: 3.2, mat: rolledMat, useMat: true },
+    });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-view", patch: { orbitMode: "trackball" } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.camera.useMat).toBe(true);
+    expect(decoded!.chart3d.camera.mat).toEqual(rolledMat);
+  });
+
   it("round-trips an auto-fit camera (zoom omitted) exactly — zoom stays undefined, not re-materialised to a number", async () => {
     const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[1]!.id });
     expect(state.chart3d.camera.zoom).toBeUndefined();

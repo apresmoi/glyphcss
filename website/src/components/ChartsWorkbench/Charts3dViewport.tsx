@@ -13,7 +13,7 @@
 import { useEffect, useRef } from "react";
 import {
   createGlyphOrbitControls, createGlyphOrthographicCamera, createGlyphScene, injectGlyphBaseStyles,
-  type GlyphOrbitControlsHandle, type GlyphSceneHandle, type Vec3,
+  type GlyphOrbitControlsHandle, type GlyphSceneHandle, type GlyphSceneObjectHandle, type Vec3,
 } from "glyphcss";
 import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject, type GlyphChart3dSurfaceMark } from "@glyphcss/charts/3d";
 import type { Charts3dCamera, Charts3dOrbitMode, Charts3dSceneOptions } from "./chartsWorkbench3d";
@@ -63,17 +63,20 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
   const orbitControlsRef = useRef<GlyphOrbitControlsHandle | null>(null);
   const cameraObjRef = useRef<ReturnType<typeof createGlyphOrthographicCamera> | null>(null);
   const objectBoundsRef = useRef<{ min: Vec3; max: Vec3 } | null>(null);
+  const objectHandleRef = useRef<GlyphSceneObjectHandle | null>(null);
 
-  // Re-created whenever the MARK identity or the scene's own APPEARANCE
-  // options change (a new dataset, colorscale, shading, colour mode, or
-  // charset) — mirrors `SynthWorkbench.tsx`'s own "a fresh scene is the
-  // reliable way to give new geometry a clean state" rule. `camera`'s OWN
-  // rotX/rotY/zoom is read only for the FIRST framing; later changes (an
-  // orbit drag, a reset) are applied imperatively without rebuilding the
-  // scene — rebuilding on every drag-release would fight the very gesture
-  // that produced them. `orbitMode` also updates imperatively (a separate,
-  // lighter effect below), since `createGlyphOrbitControls` carries the
-  // current on-screen orientation across a mode switch on its own.
+  // MOUNT-ONLY: creates the scene, camera and orbit controls exactly once
+  // per viewport lifetime — remounted only when the CALLER unmounts this
+  // component (closing the 3D view, switching target away from `web`),
+  // never merely because `mark`/`sceneOptions` changed (P1-2 fix round 1,
+  // codex review: the prior cut re-ran this whole effect on every shading/
+  // colorscale/colour edit, which tore down and rebuilt the scene — and,
+  // because `mark` is a NEW object on every render of the parent's own
+  // `state.chart3d`-derived memo, on every orbit-drag release too — losing
+  // the camera each time). `mark`/`camera`/`orbitMode`/`sceneOptions` are
+  // read here ONLY for the viewport's INITIAL pose/appearance/content; a
+  // later change to any of them is applied imperatively by the effects
+  // below, never by re-running this one.
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -107,7 +110,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
     cam.zoom = camera.zoom ?? fit.zoom;
     cameraObjRef.current = cam;
     sceneRef.current = scene;
-    scene.addObject(object);
+    objectHandleRef.current = scene.addObject(object);
     scene.rerender();
     const orbitControls = createGlyphOrbitControls(scene, {
       drag: true, wheel: true,
@@ -139,12 +142,16 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
       // when the camera is still auto-fitted (`camera.zoom === undefined`
       // at mount, i.e. the caller never pinned one) — an explicit zoom is
       // the reader's own choice and a resize must not silently override it.
+      // Bounds are re-read from `objectBoundsRef` (not this closure's own
+      // `object.bounds`) since a later mark update replaces it in place.
       const autoFitted = camera.zoom === undefined;
       resizeObserver = new ResizeObserver(() => {
         scene.fit();
         if (!autoFitted) { scene.rerender(); return; }
+        const bounds = objectBoundsRef.current;
+        if (!bounds) { scene.rerender(); return; }
         const o = scene.getOptions();
-        const refit = glyphChart3dFitCamera({ bounds: object.bounds, rotX: cam.rotX, rotY: cam.rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, cellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
+        const refit = glyphChart3dFitCamera({ bounds, rotX: cam.rotX, rotY: cam.rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, cellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
         cam.target = refit.target; cam.zoom = refit.zoom;
         scene.rerender();
       });
@@ -159,9 +166,42 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
       orbitControlsRef.current = null;
       cameraObjRef.current = null;
       objectBoundsRef.current = null;
+      objectHandleRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mark, sceneOptions.useColors]);
+  }, []);
+
+  // A new MARK — a different dataset, shading or colorscale — updates the
+  // EXISTING scene-object handle IN PLACE (`GlyphSceneObjectHandle.update`,
+  // AGENTS.md's "Scene objects": "replaces meshes/overlays/hotspots/
+  // samplers wholesale, keeping the handle's identity") rather than
+  // rebuilding the whole scene: the camera and orbit controls survive a
+  // shading/colorscale/dataset edit exactly the way they already survive an
+  // ordinary orbit drag (P1-2 fix round 1). Skips its own first run — the
+  // mount effect above already added this exact mark as the object's
+  // initial content, so re-running `update()` on it here would be a
+  // redundant (if harmless) rebuild of the identical meshes.
+  const isFirstMarkEffect = useRef(true);
+  useEffect(() => {
+    if (isFirstMarkEffect.current) { isFirstMarkEffect.current = false; return; }
+    const handle = objectHandleRef.current;
+    if (!handle) return;
+    const object = glyphChartObject(mark);
+    objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
+    handle.update(object);
+    sceneRef.current?.rerender();
+  }, [mark]);
+
+  // A colour edit (`color: none` <-> a colour mode) applies via
+  // `scene.setOptions` — no mesh rebuild, no camera reset (P1-2 fix round
+  // 1). Charset never reaches the scene at all (`chartsWorkbench3dSceneOptions`'s
+  // own doc: a 3D chart's box/tick overlay disables the halfblock/quadrant
+  // encoders regardless, so there is no live `charMode` to set).
+  const isFirstColorEffect = useRef(true);
+  useEffect(() => {
+    if (isFirstColorEffect.current) { isFirstColorEffect.current = false; return; }
+    sceneRef.current?.setOptions({ useColors: sceneOptions.useColors });
+  }, [sceneOptions.useColors]);
 
   // Orbit mode: applied to the EXISTING controls without a scene rebuild —
   // `createGlyphOrbitControls`'s own contract ("switching modes carries the

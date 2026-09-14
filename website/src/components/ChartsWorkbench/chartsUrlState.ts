@@ -401,13 +401,39 @@ function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
 const CHARTS_3D_ORBIT_MODES = ["turntable", "trackball"] as const;
 const CHARTS_3D_SHADINGS = ["auto", "relief", "value"] as const;
 
+/** `mat` is glyphcss's own 9-element row-major 3x3 rotation matrix
+ *  (`GlyphCamera.mat`'s own doc, `createGlyphCamera.ts`) — a trackball
+ *  orbit's real orientation, distinct from `rotX`/`rotY`. */
+const CHARTS_3D_CAMERA_MAT_LENGTH = 9;
+function validateCharts3dCameraMat(value: unknown): readonly number[] | null {
+  if (!Array.isArray(value) || value.length !== CHARTS_3D_CAMERA_MAT_LENGTH) return null;
+  return value.every((n) => typeof n === "number" && Number.isFinite(n)) ? (value as number[]) : null;
+}
+
+/**
+ * P1-1 fix round 1 (codex review): `mat`/`useMat` are append-only optional
+ * fields, round-tripped alongside `rotX`/`rotY` — a TRACKBALL orbit's real
+ * orientation lives in `mat` (`Charts3dCamera.mat`'s own doc: `rotX`/`rotY`
+ * ride along as the last TURNTABLE pose, not what a trackball view actually
+ * renders from), so dropping it on decode silently replaced a rolled
+ * trackball pose with a stale Euler one on every shared link. A malformed
+ * `mat` (wrong length, non-finite entry) is treated as ABSENT — never a
+ * rejected `chart3d`, since `rotX`/`rotY`/`zoom` are still a perfectly
+ * valid (if turntable) camera on their own.
+ */
 function validateCharts3dCamera(value: unknown): Charts3dCamera | null {
   if (!isRecord(value)) return null;
-  const { rotX, rotY, zoom } = value;
+  const { rotX, rotY, zoom, mat, useMat } = value;
   if (typeof rotX !== "number" || !Number.isFinite(rotX)) return null;
   if (typeof rotY !== "number" || !Number.isFinite(rotY)) return null;
   if (zoom !== undefined && (typeof zoom !== "number" || !Number.isFinite(zoom) || zoom <= 0)) return null;
-  return { rotX, rotY, ...(zoom !== undefined ? { zoom } : {}) };
+  const cleanMat = mat !== undefined ? validateCharts3dCameraMat(mat) : null;
+  const cleanUseMat = cleanMat !== null && useMat === true;
+  return {
+    rotX, rotY,
+    ...(zoom !== undefined ? { zoom } : {}),
+    ...(cleanMat !== null ? { mat: cleanMat, useMat: cleanUseMat } : {}),
+  };
 }
 
 /**

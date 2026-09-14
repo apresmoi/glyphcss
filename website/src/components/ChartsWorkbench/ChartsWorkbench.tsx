@@ -152,7 +152,18 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const is3d = state.dimension === "3d";
   const resolvedControls = resolveGlyphChartsWorkbenchControls(state.controls);
   const isWeb3d = is3d && resolvedControls.target === "web";
-  const chart3dResolved = useMemo(() => resolveCharts3dView(state.chart3d), [state.chart3d]);
+  // Deps are `source`/`shading`/`colorscale` ONLY, never the whole
+  // `state.chart3d` object — `resolveCharts3dView` never reads `camera`/
+  // `orbitMode`, and the reducer's `set-3d-camera`/`set-3d-view` (orbit-mode
+  // edits) actions keep `source` referentially stable across an orbit drag
+  // (`{ ...state.chart3d, camera: … }` never touches `source`), so a raw
+  // `state.chart3d` dep re-ran `glyphChartSurface` on every drag release for
+  // no reason (P1-2 fix round 1, codex review — the live viewport's own mark
+  // identity is what used to trigger its full scene remount on every drag).
+  const chart3dResolved = useMemo(
+    () => resolveCharts3dView(state.chart3d),
+    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale],
+  );
   // Target x charset x colour, honoured LIVE (not only in the static exit)
   // — `color: "none"` maps straight to `useColors: false`; charset can only
   // ever DEGRADE with a chrome note (`glyphChart3dCharsetDegrades`), never
@@ -168,9 +179,14 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // of its own, unlike `renderGlyphChart3d`), so it can diverge from
   // `chart3dResolved` (the static/thumbnail resolve) exactly when shading
   // is auto and `useColors` differs from the static exit's own colour mode.
+  // Same narrowing as `chart3dResolved` above, for the same reason: the mark
+  // this feeds `Charts3dViewport` is the identity `Charts3dViewport.tsx`'s
+  // own mark-update effect watches, and it must stay stable across an orbit
+  // drag for the P1-2 fix (update the scene object in place, never remount
+  // it) to actually keep the scene from rebuilding on every drag release.
   const chart3dResolvedLive = useMemo(
     () => resolveCharts3dViewForLiveScene(state.chart3d, chart3dSceneOptions.useColors),
-    [state.chart3d, chart3dSceneOptions.useColors],
+    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, chart3dSceneOptions.useColors],
   );
   const chart3dViewportRef = useRef<HTMLDivElement | null>(null);
   const chart3dViewportHandleRef = useRef<Charts3dViewportHandle | null>(null);

@@ -2637,3 +2637,154 @@ now includes `dimension: "2d"` and a populated default `chart3d`) and all
   is a per-BUILD option baked into the mesh, not a live per-frame knob,
   and this showcase has no natural per-chart aspect control elsewhere to
   mirror; left for a real need to justify it).
+
+## C3 fix round 1 — camera.mat round-trips in `?c=`, the live scene updates in place, real interaction gates, licence wording
+
+A codex review of `17108985` found two P1s and one P2, all inside the C3
+packet's own files, plus a licence-wording finding on the vendored
+`maungaWhauVolcanoDataset`. Four items.
+
+### P1-1 — `camera.mat`/`useMat` round-trip in `?c=`
+
+`chartsUrlState.ts`'s `validateCharts3dCamera` read `rotX`/`rotY`/`zoom`
+off a decoded `chart3d.camera` payload and dropped `mat`/`useMat` on the
+floor — so a trackball drag (`Charts3dViewport.tsx`'s own `onEnd` handler,
+which reports `{ rotX, rotY, zoom, mat, useMat }` exactly like `/diagrams`'
+own D3 handler does) recorded a real rolled orientation into
+`state.chart3d.camera`, but a shared link reloaded with only the stale
+`rotX`/`rotY` Euler pose the trackball orbit had drifted AWAY from at
+mount — `Charts3dCamera.mat`'s own doc: `rotX`/`rotY` ride along as the
+last TURNTABLE pose, never what a trackball view actually renders from.
+Fixed by adding `validateCharts3dCameraMat` (checks the real glyphcss
+contract: exactly 9 finite numbers, `GlyphCamera.mat`'s own row-major 3x3
+doc in `createGlyphCamera.ts` — not the "9 or 16" the review's own prose
+loosely said) and threading `mat`/`useMat` through
+`validateCharts3dCamera`'s return value as append-only optional fields,
+same as every other C3 field. A malformed `mat` (wrong length, a non-finite
+entry) is treated as ABSENT rather than rejecting the whole `chart3d`
+payload — `rotX`/`rotY`/`zoom` are still a perfectly valid (if turntable)
+camera on their own. The ENCODE side needed no change: `chartsUrlStateForEncode`
+only ever touches `marks`/`chart3d.source`, never `chart3d.camera`, so
+`Charts3dCamera`'s own `mat?`/`useMat?` fields were already carried through
+the plain `JSON.stringify` the envelope performs — the bug was decode-only.
+Gate: `chartsUrlState.test.ts`'s "round-trips a rolled trackball camera
+pose" test, a real non-Euler rotation matrix (`[0.36, 0.48, -0.8, -0.8,
+0.6, 0, 0.48, 0.64, 0.6]`, not reachable via any `rotX`/`rotY` pair) through
+`set-3d-camera` → encode → decode. Mutation: deleting the `mat`/`useMat`
+branch from `validateCharts3dCamera` reddens it (every other 3D URL-state
+test still passes — none of them set a matrix).
+
+### P1-2 — the live scene remounted on every shading/colorscale/colour edit (and every camera drag)
+
+`Charts3dViewport.tsx`'s single mount effect was keyed on
+`[mark, sceneOptions.useColors]` — `mark` is a freshly-built
+`GlyphChart3dSurfaceMark` object every time `resolveCharts3dView`/
+`resolveCharts3dViewForLiveScene` runs, which is EVERY time
+`ChartsWorkbench.tsx`'s `chart3dResolvedLive` memo recomputes, which was
+keyed on the WHOLE `state.chart3d` object — including `camera`. Since
+`set-3d-camera` (the orbit controls' own "end" handler) spreads a new
+`camera` field onto `chart3d`, EVERY orbit drag release produced a new
+`chart3d` reference, which produced a new `mark` object (identical
+content, `glyphChartSurface` re-run for no reason), which — under the old
+single effect — tore the whole scene down and rebuilt it: a fresh
+`createGlyphOrthographicCamera`, a fresh `createGlyphScene`, a fresh
+`createGlyphOrbitControls`. The rebuild re-seeded the camera from the
+JUST-REPORTED `rotX`/`rotY`/`zoom`, which is why this was invisible on an
+ordinary turntable drag (the new camera lands exactly where the old one
+ended) but destructive on any REAL appearance edit — switching `Shading`,
+`Colorscale` or `Color` while mid-orbit visibly snapped the camera back to
+whatever framing that edit's own fresh `glyphChart3dFitCamera`/auto-fit
+produced, discarding the reader's own orientation.
+
+Fixed at two layers:
+
+1. **`ChartsWorkbench.tsx`** — `chart3dResolved`/`chart3dResolvedLive`'s
+   own `useMemo` deps narrowed from the whole `state.chart3d` object to
+   `[state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale,
+   …]` — the only fields either function actually reads. The reducer's
+   `set-3d-camera`/`set-3d-view` (orbit-mode) actions spread `{ ...state.
+   chart3d, camera: … }`, which never touches `source` — so these three
+   fields keep referential stability across an orbit drag, and `mark`'s own
+   identity no longer changes on one at all.
+2. **`Charts3dViewport.tsx`** — split the one mount effect into three: a
+   MOUNT-ONLY effect (`useEffect(..., [])`) that creates the scene, camera
+   and orbit controls exactly once per viewport lifetime (remounted only
+   when the CALLER unmounts the component — closing the 3D view, switching
+   target away from `web`); a mark-update effect (`useEffect(..., [mark])`)
+   that calls the scene-object handle's own `update()` (AGENTS.md's "Scene
+   objects": "replaces meshes/overlays/hotspots/samplers wholesale, keeping
+   the handle's identity") whenever `mark` changes for ANY reason — a new
+   dataset, shading or colorscale — leaving the camera and orbit controls
+   untouched; and a colour effect (`useEffect(..., [sceneOptions.
+   useColors])`) that calls `scene.setOptions({ useColors })`. Both non-mount
+   effects skip their own first run (the mount effect already installed
+   that exact initial content), a ref-latched guard rather than a
+   dependency-array trick. The resize observer's re-fit reads bounds from
+   `objectBoundsRef` (updated by the mark-update effect) rather than the
+   mount effect's own closed-over `object.bounds`, so a resize after a
+   dataset switch refits against the CURRENT geometry, not the initial one.
+
+Gate: `Charts3dViewport.lifecycle.test.tsx` (NEW file, P2-3 below) —
+`createGlyphScene` spied via a real `vi.mock("glyphcss", importOriginal)`
+wrapper (never a fake scene) asserted to be called exactly ONCE across a
+charset edit, a colour edit AND a shading/colorscale edit, with
+`scene.setOptions`/the object handle's `update()` called instead. Mutation
+check performed live during this round: reverting the mount effect's dep
+array from `[]` back to `[mark, sceneOptions.useColors]` reddens the
+"called once" test at the colour-edit assertion (`expected 2 to be 1`) —
+confirmed by actually making the mutation, running the test, and reverting.
+
+### P2-3 — no lifecycle/interaction test for the live viewport
+
+`chartsWorkbench3d.test.ts` tested pure resolvers only — nothing drove a
+real pointer gesture through a real `createGlyphScene`/
+`createGlyphOrbitControls` mount, and nothing proved disposal actually ran.
+`Charts3dViewport.lifecycle.test.tsx` (NEW), mirroring
+`DiagramsWorkbench.3d.test.tsx`'s own P2-3 round (the reference this file
+was studied from) exactly: real `PointerEvent` drags
+(`pointerdown`/`pointermove`/`pointerup`) on the live host proving (a) a
+turntable drag changes Copy ASCII's own output afterward, and (b) a
+trackball drag commits a `camera.mat`/`useMat` shape (verified through the
+real "Copy link" round trip, not a hand-built dispatch — `useMat: true`,
+`mat` a real 9-element array); (c) the `createGlyphScene`-called-once
+guarantee above, spied at the real factory; and (d) `scene.destroy()`/
+`controls.destroy()` both actually called (never merely inferred from the
+host `<div>` leaving the DOM, which React's own removal does unconditionally
+regardless of whether the glyphcss-side cleanup ran) on a mark-type switch
+back to 2D and on unmount. Every test is a real mutation check — the
+"called once" test was proven red against the actual P1-2 regression
+above; the disposal tests read the same wrapped-factory spy idiom D3's own
+round already established as the correct disposal proof.
+
+### Licence wording — `maungaWhauVolcanoDataset`
+
+The codex review flagged the dataset's own `source.licence` string (and
+`LICENSES.md`'s matching table row) for reading as "MIT-only" at a glance,
+despite already carrying a GPL caveat — the caveat trailed AFTER an
+"MIT (...)"-first phrasing and hedged with "verify GPL compatibility"
+rather than stating the governing licence outright. Reworded both (the
+dataset file's own `source.licence` field, and `LICENSES.md`'s row) to the
+same two-clause statement, MIT clause first only because it names what was
+literally FILE-packaged (never implying it governs the dataset): "Plotly's
+own file packaging (the `volcano.csv` this was captured from) is MIT; the
+dataset's governing provenance is R's base `datasets` package, licensed
+GPL-2 | GPL-3 — 'digitized from a topographic map by Ross Ihaka', per R's
+own `?datasets::volcano` docs." `LICENSES.md`'s row additionally leads with
+a bolded **Never "MIT-only"** so the caveat can't be skimmed past. No
+`datasets3d.test.ts` test pinned the old wording (only a non-empty-string
+check), so no test change was needed.
+
+### Guides UI — not built this round
+
+The coordinator's brief was updated mid-round: the C2 library is shipping
+independent guide toggles (`guides: { axisLines, ticks, tickLabels,
+titles, grid, walls, box }`, all booleans) rather than the earlier `box:
+"axes" | "full" | "none"` enum, for a "like the 2D chart with one more
+side" axis-triad look. Grepped `packages/charts/src/3d/*.ts` (non-test)
+for `guides`/`axisLines`/`GlyphChart3dGuides` after the `feat/diagrams`
+merge this round started from: not present — only pre-existing, unrelated
+`tickLabels` references in `object.ts`/`surface.ts`/`types.ts`. Per the
+coordinator's own instruction ("if it isn't there yet, skip it and say
+so"), no Guides UI was built in the View folder this round; a C4-round
+agent adds it once the library option lands, using its real shape rather
+than an invented one.

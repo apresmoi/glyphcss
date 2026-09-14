@@ -1,17 +1,20 @@
 /**
  * Maunga Whau (Mt Eden), Auckland — R's built-in `datasets::volcano` matrix,
  * a 10m x 10m digitized topographic grid (87 rows x 61 columns), the same
- * numeric example Plotly's own 3D surface docs use. Source values captured
- * from the plotly/datasets repo's `volcano.csv` (MIT-licensed repackaging);
- * R's own docs (`?datasets::volcano`) record the underlying provenance as
- * "Digitized from a topographic map by Ross Ihaka" — that original digitization
- * is part of R's base `datasets` package (GPL-2 | GPL-3), so this file
- * states BOTH: the MIT terms of the repackaging vendored here, and the GPL
- * terms of the original digitized data it reproduces (AGENTS.md task note:
- * "record the licence you can actually verify"). x/y are metres on the
- * source map's own local grid (column/row index x 10 m), not geodetic
- * coordinates; z is the map's own height units (94..195), not sea-level
- * elevation — R's own docs give no absolute datum for this digitization.
+ * numeric example Plotly's own 3D surface docs use. Source VALUES captured
+ * from the plotly/datasets repo's `volcano.csv`. Two DIFFERENT licences
+ * apply to two different things, never collapsed into one "MIT" label
+ * (C3 fix round 1, codex review — the file this csv sits in is not the
+ * data's own governing terms): Plotly's own FILE PACKAGING (the csv this
+ * vendoring captured from) is MIT; the DATASET's governing provenance is R's
+ * base `datasets` package, licensed GPL-2 | GPL-3 — R's own docs
+ * (`?datasets::volcano`) record it as "digitized from a topographic map by
+ * Ross Ihaka". `source.licence` states both, in that order, never
+ * "MIT-only" (this file's mirrored wording, `LICENSES.md`'s own row). x/y
+ * are metres on the source map's own local grid (column/row index x 10 m),
+ * not geodetic coordinates; z is the map's own height units (94..195), not
+ * sea-level elevation — R's own docs give no absolute datum for this
+ * digitization.
  */
 import type { GlyphChart3dSurfaceGridData } from "@glyphcss/charts/3d";
 import type { Chart3dDataset } from "./types";
@@ -122,7 +125,7 @@ export const maungaWhauVolcanoDataset: Chart3dDataset = {
   source: {
     name: "R datasets::volcano, via plotly/datasets",
     url: "https://github.com/plotly/datasets/blob/master/volcano.csv",
-    licence: "MIT (plotly/datasets repackaging); original digitization is part of R's base datasets package, GPL-2 | GPL-3",
+    licence: "Plotly's own file packaging (volcano.csv in plotly/datasets) is MIT; the dataset's governing provenance is R's base datasets package (GPL-2 | GPL-3) — \"digitized from a topographic map by Ross Ihaka\", per R's own ?datasets::volcano docs",
   },
   data,
   channels: { x, y },
