@@ -6,6 +6,7 @@ import { IconToggle } from "../SynthWorkbench/synthKit";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import { Instrument3DEffectsFolder } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import { buildGlyphDiagramsWorkbenchGraph, glyphDiagramsWorkbenchEffectTargets, resolveGlyphDiagramsWorkbenchControls, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import { diagrams3dCharsetDockReason, diagrams3dColorDockReason } from "./diagrams3dSceneOptions";
 
 // Fix round 1, P1-2 — the small, curated set that "reads well" mesh-targeted
 // on a node box (per the coordinator's own list): a bare highlight sweep,
@@ -23,20 +24,42 @@ const options = <T extends string,>(values: readonly T[]): Record<T, T> => Objec
 const TARGET_TOGGLE = (["chat", "terminal", "web"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "terminal" ? "term" : v}</span>, label: v, desc: `Render for ${v}` }));
 const CHARSET_SYMBOL: Record<string, string> = { ascii: "#", box: "┼", blocks: "▓", braille: "⠿" };
 /**
- * `blocks`/`braille` in 3D are FAITHFUL DOWNGRADES, not defects (packet
- * D3, `render3d.ts`'s own `resolveCharset`: `braille` -> wireframe,
- * `blocks` -> solid ASCII), so this dims the reason rather than hiding the
- * option — the reader can still pick it, and the target x charset x colour
- * matrix stays every cell reachable, per AGENTS.md's "Targets and page".
+ * Fix round 4 — "put the reason where the choice is made": while 3D is
+ * active, a charset the live scene can't draw exactly as requested is
+ * DIMMED here (the `mapDirectionLocked` idiom — disabled, reason on its
+ * title/aria-label) rather than surfaced as a note floating over the
+ * viewport (that in-viewport note is gone, `DiagramsWorkbench.tsx`'s own
+ * round-4 comment). The GATE is `diagrams3dCharsetDockReason`, which asks
+ * the library's own `resolveCharset` live per option rather than naming
+ * `blocks`/`braille` here — the library is being redesigned so braille/ink
+ * become the PRIMARY 3D looks, so this dims whatever the resolver says
+ * degrades today, nothing more, nothing hard-coded. The CURRENT charset is
+ * never disabled (the Charts mark-type-fit precedent, AGENTS.md's own
+ * "Dataset search" paragraph): a reader already on a degraded charset can
+ * still see why on hover, but isn't locked out of the control that got
+ * them there.
  */
-function charsetToggleOptions(view: "2d" | "3d") {
-  return (["ascii", "box", "blocks", "braille"] as const).map((v) => ({
-    value: v as string, icon: <span className="gx-toggle-text">{CHARSET_SYMBOL[v]}</span>, label: v,
-    desc: view === "3d" && v === "braille" ? "Braille draws wireframe outlines only in 3D, not solid surfaces" : view === "3d" && v === "blocks" ? "Blocks renders as solid ASCII in 3D (its sub-cell shading can't carry stamped edges/labels)" : `Charset: ${v}`,
-  }));
+function charsetToggleOptions(view: "2d" | "3d", current: string) {
+  return (["ascii", "box", "blocks", "braille"] as const).map((v) => {
+    const reason = view === "3d" ? diagrams3dCharsetDockReason(v) : undefined;
+    // `desc` carries the reason whenever one applies, disabled or not — the
+    // CURRENTLY selected degraded option stays enabled (below) but its
+    // title still explains itself on hover via this same fallback
+    // (`IconToggle`'s title reads `disabledReason` only while `disabled`).
+    return {
+      value: v as string, icon: <span className="gx-toggle-text">{CHARSET_SYMBOL[v]}</span>, label: v,
+      desc: reason ?? `Charset: ${v}`, disabled: reason !== undefined && v !== current, disabledReason: reason,
+    };
+  });
 }
 const COLOR_SYMBOL: Record<string, string> = { none: "off", ansi16: "16", ansi256: "256", truecolor: "rgb", css: "css" };
-const COLOR_TOGGLE = (["none", "ansi16", "ansi256", "truecolor", "css"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{COLOR_SYMBOL[v]}</span>, label: v, desc: `Color mode: ${v}` }));
+/** An ANSI depth still shapes Copy ANSI's exported text in 3D, so it explains itself on hover but is never dimmed. */
+function colorToggleOptions(view: "2d" | "3d") {
+  return (["none", "ansi16", "ansi256", "truecolor", "css"] as const).map((v) => {
+    const reason = view === "3d" ? diagrams3dColorDockReason(v) : undefined;
+    return { value: v as string, icon: <span className="gx-toggle-text">{COLOR_SYMBOL[v]}</span>, label: v, desc: reason ?? `Color mode: ${v}` };
+  });
+}
 // Packet D3 — the 2D/3D view switch, right beside Output so it reads as
 // scene-wide (AGENTS.md's D3 row). Web-only fields (turntable/trackball
 // live geometry) dim in every other view/target combination via
@@ -125,14 +148,14 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
     {charsetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Charset</span>
-        <IconToggle groupTitle="Character set" options={charsetToggleOptions(state.view)} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as typeof controls.charset })} />
+        <IconToggle groupTitle="Character set" options={charsetToggleOptions(state.view, controls.charset)} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as typeof controls.charset })} />
       </div>,
       charsetSlot,
     )}
     {colorSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Color</span>
-        <IconToggle groupTitle="Color mode — independent of target" options={COLOR_TOGGLE} value={controls.color} onChange={(v) => setControl({ type: "color", value: v as typeof controls.color })} />
+        <IconToggle groupTitle="Color mode — independent of target" options={colorToggleOptions(state.view)} value={controls.color} onChange={(v) => setControl({ type: "color", value: v as typeof controls.color })} />
       </div>,
       colorSlot,
     )}

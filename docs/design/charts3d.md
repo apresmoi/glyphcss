@@ -1341,6 +1341,86 @@ record. Everything else from round 1's residuals list (no edge labels, no
 cluster volumes, no 200-node performance gate, no generalized shared 3D
 viewport) is unchanged.
 
+## D3 fix round 4 — the downgrade note moves out of the viewport into the Dock
+
+User feedback on `/charts` 3D ("why do we have this in the rendering
+area?") applied here too: round 1's own `.diagrams-3d-frame >
+.target-preview__note` put a downgrade explanation INSIDE the live
+viewport's own render area, breaking the rule this file's AGENTS.md
+companion states plainly ("A chrome note lives in the frame's OWN chrome
+… never the viewport's render area") — round 1 read `web`'s own live
+scene as "carrying no chrome to put a note in," which is true, but the fix
+is to put the reason where the choice is made (the Dock), not to invent
+chrome for a viewport that deliberately has none.
+
+**Removed:** the note JSX and its `.diagrams-3d-frame > .target-preview__note`
+CSS rule (`diagrams-workbench.css`). `.diagrams-3d-frame` itself is
+untouched — it still exists purely to size the live scene host.
+
+**Added:** two small resolver-driven predicates in `diagrams3dSceneOptions.ts`
+— `diagrams3dCharsetDockReason(charset)` (`resolveCharset(charset).ledger.length
+> 0 ? "Not available for 3D diagrams yet" : undefined`) and
+`diagrams3dColorDockReason(color)` (the same `color === "ansi16" ||
+color === "ansi256"` test `resolveDiagrams3dSceneOptions`'s own note
+already used, factored out and reused rather than duplicated). Both are
+GATES, not text tables: which charsets/colours dim is decided live by
+asking the library each render, never a hard-coded `blocks`/`braille`
+list — deliberate, since the library is being redesigned so braille/ink
+become the PRIMARY 3D looks, and a wording tied to today's specific
+downgrade (wireframe/ascii) would go stale the moment that lands. The
+reason text itself is reader-worded ("Not available for 3D diagrams yet",
+"Live 3D always shows full colour — this only affects Copy ANSI's exported
+text") rather than restating glyphcss internals.
+
+`DiagramsDock.tsx`'s `charsetToggleOptions`/`colorToggleOptions` (the
+latter newly a function, was a static array) wire these into `IconToggle`'s
+existing `disabled`/`disabledReason` props — the `mapDirectionLocked`
+idiom, already used elsewhere on this same Dock (the View-folder-only "3D"
+folder, the Instrument3DEffectsFolder) and on `/charts`' own mark-type
+toggle. Two rules, both load-bearing: the gate is scoped to `state.view
+=== "3d"` only (2D never dims anything, since every charset/colour genuinely
+works there); and the CURRENTLY selected option is never disabled (the
+Charts mark-type-fit precedent — "the current type is never disabled") —
+`disabled: reason !== undefined && v !== current`. Without the current-value
+exemption, a reader already on `braille` (the library's own `web` default
+charset) who then opens the 3D view would find the ENTIRE Charset row's own
+active button unclickable and unable to explain itself (`IconToggle`'s
+title only reads `disabledReason` while `disabled`); falling `desc` back to
+the same reason (instead of `Charset: ${v}`) whenever one applies closes
+that gap for the reachable-but-degraded case too —
+a non-disabled button falls back to `desc` for its title, so the current
+option still explains itself on hover, just via the same reason string
+routed through a different field.
+
+**Not touched:** `resolveDiagrams3dSceneOptions`'s own `note` field —
+still a legitimate pure-function output (`diagrams3dSceneOptions.test.ts`
+still exercises it), just no longer READ by any page component; the live
+viewport's `scene.setOptions`/object-rebuild wiring (round 2's own fix)
+is unchanged, since the resolved `mode`/`charMode`/`canvasTier`/`boxOutline`
+were never the problem — only where the DEGRADE EXPLANATION was shown.
+
+**Gate (this round).** `DiagramsWorkbench.3d.test.tsx` gained: a 4×5
+charset×colour sweep asserting `.diagrams-3d-frame` never contains a
+`.target-preview__note` (20 cases, each its own mount with the combination
+baked into `initialState` rather than driven through possibly-disabled
+Dock clicks); a case asserting the Charset row dims exactly
+`blocks`/`braille` with the resolver's own reason on `title`/`aria-label`
+while every Color option stays enabled (an ANSI depth still shapes Copy
+ANSI's exported text, so dimming it would remove a working export); a case
+asserting the currently-selected degraded option (`braille`, reached via a
+custom `initialState` rather than a click, since `braille` starts disabled
+from any OTHER current charset) stays enabled and still explains itself on
+hover. `pnpm --filter @glyphcss/website exec vitest run
+src/components/DiagramsWorkbench` — 280 tests across 9 files, all green.
+
+**Mutation table (this round).**
+
+| Property | Mutation | Result |
+|---|---|---|
+| No chrome note inside the live 3D viewport, any charset/colour | Re-add the removed `.diagrams-3d-frame > .target-preview__note` JSX | 14 of the 20 sweep cases redden (every combination `resolveDiagrams3dSceneOptions` would have produced a note for: `blocks`/`braille` charsets, `ansi16`/`ansi256` colours) |
+| Dock dims exactly the resolver-flagged options | Drop `charsetToggleOptions`'/`colorToggleOptions`'s `disabled`/`disabledReason` wiring | The dimming case reddens (`disabled` falls back to `undefined`, a real DOM attribute difference from `true`) |
+| The current option is never disabled | Drop the `v !== current` exemption | The "never disables the currently-selected charset" case reddens (`braille`, reached as the current value, becomes unclickable) |
+
 ## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
 
 ### Why `pre` had to leave the metadata type, and what replaced it

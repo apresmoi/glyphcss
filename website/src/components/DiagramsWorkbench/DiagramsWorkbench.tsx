@@ -9,7 +9,6 @@ import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
 import { Diagrams3DViewport } from "./Diagrams3DViewport";
-import { resolveDiagrams3dSceneOptions } from "./diagrams3dSceneOptions";
 import {
   GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
   type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState,
@@ -298,17 +297,13 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
               // rotation genuinely changes (see `Diagrams3DViewport.tsx`'s
               // own doc); target/charset/color edits leave it alone.
               ? (graph3d && <div className="diagrams-3d-frame">
-                  {/* Fix round 1, P1-1 — "show the downgrade note in the
-                   *  chrome, exactly like 2D": `web` normally carries no
-                   *  chrome at all (`TargetPreview`'s own doc), but a live
-                   *  3D scene genuinely can't express an ANSI colour DEPTH
-                   *  choice or (for braille) a solid Lambert render, so this
-                   *  is the one case `web` gets a `.target-preview__note`
-                   *  of its own — same class, same visual language. */}
-                  {(() => {
-                    const note = resolveDiagrams3dSceneOptions(resolvedControls.charset, resolvedControls.color).note;
-                    return note ? <div className="target-preview__note">{note}</div> : null;
-                  })()}
+                  {/* Fix round 4 — "why do we have this in the rendering
+                   *  area?" (user feedback on /charts 3D, applying here too).
+                   *  The viewport holds only the scene: a charset/colour
+                   *  choice the live 3D view can't express is now surfaced
+                   *  in the Dock, where the choice is made (see
+                   *  `DiagramsDock.tsx`'s Charset/Color rows), never as
+                   *  chrome floating over the render. */}
                   <Diagrams3DViewport
                     graph={graph3d} layout={state.view3d.layout} zBy={state.view3d.zBy} seed={state.view3d.seed}
                     direction={state.layout.direction} nodesep={state.layout.nodesep} ranksep={state.layout.ranksep}

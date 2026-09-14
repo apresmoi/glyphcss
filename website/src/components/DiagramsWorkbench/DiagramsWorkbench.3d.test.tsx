@@ -477,6 +477,107 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
     // Mutation: never call `view3d.show()`/`.hide()` → this stays "none" forever.
     expect(folderRoot()!.style.display).not.toBe("none");
   });
+
+  // Fix round 4 — "why do we have this in the rendering area?" (user
+  // feedback on /charts 3D, applying to /diagrams too). The viewport must
+  // hold ONLY the scene — no chrome note floating over it, on ANY charset x
+  // colour combination, including the ones the resolver degrades.
+  // Mutation: re-add `DiagramsWorkbench.tsx`'s removed
+  // `.diagrams-3d-frame > .target-preview__note` JSX → this reddens on
+  // every combination that would have produced a note (blocks/braille
+  // charsets, ansi16/ansi256 colours).
+  for (const charset of ["ascii", "box", "blocks", "braille"] as const) {
+    for (const color of ["none", "ansi16", "ansi256", "truecolor", "css"] as const) {
+      it(`web 3D viewport carries no chrome note for ${charset}/${color}`, async () => {
+        const state = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, controls: { target: "web" as const, overrides: { charset, color } } };
+        const el = document.createElement("div");
+        document.body.append(el);
+        const r = createRoot(el);
+        try {
+          await act(async () => r.render(<GlyphDiagramsWorkbench initialState={state} />));
+          await vi.waitFor(async () => {
+            await act(async () => { await vi.dynamicImportSettled(); });
+            expect(el.querySelector(".diagrams-3d-host .glyph-output")).not.toBeNull();
+          }, { timeout: 3000, interval: 10 });
+          const frame = el.querySelector(".diagrams-3d-frame");
+          expect(frame).not.toBeNull();
+          expect(frame!.querySelector(".target-preview__note")).toBeNull();
+          // Sanity: the frame is genuinely rendering the scene, not an
+          // accidentally-empty container this assertion would pass on for
+          // the wrong reason.
+          expect(frame!.querySelector(".diagrams-3d-host .glyph-output")!.textContent).toMatch(/\S/);
+        } finally {
+          await act(async () => r.unmount());
+          el.remove();
+        }
+      }, 10_000);
+    }
+  }
+
+  // Fix round 4 — "put the reason where the choice is made": the Dock's
+  // Charset/Color rows dim exactly the options `resolveCharset`/the colour
+  // depth rule degrade, never a hard-coded charset/colour list, and never
+  // the CURRENTLY selected option (the Charts mark-type-fit precedent).
+  // Mutation: drop `charsetToggleOptions`'/`colorToggleOptions`'
+  // `disabled`/`disabledReason` wiring → every assertion below on a
+  // degraded option reddens (falls back to `disabled: undefined`, a real
+  // `<button>` attribute, and empty title/aria-label suffix).
+  it("the Charset and Color rows dim exactly the options the live 3D view degrades, with the resolver's own reason", async () => {
+    await select("View", "3d");
+    await select("Target", "web");
+    // `web`'s own default charset is `braille` (`GLYPH_DIAGRAM_TARGET_DEFAULTS`)
+    // — move off it first so the "never disable the CURRENT option" rule
+    // (tested separately below) doesn't mask this row's own gate.
+    await select("Charset", "ascii");
+    const charsetButtons = Array.from(toggleRow("Charset").querySelectorAll<HTMLButtonElement>("button"));
+    const colorButtons = Array.from(toggleRow("Color").querySelectorAll<HTMLButtonElement>("button"));
+    const byValue = (buttons: HTMLButtonElement[], value: string) => buttons.find((b) => toggleOption(b).split(" — ")[0] === value)!;
+
+    for (const value of ["ascii", "box"]) {
+      const b = byValue(charsetButtons, value);
+      expect(b.disabled, value).toBe(false);
+    }
+    for (const value of ["blocks", "braille"]) {
+      const b = byValue(charsetButtons, value);
+      expect(b.disabled, value).toBe(true);
+      expect(b.title, value).toBe("Not available for 3D diagrams yet");
+      expect(b.getAttribute("aria-label"), value).toBe(`Character set: ${value} — Not available for 3D diagrams yet`);
+    }
+    // An ANSI depth still shapes Copy ANSI's exported text, so no colour option is ever dimmed in 3D.
+    for (const value of ["none", "ansi16", "ansi256", "truecolor", "css"]) {
+      const b = byValue(colorButtons, value);
+      expect(b.disabled, value).toBe(false);
+    }
+  });
+
+  // Fix round 4 — the CURRENTLY selected degraded option must stay
+  // reachable/interactive (never disabled), mirroring the Charts
+  // mark-type-fit "current type is never disabled" rule this Dock now
+  // shares: a reader already on `braille` in 3D can still see why on
+  // hover, but isn't locked inside a control that got them there.
+  it("never disables the currently-selected charset, even when it's the one degrading", async () => {
+    const state = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, controls: { target: "web" as const, overrides: { charset: "braille" as const } } };
+    const el = document.createElement("div");
+    document.body.append(el);
+    const r = createRoot(el);
+    try {
+      await act(async () => r.render(<GlyphDiagramsWorkbench initialState={state} />));
+      await vi.waitFor(async () => {
+        await act(async () => { await vi.dynamicImportSettled(); });
+        expect(el.querySelector(".diagrams-3d-host .glyph-output")).not.toBeNull();
+      }, { timeout: 3000, interval: 10 });
+      const row = Array.from(el.querySelectorAll(".dock-toggle-row")).find((n) => n.querySelector(".dock-toggle-row-label")?.textContent === "Charset")!;
+      const brailleButton = Array.from(row.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").includes("braille"))!;
+      expect(brailleButton.disabled).toBe(false);
+      // Still explains itself on hover even though it's reachable (not
+      // disabled, so `IconToggle` falls back to `desc`, which carries the
+      // same reason text for exactly this case).
+      expect(brailleButton.title).toBe("braille — Not available for 3D diagrams yet");
+    } finally {
+      await act(async () => r.unmount());
+      el.remove();
+    }
+  });
 });
 
 describe("Copy at the current camera (packet D3)", () => {
