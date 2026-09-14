@@ -482,3 +482,37 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
    (`ChartsDock.tsx`'s own `useTicksControl`) — so they inherit
    `gallery-workbench.css`'s real `.controller.boolean`/`.controller.number`
    theme exactly, with no classes of their own to maintain here. */
+
+/* 3D (packet C3, AGENTS.md's "Charts 3D"). The live viewport takes the
+   FULL `.charts-preview` box rather than the 2D `<pre>`'s own content-sized
+   box — `.charts-preview`'s `min-height: 100%` already gives it a definite
+   height (its ancestor `.charts-viewport` is `position: absolute; inset: 0`,
+   `instrument-workbench.css`), so `height: 100%` here fills it exactly. */
+.charts-3d-viewport { position: relative; height: 100%; min-height: 320px; display: flex; flex-direction: column; }
+.charts-3d-viewport-host { flex: 1 1 auto; min-height: 0; }
+/* The chrome-note idiom `TargetPreview`'s own terminal/chat frames use for
+   an unshowable choice (a braille request in a solid-only 3D scene) —
+   AGENTS.md's "Charts" "TargetPreview" doc: "A chrome note lives in the
+   frame's OWN chrome... never the viewport's render area." */
+.charts-3d-downgrade-note {
+  flex: 0 0 auto; padding: 4px 10px; font-size: 12px; line-height: 1.4;
+  color: rgba(255, 232, 184, 0.75); background: rgba(255, 200, 120, 0.08);
+  border-bottom: 1px solid rgba(255, 232, 184, 0.14);
+}
+.charts-3d-error { padding: 24px; font-size: 13px; opacity: 0.7; }
+/* The mark card's own note while showing the 3D viewport (`ChartsMarkCard.tsx`) — the rest of that card describes a 2D mark that isn't mounted. */
+.charts-mark-3d-note { margin: 6px 0 0; font-size: 11px; line-height: 1.4; opacity: 0.7; }
+/* The preset tray's 2D/3D divider (AGENTS.md's "Website" "Tray": "A divider
+   rather than interleaving") — `.synth-presets` is a horizontal flex row
+   (`instrument-workbench.css`), so this is one more flex item, sized to the
+   SAME 104px tile height so it reads as a section break, not a stray tile. */
+.charts-tray-3d-divider {
+  flex: 0 0 auto; display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 104px; writing-mode: vertical-rl; text-orientation: mixed;
+  font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; opacity: 0.55;
+  border-left: 1px solid rgba(255, 232, 184, 0.14); margin-left: 4px; padding-left: 6px;
+}
+/* The View folder's "Reset camera" button (`ChartsDock.tsx`) reuses
+   `.gx-toggle-btn`'s own chrome; this just widens it past an icon glyph's
+   own square footprint to fit the word. */
+.charts-3d-reset-camera { width: auto; padding: 0 10px; }

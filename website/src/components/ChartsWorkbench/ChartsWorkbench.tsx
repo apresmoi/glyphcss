@@ -16,14 +16,18 @@ import { ChartsDataFolder } from "./ChartsDataFolder";
 import { pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
+import { Charts3dViewport, type Charts3dViewportHandle } from "./Charts3dViewport";
 import { chartsMarkOmittedRows, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsOmittedRowsNote } from "./chartsMarkTypeFit";
 import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
   dataSourceKey, findChartsDataset, generateChartsWorkbenchSnippets, randomChartsDatasetId, randomChartsDatasetPick,
-  reduceChartsWorkbenchState, remoteDatasetRecommendationCheck, resolveGlyphChartsWorkbenchControls, type ChartsWorkbenchState,
+  reduceChartsWorkbenchState, remoteDatasetRecommendationCheck, resolveGlyphChartsWorkbenchControls,
+  CHARTS_3D_DATASETS, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions, createCharts3dViewState, resolveCharts3dView, resolveCharts3dViewForLiveScene,
+  type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { CHARTS_URL_PARAM, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, chartsWorkbenchDisplayRender, renderChartsWorkbenchState, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
+import { renderCharts3dStatic } from "./chartsWorkbench3dRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./charts-workbench.css";
 
@@ -140,6 +144,63 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const displayRendered = chartsWorkbenchDisplayRender(rendered, lastGoodRenderRef.current);
   const isRemoteLoading = remoteLoadingTitle !== undefined;
   const isViewportStale = !rendered.ok || isRemoteLoading;
+  // 3D (packet C3, AGENTS.md's "Charts 3D"): `state.dimension` picks which
+  // viewport renders. The live orbitable scene is web-only (the export
+  // boundary the user approved — terminal/chat/Copy/CLI all get a STATIC
+  // frame at the current camera); `chart3dViewportHandleRef` exposes the
+  // live viewport's "reset camera" to the Dock's View folder.
+  const is3d = state.dimension === "3d";
+  const resolvedControls = resolveGlyphChartsWorkbenchControls(state.controls);
+  const isWeb3d = is3d && resolvedControls.target === "web";
+  const chart3dResolved = useMemo(() => resolveCharts3dView(state.chart3d), [state.chart3d]);
+  // Target x charset x colour, honoured LIVE (not only in the static exit)
+  // — `color: "none"` maps straight to `useColors: false`; charset can only
+  // ever DEGRADE with a chrome note (`glyphChart3dCharsetDegrades`), never
+  // change what the scene mounts with, since 3D has no live halfblock path
+  // any more (`chartsWorkbench3dSceneOptions`'s own doc).
+  const chart3dSceneOptions = useMemo(
+    () => chartsWorkbench3dSceneOptions(resolvedControls.charset, resolvedControls.color),
+    [resolvedControls.charset, resolvedControls.color],
+  );
+  // The LIVE viewport's OWN resolve — `shading: "auto"` reads the LIVE
+  // scene's `useColors` (`resolveCharts3dViewForLiveScene`'s own doc: a
+  // `glyphChartObject` mount has no per-render colour-mode resolution step
+  // of its own, unlike `renderGlyphChart3d`), so it can diverge from
+  // `chart3dResolved` (the static/thumbnail resolve) exactly when shading
+  // is auto and `useColors` differs from the static exit's own colour mode.
+  const chart3dResolvedLive = useMemo(
+    () => resolveCharts3dViewForLiveScene(state.chart3d, chart3dSceneOptions.useColors),
+    [state.chart3d, chart3dSceneOptions.useColors],
+  );
+  const chart3dViewportRef = useRef<HTMLDivElement | null>(null);
+  const chart3dViewportHandleRef = useRef<Charts3dViewportHandle | null>(null);
+  const chart3dStatic = useMemo(() => is3d && !isWeb3d
+    ? renderCharts3dStatic({
+        view: state.chart3d, target: resolvedControls.target, charset: resolvedControls.charset, color: resolvedControls.color,
+        width: resolvedControls.width, height: resolvedControls.height,
+        env: { NO_COLOR: state.terminal.NO_COLOR ? "1" : undefined, FORCE_COLOR: state.terminal.FORCE_COLOR ? "1" : undefined },
+        showTitle: true,
+      })
+    : null, [is3d, isWeb3d, state.chart3d, resolvedControls.target, resolvedControls.charset, resolvedControls.color, resolvedControls.width, resolvedControls.height, state.terminal.NO_COLOR, state.terminal.FORCE_COLOR]);
+  // Copy ASCII/Copy ANSI in 3D mode read a SEPARATE render at each colour
+  // mode (there is no `textScale`/density concern for a 3D static frame,
+  // unlike 2D's `logicalRendered`) — same idea, simpler: one plain-text
+  // render and, when the current colour mode is ANSI, one more at that mode.
+  const chart3dCopyAscii = useMemo(() => is3d
+    ? renderCharts3dStatic({ view: state.chart3d, target: resolvedControls.target, charset: resolvedControls.charset, color: "none", width: resolvedControls.width, height: resolvedControls.height })
+    : null, [is3d, state.chart3d, resolvedControls.target, resolvedControls.charset, resolvedControls.width, resolvedControls.height]);
+  const chart3dCopyAnsi = useMemo(() => is3d && resolvedControls.color !== "none" && resolvedControls.color !== "css"
+    ? renderCharts3dStatic({ view: state.chart3d, target: resolvedControls.target, charset: resolvedControls.charset, color: resolvedControls.color, width: resolvedControls.width, height: resolvedControls.height, env: { NO_COLOR: state.terminal.NO_COLOR ? "1" : undefined, FORCE_COLOR: state.terminal.FORCE_COLOR ? "1" : undefined } })
+    : null, [is3d, resolvedControls.target, resolvedControls.charset, resolvedControls.color, resolvedControls.width, resolvedControls.height, state.chart3d, state.terminal.NO_COLOR, state.terminal.FORCE_COLOR]);
+  // Same `isHtml`/`display`/`ansi` shape `chartsWorkbenchRender.ts`'s own
+  // `renderSpec` derives for the 2D exit, so `TargetPreview` (fed this on
+  // `chat`/`terminal`, or as the whole viewport off `web`) behaves
+  // identically for a 3D chart's static frame.
+  const chart3dDisplay = useMemo(() => {
+    if (!chart3dStatic?.ok) return null;
+    const isHtml = chart3dStatic.html !== undefined;
+    return { display: isHtml ? chart3dStatic.html! : chart3dStatic.text, isHtml, text: chart3dStatic.text, ansi: chart3dStatic.text.includes("\x1b[") ? chart3dStatic.text : undefined };
+  }, [chart3dStatic]);
   // Density (task's own framing: "the same shapes with more character
   // density") — web only, mirrors glyphcss's own per-mesh `density`
   // (AGENTS.md's "Per-mesh detail layers"): the RENDER grid grows by the
@@ -178,7 +239,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // `CHARTS_DEFAULT_SWATCH_COLOR`.
   // P3-6 — dims every mark-card swatch (with a reason) under `Color: none`,
   // mirroring the Chart folder's own axis-colour swatches (`ChartsDock.tsx`).
-  const colorDisabled = resolveGlyphChartsWorkbenchControls(state.controls).color === "none";
+  const colorDisabled = resolvedControls.color === "none";
   // NEW-8 (REVIEW-dock-colours-sliders-opus-round2.md): the preview takes
   // the SAME `color` the real render will use, so `Color: none` returns a
   // `null` colour per series (never a colour the render itself won't
@@ -192,9 +253,25 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // Memoised per base inside the fit module; the note says which of the
   // reader's rows the chart leaves out for its CURRENT channels.
   const markTypeFits = state.marks.map((mark) => chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark)));
+  // The mark card's "Surface" option (packet C3) — only the first card
+  // offers it (3D mounts one object). Real memoisation would need its own
+  // per-rows cache (mirroring `chartsMarkTypeFitTable`'s own); the direct
+  // `glyphChartSurface` probe this runs is cheap (one validation pass, no
+  // paint) so a plain call per render is fine at this page's data sizes.
+  const surfaceFit = useMemo(() => chartsSurfaceFitFromRows(state.data, state.marks), [state.data, state.marks]);
   const omittedRows = state.marks.length > 0 ? chartsMarkOmittedRows(state.data, state.marks[0]!) : null;
   const omittedNote = omittedRows ? chartsOmittedRowsNote(omittedRows) : undefined;
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
+  // 3D preset tray tiles (packet C3): the SAME small static frame a 2D
+  // thumbnail uses, from `renderGlyphChart3d` at each dataset's own default
+  // camera (never the live scene). Memoised on target alone, mirroring the
+  // 2D thumbnails above — a vendored `Chart3dDataset` never changes at runtime.
+  const thumbnails3d = useMemo(() => CHARTS_3D_DATASETS.map((dataset) => {
+    const out = renderCharts3dStatic({
+      view: createCharts3dViewState(dataset.id), target: state.controls.target, charset: "ascii", color: "css", width: 24, height: 8,
+    });
+    return out.ok ? out.text : "";
+  }), [state.controls.target]);
   const snippets = useMemo(() => {
     try { return generateChartsWorkbenchSnippets(state); }
     catch { return null; }
@@ -392,8 +469,19 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const [copyLinkState, setCopyLinkState] = useState<"idle" | "copied" | "error" | "toolarge">("idle");
   const [downloadState, setDownloadState] = useState<"idle" | "downloaded" | "error">("idle");
   const copy = async (encoding: "ascii" | "ansi") => {
-    if (!logicalRendered.ok) return;
-    const value = encoding === "ascii" ? logicalRendered.text : logicalRendered.ansi;
+    // 3D (packet C3): Copy ASCII/ANSI read `renderGlyphChart3d` at the
+    // CURRENT camera — what the reader is actually looking at (or, off
+    // `web`, the same static frame the viewport already shows) — never the
+    // live scene's own text (there isn't one; the `<pre>` a live scene
+    // writes has no stable "current frame" a clipboard read could target
+    // mid-orbit).
+    let value: string | undefined;
+    if (is3d) {
+      const result = encoding === "ascii" ? chart3dCopyAscii : chart3dCopyAnsi;
+      value = result?.ok ? result.text : undefined;
+    } else if (logicalRendered.ok) {
+      value = encoding === "ascii" ? logicalRendered.text : logicalRendered.ansi;
+    }
     if (value === undefined) return;
     const setState = encoding === "ascii" ? setCopyAsciiState : setCopyAnsiState;
     try { await navigator.clipboard.writeText(value); flashButtonState(setState, "idle", "copied"); }
@@ -434,7 +522,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
   const exportActions = <>
-    <button type="button" className="gw-code-panel__action" disabled={!logicalRendered.ok} onClick={() => void copy("ascii")}>
+    <button type="button" className="gw-code-panel__action" disabled={is3d ? !chart3dCopyAscii?.ok : !logicalRendered.ok} onClick={() => void copy("ascii")}>
       {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
     </button>
     {/* Hidden on `chat` (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C3):
@@ -443,16 +531,22 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
      *  trap, not a convenience — Copy ASCII (above) is the honest export
      *  there. Gated on `logicalRendered` (not `rendered`) since that is
      *  what `copy("ansi")` actually reads — colour mode, not density,
-     *  decides whether ANSI text exists, so the two agree in practice. */}
-    {logicalRendered.ok && logicalRendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+     *  decides whether ANSI text exists, so the two agree in practice.
+     *  3D reads `chart3dCopyAnsi`, `null` off ANSI colour modes exactly
+     *  like 2D's own `logicalRendered.ansi === undefined` gate. */}
+    {(is3d ? chart3dCopyAnsi?.ok : logicalRendered.ok && logicalRendered.ansi !== undefined) && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
       {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
     </button>}
     <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
       {copyLinkState === "copied" ? "Copied" : copyLinkState === "error" ? "Copy failed" : copyLinkState === "toolarge" ? "Too large" : "Copy link"}
     </button>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={download}>
+    {/* SVG export reads `preRef`, which only the 2D `<pre>`/static-frame
+     *  `TargetPreview` is wired to — the live 3D scene writes its own
+     *  separate `<pre>` inside `Charts3dViewport` with no ref for this to
+     *  reach; Copy ASCII/ANSI (above) are the 3D export. */}
+    {!isWeb3d && <button type="button" className="gw-code-panel__action" disabled={!rendered.ok} onClick={download}>
       {downloadState === "downloaded" ? "Downloaded" : downloadState === "error" ? "Download failed" : "Download SVG"}
-    </button>
+    </button>}
   </>;
   const togglePanel = (panel: MobilePanel) => {
     setCodeOpen(false);
@@ -463,18 +557,25 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // loaded, every click — mirrors GalleryWorkbench.tsx's own
   // `handleRandomPreset`/`randomPreset` idiom (`randomChartsDatasetId`'s
   // own `excludeId`), widened to the COMBINED built-in + curated-Hugging-
-  // Face pool (AGENTS.md's "Charts" "Data layer" "Random") —
-  // `randomChartsDatasetPick` excludes whatever `dataSourceKey` reports for
-  // `state.data.source` right now, a built-in OR a remote key alike. A
-  // built-in pick dispatches `select-dataset` exactly as before; a remote
-  // pick goes through the SAME `loadRemoteDataset` the search box uses and
-  // draws that dataset's most informative chart (`select-remote-dataset`'s
-  // own doc); the variety comes from the dataset pick, never from a weaker
-  // view of the same data.
+  // Face + 3D pool (AGENTS.md's "Charts" "Data layer" "Random"; packet C3's
+  // own "Random can land on a surface" — `chartsRandomDataset.ts`'s own
+  // pool, ONE `Math.random()` draw for all three kinds, never a separate
+  // pre-check ahead of it: an earlier draw would shift every mocked call
+  // sequence this page's own Random tests pin). `dataSourceKey` excludes
+  // whatever's currently loaded; while showing a 3D dataset chart, that's
+  // its OWN key (2D's own `state.data.source` is stale in that case — it
+  // still names whatever was loaded before switching to 3D). A built-in
+  // pick dispatches `select-dataset` exactly as before; a remote pick goes
+  // through the SAME `loadRemoteDataset` the search box uses; a 3D pick
+  // dispatches `select-3d-dataset` — the variety comes from the dataset
+  // pick, never from a weaker view of the same data.
   const handleRandomDataset = () => {
     cancelInFlightRemoteLoad(); // P1-4 — see this ref's own doc, above
-    const pick = randomChartsDatasetPick(dataSourceKey(state.data.source));
+    const excludeKey = state.dimension === "3d" && state.chart3d.source.kind === "dataset"
+      ? `chart3d:${state.chart3d.source.id}` : dataSourceKey(state.data.source);
+    const pick = randomChartsDatasetPick(excludeKey);
     if (pick.kind === "dataset") { dispatch({ type: "select-dataset", id: pick.id }); return; }
+    if (pick.kind === "chart3d") { dispatch({ type: "select-3d-dataset", id: pick.id }); return; }
     void loadRemoteDataset(pick.hit, true);
   };
   // P1-4: the overlay's own `<select>` dispatches `select-dataset` DIRECTLY
@@ -496,10 +597,12 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // the in-flight title while a remote load is running (the same title the
   // dataset card's own spinner line shows).
   const activeDatasetId = state.data.source?.kind === "dataset" ? state.data.source.id : undefined;
-  const railTitle = remoteLoadingTitle
-    ?? (activeDatasetId ? findChartsDataset(activeDatasetId)?.title : undefined)
-    ?? (state.data.source?.kind === "remote" ? state.data.source.title : undefined)
-    ?? "Data";
+  const railTitle = is3d
+    ? (chart3dResolved.ok ? chart3dResolved.resolved.title : "3D")
+    : remoteLoadingTitle
+      ?? (activeDatasetId ? findChartsDataset(activeDatasetId)?.title : undefined)
+      ?? (state.data.source?.kind === "remote" ? state.data.source.title : undefined)
+      ?? "Data";
 
   return <InstrumentShell kind="synth" className="charts-shell">
     <InstrumentBody>
@@ -517,29 +620,52 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
        *  step. */}
       <InstrumentRail id="charts-data-panel" title={railTitle} open={mobilePanel === "data"}>
         <ChartsDataFolder data={state.data} marks={state.marks} omittedNote={omittedNote}
+          dimension={state.dimension} chart3d={chart3dResolved.ok ? { title: chart3dResolved.resolved.title, description: chart3dResolved.resolved.description, source: chart3dResolved.resolved.source } : null}
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
-          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled} dispatch={dispatch} />)}
+          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled}
+            dimension={index === 0 ? state.dimension : undefined} surfaceFit={index === 0 ? surfaceFit : undefined} dispatch={dispatch} />)}
         </div>
       </InstrumentRail>
       <InstrumentMain>
         <InstrumentViewport className="charts-viewport">
           <div className="charts-preview">
-            {/* The viewport holds only the render; feedback lives on the
-             *  buttons and in the rail (the user's own words: "it shouldn't
-             *  be in the rendering area — it moves the chart"). While the
-             *  live render is bad or a remote dataset is loading, this stays
-             *  on the LAST GOOD render, dimmed (`is-stale`) — pulsing too
-             *  (`is-loading`) only while something is actually in flight, so
-             *  the frame never collapses or shifts. */}
-            <div className={`charts-grid-scroll${isViewportStale ? " is-stale" : ""}${isRemoteLoading ? " is-loading" : ""}`}>
-              <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss chart …"
-                isHtml={Boolean(displayRendered?.isHtml)} text={displayRendered?.text ?? ""}
-                html={displayRendered?.isHtml ? displayRendered.display : undefined} ansi={displayRendered?.ansi}
-                charsetDowngraded={displayRendered?.charsetDowngraded}
-                style={densityStyle}
-                ariaLabel={state.chart.title || "Chart preview"} ariaDescription={state.chart.description || undefined} />
-            </div>
+            {isWeb3d ? (
+              // The live orbitable scene (web only, AGENTS.md's "Charts 3D"
+              // export boundary) — target x charset x colour honoured
+              // through `chart3dSceneOptions` (`useColors`), with a visible
+              // chrome note when a charset can't be shown live at all
+              // (braille, blocks — both wireframe/no-halfblock-path in a
+              // 3D scene). `chart3dResolvedLive`, not `chart3dResolved`,
+              // supplies the mark — its own `shading: "auto"` resolution
+              // reads the LIVE scene's `useColors`, see that memo's doc.
+              chart3dResolvedLive.ok
+                ? <Charts3dViewport mark={chart3dResolvedLive.resolved.mark} camera={state.chart3d.camera} orbitMode={state.chart3d.orbitMode}
+                    sceneOptions={chart3dSceneOptions} onCameraChange={(camera) => dispatch({ type: "set-3d-camera", camera })}
+                    viewportRef={chart3dViewportRef} handleRef={chart3dViewportHandleRef} />
+                : <div className="charts-3d-viewport charts-3d-error">{chart3dResolvedLive.error}</div>
+            ) : (
+              // The viewport holds only the render; feedback lives on the
+              // buttons and in the rail (the user's own words: "it
+              // shouldn't be in the rendering area — it moves the chart").
+              // While the live render is bad or a remote dataset is
+              // loading, this stays on the LAST GOOD render, dimmed
+              // (`is-stale`) — pulsing too (`is-loading`) only while
+              // something is actually in flight, so the frame never
+              // collapses or shifts. In 3D off `web`, this shows the SAME
+              // static frame `renderGlyphChart3d` produces for Copy.
+              <div className={`charts-grid-scroll${!is3d && isViewportStale ? " is-stale" : ""}${isRemoteLoading ? " is-loading" : ""}`}>
+                <TargetPreview ref={preRef} target={state.controls.target} commandTitle={is3d ? "glyphcss chart --3d …" : "glyphcss chart …"}
+                  isHtml={is3d ? Boolean(chart3dDisplay?.isHtml) : Boolean(displayRendered?.isHtml)}
+                  text={is3d ? (chart3dDisplay?.text ?? "") : (displayRendered?.text ?? "")}
+                  html={is3d ? (chart3dDisplay?.isHtml ? chart3dDisplay.display : undefined) : (displayRendered?.isHtml ? displayRendered.display : undefined)}
+                  ansi={is3d ? chart3dDisplay?.ansi : displayRendered?.ansi}
+                  charsetDowngraded={is3d ? false : displayRendered?.charsetDowngraded}
+                  style={is3d ? undefined : densityStyle}
+                  ariaLabel={(is3d ? chart3dResolved.ok && chart3dResolved.resolved.title : state.chart.title) || "Chart preview"}
+                  ariaDescription={(is3d ? chart3dResolved.ok && chart3dResolved.resolved.description : state.chart.description) || undefined} />
+              </div>
+            )}
           </div>
         </InstrumentViewport>
         {/* Sibling of `<InstrumentViewport>`, exactly where `MapSearchBox`
@@ -557,13 +683,21 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
           actions={exportActions} />}
       </InstrumentMain>
       <Dock id="charts-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-        <ChartsDock state={state} dispatch={dispatch} rendered={rendered} />
+        <ChartsDock state={state} dispatch={dispatch} rendered={rendered} chart3dViewportHandleRef={chart3dViewportHandleRef} />
       </Dock>
     </InstrumentBody>
     <InstrumentTray id="charts-presets-panel" label="Chart presets" open={mobilePanel === "presets"}>
       {CHART_PRESETS.map((preset, index) => <button type="button" className="synth-tile" key={preset.id} title={`Apply “${preset.label}”`} aria-label={`Apply ${preset.label}`} onClick={() => dispatch({ type: "apply-preset", id: preset.id })}>
         <span className="synth-tile-scene charts-tile-preview" aria-hidden="true"><pre>{thumbnails[index]}</pre></span>
         <span className="synth-tile-label">{preset.label}</span>
+      </button>)}
+      {/* A labelled divider rather than interleaving (AGENTS.md's "Charts
+       *  3D" "Website" "Tray" doc): a 3D tile changes what the viewport IS,
+       *  not just which chart it draws. */}
+      <div className="charts-tray-3d-divider" role="separator" aria-label="3D charts">3D</div>
+      {CHARTS_3D_DATASETS.map((dataset, index) => <button type="button" className="synth-tile" key={dataset.id} title={`View “${dataset.title}” in 3D`} aria-label={`View ${dataset.title} in 3D`} onClick={() => dispatch({ type: "select-3d-dataset", id: dataset.id })}>
+        <span className="synth-tile-scene charts-tile-preview" aria-hidden="true"><pre>{thumbnails3d[index]}</pre></span>
+        <span className="synth-tile-label">{dataset.title}</span>
       </button>)}
     </InstrumentTray>
     <InstrumentMobileTabs label="Charts panels" items={(["data", "controls", "presets", "export"] as const).map((panel) => ({

@@ -103,33 +103,57 @@ function ChartsRemoteDatasetDataView({ title, sourceRef, marks }: { readonly tit
  * clears the instant the config is valid again rather than fading on a
  * timer.
  */
-export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderError, omittedNote }: {
+/** The 3D viewport's own resolved dataset info (packet C3) — title,
+ *  description, and a credited source when one exists (a vendored
+ *  `datasets/chart3d/` entry; `null` for an inline surface built from the
+ *  reader's own table, which has no separate source of its own). */
+export interface ChartsData3dInfo {
+  readonly title: string;
+  readonly description: string;
+  readonly source: { readonly name: string; readonly url: string; readonly licence: string } | null;
+}
+
+export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderError, omittedNote, dimension, chart3d }: {
   readonly data: ChartsWorkbenchDataState;
   readonly marks?: readonly ChartsWorkbenchMark[]; readonly loadingTitle?: string; readonly notice?: string; readonly renderError?: string;
   /** Rows the current chart leaves out (`chartsMarkTypeFit.ts`'s
    *  `chartsOmittedRowsNote`) — shown for as long as the chart does. */
   readonly omittedNote?: string;
+  /** `state.dimension` (packet C3) — while `"3d"`, this card shows the 3D
+   *  chart's own provenance instead of the (now stale) 2D `data.source`,
+   *  the same "the dataset card is a provenance statement about the chart
+   *  actually shown" rule `apply-preset` already enforces by clearing
+   *  `data.source` outright. */
+  readonly dimension?: "2d" | "3d";
+  readonly chart3d?: ChartsData3dInfo | null;
 }) {
   const activeDataset = data.source?.kind === "dataset" ? findChartsDataset(data.source.id) : undefined;
   const remote = data.source?.kind === "remote" ? data.source : undefined;
+  const is3d = dimension === "3d";
 
   return <div className="charts-data-folder">
     {renderError && <p className="charts-readout charts-error" role="alert">{renderError}</p>}
     {notice && <p className="charts-readout" role="status">{notice}</p>}
-    {omittedNote && <p className="charts-readout" data-note="omitted-rows">{omittedNote}</p>}
+    {omittedNote && !is3d && <p className="charts-readout" data-note="omitted-rows">{omittedNote}</p>}
 
     {loadingTitle && <p className="charts-readout charts-data-loading" role="status">
       {loadingTitle} <span className="charts-data-loading-spinner" aria-hidden="true">⟳</span>
     </p>}
 
-    {activeDataset && <div className="charts-data-info">
+    {is3d && chart3d && <div className="charts-data-info">
+      <p className="charts-data-title">{chart3d.title}</p>
+      <p className="charts-readout">{chart3d.description}</p>
+      {chart3d.source && <p className="charts-readout"><a href={chart3d.source.url} target="_blank" rel="noreferrer">{chart3d.source.name}</a> — {chart3d.source.licence}</p>}
+    </div>}
+
+    {!is3d && activeDataset && <div className="charts-data-info">
       <p className="charts-data-title">{activeDataset.title}</p>
       <p className="charts-readout">{activeDataset.description}</p>
       <p className="charts-readout"><a href={activeDataset.source.url} target="_blank" rel="noreferrer">{activeDataset.source.name}</a> — {activeDataset.source.licence}</p>
       <ChartsDatasetDataView dataset={activeDataset} />
     </div>}
 
-    {remote && !loadingTitle && <div className="charts-data-info">
+    {!is3d && remote && !loadingTitle && <div className="charts-data-info">
       <p className="charts-data-title">{remote.title}</p>
       <p className="charts-readout">{remote.description}</p>
       <p className="charts-readout"><a href={remote.source.url} target="_blank" rel="noreferrer">{remote.source.name}</a>{remote.source.licence ? ` — ${remote.source.licence}` : ""}</p>

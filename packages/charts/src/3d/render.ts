@@ -133,6 +133,24 @@ function resolveCharsetDegrade3d(charset: GlyphChartCharset, ledger: GlyphChart3
 }
 
 /**
+ * The SAME charset degrade `resolveCharsetDegrade3d` reports into a static
+ * frame's ledger, exported as a plain predicate for a LIVE scene consumer
+ * (a mounted `createGlyphScene` orbiting a `glyphChartObject`, e.g.
+ * `/charts`' own 3D viewport) that needs the identical target/charset
+ * contract without re-deriving WHICH charsets are unsupported (AGENTS.md's
+ * "Charts 3D": "Charset mapping for 3D") — neither `blocks` (the always-
+ * mounted axis/tick overlay disables the halfblock encoder) nor `braille`
+ * (glyphcss's solid render mode has no braille encoder) can ever render a
+ * 3D chart's geometry, so BOTH degrade to the default solid ramp; `ascii`/
+ * `box` are unaffected. A live caller that wants the exact chrome wording
+ * writes its own note (a live scene has no `report.ledger` of its own to
+ * push one into) — this only answers "can charset X actually render".
+ */
+export function glyphChart3dCharsetDegrades(charset: GlyphChartCharset): boolean {
+  return charset === "blocks" || charset === "braille";
+}
+
+/**
  * The canvas CHROME (title/colorbar) tier. `braille` degrades to `box` (no
  * braille glyphs anywhere in the 3D frame). `blocks` ALSO degrades to the
  * default `ascii` tier here (fix round 1, P1-4) — the geometry itself can

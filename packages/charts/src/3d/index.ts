@@ -23,7 +23,7 @@ export { glyphChart3dSurfaceJsonSchema } from "./schema";
 export type { GlyphChart3dSurfaceJsonSchema } from "./schema";
 export { glyphChart3dFitCamera, GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
 export type { GlyphChart3dBounds, GlyphChart3dFitCameraOptions, GlyphChart3dFitCameraResult } from "./camera";
-export { renderGlyphChart3d, renderGlyphChart3dJson } from "./render";
+export { renderGlyphChart3d, renderGlyphChart3dJson, glyphChart3dCharsetDegrades } from "./render";
 export type {
   GlyphChart3dCameraOptions,
   GlyphChart3dRenderOptions,

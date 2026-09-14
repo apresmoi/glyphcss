@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  CHART_PRESETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, createChartsWorkbenchState, reduceChartsWorkbenchState,
+  CHART_PRESETS, CHARTS_3D_DATASETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, createChartsWorkbenchState, reduceChartsWorkbenchState,
   type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
 import { buildDatasetMark, resolveChartsDataRows } from "./chartsDataSource";
@@ -673,6 +673,88 @@ describe("chartsUrlState — fixed historical link (regression pin)", () => {
   it("mutation: truncating the SAME historical link breaks the decode", async () => {
     const mutated = HISTORICAL_DEFAULT_LINK.slice(0, Math.floor(HISTORICAL_DEFAULT_LINK.length / 2));
     expect(await decodeChartsUrlState(mutated)).toBeNull();
+  });
+});
+
+// Packet C3 (AGENTS.md's "Charts 3D"): `dimension`/`chart3d` ride as
+// append-only optional fields — the historical link above (encoded before
+// either existed) already proves an old link decodes unchanged; these pin
+// the NEW field's own round trip and its two graceful-degrade paths.
+describe("chartsUrlState — 3D (dimension/chart3d)", () => {
+  it("round-trips a 3D-dataset state, camera included", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-camera", camera: { rotX: 12, rotY: -34, zoom: 5.5 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-view", patch: { orbitMode: "trackball", shading: "value", colorscale: "magma" } });
+    const raw = await encodeChartsUrlState(state);
+    expect(await decodeChartsUrlState(raw)).toEqual(state);
+  });
+
+  it("round-trips an auto-fit camera (zoom omitted) exactly — zoom stays undefined, not re-materialised to a number", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[1]!.id });
+    expect(state.chart3d.camera.zoom).toBeUndefined();
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.camera.zoom).toBeUndefined();
+  });
+
+  // Mutation check: dropping the `sourceOmitted`/no-`rows` blanking in
+  // `chartsUrlStateForEncode` would instead write the reader's own table
+  // (arbitrary size) straight into `?c=` — this asserts the encoded raw
+  // string never contains the distinctive row values, and that decode
+  // still succeeds by gracefully falling back to 2D.
+  it("an INLINE surface source (built from the reader's own table) is never written into the link, and decodes back to 2D", async () => {
+    let state = createChartsWorkbenchState();
+    const rows = Array.from({ length: 4 }, (_, x) => Array.from({ length: 4 }, (_, y) => ({ x, y, z: x * 97 + y }))).flat();
+    state = reduceChartsWorkbenchState(state, {
+      type: "update-mark", id: state.marks[0]!.id,
+      patch: { dataText: JSON.stringify(rows), channels: { x: "x", y: "y" } },
+    });
+    state = reduceChartsWorkbenchState(state, { type: "select-3d-table" });
+    expect(state.dimension).toBe("3d");
+    expect(state.chart3d.source.kind).toBe("inline");
+    const raw = await encodeChartsUrlState(state);
+    expect(raw.includes("97")).toBe(false); // the distinctive z value never rides in the link
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.dimension).toBe("2d"); // no local copy to rehydrate from — graceful fallback
+  });
+
+  it("a stale/unknown 3D dataset id falls back to the 2D chart the rest of the link describes, via chartsUrlStateResolveDataset", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const stale: ChartsWorkbenchState = { ...base, chart3d: { ...base.chart3d, source: { kind: "dataset", id: "removed-dataset" } } };
+    const { state: resolved, notice } = chartsUrlStateResolveDataset(stale);
+    expect(resolved.dimension).toBe("2d");
+    expect(notice).toContain("removed-dataset");
+    // The rest of the link (the 2D marks `createChartsWorkbenchState()`
+    // ships) is untouched — never replaced by a random dataset, unlike the
+    // stale-2D-dataset-id fallback below.
+    expect(resolved.marks).toEqual(base.marks);
+  });
+
+  // Hand-built via the envelope's own documented plain-JSON fallback wire
+  // format (`"<version>j.<base64url(JSON)>"`, `lib/jsonUrlState.ts`'s own
+  // doc) — no reducer path can produce a malformed `chart3d`, so this is
+  // the only way to reach `validateCharts3dViewState`'s own degrade branch.
+  it("a malformed chart3d payload degrades to the 2D default rather than failing the whole decode", async () => {
+    const base = createChartsWorkbenchState();
+    const payload = { ...base, dimension: "3d", chart3d: { source: { kind: "dataset", id: "x" }, camera: { rotX: "not-a-number" }, orbitMode: "turntable", shading: "auto", colorscale: "viridis" } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.dimension).toBe("2d");
+    expect(decoded!.chart3d).toEqual(createChartsWorkbenchState().chart3d);
+    // The REST of the payload (ordinary 2D fields) is untouched — this one
+    // bad field doesn't take the whole link down.
+    expect(decoded!.marks).toEqual(base.marks);
+  });
+
+  it("an invalid dimension value (neither \"2d\" nor \"3d\") is simply read as 2D, never a decode failure", async () => {
+    const base = createChartsWorkbenchState();
+    const payload = { ...base, dimension: "not-a-dimension" };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.dimension).toBe("2d");
   });
 });
 

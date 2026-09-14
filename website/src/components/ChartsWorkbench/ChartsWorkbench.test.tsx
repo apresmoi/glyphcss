@@ -51,6 +51,7 @@ import {
 } from "./chartsWorkbenchRender";
 import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
 import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
+import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
 import { readRecentRemoteDatasets } from "./ChartsDatasetSearchBox";
 import * as urlStateModule from "../../lib/urlState";
 import { CHART_SCALE_TYPES as SCALE_TYPE_ORDER } from "./chartsWorkbenchState";
@@ -1153,6 +1154,22 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     }
   });
 
+  // Packet C3's own "Random can land on a surface" acceptance
+  // (AGENTS.md's "Charts 3D"): the 3D pool sits at the END of Random's
+  // combined pool (`chartsRandomDataset.ts`'s own doc), so a `Math.random`
+  // value that lands past every built-in AND remote entry reaches the
+  // first 3D dataset. Observed through the SAME `.charts-data-title`
+  // element every other Random test reads — `ChartsDataFolder` shows the
+  // 3D chart's own title there while `state.dimension === "3d"`.
+  it("the rail's Random button can land on a 3D surface dataset", () => {
+    const RANDOM_VALUE_FOR_FIRST_3D_PICK = (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length + 0.5) / (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length + CHARTS_3D_DATASETS.length);
+    vi.spyOn(Math, "random").mockReturnValue(RANDOM_VALUE_FOR_FIRST_3D_PICK);
+    const randomButton = container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!;
+    act(() => randomButton.click());
+    expect(chartsActiveDatasetTitle(container)).toBe(CHARTS_3D_DATASETS[0]!.title);
+    expect(container.querySelector(".charts-3d-viewport")).not.toBeNull();
+  });
+
   // ── Density (the user's own framing: "like in the 3D renderers we have
   // the density sliders" — AGENTS.md's "Per-mesh detail layers"). Real
   // lil-gui `useSlider`, same NumberController the Width/Height rows use
@@ -1686,12 +1703,13 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
   // Random's own combined pool (AGENTS.md's "Charts" — "Data layer" —
   // "Random"): pinning `Math.random` at a value that lands on the FIRST
   // curated Hugging Face entry (index `CHARTS_DATASETS.length` of the
-  // combined pool — `chartsRandomDataset.ts`'s own pool order, built-in
-  // then remote) forces Random to take the remote branch deterministically,
-  // with no dependency on real chance; the fixture computes that value from
-  // both lists' own lengths rather than a hard-coded fraction, so it stays
-  // correct if either grows.
-  const RANDOM_VALUE_FOR_FIRST_REMOTE_PICK = (CHARTS_DATASETS.length + 0.5) / (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length);
+  // combined pool — `chartsRandomDataset.ts`'s own pool order, built-in,
+  // then remote, then 3D) forces Random to take the remote branch
+  // deterministically, with no dependency on real chance; the fixture
+  // computes that value from all three lists' own lengths (packet C3
+  // appended a third pool segment — `chartsRandomDataset.ts`'s own doc)
+  // rather than a hard-coded fraction, so it stays correct if any grows.
+  const RANDOM_VALUE_FOR_FIRST_REMOTE_PICK = (CHARTS_DATASETS.length + 0.5) / (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length + CHARTS_3D_DATASETS.length);
 
   it("Random picking a curated Hugging Face dataset stubs the network and renders that dataset's top-ranked chart", async () => {
     // Deliberately NOT the dataset's real shape — `fetch` is fully stubbed,

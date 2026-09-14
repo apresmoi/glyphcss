@@ -20,6 +20,16 @@ import {
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { chartsBestFit, chartsBuildBoundMark, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsRebindMark, chartsRememberRemoteRows } from "./chartsMarkTypeFit";
 import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
+import { CHARTS_3D_DEFAULT_CAMERA, chartsSurfaceFitFromRows, createCharts3dViewState, type Charts3dCamera, type Charts3dViewState } from "./chartsWorkbench3d";
+import { findCharts3dDataset } from "./datasets/chart3d";
+
+export type { Charts3dCamera, Charts3dOrbitMode, Charts3dSceneOptions, Charts3dShading, Charts3dSource, Charts3dSurfaceFit, Charts3dViewState } from "./chartsWorkbench3d";
+export {
+  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
+  createCharts3dViewState, resolveCharts3dView, resolveCharts3dViewForLiveScene,
+} from "./chartsWorkbench3d";
+export { CHARTS_3D_DATASETS, findCharts3dDataset } from "./datasets/chart3d";
+export type { Chart3dDataset } from "./datasets/chart3d";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
 export { CHARTS_CUSTOM_MAX_BYTES, profileChartsData, resolveChartsDataRows, topChartsRecommendation, xChannelIsDate } from "./chartsDataSource";
@@ -292,6 +302,15 @@ export interface ChartsWorkbenchState {
   readonly terminal: { readonly NO_COLOR: boolean; readonly FORCE_COLOR: boolean };
   readonly data: ChartsWorkbenchDataState;
   readonly style: ChartsWorkbenchStyleState;
+  // 3D (packet C3, AGENTS.md's "Charts 3D"): no separate dimension toggle —
+  // the mark card's "Surface" type IS the switch to 3D (`select-3d-dataset`/
+  // `select-3d-table`), and picking any 2D type switches back
+  // (`set-mark-type` forces `dimension: "2d"`, below). `chart3d` stays
+  // populated even in 2D mode (a fresh default, never `undefined`) so
+  // switching INTO 3D never needs a null check — the 2D render path simply
+  // never reads it.
+  readonly dimension: "2d" | "3d";
+  readonly chart3d: Charts3dViewState;
 }
 export type ChartsWorkbenchAction =
   | { type: "add-mark"; markType?: GlyphChartMarkType }
@@ -340,7 +359,21 @@ export type ChartsWorkbenchAction =
   | { type: "set-axis-title-at"; axis: "x"; value: GlyphChartXAxisTitleAt }
   | { type: "set-axis-title-at"; axis: "y"; value: GlyphChartYAxisTitleAt }
   // Textures row (DIAGNOSIS-solid-colour-fills.md).
-  | { type: "set-region-fill"; value: GlyphChartRegionFill };
+  | { type: "set-region-fill"; value: GlyphChartRegionFill }
+  // 3D (packet C3). `select-3d-dataset` mounts a vendored `datasets/chart3d/`
+  // preset (the tray tile / the mark card's "Surface" option when the
+  // current table doesn't fit); `select-3d-table` mounts an INLINE grid
+  // resolved from the reader's own currently-loaded 2D table
+  // (`chartsSurfaceFitFromRows`) — the mark card's "Surface" option when it
+  // does. Both reset the camera to auto-fit, mirroring `select-dataset`'s
+  // own scale reset. `set-3d-dimension` is what picking a 2D type while in
+  // 3D mode dispatches (`set-mark-type` itself always carries `dimension:
+  // "2d"` too, so a direct 2D pick needs no separate action).
+  | { type: "select-3d-dataset"; id: string }
+  | { type: "select-3d-table" }
+  | { type: "set-3d-dimension"; dimension: "2d" | "3d" }
+  | { type: "set-3d-camera"; camera: Charts3dCamera }
+  | { type: "set-3d-view"; patch: Partial<Pick<Charts3dViewState, "orbitMode" | "shading" | "colorscale">> };
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
@@ -367,6 +400,8 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     terminal: { NO_COLOR: false, FORCE_COLOR: false },
     data: { source: null, pipeline: [] },
     style: { axisColor: defaultAxisColor(), axisTitlePlacement: defaultAxisTitlePlacement() },
+    dimension: "2d",
+    chart3d: createCharts3dViewState(),
   };
 }
 function isDefaultAxisColor(axisColor: ChartsWorkbenchAxisColorState): boolean {
@@ -419,7 +454,12 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     }
     case "set-mark-type": {
       const mark = state.marks.find((m) => m.id === action.id);
-      if (!mark || mark.type === action.markType) return state;
+      if (!mark) return state;
+      // A pick equal to the mark's OWN CURRENT type still means "go back to
+      // 2D" while the page is showing the 3D viewport (its `marks` array
+      // never changes going into 3D, so this is the only signal) — no mark
+      // rebuild needed, since nothing about it changed.
+      if (mark.type === action.markType) return state.dimension === "2d" ? state : { ...state, dimension: "2d" };
       const base = chartsMarkTypeBase(state.data, mark);
       const fit = chartsMarkTypeFitTable(base)[action.markType];
       if (!fit.fits || base.rows === null) return state;
@@ -428,8 +468,10 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       if (!built) return state;
       // Same scale reset `select-dataset` makes: a typed domain or an
       // explicit time scale belongs to the previous binding's columns.
+      // `dimension: "2d"` unconditionally — picking any 2D type (the mark
+      // card's own Type toggle) is how a reader switches OUT of 3D.
       return {
-        ...state, marks: state.marks.map((m) => m.id === mark.id ? built.mark : m),
+        ...state, dimension: "2d", marks: state.marks.map((m) => m.id === mark.id ? built.mark : m),
         scales: { x: built.isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
       };
     }
@@ -445,7 +487,7 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       // provenance statement ("this chart is made of THESE rows"), so it
       // must go empty (the `<select>`'s own "— pick a dataset —"
       // placeholder) the moment a preset makes that statement false.
-      return { ...state, marks: preset.spec.marks.map((mark, i) => editableMark(mark, state.nextMarkId + i)),
+      return { ...state, dimension: "2d", marks: preset.spec.marks.map((mark, i) => editableMark(mark, state.nextMarkId + i)),
         nextMarkId: state.nextMarkId + preset.spec.marks.length, scales: { x: autoScale(), y: autoScale() }, axes: { x: autoAxis(), y: autoAxis() },
         chart: { ...state.chart, title: preset.label, description: preset.spec.description ?? "" },
         data: { source: null, pipeline: [] } };
@@ -538,7 +580,7 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       // a 0-ink one.
       if (!built) return state;
       return {
-        ...state, marks: [built.mark], nextMarkId: state.nextMarkId + 1,
+        ...state, dimension: "2d", marks: [built.mark], nextMarkId: state.nextMarkId + 1,
         data: { source, pipeline: [] },
         scales: { x: built.isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
         axes: { x: autoAxis(), y: autoAxis() },
@@ -562,13 +604,25 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       const built = best && chartsBuildBoundMark(state.nextMarkId, best.type, action.rows, best.binding);
       if (!built) return state;
       return {
-        ...state, marks: [built.mark], nextMarkId: state.nextMarkId + 1,
+        ...state, dimension: "2d", marks: [built.mark], nextMarkId: state.nextMarkId + 1,
         data: { source: { kind: "remote", ref: action.ref, title: action.title, description: action.description, source: action.source }, pipeline: [] },
         scales: { x: built.isDate ? { type: "time", min: "", max: "" } : autoScale(), y: autoScale() },
         axes: { x: autoAxis(), y: autoAxis() },
         chart: { ...state.chart, title: action.title, description: action.description },
       };
     }
+    case "select-3d-dataset": {
+      if (!findCharts3dDataset(action.id)) return state;
+      return { ...state, dimension: "3d", chart3d: { ...state.chart3d, source: { kind: "dataset", id: action.id }, camera: { ...CHARTS_3D_DEFAULT_CAMERA } } };
+    }
+    case "select-3d-table": {
+      const fit = chartsSurfaceFitFromRows(state.data, state.marks);
+      if (!fit.fits) return state;
+      return { ...state, dimension: "3d", chart3d: { ...state.chart3d, source: fit.source, camera: { ...CHARTS_3D_DEFAULT_CAMERA } } };
+    }
+    case "set-3d-dimension": return action.dimension === state.dimension ? state : { ...state, dimension: action.dimension };
+    case "set-3d-camera": return { ...state, chart3d: { ...state.chart3d, camera: action.camera } };
+    case "set-3d-view": return { ...state, chart3d: { ...state.chart3d, ...action.patch } };
   }
 }
 

@@ -12,20 +12,23 @@
 // existed still decodes to today's shape; only an incompatible reshaping of
 // an EXISTING field bumps to `v2`, at which point `decodeChartsUrlState`
 // gains a second branch the way synthUrlState.ts's `outerCodecFor` does.
+import { GLYPH_CHART_3D_COLORSCALE_NAMES } from "@glyphcss/charts/3d";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES, CHART_REGION_FILLS,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
   CHARTS_DENSITY_MIN, chartsDensitySliderMax,
-  createChartsWorkbenchState, findChartsDataset, randomChartsDatasetId, reduceChartsWorkbenchState,
+  createChartsWorkbenchState, findChartsDataset, findCharts3dDataset, randomChartsDatasetId, reduceChartsWorkbenchState, createCharts3dViewState,
   type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchAxisTitlePlacementState,
   type ChartsWorkbenchDataState,
   type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
   type GlyphChartsWorkbenchControls,
+  type Charts3dCamera, type Charts3dSource, type Charts3dViewState,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
 import { FILTER_OPERATORS, normaliseDateColumn, PIPELINE_STEP_KINDS, type PipelineStep } from "../../lib/dataPipeline";
 import { profileRows } from "../../lib/dataProfile";
+import type { TabularRow } from "../../lib/tabularParse";
 import { createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 import { writeUrlParam } from "../../lib/urlState";
 
@@ -383,6 +386,67 @@ function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
   return { source, pipeline };
 }
 
+// ── 3D (packet C3, AGENTS.md's "Charts 3D") ────────────────────────────
+// `dimension`/`chart3d` are BOTH append-only optional `v1` fields (a link
+// saved before 3D existed carries neither) — absent decodes to `"2d"` /
+// `createCharts3dViewState()`, byte-identical to before this feature
+// existed. Unlike a 2D mark's `dataText`, a MALFORMED `chart3d` never fails
+// the whole decode: it degrades LOCALLY to the same default (and forces
+// `dimension: "2d"`, since a 3D viewport with no valid mark to show would
+// be worse than falling back to whatever 2D marks the rest of the link
+// carries) — the same "never let one field's corruption take down an
+// otherwise-good link" posture `chartsUrlStateResolveDataset` already
+// applies to a stale dataset id, just resolved at validation time instead
+// of a later page-level step.
+const CHARTS_3D_ORBIT_MODES = ["turntable", "trackball"] as const;
+const CHARTS_3D_SHADINGS = ["auto", "relief", "value"] as const;
+
+function validateCharts3dCamera(value: unknown): Charts3dCamera | null {
+  if (!isRecord(value)) return null;
+  const { rotX, rotY, zoom } = value;
+  if (typeof rotX !== "number" || !Number.isFinite(rotX)) return null;
+  if (typeof rotY !== "number" || !Number.isFinite(rotY)) return null;
+  if (zoom !== undefined && (typeof zoom !== "number" || !Number.isFinite(zoom) || zoom <= 0)) return null;
+  return { rotX, rotY, ...(zoom !== undefined ? { zoom } : {}) };
+}
+
+/**
+ * An INLINE surface source (the mark card's "Surface" option, built from
+ * the reader's own currently-loaded table) is NEVER carried in the link —
+ * `chartsUrlStateForEncode` blanks its `rows` unconditionally, mirroring a
+ * `"remote"` 2D dataset's own "no local copy to compare against" rule
+ * (this file's own doc, above) — so a decoded `sourceOmitted: true` (or a
+ * missing `rows` array) always returns `null` here, which the caller reads
+ * as "3D is unavailable on this link" and falls back to the 2D default.
+ */
+function validateCharts3dSource(value: unknown): Charts3dSource | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "dataset") {
+    return typeof value.id === "string" ? { kind: "dataset", id: value.id } : null;
+  }
+  if (value.kind === "inline") {
+    if (value.sourceOmitted === true || !Array.isArray(value.rows)) return null;
+    if (typeof value.title !== "string" || !isRecord(value.channels)) return null;
+    const { x, y, z } = value.channels;
+    if (typeof x !== "string" || typeof y !== "string" || typeof z !== "string") return null;
+    return { kind: "inline", title: value.title, rows: value.rows as readonly TabularRow[], channels: { x, y, z } };
+  }
+  return null;
+}
+
+function validateCharts3dViewState(value: unknown): Charts3dViewState | null {
+  if (!isRecord(value)) return null;
+  const { source, camera, orbitMode, shading, colorscale } = value;
+  const cleanSource = validateCharts3dSource(source);
+  if (!cleanSource) return null;
+  const cleanCamera = validateCharts3dCamera(camera);
+  if (!cleanCamera) return null;
+  if (!oneOf(orbitMode, CHARTS_3D_ORBIT_MODES)) return null;
+  if (!oneOf(shading, CHARTS_3D_SHADINGS)) return null;
+  if (!oneOf(colorscale, GLYPH_CHART_3D_COLORSCALE_NAMES)) return null;
+  return { source: cleanSource, camera: cleanCamera, orbitMode, shading, colorscale };
+}
+
 function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | null {
   if (!isRecord(value)) return null;
   const { marks, nextMarkId, controls, scales, axes, chart, terminal, data, style } = value;
@@ -429,6 +493,13 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
   const cleanStyle = validateStyleState(style);
   if (!cleanStyle) return null;
 
+  // See this pair's own doc, above: a malformed/unavailable `chart3d`
+  // degrades to the default and forces 2D, rather than failing the whole
+  // decode.
+  const rawChart3d = validateCharts3dViewState(value.chart3d);
+  const cleanChart3d = rawChart3d ?? createCharts3dViewState();
+  const dimension = value.dimension === "3d" && rawChart3d !== null ? "3d" : "2d";
+
   return {
     marks: cleanMarks,
     nextMarkId,
@@ -443,6 +514,8 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
     },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
     data: cleanData,
+    dimension,
+    chart3d: cleanChart3d,
     style: cleanStyle,
   };
 }
@@ -531,20 +604,32 @@ function markIsDataOmitted(mark: ChartsWorkbenchMark): boolean {
  * runs after this and is unaffected.
  */
 export function chartsUrlStateForEncode(state: ChartsWorkbenchState): ChartsWorkbenchState {
+  let next = state;
   const source = state.data.source;
   if (source?.kind === "remote") {
     const marks = state.marks.map((mark) => markIsDataOmitted(mark) ? mark : markWithDataOmitted(mark));
-    return marks.some((mark, i) => mark !== state.marks[i]) ? { ...state, marks } : state;
+    if (marks.some((mark, i) => mark !== state.marks[i])) next = { ...next, marks };
+  } else if (source?.kind === "dataset") {
+    let changed = false;
+    const marks = state.marks.map((mark) => {
+      const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
+      if (derived === null || derived !== mark.dataText) return mark;
+      changed = true;
+      return markWithDataOmitted(mark);
+    });
+    if (changed) next = { ...next, marks };
   }
-  if (source?.kind !== "dataset") return state;
-  let changed = false;
-  const marks = state.marks.map((mark) => {
-    const derived = chartsDatasetDerivedDataText(source.id, mark.channels.x);
-    if (derived === null || derived !== mark.dataText) return mark;
-    changed = true;
-    return markWithDataOmitted(mark);
-  });
-  return changed ? { ...state, marks } : state;
+  // An INLINE 3D surface (the mark card's "Surface" option built from the
+  // reader's own table) is never written into the link — mirrors a remote
+  // 2D dataset's own "no local copy to compare against" rule
+  // (`validateCharts3dSource`'s own doc). Cast for the same reason
+  // `markWithDataOmitted` casts: `rows` is stringify-time-only missing here,
+  // never read back as real state afterward.
+  if (next.chart3d.source.kind === "inline") {
+    const { rows: _rows, ...restSource } = next.chart3d.source;
+    next = { ...next, chart3d: { ...next.chart3d, source: { ...restSource, sourceOmitted: true as const } as unknown as Charts3dSource } };
+  }
+  return next;
 }
 
 /**
@@ -596,6 +681,16 @@ function chartsUrlStateRehydrated(state: ChartsWorkbenchState): ChartsWorkbenchS
  * (the page's own concern, `lib/datasetLoad.ts`) falls back to random.
  */
 export function chartsUrlStateResolveDataset(state: ChartsWorkbenchState): { readonly state: ChartsWorkbenchState; readonly notice?: string; readonly remoteRef?: string } {
+  // The 3D counterpart of the stale-2D-dataset-id fallback below: `?c=`
+  // stores only the vendored dataset ID for a `"dataset"`-sourced 3D chart
+  // (never the grid itself), so a removed/renamed id must degrade the same
+  // way — here it falls back to the 2D chart the REST of the link already
+  // describes (never a random 2D dataset, unlike the 2D case: there's no
+  // reason to discard a perfectly good 2D chart just because its OWN
+  // dimension was 3D).
+  if (state.dimension === "3d" && state.chart3d.source.kind === "dataset" && !findCharts3dDataset(state.chart3d.source.id)) {
+    return { state: { ...state, dimension: "2d" }, notice: `3D dataset "${state.chart3d.source.id}" is no longer available — showing the 2D chart instead.` };
+  }
   const source = state.data.source;
   if (source?.kind === "remote") return { state, remoteRef: source.ref };
   if (source?.kind !== "dataset" || findChartsDataset(source.id)) return { state };

@@ -3,7 +3,7 @@ import type { GlyphChartMarkType, GlyphChartSeriesPreviewEntry } from "@glyphcss
 import {
   CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields,
   chartRelevantChannels,
-  type ChartsWorkbenchAction, type ChartsWorkbenchMark,
+  type Charts3dSurfaceFit, type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
 import type { ChartsMarkTypeFitTable } from "./chartsMarkTypeFit";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
@@ -68,6 +68,16 @@ const CHART_MARK_TYPE_DESCRIPTIONS: Record<(typeof CHART_MARK_TYPES)[number], st
 export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
   value: type as string, icon: CHART_MARK_TYPE_ICONS[type], label: type, desc: CHART_MARK_TYPE_DESCRIPTIONS[type],
 }));
+
+// "Surface" (packet C3, AGENTS.md's "Charts 3D") — the ONE 3D type, offered
+// only on the first mark card (3D mounts a single object, so a second/third
+// mark has no meaning in it). Not a `GlyphChartMarkType` — `@glyphcss/charts`
+// and `@glyphcss/charts/3d` are separate spec vocabularies (AGENTS.md's
+// "Charts 3D": "the two mark vocabularies don't share a spec yet") — so it
+// rides the SAME `IconToggle` (whose options are plain strings) as one more
+// entry rather than widening `CHART_MARK_TYPE_TOGGLE`'s own typed list.
+export const CHARTS_SURFACE_TYPE_VALUE = "surface";
+const CHARTS_SURFACE_ICON = <ToggleIcon><path d="M1.5 9.5 L5 4.5 L9 8 L14.5 2.5" /><path d="M1.5 12.5 L5 7.5 L9 11 L14.5 5.5" /><path d="M1.5 6 L1.5 13" /><path d="M1.5 13 L14.5 13" /></ToggleIcon>;
 
 // Stroke width (`options.strokeWidth`, `@glyphcss/charts` — landed with a
 // canvas `line({ width })` option, AGENTS.md's "Charts" own
@@ -191,8 +201,13 @@ function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch 
  * gets a "Mark N" heading per mark and "Mark N" accessible names; a lone
  * mark's names read "Chart type: line", "Chart x", …
  */
-export function ChartsMarkCard({ mark, index, markCount, typeFits, series, colorDisabled, dispatch }: {
-  mark: ChartsWorkbenchMark; index: number; markCount: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean; dispatch: Dispatch<ChartsWorkbenchAction>;
+export function ChartsMarkCard({ mark, index, markCount, typeFits, series, colorDisabled, dimension, surfaceFit, dispatch }: {
+  mark: ChartsWorkbenchMark; index: number; markCount: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean;
+  /** `state.dimension` — only `index === 0`'s card offers "Surface" at all, and only that card's Type row reads this to show it as the active option. */
+  dimension?: "2d" | "3d";
+  /** Whether the reader's currently-loaded table can become a surface (`chartsSurfaceFitFromRows`) — `index === 0` only. */
+  surfaceFit?: Charts3dSurfaceFit;
+  dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
   const name = markCount > 1 ? `Mark ${index + 1}` : "Chart";
   const fields = chartMarkFields(mark);
@@ -202,21 +217,36 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
   // type always stays enabled, even when the table calls it unfit (a tray
   // sample, a hand-built link), so a card is never stranded on a disabled
   // button.
-  const typeOptions = CHART_MARK_TYPE_TOGGLE.map((option) => {
+  const typeOptions: typeof CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPE_TOGGLE.map((option) => {
     const fit = typeFits[option.value as GlyphChartMarkType];
     return fit.fits || option.value === mark.type ? option : { ...option, disabled: true, disabledReason: fit.reason };
   });
+  const showSurface = index === 0 && surfaceFit !== undefined;
+  const in3d = dimension === "3d" && index === 0;
+  const allTypeOptions = showSurface
+    ? [...typeOptions, {
+        value: CHARTS_SURFACE_TYPE_VALUE, icon: CHARTS_SURFACE_ICON, label: "Surface", desc: "a 3D height-field surface, z(x, y)",
+        ...(surfaceFit!.fits ? {} : { disabled: true, disabledReason: surfaceFit!.reason }),
+      }]
+    : typeOptions;
+  const activeType = in3d ? CHARTS_SURFACE_TYPE_VALUE : mark.type;
+  const onTypeChange = (value: string) => {
+    if (value === CHARTS_SURFACE_TYPE_VALUE) dispatch({ type: "select-3d-table" });
+    else dispatch({ type: "set-mark-type", id: mark.id, markType: value as GlyphChartMarkType });
+  };
   return <div className="charts-mark-card">
     <div className="voice-controls">
       {markCount > 1 && <div className="voice-head">
         <span className="voice-title">{name}</span>
       </div>}
       <div className="voice-row charts-mark-row" data-row="type">
-        <IconToggle groupTitle={`${name} type`} options={typeOptions} value={mark.type}
-          onChange={(type) => dispatch({ type: "set-mark-type", id: mark.id, markType: type as GlyphChartMarkType })} />
+        <IconToggle groupTitle={`${name} type`} options={allTypeOptions} value={activeType} onChange={onTypeChange} />
       </div>
-      <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />
-      {(() => {
+      {in3d && <p className="charts-mark-3d-note">Showing a 3D surface. Pick a 2D type above, or open the preset tray for a real 3D dataset (Maunga Whau, Alps).</p>}
+      {/* The rest of the card describes a 2D mark's own colour/stroke/channel
+       *  rows, which have nothing to say about the object mounted in 3D. */}
+      {!in3d && <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />}
+      {!in3d && (() => {
         const strokeReason = chartMarkStrokeReason(mark);
         const hasStroke = strokeReason === null;
         const strokeWidth = mark.options.strokeWidth ?? 1;
@@ -234,29 +264,29 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
             format={(v) => String(v)} onCommit={setStrokeWidth} />
         </label>;
       })()}
-      {chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
+      {!in3d && chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
         <span>{channel}</span><span className="gx-select"><select aria-label={`${name} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
           <option value="">auto</option>
           {mark.channels[channel] && !fields.includes(mark.channels[channel]!) && <option value={mark.channels[channel]}>{mark.channels[channel]} (missing)</option>}
           {fields.map((field) => <option key={field}>{field}</option>)}
         </select></span>
       </label>)}
-      <label className="voice-row charts-mark-row">
+      {!in3d && <label className="voice-row charts-mark-row">
         <span>Transform</span><span className="gx-select"><select aria-label={`${name} transform`} value={mark.transform} disabled={mark.type === "rule" || mark.type === "sankey" || mark.type === "funnel"} title={mark.type === "sankey" || mark.type === "funnel" ? "Sankey and funnel have no x/y scale to bin/stack/group against." : undefined} onChange={(event) => update({ transform: event.target.value as ChartsWorkbenchMark["transform"] })}>
           {CHART_TRANSFORMS.map((transform) => <option key={transform}>{transform}</option>)}
         </select></span>
-      </label>
-      {mark.type === "arc" && <div className="voice-row charts-mark-row">
+      </label>}
+      {!in3d && mark.type === "arc" && <div className="voice-row charts-mark-row">
         <span>Shape</span><div className="gx-toggle" role="group" aria-label={`${name} arc shape`}>
           {[{ label: "Pie", radius: 0 }, { label: "Donut", radius: 0.5 }].map(({ label, radius }) => <button key={label} type="button" className={`gx-toggle-btn gx-toggle-text${(mark.options.innerRadius ?? 0) === radius ? " is-active" : ""}`} aria-pressed={(mark.options.innerRadius ?? 0) === radius} onClick={() => update({ options: { ...mark.options, innerRadius: radius } })}>{label}</button>)}
         </div>
       </div>}
-      {mark.type === "arc" && <div className="voice-row charts-mark-row" data-row="labels">
+      {!in3d && mark.type === "arc" && <div className="voice-row charts-mark-row" data-row="labels">
         <span>Labels</span>
         <IconToggle groupTitle={`${name} labels`} options={ARC_LABELS_TOGGLE} value={mark.options.labels ?? "callout"}
           onChange={(value) => update({ options: { ...mark.options, labels: value as "callout" | "legend-only" } })} />
       </div>}
-      {mark.type === "rule" && <div className="voice-row charts-mark-row">
+      {!in3d && mark.type === "rule" && <div className="voice-row charts-mark-row">
         <span>Axis</span><div className="gx-toggle" role="group" aria-label={`${name} rule axis`}>
           {(["x", "y"] as const).map((axis) => <button key={axis} type="button" className={`gx-toggle-btn gx-toggle-text${(mark.options.axis ?? "y") === axis ? " is-active" : ""}`} aria-pressed={(mark.options.axis ?? "y") === axis} onClick={() => update({ options: { axis } })}>{axis}</button>)}
         </div>

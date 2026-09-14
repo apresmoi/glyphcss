@@ -26,3 +26,12 @@ Each dataset's own `source` field (`{ name, url, licence }`) carries this same c
 `renewableElectricityShareDataset` covers 1985-2025, matching the cited source's own published range — Ember (and the Energy Institute Statistical Review behind it) begin in the mid-1980s, so there is no real world-renewable-share datapoint for earlier years to vendor (P2-2).
 
 The eight datasets above the line were added to give every `@glyphcss/charts` mark type (`CHART_MARK_TYPES`) at least one dataset that recommends it — see `datasets.test.ts`'s "mark-type coverage" describe block for the full map and the three mark types (`rect`, `text`, `rule`) deliberately left uncovered, with why.
+
+## 3D (surface) datasets — `datasets/chart3d/`
+
+Two datasets, separate from the 16 above (a `Chart3dDataset` is a `z(x, y)` grid, not a `ChartsDatasetRow[]` — AGENTS.md's "Charts 3D"), for `/charts`' 3D preset tray:
+
+| Dataset | Source | Licence |
+|---|---|---|
+| `maungaWhauVolcanoDataset` (`maunga-whau-volcano`) | R's built-in `datasets::volcano` (87x61, 10m grid) — captured from `volcano.csv` in the plotly/datasets repo — <https://github.com/plotly/datasets/blob/master/volcano.csv> | MIT (plotly/datasets repackaging); the original digitization ("Digitized from a topographic map by Ross Ihaka", per R's own `?datasets::volcano` docs) is part of R's base `datasets` package, licensed GPL-2 \| GPL-3 — **verify GPL compatibility before treating this file as MIT-only**, since the repackaging licence and the underlying data's own licence are not the same thing |
+| `etopo1AlpsDataset` (`etopo1-alps`) | NOAA NCEI (ETOPO1), extracted from this repo's OWN baked terrain pyramid (`website/public/data/geo-tiles/curated/7/66_31.bin`, the curated Switzerland z7 tile, around the Matterhorn) — <https://www.ngdc.noaa.gov/mgg/global/> | Public domain (NOAA) |

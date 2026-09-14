@@ -2389,3 +2389,199 @@ on both `@glyphcss/charts` and `chartCli.ts`/`chartCli.test.ts`, and
 `pnpm build:packages` (all 17 packages) pass — all at the merged base
 BEFORE the pre-final-gates re-merge of `feat/diagrams`'s then-current head,
 which this section's own final report re-verifies.
+
+## C3 — `/charts` 3D UI: mark-card Surface, live viewport, View folder, presets, URL state
+
+**Scope.** The website half of the 3D chart track: a "Surface" mark-card
+type, a live orbitable viewport on `web`, a static frame everywhere else,
+a View folder (rotate mode, reset camera, shading, colorscale), camera and
+dimension in `?c=`, two vendored 3D datasets in the preset tray, and
+Random able to land on either. Built entirely inside `ChartsWorkbench/` —
+no shared `InstrumentWorkbench` 3D viewport existed on `feat/diagrams` when
+this packet started (grepped `addObject` under `website/src/components`:
+zero hits); D3's own `/diagrams` viewport landed in parallel and, per its
+own AGENTS.md paragraph, was assessed for extraction and explicitly NOT
+generalized this round ("not yet proven stable enough to safely extract").
+`Charts3dViewport.tsx` is written to take only a resolved
+`GlyphChart3dSurfaceMark` plus plain camera/scene-option props — no
+`ChartsWorkbenchState` import — specifically so a later lift is a house
+move, not a rewrite.
+
+**Why the mark card's "Surface" option is real, generic grid detection, not
+a special case for the two vendored datasets.** `chartsSurfaceFitFromRows`
+profiles the reader's CURRENTLY loaded 2D table (the same rows
+`chartsMarkTypeFit.ts` already reads for every other type), takes its
+first three numeric/integer columns in profiled order, and attempts the
+REAL `glyphChartSurface` build — catching its own validation error rather
+than restating "must be a complete unique (x, y) grid" as a second rule
+that could drift from the library's own. None of the 16 vendored 2D
+datasets are gridded this way (they are time series or categorical), so on
+real data the option is disabled with a plain-English reason by default —
+which is correct, not a bug: a reader who wants 3D reaches for the preset
+tray's own two datasets, the primary and only guaranteed-good path. The
+fit is deliberately scoped to the first three numeric columns rather than
+every x/y/z permutation of a wider table (an exhaustive search was
+considered and cut for scope — a future increment can widen it, or add an
+explicit column picker); a synthetic table with the RIGHT three columns
+still lights the option up and mounts a real "inline" surface (see below).
+
+**Why an inline table-derived surface is never written into `?c=`.**
+`chartsSurfaceFitFromRows`'s `fits: true` branch returns a `Charts3dSource`
+of `kind: "inline"` carrying the reader's own rows verbatim (not just an
+id) — the mark-card equivalent of a remote 2D dataset, which already has
+no local copy to compare a link's payload against. `chartsUrlStateForEncode`
+blanks `chart3d.source.rows` unconditionally when `kind === "inline"`
+(mirroring the remote-2D-mark blanking already in this file, never a
+byte-match comparison since there is nothing to compare against), and
+`validateCharts3dSource` refuses to decode an inline source with no `rows`
+array (or one carrying the `sourceOmitted: true` flag the encoder writes
+in their place) — the CONTAINING `chart3d` therefore fails validation and
+`validateChartsWorkbenchState` degrades LOCALLY: `dimension` falls back to
+`"2d"` and `chart3d` to its default, while every OTHER field in the same
+payload decodes untouched. This is a deliberate asymmetry from a
+`"dataset"` source's own stale-id fallback (which ALSO discards the 2D
+marks in favour of a random dataset) — a stale `chart3d.source.id` has no
+bearing on whether the rest of the link's 2D chart is still good, so only
+`dimension` is forced back, never the marks.
+
+**Why "auto" shading resolves differently in the two exits, and why
+that's correct rather than an inconsistency.** After the C2 fix round,
+`renderGlyphChart3d` resolves an UNDEFINED mark `shading` from its OWN
+render-time colour mode (`"value"` under `color: "none"`/NO_COLOR,
+`"relief"` otherwise) — the one place that genuinely knows it, since the
+identical mark can be rendered at different colour modes (chat vs.
+terminal, NO_COLOR toggled) without rebuilding it. `glyphChartObject`
+(and, underneath it, `glyphChartSurface`) have no such per-render
+resolution step — an undefined shading there ALWAYS defaults to
+`"relief"`, correct for `renderGlyphChart3d`'s own internal use (which
+re-resolves before ever calling `glyphChartObject`) but WRONG for this
+page's live viewport, which calls `glyphChartObject` directly with no
+second pass. `resolveCharts3dView` (the static/thumbnail resolve) therefore
+leaves `shading: "auto"` as `undefined`, letting `renderGlyphChart3d` do
+its own correct, colour-aware resolution per call;
+`resolveCharts3dViewForLiveScene` (the live viewport's OWN resolve) applies
+the IDENTICAL ternary one layer earlier, against the live scene's own
+`useColors` — so a reader who sets `color: none` and leaves shading on
+"auto" sees `"value"` shading (glyph density carries z) on the live
+viewport, not a flat, colour-dependent `"relief"` render with nothing to
+show. An explicit `"relief"`/`"value"` override from the View folder
+always wins on both exits, unconditionally.
+
+**Why charset can only ever degrade live, never change what the scene
+mounts with.** The C2 fix round's own finding — a 3D chart's axis/tick
+overlay ALWAYS installs a `transformCells` hook, and glyphcss's
+halfblock/quadrant encoders self-disable under any such hook — applies
+identically to a live `createGlyphScene` mounting the SAME
+`glyphChartObject` overlays via `scene.addObject`. The live viewport
+therefore never requests `charMode: "halfblock"` for `blocks` (there is no
+such option on `Charts3dSceneOptions` at all — it was removed once the
+library's own static exit stopped emitting it too) and shows the SAME
+visible chrome note braille already had, reusing `glyphChart3dCharsetDegrades`
+(a plain exported predicate, not the internal `resolveCharsetDegrade3d`
+that pushes a `report.ledger` entry — a live scene has no ledger of its
+own to push one into) rather than re-deriving which charsets are
+unsupported.
+
+**Why Random's 3D pool addition is a THIRD pool segment inside
+`chartsRandomDataset.ts`, not a page-side pre-check.** A first cut drew a
+SEPARATE `Math.random()` call ahead of the existing built-in/remote pick to
+decide 2D vs. 3D — this shifted every mocked `Math.random` sequence three
+existing Random tests already pinned (`mockReturnValue(0)` and
+`mockReturnValueOnce(X).mockReturnValue(0.5)` fixtures keyed to an exact
+pool INDEX), breaking all three. The fix folds the 3D datasets into the
+SAME combined pool `randomChartsDatasetPick` already draws from with ONE
+`Math.random()` call, appended AFTER the remote segment (never inserted
+earlier, which would renumber every existing index-based fixture) — so
+`RANDOM_VALUE_FOR_FIRST_REMOTE_PICK`'s own denominator grew by
+`CHARTS_3D_DATASETS.length` and nothing about its numerator (still
+`CHARTS_DATASETS.length`) needed to change.
+
+**Datasets, licences verified.** `maungaWhauVolcanoDataset` — the real R
+`datasets::volcano` matrix (87 rows x 61 columns, values 94-195, the
+documented range), captured from `volcano.csv` in the `plotly/datasets`
+GitHub repo (confirmed MIT via that repo's own `LICENSE` file). The
+DIGITIZATION itself is credited to Ross Ihaka per R's own `?datasets::volcano`
+help page ("Digitized from a topographic map by Ross Ihaka") and ships as
+part of R's base `datasets` package, licensed GPL-2 | GPL-3 — a repackaging
+under MIT does not relicense the underlying data, so both licences are
+stated in `datasets/LICENSES.md` and the dataset's own `source.licence`
+field names both explicitly, flagged for the user to confirm GPL
+compatibility before treating the file as MIT-only (never silently
+resolved either way). `etopo1AlpsDataset` — a real 36x31 window (stride-2
+downsampled from the tile's own 181x91 vertex grid) extracted directly
+from this repo's OWN baked `website/public/data/geo-tiles/curated/7/66_31.bin`
+(the curated Switzerland z7 raster tile, the SAME int16 vertex grid
+`glyphMapPolygons` draws the real `/maps` terrain from) around the
+Matterhorn — NOAA ETOPO1, public domain, no separate verification needed
+since it is this repo's own already-credited data. Elevation range in the
+window: 198-4,271 m (the true peak is undersampled by this pyramid tier,
+consistent with AGENTS.md's own documented Matterhorn undersample note).
+
+**Gates.** `pnpm --filter @glyphcss/charts test` (43 files, 1568 tests,
+unchanged from C2 fix round 1 — this packet touched no library file beyond
+the merge conflict resolution in `render.ts`/`index.ts`, which renamed
+`glyphChart3dCharMode` to the public predicate `glyphChart3dCharsetDegrades`).
+Website: `chartsWorkbench3d.test.ts` (13 tests: view-state defaults read
+straight from the library, `resolveCharts3dView`/`resolveCharts3dViewForLiveScene`
+never throw, `chartsSurfaceFitFromRows` fits a synthetic complete grid and
+disables on every real vendored 2D dataset and on an incomplete grid,
+`chartsWorkbench3dSceneOptions` honours colour and reports the SAME
+downgrade note for both `blocks` and `braille`), `chartsWorkbench3dRender.targetMatrix.test.ts`
+(5 tests: every target x charset x colour cell resolves ok and never
+throws, braille never leaks a braille glyph, `color: css` always produces
+`html`, ANSI colour modes always produce SGR text and `none`/`css` never
+do, an unknown dataset id reports an error rather than throwing),
+`datasets/chart3d/datasets3d.test.ts` (7 tests: both datasets' real
+dimensions/ranges, credited source fields, and a build-through-`glyphChartSurface`
+smoke test for each), `chartsUrlState.test.ts` (+6 tests: a 3D-dataset
+round trip with an explicit camera/orbit-mode/shading/colorscale, an
+auto-fit camera's `zoom: undefined` surviving the round trip exactly, an
+inline surface source never appearing in the encoded `raw` string and
+decoding back to 2D, a stale 3D dataset id falling back to 2D with the
+REST of the link untouched, a hand-built malformed `chart3d` payload
+(via the envelope's own documented plain-JSON `v1j.` fallback wire format)
+degrading to the 2D default rather than failing the whole decode, and an
+invalid `dimension` value read as `"2d"`), `chartsRandomDataset.test.ts`
+(+2 tests: the pool hits all three segments including 3D over 500 draws,
+excluding a 3D id still reaches the other kinds and every 3D dataset is
+individually reachable), `ChartsWorkbench.test.tsx` (+1 test: Random can
+land on a 3D surface, observed through the same `.charts-data-title`
+element every other Random test reads). All 74 PRE-EXISTING
+`chartsUrlState.test.ts` tests (including the fixed historical-link
+regression pin, `HISTORICAL_DEFAULT_LINK` — encoded before `dimension`/
+`chart3d` existed — still decoding to exactly today's default state, which
+now includes `dimension: "2d"` and a populated default `chart3d`) and all
+91 pre-existing `ChartsWorkbench.test.tsx` tests pass unchanged.
+
+**Mutation table.**
+
+| Item | Gate | Mutation | Result |
+|---|---|---|---|
+| Surface fit | `chartsWorkbench3d.test.ts`'s grid-fit tests | Drop the `glyphChartSurface` validation call, replace with a hand-rolled "3+ numeric columns" check | RED — a grid missing one `(x, y)` pair (the "MISSING one pair" test) would still report `fits: true` |
+| Inline omission | `chartsUrlState.test.ts`'s "never written into the link" test | Drop the `sourceOmitted`/no-`rows` blanking in `chartsUrlStateForEncode` | RED — the encoded `raw` string contains the distinctive `97` z-value the test asserts is absent |
+| Stale-id scope | `chartsUrlState.test.ts`'s "falls back to 2D... rest of the link untouched" test | Route the stale-3D-id fallback through the SAME random-dataset-replacement path the stale-2D-id fallback uses | RED — `resolved.marks` would no longer equal the pre-fallback 2D marks |
+| Malformed degrade | `chartsUrlState.test.ts`'s "degrades... rather than failing the whole decode" test | Have `validateCharts3dViewState`'s failure propagate to `validateChartsWorkbenchState`'s own `return null` | RED — `decodeChartsUrlState` returns `null` for the whole link instead of a 2D-degraded state |
+| Random pool | `chartsRandomDataset.test.ts`'s "hits... AND the 3D pool" test | Drop the `CHARTS_3D_DATASETS` segment from `CHARTS_RANDOM_DATASET_POOL` | RED — `sawChart3d` stays `false` over 500 draws |
+| Random test alignment | `ChartsWorkbench.test.tsx`'s three PRE-EXISTING Random tests | Reintroduce a separate pre-check `Math.random()` draw ahead of `randomChartsDatasetPick` | RED — all three (their own mocked sequences shift by one draw) |
+| Live shading | (documented, not independently gated beyond the resolve tests above) | Have `Charts3dViewport` call `resolveCharts3dView` instead of `resolveCharts3dViewForLiveScene` | Not separately caught by an automated test — a manual/visual residual, see below |
+| Charset degrade reuse | `chartsWorkbench3d.test.ts`'s downgrade-note test | Hardcode `charset === "braille"` only, dropping `blocks` | RED — `chartsWorkbench3dSceneOptions("blocks", "css").downgradeNote` would be `null` |
+
+**Residuals.**
+- `GlyphChart3dCameraOptions` doesn't accept `mat` yet (library gap, C2
+  fix round in flight) — a trackball orbit's exact orientation is captured
+  live and threaded through `renderCharts3dStatic`'s own `camera` option,
+  but the library still ignores the extra fields until it grows a `mat`
+  field (mirroring `renderGlyphDiagram3d`'s own, which already has one).
+  Turntable Copy is exact and unaffected.
+- The live-shading divergence rule (`resolveCharts3dViewForLiveScene`) has
+  unit coverage for the RESOLVE function itself (`chartsWorkbench3d.test.ts`)
+  but no DOM-level test mounting the live viewport under `color: none` and
+  reading back rendered glyph density — `happy-dom` has no real character
+  metrics for such an assertion to read.
+- `chartsSurfaceFitFromRows` is scoped to the first three numeric columns
+  in profiled order, not every x/y/z permutation of a wider table.
+- No `aspect` control in the View folder (the packet scope listed it as
+  optional, "if the library exposes it" — `glyphChartSurface`'s `aspect`
+  is a per-BUILD option baked into the mesh, not a live per-frame knob,
+  and this showcase has no natural per-chart aspect control elsewhere to
+  mirror; left for a real need to justify it).

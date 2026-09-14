@@ -2,9 +2,11 @@ import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import type { GUI } from "lil-gui";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
+import { GLYPH_CHART_3D_COLORSCALE_NAMES } from "@glyphcss/charts/3d";
 import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle, type DockOptionController } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
+import type { Charts3dViewportHandle } from "./Charts3dViewport";
 import { RangeCategorySelect, RangeSlider, RangeUnavailable, rangeSliderStep } from "../InstrumentWorkbench/RangeSlider";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
@@ -268,7 +270,30 @@ export function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, hasCar
     })} />;
 }
 
-export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction>; rendered?: ChartsWorkbenchRender }) {
+// View folder (packet C3, 3D only) — turntable/trackball, reset camera,
+// colorscale and shading. `aspect` (mentioned as optional in the packet
+// scope, "if the library exposes it") is skipped: `glyphChartSurface`'s
+// `aspect` is a per-BUILD option baked into the mesh's own object-space
+// coordinates, not a live per-frame knob the way `shading`/`colorscale`
+// are, and this showcase has no natural "aspect" control elsewhere to
+// mirror (a later increment can add it if a real need shows up).
+const CHARTS_3D_ORBIT_MODE_TOGGLE = [
+  { value: "turntable", icon: <span className="gx-toggle-text">⟲</span>, label: "Turntable", desc: "Two-axis orbit, up-vector locked — the default." },
+  { value: "trackball", icon: <span className="gx-toggle-text">◎</span>, label: "Trackball", desc: "Free rotation about any screen axis, roll included." },
+];
+const CHARTS_3D_SHADING_TOGGLE = [
+  { value: "auto", icon: <span className="gx-toggle-text">auto</span>, label: "Auto", desc: "Follows the library's own default (colour-mode-aware)." },
+  { value: "relief", icon: <span className="gx-toggle-text">relief</span>, label: "Relief", desc: "Glyph shape reads slope; colour reads the z band." },
+  { value: "value", icon: <span className="gx-toggle-text">value</span>, label: "Value", desc: "Glyph density reads the z band directly — legible with colour off." },
+];
+const CHARTS_3D_COLORSCALE_TOGGLE = GLYPH_CHART_3D_COLORSCALE_NAMES.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v.slice(0, 4)}</span>, label: v, desc: `Colorscale: ${v}` }));
+
+export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef }: {
+  state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction>; rendered?: ChartsWorkbenchRender;
+  /** The live 3D viewport's own reset-camera entry point — `undefined`/not
+   *  yet mounted is a no-op button, never a crash. */
+  chart3dViewportHandleRef?: { current: Charts3dViewportHandle | null };
+}) {
   const gui = useDockGui();
   const controls = resolveGlyphChartsWorkbenchControls(state.controls);
   const setControl = (control: GlyphChartsWorkbenchControlAction) => dispatch({ type: "set-control", control });
@@ -393,6 +418,17 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
   useText(axes, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
   const yTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
 
+  // View folder (3D only, packet C3) — hidden entirely in 2D mode, the same
+  // `.hide()`/`.show()` idiom the Terminal folder below already uses for
+  // its own target gating.
+  const is3d = state.dimension === "3d";
+  const view = useFolder(gui, "View", { open: true });
+  useEffect(() => { if (view) is3d ? view.show() : view.hide(); }, [view, is3d]);
+  const orbitModeSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
+  const resetCameraSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
+  const shadingSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
+  const colorscaleSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
+
   const terminal = useFolder(gui, "Terminal", { open: true });
   useToggle(terminal, "NO_COLOR", state.terminal.NO_COLOR, (value) => dispatch({ type: "set-terminal", flag: "NO_COLOR", value }));
   useToggle(terminal, "FORCE_COLOR", state.terminal.FORCE_COLOR, (value) => dispatch({ type: "set-terminal", flag: "FORCE_COLOR", value }));
@@ -495,6 +531,37 @@ export function ChartsDock({ state, dispatch, rendered }: { state: ChartsWorkben
           onChange={(value) => dispatch({ type: "set-axis-title-at", axis: "y", value: value as ChartsWorkbenchState["style"]["axisTitlePlacement"]["y"] })} />
       </div>,
       yTitleAtSlot,
+    )}
+    {orbitModeSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Rotate</span>
+        <IconToggle groupTitle="Orbit mode" options={CHARTS_3D_ORBIT_MODE_TOGGLE} value={state.chart3d.orbitMode}
+          onChange={(value) => dispatch({ type: "set-3d-view", patch: { orbitMode: value as ChartsWorkbenchState["chart3d"]["orbitMode"] } })} />
+      </div>,
+      orbitModeSlot,
+    )}
+    {resetCameraSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Camera</span>
+        <button type="button" className="gx-toggle-btn gx-toggle-text charts-3d-reset-camera" title="Reset the camera to the default framing" onClick={() => chart3dViewportHandleRef?.current?.resetCamera()}>Reset</button>
+      </div>,
+      resetCameraSlot,
+    )}
+    {shadingSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Shading</span>
+        <IconToggle groupTitle="Surface shading" options={CHARTS_3D_SHADING_TOGGLE} value={state.chart3d.shading}
+          onChange={(value) => dispatch({ type: "set-3d-view", patch: { shading: value as ChartsWorkbenchState["chart3d"]["shading"] } })} />
+      </div>,
+      shadingSlot,
+    )}
+    {colorscaleSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Colorscale</span>
+        <IconToggle groupTitle="Surface colorscale" options={CHARTS_3D_COLORSCALE_TOGGLE} value={state.chart3d.colorscale}
+          onChange={(value) => dispatch({ type: "set-3d-view", patch: { colorscale: value as ChartsWorkbenchState["chart3d"]["colorscale"] } })} />
+      </div>,
+      colorscaleSlot,
     )}
   </>;
 }
