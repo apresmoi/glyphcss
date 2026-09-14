@@ -16,6 +16,12 @@
  * grid has run. Two-phase is required, not a style choice — greedy
  * PRIORITY-first resolution needs the whole candidate set up front, and
  * overlays run in registry order, not priority order.
+ *
+ * Resolution order is `(priority desc, id asc)` — PLAN-3d.md §3.2's own
+ * words are "priority first, then stable id" — deliberately NOT candidate
+ * registration index, unlike `glyphMapDeclutterLabels`' own tie-break:
+ * registration index is a function of overlay MOUNT order, and two objects
+ * mounted in either order must resolve an equal-priority tie identically.
  */
 import type { CellGrid } from "../cells";
 import { stampGlyphOverlayCell } from "./stamp";
@@ -78,12 +84,15 @@ export function createGlyphLabelArbiter(): GlyphLabelArbiterInternal {
       candidates.push(candidate);
     },
     resolve(grid: CellGrid): void {
-      const ordered = candidates
-        .map((value, index) => ({ value, index }))
-        .sort((a, b) => b.value.priority - a.value.priority || a.index - b.index);
+      // Tie-break on the candidate's own STABLE id (PLAN-3d.md §3.2: "greedy:
+      // priority first, then stable id"), never on registration/mount order
+      // — two objects composed in either mount order must resolve identically
+      // (P2-c, fix round 1).
+      const ordered = [...candidates]
+        .sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       const placed: PlacedBox[] = [];
       const winnerMesh = grid.winnerMesh;
-      for (const { value: c } of ordered) {
+      for (const c of ordered) {
         const text = foldGlyphOverlayLabelToAscii(c.text);
         if (text.length === 0) continue;
         if (c.col < 0 || c.row < 0 || c.row >= grid.rows || c.col >= grid.cols) continue;

@@ -601,6 +601,20 @@ let nextAtlasStyleId = 1;
 // wrapper), so the CSS-frame swap/negate from voxcss PolyMesh.tsx
 // `buildTransform` (rotateY(-rx)…) is NOT applied here — that is a
 // CSS-frame artifact only.
+/**
+ * Namespaced texture-sampler key for an object's own `textureSamplers` entry
+ * (contract 9, AGENTS.md's "Scene objects" section). NAIVE concatenation
+ * (`glyph-object:${id}:${name}`) collides — `{id:"a:b",name:"c"}` and
+ * `{id:"a",name:"b:c"}` both produce `"glyph-object:a:b:c"` — so both parts
+ * are `encodeURIComponent`-escaped before joining: that encoder always turns
+ * a literal `:` into `%3A`, so a `:` in the JOINED string can only ever be
+ * one of the two delimiters this function itself placed, and two distinct
+ * (id, name) pairs can never produce the same key.
+ */
+export function encodeGlyphSceneObjectSamplerKey(objectId: string, name: string): string {
+  return `glyph-object:${encodeURIComponent(objectId)}:${encodeURIComponent(name)}`;
+}
+
 function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Polygon[] {
   const { position, scale, rotation } = transform;
   if (!position && !scale && !rotation) return polygons;
@@ -831,17 +845,28 @@ export function createGlyphScene(
     meshHandles: Map<string, GlyphMeshHandle>;
     meshIds: Set<number>;
     overlays: readonly import("./sceneObject").GlyphSceneOverlay[];
+    hotspotSpecs: readonly import("./sceneObject").GlyphSceneObjectHotspot[];
     hotspotHandles: GlyphHotspotHandle[];
     samplerKeys: string[];
     transform: GlyphSceneObjectTransform;
     mountSeq: number;
   }
-  const objectEntries = new Map<string, GlyphSceneObjectEntry>();
+  // Lazily allocated — a scene that never calls `addObject` must not pay for
+  // either map (P2-d, fix round 1). `objectEntriesMap()`/`objectSamplersMap()`
+  // are the mutating accessors `addObject` reaches for; every READ site below
+  // treats `null` as empty instead of allocating.
+  let objectEntries: Map<string, GlyphSceneObjectEntry> | null = null;
   let nextObjectMountSeq = 0;
   // Namespaced (`glyph-object:<id>:<name>`) texture samplers merged into
   // `resolvedTextureSamplers()` — see contract 9. A plain `Map`, not derived
   // per-render, so mounting/removing an object is the only write.
-  const objectSamplers = new Map<string, TextureSampler>();
+  let objectSamplers: Map<string, TextureSampler> | null = null;
+  function objectEntriesMap(): Map<string, GlyphSceneObjectEntry> {
+    return (objectEntries ??= new Map());
+  }
+  function objectSamplersMap(): Map<string, TextureSampler> {
+    return (objectSamplers ??= new Map());
+  }
   let pendingRender = false;
   let renderGeneration = 0;
   let pendingEffectRender = false;
@@ -1046,7 +1071,7 @@ export function createGlyphScene(
   }
 
   function objectHasAnyOverlay(): boolean {
-    if (objectEntries.size === 0) return false;
+    if (!objectEntries || objectEntries.size === 0) return false;
     for (const entry of objectEntries.values()) if (entry.overlays.length > 0) return true;
     return false;
   }
@@ -1065,7 +1090,7 @@ export function createGlyphScene(
    * an overlay — the byte-identity gate this function exists to keep true.
    */
   function applyGlyphSceneObjectOverlays(grid: CellGrid, layer: GlyphTransformCellsLayer | undefined): CellGrid {
-    if (objectEntries.size === 0) return grid;
+    if (!objectEntries || objectEntries.size === 0) return grid;
     const withOverlays: Array<{ entry: GlyphSceneObjectEntry; overlay: import("./sceneObject").GlyphSceneOverlay; overlayIndex: number }> = [];
     for (const entry of objectEntries.values()) {
       for (let i = 0; i < entry.overlays.length; i++) withOverlays.push({ entry, overlay: entry.overlays[i]!, overlayIndex: i });
@@ -1419,11 +1444,12 @@ export function createGlyphScene(
    */
   function resolvedTextureSamplers(): ReadonlyMap<string, TextureSampler> | null {
     const hasSupplied = suppliedSamplers !== null && suppliedSamplers.size > 0;
-    if (!hasSupplied && objectSamplers.size === 0) return textureSamplers;
+    const hasObjectSamplers = objectSamplers !== null && objectSamplers.size > 0;
+    if (!hasSupplied && !hasObjectSamplers) return textureSamplers;
     const merged = new Map(textureSamplers ?? []);
     // Object samplers first (contract 9) — `setTextureSamplers`' own entries
     // still win a key collision, so they merge last.
-    for (const [key, sampler] of objectSamplers) merged.set(key, sampler);
+    if (hasObjectSamplers) for (const [key, sampler] of objectSamplers!) merged.set(key, sampler);
     if (hasSupplied) for (const [url, sampler] of suppliedSamplers!) merged.set(url, sampler);
     return merged;
   }
@@ -3283,19 +3309,41 @@ export function createGlyphScene(
     return { ...(spec.options ?? {}), position: transform.position, rotation: transform.rotation, scale: transform.scale, id: spec.name };
   }
 
+  /**
+   * Every mesh name must be unique WITHIN one object — `entry.meshHandles`
+   * is keyed by name (it is the effect-targeting lookup, `handle.meshes.get
+   * (name)`), so a duplicate would silently leak the earlier handle: it stays
+   * registered in the scene's global mesh list and keeps rasterizing forever,
+   * disposed by neither `update()` nor `remove()`, since only the LAST
+   * same-named handle survives in the map `teardownGlyphSceneObject` walks
+   * (P2-b, fix round 1). Validated up front, before any mesh is mounted, so
+   * a rejected object leaves nothing partially registered.
+   */
+  function assertUniqueObjectMeshNames(object: GlyphSceneObject): void {
+    const seen = new Set<string>();
+    for (const spec of object.meshes) {
+      if (seen.has(spec.name)) {
+        throw new RangeError(`glyphcss: object "${object.id}" declares more than one mesh named "${spec.name}".`);
+      }
+      seen.add(spec.name);
+    }
+  }
+
   function mountGlyphSceneObjectInto(object: GlyphSceneObject, transform: GlyphSceneObjectTransform, entry: GlyphSceneObjectEntry): void {
+    assertUniqueObjectMeshNames(object);
     for (const spec of object.meshes) {
       const handle = add(spec.polygons, buildObjectMeshTransform(spec, transform));
       entry.meshHandles.set(spec.name, handle);
       entry.meshIds.add(handle.id);
     }
-    for (const h of object.hotspots ?? []) {
+    entry.hotspotSpecs = object.hotspots ?? [];
+    for (const h of entry.hotspotSpecs) {
       entry.hotspotHandles.push(addHotspot({ id: h.id, at: transformObjectPoint(h.at, transform) }));
     }
     if (object.textureSamplers) {
       for (const [name, sampler] of object.textureSamplers) {
-        const key = `glyph-object:${object.id}:${name}`;
-        objectSamplers.set(key, sampler);
+        const key = encodeGlyphSceneObjectSamplerKey(object.id, name);
+        objectSamplersMap().set(key, sampler);
         entry.samplerKeys.push(key);
       }
     }
@@ -3307,13 +3355,14 @@ export function createGlyphScene(
     entry.meshIds.clear();
     for (const h of entry.hotspotHandles) h.remove();
     entry.hotspotHandles.length = 0;
-    for (const key of entry.samplerKeys) objectSamplers.delete(key);
+    entry.hotspotSpecs = [];
+    if (objectSamplers) for (const key of entry.samplerKeys) objectSamplers.delete(key);
     entry.samplerKeys.length = 0;
   }
 
   function addObject(object: GlyphSceneObject, transform: GlyphSceneObjectTransform = {}): GlyphSceneObjectHandle {
     if (destroyed) throw new Error("glyphcss: cannot add an object to a destroyed scene.");
-    if (objectEntries.has(object.id)) {
+    if (objectEntries?.has(object.id)) {
       throw new RangeError(`glyphcss: an object with id "${object.id}" is already mounted.`);
     }
     const entry: GlyphSceneObjectEntry = {
@@ -3322,13 +3371,14 @@ export function createGlyphScene(
       meshHandles: new Map(),
       meshIds: new Set(),
       overlays: object.overlays ?? [],
+      hotspotSpecs: [],
       hotspotHandles: [],
       samplerKeys: [],
       transform: { ...transform },
       mountSeq: nextObjectMountSeq++,
     };
     mountGlyphSceneObjectInto(object, entry.transform, entry);
-    objectEntries.set(object.id, entry);
+    objectEntriesMap().set(object.id, entry);
     scheduleRender();
 
     return {
@@ -3341,12 +3391,21 @@ export function createGlyphScene(
         for (const spec of entry.spec) {
           entry.meshHandles.get(spec.name)?.setTransform(buildObjectMeshTransform(spec, entry.transform));
         }
+        // Re-plant every hotspot at its (possibly moved) world position
+        // instead of leaving it at the position it was mounted at (P1-a,
+        // fix round 1) — `setAt` moves the anchor without touching the
+        // element, so this never destroys/recreates a hotspot a consumer
+        // already wrote into.
+        for (let i = 0; i < entry.hotspotHandles.length; i++) {
+          entry.hotspotHandles[i]!.setAt(transformObjectPoint(entry.hotspotSpecs[i]!.at, entry.transform));
+        }
         scheduleRender();
       },
       update(nextObject: GlyphSceneObject): void {
         if (nextObject.id !== entry.id) {
           throw new RangeError(`glyphcss: GlyphSceneObjectHandle.update() cannot change an object's id ("${entry.id}" -> "${nextObject.id}").`);
         }
+        assertUniqueObjectMeshNames(nextObject);
         teardownGlyphSceneObject(entry);
         entry.spec = nextObject.meshes;
         entry.overlays = nextObject.overlays ?? [];
@@ -3355,7 +3414,7 @@ export function createGlyphScene(
       },
       remove(): void {
         teardownGlyphSceneObject(entry);
-        objectEntries.delete(entry.id);
+        objectEntries?.delete(entry.id);
         scheduleRender();
       },
     };
@@ -3672,8 +3731,8 @@ export function createGlyphScene(
     effectLayers.length = 0;
     retainedEffectOutputs.clear();
     meshes.clear();
-    objectEntries.clear();
-    objectSamplers.clear();
+    objectEntries?.clear();
+    objectSamplers?.clear();
     detailCellMeasureCache.clear();
     // This scene's own `@font-palette-values` block (never the shared,
     // document-global `@font-face` — that outlives every individual scene).
