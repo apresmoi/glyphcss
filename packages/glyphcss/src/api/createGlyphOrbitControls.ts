@@ -377,26 +377,22 @@ export function createGlyphOrbitControls(
           // `useMat` off used to snap the picture back to whatever
           // rotX/rotY held before trackball engaged, discarding every
           // rotation performed while in trackball mode. Decompose the
-          // accumulated matrix into the nearest turntable (rotX, rotY)
-          // instead: turntable has no third rotational DOF, so any
-          // accumulated roll is DROPPED (documented in
-          // `decomposeMatToEuler`'s own comment), the result is clamped
-          // into `pitchRange`, and the picture stays put apart from the
-          // removed roll.
+          // accumulated matrix into the EXACT turntable (rotX, rotY) whose
+          // matrix equals `trackballMat` up to the dropped roll only (P1,
+          // fix round 3 — see `decomposeMatToEuler`'s own comment for how
+          // it picks the correct row-2-sharing candidate), THEN clamp that
+          // exact pair into `pitchRange`: a no-drag mode round trip
+          // recovers the original (rotX, rotY) bit-for-bit whenever it was
+          // already in range, and an out-of-range exact pitch falls back
+          // to the nearest representable orientation — `rotX` clamped to
+          // the `pitchRange` boundary, `rotY` held at its exact value,
+          // since flipping to the OTHER row-2-sharing candidate instead
+          // would change the picture rather than merely clamp it (that
+          // candidate is a further 180 degrees of roll away, not an
+          // equivalent view — see `decomposeMatToEuler`).
           const { rotX, rotY } = decomposeMatToEuler(trackballMat);
-          // (rotX, rotY) and (-rotX, rotY+180) share row 2 (so depth still
-          // matches either way — see decomposeMatToEuler's own comment)
-          // but are not otherwise the same rotation; pick whichever needs
-          // less clamping into `pitchRange`, so a value already inside the
-          // range is never needlessly flipped to its row-2-sharing
-          // counterpart and clamped against that instead.
-          const altRotX = -rotX;
-          const altRotY = rotY + 180;
-          const clampedPrimary = clampPitchRange(rotX);
-          const clampedAlt = clampPitchRange(altRotX);
-          const usePrimary = Math.abs(clampedPrimary - rotX) <= Math.abs(clampedAlt - altRotX);
-          camera.rotX = usePrimary ? clampedPrimary : clampedAlt;
-          camera.rotY = usePrimary ? rotY : altRotY;
+          camera.rotX = clampPitchRange(rotX);
+          camera.rotY = rotY;
           camera.useMat = false;
         }
       }
@@ -495,25 +491,39 @@ function axisAngleMat(ax: number, ay: number, az: number, angleRad: number): num
 const EULER_GIMBAL_EPSILON = 1.7e-5; // sin(1e-3deg)
 
 /**
- * Inverse of `eulerToMat`: decomposes a general trackball matrix into a
- * turntable orientation sharing its row 2, dropping any roll turntable
- * cannot represent (P1-a). Row 2 (`M[6..8]`) of ANY rotation matrix `M`
- * equals row 2 of the pure turntable matrix `RotX(rotX)·RotZ(rotY)`
- * REGARDLESS of any left-multiplied roll about the output depth axis,
- * because that roll only mixes rows 0/1 together (it never reads row 2) —
- * so DEPTH always matches the trackball picture exactly; only the col/row
- * (screen-plane) projection of a point can differ, by the dropped roll.
+ * Inverse of `eulerToMat`: decomposes a general trackball matrix into the
+ * EXACT turntable orientation whose own matrix equals the input, up to the
+ * dropped roll only (P1-a) — never merely a row-2-sharing approximation.
+ * Row 2 (`M[6..8]`) of ANY rotation matrix `M` equals row 2 of the pure
+ * turntable matrix `RotX(rotX)·RotZ(rotY)` REGARDLESS of any
+ * left-multiplied roll about the output depth axis, because that roll
+ * only mixes rows 0/1 together (it never reads row 2) — so DEPTH always
+ * matches the trackball picture exactly; only the col/row (screen-plane)
+ * projection of a point can differ, by the dropped roll.
  *
- * `rotX` is returned in its principal [0, 180] branch. Two matrices
- * sharing this row 2 exist — `(rotX, rotY)` and `(-rotX, rotY + 180)` —
- * but they are NOT the same rotation in general (only row 2 agrees; row 0
- * is negated between them), so this is a genuine choice, not a free
- * relabelling: `update()` picks whichever needs less `pitchRange`
- * clamping, which is exact whenever the caller's own rotX was already
- * non-negative (the ordinary case — every turntable pitch this library
- * ever writes back is), and is a documented residual for a negative
- * starting rotX (reachable only via `pitchRange: null` unrestricted
- * dragging) outside the gimbal band this round's fix covers.
+ * Row 2 alone has exactly two turntable solutions — `(rotXPrincipal,
+ * rotYPrincipal)` (the principal [0, 180] branch) and its counterpart
+ * `(-rotXPrincipal, rotYPrincipal + 180)` — and (fix round 3, P1,
+ * correcting a round-1 doc claim that these are equivalent) they are NOT
+ * the same rotation: row 0 of one is the exact NEGATION of row 0 of the
+ * other (`eulerToMat`'s row 0 is `[cosY, -sinY, 0]`, independent of
+ * rotX), and their two matrices differ from each other by an exact 180
+ * degree roll. Both are legitimate "row 2 matches, roll dropped"
+ * decompositions of `M` in isolation, but only ONE of them is the
+ * decomposition whose implied roll has the SMALLER magnitude — and that
+ * is the one a no-drag turntable → trackball → turntable round trip must
+ * recover exactly, since the implied roll there is precisely 0 for the
+ * true original orientation and precisely 180 for its counterpart. Row 0
+ * of `M` distinguishes them: it differs from each candidate's own row 0
+ * by that candidate's implied roll, and two directions 180 degrees apart
+ * can't both be within 90 degrees of the same vector, so the candidate
+ * whose row 0 the observed row 0 has a NON-NEGATIVE dot product with is
+ * the exact reconstruction whenever the true roll is 0, and otherwise the
+ * closer of the two — never a preference based on which needs less
+ * `pitchRange` clamping (the round-1 approach, wrong because it depends
+ * on a caller option instead of the matrix itself, and silently returned
+ * the counterpart for a negative starting rotX whenever `pitchRange`
+ * happened to prefer clamping the OTHER candidate less).
  *
  * **Gimbal lock at rotX = 0 or 180** (fix round 2, P1): there row 2 is
  * exactly `[0, 0, ±1]` for EVERY rotY, so it carries zero information
@@ -549,7 +559,16 @@ function decomposeMatToEuler(mat: number[]): { rotX: number; rotY: number } {
     const rotY = Math.atan2(-m1, m0) / DEG;
     return { rotX, rotY };
   }
-  const rotX = Math.atan2(sinXMagnitude, m8) / DEG;
-  const rotY = Math.atan2(m6, m7) / DEG;
-  return { rotX, rotY };
+  const rotXPrincipal = Math.atan2(sinXMagnitude, m8) / DEG;
+  const rotYPrincipal = Math.atan2(m6, m7) / DEG;
+  // Row 0 of `RotX(rotXPrincipal)·RotZ(rotYPrincipal)` is
+  // `[cosYPrincipal, -sinYPrincipal, 0]`, and `sin(rotYPrincipal) = m6 /
+  // sinXMagnitude`, `cos(rotYPrincipal) = m7 / sinXMagnitude` by
+  // `rotYPrincipal`'s own `atan2(m6, m7)` definition — so that row 0 is
+  // `(m7, -m6, 0) / sinXMagnitude`, a positive scalar multiple of
+  // `(m7, -m6)`. Comparing signs only, the `sinXMagnitude` divisor drops
+  // out of the dot product below.
+  const dot = m0 * m7 - m1 * m6;
+  if (dot >= 0) return { rotX: rotXPrincipal, rotY: rotYPrincipal };
+  return { rotX: -rotXPrincipal, rotY: rotYPrincipal + 180 };
 }

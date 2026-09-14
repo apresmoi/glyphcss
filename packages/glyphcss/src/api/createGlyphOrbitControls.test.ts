@@ -658,6 +658,122 @@ describe("createGlyphOrbitControls — trackball mode", () => {
       expect(Math.abs(projected[i][1] - projected[i - 1][1])).toBeLessThan(0.01);
     }
   });
+
+  // P1 (fix round 3): the general (non-gimbal) branch's principal [0, 180]
+  // convention did not round-trip a negative starting rotX. (rotX, rotY)
+  // and (-rotX, rotY + 180) share row 2 but are NOT the same rotation
+  // (row 0 is negated between them) — decomposeMatToEuler must pick the
+  // one whose row 0 actually matches, not the one that happens to need
+  // less pitchRange clamping (the pre-fix rule, which under an
+  // unrestricted pitchRange always chose the [0, 180] candidate
+  // regardless of the true sign of rotX).
+  it("sweep: turntable (rotX, rotY) -> trackball (no drag) -> turntable recovers (rotX, rotY) and the projected picture exactly", () => {
+    const rotXValues = [-85, -45, -10, -1e-3, 0, 10, 45, 85];
+    const rotYValues = [0, 45, 170, -120];
+    const refPoints: Array<[number, number, number]> = [
+      [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1], [-1, 0.5, -0.25],
+    ];
+    // rotY is only meaningful mod 360 (cos/sin are periodic) — the correct
+    // candidate can legitimately land on ry's own +/-360 representative
+    // (e.g. -120 recovered as 240) without that being a defect.
+    const norm360 = (deg: number) => {
+      let d = deg % 360;
+      if (d > 180) d -= 360;
+      if (d <= -180) d += 360;
+      return d;
+    };
+    for (const rx of rotXValues) {
+      for (const ry of rotYValues) {
+        scene.camera.rotX = rx;
+        scene.camera.rotY = ry;
+        const before = refPoints.map((p) => scene.camera.project(p, cols, rows, cellAspect));
+
+        const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: null });
+        controls.update({ mode: "turntable" }); // decompose immediately, no drag
+
+        expect(scene.camera.rotX).toBeCloseTo(rx, 6);
+        expect(norm360(scene.camera.rotY)).toBeCloseTo(norm360(ry), 6);
+
+        const after = refPoints.map((p) => scene.camera.project(p, cols, rows, cellAspect));
+        for (let i = 0; i < refPoints.length; i++) {
+          expect(after[i][0]).toBeCloseTo(before[i][0], 5);
+          expect(after[i][1]).toBeCloseTo(before[i][1], 5);
+          expect(after[i][2]).toBeCloseTo(before[i][2], 5);
+        }
+        controls.destroy();
+      }
+    }
+  });
+
+  it("a negative-pitch trackball orientation clamps into pitchRange [0, 90] on switch, and never NaN", () => {
+    scene.camera.rotX = -30;
+    scene.camera.rotY = 0;
+    // pitchRange only applies on the trackball -> turntable switch, so
+    // entering trackball here (from this negative turntable orientation)
+    // is unclamped, exactly like an unrestricted drag that dipped below
+    // the horizon before pitchRange was later re-applied.
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: [0, 90] });
+    expect(scene.camera.useMat).toBe(true);
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+    expect(Number.isFinite(scene.camera.rotX)).toBe(true);
+    expect(Number.isFinite(scene.camera.rotY)).toBe(true);
+    // Documented fallback: the exact reconstruction (rotX -30) lies
+    // outside pitchRange, so rotX clamps to the nearest boundary (0)
+    // while rotY is held at its own exact, row-0-correct value — never a
+    // jump to the OTHER row-2-sharing candidate (rotX 30, rotY 180),
+    // which is a different, unclamped-but-wrong picture rather than a
+    // clamped version of the true one.
+    expect(scene.camera.rotX).toBeCloseTo(0, 9);
+    controls.destroy();
+  });
+
+  it("random-orientation round trip: trackball -> turntable -> trackball preserves screen-up, only roll is lost", () => {
+    // A negative, non-singular starting pitch — exactly the case the
+    // pre-fix "needs less clamping" heuristic got wrong under an
+    // unrestricted pitchRange (see the sweep test above).
+    scene.camera.rotX = -35;
+    scene.camera.rotY = 130;
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: null });
+    const rotX0 = scene.camera.rotX;
+    const rotY0 = scene.camera.rotY;
+
+    // A pure two-finger twist composes ONLY roll on top of the entry
+    // orientation (same reasoning as the gimbal-lock twist test above,
+    // here at a random non-singular pitch) — so decomposing back must
+    // recover rotX0/rotY0 exactly, not merely some row-2-matching
+    // turntable orientation.
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 30, clientY: 95, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2, isPrimary: false, bubbles: true }));
+    expect(scene.camera.useMat).toBe(true);
+
+    const p: [number, number, number] = [1, 0.5, 0.25];
+    const up: [number, number, number] = [0, 0, 1];
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+    expect(scene.camera.rotX).toBeCloseTo(rotX0, 5);
+    expect(scene.camera.rotY).toBeCloseTo(rotY0, 5);
+    const depthAfterFirstSwitch = scene.camera.project(p, cols, rows, cellAspect)[2];
+    const upScreenAfterFirstSwitch = scene.camera.project(up, cols, rows, cellAspect);
+
+    // Re-enter trackball with no drag: a pure re-seed from rotX/rotY, so
+    // the picture — screen-up included — is UNCHANGED (only the earlier
+    // roll was lost, on the first switch; nothing further is lost here).
+    controls.update({ mode: "trackball" });
+    expect(scene.camera.useMat).toBe(true);
+    const depthAfterSecondSwitch = scene.camera.project(p, cols, rows, cellAspect)[2];
+    const upScreenAfterSecondSwitch = scene.camera.project(up, cols, rows, cellAspect);
+
+    expect(depthAfterSecondSwitch).toBeCloseTo(depthAfterFirstSwitch, 9);
+    expect(upScreenAfterSecondSwitch[0]).toBeCloseTo(upScreenAfterFirstSwitch[0], 9);
+    expect(upScreenAfterSecondSwitch[1]).toBeCloseTo(upScreenAfterFirstSwitch[1], 9);
+    controls.destroy();
+  });
 });
 
 describe("createGlyphOrbitControls — trackball auto-rotate (P1-b)", () => {
