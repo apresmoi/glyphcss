@@ -103,7 +103,7 @@ describe("@glyphcss/compile — geometry input", () => {
   });
 });
 
-describe("@glyphcss/compile — cropCellGrid (P2-4 fix round 1)", () => {
+describe("@glyphcss/compile — cropCellGrid (P2-4 fix round 1, occluded fix round 2)", () => {
   // 6x4 grid, content occupies rows 1-2 / cols 1-4 (a 4x2 bounding box) so the
   // crop must trim a real border on every side, not just one.
   const cols = 6, rows = 4;
@@ -114,6 +114,7 @@ describe("@glyphcss/compile — cropCellGrid (P2-4 fix round 1)", () => {
   const worldPosition = new Float32Array(n * 3);
   const surfaceUv = new Float32Array(n * 2);
   const winnerMesh = new Int32Array(n);
+  const occluded = new Uint8Array(n);
   const contentCols = [1, 2, 3, 4];
   const contentRows = [1, 2];
   for (const r of contentRows) {
@@ -131,8 +132,13 @@ describe("@glyphcss/compile — cropCellGrid (P2-4 fix round 1)", () => {
     worldPosition[i * 3] = i; worldPosition[i * 3 + 1] = i + 100; worldPosition[i * 3 + 2] = i + 200;
     surfaceUv[i * 2] = i / n; surfaceUv[i * 2 + 1] = 1 - i / n;
     winnerMesh[i] = i + 7;
+    occluded[i] = i % 2; // alternating 0/1 — not just all-zero, which a dropped buffer could fake via absence.
   }
   const full = buildCellGrid(char, color, depth, cols, rows, surfaceUv, null, worldPosition, null, null, null, null, null, null, null, winnerMesh, null);
+  // `buildCellGrid` has no `occludedSrc` constructor argument (it is
+  // written post-construction — see `cells.ts`'s `cloneCellGrid`), so it is
+  // attached here directly, exactly as a real rasterize pass attaches it.
+  full.occluded = occluded;
 
   it("crops every buffer to the same content window, not just char/color", () => {
     const cropped = cropCellGrid(full)!;
@@ -155,6 +161,11 @@ describe("@glyphcss/compile — cropCellGrid (P2-4 fix round 1)", () => {
         expect(cropped.surfaceUv![dstIdx * 2]).toBe(full.surfaceUv![srcIdx * 2]);
         expect(cropped.surfaceUv![dstIdx * 2 + 1]).toBe(full.surfaceUv![srcIdx * 2 + 1]);
         expect(cropped.winnerMesh![dstIdx]).toBe(full.winnerMesh![srcIdx]);
+        // occluded (P2, F5b fix round 2): durable grid state written
+        // post-construction (`cells.ts`'s `cloneCellGrid` does the same), so
+        // it is not one of `buildCellGrid`'s own constructor arguments and
+        // the crop has to carry it across by hand.
+        expect(cropped.occluded![dstIdx]).toBe(full.occluded![srcIdx]);
       }
     }
     // Screen coordinates stay consistent with the CROPPED dimensions (freshly

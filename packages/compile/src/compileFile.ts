@@ -150,7 +150,7 @@ export function cropCellGrid(grid: CellGrid | null): CellGrid | null {
   const crop1 = <T extends ArrayLike<number>>(f: T | undefined) => cropTypedField(f, grid.cols, minCol, maxCol, minRow, maxRow, 1);
   const crop2 = <T extends ArrayLike<number>>(f: T | undefined) => cropTypedField(f, grid.cols, minCol, maxCol, minRow, maxRow, 2);
   const crop3 = <T extends ArrayLike<number>>(f: T | undefined) => cropTypedField(f, grid.cols, minCol, maxCol, minRow, maxRow, 3);
-  return buildCellGrid(
+  const cropped = buildCellGrid(
     cropPlainField(grid.char, grid.cols, minCol, maxCol, minRow, maxRow),
     cropPlainField(grid.color, grid.cols, minCol, maxCol, minRow, maxRow),
     crop1(grid.depth) ?? null,
@@ -168,6 +168,14 @@ export function cropCellGrid(grid: CellGrid | null): CellGrid | null {
     crop1(grid.winnerMesh) ?? null,
     crop3(grid.objectNormal) ?? null,
   );
+  // `buildCellGrid` has no `occludedSrc` parameter (it is durable grid state
+  // written post-construction, see `cells.ts`'s own `cloneCellGrid` — never
+  // part of the constructor's argument list), so it is cropped and attached
+  // here, the same way `cloneCellGrid` attaches it to a clone (P2, F5b fix
+  // round 2). Absent stays absent.
+  const occluded = crop1(grid.occluded);
+  if (occluded) cropped.occluded = occluded;
+  return cropped;
 }
 
 /** Content extent (in cells) of a rendered inner string, tags stripped. */

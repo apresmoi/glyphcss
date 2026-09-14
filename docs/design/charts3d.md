@@ -1386,6 +1386,26 @@ own geometry by hand).
 Every mutation above was applied to the working tree, run, observed red
 (exact failures above), then reverted and re-verified green.
 
+### F5b fix round 2
+
+The re-review of fix round 1 confirmed P1-1/P1-2/P1-3 closed and found one
+more P2: `autoFit`'s crop still dropped `CellGrid.occluded`. `occluded` is
+not one of `buildCellGrid`'s own constructor arguments — it is durable grid
+state written POST-construction (`cells.ts`'s own `cloneCellGrid` attaches
+it the same way, `if (grid.occluded) clone.occluded = ...`), so `cropCellGrid`
+now crops it with the same `cropTypedField` helper the other stride-1
+buffers use and attaches it to the built grid directly, mirroring
+`cloneCellGrid`'s own pattern rather than growing `buildCellGrid`'s already
+17-argument positional signature for one caller. Absent stays absent (no
+`occluded` on the source grid — the ordinary case, since it is allocated
+only under cross-layer occlusion — crops to no `occluded` on the result).
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| `autoFit`'s cropped grid carries `occluded`, matching the uncropped window | Drop the `crop1(grid.occluded)`/`cropped.occluded = occluded` lines, keeping every other buffer's crop | RED — `TypeError: Cannot read properties of undefined (reading '0')`, the synthetic-grid test's own `cropped.occluded![dstIdx]` access |
+
+Reverted and re-verified green after.
+
 ## C1 — `gridSurfacePolygons`, the surface model, `glyphChartObject`
 
 **Goal.** A `z(x, y)` height-field mesh (core), a validated surface model
