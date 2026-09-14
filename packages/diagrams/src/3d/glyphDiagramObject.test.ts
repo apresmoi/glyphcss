@@ -6,7 +6,8 @@ import {
 import { glyphGraphFromMermaid } from "../mermaid";
 import { glyphGraphFromJson } from "../adapters";
 import type { GlyphGraph } from "../types";
-import { glyphDiagramObject } from "./glyphDiagramObject";
+import { glyphDiagramObject, resolveGlyphDiagram3dLabelPlacement } from "./glyphDiagramObject";
+import { layout3d } from "./layout3d";
 import { renderGlyphDiagram3d } from "./render3d";
 
 /**
@@ -35,6 +36,37 @@ const architectureGraph: GlyphGraph = {
     { from: "reviewer", to: "planner" },
   ],
   groups: [{ id: "agents", label: "Agents", members: ["planner", "coder", "reviewer"] }],
+};
+
+/** A minimal, ungrouped, single-edge graph — isolates the NODE box outline (and the arrowhead) from `architectureGraph`'s own group-outline glyphs, which draw through the same `segmentGlyph` vocabulary and would otherwise confound a glyph-count assertion. */
+const pairGraph: GlyphGraph = {
+  direction: "TB",
+  nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+  edges: [{ from: "a", to: "b" }],
+};
+
+/**
+ * Same pair, laid out `LR` instead of `TB` — D2 fix round 3, P2-3 (codex
+ * self-review): under `pairGraph`'s own TB layout at the arrowhead test's
+ * camera, the edge's real travel direction happens to snap to the SAME
+ * cardinal glyph ("▶") a "always return a fixed glyph" mutation would also
+ * produce, so that test alone could not tell the two apart. An `LR` layout
+ * places its two nodes predominantly along X rather than Z, so its edge's
+ * real screen-space direction is genuinely different from the TB pair's —
+ * asserting BOTH pairs' independently-computed expected glyphs is what
+ * makes a single fixed glyph (any one glyph) fail on at least one of them.
+ */
+const pairGraphLR: GlyphGraph = {
+  direction: "LR",
+  nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+  edges: [{ from: "a", to: "b" }],
+};
+
+/** A single node, zero edges, zero groups — isolates the node box outline from EVERY other overlay glyph source (no edge, no group). */
+const soloGraph: GlyphGraph = {
+  direction: "TB",
+  nodes: [{ id: "solo", label: "Solo" }],
+  edges: [],
 };
 
 function fakeFrame(overrides: Partial<GlyphOverlayFrame> & { cols: number; rows: number }): GlyphOverlayFrame {
@@ -192,6 +224,196 @@ describe("glyphDiagramObject", () => {
     // picks "coder" instead.
     const text = "Planner";
     for (let i = 0; i < text.length; i++) expect(grid.char[2 * cols + 10 + i]).toBe(text[i]);
+  });
+
+  it("box outline glyphs (the box tier's ─/│) disappear when boxOutline is disabled (mutation: drop the box-outline overlay loop) → red", async () => {
+    // D2 fix round 3, P2-3 (codex): the pre-round gates only counted GENERIC
+    // painted geometry — removing the box outline entirely kept them green,
+    // since the node's own solid Lambert fill still paints plenty of
+    // non-space cells. `soloGraph` (one node, zero edges, zero groups)
+    // isolates the outline from every OTHER overlay glyph source, and `─`
+    // (U+2500) / `│` (U+2502) never appear in the box tier's own solid
+    // shading ramp — only `segmentGlyph`'s straight-run case emits them —
+    // so a nonzero count is proof the outline itself painted, not merely
+    // that SOME cell did.
+    const cols = 200, rows = 100;
+    const countOutlineGlyphs = async (boxOutline: boolean): Promise<number> => {
+      const object = await glyphDiagramObject(soloGraph, { tier: "box", boxOutline });
+      const camera = createGlyphOrthographicCamera({ rotX: 55, rotY: 35, zoom: 8 });
+      camera.target = [
+        (object.bounds.min[0] + object.bounds.max[0]) / 2,
+        (object.bounds.min[1] + object.bounds.max[1]) / 2,
+        (object.bounds.min[2] + object.bounds.max[2]) / 2,
+      ];
+      const grid: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+      const frame = fakeFrame({ camera, cols, rows, toWorld: (p) => p });
+      object.overlays![0]!.stamp(grid, frame);
+      return grid.char.filter((c) => c === "─" || c === "│").length;
+    };
+    expect(await countOutlineGlyphs(true)).toBeGreaterThan(0);
+    expect(await countOutlineGlyphs(false)).toBe(0);
+  });
+
+  it("the arrowhead glyph points toward its own edge's target (mutation: pick a fixed cardinal glyph regardless of travel direction) → red", async () => {
+    // D2 fix round 3, P2-3 (codex, then self-review): the pre-round gates
+    // only checked that SOME arrowhead-family glyph existed somewhere in
+    // the frame — a mutation that always emitted (say) `▶` regardless of
+    // the edge's actual screen-space direction stayed green. This test
+    // recomputes the EXPECTED cardinal glyph independently (never importing
+    // `arrowGlyph`) from the edge's own final two projected points through
+    // the SAME camera, and asserts the EXACT glyph at the EXACT cell the
+    // production code writes to — for TWO graphs (`pairGraph` TB,
+    // `pairGraphLR` LR) whose real travel directions are genuinely
+    // different, so a single always-return-this-glyph mutation (of ANY
+    // glyph) can no longer coincidentally satisfy both.
+    for (const graph of [pairGraph, pairGraphLR]) {
+      const cols = 200, rows = 100;
+      const object = await glyphDiagramObject(graph, { tier: "box" });
+      const camera = createGlyphOrthographicCamera({ rotX: 55, rotY: 35, zoom: 8 });
+      camera.target = [
+        (object.bounds.min[0] + object.bounds.max[0]) / 2,
+        (object.bounds.min[1] + object.bounds.max[1]) / 2,
+        (object.bounds.min[2] + object.bounds.max[2]) / 2,
+      ];
+      const grid: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+      const frame = fakeFrame({ camera, cols, rows, toWorld: (p) => p });
+      object.overlays![0]!.stamp(grid, frame);
+
+      const layout = await layout3d(graph, {});
+      const points = layout.edges[0]!.points;
+      const a = camera.project(points[points.length - 2]!, cols, rows, 1);
+      const b = camera.project(points[points.length - 1]!, cols, rows, 1);
+      const dCol = b[0] - a[0], dRow = b[1] - a[1];
+      const expected = Math.abs(dCol) >= Math.abs(dRow) ? (dCol >= 0 ? "▶" : "◀") : (dRow >= 0 ? "▼" : "▲");
+      const col = Math.round(b[0]), row = Math.round(b[1]);
+      expect(grid.char[row * cols + col], `direction: ${graph.direction}`).toBe(expected);
+    }
+  });
+
+  it("an arrowhead is refused when a genuinely FOREIGN mesh wins its cell nearer, but is NOT refused by its own target node (mutation: drop or widen the winnerMesh/depth exemption) → red", async () => {
+    // D2 review, D2 fix round 3, P1-1 (codex): fix round 1 made the
+    // arrowhead write unconditional (no depth test at all) because a FLAT
+    // depth test against the raw winning depth lost every arrowhead to its
+    // own target's nearer top face. That exemption was too WIDE — it also
+    // let the arrowhead paint through a genuinely foreign node sitting
+    // nearer at that exact cell. Narrowed: refuse the write only when the
+    // depth-winning mesh is neither the edge's own source nor target AND
+    // is nearer than the arrowhead's own point.
+    const cols = 200, rows = 100;
+    const object = await glyphDiagramObject(pairGraph, { tier: "box" });
+    const camera = createGlyphOrthographicCamera({ rotX: 55, rotY: 35, zoom: 8 });
+    camera.target = [
+      (object.bounds.min[0] + object.bounds.max[0]) / 2,
+      (object.bounds.min[1] + object.bounds.max[1]) / 2,
+      (object.bounds.min[2] + object.bounds.max[2]) / 2,
+    ];
+    // `pairGraph`'s own mesh order is `node:a` then `node:b` (declaration
+    // order) — `ownMeshIds`' insertion order (100, 101) maps a -> 100,
+    // b -> 101, mirroring how `compileScene`/`createGlyphScene` really
+    // assign ids (both walk `object.meshes` in array order).
+    const ownMeshIds = new Set([100, 101]);
+    const arrowGlyphs = new Set(["▲", "▶", "▼", "◀"]);
+
+    // Baseline: render unoccluded (no `winnerMesh` buffer at all) and
+    // locate the real arrowhead cell.
+    const baseline: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+    object.overlays![0]!.stamp(baseline, fakeFrame({ camera, cols, rows, toWorld: (p) => p, ownMeshIds }));
+    const arrowIdx = baseline.char.findIndex((c) => arrowGlyphs.has(c));
+    expect(arrowIdx).toBeGreaterThanOrEqual(0);
+    const arrowGlyph = baseline.char[arrowIdx]!;
+
+    // A genuinely FOREIGN winner (an id outside `ownMeshIds` entirely),
+    // nearer than any real geometry — the arrow must NOT overwrite it.
+    const foreign: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+    foreign.winnerMesh = new Int32Array(cols * rows).fill(-1);
+    foreign.winnerMesh[arrowIdx] = 999999;
+    foreign.depth[arrowIdx] = 1e9;
+    object.overlays![0]!.stamp(foreign, fakeFrame({ camera, cols, rows, toWorld: (p) => p, ownMeshIds }));
+    expect(foreign.char[arrowIdx]).not.toBe(arrowGlyph);
+
+    // The edge's own TARGET node ("b" -> mesh id 101) winning the SAME
+    // cell, just as near — the arrow must STILL show; this is the
+    // exemption the review's own P1-1 measurement required (a flat depth
+    // test loses every arrowhead to its own target's nearer top face).
+    const ownTarget: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+    ownTarget.winnerMesh = new Int32Array(cols * rows).fill(-1);
+    ownTarget.winnerMesh[arrowIdx] = 101;
+    ownTarget.depth[arrowIdx] = 1e9;
+    object.overlays![0]!.stamp(ownTarget, fakeFrame({ camera, cols, rows, toWorld: (p) => p, ownMeshIds }));
+    expect(ownTarget.char[arrowIdx]).toBe(arrowGlyph);
+  });
+
+  it("shape follows node shape: cylinder gets a real cylinder mesh (not a 6-face box), diamond gets a box rotated 45° about its own center (mutation: always use boxPolygons) → red", async () => {
+    // D2 round 3 (architecture objects) requirement 1: shape-aware node
+    // geometry. A polygon-count/vertex-extent check rather than a visual
+    // one — cheap, deterministic, and genuinely fails if the shape dispatch
+    // is ever collapsed back to always-box.
+    const shapeGraph: GlyphGraph = {
+      direction: "TB",
+      nodes: [
+        { id: "box", label: "Box" },
+        { id: "cyl", label: "Cyl", shape: "cylinder" },
+        { id: "dia", label: "Dia", shape: "diamond" },
+      ],
+      edges: [],
+    };
+    const object = await glyphDiagramObject(shapeGraph, {});
+    const meshByName = new Map(object.meshes.map((m) => [m.name, m]));
+    const boxMesh = meshByName.get("node:box")!, cylMesh = meshByName.get("node:cyl")!, diaMesh = meshByName.get("node:dia")!;
+
+    expect(boxMesh.polygons.length).toBe(6);
+    // A cylinder's default 16-sided mesh (16 walls + top + bottom cap) has
+    // far more faces than a 6-face box — the shape genuinely changed, not
+    // just its color/size.
+    expect(cylMesh.polygons.length).toBeGreaterThan(6);
+
+    // A diamond keeps the box's own 6 faces but ROTATED 45 degrees about
+    // its own center — its vertices' own X extent grows by ~sqrt(2) over
+    // an un-rotated box of the identical width, a signature no color or
+    // size change alone could produce.
+    const diaLayout = (await layout3d(shapeGraph, {})).nodes.find((n) => n.id === "dia")!;
+    const xs = diaMesh.polygons.flatMap((p) => p.vertices.map((v) => v[0]));
+    const diaXSpan = Math.max(...xs) - Math.min(...xs);
+    // An un-rotated box's own X extent is exactly `half[0] * 2`. A 45-degree
+    // rotation about its own center mixes the depth axis in — for a WIDE,
+    // shallow box (the common label-sized case) that SHRINKS the X extent
+    // rather than growing it, so the honest, direction-agnostic assertion
+    // is simply "not equal to the unrotated width", not "wider".
+    expect(diaXSpan).not.toBeCloseTo(diaLayout.half[0] * 2, 5);
+  });
+
+  it("an inside label is CLIPPED to its own face, never spilling past it (mutation: drop the clip) → red", () => {
+    // D2 round 3, requirement 3 (labels: inside/side/auto). A node whose
+    // custom `size` is deliberately narrower than its own label (the CNN
+    // fixture's own conv/pool layers do this for real) — `"inside"` must
+    // clip rather than let the label run past the node's own footprint.
+    const narrowNode = { id: "n", label: "conv 28x28x6", shape: "rect" as const,
+      center: [0, 0, 0] as const, half: [4.5, 1, 1] as const, kind: undefined, group: undefined, degree: 0 };
+    const placement = resolveGlyphDiagram3dLabelPlacement(narrowNode as any, "conv 28x28x6", "inside");
+    expect(placement.isSide).toBe(false);
+    expect(placement.text.length).toBeLessThanOrEqual(Math.floor(narrowNode.half[0] * 2));
+    expect(placement.text).toBe("conv 28x2"); // 6 cells wide, clipped verbatim, no ellipsis
+  });
+
+  it("a side label's leader touches its own object — leaderFrom sits exactly on the node's own edge (mutation: drop the + half[0] offset) → red", () => {
+    // D2 round 3, requirement 3: "a side label must have its leader
+    // touching its object" — asserted directly on the pure placement
+    // function (the overlay's own leader-line stamp is a thin wrapper
+    // around this exact point, see `glyphDiagramObject`'s label loop).
+    const node = { id: "n", label: "n", shape: "rect" as const,
+      center: [5, 2, 1] as const, half: [1, 1, 0.5] as const, kind: undefined, group: undefined, degree: 0 };
+    const placement = resolveGlyphDiagram3dLabelPlacement(node as any, "a much longer label than fits", "side");
+    expect(placement.isSide).toBe(true);
+    expect(placement.leaderFrom).toBeDefined();
+    const [lx, ly, lz] = placement.leaderFrom!;
+    // Exactly the node's own +X face center — on the object, not floating
+    // near it.
+    expect(lx).toBe(node.center[0] + node.half[0]);
+    expect(ly).toBe(node.center[1]);
+    expect(lz).toBe(node.center[2] + node.half[2]);
+    // The label's own anchor sits strictly further out than the leader's
+    // start — free space, not overlapping the node.
+    expect(placement.anchor[0]).toBeGreaterThan(lx);
   });
 
   it("Mermaid and JSON adapters feed glyphDiagramObject unchanged — both produce the same node/edge/group id set", async () => {

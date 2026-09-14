@@ -533,11 +533,16 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
     const colorButtons = Array.from(toggleRow("Color").querySelectorAll<HTMLButtonElement>("button"));
     const byValue = (buttons: HTMLButtonElement[], value: string) => buttons.find((b) => toggleOption(b).split(" — ")[0] === value)!;
 
-    for (const value of ["ascii", "box"]) {
+    // Braille is the library's own INTENDED wireframe+2x4-dot look under the
+    // default style (AGENTS.md's "Diagrams 3D" / D2 round 3) — `resolveCharset`
+    // logs no ledger entry for it, so it is fully selectable, never dimmed.
+    // Only `blocks` genuinely degrades (its sub-cell dual-color encoder can't
+    // carry the stamped edge/label overlays this renderer depends on).
+    for (const value of ["ascii", "box", "braille"]) {
       const b = byValue(charsetButtons, value);
       expect(b.disabled, value).toBe(false);
     }
-    for (const value of ["blocks", "braille"]) {
+    for (const value of ["blocks"]) {
       const b = byValue(charsetButtons, value);
       expect(b.disabled, value).toBe(true);
       expect(b.title, value).toBe("Not available for 3D diagrams yet");
@@ -553,10 +558,17 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
   // Fix round 4 — the CURRENTLY selected degraded option must stay
   // reachable/interactive (never disabled), mirroring the Charts
   // mark-type-fit "current type is never disabled" rule this Dock now
-  // shares: a reader already on `braille` in 3D can still see why on
-  // hover, but isn't locked inside a control that got them there.
+  // shares: a reader already on a degraded charset in 3D can still see why
+  // on hover, but isn't locked inside a control that got them there.
+  //
+  // `blocks` here, not `braille` — braille is the library's own INTENDED
+  // wireframe+2x4-dot look under the default style (AGENTS.md's "Diagrams
+  // 3D" / D2 round 3) and is never dimmed at all any more (see the sibling
+  // test above), so it can no longer exercise the "current selection is
+  // exempt from dimming" rule this test is actually about; `blocks` still
+  // genuinely degrades and stays the one live case for it.
   it("never disables the currently-selected charset, even when it's the one degrading", async () => {
-    const state = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, controls: { target: "web" as const, overrides: { charset: "braille" as const } } };
+    const state = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, controls: { target: "web" as const, overrides: { charset: "blocks" as const } } };
     const el = document.createElement("div");
     document.body.append(el);
     const r = createRoot(el);
@@ -567,12 +579,12 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
         expect(el.querySelector(".diagrams-3d-host .glyph-output")).not.toBeNull();
       }, { timeout: 3000, interval: 10 });
       const row = Array.from(el.querySelectorAll(".dock-toggle-row")).find((n) => n.querySelector(".dock-toggle-row-label")?.textContent === "Charset")!;
-      const brailleButton = Array.from(row.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").includes("braille"))!;
-      expect(brailleButton.disabled).toBe(false);
+      const blocksButton = Array.from(row.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").includes("blocks"))!;
+      expect(blocksButton.disabled).toBe(false);
       // Still explains itself on hover even though it's reachable (not
       // disabled, so `IconToggle` falls back to `desc`, which carries the
       // same reason text for exactly this case).
-      expect(brailleButton.title).toBe("braille — Not available for 3D diagrams yet");
+      expect(blocksButton.title).toBe("blocks — Not available for 3D diagrams yet");
     } finally {
       await act(async () => r.unmount());
       el.remove();

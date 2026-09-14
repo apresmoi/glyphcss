@@ -23,8 +23,8 @@ vi.hoisted(async () => {
   }
 });
 import { expect, it, vi } from "vitest";
-import { createGlyphOrthographicCamera, createGlyphScene, type GlyphCamera } from "glyphcss";
-import { layout3d, renderGlyphDiagram3d, type GlyphDiagram3dNode } from "@glyphcss/diagrams/3d";
+import { createGlyphOrthographicCamera, createGlyphScene, type GlyphCamera, type GlyphSceneObject } from "glyphcss";
+import { renderGlyphDiagram3d } from "@glyphcss/diagrams/3d";
 import { glyphGraphFromJson } from "@glyphcss/diagrams";
 import { getGlyphEffect, defaultGlyphEffectParams } from "@glyphcss/effects";
 
@@ -130,42 +130,50 @@ function diffCells(a: Fit, b: Fit): { row: number; col: number }[] {
  * P2-3 (fix round 2) — the disjointness check alone doesn't prove targeting
  * A never touches a cell that is neither A's own nor B's (a stray background
  * or edge cell changing under both targets would still read as "disjoint").
- * This computes, per node, the padded screen-space cell box its own mesh
- * can possibly occupy — `layout3d`'s `center`/`half` projected through the
- * SAME camera `renderWithTarget` builds (D1's own layout is deterministic
- * and SEEDED, AGENTS.md's Diagrams 3D contract, so re-deriving it here
- * reproduces the identical geometry, not merely "close enough") — so the
- * strengthened test below can assert every changed cell falls inside the
- * TARGETED node's own box, never a foreign one's, and that every cell
- * belonging to a NON-target node is byte-identical to the no-effect
- * baseline.
+ *
+ * D2 round 4 fix (library redesign) — this used to compute a padded
+ * screen-space AABB per node from `layout3d`'s own `center`/`half` and
+ * assumed neighbouring boxes never overlap ("measured exact at PAD = 0").
+ * D2 round 4's own bigger node defaults (`GLYPH_DIAGRAM_3D_NODE_HEIGHT`/
+ * `_DEPTH`, a 12-cell width floor) plus its proportional flow-gap packing
+ * made that assumption false for THIS fixture — node a's and b's AABBs now
+ * genuinely overlap on screen (measured: a `[3,37]x[1,30]`, b `[31,64]x
+ * [6,35]`), so a cell that is visually node a's own front face (occluding
+ * b behind it) can still fall inside b's *box* even though it never was
+ * b's own rendered pixel. An AABB is a conservative bound, not per-pixel
+ * ownership, and the test's own header comment already names the REAL
+ * mechanism under test: `CellGrid.winnerMesh`-scoped `targetCoverage`
+ * (AGENTS.md's "Per-object targeting"). So ownership here is read directly
+ * off the rasterizer's own per-cell winner buffer from a plain (untargeted)
+ * render at the SAME camera — exact, not approximate, and immune to any
+ * future change in node geometry/packing.
  */
-async function nodeCellBoxes(camera: GlyphCamera): Promise<ReadonlyMap<string, { minCol: number; maxCol: number; minRow: number; maxRow: number }>> {
-  const layout = await layout3d(GRAPH, { layout: "layered", zBy: "none" });
-  const boxes = new Map<string, { minCol: number; maxCol: number; minRow: number; maxRow: number }>();
-  for (const node of layout.nodes as readonly GlyphDiagram3dNode[]) {
-    let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-    for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
-      const corner: [number, number, number] = [
-        node.center[0] + sx * node.half[0], node.center[1] + sy * node.half[1], node.center[2] + sz * node.half[2],
-      ];
-      const [col, row] = camera.project(corner, COLS, ROWS, CELL_ASPECT);
-      minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
-      minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
-    }
-    // No padding: adjacent nodes' boxes can already overlap at this camera
-    // (a compact auto-fit view of a small TB graph), so widening them
-    // further would let a cell genuinely inside the TARGET's own box get
-    // mistaken for a foreign node's — measured exact at `PAD = 0` for this
-    // fixture (every changed cell landed inside its own node's real
-    // projected box with no rounding slack needed).
-    boxes.set(node.id, { minCol: Math.floor(minCol), maxCol: Math.ceil(maxCol), minRow: Math.floor(minRow), maxRow: Math.ceil(maxRow) });
+async function nodeCellOwners(camera: GlyphCamera, object: GlyphSceneObject): Promise<(row: number, col: number) => string | null> {
+  const host = document.createElement("div");
+  let winnerMesh: Int32Array | undefined;
+  const scene = createGlyphScene(host, {
+    cols: COLS, rows: ROWS, mode: "solid", useColors: true, camera,
+    // The object's own label overlay already reads `ownMeshIds` off
+    // `CellGrid.winnerMesh` (AGENTS.md's "Scene objects" Declutter clause),
+    // which is what populates it "on demand" — this hook only OBSERVES the
+    // same grid the overlay already forced into existence, never forces it
+    // itself.
+    transformCells: (grid) => { winnerMesh = grid.winnerMesh ? new Int32Array(grid.winnerMesh) : undefined; return grid; },
+  });
+  const handle = scene.addObject(object);
+  scene.rerender();
+  scene.destroy();
+  if (!winnerMesh) throw new Error("expected CellGrid.winnerMesh to be populated by the object's own label overlay");
+  const nodeIdForMeshId = new Map<number, string>();
+  for (const [name, meshHandle] of handle.meshes) {
+    const match = /^node:(.+)$/.exec(name);
+    if (match) nodeIdForMeshId.set(meshHandle.id, match[1]!);
   }
-  return boxes;
-}
-
-function inBox(cell: { row: number; col: number }, box: { minCol: number; maxCol: number; minRow: number; maxRow: number }): boolean {
-  return cell.col >= box.minCol && cell.col <= box.maxCol && cell.row >= box.minRow && cell.row <= box.maxRow;
+  const owned = winnerMesh;
+  return (row: number, col: number) => {
+    const meshId = owned[row * COLS + col];
+    return meshId === undefined || meshId < 0 ? null : (nodeIdForMeshId.get(meshId) ?? null);
+  };
 }
 
 it("targeting one node's own mesh changes only that node's own cells, never another node's", async () => {
@@ -177,47 +185,54 @@ it("targeting one node's own mesh changes only that node's own cells, never anot
   const diffB = diffCells(baseline, targetedB);
 
   // Mutation: mount the effect with no `target` (scene-wide) → `diffA`
-  // covers node b's/c's cells too, so the box checks below redden.
+  // covers node b's/c's cells too, so the ownership checks below redden.
   expect(diffA.length, "targeting node a should paint SOMETHING").toBeGreaterThan(0);
   expect(diffB.length, "targeting node b should paint SOMETHING").toBeGreaterThan(0);
 
-  const boxes = await nodeCellBoxes(baseline.camera);
-  const boxA = boxes.get("a")!, boxB = boxes.get("b")!, boxC = boxes.get("c")!;
+  const { camera, object } = await buildCamera();
+  const ownerAt = await nodeCellOwners(camera, object);
 
-  // Every CHANGED cell must fall inside the TARGETED node's own padded box.
-  // Mutation: target the WHOLE scene (`target: undefined`) regardless of
-  // the requested node id → these pick up node b's/c's own cells (well
-  // outside a's/b's own box) and redden.
-  const outsideA = diffA.filter((cell) => !inBox(cell, boxA));
-  const outsideB = diffB.filter((cell) => !inBox(cell, boxB));
-  expect(outsideA, "every cell targeting a changes must lie inside node a's own box").toEqual([]);
-  expect(outsideB, "every cell targeting b changes must lie inside node b's own box").toEqual([]);
+  // Every CHANGED cell's baseline OWNER (the mesh that actually won it —
+  // never an approximate AABB, see `nodeCellOwners`'s own doc) must be the
+  // targeted node itself. Mutation: target the WHOLE scene (`target:
+  // undefined`) regardless of the requested node id → these pick up node
+  // b's/c's own cells and redden.
+  const outsideA = diffA.filter((cell) => ownerAt(cell.row, cell.col) !== "a");
+  const outsideB = diffB.filter((cell) => ownerAt(cell.row, cell.col) !== "b");
+  expect(outsideA, "every cell targeting a changes must be owned by node a").toEqual([]);
+  expect(outsideB, "every cell targeting b changes must be owned by node b").toEqual([]);
 
   // The disjointness AGENTS.md's own acceptance criterion asks for falls
-  // out of the two box checks above (disjoint boxes → disjoint diffs), kept
-  // as its own explicit assertion since it is the literal wording of the
-  // acceptance criterion.
+  // out of the two ownership checks above (disjoint owners → disjoint
+  // diffs), kept as its own explicit assertion since it is the literal
+  // wording of the acceptance criterion.
   const inBothBoxes = diffA.filter((cell) => diffB.some((other) => other.row === cell.row && other.col === cell.col));
   expect(inBothBoxes, "cells changed by targeting a must be disjoint from cells changed by targeting b").toEqual([]);
 
   // P2-3 (fix round 2) — the complementary, literal statement: every cell
-  // belonging to a NON-target node (b's and c's own boxes, while targeting
-  // a) is byte-identical to the no-effect baseline — not merely "not in
-  // diffA", which a mutation that painted the WRONG node instead of a could
-  // still satisfy by chance if it happened to skip b/c too.
+  // OWNED by a NON-target node (b's or c's own mesh, while targeting a) is
+  // byte-identical to the no-effect baseline — not merely "not in diffA",
+  // which a mutation that painted the WRONG node instead of a could still
+  // satisfy by chance if it happened to skip b/c too.
   //
   // D3 round 3, P2 — "byte-identical" now checks GLYPH *and* COLOUR. `glitch`
   // changes both together from the same per-cell coverage mask, so a
   // targeting regression that correctly gates the glyph but leaks colour
-  // (or vice versa) outside the target's own box used to pass this loop
-  // silently — proven by mutation below, since the pre-fix version of this
-  // loop compared `targetedA.rows[row][col]` alone.
-  for (const [label, box] of [["b", boxB], ["c", boxC]] as const) {
-    for (let row = Math.max(0, box.minRow); row <= Math.min(ROWS - 1, box.maxRow); row++) {
-      for (let col = Math.max(0, box.minCol); col <= Math.min(COLS - 1, box.maxCol); col++) {
-        expect(targetedA.rows[row]![col], `targeting a must leave node ${label}'s own cell (row ${row}, col ${col}) glyph unchanged`).toBe(baseline.rows[row]![col]);
-        expect(targetedA.colors[row]![col], `targeting a must leave node ${label}'s own cell (row ${row}, col ${col}) colour unchanged`).toBe(baseline.colors[row]![col]);
-      }
+  // (or vice versa) used to pass this loop silently — proven by mutation
+  // below, since the pre-fix version of this loop compared
+  // `targetedA.rows[row][col]` alone.
+  //
+  // D2 round 4 — this now walks EVERY cell (rather than a per-node AABB
+  // window) and asks the exact `winnerMesh`-derived owner, since adjacent
+  // nodes' screen-space AABBs can genuinely overlap under the redesigned
+  // node geometry/packing (see `nodeCellOwners`'s own doc): a window bound
+  // by an overlapping box could still miss or over-scope real cells.
+  for (let row = 0; row < ROWS; row++) {
+    for (let col = 0; col < COLS; col++) {
+      const owner = ownerAt(row, col);
+      if (owner !== "b" && owner !== "c") continue;
+      expect(targetedA.rows[row]![col], `targeting a must leave node ${owner}'s own cell (row ${row}, col ${col}) glyph unchanged`).toBe(baseline.rows[row]![col]);
+      expect(targetedA.colors[row]![col], `targeting a must leave node ${owner}'s own cell (row ${row}, col ${col}) colour unchanged`).toBe(baseline.colors[row]![col]);
     }
   }
 }, 20_000);

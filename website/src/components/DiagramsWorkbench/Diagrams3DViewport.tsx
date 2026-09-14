@@ -234,7 +234,7 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
 
       const resolved = resolveDiagrams3dSceneOptions(latest.current.charset, latest.current.color);
       scene = createGlyphScene(hostRef.current, {
-        autoSize: true, mode: resolved.mode, charMode: resolved.charMode, useColors: resolved.useColors,
+        autoSize: true, mode: resolved.mode, charMode: resolved.charMode, hiddenLines: resolved.hiddenLines, useColors: resolved.useColors,
         directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
         camera,
       });

@@ -1421,6 +1421,431 @@ src/components/DiagramsWorkbench` — 280 tests across 9 files, all green.
 | Dock dims exactly the resolver-flagged options | Drop `charsetToggleOptions`'/`colorToggleOptions`'s `disabled`/`disabledReason` wiring | The dimming case reddens (`disabled` falls back to `undefined`, a real DOM attribute difference from `true`) |
 | The current option is never disabled | Drop the `v !== current` exemption | The "never disables the currently-selected charset" case reddens (`braille`, reached as the current value, becomes unclickable) |
 
+## D2 round 3 — architecture objects
+
+User feedback arrived in two rounds. The first ("the 3d example diagrams
+suck... they should be rectangles and blocks, not squares floating in 3d")
+diagnosed round 1's node-height shrink (1 -> 0.35) as the cause of a
+"tiny thin slanted outline floating in empty space" look and asked for
+solid rectangular blocks with per-face shading. The second, explicitly
+superseding the first wherever they conflict, reframed the actual ask:
+"the idea is to have these architecture graphs like flow charts or
+agentic architecture or ML models architectures... make them vertical 3d
+boxes and objects with labels either to the side or inside... we should
+be able to render those with good detail using braille or ink mode."
+Reference look: PlotNeuralNet/NN-SVG CNN diagrams (upright blocks, size
+stepping left-to-right), transformer block diagrams (stacked layer
+boxes), isometric agent/cloud diagrams (boxes + cylinders + arrows).
+"Crisp line art, not shaded slabs" is the throughline both messages
+agree on — solid Lambert-shaded fills were never the fix; UPRIGHT
+GEOMETRY and REAL LINE-ART RENDER MODES were.
+
+### Shape dispatch: check core first, wrap what exists, invent nothing
+
+The task's own instruction was explicit: "core may need a
+`cylinderPolygons` helper next to `boxPolygons`/`spherePolygons` if none
+exists — check core first." It exists (`@glyphcss/core/helpers/cylinderPolygons.ts`)
+but is Y-AXIS-ALIGNED (height runs along Y), inconsistent with
+glyphcss's Z-up world (AGENTS.md's "Numeric conventions"). The fix is an
+axis-remap wrapper, `zUpCylinderPolygons` (`glyphDiagramObject.ts`):
+`toZUp(v) = [v[0], -v[2], v[1]]` applied to every output vertex, with
+the input `center` converted through the inverse `fromZUp(w) = [w[0],
+w[2], -w[1]]` before calling core's function. This is a proper
+(determinant +1) rotation, verified numerically before it was written
+into the source file: for a Z-up input center `[10, 20, 3]`, radius 2,
+height 4, the wrapped output's X/Y/Z ranges were `[8,12]`/`[18,22]`/`[1,5]`
+— exactly `center ± radius` on X/Y and `center ± height/2` on Z, three
+matching `console.log` lines — so winding/normals need no extra
+reversal (a determinant-negative remap would have inverted face
+orientation and required flipping every polygon's vertex order).
+
+The "decision object" for a `diamond`/rhombus Mermaid node (message 2:
+"pick something that reads") is a `boxPolygons` output ROTATED 45
+degrees about its own center on the Z axis, not `octahedronPolygons`
+(which core also has, used elsewhere for `GlyphDirectionalLightHelper`)
+— a rotated box reads immediately as "the diamond shape" from the same
+3/4 camera a flowchart diamond already uses in 2D, and it is the
+lower-risk of the two implementations (no new geometry math, just a
+plain 2D rotation applied to an existing helper's output). The node's
+own box-outline overlay corners rotate identically, so the crisp
+outline traces the SAME shape the mesh underneath it actually is.
+
+Dispatch (`nodePolygons`, `glyphDiagramObject.ts`): `circle` -> sphere
+(unchanged from D1); `cylinder` -> the Z-up wrapper; `diamond` -> the
+rotated box; everything else (`rect`/`rounded`/`subroutine`/`asymmetric`/
+`stadium`, none of which have a distinct 3D read of their own) -> plain
+box. `"cylinder"` was added to `GlyphGraphNodeShape` (`types.ts`) and
+`GLYPH_GRAPH_NODE_SHAPES` (`validate.ts`) — verified non-breaking for
+the 2D renderer by grepping `paint.ts`/`pipeline.ts` for an EXHAUSTIVE
+switch on the shape type (none exists; only `.includes()`/`===` checks
+for specific shapes), so an unrecognized-there `"cylinder"` degrades
+gracefully to the default box-corner-glyph branch in 2D rather than
+throwing. Mermaid's own `[( )]` cylinder bracket syntax is NOT parsed —
+a deliberate, disclosed simplification: the LeNet-5/transformer examples
+below are JSON-authored anyway (they need `size`, which Mermaid has no
+syntax for either), and touching the shared `mermaid.ts` bracket table
+was judged higher-risk than the marginal value justified under this
+round's own scope.
+
+### Per-node `size`: append-only through the IR, JSON-only by construction
+
+`GlyphGraphNode.size?: readonly [number, number, number]` (`types.ts`,
+`[width, height, depth]` — matching `GlyphDiagram3dNode.half`'s own
+documented order `[X(width), Y(depth), Z(height)]` once halved) is
+append-only on the graph IR, validated by a new `size3` predicate
+(`validate.ts`: exactly 3 finite positive numbers) and a matching JSON
+Schema property (`schema.ts`). `layout3d.ts`'s `resolveNodeSize` reads
+it when present, else falls back to the existing
+`[labelWidthCells, GLYPH_DIAGRAM_3D_NODE_HEIGHT, GLYPH_DIAGRAM_3D_NODE_DEPTH]`
+default — so every graph that predates this option renders
+byte-identical. A FLOW-AXIS sequential re-spacing pass (only engaged
+when `graph.nodes.some(n => n.size)`) walks dagre's own rank-ordered
+node list along the flow axis (X for LR/RL, Y for TB/BT), accumulating
+`cursor += prevHalf + gap + half` from REAL (custom or default)
+half-extents and overriding ONLY the flow-axis coordinate — cross-axis
+position and topological rank order still come from dagre unchanged.
+This is what lets the LeNet-5 fixture below step its own box sizes
+(32x32 down to a thin FC column) without touching the shared 2D
+`measureGlyphGraph`/`layoutGlyphGraph` pipeline at all.
+
+### Labels: one pure function, shared by the overlay AND the camera fit
+
+`labels: "inside" | "side" | "auto"` (default `"auto"`) resolves through
+`resolveGlyphDiagram3dLabelPlacement` (`glyphDiagramObject.ts`) — a
+PURE, camera-independent function of `(node, text, mode)`, deliberately
+NOT a screen-space/projection computation. This was the single riskiest
+design decision of the round: `render3d.ts`'s existing closed-form
+camera auto-fit (D2 review P1-2) solves one linear inequality per label
+candidate assuming an ANCHOR-PLUS-RIGHTWARD-RUN shape (`col1`,
+`widthRight`), and a naive "inside" implementation that CENTERS text on
+the node (rather than anchoring-and-running-right) would need a second,
+symmetric bound per candidate — a real rework of the fit's own math, not
+a label-placement detail. The shape was kept: `"inside"` anchors at the
+node's own top-center (the SAME anchor D1/D2 always used) and CLIPS text
+that exceeds the node's own footprint width in cells (`Math.floor(half[0]
+* 2)`), rather than letting it spill past the box — verbatim clipping,
+no ellipsis, matching AGENTS.md's diagram-wide "a label never floats
+unattached, never spills across another object" generalized from 2D to
+a 3D face. `"side"` anchors past the node's own right edge (`half[0] +
+1` cell of gap) with `leaderFrom` set to EXACTLY the node's own edge
+point — never floating — and the overlay stamps a real depth-tested
+leader line from `leaderFrom` to the anchor through the identical
+`stampGlyphOverlayLine` primitive edges and box outlines already use.
+`"auto"` resolves to `"inside"` whenever the (possibly folded) label
+already fits — true for EVERY default-sized node, since `layout3d.ts`
+already sizes a node's footprint to at least its own label width when no
+custom `size` is given, so every pre-existing fixture (agent-supervisor,
+crew, karate club) renders byte-identical under the new default. `"auto"`
+first falls through to `"side"` only for a node given an explicit,
+label-narrower `size` — the CNN fixture's own `conv`/`pool` layers.
+
+Because both `glyphDiagramObject`'s overlay `stamp()` and `render3d.ts`'s
+`fitDiagramCamera` call the SAME function for the SAME `(node, text,
+mode)`, the two can never predict a different landing cell — the exact
+"synchronized change" risk identified while this was being designed
+never had a chance to manifest, because there is only ever one place the
+anchor/clip logic lives.
+
+### Detail via the renderer's own modes, not hand-drawn overlays
+
+The default detail comes from `mode: "ink"` (crisp silhouette + crease
+outline, `ascii`/`box`/`blocks`, the last ASCII-downgraded since its
+own dual-colour sub-cell encoder bypasses the stamped-overlay path this
+renderer depends on) or `wireframe` + `charMode: "braille"` (`braille`,
+2x4 sub-cell dots) — both with `hiddenLines: "hide"`, so a back edge or
+an object standing behind another disappears rather than drawing
+through it. This is a pure PARAMETER-VALUE change to the existing
+`compileScene({ objects, mode, charMode, hiddenLines })` call in
+`render3d.ts`'s `renderObjectFrame` — verifying this was possible with
+NO internal glyphcss/compileScene change was the round's own explicit
+escape-valve check ("if `compileScene` can't render ink/braille with
+object overlays honestly, STOP and report the exact limitation"): it
+already accepted `mode`/`charMode`/`hiddenLines` as scene-wide options
+(confirmed at `compileScene.ts` line ~44-60 and ~396/471) and
+`render3d.ts`'s existing `renderObjectFrame` helper already threaded
+`mode`/`charMode` through — no limitation was found, so nothing was
+worked around. The hand-drawn 12-edge box-outline overlay (D2 review
+P1-1's own original fix, for a SOLID mode that draws no polygon edges of
+its own) is now suppressed by default (`boxOutline: false` under `ink`/
+`wireframe`) — message 2's own "REUSE the renderer's modes. Do not
+hand-draw outlines with overlays where a render mode already does it" —
+and kept reachable only under an explicit `style: "solid"` override,
+which still wants it for the same reason it always did. `style: "ink" |
+"wireframe" | "solid"` (`GlyphDiagram3dRenderOptions`) lets a caller
+force any of the three regardless of charset; `"solid"` reaches the OLD
+Lambert-shaded box render verbatim (D1/D2 fix rounds 1-2), so nothing
+built before this round was actually removed, only stopped being the
+default. `resolveCharset`'s `ledger3dCharsetDegraded` gained a third
+`renderedAs` value (`"ascii ink"`, for `blocks`'s downgrade) alongside
+the existing `"wireframe"`/`"ascii"`.
+
+### Camera: a readable 3/4 view, not a top-down one
+
+Default `rotX` dropped from `55` to `32` (`rotY` `35` to `38`) — message
+2's "a readable 3/4 view from slightly above and in front, so upright
+boxes read as boxes." At the old, steeper pitch a tall vertical box
+read mostly as its own TOP face; the new pitch keeps enough tilt to
+read as unambiguously 3D while showing far more of each box's own
+front/side faces, which is the entire point of "vertical 3D boxes...
+with labels inside or to the side" — a label or a face detail on a
+face the camera barely grazes is wasted work. This is the one change in
+the round with a real, measured regression cost: a force-layout fixture
+that cleared every label at the old 55/35 pitch can legitimately
+collide at the new, more frontal one (a genuinely different camera pose
+sees genuinely different on-screen overlaps) — `render3d.test.ts`'s own
+seed-sweep gate was updated to check "no SILENT drop" (every missing
+label named in the ledger) rather than "no drop at all," matching the
+standard every OTHER camera-angle gate in that file already held.
+
+### Mutation gates added this round
+
+| Guarantee | Mutation | Gate |
+|---|---|---|
+| Shape dispatch is real (cylinder/diamond aren't silently box) | Always call `boxPolygons` | Cylinder mesh polygon count (18) equals the 6-face box's; diamond's rotated X-span equals its own unrotated width |
+| An `inside` label never spills past its own face | Drop the `slice(0, faceWidthCells)` clip | A narrow-`size` node's placed text is no longer `<=` its own footprint width |
+| A `side` label's leader touches its own object | Drop the `+ half[0]` edge offset | `leaderFrom` no longer equals the node's own `center[0] + half[0]` |
+| The arrowhead glyph is computed from real travel direction, not a fixed glyph | Return `tier.arrow.e` unconditionally | `pairGraph` (TB) alone didn't catch this — its own true direction happens to be `▶` too, a real coincidence found only by adding `pairGraphLR` (LR direction, a genuinely different real direction) and asserting both |
+| Live scene and static `compileScene({ objects })` render byte-identical frames under the new default | Reintroduce a mode/charset mismatch between the two paths | `render3d.test.ts`'s own byte-identity gates, updated to build their comparison `createGlyphScene` with the SAME `mode: "ink"`/`hiddenLines: "hide"`/`boxOutline: false` the real path now resolves to |
+
+### Kept from round 3's original packet, re-verified under the new geometry
+
+P1-1's narrow arrowhead-foreign-occlusion fix (winner-mesh/depth check,
+D2 fix round 3's own original section) needed no change — it reads
+`grid.winnerMesh`/`grid.depth` generically, independent of node shape.
+P2-3's adaptive large-graph policy (auto-force-layout past 16 nodes,
+label-budget suppression, arrowhead-density suppression) was NOT scoped
+back this round, a deliberate choice under the round's own time budget:
+it is harmless (fully gated, no behavior change for any graph under its
+thresholds) and re-scoping it risked destabilizing the karate-club gate
+for no benefit the user actually asked for in round 3's superseding
+message — disclosed here rather than silently left unexamined.
+
+### Worked examples (96x32, `web` target, both `box` and `braille` charset)
+
+Three fixtures, rendered through the real `renderGlyphDiagram3d` pipeline
+at this round's own defaults (`style` unset — `ink`/wireframe-braille):
+
+- **`packages/diagrams/fixtures/agent-supervisor.mmd`** (reused verbatim,
+  D3's own preset) — a LangGraph-style supervisor fanning out to three
+  workers, `zBy: "group"` putting the supervisor's own floor above the
+  workers'.
+- **`packages/diagrams/fixtures/lenet5-cnn.json`** — a LeNet-5-style CNN,
+  `direction: "LR"`, per-layer `size` (SCALED DOWN for legibility, not
+  literal pixel counts, chosen by the fixture's own author): input
+  32x32x1 -> conv 28x28x6 -> pool 14x14x6 -> conv 10x10x16 -> pool
+  5x5x16 -> fc 120 -> fc 84 -> out 10, each box's own width/depth tracking
+  spatial resolution and height tracking channel count (the fc layers'
+  own tall, thin columns are the classic PlotNeuralNet "flattened dense
+  layer" read).
+- **`packages/diagrams/fixtures/transformer-encoder.json`** — a
+  transformer encoder block, `direction: "TB"`: Input Embedding (a
+  `cylinder` — an embedding table IS a lookup/datastore, the "distinct
+  object where fitting" message 2 asked for) -> Positional Encoding ->
+  Multi-Head Attention -> Add & Norm -> Feed Forward -> Add & Norm.
+
+Honest visual assessment, not just "it renders": the CNN and transformer
+frames are noticeably more CLUTTERED than the agent-supervisor one — long
+diagonal runs of `/`/`\` glyphs cross the frame between nodes whose
+cross-axis (depth/height) sizes differ sharply (the CNN's `input`
+depth-8 box next to the `fc1` depth-1 column, for instance). This is
+NOT a rendering defect: an orthographic projection of a genuinely
+axis-aligned, Manhattan-routed 3D edge (`orthogonalPlanePoints`, D2 fix
+round 3's own routing) can still trace a DIAGONAL path on screen once
+the camera is rotated, because screen column/row are linear
+combinations of world X/Y/Z under any oblique 3/4 view — a "straight" 3D
+line is only screen-straight when it happens to lie in the view plane.
+What IS a genuine, disclosed residual: neither the layout nor the
+camera in this round was specifically TUNED for a stepping-CNN or a
+stacked-transformer topology (the user's own reference images are
+hand-composed 2D diagrams, not raw 3D-camera captures) — a follow-up
+packet that fits the camera per-topology (e.g., a near-orthographic
+"straight-on" pose for a pure LR/TB chain, where every edge IS
+axis-aligned on screen) would read cleaner than this round's one fixed
+3/4 default applied uniformly. The frames are included in the final
+report verbatim, uncropped, so this tradeoff is visible rather than
+described only in prose.
+
+## D2 round 4 — the follow-up packet round 3 predicted, arrived
+
+The user rendered round 3's own three examples through the built CLI and
+held the merge: "objects are slivers next to full-size labels," "the flow
+runs diagonally across the screen," "edges [should be] short straight
+arrows between facing faces," "size scaling blows up," and one consistent
+label side per flow direction. Four of these five are the EXACT residual
+round 3's own closing section predicted ("neither the layout nor the
+camera... was specifically TUNED for a stepping-CNN or a
+stacked-transformer topology") — this section is that follow-up packet,
+not a fresh redesign.
+
+### Root cause 1: a label's screen footprint does not shrink with zoom, an object's does
+
+The report's own diagnosis was exactly right: a diagram's TEXT is stamped
+as literal characters (fixed cell count, independent of camera zoom),
+while a node's own BOX shrinks with whatever zoom the auto-fit computes to
+fit the WHOLE scene. Round 3's own node HEIGHT/DEPTH bump (`3.2`/`1.4`)
+was still too thin relative to that fixed label footprint once a
+multi-node diagram's own total span (objects PLUS round 3's flat, dagre-
+`ranksep`-derived gaps) forced the zoom down. The fix has two parts, and
+both matter — fixing only one leaves the other's own failure mode:
+
+1. **Bigger defaults**: HEIGHT `7`, DEPTH `2.4`, and — the one that
+   actually mattered for the reported "Coder" case — the WIDTH floor `12`
+   (round 3's `3`, unchanged from before this whole feature existed).
+   Measured: a 5-character label ("Coder") already got a 9-world-unit box
+   from dagre's own padding, and even THAT undershot the round's own
+   `>= 10 cols` silhouette floor once the zoom a 4-node TB stack forces is
+   accounted for — the floor had to clear the WORST case, not the typical
+   one.
+2. **Proportional gaps**: `GLYPH_DIAGRAM_3D_FLOW_GAP_FACTOR = 0.5` — the
+   clear gap between two flow-adjacent objects is now `0.5 * (their own
+   average half-extent)`, never a flat `ranksep`-derived constant. This
+   engine change (`compressExplicitSizes`'s sibling, the flow-axis
+   sequential packer) now runs UNCONDITIONALLY, for every layered graph —
+   round 3 gated it behind "any node has a custom `size`"; a
+   DEFAULT-sized graph needed the identical discipline just as much, or
+   its own gaps stayed dagre's flat, many-object-widths-apart guess.
+
+Gate (`render3d.test.ts`): every node's own projected AABB (all 8 box
+corners through the resolved camera) is `>= 10 cols x 5 rows` at 96x32,
+for both `agentGraph` (TB, the new Z-flow path) and a fresh 4-node
+`chainGraphLR` fixture — chosen deliberately DEFAULT-sized (no `size` at
+all), so this gate is provably about the LAYOUT fix, not anything `size`
+compression (below) touches.
+
+### Root cause 2: TB never actually stacked along Z for an ungrouped graph
+
+Round 3's own Z axis came entirely from `zBy` (default `"group"`), and a
+graph with no `groups` at all — the transformer fixture, the whole reason
+TB direction exists in this round's own deliverables — got FLOOR 0 for
+every node. Its own "vertical stack" was, underneath, dagre's plain 2D
+rank position (`Y`) read through a 3/4 camera: a flat diagonal, not a
+stack. The fix: when `zBy` is left unset on an ungrouped TB/BT graph
+(`useRankZFlow`), Z is now assigned by the SAME real-half-extent
+sequential packer LR/RL's own flow axis uses — walking nodes in dagre's
+own RANK order (its `y0`/`y1`, read only for ORDER, never for the final
+Z value) and writing Z directly; `cy` (the old rank axis) is forced to
+`0`, since Z now carries the progression and spreading nodes front-to-back
+too would fight it. A GROUPED graph (`agent-supervisor`) is completely
+untouched — its own `zBy: "group"` floors already gave it a genuine Z
+read (the supervisor's own floor above the workers'), and re-deriving Z
+from rank there would have fought a real, working semantic for no
+reason. `docs/design/charts3d.md`'s own D2-round-3 doc already names
+`zBy: "rank"` as "the natural mechanism for a TB transformer stack" —
+this is that mechanism, made the UNGROUPED DEFAULT rather than an opt-in,
+and upgraded from `zBy: "rank"`'s own fixed `GLYPH_DIAGRAM_3D_LAYER_HEIGHT`
+floor spacing to the real-per-node-height packer, since an
+explicitly-sized TB stack (Add & Norm vs. Multi-Head Attention) can have
+genuinely different per-stage heights that a flat floor spacing can't
+respect.
+
+**A real, subtle bug found and fixed along the way**: every one of these
+direction checks (`isVertical`, the flow-axis pick, the rank-order axis)
+originally read `options.direction` ALONE, never falling back to the
+GRAPH's own `direction` field — the SAME fallback `pipeline.ts`'s
+`measureGlyphGraph` already applies internally
+(`options.direction ?? canonical.direction`). Since a caller almost
+NEVER passes a separate `options.direction` (the direction lives on the
+graph itself), this silently misclassified every direction-on-the-graph-
+only LR diagram as "vertical" — caught by running the new
+`chainGraphLR` gate fixture and finding its own Z coordinate spread
+across 3 to 31 world units instead of staying flat. Fixed at the root
+(`effectiveDirection = options.direction ?? graph.direction`, computed
+once per layout call), not by special-casing the symptom.
+
+### Root cause 3: a small PER-STEP camera ratio still compounds over a long chain
+
+The round's own numeric gate ("consecutive LR nodes' projected centres
+differ in row by <= 15% of their column separation") was satisfied by the
+FIRST camera cut tried (`rotX: 70, rotY: -70`, measured ratio 0.1245) —
+and the rendered LeNet-5 frame still swept visibly downward across its
+own 8 nodes. The two are not the same guarantee: a per-CONSECUTIVE-PAIR
+bound COMPOUNDS LINEARLY over a chain of any length, so 0.1245 of drift
+per step is ~1 full row of drift every 8 columns — trivial for a 2-node
+test fixture, ~12 rows of real, measured drift across LeNet-5's own wider
+span. Derived from the camera's own exact Euler math
+(`rotateVec3Voxcss`, `col ~ Y·cosY - X·sinY`, `row ~ (Y·sinY + X·cosY)·cosX
+- Z·sinX`): at `rotY = -90` EXACTLY, `cosY = 0`, which zeroes row's own X
+coefficient (`cosY·cosX`) OUTRIGHT — not approximately, structurally,
+the same way `col` NEVER carries a `Z` term at any angle (the
+mechanism the TB stack already exploited, symmetric case, LR/RL's own
+flow axis instead of TB/BT's). `col = -X` exactly at this angle (the
+flow's own screen position at FULL, unreduced scale) and `row = Y·cosX -
+Z·sinX` carries no `X` term whatsoever — zero drift for a consecutive
+pair AND for the whole chain, for a graph of any length, not a smaller
+number that still eventually compounds. The tradeoff, stated rather than
+hidden: depth (`Y`) no longer shifts a box sideways on screen (its own
+column coefficient is `cosY = 0` too), so a box's own side face reads as
+a vertical offset instead of a horizontal one — a real 3D cue, just
+reoriented, not lost. Gate: the SAME `chainGraphLR` fixture's
+consecutive-pair ratio (still checked, still `<= 0.15`, now `0` in
+practice) — the fix is proven by the VISUAL frame captures below, since
+a "still under budget but compounds" regression would pass a
+per-pair-only gate exactly as this defect originally did.
+
+### Root cause 4: literal `size` scale makes the smallest layer a speck
+
+Requirement 4's own diagnosis: the transformer's cylinder (default-sized,
+since `transformer-encoder.json` gives it no explicit `size`) read as a
+third of the frame next to specks — but the REAL defect this named was
+about EXPLICIT `size`, not defaults ("defaults... are uniform" is the
+requirement's own second half, unaffected). `compressExplicitSizes`
+(`layout3d.ts`) runs once per graph, per axis, over every node that gave
+an explicit `size`: `compressed = max * (raw/max) ** 0.5` (the axis's own
+largest value is the sqrt map's fixed point, unchanged; every smaller
+value is pulled up nonlinearly — a raw 1/8 ratio becomes ~0.35, not
+0.125), then the smallest is clamped UP to `>= max / 4` so a real CNN
+still visibly shrinks layer to layer but never collapses past a 4x
+spread. A node with NO explicit `size` reads its own default sizing
+exactly as before, untouched by any OTHER node's compression — gated
+directly (`layout3d.test.ts`): the ratio clamp, that the smallest node
+genuinely GREW past its own raw half-width (not merely that the ratio
+was clamped by shrinking the largest instead — a mutation that clamped
+the wrong end would still pass a ratio-only check), that the largest is
+the map's own unchanged fixed point, and that an untouched sibling node
+is unaffected.
+
+### Smaller fixes folded in from the same visual review
+
+`labels: "side"`'s fallback direction is now direction-aware
+(`glyphDiagram3dLabelSideDirection`) — `"below"` for LR/RL (message 2's
+own worked example puts dimensions under each block, on one shared row;
+"to the right" would sit ON TOP OF the next object in the chain) versus
+`"right"` (round 3's own, unchanged) for TB/BT, where the flow itself is
+vertical so a side callout to the right competes with nothing. And
+`zUpCylinderPolygons` dropped from `sides: 16` (core's own default) to
+`8`: at diagram scale a 16-sided cylinder's own crease count reads as
+visual noise under `ink`/`wireframe` line art (one crease drawn per
+side, unlike a 6-face box) — 8 is the fewest sides that still reads
+unambiguously round rather than a hexagon in box-drawing/braille line
+art. Not chased fully: the transformer's own `Input Embedding` cylinder
+is still the busiest object in the diagram after this change — a
+disclosed residual (below), not silently accepted.
+
+### Residuals, disclosed rather than chased further
+
+The transformer's cylinder, even at 8 sides, remains visibly busier than
+the box objects around it in `ink` mode — a real, measured, DIFFERENT
+kind of clutter than the round's own reported defects (which were all
+about SCALE/POSITION, not per-object linework density), and genuinely
+improved (roughly half the crease count) rather than eliminated.
+`agent-supervisor`'s own frame is unchanged by this round on purpose — it
+is a FAN-OUT/cyclic topology (a supervisor, workers, a back-edge), not a
+linear chain, so "the flow reads along a screen axis" has no single
+axis to align to; its own visual complexity is inherent to that shape,
+not a camera or spacing defect this round's fixes address.
+
+### Worked examples, re-captured (96x32 box/braille, 140x40 box)
+
+The same three fixtures round 3 shipped, rendered through the now-fixed
+pipeline: `agent-supervisor.mmd` (unchanged, included for comparison),
+`lenet5-cnn.json` (LR — now a genuinely flat, left-to-right stepping
+chain with every dimension label on one shared row beneath it, matching
+the target ASCII art's own convention closely), `transformer-encoder.json`
+(TB — now a genuine vertical stack in the correct top-to-bottom order,
+short vertical arrows between adjacent stages, the cylinder's own
+residual noise aside). Full, uncropped frames are in the final report
+rather than duplicated here a second time.
+
 ## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
 
 ### Why `pre` had to leave the metadata type, and what replaced it

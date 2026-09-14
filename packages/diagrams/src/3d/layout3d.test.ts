@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Vec3 } from "glyphcss";
 import type { GlyphGraph } from "../types";
 import { layoutGlyphGraph } from "../pipeline";
-import { layout3d, GLYPH_DIAGRAM_3D_NODE_HEIGHT, type GlyphDiagram3dNode } from "./layout3d";
+import { layout3d, GLYPH_DIAGRAM_3D_NODE_HEIGHT, GLYPH_DIAGRAM_3D_NODE_DEPTH, type GlyphDiagram3dNode } from "./layout3d";
 
 /**
  * Packet D1 (PLAN-3d.md §6, §11) acceptance gates for `layout3d`. Each `it`
@@ -81,11 +81,26 @@ describe("layout3d — layered", () => {
     expect(zs.size).toBe(1);
   });
 
-  it("a same-floor edge is a straight 2-point path; a cross-floor edge steps Z at its own XY midpoint (mutation: drop the Z step) → red", async () => {
+  it("a same-floor edge is an orthogonal (Manhattan) path on that floor's own Z; a cross-floor edge steps Z at its own XY midpoint (mutation: drop the Z step / route diagonally) → red", async () => {
+    // D2 round 3 (codex/user finding): a same-floor edge used to be one
+    // straight chord — a diagonal line through space unless the two nodes
+    // happened to share an axis. It is now a 2-leg dogleg
+    // (`orthogonalPlanePoints`) UNLESS the nodes already share an axis, in
+    // which case the dogleg degenerates back to a straight 2-point segment
+    // (still correctly orthogonal, just with nothing to bend). The
+    // invariant that survives regardless of point count: every CONSECUTIVE
+    // segment is axis-aligned (changes exactly one of X/Y, never both) and
+    // stays on the shared floor's own Z throughout.
     const laid = await layout3d(groupedGraph(), { zBy: "group" });
     const sameFloor = laid.edges.find((e) => e.from === "a" && e.to === "b")!; // both on the "agents" floor
-    expect(sameFloor.points).toHaveLength(2);
-    expect(sameFloor.points[0]![2]).toBe(sameFloor.points[1]![2]);
+    expect(sameFloor.points.length).toBeGreaterThanOrEqual(2);
+    for (const p of sameFloor.points) expect(p[2]).toBe(sameFloor.points[0]![2]);
+    for (let i = 0; i < sameFloor.points.length - 1; i++) {
+      const a = sameFloor.points[i]!, b = sameFloor.points[i + 1]!;
+      const dx = Math.abs(b[0] - a[0]), dy = Math.abs(b[1] - a[1]);
+      // Axis-aligned: at most one of dx/dy is non-negligible per segment.
+      expect(dx < 1e-6 || dy < 1e-6).toBe(true);
+    }
 
     const crossFloor = laid.edges.find((e) => e.from === "d" && e.to === "a")!; // d is ungrouped, a is on "agents"
     expect(crossFloor.points.length).toBeGreaterThanOrEqual(4);
@@ -232,6 +247,56 @@ describe("layout3d — self-loops", () => {
     const a = laid.nodes.find((n) => n.id === "a")!;
     const loop = laid.edges.find((e) => e.from === "a" && e.to === "a")!;
     expectBothEndpointsOnOwnFace(a, loop.points);
+  });
+});
+
+describe("layout3d — size compression (D2 round 4)", () => {
+  it("explicit per-node `size` is compressed per axis and the largest:smallest ratio is clamped to <= 4x (mutation: use size verbatim) → red", async () => {
+    // A raw 16x ratio (32 vs 2) on the width axis — literal scale would
+    // render "small" as an illegible speck beside "big".
+    const graph: GlyphGraph = {
+      direction: "LR",
+      nodes: [
+        { id: "big", label: "Big", size: [32, 4, 4] },
+        { id: "small", label: "Small", size: [2, 4, 4] },
+      ],
+      edges: [{ from: "big", to: "small" }],
+    };
+    const laid = await layout3d(graph, {});
+    const big = laid.nodes.find((n) => n.id === "big")!, small = laid.nodes.find((n) => n.id === "small")!;
+    // Clamped: the ratio is provably <= 4x, not the raw 16x.
+    expect(big.half[0] / small.half[0]).toBeLessThanOrEqual(4 + 1e-9);
+    // Compressed, not merely clamped: the SMALL node grew past its own raw
+    // half-width (1) — a mutation that clamps only the ratio (e.g. shrinking
+    // "big" down to 4x "small"'s RAW size) would still pass the ratio check
+    // above but fail this one.
+    expect(small.half[0]).toBeGreaterThan(1);
+    // The largest value is UNCHANGED by the sqrt map (it's the map's own
+    // fixed point) — "big" still reads as the true largest object.
+    expect(big.half[0]).toBeCloseTo(16, 6);
+    // An axis untouched by any node's explicit `size` (there is none here
+    // beyond width/height/depth, but height/depth ARE explicit and EQUAL
+    // for both nodes, so their compressed values must still match exactly —
+    // compression must never introduce an artificial difference where the
+    // raw data had none).
+    expect(big.half[2]).toBeCloseTo(small.half[2], 6);
+  });
+
+  it("a node with NO explicit size is untouched by another node's compression (mutation: apply compression graph-wide regardless of which nodes opted in) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "LR",
+      nodes: [
+        { id: "big", label: "Big", size: [32, 4, 4] },
+        { id: "plain", label: "Plain" }, // no `size` at all
+      ],
+      edges: [{ from: "big", to: "plain" }],
+    };
+    const laid = await layout3d(graph, {});
+    const plain = laid.nodes.find((n) => n.id === "plain")!;
+    // Default sizing (label-derived width, the standard HEIGHT/DEPTH
+    // constants) — NOT some fraction of "big"'s own compressed size.
+    expect(plain.half[1] * 2).toBeCloseTo(GLYPH_DIAGRAM_3D_NODE_DEPTH, 6);
+    expect(plain.half[2] * 2).toBeCloseTo(GLYPH_DIAGRAM_3D_NODE_HEIGHT, 6);
   });
 });
 

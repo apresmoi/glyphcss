@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createGlyphOrthographicCamera, createGlyphScene, type Vec3 } from "glyphcss";
 import type { GlyphGraph } from "../types";
 import { glyphDiagramObject } from "./glyphDiagramObject";
+import { layout3d } from "./layout3d";
 import {
   renderGlyphDiagram3d, renderGlyphDiagram3dJson, GLYPH_DIAGRAM_3D_LIGHT, GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
   type GlyphDiagram3dCharset, type GlyphDiagram3dColorMode, type GlyphDiagram3dTarget,
@@ -68,6 +69,35 @@ function foldedLabels(text: string): string {
   return text.toUpperCase();
 }
 
+// D2 round 4 — a small, DEFAULT-sized (no `size`) LR chain, the minimal
+// fixture that isolates "does the flow read left-to-right along a screen
+// axis" from any custom-size/compression concern.
+const chainGraphLR: GlyphGraph = {
+  direction: "LR",
+  nodes: [
+    { id: "input", label: "Input" },
+    { id: "hidden1", label: "Hidden 1" },
+    { id: "hidden2", label: "Hidden 2" },
+    { id: "output", label: "Output" },
+  ],
+  edges: [
+    { from: "input", to: "hidden1" },
+    { from: "hidden1", to: "hidden2" },
+    { from: "hidden2", to: "output" },
+  ],
+};
+
+/** A node's own projected screen-space bounding box (min/max col/row over all 8 box corners) under `camera`. */
+function projectedSilhouette(camera: ReturnType<typeof createGlyphOrthographicCamera>, center: Vec3, half: Vec3, cols: number, rows: number, cellAspect: number): { width: number; height: number } {
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    const [col, row] = camera.project([center[0] + sx * half[0], center[1] + sy * half[1], center[2] + sz * half[2]], cols, rows, cellAspect);
+    minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
+    minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
+  }
+  return { width: maxCol - minCol, height: maxRow - minRow };
+}
+
 // D2 fix round 1, P2-5 (codex): the old `.slice(0, 3)` prefix check passed
 // as soon as a label's first three characters landed anywhere on screen —
 // it could not tell a fully-painted "Orchestrator" from a collided,
@@ -123,6 +153,38 @@ describe("renderGlyphDiagram3d", () => {
     }
   });
 
+  it("D2 round 4 gate: a default-sized node's own projected silhouette is at least 10 cols x 5 rows at 96x32 for a <= 8-node graph (mutation: shrink NODE_HEIGHT/NODE_DEPTH back to round 3's values) → red", async () => {
+    // `agentGraph` (TB, 4 nodes, no groups — the new Z-flow stacking path)
+    // and `chainGraphLR` (LR, 4 nodes) cover both flow axes with plain
+    // default sizing (no explicit `size`, so this isolates the LAYOUT
+    // fix — bigger default boxes + proportional gaps — from anything
+    // `size` compression touches).
+    for (const graph of [agentGraph, chainGraphLR]) {
+      const result = await renderGlyphDiagram3d(graph, { target: "web" });
+      const camera = createGlyphOrthographicCamera({ rotX: result.camera.rotX, rotY: result.camera.rotY, zoom: result.camera.zoom });
+      const laid = await layout3d(graph, {});
+      for (const node of laid.nodes) {
+        const { width, height } = projectedSilhouette(camera, node.center, node.half, 96, 32, 2.0);
+        expect(width, `${graph.direction} "${node.id}" silhouette width`).toBeGreaterThanOrEqual(10);
+        expect(height, `${graph.direction} "${node.id}" silhouette height`).toBeGreaterThanOrEqual(5);
+      }
+    }
+  });
+
+  it("D2 round 4 gate: consecutive LR-flow nodes' projected centres differ in row by <= 15% of their column separation (mutation: revert the LR camera default to round 3's rotX:32/rotY:38) → red", async () => {
+    const result = await renderGlyphDiagram3d(chainGraphLR, { target: "web" });
+    const camera = createGlyphOrthographicCamera({ rotX: result.camera.rotX, rotY: result.camera.rotY, zoom: result.camera.zoom });
+    const laid = await layout3d(chainGraphLR, {});
+    const ordered = [...laid.nodes].sort((a, b) => a.center[0] - b.center[0]);
+    for (let i = 0; i < ordered.length - 1; i++) {
+      const a = ordered[i]!, b = ordered[i + 1]!;
+      const [colA, rowA] = camera.project(a.center, 96, 32, 2.0);
+      const [colB, rowB] = camera.project(b.center, 96, 32, 2.0);
+      const dCol = Math.abs(colB - colA), dRow = Math.abs(rowB - rowA);
+      expect(dRow, `${a.id} -> ${b.id}: dRow=${dRow.toFixed(2)} dCol=${dCol.toFixed(2)}`).toBeLessThanOrEqual(0.15 * dCol);
+    }
+  });
+
   // P2-5 (codex): the auto-fit gates above only ever exercised the default
   // `layout: "layered"` at the default camera. `layout: "force"` places
   // nodes by a full-3D seeded simulation (`layout3d.ts`) — a genuinely
@@ -130,10 +192,18 @@ describe("renderGlyphDiagram3d", () => {
   // projection has to handle correctly — and several seeds (42 is the
   // review's own repro) rule out a fit that merely happens to work for one
   // arrangement.
-  it("force layout auto-fits with every node's full label visible, across seeds (incl. 42, the review's own repro)", async () => {
+  it("force layout auto-fits with every node's full label visible, across seeds (incl. 42, the review's own repro) — or names a genuine collision in the ledger", async () => {
+    // D2 round 3's own camera default (32/38, "a readable 3/4 view from
+    // slightly above and in front" — message 2) is a genuinely different
+    // pose than the old 55/35 one, and a genuinely different pose can
+    // legitimately put two labels in real on-screen collision at a seed
+    // that cleared the old one — the guarantee this gate actually checks
+    // (same as the top-view/trackball gates below) is never a SILENT drop,
+    // not that force layout never collides at any camera.
     for (const seed of [1, 7, 42, 100, 12345]) {
       const result = await renderGlyphDiagram3d(agentGraph, { target: "web", layout: "force", seed });
-      expect(missingLabels(result.text, agentGraph), `seed ${seed}`).toEqual([]);
+      const droppedIds = new Set(result.report.ledger.filter((e) => e.code === "3d-label-dropped" || e.code === "3d-label-unfittable").map((e) => (e.detail as { nodeId?: string } | undefined)?.nodeId));
+      for (const id of missingLabels(result.text, agentGraph)) expect(droppedIds.has(id), `seed ${seed}: "${id}" missing with no ledger entry`).toBe(true);
     }
   });
 
@@ -210,7 +280,14 @@ describe("renderGlyphDiagram3d", () => {
     // (`GLYPH_CANVAS_TIERS`), so a comparison object built with the
     // (different) `tier` default would legitimately diverge on the edge
     // glyphs alone, which is not what this gate is checking.
-    const object = await glyphDiagramObject(agentGraph, { tier: "box" });
+    // `boxOutline: false` matches `resolveCharset`'s own `ink`-mode default
+    // (D2 round 3) — `render3d.ts`'s real call resolves it from the
+    // charset/style, and a comparison object left at the OPTION default
+    // (`true`) would double-stamp a redundant outline `ink` mode's own
+    // silhouette/crease trace already draws, diverging from the real path
+    // for a reason that has nothing to do with the mutation this gate
+    // checks.
+    const object = await glyphDiagramObject(agentGraph, { tier: "box", boxOutline: false });
     const centroid: Vec3 = [
       (object.bounds.min[0] + object.bounds.max[0]) / 2,
       (object.bounds.min[1] + object.bounds.max[1]) / 2,
@@ -224,8 +301,13 @@ describe("renderGlyphDiagram3d", () => {
     document.body.appendChild(host);
     const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom });
     camera.target = centroid;
+    // D2 round 3: `render3d.ts`'s own default is now `mode: "ink"` +
+    // `hiddenLines: "hide"` (crisp line art, message 2) rather than solid —
+    // the live comparison scene must match it, or this gate would compare
+    // two genuinely different renders and always fail for a reason that has
+    // nothing to do with the mutation it exists to catch.
     const scene = createGlyphScene(host, {
-      cols: 96, rows: 32, useColors: false, camera,
+      cols: 96, rows: 32, useColors: false, camera, mode: "ink", hiddenLines: "hide",
       directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
     });
     scene.addObject(object);
@@ -248,7 +330,7 @@ describe("renderGlyphDiagram3d", () => {
     // detail-layer distinction left for either side to diverge on, and this
     // gate covers a grouped graph with NO exception.
     for (const layout of ["layered", "force"] as const) {
-      const object = await glyphDiagramObject(groupedAgentGraph, { tier: "box", layout });
+      const object = await glyphDiagramObject(groupedAgentGraph, { tier: "box", layout, boxOutline: false });
       const centroid: Vec3 = [
         (object.bounds.min[0] + object.bounds.max[0]) / 2,
         (object.bounds.min[1] + object.bounds.max[1]) / 2,
@@ -263,7 +345,7 @@ describe("renderGlyphDiagram3d", () => {
       const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom });
       camera.target = centroid;
       const scene = createGlyphScene(host, {
-        cols: 96, rows: 32, useColors: false, camera,
+        cols: 96, rows: 32, useColors: false, camera, mode: "ink", hiddenLines: "hide",
         directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
       });
       scene.addObject(object);
@@ -291,8 +373,14 @@ describe("renderGlyphDiagram3d", () => {
           const result = await renderGlyphDiagram3d(agentGraph, { target, charset, color, env: isAnsiColor ? { NO_COLOR: "1" } : undefined });
           expect(everyLabelVisible(result.text, agentGraph)).toBe(true);
           expect(paintedGeometryCellCount(result.text, agentGraph)).toBeGreaterThan(0);
-          if (charset === "blocks" || charset === "braille") {
+          // `braille` under the default (ink) style is the INTENDED
+          // wireframe+2x4-dot look, not a fallback from anything else, so it
+          // logs no entry — only `blocks` genuinely degrades here (its
+          // sub-cell dual-color encoder can't carry the stamped overlays).
+          if (charset === "blocks") {
             expect(result.report.ledger.some((e) => e.code === "3d-charset-degraded")).toBe(true);
+          } else if (charset === "braille") {
+            expect(result.report.ledger.some((e) => e.code === "3d-charset-degraded")).toBe(false);
           }
           if (isAnsiColor) {
             // NO_COLOR: no SGR colour-introducing escape reaches the output.

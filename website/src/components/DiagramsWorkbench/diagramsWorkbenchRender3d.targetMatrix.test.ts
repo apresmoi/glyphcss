@@ -4,9 +4,14 @@
 // `TargetPreview` does with it — a full 60-cell DOM sweep already exists
 // for 2D in `diagramsWorkbenchTargetMatrix.test.tsx`; this stays at the
 // pure-function level, cheap enough to run every cell). Every cell must
-// WORK (never throw/reject) — `blocks`/`braille` faithfully DOWNGRADE
-// (`charsetDowngraded: true`, never a silent misrender), matching AGENTS.md's
-// "Targets and page" export-boundary discipline this page mirrors for 3D.
+// WORK (never throw/reject) — `blocks` faithfully DOWNGRADES
+// (`charsetDowngraded: true`, never a silent misrender) on every target;
+// `braille` is the library's own INTENDED wireframe-braille look under the
+// default style (no library-level downgrade) and only picks up
+// `charsetDowngraded` on `chat`, from this page's OWN separate downgrade
+// (no chat client's fenced-code font carries the braille block) — matching
+// AGENTS.md's "Targets and page" export-boundary discipline this page
+// mirrors for 3D.
 import { describe, expect, it } from "vitest";
 import { createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchControls, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
 import { renderGlyphDiagramsWorkbenchState3d } from "./diagramsWorkbenchRender";
@@ -32,13 +37,21 @@ describe("renderGlyphDiagramsWorkbenchState3d — target x charset x colour matr
     }, 15_000);
   }
 
-  // Mutation: drop `ledger3dCharsetDegraded` in `render3d.ts`'s `resolveCharset` → this reddens on every target.
-  it("braille always degrades to wireframe in 3D and reports charsetDowngraded", async () => {
+  // Braille under the library's default (ink) style is the INTENDED
+  // wireframe+2x4-dot look, not a downgrade from anything else
+  // (`resolveCharset` logs no `3d-charset-degraded` ledger entry for it —
+  // AGENTS.md's "Diagrams 3D"), so `charsetDowngraded` is unset on
+  // `terminal`/`web`. `chat` still gets its OWN, separate page-level
+  // downgrade (`chatCharsetDowngrade3d`, below) — no chat client's
+  // fenced-code font carries the braille block — so it alone reports
+  // `charsetDowngraded: true`.
+  // Mutation: drop `chatCharsetDowngrade3d` in `diagramsWorkbenchRender.ts` → the `chat` case reddens.
+  it("braille reports charsetDowngraded only on chat (its own page-level downgrade), not terminal/web", async () => {
     for (const target of TARGETS) {
       const result = await renderGlyphDiagramsWorkbenchState3d(withControls(target, "braille", "none"));
       expect(result.ok, `target=${target}`).toBe(true);
       if (!result.ok) return;
-      expect(result.charsetDowngraded, `target=${target}`).toBe(true);
+      expect(result.charsetDowngraded, `target=${target}`).toBe(target === "chat" ? true : undefined);
     }
   }, 20_000);
 

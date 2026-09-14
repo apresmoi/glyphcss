@@ -16,28 +16,44 @@ describe("resolveDiagrams3dSceneOptions — charset x colour matrix", () => {
   for (const charset of CHARSETS) for (const color of COLORS) {
     it(`${charset} / ${color} resolves without throwing`, () => {
       const result = resolveDiagrams3dSceneOptions(charset, color);
-      expect(result.mode === "solid" || result.mode === "wireframe").toBe(true);
+      // The page never passes `style`, so `resolveCharset` only ever answers
+      // its default (`"ink"`) branch: `ink` for ascii/box/blocks, `wireframe`
+      // for braille — `"solid"` is reachable only via an explicit
+      // `style: "solid"` this page doesn't send.
+      expect(result.mode === "ink" || result.mode === "wireframe").toBe(true);
       expect(result.charMode === "ascii" || result.charMode === "braille").toBe(true);
       expect(typeof result.useColors).toBe("boolean");
     });
   }
 
-  // Mutation: return `mode: "solid"` unconditionally for braille → this reddens.
-  it("braille resolves to wireframe mode with a downgrade note, on every colour", () => {
+  // Mutation: return `mode: "ink"` unconditionally for braille → this reddens.
+  // Braille is the INTENDED wireframe-braille look under the default style
+  // (AGENTS.md's "Diagrams 3D" / library round D2 round 3), not a downgrade
+  // from anything else — so it carries NO ledger note by itself; a note
+  // appears only from the SEPARATE ansi16/ansi256 colour-depth rule below.
+  it("braille resolves to wireframe mode, on every colour, with no charset-degrade note", () => {
     for (const color of COLORS) {
       const result = resolveDiagrams3dSceneOptions("braille", color);
       expect(result.mode, color).toBe("wireframe");
       expect(result.charMode, color).toBe("braille");
-      expect(result.note, color).toBeDefined();
-      expect(result.note, color).toMatch(/wireframe/i);
+      const isAnsiDepth = color === "ansi16" || color === "ansi256";
+      if (isAnsiDepth) {
+        expect(result.note, color).toBeDefined();
+        expect(result.note, color).toMatch(/colour depth/i);
+      } else {
+        expect(result.note, color).toBeUndefined();
+      }
     }
   });
 
-  // Mutation: return `charMode: "braille"` for blocks → this reddens (blocks stays ascii solid).
-  it("blocks resolves to solid ascii mode with a downgrade note, on every colour", () => {
+  // Mutation: return `charMode: "braille"` for blocks → this reddens (blocks
+  // stays ascii ink — its sub-cell dual-color encoder can't carry the
+  // stamped edge/label overlays this renderer depends on, so it genuinely
+  // degrades and keeps its ledger note on every colour).
+  it("blocks resolves to ink ascii mode with a downgrade note, on every colour", () => {
     for (const color of COLORS) {
       const result = resolveDiagrams3dSceneOptions("blocks", color);
-      expect(result.mode, color).toBe("solid");
+      expect(result.mode, color).toBe("ink");
       expect(result.charMode, color).toBe("ascii");
       expect(result.note, color).toBeDefined();
     }

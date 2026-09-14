@@ -28,9 +28,30 @@ import { glyphGraphFromJson } from "../adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "../validate";
 import type { GlyphGraph } from "../types";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
-import { glyphDiagramObject, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
+import { glyphDiagramObject, resolveGlyphDiagram3dLabelPlacement, glyphDiagram3dLabelSideDirection, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
 import { layout3d, type GlyphDiagram3dNode } from "./layout3d";
-import { ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelUnfittable } from "./ledger3d";
+import {
+  ledger3dArrowheadsSuppressed, ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelsSuppressed,
+  ledger3dLabelUnfittable, ledger3dLayoutAutoForce,
+} from "./ledger3d";
+
+// D2 fix round 3, P1-2 (codex): the karate-club fixture (34 nodes, 78
+// edges) at the default 96x32 is unreadable under the layered layout's
+// dagre X/Y placement (designed for a shallow agent pipeline, not a dense
+// social-network graph) and, even under force layout, drops several
+// labels to genuine on-screen collisions. These three thresholds are the
+// adaptive large-graph policy `renderGlyphDiagram3d` applies when the
+// caller left the matching option unset — each is independently
+// overridable (`layout`, `maxLabels`, `arrowheads`) and each automatic
+// choice is reported in the ledger exactly once (`ledger3d.ts`'s own
+// doc comments carry the per-choice rationale). Measured at 96x32: the
+// karate-club fixture (34 nodes / 78 edges) crosses all three; the
+// 4-node agent-supervisor reference graph crosses none, so this round's
+// existing gates (byte-identity, the 4-node frame, seed-42) are
+// unaffected by these defaults.
+const GLYPH_DIAGRAM_3D_LARGE_GRAPH_NODE_THRESHOLD = 16;
+const GLYPH_DIAGRAM_3D_MAX_AUTO_LABELS = 16;
+const GLYPH_DIAGRAM_3D_EDGE_DENSITY_THRESHOLD = 40;
 
 /**
  * Lighting for a static 3D diagram frame — LOWER ambient than a generic
@@ -47,6 +68,16 @@ export const GLYPH_DIAGRAM_3D_AMBIENT_LIGHT: GlyphAmbientLight = { intensity: 0.
 export type GlyphDiagram3dTarget = "chat" | "terminal" | "web";
 export type GlyphDiagram3dCharset = "ascii" | "box" | "blocks" | "braille";
 export type GlyphDiagram3dColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
+/**
+ * D2 round 3, requirement 4: an explicit override of the automatic
+ * charset->mode mapping below. `"ink"` (the default, undocumented as a
+ * literal default so a bare `style` field reads as opt-in) is crisp
+ * silhouette+crease line art; `"wireframe"` forces plain wireframe (what
+ * `braille` already gets automatically); `"solid"` is the OLD Lambert-shaded
+ * box render from D1/D2 fix rounds 1-2, kept reachable for a caller who
+ * wants shaded slabs back rather than line art.
+ */
+export type GlyphDiagram3dStyle = "ink" | "wireframe" | "solid";
 
 /**
  * `rotX`/`rotY` (degrees) or a trackball `mat` (AGENTS.md's numeric
@@ -72,6 +103,20 @@ export interface GlyphDiagram3dRenderOptions extends GlyphDiagramObjectOptions {
   readonly camera?: GlyphDiagram3dCamera;
   readonly cellAspect?: number;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * D2 fix round 3, P1-2 (large-graph legibility): cap on how many node
+   * labels are shown, ranked by degree (ties by id) — the same priority
+   * a node's own label-arbiter candidate already uses. `undefined` (the
+   * default) is ADAPTIVE: every label shows up to
+   * `GLYPH_DIAGRAM_3D_MAX_AUTO_LABELS` nodes, and past that the choice
+   * (and count) is reported via `3d-labels-suppressed`. An explicit
+   * number always overrides the adaptive policy with no ledger entry
+   * (the caller asked for exactly this); pass `Infinity` to force every
+   * label on regardless of node count, or `0` to hide all of them.
+   */
+  readonly maxLabels?: number;
+  /** D2 round 3, requirement 4: override the automatic charset->render-mode mapping (see `GlyphDiagram3dStyle`'s own doc). Default: automatic (`"ink"` for `ascii`/`box`/`blocks`, wireframe+braille for `braille`). */
+  readonly style?: GlyphDiagram3dStyle;
 }
 
 export interface GlyphDiagram3dReport { readonly ledger: readonly GlyphDiagramLedgerEntry[] }
@@ -107,17 +152,54 @@ const GLYPH_DIAGRAM_3D_TARGET_DEFAULTS: Readonly<Record<GlyphDiagram3dTarget, { 
 export interface ResolvedCharset {
   readonly mode: RenderMode;
   readonly charMode: "ascii" | "braille";
-  /** The `GLYPH_CANVAS_TIERS` table `glyphDiagramObject`'s overlay reads for its box-outline/edge/arrowhead glyphs — independent of `charMode` (the RASTERIZER's own vocabulary), since `blocks` degrades the SOLID render to ascii but the overlay can still draw box-tier line art. */
+  /** The `GLYPH_CANVAS_TIERS` table `glyphDiagramObject`'s overlay reads for its box-outline/edge/arrowhead glyphs — independent of `charMode` (the RASTERIZER's own vocabulary), since `blocks` degrades the render to ascii but the overlay can still draw box-tier line art. */
   readonly canvasTier: GlyphCanvasTierName;
-  /** Skip the box-outline overlay in wireframe mode (P1-1 fix note): wireframe already rasterizes every polygon edge, so a box's own 12 edges are already drawn by the base render. */
+  /**
+   * Skip the box-outline overlay when the render MODE already draws every
+   * polygon edge itself (D2 round 3: this is now `ink` and `wireframe`
+   * alike, not only `wireframe` — message 2's own "REUSE the renderer's
+   * modes. Do not hand-draw outlines with overlays where a render mode
+   * already does it"). Only the `"solid"` style override still wants the
+   * hand-drawn crisp outline, since a flat-lit Lambert fill draws no edges
+   * of its own at all (D2 review P1-1's original reason for the overlay).
+   */
   readonly boxOutline: boolean;
+  readonly hiddenLines: "show" | "hide";
   readonly ledger: GlyphDiagramLedgerEntry[];
 }
 
-export function resolveCharset(charset: GlyphDiagram3dCharset): ResolvedCharset {
-  if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, ledger: [ledger3dCharsetDegraded({ charset: "braille", renderedAs: "wireframe" })] };
-  if (charset === "blocks") return { mode: "solid", charMode: "ascii", canvasTier: "box", boxOutline: true, ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii" })] };
-  return { mode: "solid", charMode: "ascii", canvasTier: charset, boxOutline: true, ledger: [] };
+/**
+ * D2 round 3 (default: `style` undefined or `"ink"`) — crisp line art via
+ * the renderer's OWN modes: `braille` -> `wireframe` + `charMode: "braille"`
+ * (2x4 sub-cell dots); `box`/`ascii` -> `ink` (silhouette + crease outline);
+ * `blocks` -> `ink` too, ASCII-downgraded (its sub-cell dual-color encoder
+ * bypasses the stamped overlay path this renderer depends on, same as
+ * before this round). `hiddenLines: "hide"` throughout, so a back edge or
+ * an object standing behind another disappears rather than drawing through
+ * it (message 2, requirement 4). `style: "wireframe"` forces wireframe for
+ * every charset; `style: "solid"` reaches the OLD Lambert-shaded box render.
+ */
+export function resolveCharset(charset: GlyphDiagram3dCharset, style?: GlyphDiagram3dStyle): ResolvedCharset {
+  if (style === "solid") {
+    if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, hiddenLines: "hide", ledger: [ledger3dCharsetDegraded({ charset: "braille", renderedAs: "wireframe" })] };
+    if (charset === "blocks") return { mode: "solid", charMode: "ascii", canvasTier: "box", boxOutline: true, hiddenLines: "hide", ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii" })] };
+    return { mode: "solid", charMode: "ascii", canvasTier: charset, boxOutline: true, hiddenLines: "hide", ledger: [] };
+  }
+  if (style === "wireframe") {
+    if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, hiddenLines: "hide", ledger: [] };
+    const canvasTier = charset === "blocks" ? "box" : charset;
+    return { mode: "wireframe", charMode: "ascii", canvasTier, boxOutline: false, hiddenLines: "hide", ledger: [] };
+  }
+  // `style === "ink"` or unset (the default). Braille here is the INTENDED
+  // look (message 2's own "render those with good detail using braille or
+  // ink mode") — wireframe + 2x4 sub-cell dots is what a braille request
+  // asks for, not a fallback from something else, so no ledger entry: a
+  // reader who picked braille gets exactly it. `blocks` still genuinely
+  // degrades (its sub-cell dual-color encoder can't carry the stamped
+  // overlay path this renderer depends on), so it keeps its entry.
+  if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, hiddenLines: "hide", ledger: [] };
+  if (charset === "blocks") return { mode: "ink", charMode: "ascii", canvasTier: "box", boxOutline: false, hiddenLines: "hide", ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii ink" })] };
+  return { mode: "ink", charMode: "ascii", canvasTier: charset, boxOutline: false, hiddenLines: "hide", ledger: [] };
 }
 
 function boundsCentroid(bounds: GlyphSceneObject["bounds"]): Vec3 {
@@ -156,10 +238,10 @@ function titleChromeObject(title: string): GlyphSceneObject {
 
 interface RenderedFrame { readonly grid: CellGrid; }
 
-function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera: GlyphCamera; cols: number; rows: number; cellAspect: number; mode: RenderMode; charMode: "ascii" | "braille" }): RenderedFrame {
+function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera: GlyphCamera; cols: number; rows: number; cellAspect: number; mode: RenderMode; charMode: "ascii" | "braille"; hiddenLines: "show" | "hide" }): RenderedFrame {
   const result = compileScene({
     polygons: [], objects: objects as GlyphSceneObject[], camera: opts.camera, cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect,
-    mode: opts.mode, charMode: opts.charMode, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
+    mode: opts.mode, charMode: opts.charMode, hiddenLines: opts.hiddenLines, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
     glyphPalette: "default", useColors: true, smoothShading: false, creaseAngle: 60, doubleSided: false, supersample: 1,
   });
   // P2-3's own instruction: handle a `null` grid explicitly (an in-flight
@@ -170,7 +252,7 @@ function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera:
   return { grid: result.grid };
 }
 
-interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; }
+interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; readonly anchor: Vec3; }
 
 /**
  * D2 review P1-2 (codex): auto-fit must work from PROJECTED geometry PLUS
@@ -195,7 +277,8 @@ interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; }
 function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram3dNode[], opts: {
   readonly cols: number; readonly rows: number; readonly cellAspect: number;
   readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[];
-  readonly explicitZoom?: number; readonly title?: string;
+  readonly explicitZoom?: number; readonly title?: string; readonly labelMode?: "inside" | "side" | "auto";
+  readonly direction?: GlyphGraph["direction"];
 }): { readonly camera: GlyphCamera; readonly fitLabels: readonly FitLabel[]; readonly unfittable: readonly FitLabel[] } {
   const centroid = boundsCentroid(object.bounds);
   const useMat = opts.mat !== undefined;
@@ -208,10 +291,19 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
     return camera;
   };
 
+  const labelMode = opts.labelMode ?? "auto";
+  const labelSideDirection = glyphDiagram3dLabelSideDirection(opts.direction);
   const fitLabels: FitLabel[] = [], unfittable: FitLabel[] = [];
   for (const node of nodes) {
-    const text = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
-    if (text.length > 0) fitLabels.push({ node, text });
+    const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
+    if (rawText.length === 0) continue;
+    // Resolve through the SAME pure function `glyphDiagramObject`'s overlay
+    // uses, so the fit's own `text`/anchor NEVER drifts from what actually
+    // gets stamped (an `inside` label's clip, or a `side` label's shifted
+    // anchor, both need to be visible to the fit or it would reserve zoom
+    // for text that was never drawn, or too little for text that was).
+    const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection);
+    if (placed.text.length > 0) fitLabels.push({ node, text: placed.text, anchor: placed.anchor });
   }
 
   if (opts.explicitZoom !== undefined) return { camera: makeCamera(opts.explicitZoom, [0.5, 0.5]), fitLabels, unfittable: [] };
@@ -234,8 +326,7 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
   const keptLabels: (FitLabel & { readonly col1: number; readonly row1: number })[] = [];
   for (const label of fitLabels) {
     if (label.text.length > availCols) { unfittable.push(label); continue; }
-    const anchor: Vec3 = [label.node.center[0], label.node.center[1], label.node.center[2] + label.node.half[2]];
-    const [col1, row1] = reference.project(anchor, cols, rows, opts.cellAspect);
+    const [col1, row1] = reference.project(label.anchor, cols, rows, opts.cellAspect);
     keptLabels.push({ ...label, col1, row1 });
     colPoints.push({ col1, widthRight: label.text.length });
     rowPoints.push({ row1 });
@@ -299,14 +390,84 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   const resolved = resolvedTargetOptions(options);
   const cellAspect = options.cellAspect ?? 2.0;
   const graph = typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input);
-  const { mode, charMode, canvasTier, boxOutline, ledger: charsetLedger } = resolveCharset(resolved.charset);
+  const { mode, charMode, canvasTier, boxOutline, hiddenLines, ledger: charsetLedger } = resolveCharset(resolved.charset, options.style);
 
   const camOpts = options.camera ?? {};
   if (camOpts.mat !== undefined && (camOpts.rotX !== undefined || camOpts.rotY !== undefined)) {
     glyphDiagramError("bad-options", "camera: pass either mat (trackball) or rotX/rotY (Euler), not both.");
   }
-  const rotX = camOpts.rotX ?? (camOpts.mat === undefined ? 55 : undefined);
-  const rotY = camOpts.rotY ?? (camOpts.mat === undefined ? 35 : undefined);
+  // D2 round 4 (codex: "the flow runs diagonally across the screen... the
+  // camera and flow axis must make the FLOW read along a screen axis").
+  // `rotateVec3Voxcss`'s own axis-swap+rotate math (`createGlyphCamera.ts`)
+  // gives `col ~ Y*cosY - X*sinY` and `row ~ (Y*sinY + X*cosY)*cosX - Z*sinX`
+  // for THIS camera's Euler convention. `col` has NO Z TERM AT ALL, at any
+  // rotX/rotY, so a pure-Z delta (a TB/BT stack, D2 round 4's own
+  // `zBy`-default Z-flow above) NEVER shows up as column drift, by
+  // construction — no angle choice needed there. A pure-X delta (an LR/RL
+  // flow) is the SYMMETRIC case: at `rotY = -90` exactly, `cosY = 0`, so
+  // `row`'s own X coefficient (`cosY*cosX`) is EXACTLY ZERO too — not merely
+  // small. The first cut used a gentler `rotY: -70` (ratio ~0.1245,
+  // comfortably under the round's own PER-STEP 0.15 gate) and still failed
+  // visually: 0.1245 is a per-CONSECUTIVE-PAIR bound, but it COMPOUNDS
+  // linearly over a long chain (LeNet's own 8-node span), so a per-step
+  // ratio that clears the gate still drew the WHOLE diagram sweeping several
+  // rows downward end to end — measured, ~12 rows of cumulative drift across
+  // the real LeNet-5 fixture. `-90` closes that at the ROOT rather than
+  // tightening the angle further: `col = -X` exactly (X drives the flow's
+  // own screen position at FULL scale, unreduced) and `row = Y*cosX - Z*sinX`
+  // carries NO `X` term whatsoever, so consecutive-pair AND whole-chain drift
+  // are both exactly zero, for a chain of any length. The tradeoff, stated:
+  // depth (`Y`) no longer shifts a box sideways on screen (its own
+  // COLUMN coefficient is `cosY = 0` too), so a box's side face reads as a
+  // vertical/row offset instead of a horizontal one — still a real 3D
+  // depth cue, just reoriented; height (`Z`, coefficient `-sinX`) still
+  // reads almost entirely as row at `rotX: 70`. TB/BT has no such
+  // constraint to satisfy at all (Z->col is always exactly zero, whatever
+  // the pitch), so its own default is chosen purely for a pleasant
+  // "slightly above and in front" 3/4 read.
+  const effectiveDirection = options.direction ?? graph.direction;
+  const isVerticalFlow = effectiveDirection === "TB" || effectiveDirection === "BT";
+  const defaultRotX = isVerticalFlow ? 55 : 70;
+  const defaultRotY = isVerticalFlow ? 25 : -90;
+  const rotX = camOpts.rotX ?? (camOpts.mat === undefined ? defaultRotX : undefined);
+  const rotY = camOpts.rotY ?? (camOpts.mat === undefined ? defaultRotY : undefined);
+
+  const ledger: GlyphDiagramLedgerEntry[] = [...charsetLedger];
+
+  // Adaptive large-graph policy (D2 fix round 3, P1-2) — decided from the
+  // RAW input graph, before any layout runs: node/edge counts and degree
+  // are topology, not layout output, so this never depends on (and never
+  // needs to re-derive) which layout kind ends up chosen.
+  const nodeCount = graph.nodes.length, edgeCount = graph.edges.length;
+  const resolvedLayoutKind = options.layout ?? (nodeCount > GLYPH_DIAGRAM_3D_LARGE_GRAPH_NODE_THRESHOLD ? "force" : "layered");
+  if (options.layout === undefined && resolvedLayoutKind === "force") {
+    ledger.push(ledger3dLayoutAutoForce({ nodeCount, threshold: GLYPH_DIAGRAM_3D_LARGE_GRAPH_NODE_THRESHOLD }));
+  }
+
+  const degree = new Map<string, number>();
+  for (const edge of graph.edges) {
+    degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1);
+    degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
+  }
+  const maxLabelsOption = options.maxLabels;
+  let labelNodeIds: ReadonlySet<string> | undefined;
+  if (maxLabelsOption === undefined) {
+    if (nodeCount > GLYPH_DIAGRAM_3D_MAX_AUTO_LABELS) {
+      const ranked = [...graph.nodes].sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      labelNodeIds = new Set(ranked.slice(0, GLYPH_DIAGRAM_3D_MAX_AUTO_LABELS).map((n) => n.id));
+      ledger.push(ledger3dLabelsSuppressed({ total: nodeCount, kept: GLYPH_DIAGRAM_3D_MAX_AUTO_LABELS, threshold: GLYPH_DIAGRAM_3D_MAX_AUTO_LABELS }));
+    }
+  } else if (Number.isFinite(maxLabelsOption) && maxLabelsOption < nodeCount) {
+    const cap = Math.max(0, Math.floor(maxLabelsOption));
+    const ranked = [...graph.nodes].sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    labelNodeIds = new Set(ranked.slice(0, cap).map((n) => n.id));
+  }
+  const arrowheadsOption = options.arrowheads;
+  const resolvedArrowheads = arrowheadsOption ?? edgeCount <= GLYPH_DIAGRAM_3D_EDGE_DENSITY_THRESHOLD;
+  if (arrowheadsOption === undefined && !resolvedArrowheads) {
+    ledger.push(ledger3dArrowheadsSuppressed({ edgeCount, threshold: GLYPH_DIAGRAM_3D_EDGE_DENSITY_THRESHOLD }));
+  }
+  const resolvedOptions: GlyphDiagram3dRenderOptions = { ...options, layout: resolvedLayoutKind };
 
   // The layout is computed ONCE here (for the auto-fit's own label/bounds
   // data) and AGAIN inside `glyphDiagramObject` (for its meshes/overlay) —
@@ -316,21 +477,27 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   // produce a byte-identical layout, and keeping the fit's own "what
   // SHOULD render" data independent of the object-building path is what
   // makes the fit's own guarantee (every declared node/label fits) hold
-  // regardless of how the object happens to be built.
+  // regardless of how the object happens to be built. Both calls share
+  // `resolvedOptions` — the SAME resolved `layout` kind the adaptive
+  // policy above just decided, never each re-deriving it independently.
   const [object, layout] = await Promise.all([
-    glyphDiagramObject(graph, { ...options, tier: canvasTier, boxOutline }),
-    layout3d(graph, options),
+    glyphDiagramObject(graph, { ...resolvedOptions, tier: canvasTier, boxOutline, labelNodeIds, arrowheads: resolvedArrowheads }),
+    layout3d(graph, resolvedOptions),
   ]);
 
-  const ledger: GlyphDiagramLedgerEntry[] = [...charsetLedger];
-  const { camera, fitLabels, unfittable } = fitDiagramCamera(object, layout.nodes, {
+  // Auto-fit's own label constraint set is the SAME suppressed subset
+  // (D2 fix round 3, P1-2) — a label `glyphDiagramObject` never places
+  // must not consume any of the fit's own zoom budget, or the adaptive
+  // suppression would buy nothing.
+  const fitNodes = labelNodeIds ? layout.nodes.filter((n) => labelNodeIds.has(n.id)) : layout.nodes;
+  const { camera, fitLabels, unfittable } = fitDiagramCamera(object, fitNodes, {
     cols: resolved.width, rows: resolved.height, cellAspect, rotX, rotY, mat: camOpts.mat,
-    explicitZoom: camOpts.zoom, title: options.title,
+    explicitZoom: camOpts.zoom, title: options.title, labelMode: options.labels, direction: effectiveDirection,
   });
   for (const label of unfittable) ledger.push(ledger3dLabelUnfittable({ nodeId: label.node.id, label: label.text, cols: resolved.width }));
 
   const objects: GlyphSceneObject[] = options.title ? [object, titleChromeObject(options.title)] : [object];
-  const { grid } = renderObjectFrame(objects, { camera, cols: resolved.width, rows: resolved.height, cellAspect, mode, charMode });
+  const { grid } = renderObjectFrame(objects, { camera, cols: resolved.width, rows: resolved.height, cellAspect, mode, charMode, hiddenLines });
 
   // D2 review P1-2's own repro ("Orchestrator vanished... with an empty
   // ledger"): the analytic fit above proves every label's PREDICTED
@@ -342,8 +509,7 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   // name every miss, rather than trusting the fit's own prediction blindly.
   if (camOpts.zoom === undefined) {
     for (const label of fitLabels) {
-      const anchor: Vec3 = [label.node.center[0], label.node.center[1], label.node.center[2] + label.node.half[2]];
-      const [colF, rowF] = camera.project(anchor, resolved.width, resolved.height, cellAspect);
+      const [colF, rowF] = camera.project(label.anchor, resolved.width, resolved.height, cellAspect);
       const col = Math.round(colF), row = Math.round(rowF);
       let landed = col >= 0 && row >= 0 && row < grid.rows && col + label.text.length <= grid.cols;
       if (landed) {

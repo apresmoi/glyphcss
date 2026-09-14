@@ -36,6 +36,16 @@ export interface Diagrams3dSceneOptions {
   readonly canvasTier: GlyphCanvasTierName;
   /** `glyphDiagramObject`'s own `boxOutline` option. */
   readonly boxOutline: boolean;
+  /**
+   * `resolveCharset`'s own `hiddenLines` — `"hide"` throughout the default
+   * (ink) and wireframe styles (AGENTS.md's "Diagrams 3D": an occluded
+   * object or back edge disappears rather than drawing through it). Must
+   * reach `scene.setOptions` the SAME way `mode`/`charMode` do, or the live
+   * scene keeps whatever `hiddenLines` it mounted with regardless of what
+   * `resolveCharset` now says — live output would then diverge from
+   * `renderGlyphDiagram3d`'s own static frame, which always reads it fresh.
+   */
+  readonly hiddenLines: "show" | "hide";
   readonly useColors: boolean;
   /** Present exactly when some requested choice can't be shown live as requested — chrome text, never a rendering decision. */
   readonly note?: string;
@@ -79,8 +89,8 @@ export function diagrams3dColorDockReason(color: GlyphDiagram3dColorMode): strin
 }
 
 export function resolveDiagrams3dSceneOptions(charset: GlyphDiagram3dCharset, color: GlyphDiagram3dColorMode): Diagrams3dSceneOptions {
-  const { mode, charMode, canvasTier, boxOutline, ledger } = resolveCharset(charset);
+  const { mode, charMode, canvasTier, boxOutline, hiddenLines, ledger } = resolveCharset(charset);
   const notes = ledger.map((entry) => entry.message);
   if (diagrams3dColorDockReason(color)) notes.push(LIVE_COLOR_DEPTH_NOTE);
-  return { mode, charMode, canvasTier, boxOutline, useColors: color !== "none", ...(notes.length > 0 ? { note: notes.join(" ") } : {}) };
+  return { mode, charMode, canvasTier, boxOutline, hiddenLines, useColors: color !== "none", ...(notes.length > 0 ? { note: notes.join(" ") } : {}) };
 }
