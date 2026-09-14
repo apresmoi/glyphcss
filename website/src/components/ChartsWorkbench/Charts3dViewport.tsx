@@ -104,7 +104,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
     const fit = glyphChart3dFitCamera({
       bounds: object.bounds, rotX: camera.rotX, rotY: camera.rotY,
       ...(camera.useMat && camera.mat ? { mat: [...camera.mat], useMat: true } : {}),
-      cols: opts.cols ?? SCENE_DEFAULT_COLS, rows: opts.rows ?? SCENE_DEFAULT_ROWS, cellAspect: opts.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
+      cols: opts.cols ?? SCENE_DEFAULT_COLS, rows: opts.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: opts.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
     });
     cam.target = camera.zoom !== undefined ? objectBoundsCenter(object.bounds) : fit.target;
     cam.zoom = camera.zoom ?? fit.zoom;
@@ -151,7 +151,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
         const bounds = objectBoundsRef.current;
         if (!bounds) { scene.rerender(); return; }
         const o = scene.getOptions();
-        const refit = glyphChart3dFitCamera({ bounds, rotX: cam.rotX, rotY: cam.rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, cellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
+        const refit = glyphChart3dFitCamera({ bounds, rotX: cam.rotX, rotY: cam.rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
         cam.target = refit.target; cam.zoom = refit.zoom;
         scene.rerender();
       });
@@ -218,7 +218,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
         if (!scene || !cam || !bounds) return;
         const o = scene.getOptions();
         const { rotX, rotY } = GLYPH_CHART_3D_DEFAULT_CAMERA;
-        const fit = glyphChart3dFitCamera({ bounds, rotX, rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, cellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
+        const fit = glyphChart3dFitCamera({ bounds, rotX, rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
         // Reset always returns to the library's own default Euler pose —
         // `useMat` cleared too, so a reset out of a trackball orientation
         // doesn't leave the live camera still reading its stale matrix

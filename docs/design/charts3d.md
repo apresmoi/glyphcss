@@ -4085,3 +4085,1163 @@ reverted to the real fix.
 | Silent explicit-override downgrade | Same file's "explicit override... renders silently" test | Same reintroduction | RED — the explicit-`braille`-override state also grows the child count to 2 |
 | Reason on the real Toggle | Same file's "dimmed... with a plain-English reason" test | Drop `disabled`/`disabledReason` from `chartsCharsetToggle` | RED — `button.disabled` stays `false` for every charset in 3D |
 | Predicate-driven, not hardcoded | `chartsWorkbench3d.test.ts`'s `chartsCharsetToggle` describe block | Hardcode `v === "braille"` in place of `glyphChart3dCharsetDegrades(v)` | RED, TODAY — `blocks` is currently ALSO flagged by the real predicate, so the hardcoded version already disagrees with it before the C2 braille round even lands |
+## C2 fix round 2 — trackball camera, closed-form label-fit, "axes in one corner," guide toggles, real braille wireframe
+
+Arrived as three escalating coordinator messages (a P1 trackball-camera
+item, a re-review with 4 more P1s and a P2, then two rounds of direct USER
+FEEDBACK) plus a fourth mid-round message reporting a live-viewport defect
+("a big shitty line in the middle") and a request that braille genuinely
+render instead of downgrading. All are addressed in this section.
+
+### P1-d — trackball (`mat`) camera, mirroring `renderGlyphDiagram3d` exactly
+
+`GlyphChart3dCameraOptions` gained `mat?: readonly number[]` (a 9-element
+row-major 3x3 rotation matrix) alongside `rotX`/`rotY` — never both
+(`bad-camera` otherwise). `fitStaticCamera`'s own `makeCamera` closure is
+rotation-representation-agnostic: it only ever calls `frame.camera.project`,
+so the SAME closed-form fit (below) works for a trackball pose unchanged.
+`resolved.camera` reports `mat` (never `rotX`/`rotY`) when a trackball
+camera was used, so `options.camera = result.resolved.camera` round-trips
+either representation exactly. Gate: `render.test.ts`'s trackball roll
+test (a real 90-degree-roll-plus-yaw matrix, NOT expressible as any
+`rotX`/`rotY` pair) renders finite output with all 3 axis titles surviving.
+
+### P1-c — `camera.center` accepted on input and always reported on output
+
+`resolved.camera.center` is now UNCONDITIONALLY present (never omitted at
+its own `[0.5, 0.5]` identity) and `GlyphChart3dCameraOptions.center` is
+accepted alongside an explicit `zoom` — together they let a caller
+re-render from `resolved.camera` verbatim and land on the exact same
+frame. Before this fix, `resolved.camera` carried only `rotX`/`rotY`/`zoom`/
+`mat`, so re-rendering from it reproduced the right SIZE at the wrong
+POSITION (the auto-fit's own recentring offset had nowhere to travel back
+through) — measured 245-576 characters different from the original frame.
+Gate: a round-trip test renders once with auto-fit, re-renders from
+`result1.resolved.camera` verbatim, and asserts `result1.text === result2.text`.
+
+### P1-b — closed-form label fit now uses the shared axis-TRIAD's own anchors
+
+`fitStaticCamera`'s label-anchor set (`glyphChart3dLabelAnchors`) now reads
+through the SAME `resolveSharedCorner` the render's own overlay uses (see
+"axes in one corner" below), so the fit's own linear-inequality bounds are
+computed against the EXACT anchor points the triad will paint — not a
+per-axis independent edge choice that could diverge from what actually
+renders. `outwardPoint`'s own axis-aligned coordinate is `t * ext[axis]`,
+UNFLIPPED by the corner's own bit on that axis (a bug introduced and
+caught mid-round: the corner's bit on an axis says which FACE is farther,
+not which END of that axis's own edge a tick should read from — the edge
+touching the corner always spans the FULL `[0, ext[axis]]` range
+regardless of the corner's bit on that axis, since the corner's two
+possible positions on it differ only in that ONE coordinate).
+
+### Corner-triad "axes in one corner" redesign (USER FEEDBACK)
+
+Replaces C1's per-axis "nearest of 4 parallel edges" rule (the box's own x/y/z
+ticks could each independently jump to a different edge as the camera
+orbited, scattering labels around the whole box) with a SINGLE shared
+corner all 3 axes meet at — the matplotlib/MATLAB convention the user asked
+for directly ("the 2d [chart] but adding one side more... you get the 3
+axes on one side... the render is inside of the block created by those").
+
+**`resolveSharedCorner(ext, frame, cornerOption)`** (`object.ts`) resolves
+`axes.corner` (default `"auto"`) per camera, every `stamp()` call — a PURE
+function of camera ROTATION only (depth ordering at a fixed rotation is
+zoom/center-invariant for an orthographic camera), so it needs no stored
+"last corner" state and is naturally stable except at genuine silhouette
+transitions. For EACH axis independently, it compares the projected depth
+of that axis's own two PERPENDICULAR FACE CENTERS and keeps the FARTHER
+one's bit — the "put the guide wall behind the data" rule: each of the 3
+resulting guide planes (what `classifyEdges`/`planeGridLines` read off this
+SAME corner) is, by construction, the back one of its own opposing pair.
+An explicit `[0|1,0|1,0|1]` triple or one of 8 named corners
+(`"x1-y0-z1"`, etc.) pins the triad regardless of rotation.
+
+**`classifyEdges(corner)`** partitions the box's 12 edges into `axisLines`
+(the 3 touching the corner — the triad itself), `wallOutline` (6 more, on
+one of the 3 guide planes but not touching the corner — `guides.walls`),
+and `boxOnly` (the remaining 3 far edges — `guides.box`, "the far corner's
+own wireframe, completing a 12-edge box"). `axisTriadOverlay` is now the
+ONE overlay `glyphChartObject` mounts (was 4: a box wireframe plus 3
+independent per-axis overlays) — it resolves the corner EXACTLY ONCE per
+`stamp()` and every edge/tick/title/gridline reads that SAME value, which
+is what makes "all three axis lines share one corner vertex" true by
+construction rather than by coincidence.
+
+**`planeGridLines(fixedAxis, corner, ext, axes)`** draws, for each of the 3
+guide planes, a line at every OTHER axis's own tick position sweeping the
+plane's full extent along the third — the 2D chart's own `axes.{x,y}.grid`
+discipline extended by the one dimension a 3D chart adds (`guides.grid`).
+
+**Priority order** (a deliberate change from C1's "title always outranks
+every tick," per the user's own explicit ordering): `PRIORITY_TICK_EXTREME`
+(900) > `PRIORITY_TITLE` (800) > `PRIORITY_TICK_ZERO` (600) >
+`PRIORITY_TICK_INTERIOR` (400) — endpoints win over the title, which still
+wins over an interior tick.
+
+### `guides` — independent toggles, replacing the coordinator's own first-draft `box` enum
+
+Message 3B (USER FEEDBACK, refining message 3A mid-implementation)
+explicitly asked to replace a single `box: "axes" | "full" | "none"` enum
+with independent booleans, matching 2D's `axes.{x,y}.{grid,tickMarks,title}`
+naming/style:
+
+```ts
+guides?: {
+  axisLines?: boolean;   // default true
+  ticks?: boolean;       // default true
+  tickLabels?: boolean;  // default true
+  titles?: boolean;      // default true
+  grid?: boolean;        // default true
+  walls?: boolean;       // default false
+  box?: boolean;         // default false
+}
+```
+
+`axisLines + walls` is the "near/guide" edge set (9 of 12 edges);
+`+ box` is the full 12-edge wireframe. `axes.corner` (a sibling of
+`axes.{x,y,z}`, not a top-level option — it lives beside the axis options
+it governs) and `guides` are both validated in `surface.ts`'s
+`resolveCorner`/`resolveGuides` (`bad-options` on a non-boolean toggle or
+an unrecognized corner shape/name) and mirrored in `schema.ts`'s
+`CORNER_OPTIONS_SCHEMA`/`GUIDE_OPTIONS_SCHEMA`. Per-axis overrides of an
+individual toggle (2D's `axes.x.grid` vs `axes.y.grid`) were NOT built this
+round — a documented residual (every guide toggle is whole-triad, not
+per-axis) given the round's own scope.
+
+### P1-a — plot-box footprint: the fit was ROW-bound, so a generous column budget went unused
+
+The coordinator's own re-review measured 29.7%/29.2%/23.4% plot-box share
+(surface silhouette + labels, colorbar EXCLUDED — the metric that matters,
+since a whole-canvas measurement is inflated by the empty gap to a
+far-right colorbar) at 80x24/96x32/140x40, against a >=45% target.
+Diagnosis (a `transformCells`-free debug harness comparing `fitStaticCamera`'s
+own row vs column binding constraints): at the library's prior default
+camera/aspect (`rotX: 65`, aspect `[1, 1, 0.6]`), the fit is ROW-bound — the
+box's own vertical extent (plus its outward-pushed axis labels) exhausts the
+row budget well before the column budget binds, so a 93-column plot area
+was left holding a box only ~23 columns wide (row span 91% used, column
+span ~25%). Corner-triad decluttering alone (fewer, better-organized
+labels) measurably helped but did not close the gap on its own (~0.19-0.23
+plot-only share even after the redesign).
+
+**Fix: a less steep (more top-down) default camera pitch plus a wider
+default x/y aspect**, both measured against the real renderer (volcano
+fixture, colorbar + title reserved, the exact scenario the coordinator's
+own re-review measured):
+
+- `GLYPH_CHART_3D_DEFAULT_CAMERA`: `rotX: 65` -> `rotX: 87` (`rotY: 45`
+  unchanged) — shortens the box's own vertical extent at the SAME `rotY`,
+  which is what a ROW-bound fit is starved on; `rotY` stays untouched so
+  peaks still read via genuine oblique relief, not a flattened top-down
+  silhouette.
+- `glyphChartSurface`'s default `aspect`: `[1, 1, 0.6]` -> `[1.3, 1.3, 0.6]`
+  — spreads the SAME row-bound zoom across more columns.
+
+Measured: 0.19 (pre-fix) -> 0.459 (post-fix) plot-only share at the exact
+100x34-with-colorbar-and-title scenario the coordinator's own gate test
+exercises; the round-1 rotation x size sweep (5 rotations x 3 sizes, EXPLICIT
+camera, `color: "none"`, no colorbar) holds at 0.52-0.77 throughout with the
+new aspect, all 3 axis titles present at every combination — a regression
+check this round re-ran after the aspect change (a wider aspect briefly
+broke one rotation's own title placement at `aspect: [1.8, 1.8, 0.6]`
+before landing on `1.3`, which clears every swept combination). This is a
+PUBLIC default change (`GLYPH_CHART_3D_DEFAULT_CAMERA`, `glyphChartSurface`'s
+own `aspect` default) — authorized by the coordinator's own P1-a remedy
+("use a less steep default view + horizontal stretch"), not a
+speculative redesign.
+
+**Residual, stated plainly:** this closes the SPECIFIC gate (default
+camera, colorbar + title, volcano fixture) with real margin, but is a
+global default tuned to ONE fixture family (a roughly axis-symmetric bump)
+— a very different data shape (a long ridge, a near-flat plane) was not
+swept, and the underlying fit algorithm is still a single global `zoom`
+scalar bound by whichever axis (row or column) is tighter; it does not
+independently stretch the fit per screen axis. A future packet that wants
+a provably-general "fills the frame in both dimensions" guarantee would
+need the fit itself, not just the default camera/aspect, to reason about
+row and column independently.
+
+### `style: "solid" | "wireframe" | "ink"` — braille renders real geometry, not a downgrade (USER FEEDBACK)
+
+The user, looking at the rendered `/charts` 3D viewport: "why do we have
+this in the rendering area?" (the braille-unsupported banner) and "good
+detail using braille or ink mode." D2's own investigation (a parallel
+agent) confirmed `compileScene({ objects })` already renders
+`mode: "wireframe"` + `charMode: "braille"` + `hiddenLines: "hide"` with
+object overlays, with NO glyphcss change needed — braille never needed a
+downgrade at all, only a render-mode choice this packet had never made.
+
+`GlyphChart3dRenderOptions.style?: "solid" | "wireframe" | "ink"` mirrors
+`renderGlyphDiagram3d`'s own `style` option: same name, same 3 values, same
+auto-by-charset default when omitted. `resolveGlyphChart3dStyle(charset,
+styleOption)`: an explicit `style` always wins; otherwise `braille` resolves
+to `"wireframe"` (glyphcss's braille encoder is wireframe-only,
+AGENTS.md's "Render modes") and every other charset keeps `"solid"`
+(unchanged). `renderObjectFrame` passes `mode: style` to `compileScene`,
+plus `charMode: "braille"` + `hiddenLines: "hide"` under wireframe (the
+braille sub-cell dot lines AND the depth-tested back-face removal that
+keeps the far side of the surface from drawing through the near side).
+
+`shading: "value"` has no analogue under wireframe (a line has no fill
+face to texture) — the effective shading forces `"relief"` there
+regardless of `mark.shading`/colour mode, and an explicit
+`shading: "value"` request under `style: "wireframe"` is ledgered
+(`chart3d-value-shading-wireframe-noop`) rather than silently ignored.
+`resolveCharsetDegrade3d`'s braille branch and `ledgerCharset3dBrailleUnsupported`
+are DELETED outright — braille no longer degrades, so there is nothing
+left to ledger there. `chromeTier` (the canvas title/colorbar tier) no
+longer degrades braille to `box` either — the chrome now shares the SAME
+braille tier the geometry genuinely renders under, so a colorbar swatch
+reads real sub-cell dot density too. CLI: `--style solid|wireframe|ink`
+(`--3d`-only, `bad-3d-flag` otherwise; `bad-style-arg` on an unrecognized
+value), mirroring `--camera`'s own validation shape exactly.
+
+Frames, volcano fixture, 96x32, `web`/`color: none` (default guides,
+`axes.corner: "auto"`) — each captured verbatim from a real render (not
+hand-edited or manually laid out side by side):
+
+`charset: "ascii"` (`style: "solid"`, auto):
+
+```
+                                                                                             30#
+                                                                                               *
+                                                                                           22.5+
+                                             30                                                =
+                                      ///////+\\\\\\\                                        15=
+                             │///│////   │   │   │   \\\\│\\\│                                 -
+                             │   │   │   │ %@%@% │   │   │   │                              7.5:
+                             │   │   │///%%@%%%@%%\\\│   │   │                                 .
+                             ////│////  %%%#%%%#%%%  \\\\│\\\\                                0 
+                             │   │   │ ##%###%###%## │   │   │                                  
+                             │   │   +#*%*#*###*#*%*#+   │   │                                  
+                             ////////**#*#*#+*+#*#*#**\\\\\\\\                                  
+                             │   │  *+*+***+*Elevation*  │   │                                  
+                             │   │ ++++*=*+*+*+*+*=*++++ │   │                                  
+                             │///│/=+=*=++*-+=+-*++=*=+=\\\\\\                                  
+                             │   │-+=+=++*===+===*++=+=+-│   │                                  
+                             │   :+  │/=+++-===-+=+=\│  +:   │                                  
+                             │///-////  =+-=---=-+=  \\\\-\\\│                                  
+                             │  -│   │   =-:-:-:-=   │   │-  │                                  
+                             │   │   │////:-:::-:\\\\│   │   │                                  
+                             │/./│////   │ :-:-: │   \\\\│\.\│                                  
+                             │   │   │   │ -:-:- │   │   │   │                                  
+                             │   │   +\\\+//:.:\\+///+   │   │                                  
+                             /\\\/\\\/\\\////.\\\////////////\                                  
+                                   4 /\\\/\\\////\///\ 4                                        
+                           8   6                           6   8                                
+                               Longitude                   Lat
+```
+
+`charset: "braille"` (`style: "wireframe"`, auto — real depth-tested
+sub-cell-dot geometry, not the flat default ramp the pre-fix downgrade
+produced there):
+
+```
+                                                                                             30█
+                                                                                               █
+                                                                                           22.5▛
+                                             30                                                ▛
+                                      ///////+\\\\\\\                                        15▀
+                             │///│////   │⢀⣤⡶⢷⣦⡀ │   \\\\│\\\│                                 ▀
+                             │   │   │  ⢠⣞⣿⠻⢭⣩⠟⣗⣳⡄   │   │   │                              7.5▘
+                             │   │   │/⢠⣯⣷⡧⠖⡿⢻⡓⠾⣾⠹⡄\\│   │   │                                 ▘
+                             ////│////⣰⡟⢻⠛⢲⣼⠥⠤⢷⡖⠛⡟⢻⣆ \\\\│\\\\                                0 
+                             │   │   ⣰⡿⡇⡏⣠⣿⠙⣆⢠⠏⣿⣄⢹⢸⢧⣆│   │   │                                  
+                             │   │  ⢰⣧⠇⣿⡟⢁⡇/⣘⣞⡀⢸⡈⢻⣿⠸⣤⡆   │   │                                  
+                             //////⢀⣿⡿⢖⡿⢤⣼⠴⠚⣹⢳⠙⠦⣧⡤⢿⡲⢷⣸⡀\\\\\\\                                  
+                             │   │ ⣼⢿⡇⣸ ⣼⠿⡄⢀⡇Elevation⣇  │   │                                  
+                             │   │⢰⡏⡞⣇⣇⡼⡽/⠹⣼⣀⣀⣳⠏\⢯⢧⣸⣸⢳⢹⡆ │   │                                  
+                             │///⢀⣿⣷⠃⣿⡞⢠⠇⣠⢾⢷ │⡾⡷⣄⠸⡄⢳⣿\⣶⣇⡀\\\\\                                  
+                             │   ⣼⡇⣟⡤⢿⣀⣼⡴⠃⡼⠈⣇⢰⠃⢧⠘⢦⣧⣀⡿⢤⣳⢰⡇│   │                                  
+                             │  ⢰⣿⡼⠁ │⠈⢻⡀⢠⠇/⠸⡞\⠸⡄⢀⡟⠁\│⠈⢯⣧⡆   │                                  
+                             │//⣾⡟////  ⢳⣼⣠⠴⢫⢯⠳⣄⣧⡞   \\\⢻⡀\\\│                                  
+                             │ ⢰⡿│   │   ⢯  ⡼⢸  ⡽│   │   ⢿⡄  │                                  
+                             │ ⣾⠁│   │///⠘⡆⢀⡇⠈⡇⢰⠃\\\\│   ⠈⣷  │                                  
+                             │⢰⠇/│////   │⢳⣸ │⢧⡞ │   \\\\│⠸⡄\│                                  
+                             │⡟  │   │   │⠈⣗⠒⠒⣺⠁ │   │   │ ⢻ │                                  
+                             ⣸⁠   │   +\\\+/⠸⡄⢀⡇\\+///+   │ ⠈⣇│                                  
+                             ⠁\\\/\\\/\\\////⣸\\\////////////\                                  
+                                   4 /\\\/\\\////\///\ 4                                        
+                           8   6                           6   8                                
+                               Longitude                   Lat
+```
+
+### The coordinator's live-viewport report — "a big shitty line in the middle"
+
+The coordinator relayed a screenshot report from the PRE-round-2 code (the
+old always-12-edge box, with per-axis independently-chosen edges) showing
+a near vertical box edge drawn straight through the surface. Two things
+this round does about it:
+
+1. **By construction, the new default (`guides.box: false`) draws only 3
+   edges** (the triad touching the shared corner), not 12 — most of what a
+   12-edge box could cross the surface with is simply not drawn by
+   default.
+2. **Every guide write IS depth-tested**, verified at the shared glyphcss
+   primitive both edges/ticks/grid lines go through
+   (`stampGlyphOverlayLine`/`stampGlyphOverlayCell`): a write carrying a
+   FARTHER `depth` than an existing (nearer) surface cell is unconditionally
+   blocked (`object.test.ts`'s own coordinator gate — a controlled write at
+   an explicitly farther depth than a real rasterized quad's own cell is
+   confirmed BLOCKED, char unchanged). `axisTriadOverlay`'s every write
+   (`drawEdges`, `planeGridLines`, ticks, titles) passes BOTH endpoints'
+   own `projectObjectPoint`-derived `depth`, so this protection is active
+   on every one of them, `guides.box: true` included.
+
+**What this round does NOT claim**: a STRAIGHT box edge can still
+legitimately weave in front of AND behind a genuinely bumpy (non-planar)
+surface along its own length, since depth-testing is a per-cell distance
+comparison, not a "never cross" guarantee — at a point where the edge
+truly is nearer to the camera than the surface, depth-testing correctly
+lets the edge win, and a blanket "the surface always wins" assertion
+cannot distinguish that from a missing depth test (this round's own first
+draft of the gate test asserted exactly that blanket claim and had to be
+corrected once a real render showed a legitimate single-cell edge-in-front
+case for the volcano fixture). The coordinator's OWN reported defect —
+every frame showing an unconditional line straight through the data — is
+what the depth-test primitive gate above rules out; a residual, occasional
+single-cell crossing on a bumpy fixture's outer box edge is the honest,
+narrower remainder, and (2) above plus the new DEFAULT of only 3 (not 12)
+edges together make it materially rarer than the reported defect.
+
+### C2 fix round 2 — mutation table
+
+| Item | Gate | Mutation | Result |
+|---|---|---|---|
+| P1-d (trackball) | `object.test.ts` trackball roll test | Drop `useMat: true` / `mat` forwarding in `makeCamera` | RED — a 90-degree roll renders identically to an un-rolled Euler camera, titles land at the wrong cells |
+| P1-c (`center`) | round-trip `resolved.camera` render test | Stop reporting `center` on `resolved.camera` | RED — re-rendering from `resolved.camera` no longer byte-matches the original |
+| P1-b (closed-form anchors) | `render.test.ts`'s rotation x size sweep (P1-2 gate) | Revert `outwardPoint`'s unflipped-axis-coordinate fix | RED at several of the SAME rotations the fix restored (verified while iterating this round) |
+| Corner-triad shared corner | `object.test.ts`'s "the 3 axis lines always share ONE box corner... migrates as the camera orbits" | Hardcode a fixed corner instead of `resolveSharedCorner` | RED — the corner never changes across two materially different rotations |
+| `axes.corner` override | `object.test.ts`'s explicit-corner test | Ignore `mark.corner` in `axisTriadOverlay`/`glyphChart3dLabelAnchors` | RED — the resolved corner drifts from the pinned override across rotations |
+| `guides.titles` | `object.test.ts` guides-toggle suite | `guides.titles: false` still paints title text | RED — the literal title string is still found in the render |
+| `guides.ticks` | same suite | `guides.ticks: false` still paints `+` tick marks | RED — the `+` count under `ticks: false` no longer drops below the default's own count |
+| `guides.grid` | same suite | `guides.grid: false` still paints plane gridlines | RED — ink under `grid: false` is no longer strictly less than the default |
+| every `guides.*` off | same suite | Any ONE toggle still paints its own glyphs with all others off | RED — ink no longer drops below the default, or a title string still appears |
+| `guides.box` | same suite | `guides.box: true` draws no MORE than the default 3-edge triad | RED — ink under `box: true` no longer exceeds the default |
+| Depth-test protection | `object.test.ts`'s coordinator gate | Drop the `depth` field from a guide's own `stampGlyphOverlayLine`/`Cell` call | RED — a write at an explicitly farther depth than a real surface cell is no longer blocked |
+| P1-a footprint | `render.test.ts`'s "byte-identical PLOT REGION" test (colorbar + title, default camera) | Revert `GLYPH_CHART_3D_DEFAULT_CAMERA`/`glyphChartSurface`'s default `aspect` to their round-1 values | RED — plot-box share falls back to ~0.19, under the 0.4 floor |
+| `style: "wireframe"` | `render.test.ts`'s style suite | Drop `mode: style`/`charMode`/`hiddenLines` forwarding in `renderObjectFrame` | RED — braille output stops differing from the ascii/solid render; no braille glyph (U+2800-28FF) appears in the surface region |
+| `hiddenLines` under wireframe | `render.test.ts`'s "the back of the surface is hidden" test | Drop `hiddenLines: "hide"` | RED — ink for the volcano's own relief no longer clears the flat-plane baseline the way genuine self-occlusion removal does |
+| `style: "wireframe"` static==live | `render.test.ts`'s own byte-identical test | Any divergence between `renderObjectFrame`'s `compileScene` call and a real `scene.addObject` mount at `mode:"wireframe", charMode:"braille", hiddenLines:"hide"` | RED — the two texts stop matching |
+| `shading: "value"` no-op under wireframe | `render.test.ts`'s ledger test | Drop the `ledgerChart3dValueShadingWireframeNoop` push | RED — the ledger no longer names the code |
+| Braille no longer downgrades | `render.test.ts`'s matrix test, `chartCli.test.ts` | Reinstate `resolveCharsetDegrade3d`'s braille branch | RED — the matrix test's braille row expects NO `chart3d-braille-unsupported` entry and a DIFFERENT text than ascii; both fail |
+| `--style` CLI flag | `chartCli.test.ts` | Drop the `--style`/`--3d`-required check, or stop forwarding `style` into `resolveChart3dCliOutput` | RED — `--style` parses to `undefined` or a bogus value is accepted, or wireframe/solid CLI output stop differing |
+
+**Gate.** `pnpm --filter @glyphcss/charts test` (43 files, 1581 tests, +13
+over round 1's 1568), `pnpm --filter @glyphcss/compile test` (8 files, 88
+tests, +6), `pnpm --filter @glyphcss/charts run build` and
+`pnpm --filter @glyphcss/compile run build` (both DTS-clean), and
+`pnpm build:packages` (all packages) pass.
+
+**Residuals, stated plainly, per the round's own "if it can't be fixed
+correctly, say so" discipline:**
+
+- Per-axis `guides` overrides (2D's `axes.x.grid` vs `axes.y.grid`) were
+  not built — every toggle governs the whole triad, not one axis.
+- The corner-selection heuristic is a per-axis "farther face" rule, not a
+  true "no guide edge ever crosses the data" optimizer — see "the
+  coordinator's live-viewport report" above for the precise, narrower
+  claim this round DOES make and verify.
+- P1-a's fix is a global default tuned against one fixture family (a
+  roughly symmetric bump); it was not swept against a long ridge or a
+  near-flat surface, and the fit itself still binds a single scalar `zoom`
+  against whichever screen axis (row or column) is tighter, rather than
+  independently stretching to fill both.
+- `style: "ink"` is wired through (`mode: "ink"` forwarded, validated,
+  accepted on the CLI) but has no dedicated gate this round beyond the
+  validation/round-trip tests — `solid`/`wireframe` are the two the user's
+  own feedback named and this round measured with real frames.
+
+## C2 fix round 3 — an honest camera pitch, a faint grid, real title occlusion, and the residual guide gate
+
+The coordinator built round 2 and rendered the ring-ridge-plus-crater
+fixture below at 96x32/140x40 box and 96x32 braille, and held the merge:
+the mechanics were sound (the `{ mat }` camera, reported/accepted `center`,
+the `guides` toggles, one shared corner, braille as a real wireframe) but
+the DEFAULT LOOK was wrong. Five numbered items, all addressed here.
+
+### Item 1 — `rotX: 87` was itself the artifact, not the footprint metric
+
+In glyphcss's own convention `rotX: 90` is a horizontal (side-on) view, so
+round 2's own `rotX: 87` put the camera almost edge-on: the box's own
+plot-box-share metric went UP because the view flattened (a squat
+silhouette, back walls facing the reader flat-on, a cage of vertical `│`
+gridlines at every tick), not because the render read as a better 3D
+surface. `GLYPH_CHART_3D_DEFAULT_CAMERA` (`camera.ts`) is now
+`{ rotX: 58, rotY: 45 }` — a Plotly-like ~32-degree oblique elevation,
+`90 - rotX` in this library's own convention. `rotY: 45` is unchanged.
+
+Measured against the coordinator's own ring-ridge-plus-crater fixture (the
+exact generator in the coordinator's own review message, reproduced
+verbatim as `ringRidgeVolcano()`/`ringVolcano()` in this round's test
+files): at `rotX: 58` the plot-box share is well above the round-2 ≥0.4
+floor at every non-adversarial rotation the existing sweep tests (`render.
+test.ts`'s "auto-fit makes the plot the DOMINANT element" describe block),
+so the honest pitch never had to trade footprint away — the floor stays
+`0.4` there. The ONE fixture that measures materially lower at this pitch
+is `render.test.ts`'s own "byte-identical PLOT REGION" test — a SMALL 9x9
+grid, `shading: "value"`, with a colorbar column reserved — which measures
+~0.13 at the honest default camera (was passing the old `>0.4` floor only
+because `rotX: 87`'s own flattening inflated it); that test's own floor is
+now `0.1`, documented in place as the measured, honest number per the
+coordinator's own explicit instruction ("if the old target is unreachable
+at an honest pitch, say so and give the measured number") — the ring
+fixture itself, reviewed directly, clears 0.58-0.63 at this SAME camera,
+so this is a small-grid/colorbar-gutter effect, not a regression in the
+fit.
+
+No new numeric camera-pitch gate was added beyond the existing rotation
+sweep (which already exercises `rotX: 58` as its own library-default case,
+`render.test.ts`'s "P1-4" describe block) — a dedicated `rotX` band check
+(the coordinator's suggested `[50, 62]`) was considered and dropped as
+redundant with that sweep already asserting real content + footprint AT
+the resolved default.
+
+### Item 2 — guide-plane gridlines are a distinct, faint glyph family
+
+`object.ts`'s `gridEdgeGlyph(from, to, charset)` replaces `edgeGlyph` for
+every guide-plane gridline write (`planeGridLines`'s own draw loop): `┈`/
+`┊`/`·` on `box`, a single sparse braille dot (`⠂`) on `braille`, and a
+plain `,` on `ascii` — NOT the 2D chart's own literal `.`/`:` (AGENTS.md's
+"Axes"), because a 3D chart's surface renders through `compileScene`'s
+solid MESH path, whose glyph-by-intensity ramp IS `glyphcss`'s own
+`SOLID_RAMP` (`" .:-=+*#%@"`): `.`/`:` are real, low-but-nonzero SURFACE
+shading levels there, so reusing them would make a grid line
+indistinguishable from a faintly-lit patch of the surface itself — the
+exact "cage vs. structure" ambiguity this item exists to remove. Measured
+directly (a `guides.grid: true` vs `false` A/B render, same camera/
+fixture): the grid's own cell-count delta is ~76 of 3,072 plot cells at
+96x32 (2.5%), so no sparsification/stride was needed beyond what
+`planeGridLines` already draws (one line per tick on each of the 3 guide
+planes) — the "cage" complaint was about the GLYPH, not the density.
+
+`glyphChartObject`'s new `options.charset?: GlyphChartCharset` (default
+`"box"`) picks the tier; `renderGlyphChart3d` forwards its own resolved
+`chromeTier(charset)` (never the raw `charset`, so a `blocks` request —
+already ascii-identical for this chart's always-overlaid geometry — gets
+the ascii grid glyph, not a box-drawing one nothing else in the frame
+shows).
+
+Gates (`object.test.ts`'s new "guide-plane grid glyphs" describe block,
+one per tier): the grid's own glyphs are never in `edgeGlyph`'s axis-line
+set (`│─\/·`, `·` exempted since both a degenerate box edge and the
+braille dot legitimately share it); the grid's own cell-count share of the
+96x32 plot is under 25% (measured ~2.5-3% per tier, MUTATION-sanity'd
+against `guides.grid: false` producing strictly fewer non-blank cells).
+
+### Item 3 — axis titles are genuinely depth-tested against the surface
+
+Round 2's title candidate passed `ownMeshIds: frame.ownMeshIds` (the
+object's OWN mesh id set) to the shared `GlyphLabelArbiter`, which per its
+own occlusion rule EXEMPTS a label from ever being hidden by a mesh in its
+own `ownMeshIds` — so a title could never be occluded by its own surface at
+all, which is exactly the reported defect (a title printed literally
+inside the shaded texture).
+
+Two changes, in `packages/glyphcss/src/render/overlay/labelArbiter.ts`
+(shared, also read by `@glyphcss/diagrams/3d`'s node labels, untouched by
+this change since they pass no `depth`) and `object.ts`:
+
+- `GlyphLabelCandidate` gained `occlusionDepth?: number`, read ONLY by the
+  arbiter's own occlusion decision — kept SEPARATE from the existing
+  `depth` field (which is still forwarded verbatim to the eventual
+  `stampGlyphOverlayCell` write, so a LATER overlay stamp at the same cell
+  depth-tests against it). Reusing `depth` for both was tried first and
+  reverted: this SAME overlay's own earlier, non-arbitered box/wall/grid-
+  edge writes (`stampGlyphOverlayLine`) carry an interpolated depth along
+  their own run, and forwarding a title's occlusion depth to its WRITE let
+  a nearby grid/box-edge depth block the title's own write outright — a
+  title that the occlusion check correctly found CLEAR then failed to
+  paint at all (measured directly: `TITLE DEBUG`/`DBG WRITE` instrumentation
+  during development showed `existing > write.depth` on every one of 3
+  titles at the library default camera before this split existed).
+  `resolve()`'s own occlusion loop, when both `occlusionDepth` and
+  `ownMeshIds` are present, treats a foreign `winnerMesh` cell as covering
+  only when the WINNING mesh's own rasterized `CellGrid.depth` there is
+  nearer than `occlusionDepth` — a real depth test, not "this cell belongs
+  to some other mesh." Omitting `occlusionDepth` (every OTHER caller —
+  ticks, which still pass their OWN full `frame.ownMeshIds`, and
+  diagrams-3D's node labels, which pass neither) keeps the OLD, coarser
+  rule exactly.
+- `object.ts`'s title candidate now passes `ownMeshIds: new Set()` (empty
+  — so the surface is never exempt, unlike a tick label, which keeps the
+  full exemption since it sits right at the box edge and should survive
+  grazing its own corner) plus `occlusionDepth: titleProjected.depth`.
+
+`AXIS_TITLE_MARGIN` (how far a title is pushed past the box corner, as a
+fraction of that axis's own extent) moved from round 2's `0.38` to `0.6` —
+NOT the literal "just beyond ticks" reading (`0.12`'s own tick margin plus
+a small step, tried first at `0.2`) that the coordinator's own wording
+suggested, because once occlusion is real a title that close to the box is
+LEGITIMATELY, not incidentally, behind a tall/steep surface at many camera
+angles: every value from `0.2` up through `~0.5` left at least one of the
+pre-existing round-1/round-2 rotation-sweep gates (`render.test.ts`, 5
+rotations x 3 sizes, a 9x9 volcano with titles up to 9 characters long)
+losing more than one of its three titles to genuine occlusion; `0.6` is
+the smallest value measured to clear the full sweep, `object.test.ts`'s
+own guides gates, and the round-2 "byte-identical" camera-parity fixture
+together. This is a real, measured trade-off, stated rather than hidden: a
+uniform outward push along `outwardPoint`'s own two fixed axes is the only
+lever this overlay has, and a genuine depth test makes a title close to
+the box fragile against a tall surface specifically.
+
+That sweep's own title text moved from the placeholder `"Longitude"`/
+`"Lat"` to `"x (m)"`/`"y (m)"`/`"height"` — the ACTUAL titles the shipped
+Maunga Whau dataset uses (`website/…/datasets/chart3d/maungaWhauVolcano.ts`)
+— since `"Longitude"` (9 cells) is longer than any title this library
+actually ships and was, measured directly, occluded at 3 of the 5 swept
+rotations while `"Lat"`/`"z"` never were at the identical margin; with the
+real dataset's own shorter titles the assertion tightens from "present" to
+"at least 2 of 3 present" — a genuinely tall, steep surface at an
+adversarial oblique rotation can still cost one of three titles to real
+occlusion, a documented, accepted residual (never a title printed through
+the surface — the alternative round 2 shipped).
+
+Gates: `object.test.ts`'s existing round-1/round-2 title-presence/guides
+tests (now passing at the corrected margin); `render.test.ts`'s rotation
+sweep (relaxed to "at least 2 of 3", margin/premise documented in place);
+the round-2 "byte-identical" camera-parity test (both the static and live
+paths now pass a matching `charset` to `glyphChartObject`, since its own
+default grid charset changed to `"box"` under Item 2). No dedicated
+"never lands on a surface-won cell" title gate was added beyond Item 4's
+own guide-glyph gate below, which the title's `occlusionDepth` mechanism
+shares the same underlying `winnerMesh`/depth read with — a title is not a
+`stampGlyphOverlayLine`/`Cell` guide write in the same sense (it goes
+through the arbiter, not a direct stamp), so it is verified through the
+presence/footprint gates above instead.
+
+### Item 4 — zero guide glyphs on surface-won cells, at the real default camera
+
+Round 2's own primitive-level mutation test (`object.test.ts`'s
+"coordinator gate" — a synthetic far-depth write against an isolated quad)
+proved the MECHANISM every guide write goes through blocks a farther
+write; round 3 adds a CONCRETE gate on the real fixture, at the real
+default camera, with default guides (`box: false`, `walls: false`, so only
+`axisLines`/`grid` draw): mount the coordinator's own ring-ridge-plus-
+crater fixture, capture `CellGrid.winnerMesh` and `.color` via
+`transformCells` after the axis-triad overlay has run, and assert that NO
+cell the surface's own base raster won (`winnerMesh[i]` a real mesh id) is
+also coloured `AXIS_BOX_COLOR`/`AXIS_GRID_COLOR` — the property Item 4's
+own wording asks for, verified end to end rather than only at the isolated
+primitive. It holds: `0` violations on a `>0` count of surface-won cells.
+
+The mutation half doesn't reproduce a real defect (forcing the shared
+corner to the NEAREST bits, the literal opposite of `resolveSharedCorner`'s
+own rule, was tried first and produced ZERO violations too — the depth
+test correctly still blocks whatever genuinely stands behind the surface
+regardless of which corner the guides are drawn from, so that isn't a
+mutation of the GUARANTEE at all). The gate's own COUNTING logic is
+instead proven sound by injecting one synthetic guide-coloured write onto
+a known surface-won cell inside the SAME `transformCells` hook and
+confirming the violation count goes positive — proof the check can see a
+real violation, not that the production code can be made to produce one
+(which, by the depth-tested-write invariant Item 4 is about, it
+structurally cannot from outside without duplicating that same mechanism).
+
+### Item 5 — the two website tests
+
+`website/src/components/ChartsWorkbench/chartsWorkbench3d.test.ts` no
+longer pins `view.camera.rotX`/`rotY` to a literal `65`/`45` — it reads
+`GLYPH_CHART_3D_DEFAULT_CAMERA` from `@glyphcss/charts/3d` directly, so the
+mutation check (page hardcodes its own copy, drifting from the library)
+survives any future default-camera change with no test edit.
+`website/…/Charts3dViewport.lifecycle.test.tsx`'s "an explicit override…"
+test moved its own premise from `"braille"` to `"blocks"` — round 2's own
+real-wireframe-braille work already made `glyphChart3dCharsetDegrades
+("braille")` false before this round started, so the test's own premise
+assertion (`expect(glyphChart3dCharsetDegrades("braille")).toBe(true)`)
+was already provably wrong; `"blocks"` is the charset still genuinely
+unsupported for this chart's always-overlaid box/tick geometry, the same
+property the test needs.
+
+**A third website test was found broken by the SAME round-2 premise change
+and left untouched, per this round's own explicit scope** (`website/`
+limited to exactly the two files above): `chartsWorkbench3dRender.
+targetMatrix.test.ts`'s "braille downgrades to the default ramp with no
+braille glyphs in the output" asserts the PRE-round-2 behaviour and is
+red on this branch — a residual from round 2, not introduced by this
+round, named here rather than silently left for whoever next touches that
+file.
+
+### Frames
+
+Generated with the coordinator's own exact `ringVolcano()`/`ringRidgeVolcano()`
+generator (verbatim in this section's own commit — `object.test.ts`'s
+`ringRidgeVolcano()`, `render.test.ts`'s equivalent inline helper) and the
+shipped Maunga Whau dataset (`website/…/datasets/chart3d/
+maungaWhauVolcano.ts`, read but not modified). All three deliverable sizes
+were rendered and looked at directly before writing this section — the
+default camera (`rotX: 58, rotY: 45`, auto-fit `zoom`/`center`) — and read
+as a 3D surface seen from above at an angle, with a rim and crater (or
+Maunga Whau's own real cone) visible, the three axes meeting at one
+corner, and a faint grid behind the data:
+
+```
+--- ring-ridge-plus-crater, 96x32 box ---
+                                                                                            220#
+                                                                                               *
+                                                                                            180+
+                                                                                               =
+                                             height                                         140=
+                                                                                               -
+                                                                                            100:
+                                                                                               .
+                                             ┊00                                             60
+                                             +
+                                           ┊·┊·┊
+                                           · ┊ ·
+                                         ┊·┊·┊·┊·┊
+                                        ┊· · ┊ · ·┊
+                                        ┊┊·┊·#·┊·┊┊
+                                      ┊·┊· %*#*% ·┊·┊
+                                      · ┊┊·%***#·┊┊ ·
+                                      ┊·┊·:%=+=%:·┊·┊
+                                      ┊ ┊:**%-%**:┊ ┊
+                                     x┊-::=**#**=::-┊y
+                                      ┊:-:+=***=+:-:┊
+                                      ┊·:--+=+=+--:·┊
+                                     4+  :--=-=--:  +40
+                                       ·· :-:::-: ··
+                                        · ·:-:-:· ·
+                                         ·· :-: ··
+                                           ··:··
+                                           ·· ··
+                                             ·
+```
+
+The braille (96x32) and 140x40 box frames, plus the Maunga Whau equivalents
+at all three sizes, were generated and inspected the same way (`object.
+test.ts`'s own frame-generation script this round used, not committed as a
+test — the frames themselves are the record, reproduced in full in this
+round's own PR description / review artifact, not duplicated a second time
+here to keep this file from re-growing past its own prior length). All six
+additional frames show the same properties: rim/crater or cone shape
+legible, one shared corner, titles clear of the surface's own ink, a
+visibly fainter grid than the box/axis-line frame.
+
+### Mutation table (this round's own additions)
+
+| Guarantee | Test | Mutation | Effect |
+|---|---|---|---|
+| Grid glyphs are never `edgeGlyph`'s axis-line set | `object.test.ts`'s "grid glyphs are never the tier's axis-line glyphs" | Revert `gridEdgeGlyph` to call `edgeGlyph` | RED — the grid glyph set intersects the axis-line set |
+| Grid cell share stays a minority | `object.test.ts`'s "grid cell count is a minority" | Draw a gridline at every sub-cell step instead of once per tick | RED (would push past 25%); MUTATION-sanity already gates the opposite direction (`guides.grid: false` must remove real cells) |
+| A title never lands on a surface-won cell | `object.test.ts`'s Item 4 describe block, `real.violations` | Revert the title candidate to `ownMeshIds: frame.ownMeshIds` (round 2's own exemption) | RED — `real.violations` stops being provably `0` at every camera (the coordinator's own reported defect returns) |
+| The Item 4 counting logic itself is sound | Same test, `mutated.violations` | (built in: inject one synthetic guide-coloured write) | RED if the counting loop's own colour comparison is broken |
+| `occlusionDepth` genuinely gates on depth, not mesh identity alone | `labelArbiter.test.ts` (existing suite, unaffected — no new dedicated case this round; covered indirectly by every 3D title gate above going green only once the split existed) | Drop the `occlusionDepth` branch, falling back to "any foreign winner covers" | RED across the whole round-1/round-2 title-presence sweep (measured directly during development: 0/3 to 1/3 titles present at the library default before the split) |
+
+**Gate.** `pnpm --filter @glyphcss/charts test` (44 files incl. this
+round's 2 new describe blocks, 1588 tests), `pnpm --filter glyphcss test`
+(labelArbiter's own suite, 1274 tests, unchanged assertions — the new
+`occlusionDepth` field is additive and every existing candidate omits it),
+`pnpm --filter @glyphcss/diagrams test` (256 tests, unaffected — no
+`occlusionDepth` on any diagrams-3D candidate), and the two authorized
+website test files pass. `pnpm build:packages` is clean.
+
+**Residuals, stated plainly:**
+
+- `AXIS_TITLE_MARGIN: 0.6` is a global default tuned against the round-1/
+  round-2 sweep's own fixture family (a 9x9 symmetric volcano with up to
+  9-character titles) and the coordinator's own 40x40 ring fixture — not
+  swept against a long ridge, a near-flat surface, or titles longer than
+  9 characters; a sufficiently long title on a sufficiently steep surface
+  can still lose to genuine occlusion at an adversarial rotation (Item 3's
+  own residual, stated there).
+- No per-axis title-margin override exists — one constant governs all
+  three axes, so a caller cannot trade a shorter x title's tighter margin
+  for a longer y title's looser one.
+- `chartsWorkbench3dRender.targetMatrix.test.ts`'s own pre-round-2 braille
+  premise (Item 5's own third-file finding) is left red, out of this
+  round's authorized scope.
+- The `[50, 62]` default-`rotX` band gate the coordinator suggested was
+  not added as a SEPARATE numeric assertion — the existing rotation sweep
+  already exercises the resolved default camera's own footprint/title
+  content directly, which was judged the more meaningful property to gate
+  on rather than the angle number itself.
+
+## C2 fix round 4 — the cellAspect convention bug (root cause), grid, wireframe, ticks, colorbar
+
+The coordinator's own root-cause finding: `@glyphcss/charts` and `glyphcss`
+define `cellAspect` INVERSELY. Charts: `cellWidth / cellHeight`
+(`GLYPH_CHART_TARGET_DEFAULTS.web.cellAspect = 0.5859375`, Glyph Mono's
+measured advance/line-height, this file's "Arc shape"). `glyphcss`:
+`cellHeight / cellWidth` (`createGlyphScene`'s own default `cellAspect:
+2.0`, `rasterize.ts`'s `fallbackCellW = 50 / cellAspect` — a FIXED
+`cellHeight` of 50, so a SMALLER value means a WIDER cell). `renderGlyphChart3d`
+resolved the CHART value and passed it straight into glyphcss's own camera
+projection, `compileScene`, `fitStaticCamera` and label anchors — every 3D
+projection was squashed horizontally by `(1/0.586)/0.586 ≈ 2.9x`. That is
+why every prior round's volcano rendered as a tiny, narrow silhouette; round
+2 "fixed" it by flattening the camera pitch (`rotX: 87`), and round 3
+correctly diagnosed the pitch as an ARTIFACT but had no visibility into the
+real cause underneath. The static==live byte-identity test never caught it
+because it fed the SAME wrong (uninverted) value into `createGlyphScene`
+too (`render.test.ts`'s own fixture), squashing both sides equally.
+
+### The fix, at the one boundary crossing
+
+`render.ts`'s `renderObjectFrame`/`fitStaticCamera` take a `sceneCellAspect`
+parameter now (renamed from the ambiguous `cellAspect`), computed ONCE in
+`renderGlyphChart3d` as `sceneCellAspect = 1 / cellAspect` and threaded
+through every call into `compileScene`/a camera's own `.project()`. Two
+calls keep the ORIGINAL chart-convention value on purpose: `createGlyphCanvas`
+(chrome only — title/colorbar — which never touches glyphcss's projection)
+and the public `resolved.cellAspect` echo (a request/response record of
+what the CALLER asked for). `camera.ts`'s `GlyphChart3dFitCameraOptions.cellAspect`
+is renamed `sceneCellAspect` too (a public break, stating explicitly which
+convention it takes) — checked against every OTHER crossing point in the
+package: the live `/charts` viewport (`Charts3dViewport.tsx`) already
+passed the correct glyphcss-convention value (`SCENE_DEFAULT_CELL_ASPECT =
+2.0`, read from `scene.getOptions().cellAspect`), so its own two call sites
+needed only a MECHANICAL field rename to keep typechecking against the
+renamed option — never a value change — and every test file directly
+calling `createGlyphScene`/`glyphChart3dFitCamera` with an explicit
+`cellAspect` got the same fix.
+
+### The regression gate
+
+The coordinator's own explicit ask: "at the default camera with square xy
+aspect, the projected floor's width/height in SCREEN units (cols x
+cellWidth vs rows x cellHeight) matches the analytic ratio for rotX 58 /
+rotY 45 within 10%. It must go red if the conversion is removed."
+`render.test.ts`'s new describe block derives the analytic ratio BY HAND
+from `rotateVec3Voxcss` (never by calling `.project()`, so it can catch a
+regression IN that call's own inputs): for a box's 8 AABB corners
+`{0,S}x{0,S}x{0,Z}` at `rotY: 45` (`cosY = sinY = 1/sqrt(2)`), `colSpanUnits
+= S*sqrt(2)` (independent of `rotX`) and `rowSpanUnits = S*sqrt(2)*cos(rotX)
++ Z*sin(rotX)`. Converted to SCREEN units (`screenWidth = colSpanCells *
+cellAspect`, `screenHeight = rowSpanCells * 1`) the `cellAspect` term
+cancels algebraically under the CORRECT conversion (`cellPxW =
+50*cellAspect` exactly undoes the `1/cellAspect` division baked into the
+cell-to-grid conversion), so a correct render's measured ratio matches the
+analytic one regardless of which target's `cellAspect` it used. Two tests:
+the real `renderGlyphChart3d` path (default camera, default square-xy
+aspect, `object.bounds.max` read directly rather than assumed) measures
+within 10%; a second test reproduces the BUG inline (a live scene built
+with the raw, un-inverted `chartCellAspect`) and proves the SAME gate
+blows past 10% — measured, roughly `cellAspect^2` off (~66% deviation at
+the web target's own `0.586`).
+
+### Item 1 — footprint, honestly re-measured (twice)
+
+Re-measuring the plot-box-share metric after the cellAspect fix ALONE
+found 0.55-0.75 across the existing 15-rotation sweep and ~0.36 on the
+small-grid colorbar scenario — a real improvement over round 3's own
+(squashed) 0.1/0.4 floors. But both of those numbers were STILL measured
+with a colorbar sitting at the canvas's own far edge (see Item 5), which
+stretches a plain occupied-bounding-box metric out toward the frame's own
+edge regardless of the surface's real size — the exact inflation Item 5
+exists to remove. Once Item 5 landed, the SAME metric, honestly excluding
+the colorbar, reads materially lower: 0.185-0.565 across the 15-rotation
+sweep (lowest at a genuinely shallow, steep-yaw view, 140x40) and ~0.2 on
+the small-grid colorbar scenario (measured over its own colorbar-excluded
+crop). Both floors are re-set to these honestly re-measured numbers with
+headroom (`FOOTPRINT_FLOOR = 0.15` for the sweep, `0.2`/`0.3` for the two
+colorbar-scenario tests) rather than the round-3 numbers, which were
+themselves measured under the still-squashed projection. The rotation
+sweep's own fixture is ALSO fixed to genuinely carry no colorbar
+(`color: "none"` at the SURFACE level, not just the render's) — its own
+comment always claimed "no colorbar chrome reserved here," which was
+false until this round (the render-level `color: "none"` alone never
+touched `mark.colorAnchors`, so a colorbar was reserved and painted the
+whole time; only Item 5's honest placement fix surfaced the mismatch).
+
+### Item 2 — grid: walls stay on by default, the floor plane becomes opt-in
+
+`object.ts`'s `axisTriadOverlay` splits `guides.grid`'s own gridline draw
+into two independent toggles: `guides.grid` (default unchanged, `true`)
+now draws ONLY the 2 WALL planes (`planeGridLines`' `fixedAxis` 0/1,
+perpendicular to x/y); a new `guides.floorGrid` (default `false`) draws
+the z=const FLOOR plane (`fixedAxis` 2) separately. Measured directly
+against the coordinator's own ring-ridge-plus-crater fixture at 96x32: the
+exposed floor plane ALONE painted more grid ink than both walls combined,
+since the surface never reaches the box's own x/y corners at this
+camera — the walls sit mostly BEHIND the data by construction (the
+shared-corner rule already puts them at the farther, occluded side), so
+they read as a faint backdrop where the floor read as a cage crowding the
+surface. `resolveGuides` (`surface.ts`) and `GlyphChart3dGuideOptions`
+(`types.ts`) carry the new field; `object.test.ts`'s "guide toggles" and
+"Item 4" describe blocks pass unchanged (a mutation test that compared
+`ticks`-only ink against the ALL-guides default was tightened to isolate
+ticks from a coincidental collision with Item 4's own tick-label fix
+below, not from this item).
+
+### Item 3 — wireframe: the mesh decimates too, not just the solid style's own resolution
+
+`style: "wireframe"` renders the surface's own quad grid as depth-tested
+lines (`mode: "wireframe"` + `hiddenLines: "hide"`) — at the coordinator's
+own 40x40 fixture that is ~1,600 quad edges, which drew as one solid
+braille blob with no rim or crater legible, never real mesh LINES with
+gaps between them. `render.ts`'s new `wireframeDecimatedMark` caps a
+wireframe render's own `maxQuadsX`/`maxQuadsY` at `WIREFRAME_MAX_QUADS`
+(20, the coordinator's own 16-24 range) — reusing `gridSurfacePolygons`'
+own decimation (`object.ts`'s doc: ALWAYS keeps the peak/trough row+column,
+never a blind stride) rather than a second mesh-thinning pass — and never
+below a caller's own explicit, already-coarser request (`Math.min`, not an
+override). `solid` style is untouched (its own full resolution is what
+makes its shading fine-grained); only the WIREFRAME mesh is decimated,
+and only when the caller didn't already ask for fewer quads. The braille
+frames below show the effect directly: real mesh lines with visible gaps,
+rim and crater both legible, not a blob.
+
+### Item 4 — tick labels: never clipped, never overwritten by sibling geometry
+
+`object.ts`'s tick-label `frame.labels.place()` call no longer forwards a
+`depth` on the write — matching the axis TITLE's own round-2/round-3 fix,
+which already did this. Forwarding `depth` let THIS SAME overlay's own
+EARLIER, non-arbitered writes (a box/wall/grid-edge line, whose
+interpolated `stampGlyphOverlayLine` depth reads fractionally nearer at
+SOME of a label's own character cells but not others) silently block part
+of a multi-character label while the rest painted — a genuinely present
+tick label rendering as a truncated number (measured directly against the
+coordinator's own fixture: "150" and "100" rendered as bare "5" and "0"
+before this fix). Occlusion by the real SURFACE is still genuine — a tick
+label now uses `ownMeshIds: new Set()` (the surface NOT exempt) plus
+`occlusionDepth: labelProjected.depth` (a real depth test against the
+surface's own rasterized depth, decided ONCE for the whole label at
+`resolve()`, never per character) — the exact mechanism the title already
+used, extended to ticks. All six deliverable frames below show every kept
+tick label intact: "150", "100", "220", "180", "140", "100", "60", "40",
+"20", "30" and Maunga Whau's own "172.5"/"117.5" all print whole, never
+clipped.
+
+### Item 5 — colorbar: a fixed gap past the plot's own real extent, vertically centred on it
+
+`renderGlyphChart3d`'s colorbar used to sit at the canvas's own far right
+edge (`canvas.cols - 1`) unconditionally, and start its row band at the
+plot's own top row — both independent of where the surface's fitted
+camera actually PUT it. An orthographic auto-fit maxes out whichever of
+columns/rows binds first, so the OTHER axis routinely has real leftover
+room the plot never uses; measured directly on the Maunga Whau fixture at
+96x32, the surface's own rightmost ink sat at column 68 while the
+far-edge colorbar sat at column 90 — a 22-column dead gap, disconnected.
+`render.ts`'s new `occupiedGridBounds` measures the RENDERED surface
+grid's own occupied column/row extent (before chrome is pasted around
+it); the colorbar's swatch column is placed at `bounds.maxCol +
+COLORBAR_GAP_COLS + labelWidth + 1` (bumped from a 1-column to a 2-column
+gap, the coordinator's own "2-3 cols" — and clearing the LABEL's own full
+width, not just its right edge, which the first cut of this fix got wrong
+and was caught immediately by the static==live byte-identity test going
+red end to end), and its row band is centred on `bounds.minRow..maxRow`
+(clamped to the plot's own row budget) rather than always starting at the
+top. The frames below show the colorbar sitting immediately beside the
+plot with a small, consistent gap, roughly level with the surface's own
+vertical centre — not stranded at the frame's edge.
+
+### Frames (verbatim, `renderGlyphChart3d` with default options besides target/width/height/charset/title)
+**ring-crater 96x32 box:**
+
+```
+                                           Ring crater                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                            height                                              
+                                                                                                
+                                                                                                
+                                             200                                                
+                                            ·┊·                                                 
+                                        ┊··· 150·┊                                              
+                                   ┊  ···   ·┊·  ┊··· ┊               220█                      
+                                  ····  ┊··· 100·┊   ···                 █                      
+                              ┊··· ┊  ···   ·┊·  ┊··· ┊ ···┊          180▓                      
+                          ┊ ···   ····  ┊-@@@@@@+┊   ·┊·   ··· ┊         ▓                      
+                          ··  ┊··· ┊  ·*%@@@@@@@@@@·· ┊ ···┊  ··      140▒                      
+                          ┊ ···   ··@=#@*@@@@@@@%*+%#%┊·   ··· ┊         ▒                      
+                          ┊·  ┊··%##=*%@@#@@@@@@#@@@%*#%%··┊  ·┊      100░                      
+                        x ┊ ··@%%%%=+#@@@@@@@@@@@@@@@##%@%@%·· ┊ y       ░                      
+                          ┊%%%%%%%%#*%@@@@@@@@@@@@@@@@%%%%%%%%%┊       60                       
+                          ┊ //%%@%@@@@@@@@@@@@@@@@@@@@@@@%%%\\ ┊                                
+                       40 +/     %%@@@@@@@@@@@@@@@@@@@@@%     \+  40                            
+                                     @@@@@@@@@@@@@@@@                                           
+                                        %%%%%%%%%%                                              
+                                           %@%%                                                 
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**ring-crater 96x32 braille:**
+
+```
+                                           Ring crater                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                            height                                              
+                                                                                                
+                                                                                                
+                                             200                                                
+                                            ⠂⠂⠂                                                 
+                                        ⠂⠂⠂⠂ 150⠂⠂                                              
+                                   ⠂  ⠂⠂⠂   ⠂⠂⠂  ⠂⠂⠂⠂ ⠂               220█                      
+                                  ⠂⠂⠂⠂  ⠂⠂⠂⠂ 100⠂⠂   ⠂⠂⠂                 █                      
+                              ⠂⠂⠂⠂ ⠂  ⠂⠂⠂ ⣠⣴⣾⣦⣄  ⠂⠂⠂⠂ ⠂ ⠂⠂⠂⠂          180▛                      
+                          ⠂ ⠂⠂⠂   ⠂⠂⠂⠂⣠⣶⣾⣿⣯⣿⣳⣿⢿⢿⣷⣶⣄  ⠂⠂⠂   ⠂⠂⠂ ⠂         ▛                      
+                          ⠂⠂  ⠂⠂⠂⠂ ⢀⣴⣾⣿⣿⣿⣷0⢙⣿⣛⣾0⣿⣾⣿⣷⣦⡀⠂ ⠂⠂⠂⠂  ⠂⠂      140▀                      
+                          ⠂ ⠂⠂⠂ ⢀⣠⣾⣿⣿10⢿⣿⣿⣽⡾⣾⣹⣽⣿⣿⣿⢿⣿10⣷⣄⡀  ⠂⠂⠂ ⠂         ▀                      
+                          ⠂⠂ ⣠⣴⣾⣿⣿⣿⣿⢯⡿⣿⣿⣟⣿⣿⣿⣷⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣦⣄  ⠂⠂      100▘                      
+                        x ⣠⣴⣾⣿⣿⣿⣿20⣟⣿⣿⣷⡿⣷⡗⡟⢧⣟⡾⢻⢺⣾⢿⣾⣾⣿⣿⣿⣿20⣿⣿⣷⣦⣄⠂ y       ▘                      
+                          ⠙⠻30⣿⣿⣿⣿⣿⣺⣟⡯⣿⡿⣏⣿⡟⡟⣦⢿⢻⣿⣹⢿⣿⢽⣻⣿⣿⣿⣿⣿⣿⣿⣿30⠂       60                       
+                          ⠂ ⠈⠙⠻⢿⣿⣿⣿⣯⣟⣿⣟⡿⣯⣧⣽⡗⣿⣻⣯⣼⣽⢿⣻⣿⣻⣽⣿⣿⣿⡿⠟⠋⠁\ ⠂                                
+                       40 +/    ⠈⠙⢿⣿⣿⣿⣿⣿⣏⣷⡧⡿⣗⣿⢼⣾⣹⣿⣿⣿⣿⣿⡿⠋⠁     \+  40                            
+                                   ⠈⠳⢿⣿⣯⣿⣯⣿⣿⣿⣿⣿⣽⣿⣽⣿⡿⠞⠁                                          
+                                      ⠈⠙⠻⢿⣿⣿⣿⣿⣿⡿⠟⠋⠁                                             
+                                          ⠙⠻⠿⠟⠋                                                 
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**ring-crater 140x40 box:**
+
+```
+                                                                 Ring crater                                                                
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                   height                                                                   
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                   200                                                                      
+                                                                  ·+·                                                                       
+                                                            ┊  ··· 150·· ┊                                                                  
+                                                            ···    ┊    ···                                                                 
+                                                      ┊  ···┊     ·+·    ┊ ··· ┊                  220█                                      
+                                                     ····   ┊  ··· 100·· ┊    ···                    █                                      
+                                                ┊ ··· ┊     ···   ·+·   ···    ┊ ··· ┊            180▓                                      
+                                               ···    ┊  ···┊  ···%%%··· ┊ ··· ┊    ···              ▓                                      
+                                          ┊ ··· ┊    ····   ·@@@@@@@@@@@@┊·   ···    ┊ ··· ┊      140▒                                      
+                                          ··    ┊ ··· ┊  ·=#*@@@@@@@@@@@%#%··· ┊ ··· ┊    ··         ▒                                      
+                                          ┊    ···   ···@=#@##@@@@@@@@@@#*@%@%···   ···    ┊      100░                                      
+                                          ┊ ··· ┊ ···%#%**#@@%#@@@@@@@@%+*@@##%%%%·· ┊ ··· ┊         ░                                      
+                                       x  ··   ··%@%%##=+#%@@@@@@@##@@@@@@@@@#*#%%@%%··   ··  y    60                                       
+                                          ┊ ··%%%%%%#*++#%%@@@@@@@@@@@@@@@@@@%###%#%%%%%·· ┊                                                
+                                          ·%@%%%@%%%%##*%@@@@@@@@@@@@@@@@@@@@@@%@%@%@%%%@%%·                                                
+                                          ┊ ///%%%%%##%%@@@@@@@@@@@@@@@@@@@@@@@@%%%%%%%\\\ ┊                                                
+                                       40 +/      @%%%@@@@@@@@@@@@@@@@@@@@@@@@@@@%@%      \+  40                                            
+                                                     %%@@@@@@@@@@@@@@@@@@@@@@@%%%                                                           
+                                                        @@@@@@@@@@@@@@@@@@@@@@                                                              
+                                                           %%%%@@@@@@@@%%%%                                                                 
+                                                               %%%@%%%@                                                                     
+                                                                  %%                                                                        
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+**maunga whau 96x32 box:**
+
+```
+                                           Maunga Whau                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                          height                                                
+                                                                                                
+                                          200                                                   
+                                          180                                                   
+                                         ·160                                                   
+                                    ┊··┊··140·┊·                                                
+                                 ┊··· ·┊··┊···┊ ····                    200█                    
+                             ·┊··┊ ····┊··120·┊··· ┊····                   █                    
+                         ···· ┊······@@@@·100·┊······· ┊····          172.5▓                    
+                       ·· ┊ ······@@@@@@@@@%*·┊··········  ┊··             ▓                    
+                       ┊ ·····┊··=@@@@@@%@@%@@%%···········┊            145▒                    
+                       ·······┊·=#@@%@@@@@@+@@@%*#·········┊··             ▒                    
+                       ·······┊+*@@@@@@@@@#@@@@@%%%*@@·····┊··        117.5░                    
+                     x (m)···++#@@@@@@@@@%@@@@@@@@@@@#@@@··┊·· y (m)       ░                    
+                       ┊··%+#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@┊··           90                     
+                       ┊·%@@@%@@@@@@@@@@@@@@@@@@@@@@@@@@@%%@@80                                 
+                     60+/   @##@@@@@@%@@@@@@@@@@@@@@@@@@%   \\                                  
+                                @@@@@@@%@@@@@@@@@@@@@                                           
+                                  %@@@#@@@@@@%%@@@                                              
+                                     @%@@@%%@%%%                                                
+                                       %%%%@%                                                   
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**maunga whau 96x32 braille:**
+
+```
+                                           Maunga Whau                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                          height                                                
+                                                                                                
+                                          200                                                   
+                                          180                                                   
+                                         ⠂160                                                   
+                                    ⠂⠂⠂⠂⠂⠂140⠂⠂⠂                                                
+                                 ⠂⠂⠂⠂ ⠂⠂⠂⠂⠂⠂⠂⠂⠂ ⠂⠂⠂⠂                    200█                    
+                             ⠂⠂⠂⠂⠂ ⠂⢀⣀⣠⣄⡀⠂120⠂⠂⠂⠂⠂ ⠂⠂⠂⠂⠂                   █                    
+                         ⠂⠂⠂⠂ ⠂⠂⠂⠂⣠⣴⣿⣽⣿⢽⣿⣷100⠂⠂⠂⠂⠂⠂⠂⠂⠂ ⠂⠂⠂⠂⠂          172.5▛                    
+                       ⠂⠂ ⠂ ⠂⠂⠂⠂⢀⣾⣿⣏⣿⢿⢼⣾⣾⣿⣿⣿⣿⣿⣷⣤⡀⠂⠂⠂⠂⠂⠂⠂⠂  ⠂⠂⠂             ▛                    
+                       ⠂ ⠂⠂⠂⠂⠂⠂⢠⣿⣿⣿⣷⣿⣽⣿⣿0⣯⣿⣿0⣿⣿⣿⣷⡄⠂⠂⠂⠂⠂⠂⠂⠂⠂⠂            145▀                    
+                       ⠂⠂⠂⠂⠂⠂⠂⣠⣿⣿⣺⢻⣿⣿10⣽⣗⣿⣿⣏⣷⣿⣿⣿⣿20⣶⣦⣄⠂⠂⠂⠂⠂⠂⠂⠂             ▀                    
+                       ⠂⠂⠂⠂⠂⢀⣴⣿⣿⣿⢻20⣽⢻⡾⣿⡿⡿⡧⣷⡿⣿⢿⣿⢿⣿⣿⣿⣿40⣶⣤⡀⠂⠂⠂⠂        117.5▘                    
+                     x (m)⣤⣾⣿⢷30⢿⣹⢻⢾⣽⣿⣽⣷⣿⣯⡿⣷⣿⣿⣻⣽⣻⣺⣟⣿⣿⣿⣿⢿⣿⢷⡀⠂⠂⠂ y (m)       ▘                    
+                       ⣠⣶⣿⣿40⣿⣽⣿⣺⢿⢺⢿⢽⣿⣯⣿⣿⣿⣿⣿⣿⢻⢾⢼⣿⣿⣿⢼⡽⣟⣿⣿⣿60⣦⡀⠂           90                     
+                       ⠂50⣿⣷⣿⣽⣿⣾⢻⣺⢿⣺⣿⡿⣯⣿⣾⡿⡯⣿⣿⣿⣹⣻⣺⣯⣿⣿⣯⣿⣿⣿⣿⡿⠟⠋⠁80                                 
+                     60+/  ⠉⠙⠻⣿⢿⣽⢿⣽⣿⣷⣷⣗⣿⡽⣗⣿⣿⣿⣻⣻⣾⣿⣿⣿⣿⣿⣿⣷⠿⠋   \\                                  
+                              ⠈⠛⢿⣻⣿⣻⣾⣿⣟⣿⣗⡟⣗⣿⢻⢾⣻⣿⣷⣯⣿⠿⠛⠉                                          
+                                 ⠉⠻⣿⣿⣿⣿⣷⣿⣿⣿⣿⣿⣿⣿⣿⠷⠋                                              
+                                   ⠈⠳⢿⡷⣿⣿⣿⣿⣿⣿⣻⠟⠃                                                
+                                      ⠙⠿⣿⣿⡿⠟⠋⠁                                                  
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**maunga whau 140x40 box:**
+
+```
+                                                                 Maunga Whau                                                                
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                height                                                                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                200                                                                         
+                                                               ·180                                                                         
+                                                            ··· ┊ ···                                                                       
+                                                         ···┊  ·160  ···                                                                    
+                                                      ···   ┊···140·· ┊ ···                                                                 
+                                                   ···  ┊···┊·· 120·····   ┊···                                                             
+                                                ··· ┊ ······┊  ·+·   ······┊   ···                  200█                                    
+                                             ···┊  ······  =@···100···┊ ·······  ┊···                  █                                    
+                                          ··┊   ┊····· #@@@@@@@@# ··· ···  ······┊   ·┊·          172.5▓                                    
+                                        ··  ┊···┊·· ┊-@@@@@@@@@%#%@@@#@· ··┊·  ··┊··· ┊ ··             ▓                                    
+                                        ┊ ······┊···-@@@@@@@@%+@@@*@#@@@···┊ ····┊······            145▒                                    
+                                        ····· ··┊  -@%%@%@@@@@@@@%+%@@%@@@ ····  ┊·· ·┊···             ▒                                    
+                                        ····┊·  ┊·-*@@@@@@@@@@@@@@@@@@@%+**%##%··┊  ··┊···        117.5░                                    
+                                     x (m)  ┊···=*#@@@@@@@@@@@@*@@@@@@@%%%@@@*+=%=··· ┊ ·· y (m)       ░                                    
+                                        ┊ ··· %++#*@@@@@@@@@@@%@@@@@@@@@@@@@@@@%@@@@ ···             90                                     
+                                        ···*@=%@*@@@@@@@@@@@@#@@@@@@@@@@@@@@@@@@@@@@@·┊···                                                  
+                                        ┊#%#@%@@@@@@@@@@@@@@@@%@%@@@@@@@@@@@@@@@@@%@@@%%·80                                                 
+                                     60 +/ @@@#@@#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%@@@@   \\                                                  
+                                                #@@@@@@@@@@@@#%@@@@@@@@@@@@%*@%%%%                                                          
+                                                   @@@%%@@@%@%@@@@@@@@@@@@@@@@@                                                             
+                                                     @@@@@%@@@@@@@@@@@@@@@@                                                                 
+                                                        @@@%@%@%@@@@%@@@%                                                                   
+                                                          @@@@%%%%%@%%                                                                      
+                                                             %%@@@%                                                                         
+                                                               %                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+### Mutation table (this round's own additions)
+
+| Guarantee | Test | Mutation | Effect |
+|---|---|---|---|
+| `sceneCellAspect` is the INVERSE of the chart's own `cellAspect`, and this reaches the real projection | `render.test.ts`'s "regression gate: the sceneCellAspect CONVERSION reaches the projection" | Pass the raw, un-inverted `chartCellAspect` into `createGlyphScene`/`compileScene` (reproduced inline as a second test, since the private `renderObjectFrame` cannot be mutated from outside) | RED — the measured screen-unit ratio deviates from the analytic one by ~66% (roughly `cellAspect^2`), blowing the 10% band |
+| A tick label is never partially clipped by sibling overlay geometry | `object.test.ts`'s "guide-plane grid glyphs" A/B render (visual) plus the deliverable frames themselves | Revert the tick-label `place()` call to forward `depth: labelProjected.depth` (the pre-fix rule) | RED, visually — "150"/"100" print as "5"/"0" against the coordinator's own fixture (reproduced directly during development) |
+| A tick label still hides behind a genuinely nearer surface | `object.test.ts`'s "Item 4: zero guide glyphs on surface-won cells" (unaffected by this round — ticks now share the SAME `occlusionDepth` mechanism the title's own gate already exercises) | Drop `occlusionDepth`/revert `ownMeshIds` to `frame.ownMeshIds` (the surface exempted) | RED — a tick label can print straight through real surface ink with nothing to stop it |
+| The floor guide plane is opt-in, not on by default | `object.test.ts`'s guide-toggle describe block (unaffected structurally; `guides.floorGrid` defaults `false` and is covered by the SAME `guides.grid: false` A/B pattern already gated there) | Default `floorGrid` to `true` | Visually reintroduces the reported "dense diamond cage" at the coordinator's own fixture (measured: the floor plane alone out-inks both walls combined) |
+| A wireframe render's mesh is capped at `WIREFRAME_MAX_QUADS`, `solid` is not | `render.test.ts`'s existing "style: 'wireframe' static frame equals a live scene..." byte-identity test (unaffected — both sides call the SAME `wireframeDecimatedMark`) plus visual inspection of the braille frames below | Remove the `style === "wireframe"` decimation branch | Visually reverts to a solid braille blob at the 40x40/87x61 fixtures — no rim/crater legible |
+| The colorbar sits a fixed gap past the surface's own real extent, never the canvas's own far edge unconditionally | `render.test.ts`'s "byte-identical PLOT REGION" test's own `colorbarStartCol` derivation (fails end-to-end if the gap ever undershoots the label's own full width — caught directly during development) | Revert `swatchCol` to `canvas.cols - 1` | Visually reintroduces the reported 22-column dead gap on the Maunga Whau fixture |
+| Two prior colorbar reservation constants must track each other (`COLORBAR_GAP_COLS`'s own `1 -> 2` bump) | `render.test.ts`'s own `colorbarLabelWidthForTest` call site (a hardcoded mirror of `render.ts`'s reservation formula) | Change `render.ts`'s `COLORBAR_GAP_COLS` without updating the test's own mirrored constant | RED across the WHOLE byte-identity comparison (not just near the colorbar) — a desynced reservation width sizes the live scene mount's own grid differently from what the static path fit against, reading as a global content shift rather than a colorbar-local diff (found directly during this round's own development) |
+
+**Gate.** `pnpm --filter @glyphcss/charts test` (43 files, 1589 tests, +2
+net over round 3's 1588: +1 new isolated ticks-ink test replacing a
+mutation-fragile assertion, +2 new regression-gate tests, -1 assertion
+folded into the new isolated test), `pnpm --filter glyphcss test` (116
+files, 1274 tests, unaffected — `labelArbiter.ts`'s own change is a
+different WRITE path through the SAME public `place()`/`resolve()`
+contract, no new field), `pnpm --filter @glyphcss/diagrams test` (12
+files, 256 tests, unaffected — no 3D-diagrams candidate sets `depth`
+either), `pnpm --filter @glyphcss/compile test` (8 files, 88 tests,
+unaffected), and the three authorized website test files pass (28 tests
+across `chartsWorkbench3d.test.ts`, `chartsWorkbench3dRender.targetMatrix.test.ts`,
+`Charts3dViewport.lifecycle.test.tsx`). `pnpm build:packages` is clean.
+
+### The third website file — `chartsWorkbench3dRender.targetMatrix.test.ts`
+
+Authorized this round specifically because its own "braille downgrades to
+the default ramp with no braille glyphs in the output" test pinned the
+PRE-round-2 premise (braille as a faithful downgrade) — round 2 already
+made braille a real depth-tested wireframe render, so `glyphChart3dCharsetDegrades("braille")`
+has been `false` since then and this test was silently asserting the
+opposite of the library's own real behaviour, left red and out of scope
+at the end of round 3. Rewritten to follow the library predicate directly
+(mirroring `chartsWorkbench3d.test.ts`'s and `Charts3dViewport.lifecycle.test.tsx`'s
+own idiom, never a hardcoded charset list): a charset the predicate flags
+must render WITHOUT its own real glyphs (a faithful downgrade); a charset
+it does not flag must render WITH them — checked concretely for braille
+via the same `⠀-⣿` code-point range the old test used, plus a standalone
+mutation-sanity assertion pinning `glyphChart3dCharsetDegrades("braille")
+=== false` / `glyphChart3dCharsetDegrades("blocks") === true` so a future
+library change that re-degrades braille (or un-degrades blocks) reddens
+THIS assertion first, naming exactly which premise moved.
+
+### Residuals, stated plainly
+
+- The rotation sweep's `FOOTPRINT_FLOOR` (`0.15`) and the small-grid
+  colorbar scenario's own floors (`0.2`/`0.3`) are lower numbers than
+  round 3 shipped — not because the render got worse (it is dramatically
+  better, visually, than round 3's own squashed output — see the frames
+  above), but because round 3's numbers were measured under a metric
+  (occupied-bounding-box share) that a disconnected far-edge colorbar was
+  silently inflating, and because round 3's numbers were themselves
+  measured under the still-squashed cellAspect. An honest floor here is a
+  genuinely lower number for a genuinely better render — exactly the
+  coordinator's own stated fallback ("if unreachable at an honest pitch,
+  say so and give the measured number") applied twice over, not once.
+- `AXIS_TITLE_MARGIN: 0.6` (round 3) is untouched this round — titles were
+  never the subject of Item 4's clipping bug (they already used
+  `occlusionDepth` with no `depth` forwarded, round 2/3's own fix); its
+  own residual (a sufficiently long title on a sufficiently steep surface
+  can still lose to genuine occlusion at an adversarial rotation) stands
+  as documented in round 3.
+- `COLORBAR_GAP_COLS` is a single constant shared by the WIDTH reservation
+  (`fitStaticCamera`'s own budget) and the real PLACEMENT gap — a
+  deliberate choice so the two can never drift, at the cost of the
+  reservation being sized for the WORST case (the surface filling its
+  entire column budget) even though the placement usually needs less; the
+  unused reserved columns simply stay blank canvas.
+- No dedicated numeric gate exists for "the grid reads as faint, not a
+  cage" beyond the coordinator's own visual review of the frames below and
+  the existing `guides.grid: false` ink-reduction A/B test — a perceptual
+  claim ("faint") has no clean automated metric distinct from raw cell
+  count, which round 3's own gate already covers.
+- The wireframe decimation cap (`WIREFRAME_MAX_QUADS = 20`) is a single
+  global constant, not swept against grids much larger or smaller than the
+  coordinator's own 40x40/87x61 fixtures — a very fine (e.g. 200x200) or
+  very coarse (e.g. 10x10) surface's own "right" decimation count is
+  unverified past this round's two fixtures.

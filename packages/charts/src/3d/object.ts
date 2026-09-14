@@ -14,9 +14,10 @@
  */
 import { gridSurfacePolygons, surfaceMedianOfBlock, createSurfaceMedianScratch } from "glyphcss";
 import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey } from "glyphcss";
-import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
+import type { GlyphCamera, GlyphSceneObject, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
 import { glyphChart3dBandColor, glyphChart3dBandIndex } from "./colorscale";
 import type { GlyphChart3dMark, GlyphChart3dObjectOptions, GlyphChart3dResolvedAxis, GlyphChart3dSurfaceMark } from "./types";
+import type { GlyphChartCharset } from "../types";
 
 /**
  * `shading: "value"` (PLAN-3d.md §5 "Lighting vs value", C1's own doc: "a
@@ -88,11 +89,44 @@ function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly
 
 /** How far outward (as a fraction of that axis's own box extent) a tick label / axis title is pushed past the box edge. */
 const TICK_LABEL_MARGIN = 0.12;
-const AXIS_TITLE_MARGIN = 0.3;
-/** Priorities, following AGENTS.md's "Charts" §5 "Labels": axis extremes, then zero, then interior ticks; titles always outrank ticks. */
-const PRIORITY_TITLE = 1000;
-const PRIORITY_TICK_EXTREME = 500;
-const PRIORITY_TICK_ZERO = 480;
+/**
+ * Fix round 3, Item 3 ("just beyond its own tick labels" / "never over the
+ * surface"). Round 2 pushed this to 0.38 (from an original 0.3) to clear an
+ * edge-on-axis tick/title collision found in the round-1 rotation sweep at
+ * a near-90-degree pitch — a symptom of round 2's OWN near-edge-on default
+ * camera (`camera.ts`'s `rotX: 87`, since corrected to `58`), not a
+ * property of the title placement itself.
+ *
+ * Round 3 tried the literal "just beyond ticks" reading first — 0.2, barely
+ * past `TICK_LABEL_MARGIN`'s own 0.12 — once the title candidate ALSO got a
+ * genuine depth test against the surface (`labelArbiter.ts`'s
+ * `occlusionDepth`, below): a title that close to the box is legitimately,
+ * not incidentally, behind a tall/steep surface at many camera angles, and
+ * every value from 0.2 up to ~0.5 left at least one of the pre-existing
+ * round-1/round-2 rotation-sweep gates (`render.test.ts`) losing more than
+ * one of three titles to genuine occlusion. 0.6 is the smallest value
+ * measured to clear ALL of them (the full sweep, `object.test.ts`'s own
+ * guides gates, and the round-2 "byte-identical" camera-parity fixture)
+ * while its own box-share cost is honestly re-floored rather than papered
+ * over (`render.test.ts`'s own "byte-identical PLOT REGION" test, whose
+ * `shading: "value"` + colorbar fixture measures ~0.13 at this margin,
+ * documented there). This is FARTHER than "just beyond ticks" literally
+ * asks for, and is recorded here as the actual, measured trade-off: a
+ * uniform outward push is the only lever `outwardPoint` gives this overlay,
+ * and a real depth test makes a close title genuinely fragile against a
+ * tall surface — `docs/design/charts3d.md`'s "C2 fix round 3" carries the
+ * full sweep.
+ */
+const AXIS_TITLE_MARGIN = 0.6;
+/**
+ * Priorities (fix round 2's "axes in one corner" redesign): endpoints
+ * outrank the title, which outranks an interior tick — the user's own
+ * explicit ordering ("endpoints > title > interior ticks"), a change from
+ * C1's original "title always outranks every tick" rule.
+ */
+const PRIORITY_TICK_EXTREME = 900;
+const PRIORITY_TITLE = 800;
+const PRIORITY_TICK_ZERO = 600;
 const PRIORITY_TICK_INTERIOR = 400;
 
 type Bit = 0 | 1;
@@ -117,12 +151,24 @@ const BOX_EDGES: readonly Edge[] = (() => {
 function cornerPoint(c: Corner, ext: readonly [number, number, number]): Vec3 {
   return [c[0] ? ext[0]! : 0, c[1] ? ext[1]! : 0, c[2] ? ext[2]! : 0];
 }
-function lerpVec3(a: Vec3, b: Vec3, t: number): Vec3 {
-  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+
+/**
+ * The minimal shape `projectObjectPoint`/`nearestEdge` actually need — a
+ * `GlyphOverlayFrame` (the real render/stamp path) satisfies this
+ * structurally, so both it and a bare `{ camera, cols, rows, cellAspect,
+ * toWorld }` probe (`glyphChart3dLabelAnchors`' own reference camera, no
+ * grid/scene/arbiter involved) can share this exact geometry.
+ */
+interface Projector {
+  readonly camera: GlyphCamera;
+  readonly cols: number;
+  readonly rows: number;
+  readonly cellAspect: number;
+  readonly toWorld: (p: Vec3) => Vec3;
 }
 
 interface Projected { readonly col: number; readonly row: number; readonly depth: number; }
-function projectObjectPoint(frame: GlyphOverlayFrame, p: Vec3): Projected {
+function projectObjectPoint(frame: Projector, p: Vec3): Projected {
   const world = frame.toWorld(p);
   const result = frame.camera.project(world, frame.cols, frame.rows, frame.cellAspect);
   const depth = result[3] ?? result[2];
@@ -138,109 +184,385 @@ function edgeGlyph(from: Projected, to: Projected): string {
   return (dc > 0) === (dr > 0) ? "\\" : "/";
 }
 
-/** The 4 edges parallel to `axis` (0=x, 1=y, 2=z) — those where only `axis`'s coordinate differs between the two corners. */
-function edgesAlongAxis(axis: 0 | 1 | 2): readonly Edge[] {
-  return BOX_EDGES.filter(([a, b]) => {
-    for (let k = 0; k < 3; k++) {
-      if (k === axis) continue;
-      if (a[k as 0 | 1 | 2] !== b[k as 0 | 1 | 2]) return false;
-    }
-    return true;
-  });
-}
-
-function boxWireframeOverlay(ext: readonly [number, number, number], color: string): GlyphSceneOverlay {
-  return {
-    id: "box",
-    order: 0,
-    stamp(grid, frame) {
-      for (const [a, b] of BOX_EDGES) {
-        const from = projectObjectPoint(frame, cornerPoint(a, ext));
-        const to = projectObjectPoint(frame, cornerPoint(b, ext));
-        stampGlyphOverlayLine(grid, from, to, edgeGlyph(from, to), color);
-      }
-    },
-  };
-}
-
-/** Picks, for `axis`, the one of its 4 parallel edges nearest the camera THIS frame (largest projected depth at its midpoint) — Plotly's own "ticks on the near edge" rule. */
-function nearestEdge(axis: 0 | 1 | 2, ext: readonly [number, number, number], frame: GlyphOverlayFrame): Edge {
-  const candidates = edgesAlongAxis(axis);
-  let best = candidates[0]!;
-  let bestDepth = -Infinity;
-  for (const edge of candidates) {
-    const mid = lerpVec3(cornerPoint(edge[0], ext), cornerPoint(edge[1], ext), 0.5);
-    const depth = projectObjectPoint(frame, mid).depth;
-    if (depth > bestDepth) { bestDepth = depth; best = edge; }
+/**
+ * Fix round 3, Item 2 ("gridlines are a cage"): a guide-plane gridline
+ * reuses `edgeGlyph`'s SAME full-weight box-drawing glyphs as the axis
+ * lines it shares a colour palette with, so at full weight it reads as a
+ * second cage of `│`/`─` strokes across the whole plot — indistinguishable
+ * from the axis frame itself at a glance, the coordinator's own complaint.
+ * This mirrors the 2D chart's own faint `axes.{x,y}.grid` glyph choice
+ * (AGENTS.md's "Axes": `┈`/`┊` on box, `.` on ascii) in SPIRIT, though not
+ * literally on `ascii` (see that branch's own doc: `.`/`:` collide with
+ * this renderer's `SOLID_RAMP`, which the 2D canvas painter never uses) —
+ * a DIFFERENT glyph family per tier from `edgeGlyph`'s solid line-drawing set,
+ * never merely a dimmer colour on the same glyphs, so a reader can tell
+ * "this is structure" from "this is a guide" without colour at all
+ * (`NO_COLOR`/monochrome terminals included). `braille` has no light
+ * line-art glyph of its own (it already renders the whole scene as a real
+ * depth-tested wireframe of BRAILLE DOTS, `render.ts`'s own
+ * `resolveGlyphChart3dStyle`), so a single sparse dot (`⠂`, the low-left
+ * dot only — visually the lightest single-dot braille glyph) stands in for
+ * "faint line" there instead of a 2-glyph directional pair.
+ */
+function gridEdgeGlyph(from: Projected, to: Projected, charset: GlyphChartCharset): string {
+  if (charset === "braille") return "⠂";
+  if (charset === "ascii") {
+    // NOT the 2D chart's own literal `.`/`:` pair (AGENTS.md's "Axes"): a
+    // 3D chart's surface renders through `compileScene`'s solid MESH path,
+    // whose glyph-by-intensity ramp IS `glyphcss`'s `SOLID_RAMP`
+    // (`" .:-=+*#%@"`) — `.`/`:` are real, low-but-nonzero SURFACE shading
+    // levels there, not free glyphs the way they are in the 2D canvas
+    // painter's own, unrelated shading ramps. Reusing them would make a
+    // grid line visually indistinguishable from a faintly-lit patch of the
+    // surface itself under `ascii` — exactly the "cage vs. structure"
+    // ambiguity Item 2 exists to remove. `,` is printable ASCII, outside
+    // `SOLID_RAMP` entirely, and reads as a light mark.
+    return ",";
   }
-  return best;
+  // "box" (a caller passing `charset: "blocks"` here gets treated as `box`
+  // too — `renderGlyphChart3d` itself never does, since its own
+  // `chromeTier` already downgrades `blocks` to `ascii` before it reaches
+  // `glyphChartObject`, AGENTS.md's own C2 doc: "blocks renders byte-
+  // identical to ascii" — so this branch is `box`'s in practice).
+  const dc = to.col - from.col, dr = to.row - from.row;
+  if (dc === 0 && dr === 0) return "·";
+  if (dc === 0) return "┊";
+  if (dr === 0) return "┈";
+  return "·"; // no faint diagonal box-drawing glyph exists; a dot reads as "guide", not "structure".
 }
 
-/** Outward push-out point for a tick/title on `axis`'s chosen edge, at parameter `t` along it. The other two axes push away from the box using the edge's OWN fixed corner bits (0 -> push negative, 1 -> push positive). */
-function outwardPoint(axis: 0 | 1 | 2, edge: Edge, t: number, ext: readonly [number, number, number], margin: number): Vec3 {
-  const fixed = edge[0];
+/**
+ * The single shared corner the x/y/z axis triad meets at (fix round 2's
+ * "axes in one corner" redesign, matplotlib/MATLAB's own convention) —
+ * REPLACES C1's per-axis "nearest of 4 parallel edges" rule, which let each
+ * axis independently jump to a different box edge and scattered ticks/
+ * titles around the whole box.
+ *
+ * `"auto"`: for EACH axis independently, pick whichever of its two
+ * PERPENDICULAR faces is FARTHER from the camera (smaller projected depth
+ * at the face's own centre) — the "put the guide wall behind the data"
+ * rule the user asked for verbatim: each of the 3 resulting faces (the
+ * "guide walls" `planeGridLines`/`classifyEdges` below read off this SAME
+ * corner) is, by construction, the back one of its own opposing pair, so
+ * together they sit behind the surface from the camera's own side, exactly
+ * like a 2D chart's plot rect sits in front of its own axis lines. A pure
+ * function of camera ROTATION only (depth ordering is zoom/center-invariant
+ * for an orthographic camera) — never a stored, mutated "last corner", so
+ * it never needs to reconcile with a different frame's own state; it is
+ * naturally STABLE except at genuine silhouette transitions (a rotation
+ * angle where a face pair's depths cross), never spuriously flickering
+ * near one, because the underlying depth comparison has no dead zone.
+ *
+ * An explicit `[bx, by, bz]` (this file's own `Bit` convention: 0 = the
+ * face at that axis's own 0 coordinate, 1 = the face at `ext[axis]`) pins a
+ * fixed layout regardless of rotation.
+ */
+function resolveSharedCorner(ext: readonly [number, number, number], frame: Projector, cornerOption: "auto" | readonly [Bit, Bit, Bit]): Corner {
+  if (cornerOption !== "auto") return cornerOption;
+  const bit = (axis: 0 | 1 | 2): Bit => {
+    const faceCenter = (b: Bit): Vec3 => {
+      const p: [number, number, number] = [ext[0] / 2, ext[1] / 2, ext[2] / 2];
+      p[axis] = b ? ext[axis] : 0;
+      return p;
+    };
+    const d0 = projectObjectPoint(frame, faceCenter(0)).depth;
+    const d1 = projectObjectPoint(frame, faceCenter(1)).depth;
+    return d0 <= d1 ? 0 : 1; // farther (smaller depth) face wins; a tie favours 0, stably
+  };
+  return [bit(0), bit(1), bit(2)];
+}
+
+function flipCorner(corner: Corner, axis: 0 | 1 | 2): Corner {
+  const out: [Bit, Bit, Bit] = [corner[0], corner[1], corner[2]];
+  out[axis] = corner[axis] ? 0 : 1;
+  return out;
+}
+
+function cornersEqual(a: Corner, b: Corner): boolean {
+  return a[0] === b[0] && a[1] === b[1] && a[2] === b[2];
+}
+
+/**
+ * Splits the 12 box edges by their relation to `corner`: the 3 edges
+ * TOUCHING it (`axisLines` — the triad itself), the 6 remaining edges that
+ * bound one of the 3 "guide plane" faces meeting at `corner` (`wallOutline`
+ * — `guides.walls`), and the 3 edges left over, on neither (`boxOnly` —
+ * `guides.box`, "the remaining far/near box edges completing the block").
+ */
+function classifyEdges(corner: Corner): { readonly axisLines: readonly Edge[]; readonly wallOutline: readonly Edge[]; readonly boxOnly: readonly Edge[] } {
+  const axisLines: Edge[] = [], wallOutline: Edge[] = [], boxOnly: Edge[] = [];
+  for (const edge of BOX_EDGES) {
+    const [a, b] = edge;
+    if (cornersEqual(a, corner) || cornersEqual(b, corner)) { axisLines.push(edge); continue; }
+    // An edge lies on one of the 3 guide planes iff it doesn't vary along
+    // SOME axis k, and its fixed bit on that axis matches the corner's own.
+    const onGuidePlane = a[0] === b[0] && a[0] === corner[0]
+      || a[1] === b[1] && a[1] === corner[1]
+      || a[2] === b[2] && a[2] === corner[2];
+    (onGuidePlane ? wallOutline : boxOnly).push(edge);
+  }
+  return { axisLines, wallOutline, boxOnly };
+}
+
+/**
+ * Outward push-out point for a tick/title on `axis`'s triad edge, at
+ * parameter `t` along it. The edge touching `corner` always spans the
+ * FULL `[0, ext[axis]]` range on its own axis regardless of `corner[axis]`
+ * (the two corners it connects differ only in the axis's OWN bit), so the
+ * axis's own coordinate is `t * ext[axis]` — data-consistent with the
+ * mesh's own vertex position, unflipped. The other two axes push away from
+ * the box using the shared corner's OWN fixed bits (0 -> push negative, 1
+ * -> push positive) — identical for every axis, since they all share the
+ * SAME corner.
+ */
+function outwardPoint(axis: 0 | 1 | 2, corner: Corner, t: number, ext: readonly [number, number, number], margin: number): Vec3 {
   const p: [number, number, number] = [0, 0, 0];
   for (let k = 0; k < 3; k++) {
     const axisK = k as 0 | 1 | 2;
     if (axisK === axis) { p[k] = t * ext[axis]; continue; }
-    const bit = fixed[axisK];
+    const bit = corner[axisK];
     const push = margin * ext[axisK];
     p[k] = bit ? ext[axisK] + push : -push;
   }
   return p;
 }
 
-function axisOverlay(axisIndex: 0 | 1 | 2, name: string, axis: GlyphChart3dResolvedAxis, ext: readonly [number, number, number], color: string): GlyphSceneOverlay {
+/**
+ * Grid lines on the guide plane fixed at `fixedAxis = corner[fixedAxis]`
+ * (`guides.grid`) — at every tick of EACH of the plane's other two axes, a
+ * line sweeping the plane's own full extent along the remaining axis, the
+ * same "gridlines behind the marks" a 2D chart's `axes.{x,y}.grid` paints,
+ * extended by the one dimension a 3D chart adds.
+ */
+function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axes: readonly [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis]): readonly (readonly [Vec3, Vec3])[] {
+  const others = ([0, 1, 2] as const).filter((a) => a !== fixedAxis) as [0 | 1 | 2, 0 | 1 | 2];
+  const fixedVal = corner[fixedAxis] ? ext[fixedAxis] : 0;
+  const lines: (readonly [Vec3, Vec3])[] = [];
+  for (const sweepAxis of others) {
+    const alongAxis = others[0] === sweepAxis ? others[1] : others[0];
+    const axisData = axes[sweepAxis];
+    const [lo, hi] = axisData.domain;
+    const span = hi - lo || 1;
+    for (const value of axisData.ticks) {
+      const t = (value - lo) / span;
+      const p0: [number, number, number] = [0, 0, 0], p1: [number, number, number] = [0, 0, 0];
+      p0[fixedAxis] = p1[fixedAxis] = fixedVal;
+      p0[sweepAxis] = p1[sweepAxis] = t * ext[sweepAxis];
+      p0[alongAxis] = 0;
+      p1[alongAxis] = ext[alongAxis];
+      lines.push([p0, p1]);
+    }
+  }
+  return lines;
+}
+
+const AXIS_BOX_COLOR = "#7a7f8a";
+const AXIS_GRID_COLOR = "#4b5058";
+const AXIS_NAMES = ["x", "y", "z"] as const;
+
+/**
+ * ONE overlay drawing everything the axis triad owns — box/wall/axis-line
+ * edges, guide-plane gridlines, ticks, tick labels and axis titles — so the
+ * shared corner is resolved EXACTLY ONCE per `stamp()` call and every piece
+ * reads the SAME corner (mutation gate: "all three axis lines share one
+ * corner vertex, at every camera").
+ */
+function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, number, number], color: string, charset: GlyphChartCharset): GlyphSceneOverlay {
+  const guides = mark.guides;
   return {
-    id: `axis-${name}`,
-    order: 1,
+    id: "axis-triad",
+    order: 0,
     stamp(grid, frame) {
-      const edge = nearestEdge(axisIndex, ext, frame);
-      const [lo, hi] = axis.domain;
-      const span = hi - lo;
-      for (let i = 0; i < axis.ticks.length; i++) {
-        const value = axis.ticks[i]!;
-        const t = span === 0 ? 0 : (value - lo) / span;
-        const onEdge = outwardPoint(axisIndex, edge, t, ext, 0);
-        const tickProjected = projectObjectPoint(frame, onEdge);
-        stampGlyphOverlayCell(grid, { col: tickProjected.col, row: tickProjected.row, char: "+", color, depth: tickProjected.depth });
-        const label = outwardPoint(axisIndex, edge, t, ext, TICK_LABEL_MARGIN);
-        const labelProjected = projectObjectPoint(frame, label);
-        const priority = i === 0 || i === axis.ticks.length - 1
-          ? PRIORITY_TICK_EXTREME
-          : value === 0
-            ? PRIORITY_TICK_ZERO
-            : PRIORITY_TICK_INTERIOR;
-        frame.labels.place({
-          id: `axis-${name}-tick-${i}`,
-          priority,
-          col: labelProjected.col,
-          row: labelProjected.row,
-          text: axis.tickLabels[i]!,
-          color,
-          ownMeshIds: frame.ownMeshIds,
-          depth: labelProjected.depth,
-        });
+      const corner = resolveSharedCorner(ext, frame, mark.corner);
+      const { axisLines, wallOutline, boxOnly } = classifyEdges(corner);
+      const drawEdges = (edges: readonly Edge[]) => {
+        for (const [a, b] of edges) {
+          const from = projectObjectPoint(frame, cornerPoint(a, ext));
+          const to = projectObjectPoint(frame, cornerPoint(b, ext));
+          stampGlyphOverlayLine(grid, from, to, edgeGlyph(from, to), color);
+        }
+      };
+      if (guides.axisLines) drawEdges(axisLines);
+      if (guides.walls) drawEdges(wallOutline);
+      if (guides.box) drawEdges(boxOnly);
+
+      if (guides.grid || guides.floorGrid) {
+        // Fix round 4, Item 2: `fixedAxis` 0/1 are the WALL planes
+        // (perpendicular to x/y) — `guides.grid`'s own toggle, default
+        // `true`. `fixedAxis` 2 is the FLOOR (the z=const plane) —
+        // `guides.floorGrid`, default `false`, since the floor sits mostly
+        // EXPOSED (not behind the surface) at a typical camera/footprint,
+        // where the two walls sit mostly behind it by construction (the
+        // shared-corner rule) and read as a faint backdrop instead of a
+        // cage. Measured against the coordinator's own ring-ridge-plus-
+        // crater fixture at 96x32: the floor plane alone painted MORE grid
+        // ink than both walls combined, since the surface never reaches
+        // the box's own x/y corners.
+        const axesTriple: [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis] = [mark.axes.x, mark.axes.y, mark.axes.z];
+        for (const fixedAxis of [0, 1, 2] as const) {
+          if (fixedAxis === 2 ? !guides.floorGrid : !guides.grid) continue;
+          for (const [p0, p1] of planeGridLines(fixedAxis, corner, ext, axesTriple)) {
+            const from = projectObjectPoint(frame, p0);
+            const to = projectObjectPoint(frame, p1);
+            stampGlyphOverlayLine(grid, from, to, gridEdgeGlyph(from, to, charset), AXIS_GRID_COLOR);
+          }
+        }
       }
-      if (axis.title.length > 0) {
-        const titlePoint = outwardPoint(axisIndex, edge, 0.5, ext, AXIS_TITLE_MARGIN);
-        const titleProjected = projectObjectPoint(frame, titlePoint);
-        frame.labels.place({
-          id: `axis-${name}-title`,
-          priority: PRIORITY_TITLE,
-          col: titleProjected.col,
-          row: titleProjected.row,
-          text: axis.title,
-          color,
-          ownMeshIds: frame.ownMeshIds,
-          depth: titleProjected.depth,
-        });
+
+      for (let axisIndex = 0 as 0 | 1 | 2; axisIndex < 3; axisIndex++) {
+        const name = AXIS_NAMES[axisIndex];
+        const axis = mark.axes[name];
+        const [lo, hi] = axis.domain;
+        const span = hi - lo;
+        for (let i = 0; i < axis.ticks.length; i++) {
+          const value = axis.ticks[i]!;
+          const t = span === 0 ? 0 : (value - lo) / span;
+          if (guides.ticks) {
+            const onEdge = outwardPoint(axisIndex, corner, t, ext, 0);
+            const tickProjected = projectObjectPoint(frame, onEdge);
+            stampGlyphOverlayCell(grid, { col: tickProjected.col, row: tickProjected.row, char: "+", color, depth: tickProjected.depth });
+          }
+          if (!guides.tickLabels) continue;
+          const label = outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN);
+          const labelProjected = projectObjectPoint(frame, label);
+          const priority = i === 0 || i === axis.ticks.length - 1
+            ? PRIORITY_TICK_EXTREME
+            : value === 0
+              ? PRIORITY_TICK_ZERO
+              : PRIORITY_TICK_INTERIOR;
+          frame.labels.place({
+            id: `axis-${name}-tick-${i}`,
+            priority,
+            col: labelProjected.col,
+            row: labelProjected.row,
+            text: axis.tickLabels[i]!,
+            color,
+            // Fix round 4, Item 4 ("a tick label must never be overwritten
+            // by the axis-line/tick glyph or clipped"): the tick label now
+            // gets EXACTLY the axis TITLE's own two-part treatment (round
+            // 2's P1-b / round 3's own `occlusionDepth` field, documented in
+            // full on the title's own `place()` call below), not the
+            // ORIGINAL round-2 rule this replaces (`ownMeshIds:
+            // frame.ownMeshIds`, exempting the surface from occlusion
+            // entirely, plus a `depth` forwarded to the WRITE). That
+            // original rule had two bugs at once: (1) `depth` compared the
+            // label's own write against THIS SAME overlay's own earlier,
+            // non-arbitered box/wall/grid-edge writes — whose interpolated
+            // `stampGlyphOverlayLine` depth reads fractionally nearer at
+            // SOME of the label's own character cells but not others —
+            // silently blocking part of a multi-character label while the
+            // rest painted (a genuinely present tick label rendering as a
+            // truncated number, "200" -> "00", "40" -> "4+"); (2) exempting
+            // the surface from occlusion meant a tick label could print
+            // straight over real surface ink with nothing to stop it once
+            // (1)'s `depth` gate — the only thing that had ever incidentally
+            // curbed that — was removed to fix (1) (`object.test.ts`'s own
+            // "Item 4: zero guide glyphs on surface-won cells" gate catches
+            // this directly). `ownMeshIds: new Set()` (surface NOT exempt)
+            // plus `occlusionDepth: labelProjected.depth` (a genuine depth
+            // test against the surface's own rasterized depth, checked ONCE
+            // for the whole label at `resolve()`, never per character)
+            // fixes both: the label is dropped WHOLE when the surface is
+            // truly nearer at its anchor, and never partially eaten by
+            // sibling overlay geometry either way.
+            ownMeshIds: new Set(),
+            occlusionDepth: labelProjected.depth,
+          });
+        }
+        if (guides.titles && axis.title.length > 0) {
+          const titlePoint = outwardPoint(axisIndex, corner, 0.5, ext, AXIS_TITLE_MARGIN);
+          const titleProjected = projectObjectPoint(frame, titlePoint);
+          frame.labels.place({
+            id: `axis-${name}-title`,
+            priority: PRIORITY_TITLE,
+            col: titleProjected.col,
+            row: titleProjected.row,
+            text: axis.title,
+            color,
+            // Fix round 3, Item 3 ("never over the surface"): an EMPTY Set,
+            // not `frame.ownMeshIds` (what the tick-label placement above
+            // still uses) — so the surface is never exempt from covering a
+            // title the way it's exempt for a tick. Paired with
+            // `occlusionDepth` below, `labelArbiter.ts`'s own fix-round-3
+            // field makes this a REAL depth test: the title hides only when
+            // the surface is genuinely nearer than the title's own point at
+            // that exact cell (the coordinator's reported case — the z title
+            // landing on a bulge near the peak), never merely because SOME
+            // cell the title's text spans belongs to the surface's
+            // silhouette elsewhere on screen. `occlusionDepth` — NOT `depth`
+            // — deliberately: `depth` is still omitted here exactly as round
+            // 2's own P1-b left it (forwarding it to the WRITE let this SAME
+            // overlay's own earlier, non-arbitered box/wall/grid-edge writes
+            // — which carry an interpolated depth of their own along
+            // `stampGlyphOverlayLine`'s walk — block the title's write via
+            // `stampGlyphOverlayCell`'s depth test, even on a cell the
+            // occlusion check above correctly found clear; measured directly
+            // against this fixture, at the default camera, before adding
+            // the separate field).
+            ownMeshIds: new Set(),
+            occlusionDepth: titleProjected.depth,
+          });
+        }
       }
     },
   };
 }
 
-const AXIS_BOX_COLOR = "#7a7f8a";
+export interface GlyphChart3dLabelAnchor {
+  readonly text: string;
+  readonly point: Vec3;
+}
+
+/**
+ * The shared axis-triad corner the mark's `axes.corner` option would resolve
+ * to for `referenceCamera` — the SAME `resolveSharedCorner` `axisTriadOverlay`
+ * calls every `stamp()`, exposed standalone for a caller (a test, a fit) that
+ * needs the exact corner without rendering. A pure function of `camera`
+ * rotation only (this file's own `resolveSharedCorner` doc).
+ */
+export function glyphChart3dResolvedCorner(mark: GlyphChart3dSurfaceMark, referenceCamera: GlyphCamera): readonly [0 | 1, 0 | 1, 0 | 1] {
+  const proj: Projector = { camera: referenceCamera, cols: 1, rows: 1, cellAspect: 1, toWorld: (p) => p };
+  return resolveSharedCorner(mark.aspect, proj, mark.corner);
+}
+
+/**
+ * Every tick + title anchor point (object space) this mark's axis overlays
+ * will stamp, via the SAME nearest-edge/outward-point geometry
+ * `axisOverlay`'s own `stamp()` uses — extracted standalone (no grid, no
+ * arbiter, no scene) so a camera FIT can reason about every label's FULL
+ * intended extent analytically, before any clipping or arbiter collision
+ * (fix round 2, P1-b: `render.ts`'s own closed-form `fitStaticCamera`). A
+ * rendered probe only sees labels that SURVIVED resolution — indistinguishable
+ * from "never fit" — which is exactly what let a full title go missing
+ * (`Eleva+ion`, a bare newline) at several rotations under the PRIOR probe
+ * technique.
+ *
+ * `referenceCamera` need only carry the right ROTATION — edge selection is
+ * "largest projected depth at the edge's own midpoint," and depth is
+ * independent of `zoom`/`center`/viewport shape for an orthographic camera,
+ * so a fit computing candidate zooms can probe edge selection with any
+ * placeholder `cols`/`rows`/`cellAspect` at that rotation.
+ */
+export function glyphChart3dLabelAnchors(mark: GlyphChart3dSurfaceMark, referenceCamera: GlyphCamera): readonly GlyphChart3dLabelAnchor[] {
+  const ext = mark.aspect;
+  const proj: Projector = { camera: referenceCamera, cols: 1, rows: 1, cellAspect: 1, toWorld: (p) => p };
+  const corner = resolveSharedCorner(ext, proj, mark.corner);
+  const anchors: GlyphChart3dLabelAnchor[] = [];
+  const axes: readonly (readonly [0 | 1 | 2, GlyphChart3dResolvedAxis])[] = [[0, mark.axes.x], [1, mark.axes.y], [2, mark.axes.z]];
+  for (const [axisIndex, axis] of axes) {
+    const [lo, hi] = axis.domain;
+    const span = hi - lo || 1;
+    for (let i = 0; i < axis.ticks.length; i++) {
+      const value = axis.ticks[i]!;
+      const t = (value - lo) / span;
+      anchors.push({ text: axis.tickLabels[i]!, point: outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN) });
+    }
+    if (axis.title.length > 0) {
+      anchors.push({ text: axis.title, point: outwardPoint(axisIndex, corner, 0.5, ext, AXIS_TITLE_MARGIN) });
+    }
+  }
+  return anchors;
+}
 
 function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark, objectId: string): Polygon[] {
   const { grid, aspect, bands, colorAnchors } = mark;
@@ -298,12 +620,14 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
   const id = options.id ?? "surface";
   const polygons = buildSurfaceMesh(mark, id);
   const ext = mark.aspect;
-  const overlays: GlyphSceneOverlay[] = [
-    boxWireframeOverlay(ext, AXIS_BOX_COLOR),
-    axisOverlay(0, "x", mark.axes.x, ext, AXIS_BOX_COLOR),
-    axisOverlay(1, "y", mark.axes.y, ext, AXIS_BOX_COLOR),
-    axisOverlay(2, "z", mark.axes.z, ext, AXIS_BOX_COLOR),
-  ];
+  // Fix round 3, Item 2: a live scene consumer (`/charts`' own orbit
+  // viewport) mounts this object directly with no `renderGlyphChart3d`
+  // charset resolution step of its own — `charset` defaults to `"box"`
+  // (the richest line-art tier, matching this overlay's own default
+  // `AXIS_BOX_COLOR`/`edgeGlyph` box-drawing convention) rather than
+  // silently falling back to `"ascii"`.
+  const charset = options.charset ?? "box";
+  const overlays: GlyphSceneOverlay[] = [axisTriadOverlay(mark, ext, AXIS_BOX_COLOR, charset)];
   return {
     id,
     meshes: [{ name: "surface", polygons }],

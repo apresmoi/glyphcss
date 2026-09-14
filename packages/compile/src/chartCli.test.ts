@@ -87,6 +87,23 @@ describe("--3d: parseChartArgs and resolveChart3dCliOutput", () => {
     });
   });
 
+  it("parses --style and rejects it without --3d", () => {
+    expect(parseChartArgs(["spec.json", "--3d", "--style", "wireframe"])).toEqual({
+      file: "spec.json",
+      out: undefined,
+      opts: { threeD: true, style: "wireframe" },
+    });
+    expect(() => parseChartArgs(["spec.json", "--style", "wireframe"])).toThrow(expect.objectContaining({ code: "bad-3d-flag" }));
+    expect(() => parseChartArgs(["spec.json", "--3d", "--style", "bogus"])).toThrow(expect.objectContaining({ code: "bad-style-arg" }));
+  });
+
+  it("--style wireframe renders real braille-capable wireframe output, distinct from the solid default", () => {
+    const input: GlyphChart3dJsonInput = { data: { z: volcano() } };
+    const solid = resolveChart3dCliOutput(input, { target: "web", color: "none", charset: "ascii" }, { isTTY: false });
+    const wireframe = resolveChart3dCliOutput(input, { target: "web", color: "none", charset: "ascii", style: "wireframe" }, { isTTY: false });
+    expect(wireframe.text).not.toBe(solid.text);
+  });
+
   it("renders a 3D surface spec, with axis titles surviving in plain text", () => {
     const input: GlyphChart3dJsonInput = { data: { z: volcano() }, options: { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } } };
     const { text } = resolveChart3dCliOutput(input, { target: "web", color: "none" }, { isTTY: false });
@@ -102,10 +119,18 @@ describe("--3d: parseChartArgs and resolveChart3dCliOutput", () => {
   // DIFFERENT from an explicit `shading: "relief"` one (mutation: reverting
   // the default collapses this to the relief render instead).
   it("--3d --color none with no explicit shading defaults to shading: value", () => {
+    // `charset: "ascii"` (fix round 2's own `style` option): the default
+    // `target: "web"` charset is `braille`, which now auto-resolves to
+    // `style: "wireframe"` (the SAME round's "braille renders, not
+    // downgrades" fix) — a wireframe line has no fill face to texture, so
+    // `shading: "value"` is a no-op there and would collapse this test's
+    // own value-vs-relief distinction to nothing. This test is about
+    // `shading`'s own default, which is a SOLID-render concept.
     const base: GlyphChart3dJsonInput = { data: { z: volcano() } };
-    const defaulted = resolveChart3dCliOutput(base, { target: "web", color: "none" }, { isTTY: false });
-    const explicitValue = resolveChart3dCliOutput({ ...base, options: { shading: "value" } }, { target: "web", color: "none" }, { isTTY: false });
-    const explicitRelief = resolveChart3dCliOutput({ ...base, options: { shading: "relief" } }, { target: "web", color: "none" }, { isTTY: false });
+    const opts = { target: "web" as const, color: "none" as const, charset: "ascii" as const };
+    const defaulted = resolveChart3dCliOutput(base, opts, { isTTY: false });
+    const explicitValue = resolveChart3dCliOutput({ ...base, options: { shading: "value" } }, opts, { isTTY: false });
+    const explicitRelief = resolveChart3dCliOutput({ ...base, options: { shading: "relief" } }, opts, { isTTY: false });
     expect(defaulted.text).toBe(explicitValue.text);
     expect(defaulted.text).not.toBe(explicitRelief.text);
   });
@@ -195,13 +220,15 @@ describe("chart CLI argument parsing and command boundary", () => {
     expect(output.replace(/\s/g, "").length).toBeGreaterThan(40);
   });
 
-  // Mutation: forget to print the braille-unsupported ledger entry for --3d.
-  it("--3d --charset braille dims with its own ledger reason rather than throwing", async () => {
+  // Mutation: `--3d --charset braille` must render a REAL wireframe frame
+  // now (fix round 2, USER FEEDBACK) rather than the old braille-unsupported
+  // downgrade — never throws, never logs a downgrade ledger entry for it.
+  it("--3d --charset braille renders a real wireframe frame with no downgrade ledger entry", async () => {
     const surfaceFile = join(directory, "surface2.json");
     await writeFile(surfaceFile, JSON.stringify({ data: { z: volcano() } } satisfies GlyphChart3dJsonInput));
     await runChart([surfaceFile, "--3d", "--charset", "braille", "--color", "none"]);
     const stderrText = vi.mocked(process.stderr.write).mock.calls.flat().join("");
-    expect(stderrText).toContain("glyphcss: chart3d-braille-unsupported:");
+    expect(stderrText).not.toContain("chart3d-braille-unsupported");
   });
 
   // Mutation: let --3d swallow renderGlyphChart3d's own tagged error code.

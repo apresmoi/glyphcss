@@ -13,7 +13,10 @@ import type {
   GlyphChart3dAxisOptions,
   GlyphChart3dBuildReport,
   GlyphChart3dChannelValue,
+  GlyphChart3dCornerOption,
+  GlyphChart3dGuideOptions,
   GlyphChart3dResolvedAxis,
+  GlyphChart3dResolvedGuides,
   GlyphChart3dSurfaceChannels,
   GlyphChart3dSurfaceData,
   GlyphChart3dSurfaceGridData,
@@ -21,6 +24,47 @@ import type {
   GlyphChart3dSurfaceOptions,
   GlyphChart3dSurfaceRecord,
 } from "./types";
+
+/** `axes.corner` — `"auto"` (default) or an explicit `[0|1,0|1,0|1]` triple/named corner shorthand. */
+const CORNER_NAMES: Record<string, readonly [0 | 1, 0 | 1, 0 | 1]> = {
+  "x0-y0-z0": [0, 0, 0], "x1-y0-z0": [1, 0, 0], "x1-y1-z0": [1, 1, 0], "x0-y1-z0": [0, 1, 0],
+  "x0-y0-z1": [0, 0, 1], "x1-y0-z1": [1, 0, 1], "x1-y1-z1": [1, 1, 1], "x0-y1-z1": [0, 1, 1],
+};
+
+function resolveCorner(option: GlyphChart3dCornerOption | keyof typeof CORNER_NAMES | undefined): GlyphChart3dCornerOption {
+  if (option === undefined || option === "auto") return "auto";
+  if (typeof option === "string") {
+    const named = CORNER_NAMES[option];
+    if (named === undefined) chart3dError("bad-options", `axes.corner must be "auto", a [0|1,0|1,0|1] triple, or one of ${Object.keys(CORNER_NAMES).join(", ")}, got ${JSON.stringify(option)}.`);
+    return named!;
+  }
+  if (
+    Array.isArray(option) && option.length === 3
+    && option.every((b) => b === 0 || b === 1)
+  ) {
+    return option as GlyphChart3dCornerOption;
+  }
+  chart3dError("bad-options", `axes.corner must be "auto" or a [0|1,0|1,0|1] triple, got ${JSON.stringify(option)}.`);
+}
+
+function resolveGuides(options: GlyphChart3dGuideOptions | undefined): GlyphChart3dResolvedGuides {
+  const g = options ?? {};
+  for (const [key, value] of Object.entries(g)) {
+    if (value !== undefined && typeof value !== "boolean") {
+      chart3dError("bad-options", `guides.${key} must be a boolean, got ${JSON.stringify(value)}.`);
+    }
+  }
+  return {
+    axisLines: g.axisLines ?? true,
+    ticks: g.ticks ?? true,
+    tickLabels: g.tickLabels ?? true,
+    titles: g.titles ?? true,
+    grid: g.grid ?? true,
+    floorGrid: g.floorGrid ?? false,
+    walls: g.walls ?? false,
+    box: g.box ?? false,
+  };
+}
 
 const PLAIN_FORMAT = d3format("~r");
 
@@ -141,7 +185,15 @@ function resolveLongRowShape(data: readonly GlyphChart3dSurfaceRecord[], channel
 }
 
 function resolveAspect(aspect: GlyphChart3dSurfaceOptions["aspect"]): readonly [number, number, number] {
-  if (aspect === undefined) return [1, 1, 0.6];
+  // Fix round 2, P1-a: the prior [1,1,0.6] left the plot-only (colorbar-
+  // excluded) footprint at ~19-23% of the frame at the default camera —
+  // wide of the P1-a target (>=45%) — because a row-BOUND fit (the ROW
+  // constraint, not columns, binds the auto-fit's own zoom at the default
+  // pitch) leaves most of the generous column budget unused. Widening x/y
+  // spreads the SAME row-bound zoom across more columns, measured (real
+  // renderer, volcano fixture, 100x34, a colorbar + title reserved) to
+  // clear the target with margin (0.459) at the DEFAULT camera below.
+  if (aspect === undefined) return [1.3, 1.3, 0.6];
   if (!Array.isArray(aspect) || aspect.length !== 3 || aspect.some((v) => typeof v !== "number" || !Number.isFinite(v) || v <= 0)) {
     chart3dError("bad-options", `aspect must be 3 positive finite numbers [x, y, z], got ${JSON.stringify(aspect)}.`);
   }
@@ -224,6 +276,9 @@ export function glyphChartSurface(
     z: resolveAxis(flatZ, axesOptions?.z?.title !== undefined ? axesOptions.z.title : "z", axesOptions?.z),
   };
 
+  const corner = resolveCorner(axesOptions?.corner);
+  const guides = resolveGuides(options.guides);
+
   const rows = resolved.z.length;
   const cols = resolved.z[0]!.length;
   const report: GlyphChart3dBuildReport = { ledger: [] };
@@ -244,6 +299,8 @@ export function glyphChartSurface(
     maxQuadsX,
     maxQuadsY,
     axes,
+    corner,
+    guides,
     report,
   };
 }

@@ -14,19 +14,28 @@ function entry(code: string, message: string, detail?: Record<string, unknown>):
   return detail === undefined ? { code, message } : { code, message, detail };
 }
 
-/** Braille is wireframe-only in glyphcss (AGENTS.md's "Render modes"); a 3D chart is always solid, so a requested `braille` charset downgrades to the default ASCII solid ramp. */
-export function ledgerCharset3dBrailleUnsupported(): GlyphChart3dLedgerEntry {
-  return entry(
-    "chart3d-braille-unsupported",
-    "3D charts render solid geometry; braille is wireframe-only in glyphcss, so this frame uses the default ramp instead.",
-  );
-}
-
-/** `blocks` is a 2D cell-canvas tier, not a 3D scene `charMode` a chart's ALWAYS-mounted overlays (box wireframe, ticks) leave usable — halfblock/quadrant disable themselves whenever a `transformCells` hook exists (fix round 1, P1-4). Faithfully downgrades to the default solid ramp, mirroring `braille`'s own downgrade above. */
+/** `blocks` is a 2D cell-canvas tier, not a 3D scene `charMode` a chart's ALWAYS-mounted overlays (box wireframe, ticks) leave usable — halfblock/quadrant disable themselves whenever a `transformCells` hook exists (fix round 1, P1-4). Faithfully downgrades to the default solid ramp. Braille no longer downgrades (fix round 2's own `style: "wireframe"` support — braille renders a real depth-tested wireframe surface grid instead). */
 export function ledgerCharset3dBlocksUnsupported(): GlyphChart3dLedgerEntry {
   return entry(
     "chart3d-blocks-unsupported",
     "3D charts always mount an axis box/tick overlay, which disables the halfblock encoder; this frame uses the default ramp instead.",
+  );
+}
+
+/** `shading: "value"` has no effect under `style: "wireframe"` — a wireframe line has no fill face to texture, so colour is the surface's own per-quad band colour instead (fix round 2). */
+export function ledgerChart3dValueShadingWireframeNoop(): GlyphChart3dLedgerEntry {
+  return entry(
+    "chart3d-value-shading-wireframe-noop",
+    "shading: \"value\" has no effect under style: \"wireframe\" (no fill face to texture); the surface's own band colour is used per line instead.",
+  );
+}
+
+/** A tick/title label's own text is wider than the requested frame itself, so no zoom could ever fit it — excluded from the auto-fit's own constraint set (fix round 2, P1-b) rather than forcing every OTHER label toward zoom zero. */
+export function ledgerChart3dLabelUnfittable(opts: { readonly text: string; readonly cols: number }): GlyphChart3dLedgerEntry {
+  return entry(
+    "chart3d-label-unfittable",
+    `Label ${JSON.stringify(opts.text)} is wider than the ${opts.cols}-column frame; excluded from the auto-fit.`,
+    { ...opts },
   );
 }
 

@@ -22,9 +22,9 @@ describe("glyphChartSurface — grid-shape input", () => {
     expect(mark.grid.y).toEqual([-5, 5]);
   });
 
-  it("defaults aspect to [1, 1, 0.6]", () => {
+  it("defaults aspect to [1.3, 1.3, 0.6] (fix round 2, P1-a: a wider default x/y footprint)", () => {
     const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
-    expect(mark.aspect).toEqual([1, 1, 0.6]);
+    expect(mark.aspect).toEqual([1.3, 1.3, 0.6]);
   });
 
   it("rejects a ragged grid", () => {

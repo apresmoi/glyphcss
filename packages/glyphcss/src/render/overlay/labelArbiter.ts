@@ -43,8 +43,33 @@ export interface GlyphLabelCandidate {
    * applies (the `occluded` check still does, independent of mesh identity).
    */
   readonly ownMeshIds?: ReadonlySet<number>;
-  /** Optional depth test at the anchor, same convention as `stampGlyphOverlayCell`. */
+  /**
+   * Optional depth test at the anchor, forwarded VERBATIM to the eventual
+   * `stampGlyphOverlayCell` write (same "larger = nearer" convention as
+   * `CellGrid.depth`) — so a LATER overlay stamp at the same cell
+   * depth-tests against it. Deliberately NEVER read for the occlusion
+   * decision below (`ownMeshIds`/`winnerMesh`) — fix round 2, P1-b: this
+   * same overlay's own earlier, non-arbitered writes (a box/wall/grid edge,
+   * `stampGlyphOverlayLine`) carry an INTERPOLATED depth along their own
+   * run, which is a real but visually thin/incidental value that must never
+   * out-compete a label's write — a title always wins over such geometry.
+   */
   readonly depth?: number;
+  /**
+   * Fix round 3 (`@glyphcss/charts`' 3D axis titles, "never over the
+   * surface"): a SEPARATE depth used ONLY for the occlusion decision below,
+   * never forwarded to the write — genuinely depth-tests a foreign
+   * `winnerMesh` cell (the label hides only when the winning mesh's own
+   * rasterized `CellGrid.depth` at that cell is nearer than
+   * `occlusionDepth`) rather than treating any foreign winner as an
+   * unconditional cover. Kept apart from `depth` specifically because `depth`
+   * also gates the WRITE (previous paragraph) against non-arbitered overlay
+   * geometry (box/wall/grid edges) that a title must always overwrite
+   * regardless of this occlusion test's own outcome — reusing one field for
+   * both let a grid-edge's own interpolated depth silently block the WRITE
+   * even when the occlusion check itself correctly found no real cover.
+   */
+  readonly occlusionDepth?: number;
 }
 
 export interface GlyphLabelArbiter {
@@ -119,7 +144,20 @@ export function createGlyphLabelArbiter(): GlyphLabelArbiterInternal {
           if (occluded && occluded[idx] === 1) { coveredByForeign = true; break; }
           if (c.ownMeshIds && winnerMesh) {
             const winner = winnerMesh[idx];
-            if (winner !== undefined && winner !== -1 && !c.ownMeshIds.has(winner)) { coveredByForeign = true; break; }
+            if (winner !== undefined && winner !== -1 && !c.ownMeshIds.has(winner)) {
+              // Fix round 3: with an explicit `occlusionDepth`, a foreign
+              // winner only covers this cell when its OWN rasterized depth
+              // is nearer than the candidate's — a genuine occlusion test,
+              // not "this cell's silhouette belongs to some other mesh."
+              // Without `occlusionDepth` (the pre-round-3 rule, and
+              // diagrams-3D's own choice), any foreign winner covers
+              // unconditionally.
+              const winnerDepth = c.occlusionDepth !== undefined ? grid.depth?.[idx] : undefined;
+              if (c.occlusionDepth === undefined || winnerDepth === undefined || !Number.isFinite(winnerDepth) || winnerDepth > c.occlusionDepth) {
+                coveredByForeign = true;
+                break;
+              }
+            }
           }
         }
         if (coveredByForeign) continue;

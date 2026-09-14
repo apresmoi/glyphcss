@@ -13,21 +13,21 @@ describe("glyphChart3dFitCamera", () => {
   const bounds: GlyphChart3dBounds = { min: [0, 0, 0], max: [1, 1, 0.6] };
 
   it("targets the bounds center and returns a finite, positive zoom", () => {
-    const { target, zoom } = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 96, rows: 32, cellAspect: 0.5859375 });
+    const { target, zoom } = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 96, rows: 32, sceneCellAspect: 1 / 0.5859375 });
     expect(target).toEqual([0.5, 0.5, 0.3]);
     expect(Number.isFinite(zoom)).toBe(true);
     expect(zoom).toBeGreaterThan(0);
   });
 
   it("MUTATION: a larger viewport gets a larger fitted zoom (a fixed zoom would fail this)", () => {
-    const small = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 40, rows: 16, cellAspect: 0.5 });
-    const large = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 160, rows: 64, cellAspect: 0.5 });
+    const small = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 40, rows: 16, sceneCellAspect: 2 });
+    const large = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 160, rows: 64, sceneCellAspect: 2 });
     expect(large.zoom).toBeGreaterThan(small.zoom);
   });
 
   it("MUTATION: a wider `margin` (more room reserved for labels) never fits a LARGER zoom than a narrower one", () => {
-    const tight = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 96, rows: 32, cellAspect: 0.5859375, margin: 0.1 });
-    const loose = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 96, rows: 32, cellAspect: 0.5859375, margin: 0.8 });
+    const tight = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 96, rows: 32, sceneCellAspect: 1 / 0.5859375, margin: 0.1 });
+    const loose = glyphChart3dFitCamera({ bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols: 96, rows: 32, sceneCellAspect: 1 / 0.5859375, margin: 0.8 });
     expect(loose.zoom).toBeLessThan(tight.zoom);
   });
 
@@ -36,7 +36,7 @@ describe("glyphChart3dFitCamera", () => {
     // point is that the function must not silently ignore `mat` and fall
     // back to `rotX`/`rotY` (both omitted here).
     const mat = [1, 0, 0, 0, 0, -1, 0, 1, 0]; // 90-degree roll about X
-    const { zoom } = glyphChart3dFitCamera({ bounds, mat, useMat: true, cols: 96, rows: 32, cellAspect: 0.5859375 });
+    const { zoom } = glyphChart3dFitCamera({ bounds, mat, useMat: true, cols: 96, rows: 32, sceneCellAspect: 1 / 0.5859375 });
     expect(Number.isFinite(zoom)).toBe(true);
     expect(zoom).toBeGreaterThan(0);
   });
@@ -44,7 +44,7 @@ describe("glyphChart3dFitCamera", () => {
   it("the fitted camera, mounted with the library's REAL default viewport/camera constants, keeps the whole surface + all 3 axis labels on screen (P1-4)", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
-    const cols = 96, rows = 32, cellAspect = 0.5859375;
+    const cols = 96, rows = 32, chartCellAspect = 0.5859375, sceneCellAspect = 1 / chartCellAspect;
 
     const rowsN = 8, colsN = 8;
     const z = flatGrid(rowsN, colsN, 0);
@@ -57,10 +57,10 @@ describe("glyphChart3dFitCamera", () => {
     const mark = glyphChartSurface({ z }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } });
     const object = glyphChartObject(mark);
 
-    const fit = glyphChart3dFitCamera({ bounds: object.bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols, rows, cellAspect });
+    const fit = glyphChart3dFitCamera({ bounds: object.bounds, ...GLYPH_CHART_3D_DEFAULT_CAMERA, cols, rows, sceneCellAspect });
     const camera = createGlyphOrthographicCamera({ ...GLYPH_CHART_3D_DEFAULT_CAMERA, zoom: fit.zoom });
     camera.target = fit.target;
-    const scene = createGlyphScene(host, { cols, rows, cellAspect, useColors: false, camera });
+    const scene = createGlyphScene(host, { cols, rows, cellAspect: sceneCellAspect, useColors: false, camera });
     scene.addObject(object);
     await Promise.resolve();
     await Promise.resolve();

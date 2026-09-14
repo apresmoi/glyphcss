@@ -7,6 +7,7 @@
  * `GlyphSceneObject`.
  */
 import type { GlyphChart3dLedgerEntry } from "./ledger";
+import type { GlyphChartCharset } from "../types";
 export type { GlyphChart3dLedgerEntry };
 
 /** Row-major `z` grid, the Plotly `surface` shape: `z[row][col]`. */
@@ -47,6 +48,55 @@ export interface GlyphChart3dAxisOptions {
   readonly ticks?: number;
 }
 
+/** `0` = the box's own `0` coordinate on that axis, `1` = `aspect[axis]`. */
+export type GlyphChart3dCornerBit = 0 | 1;
+/** The single box vertex the x/y/z axis triad shares (fix round 2's "axes in one corner" redesign — `object.ts`'s own `resolveSharedCorner` doc). */
+export type GlyphChart3dCorner = readonly [GlyphChart3dCornerBit, GlyphChart3dCornerBit, GlyphChart3dCornerBit];
+/** `"auto"` (default): resolved per camera, every `stamp()` call — see `object.ts`'s `resolveSharedCorner`. An explicit corner pins the triad regardless of rotation. */
+export type GlyphChart3dCornerOption = "auto" | GlyphChart3dCorner;
+
+/**
+ * Independent toggles over what the axis triad draws (fix round 2, message
+ * 3B's "2D extended by one dimension" model — matches 2D's
+ * `axes.{x,y}.{grid,tickMarks,title}` naming/style). `axisLines`/`ticks`/
+ * `tickLabels`/`titles`/`grid` default `true`; `walls` (the OTHER 6 edges of
+ * the 3 guide planes meeting at the shared corner, i.e. the wall outline)
+ * defaults `false` — the bare 3-line triad plus its gridlines already reads
+ * as a plot block without them, and only `grid` (behind the data, like a 2D
+ * chart's own axis grid) makes the guide planes legible; `box` (the
+ * remaining 3 far/near edges that complete a 12-edge wireframe) defaults
+ * `false`. `axisLines + walls` is the "near/guide" edge set (9 edges);
+ * `+ box` is the full 12-edge wireframe.
+ *
+ * `grid` and `floorGrid` split the 3 guide planes' own gridlines (fix round
+ * 4, Item 2): `grid` draws only the 2 WALL planes (perpendicular to x/y,
+ * `planeGridLines`' `fixedAxis` 0/1) and defaults `true`; `floorGrid` draws
+ * the z=const FLOOR plane (`fixedAxis` 2) and defaults `false`. A typical
+ * chart's footprint fills most of its own x/y extent, so the floor plane
+ * sits almost entirely BEHIND the surface's own silhouette and its grid
+ * mostly reads as a dense ring of `┊`/`·` crowding the data at a normal
+ * frame size — measured directly against the coordinator's own
+ * ring-ridge-plus-crater fixture at 96x32, where the exposed floor (the
+ * surface never reaches the box's own x/y corners) painted more grid ink
+ * than the wall planes combined. The two wall planes sit mostly BEHIND the
+ * surface too (the shared-corner selection puts them there by
+ * construction) but expose far less of themselves at typical camera
+ * angles, so they read as a genuine faint backdrop rather than a cage.
+ */
+export interface GlyphChart3dGuideOptions {
+  readonly axisLines?: boolean;
+  readonly ticks?: boolean;
+  readonly tickLabels?: boolean;
+  readonly titles?: boolean;
+  readonly grid?: boolean;
+  readonly floorGrid?: boolean;
+  readonly walls?: boolean;
+  readonly box?: boolean;
+}
+
+/** Every `GlyphChart3dGuideOptions` field resolved to a concrete boolean. */
+export type GlyphChart3dResolvedGuides = Required<GlyphChart3dGuideOptions>;
+
 export interface GlyphChart3dSurfaceOptions {
   /** `[x, y, z]` visual compression baked into the mesh's own object-space coordinates. Default `[1, 1, 0.6]`. */
   readonly aspect?: readonly [number, number, number];
@@ -77,7 +127,11 @@ export interface GlyphChart3dSurfaceOptions {
     readonly x?: GlyphChart3dAxisOptions;
     readonly y?: GlyphChart3dAxisOptions;
     readonly z?: GlyphChart3dAxisOptions;
+    /** Explicit override for the shared axis-triad corner — default `"auto"`. */
+    readonly corner?: GlyphChart3dCornerOption;
   };
+  /** Independent axis-triad rendering toggles — see `GlyphChart3dGuideOptions`'s own doc. */
+  readonly guides?: GlyphChart3dGuideOptions;
 }
 
 export interface GlyphChart3dResolvedAxis {
@@ -113,6 +167,10 @@ export interface GlyphChart3dSurfaceMark {
     readonly y: GlyphChart3dResolvedAxis;
     readonly z: GlyphChart3dResolvedAxis;
   };
+  /** `"auto"` (default) or an explicit override — `object.ts`'s `resolveSharedCorner` resolves `"auto"` per camera, per `stamp()` call. */
+  readonly corner: GlyphChart3dCornerOption;
+  /** Every toggle resolved to a concrete boolean (defaults: all `true` except `walls`/`box`, which default `false`). */
+  readonly guides: GlyphChart3dResolvedGuides;
   readonly report: GlyphChart3dBuildReport;
 }
 
@@ -122,6 +180,15 @@ export type GlyphChart3dMark = GlyphChart3dSurfaceMark;
 export interface GlyphChart3dObjectOptions {
   /** Stable object id — default `"surface"`. Two surfaces in one scene need distinct ids (`scene.addObject`'s own uniqueness rule). */
   readonly id?: string;
+  /**
+   * Fix round 3, Item 2: which glyph family the axis-triad overlay's own
+   * gridlines render in (box-drawing `┈`/`┊`, ascii `.`/`:`, or a single
+   * sparse braille dot) — default `"box"`. `renderGlyphChart3d` resolves
+   * and forwards its OWN charset automatically; a caller mounting this
+   * object directly into a live `createGlyphScene` (a `/charts`-style orbit
+   * viewport) sets it to match whatever tier that scene is rendering in.
+   */
+  readonly charset?: GlyphChartCharset;
 }
 
 export interface GlyphChart3dBuildReport {

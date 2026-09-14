@@ -307,8 +307,18 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     act(() => root.unmount());
     let state = createChartsWorkbenchState();
     state = reduceChartsWorkbenchState(state, { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
-    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "charset", value: "braille" } });
-    expect(glyphChart3dCharsetDegrades("braille")).toBe(true); // the premise this test exercises
+    // Fix round 3 (this file, Item 5): `braille` was the premise this test
+    // exercised through round 2, which downgraded it — round 2's OWN "axes
+    // in one corner" work made braille a real depth-tested wireframe
+    // instead (AGENTS.md's C2 doc, `glyphChart3dCharsetDegrades` now
+    // returns `charset === "blocks"` only), so `braille` no longer degrades
+    // and this test's own premise assertion below would fail on it.
+    // `blocks` is the charset still unsupported for a 3D chart's
+    // always-overlaid box/tick geometry (the halfblock/quadrant dual-colour
+    // encoder self-disables under any `transformCells` hook) — the same
+    // property this test needs, just the current charset that has it.
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "charset", value: "blocks" } });
+    expect(glyphChart3dCharsetDegrades("blocks")).toBe(true); // the premise this test exercises
     root = createRoot(container);
     act(() => root.render(<ChartsWorkbench initialState={state} />));
     const host = container.querySelector<HTMLElement>(".charts-3d-viewport-host")!;

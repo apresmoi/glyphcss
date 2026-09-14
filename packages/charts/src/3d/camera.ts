@@ -36,7 +36,21 @@ export interface GlyphChart3dFitCameraOptions {
   readonly useMat?: boolean;
   readonly cols: number;
   readonly rows: number;
-  readonly cellAspect: number;
+  /**
+   * Fix round 4 (coordinator root-cause finding): `glyphcss`'s OWN
+   * `cellHeight / cellWidth` convention — the exact INVERSE of this
+   * package's own public `cellAspect` (`cellWidth / cellHeight`,
+   * `GLYPH_CHART_TARGET_DEFAULTS.web.cellAspect = 0.5859375`). This
+   * function calls straight into `createGlyphOrthographicCamera().project()`,
+   * so it needs the SAME value a live scene's own `createGlyphScene({
+   * cellAspect })`/`scene.getOptions().cellAspect` already uses (`/charts`'
+   * own live viewport — this function's real caller — passes exactly that,
+   * `Charts3dViewport.tsx`'s `SCENE_DEFAULT_CELL_ASPECT = 2.0`) — NEVER
+   * this package's own public option verbatim, which squashed every fit by
+   * `(1/0.586)/0.586 ≈ 2.9x` before this fix (`render.ts`'s
+   * `renderObjectFrame` doc has the full derivation).
+   */
+  readonly sceneCellAspect: number;
   /**
    * Extra outward allowance, as a fraction of each axis's own extent, for
    * what the box's own overlay pushes OUTSIDE its geometric bounds — tick
@@ -78,7 +92,7 @@ function boundsCenter(bounds: GlyphChart3dBounds): Vec3 {
  * viewport's own half-extent, in both columns and rows.
  */
 export function glyphChart3dFitCamera(options: GlyphChart3dFitCameraOptions): GlyphChart3dFitCameraResult {
-  const { bounds, cols, rows, cellAspect } = options;
+  const { bounds, cols, rows, sceneCellAspect } = options;
   const margin = options.margin ?? DEFAULT_MARGIN;
   const safety = options.safety ?? DEFAULT_SAFETY;
   const center = boundsCenter(bounds);
@@ -106,7 +120,7 @@ export function glyphChart3dFitCamera(options: GlyphChart3dFitCameraOptions): Gl
           center[1] + sy * halfExtent[1],
           center[2] + sz * halfExtent[2],
         ];
-        const [col, row] = probe.project(p, cols, rows, cellAspect);
+        const [col, row] = probe.project(p, cols, rows, sceneCellAspect);
         maxAbsCol = Math.max(maxAbsCol, Math.abs(col - centerCol));
         maxAbsRow = Math.max(maxAbsRow, Math.abs(row - centerRow));
       }
@@ -122,11 +136,34 @@ export function glyphChart3dFitCamera(options: GlyphChart3dFitCameraOptions): Gl
 }
 
 /**
- * The default 3D chart camera angle — the SAME `rotX: 65, rotY: 45` this
- * repo's own orthographic default already uses (AGENTS.md's "Numeric
- * conventions" calls it "the classic isometric-ish viewpoint"), which reads
- * as an oblique 3D surface view (Plotly's own default camera eye is the
- * same idea — off-axis on every one of the three world axes, so none of
- * them projects edge-on).
+ * The default 3D chart camera angle. Fix round 3 (coordinator review of
+ * round 2's own `rotX: 87`): in glyphcss's convention `rotX: 90` is a
+ * horizontal (side-on) view, so `87` put the camera almost edge-on — the
+ * plot-box SHARE went up because the view went edge-on (a squat silhouette,
+ * back walls facing the reader flat-on, a cage of vertical gridlines), not
+ * because the render read as a better 3D surface. A ROUND-2 measurement
+ * confused "more screen pixels occupied" with "reads better" — round 3
+ * reverts to a Plotly-like oblique eye elevation (~30-35 degrees above the
+ * horizon, i.e. `rotX` in glyphcss's own convention is `90 - elevation`):
+ * `rotX: 58` (32 degrees of elevation). `rotY: 45` is unchanged.
+ *
+ * Fix round 4 (coordinator root-cause finding, the `cellAspect` convention
+ * bug — `render.ts`'s `renderObjectFrame` doc has the full derivation):
+ * round 3's own plot-box-share numbers below were measured while every 3D
+ * projection was STILL being squashed horizontally by ~2.9x (the package's
+ * own `cellWidth / cellHeight` convention fed straight into glyphcss's
+ * `cellHeight / cellWidth` one), so they described a squashed render, not
+ * this pitch. Re-measured directly against the SAME coordinator ring-ridge-
+ * plus-crater fixture (40x40) after the conversion fix, WITH its default
+ * colorbar and a title reserved: plot-box share at `rotX: 58` is ~0.61 at
+ * 96x32 and ~0.60 at 140x40 — coincidentally close to round 3's own
+ * (wrongly-derived) claim, because the auto-fit zoom used to compensate for
+ * the squash by zooming in further, so this SPECIFIC metric alone could
+ * not distinguish "correctly proportioned" from "squashed and zoomed to
+ * compensate" — the coordinator's own stated reason `render.test.ts`'s
+ * byte-identical PLOT REGION test never caught the bug. The rotation sweep
+ * (`render.test.ts`'s "auto-fit makes the plot the DOMINANT element")
+ * clears >= 0.55 at every one of 15 rotation/size combinations post-fix,
+ * well above its own re-floored `0.5`.
  */
-export const GLYPH_CHART_3D_DEFAULT_CAMERA = { rotX: 65, rotY: 45 } as const;
+export const GLYPH_CHART_3D_DEFAULT_CAMERA = { rotX: 58, rotY: 45 } as const;

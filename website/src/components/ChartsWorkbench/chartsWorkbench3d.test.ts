@@ -4,6 +4,7 @@
 // `/charts` 3D wires into `ChartsWorkbenchState`. Each test names the
 // mutation that would turn it red.
 import { describe, expect, it } from "vitest";
+import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "@glyphcss/charts/3d";
 import { CHART_CHARSETS, CHART_COLORS } from "./chartsWorkbenchState";
 import {
   CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
@@ -21,12 +22,15 @@ describe("createCharts3dViewState", () => {
   it("reads the default camera straight from the library (GLYPH_CHART_3D_DEFAULT_CAMERA), never a page-side copy", () => {
     const view = createCharts3dViewState();
     expect(view.camera).toEqual(CHARTS_3D_DEFAULT_CAMERA);
-    // Mutation check: if this page ever hardcodes {rotX: 65, rotY: 45}
+    // Mutation check: if this page ever hardcodes its own rotX/rotY
     // independently of the library constant, this equality still holds by
-    // coincidence — so pin the VALUE too, since that is what would actually
-    // drift if the library's own default ever changes.
-    expect(view.camera.rotX).toBe(65);
-    expect(view.camera.rotY).toBe(45);
+    // coincidence — so pin against `GLYPH_CHART_3D_DEFAULT_CAMERA` itself
+    // (never a literal copy here — fix round 3 dropped the page test's own
+    // hardcoded `{rotX: 65, rotY: 45}`, which drifted the moment the
+    // library's own default camera changed), since that is what would
+    // actually catch a page-side copy drifting from the library.
+    expect(view.camera.rotX).toBe(GLYPH_CHART_3D_DEFAULT_CAMERA.rotX);
+    expect(view.camera.rotY).toBe(GLYPH_CHART_3D_DEFAULT_CAMERA.rotY);
     expect(view.camera.zoom).toBeUndefined(); // auto-fit
   });
   it("defaults shading to auto (the library's own default applies, never a page-side relief/value guess)", () => {

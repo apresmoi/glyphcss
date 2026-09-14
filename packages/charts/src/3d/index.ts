@@ -31,6 +31,7 @@ export type {
   GlyphChart3dReport,
   GlyphChart3dResult,
   GlyphChart3dJsonInput,
+  GlyphChart3dStyle,
 } from "./render";
 export type {
   GlyphChart3dSurfaceGridData,

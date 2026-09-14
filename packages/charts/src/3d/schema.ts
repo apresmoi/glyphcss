@@ -34,6 +34,28 @@ const AXIS_OPTIONS_SCHEMA = {
   additionalProperties: false,
   properties: { title: { type: "string" }, ticks: { type: "integer", minimum: 1 } },
 };
+const CORNER_BIT_SCHEMA = { enum: [0, 1] };
+const CORNER_NAME_SCHEMA = { enum: ["x0-y0-z0", "x1-y0-z0", "x1-y1-z0", "x0-y1-z0", "x0-y0-z1", "x1-y0-z1", "x1-y1-z1", "x0-y1-z1"] };
+const CORNER_OPTIONS_SCHEMA = {
+  anyOf: [
+    { const: "auto" },
+    CORNER_NAME_SCHEMA,
+    { type: "array", minItems: 3, maxItems: 3, items: CORNER_BIT_SCHEMA },
+  ],
+};
+const GUIDE_OPTIONS_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    axisLines: { type: "boolean" },
+    ticks: { type: "boolean" },
+    tickLabels: { type: "boolean" },
+    titles: { type: "boolean" },
+    grid: { type: "boolean" },
+    walls: { type: "boolean" },
+    box: { type: "boolean" },
+  },
+};
 
 const GRID_DATA_SCHEMA = {
   type: "object", required: ["z"], additionalProperties: false,
@@ -73,8 +95,9 @@ export function glyphChart3dSurfaceJsonSchema(): GlyphChart3dSurfaceJsonSchema {
           maxQuadsY: { type: "integer", minimum: 1 },
           axes: {
             type: "object", additionalProperties: false,
-            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA },
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
           },
+          guides: GUIDE_OPTIONS_SCHEMA,
         },
       },
     },

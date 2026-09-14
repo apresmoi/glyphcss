@@ -10,7 +10,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { renderGlyphChart, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartInput, type GlyphChartLedgerEntry, type GlyphChartTarget } from "@glyphcss/charts";
-import { renderGlyphChart3d, glyphChartSurface, type GlyphChart3dCameraOptions, type GlyphChart3dJsonInput, type GlyphChart3dReport } from "@glyphcss/charts/3d";
+import { renderGlyphChart3d, glyphChartSurface, type GlyphChart3dCameraOptions, type GlyphChart3dJsonInput, type GlyphChart3dReport, type GlyphChart3dStyle } from "@glyphcss/charts/3d";
 
 export interface ChartCliOptions {
   readonly target?: GlyphChartTarget;
@@ -22,6 +22,8 @@ export interface ChartCliOptions {
   readonly threeD?: boolean;
   /** `--camera rotX,rotY[,zoom]` — `--3d` only. */
   readonly camera?: GlyphChart3dCameraOptions;
+  /** `--style solid|wireframe|ink` — `--3d` only; omit for auto-by-charset (fix round 2, USER FEEDBACK: braille renders a real wireframe by default). */
+  readonly style?: GlyphChart3dStyle;
 }
 
 export const CHART_HELP = `glyphcss chart <spec.json> [options]
@@ -32,11 +34,22 @@ export const CHART_HELP = `glyphcss chart <spec.json> [options]
   --width N  --height N
   --3d                         Render a 3D surface spec ({ data, channels?, options? })
   --camera rotX,rotY[,zoom]    --3d only; omit for auto-fit
+  --style solid|wireframe|ink  --3d only; omit for auto-by-charset
   -o, --out FILE
 
   Output: ANSI when stdout is a TTY, plain text when piped, unless --color
   overrides it.
 `;
+
+const CHART_3D_STYLES: readonly GlyphChart3dStyle[] = ["solid", "wireframe", "ink"];
+
+function parseStyleArg(raw: string | undefined): GlyphChart3dStyle | undefined {
+  if (raw === undefined) return undefined;
+  if (!(CHART_3D_STYLES as readonly string[]).includes(raw)) {
+    throw chartCliError("bad-style-arg", `--style expects one of ${CHART_3D_STYLES.join(", ")}, got ${JSON.stringify(raw)}.`);
+  }
+  return raw as GlyphChart3dStyle;
+}
 
 function chartCliError(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
@@ -80,6 +93,7 @@ export function parseChartArgs(argv: string[]): { file?: string; out?: string; o
     height?: number;
     threeD?: boolean;
     camera?: GlyphChart3dCameraOptions;
+    style?: GlyphChart3dStyle;
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -92,18 +106,22 @@ export function parseChartArgs(argv: string[]): { file?: string; out?: string; o
       case "--height": mutableOpts.height = Number(next()); break;
       case "--3d": mutableOpts.threeD = true; break;
       case "--camera": mutableOpts.camera = parseCameraArg(next()); break;
+      case "--style": mutableOpts.style = parseStyleArg(next()); break;
       case "-o": case "--out": out = next(); break;
       case "-h": case "--help": file = undefined; return { file, out, opts };
       default: if (!a.startsWith("-") && !file) file = a;
     }
   }
   // Every 3D-only flag needs `--3d` present too (fix round 1, P1-5) — today
-  // that is `--camera` alone, but the check is written against the FLAG
+  // that is `--camera`/`--style`, but the check is written against the FLAG
   // that was actually set (never a fixed list of names) so a future 3D-only
   // flag added here is covered automatically rather than needing its own
   // matching clause.
   if (mutableOpts.camera !== undefined && !mutableOpts.threeD) {
     throw chartCliError("bad-3d-flag", "--camera is 3D-only; pass --3d too.");
+  }
+  if (mutableOpts.style !== undefined && !mutableOpts.threeD) {
+    throw chartCliError("bad-3d-flag", "--style is 3D-only; pass --3d too.");
   }
   return { file, out, opts };
 }
@@ -158,6 +176,7 @@ export function resolveChart3dCliOutput(
     width: opts.width,
     height: opts.height,
     camera: opts.camera,
+    style: opts.style,
     env: env.vars,
   });
   return { text: result.text, ledger: result.report.ledger };

@@ -23,27 +23,61 @@
  * mesh opts in — this object's own single mesh never does).
  */
 import { format as d3format } from "d3-format";
-import { compileScene, createGlyphCanvas, createGlyphOrthographicCamera, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText } from "glyphcss";
+import { compileScene, createGlyphCanvas, createGlyphOrthographicCamera, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, foldGlyphOverlayLabelToAscii } from "glyphcss";
 import type { CellGrid, GlyphAmbientLight, GlyphCanvas, GlyphDirectionalLight, GlyphSceneObject, Vec3 } from "glyphcss";
 import { GLYPH_CHART_TARGET_DEFAULTS } from "../render";
 import { glyphChartColorEnabled } from "../regionFill";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartTarget } from "../types";
 import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
 import { glyphChart3dBandColor } from "./colorscale";
-import { ledgerCharset3dBlocksUnsupported, ledgerCharset3dBrailleUnsupported, ledgerColorbarOmitted } from "./ledger";
-import { glyphChartObject } from "./object";
+import { ledgerCharset3dBlocksUnsupported, ledgerChart3dLabelUnfittable, ledgerChart3dValueShadingWireframeNoop, ledgerColorbarOmitted } from "./ledger";
+import { glyphChart3dLabelAnchors, glyphChartObject } from "./object";
 import { glyphChartSurface } from "./surface";
 import { chart3dError, glyphChart3dRepairHint } from "./validate";
 import type {
   GlyphChart3dLedgerEntry, GlyphChart3dMark, GlyphChart3dSurfaceChannels, GlyphChart3dSurfaceData, GlyphChart3dSurfaceMark, GlyphChart3dSurfaceOptions,
 } from "./types";
 
+/**
+ * Euler `rotX`/`rotY` (degrees) or a trackball `mat` (a 9-element row-major
+ * 3x3 rotation matrix, AGENTS.md's numeric conventions / orbit
+ * `pitchRange`+trackball contract) — never both; mirrors
+ * `renderGlyphDiagram3d`'s own `GlyphDiagram3dCamera` shape exactly, same
+ * field names, same auto-fit-when-`zoom`-omitted behaviour (fix round 2,
+ * P1: the user decided every 3D chart "rotates in any direction," and
+ * `/charts`' own live viewport must let Copy ASCII reproduce the CURRENT
+ * live camera — including a rolled trackball pose Euler angles cannot
+ * express at all).
+ */
 export interface GlyphChart3dCameraOptions {
   readonly rotX?: number;
   readonly rotY?: number;
+  readonly mat?: readonly number[];
   /** Omit for AUTO-FIT (the default — fits the whole object + its overlay labels on screen, PLAN-3d.md's C2 acceptance and fix round 1's P1-2). An explicit value opts out of auto-fit for THIS render's zoom only; `target` still auto-fits. */
   readonly zoom?: number;
+  /**
+   * The auto-fit's own additive projection offset (`createGlyphOrthographicCamera`'s
+   * `center` field, identity `[0.5, 0.5]`) — meaningful only alongside an
+   * explicit `zoom` (fix round 2, P1-c): pass BOTH straight from a prior
+   * `resolved.camera` to reproduce that exact frame byte-for-byte. Ignored
+   * (auto-fit computes its own) whenever `zoom` is omitted.
+   */
+  readonly center?: readonly [number, number];
 }
+
+/**
+ * Mirrors `renderGlyphDiagram3d`'s own `style` option (fix round 2, USER
+ * FEEDBACK: "good detail using braille or ink mode"): `"solid"` (the
+ * Lambert/value-shaded fill, unchanged), `"wireframe"` (the surface's own
+ * decimated quad grid as depth-tested lines — a REAL glyphcss capability,
+ * `mode: "wireframe"` + `hiddenLines: "hide"`, no library change needed),
+ * or `"ink"` (silhouette + crease outline, `mode: "ink"`). Omitted: AUTO by
+ * `charset` — `braille` resolves to `"wireframe"` (glyphcss's braille
+ * encoder is wireframe-only, AGENTS.md's "Render modes"; this is what
+ * makes braille render REAL geometry now instead of downgrading), every
+ * other charset resolves to `"solid"`.
+ */
+export type GlyphChart3dStyle = "solid" | "wireframe" | "ink";
 
 export interface GlyphChart3dRenderOptions {
   /** Default `"web"` — mirrors `renderGlyphChart`'s own default. */
@@ -57,6 +91,8 @@ export interface GlyphChart3dRenderOptions {
   /** Canvas chrome: a title row above the plot. Omitted = no title row (byte-identical to a chart with no chrome opinion). */
   readonly title?: string;
   readonly camera?: GlyphChart3dCameraOptions;
+  /** See `GlyphChart3dStyle`'s own doc. Omitted: auto by charset. */
+  readonly style?: GlyphChart3dStyle;
 }
 
 export interface GlyphChart3dResolved {
@@ -66,7 +102,24 @@ export interface GlyphChart3dResolved {
   readonly width: number;
   readonly height: number;
   readonly cellAspect: number;
-  readonly camera: { readonly rotX: number; readonly rotY: number; readonly zoom: number };
+  /**
+   * The RESOLVED camera (after auto-fit, when it ran) — `rotX`/`rotY` for
+   * an Euler camera, or `mat` for a trackball one (never both), mirroring
+   * `renderGlyphDiagram3d`'s own resolved-camera shape. `center` (fix round
+   * 2, P1-c) is the auto-fit's own additive recentring offset
+   * (`createGlyphOrthographicCamera`'s `center` field) — ALWAYS reported
+   * (never conditionally omitted at its own `[0.5, 0.5]` identity, unlike
+   * the prior cut, which dropped it entirely and left `resolved.camera`
+   * alone unable to reproduce the exact auto-fitted frame — `target` is
+   * always this mark's own bounds centroid, recoverable from the mark
+   * itself, but the recentring is not, so reconstructing from `rotX`/
+   * `rotY`/`zoom`/`mat` alone reproduced the right SIZE at the wrong
+   * POSITION, measured 245-576 characters different from the original).
+   * `options.camera = result.resolved.camera` round-trips byte-for-byte.
+   */
+  readonly camera: { readonly rotX?: number; readonly rotY?: number; readonly zoom: number; readonly mat?: readonly number[]; readonly center: readonly [number, number] };
+  /** The EFFECTIVE style this frame rendered (after resolving `options.style`'s own auto-by-charset default). */
+  readonly style: GlyphChart3dStyle;
 }
 
 export interface GlyphChart3dReport {
@@ -92,7 +145,6 @@ export interface GlyphChart3dResult {
 
 const CANVAS_TIERS = ["ascii", "box", "blocks", "braille"] as const;
 const COLOR_MODES = ["none", "ansi16", "ansi256", "truecolor", "css"] as const;
-const COLORBAR_COLS = 9;
 const COLORBAR_MIN_PLOT_WIDTH = 24;
 const COLORBAR_TITLE_COLOR = "#e5e7eb";
 const zFormat = d3format("~r");
@@ -129,7 +181,11 @@ function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
  */
 function resolveCharsetDegrade3d(charset: GlyphChartCharset, ledger: GlyphChart3dLedgerEntry[]): void {
   if (charset === "blocks") ledger.push(ledgerCharset3dBlocksUnsupported());
-  else if (charset === "braille") ledger.push(ledgerCharset3dBrailleUnsupported());
+  // `braille` no longer degrades (fix round 2): `resolveGlyphChart3dStyle`
+  // resolves it to `style: "wireframe"`, which genuinely renders the
+  // surface's own decimated quad grid as depth-tested braille sub-cell
+  // dot lines — a real glyphcss capability (`mode: "wireframe"` +
+  // `charMode: "braille"` + `hiddenLines: "hide"`), not a downgrade.
 }
 
 /**
@@ -138,31 +194,68 @@ function resolveCharsetDegrade3d(charset: GlyphChartCharset, ledger: GlyphChart3
  * (a mounted `createGlyphScene` orbiting a `glyphChartObject`, e.g.
  * `/charts`' own 3D viewport) that needs the identical target/charset
  * contract without re-deriving WHICH charsets are unsupported (AGENTS.md's
- * "Charts 3D": "Charset mapping for 3D") — neither `blocks` (the always-
- * mounted axis/tick overlay disables the halfblock encoder) nor `braille`
- * (glyphcss's solid render mode has no braille encoder) can ever render a
- * 3D chart's geometry, so BOTH degrade to the default solid ramp; `ascii`/
+ * "Charts 3D": "Charset mapping for 3D") — ONLY `blocks` (the always-
+ * mounted axis/tick overlay disables the halfblock encoder) can never
+ * render a 3D chart's geometry; `braille` no longer degrades (fix round 2:
+ * it resolves to a real `style: "wireframe"` render, below) and `ascii`/
  * `box` are unaffected. A live caller that wants the exact chrome wording
  * writes its own note (a live scene has no `report.ledger` of its own to
  * push one into) — this only answers "can charset X actually render".
  */
 export function glyphChart3dCharsetDegrades(charset: GlyphChartCharset): boolean {
-  return charset === "blocks" || charset === "braille";
+  return charset === "blocks";
 }
 
 /**
- * The canvas CHROME (title/colorbar) tier. `braille` degrades to `box` (no
- * braille glyphs anywhere in the 3D frame). `blocks` ALSO degrades to the
+ * Charset -> render `style` when the caller names none (fix round 2, USER
+ * FEEDBACK: "good detail using braille or ink mode"). `braille` resolves to
+ * `"wireframe"` — glyphcss's braille encoder is wireframe-only
+ * (AGENTS.md's "Render modes"), so this is the ONLY way a braille 3D frame
+ * ever shows real geometry rather than a faithful downgrade. Every other
+ * charset keeps the ORIGINAL `"solid"` (Lambert/value-shaded fill)
+ * default. An explicit `options.style` always wins, independent of
+ * charset — a caller can ask for a `box`/`ascii` wireframe too.
+ */
+function resolveGlyphChart3dStyle(charset: GlyphChartCharset, styleOption: GlyphChart3dStyle | undefined): GlyphChart3dStyle {
+  if (styleOption !== undefined) return styleOption;
+  return charset === "braille" ? "wireframe" : "solid";
+}
+
+/**
+ * The canvas CHROME (title/colorbar) tier. `blocks` degrades to the
  * default `ascii` tier here (fix round 1, P1-4) — the geometry itself can
  * never actually render in halfblock (`resolveCharsetDegrade3d`'s own doc),
  * and letting the CHROME alone keep real half-block/quadrant swatch glyphs
  * while the geometry silently fell back would make a `blocks` frame
  * genuinely DIFFERENT bytes from an `ascii` one for a reason no ledger
  * entry explains — the matrix test's own "byte-identical to ascii" claim is
- * what makes the downgrade FAITHFUL rather than a half-measure.
+ * what makes the downgrade FAITHFUL rather than a half-measure. `braille`
+ * no longer degrades here (fix round 2): the chrome (title/colorbar) now
+ * shares the SAME braille tier the geometry genuinely renders under, so a
+ * colorbar swatch reads sub-cell dot density too, consistent with the plot.
  */
 function chromeTier(charset: GlyphChartCharset): (typeof CANVAS_TIERS)[number] {
-  return charset === "braille" || charset === "blocks" ? "ascii" : charset;
+  return charset === "blocks" ? "ascii" : charset;
+}
+
+/**
+ * Fix round 4, Item 3: caps a WIREFRAME mesh's own quad resolution at
+ * `WIREFRAME_MAX_QUADS` per axis — never below a caller's own explicit,
+ * already-coarser `maxQuadsX`/`maxQuadsY` (a `Math.min`, not an
+ * override) — so `style: "wireframe"` shows real mesh LINES with visible
+ * gaps between them (rim/crater legible) instead of every one of a fine
+ * grid's own quad edges (a solid blob at typical grid sizes). `solid`
+ * style never calls this — its own full resolution is what makes its
+ * shading fine-grained.
+ */
+const WIREFRAME_MAX_QUADS = 20;
+function wireframeDecimatedMark(mark: GlyphChart3dSurfaceMark): GlyphChart3dSurfaceMark {
+  const rows = mark.grid.z.length;
+  const cols = mark.grid.z[0]?.length ?? 0;
+  const maxQuadsY = Math.min(mark.maxQuadsY ?? (rows - 1), WIREFRAME_MAX_QUADS);
+  const maxQuadsX = Math.min(mark.maxQuadsX ?? (cols - 1), WIREFRAME_MAX_QUADS);
+  if (maxQuadsY === mark.maxQuadsY && maxQuadsX === mark.maxQuadsX) return mark;
+  return { ...mark, maxQuadsX, maxQuadsY };
 }
 
 /**
@@ -178,27 +271,88 @@ function resolveMarkShading(mark: GlyphChart3dSurfaceMark, colorEnabled: boolean
   return mark.shading ?? (colorEnabled ? "relief" : "value");
 }
 
-/** A vertical value-scale swatch strip at the canvas's own right edge — z max at the top, z min at the bottom, each row's shade AND colour reading its own band (monotone even with colour off, matching `shading: "value"`'s own discipline). Fix round 1 (P1-2): labels every band up to a legible cap, not just the two endpoints — a one-column colorbar with no intermediate reading is close to useless as a legend. */
-function paintColorbar(canvas: GlyphCanvas, mark: GlyphChart3dSurfaceMark, y0: number, rowsAvailable: number, colorEnabled: boolean): void {
-  const swatchCol = canvas.cols - 1;
-  const labelCol = swatchCol - 1;
+const COLORBAR_MAX_LABELS = 6;
+/**
+ * Fix round 4, Item 5 ("the colorbar sits at the far right edge,
+ * disconnected"): a fixed 2-column gap — the coordinator's own suggested
+ * "2-3 cols" — between the plot's own ACTUAL projected extent (measured
+ * below, `occupiedGridBounds`) and the colorbar's swatch column. Also the
+ * width the initial column RESERVATION (`colorbarLabelWidth(...) + 1 +
+ * COLORBAR_GAP_COLS`) budgets for, so the reservation and the real gap stay
+ * the same number rather than drifting apart.
+ */
+const COLORBAR_GAP_COLS = 2;
+
+interface ColorbarRow {
+  readonly row: number;
+  readonly bandIdx: number;
+  readonly shade: number;
+  readonly value: number;
+  readonly label: string | undefined;
+}
+
+/** The colorbar's own row layout — bands, shades and WHICH rows get a label (endpoints always, up to `COLORBAR_MAX_LABELS` intermediates evenly spaced) — factored out of `paintColorbar` so `colorbarLabelWidth` (fix round 2, P1-a: the colorbar column reservation) can measure the SAME label set it paints, never a duplicated/driftable copy. */
+function colorbarRows(mark: GlyphChart3dSurfaceMark, y0: number, rowsAvailable: number): readonly ColorbarRow[] {
   const bands = mark.bands;
   const rows = Math.max(1, Math.min(bands, rowsAvailable));
-  const anchors = mark.colorAnchors;
   const [zLo, zHi] = mark.axes.z.domain;
   const zSpan = zHi - zLo;
-  const MAX_LABELS = 6;
-  const labelEvery = rows <= MAX_LABELS ? 1 : Math.ceil((rows - 1) / (MAX_LABELS - 1));
+  const labelEvery = rows <= COLORBAR_MAX_LABELS ? 1 : Math.ceil((rows - 1) / (COLORBAR_MAX_LABELS - 1));
+  const out: ColorbarRow[] = [];
   for (let i = 0; i < rows; i++) {
-    const row = y0 + i;
     const bandIdx = rows === 1 ? bands - 1 : Math.round(((rows - 1 - i) * (bands - 1)) / (rows - 1));
     const shade = bands <= 1 ? 1 : bandIdx / (bands - 1);
-    const swatchColor = anchors ? glyphChart3dBandColor(anchors, bandIdx, bands) : null;
-    canvas.fillRect(swatchCol, row, swatchCol, row, { fill: { shade }, color: colorEnabled ? swatchColor : null });
     const isEndpoint = i === 0 || i === rows - 1;
-    if (!isEndpoint && i % labelEvery !== 0) continue;
     const value = bands <= 1 ? zHi : zLo + (bandIdx / (bands - 1)) * zSpan;
-    canvas.text(labelCol, row, [zFormat(value)], { align: "right", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
+    out.push({ row: y0 + i, bandIdx, shade, value, label: isEndpoint || i % labelEvery === 0 ? zFormat(value) : undefined });
+  }
+  return out;
+}
+
+/** The exact column width the colorbar's OWN labels need (fix round 2, P1-a: the prior fixed `COLORBAR_COLS = 9` reserved far more than the 2 columns `paintColorbar` ever actually painted — a 7-column dead gap between the plot and the colorbar the review's own footprint measurement fell into). Measures the SAME label set `colorbarRows` produces. */
+function colorbarLabelWidth(mark: GlyphChart3dSurfaceMark, rowsAvailable: number): number {
+  let width = 1;
+  for (const r of colorbarRows(mark, 0, rowsAvailable)) {
+    if (r.label !== undefined) width = Math.max(width, r.label.length);
+  }
+  return width;
+}
+
+/**
+ * Fix round 4, Item 5: the occupied column/row bounding box of a rasterized
+ * `CellGrid` (non-blank cells only) — `renderGlyphChart3d` uses this on the
+ * SURFACE grid (before it's pasted onto the chrome canvas) to place the
+ * colorbar relative to what the fitted camera actually painted, not the
+ * nominal plot-column BUDGET the auto-fit was free to under-fill on one
+ * axis (an orthographic fit maxes out whichever of cols/rows binds first —
+ * leftover room on the other axis is real and the colorbar must not treat
+ * it as "the plot reaches here"). `null` when the grid is entirely blank.
+ */
+function occupiedGridBounds(grid: CellGrid): { readonly minCol: number; readonly maxCol: number; readonly minRow: number; readonly maxRow: number } | null {
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (let r = 0; r < grid.rows; r++) {
+    for (let c = 0; c < grid.cols; c++) {
+      const ch = grid.char[r * grid.cols + c];
+      if (ch === undefined || ch === " ") continue;
+      if (c < minCol) minCol = c;
+      if (c > maxCol) maxCol = c;
+      if (r < minRow) minRow = r;
+      if (r > maxRow) maxRow = r;
+    }
+  }
+  return Number.isFinite(minCol) ? { minCol, maxCol, minRow, maxRow } : null;
+}
+
+/** A vertical value-scale swatch strip — z max at the top, z min at the bottom, each row's shade AND colour reading its own band (monotone even with colour off, matching `shading: "value"`'s own discipline). Fix round 1 (P1-2): labels every band up to a legible cap, not just the two endpoints — a one-column colorbar with no intermediate reading is close to useless as a legend. Fix round 4, Item 5: `swatchCol`/`y0` are the CALLER's own choice (placed a fixed `COLORBAR_GAP_COLS` past the plot's own actual right edge, vertically centred on its own occupied row range — `renderGlyphChart3d`'s own doc), never `canvas.cols - 1`/the plot's top row unconditionally. */
+function paintColorbar(canvas: GlyphCanvas, mark: GlyphChart3dSurfaceMark, swatchCol: number, y0: number, rowsAvailable: number, colorEnabled: boolean): void {
+  const labelCol = swatchCol - 1;
+  const bands = mark.bands;
+  const anchors = mark.colorAnchors;
+  for (const r of colorbarRows(mark, y0, rowsAvailable)) {
+    const swatchColor = anchors ? glyphChart3dBandColor(anchors, r.bandIdx, bands) : null;
+    canvas.fillRect(swatchCol, r.row, swatchCol, r.row, { fill: { shade: r.shade }, color: colorEnabled ? swatchColor : null });
+    if (r.label === undefined) continue;
+    canvas.text(labelCol, r.row, [r.label], { align: "right", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
   }
 }
 
@@ -220,16 +374,56 @@ function lightingForShading(shading: "relief" | "value"): ResolvedLighting {
     : {};
 }
 
-function renderObjectFrame(object: GlyphSceneObject, camera: ReturnType<typeof createGlyphOrthographicCamera>, cols: number, rows: number, cellAspect: number, useColors: boolean, lighting: ResolvedLighting): CellGrid {
+/**
+ * `style === "wireframe"` renders the surface's OWN decimated quad grid as
+ * depth-tested lines — `mode: "wireframe"` + `hiddenLines: "hide"` (a
+ * slope-scaled depth-bias prepass against the surface itself, AGENTS.md's
+ * "Render modes"), so a line on the FAR side of the surface is genuinely
+ * hidden rather than drawn through it, exactly like `style === "solid"`'s
+ * own depth-tested fill. `charMode: "braille"` only under the `braille`
+ * charset — every other charset wireframes in plain ASCII/box-drawing
+ * rules. `style === "ink"` is silhouette + crease outline (`mode: "ink"`),
+ * which computes its own occlusion internally and needs no `hiddenLines`.
+ *
+ * `sceneCellAspect` (fix round 4, coordinator root-cause finding): `glyphcss`'s
+ * OWN cell-aspect convention (`cellHeight / cellWidth`, `rasterize.ts`'s
+ * `fallbackCellW = 50 / cellAspect` — a FIXED `cellHeight` of 50, so a
+ * SMALLER value here means a WIDER cell) is the exact INVERSE of this
+ * package's own public `cellAspect` (`cellWidth / cellHeight`,
+ * `GLYPH_CHART_TARGET_DEFAULTS.web.cellAspect = 0.5859375`, Glyph Mono's
+ * measured advance/line-height, AGENTS.md's "Arc shape"). Every call into
+ * `glyphcss` (this function, `compileScene`'s own `cellAspect`, a live
+ * scene's `createGlyphScene({ cellAspect })`) needs the CONVERTED value —
+ * `1 / chartCellAspect` — never the raw chart one; `createGlyphCanvas`
+ * (chart chrome: title/colorbar) is the ONE call in this module that keeps
+ * the chart's OWN convention, since it never reaches glyphcss's projection
+ * at all. Passing the un-converted value squashed every 3D projection
+ * horizontally by `(1/0.586)/0.586 ≈ 2.9x` — the actual root cause behind
+ * every prior round's "tiny, narrow surface," which round 2/3 both
+ * misdiagnosed as a camera-pitch/footprint problem and "fixed" by
+ * flattening the pitch instead.
+ */
+function renderObjectFrame(
+  object: GlyphSceneObject,
+  camera: ReturnType<typeof createGlyphOrthographicCamera>,
+  cols: number,
+  rows: number,
+  sceneCellAspect: number,
+  useColors: boolean,
+  lighting: ResolvedLighting,
+  style: GlyphChart3dStyle,
+  charset: GlyphChartCharset,
+): CellGrid {
   const result = compileScene({
     polygons: [],
     objects: [object],
     camera,
     cols,
     rows,
-    cellAspect,
-    mode: "solid",
+    cellAspect: sceneCellAspect,
+    mode: style,
     useColors,
+    ...(style === "wireframe" ? { charMode: charset === "braille" ? "braille" as const : undefined, hiddenLines: "hide" as const } : {}),
     ...lighting,
   });
   // `objects` never requests `charMode: "halfblock"`/`"quadrant"` here (see
@@ -239,82 +433,119 @@ function renderObjectFrame(object: GlyphSceneObject, camera: ReturnType<typeof c
   return result.grid!;
 }
 
-function occupiedBounds(grid: CellGrid): { minCol: number; maxCol: number; minRow: number; maxRow: number } | undefined {
-  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  for (let row = 0; row < grid.rows; row++) {
-    for (let col = 0; col < grid.cols; col++) {
-      if (grid.char[row * grid.cols + col] === " ") continue;
-      if (col < minCol) minCol = col;
-      if (col > maxCol) maxCol = col;
-      if (row < minRow) minRow = row;
-      if (row > maxRow) maxRow = row;
-    }
-  }
-  return Number.isFinite(minCol) ? { minCol, maxCol, minRow, maxRow } : undefined;
-}
+interface FitLabel { readonly text: string; readonly point: Vec3; }
 
-// Mirrors `createGlyphCamera.ts`'s own `BASE_TILE` (a documented public
-// default, `@glyphcss/diagrams/3d`'s `render3d.ts` cites the same constant
-// for the identical reason: a headless render has no DOM to measure a real
-// character cell from).
-const BASE_TILE = 50;
-const FIT_PROBE_COLS = 220, FIT_PROBE_ROWS = 130;
-const FIT_MARGIN_COLS = 1, FIT_MARGIN_ROWS = 1;
+const FIT_MARGIN_COLS = 1;
+const FIT_ZOOM_SAFETY = 0.96;
 
 /**
- * Auto-fit the static frame's default camera (fix round 1, P1-2): the
- * PREVIOUS cut fitted the mesh's expanded AABB only (`camera.ts`'s own
- * `glyphChart3dFitCamera`, kept unchanged below as the cheap, synchronous,
- * analytic pre-fit any scene consumer — e.g. a live orbit viewport's
- * INITIAL pose — can afford), which measured neither the projected overlay
- * labels (ticks, titles) nor the true glyph footprint those labels' own
- * TEXT occupies, so a short axis title routinely fell off-frame at several
- * rotations and the kept plot filled only ~5% of the requested cells at
- * common CLI sizes (80x24/96x32/140x40, all measured in the review).
+ * Auto-fit the static frame's default camera — CLOSED-FORM, not a rendered
+ * probe (fix round 2, P1-b, mirroring `@glyphcss/diagrams/3d`'s own D2
+ * packet's identical fix, `render3d.ts`'s `fitDiagramCamera`): a PRIOR cut
+ * here rendered a probe frame and measured which glyphs survived —
+ * indistinguishable from "never fit" for a label the ARBITER dropped to a
+ * collision or that landed off the probe's own generous grid, so a 10°
+ * Euler sweep left a FULL title missing (`Eleva+ion`, a bare `Elevati\n`)
+ * at 14 of 36 rotations at 80x24 alone.
  *
- * This renders TWICE, the same probe-then-scale technique
- * `@glyphcss/diagrams/3d`'s own D2 packet already shipped
- * (`render3d.ts`'s `fitCamera` — a node LABEL's cell width doesn't shrink
- * with zoom the way geometry does, so the only reliable source for "does
- * this actually fit" is rendering it and measuring the painted cells, not
- * an analytic estimate): pass 1 renders at a conservative, safely-small
- * probe zoom into a generous grid and measures the OCCUPIED cell box —
- * geometry AND every stamped tick/title glyph together, since they share
- * one `CellGrid`; pass 2 scales zoom by exactly the ratio needed to fill
- * `cols`x`rows` (minus a 1-cell margin) and recentres via `camera.center`
- * (an additive projection offset — `centerCol = cols * center[0]` — so no
- * rotation needs inverting, unlike moving `camera.target` would).
+ * For a fixed rotation/target/center, an orthographic camera's
+ * `col(zoom) = centerCol + (col1 - centerCol) * zoom` is EXACTLY linear in
+ * `zoom` (`col1` = the projection at a reference `zoom: 1`), so every "this
+ * point/label must land within `[lo, hi]`" constraint reduces to ONE linear
+ * inequality in `zoom`. The tightest (`min`) upper bound across every one
+ * of the object's 8 bounds corners AND every tick/title's own anchor PLUS
+ * its full painted text width (`glyphChart3dLabelAnchors` — computed
+ * BEFORE any clipping or arbiter collision, never a rendered guess) gives
+ * the LARGEST zoom that keeps everything on screen with margin — one pass,
+ * no iteration, and therefore nothing an arbiter collision can hide from
+ * it. A label wider than the frame itself is excluded from the constraint
+ * set (so it alone can't force every other label toward zoom zero) and
+ * reported via `chart3d-label-unfittable`.
+ *
+ * `rotation` is EITHER Euler (`rotX`/`rotY`) or a trackball `mat` (fix
+ * round 2, P1-d) — the fit is rotation-representation-agnostic, since it
+ * only ever asks the reference camera to `project()`.
  */
-function fitStaticCamera(object: GlyphSceneObject, rotX: number, rotY: number, cols: number, rows: number, cellAspect: number, useColors: boolean, lighting: ResolvedLighting): { readonly camera: ReturnType<typeof createGlyphOrthographicCamera>; readonly zoom: number } {
+function fitStaticCamera(
+  mark: GlyphChart3dSurfaceMark,
+  object: GlyphSceneObject,
+  rotation: { readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[] },
+  cols: number,
+  rows: number,
+  sceneCellAspect: number,
+  hasTitle: boolean,
+): { readonly camera: ReturnType<typeof createGlyphOrthographicCamera>; readonly zoom: number; readonly center: readonly [number, number]; readonly unfittable: readonly FitLabel[] } {
   const centroid = objectBoundsCenter(object.bounds);
+  const useMat = rotation.mat !== undefined;
   const makeCamera = (zoom: number, center: readonly [number, number]) => {
-    const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom, center: [center[0], center[1]] });
+    const camera = createGlyphOrthographicCamera({
+      rotX: rotation.rotX, rotY: rotation.rotY, zoom, center: [center[0], center[1]],
+      ...(useMat ? { mat: [...rotation.mat!], useMat: true } : {}),
+    });
     camera.target = centroid;
     return camera;
   };
 
-  const extentWorld = Math.max(
-    object.bounds.max[0] - object.bounds.min[0],
-    object.bounds.max[1] - object.bounds.min[1],
-    object.bounds.max[2] - object.bounds.min[2],
-    1,
-  );
-  const probeFramePx = Math.min(FIT_PROBE_COLS * (BASE_TILE / cellAspect), FIT_PROBE_ROWS * BASE_TILE);
-  const probeZoom = Math.max(0.05, probeFramePx / (6 * extentWorld * Math.SQRT2));
-  const probeCamera = makeCamera(probeZoom, [0.5, 0.5]);
-  const probeGrid = renderObjectFrame(object, probeCamera, FIT_PROBE_COLS, FIT_PROBE_ROWS, cellAspect, useColors, lighting);
-  const box = occupiedBounds(probeGrid);
-  if (!box) return { camera: makeCamera(probeZoom, [0.5, 0.5]), zoom: probeZoom };
+  const marginRowTop = hasTitle ? 2 : 1, marginRowBottom = 1;
+  const centerCol = cols / 2, centerRow = rows / 2;
+  const reference = makeCamera(1, [0.5, 0.5]);
 
-  const contentCols = box.maxCol - box.minCol + 1, contentRows = box.maxRow - box.minRow + 1;
-  const availableCols = Math.max(1, cols - 2 * FIT_MARGIN_COLS), availableRows = Math.max(1, rows - 2 * FIT_MARGIN_ROWS);
-  const scale = Math.min(availableCols / contentCols, availableRows / contentRows);
-  const finalZoom = probeZoom * scale;
+  interface ColPoint { readonly col1: number; readonly widthRight: number; }
+  interface RowPoint { readonly row1: number; }
+  const colPoints: ColPoint[] = [], rowPoints: RowPoint[] = [];
+  const { min, max } = object.bounds;
+  for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
+    const [col1, row1] = reference.project([x, y, z], cols, rows, sceneCellAspect);
+    colPoints.push({ col1, widthRight: 0 });
+    rowPoints.push({ row1 });
+  }
 
-  const probeCenterCol = (box.minCol + box.maxCol + 1) / 2, probeCenterRow = (box.minRow + box.maxRow + 1) / 2;
-  const dCol = (probeCenterCol - FIT_PROBE_COLS / 2) * scale, dRow = (probeCenterRow - FIT_PROBE_ROWS / 2) * scale;
+  const availCols = Math.max(1, cols - 2 * FIT_MARGIN_COLS);
+  const unfittable: FitLabel[] = [];
+  for (const anchor of glyphChart3dLabelAnchors(mark, reference)) {
+    const text = foldGlyphOverlayLabelToAscii(anchor.text);
+    if (text.length === 0) continue;
+    if (text.length > availCols) { unfittable.push(anchor); continue; }
+    const [col1, row1] = reference.project(anchor.point, cols, rows, sceneCellAspect);
+    // A label paints LEFT-ALIGNED from its own anchor column
+    // (`labelArbiter.ts`'s `resolve()`: `stampGlyphOverlayCell({col: c.col
+    // + i, ...})` for `i` in `[0, text.length)`) — never centred — so its
+    // own screen span is `[col1, col1 + text.length - 1]`, and only the
+    // RIGHT edge needs its own extra bound.
+    colPoints.push({ col1, widthRight: text.length - 1 });
+    rowPoints.push({ row1 });
+  }
+
+  let zUpper = Infinity;
+  const EPS = 1e-9;
+  for (const p of colPoints) {
+    const offset = p.col1 - centerCol;
+    if (offset > EPS) zUpper = Math.min(zUpper, (cols - FIT_MARGIN_COLS - p.widthRight - centerCol) / offset);
+    else if (offset < -EPS) zUpper = Math.min(zUpper, (FIT_MARGIN_COLS - centerCol) / offset);
+  }
+  for (const p of rowPoints) {
+    const offset = p.row1 - centerRow;
+    if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - centerRow) / offset);
+    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop - centerRow) / offset);
+  }
+  if (!Number.isFinite(zUpper) || zUpper <= 0) zUpper = 1;
+  const finalZoom = zUpper * FIT_ZOOM_SAFETY;
+
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (const p of colPoints) {
+    const c = centerCol + (p.col1 - centerCol) * finalZoom;
+    if (c < minCol) minCol = c;
+    if (c + p.widthRight > maxCol) maxCol = c + p.widthRight;
+  }
+  for (const p of rowPoints) {
+    const r = centerRow + (p.row1 - centerRow) * finalZoom;
+    if (r < minRow) minRow = r;
+    if (r > maxRow) maxRow = r;
+  }
+  const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
   const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
-  return { camera: makeCamera(finalZoom, center), zoom: finalZoom };
+
+  return { camera: makeCamera(finalZoom, center), zoom: finalZoom, center, unfittable };
 }
 
 /**
@@ -346,51 +577,122 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   const color: GlyphChartColorMode = options.color ?? defaults.color;
   if (!COLOR_MODES.includes(color)) chart3dError("bad-render-options", `color must be one of ${COLOR_MODES.join(", ")}, got ${JSON.stringify(options.color)}.`);
 
+  // `cellAspect` (this PACKAGE's own `cellWidth / cellHeight` convention,
+  // AGENTS.md's "Arc shape") stays THIS value for the chart canvas
+  // (`createGlyphCanvas`, chrome only — title/colorbar) and for the public
+  // `resolved.cellAspect` echo. `glyphcss` itself uses the INVERSE
+  // convention (`cellHeight / cellWidth`) everywhere it projects 3D
+  // geometry — `sceneCellAspect` below is that converted value, and is the
+  // ONE that may ever reach `compileScene`/a camera's own `.project()`
+  // (`renderObjectFrame`'s own doc has the full derivation and the fix
+  // round 4 root-cause finding).
   const cellAspect = options.cellAspect ?? defaults.cellAspect;
   if (typeof cellAspect !== "number" || !Number.isFinite(cellAspect) || cellAspect <= 0) {
     chart3dError("bad-render-options", `cellAspect must be a positive finite number, got ${JSON.stringify(options.cellAspect)}.`);
   }
+  const sceneCellAspect = 1 / cellAspect;
 
   const cameraOption = options.camera ?? {};
-  const rotX = cameraOption.rotX ?? GLYPH_CHART_3D_DEFAULT_CAMERA.rotX;
-  const rotY = cameraOption.rotY ?? GLYPH_CHART_3D_DEFAULT_CAMERA.rotY;
-  if (!Number.isFinite(rotX) || !Number.isFinite(rotY)) chart3dError("bad-camera", `camera.rotX/rotY must be finite numbers, got ${JSON.stringify(cameraOption)}.`);
+  if (cameraOption.mat !== undefined && (cameraOption.rotX !== undefined || cameraOption.rotY !== undefined)) {
+    chart3dError("bad-camera", "camera: pass either mat (trackball) or rotX/rotY (Euler), not both.");
+  }
+  const useMat = cameraOption.mat !== undefined;
+  const rotX = useMat ? undefined : (cameraOption.rotX ?? GLYPH_CHART_3D_DEFAULT_CAMERA.rotX);
+  const rotY = useMat ? undefined : (cameraOption.rotY ?? GLYPH_CHART_3D_DEFAULT_CAMERA.rotY);
+  if (!useMat && (!Number.isFinite(rotX) || !Number.isFinite(rotY))) {
+    chart3dError("bad-camera", `camera.rotX/rotY must be finite numbers, got ${JSON.stringify(cameraOption)}.`);
+  }
   if (cameraOption.zoom !== undefined && (!Number.isFinite(cameraOption.zoom) || cameraOption.zoom <= 0)) {
     chart3dError("bad-camera", `camera.zoom must be a positive finite number, got ${JSON.stringify(cameraOption.zoom)}.`);
   }
+  if (cameraOption.center !== undefined && (cameraOption.center.length !== 2 || !cameraOption.center.every((v) => Number.isFinite(v)))) {
+    chart3dError("bad-camera", `camera.center must be a [number, number] pair, got ${JSON.stringify(cameraOption.center)}.`);
+  }
+
+  if (options.style !== undefined && options.style !== "solid" && options.style !== "wireframe" && options.style !== "ink") {
+    chart3dError("bad-render-options", `style must be one of solid, wireframe, ink, got ${JSON.stringify(options.style)}.`);
+  }
+  const style = resolveGlyphChart3dStyle(charset, options.style);
 
   const ledger: GlyphChart3dLedgerEntry[] = [...mark.report.ledger];
   resolveCharsetDegrade3d(charset, ledger);
   const colorEnabled = glyphChartColorEnabled(color, options.env);
-  const shading = resolveMarkShading(mark, colorEnabled);
+  // `shading: "value"` has no analogue under wireframe (a line has no fill
+  // face to texture) — colour stays the surface's own per-quad band colour
+  // per line, so the effective shading is always `"relief"` there
+  // regardless of `mark.shading`/colour mode, and an explicit
+  // `shading: "value"` request is ledgered as a no-op rather than silently
+  // ignored.
+  if (style === "wireframe" && mark.shading === "value") ledger.push(ledgerChart3dValueShadingWireframeNoop());
+  const shading = style === "wireframe" ? "relief" : resolveMarkShading(mark, colorEnabled);
   const lighting = lightingForShading(shading);
 
   const titleRows = options.title ? 1 : 0;
-  const wantColorbar = mark.colorAnchors !== null;
-  let colorbarCols = 0;
-  if (wantColorbar) {
-    if (width - COLORBAR_COLS >= COLORBAR_MIN_PLOT_WIDTH) colorbarCols = COLORBAR_COLS;
-    else ledger.push(ledgerColorbarOmitted({ width, minWidth: COLORBAR_MIN_PLOT_WIDTH + COLORBAR_COLS }));
-  }
-  const plotCols = Math.max(1, width - colorbarCols);
   const plotRows = Math.max(1, height - titleRows);
   const plotY0 = titleRows;
 
-  const object = mark.shading === shading ? glyphChartObject(mark) : glyphChartObject({ ...mark, shading });
+  // Fix round 2, P1-a: reserve EXACTLY the columns the colorbar's own
+  // labels need (`colorbarLabelWidth`) plus its swatch column plus a
+  // 1-column gap — never a fixed budget wider than what `paintColorbar`
+  // actually paints, which left a dead gap between the plot and the
+  // colorbar the review's own footprint measurement fell straight into.
+  const wantColorbar = mark.colorAnchors !== null;
+  let colorbarCols = 0;
+  if (wantColorbar) {
+    const needed = colorbarLabelWidth(mark, plotRows) + 1 + COLORBAR_GAP_COLS;
+    if (width - needed >= COLORBAR_MIN_PLOT_WIDTH) colorbarCols = needed;
+    else ledger.push(ledgerColorbarOmitted({ width, minWidth: COLORBAR_MIN_PLOT_WIDTH + needed }));
+  }
+  const plotCols = Math.max(1, width - colorbarCols);
+
+  // `chromeTier(charset)` (never the raw `charset`) so a `blocks` request —
+  // which already downgrades to ascii-identical rendering for this chart's
+  // ALWAYS-overlaid box/tick geometry — gets the ascii grid glyph, not a
+  // box-drawing one the rest of the frame will never otherwise show.
+  const objectCharset = chromeTier(charset);
+  // Fix round 4, Item 3: `style: "wireframe"` draws EVERY quad edge of the
+  // surface mesh — at the fixture's own 40x40 grid resolution that is
+  // ~1,600 quads, so a braille wireframe reads as one solid blob with no
+  // rim or crater visible, never real mesh lines with gaps. `solid` keeps
+  // its own full resolution (fine-grained shading is what a solid render
+  // wants); only the WIREFRAME mesh is decimated here, to
+  // `WIREFRAME_MAX_QUADS` per axis (16-24, the coordinator's own range) —
+  // reusing `gridSurfacePolygons`' own decimation (`mark.maxQuadsX`/`Y`,
+  // `object.ts`'s own doc: ALWAYS keeps the peak/trough row+column, never
+  // just a blind stride) rather than a second mesh-thinning pass. Never
+  // decimates BELOW a caller's own explicit, already-smaller request.
+  const meshMark = style === "wireframe" ? wireframeDecimatedMark(mark) : mark;
+  const object = meshMark.shading === shading
+    ? glyphChartObject(meshMark, { charset: objectCharset })
+    : glyphChartObject({ ...meshMark, shading }, { charset: objectCharset });
 
   let camera: ReturnType<typeof createGlyphOrthographicCamera>;
   let zoom: number;
+  let center: readonly [number, number] | undefined;
   if (cameraOption.zoom === undefined) {
-    const fit = fitStaticCamera(object, rotX, rotY, plotCols, plotRows, cellAspect, colorEnabled, lighting);
+    const fit = fitStaticCamera(mark, object, { rotX, rotY, mat: cameraOption.mat }, plotCols, plotRows, sceneCellAspect, Boolean(options.title));
     camera = fit.camera;
     zoom = fit.zoom;
+    center = fit.center;
+    for (const label of fit.unfittable) ledger.push(ledgerChart3dLabelUnfittable({ text: label.text, cols: plotCols }));
   } else {
     zoom = cameraOption.zoom;
-    camera = createGlyphOrthographicCamera({ rotX, rotY, zoom });
+    // P1-c: accept `center` on input (the SAME additive `camera.center`
+    // offset `resolved.camera` reports) so a caller re-rendering from
+    // `resolved.camera` verbatim reproduces the exact fitted frame — the
+    // prior cut discarded it entirely (`resolved.camera` carried only
+    // `rotX`/`rotY`/`zoom`), so re-rendering from the reported camera
+    // reconstructed the right SIZE at the wrong POSITION (measured:
+    // 245-576 characters different from the original frame).
+    center = cameraOption.center ?? [0.5, 0.5];
+    camera = createGlyphOrthographicCamera({
+      rotX, rotY, zoom, center: [center[0], center[1]],
+      ...(useMat ? { mat: [...cameraOption.mat!], useMat: true } : {}),
+    });
     camera.target = objectBoundsCenter(object.bounds);
   }
 
-  const surfaceGrid = renderObjectFrame(object, camera, plotCols, plotRows, cellAspect, colorEnabled, lighting);
+  const surfaceGrid = renderObjectFrame(object, camera, plotCols, plotRows, sceneCellAspect, colorEnabled, lighting, style, charset);
 
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: chromeTier(charset), cellAspect });
   for (let r = 0; r < surfaceGrid.rows; r++) {
@@ -409,7 +711,45 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   if (options.title) {
     canvas.text(Math.floor(width / 2), 0, [options.title], { align: "center", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
   }
-  if (colorbarCols > 0) paintColorbar(canvas, mark, plotY0, plotRows, colorEnabled);
+  if (colorbarCols > 0) {
+    // Fix round 4, Item 5 ("the colorbar sits at the far right edge,
+    // disconnected"): place it relative to the surface's own ACTUAL
+    // projected extent (`occupiedGridBounds`, measured on `surfaceGrid`
+    // before chrome is pasted around it), not the nominal `plotCols`/
+    // `plotRows` BUDGET — an orthographic fit maxes out whichever of
+    // cols/rows binds first, so the OTHER axis routinely has real leftover
+    // room the plot never uses (measured directly: the Maunga Whau fixture
+    // at 96x32 left a 22-column gap between its own rightmost ink and a
+    // colorbar pinned to the canvas's far edge). `swatchCol` sits exactly
+    // `COLORBAR_GAP_COLS` past the surface's own rightmost occupied column;
+    // the bar's own row band is vertically centred on the surface's own
+    // occupied ROW range, not merely started at the plot's own top row.
+    // Falls back to the OLD far-edge/top-row placement when the surface
+    // painted nothing at all (an all-blank frame has no "actual extent" to
+    // measure from).
+    const bounds = occupiedGridBounds(surfaceGrid);
+    const barRowsCount = Math.max(1, Math.min(mark.bands, plotRows));
+    const labelWidth = colorbarLabelWidth(mark, plotRows);
+    let swatchCol = width - 1;
+    let colorbarY0 = plotY0;
+    if (bounds) {
+      // The LABEL right-aligns ENDING at `swatchCol - 1` and so spans
+      // BACKWARD across its own full `labelWidth` — placing the gap only
+      // before `labelCol` itself (the pre-fix version of this code) let a
+      // wide label's own LEFT edge land ON or before the surface's own
+      // rightmost occupied column whenever `labelWidth > COLORBAR_GAP_COLS`
+      // (measured: a 4-character label at a 2-column gap overlapped the
+      // surface's own max column by 1, printing colorbar digits into the
+      // surface's own ink — caught by `render.test.ts`'s "byte-identical
+      // PLOT REGION" test going red end-to-end, not merely at the tail).
+      // The gap must clear the label's FULL width, not just its right edge.
+      swatchCol = Math.min(width - 1, bounds.maxCol + COLORBAR_GAP_COLS + labelWidth + 1);
+      const occupiedRowSpan = bounds.maxRow - bounds.minRow + 1;
+      const idealY0 = plotY0 + bounds.minRow + Math.round((occupiedRowSpan - barRowsCount) / 2);
+      colorbarY0 = Math.max(plotY0, Math.min(plotY0 + plotRows - barRowsCount, idealY0));
+    }
+    paintColorbar(canvas, mark, swatchCol, colorbarY0, plotRows, colorEnabled);
+  }
 
   const text = color === "none" || color === "css"
     ? encodeGlyphCanvasText(canvas)
@@ -423,7 +763,19 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   return {
     text,
     ...(html !== undefined ? { html } : {}),
-    resolved: { target, charset, color, width, height, cellAspect, camera: { rotX, rotY, zoom } },
+    resolved: {
+      target, charset, color, width, height, cellAspect,
+      // Fix round 2, P1-c: `center` is ALWAYS reported (never conditionally
+      // omitted at its own `[0.5, 0.5]` identity) — the whole point is that
+      // `options.camera = result.resolved.camera` round-trips to the exact
+      // same frame with no guessing about whether an omission meant
+      // "default" or "forgotten."
+      camera: {
+        rotX, rotY, zoom, center,
+        ...(useMat ? { mat: cameraOption.mat } : {}),
+      },
+      style,
+    },
     report: { ledger },
     object,
   };

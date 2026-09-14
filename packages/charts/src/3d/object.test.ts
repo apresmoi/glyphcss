@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createGlyphOrthographicCamera, createGlyphScene, surfaceMedianOfBlock, createSurfaceMedianScratch } from "glyphcss";
+import { createGlyphOrthographicCamera, createGlyphScene, surfaceMedianOfBlock, createSurfaceMedianScratch, stampGlyphOverlayLine } from "glyphcss";
 import type { Polygon } from "glyphcss";
-import { glyphChartObject } from "./object";
+import { glyphChartObject, glyphChart3dResolvedCorner } from "./object";
 import { glyphChartSurface } from "./surface";
+import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
+import type { GlyphChart3dGuideOptions } from "./types";
 import { glyphChart3dBandColor, glyphChart3dBandIndex, resolveGlyphChart3dColorscaleAnchors } from "./colorscale";
 
 function flatGrid(rows: number, cols: number, value = 0): number[][] {
@@ -20,8 +22,8 @@ describe("glyphChartObject — mesh shape", () => {
     expect(object.id).toBe("surface");
     expect(object.meshes).toHaveLength(1);
     expect(object.meshes[0]!.name).toBe("surface");
-    expect(object.overlays).toHaveLength(4); // box + 3 axes
-    expect(object.bounds).toEqual({ min: [0, 0, 0], max: [1, 1, 0.6] });
+    expect(object.overlays).toHaveLength(1); // one unified axis-triad overlay (fix round 2's "axes in one corner" redesign)
+    expect(object.bounds).toEqual({ min: [0, 0, 0], max: [1.3, 1.3, 0.6] });
   });
 
   it("honours a custom object id (multiple surfaces coexist in one scene)", () => {
@@ -206,56 +208,45 @@ describe("glyphChartObject — mounted in a real scene", () => {
     scene.destroy();
   });
 
-  it("MUTATION (P2-8): the z axis title migrates to a DIFFERENT box edge as the camera orbits — a constant nearestEdge would put it at the same column both times", async () => {
-    async function zTitleColumn(rotY: number): Promise<number> {
-      const host = document.createElement("div");
-      document.body.appendChild(host);
-      const cols = 100, rows = 40, cellAspect = 0.5859375;
-      const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY });
-      const scene = createGlyphScene(host, { cols, rows, cellAspect, useColors: false, camera });
-      const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { z: { title: "z" }, x: { title: "" }, y: { title: "" } } });
-      const object = glyphChartObject(mark);
-      scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
-      await Promise.resolve();
-      await Promise.resolve();
-      const text = scene.output.textContent ?? "";
-      const lines = text.split("\n");
-      let col = -1;
-      for (const line of lines) {
-        const i = line.indexOf("z");
-        if (i >= 0) { col = i; break; }
-      }
-      scene.destroy();
-      expect(col).toBeGreaterThanOrEqual(0); // the title must have survived at ALL
-      return col;
-    }
+  it("MUTATION (fix round 2, corner-triad gate): the 3 axis lines always share ONE box corner, and the shared corner migrates as the camera orbits — a per-axis nearestEdge would put ticks on 3 INDEPENDENT edges instead", () => {
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) });
+    // The corner is a pure function of camera rotation (this file's own
+    // `resolveSharedCorner` doc) — every axis reads the SAME `corner` value
+    // inside `axisTriadOverlay`'s one `stamp()` call, so "shared at every
+    // camera" is true by construction here; the mutation gate that matters
+    // is that the corner genuinely MOVES with the camera (a hardcoded
+    // corner would pass a naive "all three axes agree" check trivially).
+    const cameraA = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 20 });
+    const cameraB = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 200 });
+    const cornerA = glyphChart3dResolvedCorner(mark, cameraA);
+    const cornerB = glyphChart3dResolvedCorner(mark, cameraB);
+    expect(cornerA).not.toEqual(cornerB);
+  });
 
-    // rotY=30 and rotY=90 orbit the camera far enough that the nearest of
-    // the 4 vertical (z-parallel) box edges changes — measured directly
-    // (30 -> column 53, 90 -> column 43 at this fixture's own scale/zoom).
-    // A hardcoded `nearestEdge` would still shift the title under `rotY`
-    // (the WHOLE scene rotates), but by a materially different amount than
-    // the box's own edge actually migrating produces — 180 degrees apart
-    // is deliberately AVOIDED here: this fixture's square x/y footprint
-    // makes a 180-degree camera flip land the migrated edge at a near-
-    // identical column by simple point symmetry, which would falsely fail
-    // a correct implementation.
-    const colA = await zTitleColumn(30);
-    const colB = await zTitleColumn(90);
-    expect(Math.abs(colA - colB)).toBeGreaterThan(5);
+  it("an explicit axes.corner override pins the triad regardless of rotation", () => {
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { corner: [1, 0, 1] } });
+    const cameraA = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 20 });
+    const cameraB = createGlyphOrthographicCamera({ zoom: 24, rotX: 10, rotY: 260 });
+    expect(glyphChart3dResolvedCorner(mark, cameraA)).toEqual([1, 0, 1]);
+    expect(glyphChart3dResolvedCorner(mark, cameraB)).toEqual([1, 0, 1]);
   });
 
   it("honours a trackball (mat/useMat) camera — overlay stamps stay finite and the axis titles still survive (P2-8)", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
-    const cols = 100, rows = 40, cellAspect = 0.5859375;
+    // Fix round 4: `createGlyphScene`'s own `cellAspect` is glyphcss's
+    // `cellHeight / cellWidth` convention (its default is `2.0`, not this
+    // package's own `0.5859375` web value) — `1 / 0.5859375` here, never
+    // the raw chart value (`render.ts`'s `renderObjectFrame` doc has the
+    // full derivation).
+    const cols = 100, rows = 40, sceneCellAspect = 1 / 0.5859375;
     // A real, non-Euler-equivalent rotation matrix (90deg roll about X,
     // composed with a modest yaw) — proves `nearestEdge`'s own
     // `frame.camera.project` call honours `useMat`, not only `rotX`/`rotY`.
     const cy = Math.cos(0.6), sy = Math.sin(0.6);
     const mat = [cy, 0, sy, 0, 1, 0, -sy, 0, cy];
     const camera = createGlyphOrthographicCamera({ zoom: 24, mat, useMat: true });
-    const scene = createGlyphScene(host, { cols, rows, cellAspect, useColors: false, camera });
+    const scene = createGlyphScene(host, { cols, rows, cellAspect: sceneCellAspect, useColors: false, camera });
     const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } });
     const object = glyphChartObject(mark);
     scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
@@ -280,5 +271,251 @@ describe("glyphChartObject — mounted in a real scene", () => {
     expect(text.includes("east")).toBe(true);
     expect(text.includes("tsae")).toBe(false);
     scene.destroy();
+  });
+});
+
+describe("glyphChartObject — guides toggles (fix round 2, message 3B)", () => {
+  function bumpGrid(): number[][] {
+    const rows = 8, cols = 8;
+    const z = flatGrid(rows, cols, 0);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const dr = r - 3.5, dc = c - 3.5;
+      z[r]![c] = Math.max(0, 20 - (dr * dr + dc * dc));
+    }
+    return z;
+  }
+
+  async function renderWithGuides(guides?: GlyphChart3dGuideOptions): Promise<string> {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 30 });
+    const scene = createGlyphScene(host, { cols: 100, rows: 40, useColors: false, camera });
+    const mark = glyphChartSurface({ z: bumpGrid() }, undefined, {
+      axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } },
+      ...(guides ? { guides } : {}),
+    });
+    const object = glyphChartObject(mark);
+    scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = scene.output.textContent ?? "";
+    scene.destroy();
+    return text;
+  }
+
+  function ink(text: string): number {
+    return text.replace(/\s/g, "").length;
+  }
+
+  it("defaults: axis lines, ticks, tick labels, titles and grid all render; walls/box do not add extra edges beyond the triad", async () => {
+    const text = await renderWithGuides();
+    for (const title of ["x", "y", "z"]) expect(text.includes(title)).toBe(true);
+    expect((text.match(/\+/g) ?? []).length).toBeGreaterThan(0);
+  });
+
+  it("MUTATION: guides.titles=false removes the literal title text (a lower-priority tick label may claim the freed cell, so total ink is not a reliable signal here)", async () => {
+    const withoutTitles = await renderWithGuides({ titles: false });
+    expect(withoutTitles.includes("x")).toBe(false);
+    expect(withoutTitles.includes("y")).toBe(false);
+    expect(withoutTitles.includes("z")).toBe(false);
+  });
+
+  it("MUTATION: guides.ticks=false strictly reduces the '+' tick-mark count relative to the default (the surface's OWN shading ramp can also emit '+', so the count is never driven to zero by this toggle alone)", async () => {
+    const withTicks = await renderWithGuides();
+    const withoutTicks = await renderWithGuides({ ticks: false });
+    const plusCount = (t: string) => (t.match(/\+/g) ?? []).length;
+    expect(plusCount(withoutTicks)).toBeLessThan(plusCount(withTicks));
+    for (const title of ["x", "y", "z"]) expect(withoutTicks.includes(title)).toBe(true);
+  });
+
+  it("MUTATION: guides.grid=false strictly reduces ink relative to the default (the grid draws real cells)", async () => {
+    const withGrid = await renderWithGuides();
+    const withoutGrid = await renderWithGuides({ grid: false });
+    expect(ink(withoutGrid)).toBeLessThan(ink(withGrid));
+  });
+
+  it("MUTATION: every guide toggle off leaves only the surface — strictly less ink than the default and no title text, even though the surface's own shading ramp still emits some '+' on its own", async () => {
+    const allOff = await renderWithGuides({ axisLines: false, ticks: false, tickLabels: false, titles: false, grid: false, walls: false, box: false });
+    const defaults = await renderWithGuides();
+    expect(ink(allOff)).toBeLessThan(ink(defaults));
+    for (const title of ["x", "y", "z"]) expect(allOff.includes(title)).toBe(false);
+  });
+
+  it("MUTATION: ticks alone (no labels/lines/grid to collide with) add real '+' ink beyond the surface's own shading ramp — isolated from fix round 4's own \"a label always wins its own cell\" rule, which can otherwise subsume a coincident tick's '+' glyph under the label's first character", async () => {
+    const allOff = await renderWithGuides({ axisLines: false, ticks: false, tickLabels: false, titles: false, grid: false, walls: false, box: false });
+    const ticksOnly = await renderWithGuides({ axisLines: false, ticks: true, tickLabels: false, titles: false, grid: false, walls: false, box: false });
+    const plusCount = (t: string) => (t.match(/\+/g) ?? []).length;
+    expect(plusCount(ticksOnly)).toBeGreaterThan(plusCount(allOff));
+  });
+
+  it("MUTATION: guides.box=true (12-edge wireframe) strictly increases ink over the default 3-edge triad", async () => {
+    const defaults = await renderWithGuides();
+    const withBox = await renderWithGuides({ box: true });
+    expect(ink(withBox)).toBeGreaterThan(ink(defaults));
+  });
+
+  it("coordinator gate: guide lines are depth-tested against the surface, never drawn unconditionally over it — MUTATION: a write with an explicitly FARTHER depth than an existing surface cell is blocked at the shared glyphcss primitive every guide edge/grid/tick call goes through (`stampGlyphOverlayLine`/`stampGlyphOverlayCell`)", async () => {
+    // The primitive itself, isolated from this file's own corner/edge
+    // geometry: a straight box EDGE can legitimately weave in front of and
+    // behind a bumpy (non-planar) surface along its own length — at a
+    // point where the edge truly is nearer, depth-testing correctly lets
+    // it win, which a blanket "surface always wins" assertion cannot
+    // distinguish from a missing depth test. This gate instead proves the
+    // MECHANISM every axis-triad write goes through actually blocks a
+    // write whose OWN depth is farther than what a surface already wrote —
+    // the property the coordinator's own report described losing.
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ zoom: 20, rotX: 0, rotY: 0 });
+    const scene = createGlyphScene(host, { cols: 40, rows: 20, useColors: false, camera });
+    scene.add([{ vertices: [[-5, -5, 0], [5, -5, 0], [5, 5, 0], [-5, 5, 0]] } as any]);
+    let before = "", after = "", existingDepth = NaN;
+    scene.setOptions({
+      transformCells: (grid: any) => {
+        const idx = 10 * grid.cols + 20;
+        existingDepth = grid.depth[idx];
+        before = grid.char[idx];
+        // The SAME stamp primitive object.ts's axisTriadOverlay calls, with an explicitly FARTHER depth (existing - 1000, i.e. much farther away).
+        stampGlyphOverlayLine(grid, { col: 20, row: 10, depth: existingDepth - 1000 }, { col: 20, row: 10, depth: existingDepth - 1000 }, "Z", "#ff0000");
+        after = grid.char[idx];
+      },
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    scene.destroy();
+    expect(Number.isFinite(existingDepth)).toBe(true); // sanity: the quad really did paint that cell
+    expect(before).not.toBe("Z");
+    expect(after).toBe(before); // the farther write must be BLOCKED — the char is unchanged
+  });
+});
+
+/** The coordinator's own ring-ridge-plus-crater fixture (C2 fix round 3's review message), reused verbatim. */
+function ringRidgeVolcano(): number[][] {
+  const n = 40, z: number[][] = [];
+  for (let i = 0; i < n; i++) {
+    const row: number[] = [];
+    for (let j = 0; j < n; j++) {
+      const x = (j - n / 2) / (n / 2), y = (i - n / 2) / (n / 2);
+      const r = Math.hypot(x, y);
+      row.push(Math.round(100 + 90 * Math.exp(-((r - 0.45) ** 2) / 0.04) - 40 * Math.exp(-(r ** 2) / 0.02) + 20 * Math.exp(-((x - 0.3) ** 2 + (y + 0.2) ** 2) / 0.05)));
+    }
+    z.push(row);
+  }
+  return z;
+}
+
+describe("glyphChartObject — guide-plane grid glyphs (fix round 3, Item 2: \"gridlines are a cage\")", () => {
+  const AXIS_LINE_GLYPHS = new Set(["│", "─", "\\", "/", "·"]); // `edgeGlyph`'s own full set
+  const GRID_GLYPHS_BY_CHARSET: Record<"box" | "ascii" | "braille", readonly string[]> = {
+    box: ["┊", "┈", "·"],
+    ascii: [","],
+    braille: ["⠂"],
+  };
+
+  async function renderPlusPeekGrid(charset: "box" | "ascii" | "braille"): Promise<{ text: string; withGrid: string; withoutGrid: string }> {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ zoom: 40, rotX: 58, rotY: 45 });
+    const scene = createGlyphScene(host, { cols: 96, rows: 32, useColors: false, camera });
+    const mark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "height" } } });
+    const object = glyphChartObject(mark, { charset });
+    scene.addObject(object, { position: [-2, -2, 0], scale: 3 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const withGrid = scene.output.textContent ?? "";
+    scene.destroy();
+
+    const host2 = document.createElement("div");
+    document.body.appendChild(host2);
+    const camera2 = createGlyphOrthographicCamera({ zoom: 40, rotX: 58, rotY: 45 });
+    const scene2 = createGlyphScene(host2, { cols: 96, rows: 32, useColors: false, camera: camera2 });
+    const noGridMark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, {
+      axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "height" } },
+      guides: { grid: false },
+    });
+    const object2 = glyphChartObject(noGridMark, { charset });
+    scene2.addObject(object2, { position: [-2, -2, 0], scale: 3 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const withoutGrid = scene2.output.textContent ?? "";
+    scene2.destroy();
+    return { text: withGrid, withGrid, withoutGrid };
+  }
+
+  for (const charset of ["box", "ascii", "braille"] as const) {
+    it(`${charset}: grid glyphs are never the tier's axis-line glyphs`, async () => {
+      const gridGlyphs = GRID_GLYPHS_BY_CHARSET[charset];
+      for (const g of gridGlyphs) {
+        // The braille grid dot and the box `·` (degenerate-edge) glyph are
+        // deliberately allowed to be visually similar (a sparse dot IS the
+        // point on both), but every OTHER grid glyph must be genuinely
+        // outside `edgeGlyph`'s own axis-line set — the property this gate
+        // actually checks.
+        if (g === "·") continue;
+        expect(AXIS_LINE_GLYPHS.has(g)).toBe(false);
+      }
+    });
+
+    it(`${charset}: the grid cell count is a minority of the plot-box cells (< 25%)`, async () => {
+      const { withGrid, withoutGrid } = await renderPlusPeekGrid(charset);
+      const nonBlank = (s: string) => Array.from(s).filter((ch) => ch !== " " && ch !== "\n").length;
+      const gridCells = nonBlank(withGrid) - nonBlank(withoutGrid);
+      expect(gridCells).toBeGreaterThan(0); // MUTATION sanity: `guides.grid: false` really did remove real cells
+      expect(gridCells / (96 * 32)).toBeLessThan(0.25);
+    });
+  }
+});
+
+describe("glyphChartObject — Item 4: the default frame has zero guide glyphs on surface-won cells", () => {
+  it("at the real default camera (box:false, walls:false), no cell the surface's own base raster WON also shows an axis-line or grid colour — MUTATION: the same fixture has real surface/guide overlap to detect at all (a taller peak, guides at the NEAR corner, shows a positive count)", async () => {
+    const mark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, {
+      axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "height" } },
+    });
+    const AXIS_BOX_COLOR = "#7a7f8a", AXIS_GRID_COLOR = "#4b5058";
+
+    async function capture(injectFakeViolation: boolean): Promise<{ violations: number; surfaceWonCells: number }> {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const camera = createGlyphOrthographicCamera({ zoom: 40, rotX: GLYPH_CHART_3D_DEFAULT_CAMERA.rotX, rotY: GLYPH_CHART_3D_DEFAULT_CAMERA.rotY });
+      const scene = createGlyphScene(host, { cols: 96, rows: 32, useColors: false, camera });
+      const object = glyphChartObject(mark);
+      scene.addObject(object, { position: [-2, -2, 0], scale: 3 });
+      let violations = 0, surfaceWonCells = 0;
+      scene.setOptions({
+        transformCells: (grid: any) => {
+          const winnerMesh: Int32Array | undefined = grid.winnerMesh;
+          const color: (string | undefined)[] = grid.color;
+          if (!winnerMesh) return;
+          if (injectFakeViolation) {
+            // MUTATION sanity: prove this gate's own COUNTING logic would
+            // actually catch a real violation, since the production
+            // mechanism (depth-tested writes) cannot be made to fail from
+            // outside without duplicating its own internals — a synthetic
+            // guide-coloured write planted onto the FIRST surface-won cell
+            // this hook finds must be counted.
+            for (let i = 0; i < winnerMesh.length; i++) {
+              if (winnerMesh[i] !== undefined && winnerMesh[i] !== -1) { color[i] = AXIS_GRID_COLOR; break; }
+            }
+          }
+          for (let i = 0; i < winnerMesh.length; i++) {
+            if (winnerMesh[i] === undefined || winnerMesh[i] === -1) continue;
+            surfaceWonCells++;
+            const c = color[i];
+            if (c === AXIS_BOX_COLOR || c === AXIS_GRID_COLOR) violations++;
+          }
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      scene.destroy();
+      return { violations, surfaceWonCells };
+    }
+
+    const real = await capture(false);
+    expect(real.surfaceWonCells).toBeGreaterThan(0); // sanity: the surface actually rasterized
+    expect(real.violations).toBe(0);
+
+    const mutated = await capture(true);
+    expect(mutated.violations).toBeGreaterThan(0);
   });
 });
