@@ -421,6 +421,12 @@ export interface GlyphChartSankeyLayout {
   readonly bands: readonly SankeyBand[];
   /** Cell columns between two adjacent node boxes — the paint routing needs it to size a fold stub. */
   readonly gap: number;
+  /**
+   * Whether a skip-level band may paint as a smooth ribbon on `braille`/
+   * `blocks` (`sankeyPlanPaintsSmooth`). `layoutSankeyGraph` sets it false
+   * when the smooth ribbons would lose more cells than the staircase routes.
+   */
+  readonly smoothSkip: boolean;
 }
 
 /**
@@ -575,26 +581,49 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
 
   // Two candidate placements: d3's own within-column order, and the same
   // order with every skip-level target re-placed where its band can actually
-  // arrive (`sankeyCorridorAwareOrder`). The re-placed one is kept only when
-  // its bands cross less over EVERY gap (`sankeyCrossingCost`): a node
-  // re-placed for its incoming links also moves its outgoing ones and the
-  // corridors other skip-level bands take through its column. The count is
-  // a proxy for the cells a crossing costs, and a cheap one; drawing both
-  // candidates to count their real losses instead was measured at 6.7x the
-  // render time of the energy sankey (docs/design/charts.md, Round 26). A
-  // graph with no skip-level link never builds the second candidate, so its
-  // layout is byte-identical.
+  // arrive (`sankeyCorridorAwareOrder`). Both are judged by the cells their
+  // bands would really LOSE (`sankeyLostCells`: the routes and the painter's
+  // own claim order, run without a canvas), on both tier families, since the
+  // node order must not depend on the charset. The re-placed order is kept
+  // only when it loses no more cells on either family and fewer on one. A
+  // weighted crossing count stood in for this and was wrong in both
+  // directions: over the seeded layered sweep it kept 10 of 48 re-placements
+  // that lost more cells on box (docs/design/charts.md, Round 27). A graph
+  // with no skip-level link never builds the second candidate and runs no
+  // simulation, so its layout is byte-identical.
+  //
+  // The same count decides whether skip-level bands paint smooth on
+  // `braille`/`blocks`: a smooth ribbon crosses other bands diagonally, over
+  // a longer run than a staircase crosses them at a right angle, and is
+  // kept only when it loses no more cells than the staircase would.
   const placementInput: SankeyPlacementInput = { groups, nodeOrder, links, depthOf, nodeY0ById, nodeValueById, numCols, colX0, colX1, plot, plotHeight, rowsPerUnit, nodePaddingRows, seenNode, textScale };
   const baseLedger: GlyphChartLedgerEntry[] = [];
   let placement = placeSankeyGraph(placementInput, false, baseLedger);
   let placementLedger = baseLedger;
+  let smoothSkip = true;
   if (links.some((l) => depthOf(l.target) - depthOf(l.source) > 1)) {
+    const ribbon = groups[0]?.mark.options?.ribbon ?? "filled";
+    const lost = (p: SankeyPlacement, subcell: boolean, smooth: boolean): number =>
+      sankeyLostCells({ nodes: [...p.nodes.values()], bands: p.bands, gap, smoothSkip: smooth }, plot, subcell, ribbon, textScale);
     const altLedger: GlyphChartLedgerEntry[] = [];
     const alt = placeSankeyGraph(placementInput, true, altLedger);
-    if (alt.reordered && sankeyCrossingCost(alt, depthOf, plot) < sankeyCrossingCost(placement, depthOf, plot)) {
-      placement = alt;
-      placementLedger = altLedger;
+    const subcell = GLYPH_CANVAS_TIERS[tierName].subcell;
+    let smoothLost = 0, stairLost = 0;
+    if (alt.reordered) {
+      const base = { box: lost(placement, false, true), smooth: lost(placement, true, true), stair: lost(placement, true, false) };
+      const next = { box: lost(alt, false, true), smooth: lost(alt, true, true), stair: lost(alt, true, false) };
+      const baseSub = Math.min(base.smooth, base.stair), nextSub = Math.min(next.smooth, next.stair);
+      const keep = next.box <= base.box && nextSub <= baseSub && (next.box < base.box || nextSub < baseSub);
+      if (keep) {
+        placement = alt;
+        placementLedger = altLedger;
+      }
+      ({ smooth: smoothLost, stair: stairLost } = keep ? next : base);
+    } else if (subcell) {
+      smoothLost = lost(placement, true, true);
+      stairLost = lost(placement, true, false);
     }
+    smoothSkip = smoothLost <= stairLost;
   }
   ledger.push(...placementLedger);
   const { nodes: nodeBoxes, bands } = placement;
@@ -616,7 +645,7 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
     }
   }
 
-  return { nodes: [...nodeBoxes.values()], bands, gap };
+  return { nodes: [...nodeBoxes.values()], bands, gap, smoothSkip };
 }
 
 interface SankeyPlacementInput {
@@ -990,48 +1019,6 @@ function sankeyCorridorAwareOrder(
 }
 
 /**
- * How much a placement's bands cross, over every gap between two adjacent
- * node columns: each band traversing a gap enters it at one row and leaves
- * at another (its own row range at a node border, or the centre of the
- * corridor a skip-level band takes through an intermediate column), and two
- * bands whose order at the gap's left edge is the reverse of their order at
- * its right edge cross there. A crossing is weighted by the product of the
- * two values, the area two ribbons of those thicknesses overlap in. The
- * charset never enters it, so a reader switching one never sees nodes swap.
- */
-function sankeyCrossingCost(placement: SankeyPlacement, depthOf: (id: string) => number, plot: GlyphChartPlotRect): number {
-  const centre = (range: readonly [number, number]): number => (range[0] + range[1]) / 2;
-  const passagesByGap = new Map<number, { readonly left: number; readonly right: number; readonly value: number }[]>();
-  for (const band of placement.bands) {
-    if (band.folded || !band.targetRowRange) continue;
-    const s = depthOf(band.source);
-    const t = depthOf(band.target);
-    if (t <= s) continue;
-    const k = Math.max(band.sourceRowRange[1] - band.sourceRowRange[0] + 1, band.targetRowRange[1] - band.targetRowRange[0] + 1);
-    const stations = [centre(band.sourceRowRange)];
-    if (t - s > 1) {
-      const through = sankeyCorridorCentres(stations[0]!, placement.boxesByCol.slice(s + 1, t), plot, k);
-      if (!through) continue;
-      stations.push(...through);
-    }
-    stations.push(centre(band.targetRowRange));
-    for (let i = 0; i + 1 < stations.length; i++) {
-      const list = passagesByGap.get(s + i) ?? [];
-      list.push({ left: stations[i]!, right: stations[i + 1]!, value: band.value });
-      passagesByGap.set(s + i, list);
-    }
-  }
-  let cost = 0;
-  for (const list of passagesByGap.values()) {
-    for (let i = 0; i < list.length; i++) for (let j = i + 1; j < list.length; j++) {
-      const a = list[i]!, b = list[j]!;
-      if ((a.left - b.left) * (a.right - b.right) < 0) cost += a.value * b.value;
-    }
-  }
-  return cost;
-}
-
-/**
  * The pass-through rows a skip-level band actually takes: among
  * `sankeyFreeRowCandidates`, the one whose route CROSSES the fewest cells
  * already occupied by some other band (`crossedCells`), distance from the
@@ -1300,6 +1287,9 @@ interface SankeyGapLanes {
   readonly jogStartsByBand: ReadonlyMap<SankeyBand, readonly number[]>;
 }
 
+/** What routing needs from a canvas: its size, its tier, and edge registration for `resolveJunctions()`. */
+export type SankeyRouteCanvas = Pick<GlyphCanvas, "cols" | "rows" | "tier" | "edge" | "route">;
+
 /**
  * One routed row of a band. `segments` is present exactly when the band is
  * painted smooth (`sankeyPlanPaintsSmooth`); `cells` is then its lane route,
@@ -1366,7 +1356,7 @@ interface SankeyRibbonSegment {
  * visually (fable review, batch 3, finding c). `paintGlyphChart` passes
  * each sankey mark's own index.
  */
-export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = "", textScale = 1): readonly SankeyRoutedRow[] {
+export function computeSankeyRoutedRows(canvas: SankeyRouteCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = "", textScale = 1): readonly SankeyRoutedRow[] {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const { bands, gap } = layout;
   const cols = sankeyColumnsByX0(nodeBoxes);
@@ -1450,7 +1440,7 @@ export function computeSankeyRoutedRows(canvas: GlyphCanvas, plot: GlyphChartPlo
     }
     plans.push({
       band, srcBox, tgtBox, straight, mids, midGroups, k, skipLevel,
-      smooth: sankeyPlanPaintsSmooth(tierTable.subcell, skipLevel, k, candidates),
+      smooth: (!skipLevel || layout.smoothSkip) && sankeyPlanPaintsSmooth(tierTable.subcell, skipLevel, k, candidates),
       candidates,
     });
   }
@@ -1965,6 +1955,94 @@ function paintSankeyRibbonSmooth(
   }
 }
 
+/** A band's claim on one cell, in the painter's own order: `paintSankeyRoutedRows`' `paintForBand`, or `sankeyLostCells`' count. */
+type SankeyClaim = (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined) => void;
+
+/**
+ * Every routed band's cells, claimed through `claim` in the one order the
+ * painter uses. Shared by the real paint and by `sankeyLostCells`, so the
+ * layout's own gate counts exactly the cells a render loses.
+ */
+function sankeyClaimBands(routedRows: readonly SankeyRoutedRow[], tierName: GlyphCanvasTierName, canvasRows: number, ribbon: GlyphChartSankeyRibbon, fill: SankeyRegionFill, claim: SankeyClaim): void {
+  // Group by band (preserving registration order) so a smooth `braille`/
+  // `blocks` band (its routed rows carry `segments`) can be painted ONCE, as
+  // a ribbon, while a FOLDED stub or a staircase band replays its own
+  // already-computed lane/free-row cells.
+  const rowsByBand = new Map<SankeyBand, SankeyRoutedRow[]>();
+  const bandOrder: SankeyBand[] = [];
+  for (const row of routedRows) {
+    let list = rowsByBand.get(row.band);
+    if (!list) { list = []; rowsByBand.set(row.band, list); bandOrder.push(row.band); }
+    list.push(row);
+  }
+  // TWO GLOBAL PHASES, both walking `bandOrder` — every band's own BORDER
+  // cells first, THEN every band's own INTERIOR cells — rather than one
+  // pass per band. This is what lets RC2 (below) hold at the same time as
+  // gate (a) ("every band's own row touches both its node borders"):
+  // a row's first cell (touching its source) and last cell (touching its
+  // target) are structurally unique to that row, and painting EVERY band's
+  // own pair before ANY band's own interior run is what stops a band's
+  // interior transit — a skip-level band's own lane column, in particular,
+  // which can legitimately coincide with an unrelated node's own arrival
+  // border (`assignSankeyLanes`'s shared gap includes that exact column) —
+  // from stealing a border that belongs to a DIFFERENT band, regardless of
+  // which of the two was registered first. Splitting a smooth ribbon's own
+  // two border COLUMNS from its interior ones needs no extra pass of its
+  // own — `paintSankeyRibbonSmooth`'s `phase` parameter filters the same
+  // per-column sweep it always did.
+  //
+  // RC2 (DIAGNOSIS-sankey-column-jump.md): a fallback band used to be
+  // painted only in `paintSankeyRoutedRowsFallback`'s own SECOND (interior)
+  // pass, called ONCE after every smooth band's own single pass — so a wide
+  // skip-level band registered early (band #2 of 9 on the energy dataset)
+  // lost most of its own cells to ribbons registered much later, contra­
+  // dicting this function's own "repaint in the SAME registration order"
+  // doc. Now every band's own INTERIOR phase runs at its own registration
+  // slot in `bandOrder`, smooth or fallback alike — a genuine interior-vs-
+  // interior crossing is still resolved by registration order (unchanged),
+  // but no band's interior can ever reach a border before phase 1 has
+  // already secured every one of them.
+  for (const phase of ["border", "interior"] as const) {
+    for (const band of bandOrder) {
+      const rows = rowsByBand.get(band)!;
+      const { glyph, color, segments } = rows[0]!;
+      if (segments) paintSankeyRibbonSmooth(claim, canvasRows, tierName, band, glyph, color, segments, ribbon, phase, fill);
+      else paintSankeyRoutedRowsFallback(tierName, rows, claim, ribbon, phase, fill);
+    }
+  }
+}
+
+/**
+ * The cells `layout`'s bands would lose to each other when painted alone on
+ * a `subcell` (`braille`/`blocks`) or whole-cell (`ascii`/`box`) tier: the
+ * sum of `sankey-band-broken`'s own per-band counts, computed from the real
+ * routes and the painter's own claim order with no canvas writes. The
+ * routing is 0.2 ms on the energy sankey; drawing the candidates instead
+ * cost 6.7x the render (Round 26). A tier family shares one count: the
+ * whole-cell tiers claim every routed cell whatever its glyph, and
+ * `braille`/`blocks` share one texture set. `rows`/`cols` are the plot's,
+ * which every route and ribbon edge stays inside.
+ */
+export function sankeyLostCells(layout: GlyphChartSankeyLayout, plot: GlyphChartPlotRect, subcell: boolean, ribbon: GlyphChartSankeyRibbon, textScale = 1): number {
+  const tierName: GlyphCanvasTierName = subcell ? "braille" : "box";
+  const cols = plot.x1 + 1, rows = plot.y1 + 1;
+  const routedRows = computeSankeyRoutedRows({ cols, rows, tier: tierName, edge: () => {}, route: () => {} }, plot, layout, false, [], "", textScale);
+  const owner = new Map<number, SankeyBand>();
+  const refused = new Map<SankeyBand, Set<number>>();
+  sankeyClaimBands(routedRows, tierName, rows, ribbon, "texture", (band, x, y) => {
+    const idx = y * cols + x;
+    const current = owner.get(idx);
+    if (current === undefined) { owner.set(idx, band); return; }
+    if (current === band) return;
+    const cells = refused.get(band) ?? new Set<number>();
+    cells.add(idx);
+    refused.set(band, cells);
+  });
+  let lost = 0;
+  for (const cells of refused.values()) lost += cells.size;
+  return lost;
+}
+
 /**
  * Paints a `GlyphChartSankeyLayout` through the cell canvas's own edge/route
  * routing contract — see `computeSankeyRoutedRows` for the routing itself.
@@ -2075,55 +2153,7 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
     }
   };
 
-  // Group by band (preserving registration order) so an ADJACENT
-  // `braille`/`blocks` band can be painted ONCE, as a smooth ribbon, while a
-  // FOLDED stub or a SKIP-LEVEL band (one whose route crosses an
-  // intermediate node's own column — `sankeyMidColumnBoxes`) still replays
-  // its own already-computed lane/free-row cells, which is what steers it
-  // around that intermediate box in the first place; a smooth curve has no
-  // such steering and would paint straight through it.
-  const rowsByBand = new Map<SankeyBand, SankeyRoutedRow[]>();
-  const bandOrder: SankeyBand[] = [];
-  for (const row of routedRows) {
-    let list = rowsByBand.get(row.band);
-    if (!list) { list = []; rowsByBand.set(row.band, list); bandOrder.push(row.band); }
-    list.push(row);
-  }
-  // TWO GLOBAL PHASES, both walking `bandOrder` — every band's own BORDER
-  // cells first, THEN every band's own INTERIOR cells — rather than one
-  // pass per band. This is what lets RC2 (below) hold at the same time as
-  // gate (a) ("every band's own row touches both its node borders"):
-  // a row's first cell (touching its source) and last cell (touching its
-  // target) are structurally unique to that row, and painting EVERY band's
-  // own pair before ANY band's own interior run is what stops a band's
-  // interior transit — a skip-level band's own lane column, in particular,
-  // which can legitimately coincide with an unrelated node's own arrival
-  // border (`assignSankeyLanes`'s shared gap includes that exact column) —
-  // from stealing a border that belongs to a DIFFERENT band, regardless of
-  // which of the two was registered first. Splitting a smooth ribbon's own
-  // two border COLUMNS from its interior ones needs no extra pass of its
-  // own — `paintSankeyRibbonSmooth`'s `phase` parameter filters the same
-  // per-column sweep it always did.
-  //
-  // RC2 (DIAGNOSIS-sankey-column-jump.md): a fallback band used to be
-  // painted only in `paintSankeyRoutedRowsFallback`'s own SECOND (interior)
-  // pass, called ONCE after every smooth band's own single pass — so a wide
-  // skip-level band registered early (band #2 of 9 on the energy dataset)
-  // lost most of its own cells to ribbons registered much later, contra­
-  // dicting this function's own "repaint in the SAME registration order"
-  // doc. Now every band's own INTERIOR phase runs at its own registration
-  // slot in `bandOrder`, smooth or fallback alike — a genuine interior-vs-
-  // interior crossing is still resolved by registration order (unchanged),
-  // but no band's interior can ever reach a border before phase 1 has
-  // already secured every one of them.
-  for (const phase of ["border", "interior"] as const) {
-    for (const band of bandOrder) {
-      const rows = rowsByBand.get(band)!;
-      const { glyph, color, segments } = rows[0]!;
-      if (segments) paintSankeyRibbonSmooth(paintForBand, canvas.rows, canvas.tier, band, glyph, color, segments, ribbon, phase, fill);
-      else paintSankeyRoutedRowsFallback(canvas, rows, paintForBand, ribbon, phase, fill);
-    }
-  }
+  sankeyClaimBands(routedRows, canvas.tier, canvas.rows, ribbon, fill, paintForBand);
   for (const [band, cells] of refusedCellsByBand) {
     if (cells.size > 0) ledger.push(ledgerSankeyBandBroken({ source: band.source, target: band.target, cells: cells.size }));
   }
@@ -2167,15 +2197,15 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
  */
 const SANKEY_LIGHTER_STRAIGHT_GLYPH: Readonly<Record<string, string>> = { "█": "▓", "#": "+" };
 function paintSankeyRoutedRowsFallback(
-  canvas: GlyphCanvas,
+  tierName: GlyphCanvasTierName,
   fallbackRows: readonly SankeyRoutedRow[],
-  paintCell: (band: SankeyBand, x: number, y: number, glyph: string, color: string | null | undefined) => void,
+  paintCell: SankeyClaim,
   ribbon: GlyphChartSankeyRibbon,
   phase: "border" | "interior" | "both" = "both",
   fill: SankeyRegionFill = "texture",
 ): void {
-  const tierTable = GLYPH_CANVAS_TIERS[canvas.tier];
-  const ascii = canvas.tier === "ascii";
+  const tierTable = GLYPH_CANVAS_TIERS[tierName];
+  const ascii = tierName === "ascii";
   const blank = tierTable.subcell ? tierTable.subGlyph!(0) : " ";
   // SOLID (`regionFill.ts`): the band's own colour carries its identity, so
   // a filled cell is the tier's solid glyph — no lighter straight-run step,
@@ -2188,7 +2218,7 @@ function paintSankeyRoutedRowsFallback(
   // own dots leave gaps anyway, so its rounded corner stays. The same cells
   // are painted either way.
   const solid = fill === "solid";
-  const solidGlyph = regionFillGlyph(canvas.tier, 0, 1, "solid");
+  const solidGlyph = regionFillGlyph(tierName, 0, 1, "solid");
   const cellSubGlyph = solid ? (tierTable.fillSubGlyph ?? tierTable.subGlyph) : tierTable.subGlyph;
   // A row's SECOND visit to its own already-painted border cell (loop 2
   // below walks only the INTERIOR cells, `ci` in `[1, length - 2]`) never

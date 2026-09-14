@@ -82,6 +82,8 @@ export interface GlyphCanvasLineOptions {
    * substitute a glyph.
    */
   readonly width?: 1 | 2 | 3;
+  /** Background of every cell the line writes — `text`'s own contract: omitted leaves it untouched, `null` clears it. */
+  readonly bg?: string | null;
 }
 
 export type GlyphCanvasTextAlign = "left" | "center" | "right";
@@ -90,11 +92,13 @@ export interface GlyphCanvasTextOptions {
   readonly align?: GlyphCanvasTextAlign;
   readonly color?: string | null;
   /**
-   * Background of every ORIGIN cell this call writes — `fillRect`'s own
-   * contract: omitted leaves the existing `bg` untouched (every caller before
-   * this option existed, byte-identical), `null` explicitly clears it. Lets a
-   * two-colour half-block (`▄` in one colour over another) be written in ONE
-   * call; `@glyphcss/charts`' solid region fills are the consumer.
+   * Background of every cell this call writes, a scaled glyph's blanked
+   * filler cells included — `fillRect`'s own contract: omitted leaves the
+   * existing `bg` untouched (every caller before this option existed,
+   * byte-identical), `null` explicitly clears it. Lets a two-colour half-block
+   * (`▄` in one colour over another) be written in ONE call, and lets a
+   * caller that owns a cell's background take the whole cell when it writes
+   * over it; `@glyphcss/charts`' solid region fills are the consumer.
    */
   readonly bg?: string | null;
   /**
@@ -441,6 +445,7 @@ function subcellDotBit(localCol: number, localRow: number): number {
 function paintSubcellLine(
   grid: CellGrid,
   sub: Uint8Array,
+  bg: (string | null)[],
   textFiller: Uint8Array,
   cols: number,
   rows: number,
@@ -451,6 +456,7 @@ function paintSubcellLine(
   depth: number | undefined,
   style: GlyphCanvasLineStyle,
   color: string | null,
+  bgColor: string | null | undefined,
   horizontal: boolean,
   vertical: boolean,
   width: 1 | 2 | 3,
@@ -505,6 +511,7 @@ function paintSubcellLine(
     sub[idx] |= 1 << subcellDotBit(localCol, localRow);
     grid.char[idx] = tierTable.subGlyph!(sub[idx]);
     grid.color[idx] = color;
+    if (bgColor !== undefined) bg[idx] = bgColor;
     if (depth !== undefined) grid.depth[idx] = depth;
   };
 
@@ -742,6 +749,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       const style = opts.style ?? "solid";
       const width = opts.width ?? 1;
       const color = assertCanvasColor(opts.color, "line");
+      const bgColor = opts.bg === undefined ? undefined : assertCanvasColor(opts.bg, "line");
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const horizontal = Math.abs(dy) < AXIS_EPSILON;
@@ -756,7 +764,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       // `GlyphCanvasLineOptions.subcell`'s doc.
       const useSubcell = opts.subcell ?? tierTable.subcell;
       if (useSubcell) {
-        paintSubcellLine(grid, sub, textFiller, cols, rows, report, tierTable, a, b, opts.depth, style, color, horizontal, vertical, width);
+        paintSubcellLine(grid, sub, bg, textFiller, cols, rows, report, tierTable, a, b, opts.depth, style, color, bgColor, horizontal, vertical, width);
         return;
       }
 
@@ -826,6 +834,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
         if (opts.depth !== undefined) grid.depth[idx] = opts.depth;
         grid.char[idx] = glyph;
         grid.color[idx] = color;
+        if (bgColor !== undefined) bg[idx] = bgColor;
       }
     },
 
@@ -897,6 +906,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
               if (dy > 0) textFillerBelowOrigin[fidx] = 1;
               grid.char[fidx] = " ";
               grid.color[fidx] = null;
+              if (bgColor !== undefined) bg[fidx] = bgColor;
             }
           }
         }

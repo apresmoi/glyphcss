@@ -1294,7 +1294,7 @@ The root causes, with line numbers and measurements, are in CHARTS-RESEARCH `DIA
 ### A. A skip-level target sits where its band can arrive
 
 - **The rule.** A column keeps d3-sankey's order, except a node receiving a skip-level link. That node goes after exactly the column's nodes whose barycentre is smaller. The barycentre is value-weighted over where each incoming link can really ARRIVE: an adjacent link at its source box's centre, a skip-level link at the centre of the corridor it takes through the intermediate columns (`sankeyCorridorCentres`, the router's own window search).
-- **Kept only when the whole layout crosses less** (`sankeyCrossingCost`). Each band crossing a gap enters at one row and leaves at another. Two bands whose order reverses across a gap cross there, weighted by the product of their values. The count covers every gap, because a re-placed node moves its outgoing bands and other bands' corridors too.
+- **Kept only when the whole layout crosses less** (`sankeyCrossingCost`, since replaced by an exact lost-cell count: Round 27). Each band crossing a gap enters at one row and leaves at another. Two bands whose order reverses across a gap cross there, weighted by the product of their values. The count covers every gap, because a re-placed node moves its outgoing bands and other bands' corridors too.
 - **d3 alone cannot do it.** Our call is degenerate: with a `[0,1]` extent and `nodePadding(1)`, d3 sets `ky = 0` and a full column cannot relax, so the order is the data's first appearance. Conditioned, d3 still keys a skip link on its SOURCE's row. Only the router knows the band must pass under Electricity Generation.
 - **The call itself is left alone.** Conditioning it reorders sankeys with no skip link too. That is a decision for the owner, not this packet.
 - **The acceptance test, measured three ways** (80 layered DAGs × 4 sizes, cells lost against `149e7dfa`):
@@ -1383,8 +1383,70 @@ Run against `skipLevelSankey.test.ts`, `flowMarks.test.ts`, `solidSubcell.test.t
 
 ### Residuals
 
-- **The crossing count is a proxy.** It accepts re-placements that lose more real cells on 12 box and 17 braille renders of 320 (worst +160). Counting real losses needs both candidates drawn.
-- **Smooth crossings cost more cells** than lane crossings on dense layouts (B).
+- **The crossing count is a proxy.** It accepts re-placements that lose more real cells on 12 box and 17 braille renders of 320 (worst +160). Counting real losses needs both candidates drawn. (Closed in Round 27, without drawing them.)
+- **Smooth crossings cost more cells** than lane crossings on dense layouts (B). (Gated in Round 27.)
 - **A smooth ribbon's half-cell edge beside a staircase band of the same source colour** leaves a half-row sliver of background (layered seed 4: 3 cells).
 - **A texture staircase still rounds its inner rows' corners.** It is two dots in a sparse pattern, kept for byte-identity.
 - **The degenerate d3 call** (A) is untouched.
+
+## Round 27: exact lost cells gate the skip-level order and the smooth ribbon; solid cells own their background
+
+A cross-vendor review of Round 26 found three P2s (codex) and one more P2 plus a P3 (opus). Each was reproduced before any change.
+
+### A. The skip-level gates count real lost cells (codex P2-b)
+
+- **The defect.** `sankeyCrossingCost` was a proxy. Over the seeded layered sweep (80 DAGs x 96x32, 160x32, 240x40, 72x24, legend off, `color: "none"`) it kept 48 re-placements, and 10 of them lost MORE cells on box (296 cells) and 10 on braille (160). Seed 79 at 96x32 box went 132 -> 147 against `b662a509`, seed 0 165 -> 176. Opus's larger sweep counted 83 of 338.
+- **Why drawing both candidates was slow, and why it is not needed.** On the energy sankey the layout is 0.14 ms and the routing 0.16 ms; the paint is ~14 ms, almost all of it `canvas.text` per cell. Lost cells never needed the paint: a band loses a cell exactly when an earlier claim in the painter's own order holds it.
+- **The measure.** `sankeyLostCells` runs `computeSankeyRoutedRows` against a stub canvas and replays `sankeyClaimBands`, the claim loop the real paint now also calls, counting each band's distinct refused cells. It equals the render's `sankey-band-broken` total for every render of the sweep and for the page configuration (title, legend), an outline ribbon and `textScale` 2 (`sankeyOrderGate.test.ts`). One count per tier family: `ascii`/`box` claim every routed cell whatever its glyph, and `blocks`/`braille` share one texture set.
+- **The rule.** The re-placed order is kept only when it loses no more cells than d3's order on BOTH families and fewer on one; the order stays charset-independent. The same count decides the smooth skip-level ribbon on `braille`/`blocks`: kept only when it loses no more than the staircase. That second gate is required for the braille sweep to be no worse than `b662a509`: Round 26's smooth ribbons alone lost more on 96 of 320 renders.
+
+| layered sweep, cells lost | b662a509 | d9bd096c | this round |
+|---|---|---|---|
+| box (320 renders) | 113,826 | 110,973 | **110,503** |
+| braille (320 renders) | 135,251 | 126,068 | **119,366** |
+| renders worse than b662a509, box / braille | — | 10 / 98 | **0 / 0** |
+| re-placements kept / of them losing more (box, braille) | — | 48 / 10, 10 | **35 / 0, 0** |
+| net cells the re-placements save, box / braille | — | 2,853 / 2,430 | **3,323 / 2,549** |
+
+- **What it costs.** Of the 263 braille renders where the smooth and staircase ribbons differ, 106 now keep the staircase. The energy sankey keeps its order (Industrial below Electricity Generation), its smooth skip band and its lost cells (51 box, 35 braille, legend off). The exact gate also keeps two re-placements the proxy refused (seeds 58 and 60 at 96x32).
+- **Render time**, energy sankey, title + legend, css, 96x32, vitest median of 31, d9bd096c vs this round on one machine: braille 33.7 -> 35.4 ms, box 33.0 -> 36.1 ms. Up to six counts per layout (three per candidate), ~0.3-0.5 ms each; a graph with no skip-level link runs none and is byte-identical.
+- **Fixtures.** `fixtures/sankeyLostParentFixtures.json` is `b662a509`'s per-render lost count for the sweep (640 renders). `skipLevelSankey.test.ts`' changed-seed list is re-pinned (`[6, 25, 32, 48, 58, 60, 66, 74]`): the proxy kept 0, 10, 40, 42, 52 and 79, which lose more cells.
+
+### B. Under solid, a write owns its whole cell (codex P2-a)
+
+- **The defect.** Only the sub-cell compositor sets `bg`, for a two-colour cell. `canvas.text` leaves `bg` untouched when a call names none, so a later write kept that cell's second colour behind its own glyph: a stacked area of constant `100`/`1` under a top-left legend drew the first swatch as a blue `█` over orange, and the legend's letters on orange. Round 26's pass only filled NULL backgrounds, so it could not see it.
+- **The fix is at the write.** `solidOwnedCanvas` wraps the solid canvas once: every `text`/`fillRect`/`line` naming no `bg` clears it. The compositor still names its own. `canvas.line` gained the `bg` option `text`/`fillRect` already had, and a scaled glyph's blanked filler cells now take the call's `bg` too (a `textScale` 2 legend name over a band kept the band's colour under its blanks). `paintSolidCellBackgrounds` then gives every `█` its own ink, whatever painted it.
+- **Invariant, tested over every good spec, the sankey, the funnel, four corner legends and three overlays, box/blocks/braille, textScale 1 and 2:** a `█` carries its own ink, and only a quadrant glyph carries another colour.
+
+### C. A half-cell edge keeps the region it lies over (opus P2-2)
+
+- **The defect.** Each region mark runs its own compositor pass, which saw only its own layers. A later bar's half-cell top was written `▄` over `bg: null`, so the upper half of an EARLIER, taller bar showed page background. The texture paint, whole cells, had no hole there.
+- **The fix.** `solidRegionBeneath`: a cell's empty quadrants take the colour an earlier region mark painted in them (a `█` or a quadrant cell's fg/bg), the one most of them show. A gridline or any other glyph beneath is replaced whole, as the texture paint replaces it; region marks paint before every line, dot, axis and label.
+- **Test.** Two overlapping bar marks at heights 10-24: every quadrant inside a bar's exact extent shows the LATEST bar covering it, never page background.
+
+### D. A zero stack layer, and the fixture title (codex P2-c, opus P3-2)
+
+- `[100, 0, 100]` stacked (area and bar, blocks and braille): the zero layer paints no cell; `[100, 1, 100]` still shows it. Without the floor's zero-span guard the zero layer was floored into view, and 1,362 tests stayed green.
+- `solidSubcell.test.ts`' texture describe said "byte-identical to b662a509" over a fixture whose 112 energySankey keys were re-pinned at `d9bd096c`. Regenerated against `b662a509`, exactly those 112 differ and the other 4,256 match; the title and a comment now say so.
+
+### Mutation checks
+
+| id | mutation | result |
+|---|---|---|
+| M1 | drop `solidOwnedCanvas` | red: the ownership invariant |
+| M2 | drop the filler `bg` write in `canvas.text` | red: the ownership invariant (textScale 2), glyphcss filler test |
+| M3 | `paintSolidCellBackgrounds` fills only null backgrounds again | green alone (the wrapper already clears them); red together with M1 |
+| M4 | drop both `bg` writes in `canvas.line` | red: glyphcss line test, the ownership invariant (the fossil-edge line) |
+| M5 | `solidRegionBeneath` answers null | red: overlapping bars |
+| M6 | drop the floor's zero-span guard | red: the zero stack layer |
+| M7 | keep the re-placed order whenever it differs | red: every sweep size, the changed-seed list |
+| M8 | every skip-level band smooth | red: every sweep size |
+| M9 | count a band's own revisit as a loss | red: every exactness check |
+| M10 | judge the order on box only | red: three sweep sizes |
+| M11 | the count ignores the mark's ribbon | red: the outline exactness check |
+
+### Residuals
+
+- **Multi-sankey renders.** The count judges each sankey alone; a second sankey mark's cells lost to the first are not part of either gate.
+- **Smooth-or-staircase is decided per layout**, not per band: one costly skip band turns every skip band of that layout back into a staircase.
+- **Inheritance keeps one colour per cell.** Where an earlier cell's empty quadrants hold two colours (a vertical split under a horizontal edge), the one more of them show wins.

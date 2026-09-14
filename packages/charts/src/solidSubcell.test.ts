@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 import { createGlyphCanvas } from "glyphcss";
 import { describe, expect, it } from "vitest";
 import { ECOMMERCE_FUNNEL_DATA, ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
-import { layoutGlyphChart, resolveGlyphChartLegendOption, scaleToCol, scaleToRowExact } from "./layout";
+import { bandColRange, layoutGlyphChart, resolveGlyphChartLegendOption, scaleToCol, scaleToRowExact } from "./layout";
 import type { GlyphChartLedgerEntry } from "./ledger";
 import { paintGlyphChart } from "./paint";
 import { glyphChartRegionFill, renderGlyphChart } from "./render";
@@ -25,7 +25,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { goodSpecs } from "./reviewFixtures";
 import { resolveGlyphChartScales } from "./scales";
 import { chartSeries, resolveSeriesColor } from "./series";
-import { glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
+import { glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
 import type { GlyphChartCharset, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 import { validateGlyphChartSpec } from "./validate";
 
@@ -413,7 +413,117 @@ describe("B: sub-cell boundaries between solid bands", () => {
   });
 });
 
-describe("texture output is byte-identical to b662a509 (fixtures/solidSubcellParentFixtures.json)", () => {
+describe("Round 27: under solid, a write owns its whole cell, and a half-cell edge keeps the region it lies over", () => {
+  /** A canvas painted exactly as `renderGlyphChart`'s solid exit is, so its `bg` reads at any `textScale`. */
+  function solidCanvas(spec: GlyphChartSpec, charset: GlyphChartCharset, w: number, h: number, textScale: number) {
+    const valid = validateGlyphChartSpec(normalizeGlyphChartInput(spec));
+    const marks = resolveGlyphChartSpec(valid);
+    const scales = resolveGlyphChartScales(marks, valid.scales);
+    const layout = layoutGlyphChart(valid, marks, scales, w, h, "auto", [], charset, resolveGlyphChartLegendOption(valid.legend, undefined), textScale);
+    const canvas = createGlyphCanvas({ cols: w, rows: h, tier: charset });
+    paintGlyphChart(canvas, valid, marks, scales, layout, { colorEnabled: true, regionFill: "solid", textScale }, []);
+    return canvas;
+  }
+  const YEARS4 = ["2020-01-01", "2021-01-01", "2022-01-01", "2023-01-01"];
+  /** The review's repro: a one-unit band on top of a hundred-unit one, under a corner legend. */
+  const thinUnderLegend = (placement: "top-left" | "top-right" | "bottom-left" | "bottom-right"): GlyphChartSpec => ({
+    marks: [{ ...glyphChartArea(YEARS4.flatMap((d) => [{ d, s: "Big", v: 100 }, { d, s: "Small", v: 1 }]), { x: "d", y: "v", fill: "s" }), transform: { kind: "stack" } }],
+    legend: { placement },
+  });
+  const tall = glyphChartBar([{ x: "a", y: 6.3 }, { x: "b", y: 4.2 }, { x: "c", y: 2.7 }], { x: "x", y: "y" }, { name: "Tall" });
+  const short = glyphChartBar([{ x: "a", y: 3.6 }, { x: "b", y: 5.4 }, { x: "c", y: 2.2 }], { x: "x", y: "y" }, { name: "Short" });
+  const overlays: GlyphChartSpec[] = [
+    { marks: [tall, short] },
+    { marks: [...stackedBar.marks, glyphChartRect([{ x: "a", y: 5 }, { x: "b", y: 3 }], { x: "x", y: "y" }, { name: "Over" })] },
+    // A line along the fossil band's own top edge: every cell it crosses is a two-colour boundary cell.
+    { marks: [...energyArea.marks, glyphChartLine(energyRows.filter((r) => r.source === "Fossil fuels"), { x: "year", y: "twh" }, { name: "Fossil edge" })] },
+  ];
+
+  it("no background outlives its glyph: every `█` carries its own ink, and only a two-colour quadrant cell carries another colour", () => {
+    // Mutations: drop `solidOwnedCanvas` -> red (the review's blue `█` swatch over orange, and the legend's letters);
+    // drop the canvas's filler bg write -> red at textScale 2 (a scaled legend name's blanked cells keep the band's colour);
+    // drop the canvas's line bg writes -> red (the fossil-edge line's braille cells keep the band below's colour).
+    const specs = [...goodSpecs, energyArea, stackedBar, energySankey, funnel, ...(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(thinUnderLegend), ...overlays];
+    let twoColour = 0, blocks = 0;
+    for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) for (const [w, h, s] of [[60, 24, 1], [96, 32, 1], [120, 48, 2]] as const) {
+      if (glyphChartRegionFill(spec, { width: w, height: h, charset, color: "css" }).fill !== "solid") continue;
+      const canvas = solidCanvas(spec, charset, w, h, s);
+      const { char, color } = canvas.grid;
+      for (let idx = 0; idx < char.length; idx++) {
+        const key = `${spec.title ?? spec.marks.map((m) => m.type).join("+")}:${charset}:${w}x${h} (${idx % w},${Math.floor(idx / w)}) ${char[idx]}`;
+        if (char[idx] === "█" && color[idx]) { expect(canvas.bg[idx], key).toBe(color[idx]); blocks++; }
+        else if (canvas.bg[idx] !== null) { expect(QUADRANTS.has(char[idx]!), key).toBe(true); twoColour++; }
+      }
+    }
+    expect(blocks).toBeGreaterThan(1000);
+    expect(twoColour).toBeGreaterThan(100);
+  }, 60_000);
+
+  it("overlapping bar marks: every quadrant inside a bar's extent shows the latest bar covering it, never page background", () => {
+    // Mutation: `solidRegionBeneath` answers `null` -> red (a later bar's half-cell top punched through the earlier bar).
+    const spec: GlyphChartSpec = { marks: [tall, short] };
+    const valid = validateGlyphChartSpec(normalizeGlyphChartInput(spec));
+    const marks = resolveGlyphChartSpec(valid);
+    const scales = resolveGlyphChartScales(marks, valid.scales);
+    const colors = chartSeries(marks).map((s) => resolveSeriesColor(s, true)!);
+    const values = marks.map((m) => new Map(m.rows.map((r) => [String(r.x), Number(r.y)])));
+    const QUAD_MASK = new Map(["▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"].map((g, i) => [g, i + 1]));
+    let checked = 0, kept = 0;
+    for (let h = 10; h <= 24; h++) {
+      const layout = layoutGlyphChart(valid, marks, scales, 30, h, "auto", [], "braille", resolveGlyphChartLegendOption(valid.legend, false), 1);
+      const cells = htmlCells(renderGlyphChart(spec, { ...WEB, width: 30, height: h, legend: false }).html!);
+      const zeroExact = scaleToRowExact(scales.y, layout.plot, 0);
+      const base = Math.abs(zeroExact - Math.round(zeroExact)) < 1e-9 ? Math.round(zeroExact) : zeroExact;
+      for (const v of ["a", "b", "c"]) {
+        const [c0, c1] = bandColRange(scales.x, layout.plot, v)!;
+        const tops = values.map((m) => scaleToRowExact(scales.y, layout.plot, m.get(v)!));
+        for (let x = c0; x <= c1; x++) for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
+          if (y === layout.xAxisLineRow) continue;
+          const c = cells[y]![x]!;
+          const mask = QUAD_MASK.get(c.ch) ?? 0;
+          for (let q = 0; q < 4; q++) {
+            const qy = y + (q < 2 ? -0.25 : 0.25);
+            const covering = [1, 0].find((k) => tops[k]! - 0.5 < qy && qy <= base - 0.5);
+            if (covering === undefined) continue;
+            const painted = mask & (1 << q) ? c.fg : c.bg;
+            expect(painted, `h=${h} (${x},${y}) ${c.ch} q${q}`).toBe(colors[covering]);
+            checked++;
+            if (covering === 0 && c.fg === colors[1]) kept++;
+          }
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(1000);
+    // Not vacuous: the earlier bar shows through a later bar's half-cell edge in many quadrants.
+    expect(kept).toBeGreaterThan(20);
+  });
+
+  it("a zero-valued stack layer paints nothing: [100, 0, 100] keeps the middle series off the plot, [100, 1, 100] shows it", () => {
+    // Mutation: drop the floor's zero-span guard (`span[0] === span[1]` in `paintSolidRegions`) -> red (it floored the empty layer into view).
+    for (const middle of [0, 1]) {
+      const rows = YEARS4.flatMap((d, i) => [{ d, s: "Base", v: 100 + 10 * i }, { d, s: "Middle", v: middle }, { d, s: "Top", v: 100 }]);
+      const area: GlyphChartSpec = { marks: [{ ...glyphChartArea(rows, { x: "d", y: "v", fill: "s" }), transform: { kind: "stack" } }] };
+      const bar: GlyphChartSpec = { marks: [{ ...glyphChartBar(rows, { x: "d", y: "v", fill: "s" }), transform: { kind: "stack" } }] };
+      for (const spec of [area, bar]) {
+        const color = chartSeries(resolveGlyphChartSpec(validateGlyphChartSpec(normalizeGlyphChartInput(spec))))[1]!;
+        const middleColor = resolveSeriesColor(color, true);
+        for (const charset of ["blocks", "braille"] as const) for (const [w, h] of [[60, 24], [96, 32]] as const) {
+          const cells = htmlCells(renderGlyphChart(spec, { ...WEB, charset, width: w, height: h, legend: false }).html!).flat();
+          const shown = cells.filter((c) => (c.ch !== " " && c.fg === middleColor) || c.bg === middleColor).length;
+          const key = `${spec.marks[0]!.type} middle=${middle} ${charset} ${w}x${h}`;
+          if (middle === 0) expect(shown, key).toBe(0);
+          else expect(shown, key).toBeGreaterThan(spec === area ? 20 : 0);
+        }
+      }
+    }
+  });
+});
+
+// The fixture is b662a509's hashes with ONE documented exception: the 112 energySankey entries (14 exits x 4
+// charsets x 2 sizes) were re-pinned at d9bd096c, whose skip-level gate re-places Industrial below Electricity
+// Generation (Round 26). Regenerated against b662a509 in Round 27, every other entry matches it exactly and every
+// energySankey entry differs, so a change to any other spec's texture exits still reddens here.
+describe("texture output is byte-identical to b662a509, the energy sankey's re-placed order excepted (fixtures/solidSubcellParentFixtures.json)", () => {
   const parent: Record<string, string> = JSON.parse(readFileSync(fixturePath("fixtures/solidSubcellParentFixtures.json"), "utf8"));
   const specs: [string, GlyphChartSpec][] = [...goodSpecs.map((s, i) => [`g${i}`, s] as [string, GlyphChartSpec]), ["energyArea", energyArea], ["stackedBar", stackedBar], ["energySankey", energySankey], ["funnel", funnel]];
 

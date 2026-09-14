@@ -17,6 +17,31 @@ describe("cell canvas: text() bg option", () => {
     const canvas = createGlyphCanvas({ cols: 4, rows: 1, tier: "box" });
     expect(() => canvas.text(0, 0, ["a"], { bg: "#FFF" })).toThrow(TypeError);
   });
+
+  it("a scaled glyph's blanked filler cells take the call's bg too (mutation: drop the filler bg write -> red)", () => {
+    const canvas = createGlyphCanvas({ cols: 4, rows: 2, tier: "braille" });
+    canvas.text(0, 0, ["▄▄▄▄", "▄▄▄▄"], { color: "#22c55e", bg: "#ef4444" });
+    canvas.text(0, 0, ["A"], { color: "#3b82f6", bg: null, scale: 2 });
+    expect([canvas.bg[0], canvas.bg[1], canvas.bg[4], canvas.bg[5]]).toEqual([null, null, null, null]);
+    expect([canvas.bg[2], canvas.bg[6]]).toEqual(["#ef4444", "#ef4444"]);
+    canvas.text(2, 0, ["B"], { color: "#3b82f6", scale: 2 });
+    expect([canvas.bg[2], canvas.bg[3], canvas.bg[6], canvas.bg[7]]).toEqual(["#ef4444", "#ef4444", "#ef4444", "#ef4444"]);
+  });
+});
+
+describe("cell canvas: line() bg option", () => {
+  it("writes the background of every cell the line writes, whole-cell and sub-cell alike, and leaves it alone when omitted (mutation: drop either write -> red)", () => {
+    for (const tier of ["box", "braille"] as const) {
+      const canvas = createGlyphCanvas({ cols: 4, rows: 1, tier });
+      canvas.text(0, 0, ["▄▄▄▄"], { color: "#22c55e", bg: "#ef4444" });
+      canvas.line({ x: 0, y: 0 }, { x: 1, y: 0 }, { color: "#3b82f6", bg: null });
+      expect(canvas.bg, tier).toEqual([null, null, "#ef4444", "#ef4444"]);
+      canvas.line({ x: 2, y: 0 }, { x: 3, y: 0 }, { color: "#3b82f6" });
+      expect(canvas.bg.slice(2), tier).toEqual(["#ef4444", "#ef4444"]);
+      canvas.line({ x: 2, y: 0 }, { x: 2, y: 0 }, { color: "#3b82f6", bg: "#111111" });
+      expect(canvas.bg[2], tier).toBe("#111111");
+    }
+  });
 });
 
 describe("cell canvas: text() never rasterises", () => {

@@ -166,17 +166,18 @@ describe("skip-level bands: corridor-aware node order", () => {
     }
   });
 
-  it("the re-placed order is kept only where the whole layout crosses less: box renders of the layered sweep change for exactly these seeds", () => {
-    // Mutation: keep the re-placed order whenever it differs, without the crossing count -> red (more seeds change).
+  it("the re-placed order is kept only where it loses no more cells on either tier family: box renders of the layered sweep change for exactly these seeds", () => {
+    // Mutation: keep the re-placed order whenever it differs, without the lost-cell count -> red (more seeds change).
     // Box paints every band through lanes whatever the order, so a box change is the order changing; braille also
-    // changes wherever a skip-level band now paints smooth.
+    // changes wherever a skip-level band now paints smooth. Round 27 re-pinned this list: the crossing-count gate
+    // kept 0, 10, 40, 42, 52 and 79, which lose more cells on box or braille, and refused 58 and 60, which lose fewer.
     const parent: Record<string, string> = JSON.parse(readFileSync(fixturePath("fixtures/sankeyOrderParentFixtures.json"), "utf8"));
     const changed: number[] = [];
     for (let seed = 0; seed < 80; seed++) {
       const text = renderGlyphChart(randomLayered(seed), { target: "web", width: 96, height: 32, charset: "box", color: "none" }).text;
       if (hash(text) !== parent[`layered:${seed}:box`]) changed.push(seed);
     }
-    expect(changed).toEqual([0, 6, 10, 25, 32, 40, 42, 48, 52, 66, 74, 79]);
+    expect(changed).toEqual([6, 25, 32, 48, 58, 60, 66, 74]);
   }, 30_000);
 });
 

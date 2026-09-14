@@ -420,6 +420,7 @@ function paintSolidRegions(canvas: GlyphCanvas, layout: GlyphChartLayout, layers
   const { plot } = layout;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const quad = (tier.fillSubGlyph ?? tier.subGlyph)!;
+  const regionBeneath = solidRegionBeneath(canvas, quad);
   const halves = (plot.y1 - plot.y0 + 1) * 2;
   const skipRow = layout.xAxisLineRow;
   const slotY = (h: number): number => plot.y0 - 0.25 + h * 0.5;
@@ -498,9 +499,47 @@ function paintSolidRegions(canvas: GlyphCanvas, layout: GlyphChartLayout, layers
       if (!c) continue;
       let sub = 0;
       for (let q = 0; q < 4; q++) if (c.mask & (1 << q)) sub |= AREA_QUADRANT_SUB_BITS[q]!;
-      canvas.text(col, plot.y0 + k, [quad(sub)], { color: layers[c.fg]!.color, bg: c.bg === NO_OWNER ? null : layers[c.bg]!.color });
+      const bg = c.bg !== NO_OWNER ? layers[c.bg]!.color : c.mask === 0b1111 ? null : regionBeneath((plot.y0 + k) * canvas.cols + col, ~c.mask & 0b1111);
+      canvas.text(col, plot.y0 + k, [quad(sub)], { color: layers[c.fg]!.color, bg });
     }
   }
+}
+
+/**
+ * What an EARLIER region mark painted in a cell's `empty` quadrants (bit0
+ * TL, bit1 TR, bit2 BL, bit3 BR), as the one colour the most of them show
+ * (ties to that cell's ink), or `null` for page background. A quadrant a
+ * layer of this pass leaves empty is not sky when another mark already
+ * covers it: taking `null` there punched a hole through an earlier bar
+ * wherever a later, overlapping one had a half-cell edge. Only a full or
+ * quadrant block counts as region ink; a gridline or any other glyph under
+ * the cell is replaced whole, as the texture paint replaces it. Region marks
+ * paint before every line, dot, axis and label, so no such glyph can be one
+ * of theirs.
+ */
+function solidRegionBeneath(canvas: GlyphCanvas, quad: (sub: number) => string): (idx: number, empty: number) => string | null {
+  const maskOfGlyph = new Map<string, number>();
+  for (let m = 1; m < 16; m++) {
+    let sub = 0;
+    for (let q = 0; q < 4; q++) if (m & (1 << q)) sub |= AREA_QUADRANT_SUB_BITS[q]!;
+    maskOfGlyph.set(quad(sub), m);
+  }
+  return (idx, empty) => {
+    const mask = maskOfGlyph.get(canvas.grid.char[idx]!);
+    if (mask === undefined) return null;
+    const ink = canvas.grid.color[idx] ?? null;
+    const counts = new Map<string, number>();
+    let best: string | null = null, bestCount = 0;
+    for (let q = 0; q < 4; q++) {
+      if (!(empty & (1 << q))) continue;
+      const color = mask & (1 << q) ? ink : canvas.bg[idx] ?? null;
+      if (color === null) continue;
+      const n = (counts.get(color) ?? 0) + 1;
+      counts.set(color, n);
+      if (n > bestCount || (n === bestCount && color === ink)) { best = color; bestCount = n; }
+    }
+    return best;
+  };
 }
 
 /** Rows that meet the zero baseline snap to the axis row's own edge, so a solid band never floats half a row above the axis it stands on. */
@@ -1285,6 +1324,27 @@ function guardCoord(markType: string, painter: string, values: readonly number[]
   }
 }
 
+/**
+ * The SOLID canvas's cell-ownership rule: a write that names no `bg` takes
+ * the WHOLE cell, background included. The canvas keeps `bg` apart from the
+ * glyph (omitted leaves it untouched), and only the sub-cell compositor
+ * (`paintSolidRegions`) sets one, for a two-colour cell. Every later write
+ * over such a cell (a legend swatch or name, another mark's block, a line)
+ * used to keep that cell's second colour behind its own glyph: a blue `█`
+ * swatch over an orange background, and the same under a rect's whole run.
+ * Here a write owns the cell it writes, so no background outlives its glyph;
+ * `paintSolidCellBackgrounds` then gives each `█` its own ink. The texture
+ * canvas writes no `bg` anywhere, so it never takes this wrapper.
+ */
+function solidOwnedCanvas(canvas: GlyphCanvas): GlyphCanvas {
+  return {
+    ...canvas,
+    fillRect: (x0, y0, x1, y1, fillOpts) => canvas.fillRect(x0, y0, x1, y1, { ...fillOpts, bg: fillOpts.bg === undefined ? null : fillOpts.bg }),
+    line: (a, b, lineOpts = {}) => canvas.line(a, b, { ...lineOpts, bg: lineOpts.bg === undefined ? null : lineOpts.bg }),
+    text: (x, y, lines, textOpts = {}) => canvas.text(x, y, lines, { ...textOpts, bg: textOpts.bg === undefined ? null : textOpts.bg }),
+  };
+}
+
 function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
   return {
     ...canvas,
@@ -1406,6 +1466,7 @@ export function paintGlyphChart(
   // (canvas.text's own byte-identical default) when the caller never set it.
   const textScale = opts.textScale ?? 1;
   const fill = opts.regionFill ?? "texture";
+  if (fill === "solid") canvas = solidOwnedCanvas(canvas);
   const series = chartSeries(marks, ledger);
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
@@ -1701,8 +1762,10 @@ export function paintGlyphChart(
 }
 
 /**
- * Under a SOLID region fill, every full-block cell (`█`) also carries its own
- * colour as its background (DIAGNOSIS-sankey-column-jump.md, Round 3).
+ * Under a SOLID region fill, every full-block cell (`█`) carries its own
+ * colour as its background, whatever painted it (DIAGNOSIS-sankey-column-jump.md,
+ * Round 3; the "whatever" is Round 27: a swatch or a rect's `█` written over
+ * a two-colour cell kept that cell's other colour as its background).
  *
  * A browser draws `█` as a glyph, antialiased at its left and right edges.
  * At the web `<pre>`'s 13px Glyph Mono a column is 7.6171875 CSS px wide, so
@@ -1724,6 +1787,6 @@ function paintSolidCellBackgrounds(canvas: GlyphCanvas): void {
   const { char, color } = canvas.grid;
   for (let idx = 0; idx < char.length; idx++) {
     const ink = color[idx];
-    if (char[idx] === "█" && ink && canvas.bg[idx] == null) canvas.bg[idx] = ink;
+    if (char[idx] === "█" && ink) canvas.bg[idx] = ink;
   }
 }
