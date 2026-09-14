@@ -571,6 +571,93 @@ describe("createGlyphOrbitControls — trackball mode", () => {
     expect(scene.camera.rotX).toBeGreaterThanOrEqual(-20);
     controls.destroy();
   });
+
+  // P1 (codex terra fix round 2): at the gimbal singularity (rotX 0 or
+  // 180), row 2 of the trackball matrix collapses to [0, 0, ±1] for EVERY
+  // rotY — decomposeMatToEuler's general atan2(m6, m7) formula divides 0
+  // by 0, snapping rotY to 0 and visibly rotating the picture on any
+  // trackball -> turntable switch at these exact orientations.
+  it("gimbal lock: turntable (rotX 0, rotY 45) -> trackball with no drag -> turntable returns (0, 45) exactly", () => {
+    scene.camera.rotX = 0;
+    scene.camera.rotY = 45;
+    const controls = createGlyphOrbitControls(scene, { pitchRange: null });
+    controls.update({ mode: "trackball" }); // engage with no drag
+    expect(scene.camera.useMat).toBe(true);
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+    expect(scene.camera.rotX).toBeCloseTo(0, 9);
+    expect(scene.camera.rotY).toBeCloseTo(45, 9);
+    controls.destroy();
+  });
+
+  it("gimbal lock: the same round trip at rotX 180 returns (180, 45) exactly", () => {
+    scene.camera.rotX = 180;
+    scene.camera.rotY = 45;
+    const controls = createGlyphOrbitControls(scene, { pitchRange: null });
+    controls.update({ mode: "trackball" });
+    expect(scene.camera.useMat).toBe(true);
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+    expect(scene.camera.rotX).toBeCloseTo(180, 6);
+    expect(scene.camera.rotY).toBeCloseTo(45, 6);
+    controls.destroy();
+  });
+
+  it("gimbal lock: a twist-only trackball roll at rotX 0 -> turntable preserves the exact projected picture", () => {
+    scene.camera.rotX = 0;
+    scene.camera.rotY = 45;
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: null });
+
+    // Pure twist (roll about the view axis): no drag, just a two-finger
+    // rotate — at rotX 0 the view axis IS the world Z axis, so this is
+    // exactly the same rotation `rotY` itself is, and dropping "roll" here
+    // must fold it back into rotY rather than discard it.
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 100, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2, isPrimary: false, bubbles: true }));
+    expect(scene.camera.useMat).toBe(true);
+
+    const refPoints: Array<[number, number, number]> = [
+      [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1], [-1, 0.5, -0.25],
+    ];
+    const before = refPoints.map((p) => scene.camera.project(p, cols, rows, cellAspect));
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+
+    const after = refPoints.map((p) => scene.camera.project(p, cols, rows, cellAspect));
+    for (let i = 0; i < refPoints.length; i++) {
+      expect(after[i][0]).toBeCloseTo(before[i][0], 6);
+      expect(after[i][1]).toBeCloseTo(before[i][1], 6);
+      expect(after[i][2]).toBeCloseTo(before[i][2], 6);
+    }
+    controls.destroy();
+  });
+
+  it("no discontinuity sweeping rotX through the gimbal-lock band [-1e-4, 1e-4] with no drag", () => {
+    const rotXValues = [-1e-4, -5e-5, -1e-5, 0, 1e-5, 5e-5, 1e-4];
+    const p: [number, number, number] = [1, 0.5, 0.25];
+    const projected = rotXValues.map((rx) => {
+      scene.camera.rotX = rx;
+      scene.camera.rotY = 45;
+      const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: null });
+      controls.update({ mode: "turntable" }); // decompose immediately, no drag
+      const result = scene.camera.project(p, cols, rows, cellAspect);
+      controls.destroy();
+      return result;
+    });
+    for (let i = 1; i < projected.length; i++) {
+      // A ~5e-5 degree step in rotX should move the projection by a
+      // correspondingly tiny amount. The pre-fix bug snapped rotY to 0
+      // exactly at rotX 0, which — over these same reference-point
+      // deltas — moves the projection by an order of magnitude more than
+      // this bound (a rotY jump of 45 degrees' worth).
+      expect(Math.abs(projected[i][0] - projected[i - 1][0])).toBeLessThan(0.01);
+      expect(Math.abs(projected[i][1] - projected[i - 1][1])).toBeLessThan(0.01);
+    }
+  });
 });
 
 describe("createGlyphOrbitControls — trackball auto-rotate (P1-b)", () => {

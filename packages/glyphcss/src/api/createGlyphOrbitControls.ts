@@ -384,11 +384,12 @@ export function createGlyphOrbitControls(
           // into `pitchRange`, and the picture stays put apart from the
           // removed roll.
           const { rotX, rotY } = decomposeMatToEuler(trackballMat);
-          // (rotX, rotY) and (-rotX, rotY+180) encode the IDENTICAL
-          // rotation matrix (same picture) — pick whichever needs less
-          // clamping into `pitchRange`, so a legitimately negative pitch
-          // isn't needlessly flipped to its equivalent positive branch
-          // and then clamped against it.
+          // (rotX, rotY) and (-rotX, rotY+180) share row 2 (so depth still
+          // matches either way — see decomposeMatToEuler's own comment)
+          // but are not otherwise the same rotation; pick whichever needs
+          // less clamping into `pitchRange`, so a value already inside the
+          // range is never needlessly flipped to its row-2-sharing
+          // counterpart and clamped against that instead.
           const altRotX = -rotX;
           const altRotY = rotY + 180;
           const clampedPrimary = clampPitchRange(rotX);
@@ -481,25 +482,74 @@ function axisAngleMat(ax: number, ay: number, az: number, angleRad: number): num
 }
 
 /**
- * Inverse of `eulerToMat`: decomposes a general trackball matrix into the
- * NEAREST turntable orientation, dropping any roll turntable cannot
- * represent (P1-a). This is exact, not an approximation — for ANY rotation
- * matrix `M`, row 2 (`M[6..8]`) equals row 2 of the pure turntable matrix
- * `RotX(rotX)·RotZ(rotY)` REGARDLESS of any left-multiplied roll about the
- * output depth axis, because that roll only mixes rows 0/1 together (it
- * never reads row 2). So this recovers rotX/rotY EXACTLY (a genuine z-x-z
- * Euler decomposition; the discarded degree of freedom is precisely the
- * roll), and only the col/row (screen-plane) projection of a point can
- * differ from the trackball picture — depth never does.
+ * Below this `|sin rotX|` (row 2's own col/row magnitude, `hypot(m6, m7)`),
+ * row 2 has collapsed to `[0, 0, ±1]` and stopped carrying any information
+ * about rotY at all — the gimbal-lock band `decomposeMatToEuler` special-
+ * cases. Sized in DEGREES, not just "small": `Math.sin(1e-3 * DEG)` is
+ * this exact bound, so the whole band a caller would ever plausibly reach
+ * by dragging to (or sweeping through) a genuinely level pitch stays on
+ * ONE formula — comfortably wider than any float64 noise from a chain of
+ * `matMul3` compositions, comfortably narrower than any pitch a caller
+ * would call "tilted".
+ */
+const EULER_GIMBAL_EPSILON = 1.7e-5; // sin(1e-3deg)
+
+/**
+ * Inverse of `eulerToMat`: decomposes a general trackball matrix into a
+ * turntable orientation sharing its row 2, dropping any roll turntable
+ * cannot represent (P1-a). Row 2 (`M[6..8]`) of ANY rotation matrix `M`
+ * equals row 2 of the pure turntable matrix `RotX(rotX)·RotZ(rotY)`
+ * REGARDLESS of any left-multiplied roll about the output depth axis,
+ * because that roll only mixes rows 0/1 together (it never reads row 2) —
+ * so DEPTH always matches the trackball picture exactly; only the col/row
+ * (screen-plane) projection of a point can differ, by the dropped roll.
  *
- * `rotX` is returned in its principal [0, 180] branch; `(rotX, rotY)` and
- * `(-rotX, rotY + 180)` encode the IDENTICAL matrix (same picture), so the
- * caller is free to use either — `update()` picks whichever needs less
- * `pitchRange` clamping.
+ * `rotX` is returned in its principal [0, 180] branch. Two matrices
+ * sharing this row 2 exist — `(rotX, rotY)` and `(-rotX, rotY + 180)` —
+ * but they are NOT the same rotation in general (only row 2 agrees; row 0
+ * is negated between them), so this is a genuine choice, not a free
+ * relabelling: `update()` picks whichever needs less `pitchRange`
+ * clamping, which is exact whenever the caller's own rotX was already
+ * non-negative (the ordinary case — every turntable pitch this library
+ * ever writes back is), and is a documented residual for a negative
+ * starting rotX (reachable only via `pitchRange: null` unrestricted
+ * dragging) outside the gimbal band this round's fix covers.
+ *
+ * **Gimbal lock at rotX = 0 or 180** (fix round 2, P1): there row 2 is
+ * exactly `[0, 0, ±1]` for EVERY rotY, so it carries zero information
+ * about rotY — the general formula above would divide 0 by 0. At this
+ * exact orientation the view axis and the world Z axis coincide (row2 is
+ * `±ẑ`), so the roll (about the view axis) and rotY (about world Z,
+ * applied first) have become rotations about the literal SAME axis, and
+ * therefore compose by simple angle addition — turntable's own rotY is
+ * indistinguishable from roll here, both are just "how much has this
+ * spun". Row 0 stays well-defined through the whole band: row 0 of
+ * `RotX(rotX)·RotZ(rotY)` is `[cosY, -sinY, 0]` for EVERY rotX (RotX's own
+ * row 0 is `[1,0,0]`, so RotX never touches row 0 at all), and — because
+ * roll and rotY share one axis exactly at this singularity — row 0 of the
+ * FULL matrix still has that same `[cos·, -sin·, 0]` shape, just with the
+ * COMBINED yaw+roll angle in place of rotY alone, and — unlike row 0 away
+ * from the singularity — that shape does NOT depend on the sign of the
+ * (now-collapsed) rotX either, so no branch choice is needed here. So the
+ * fix recovers that combined angle from row 0 and assigns the whole thing
+ * to rotY (with rotX snapped to 0 or 180 by `m8`'s sign) — provably an
+ * EXACT reconstruction of `M` (both other rows are then forced to match by
+ * orthonormality), so the picture is preserved exactly rather than
+ * snapping toward `(0, 0)`. `EULER_GIMBAL_EPSILON` is wide enough that
+ * every rotX this band is exercised at (including through zero, from
+ * either side) stays on this one exact formula, so nothing here introduces
+ * a discontinuity as rotX sweeps through it.
  */
 function decomposeMatToEuler(mat: number[]): { rotX: number; rotY: number } {
+  const m0 = mat[0], m1 = mat[1];
   const m6 = mat[6], m7 = mat[7], m8 = mat[8];
-  const rotX = Math.atan2(Math.hypot(m6, m7), m8) / DEG;
+  const sinXMagnitude = Math.hypot(m6, m7);
+  if (sinXMagnitude < EULER_GIMBAL_EPSILON) {
+    const rotX = m8 >= 0 ? 0 : 180;
+    const rotY = Math.atan2(-m1, m0) / DEG;
+    return { rotX, rotY };
+  }
+  const rotX = Math.atan2(sinXMagnitude, m8) / DEG;
   const rotY = Math.atan2(m6, m7) / DEG;
   return { rotX, rotY };
 }
