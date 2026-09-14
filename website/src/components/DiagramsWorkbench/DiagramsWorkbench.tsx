@@ -9,8 +9,9 @@ import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
 import { Diagrams3DViewport } from "./Diagrams3DViewport";
+import { resolveDiagrams3dSceneOptions } from "./diagrams3dSceneOptions";
 import {
-  GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState,
+  GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
   type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState,
 } from "./diagramsWorkbenchState";
 import { DIAGRAMS_URL_PARAM, createDiagramsUrlWriter, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
@@ -106,6 +107,10 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
 
 function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiagramsWorkbenchState }) {
   const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState);
+  // Fix round 1, P1-1 — the resolved (default-applied) target/charset/colour,
+  // shared by the 3D thumbnail/render options above and the live viewport's
+  // own scene options below.
+  const resolvedControls = resolveGlyphDiagramsWorkbenchControls(state.controls);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
   const [completed, setCompleted] = useState<{ state: GlyphDiagramsWorkbenchState; result: GlyphDiagramsWorkbenchRender } | null>(null);
@@ -292,13 +297,28 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
               // entirely. Remounts only when the GRAPH or layout/zBy/seed/
               // rotation genuinely changes (see `Diagrams3DViewport.tsx`'s
               // own doc); target/charset/color edits leave it alone.
-              ? (graph3d && <Diagrams3DViewport
-                  graph={graph3d} layout={state.view3d.layout} zBy={state.view3d.zBy} seed={state.view3d.seed}
-                  direction={state.layout.direction} nodesep={state.layout.nodesep} ranksep={state.layout.ranksep}
-                  controlsMode={state.view3d.controlsMode} initialCamera={state.camera3d}
-                  onCameraSettled={(camera) => dispatch({ type: "set-camera3d", camera })}
-                  onError={() => {/* surfaced via `rendered3d` above — its own effect independently renders the same graph/options */}}
-                />)
+              ? (graph3d && <div className="diagrams-3d-frame">
+                  {/* Fix round 1, P1-1 — "show the downgrade note in the
+                   *  chrome, exactly like 2D": `web` normally carries no
+                   *  chrome at all (`TargetPreview`'s own doc), but a live
+                   *  3D scene genuinely can't express an ANSI colour DEPTH
+                   *  choice or (for braille) a solid Lambert render, so this
+                   *  is the one case `web` gets a `.target-preview__note`
+                   *  of its own — same class, same visual language. */}
+                  {(() => {
+                    const note = resolveDiagrams3dSceneOptions(resolvedControls.charset, resolvedControls.color).note;
+                    return note ? <div className="target-preview__note">{note}</div> : null;
+                  })()}
+                  <Diagrams3DViewport
+                    graph={graph3d} layout={state.view3d.layout} zBy={state.view3d.zBy} seed={state.view3d.seed}
+                    direction={state.layout.direction} nodesep={state.layout.nodesep} ranksep={state.layout.ranksep}
+                    controlsMode={state.view3d.controlsMode} initialCamera={state.camera3d}
+                    charset={resolvedControls.charset} color={resolvedControls.color}
+                    effectId={state.effect3d.effectId} effectTargetNodeId={state.effect3d.targetId}
+                    onCameraSettled={(camera) => dispatch({ type: "set-camera3d", camera })}
+                    onError={() => {/* surfaced via `rendered3d` above — its own effect independently renders the same graph/options */}}
+                  />
+                </div>)
               : <div className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}`}>
                   <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
                     isHtml={Boolean(state.view === "2d" ? displayResult?.isHtml : displayResult3d?.html !== undefined)}

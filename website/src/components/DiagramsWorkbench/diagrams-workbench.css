@@ -57,7 +57,22 @@
    containers: fills the available viewport rather than scrolling as fixed
    text (the 2D `.diagrams-grid-scroll` rule above), because an orbitable
    scene has no fixed cell budget to scroll around. */
-.diagrams-3d-host { width: 100%; height: 100%; min-height: 420px; touch-action: none; cursor: grab; }
+.diagrams-3d-frame { display: flex; flex-direction: column; width: 100%; height: 100%; gap: 6px; }
+/* Fix round 1, P1-1 — the live 3D viewport's own chrome note (`web` alone,
+   since `terminal`/`chat` reuse the ordinary `TargetPreview` frames above
+   whose own `.target-preview__note` rules already exist): same size/tone
+   convention as those, scoped to this frame rather than a `.target-preview--*`
+   ancestor class the live scene never mounts inside. */
+.diagrams-3d-frame > .target-preview__note {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 232, 184, 0.65);
+  border-radius: 4px;
+}
+.diagrams-3d-host { flex: 1 1 auto; width: 100%; height: 100%; min-height: 420px; touch-action: none; cursor: grab; }
 .diagrams-3d-host:active { cursor: grabbing; }
 .diagrams-3d-host .glyph-output { display: block; width: 100%; height: 100%; margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; line-height: 1; white-space: pre; user-select: none; }
 .diagrams-tray-divider { display: flex; align-items: center; padding: 0 4px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255, 232, 184, 0.5); white-space: nowrap; }

@@ -25,6 +25,7 @@ export type { GlyphDiagramObjectOptions } from "./glyphDiagramObject";
 export {
   renderGlyphDiagram3d,
   renderGlyphDiagram3dJson,
+  resolveCharset,
   GLYPH_DIAGRAM_3D_LIGHT,
   GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
 } from "./render3d";
@@ -36,4 +37,5 @@ export type {
   GlyphDiagram3dRenderOptions,
   GlyphDiagram3dReport,
   GlyphDiagram3dResult,
+  ResolvedCharset,
 } from "./render3d";

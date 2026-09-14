@@ -1,10 +1,17 @@
-import { useEffect, type Dispatch } from "react";
+import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
-import { buildGlyphDiagramsWorkbenchGraph, resolveGlyphDiagramsWorkbenchControls, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import { Instrument3DEffectsFolder } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
+import { buildGlyphDiagramsWorkbenchGraph, glyphDiagramsWorkbenchEffectTargets, resolveGlyphDiagramsWorkbenchControls, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+
+// Fix round 1, P1-2 — the small, curated set that "reads well" mesh-targeted
+// on a node box (per the coordinator's own list): a bare highlight sweep,
+// a corruption glitch, and a radiating ripple. `getGlyphEffect` (`Diagrams3DViewport.tsx`)
+// resolves each id against `@glyphcss/effects`' own `GlyphEffects` catalog.
+const DIAGRAMS_3D_EFFECT_IDS = ["none", "scan", "glitch", "ripple"] as const;
 
 const options = <T extends string,>(values: readonly T[]): Record<T, T> => Object.fromEntries(values.map((value) => [value, value])) as Record<T, T>;
 
@@ -83,7 +90,24 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   useOption(view3d, "Rotation", options(["turntable", "trackball"] as const), state.view3d.controlsMode, (controlsMode) => dispatch({ type: "set-view3d", patch: { controlsMode } }));
   useEffect(() => { if (view3d) state.view === "3d" ? view3d.show() : view3d.hide(); }, [view3d, state.view]);
 
+  // Fix round 1, P1-2 — the shared Effects folder. Targets are the
+  // CURRENT graph's own nodes; a draft with a syntax error keeps the last
+  // resolvable target list rather than emptying the dropdown mid-edit
+  // (same "don't disable the controls needed to repair it" rule the
+  // Layout folder's `direction` read already follows, two lines above).
+  const graphNodes = useMemo(() => {
+    try { return buildGlyphDiagramsWorkbenchGraph(state).nodes; }
+    catch { return []; }
+  }, [state]);
+  const effectTargets = useMemo(() => glyphDiagramsWorkbenchEffectTargets(graphNodes), [graphNodes]);
+
   return <>
+    <Instrument3DEffectsFolder
+      gui={gui} effectIds={DIAGRAMS_3D_EFFECT_IDS} targets={effectTargets}
+      state={{ effectId: state.effect3d.effectId, targetId: state.effect3d.targetId }}
+      onChange={(patch) => dispatch({ type: "set-effect3d", patch })}
+      visible={state.view === "3d"}
+    />
     {viewSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">View</span>

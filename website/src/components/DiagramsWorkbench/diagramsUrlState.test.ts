@@ -100,6 +100,23 @@ describe("diagramsUrlState — round trip", () => {
     expect(await decodeDiagramsUrlState(raw)).toBeNull();
   });
 
+  // Fix round 1, P1-2 — `effect3d` rides the SAME `?d=` envelope, append-only.
+  it("round-trips a mounted effect and node target", async () => {
+    let state = createGlyphDiagramsWorkbenchState();
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-effect3d", patch: { effectId: "scan", targetId: "agent" } });
+    const raw = await encodeDiagramsUrlState(state);
+    expect(await decodeDiagramsUrlState(raw)).toEqual(state);
+  });
+
+  it("rejects an effect3d payload with an empty targetId", async () => {
+    const raw = await encodeDiagramsUrlState({
+      ...createGlyphDiagramsWorkbenchState(),
+      effect3d: { effectId: "scan", targetId: "" },
+    } as unknown as GlyphDiagramsWorkbenchState);
+    expect(await decodeDiagramsUrlState(raw)).toBeNull();
+  });
+
   it("malformed input decodes to null (page falls back to the default state)", async () => {
     expect(await decodeDiagramsUrlState(null)).toBeNull();
     expect(await decodeDiagramsUrlState("")).toBeNull();

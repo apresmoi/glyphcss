@@ -97,7 +97,14 @@ const GLYPH_DIAGRAM_3D_TARGET_DEFAULTS: Readonly<Record<GlyphDiagram3dTarget, { 
   web: { width: 96, height: 32, charset: "box", color: "css" },
 });
 
-interface ResolvedCharset {
+/**
+ * Exported (D3 fix round 1, P1-1) so `/diagrams`' own live 3D viewport can
+ * derive the SAME `mode`/`charMode` a static `renderGlyphDiagram3d` frame
+ * uses for a given charset, rather than re-deriving (and risking drifting
+ * from) this table on the page. Zero behaviour change from the D2 fix
+ * round's own version of this function — only its visibility moved.
+ */
+export interface ResolvedCharset {
   readonly mode: RenderMode;
   readonly charMode: "ascii" | "braille";
   /** The `GLYPH_CANVAS_TIERS` table `glyphDiagramObject`'s overlay reads for its box-outline/edge/arrowhead glyphs — independent of `charMode` (the RASTERIZER's own vocabulary), since `blocks` degrades the SOLID render to ascii but the overlay can still draw box-tier line art. */
@@ -107,7 +114,7 @@ interface ResolvedCharset {
   readonly ledger: GlyphDiagramLedgerEntry[];
 }
 
-function resolveCharset(charset: GlyphDiagram3dCharset): ResolvedCharset {
+export function resolveCharset(charset: GlyphDiagram3dCharset): ResolvedCharset {
   if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, ledger: [ledger3dCharsetDegraded({ charset: "braille", renderedAs: "wireframe" })] };
   if (charset === "blocks") return { mode: "solid", charMode: "ascii", canvasTier: "box", boxOutline: true, ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii" })] };
   return { mode: "solid", charMode: "ascii", canvasTier: charset, boxOutline: true, ledger: [] };

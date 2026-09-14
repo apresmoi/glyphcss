@@ -9,12 +9,14 @@
 // additive field is optional/defaulted in the `v1` validator, and only an
 // incompatible reshaping of an existing field bumps to `v2`.
 import {
+  GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D,
   GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D,
   type GlyphDiagramsWorkbenchCamera3d,
   type GlyphDiagramsWorkbenchControls,
   type GlyphDiagramsWorkbenchState,
   type GlyphDiagramsWorkbenchView3d,
 } from "./diagramsWorkbenchState";
+import type { Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import type { GlyphDiagramCharset, GlyphDiagramColorMode, GlyphDiagramDetail, GlyphDiagramTarget, GlyphGraph, GlyphGraphEdge, GlyphGraphGroup, GlyphGraphNode } from "@glyphcss/diagrams";
 import type { GlyphDiagram3dLayoutKind, GlyphDiagram3dZBy } from "@glyphcss/diagrams/3d";
 import type { GlyphOrbitControlsMode } from "glyphcss";
@@ -128,9 +130,26 @@ function validateCamera3d(value: unknown): GlyphDiagramsWorkbenchCamera3d | null
   return { zoom, ...(rotX !== undefined ? { rotX } : {}), ...(rotY !== undefined ? { rotY } : {}) };
 }
 
+/**
+ * Fix round 1, P1-2 — free-form: `effectId` is any non-empty string (a
+ * stock `@glyphcss/effects` id today, `"none"` for no layer; a future
+ * added effect id needs no urlState change) and `targetId` is any
+ * non-empty string (`INSTRUMENT_3D_EFFECT_ALL_TARGET` or a node id — a
+ * node id from a graph this link's own nodes/edges no longer contain
+ * degrades to "matches no mesh" at mount, `Diagrams3DViewport.tsx`'s own
+ * `resolveEffectTarget` doc, never a decode rejection).
+ */
+function validateEffect3d(value: unknown): Instrument3DEffectsState | null {
+  if (!isRecord(value)) return null;
+  const { effectId, targetId } = value;
+  if (typeof effectId !== "string" || effectId.length === 0) return null;
+  if (typeof targetId !== "string" || targetId.length === 0) return null;
+  return { effectId, targetId };
+}
+
 function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchState | null {
   if (!isRecord(value)) return null;
-  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal, view, view3d, camera3d } = value;
+  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal, view, view3d, camera3d, effect3d } = value;
 
   if (!oneOf(editor, EDITOR_KINDS) || !oneOf(sourceKind, EDITOR_KINDS)) return null;
   if (typeof mermaid !== "string" || typeof json !== "string") return null;
@@ -206,6 +225,12 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     if (!resolved) return null;
     cleanCamera3d = resolved;
   }
+  let cleanEffect3d = GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D;
+  if (effect3d !== undefined) {
+    const resolved = validateEffect3d(effect3d);
+    if (!resolved) return null;
+    cleanEffect3d = resolved;
+  }
 
   return {
     editor, sourceKind, mermaid, json, nodes: cleanNodes, edges: cleanEdges,
@@ -214,7 +239,7 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     layout: { engine: "dagre", nodesep, ranksep, ...(direction !== undefined ? { direction } : {}) },
     diagram: { title: diagram.title, detail: diagram.detail },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
-    view: view ?? "2d", view3d: cleanView3d, ...(cleanCamera3d ? { camera3d: cleanCamera3d } : {}),
+    view: view ?? "2d", view3d: cleanView3d, ...(cleanCamera3d ? { camera3d: cleanCamera3d } : {}), effect3d: cleanEffect3d,
   };
 }
 

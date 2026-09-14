@@ -6,6 +6,7 @@ import {
 } from "@glyphcss/diagrams";
 import type { GlyphDiagram3dCamera, GlyphDiagram3dLayoutKind, GlyphDiagram3dRenderOptions, GlyphDiagram3dZBy } from "@glyphcss/diagrams/3d";
 import type { GlyphOrbitControlsMode } from "glyphcss";
+import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE, type Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import chain from "../../../../packages/diagrams/fixtures/chain.mmd?raw";
 import diamond from "../../../../packages/diagrams/fixtures/diamond.mmd?raw";
 import fanOut from "../../../../packages/diagrams/fixtures/fan-out.mmd?raw";
@@ -108,6 +109,13 @@ export type GlyphDiagramsWorkbenchCamera3d = GlyphDiagram3dCamera & { readonly z
 
 export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D: GlyphDiagramsWorkbenchView3d = { layout: "layered", zBy: "group", seed: 1, controlsMode: "turntable" };
 
+/**
+ * Fix round 1, P1-2 — the shared `Instrument3DEffectsFolder`'s own state
+ * shape, reused verbatim (not re-declared) so this file and the folder can
+ * never drift on what "no effect"/"every node" mean.
+ */
+export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D: Instrument3DEffectsState = { effectId: INSTRUMENT_3D_EFFECT_NONE, targetId: INSTRUMENT_3D_EFFECT_ALL_TARGET };
+
 export interface GlyphDiagramsWorkbenchState {
   readonly editor: "mermaid" | "json" | "table";
   readonly sourceKind: "mermaid" | "json" | "table";
@@ -150,6 +158,8 @@ export interface GlyphDiagramsWorkbenchState {
   readonly view: "2d" | "3d";
   readonly view3d: GlyphDiagramsWorkbenchView3d;
   readonly camera3d?: GlyphDiagramsWorkbenchCamera3d;
+  /** Fix round 1, P1-2 — the live viewport's mounted effect + its mesh target. Preview-only (never rides into Copy/the static frame). */
+  readonly effect3d: Instrument3DEffectsState;
 }
 export type GlyphDiagramsWorkbenchAction =
   | { type: "set-editor"; editor: GlyphDiagramsWorkbenchState["editor"] }
@@ -169,7 +179,8 @@ export type GlyphDiagramsWorkbenchAction =
   // 3D (packet D3).
   | { type: "set-view"; view: "2d" | "3d" }
   | { type: "set-view3d"; patch: Partial<GlyphDiagramsWorkbenchView3d> }
-  | { type: "set-camera3d"; camera: GlyphDiagramsWorkbenchCamera3d | undefined };
+  | { type: "set-camera3d"; camera: GlyphDiagramsWorkbenchCamera3d | undefined }
+  | { type: "set-effect3d"; patch: Partial<Instrument3DEffectsState> };
 
 function nextGlyphDiagramNodeId(existing: readonly GlyphGraphNode[]): string {
   let i = existing.length + 1;
@@ -186,7 +197,7 @@ export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState
     tableGraph: { groups: initialGraph.groups, direction: initialGraph.direction },
     controls: { target: "web", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
-    view: "2d", view3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, camera3d: undefined,
+    view: "2d", view3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, camera3d: undefined, effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D,
   };
 }
 export function buildGlyphDiagramsWorkbenchGraph(state: GlyphDiagramsWorkbenchState): GlyphGraph {
@@ -231,7 +242,8 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
       return { ...state, sourceKind: "mermaid", mermaid: preset.source, json: JSON.stringify(graph, null, 2), nodes: graph.nodes, edges: graph.edges,
         tableGraph: { groups: graph.groups, direction: graph.direction },
         layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label },
-        view: is3d ? "3d" : "2d", view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined };
+        view: is3d ? "3d" : "2d", view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined,
+        effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D };
     }
     case "set-control": return { ...state, controls: reduceGlyphDiagramsWorkbenchControls(state.controls, action.control) };
     case "set-layout": return { ...state, layout: { ...state.layout, ...action.patch } };
@@ -254,6 +266,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
     // misplace the new one.
     case "set-view3d": return { ...state, view3d: { ...state.view3d, ...action.patch }, camera3d: undefined };
     case "set-camera3d": return { ...state, camera3d: action.camera };
+    case "set-effect3d": return { ...state, effect3d: { ...state.effect3d, ...action.patch } };
   }
 }
 export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenchState): GlyphDiagramRenderOptions {
@@ -279,6 +292,10 @@ export function glyphDiagramsWorkbenchRenderOptions3d(state: GlyphDiagramsWorkbe
     ...(state.camera3d ? { camera: state.camera3d } : {}),
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}),
   };
+}
+/** Fix round 1, P1-2 — the Effects folder's own target list: one entry per graph node, in graph order. */
+export function glyphDiagramsWorkbenchEffectTargets(nodes: readonly GlyphGraphNode[]): readonly { readonly id: string; readonly label: string }[] {
+  return nodes.map((node) => ({ id: node.id, label: node.label }));
 }
 export function generateGlyphDiagramsWorkbenchSnippets(state: GlyphDiagramsWorkbenchState) {
   const graph = buildGlyphDiagramsWorkbenchGraph(state);

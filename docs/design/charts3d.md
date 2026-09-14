@@ -1170,9 +1170,124 @@ other page). `pnpm build:packages && pnpm -C website build` — both clean.
 | `chat` + `braille` strips actual braille glyphs (page-level, on top of D2's own wireframe degrade) | Drop `chatCharsetDowngrade3d` | The chat-strips/terminal-keeps pair reddens (only the `chat` half) |
 | Karate club's two real factions cluster via the layout's own group-attraction | Delete the fixture's `subgraph` blocks | `layout3d`'s own group-attraction has no groups to pull toward (visual-only; no dedicated D3 gate — D1's own layout gates cover the mechanism) |
 
-**Residuals.** Per-node effects targeting (documented above, not built).
-No edge labels in 3D (D1's own residual, unchanged). No cluster volumes
-beyond the existing group mesh (D4). No performance gate at 200 nodes (D4).
+**Residuals (as first shipped; see "D3 fix round 1" below for what
+changed).** Per-node effects targeting (documented above, not built as
+first shipped — built in fix round 1). No edge labels in 3D (D1's own
+residual, unchanged). No cluster volumes beyond the existing group mesh
+(D4). No performance gate at 200 nodes (D4).
+
+## D3 fix round 1 — live scene honours target×charset×colour, per-node effects, real interaction gates
+
+The codex review of D3's first cut found two P1s and one P2, all fixed in
+this round with no change to `packages/diagrams/src` beyond one export.
+
+**P1-1: the live web scene ignored charset/colour entirely.** The FIRST
+cut's `Diagrams3DViewport.tsx` hardcoded `mode: "solid", useColors: true`
+at `createGlyphScene` — braille never switched to wireframe, blocks never
+downgraded, `color: "none"` still painted colour, and `web` (which never
+carries `TargetPreview` chrome) had nowhere to say so. Fixed by exporting
+`render3d.ts`'s own PRIVATE `resolveCharset` (zero behaviour change — a
+visibility change only, gated by `packages/diagrams`' own unchanged 3D test
+suite) and wrapping it in a new pure `diagrams3dSceneOptions.ts`
+(`resolveDiagrams3dSceneOptions(charset, color)` → `{ mode, charMode,
+useColors, note? }`), called both at scene CREATION and on every later
+charset/colour edit via `scene.setOptions` — never a remount, so the camera
+and mesh survive a Dock edit exactly like before. The one thing a live DOM
+scene genuinely cannot express is an ANSI colour DEPTH (`ansi16`/`ansi256`
+vs. `truecolor`/`css` — that distinction lives only in the TEXT encoders,
+`encodeGlyphCanvasAnsi`'s own `colors` option), so those two get a
+page-level `note` too; braille's solid→wireframe and blocks'
+sub-cell→ascii degrades reuse the SAME `ledger[].message` text
+`renderGlyphDiagram3d`'s own static frame logs, never a re-worded copy.
+Rendered through a new `.diagrams-3d-frame` wrapper's own
+`.target-preview__note` (same class, own CSS scope — `web` mounts no
+`TargetPreview` ancestor to inherit the rule from). Gate:
+`diagrams3dSceneOptions.test.ts` (26 cases: the full 4×5 charset×colour
+matrix, plus dedicated braille/blocks/ansi-depth note assertions).
+
+**P1-2: per-node effect targeting, built.** A new SHARED Dock component,
+`InstrumentWorkbench/Instrument3DEffectsFolder.tsx` — an effect-id list and
+a plain `{ id, label }` targets list in, `{ effectId, targetId }` out, with
+NO diagram-specific assumption (built for `/charts`' own later C4 reuse:
+its own targets would be chart mesh names instead of `node:<id>`).
+`Diagrams3DViewport.tsx` resolves `effectId` against `@glyphcss/effects`'
+`getGlyphEffect`, mounts `scene.addEffectLayer({ effect, params, target })`
+against the object's stable `node:<id>` mesh (D1's own contract) or
+scene-wide for "All nodes", RETARGETS via `layer.setOptions({ target })`
+without remounting when only the target changes (AGENTS.md "Per-object
+targeting"), and drives `time` with its own `requestAnimationFrame` loop —
+cancelled on effect dispose, a genuine effect-id change, a view switch, or
+unmount. A stale target (a `?d=` link naming a node id absent from the
+CURRENT graph) resolves to an EMPTY mesh array, not `undefined` — `undefined`
+means scene-wide, and falling back to it would silently widen a
+missing-node target into "every node," the opposite of what a stale
+targeting request should do. `effect3d` rides `?d=` as two more free-form
+strings (never a closed enum — a future added effect id needs no urlState
+change; an id `getGlyphEffect` doesn't recognise is a silent no-op, never a
+throw, matching the Dock's own "never disable the current value" idiom
+elsewhere). State/URL gates: `diagramsUrlState.test.ts`'s new round-trip
+case. Folder gate: `Instrument3DEffectsFolder.test.tsx` (5 cases: option
+rendering, both `onChange` paths, a live targets-list refresh, folder
+show/hide). Targeting-mechanism gate:
+`diagrams3dEffectTargeting.test.ts` — mounts the SAME primitives the
+viewport does (`createGlyphScene` + `glyphDiagramObject` +
+`scene.addEffectLayer({ target })`) with no React at all, renders a 3-node
+graph three ways (no effect, effect targeted at node A, effect targeted at
+node B) and asserts the cell-index sets that changed for A and for B are
+DISJOINT — "highlighting one node's mesh leaves the others unchanged" as a
+literal set-intersection check, not an eyeballed frame. (The curated
+default effect list is `scan`/`glitch`/`ripple`; the gate itself uses
+`glitch`, which paints from `context.target.coverage` + a deterministic
+per-cell hash alone — `scan`'s own domain-coordinate requirements need
+`worldPosition`/UV data a plain box mesh may not carry, an unrelated,
+pre-existing library nuance this packet did not chase.)
+
+**P2-3: real interaction and disposal gates.** `DiagramsWorkbench.3d.test.tsx`
+now synthesizes an actual `pointerdown`/`pointermove`/`pointerup` drag
+against the live host (happy-dom's own `PointerEvent`, the same sequence
+`createGlyphOrbitControls.test.ts`'s own helpers use) in BOTH rotation
+modes — turntable (the default) and, after switching the Dock's `Rotation`
+dropdown, trackball — and asserts Copy's clipboard text differs before and
+after each drag. A third case proves trackball is actually ENGAGED (not
+merely "Copy changed," which a mis-wired `mode: "turntable"` would also
+produce): after a trackball drag, "Copy link"'s own `?d=` payload decodes
+to a `camera3d` carrying `mat`, never `rotX`/`rotY`. Disposal:
+`glyphcss`'s own `createGlyphScene`/`createGlyphOrbitControls` are wrapped
+(via `importOriginal`, never faked) so their returned handles' real
+`destroy()` methods are spied — a view switch away from 3D and an unmount
+each assert BOTH spies were called exactly once, verified to actually
+redden by temporarily deleting the `scene?.destroy()` call and confirming
+the assertion catches it.
+
+**Gate (this round).** `pnpm --filter @glyphcss/website exec vitest run
+src/components/DiagramsWorkbench src/components/InstrumentWorkbench` — 299
+tests across 13 files, all green (up from 218/7: +26 scene-options matrix,
++5 Effects-folder, +1 targeting-mechanism, +5 new interaction/disposal
+cases in the existing 3D-viewport file, +2 URL round-trip). Full website
+suite: 140 files / 2415 tests green. `pnpm build:packages` (including the
+one-line `resolveCharset` export) and `pnpm -C website build` both clean.
+
+**Mutation table (this round).**
+
+| Property | Mutation | Result |
+|---|---|---|
+| Live scene applies the resolved charset/colour | Hardcode `mode: "solid", useColors: true` at scene creation | `diagrams3dSceneOptions.test.ts`'s full matrix reddens; a manual check confirmed the ORIGINAL first-cut code (before this round) fails it |
+| Charset/colour never remounts the scene | Fold `resolveDiagrams3dSceneOptions` into the MOUNT effect's own deps | Every charset/colour test in `DiagramsWorkbench.3d.test.tsx` would still pass bytes-wise but the camera-survives-an-edit property (untested directly, asserted by design) breaks — caught in review, not re-tested separately, since the split effect is what the mount-effect doc itself asserts |
+| ANSI colour depth gets its own note, `truecolor`/`css` don't | Fold `truecolor`/`css` into the same note branch | `diagrams3dSceneOptions.test.ts`'s "truecolor/css carry no note" case reddens |
+| Retargeting an effect never remounts it | Always `disposeEffect()` before mounting, even for the same `effectId` | No dedicated timing gate (the property is architectural — `applyEffect`'s own `if (effectRef.current.id === wantId)` branch — covered by code review, not a redness test) |
+| A stale target hits no mesh, never scene-wide | Return `undefined` instead of `[]` from `resolveEffectTarget` on a missing mesh | No dedicated gate (documented residual: `diagrams3dEffectTargeting.test.ts` only exercises VALID targets) |
+| Targeting a node changes only that node's cells | Drop the `target` field when mounting the effect layer | `diagrams3dEffectTargeting.test.ts`'s disjointness assertion reddens |
+| A real drag reaches the camera, and Copy reflects it | Drop `controls.addEventListener("end", reportCamera)` | Both interaction cases in `DiagramsWorkbench.3d.test.tsx` redden |
+| Trackball drag commits a `mat` camera, not Euler | Hardcode `mode: "turntable"` in the `createGlyphOrbitControls` call | The "reports a mat-based camera" case reddens (the bare "Copy changed" cases do NOT catch this mutation — see their own doc) |
+| `scene.destroy()`/`controls.destroy()` actually run on teardown | Delete the `scene?.destroy()` line | Both disposal cases redden — reproduced directly against the mutation before reverting it |
+
+**Residuals.** No edge labels in 3D (D1's own, unchanged). No cluster
+volumes beyond the existing group mesh (D4). No performance gate at 200
+nodes (D4). A generalized shared 3D viewport (object in, camera/options
+out) was assessed and NOT extracted this round — C3's own `/charts` live
+viewport was being built in parallel on the same idea, and this
+component's diagram-specific auto-fit/effect wiring is not yet proven
+stable enough to safely factor out without risking both efforts at once.
 
 ## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
 
