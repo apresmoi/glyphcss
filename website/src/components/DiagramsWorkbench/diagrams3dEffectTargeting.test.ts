@@ -35,7 +35,41 @@ const GRAPH = glyphGraphFromJson({
 });
 const COLS = 96, ROWS = 40, CELL_ASPECT = 2.0;
 
-interface Fit { readonly camera: GlyphCamera; readonly rows: readonly string[]; }
+interface Fit { readonly camera: GlyphCamera; readonly rows: readonly string[]; readonly colors: readonly (readonly (string | null)[])[]; }
+
+/**
+ * D3 round 3, P2 — the previous version of this test compared `textContent`
+ * ROWS only and called cells outside the target box "byte-identical" to
+ * baseline on that basis alone. `glitch` changes both the GLYPH and the
+ * COLOUR of a targeted cell from the same coverage mask, so a targeting
+ * regression that correctly gates the glyph but leaks colour scene-wide
+ * (or vice versa) passed the old check silently. Per-cell colour is read
+ * from `scene.output.innerHTML` — the honest source in THIS test's own
+ * setup, since `useColors: true` + the library's default `colorEncoding:
+ * "spans"` (AGENTS.md's "Render modes") writes exactly one
+ * `<span style="color:#rrggbb">…</span>` run per same-coloured span, with a
+ * literal (never span-wrapped) `\n` between rows — reversing
+ * `encodeGlyphBuffers`'s own encoding (`packages/glyphcss/src/render/cells.ts`)
+ * rather than inventing a parallel one. An uncoloured/blank cell is `null`.
+ */
+const SPAN_RUN_RE = /<span style="color:([^;"]+)[^"]*">([^<]*)<\/span>|([^<]+)/g;
+function decodeGlyphHtmlEntities(text: string): string {
+  return text.replace(/&amp;|&lt;|&gt;/g, (entity) => (entity === "&amp;" ? "&" : entity === "&lt;" ? "<" : ">"));
+}
+function parseRowColors(rowHtml: string): (string | null)[] {
+  const colors: (string | null)[] = [];
+  SPAN_RUN_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = SPAN_RUN_RE.exec(rowHtml))) {
+    const color = match[1] ?? null;
+    const text = decodeGlyphHtmlEntities((color !== null ? match[2] : match[3]) ?? "");
+    for (const _ch of text) colors.push(color);
+  }
+  return colors;
+}
+function parseColors(innerHtml: string): (string | null)[][] {
+  return innerHtml.split("\n").map(parseRowColors);
+}
 
 async function buildCamera() {
   const fit = await renderGlyphDiagram3d(GRAPH, { layout: "layered", zBy: "none", target: "web", width: COLS, height: ROWS });
@@ -73,16 +107,21 @@ async function renderWithTarget(targetNodeId: string | null): Promise<Fit> {
   scene.rerender();
   const text = scene.output.textContent ?? "";
   const rows = text.split("\n");
+  // Captured BEFORE `scene.destroy()`, which tears the `<pre>` down.
+  const colors = parseColors(scene.output.innerHTML);
   scene.destroy();
   expect(rows.length, "scene.output.textContent should be `rows` newline-joined lines").toBe(ROWS);
   for (const row of rows) expect(row.length, "each row should be exactly `cols` characters").toBe(COLS);
-  return { camera, rows };
+  expect(colors.length, "scene.output.innerHTML should parse to `rows` colour rows").toBe(ROWS);
+  for (const row of colors) expect(row.length, "each parsed colour row should be exactly `cols` cells").toBe(COLS);
+  return { camera, rows, colors };
 }
 
-function diffCells(a: readonly string[], b: readonly string[]): { row: number; col: number }[] {
+/** A cell counts as changed if its GLYPH differs, its COLOUR differs, or both — the P2 fix. */
+function diffCells(a: Fit, b: Fit): { row: number; col: number }[] {
   const diffs: { row: number; col: number }[] = [];
   for (let row = 0; row < ROWS; row++) for (let col = 0; col < COLS; col++) {
-    if (a[row]![col] !== b[row]![col]) diffs.push({ row, col });
+    if (a.rows[row]![col] !== b.rows[row]![col] || a.colors[row]![col] !== b.colors[row]![col]) diffs.push({ row, col });
   }
   return diffs;
 }
@@ -134,8 +173,8 @@ it("targeting one node's own mesh changes only that node's own cells, never anot
   const targetedA = await renderWithTarget("a");
   const targetedB = await renderWithTarget("b");
 
-  const diffA = diffCells(baseline.rows, targetedA.rows);
-  const diffB = diffCells(baseline.rows, targetedB.rows);
+  const diffA = diffCells(baseline, targetedA);
+  const diffB = diffCells(baseline, targetedB);
 
   // Mutation: mount the effect with no `target` (scene-wide) → `diffA`
   // covers node b's/c's cells too, so the box checks below redden.
@@ -166,10 +205,18 @@ it("targeting one node's own mesh changes only that node's own cells, never anot
   // a) is byte-identical to the no-effect baseline — not merely "not in
   // diffA", which a mutation that painted the WRONG node instead of a could
   // still satisfy by chance if it happened to skip b/c too.
+  //
+  // D3 round 3, P2 — "byte-identical" now checks GLYPH *and* COLOUR. `glitch`
+  // changes both together from the same per-cell coverage mask, so a
+  // targeting regression that correctly gates the glyph but leaks colour
+  // (or vice versa) outside the target's own box used to pass this loop
+  // silently — proven by mutation below, since the pre-fix version of this
+  // loop compared `targetedA.rows[row][col]` alone.
   for (const [label, box] of [["b", boxB], ["c", boxC]] as const) {
     for (let row = Math.max(0, box.minRow); row <= Math.min(ROWS - 1, box.maxRow); row++) {
       for (let col = Math.max(0, box.minCol); col <= Math.min(COLS - 1, box.maxCol); col++) {
-        expect(targetedA.rows[row]![col], `targeting a must leave node ${label}'s own cell (row ${row}, col ${col}) unchanged`).toBe(baseline.rows[row]![col]);
+        expect(targetedA.rows[row]![col], `targeting a must leave node ${label}'s own cell (row ${row}, col ${col}) glyph unchanged`).toBe(baseline.rows[row]![col]);
+        expect(targetedA.colors[row]![col], `targeting a must leave node ${label}'s own cell (row ${row}, col ${col}) colour unchanged`).toBe(baseline.colors[row]![col]);
       }
     }
   }
