@@ -32,7 +32,7 @@
  *    it. Visible only on a `legend: { placement: "top-right" | ... }`
  *    corner spec with a named line series.
  * 7. (codex P1-5, fable P1-1, batch 4 — see `flowMarks.ts`'s
- *    `sankeyBandPaintsSmooth`) A smooth-eligible sankey band (adjacent,
+ *    `sankeyPlanPaintsSmooth`) A smooth-eligible sankey band (adjacent,
  *    non-folded, `braille`/`blocks`) is no longer registered with the
  *    canvas's junction system at all, so `canvas.resolveJunctions()` no
  *    longer writes stray box-drawing residue (`┌──────`-style glyphs) into

@@ -1697,4 +1697,33 @@ export function paintGlyphChart(
   if (layout.legend && layout.legend.row === undefined) {
     paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill);
   }
+  if (fill === "solid") paintSolidCellBackgrounds(canvas);
+}
+
+/**
+ * Under a SOLID region fill, every full-block cell (`█`) also carries its own
+ * colour as its background (DIAGNOSIS-sankey-column-jump.md, Round 3).
+ *
+ * A browser draws `█` as a glyph, antialiased at its left and right edges.
+ * At the web `<pre>`'s 13px Glyph Mono a column is 7.6171875 CSS px wide, so
+ * most column boundaries fall between device pixels, and two abutting blocks
+ * each cover part of the shared pixel: the composite is lighter than either,
+ * a hairline seam. Measured in Chromium on the energy sankey's Coal ribbon
+ * (braille, css, 96x32): 9 seam pixels across 19 columns at DPR 2, 12 at
+ * DPR 1, at column boundaries inside a single span, never at a span edge
+ * alone. An inline box's background is one pixel-snapped rectangle per run,
+ * so a run of cells whose background already is the ink colour has nothing
+ * to show through. `█` is the only glyph whose ink is the whole cell, so it
+ * is the only one this can be true of; a two-colour quadrant cell already
+ * carries the other band's background, and a quadrant over sky must not.
+ *
+ * Only the solid canvas takes it: its exits are the colour-carrying ones
+ * (html under `css`, Copy ANSI), and a texture paint is byte-identical.
+ */
+function paintSolidCellBackgrounds(canvas: GlyphCanvas): void {
+  const { char, color } = canvas.grid;
+  for (let idx = 0; idx < char.length; idx++) {
+    const ink = color[idx];
+    if (char[idx] === "█" && ink && canvas.bg[idx] == null) canvas.bg[idx] = ink;
+  }
 }

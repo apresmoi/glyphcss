@@ -752,7 +752,10 @@ describe("report.routeConflicts is surfaced by renderGlyphChart (fable review, b
     // band crossing that cell). Genuine crossings remain — see gate (d).
     // 36 -> 27: lane packing now reserves a skip-level leg's real descent
     // (pass-through rows included), not its endpoint rows (codex round-1 P1).
-    expect(r.report.routeConflicts.length).toBe(27);
+    // 27 -> 20: Round 3's corridor-aware order puts Industrial below
+    // Electricity Generation, so Natural Gas -> Industrial no longer climbs
+    // through that node's outflows to reach it.
+    expect(r.report.routeConflicts.length).toBe(20);
   });
 });
 
@@ -789,12 +792,19 @@ describe("sankey-band-broken: a band's own run interrupted by a crossing band is
   // it needs to give every row a fully distinct one), which is what still
   // reproduces real, measured row self-overlap (naive 37 vs distinct 25) —
   // the residual the fix's own doc calls out, not a defect.
-  it("N3: Natural Gas -> Industrial reports the DISTINCT lost-cell count — an independent recount confirms the ledger's own number, and mutating the fix back to a per-crossing counter would report a different (larger) figure", () => {
+  //
+  // DIAGNOSIS-sankey-column-jump.md Round 3 moved Industrial below
+  // Electricity Generation, and Natural Gas -> Industrial now loses 5 cells
+  // at 72x40 with no row revisiting another's (naive 5 == distinct 5), so the
+  // repro moved to the band that now carries the self-overlap:
+  // Nuclear -> Electricity Generation, whose rows cross the skip-level
+  // band's lane (naive 35 vs distinct 23).
+  it("N3: Nuclear -> Electricity Generation reports the DISTINCT lost-cell count — an independent recount confirms the ledger's own number, and mutating the fix back to a per-crossing counter would report a different (larger) figure", () => {
     const groups = sankeyGroups(energySpec);
     const plot = PLOT(72, 40);
     const layout = layoutSankeyGraph(groups, plot, "box", [])!;
-    const targetBand = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial");
-    expect(targetBand, "the energy dataset must still carry a Natural Gas -> Industrial band").toBeTruthy();
+    const targetBand = layout.bands.find((b) => b.source === "Nuclear" && b.target === "Electricity Generation");
+    expect(targetBand, "the energy dataset must still carry a Nuclear -> Electricity Generation band").toBeTruthy();
 
     // ONE shared routing pass (`computeSankeyRoutedRows`, on its own scratch
     // canvas so registering it doesn't collide with the real paint's own
@@ -808,8 +818,8 @@ describe("sankey-band-broken: a band's own run interrupted by a crossing band is
     const combinedLedger: GlyphChartLedgerEntry[] = [];
     paintSankeyLayout(combined, plot, layout, true, combinedLedger);
 
-    const entry = combinedLedger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string; target: string }).source === "Natural Gas" && (e.detail as { target: string }).target === "Industrial");
-    expect(entry, "sankey-band-broken must fire for Natural Gas -> Industrial at 72x40 with the reserved air live").toBeTruthy();
+    const entry = combinedLedger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string; target: string }).source === "Nuclear" && (e.detail as { target: string }).target === "Electricity Generation");
+    expect(entry, "sankey-band-broken must fire for Nuclear -> Electricity Generation at 72x40 with the reserved air live").toBeTruthy();
     const reportedCells = (entry!.detail as { cells: number }).cells;
 
     const bandColor = resolveSeriesColor(targetBand!, true);
@@ -2144,7 +2154,7 @@ describe("batch-4 review: smooth ribbon junction residue, crossing refusals, and
   // seven unclaimed `┌──────`-style glyphs outside the painted ribbons,
   // because the smooth painter's own footprint never revisited the OLD
   // lane/free-row cells `resolveJunctions()` had already written box-
-  // drawing glyphs into. The root fix (`sankeyBandPaintsSmooth`) stops
+  // drawing glyphs into. The root fix (`sankeyPlanPaintsSmooth`) stops
   // REGISTERING a smooth-eligible band's route with the canvas's junction
   // system at all, so no residue is ever written for it in the first
   // place. Every painted glyph must be either inside a node box, part of
@@ -2356,6 +2366,12 @@ describe("codex round-1 review of the skip-level fix: lane extents, pass-through
   // crossing score ranks them in exactly that order (HEAD before this round
   // lost 127). On box the nearest window is already the fewest-crossings
   // one (151; HEAD 165).
+  //
+  // Round 3 (DIAGNOSIS-sankey-column-jump.md): Industrial now sits BELOW
+  // Electricity Generation (rows 24-31), so the fewest-crossings window is
+  // also the one that needs no climb: braille keeps 28-31, which IS the
+  // band's own target range (a straight last gap), and box takes 27-30, one
+  // row short of it. Lost cells fall 119 -> 35 and 151 -> 51.
   const reportedChart: GlyphChartSpec = { ...energySpec, title: "National energy flow (illustrative)" };
   function passThroughRows(charset: "box" | "braille"): readonly number[] {
     const plot = renderPlot(reportedChart, charset, 96, 32);
@@ -2369,51 +2385,40 @@ describe("codex round-1 review of the skip-level fix: lane extents, pass-through
 
   it("pass-through rows are chosen by fewest crossed cells, not by distance, on the reported chart", () => {
     expect(passThroughRows("braille")).toEqual([28, 29, 30, 31]);
-    expect(lostCells("braille")).toBe(119);
-    expect(passThroughRows("box")).toEqual([22, 23, 24, 25]);
-    expect(lostCells("box")).toBe(151);
+    expect(lostCells("braille")).toBe(35);
+    expect(passThroughRows("box")).toEqual([27, 28, 29, 30]);
+    expect(lostCells("box")).toBe(51);
   });
 
   // P2 (RC2's two-phase paint order had no defending test): with borders
-  // painted first, interiors must still resolve by REGISTRATION order across
-  // smooth and fallback bands alike. On braille the skip-level
-  // Natural Gas -> Industrial is the only fallback band and is registered
-  // third; the ribbons it crosses (Nuclear, Renewables, Electricity
-  // Generation's outflows) are smooth and registered later. Painting smooth
-  // interiors first — the pre-RC2 order — hands those later ribbons every
-  // interior crossing cell (the review measured 0 -> 127 lost cells).
-  it("P2: an earlier-registered fallback band keeps every interior crossing cell against later-registered smooth ribbons", () => {
-    const plot = PLOT(96, 32);
-    const layout = layoutSankeyGraph(sankeyGroups(energySpec), plot, "braille", [])!;
-    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier: "braille" }), plot, layout, true, []);
-    const canvas = createGlyphCanvas({ cols: 96, rows: 32, tier: "braille" });
-    paintSankeyLayout(canvas, plot, layout, true, []);
-
-    const band = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial")!;
-    const boxes = new Map(layout.nodes.map((n) => [n.id, n]));
-    const later = layout.bands.slice(layout.bands.indexOf(band) + 1).filter((b) => !b.folded && b.targetRowRange);
-    const laterColors = new Set(later.map((b) => resolveSeriesColor(b, true)));
-    expect(laterColors.has(resolveSeriesColor(band, true)), "the later bands must be told apart from it by colour").toBe(false);
-    // A later band's own BORDER cell is legitimately its own (phase 1).
-    const laterBorders = new Set<number>();
-    for (const b of later) {
-      const srcX = boxes.get(b.source)!.x1 + 1, tgtX = boxes.get(b.target)!.x0 - 1;
-      for (let y = b.sourceRowRange[0]; y <= b.sourceRowRange[1]; y++) laterBorders.add(y * 96 + srcX);
-      for (let y = b.targetRowRange![0]; y <= b.targetRowRange![1]; y++) laterBorders.add(y * 96 + tgtX);
+  // painted first, interiors must still resolve by REGISTRATION order. The
+  // skip-level Natural Gas -> Industrial is registered third, and the
+  // Nuclear and Renewables ribbons it crosses are registered after it.
+  // Painting a band's interior after later bands' — RC2's deferral of every
+  // fallback band — hands them every crossing cell (the review measured
+  // 0 -> 127 lost cells). Round 3 paints the skip band as a smooth ribbon on
+  // braille, so this now reads the ledger both kinds share instead of the
+  // band's lane route, which it no longer paints.
+  it("P2: an earlier-registered band keeps every interior crossing cell against later-registered ribbons, on box (lanes) and braille (smooth)", () => {
+    for (const tier of ["box", "braille"] as const) {
+      const plot = PLOT(96, 32);
+      const layout = layoutSankeyGraph(sankeyGroups(energySpec), plot, tier, [])!;
+      const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier }), plot, layout, true, []);
+      const ledger: GlyphChartLedgerEntry[] = [];
+      paintSankeyLayout(createGlyphCanvas({ cols: 96, rows: 32, tier }), plot, layout, true, ledger);
+      const skip = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial")!;
+      expect(routedRows.filter((r) => r.band === skip).every((r) => (r.segments !== undefined) === (tier === "braille")), `${tier}: smooth exactly on braille`).toBe(true);
+      const lost = (source: string, target: string): number => ledger
+        .filter((e) => e.code === "sankey-band-broken" && (e.detail as { source: string }).source === source && (e.detail as { target: string }).target === target)
+        .reduce((n, e) => n + (e.detail as { cells: number }).cells, 0);
+      // Non-vacuity: the later ribbons it crosses do lose cells to it.
+      expect(lost("Nuclear", "Electricity Generation") + lost("Renewables", "Electricity Generation"), `${tier}: the crossing is real`).toBeGreaterThan(10);
+      expect(layout.bands.indexOf(skip)).toBeLessThan(layout.bands.findIndex((b) => b.source === "Nuclear"));
+      // On braille the skip band loses nothing. On box its lanes cross the
+      // Nuclear ribbon's own border column, which phase 1 gives Nuclear.
+      if (tier === "braille") expect(lost("Natural Gas", "Industrial")).toBe(0);
+      else expect(lost("Natural Gas", "Industrial")).toBeLessThanOrEqual(skip.sourceRowRange[1] - skip.sourceRowRange[0] + 1);
     }
-    let throughLaterRibbons = 0;
-    const stolen: string[] = [];
-    for (const row of routedRows.filter((r) => r.band === band)) {
-      for (let i = 1; i < row.cells.length - 1; i++) {
-        const { x, y } = row.cells[i]!;
-        const idx = y * 96 + x;
-        if (laterBorders.has(idx)) continue;
-        if (canvas.grid.color[idx] !== null && laterColors.has(canvas.grid.color[idx] as string)) stolen.push(`${x},${y}`);
-        if (later.some((b) => x > boxes.get(b.source)!.x1 + 1 && x < boxes.get(b.target)!.x0 - 1 && y >= Math.min(b.sourceRowRange[0], b.targetRowRange![0]) && y <= Math.max(b.sourceRowRange[1], b.targetRowRange![1]))) throughLaterRibbons++;
-      }
-    }
-    expect(throughLaterRibbons, "non-vacuity: the band's interior must actually run through later ribbons").toBeGreaterThan(10);
-    expect(stolen).toEqual([]);
   });
 
   // Codex round-2: a skip-level band whose intermediate columns leave no row

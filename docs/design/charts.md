@@ -12,7 +12,7 @@ The fixed order is validation and channel materialization → transforms → one
 
 ### Byte-identity: the exception list ("claim A")
 
-Every review round's baseline check is that `reviewFixtures.ts`'s `goodSpecs` array renders BYTE-IDENTICAL to a checkout of the commit before the feature under review existed — the canonical source for which divergences are deliberate, documented exceptions (rather than a regression) is the comment at the top of `packages/charts/src/reviewFixtures.ts` itself, kept next to the fixtures it governs so it can't drift out of sync the way a separate doc-only list would. It now lists nine — #8 sankey visual air and #9 an area's sub-cell silhouette (Round 23) came later; the batch that wrote this paragraph listed seven: subcell line anti-aliasing under `strokeWidth`, 2x/3x cell allocation under `textScale`, numeric tick compression under a `tickFormat` preset, start/center/end offset alignment under `axisTitlePlacement`, a bar/rect/cell mark forcing BAND (never time) x-spacing over calendar-valid ISO date strings (`scales.ts`'s `axisHasBandOnlyMark` — these three mark types are inherently discrete, one bar/cell per category, so a continuous time scale is the wrong shape for them regardless of what their x values look like as strings; a line/dot mark on identical data is unaffected), a corner-placed legend's swatch gutter growing from `text.length + 2` to `text.length*textScale + 3*textScale` columns so a line-style series has room to show its own dash/dot/double cadence there (fable review, batch 3, finding b — `paint.ts`'s `paintCornerLegend`), and a smooth-eligible sankey band no longer being registered with the canvas's junction system, so it no longer leaks stray box-drawing residue into its own abandoned lane/free-row footprint (codex P1-5/fable P1-1, batch 4 — `flowMarks.ts`'s `sankeyBandPaintsSmooth`; this file's own "Sankey ribbon rendering" section has the measurement). A divergence found outside these seven is a real regression (codex P1-7, batch 4 review: the bar/rect/cell-over-ISO-strings and legend-gutter cases above were flagged as unexplained byte-identity failures until traced to these two already-deliberate, already-shipped fixes and added here).
+Every review round's baseline check is that `reviewFixtures.ts`'s `goodSpecs` array renders BYTE-IDENTICAL to a checkout of the commit before the feature under review existed — the canonical source for which divergences are deliberate, documented exceptions (rather than a regression) is the comment at the top of `packages/charts/src/reviewFixtures.ts` itself, kept next to the fixtures it governs so it can't drift out of sync the way a separate doc-only list would. It now lists nine — #8 sankey visual air and #9 an area's sub-cell silhouette (Round 23) came later; the batch that wrote this paragraph listed seven: subcell line anti-aliasing under `strokeWidth`, 2x/3x cell allocation under `textScale`, numeric tick compression under a `tickFormat` preset, start/center/end offset alignment under `axisTitlePlacement`, a bar/rect/cell mark forcing BAND (never time) x-spacing over calendar-valid ISO date strings (`scales.ts`'s `axisHasBandOnlyMark` — these three mark types are inherently discrete, one bar/cell per category, so a continuous time scale is the wrong shape for them regardless of what their x values look like as strings; a line/dot mark on identical data is unaffected), a corner-placed legend's swatch gutter growing from `text.length + 2` to `text.length*textScale + 3*textScale` columns so a line-style series has room to show its own dash/dot/double cadence there (fable review, batch 3, finding b — `paint.ts`'s `paintCornerLegend`), and a smooth-eligible sankey band no longer being registered with the canvas's junction system, so it no longer leaks stray box-drawing residue into its own abandoned lane/free-row footprint (codex P1-5/fable P1-1, batch 4 — `flowMarks.ts`'s `sankeyPlanPaintsSmooth`, `sankeyBandPaintsSmooth` before Round 26; this file's own "Sankey ribbon rendering" section has the measurement). A divergence found outside these seven is a real regression (codex P1-7, batch 4 review: the bar/rect/cell-over-ISO-strings and legend-gutter cases above were flagged as unexplained byte-identity failures until traced to these two already-deliberate, already-shipped fixes and added here).
 
 ## Quantities, domains and stack bounds
 
@@ -717,7 +717,7 @@ The owner's own report: "the categories and the links are not perfect, not well 
 
 `paintSankeyRoutedRows` groups `routedRows` by band and asks two questions: is the tier `subcell` (`braille`/`blocks`), and does this band's route cross an intermediate node's own column (`sankeyMidColumnBoxes(...).length > 0` — a SKIP-LEVEL band) or is it a folded stub? A band that is BOTH subcell-tier AND adjacent (no mid columns, not folded) gets the SMOOTH path (`paintSankeyRibbonSmooth`); every other combination — `ascii`/`box` regardless of shape, or a skip-level/folded band even on `braille`/`blocks` — gets the FALLBACK path (`paintSankeyRoutedRowsFallback`), which still walks the ORIGINAL lane/free-row cells `computeSankeyRoutedRows` built (that routing's whole job is steering around an intermediate node's box, or terminating a fold stub near its own source — a continuous curve has no equivalent steering and would paint straight through a box in its way).
 
-**Batch-4 review (codex P1-5, fable P1-1): the decision above must be made TWICE, identically, and originally wasn't.** `computeSankeyRoutedRows` ALWAYS registered every band's lane/free-row route with the canvas's junction system (`canvas.edge`/`canvas.route`), and `paintSankeyLayout` resolves junctions (`canvas.resolveJunctions()`, writing box-drawing glyphs — `┌ └ ─ │ ...` — into `grid.char` for every registered cell) BEFORE `paintSankeyRoutedRows` ever decides which bands get the smooth treatment. A smooth-eligible band's OLD lane/free-row footprint therefore got junction-resolved box-drawing glyphs painted into it regardless, and the smooth painter's own footprint (a per-dot-column sweep between `srcBox`/`tgtBox` — a genuinely different shape from a lane route) never revisits those abandoned cells to clear them: stray `┌──────`-style residue outside the painted ribbon. Measured on a real 60-seeded-DAG sweep: 167 of 180 braille configs and 167 of 180 blocks configs affected, up to 916 cells in one render; the shipped `ENERGY_FLOW_SANKEY_DATA` example at its own web default (braille, 96×32) showed it directly. The root fix is `sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable)` — ONE predicate, called from BOTH `computeSankeyRoutedRows` (to decide whether to register a band's route with the junction system at all) and `paintSankeyRoutedRows` (to decide whether to paint it via the smooth or fallback path) — so a band's registration and its paint path can never disagree again. A smooth-eligible band's cells are still COMPUTED and still pushed to `routedRows` (the caller reads `rows[0]!.glyph`/`.color` off it), only the `canvas.edge`/`canvas.route` calls are skipped.
+**Batch-4 review (codex P1-5, fable P1-1): the decision above must be made TWICE, identically, and originally wasn't.** `computeSankeyRoutedRows` ALWAYS registered every band's lane/free-row route with the canvas's junction system (`canvas.edge`/`canvas.route`), and `paintSankeyLayout` resolves junctions (`canvas.resolveJunctions()`, writing box-drawing glyphs — `┌ └ ─ │ ...` — into `grid.char` for every registered cell) BEFORE `paintSankeyRoutedRows` ever decides which bands get the smooth treatment. A smooth-eligible band's OLD lane/free-row footprint therefore got junction-resolved box-drawing glyphs painted into it regardless, and the smooth painter's own footprint (a per-dot-column sweep between `srcBox`/`tgtBox` — a genuinely different shape from a lane route) never revisits those abandoned cells to clear them: stray `┌──────`-style residue outside the painted ribbon. Measured on a real 60-seeded-DAG sweep: 167 of 180 braille configs and 167 of 180 blocks configs affected, up to 916 cells in one render; the shipped `ENERGY_FLOW_SANKEY_DATA` example at its own web default (braille, 96×32) showed it directly. The root fix is `sankeyBandPaintsSmooth(band, srcBox, tgtBox, cols, tierTable)` — ONE predicate, called from BOTH `computeSankeyRoutedRows` (to decide whether to register a band's route with the junction system at all) and `paintSankeyRoutedRows` (to decide whether to paint it via the smooth or fallback path) — so a band's registration and its paint path can never disagree again. A smooth-eligible band's cells are still COMPUTED and still pushed to `routedRows` (the caller reads `rows[0]!.glyph`/`.color` off it), only the `canvas.edge`/`canvas.route` calls are skipped. Round 26 replaced the shared predicate with a decision made once in `computeSankeyRoutedRows` (`sankeyPlanPaintsSmooth`, now true for a skip-level band too) and carried to the painter on the routed row as its `segments`.
 
 ### The smooth path: a per-dot-column S-curve, not a per-cell block
 
@@ -1286,3 +1286,105 @@ no longer runs into its track's `[` bracket.
   lengths come out in data order. It renders and is legal, just rarely useful.
 - **A disabled `<option>`'s `title` only shows as a tooltip in some
   browsers.** The short reason is in the option's own text for that reason.
+
+## Round 26: skip-level sankey bands — a corridor-aware order and smooth ribbons; solid ribbons without notches or seams
+
+The root causes, with line numbers and measurements, are in CHARTS-RESEARCH `DIAGNOSIS-sankey-column-jump.md` Round 3. This records the decisions. Reported on `/charts` (web/braille/css 96x32): the energy sankey's `Natural Gas -> Industrial` ran along the plot's bottom, then climbed a full-height pillar through Electricity Generation's fan to reach Industrial at the top. Its solid fill also showed black notches and hairline seams.
+
+### A. A skip-level target sits where its band can arrive
+
+- **The rule.** A column keeps d3-sankey's order, except a node receiving a skip-level link. That node goes after exactly the column's nodes whose barycentre is smaller. The barycentre is value-weighted over where each incoming link can really ARRIVE: an adjacent link at its source box's centre, a skip-level link at the centre of the corridor it takes through the intermediate columns (`sankeyCorridorCentres`, the router's own window search).
+- **Kept only when the whole layout crosses less** (`sankeyCrossingCost`). Each band crossing a gap enters at one row and leaves at another. Two bands whose order reverses across a gap cross there, weighted by the product of their values. The count covers every gap, because a re-placed node moves its outgoing bands and other bands' corridors too.
+- **d3 alone cannot do it.** Our call is degenerate: with a `[0,1]` extent and `nodePadding(1)`, d3 sets `ky = 0` and a full column cannot relax, so the order is the data's first appearance. Conditioned, d3 still keys a skip link on its SOURCE's row. Only the router knows the band must pass under Electricity Generation.
+- **The call itself is left alone.** Conditioning it reorders sankeys with no skip link too. That is a decision for the owner, not this packet.
+- **The acceptance test, measured three ways** (80 layered DAGs × 4 sizes, cells lost against `149e7dfa`):
+
+| acceptance | box worse / better | braille (order only) worse / better | energy render, css |
+|---|---|---|---|
+| none (always re-place) | 20 / 42 | 24 / 39 | — |
+| crossing count on the new column's incoming links | 20 / 42 | 24 / 39 | — |
+| **crossing count over every gap (shipped)** | **12 / 37** | **17 / 33** | 46 → 53 ms |
+| real lost cells, both candidates drawn on box and braille | 4 / 37 | 4 / 37 | 46 → 311 ms |
+
+  Drawing both candidates is the ground truth, but at 6.7x the render it is not a price a showcase page pays on every control change.
+- **The charset never enters the decision**, so a reader switching charset never sees nodes swap.
+- **A graph with no skip-level link never builds the second candidate.** Its layout is byte-identical: 240 bipartite renders against `149e7dfa` (`fixtures/sankeyOrderParentFixtures.json`).
+
+### B. A skip-level band is a smooth ribbon on braille/blocks
+
+- `sankeyPlanSegments`: an S-curve in each gap and a flat run across each intermediate column on that column's pass-through window. The window is clear of every box in the column by construction, and a gap holds no box, so the ribbon never enters one.
+- The pieces meet at exact rows, and only the true node borders take the global border phase.
+- The staircase remains only where no contiguous clear window is as tall as the band: 75 of 1,157 skip-level bands in the sweep on braille, down from 1,151.
+- The smooth decision is made once, in `computeSankeyRoutedRows` (`sankeyPlanPaintsSmooth`), and travels to the painter as the routed row's `segments`. The registration and the paint can no longer disagree (codex P1-5).
+- **Cost, stated.** A smooth ribbon crosses diagonally, over a longer run than a lane crossing at a right angle. The braille sweep loses 6.0% fewer cells overall, but 97 of 320 renders lose more (worst +271, all 240x40 layouts with several long skip bands).
+- **Why B.** Every adjacent band on these tiers already pays that price. The skip band was the one ribbon drawn in right angles, and its lane strip sat over the first columns of every ribbon leaving its node column.
+
+### C. A solid staircase turns in whole cells
+
+- Each of a staircase's k rows rounded its own turn by cutting a quadrant. Only the outermost row's turn faces out of the ribbon. The inner rows' cuts face the band's next row: page background under a solid fill.
+- A first cut kept the rounding and skipped only quadrants facing the band's own cells. It still notched where a DIFFERENT band of the same source colour abutted the turn (layered seed 4, 96x32).
+- A solid turn is now a whole cell, like the box tier's solid corners (Round 25).
+- A texture keeps its rounded corner. Its dots leave gaps anyway, and its bytes stay put.
+
+### D. A solid `█` carries its own colour as its background
+
+- Glyph Mono's advance at the web `<pre>`'s 13px is 7.6171875 px, and `█`'s ink spans it exactly. Chromium antialiases each glyph's left and right edge, so at a boundary falling between device pixels two abutting blocks each cover part of one pixel, and the composite is lighter.
+- Measured on the Coal ribbon: 9 seam pixels across 19 columns at DPR 2 and 12 at DPR 1, all at column boundaries inside one span. After: 0 and 0.
+- A run's `background-color` is one pixel-snapped rectangle, so `paintSolidCellBackgrounds` writes `bg = fg` on every inked `█` of the SOLID canvas. The texture canvas, so `grid` and every plain exit, is untouched.
+- Copy ANSI's solid exit gains the matching background SGR on the same cells. `solidSubcell.test.ts`' truecolor-equals-html check still holds, cell for cell.
+- **Why the chart layer.** CSS cannot style one glyph inside a `<pre>` text node. The encoder cannot tell a solid region's `█` from Coal's own texture glyph, which is `█` too. The canvas's `bg` already means "this cell's colour", which is what a solid fill cell is.
+
+### E. The stacked area's "spike" is the data
+
+- The painted top at quadrant resolution was checked against the exact edge for the last 13 columns at 96x32, 80x24 and 120x40. Every error is within a quarter row, the last column included (−0.076 and 0.000).
+- The last segment (2020→2024) is the steepest in the chart, 2.43 rows over 8 columns. Half-cell steps end at the plot edge as `▟` then `█`.
+- No change. The thin line beside it in the report was a seam (D).
+
+### Measured
+
+| energy sankey, 96x32 | before | after |
+|---|---|---|
+| Industrial | top-right, rows 1-8 | bottom-right, rows 24-31 |
+| cells lost, page config (title, legend), box / braille | 135 / 111 | 58 / 35 |
+| cells lost, legend off, box / braille | 151 / 119 | 51 / 35 |
+| skip band on box: route cells / in another band's route | 332 / 91 | 282 / 45 |
+| Electricity Generation's ribbons' cells lost, braille | 71 | 0 |
+| route conflicts, chat 72x24 | 27 | 20 |
+| render time (vitest), braille css / none | 46.0 / 24.8 ms | 52.7 / 25.1 ms |
+
+| layered sweep, 320 renders, cells lost | before | after | better / worse / same |
+|---|---|---|---|
+| box | 107,573 | 105,385 (−2.0%) | 37 / 12 / 271 |
+| braille | 129,785 | 121,979 (−6.0%) | 169 / 97 / 54 |
+
+A 240x40 layered render got faster (182.7 → 105.4 ms, css), because its staircase fallbacks are now smooth.
+
+### Fixtures
+
+- `fixtures/sankeyOrderParentFixtures.json` was generated from `149e7dfa`: 40 bipartite DAGs and 80 layered DAGs, box and braille, 96x32.
+- `fixtures/solidSubcellParentFixtures.json`: energySankey's 112 keys are re-pinned, because the order and the smooth ribbon change every tier's texture paint of it. Its other 4,256 keys are still `b662a509`'s. The solid fixes (C, D) change no texture byte.
+
+### Mutation checks
+
+Run against `skipLevelSankey.test.ts`, `flowMarks.test.ts`, `solidSubcell.test.ts`, `regionFill.test.ts` and `review.test.ts`. Every mutation reddened at least one test.
+
+| id | mutation | tests red |
+|---|---|---|
+| M1 | never keep the re-placed order | 6 (Industrial below EG; skip band crosses fewer cells; changed-seed list; pass-through pins; route conflicts; energySankey fixture) |
+| M2 | keep it without the crossing count | 1 (changed-seed list) |
+| M3 | re-place every node, not only skip-level targets | 1 (changed-seed list) |
+| M4 | a skip-level band is never smooth | 5 (smooth segments; P2; pass-through pins; crossings; energySankey fixture) |
+| M5 | a solid staircase turn cuts its quadrant | 1 (no notch at a staircase turn) |
+| M6 | no solid cell backgrounds | 3 (bg == fg; Copy ANSI background; Round 25 rounding rule) |
+| M7 | cell backgrounds on the texture canvas too | 64 (every texture byte-identity fixture) |
+| M8 | flat run on the band's source rows, not its window | 2 (smooth segments; energySankey fixture) |
+| M9 | a skip link keyed on its source row, not its corridor | 1 (changed-seed list) |
+| M10 | interior phase in reverse registration order | 6 (P2; self-overlap; band-broken; both order fixtures; energySankey fixture) |
+
+### Residuals
+
+- **The crossing count is a proxy.** It accepts re-placements that lose more real cells on 12 box and 17 braille renders of 320 (worst +160). Counting real losses needs both candidates drawn.
+- **Smooth crossings cost more cells** than lane crossings on dense layouts (B).
+- **A smooth ribbon's half-cell edge beside a staircase band of the same source colour** leaves a half-row sliver of background (layered seed 4: 3 cells).
+- **A texture staircase still rounds its inner rows' corners.** It is two dots in a sparse pattern, kept for byte-identity.
+- **The degenerate d3 call** (A) is untouched.

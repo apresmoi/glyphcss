@@ -303,8 +303,9 @@ describe("B: sub-cell boundaries between solid bands", () => {
         } else if (g.every((v) => Math.abs(v - (Math.floor(g[1]!) + 0.5)) < 0.2)) {
           edgeCases++;
           const e = Math.floor(g[1]!) + 0.5;
-          expect(cells[e - 0.5]![x], `(${x},${e - 0.5}) whole ${SOURCES[k]}`).toEqual({ ch: "█", fg: colors[k], bg: null });
-          expect(cells[e + 0.5]![x], `(${x},${e + 0.5}) whole ${SOURCES[k - 1]}`).toEqual({ ch: "█", fg: colors[k - 1], bg: null });
+          // A whole solid cell carries its own colour as its background too (Round 26, the seam fix).
+          expect(cells[e - 0.5]![x], `(${x},${e - 0.5}) whole ${SOURCES[k]}`).toEqual({ ch: "█", fg: colors[k], bg: colors[k] });
+          expect(cells[e + 0.5]![x], `(${x},${e + 0.5}) whole ${SOURCES[k - 1]}`).toEqual({ ch: "█", fg: colors[k - 1], bg: colors[k - 1] });
         }
       }
     }
@@ -398,7 +399,9 @@ describe("B: sub-cell boundaries between solid bands", () => {
       const whole = htmlCells(renderGlyphChart(spec, { ...opts, regionFill: "texture" }).html!)
         .map((row) => row.map((c) => (/[░▚╱▌═▓▒]/.test(c.ch) ? { ...c, ch: "█" } : c)));
       for (let y = 0; y < solid.length; y++) for (let x = 0; x < solid[y]!.length; x++) {
-        const a = whole[y]![x]!, b = solid[y]![x]!;
+        // A solid `█` carrying its own colour as `bg` is the whole-cell paint's `█` (Round 26, the seam fix).
+        const s = solid[y]![x]!;
+        const a = whole[y]![x]!, b = s.ch === "█" && s.bg === s.fg ? { ...s, bg: null } : s;
         if (a.ch === b.ch && a.fg === b.fg && a.bg === b.bg) continue;
         changed++;
         const key = `${spec.title ?? spec.marks[0]!.type}:${charset}:${w}x${h} (${x},${y}) ${a.ch}->${b.ch}`;
