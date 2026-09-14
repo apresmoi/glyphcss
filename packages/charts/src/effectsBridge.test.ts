@@ -102,6 +102,40 @@ describe("composeGlyphChartEffects", () => {
     expect(seenAtZero).toEqual([1]);
   });
 
+  it("target: \"surfaces\" coverage matches canvas.ink exactly on a painted-but-blank cell — `target: \"viewport\"` can never catch this, since targetCoverageForCell resolves every isBase cell to a flat 1 regardless of ctx.coverage; only \"surfaces\" reads composeGlyphChartEffects' own coverage: inkCoverage(canvas) line", () => {
+    const build = lineBuild();
+    // Same painted-but-blank cell as the baseShade test above: ink=1,
+    // glyph stays " ". Under the fix this cell is INSIDE a "surfaces"
+    // target; under the old `grid.char !== " "` predicate it would read as
+    // background and be excluded.
+    build.canvas.fillRect(0, 0, 0, 0, { fill: { shade: 0 } });
+    expect(build.canvas.grid.char[0]).toBe(" ");
+    expect(build.canvas.ink[0]).toBe(1);
+
+    // A genuinely untouched background cell — canvas.ink is 0 there under
+    // both the fix and the old predicate, so it must stay outside the
+    // target either way (this is what proves the probe actually exercises
+    // per-cell exclusion, not just "touches everything").
+    const blankIndex = build.canvas.grid.char.findIndex((glyph, i) => i !== 0 && glyph === " " && !build.canvas.ink[i]!);
+    expect(blankIndex).toBeGreaterThan(-1);
+
+    const touched: number[] = [];
+    const probe = defineGlyphEffect<{ phase: number }>({
+      evaluate({ target, output }) {
+        for (let i = 0; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          touched.push(i);
+          output.glyph[i] = "Z";
+          output.coverage[i] = 1;
+          output.channels[i] = GLYPH;
+        }
+      },
+    });
+    composeGlyphChartEffects(build, [{ effect: probe, params: { phase: 0 }, target: "surfaces" }]);
+    expect(touched).toContain(0);
+    expect(touched).not.toContain(blankIndex);
+  });
+
   it("uv0 is finite and plot-rect-normalized inside the plot, NaN outside it (the axis/title margin)", () => {
     const build = lineBuild();
     let sawInsidePlot = false;
