@@ -1,0 +1,484 @@
+/* Shell, Dock, tray and export drawers come from the shared instrument.
+   The chart's own controls (`ChartsMarkCard.tsx`) sit straight in the rail —
+   no card box, no header — under the rail's own section divider
+   (`.charts-marks-section`). A tray preset with a second mark separates it
+   with that SAME divider rather than a box. */
+.charts-mark-card + .charts-mark-card { padding-top: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12); }
+.charts-mark-row { align-items: center; font-size: 11px; }
+.charts-mark-row > span:first-child { flex: 0 0 70px; }
+.charts-mark-row > .gx-toggle { flex: 1; }
+/* The mark-type row has no text label: the eleven chart icons ARE the row
+   and span the card's full width (the group keeps its accessible name via
+   `groupTitle`). Icons render a touch larger than the shared 15px so each
+   chart shape reads at a glance. */
+.charts-mark-row[data-row="type"] > .gx-toggle { flex: 1 1 100%; }
+.charts-mark-row[data-row="type"] .gx-toggle-btn { padding: 6px 0; }
+.charts-mark-row[data-row="type"] .gx-toggle-btn svg { width: 19px; height: 19px; }
+.charts-mark-data {
+  box-sizing: border-box;
+  width: 100%;
+  height: 116px;
+  min-height: 60px;
+  resize: vertical;
+  padding: 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  background: #0d1118;
+  color: inherit;
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 0;
+}
+.charts-mark-data:focus-visible { outline: 1px solid #38bdf8; }
+
+/* Dataset card's read-only "View data" disclosure (`ChartsDataFolder.tsx`)
+   — a showcase, not a builder: no inputs, no add/remove, just the vendored
+   dataset's own rows as a scrollable CSS-GRID table or a `readOnly` JSON
+   textarea. Closed by default (native `<details>` — no state, nothing
+   persisted to the URL); `list-style: none` + the marker-hiding rules below
+   replace the browser's own twisty, since the summary already spells out
+   "▸" in its own text. */
+.charts-mark-data-details { margin-top: 4px; }
+.charts-mark-data-summary {
+  list-style: none; cursor: pointer; font-size: 11px; color: rgba(255, 232, 184, 0.65); padding: 2px 0;
+}
+.charts-mark-data-summary::-webkit-details-marker { display: none; }
+.charts-mark-data-summary:hover { color: rgba(255, 232, 184, 0.9); }
+/* The "▸" is real text (`.charts-mark-data-marker`), not a generated
+   marker, so it never turns to reflect open/closed state on its own —
+   rotate it a quarter turn once the `<details>` is open. */
+.charts-mark-data-marker { display: inline-block; transition: transform 0.1s ease; }
+details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: rotate(90deg); }
+.charts-data-tabs { margin: 4px 0; }
+.charts-grid-wrap { max-height: 220px; overflow: auto; border: 1px solid rgba(255, 232, 184, 0.22); }
+.charts-grid { display: grid; font-size: 11px; }
+.charts-grid-header, .charts-grid-cell {
+  display: flex; align-items: center; gap: 2px; border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px 4px; min-width: 0;
+}
+.charts-grid-header { background: #0d1118; font-weight: 700; }
+/* Numeric cells right-align. */
+.charts-grid-cell.is-numeric { justify-content: flex-end; text-align: right; }
+/* P3-7 (review fix, REVIEW-showcase-opus.md): the dataset card's own
+   read-only "View data" table (`ChartsDataTable`) carries this class with
+   no rule of its own before this — a plain `cursor: default` (never the
+   editable table's own text-input cursor, since there is none here to
+   invite) is the whole visual difference a reader needs from a table they
+   could otherwise mistake for editable. */
+.charts-grid--readonly .charts-grid-cell { cursor: default; }
+
+/* A chart has a fixed cell budget, so scroll its text instead of clipping it.
+   Leave the floating Dock's lane free; the shared shell still positions it.
+   Top padding clears `.charts-data-overlay` (12px inset + a ~32px control
+   row + a 12px gap) so the render never starts under the bar — one row of
+   controls at this width, so the same top inset as the mobile one below
+   would leave the bar's own bottom edge inside the render. */
+.charts-viewport.synth-viewport {
+  box-sizing: border-box;
+  padding: 64px 400px 56px 24px;
+  overflow: auto;
+}
+.charts-preview { min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 100%; gap: 10px; }
+.charts-grid-scroll { overflow: auto; flex: 0 0 auto; }
+/* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
+   as a direct-child selector so nothing about its byte-identical render
+   changes; `terminal`/`chat` reach their own `.glyph-output` through the
+   dedicated rules below instead of this one. */
+.charts-grid-scroll > .glyph-output {
+  display: block;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0;
+  /* Explicit, not `inherit` (CHARTS-RESEARCH diagnosis A4): this element's
+     nearest ancestor with its own `font-family` is `.dn-root`
+     (gallery-workbench.css), whose stack has no "Glyph Mono" at all — an
+     `inherit` here silently took THAT stack instead of the page's own
+     `html, body` one, and the fallback face's braille glyphs measure 13.5%
+     wider than every other glyph in Glyph Mono, misaligning every row that
+     contains one. Declared here, at the highest-specificity rule this
+     element actually matches, so no ancestor can re-open the cascade. */
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  line-height: 1;
+  white-space: pre;
+  user-select: text;
+}
+/* `@glyphcss/charts`' `textScale` HTML exit (AGENTS.md's "Charts"
+   "Density" — `packages/glyphcss/src/render/canvas/encode.ts`'s
+   `encodeGlyphCanvasHtml`): each `font-size`/`line-height` pair is already
+   inline per span (the scale can vary per render, not just per page), so
+   this rule carries only what the LIBRARY output cannot express itself —
+   `vertical-align: top` anchors the ORIGIN of the glyph's box at the top
+   of its own (still one-normal-row-tall, thanks to the inline
+   `line-height: calc(1 / scale)`) line box, so the taller glyph overflows
+   DOWNWARD into the already-blank filler rows its own reserved box left
+   below it, rather than centring and bleeding half upward into whatever
+   sits on the row above. */
+.glyph-text { vertical-align: top; }
+.charts-readout, .charts-error { margin: 0; font-size: 10px; line-height: 1.4; }
+.charts-readout { color: rgba(255, 232, 184, 0.65); }
+.charts-error { color: #fda4af; }
+
+/* The viewport holds only the render — no readout ever lives beside it
+   (rule: "it shouldn't be in the rendering area — it moves the chart").
+   While the CURRENT config errors or a remote dataset is loading, this
+   wrapper instead keeps showing whatever last rendered OK, dimmed so the
+   frame reads as "not current" without collapsing or shifting; `is-loading`
+   additionally pulses it — only while something is actually in flight — as
+   the page's own animation, never the render's. */
+.charts-grid-scroll.is-stale { opacity: 0.45; transition: opacity 0.2s ease; }
+.charts-grid-scroll.is-loading { animation: charts-viewport-pulse 1.6s ease-in-out infinite; }
+@keyframes charts-viewport-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.7; } }
+@media (prefers-reduced-motion: reduce) {
+  .charts-grid-scroll.is-loading { animation: none; }
+}
+/* The rail's own loading indicator (AGENTS.md's "Charts" — "Data layer"):
+   the dataset TITLE with a small spinning glyph beside it, no "Loading…"
+   word. */
+.charts-data-loading-spinner { display: inline-block; animation: charts-spin 0.9s linear infinite; }
+@keyframes charts-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .charts-data-loading-spinner { animation: none; }
+}
+
+/* Target preview frames (packet item 3): terminal-window chrome / chat bubble. */
+.charts-grid-scroll .target-preview--terminal,
+.charts-grid-scroll .target-preview--chat { margin: 0 auto; text-align: left; }
+
+.target-preview--terminal {
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.target-preview__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2b2b2b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview__dots { display: flex; gap: 6px; flex: 0 0 auto; }
+.target-preview__dots span { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.target-preview__dots span:nth-child(1) { background: #ff5f56; }
+.target-preview__dots span:nth-child(2) { background: #ffbd2e; }
+.target-preview__dots span:nth-child(3) { background: #27c93f; }
+.target-preview__title {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Chrome notes (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C2/C3/C4) —
+   advisory text about the FRAME's own faithfulness (a downgrade it made,
+   or colour it dropped), never a readout of the render itself: it sits
+   in the chrome, between the titlebar/bubble and the `<pre>`, same rule
+   as the terminal titlebar's own command text already living there — the
+   viewport still holds only the render. */
+.target-preview--terminal .target-preview__note {
+  padding: 6px 10px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: #2b2b2b;
+  color: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview--chat .target-preview__note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: rgba(26, 26, 26, 0.55);
+  margin-bottom: 6px;
+}
+.target-preview__terminal-body { padding: 12px; background: #000; }
+/* Explicit family + `line-height: 1` (CHARTS-RESEARCH diagnosis A5): this
+   `<pre>` sits inside `.target-preview__terminal-body`, never a direct
+   child of `.charts-grid-scroll`, so it matched no font rule at all and
+   fell through to the UA stylesheet's `pre { font-family: monospace }` at
+   `.dn-root`'s inherited `line-height: 1.35` — three different glyph
+   widths in one grid and every fill striped instead of solid. */
+.target-preview__terminal-body .glyph-output {
+  background: #000;
+  color: #e5e5e5;
+  margin: 0;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  line-height: 1;
+}
+
+.target-preview--chat { display: flex; justify-content: flex-start; padding: 4px; }
+.target-preview__bubble {
+  max-width: 100%;
+  background: #f7f7f8;
+  color: #1a1a1a;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+.target-preview__fence {
+  margin-top: 6px;
+  border-radius: 6px;
+  overflow: auto;
+  background: #0d0d0d;
+}
+/* Deliberately the browser/chat-client monospace stack, NOT "Glyph Mono" —
+   the whole point of this frame is to show what a real chat client's own
+   font does to the output (see AGENTS.md's "Charts" font paragraph).
+   `line-height: 1` is NOT optional here (CHARTS-RESEARCH
+   DIAGNOSIS-pie-contrast.md C4): this rule set family/colour/padding only,
+   so the fence's `<pre>` fell back to the bubble's inherited 1.35 —
+   measured 16.2px at 12px font-size — and Menlo/SF Mono's block glyphs
+   (`█▓▒░`, box-drawing) are ~1.0em tall against Glyph Mono's own 1.32em, so
+   every row of block fill left a ~24% blank stripe under it and read as a
+   stack of bars rather than a solid column. The web `<pre>` rule and the
+   terminal frame both already pin `line-height: 1` for the same reason;
+   this rule just needed the same pin. */
+.target-preview__fence .glyph-output {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
+  line-height: 1;
+  background: #0d0d0d;
+  color: #e5e5e5;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+/* Static 24x8 character previews occupy the same square as PresetTile scenes.
+   Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
+   the same A4/A5 cascade defect this file's `.charts-grid-scroll >
+   .glyph-output` rule already documents: `inherit` here took `.dn-root`'s
+   own fallback stack with no "Glyph Mono" in it, measuring every braille
+   cell ~13.6% wider than a box-drawing/ASCII one in this exact tile). */
+.charts-tile-preview.synth-tile-scene { display: grid; place-items: center; }
+.charts-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 6px; line-height: 1; white-space: pre; }
+
+/* Data overlay — ONE search field (`ChartsDatasetSearchBox.tsx`: built-in
+   + Hugging Face browse behind a chevron, replacing the old stock
+   `<select>`) plus "Random", floating over the chart viewport exactly the
+   way `/maps` puts its own place search over the map
+   (`MapsWorkbench/MapSearchBox.tsx`'s own doc). `ChartsDataOverlay.tsx` is
+   the component; the rail keeps only the dataset CARD (below) and the
+   Marks section. The user's own words: "the search box should be
+   centered like the one in /maps... and the random button at the right."
+
+   `.charts-data-overlay` itself carries no position of its own — its two
+   children anchor straight to `.synth-main` (`position: relative`,
+   instrument-workbench.css), the same positioned ancestor
+   `.maps-search`/`.maps-compass` use, skipping this wrapper entirely (a
+   static element is never a containing block). It collapses to zero
+   height since both children are removed from flow.
+
+   `.charts-dataset-search` carries the EXACT SAME `left`/`transform`/
+   `width`/`top` declarations `.maps-search` does — copied verbatim, not
+   merely similar — so the field itself is independently, exactly
+   centered (equal left/right margins) regardless of "Random" beside it.
+   `.charts-random-btn` cannot be a centered flex sibling (that would
+   center the ROW's midpoint, pulling the field off-center) — it is
+   pinned at a fixed offset from the centre instead: half the field's own
+   340px cap (170px) plus a 6px gap (`.maps-compass`'s own internal
+   gap). That 340px cap only ever gives way to `calc(100% - 24px)` below
+   364px viewport width — inside the 760px mobile breakpoint below, where
+   both switch to a plain flex row instead — so the fixed 170px offset
+   holds exactly through the whole desktop range. */
+.charts-dataset-search {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+}
+/* The field and "Random" share ONE height token: each used to size itself
+   (the field from its own padding + input line box, 30.19px; the button
+   from `.control-btn`'s own padding, 26px), so the row read as two
+   mismatched controls. `box-sizing: border-box` makes the token the outer
+   height for both, borders included. */
+.charts-data-overlay {
+  --charts-overlay-control-h: 30px;
+}
+.charts-dataset-search .instrument-search-field,
+.charts-random-btn {
+  box-sizing: border-box;
+  height: var(--charts-overlay-control-h);
+}
+.charts-random-btn {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: calc(50% + 170px + 6px);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+/* Below 760px the field can no longer both stay centered AND leave room
+   for "Random" beside it without risking overlap on a narrow phone — both
+   switch to an ordinary flex row instead, right-aligned so "Random" reads
+   as the row's trailing action. The field's `min-width: 200px` (never
+   `0`) is the SAME "wrap before crush" rule the task asks for: flex-wrap
+   naturally pushes "Random" onto its own (right-aligned) row the instant
+   the field would otherwise drop under ~200px — no separate breakpoint
+   needed to express "drops under ~200px", the layout computes it. */
+@media (max-width: 760px) {
+  .charts-data-overlay {
+    position: absolute;
+    top: var(--overlay-top, 12px);
+    left: 12px;
+    right: 12px;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .charts-dataset-search {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  .charts-random-btn {
+    position: static;
+    flex: 0 0 auto;
+  }
+}
+
+.charts-data-loading { font-style: italic; }
+
+/* The chevron ("Browse datasets") sits at the field's own right edge,
+   after the input and any transient "clear" button — "the instrument-
+   search-* look" reproduced locally (small, muted, brightens on hover),
+   since `instrument-workbench.css`'s shared block is `/maps`' own file
+   too and stays untouched here. */
+.charts-search-chevron {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+  color: rgba(255, 232, 184, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.charts-search-chevron:hover,
+.charts-search-chevron[aria-expanded="true"] {
+  color: rgba(255, 232, 184, 0.94);
+}
+
+/* Dataset search box's own results list — the FIELD/LIST/OPTION shape is
+   `instrument-workbench.css`'s shared `.instrument-search-*` block (same
+   one `MapsWorkbench/MapSearchBox.tsx` renders through); this page keeps
+   only its own POSITIONING override. `.charts-dataset-search` is itself
+   `position: absolute` now (the centering rule above), which already
+   makes it a valid containing block for this — no separate
+   `position: relative` needed — so the list floats directly under the
+   field at the field's own width, never the whole overlay row's. */
+.charts-dataset-search .instrument-search-list {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; z-index: 20;
+}
+
+/* Marks section — the rail's SECOND section, below the dataset card: a
+   showcase renders exactly the ONE mark `select-dataset` built (a preset
+   from the tray below can still leave more than one; either way there is
+   no add/remove control here any more). */
+.charts-marks-section { display: flex; flex-direction: column; gap: 9px; padding-top: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12); }
+
+/* Data folder — dataset picker + read-only info card. Plain flow inside
+   the rail body. */
+.charts-data-folder { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+.charts-data-info { display: flex; flex-direction: column; gap: 2px; }
+.charts-data-title { margin: 0; font-size: 12px; font-weight: 700; color: rgba(255, 232, 184, 0.9); }
+.charts-data-info a { color: #38bdf8; }
+.charts-pipeline-input {
+  font: inherit; font-size: 11px; background: #0d1118; color: inherit; border: 1px solid rgba(255, 232, 184, 0.22); padding: 2px 4px;
+  flex: 1 1 8ch; min-width: 8ch;
+}
+
+/* Colour swatches (axis colour in the Chart folder, per-series colour on
+   each mark card) — `ChartsColorSwatch.tsx`. Same bracketed
+   `.voice-slider-track` bar `@glyphcss/maps`' own `ColorRow` uses for its
+   layer colours, so this reads as one control family across both pages. */
+.charts-color-row { display: grid; grid-template-columns: 45% minmax(0, 1fr) 60px; align-items: center; gap: 6px; font-size: 11px; }
+.charts-color-row > span:first-child { color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.charts-color-swatch input[type="color"] {
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; height: 10px; margin: 0; padding: 0;
+  border: 1px solid rgba(255, 232, 184, 0.28); border-radius: 0; background: none; cursor: pointer;
+  box-shadow: 0 0 4px rgba(56, 189, 248, 0.25);
+}
+.charts-color-swatch input[type="color"]::-webkit-color-swatch-wrapper { padding: 0; }
+.charts-color-swatch input[type="color"]::-webkit-color-swatch { border: none; }
+.charts-color-swatch input[type="color"]::-moz-color-swatch { border: none; }
+.charts-color-hex {
+  box-sizing: border-box; width: 100%; min-width: 0; font-family: inherit; font-size: 11px; text-align: right;
+  padding: 1px 0; color: rgba(255, 232, 184, 0.65); background: transparent; border: none;
+  border-bottom: 1px dotted rgba(255, 232, 184, 0.18); -webkit-appearance: none; appearance: none;
+}
+.charts-color-hex:hover { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.charts-color-hex:focus-visible { outline: 1px solid rgba(56, 189, 248, 0.6); outline-offset: 1px; border-bottom-color: rgba(56, 189, 248, 0.8); }
+/* `Color: none` (P3-6, REVIEW-dock-colours-sliders-opus.md) — the picked
+   value is real state, just inert while colour is off, so this dims rather
+   than hides the row (the reason rides on the row's own `title`). */
+.charts-color-row.is-disabled { opacity: 0.45; }
+.charts-color-row.is-disabled .charts-color-hex,
+.charts-color-row.is-disabled input[type="color"] { cursor: not-allowed; }
+
+/* Axis colour row (Chart folder — packet item 1): the shared/per-axis
+   toggle sits in an ordinary `.dock-toggle-row`-shaped header; the swatch
+   or swatch PAIR below it reuses `.charts-color-row` unchanged. */
+.charts-axis-color { display: flex; flex-direction: column; gap: 4px; padding: 2px var(--padding, 6px) 4px; }
+.charts-axis-color-mode {
+  font: inherit; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; flex: 0 0 auto;
+  padding: 1px 6px; background: transparent; color: rgba(255, 232, 184, 0.5);
+  border: 1px solid rgba(255, 232, 184, 0.25); border-radius: 0; cursor: pointer;
+}
+.charts-axis-color-mode:hover { color: rgba(255, 232, 184, 0.85); border-color: rgba(255, 232, 184, 0.5); }
+.charts-axis-color-mode.is-active { color: #38bdf8; border-color: rgba(56, 189, 248, 0.7); background: rgba(56, 189, 248, 0.12); }
+
+/* Per-mark/per-series colour swatches (`ChartsMarkCard.tsx`, packet item
+   2) — one `.charts-color-row` per series when the mark splits into more
+   than one, stacked below the Type row. */
+.charts-mark-colors { display: flex; flex-direction: column; gap: 3px; margin-top: 2px; }
+
+/* Mark card's own "Stroke" row (`ChartsMarkCard.tsx`) is a `.voice-slider`
+   (instrument-workbench.css) — a real slider for one ordered 1/2/3
+   quantity, matching the Width/Height rows' own look. Dimmed with a reason
+   (the row's own `title`) on a mark type with no stroke, same idiom as
+   `.charts-color-row.is-disabled` above. */
+.voice-slider.is-disabled { opacity: 0.45; }
+/* The Stroke row's label column matches the channel rows' 70px one below
+   it (`.charts-mark-row > span:first-child`), so "Stroke" no longer runs
+   into the track's `[` bracket in `.voice-slider`'s 34px default column. */
+.voice-slider.charts-mark-row { grid-template-columns: 70px 1fr 34px; }
+.voice-slider.is-disabled input[type="range"] { cursor: not-allowed; }
+
+@media (max-width: 760px) {
+  /* The overlay bar wraps to TWO rows below this breakpoint (see
+     `.charts-data-overlay`'s own media query) — 12px inset + two ~32px
+     control rows + a 6px inter-row gap + a 12px clearance gap. */
+  .charts-viewport.synth-viewport { padding: 96px 12px var(--mobile-panel-bottom); }
+}
+
+/* Output/Chart folder icon-button rows (owner packet item 3) are SHARED
+   with /diagrams — see instrument-workbench.css's `.dock-toggle-row` rule,
+   pulled in transitively through InstrumentWorkbench.tsx (both pages
+   already rely on this for `.gx-toggle` itself). The folder-title-bar
+   reset is ALSO shared now (REVIEW-dock-addenda-opus.md P3-5) —
+   `InstrumentWorkbench/useFolderTitleReset` + its
+   `.dock-folder-title-reset*` CSS in `instrument-workbench.css`, used by
+   both `/charts` (Output + Chart folders) and `/diagrams` (Output folder).
+   Nothing charts-only remains to style here.
+
+   The ticks rows (owner packet item 1) are real lil-gui controllers now —
+   an "X ticks: auto" boolean plus an "X ticks" number slider, built with
+   the SAME `useToggle`/`useSlider` primitives the Width/Height rows use
+   (`ChartsDock.tsx`'s own `useTicksControl`) — so they inherit
+   `gallery-workbench.css`'s real `.controller.boolean`/`.controller.number`
+   theme exactly, with no classes of their own to maintain here. */

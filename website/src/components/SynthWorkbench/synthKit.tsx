@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type SVGProps } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent, type ReactNode, type SVGProps } from "react";
 import { createPortal } from "react-dom";
 import {
   createGlyphScene,
@@ -506,19 +506,74 @@ export const SUBCELL_TOGGLE = SUBCELL_RES.map((v) => ({
       : "iso-contour: trace where the field crosses a level, oriented to the slope; flat crests fill as blocks. Ignores the ramp",
 }));
 
-export function IconToggle({ options, value, onChange, groupTitle }: {
-  options: { value: string; icon: ReactNode; label: string; desc?: string }[]; value: string; onChange: (v: string) => void; groupTitle?: string;
+/**
+ * `groupTitle` is the tooltip (`title` attribute, unchanged); `groupLabel`
+ * is the group's ACCESSIBLE name (falls back to `groupTitle` — most callers
+ * already pass one long, sentence-shaped string that serves both) and is
+ * what each button's own `aria-label` is prefixed with ("Mark 1 type:
+ * line"), since a bare option value ("line") is otherwise indistinguishable
+ * from the SAME value on a second, unrelated `IconToggle` on the page (a
+ * second mark card's own Type row, e.g.) — the defect a per-item repeating
+ * control (ChartsMarkCard's mark-type row) surfaces that a page-level
+ * singleton (the Dock's target/charset rows) never did. `role="radiogroup"`
+ * + roving `tabIndex` (only the active option is a tab stop; arrow keys
+ * move both focus and selection) makes one group ONE tab stop, mirroring
+ * MapsWorkbench/ChartsDock's existing `IconToggle` consumers with no API
+ * break — an untouched caller passing no `groupLabel` still gets a correct
+ * (if group-less) `aria-label` per button, exactly as before this existed.
+ */
+export function IconToggle({ options, value, onChange, groupTitle, groupLabel }: {
+  // `disabled`/`disabledReason` (P3-6, REVIEW-showcase-opus.md): an option
+  // that can't act on the CURRENT data — `/charts`' mark-type toggle, a
+  // chart type the loaded dataset can't draw (`chartsMarkTypeFit.ts`) —
+  // renders `disabled` with the reason on its
+  // `title`/`aria-label`, the repo's `mapDirectionLocked` idiom
+  // (AGENTS.md's "Maps"), rather than letting a reader pick it and hit a
+  // raw ledger error. Both optional and undefined for every OTHER
+  // `IconToggle` consumer (wave shapes, ramp densities, …), so this is a
+  // zero-cost addition for them: `o.disabled` is `undefined` there,
+  // `disabled={undefined}` is not disabled, byte-identical rendering.
+  options: { value: string; icon: ReactNode; label: string; desc?: string; disabled?: boolean; disabledReason?: string }[]; value: string; onChange: (v: string) => void; groupTitle?: string; groupLabel?: string;
 }) {
+  const name = groupLabel ?? groupTitle;
+  const moveTo = (root: HTMLElement | null, index: number) => {
+    root?.querySelectorAll<HTMLButtonElement>(":scope > .gx-toggle-btn")[index]?.focus();
+  };
+  // Arrow/Home/End navigation skips a disabled option entirely — selecting
+  // one via `onChange` would silently override the very state that made it
+  // disabled, and a keyboard user has no other way to know it was skipped.
+  const nextEnabledIndex = (from: number, step: 1 | -1): number => {
+    for (let i = 0, index = from; i < options.length; i++, index = (index + step + options.length) % options.length) {
+      if (!options[index]!.disabled) return index;
+    }
+    return from;
+  };
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next = -1;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") next = nextEnabledIndex((index + 1) % options.length, 1);
+    else if (event.key === "ArrowLeft" || event.key === "ArrowUp") next = nextEnabledIndex((index - 1 + options.length) % options.length, -1);
+    else if (event.key === "Home") next = nextEnabledIndex(0, 1);
+    else if (event.key === "End") next = nextEnabledIndex(options.length - 1, -1);
+    if (next < 0) return;
+    event.preventDefault();
+    const nextOption = options[next]!;
+    onChange(nextOption.value);
+    moveTo(event.currentTarget.parentElement, next);
+  };
   return (
-    <div className="gx-toggle" role="group" title={groupTitle}>
-      {options.map((o) => (
+    <div className="gx-toggle" role="radiogroup" title={groupTitle} aria-label={name}>
+      {options.map((o, i) => (
         <button
           key={o.value}
           type="button"
           className={`gx-toggle-btn${o.value === value ? " is-active" : ""}`}
-          title={o.desc ? `${o.label} — ${o.desc}` : o.label}
-          aria-label={o.label}
+          title={o.disabled && o.disabledReason ? o.disabledReason : o.desc ? `${o.label} — ${o.desc}` : o.label}
+          aria-label={name ? `${name}: ${o.label}${o.disabled && o.disabledReason ? ` — ${o.disabledReason}` : ""}` : o.label}
+          aria-pressed={o.value === value}
+          disabled={o.disabled}
+          tabIndex={o.value === value ? 0 : -1}
           onClick={() => onChange(o.value)}
+          onKeyDown={(event) => onKeyDown(event, i)}
         >
           {o.icon}
         </button>

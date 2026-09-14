@@ -1,5 +1,35 @@
 @import url("https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css");
 
+/* "Glyph Mono" — a Cascadia Mono (OFL) subset covering ASCII/Latin-1, arrows,
+ * box drawing (U+2500-257F), blocks (U+2580-259F), geometric shapes and
+ * braille (U+2800-28FF) at ONE advance width, so it never breaks a `<pre>`'s
+ * monospace grid. Shipped because a visitor's own system font is not a bet
+ * this package can make for them: SF Mono/Menlo/Consolas/JetBrains Mono all
+ * carry box drawing but none reliably carries braille, and `web`'s default
+ * charset is braille (AGENTS.md's "Charts"/"Diagrams" target tables) — so
+ * without this font, a braille chart or diagram on the website itself could
+ * misalign for the very audience it exists to demonstrate to. The internal
+ * name table was rewritten with fontTools so this subset carries its own
+ * family name rather than reusing Cascadia's (the OFL reserved-name clause).
+ * `font-display: block` because a fallback-font flash mid-render would
+ * reflow every cell of an already-painted grid. Not used by the colour
+ * font-atlas path (`GLYPH_FONT_ATLAS`), which pins its own family per `<pre>`
+ * (`packages/glyphcss/src/render/fontAtlas.ts`). */
+@font-face {
+  font-family: "Glyph Mono";
+  src: url("/fonts/glyph-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Glyph Mono";
+  src: url("/fonts/glyph-mono-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
 /* GlyphDemo — interactive ASCII scene viewer with code panel + tuning bench.
  * Ported from poly-demo.css; glyph-specific additions preserved for the
  * flipbook viewport/strip/hit-layer/hotspot layer that doesn't exist in glyphcss. */
@@ -61,7 +91,7 @@
 
 /* Amber terminal color + monospace font matching the gallery aesthetic. */
 .glyph-demo__scene-host .glyph-output {
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   color: rgba(255, 232, 184, 0.94);
   touch-action: none;
   overscroll-behavior: contain;
@@ -107,7 +137,7 @@
 .glyph-demo__strip {
   margin: 0;
   padding: 0;
-  font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
   font-size: var(--cell-fs, 10px);
   line-height: var(--cell-h, 12px);
   /* Amber fallback — overridden per-cell by <span style="color:#xyz"> for colored meshes. */

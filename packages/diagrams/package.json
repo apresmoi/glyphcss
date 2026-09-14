@@ -1,0 +1,80 @@
+{
+  "name": "@glyphcss/diagrams",
+  "version": "0.2.0",
+  "description": "Mermaid flowcharts and graph data rendered as glyphcss cell diagrams for chat, terminal and web.",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "keywords": [
+    "glyphcss",
+    "ascii",
+    "diagrams",
+    "mermaid",
+    "terminal",
+    "cli"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
+    "directory": "packages/diagrams"
+  },
+  "bugs": {
+    "url": "https://github.com/apresmoi/glyphcss/issues"
+  },
+  "homepage": "https://github.com/apresmoi/glyphcss#readme",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./elk": {
+      "types": "./dist/elk.d.ts",
+      "import": "./dist/elk.js",
+      "require": "./dist/elk.cjs"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "elk": [
+        "dist/elk.d.ts"
+      ]
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "npm run typecheck && vitest run --passWithNoTests",
+    "test:coverage": "vitest run --coverage --passWithNoTests",
+    "prepublishOnly": "npm run build"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
+    "glyphcss": "workspace:^"
+  },
+  "peerDependencies": {
+    "elkjs": "^0.11.0"
+  },
+  "peerDependenciesMeta": {
+    "elkjs": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^3.1.1",
+    "ajv": "^8.20.0",
+    "happy-dom": "^20.7.0",
+    "tsup": "^8.0.1",
+    "typescript": "^5.3.3",
+    "vitest": "^3.1.1"
+  }
+}

@@ -1,0 +1,15 @@
+import { defineConfig } from "tsup";
+
+export default defineConfig({
+  entry: { index: "src/index.ts", elk: "src/elk.ts" },
+  format: ["esm", "cjs"],
+  dts: true,
+  splitting: false,
+  sourcemap: false,
+  clean: true,
+  minify: false,
+  target: "es2020",
+  tsconfig: "tsconfig.json",
+  // A future ELK adapter must stay behind its explicit opt-in subpath.
+  external: ["elkjs", "elkjs/*"],
+});

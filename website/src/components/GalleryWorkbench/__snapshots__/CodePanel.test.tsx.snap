@@ -1,0 +1,23 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CodePanel default framework tabs > preserves 'gallery' markup, ordered tabs, default selection and copy without override.tabs 1`] = `
+[
+  "fe575b8c66ce381660affbe9aee57c2e82eda42c0c6199c09fece9800a1f322d",
+  "09c120d175db5ff57229480f20c3c866926aef68896d1b7bc4589556623b3dd9",
+  "546123777259028fd6c9b90b64ec6f381aef0cd3f0897eb8f7b2f3cdbb608e56",
+  "fe575b8c66ce381660affbe9aee57c2e82eda42c0c6199c09fece9800a1f322d",
+  "aa2f9bb14fe4778b0092517e00a53b884c9356a6d7fcc740c27299e431f2d3d3",
+  "357c0ff9d587a39dd853a4468960e7cef0621cae22d719486cd704d7c48c1891",
+]
+`;
+
+exports[`CodePanel default framework tabs > preserves 'maps' markup, ordered tabs, default selection and copy without override.tabs 1`] = `
+[
+  "5ebedad2ae1722f10141120bf8a8f8257d9284d8ad1d1d6e76e1cac9fda3baff",
+  "2ab4e63909f2e6b5babff2f9e2aaf8734c537ec31e91074cc9f962fbe44f45e1",
+  "2ff2f5777b6627b1a3fc2894c9f73708280bbc43c8b70554d92edf66b8372237",
+  "5ebedad2ae1722f10141120bf8a8f8257d9284d8ad1d1d6e76e1cac9fda3baff",
+  "9bbd7f76fe7dfecfba78c325ca95c348b47f434b684761eaf8607039b93cc95b",
+  "c492221b3c4fec361d4e1b1d4ade09bcc4dfa9db3154ec719895041e18193b26",
+]
+`;

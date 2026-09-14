@@ -264,12 +264,18 @@ export function MapSearchBox({ loadIndex, onSelect, getView, geocode }: MapSearc
 
   return (
     <div className="maps-search" role="search">
-      <div className="maps-search-field">
-        <span className="maps-search-glyph" aria-hidden="true">{">"}</span>
+      <div className="instrument-search-field maps-search-field">
+        <span className="instrument-search-glyph maps-search-glyph" aria-hidden="true">{">"}</span>
         <input
           ref={inputRef}
           type="text"
-          className="maps-search-input"
+          // Dual class names: `instrument-search-input` is what
+          // `instrument-workbench.css`'s shared block styles (see its own
+          // doc comment); `maps-search-input` is kept ALONGSIDE it, unstyled,
+          // purely so `MapSearchBox.test.tsx`/`.geocode.test.tsx` (written
+          // against the page-specific name before this shared block existed)
+          // keep matching — a page-specific alias, not a second definition.
+          className="instrument-search-input maps-search-input"
           role="combobox"
           aria-expanded={listOpen && results.length > 0}
           aria-controls={listId}
@@ -293,7 +299,7 @@ export function MapSearchBox({ loadIndex, onSelect, getView, geocode }: MapSearc
         {query && (
           <button
             type="button"
-            className="maps-search-clear"
+            className="instrument-search-clear maps-search-clear"
             title="Clear the search"
             aria-label="Clear the search"
             onMouseDown={(e) => e.preventDefault()}
@@ -304,40 +310,40 @@ export function MapSearchBox({ loadIndex, onSelect, getView, geocode }: MapSearc
         )}
       </div>
       {listOpen && results.length > 0 && (
-        <ul className="maps-search-list" id={listId} role="listbox">
+        <ul className="instrument-search-list maps-search-list" id={listId} role="listbox">
           {results.map((result, i) => (
             <Fragment key={result.id}>
               {/* The seam between the two halves, named. Emitted once, before
                   the first OSM row, so the reader can see which results are
                   baked into the page and which came off the network. */}
               {result.kind === "osm" && results[i - 1]?.kind !== "osm" && (
-                <li className="maps-search-group" role="presentation">OpenStreetMap</li>
+                <li className="instrument-search-group maps-search-group" role="presentation">OpenStreetMap</li>
               )}
               <li
                 id={`${listId}-${i}`}
                 role="option"
                 aria-selected={i === active}
-                className={`maps-search-option${i === active ? " is-active" : ""}`}
+                className={`instrument-search-option maps-search-option${i === active ? " is-active" : ""}`}
                 onMouseDown={(e) => e.preventDefault()}
                 onMouseEnter={() => setActive(i)}
                 onClick={() => choose(result)}
               >
-                <span className="maps-search-name">{result.name}</span>
-                <span className="maps-search-context">{result.context}</span>
-                <span className={`maps-search-metric maps-search-metric--${result.kind}`}>{metricOf(result)}</span>
+                <span className="instrument-search-name maps-search-name">{result.name}</span>
+                <span className="instrument-search-context maps-search-context">{result.context}</span>
+                <span className={`instrument-search-metric maps-search-metric maps-search-metric--${result.kind}`}>{metricOf(result)}</span>
               </li>
             </Fragment>
           ))}
         </ul>
       )}
-      {listOpen && note && <p className="maps-search-note">{note}</p>}
+      {listOpen && note && <p className="instrument-search-note maps-search-note">{note}</p>}
       {/* Rendered from the moment the field is focused — BEFORE the first
           keystroke — because a disclosure that only appears after the request
           has gone is not a disclosure. It doubles as the OSM credit: the map's
           own attribution line is derived from mounted layers, and a geocoder
           is not one. */}
       {open && (
-        <p className="maps-search-egress">
+        <p className="instrument-search-egress maps-search-egress">
           Streets and landmarks are looked up at{" "}
           <a href="https://photon.komoot.io" target="_blank" rel="noreferrer">photon.komoot.io</a>
           {" "}— what you type is sent there. Data:{" "}

@@ -1,0 +1,177 @@
+/* Rail, Dock, tray, mobile drawers and export panel use the instrument shell. */
+.diagrams-source-card.voice-card { grid-template-columns: minmax(0, 1fr); }
+.diagrams-source-card .gx-toggle { width: 100%; }
+.diagrams-source {
+  box-sizing: border-box;
+  width: 100%;
+  height: 360px;
+  min-height: 180px;
+  resize: vertical;
+  padding: 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  background: #0d1118;
+  color: inherit;
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  border-radius: 0;
+}
+.diagrams-source:focus-visible { outline: 1px solid #38bdf8; }
+
+/* Table editor (packet item 7): a nodes table + an edges table, beside Mermaid/JSON. */
+.diagrams-table-group { display: flex; flex-direction: column; gap: 12px; max-height: 360px; overflow: auto; }
+.diagrams-table-wrap { border: 1px solid rgba(255, 232, 184, 0.22); }
+.diagrams-table { border-collapse: collapse; width: 100%; font-size: 11px; }
+.diagrams-table th, .diagrams-table td { border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px; white-space: nowrap; }
+.diagrams-table th { background: #0d1118; text-align: left; }
+.diagrams-table input {
+  width: 100%; min-width: 60px; box-sizing: border-box; background: transparent; color: inherit;
+  border: none; font: inherit; padding: 2px 4px;
+}
+.diagrams-table input:focus-visible { outline: 1px solid #38bdf8; }
+.diagrams-table-remove {
+  background: transparent; color: rgba(255, 232, 184, 0.65); border: 1px solid rgba(255, 232, 184, 0.22);
+  cursor: pointer; line-height: 1; padding: 1px 5px; border-radius: 0;
+}
+.diagrams-table-remove:hover { color: #fda4af; border-color: #fda4af; }
+
+/* Fixed cell budgets scroll as text while keeping the floating Dock lane free. */
+.diagrams-viewport.synth-viewport { box-sizing: border-box; padding: 24px 400px 56px 24px; overflow: auto; }
+.diagrams-preview { min-width: 0; min-height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+.diagrams-grid-scroll { overflow: auto; flex: 0 0 auto; }
+/* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
+   as a direct-child selector so nothing about its byte-identical render
+   changes; `terminal`/`chat` reach their own `.glyph-output` through the
+   dedicated rules below instead of this one. */
+/* Explicit, not `inherit` (CHARTS-RESEARCH diagnosis A4 — same defect on
+   this page's own `.dn-root`-nested `<pre>`): declared here, at the
+   highest-specificity rule this element matches, so no ancestor (`.dn-root`
+   has no "Glyph Mono" in its own stack) can reopen the cascade. */
+.diagrams-grid-scroll > .glyph-output { display: block; width: max-content; margin: 0 auto; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 13px; line-height: 1; white-space: pre; user-select: text; }
+.diagrams-readout, .diagrams-error { margin: 0; font-size: 10px; line-height: 1.4; }
+.diagrams-readout { color: rgba(255, 232, 184, 0.65); }
+.diagrams-error { color: #fda4af; }
+
+/* The viewport holds only the render — no readout ever lives beside it.
+   While the graph errors or a layout is still in flight, this wrapper
+   instead keeps showing whatever last laid out OK, dimmed so the frame
+   reads as "not current" without collapsing or shifting; `is-loading`
+   additionally pulses it — only while a layout is actually in flight — as
+   the page's own animation, never the render's (mirrors
+   charts-workbench.css's own `.charts-grid-scroll` rules). */
+.diagrams-grid-scroll.is-stale { opacity: 0.45; transition: opacity 0.2s ease; }
+.diagrams-grid-scroll.is-loading { animation: diagrams-viewport-pulse 1.6s ease-in-out infinite; }
+@keyframes diagrams-viewport-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.7; } }
+@media (prefers-reduced-motion: reduce) {
+  .diagrams-grid-scroll.is-loading { animation: none; }
+}
+/* Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
+   the same A4/A5 cascade defect this file's `.diagrams-grid-scroll >
+   .glyph-output` rule above already documents: `inherit` here took
+   `.dn-root`'s own fallback stack with no "Glyph Mono" in it, measuring
+   every braille cell ~13.5% wider than every other glyph in this tile). */
+.diagrams-tile-preview.synth-tile-scene { display: grid; place-items: center; }
+.diagrams-tile-preview pre { margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 2.7px; line-height: 1; white-space: pre; }
+
+/* Target preview frames (packet item 3): terminal-window chrome / chat bubble.
+   Identical rules to charts-workbench.css (each page owns its own CSS file
+   per this codebase's convention — see instrument-workbench.css/InstrumentWorkbench
+   for the shared shell both pull from instead). */
+.diagrams-grid-scroll .target-preview--terminal,
+.diagrams-grid-scroll .target-preview--chat { margin: 0 auto; text-align: left; }
+
+.target-preview--terminal {
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+}
+.target-preview__titlebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #2b2b2b;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview__dots { display: flex; gap: 6px; flex: 0 0 auto; }
+.target-preview__dots span { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.target-preview__dots span:nth-child(1) { background: #ff5f56; }
+.target-preview__dots span:nth-child(2) { background: #ffbd2e; }
+.target-preview__dots span:nth-child(3) { background: #27c93f; }
+.target-preview__title {
+  flex: 1;
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.55);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Chrome notes (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C2/C3/C4) —
+   identical rules to charts-workbench.css's own; see that file's doc. */
+.target-preview--terminal .target-preview__note {
+  padding: 6px 10px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: #2b2b2b;
+  color: rgba(255, 255, 255, 0.6);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.target-preview--chat .target-preview__note {
+  font-size: 10px;
+  line-height: 1.4;
+  color: rgba(26, 26, 26, 0.55);
+  margin-bottom: 6px;
+}
+.target-preview__terminal-body { padding: 12px; background: #000; }
+/* Explicit family + `line-height: 1` (CHARTS-RESEARCH diagnosis A5): this
+   `<pre>` is not a `.diagrams-grid-scroll > .glyph-output`, so without its
+   own rule it fell through to the UA `pre { font-family: monospace }` at
+   `.dn-root`'s inherited `line-height: 1.35`. */
+.target-preview__terminal-body .glyph-output {
+  background: #000;
+  color: #e5e5e5;
+  margin: 0;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  line-height: 1;
+}
+
+.target-preview--chat { display: flex; justify-content: flex-start; padding: 4px; }
+.target-preview__bubble {
+  max-width: 100%;
+  background: #f7f7f8;
+  color: #1a1a1a;
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 12px;
+}
+.target-preview__fence {
+  margin-top: 6px;
+  border-radius: 6px;
+  overflow: auto;
+  background: #0d0d0d;
+}
+/* Deliberately the browser/chat-client monospace stack, NOT "Glyph Mono" —
+   the whole point of this frame is to show what a real chat client's own
+   font does to the output (see AGENTS.md's "Diagrams" font paragraph).
+   `line-height: 1` mirrors the ChartsWorkbench twin of this rule
+   (CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md C4) — this rule set family/
+   colour/padding only, so the fence's `<pre>` fell back to the bubble's
+   inherited 1.35 line-height and every block-glyph row left a blank
+   stripe under it. */
+.target-preview__fence .glyph-output {
+  font-family: ui-monospace, "SFMono-Regular", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace !important;
+  line-height: 1;
+  background: #0d0d0d;
+  color: #e5e5e5;
+  margin: 0;
+  padding: 10px 12px;
+}
+
+@media (max-width: 760px) {
+  .diagrams-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }
+  .diagrams-source { height: 240px; }
+}

@@ -1,0 +1,294 @@
+/**
+ * Charts' OWN label-collision policy — NOT maps' `glyphMapDeclutterLabels`
+ * (PLAN.md Phase 1: "charts and diagrams write their own with obstacles in
+ * their own phases"). A label never overflows the viewport: one that cannot
+ * fit as authored is abbreviated (`d3-format` SI for a numeric label, then
+ * truncated with `…`) and the abbreviation is recorded in `report.ledger` —
+ * silent overflow would corrupt the row past the viewport edge exactly the
+ * way an unchecked `canvas.text` call would.
+ */
+
+import { format as d3format } from "d3-format";
+import { createGlyphCanvas, type GlyphCanvasTierName } from "glyphcss";
+import { ledgerLabelAbbreviated, ledgerLabelDropped, type GlyphChartLedgerEntry } from "./ledger";
+
+export interface GlyphChartObstacleRect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
+export interface GlyphChartLabelCandidate {
+  readonly id: string;
+  /** Anchor column/row the label is centred on. */
+  readonly x: number;
+  readonly y: number;
+  readonly text: string;
+  readonly priority?: number;
+  readonly maxWidth?: number;
+  /** Hint forwarded to `abbreviateChartText` — see its own doc. */
+  readonly numeric?: boolean;
+  /**
+   * The raw numeric value behind this candidate (an axis tick's own scale
+   * value) — lets `abbreviateChartText` try a PRESET-specific `siFallback`
+   * instead of re-parsing the DISPLAY text, which a formatted numeric label
+   * (`"$1,234.00"`, `"42%"`) no longer round-trips through `Number()`.
+   */
+  readonly rawValue?: number;
+  /**
+   * Preset-specific overflow fallback (`tickFormat.ts`'s own
+   * `GlyphChartResolvedTickFormat.siFallback`) — tried before dropping a
+   * numeric label that doesn't fit; absent falls back to the existing
+   * behaviour (a generic SI attempt off the parsed DISPLAY text, or drop).
+   */
+  readonly siFallback?: (value: number) => string;
+  /**
+   * Human-readable role used ONLY for `report.ledger` phrasing (e.g. "chart
+   * title", "legend label", "y-axis label") — never for placement or
+   * measurement. Defaults to "label", which reads fine for an anonymous
+   * candidate but is worth setting whenever the caller knows what the
+   * label actually IS, since that's what turns "label "text:5": dropped"
+   * into a sentence a reader was meant to see.
+   */
+  readonly role?: string;
+  /**
+   * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
+   * paragraph): this candidate will be painted via `canvas.text({ scale })`,
+   * so its glyphs occupy `scale x scale` cells, not one — see
+   * `glyphChartLabelLayout`'s own doc for the box/budget derivation. PER
+   * CANDIDATE (not a call-level option) because one `glyphChartLabelLayout`
+   * call places chart CHROME (title, legend — scaled under `textScale`)
+   * alongside a mark's own `text`-mark data labels (never scaled — they're
+   * the mark's own ink, not chrome) in the SAME priority-ordered collision
+   * pass, so a scaled title/legend candidate and an unscaled data-label
+   * candidate correctly dodge each other's real (possibly very different)
+   * footprints. Default `1`, byte-identical to before this option existed.
+   */
+  readonly scale?: number;
+}
+
+export interface GlyphChartLabelLayoutOptions {
+  readonly charset?: GlyphCanvasTierName;
+  readonly obstacles: readonly GlyphChartObstacleRect[];
+  readonly viewport: { readonly cols: number; readonly rows: number };
+}
+
+export interface GlyphChartPlacedLabel {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly text: string;
+  readonly abbreviated: boolean;
+  /** Resolved from the candidate's own `scale` (default `1`) — pass straight through to `canvas.text({ scale })`. */
+  readonly scale: number;
+}
+
+export interface GlyphChartLabelLayoutResult {
+  readonly placed: readonly GlyphChartPlacedLabel[];
+  readonly dropped: readonly string[];
+  readonly ledger: readonly GlyphChartLedgerEntry[];
+}
+
+/**
+ * Measure the same folded cells text() paints, including the ASCII
+ * repertoire. `·` (U+00B7, the pie callout's own `name · NN%` separator —
+ * `paint.ts`'s `paintArcCallouts`) folds to `-` here, not the generic `?`
+ * fallback below: the glyphcss canvas's own punctuation substitution table
+ * (`CANVAS_TEXT_SUBSTITUTIONS`) only covers fullwidth CJK punctuation, so
+ * an unhandled middle dot reached the `?` catch-all and every ASCII pie
+ * callout printed `Alpha ? 13%` (CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md
+ * C5) — a reader can't tell that from a genuinely unsupported glyph.
+ */
+export function chartText(text: string, charset: GlyphCanvasTierName = "box"): string {
+  // NFD routes accented graphemes through the canvas's existing fold. The
+  // frozen canvas accepts other single-cell Unicode; ASCII is chart policy.
+  const input = charset === "ascii" ? text.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...").replace(/µ/g, "u").replace(/·/g, "-") : text;
+  const scratch = createGlyphCanvas({ cols: Math.max(1, input.length), rows: 1, tier: charset });
+  scratch.text(0, 0, [input]);
+  const folded = scratch.grid.char.join("").trimEnd();
+  return charset === "ascii" ? folded.replace(/[^\x20-\x7e]/gu, "?") : folded;
+}
+
+export interface GlyphChartAbbreviateResult {
+  readonly text: string;
+  readonly changed: boolean;
+  /**
+   * `true` iff a NUMERIC label could not be made to fit even after SI
+   * abbreviation — `text` is `""` in that case, and the caller must DROP the
+   * label rather than paint it. Truncating a category label with `…` loses
+   * a word; truncating a NUMBER produces a different, plausible, WRONG
+   * number (review finding 4: `"1.5M"` sliced to fit 1 cell reads as `"1"`,
+   * off by a factor of 1,500,000). Category labels have no such failure mode
+   * and keep the existing ellipsis truncation.
+   */
+  readonly dropped?: boolean;
+}
+
+/**
+ * `numeric` is an explicit HINT from the caller (an axis tick candidate
+ * whose scale is continuous-numeric, `layout.ts`'s `axisTicks`) rather than
+ * something re-derived from `text` alone: a numeric tick's `label` already
+ * went through `formatLinearTick`'s own SI formatting (`"1.5M"`), so
+ * `Number(text)` on the DISPLAY string fails (`Number("1.5M")` is `NaN`) —
+ * without the hint, an already-abbreviated tick label would fall through to
+ * the category-style ellipsis truncation this function exists to avoid for
+ * numbers. `text.trim() !== "" && Number.isFinite(Number(text))` remains
+ * the fallback for a caller (a `text` mark, a legend) that has no such hint
+ * and passed a RAW (unformatted) number as a string.
+ */
+export function abbreviateChartText(
+  text: string,
+  maxWidth: number,
+  charset: GlyphCanvasTierName = "box",
+  numeric = false,
+  rawValue?: number,
+  siFallback?: (value: number) => string,
+): GlyphChartAbbreviateResult {
+  const original = text;
+  text = chartText(text, charset);
+  if (text.length <= maxWidth) return { text, changed: text !== original };
+  const asNumber = Number(text);
+  const rawNumeric = Number.isFinite(asNumber) && text.trim() !== "";
+  // The GATE into the numeric drop-vs-abbreviate branch is unchanged from
+  // before `rawValue`/`siFallback` existed (`numeric` — the caller's own
+  // hint — or the display text itself parsing as a number): a candidate
+  // the caller marked NOT numeric (a band category, a callback's opaque
+  // output) must keep the category-style ellipsis path even when a
+  // `rawValue` happens to be attached, or a band tick like `"long-12"`
+  // would silently start dropping instead of truncating with `…`.
+  if (numeric || rawNumeric) {
+    // A caller-supplied `rawValue` marks this as a CUSTOM-FORMATTED tick
+    // (an `axes.{x,y}.format` preset) — only ITS OWN `siFallback` (if the
+    // preset declares one) may rescue it, never the generic
+    // reparse-the-display-text attempt below: a preset's own output can
+    // coincidentally still parse as a number (`"8.0000"` -> `8`), and
+    // falling back to that would silently swap the preset's chosen
+    // precision/format for a plain SI one instead of dropping — the
+    // opposite of "the preset's own SI fallback where it has one, else
+    // DROPPED" (AGENTS.md's "Charts" "Labels").
+    if (rawValue !== undefined && Number.isFinite(rawValue)) {
+      if (siFallback) {
+        const si = chartText(siFallback(rawValue), charset);
+        if (si.length <= maxWidth) return { text: si, changed: true };
+      }
+    } else if (rawNumeric) {
+      // No `rawValue` — the default (no `format`) path, or a non-axis
+      // caller (a legend/text mark) passing a raw numeric string: the
+      // original generic SI-of-the-parsed-text attempt, unchanged.
+      const si = chartText(d3format(".2~s")(asNumber), charset);
+      if (si.length <= maxWidth) return { text: si, changed: true };
+    }
+    // SI abbreviation still doesn't fit — or `text` is already an
+    // SI-abbreviated/formatted number with nothing left to shrink without
+    // cutting digits, or this preset has no fallback at all: DROP, never
+    // truncate a number.
+    return { text: "", changed: true, dropped: true };
+  }
+  const ellipsis = charset === "ascii" ? "..." : "…";
+  if (maxWidth <= ellipsis.length) return { text: text.slice(0, Math.max(0, maxWidth)), changed: true };
+  return { text: text.slice(0, maxWidth - ellipsis.length) + ellipsis, changed: true };
+}
+
+/** `width`/`height` are already the FINAL scaled cell footprint (never a raw character count) — see `glyphChartLabelLayout`'s own `boxWidth`/`scale` derivation. */
+function rectFor(x: number, y: number, width: number, height: number): GlyphChartObstacleRect {
+  const half = Math.floor(width / 2);
+  return { x0: x - half, y0: y, x1: x - half + width - 1, y1: y + height - 1 };
+}
+
+function overlaps(a: GlyphChartObstacleRect, b: GlyphChartObstacleRect): boolean {
+  return !(a.x1 < b.x0 || a.x0 > b.x1 || a.y1 < b.y0 || a.y0 > b.y1);
+}
+
+/**
+ * Places `candidates` (in registration/priority order — no re-sorting, the
+ * caller decides priority by list order, matching the canvas's own
+ * "earlier call wins" convention) against `obstacles` and the viewport
+ * bounds, growing the obstacle list with every placed label so later
+ * candidates avoid earlier ones too.
+ */
+export function glyphChartLabelLayout(
+  candidates: readonly GlyphChartLabelCandidate[],
+  opts: GlyphChartLabelLayoutOptions,
+): GlyphChartLabelLayoutResult {
+  const ordered = [...candidates].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0));
+  const ledger: GlyphChartLedgerEntry[] = [];
+  const dropped: string[] = [];
+  const placed: GlyphChartPlacedLabel[] = [];
+  const obstacles = [...opts.obstacles];
+  const { cols, rows } = opts.viewport;
+
+  for (const c of ordered) {
+    // Reduces to `1` (an inert multiplier) at the default — every derived
+    // quantity below is then byte-identical to before `scale` existed.
+    // PER CANDIDATE (`GlyphChartLabelCandidate.scale`'s own doc), not a
+    // call-level option — chart chrome and a mark's own data labels share
+    // one placement pass with different scales.
+    const scale = Math.max(1, Math.floor(c.scale ?? 1));
+    // The candidate's whole `scale`-row box must clear the viewport, not
+    // just its origin row. This drop goes through the same ledger every
+    // other drop in this function does (codex P2-11) — silently pushing
+    // to `dropped` with no `report.ledger` entry left a caller with no
+    // way to learn a scaled label vanished for exceeding the viewport's
+    // own height.
+    const role = c.role ?? "label";
+    if (c.y < 0 || c.y + scale - 1 >= rows) {
+      dropped.push(c.id);
+      ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "there was no room for it within the viewport's own height" }));
+      continue;
+    }
+    // `c.maxWidth`/`cols` are COLUMN budgets in the FINAL (scaled)
+    // rendering — divided by `scale` to get the CHARACTER budget
+    // `abbreviateChartText` actually measures against.
+    const maxWidthCols = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
+    const maxWidth = Math.max(1, Math.floor(maxWidthCols / scale));
+    const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric, c.rawValue, c.siFallback);
+    if (numericOverflow) {
+      dropped.push(c.id);
+      ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "the number couldn't be abbreviated to fit" }));
+      continue;
+    }
+    if (changed) ledger.push(ledgerLabelAbbreviated({ role, before: c.text, after: text }));
+
+    // The label's actual cell footprint is `text.length * scale` columns
+    // by `scale` rows (its origin cell holds the first glyph; the rest is
+    // the `scale x scale` boxes `canvas.text({ scale })` will reserve).
+    const boxWidth = text.length * scale;
+
+    // Clamp the centred placement so it never runs off either edge.
+    const half = Math.floor(boxWidth / 2);
+    let startX = c.x - half;
+    startX = Math.max(0, Math.min(cols - boxWidth, startX));
+    let rect = rectFor(startX + half, c.y, boxWidth, scale);
+
+    // Nudge along the row (both directions) to dodge an obstacle/prior label
+    // before giving up — a label that simply vanished on the first collision
+    // would make "labels never overflow" trivially true by never trying.
+    let ok = !obstacles.some((o) => overlaps(o, rect));
+    if (!ok) {
+      for (let d = 1; d <= cols && !ok; d++) {
+        for (const dir of [-1, 1]) {
+          const nx = Math.max(0, Math.min(cols - boxWidth, startX + dir * d));
+          const candidateRect = { x0: nx, y0: c.y, x1: nx + boxWidth - 1, y1: c.y + scale - 1 };
+          if (!obstacles.some((o) => overlaps(o, candidateRect))) {
+            startX = nx;
+            rect = candidateRect;
+            ok = true;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!ok) {
+      dropped.push(c.id);
+      ledger.push(ledgerLabelDropped({ role, text, reason: "there was no free space left for it" }));
+      continue;
+    }
+
+    placed.push({ id: c.id, x: startX, y: c.y, text, abbreviated: changed, scale });
+    obstacles.push(rect);
+  }
+
+  return { placed, dropped, ledger };
+}

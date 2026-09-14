@@ -146,7 +146,9 @@ function postToCodepen(prefill: { action: string; data: string }): void {
  * unused — reuse the COMPONENT, not a second one, per MAPS.md §13 slice 5.
  */
 interface CodePanelOverride {
-  readonly snippets: Record<Tab, string>;
+  readonly snippets: Readonly<Record<string, string>>;
+  /** Custom consumer tabs; framework tabs remain the default. */
+  readonly tabs?: readonly { readonly id: string; readonly label: string }[];
 }
 
 interface CodePanelProps {
@@ -584,10 +586,12 @@ const TAB_LABEL: Record<Tab, string> = { html: "HTML", vanilla: "JS", react: "Re
 const TAB_ORDER: Tab[] = ["html", "vanilla", "react", "vue"];
 
 export function CodePanel({ meshUrl, options, selectedPreset, effectState, effectDefinition, override, className, id, actions }: CodePanelProps) {
-  const [tab, setTab] = useState<Tab>("react");
+  const [tab, setTab] = useState<string>("react");
+  const tabs = override?.tabs ?? TAB_ORDER.map((id) => ({ id, label: TAB_LABEL[id] }));
+  const activeTab = tabs.some((item) => item.id === tab) ? tab : tabs[0]?.id ?? "react";
   const [copied, setCopied] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
-  const snippets = useMemo(() => {
+  const snippets = useMemo<Readonly<Record<string, string>>>(() => {
     if (override) return override.snippets;
     return generateSnippets({
       meshUrl: meshUrl ?? "",
@@ -600,13 +604,13 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
 
   const handleCopy = useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(snippets[tab]);
+      await navigator.clipboard.writeText(snippets[activeTab]);
       setCopied(true);
       setTimeout(() => setCopied(false), 1200);
     } catch {
       /* no-op */
     }
-  }, [snippets, tab]);
+  }, [snippets, activeTab]);
 
   const [interactions, setInteractions] = useState<Set<GlyphInteraction>>(() => new Set(["orbit", "zoom"]));
   const [staticMode, setStaticMode] = useState(false);
@@ -697,14 +701,14 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
       <header className="gw-code-panel__head">
         <span className="gw-code-panel__legend">[ CODE ]</span>
         <div className="gw-code-panel__tabs">
-          {TAB_ORDER.map((t) => (
+          {tabs.map(({ id: t, label }) => (
             <button
               key={t}
               type="button"
-              className={`gw-code-panel__tab${tab === t ? " is-active" : ""}`}
+              className={`gw-code-panel__tab${activeTab === t ? " is-active" : ""}`}
               onClick={() => setTab(t)}
             >
-              {TAB_LABEL[t]}
+              {label}
             </button>
           ))}
         </div>
@@ -789,7 +793,7 @@ export function CodePanel({ meshUrl, options, selectedPreset, effectState, effec
             ))}
           </div>
           )}
-          <pre className="gw-code-panel__code"><code>{snippets[tab]}</code></pre>
+          <pre className="gw-code-panel__code"><code>{snippets[activeTab]}</code></pre>
         </div>
       )}
     </aside>

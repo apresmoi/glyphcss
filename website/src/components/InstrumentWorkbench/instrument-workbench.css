@@ -502,7 +502,16 @@
   border: 1px solid rgba(255, 232, 184, 0.18); border-left-width: 0; cursor: pointer;
 }
 .gx-toggle-btn:first-child { border-left-width: 1px; }
-.gx-toggle-btn:hover:not(.is-active) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
+.gx-toggle-btn:hover:not(.is-active):not(:disabled) { background: #131c28; color: rgba(255, 232, 184, 0.85); }
+/* A disabled option must READ as unavailable, not merely ignore clicks: it
+   was byte-for-byte the idle style, so a greyed-out chart type on /charts
+   looked clickable and silently did nothing. Dimmed ink, a darker ground,
+   no hover lift and a not-allowed cursor; its reason stays on `title`. */
+.gx-toggle-btn:disabled {
+  color: rgba(255, 232, 184, 0.18);
+  background: #090c11;
+  cursor: not-allowed;
+}
 /* box-shadow (not border-color) draws the active ring: border-left-width is 0 on
    every button but the first (adjacent buttons share an edge), so a border-color
    change alone paints cyan on 3 sides and leaves the neighbour's default-colored
@@ -618,6 +627,190 @@
 .synth-main { flex: 1; position: relative; min-width: 0; }
 .synth-viewport { position: absolute; inset: 0; overflow: hidden; }
 .synth-viewport .glyph-output { color: rgba(255, 232, 184, 0.92); }
+
+/* ── Instrument search overlay — the shared FIELD/LIST/OPTION shape ──────
+   Originally `/maps`' own `.maps-search*` rules (MapSearchBox.tsx, chrome
+   ON the map, top centre); `/charts`' dataset search now sits ON the
+   viewport too (AGENTS.md's "Charts" — "Data layer": the dataset search,
+   the stock-dataset `<select>` and "Random" moved out of the rail header
+   and onto the chart viewport, the same overlay idiom `/maps` already
+   uses), so this is the ONE definition both pages' search boxes render
+   through — a page adds only its own OUTER positioning wrapper
+   (`.maps-search`, `.charts-dataset-search`) and any result-kind colour
+   modifiers (`.maps-search-metric--place`, etc.) on top.
+
+   Skin is the Dock's, matching the layer cards next door: a translucent
+   amber fill on the page's own near-black, an amber border that turns cyan
+   on focus, an orange marker glyph, 11px names at
+   rgba(255, 232, 184, 0.94) with the dim 0.70 for secondary text, and the
+   readout cyan (#38bdf8) for the one number a row carries.
+
+   `.instrument-search-list` carries no `position` of its own — `/maps`
+   stacks it in normal flow below the field (its own `.maps-search` is
+   already the absolutely-positioned overlay, `display: flex; flex-
+   direction: column`, so the list is simply the next flex child); `/charts`
+   sits its search box INLINE in a one-row bar next to the dataset select
+   and Random button, so ITS list must float (`position: absolute`) or it
+   would grow the bar's own box downward over the render and shove the
+   select/Random sideways — that override lives in charts-workbench.css,
+   scoped to `.charts-dataset-search`, precisely because `/maps` must not
+   gain it (its list already reads correctly in normal flow; making it
+   float there would leave `.maps-search-note`/`.maps-search-egress`
+   floating up under the field instead of under the list). */
+.instrument-search-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  background: rgba(5, 7, 12, 0.9);
+  border: 1px solid rgba(255, 232, 184, 0.28);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+.instrument-search-field:focus-within {
+  border-color: rgba(56, 189, 248, 0.55);
+}
+/* The Dock's own orange marker (`.gx-select::after`'s caret colour), used
+   here as the prompt character — a magnifier glyph has no counterpart
+   anywhere else on either page, and the surface is a terminal. */
+.instrument-search-glyph {
+  color: #f97316;
+  font-size: 11px;
+  line-height: 1;
+}
+.instrument-search-input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: rgba(255, 232, 184, 0.94);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 1px 0;
+}
+.instrument-search-input::placeholder {
+  color: rgba(255, 232, 184, 0.38);
+}
+.instrument-search-clear {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  color: rgba(255, 232, 184, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.instrument-search-clear:hover {
+  color: rgba(255, 232, 184, 0.94);
+}
+.instrument-search-list {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  max-height: min(46vh, 320px);
+  overflow-y: auto;
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.22);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+}
+/* Three columns for the three things that tell two same-named results apart:
+   the name, its context (country/continent, or a dataset's description),
+   and its own metric (population, "country", download count, …). Same
+   left-to-right reading as a Dock row (name, widget, value), and the value
+   column is the Dock's cyan. `/charts`' own options carry no context/metric
+   pair for every row (a dataset's description can be empty) — the grid
+   still degrades cleanly since an empty cell just reads blank. */
+.instrument-search-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 52px;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255, 232, 184, 0.07);
+  /* `/charts` renders each option as a real `<button>` (keyboard/paste
+     idiom carried over from before this shared block existed) rather than
+     `/maps`' `<li>` — reset the button chrome so it matches either way. */
+  width: 100%;
+  background: transparent;
+  border-left: none; border-right: none; border-top: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.instrument-search-option:last-child {
+  border-bottom: none;
+}
+.instrument-search-option.is-active {
+  background: rgba(56, 189, 248, 0.14);
+}
+.instrument-search-name,
+.instrument-search-context,
+.instrument-search-metric {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instrument-search-name {
+  color: rgba(255, 232, 184, 0.94);
+  letter-spacing: 0.02em;
+}
+.instrument-search-context {
+  color: rgba(255, 232, 184, 0.55);
+}
+.instrument-search-metric {
+  text-align: right;
+  font-size: 10px;
+}
+/* The seam between two blended halves of a result list (`/maps`' local
+   index vs. OpenStreetMap; `/charts`' Recent/Suggested vs. a live Hub
+   search), named. The reader must be able to tell an instant, baked/
+   offline row from one that came off the network or was picked before —
+   same register as a Dock folder heading, and a rule above it so it reads
+   as a divider rather than as a result. */
+.instrument-search-group {
+  padding: 4px 8px 2px;
+  border-top: 1px solid rgba(255, 232, 184, 0.16);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.45);
+}
+.instrument-search-group:first-child {
+  border-top: none;
+}
+/* The egress disclosure and network credit, in one line under the field.
+   Rendered from focus, before a single keystroke has left the machine,
+   which is the only time saying so is worth anything. Quieter than
+   `.instrument-search-note` — it is standing text, not a status. */
+.instrument-search-egress {
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(255, 232, 184, 0.42);
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.12);
+}
+.instrument-search-egress a {
+  color: rgba(255, 232, 184, 0.68);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.instrument-search-egress a:hover {
+  color: #38bdf8;
+}
+.instrument-search-note {
+  margin: 2px 0 0;
+  padding: 4px 8px;
+  font-size: 11px;
+  color: rgba(255, 232, 184, 0.55);
+  background: rgba(5, 7, 12, 0.94);
+  border: 1px solid rgba(255, 232, 184, 0.16);
+}
 
 /* ── Export (bottom-left of the viewport) ────────────────────────────────────
    Gallery-style export: a standard, always-visible "Open in CodePen" button
@@ -783,6 +976,66 @@
 }
 .dock-subcell .gx-toggle { flex: 1 1 auto; }
 .dock-subcell .gx-toggle-btn { padding: 3px 0; }
+
+/* Output/Chart folder icon-button rows (charts/diagrams owner packet item
+   3: "target, charset, color and detail should be buttons with symbols not
+   dropdowns") — shared by ChartsDock.tsx and DiagramsDock.tsx, each
+   portaled via `useDockSlot`. Same label treatment as `.dock-subcell-label`
+   above (lil-gui's own computed `.controller .name` metrics) so a toggle
+   row reads as an ordinary folder row, not a differently-lit strip. */
+.dock-toggle-row { display: flex; align-items: center; min-height: 20px; padding: 0 var(--padding, 6px); }
+.dock-toggle-row-label {
+  flex: 0 0 var(--name-width, 45%);
+  font-size: 11px; letter-spacing: 0.22px; line-height: 20px; text-transform: none;
+  color: rgba(255, 232, 184, 0.7);
+  padding-right: var(--spacing, 5px);
+}
+.dock-toggle-row .gx-toggle { flex: 1 1 auto; gap: 0; }
+.dock-toggle-row + .dock-toggle-row .gx-toggle-btn { padding: 3px 0; }
+
+/* Folder-title-bar reset ("OUTPUT ═══════ [reset]", REVIEW-dock-addenda-
+   opus.md P3-5) — ONE idiom shared by `/charts` (Output + Chart folders)
+   and `/diagrams` (Output folder), `InstrumentWorkbench/useFolderTitleReset`.
+   "═══" is the same `.title::after` rule every nested Dock folder already
+   draws (`gallery-workbench.css`'s `.dn-floating-controls .lil-gui .lil-gui
+   > .title::after`); this only reserves room in `.title`'s own padding for
+   the `[reset]` button and positions that button, mounted as a plain DOM
+   SIBLING of `.title` (lil-gui's title is a native `<button>`, so nesting
+   one inside it is invalid). The extra class selector below matches
+   gallery's own `.title` rule's specificity plus one, so the `!important`
+   padding override actually wins the cascade. Supersedes the older
+   `useDockSlot({ position: "top" })` header row both pages used to carry
+   independently (`.dock-folder-header*`, deleted with this comment — no
+   remaining caller). */
+.dock-folder-title-reset { position: relative; }
+.dn-floating-controls .lil-gui .lil-gui.dock-folder-title-reset > .title {
+  padding-right: 52px !important;
+}
+/* `width` was never this button's own — lil-gui's `.lil-gui button {
+   width: 100% }` (0,1,1) beats the bare `.dock-folder-title-reset-button`
+   selector below (0,1,0) once this is mounted inside a real `.lil-gui`
+   panel, and `position: absolute` resolves that 100% against the folder
+   ROOT (its own containing block, `position: relative` above) — a button
+   as wide as the whole title row, `right: 6px` pinning its RIGHT edge
+   correctly while its LEFT edge reaches almost to the folder's own left
+   edge, with `justify-content` defaulting to flex-start inside its own
+   `display: flex`. The visible defect is exactly that: "reset" renders
+   flush left, overlapping the folder's own name, not floated at the right
+   the way `top`/`right` alone implied (DIAGNOSIS bundle item 8). Scoped
+   under `.lil-gui` (two classes, (0,2,0)) to beat lil-gui's rule and given
+   its own `width: auto`/`flex: 0 0 auto`, the button shrinks back to its
+   content and `right: 6px` alone is then what places it — no `left`
+   needed, since an absolutely positioned box with only one inset set
+   sizes to its content by default UNLESS something else (here, lil-gui's
+   button rule) claims `width` first. */
+.lil-gui .dock-folder-title-reset-button {
+  position: absolute; top: 0; right: 6px; height: var(--title-height, 24px);
+  display: flex; align-items: center; justify-content: center;
+  width: auto; flex: 0 0 auto;
+  background: none; border: 1px solid rgba(255, 232, 184, 0.3); color: rgba(255, 232, 184, 0.75);
+  font-size: 10px; letter-spacing: 0.22px; padding: 2px 6px; border-radius: 2px; cursor: pointer;
+}
+.lil-gui .dock-folder-title-reset-button:hover { color: rgba(56, 189, 248, 1); border-color: rgba(56, 189, 248, 0.6); }
 
 /* Ramp picker density bars — portaled below the "Ramp" dropdown in the
    Output folder (`useDockSlot(out, { position: "bottom" })` in
@@ -981,4 +1234,218 @@
     border-radius: 0;
   }
   :is(.dn-root--synth, .dn-root--generative) .synth-presets.is-mobile-open { display: flex; }
+}
+
+/* Dual-handle range slider (Chart folder's Scales rows) — ONE row, styled to
+   be indistinguishable from a real lil-gui number controller's own row (the
+   Output folder's Width/Height sliders): `.name` label, then in `.widget`
+   left to right `[auto] [min] [slider] [max]`. Values below are copied from
+   `.dn-floating-controls .lil-gui .controller.number`/`.name`/`.widget` in
+   `gallery-workbench.css` (the Dock's real lil-gui theme) rather than
+   inherited through the cascade — this component isn't guaranteed to be
+   mounted where that stylesheet is loaded, so `RangeSlider.tsx` imports
+   this file directly and these rules stand on their own, the same
+   "measured, not cascaded" mirror `.voice-slider` above already uses for
+   the single-handle case. `.controller`/`.number`/`.hasSlider` are the
+   lil-gui hook classes this component ALSO carries (so it reads as the
+   same row family as Width/Height in the same folder); `.range-slider`/
+   `.range-slider-*` are this component's own, kept as the test suite's
+   selectors.
+
+   CARRYING those lil-gui hook classes is exactly what puts every element
+   below in the path of lil-gui's OWN element rules once this component is
+   actually mounted inside a real `.lil-gui` panel — `.lil-gui button {
+   width: 100% }` (0,1,1), `.lil-gui .controller.number.hasSlider input`
+   (0,3,1), `.lil-gui .controller.number .slider` (0,3,0, and it matches
+   `.range-slider-track` too — that element also carries a bare `slider`
+   class for exactly this "read as a real number-slider row" reason) and
+   `.lil-gui input { height: var(--widget-height) }` (0,1,1) all
+   out-specificity this file's OLD bare single-class rules (0,1,0). That
+   stretched the auto button across the whole 170px widget and pushed the
+   min field, the track and the max field off the panel entirely
+   (DIAGNOSIS-scale-domain.md P1), and floored the track at lil-gui's own
+   24px `min-width` once the rest was reachable (P2). Every rule from here
+   down that lil-gui could contest is therefore written under the row's own
+   FULL hook-class chain, `.lil-gui .controller.number.hasSlider.range-
+   slider …` (six classes), which beats every one of those — repeating a
+   property even where the value matches this file's unscoped rule above,
+   because a value that only happens to match by accident is not a value
+   that is WINNING the cascade. Layout budget at the Dock's fixed width
+   (measured, real browser, `gallery-workbench.css`'s theme loaded): widget
+   content ~170px; `auto` ~34px + its own 4px trailing margin, each number
+   field 27px, the track's own 8px-per-side bracket margin doubling as the
+   row's ONLY inter-element gap (no separate flex `gap` — that would double-
+   charge the spacing the track's margin already provides and starve the
+   track itself, which is the exact shape of P2) — leaves the track's own
+   content width ~62px, comfortably over the 60px floor `RangeSlider.test.ts`
+   pins and well clear of lil-gui's own 24px `min-width`. */
+.range-row { display: flex; align-items: center; padding: 0 6px; margin: 5px 0; }
+.range-slider-label {
+  min-width: 45%; flex-shrink: 0; padding-right: 5px;
+  font-size: 11px; color: rgba(255, 232, 184, 0.70); letter-spacing: 0.02em; line-height: 24px;
+}
+.range-slider-widget { display: flex; align-items: center; gap: 0; width: 100%; min-width: 0; min-height: 24px; }
+.range-slider-label { display: flex; align-items: center; gap: 6px; }
+/* Tiny inline `[reset]` in a Dock row's own NAME cell — `/maps`' Tilt/Bearing
+   reset, lifted here so every workbench shares one look (the user's own ask:
+   "call it reset and put it next to the X domain label like we did to reset
+   the bearing"). 9px monospace, borderless, sized to its own text: lil-gui's
+   `.lil-gui .controller button` assumes a button OWNS its row (full width,
+   `--widget-height` tall), which is exactly the shape this is not. Disabled
+   when there is nothing to undo. */
+.lil-gui .controller .instrument-row-reset {
+  flex: 0 0 auto; width: auto; height: auto;
+  font: inherit; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  font-size: 9px; line-height: 1; letter-spacing: 0.02em; padding: 1px 2px;
+  background: transparent; border: none; border-radius: 0;
+  color: rgba(255, 232, 184, 0.45); cursor: pointer;
+}
+.lil-gui .controller .instrument-row-reset:hover:not(:disabled),
+.lil-gui .controller .instrument-row-reset:focus-visible { color: #38bdf8; }
+.lil-gui .controller .instrument-row-reset:disabled { color: rgba(255, 232, 184, 0.38); opacity: 0.5; cursor: default; }
+/* Number fields — the exact `.voice-slider-readout` treatment (border-bottom
+   dotted, transparent background, right-aligned cyan text, no native
+   spinner chrome) rather than the old boxed `#0d1118` field, since this IS
+   a lil-gui number field now, not a standalone input. Sized to the longest
+   string the row will show (`--range-slider-number-ch`, set by
+   `RangeSlider.tsx`) in `ch` of this monospace font, plus 8px: the Dock
+   theme forces `padding: 1px 3px !important` on every number input, and
+   the fixed 27px this replaced showed "1980-01-01" as "198" (CHARTS-RESEARCH
+   `DIAGNOSIS-scale-rows-mark-card.md`). The TRACK carries `flex-basis: 0`
+   (below) so it only takes what the fields leave: with lil-gui's own
+   `width: 100%` as its basis it made flex-shrink squeeze the fields back
+   under their text. The track's floor is 44px, not the 60px it was when
+   the row also carried an `auto` button: at the Dock's 170px widget two
+   seven-character `YYYY-MM` fields leave the track ~46px, and 44px stays
+   well clear of lil-gui's own 24px `min-width` that the floor exists to
+   beat. The fields may still shrink to `3ch` when a string genuinely does
+   not fit beside that floor, so an overlong value truncates inside its own
+   box instead of pushing the row past the panel. */
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number {
+  box-sizing: border-box; flex: 0 1 auto; width: calc(var(--range-slider-number-ch, 4) * 1ch + 8px); min-width: 3ch; height: auto;
+  font: inherit; font-size: 11px; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: #38bdf8; text-align: right; padding: 1px 2px; margin: 0;
+  background: transparent; border: none; border-bottom: 1px dotted rgba(255, 232, 184, 0.18); border-radius: 0;
+  -webkit-appearance: none; appearance: none;
+}
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number:hover:not(:disabled) { border-bottom-color: rgba(255, 232, 184, 0.4); }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number:focus-visible {
+  outline: 1px solid rgba(56, 189, 248, 0.6); outline-offset: 1px; border-bottom-color: rgba(56, 189, 248, 0.8);
+}
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-number:disabled { opacity: 0.5; cursor: not-allowed; }
+/* The bar — same 10px bracketed `[ ─█──── ]` track as
+   `.dn-floating-controls .lil-gui .controller.number .slider`, `margin-inline`
+   (not `padding-inline`) reserving the bracket glyphs' own space so they sit
+   clear of the neighbouring min/max fields regardless of how much of the
+   row's width the track itself ends up with — and, since the row's flex
+   `gap` was removed above, this margin is now the ONLY separation between
+   the track and either number field, not an addition on top of one.
+   `overflow: visible` and `padding-right: 0` explicitly undo lil-gui's own
+   `.controller.number .slider` rule (`overflow: hidden`, a 2px knob-width
+   padding) — its `overflow: hidden` would otherwise clip the `[`/`]`
+   pseudo-elements below, which sit outside the track's own border box by
+   design (`left`/`right: -8px`). */
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-track {
+  position: relative; flex: 1 1 0; min-width: 44px; height: 10px; margin-inline: 8px;
+  border: 1px solid rgba(255, 232, 184, 0.28); background: rgba(255, 232, 184, 0.04); border-radius: 0;
+  cursor: ew-resize; overflow: visible; padding-right: 0;
+}
+.range-slider-track::before,
+.range-slider-track::after {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  font: 10px/1 ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace;
+  color: rgba(255, 232, 184, 0.55); pointer-events: none;
+}
+.range-slider-track::before { content: "["; left: -8px; }
+.range-slider-track::after { content: "]"; right: -8px; }
+/* The fill IS the selection band — drawn from the low thumb's own fraction
+   to the high thumb's, nothing painted outside it — and its own left/right
+   edges (`border-left`/`border-right` + glow) ARE the two visible knobs,
+   the same cap `.voice-slider`'s single fill edge already draws, doubled
+   onto both ends of the band rather than a third, separately-drawn knob
+   element. Not itself an `input`/`button`, so no lil-gui element rule
+   contests it — no extra scoping needed. */
+.range-slider-fill {
+  position: absolute; top: 0; height: 100%; pointer-events: none;
+  background: linear-gradient(to right, rgba(56, 189, 248, 0.55), #38bdf8);
+  border-left: 2px solid #38bdf8; border-right: 2px solid #38bdf8;
+  box-shadow: -2px 0 4px rgba(56, 189, 248, 0.6), 2px 0 4px rgba(56, 189, 248, 0.6);
+}
+/* The two native ranges stay for keyboard/pointer a11y on one shared
+   `min`/`max`, but paint nothing of their own — `.range-slider-fill`'s own
+   edges are the only visible knobs. `pointer-events: none` on each input
+   except its own thumb (`::-webkit-slider-thumb`/`::-moz-range-thumb`) is
+   what lets both thumbs be dragged independently despite sharing one
+   stacking position; `.range-slider-range--hi`'s base z-index sits one
+   above `--lo`, so on a FRESH coincidence (never yet hovered) the high
+   thumb wins the click — but `.is-front` (applied by `RangeSlider`'s own
+   pointermove tracking over the track, never a fixed rule) always wins
+   over both base values: whichever thumb sits on the side of the
+   coincident point the pointer is currently hovering gets it, so
+   approaching from the left re-grabs the low thumb and approaching from
+   the right re-grabs the high one. Scoped like the auto button/number
+   fields above — these ARE `input`s inside `.controller.number.hasSlider`,
+   so lil-gui's own `input` rules (width, height, margin-left) reach them
+   too. */
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-range {
+  position: absolute; inset: 0; width: 100%; height: 10px; margin: 0;
+  -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
+  z-index: 1;
+}
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-range--hi { z-index: 2; }
+.lil-gui .controller.number.hasSlider.range-slider .range-slider-range.is-front { z-index: 3; }
+.range-slider-range::-webkit-slider-runnable-track { background: transparent; height: 10px; }
+.range-slider-range::-moz-range-track { background: transparent; height: 10px; }
+.range-slider-range::-webkit-slider-thumb {
+  -webkit-appearance: none; pointer-events: auto; width: 14px; height: 10px;
+  background: transparent; border: none; border-radius: 0; cursor: ew-resize;
+}
+.range-slider-range::-moz-range-thumb {
+  pointer-events: auto; width: 14px; height: 10px; background: transparent; border: none; border-radius: 0; cursor: ew-resize;
+}
+.lil-gui .controller.number.hasSlider.range-slider.is-disabled .range-slider-fill {
+  background: rgba(56, 189, 248, 0.4); border-color: rgba(56, 189, 248, 0.4); box-shadow: none;
+}
+.lil-gui .controller.number.hasSlider.range-slider.is-disabled .range-slider-track { cursor: not-allowed; }
+/* NEW-1/NEW-4 (REVIEW-dock-colours-sliders-opus-round2.md): a typed value
+   the slider refused (a cap violation with `capReason` set) — matches
+   `charts-workbench.css`'s own `.charts-error` colour/size so it reads as
+   the same "inline validation message" idiom across the page. `commit`
+   (`RangeSlider.tsx`) now shows this SAME paragraph when a DRAG or
+   Shift+arrow nudge lands a thumb ON a `loCeiling`/`hiFloor`/`loFloor` cap
+   (P3, DIAGNOSIS-scale-domain.md — a zero-anchored Y drag used to snap
+   back with no signal at all), clearing again the moment the thumb moves
+   off the cap — a continuous gesture still settles at the boundary with
+   no interruption (AGENTS.md's own rule for this control), it just no
+   longer does so silently. */
+.range-slider-error { margin: 0; font-size: 10px; line-height: 1.4; color: #fda4af; }
+
+/* The two sibling domain rows (`RangeSlider.tsx`): a band scale's
+   `[min] – [max]` selects and the "nothing to control" row. Both reuse the
+   slider row's `.name` cell and sit in the SAME `.widget` column as every
+   lil-gui row — two full-width card rows 80px left of that column, and
+   270px wide past the panel edge, were the defect (CHARTS-RESEARCH
+   `DIAGNOSIS-scale-rows-mark-card.md`). Each select is `flex: 1 1 0;
+   min-width: 0`: the pair splits the widget evenly and a long category
+   truncates inside its own box instead of widening the row. Styled as the
+   Dock's own option `.display` (bordered, 11px monospace, orange chevron),
+   but as a VISIBLE native select, so it is written under the row's own
+   hook chain the way the slider's fields are. */
+.range-select-widget,
+.range-unavailable-widget { display: flex; align-items: center; gap: 4px; width: 100%; min-width: 0; min-height: 24px; }
+.lil-gui .controller.range-select .range-select-input {
+  box-sizing: border-box; flex: 1 1 0; min-width: 0; width: auto; height: auto; margin: 0;
+  font: inherit; font-family: ui-monospace, "JetBrains Mono", "SF Mono", "Menlo", monospace; font-size: 11px; line-height: 1.4;
+  color: rgba(255, 232, 184, 0.94); background-color: rgba(255, 232, 184, 0.03); color-scheme: dark;
+  border: 1px solid rgba(255, 232, 184, 0.28); border-radius: 0; padding: 2px 14px 2px 5px;
+  -webkit-appearance: none; appearance: none; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10'%3E%3Ctext x='0' y='9' font-size='10' fill='%23f97316'%3E%E2%96%BE%3C/text%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 3px center;
+}
+.lil-gui .controller.range-select .range-select-input:hover { border-color: rgba(255, 232, 184, 0.45); }
+.lil-gui .controller.range-select .range-select-input:focus-visible { outline: 1px solid rgba(56, 189, 248, 0.6); outline-offset: 1px; border-color: rgba(56, 189, 248, 0.55); }
+.range-select-dash { flex: 0 0 auto; font-size: 11px; color: rgba(255, 232, 184, 0.45); }
+.range-unavailable-reason {
+  min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: 10px; letter-spacing: 0.02em; color: rgba(255, 232, 184, 0.45);
 }

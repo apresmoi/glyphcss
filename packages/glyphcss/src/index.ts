@@ -250,6 +250,42 @@ export {
 } from "./render/ramps";
 export type { WireframeGlyphTiers } from "./render/ramps";
 
+// ── Cell canvas (2D authoring layer for @glyphcss/charts + @glyphcss/diagrams) ──
+export { createGlyphCanvas, GLYPH_CANVAS_TIERS, GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_QUADRANT_GLYPHS } from "./render/canvas";
+export {
+  encodeGlyphCanvasText,
+  encodeGlyphCanvasAnsi,
+  encodeGlyphCanvasHtml,
+  nearestAnsiCanvasColor,
+} from "./render/canvas";
+export type {
+  GlyphCanvas,
+  GlyphCanvasOptions,
+  GlyphCanvasFill,
+  GlyphCanvasFillOptions,
+  GlyphCanvasPoint,
+  GlyphCanvasLineStyle,
+  GlyphCanvasLineOptions,
+  GlyphCanvasTextAlign,
+  GlyphCanvasTextOptions,
+  GlyphCanvasArrowheadOptions,
+  GlyphCanvasDirection,
+  GlyphCanvasEdgeOptions,
+  GlyphCanvasReport,
+  GlyphCanvasFoldedGlyph,
+  GlyphCanvasRouteConflict,
+  GlyphCanvasRouteConflictKind,
+  GlyphCanvasTier,
+  GlyphCanvasTierName,
+  GlyphCanvasStraightGlyphs,
+  GlyphCanvasArrowGlyphs,
+  GlyphCanvasDiagonalGlyphs,
+  GlyphCanvasDiagonalKey,
+  GlyphCanvasAnsiColorMode,
+  GlyphCanvasAnsiOptions,
+  GlyphCanvasHtmlOptions,
+} from "./render/canvas";
+
 // ── RasterizeContext ──────────────────────────────────────────────
 export {
   buildRasterizeContext,

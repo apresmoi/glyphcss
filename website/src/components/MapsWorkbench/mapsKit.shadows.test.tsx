@@ -92,8 +92,15 @@ describe("Lighting folder — Shadows", () => {
 
   it("shows OFF as the live choice by default, and follows the state into Cast", () => {
     const host = render(false);
-    const active = () =>
-      subcell(host, "Shadows").querySelector<HTMLElement>(".gx-toggle-btn.is-active")?.getAttribute("aria-label");
+    // `IconToggle`'s F5 a11y pass (synthKit.tsx) prefixes `aria-label` with
+    // this control's own `groupTitle` — the bare option ("Off"/"Cast") is
+    // the text after the LAST ": ".
+    const active = () => {
+      const label = subcell(host, "Shadows").querySelector<HTMLElement>(".gx-toggle-btn.is-active")?.getAttribute("aria-label");
+      if (!label) return label;
+      const parts = label.split(": ");
+      return parts[parts.length - 1];
+    };
     expect(active()).toBe("Off");
     // Pushed IN, not clicked: the control is bound to page state (a URL that
     // carries `D`, or the reader clicking through), so it has to re-read.

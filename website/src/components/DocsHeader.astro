@@ -13,6 +13,8 @@ const isGallery = pathname.startsWith('/gallery');
 const fetchLiveStars = import.meta.env.PROD;
 const isSynth = pathname.startsWith('/synth');
 const isMaps = pathname.startsWith('/maps');
+const isCharts = pathname.startsWith('/charts');
+const isDiagrams = pathname.startsWith('/diagrams');
 
 const topLinks = [
   // `mobileHidden`: dropped from the nav row below 38rem. At 390px the seven
@@ -30,6 +32,8 @@ const topLinks = [
   { href: '/gallery', label: 'Gallery', active: pathname.startsWith('/gallery') },
   { href: '/synth', label: 'Synth', active: pathname.startsWith('/synth') },
   { href: '/maps', label: 'Maps', active: pathname.startsWith('/maps') },
+  { href: '/charts', label: 'Charts', active: pathname.startsWith('/charts') },
+  { href: '/diagrams', label: 'Diagrams', active: pathname.startsWith('/diagrams') },
   { href: '/examples/world', label: 'Examples', active: pathname.startsWith('/examples') },
   { href: '/wordart', label: 'WordArt', active: pathname.startsWith('/wordart') },
 ];
@@ -39,7 +43,7 @@ const topLinks = [
   <div class="title-wrapper sl-flex">
     <SiteTitle />
   </div>
-  {!isLanding && !isGallery && !isSynth && !isMaps && (
+  {!isLanding && !isGallery && !isSynth && !isMaps && !isCharts && !isDiagrams && (
     <div class="sidebar-search-dock print:hidden">
       {shouldRenderSearch && <Search />}
     </div>
