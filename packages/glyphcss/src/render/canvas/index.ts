@@ -21,7 +21,7 @@ export type {
   GlyphCanvasSurfaceUvRect,
 } from "./canvas";
 
-export { glyphCanvasTextureSampler } from "./sampler";
+export { glyphCanvasTextureSampler, resolveGlyphCanvasTextureSamplerRect } from "./sampler";
 export type { GlyphCanvasTextureSamplerOptions, GlyphCanvasTextureSamplerRect } from "./sampler";
 
 export { glyphInkMask, glyphInkDensity } from "./glyphInk";

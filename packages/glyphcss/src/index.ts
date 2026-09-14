@@ -290,7 +290,7 @@ export {
   encodeGlyphCanvasHtml,
   nearestAnsiCanvasColor,
 } from "./render/canvas";
-export { glyphCanvasTextureSampler, glyphInkMask, glyphInkDensity } from "./render/canvas";
+export { glyphCanvasTextureSampler, resolveGlyphCanvasTextureSamplerRect, glyphInkMask, glyphInkDensity } from "./render/canvas";
 export type {
   GlyphCanvas,
   GlyphCanvasOptions,

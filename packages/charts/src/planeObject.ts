@@ -35,7 +35,7 @@
  * plane object does not attempt.
  */
 import type { GlyphSceneObject, GlyphSceneObjectMesh, Polygon, Vec3 } from "glyphcss";
-import { encodeGlyphSceneObjectSamplerKey } from "glyphcss";
+import { encodeGlyphSceneObjectSamplerKey, resolveGlyphCanvasTextureSamplerRect } from "glyphcss";
 import type { GlyphChartBuild } from "./types";
 import { glyphChartTextureSampler, type GlyphChartTextureSamplerOptions } from "./bridge";
 
@@ -68,8 +68,14 @@ export function glyphChartPlaneObject(
     throw new RangeError(`glyphChartPlaneObject() width must be a positive number, got ${width}.`);
   }
   const canvas = source === "colorCanvas" ? build.colorCanvas : build.canvas;
-  const cols = rect ? rect.x1 - rect.x0 + 1 : canvas.cols;
-  const rows = rect ? rect.y1 - rect.y0 + 1 : canvas.rows;
+  // Same normalized/clamped rect `glyphChartTextureSampler` (via
+  // `glyphCanvasTextureSampler`) is about to sample — sizing from the RAW
+  // `rect` instead let an out-of-bounds rect give the sampler one aspect
+  // and the quad another, and a reversed rect could size a negative
+  // height (packet F4b fix round 1).
+  const normalizedRect = resolveGlyphCanvasTextureSamplerRect(canvas, rect);
+  const cols = normalizedRect.x1 - normalizedRect.x0 + 1;
+  const rows = normalizedRect.y1 - normalizedRect.y0 + 1;
   const height = (width * rows) / (cols * canvas.cellAspect);
   const hw = width / 2;
   const hh = height / 2;

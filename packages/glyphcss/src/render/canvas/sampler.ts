@@ -55,6 +55,34 @@ function hexToRgb(hex: string): readonly [number, number, number] {
 }
 
 /**
+ * The ONE place a sampling rect is normalized against a canvas: reversed
+ * bounds swap (`Math.min`/`Math.max` per axis), out-of-bounds bounds clamp
+ * to `[0, cols-1] x [0, rows-1]`, an omitted `rect` is the whole canvas, and
+ * an empty result (e.g. entirely out of bounds) throws — the SAME rule
+ * `glyphCanvasTextureSampler` itself always applied, now exported so a
+ * consumer sizing something else FROM the same rect (a plane object's own
+ * quad, `@glyphcss/charts`'/`@glyphcss/diagrams`' `glyphChartPlaneObject`/
+ * `glyphDiagramPlaneObject`) reads the identical normalized bounds the
+ * sampler is about to sample, rather than re-deriving its own (packet F4b
+ * fix round 1 — a raw, unclamped `rect` gave the plane one aspect and the
+ * sampler another, and a reversed `rect` could size a negative height).
+ */
+export function resolveGlyphCanvasTextureSamplerRect(
+  canvas: GlyphCanvas,
+  rect: GlyphCanvasTextureSamplerRect | undefined,
+): GlyphCanvasTextureSamplerRect {
+  const r = rect ?? { x0: 0, y0: 0, x1: canvas.cols - 1, y1: canvas.rows - 1 };
+  const x0 = Math.max(0, Math.min(r.x0, r.x1));
+  const x1 = Math.min(canvas.cols - 1, Math.max(r.x0, r.x1));
+  const y0 = Math.max(0, Math.min(r.y0, r.y1));
+  const y1 = Math.min(canvas.rows - 1, Math.max(r.y0, r.y1));
+  if (x1 < x0 || y1 < y0) {
+    throw new RangeError("glyphcss: rect is empty or out of the canvas bounds.");
+  }
+  return { x0, y0, x1, y1 };
+}
+
+/**
  * See the module doc. Dimensions are EXACT: `width = (x1-x0+1) *
  * texelsPerCell[0]`, `height = (y1-y0+1) * texelsPerCell[1]` — never rounded
  * or padded, so a caller UV-mapping a quad to the sampled cell count gets a
@@ -68,14 +96,7 @@ export function glyphCanvasTextureSampler(
   if (!Number.isInteger(tw) || tw < 1 || !Number.isInteger(th) || th < 1) {
     throw new RangeError(`glyphcss: glyphCanvasTextureSampler() texelsPerCell must be positive integers, got [${tw}, ${th}].`);
   }
-  const rect = options.rect ?? { x0: 0, y0: 0, x1: canvas.cols - 1, y1: canvas.rows - 1 };
-  const x0 = Math.max(0, Math.min(rect.x0, rect.x1));
-  const x1 = Math.min(canvas.cols - 1, Math.max(rect.x0, rect.x1));
-  const y0 = Math.max(0, Math.min(rect.y0, rect.y1));
-  const y1 = Math.min(canvas.rows - 1, Math.max(rect.y0, rect.y1));
-  if (x1 < x0 || y1 < y0) {
-    throw new RangeError("glyphcss: glyphCanvasTextureSampler() rect is empty or out of the canvas bounds.");
-  }
+  const { x0, y0, x1, y1 } = resolveGlyphCanvasTextureSamplerRect(canvas, options.rect);
 
   const cellCols = x1 - x0 + 1;
   const cellRows = y1 - y0 + 1;

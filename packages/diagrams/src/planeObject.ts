@@ -14,7 +14,7 @@
  * since a diagram paints only one canvas).
  */
 import type { GlyphSceneObject, GlyphSceneObjectMesh, Polygon, Vec3 } from "glyphcss";
-import { encodeGlyphSceneObjectSamplerKey } from "glyphcss";
+import { encodeGlyphSceneObjectSamplerKey, resolveGlyphCanvasTextureSamplerRect } from "glyphcss";
 import type { GlyphDiagramPage } from "./renderTypes";
 import { glyphDiagramTextureSampler, type GlyphDiagramTextureSamplerOptions } from "./bridge";
 
@@ -47,8 +47,12 @@ export function glyphDiagramPlaneObject(
     throw new RangeError(`glyphDiagramPlaneObject() width must be a positive number, got ${width}.`);
   }
   const canvas = page.canvas;
-  const cols = rect ? rect.x1 - rect.x0 + 1 : canvas.cols;
-  const rows = rect ? rect.y1 - rect.y0 + 1 : canvas.rows;
+  // Same normalized/clamped rect `glyphDiagramTextureSampler` (via
+  // `glyphCanvasTextureSampler`) is about to sample — see
+  // `glyphChartPlaneObject`'s own doc (packet F4b fix round 1).
+  const normalizedRect = resolveGlyphCanvasTextureSamplerRect(canvas, rect);
+  const cols = normalizedRect.x1 - normalizedRect.x0 + 1;
+  const rows = normalizedRect.y1 - normalizedRect.y0 + 1;
   const height = (width * rows) / (cols * canvas.cellAspect);
   const hw = width / 2;
   const hh = height / 2;
