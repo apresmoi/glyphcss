@@ -328,3 +328,157 @@ that paints a second, solid canvas removed), 18 tests across
 solid region fill's colour-carrying exits (`html` under `css`,
 `text`/`html` under ANSI) actually differ from the textured paint. Restoring
 the branch turns them green again.
+
+## D1 — 3D graph layout, `glyphDiagramObject` (`@glyphcss/diagrams/3d`)
+
+**Goal.** Turn the existing `GlyphGraph` IR (the same one Mermaid/JSON
+adapters already build, unchanged) into a `GlyphSceneObject` any
+`createGlyphScene` can mount — an agent-architecture graph rendered as 3D
+boxes on floors, with cell-space edges and labels, reusing F4's
+composition primitive rather than inventing a parallel mesh/label system.
+
+**Why layout is split into `layout3d` (pure data) and `glyphDiagramObject`
+(mesh/overlay authoring).** The acceptance gates are almost entirely about
+the LAYOUT math (rank order, determinism, face-anchoring) and have nothing to
+do with `Polygon` authoring or the overlay/arbiter wiring — keeping
+`layout3d` free of `boxPolygons`/`spherePolygons`/`GlyphSceneObject` lets
+every layout gate run as a plain data test (no `document`, no scene, no
+camera), the same split `@glyphcss/charts`' `buildGlyphChart`/`encodeGlyphChart`
+(F1, above) already established for a different reason (reuse) applying here
+for testability.
+
+**Layered vs. force, and why `zBy` is layered-only.** Layered calls the
+EXISTING 2D pipeline (`layoutGlyphGraph`, dagre) for X/Y verbatim — the same
+`nodesep`/`ranksep`/compound-group machinery every 2D diagram already uses —
+and adds Z as a purely semantic axis (`zBy: "group" | "kind" | "rank" |
+"none"`, default `"group"`): each floor is `GLYPH_DIAGRAM_3D_LAYER_HEIGHT`
+world units apart, indexed by the SORTED distinct key set (so re-running with
+the same graph always assigns the same floor to the same group — no ordering
+dependence on input order), with `undefined`/`""` always the baseline floor
+`0`. `"group"` resolves a node's floor via the SMALLEST containing
+`graph.groups` entry — deliberately mirroring `layoutGlyphGraph`'s own
+compound-parent choice (`pipeline.ts`'s `.sort((a, b) => a.members.length -
+b.members.length || …)[0]`) rather than the node's own `group` field, since
+`graph.groups[].members` is what the 2D pipeline (and Mermaid's own subgraph
+parsing) actually treats as authoritative; a node's plain `group` string is
+descriptive metadata a caller may or may not have set. `"rank"` re-derives
+rank BUCKETS from the already-computed 2D rank axis (Y for TB/BT, X for
+LR/RL) rather than reaching into dagre's own internal rank numbering a
+second time — the 2D layout already encodes it.
+
+Force is a hand-rolled, SEEDED (`mulberry32`, a tiny public-domain 32-bit
+PRNG — never `Date.now()`/`Math.random()`) Fruchterman-Reingold-style
+simulation directly in 3D (repulsion every pair, spring attraction along
+edges, an extra spring pulling each group's members toward their own
+centroid) over a FIXED `iterations` count with a geometric cooling schedule —
+no convergence check, no wall-clock budget, so "the same seed gives the same
+digest" holds by construction rather than by luck. `zBy` does not apply to
+it: force ALREADY places every node's Z from the simulation (springs act on
+all three axes at once), so there is no separate "floor" concept left to
+assign — passing `zBy` alongside `layout: "force"` is silently ignored
+rather than rejected, since a caller sharing one options object across both
+layout kinds (e.g. a UI toggle) shouldn't have to strip it.
+
+**`boxPolygons` (core), not a rectangular special case of `cubePolygons`.**
+`cubePolygons`'s `size` is one shared edge length; a diagram node's
+footprint (from its label) is essentially never square. `boxPolygons` is the
+same 8-vertex/6-face/CCW-from-outside construction with independent
+`width`/`depth`/`height`, verified to reproduce `cubePolygons` byte-for-byte
+at `width === depth === height` (`helpers.test.ts`) so the two stay
+interchangeable rather than diverging geometry conventions. `circle`-shaped
+nodes get `spherePolygons` instead (per the packet's own narrowed scope —
+diamond/octahedron and stadium/cylinder are left to a later packet); every
+other shape (`rect`/`rounded`/`subroutine`/`asymmetric`/`stadium`) is a box.
+
+**A generic box-or-sphere surface anchor, not a per-layout anchor.** Both
+layouts, both node shapes, and both same-floor and cross-floor edges go
+through ONE function: walk from the node's center toward the OTHER
+point, clamped to the box's half-extents by a standard 3D slab method (or to
+the sphere's radius) — `t = min over axes of half[i] / |direction[i]|`. This
+is what "edge endpoints land on node faces" reduces to as a single, layout-
+agnostic property, gated directly (`layout3d.test.ts`) rather than asserted
+per-layout. A cross-floor (layered) edge is built as an orthogonal 3D
+polyline — anchor on the source's own floor toward the XY midpoint, step Z
+at that midpoint (the "rank gap"), anchor into the target's own floor — so
+the anchor computation for EACH end only ever sees a same-Z direction
+vector, keeping the slab method's degenerate axis (`direction[2] === 0`)
+trivially correct rather than a special case.
+
+**Edges are overlay stamps, never tube meshes** (AGENTS.md's "Scene
+objects" and this packet's own scope) — `stampGlyphOverlayLine` per segment,
+picking one of four slope glyphs (`- | / \`) from the projected screen-space
+delta, WITH `depth` (the real occlusion mechanism: a node box standing
+between the camera and an edge segment wins the depth test, so an edge is
+genuinely hidden behind a node rather than always drawn on top). No
+arrowhead table — the full PLAN's §6 arrow-table sourcing from the 2D
+canvas tier is out of D1's narrowed scope (a plain slope glyph is D2/D3's
+to upgrade).
+
+**Node labels: no `depth` on the candidate — a real bug, not a style
+choice.** The first cut passed the anchor's own projected depth to
+`frame.labels.place()`, on the theory that a label should depth-test like
+anything else. It measurably broke: `glyphDiagramObject.test.ts`'s full-scene
+mount test rendered `"Planner"` as `"@@--@\\--nner"` — an edge segment's
+own per-cell INTERPOLATED depth (`stampGlyphOverlayLine`'s linear lerp along
+the walk) happened to read fractionally NEARER than the label's own
+`camera.project()` value at the shared cell, so `stampGlyphOverlayCell`'s
+`existing > write.depth` check refused three of the label's seven
+characters. The fix is not a tolerance fudge — it is recognizing that a
+node's own label has NOTHING to depth-test against: occlusion by a genuinely
+FOREIGN mesh is already the `ownMeshIds`/`winnerMesh` check the arbiter runs
+(AGENTS.md's "Scene objects" Occlusion clause), and a label sitting just
+above its own box, or crossing its own object's edge stamps, should always
+win there. Omitting `depth` entirely (rather than, say, nudging the anchor
+further above the box) is what makes that true unconditionally rather than
+"true until a box gets tall enough" — the mutation gate reintroducing `depth`
+on the candidate is exactly what would reproduce the cut-off-label defect.
+
+**Group meshes: one mesh, not `detailGroup`.** PLAN-3d.md §6 describes
+floor plates/volumes as needing to "cost one extra rasterizer pass in
+total" across every group in the diagram — satisfied for free by building
+ONE `"groups"` mesh whose polygon array concatenates every group's own quad
+(layered, `transparent: true` — an x-ray floor a node can stand through
+without being occluded) or wireframe box (force, `mode: "wireframe"`),
+rather than one mesh per group sharing a `detailGroup` string. `detailGroup`
+exists to remove the SEAM between multiple meshes forced into one pass; a
+single mesh has no seam to remove, so reaching for it here would be
+AGENTS.md's own "no defensive code for cases that can't happen".
+
+**Rejected: a rectangular `planePolygons` call for the floor plate.**
+`planePolygons` (core) takes one shared `size` half-extent for both in-plane
+axes — square only. A group's XY bounding box is essentially never square,
+so the floor plate is a small local quad builder instead (four vertices, CCW
+from `+Z`), not a forced-square approximation of the group's real footprint.
+
+**Gate.** `pnpm --filter @glyphcss/core exec vitest run` (780 tests,
+including 5 new `boxPolygons` cases) and
+`pnpm --filter @glyphcss/diagrams exec vitest run` (226 tests, including 11
+`layout3d.test.ts` + 5 `glyphDiagramObject.test.ts` cases) pass;
+`pnpm --filter @glyphcss/diagrams exec tsc --noEmit` is clean;
+`pnpm --filter glyphcss exec vitest run src/api/createGlyphScene.sceneObject.test.ts`
+(F4's own suite, untouched by this packet) stays green; `pnpm build:packages`
+builds every package including the new `dist/3d.{js,cjs,d.ts}` entry, with
+`glyphcss` staying an external `require`/`import` in it (grepped) rather than
+bundled, and the diagrams root `dist/index.{js,cjs}` carrying no reference to
+`buildCellGrid`/`createGlyphScene` (grepped) — confirming the root entry
+never pulls the scene-object surface in.
+
+**Mutation table.**
+
+| Property | Mutation | Result |
+|---|---|---|
+| Top view reproduces 2D rank order | Map dagre's Y onto world X instead of world Y | `layout3d.test.ts`'s rank-order test reddens |
+| Same seed → same digest | Seed `mulberry32` from `Date.now()` instead of `options.seed` | The two-call equality test reddens (non-deterministically, on any run where the clock ticks between calls) |
+| Edge endpoints on node faces | Return the raw node center instead of the slab-clamped anchor | Both the layered and the force face-anchor tests reddens |
+| Cross-floor edge actually crosses | Drop the Z-step bend, emit `[p0, p3]` only | The "z step in the rank gap" test's `new Set(zs).size > 1` assertion reddens |
+| No two labels overlap | Omit `priority`/`degree` from the candidate | The degenerate-projection arbiter test's surviving-cell assertion reddens |
+| `boxPolygons`/`cubePolygons` parity | Diverge the face/winding table between the two helpers | `helpers.test.ts`'s "reproduces cubePolygons exactly" case reddens |
+| Root entry stays 3D-free | Add a `./3d` import to `src/index.ts` | The `dist/index.{js,cjs}` grep for `buildCellGrid`/`createGlyphScene` starts matching |
+
+**Residuals (explicitly out of D1's narrowed scope, per §11's D2/D3/D4
+rows).** No arrowhead table (plain slope glyphs only). No
+octahedron/cylinder node shapes (diamond/stadium fall back to a box). No
+`renderGlyphDiagram3d`, CLI dispatch, or `/diagrams` page wiring. No edge
+labels or cluster volumes beyond the group mesh (D4). No performance gate at
+200 nodes (D4) — the force O(n²) simulation is unbounded here, matching the
+PLAN's own stated ~200-node ceiling for a future Barnes-Hut upgrade.

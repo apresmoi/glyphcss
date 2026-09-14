@@ -37,12 +37,20 @@
       "types": "./dist/elk.d.ts",
       "import": "./dist/elk.js",
       "require": "./dist/elk.cjs"
+    },
+    "./3d": {
+      "types": "./dist/3d.d.ts",
+      "import": "./dist/3d.js",
+      "require": "./dist/3d.cjs"
     }
   },
   "typesVersions": {
     "*": {
       "elk": [
         "dist/elk.d.ts"
+      ],
+      "3d": [
+        "dist/3d.d.ts"
       ]
     }
   },

@@ -14,6 +14,8 @@ export { tetrahedronPolygons } from "./tetrahedronPolygons";
 export type { TetrahedronPolygonsOptions } from "./tetrahedronPolygons";
 export { cubePolygons } from "./cubePolygons";
 export type { CubePolygonsOptions } from "./cubePolygons";
+export { boxPolygons } from "./boxPolygons";
+export type { BoxPolygonsOptions } from "./boxPolygons";
 export { dodecahedronPolygons } from "./dodecahedronPolygons";
 export type { DodecahedronPolygonsOptions } from "./dodecahedronPolygons";
 export { icosahedronPolygons } from "./icosahedronPolygons";

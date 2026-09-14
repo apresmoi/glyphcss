@@ -1,7 +1,7 @@
 import { defineConfig } from "tsup";
 
 export default defineConfig({
-  entry: { index: "src/index.ts", elk: "src/elk.ts" },
+  entry: { index: "src/index.ts", elk: "src/elk.ts", "3d": "src/3d/index.ts" },
   format: ["esm", "cjs"],
   dts: true,
   splitting: false,

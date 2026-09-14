@@ -20,6 +20,7 @@ import { axesHelperPolygons } from "./axesPolygons";
 import { octahedronPolygons } from "./octahedronPolygons";
 import { tetrahedronPolygons } from "./tetrahedronPolygons";
 import { cubePolygons } from "./cubePolygons";
+import { boxPolygons } from "./boxPolygons";
 import { dodecahedronPolygons } from "./dodecahedronPolygons";
 import { icosahedronPolygons } from "./icosahedronPolygons";
 import { spherePolygons } from "./spherePolygons";
@@ -234,6 +235,49 @@ describe("cubePolygons", () => {
 
   it("uses white as the default color", () => {
     const polygons = cubePolygons({ center: [0, 0, 0], size: 1 });
+    for (const p of polygons) expect(p.color).toBe("#ffffff");
+  });
+});
+
+describe("boxPolygons", () => {
+  it("returns 6 quad faces", () => {
+    const polygons = boxPolygons({ center: [0, 0, 0], width: 2, depth: 3, height: 4, color: "#00ff00" });
+    expect(polygons).toHaveLength(6);
+    for (const p of polygons) expect(p.vertices).toHaveLength(4);
+  });
+
+  it("width/depth/height are independent per axis", () => {
+    const polygons = boxPolygons({ center: [0, 0, 0], width: 2, depth: 4, height: 6 });
+    const allVerts = polygons.flatMap((p) => p.vertices);
+    const maxX = Math.max(...allVerts.map(([x]) => Math.abs(x)));
+    const maxY = Math.max(...allVerts.map(([, y]) => Math.abs(y)));
+    const maxZ = Math.max(...allVerts.map(([, , z]) => Math.abs(z)));
+    expect(maxX).toBeCloseTo(1, 10); // half-extent = width/2
+    expect(maxY).toBeCloseTo(2, 10); // half-extent = depth/2
+    expect(maxZ).toBeCloseTo(3, 10); // half-extent = height/2
+  });
+
+  it("equal width/depth/height reproduces cubePolygons exactly", () => {
+    const box = boxPolygons({ center: [1, -2, 3], width: 2, depth: 2, height: 2, color: "#abcdef" });
+    const cube = cubePolygons({ center: [1, -2, 3], size: 2, color: "#abcdef" });
+    expect(box).toEqual(cube);
+  });
+
+  it("position option translates the whole mesh", () => {
+    const offset: [number, number, number] = [3, -2, 7];
+    const base = boxPolygons({ center: [0, 0, 0], width: 1, depth: 2, height: 3 });
+    const moved = boxPolygons({ center: offset, width: 1, depth: 2, height: 3 });
+    for (let i = 0; i < base.length; i++) {
+      for (let j = 0; j < 4; j++) {
+        expect(moved[i].vertices[j][0]).toBeCloseTo(base[i].vertices[j][0] + 3, 10);
+        expect(moved[i].vertices[j][1]).toBeCloseTo(base[i].vertices[j][1] - 2, 10);
+        expect(moved[i].vertices[j][2]).toBeCloseTo(base[i].vertices[j][2] + 7, 10);
+      }
+    }
+  });
+
+  it("uses white as the default color", () => {
+    const polygons = boxPolygons({ center: [0, 0, 0], width: 1, depth: 1, height: 1 });
     for (const p of polygons) expect(p.color).toBe("#ffffff");
   });
 });
