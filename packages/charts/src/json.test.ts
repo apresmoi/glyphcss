@@ -43,4 +43,23 @@ describe("renderGlyphChartJson", () => {
     const out = JSON.parse(renderGlyphChartJson("{not json"));
     expect(out.error).toContain("invalid JSON");
   });
+
+  describe("no-leak guarantee: the exact key set, never build/canvas/grid", () => {
+    // P2-b (codex gpt-5.6-sol review, F1 fix round 1): the prior test only
+    // checked SOME output values, never that `build` (Packet F1's own
+    // `GlyphChartBuild`, carrying live `GlyphCanvas` objects — methods
+    // included, never JSON-representable) — or the `grid`/`canvas` it
+    // wraps — stays out of the string this entry hands back. Asserting the
+    // exact key set is what a leak actually reddens; asserting only that
+    // individual fields are present (as the tests above do) does not,
+    // since `build`/`canvas`/`grid` could ride along unnoticed beside them.
+    it("no html (color: none): exactly { text, meta, report }", () => {
+      const out = JSON.parse(renderGlyphChartJson(JSON.stringify([1, 2, 3]), { target: "chat", color: "none" }));
+      expect(Object.keys(out).sort()).toEqual(["meta", "report", "text"]);
+    });
+    it("with html (color: css): exactly { text, html, meta, report }", () => {
+      const out = JSON.parse(renderGlyphChartJson(JSON.stringify([1, 2, 3]), { target: "web", color: "css" }));
+      expect(Object.keys(out).sort()).toEqual(["html", "meta", "report", "text"]);
+    });
+  });
 });

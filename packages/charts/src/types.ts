@@ -315,9 +315,9 @@ export interface GlyphChartRenderOptions {
   readonly textScale?: number;
   /**
    * Region-mark fill, default `"auto"`. Applies to the COLOUR-carrying exits
-   * only (`html` under `css`, `text` under an ANSI mode): `grid` and a plain
-   * `text` always carry textures, so a coloured chart's plain text stays
-   * readable. An explicit `"solid"` that would make two series identical
+   * only (`html` under `css`, `text` under an ANSI mode): `build.canvas` and
+   * a plain `text` always carry textures, so a coloured chart's plain text
+   * stays readable. An explicit `"solid"` that would make two series identical
    * (colour off, two series sharing a colour, a sankey/funnel mark) is
    * refused with a `region-fill-solid-refused` ledger entry.
    */

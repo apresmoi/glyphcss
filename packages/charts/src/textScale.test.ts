@@ -215,10 +215,10 @@ describe("mutation check: the reservation is load-bearing", () => {
 
 // ── (7) arc callouts at scale 2 — `paintArcCallouts`' own reservation ────
 
-/** Mirrors `arcShape.test.ts`'s own `paintAt` — the only way to get a
- * `legend: false` layout AND direct canvas access (`renderGlyphChart`'s own
- * `grid` strips the `textScale`/`textFiller` buffers this file's other
- * sections already read via `picture()`). */
+/** Mirrors `arcShape.test.ts`'s own `paintAt` and this file's own
+ * `picture()` — the layout/paint pipeline directly, for a `legend: false`
+ * layout with the exact canvas `paintGlyphChart` wrote (`textScale`/
+ * `textFiller` buffers included). */
 function pictureArcNoLegend(input: GlyphChartInput, width: number, height: number, textScale: number) {
   const spec = normalizeGlyphChartInput(input);
   const marks = resolveGlyphChartSpec(spec);

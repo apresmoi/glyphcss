@@ -25,6 +25,6 @@ export interface GlyphDiagramPage {
 }
 export interface GlyphDiagramResult extends GlyphDiagramPage {
   readonly meta: GlyphDiagramMeta; readonly report: GlyphDiagramReport;
-  /** Every split panel, including the first. Text/HTML exits concatenate all panels; grid is the first panel. */
+  /** Every split panel, including the first. Text/HTML exits concatenate all panels; `canvas` is the first panel's. */
   readonly pages: readonly GlyphDiagramPage[];
 }

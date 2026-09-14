@@ -78,7 +78,7 @@
  *    A COLOURED render whose region marks (bar/rect/area/arc) have distinct
  *    colours paints them solid in its colour-carrying exits only: `html`
  *    under `css` and `text` under `truecolor`/`ansi256`/`ansi16` on the web
- *    target. `grid`, plain `text`, every `color: "none"` exit, NO_COLOR and
+ *    target. `build.canvas`, plain `text`, every `color: "none"` exit, NO_COLOR and
  *    the `terminal`/`chat` targets are untouched. `regionFill.test.ts` checks
  *    all of it against `regionFillParentFixtures.json` (hashes from
  *    `2ef7a70b`, the commit before the option existed): every key matches

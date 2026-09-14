@@ -172,6 +172,25 @@ describe("render contracts", () => {
     await expect(renderGlyphDiagram("graph LR; A", { width: 20.5 })).rejects.toMatchObject({ code: "bad-size" });
     await expect(renderGlyphDiagram("graph LR; A", { ranksep: 0 })).rejects.toMatchObject({ code: "bad-options" });
   });
+
+  describe("no-leak guarantee: the exact key set, never canvas/grid/layout/routes/labels/pages", () => {
+    // P2-b (codex gpt-5.6-sol review, F1 fix round 1) — mirrors
+    // json.test.ts's own guarantee for `@glyphcss/charts`: `renderGlyphDiagramJson`
+    // builds its own explicit `{ text, html?, meta, report }` object rather
+    // than spreading `renderGlyphDiagram`'s result, so `canvas` (a live
+    // `GlyphCanvas`, never JSON-representable) and the page fields
+    // (`layout`/`routes`/`labels`/`pages`) must never leak through. Asserting
+    // the exact key set is what a leak actually reddens.
+    const graph = JSON.stringify({ nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }], edges: [{ from: "a", to: "b" }] });
+    it("no html (color: none): exactly { text, meta, report }", async () => {
+      const out = JSON.parse(await renderGlyphDiagramJson(graph, { target: "chat", color: "none" }));
+      expect(Object.keys(out).sort()).toEqual(["meta", "report", "text"]);
+    });
+    it("with html (color: css): exactly { text, html, meta, report }", async () => {
+      const out = JSON.parse(await renderGlyphDiagramJson(graph, { target: "web", color: "css" }));
+      expect(Object.keys(out).sort()).toEqual(["html", "meta", "report", "text"]);
+    });
+  });
 });
 
 // DIAGNOSIS-diagrams-fanout.md: no fixture had two LR siblings in one rank,

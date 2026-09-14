@@ -243,12 +243,12 @@ describe("the solid paint", () => {
 });
 
 describe("plain exits keep textures", () => {
-  it("a coloured css chart's plain `text` and `grid` still carry every series' texture", () => {
-    // Mutation: encode `text`/`grid` from the solid canvas -> red.
+  it("a coloured css chart's plain `text` and `build.canvas` still carry every series' texture", () => {
+    // Mutation: encode `text`/`build.canvas` from the solid canvas -> red.
     const r = renderGlyphChart(energy, { color: "css" });
     for (const glyph of ["░", "▚", "╱"]) {
       expect(r.text.includes(glyph), `text has ${glyph}`).toBe(true);
-      expect(r.build.canvas.grid.char.includes(glyph), `grid has ${glyph}`).toBe(true);
+      expect(r.build.canvas.grid.char.includes(glyph), `build.canvas has ${glyph}`).toBe(true);
     }
   });
 });
