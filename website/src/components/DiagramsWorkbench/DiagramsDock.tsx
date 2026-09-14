@@ -103,7 +103,7 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
 
   return <>
     <Instrument3DEffectsFolder
-      gui={gui} effectIds={DIAGRAMS_3D_EFFECT_IDS} targets={effectTargets}
+      gui={gui} effectIds={DIAGRAMS_3D_EFFECT_IDS} targets={effectTargets} allTargetsLabel="All nodes"
       state={{ effectId: state.effect3d.effectId, targetId: state.effect3d.targetId }}
       onChange={(patch) => dispatch({ type: "set-effect3d", patch })}
       visible={state.view === "3d"}

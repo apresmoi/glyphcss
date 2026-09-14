@@ -37,20 +37,27 @@ export interface Instrument3DEffectsFolderProps {
   readonly effectLabels?: Readonly<Record<string, string>>;
   /** What this effect can be mesh-targeted at, beyond the implicit "All". */
   readonly targets: readonly Instrument3DEffectTarget[];
+  /**
+   * Display label for the implicit scene-wide `INSTRUMENT_3D_EFFECT_ALL_TARGET`
+   * option — caller-owned (fix round 2, P1-2) rather than a hard-coded "All
+   * nodes", since a diagram's targets are nodes but `/charts`' own future C4
+   * packet targets marks/series, which "all nodes" would misdescribe.
+   */
+  readonly allTargetsLabel: string;
   readonly state: Instrument3DEffectsState;
   readonly onChange: (patch: Partial<Instrument3DEffectsState>) => void;
   /** Shown only while the host view actually has a live 3D scene mounted (mirrors the "3D" layout folder's own show/hide idiom). */
   readonly visible: boolean;
 }
 
-export function Instrument3DEffectsFolder({ gui, effectIds, effectLabels, targets, state, onChange, visible }: Instrument3DEffectsFolderProps) {
+export function Instrument3DEffectsFolder({ gui, effectIds, effectLabels, targets, allTargetsLabel, state, onChange, visible }: Instrument3DEffectsFolderProps) {
   const folder = useFolder(gui, "Effects", { open: true });
 
   const effectOptions: Record<string, string> = {};
   for (const id of effectIds) effectOptions[effectLabels?.[id] ?? id] = id;
   useOption(folder, "Effect", effectOptions, state.effectId, (effectId) => onChange({ effectId }));
 
-  const targetOptions: Record<string, string> = { "All nodes": INSTRUMENT_3D_EFFECT_ALL_TARGET };
+  const targetOptions: Record<string, string> = { [allTargetsLabel]: INSTRUMENT_3D_EFFECT_ALL_TARGET };
   for (const target of targets) targetOptions[target.label] = target.id;
   const targetCtrl = useOption(folder, "Target", targetOptions, state.targetId, (targetId) => onChange({ targetId }));
   // The target LIST changes with the mounted graph/chart — `useOption`'s
@@ -59,7 +66,7 @@ export function Instrument3DEffectsFolder({ gui, effectIds, effectLabels, target
   // deps — the options table is the same kind of thing), so a later graph
   // swap needs an explicit `setOptions` call to refresh the dropdown's own
   // choices rather than silently keeping stale node ids.
-  const targetKey = targets.map((t) => `${t.id}:${t.label}`).join("|");
+  const targetKey = `${allTargetsLabel}|${targets.map((t) => `${t.id}:${t.label}`).join("|")}`;
   useEffect(() => { targetCtrl?.setOptions(targetOptions); }, [targetCtrl, targetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { if (folder) visible ? folder.show() : folder.hide(); }, [folder, visible]);

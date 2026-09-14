@@ -42,9 +42,10 @@ let gui: GUI | null = null;
 
 interface Props {
   effectIds: readonly string[]; targets: readonly Instrument3DEffectTarget[]; state: Instrument3DEffectsState;
-  onChange: (patch: Partial<Instrument3DEffectsState>) => void; visible: boolean;
+  allTargetsLabel?: string; onChange: (patch: Partial<Instrument3DEffectsState>) => void; visible: boolean;
 }
-function render(props: Props): HTMLElement {
+function render(rawProps: Props): HTMLElement {
+  const props = { allTargetsLabel: "All nodes", ...rawProps };
   container = document.createElement("div");
   guiHost = document.createElement("div");
   document.body.append(container, guiHost);
@@ -53,7 +54,8 @@ function render(props: Props): HTMLElement {
   act(() => { root!.render(<Instrument3DEffectsFolder gui={gui} {...props} />); });
   return guiHost;
 }
-function rerender(props: Props) {
+function rerender(rawProps: Props) {
+  const props = { allTargetsLabel: "All nodes", ...rawProps };
   act(() => { root!.render(<Instrument3DEffectsFolder gui={gui} {...props} />); });
 }
 afterEach(() => {
@@ -123,6 +125,41 @@ describe("Instrument3DEffectsFolder", () => {
     });
     const targetSelect = selectByLabel(host, "Target");
     expect(Array.from(targetSelect.options).map((o) => o.textContent)).toEqual(["All nodes", "Supervisor", "Coder"]);
+  });
+
+  // Fix round 2, P1-2 — `allTargetsLabel` is CALLER-provided, not a
+  // hard-coded "All nodes": a `/charts`-style caller targeting marks, not
+  // nodes, must be able to say so. Mutation: hard-code `"All nodes"` back
+  // into the folder's own `targetOptions` construction → this reddens.
+  it("the all-targets option uses the caller's own `allTargetsLabel`, not a hard-coded string", () => {
+    const host = render({
+      effectIds: ["none"], targets: [{ id: "m0", label: "Revenue" }],
+      allTargetsLabel: "All marks",
+      state: { effectId: "none", targetId: INSTRUMENT_3D_EFFECT_ALL_TARGET }, onChange: () => {}, visible: true,
+    });
+    const targetSelect = selectByLabel(host, "Target");
+    expect(Array.from(targetSelect.options).map((o) => o.textContent)).toEqual(["All marks", "Revenue"]);
+    expect(targetSelect.textContent).not.toMatch(/All nodes/);
+  });
+
+  // A CHANGED `allTargetsLabel` (not just a changed targets list) must also
+  // refresh the dropdown's own options — the same refresh effect P1-2's own
+  // "changed targets list" test above pins, now keyed on the label too.
+  // Mutation: build `targetKey` from `targets` alone, dropping
+  // `allTargetsLabel` → this reddens (the stale label survives the rerender).
+  it("a changed `allTargetsLabel` alone refreshes the Target dropdown's own options", () => {
+    const host = render({
+      effectIds: ["none"], targets: [{ id: "n0", label: "Planner" }],
+      allTargetsLabel: "All nodes",
+      state: { effectId: "none", targetId: INSTRUMENT_3D_EFFECT_ALL_TARGET }, onChange: () => {}, visible: true,
+    });
+    rerender({
+      effectIds: ["none"], targets: [{ id: "n0", label: "Planner" }],
+      allTargetsLabel: "All marks",
+      state: { effectId: "none", targetId: INSTRUMENT_3D_EFFECT_ALL_TARGET }, onChange: () => {}, visible: true,
+    });
+    const targetSelect = selectByLabel(host, "Target");
+    expect(Array.from(targetSelect.options).map((o) => o.textContent)).toEqual(["All marks", "Planner"]);
   });
 
   // Mutation: drop the `visible ? folder.show() : folder.hide()` effect → this reddens.

@@ -6,6 +6,7 @@
 // only ever mounts on `web` — so the matrix here is charset x colour, 20
 // cells, all of them pure-function cheap.
 import { describe, expect, it } from "vitest";
+import { resolveCharset } from "@glyphcss/diagrams/3d";
 import { resolveDiagrams3dSceneOptions } from "./diagrams3dSceneOptions";
 
 const CHARSETS = ["ascii", "box", "blocks", "braille"] as const;
@@ -77,6 +78,24 @@ describe("resolveDiagrams3dSceneOptions — charset x colour matrix", () => {
     for (const charset of ["ascii", "box"] as const) {
       for (const color of ["none", "truecolor", "css"] as const) {
         expect(resolveDiagrams3dSceneOptions(charset, color).note, `${charset}/${color}`).toBeUndefined();
+      }
+    }
+  });
+
+  // Fix round 2, P1-1 — `canvasTier`/`boxOutline` must be `resolveCharset`'s
+  // OWN values, verbatim, for every charset x colour cell: colour never
+  // affects the object's own build (only `useColors`/scene-level `mode` do),
+  // and the live object must match the static frame's `glyphDiagramObject`
+  // call (`{ tier: canvasTier, boxOutline }`) at every charset. Mutation:
+  // hard-coding `canvasTier: "box"` or `boxOutline: true` reddens this on
+  // any charset that disagrees.
+  it("canvasTier/boxOutline are resolveCharset's own values, independent of colour", () => {
+    for (const charset of CHARSETS) {
+      const expected = resolveCharset(charset);
+      for (const color of COLORS) {
+        const result = resolveDiagrams3dSceneOptions(charset, color);
+        expect(result.canvasTier, `${charset}/${color}`).toBe(expected.canvasTier);
+        expect(result.boxOutline, `${charset}/${color}`).toBe(expected.boxOutline);
       }
     }
   });

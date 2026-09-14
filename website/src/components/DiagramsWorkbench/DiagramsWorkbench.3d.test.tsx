@@ -28,15 +28,35 @@ vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAM
 // (never a fake implementation: `importOriginal` + a thin wrapper around the
 // factories' own returned handles) so the disposal tests below assert the
 // call itself happened, not merely that the host `<div>` left the DOM.
-const disposalSpies = vi.hoisted(() => ({ sceneDestroy: vi.fn(), controlsDestroy: vi.fn() }));
+//
+// Fix round 2 — the SAME wrapping pattern extended to: `sceneCreate` (counts
+// `createGlyphScene` CALLS, for P2-4's "no remount on a charset/colour edit"
+// gate), `sceneSetOptions` (records every `scene.setOptions(...)` argument,
+// same reason), and `effectLayerDispose` (P2-5's effect-layer disposal
+// gate) — every wrapper still forwards to the REAL implementation, never a
+// fake one.
+const disposalSpies = vi.hoisted(() => ({
+  sceneDestroy: vi.fn(), controlsDestroy: vi.fn(),
+  sceneCreate: vi.fn(), sceneSetOptions: vi.fn(), effectLayerDispose: vi.fn(),
+}));
 vi.mock("glyphcss", async (importOriginal) => {
   const actual = await importOriginal<typeof import("glyphcss")>();
   return {
     ...actual,
     createGlyphScene: (...args: Parameters<typeof actual.createGlyphScene>) => {
+      disposalSpies.sceneCreate();
       const scene = actual.createGlyphScene(...args);
       const originalDestroy = scene.destroy.bind(scene);
       scene.destroy = () => { disposalSpies.sceneDestroy(); originalDestroy(); };
+      const originalSetOptions = scene.setOptions.bind(scene);
+      scene.setOptions = ((opts: unknown) => { disposalSpies.sceneSetOptions(opts); return originalSetOptions(opts as never); }) as typeof scene.setOptions;
+      const originalAddEffectLayer = scene.addEffectLayer.bind(scene);
+      scene.addEffectLayer = ((opts: unknown) => {
+        const layer = originalAddEffectLayer(opts as never);
+        const originalDispose = layer.dispose.bind(layer);
+        layer.dispose = () => { disposalSpies.effectLayerDispose(); originalDispose(); };
+        return layer;
+      }) as typeof scene.addEffectLayer;
       return scene;
     },
     createGlyphOrbitControls: (...args: Parameters<typeof actual.createGlyphOrbitControls>) => {
@@ -51,6 +71,7 @@ import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
 import { createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
 import { glyphDiagramsWorkbenchRenderOptions3d } from "./diagramsWorkbenchState";
 import { decodeDiagramsUrlState } from "./diagramsUrlState";
+import { resolveDiagrams3dSceneOptions } from "./diagrams3dSceneOptions";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -61,6 +82,9 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
   beforeEach(async () => {
     disposalSpies.sceneDestroy.mockClear();
     disposalSpies.controlsDestroy.mockClear();
+    disposalSpies.sceneCreate.mockClear();
+    disposalSpies.sceneSetOptions.mockClear();
+    disposalSpies.effectLayerDispose.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -257,24 +281,187 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
   it("disposes the live scene's controls and scene on a view switch away from 3D", async () => {
     await select("View", "3d");
     const host = await waitForLiveScene();
+    // P2-5 (fix round 2) — an active effect layer's own `dispose()` and its
+    // `requestAnimationFrame` loop's `cancelAnimationFrame` must run on the
+    // SAME view-switch cleanup, not just the scene/controls. Mounted here
+    // (rather than a separate test) so the cleanup under test is the exact
+    // one `sceneDestroy`/`controlsDestroy` below already pin.
+    await selectDropdown("Effect", "glitch");
+    const cancelSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
     expect(disposalSpies.sceneDestroy).not.toHaveBeenCalled();
     expect(disposalSpies.controlsDestroy).not.toHaveBeenCalled();
+    expect(disposalSpies.effectLayerDispose).not.toHaveBeenCalled();
     expect(host.isConnected).toBe(true);
     await select("View", "2d");
     expect(disposalSpies.sceneDestroy).toHaveBeenCalledTimes(1);
     expect(disposalSpies.controlsDestroy).toHaveBeenCalledTimes(1);
+    // Mutation: drop `disposeEffect()` from `Diagrams3DViewport.tsx`'s
+    // mount-effect cleanup (leaving only `controls?.destroy()`/
+    // `scene?.destroy()`) → these two redden (the layer and its rAF loop
+    // leak past the view switch).
+    expect(disposalSpies.effectLayerDispose, "the mounted effect layer must be disposed too").toHaveBeenCalledTimes(1);
+    expect(cancelSpy, "the effect's own rAF loop must be cancelled").toHaveBeenCalled();
     expect(host.isConnected).toBe(false);
     expect(container.querySelector(".diagrams-3d-host")).toBeNull();
+    cancelSpy.mockRestore();
   });
 
   it("disposes the live scene's controls and scene on unmount", async () => {
     await select("View", "3d");
     const host = await waitForLiveScene();
+    await selectDropdown("Effect", "glitch"); // P2-5 — same effect-layer/rAF disposal, now via unmount
+    const cancelSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
     expect(host.isConnected).toBe(true);
     await act(async () => root.unmount());
     expect(disposalSpies.sceneDestroy).toHaveBeenCalledTimes(1);
     expect(disposalSpies.controlsDestroy).toHaveBeenCalledTimes(1);
+    // Mutation: same as above, for the unmount path.
+    expect(disposalSpies.effectLayerDispose, "the mounted effect layer must be disposed too").toHaveBeenCalledTimes(1);
+    expect(cancelSpy, "the effect's own rAF loop must be cancelled").toHaveBeenCalled();
     expect(host.isConnected).toBe(false);
+    cancelSpy.mockRestore();
+  });
+
+  // P2-5 (fix round 2) — a genuine effect-id CHANGE (not a target-only
+  // retarget) must dispose the OLD layer and its rAF loop before mounting
+  // the new one, never leak the old alongside it.
+  // Mutation: `applyEffect()`'s "same effect" retarget branch mistakenly
+  // reused for a genuinely different effect id (so the old layer is never
+  // disposed, only reconfigured) → `effectLayerDispose` stays uncalled.
+  it("changing the effect disposes the old layer and cancels its rAF loop", async () => {
+    await select("View", "3d");
+    await waitForLiveScene();
+    await selectDropdown("Effect", "glitch");
+    expect(disposalSpies.effectLayerDispose).not.toHaveBeenCalled();
+    const cancelSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
+    await selectDropdown("Effect", "scan");
+    expect(disposalSpies.effectLayerDispose).toHaveBeenCalledTimes(1);
+    expect(cancelSpy).toHaveBeenCalled();
+    cancelSpy.mockRestore();
+  });
+
+  // P2-4 (fix round 2) — a charset OR colour edit must call `scene.setOptions`
+  // with the newly resolved options and must NOT remount the scene.
+  // Mutation: delete the `[charset, color]` `scene.setOptions` effect in
+  // `Diagrams3DViewport.tsx` → `sceneSetOptions` is never called here.
+  // Mutation: fold charset/colour into the mount effect's own dependency
+  // array (so an edit remounts the whole scene) → `sceneCreate`'s call
+  // count increases here, reddening the "without remounting" assertions.
+  it("a charset or colour change calls scene.setOptions once, without remounting the scene", async () => {
+    await select("View", "3d");
+    await waitForLiveScene();
+    // Move off the default charset first (its default happens to already
+    // be a charset the SAME "solid"/"ascii" scene options apply to — this
+    // isolates the transition actually under test).
+    await select("Charset", "box");
+
+    const createCallsAfterMount = disposalSpies.sceneCreate.mock.calls.length;
+    disposalSpies.sceneSetOptions.mockClear();
+    await select("Charset", "ascii");
+    expect(disposalSpies.sceneSetOptions).toHaveBeenCalled();
+    const afterCharset = disposalSpies.sceneSetOptions.mock.calls.at(-1)![0] as Record<string, unknown>;
+    const expectedCharset = resolveDiagrams3dSceneOptions("ascii", "css");
+    expect(afterCharset).toMatchObject({ mode: expectedCharset.mode, charMode: expectedCharset.charMode, useColors: expectedCharset.useColors });
+    expect(disposalSpies.sceneCreate.mock.calls.length, "createGlyphScene must not be called again for a charset edit").toBe(createCallsAfterMount);
+
+    disposalSpies.sceneSetOptions.mockClear();
+    await select("Color", "none");
+    expect(disposalSpies.sceneSetOptions).toHaveBeenCalled();
+    const afterColor = disposalSpies.sceneSetOptions.mock.calls.at(-1)![0] as Record<string, unknown>;
+    const expectedColor = resolveDiagrams3dSceneOptions("ascii", "none");
+    expect(afterColor).toMatchObject({ mode: expectedColor.mode, charMode: expectedColor.charMode, useColors: expectedColor.useColors });
+    expect(disposalSpies.sceneCreate.mock.calls.length, "createGlyphScene must not be called again for a colour edit").toBe(createCallsAfterMount);
+  });
+
+  // Fix round 2, P1-1 — the live OBJECT's own overlay tier must match the
+  // selected charset, not just the scene's render mode. "box" and "ascii"
+  // resolve to the IDENTICAL `mode`/`charMode` (both `solid`/`ascii`, only
+  // `canvasTier` differs — `diagrams3dSceneOptions.test.ts`'s own matrix),
+  // so `scene.setOptions` alone (round 1's fix) produces NO visible change
+  // between them; only rebuilding the object's own box-outline tier does.
+  // Mutation: drop `charset` from the `[charset]` object-rebuild effect's
+  // `glyphDiagramObject` call in `Diagrams3DViewport.tsx` (or from the mount
+  // effect's own `renderGlyphDiagram3d` probe call) → the live picture never
+  // loses its Unicode box-drawing glyphs when switching to "ascii", reddening.
+  it("switching Charset from box to ascii replaces the live object's Unicode box-outline glyphs with plain ASCII ones", async () => {
+    await select("View", "3d");
+    const host = await waitForLiveScene();
+    await select("Charset", "box");
+    const pre = host.querySelector(".glyph-output")!;
+    expect(pre.textContent, "the box tier's straight box-outline glyphs (U+2500/U+2502) should be present").toMatch(/[─│]/);
+    await select("Charset", "ascii");
+    expect(pre.textContent, "the ascii tier draws no Unicode box-drawing glyphs at all (AGENTS.md: ASCII is 7-bit throughout)").not.toMatch(/[─│]/);
+  });
+
+  // Fix round 2 (found while implementing P1-1's own object-rebuild reuse
+  // of `applyEffect()`) — glyphcss's own effect-layer `target` is IMMUTABLE
+  // after mount (verified against the real library: `setOptions` with a
+  // DIFFERENT mesh-id set throws "an effect layer's mesh target is
+  // immutable after mount"), so the round-1 code's "retarget without
+  // remounting" branch actually THREW the moment a reader picked a
+  // DIFFERENT node while an effect was already mounted. `applyEffect()` now
+  // always fully disposes and remounts on a genuine target change.
+  it("picking a different effect target node while an effect is mounted retargets without throwing", async () => {
+    await select("View", "3d");
+    const host = await waitForLiveScene();
+    await selectDropdown("Effect", "glitch");
+    const targetOptions = Array.from(controller("Target").querySelectorAll<HTMLOptionElement>("select option")).map((o) => o.textContent!);
+    expect(targetOptions.length, "the default preset graph needs at least two real nodes for this test").toBeGreaterThanOrEqual(3);
+    await selectDropdown("Target", targetOptions[1]!);
+    disposalSpies.effectLayerDispose.mockClear();
+    // Mutation: revert to `layer.setOptions({ target })` for a same-effect
+    // retarget → this `await` throws (an uncaught exception inside the
+    // component's own effect, surfaced through `act()`), failing the test
+    // before either assertion below runs.
+    await selectDropdown("Target", targetOptions[2]!);
+    expect(disposalSpies.effectLayerDispose, "a genuine retarget disposes the old layer and mounts a fresh one").toHaveBeenCalled();
+    expect(host.querySelector(".glyph-output")?.textContent).toMatch(/\S/);
+  });
+
+  // A STALE target (a `?d=` link naming a node id from a graph that no
+  // longer has it) must mount no effect layer and never throw — glyphcss's
+  // own `addEffectLayer` REJECTS a literal empty-array target outright
+  // (verified against the real library: "an effect target mesh array must
+  // contain at least one GlyphMeshHandle"), so `resolveEffectTarget`'s
+  // stale case now resolves to `null` ("mount nothing") rather than `[]`.
+  // Mutation: resolve a stale target back to `[]` and pass it straight to
+  // `scene.addEffectLayer` → the live viewport's own mount effect throws
+  // during its post-mount `applyEffect()` call and the scene never settles,
+  // timing out `vi.waitFor` below.
+  it("a stale effect target (a removed/unknown node id) mounts no effect layer and never throws", async () => {
+    // `applyEffect()` runs from inside the mount effect's own unawaited
+    // async IIFE, so a throw there is an UNHANDLED PROMISE REJECTION, not
+    // an exception `act()` surfaces synchronously — `.glyph-output` still
+    // appears (the scene/object mount ahead of the effect layer), so a
+    // plain content assertion alone passes even under the `[]`-to-
+    // `addEffectLayer` mutation this test exists to catch. Listening for
+    // the rejection directly is what actually pins it.
+    const rejections: unknown[] = [];
+    const onRejection = (reason: unknown) => { rejections.push(reason); };
+    process.on("unhandledRejection", onRejection);
+    try {
+      const badState = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, effect3d: { effectId: "glitch", targetId: "not-a-real-node-id" } };
+      const badContainer = document.createElement("div");
+      document.body.append(badContainer);
+      const badRoot = createRoot(badContainer);
+      await act(async () => badRoot.render(<GlyphDiagramsWorkbench initialState={badState} />));
+      await vi.waitFor(async () => {
+        await act(async () => { await vi.dynamicImportSettled(); });
+        expect(badContainer.querySelector(".diagrams-3d-host .glyph-output")).not.toBeNull();
+      }, { timeout: 3000, interval: 10 });
+      expect(badContainer.querySelector(".diagrams-3d-host .glyph-output")!.textContent).toMatch(/\S/);
+      expect(disposalSpies.effectLayerDispose).not.toHaveBeenCalled(); // nothing was ever mounted to dispose
+      await act(async () => badRoot.unmount());
+      badContainer.remove();
+      // Let any pending unhandled-rejection microtask surface before asserting.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // Mutation: resolve a stale target back to `[]` and pass it straight
+      // to `scene.addEffectLayer` → this reddens (a real, caught rejection
+      // from glyphcss's own "must contain at least one GlyphMeshHandle").
+      expect(rejections, "mounting with a stale effect target must never throw/reject").toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onRejection);
+    }
   });
 
   it("the 3D folder (Layout / Z by / Seed / Rotation) shows only in the 3D view", async () => {
