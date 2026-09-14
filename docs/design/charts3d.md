@@ -5245,3 +5245,371 @@ THIS assertion first, naming exactly which premise moved.
   coordinator's own 40x40/87x61 fixtures — a very fine (e.g. 200x200) or
   very coarse (e.g. 10x10) surface's own "right" decimation count is
   unverified past this round's two fixtures.
+
+## C2 fix round 5 — tick labels never paint over the surface, and the wall grid defaults off
+
+Rounds 2-4 are committed on `feat/diagrams` as `00a07a85`. The cellAspect
+root-cause fix held — the surface reads as an oblique volcano with rim and
+crater visible at every deliverable size/charset. The coordinator rendered
+the frames and found two remaining defects, both fixed this round.
+
+### Item 1 — braille tick labels were stamped over the surface
+
+Round 4's own Item 4 fix (dropping `depth` from a tick label's write, so a
+genuinely present label could no longer be PARTIALLY clipped by a sibling
+grid/axis-line write) paired it with `ownMeshIds: new Set()` +
+`occlusionDepth` — the SAME whole-label-drop mechanism the axis TITLE
+already used. That mechanism depends on `CellGrid.winnerMesh`, and
+`compileScene.ts`'s own gate is `retainWinnerMesh: mode === "solid" &&
+...` — under `style: "wireframe"` (the braille charset's own default)
+`winnerMesh` is NEVER populated, so the occlusion check's own `if
+(c.ownMeshIds && winnerMesh)` guard is false and the whole-label-drop
+NEVER fires there. Round 4's own fix was therefore correct for `solid`
+(box/ascii) and silently inert for `wireframe` (braille) — exactly what
+the coordinator's report showed: `0`, `10`, `20`, `30` printed straight
+into the dense braille fill (`⣿⣿20⣿⣿`, `⠛30⣿⣿`).
+
+Fixed with a GEOMETRIC occlusion test that needs no `winnerMesh` at all —
+`object.ts`'s new `buildMeshScreenDepth` projects every one of the mesh's
+OWN vertices (the same domain-to-`[0,aspect]` mapping `buildSurfaceMesh`
+applies, replicated here since this overlay has no access to the already-
+built `Polygon[]`) through the SAME camera the overlay itself uses, and
+records the NEAREST depth reached at each screen cell. A tick label is
+dropped WHOLE — never partially — the instant ANY of its own left-aligned
+character cells has a recorded mesh depth nearer than the label's own
+anchor (`tickLabelOccludedByMesh`), mirroring the arbiter's own "any cell,
+not just the anchor" rule at the geometry level. Built ONCE per `stamp()`
+call (not per tick) and reused across all 3 axes' own labels — O(mesh
+vertices) once, a couple of `Map` lookups per label after that. Kept the
+existing `occlusionDepth`/`ownMeshIds` mechanism in place too (real,
+correct, and free under `solid`) as defense in depth; `TICK_LABEL_MARGIN`
+moved from `0.12` to `0.15` (a small, honest bump — NOT the fix: a margin
+increase alone was tried first, up to `1.0`, and still left residual
+collisions on Maunga Whau's own off-center peak while sacrificing real
+footprint, since `fitStaticCamera` zooms OUT to keep a farther-pushed
+label on screen too).
+
+Gate (`render.test.ts`, at the library default camera, both `box` and
+`braille`): no tick-label cell lands on a cell the surface's own mesh
+sampling reports as nearer, and every KEPT tick label string appears
+whole (verified directly against both deliverable fixtures — see the
+frames below, where every one of "150", "100", "220", "180", "140",
+"100", "60", "40", "20", "30" and Maunga Whau's own "172.5"/"117.5" now
+prints intact, with none landing inside the surface's own ink).
+
+### Item 2 — the wall grid still read as a cage
+
+`planeGridLines` already drew lines only at each axis's own TICK
+positions (never dense per-cell dots) and each line already stopped at
+the plane's own edge, and grid writes were already depth-tested against
+the real surface (`stampGlyphOverlayLine`'s own depth-tested primitive) —
+none of those were the defect. Measured directly: the wall grid's own ink
+share was already a modest 7-11% of the plot's own bounding box at both
+fixtures, well under a 15% cap. The defect was VISUAL WEIGHT, not ink
+density — a genuinely low-density crosshatch spread across two FULL guide
+planes still projects, at this library's own default oblique camera, as a
+diamond shape the eye locks onto ahead of the surface (the coordinator's
+own words: "a big dotted diamond... filling the whole upper half of the
+frame... visually outweigh the data"), a property the ink metric alone
+never measured.
+
+Two changes: (1) `guides.grid` and `guides.floorGrid` both default `false`
+now (were `true`/`false` after round 4) — decided by LOOKING, per the
+coordinator's own explicit instruction: with the grid off, both fixtures
+read as a clean oblique surface with axis structure only, closer to
+matplotlib's own actual default (panes with no gridlines drawn unless the
+reader asks) than the "always-on guide plane" round 4 shipped. `guides.
+grid: true`/`floorGrid: true` still work exactly as built for a caller who
+wants them. (2) A new `GRID_MAX_LINES_PER_SWEEP_AXIS` (`2`) caps how many
+of an axis's own ticks become a wall grid line, independent of the axis's
+own tick/label count, subsampling evenly and always keeping the plane's
+own first/last tick (`subsampleTicksForGrid`) — a safety net for the
+opt-in case, sized to the coordinator's own explicit regression number.
+
+Gate (`object.test.ts`): with the grid explicitly re-enabled, its own ink
+is <= 15% of the PLOT's own occupied bounding box (not the whole canvas,
+which would hide a dense grid behind a title/colorbar's blank margin) —
+measured directly against the SAME 15% cap the coordinator specified, on
+all three charsets; a second test pins the DEFAULT render byte-identical
+to an explicit `guides.grid: false`.
+
+### Frames (verbatim, `renderGlyphChart3d` with default options besides target/width/height/charset/title)
+**ring-crater 96x32 box:**
+
+```
+                                           Ring crater                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                            height                                              
+                                                                                                
+                                                                                                
+                                             200                                                
+                                             150                                                
+                                             │                                                  
+                                             100                      220█                      
+                                             │                           █                      
+                                             │                        180▓                      
+                                         -@@@@@@+                        ▓                      
+                                       *%@@@@@@@@@@                   140▒                      
+                                    @=#@*@@@@@@@%*+%#%                   ▒                      
+                                 %##=*%@@#@@@@@@#@@@%*#%%             100░                      
+                        x    %@%%%%=+#@@@@@@@@@@@@@@@##%@%@%%    y       ░                      
+                           %%%%%%%%#*%@@@@@@@@@@@@@@@@%%%%%%%%%        60                       
+                            //%%@%@@@@@@@@@@@@@@@@@@@@@@@%%%\\                                  
+                       40 +/     %%@@@@@@@@@@@@@@@@@@@@@%     \+  40                            
+                                     @@@@@@@@@@@@@@@@                                           
+                                        %%%%%%%%%%                                              
+                                           %@%%                                                 
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**ring-crater 96x32 braille:**
+
+```
+                                           Ring crater                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                            height                                              
+                                                                                                
+                                                                                                
+                                             200                                                
+                                             150                                                
+                                             │                                                  
+                                             100                      220█                      
+                                             │                           █                      
+                                          ⣠⣴⣾⣦⣄                       180▛                      
+                                      ⣠⣶⣾⣿⣯⣿⣳⣿⢿⢿⣷⣶⣄                      ▛                      
+                                   ⢀⣴⣾⣿⣿⣿⣷⣷⢙⣿⣛⣾⣻⣿⣾⣿⣷⣦⡀                140▀                      
+                                ⢀⣠⣾⣿⣿⣿⣯⢿⣿⣿⣽⡾⣾⣹⣽⣿⣿⣿⢿⣿⣿⣿⣷⣄⡀                ▀                      
+                             ⣠⣴⣾⣿⣿⣿⣿⢯⡿⣿⣿⣟⣿⣿⣿⣷⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⣦⣄          100▘                      
+                        x ⣠⣴⣾⣿⣿⣿⣿⣿⣿⣟⣿⣿⣷⡿⣷⡗⡟⢧⣟⡾⢻⢺⣾⢿⣾⣾⣿⣿⣿⣿⣿⣿⣿⣿⣷⣦⣄  y       ▘                      
+                          ⠙⠻⣿⣿⣿⣿⣿⣿⣿⣺⣟⡯⣿⡿⣏⣿⡟⡟⣦⢿⢻⣿⣹⢿⣿⢽⣻⣿⣿⣿⣿⣿⣿⣿⣿⠟⠋        60                       
+                            ⠈⠙⠻⢿⣿⣿⣿⣯⣟⣿⣟⡿⣯⣧⣽⡗⣿⣻⣯⣼⣽⢿⣻⣿⣻⣽⣿⣿⣿⡿⠟⠋⠁\                                  
+                       40 +/    ⠈⠙⢿⣿⣿⣿⣿⣿⣏⣷⡧⡿⣗⣿⢼⣾⣹⣿⣿⣿⣿⣿⡿⠋⠁     \+  40                            
+                                   ⠈⠳⢿⣿⣯⣿⣯⣿⣿⣿⣿⣿⣽⣿⣽⣿⡿⠞⠁                                          
+                                      ⠈⠙⠻⢿⣿⣿⣿⣿⣿⡿⠟⠋⠁                                             
+                                          ⠙⠻⠿⠟⠋                                                 
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**ring-crater 140x40 box:**
+
+```
+                                                                 Ring crater                                                                
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                   height                                                                   
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                   200                                                                      
+                                                                   │                                                                        
+                                                                   +                                                                        
+                                                                   150                                                                      
+                                                                   │                                                                        
+                                                                   100                             220█                                     
+                                                                   │                                  █                                     
+                                                                   +                               180▓                                     
+                                                                 %%%%                                 ▓                                     
+                                                             @@@@@@@@@@@@                          140▒                                     
+                                                          =#*@@@@@@@@@@@%#%                           ▒                                     
+                                                        @=#@##@@@@@@@@@@#*@%@%                     100░                                     
+                                                    %%#%**#@@%#@@@@@@@@%+*@@##%%%%                    ░                                     
+                                       x         %@%%##=+#%@@@@@@@##@@@@@@@@@#*#%%@%%         y     60                                      
+                                              %%%%%%#*++#%%@@@@@@@@@@@@@@@@@@%###%#%%%%%                                                    
+                                           %@%%%@%%%%##*%@@@@@@@@@@@@@@@@@@@@@@%@%@%@%%%@%%                                                 
+                                            ///%%%%%##%%@@@@@@@@@@@@@@@@@@@@@@@@%%%%%%%\\\                                                  
+                                      40  +/      @%%%@@@@@@@@@@@@@@@@@@@@@@@@@@@%@%      \+   40                                           
+                                                     %%@@@@@@@@@@@@@@@@@@@@@@@%%%                                                           
+                                                        @@@@@@@@@@@@@@@@@@@@@@                                                              
+                                                           %%%%@@@@@@@@%%%%                                                                 
+                                                               %%%@%%%@                                                                     
+                                                                  %%                                                                        
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+**maunga whau 96x32 box:**
+
+```
+                                           Maunga Whau                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                          height                                                
+                                                                                                
+                                          200                                                   
+                                          180                                                   
+                                          160                                                   
+                                          140                                                   
+                                          120                           200█                    
+                                          100                              █                    
+                                     @@@@ │                           172.5▓                    
+                                   @@@@@@@@##                              ▓                    
+                                 +@@@@@@##@@#@%%%                       145▒                    
+                                +@@@@@@@@@@@@@@#%@@                        ▒                    
+                               =#@@@@@@@@@#@@@@@@%%*@@                117.5░                    
+                      x (m)  ==%@@@@@@@@@@@@@@@@@@@@@*@@@@     y (m)       ░                    
+                          *##=+@@@@@@@@@@#@@@@@@@@@@@@@@@@@              90                     
+                         @@*@%@%@@@@@@@@@%@@@@@@@@@@@@@@@@@%@ 80                                
+                     60 +/  @%+@@@@@@@@@@@@@@@@@@@@@@@@@@   \\                                  
+                                @@@@@@@%@@@@@@@@@@@@@@                                          
+                                  %@@@@@@@@@@%%%@@@                                             
+                                     @%@@@@%@%%%                                                
+                                       %%%@@%                                                   
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**maunga whau 96x32 braille:**
+
+```
+                                           Maunga Whau                                          
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                          height                                                
+                                                                                                
+                                          200                                                   
+                                          180                                                   
+                                          160                                                   
+                                          140                                                   
+                                          120                           200█                    
+                                    ⢀⣀⣠⣄⡀ 100                              █                    
+                                  ⢀⣤⣿⡟⣷⢿⣿⣷⣦⣀                          172.5▛                    
+                                ⢀⣴⣿⣻⣹⣿⣯⣿⣾⣿⣿⣿⡿⣿⣷⣦⡀                          ▛                    
+                               ⢠⣿⣿⣿⣿⣾⣿⣿⣿⣿⢿⣽⣿⣿⣿⣿⣿⣷⣄                      145▀                    
+                              ⢠⣿⣿⣗⡿⣿⣿⣾⣿⣽⢻⣺⣿⣏⣷⣿⣿⣿⣿⣿⣷⣶⣦⣄                     ▀                    
+                             ⣠⣿⣿⣷⣟⣿⢿⣽⢻⣾⢽⣽⡿⣧⣷⡯⣿⡿⣿⡿⣿⣿⣿⣿⣿⣷⣶⣦⡄            117.5▘                    
+                      x (m)⣶⣿⣿⣿⣾⡿⣯⠿⣾⣽⢿⢼⣾⡾⣿⣽⣿⣷⣗⣟⣯⣿⣿⣟⣯⣿⣿⣿⣷⣻⣽⡀    y (m)       ▘                    
+                       ⢠⣶⣿⣿⣿⣿⣿⣿⣻⣗⡿⡗⣿⣿⣽⢿⣽⣿⣿⣿⢿⣷⡟⡷⣯⣿⣻⣾⡿⣯⣿⣯⣿⣿⣿⣿⣶⣄            90                     
+                        ⠉⠻⢽⣿⣿⣿⣿⣷⡟⣗⣿⣷⣿⣾⢿⣽⣿⡿⡯⣿⣳⣟⣏⣿⣿⢾⣽⣿⣿⣿⣿⣯⣿⣿⠿⠛⠉ 80                                
+                     60 +/ ⠈⠙⠻⢷⡿⣯⣿⣿⣽⣾⣺⣾⣺⡿⣗⡿⣯⣯⣿⣿⣿⣻⣿⣿⣷⣿⣿⣷⠿⠋   \\                                  
+                               ⠙⠻⣿⣿⣻⣾⣿⣾⣿⣗⡟⣗⡿⡟⣿⣿⣾⣻⣾⣽⡿⠟⠋                                          
+                                 ⠉⠻⣽⣿⣿⣿⣿⣿⣿⣿⣯⣿⣿⣿⢾⡿⠞⠁                                             
+                                    ⠙⠾⣿⣿⣿⣿⣿⣿⣿⣻⠟⠋                                                
+                                      ⠘⠻⢿⣿⣿⠿⠋⠁                                                  
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**maunga whau 140x40 box:**
+
+```
+                                                                 Maunga Whau                                                                
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                 height                                                                     
+                                                                                                                                            
+                                                                                                                                            
+                                                                 200                                                                        
+                                                                                                                                            
+                                                                 180                                                                        
+                                                                 160                                                                        
+                                                                 +                                                                          
+                                                                 140                                                                        
+                                                                 120                                                                        
+                                                                 100                                 200█                                   
+                                                            @@   +                                      █                                   
+                                                       =@@@@@@@%@+                                 172.5▓                                   
+                                                      @@@@@@@@@@*@@%@@@#                                ▓                                   
+                                                    =@@@@@@@@@+@@@#@*@@%%                            145▒                                   
+                                                   +@%%@%@@@@@@@@@@%@@@@@@@                             ▒                                   
+                                                  -@@@@@@@@@@@@@@+@@@@@@++*%#+*                    117.5░                                   
+                                      x (m)      =+%@@@@@@@@@@@@@@@@@@@%%%@@@@###%          y (m)       ░                                   
+                                              +#=%%@@@@@@@@@@@@@@@@@@@@@@@@@@@@%@@@@@                 90                                    
+                                           %#%%*=@%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@                                                      
+                                         %*%@@@+@@@@@@@@@@@@%@%%%@@@@@@@@@@@@@@@@@@%@%@@  80                                                
+                                    60  +/  @@@+@%@@@@@@@@@@@@#@@@@@@@@@@@@@@@@@@@@@@@  \\                                                  
+                                                @@@@@@@@@@@@@@%@@@@@@@@@@@@%%@@@%%                                                          
+                                                   @@@@%@@@@@%@@@@@@@%@@@@@@@@@                                                             
+                                                     @@@@@@@@@@@@@@@@@@@@%@%                                                                
+                                                        @@@%%@@@@@@%@%@@@                                                                   
+                                                           %@@@%%%%%@%                                                                      
+                                                             %%@@@%%                                                                        
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+### Mutation table (this round's own additions)
+
+| Guarantee | Test | Mutation | Effect |
+|---|---|---|---|
+| A tick label is geometrically occluded (dropped whole) by the mesh even under `style: "wireframe"`, where `winnerMesh` is never populated | `render.test.ts`'s round-5 tick-occlusion gate (both `box` and `braille`, default camera) | Remove the `meshScreenDepth`/`tickLabelOccludedByMesh` check, leaving only `occlusionDepth`/`ownMeshIds` | RED under `braille` specifically — digits reappear embedded in the surface fill (reproduced directly during development against both fixtures) |
+| The mesh depth map is built once per `stamp()`, not once per tick | (performance property, not separately gated — `buildMeshScreenDepth`'s own doc states the cost bound) | n/a | n/a |
+| `guides.grid`/`floorGrid` default `false` | `object.test.ts`'s "the DEFAULT... renders with NO grid ink — byte-identical to an explicit `guides.grid: false`" | Revert `surface.ts`'s `grid: g.grid ?? false` to `?? true` | RED — the default render's own ink no longer matches the explicit-off render |
+| An opt-in grid still stays under the coordinator's own 15% ink cap | `object.test.ts`'s "the grid cell count is <= 15% of the PLOT's own occupied bounding box" (box/ascii/braille) | Revert `GRID_MAX_LINES_PER_SWEEP_AXIS` to unbounded (every tick) | RED — measured 16.7-20.8% at this test's own tighter-framed scene before the cap, over the 15% line |
+| `subsampleTicksForGrid` never drops the plane's own two edge ticks | (implicit in the "grid glyphs are never axis-line glyphs" / visual frames — no dedicated new test, since the existing edge-line/box-outline gates already cover a plane's own boundary being drawn) | n/a | n/a |
+
+**Gate.** `pnpm --filter @glyphcss/charts test` (43 files, 1592 tests),
+`pnpm --filter glyphcss test` (116 files, 1274 tests, unaffected),
+`pnpm --filter @glyphcss/diagrams test` (12 files, 267 tests, unaffected —
+grown from 256 by the parallel diagrams-3d agent's own work already
+merged in via the `feat/diagrams` sync), `pnpm --filter @glyphcss/compile
+test` (8 files, 88 tests, unaffected), and the three authorized website
+test files (28 tests) all pass. `pnpm build:packages` is clean.
+
+### Residuals, stated plainly
+
+- The mesh-vertex depth sampling in `buildMeshScreenDepth` is an
+  APPROXIMATION — it samples grid VERTICES, not a full triangle
+  rasterization, so a very coarse mesh with wide gaps between vertices
+  (relative to the output grid's own resolution) could in principle leave
+  a face's own INTERIOR cells unrepresented in the depth map. Verified
+  correct by LOOKING at both deliverable fixtures at every required
+  size/charset, not proven exhaustively for an arbitrary future mesh
+  resolution.
+- `GRID_MAX_LINES_PER_SWEEP_AXIS = 2` reduces an opt-in wall grid to
+  essentially the plane's own two boundary lines per sweep axis (its own
+  outline, through the grid glyph family) — a deliberate, stated
+  trade-off for clearing the coordinator's own 15% cap under
+  `object.test.ts`'s own tighter-framed test scene, not a claim that 2
+  lines is the ideal interior-guide look for every fixture; a caller
+  wanting a denser opt-in grid has no separate control for it yet.
+- No SEPARATE numeric gate exists for "clip wall grids to the region
+  where the surface isn't in front" — that property was already true
+  before this round (every grid write goes through the depth-tested
+  `stampGlyphOverlayLine`/`stampGlyphOverlayCell` primitives, gated
+  directly by `object.test.ts`'s existing "guide lines are depth-tested
+  against the surface" test) and needed no change.

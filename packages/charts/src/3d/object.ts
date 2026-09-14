@@ -13,7 +13,7 @@
  * re-scaled quantity an effect would have to invert.
  */
 import { gridSurfacePolygons, surfaceMedianOfBlock, createSurfaceMedianScratch } from "glyphcss";
-import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey } from "glyphcss";
+import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey, foldGlyphOverlayLabelToAscii } from "glyphcss";
 import type { GlyphCamera, GlyphSceneObject, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
 import { glyphChart3dBandColor, glyphChart3dBandIndex } from "./colorscale";
 import type { GlyphChart3dMark, GlyphChart3dObjectOptions, GlyphChart3dResolvedAxis, GlyphChart3dSurfaceMark } from "./types";
@@ -88,7 +88,7 @@ function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly
 }
 
 /** How far outward (as a fraction of that axis's own box extent) a tick label / axis title is pushed past the box edge. */
-const TICK_LABEL_MARGIN = 0.12;
+const TICK_LABEL_MARGIN = 0.15;
 /**
  * Fix round 3, Item 3 ("just beyond its own tick labels" / "never over the
  * surface"). Round 2 pushed this to 0.38 (from an original 0.3) to clear an
@@ -173,6 +173,64 @@ function projectObjectPoint(frame: Projector, p: Vec3): Projected {
   const result = frame.camera.project(world, frame.cols, frame.rows, frame.cellAspect);
   const depth = result[3] ?? result[2];
   return { col: Math.round(result[0]), row: Math.round(result[1]), depth };
+}
+
+/**
+ * Fix round 5, Item 1 ("tick labels are stamped over the surface"): a
+ * per-SCREEN-CELL nearest-depth map of the mesh's OWN vertices, built
+ * directly from `mark.grid`/`mark.axes` (the SAME domain-to-`[0,aspect]`
+ * mapping `buildSurfaceMesh` applies — replicated here rather than shared,
+ * since this overlay has no access to the already-built `Polygon[]`, only
+ * the mark's own resolved data) — NOT `glyphcss`'s `CellGrid.winnerMesh`,
+ * which `compileScene` only ever populates for `mode: "solid"`
+ * (`compileScene.ts`'s `retainWinnerMesh: mode === "solid" && ...`): under
+ * `style: "wireframe"` (the braille charset's own default) winnerMesh is
+ * NEVER retained, so the `occlusionDepth`/`ownMeshIds` mechanism below —
+ * correct for titles and for ticks under `solid` — silently never fires
+ * there, which is exactly how round 4's own fix (dropping the tick
+ * label's stray `depth`, closing a DIFFERENT bug) left braille labels with
+ * NOTHING stopping them from painting straight over real surface ink
+ * (measured directly against the coordinator's own report: "0", "10",
+ * "20", "30" embedded inside the dense braille fill). Sampling the mesh's
+ * own VERTICES (not a full triangle rasterization) is an approximation —
+ * good enough at this grid's typical resolution (finer than the ~32-40 row
+ * output grid almost everywhere a tick label's own screen cells fall,
+ * since a tick sits at a domain EDGE where the grid's own boundary row/
+ * column is always fully sampled) — verified by LOOKING at the rendered
+ * frames, not assumed correct from the algorithm alone.
+ */
+function buildMeshScreenDepth(mark: GlyphChart3dSurfaceMark, frame: Projector): Map<string, number> {
+  const { grid, aspect } = mark;
+  const rows = grid.z.length;
+  const cols = grid.z[0]?.length ?? 0;
+  const [xLo, xHi] = mark.axes.x.domain;
+  const [yLo, yHi] = mark.axes.y.domain;
+  const [zLo, zHi] = mark.axes.z.domain;
+  const xSpan = xHi - xLo || 1;
+  const ySpan = yHi - yLo || 1;
+  const zSpan = zHi - zLo || 1;
+  const depthByCell = new Map<string, number>();
+  for (let r = 0; r < rows; r++) {
+    const y = ((grid.y[r]! - yLo) / ySpan) * aspect[1];
+    for (let c = 0; c < cols; c++) {
+      const x = ((grid.x[c]! - xLo) / xSpan) * aspect[0];
+      const z = ((grid.z[r]![c]! - zLo) / zSpan) * aspect[2];
+      const p = projectObjectPoint(frame, [x, y, z]);
+      const key = `${p.col},${p.row}`;
+      const existing = depthByCell.get(key);
+      if (existing === undefined || p.depth > existing) depthByCell.set(key, p.depth);
+    }
+  }
+  return depthByCell;
+}
+
+/** Whole-label test against `buildMeshScreenDepth`'s own map: occluded (drop the WHOLE label, never partially) iff ANY of its own left-aligned character cells has a recorded mesh depth nearer than the label's own anchor depth. Mirrors the arbiter's own "any cell, not just the anchor" rule (AGENTS.md's "Scene objects" Occlusion clause) at the geometry level, since `winnerMesh`-based occlusion cannot see this under wireframe (see `buildMeshScreenDepth`'s own doc). */
+function tickLabelOccludedByMesh(depthByCell: Map<string, number>, labelProjected: Projected, textLength: number): boolean {
+  for (let i = 0; i < textLength; i++) {
+    const meshDepth = depthByCell.get(`${labelProjected.col + i},${labelProjected.row}`);
+    if (meshDepth !== undefined && meshDepth > labelProjected.depth) return true;
+  }
+  return false;
 }
 
 /** A straight box edge needs exactly one glyph for its whole run — the direction never changes along it. */
@@ -328,11 +386,44 @@ function outwardPoint(axis: 0 | 1 | 2, corner: Corner, t: number, ext: readonly 
 }
 
 /**
+ * Fix round 5, Item 2: caps how many of an axis's own TICKS become a grid
+ * line on a guide plane, independent of how many tick MARKS/labels that
+ * axis itself shows — a "few faint guide lines, like matplotlib panes"
+ * (the coordinator's own wording) means fewer lines than the axis's own
+ * tick count, not merely fainter glyphs on the same count (which round 3's
+ * own `gridEdgeGlyph` fix already did, and the coordinator's round-5
+ * report shows was not enough on its own). Always keeps the FIRST and LAST
+ * tick (the plane's own two edges, so a capped grid never loses its own
+ * outer bound) and evenly subsamples the interior — never a blind
+ * `ticks.slice(0, max)`, which would bunch every kept line at one end. At
+ * the library default of `2` this reduces to just the plane's own two
+ * boundary lines per sweep axis (its own outline, through the SAME faint
+ * `gridEdgeGlyph` family and depth test as an interior line would use) —
+ * `guides.grid`/`floorGrid` default OFF now (this file's own `types.ts`
+ * doc), so this cap is a SAFETY NET for a caller who opts back in, sized
+ * to the coordinator's own explicit regression gate (grid ink <= 15% of
+ * the plot's own bounding box, `object.test.ts`), not a claim that 2 lines
+ * is the ideal look for every fixture.
+ */
+const GRID_MAX_LINES_PER_SWEEP_AXIS = 2;
+function subsampleTicksForGrid(ticks: readonly number[], max: number): readonly number[] {
+  if (ticks.length <= max || max < 2) return ticks;
+  const out: number[] = [];
+  for (let i = 0; i < max; i++) {
+    const idx = Math.round((i * (ticks.length - 1)) / (max - 1));
+    const value = ticks[idx]!;
+    if (out[out.length - 1] !== value) out.push(value);
+  }
+  return out;
+}
+
+/**
  * Grid lines on the guide plane fixed at `fixedAxis = corner[fixedAxis]`
- * (`guides.grid`) — at every tick of EACH of the plane's other two axes, a
- * line sweeping the plane's own full extent along the remaining axis, the
- * same "gridlines behind the marks" a 2D chart's `axes.{x,y}.grid` paints,
- * extended by the one dimension a 3D chart adds.
+ * (`guides.grid`/`floorGrid`) — at up to `GRID_MAX_LINES_PER_SWEEP_AXIS`
+ * ticks of EACH of the plane's other two axes (fix round 5, subsampled —
+ * `subsampleTicksForGrid`'s own doc — never every tick, unlike the 2D
+ * chart's own `axes.{x,y}.grid`, which this otherwise mirrors in spirit),
+ * a line sweeping the plane's own full extent along the remaining axis.
  */
 function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axes: readonly [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis]): readonly (readonly [Vec3, Vec3])[] {
   const others = ([0, 1, 2] as const).filter((a) => a !== fixedAxis) as [0 | 1 | 2, 0 | 1 | 2];
@@ -343,7 +434,7 @@ function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [num
     const axisData = axes[sweepAxis];
     const [lo, hi] = axisData.domain;
     const span = hi - lo || 1;
-    for (const value of axisData.ticks) {
+    for (const value of subsampleTicksForGrid(axisData.ticks, GRID_MAX_LINES_PER_SWEEP_AXIS)) {
       const t = (value - lo) / span;
       const p0: [number, number, number] = [0, 0, 0], p1: [number, number, number] = [0, 0, 0];
       p0[fixedAxis] = p1[fixedAxis] = fixedVal;
@@ -409,6 +500,11 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
         }
       }
 
+      // Fix round 5, Item 1: built ONCE per `stamp()` call (not per tick —
+      // O(mesh vertices), reused across all 3 axes' own tick labels) so the
+      // per-label check below is a couple of Map lookups, not a re-scan.
+      const meshScreenDepth = guides.tickLabels ? buildMeshScreenDepth(mark, frame) : null;
+
       for (let axisIndex = 0 as 0 | 1 | 2; axisIndex < 3; axisIndex++) {
         const name = AXIS_NAMES[axisIndex];
         const axis = mark.axes[name];
@@ -425,6 +521,15 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
           if (!guides.tickLabels) continue;
           const label = outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN);
           const labelProjected = projectObjectPoint(frame, label);
+          // Fix round 5, Item 1 ("tick labels are stamped over the
+          // surface"): a real GEOMETRIC occlusion test against the mesh's
+          // own vertices (`buildMeshScreenDepth`'s own doc — necessary
+          // because `winnerMesh`-based occlusion, below, never fires under
+          // `style: "wireframe"`, the braille charset's own default,
+          // leaving braille tick labels with nothing to stop them
+          // painting over real surface ink). Dropped WHOLE, never
+          // partially, exactly like an arbiter collision.
+          if (meshScreenDepth && tickLabelOccludedByMesh(meshScreenDepth, labelProjected, foldGlyphOverlayLabelToAscii(axis.tickLabels[i]!).length)) continue;
           const priority = i === 0 || i === axis.ticks.length - 1
             ? PRIORITY_TICK_EXTREME
             : value === 0

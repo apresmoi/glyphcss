@@ -59,7 +59,27 @@ function resolveGuides(options: GlyphChart3dGuideOptions | undefined): GlyphChar
     ticks: g.ticks ?? true,
     tickLabels: g.tickLabels ?? true,
     titles: g.titles ?? true,
-    grid: g.grid ?? true,
+    // Fix round 5, Item 2 ("the wall grid is still a cage"): default FALSE
+    // now (opt-in), not true. Measured ink share was already honest
+    // (7-11% of the plot's own bounding box, well under the round-5 gate's
+    // 15% cap — `render.test.ts`'s own regression test), so this was never
+    // an ink-DENSITY defect; it was a visual-WEIGHT one — the coordinator's
+    // own report ("a big dotted diamond... filling the whole upper half of
+    // the frame... visually outweigh the data") and this round's own
+    // side-by-side render (`docs/design/charts3d.md`'s "C2 fix round 5")
+    // both read the SAME geometric wall-plane crosshatch as visually
+    // dominant against a typical fixture's own data ink, even at a
+    // technically-modest cell count — a few evenly-spaced lines across two
+    // full guide planes still reads as a cage shape (a diamond, at this
+    // library's own default oblique camera) the eye locks onto ahead of
+    // the surface. Decided by LOOKING (the coordinator's own explicit
+    // instruction), not by the ink metric alone: with the grid off, the
+    // SAME two fixtures read as a clean oblique surface with axis
+    // structure only — closer to matplotlib's own DEFAULT (panes with no
+    // gridlines drawn unless the reader asks). `guides.grid: true` (or the
+    // `floorGrid` companion) still works exactly as built for a caller who
+    // wants the guide planes back.
+    grid: g.grid ?? false,
     floorGrid: g.floorGrid ?? false,
     walls: g.walls ?? false,
     box: g.box ?? false,

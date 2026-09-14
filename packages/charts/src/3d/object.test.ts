@@ -328,10 +328,16 @@ describe("glyphChartObject — guides toggles (fix round 2, message 3B)", () => 
     for (const title of ["x", "y", "z"]) expect(withoutTicks.includes(title)).toBe(true);
   });
 
-  it("MUTATION: guides.grid=false strictly reduces ink relative to the default (the grid draws real cells)", async () => {
-    const withGrid = await renderWithGuides();
+  it("MUTATION: guides.grid=true strictly increases ink relative to the default (fix round 5, Item 2: grid defaults OFF now — this compares explicit true against explicit false, since the default itself no longer draws grid cells)", async () => {
+    const withGrid = await renderWithGuides({ grid: true });
     const withoutGrid = await renderWithGuides({ grid: false });
     expect(ink(withoutGrid)).toBeLessThan(ink(withGrid));
+  });
+
+  it("fix round 5, Item 2: the DEFAULT (no explicit guides option) renders with NO grid ink — byte-identical to an explicit guides.grid: false", async () => {
+    const byDefault = await renderWithGuides();
+    const explicitlyOff = await renderWithGuides({ grid: false });
+    expect(byDefault).toBe(explicitlyOff);
   });
 
   it("MUTATION: every guide toggle off leaves only the surface — strictly less ink than the default and no title text, even though the surface's own shading ramp still emits some '+' on its own", async () => {
@@ -417,7 +423,12 @@ describe("glyphChartObject — guide-plane grid glyphs (fix round 3, Item 2: \"g
     document.body.appendChild(host);
     const camera = createGlyphOrthographicCamera({ zoom: 40, rotX: 58, rotY: 45 });
     const scene = createGlyphScene(host, { cols: 96, rows: 32, useColors: false, camera });
-    const mark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "height" } } });
+    // Fix round 5, Item 2: `guides.grid` defaults OFF now — explicit `true`
+    // here, since this helper's whole point is an A/B grid-ink comparison.
+    const mark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, {
+      axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "height" } },
+      guides: { grid: true },
+    });
     const object = glyphChartObject(mark, { charset });
     scene.addObject(object, { position: [-2, -2, 0], scale: 3 });
     await Promise.resolve();
@@ -456,12 +467,28 @@ describe("glyphChartObject — guide-plane grid glyphs (fix round 3, Item 2: \"g
       }
     });
 
-    it(`${charset}: the grid cell count is a minority of the plot-box cells (< 25%)`, async () => {
+    it(`${charset}: the grid cell count is <= 15% of the PLOT's own occupied bounding box (fix round 5's own regression cap, "clip wall grids... a few faint guide lines")`, async () => {
       const { withGrid, withoutGrid } = await renderPlusPeekGrid(charset);
       const nonBlank = (s: string) => Array.from(s).filter((ch) => ch !== " " && ch !== "\n").length;
       const gridCells = nonBlank(withGrid) - nonBlank(withoutGrid);
       expect(gridCells).toBeGreaterThan(0); // MUTATION sanity: `guides.grid: false` really did remove real cells
-      expect(gridCells / (96 * 32)).toBeLessThan(0.25);
+      // Fix round 5, Item 2: the gate is the coordinator's own explicit
+      // number, measured against the PLOT's own occupied bounding box
+      // (the `withGrid` render's own non-blank extent) — never the whole
+      // 96x32 canvas, which would let a genuinely dense grid hide behind a
+      // title/colorbar's own blank margin.
+      const lines = withGrid.split("\n");
+      let minC = Infinity, maxC = -Infinity, minR = Infinity, maxR = -Infinity;
+      for (let r = 0; r < lines.length; r++) {
+        const line = lines[r] ?? "";
+        for (let c = 0; c < line.length; c++) {
+          if (line[c] === " ") continue;
+          if (c < minC) minC = c; if (c > maxC) maxC = c;
+          if (r < minR) minR = r; if (r > maxR) maxR = r;
+        }
+      }
+      const plotBoxCells = (maxC - minC + 1) * (maxR - minR + 1);
+      expect(gridCells / plotBoxCells).toBeLessThanOrEqual(0.15);
     });
   }
 });

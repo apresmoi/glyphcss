@@ -59,29 +59,37 @@ export type GlyphChart3dCornerOption = "auto" | GlyphChart3dCorner;
  * Independent toggles over what the axis triad draws (fix round 2, message
  * 3B's "2D extended by one dimension" model — matches 2D's
  * `axes.{x,y}.{grid,tickMarks,title}` naming/style). `axisLines`/`ticks`/
- * `tickLabels`/`titles`/`grid` default `true`; `walls` (the OTHER 6 edges of
+ * `tickLabels`/`titles` default `true`; `walls` (the OTHER 6 edges of
  * the 3 guide planes meeting at the shared corner, i.e. the wall outline)
- * defaults `false` — the bare 3-line triad plus its gridlines already reads
- * as a plot block without them, and only `grid` (behind the data, like a 2D
- * chart's own axis grid) makes the guide planes legible; `box` (the
- * remaining 3 far/near edges that complete a 12-edge wireframe) defaults
- * `false`. `axisLines + walls` is the "near/guide" edge set (9 edges);
- * `+ box` is the full 12-edge wireframe.
+ * defaults `false` — the bare 3-line triad already reads as a plot block
+ * without them; `box` (the remaining 3 far/near edges that complete a
+ * 12-edge wireframe) defaults `false`. `axisLines + walls` is the
+ * "near/guide" edge set (9 edges); `+ box` is the full 12-edge wireframe.
  *
- * `grid` and `floorGrid` split the 3 guide planes' own gridlines (fix round
- * 4, Item 2): `grid` draws only the 2 WALL planes (perpendicular to x/y,
- * `planeGridLines`' `fixedAxis` 0/1) and defaults `true`; `floorGrid` draws
- * the z=const FLOOR plane (`fixedAxis` 2) and defaults `false`. A typical
- * chart's footprint fills most of its own x/y extent, so the floor plane
- * sits almost entirely BEHIND the surface's own silhouette and its grid
- * mostly reads as a dense ring of `┊`/`·` crowding the data at a normal
- * frame size — measured directly against the coordinator's own
- * ring-ridge-plus-crater fixture at 96x32, where the exposed floor (the
- * surface never reaches the box's own x/y corners) painted more grid ink
- * than the wall planes combined. The two wall planes sit mostly BEHIND the
- * surface too (the shared-corner selection puts them there by
- * construction) but expose far less of themselves at typical camera
- * angles, so they read as a genuine faint backdrop rather than a cage.
+ * `grid` and `floorGrid` split the 3 guide planes' own gridlines: `grid`
+ * draws the 2 WALL planes (perpendicular to x/y, `planeGridLines`'s own
+ * `fixedAxis` 0/1); `floorGrid` draws the z=const FLOOR plane (`fixedAxis`
+ * 2). **Both default `false` as of fix round 5, Item 2** — round 4 first
+ * split the two (floor off, walls on) after measuring the exposed floor
+ * plane alone out-inking both walls combined at the coordinator's own
+ * ring-ridge-plus-crater fixture; round 5's own coordinator report found
+ * the WALL planes still read as "a big dotted diamond... filling the
+ * whole upper half of the frame... visually outweigh the data" at that
+ * SAME 96x32 fixture, even though the measured ink share was already a
+ * modest 7-11% of the plot's own bounding box (well under this option's
+ * own 15% regression cap, `render.test.ts`) — a genuinely LOW-density
+ * grid across two FULL guide planes still reads as a cage shape (this
+ * library's own default oblique camera projects it as a diamond) the eye
+ * locks onto ahead of the surface, a visual-WEIGHT defect the ink metric
+ * alone never measured. Decided by LOOKING, per the coordinator's own
+ * explicit instruction — `docs/design/charts3d.md`'s "C2 fix round 5" has
+ * the side-by-side frames: with the grid off, the SAME fixtures read as a
+ * clean oblique surface with axis structure only, closer to matplotlib's
+ * own default (no pane gridlines unless the reader asks). A caller who
+ * wants the guide planes back sets `guides.grid`/`floorGrid: true`
+ * explicitly — the mechanism (`planeGridLines`, the distinct faint glyph
+ * family from `gridEdgeGlyph`, depth-tested against the real surface) is
+ * unchanged, only the default flipped.
  */
 export interface GlyphChart3dGuideOptions {
   readonly axisLines?: boolean;
