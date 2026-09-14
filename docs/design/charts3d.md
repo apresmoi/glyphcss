@@ -500,7 +500,7 @@ never pulls the scene-object surface in.
 | Property | Mutation | Result |
 |---|---|---|
 | Top view reproduces 2D rank order | Map dagre's Y onto world X instead of world Y | `layout3d.test.ts`'s rank-order test reddens |
-| Same seed → same digest | Seed `mulberry32` from `Date.now()` instead of `options.seed` | The two-call equality test reddens (non-deterministically, on any run where the clock ticks between calls) |
+| Same seed → same digest | Seed `mulberry32` from `Date.now()` instead of `options.seed` | The PINNED golden-digest test reddens (fixed in D2's review pass — the original two-live-call comparison could pass by clock coincidence; see "D1 review fixes folded into D2") |
 | Edge endpoints on node faces | Return the raw node center instead of the slab-clamped anchor | Both the layered and the force face-anchor tests reddens |
 | Cross-floor edge actually crosses | Drop the Z-step bend, emit `[p0, p3]` only | The "z step in the rank gap" test's `new Set(zs).size > 1` assertion reddens |
 | No two labels overlap | Omit `priority`/`degree` from the candidate | The degenerate-projection arbiter test's surviving-cell assertion reddens |
@@ -508,12 +508,14 @@ never pulls the scene-object surface in.
 | Root entry stays 3D-free | Add a `./3d` import to `src/index.ts` | The `dist/index.{js,cjs}` grep for `buildCellGrid`/`createGlyphScene` starts matching |
 
 **Residuals (explicitly out of D1's narrowed scope, per §11's D2/D3/D4
-rows).** No arrowhead table (plain slope glyphs only). No
-octahedron/cylinder node shapes (diamond/stadium fall back to a box). No
-`renderGlyphDiagram3d`, CLI dispatch, or `/diagrams` page wiring. No edge
-labels or cluster volumes beyond the group mesh (D4). No performance gate at
-200 nodes (D4) — the force O(n²) simulation is unbounded here, matching the
-PLAN's own stated ~200-node ceiling for a future Barnes-Hut upgrade.
+rows).** No arrowhead table (plain slope glyphs only — still true after D2,
+see below). No octahedron/cylinder node shapes (diamond/stadium fall back to
+a box). No `/diagrams` page wiring (D2 added `renderGlyphDiagram3d`/CLI
+dispatch — see the D2 section below; the page toggle/camera-in-URL/tray
+tiles stay D3). No edge labels or cluster volumes beyond the group mesh
+(D4). No performance gate at 200 nodes (D4) — the force O(n²) simulation is
+unbounded here, matching the PLAN's own stated ~200-node ceiling for a
+future Barnes-Hut upgrade.
 
 **Fixed: the shared arbiter printed a label straight through a foreign mesh
 covering a middle character.** D1's node labels carry no `depth` (the
@@ -535,6 +537,221 @@ objects" Declutter clause carries the contract; `labelArbiter.test.ts`'s
 mutation table (anchor-only check, own-mesh-as-foreign, no-`occluded`-check,
 no-mesh-buffers-at-all) is the gate, reproduced against the pre-fix code to
 confirm each one actually reddens there.
+
+## D1 review fixes folded into D2
+
+The codex (`gpt-5.6-sol`) review of D1 came back REJECT on three findings,
+addressed here rather than as a separate D1 fixer round (the coordinator's
+call — they sit in files D2 already owns).
+
+**P1-a: the default/showcase framing painted ZERO node boxes, not just a
+label.** Reproduced directly: `glyphDiagramObject`'s node boxes are sized in
+the 2D layout's own CELL units (halfX/halfY 4.5-9 world units for the
+4-node fixture) while `createGlyphOrthographicCamera`'s own default `zoom`
+is `0.65` — CSS pixels per world unit, tuned for unit-scale authored
+geometry — and the D1 test's own hardcoded `zoom: 4` was in the same wrong
+regime. `col = centerCol + r[0]*zoom/cellPxW` with `cellPxW = 25` (the
+headless `BASE_TILE / cellAspect` default): a 16-unit-wide box projects to
+under half an output COLUMN at either zoom, so the solid rasterizer's own
+depth-tested fill painted nothing — the ONE label that survived did so
+because a label anchor is a single POINT, not an area, so it needs no
+minimum screen size to register. This was not a rendering bug (`boxPolygons`
+reproduces `cubePolygons` byte-for-byte, `render3d.test.ts`'s own isolated
+box-render sweep across zoom/rotation confirms plain `boxPolygons` geometry
+paints correctly once zoom is in the right regime) — it was every consumer
+of this object needing to pick a camera scaled to the object's OWN world
+extent, which is exactly what D2's `fitCamera` (below) does. Fixed at the
+root two ways: (1) `renderGlyphDiagram3d`'s auto-fit, so the library itself
+never ships a wrong default; (2) `glyphDiagramObject.test.ts`'s own
+scene-mounting test now calls `renderGlyphDiagram3d` to pick its camera and
+asserts REAL painted geometry (a non-label, non-blank cell count) — reverting
+to the old `zoom: 4` reproduces the zero-cell regression and reddens it.
+
+**P1-c: a self-loop's two endpoints collapsed onto the same point.**
+`nodeSurfaceAnchor`'s `toward === center` degenerate case (`len === 0`)
+returns bare `center` — correct for "no direction to anchor toward," wrong
+for a self-loop, where `from`/`to` are literally the same node and `toward`
+IS `center` by construction, not degenerately. Fixed with `selfLoopPoints`
+(`layout3d.ts`): two DIFFERENT off-axis directions (tilted toward `+X`-ish
+and `+Y`-ish, each nudged up in Z so a `zBy` floor's own gap can't
+re-collapse them) through the SAME `nodeSurfaceAnchor` slab clamp every
+other edge uses, plus a third point bulged out past the corner so the
+3-point polyline reads as a loop leaving and re-entering the box rather than
+a chord across it. Both endpoints verified on the node's own face/surface
+for box AND sphere shapes, in both layouts (`layout3d.test.ts`'s new
+"self-loops" block).
+
+**P2: three mutation tests that couldn't fail.** The rank-order test used a
+forward chain (`n0 -> n1 -> ... -> n(k-1)`) where id order and rank order
+coincide, so a mutation swapping which dagre axis maps to world Y left the
+sorted output unchanged whenever the "spread" axis was degenerate (one node
+per rank) — reversed to `reverseChainGraph` (`n(k-1) -> ... -> n0`), where
+rank order is the EXACT REVERSE of declaration order; reproduced the
+mutation against the fixed test to confirm it now reddens
+(`order2d: ["n4","n3","n2","n1","n0"]` vs. the mutated `order3d`'s
+declaration-order fallback). The force-digest determinism test compared two
+LIVE calls against each other, which a `Date.now()`-seeded PRNG can pass by
+coincidence (two calls in one tick, same millisecond) — replaced with a
+PINNED golden digest computed once and hardcoded. The force face-anchor test
+asserted only "inside the box's half-extents," which a no-op clamp
+(returning the box centre) also satisfies — added the layered test's own
+"at least one axis is genuinely AT its half-extent" clause. The
+shared-anchor label-priority test asserted only "some label survived,"
+which passes even with `priority`/`degree` dropped (the id tie-break still
+picks a winner) — rewritten to assert the SPECIFIC node degree analysis says
+must win ("Planner", degree 3, strictly higher than every other node in the
+fixture).
+
+Out of scope here per the coordinator: labels painting through a foreign
+mesh under one occluded character was fixed in glyphcss's shared label
+arbiter by a different packet (this file's own "Fixed: the shared arbiter"
+note under D1, folded in by the `feat/diagrams` merge); the diagrams-root-
+loads-glyphcss-root P2 predates D1 and stays deferred.
+
+## D2 — `renderGlyphDiagram3d`, CLI dispatch (`@glyphcss/diagrams/3d`)
+
+**Goal.** A static frame of a `glyphDiagramObject`, the export boundary the
+user approved (§11, "Decisions"): terminal, chat, Copy ASCII and the CLI get
+a static frame at the current camera; a turntable stays a web-only export;
+effects are preview-only everywhere. No DOM anywhere in this path.
+
+**Why not extend `compileScene`.** F5 (§2.4 contract 3) was planned to teach
+`compileScene` to accept `objects`/`textureSamplers` directly, but that
+packet had not landed by the time D2 needed it, and D2's own scope is
+`packages/diagrams/src/3d` plus the diagram CLI — not glyphcss's
+`compileScene.ts`. `render3d.ts` instead composes the same PUBLIC primitives
+`compileScene` itself is built from — `buildRasterizeContext` +
+`rasterizeToCells` — with the `GlyphSceneObject` overlay contract
+(`GlyphSceneOverlay.stamp(grid, frame)`, `createGlyphLabelArbiter`) that
+`scene.addObject()` already runs on (`createGlyphScene.ts`'s
+`applyGlyphSceneObjectOverlays`). Every mesh is flattened into ONE polygon
+array with a `polygonMeshIds` parallel array (so `CellGrid.winnerMesh`
+still resolves label occlusion), overlays stamp directly onto the resulting
+grid, and the arbiter resolves through the SAME
+`(arbiter as unknown as { resolve(grid) }).resolve(grid)` cast
+`glyphDiagramObject.test.ts`'s own gate already uses — `resolve` is
+deliberately not on the public `GlyphLabelArbiter` type (only `place` is;
+resolving is the scene's own call), so this reaches it exactly the way the
+existing test does rather than inventing a second contract.
+
+**Byte-identity, and its one honest exception.** `render3d.test.ts`'s own
+gate builds an EXPLICIT camera (auto-fit off, so nothing is computed
+independently on either side), renders through `renderGlyphDiagram3d`, then
+mounts the SAME object in a real `createGlyphScene` with the identical
+`rotX`/`rotY`/`zoom`/`target`/lighting and asserts `result.text ===
+scene.output.textContent` — verified to actually compare (skipping the
+overlay-stamp loop in `render3d.ts` reddens it, confirmed by mutation).
+What this CANNOT cover: `glyphDiagramObject`'s own `groups` mesh sets
+`transparent: true` (layered) or `mode: "wireframe"` (force) — either
+triggers AGENTS.md's own detail-layer separation rule in a LIVE scene (a
+private, translated `<pre>`), which a flat static render has no
+representation for at all (AGENTS.md's "Compilation": "Static compile takes
+a flat polygon list and cannot represent detail layers" — an existing,
+pre-D2 constraint, not a new gap this packet opened). `render3d.ts`
+flattens `groups` into the SAME single pass regardless, matching
+`compileScene`'s own precedent; the byte-identity gate therefore only
+claims equality for a GROUPLESS graph, and says so in the module's own doc
+comment rather than silently.
+
+**Auto-fit: measure, don't estimate.** A node's LABEL is a fixed cell width
+regardless of zoom (unlike geometry, which scales with it), so no closed-form
+expression over `object.bounds` alone can promise every label stays on
+screen — the same reason `compilePolygons`' own `autoFit`
+(`@glyphcss/compile`) probes a real render and measures rather than
+computing a bound. `fitCamera` does the same in two passes: (1) render at a
+CONSERVATIVELY SMALL probe zoom (derived from the object's own world extent,
+so a probe never overflows its own generous 220x130 frame) and measure the
+occupied cell box — geometry AND stamped labels, since both painted the
+SAME real grid; (2) scale `zoom` by exactly the ratio needed to fill the
+REQUESTED `cols`x`rows` minus a fixed margin, and RECENTRE via
+`camera.center` rather than `camera.target`: `col = centerCol +
+r[0]*zoom/cellPxW` and `centerCol = cols*center[0]` is a pure ADDITIVE term
+in the already-rotated projection, so shifting `center` shifts every
+projected column by the identical amount with no rotation to invert — moving
+`target` instead would shift the PRE-rotation input, needing the camera's
+own inverse rotation to solve for. Gate: `render3d.test.ts` renders the
+4-node fixture AND a 6-node, denser supervisor-style fixture at the SAME
+`cols`x`rows` and asserts every label is on screen in BOTH — a zoom hardcoded
+for one graph provably cannot also fit the other, so this is the genuine
+"auto-fit, not a lucky constant" proof; reproduced the "fixed zoom" mutation
+directly (bypassing the probe/scale computation) to confirm it reddens the
+smaller graph's own assertion first.
+
+**Charset maps onto the SCENE's render vocabulary, not 2D's canvas tiers.**
+2D diagrams paint through `GLYPH_CANVAS_TIERS` (`ascii`/`box`/`blocks`/
+`braille`), a hand-painted box-drawing/junction glyph set with no analogue
+in a Lambert-shaded rasterized scene. `resolveCharset` maps each 2D charset
+name onto the (`mode`, `charMode`) pair the scene rasterizer actually has:
+`ascii`/`box` -> solid + `charMode: "ascii"` (no visual difference between
+the two for a rasterized mesh — the distinction is real in 2D's own
+box-drawing junction table, not here); `blocks` -> the SAME solid ascii
+render, because `charMode: "quadrant"`/`"halfblock"`'s dual-colour encoder
+is a documented no-op with `CellGrid`/`transformCells`
+(`RasterizeContextOptions.charMode`'s own doc: "so `CellGrid`/
+`transformCells`/the generic effect [system] don't apply") — exactly the
+buffer this renderer's overlay stamps depend on, so honouring the request
+literally would silently drop every edge and label; `braille` -> wireframe
+(AGENTS.md's render-modes table: braille is a documented no-op outside
+wireframe). Both degrades log `ledger3dCharsetDegraded` (a new
+`3d-charset-degraded` code, `ledger3d.ts`) rather than silently drawing
+something else. Target defaults are their OWN table
+(`GLYPH_DIAGRAM_3D_TARGET_DEFAULTS`), not 2D's `GLYPH_DIAGRAM_TARGET_DEFAULTS`
+— 2D defaults to `braille` on terminal/web for its own sub-cell box-drawing
+reasons; a solid Lambert-shaded 3D scene wants `box`/ascii as its natural
+default everywhere, matching the website plan's own "Output: braille dims
+in 3D" note.
+
+**Three exits, over a real `GlyphCanvas`.** `text`/`ansi`/`html` reuse
+`encodeGlyphCanvasText`/`Ansi`/`Html` — the same NO_COLOR/FORCE_COLOR-aware,
+HTML-escaping exits 2D diagrams use — rather than the bare-`CellGrid`
+encoders (`encodeGlyphBuffers`/`encodeCellGrid`), which have neither
+property and would let a Mermaid-authored label's own `<`/`>`/`&` leak
+unescaped into HTML output. The rasterized+overlaid `CellGrid` is copied
+cell-by-cell into a fresh `createGlyphCanvas` via `canvas.text()` (paying
+one call per non-space cell — trivial at 72x24..96x32) rather than mutating
+`canvas.grid` directly, so every canvas invariant (single-cell-glyph
+validation, canonical-hex colour validation) still runs on this content
+exactly as it does on 2D's own hand-painted cells.
+
+**CLI.** `glyphcss diagram <file> --3d [--layout layered|force] [--camera
+rotX,rotY[,zoom]]` (`diagramCli.ts`) — `--3d` dispatches `renderCli` to
+`renderGlyphDiagram3d` instead of the 2D pipeline; every other flag
+(`--target`/`--charset`/`--color`/`--width`/`--height`/`--direction`/
+`--title`) is shared verbatim between both paths, since both render
+options accept the same names. The ledger prints to stderr one entry per
+line (`glyphcss: <code>: <message>`), a bad `--camera`/`--layout` value
+throws `bad-options` at PARSE time (before any render), and a good render
+still exits 0 even when the requested camera clips content — a camera
+choice, never an error.
+
+**Gate.** `pnpm --filter @glyphcss/diagrams exec vitest run` (244 tests:
+14 `layout3d.test.ts` + 5 `glyphDiagramObject.test.ts` + 8
+`render3d.test.ts`, plus every pre-existing 2D suite untouched) and
+`pnpm --filter @glyphcss/compile exec vitest run` (67 tests, 24 in
+`diagramCli.test.ts` including the new `--3d` block) pass;
+`pnpm --filter @glyphcss/diagrams run typecheck` is clean; `pnpm
+build:packages` builds every package including `packages/diagrams/dist/
+3d.{js,cjs,d.ts}` and `packages/compile/dist/cli.{js,cjs}` with no errors.
+
+**Mutation table.**
+
+| Property | Mutation | Result |
+|---|---|---|
+| Auto-fit shows every label at both graph sizes | Skip the probe/scale computation, use a fixed zoom | `render3d.test.ts`'s "every node label visible" case reddens on the smaller graph |
+| Static frame equals live frame | Skip the `overlay.stamp()` loop in `renderObjectGrid` | The byte-identity test's `toBe` reddens |
+| `blocks`/`braille` degrade, never silently misrender | Drop the `ledger3dCharsetDegraded` push | The target×charset×colour matrix test's ledger-code assertion reddens |
+| NO_COLOR honoured | (inherited from `encodeGlyphCanvasAnsi`, not re-implemented here) | The matrix test's no-SGR-escape assertion reddens if `env` isn't forwarded |
+| `--3d` actually dispatches to the 3D pipeline | Route `is3d` through `renderGlyphDiagram` instead of `renderGlyphDiagram3d` | `diagramCli.test.ts`'s "real 3D frame" case reddens (no box-drawing/solid-ramp glyphs, no plain-slope edge chars) |
+| Bad `--camera`/`--layout` rejected before rendering | Skip the `Number.isFinite`/`choice()` validation | `diagramCli.test.ts`'s malformed-option cases reddens |
+
+**Residuals.** The arrowhead table stays plain slope glyphs (D1's own
+residual, unchanged by D2 — see the review-fixes section above). A grouped
+graph's `groups` mesh renders in the SAME pass as every node (no
+translucent floor plate / wireframe volume distinction a live scene would
+give it its own detail layer for) — the byte-identity claim is scoped to
+groupless graphs, stated in `render3d.ts`'s own doc comment. `/diagrams`
+page wiring (View 2D/3D toggle, camera in `?d=`, 3D tray tiles) is D3's
+scope, untouched here.
 
 ## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
 

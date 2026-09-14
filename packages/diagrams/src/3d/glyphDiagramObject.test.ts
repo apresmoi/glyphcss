@@ -7,6 +7,7 @@ import { glyphGraphFromMermaid } from "../mermaid";
 import { glyphGraphFromJson } from "../adapters";
 import type { GlyphGraph } from "../types";
 import { glyphDiagramObject } from "./glyphDiagramObject";
+import { renderGlyphDiagram3d } from "./render3d";
 
 /**
  * Packet D1 (PLAN-3d.md §6, §11) acceptance gates for `glyphDiagramObject`.
@@ -51,27 +52,59 @@ describe("glyphDiagramObject", () => {
     expect(names).toEqual(["groups", "node:coder", "node:orchestrator", "node:planner", "node:reviewer"]);
   });
 
-  it("mounting the object in a real createGlyphScene renders boxes, edges and labels (mutation: never call frame.labels.place) → red", async () => {
+  it("mounting the object in a real createGlyphScene renders painted box cells, edge glyphs and every node's label (mutation: never call frame.labels.place) → red", async () => {
+    // P1-a (D1 review): the fixed `zoom: 4` this test used to hardcode is
+    // FAR too small for this object's world scale — `glyphDiagramObject`'s
+    // node boxes are sized in the 2D layout's own CELL units (9-18 world
+    // units wide), while `createGlyphOrthographicCamera`'s own default zoom
+    // (0.65) and this test's old `4` both assume unit-scale geometry
+    // (`BASE_TILE / cellAspect` CSS px per world unit puts a 16-unit box
+    // under half an output COLUMN at zoom 4) — so every node box rasterized
+    // to ZERO painted cells and only a stray label glyph survived, which
+    // the old assertion (`anyLabel`, any ONE label anywhere) couldn't
+    // catch. Reusing `renderGlyphDiagram3d`'s own auto-fit (D2, §11) here
+    // is the fix: it picks a zoom from the object's OWN bounds, the same
+    // thing any real consumer (D3's live viewport included) needs to do.
+    const fitted = await renderGlyphDiagram3d(architectureGraph, { target: "web", color: "none" });
     const host = document.createElement("div");
     document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ rotX: fitted.camera.rotX, rotY: fitted.camera.rotY, zoom: fitted.camera.zoom });
+    const object = await glyphDiagramObject(architectureGraph);
+    camera.target = [
+      (object.bounds.min[0] + object.bounds.max[0]) / 2,
+      (object.bounds.min[1] + object.bounds.max[1]) / 2,
+      (object.bounds.min[2] + object.bounds.max[2]) / 2,
+    ];
     const scene = createGlyphScene(host, {
-      cols: 100, rows: 50, useColors: false,
-      camera: createGlyphOrthographicCamera({ zoom: 4, rotX: 55, rotY: 35 }),
+      cols: 96, rows: 32, useColors: false, camera,
       directionalLight: { direction: [0.4, 0.6, 0.7], intensity: 0.8 },
       ambientLight: { intensity: 0.5 },
-      doubleSided: true,
     });
-    const object = await glyphDiagramObject(architectureGraph);
-    const handle = scene.addObject(object, { position: [-20, -10, 0] });
+    const handle = scene.addObject(object);
     // Every declared mesh actually mounted (boxes exist as real scene meshes).
     for (const name of object.meshes.map((m) => m.name)) expect(handle.meshes.get(name)).toBeDefined();
     await flushRenders();
     const text = scene.output.textContent!;
-    expect(text.trim().length).toBeGreaterThan(0);
-    // At least one node's folded ASCII label made it into the grid.
-    const anyLabel = ["ORCHESTRATOR", "PLANNER", "CODER", "REVIEWER"].some((l) => text.toUpperCase().includes(l))
-      || ["Orchestrator", "Planner", "Coder", "Reviewer"].some((l) => text.includes(l));
-    expect(anyLabel).toBe(true);
+    const lines = text.split("\n");
+
+    // Real painted box GEOMETRY, not just one surviving label glyph: the
+    // solid rasterizer's own shading ramp only ever emits `.` or a
+    // non-blank, non-alphanumeric glyph for a filled cell, so counting
+    // cells that are neither blank nor part of a label's own letters is a
+    // real "did geometry paint" signal.
+    const paintedNonLabelCells = text.replace(/\s/g, "").replace(/[A-Za-z]/g, "").length;
+    expect(paintedNonLabelCells).toBeGreaterThan(20);
+
+    // Every node's folded ASCII label made it into the grid — not just one.
+    for (const label of ["Orchestrator", "Planner", "Coder", "Reviewer"]) {
+      expect(lines.some((l) => l.includes(label))).toBe(true);
+    }
+
+    // At least one edge glyph (a plain slope character, D1's own edge
+    // overlay — see `glyphDiagramObject.ts`'s `edgeGlyph`) made it into the
+    // grid, connecting the boxes.
+    const edgeGlyphs = new Set(["-", "|", "/", "\\"]);
+    expect(text.split("").some((ch) => edgeGlyphs.has(ch))).toBe(true);
     scene.destroy();
   });
 
@@ -94,18 +127,23 @@ describe("glyphDiagramObject", () => {
 
   it("no two labels overlap, even under a degenerate projection that collapses every node onto the same cell (mutation: omit priority/degree so the arbiter can't order them) → red", async () => {
     const object = await glyphDiagramObject(architectureGraph);
-    const cols = 10, rows = 6;
+    const cols = 20, rows = 6;
     const grid: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
-    const camera = { project: () => [5, 2, 0] as [number, number, number] } as unknown as GlyphCamera;
+    const camera = { project: () => [10, 2, 0] as [number, number, number] } as unknown as GlyphCamera;
     const arbiter = createGlyphLabelArbiter();
     const frame = fakeFrame({ cols, rows, camera, labels: arbiter, ownMeshIds: new Set(object.meshes.map((_, i) => i)) });
     object.overlays![0]!.stamp(grid, frame);
     (arbiter as unknown as { resolve(grid: CellGrid): void }).resolve(grid);
-    // Exactly one node's label glyph survived at the shared cell — the
-    // arbiter picked a single winner rather than letting two candidates
-    // stomp on each other's characters.
-    const cell = grid.char[2 * cols + 5]!;
-    expect(cell).not.toBe(" ");
+    // Every node's label anchors at the same cell, so "some label survived"
+    // alone can't tell a correctly-prioritized winner from an arbitrary one
+    // (review finding P2, D1) — `architectureGraph`'s edges give "planner"
+    // degree 3 (in from orchestrator and reviewer, out to coder), strictly
+    // higher than every other node, so it must be the one that actually
+    // painted the shared cells. Dropping `priority: node.degree` (the
+    // mutation) ties every candidate at 0 and the id-ascending tie-break
+    // picks "coder" instead.
+    const text = "Planner";
+    for (let i = 0; i < text.length; i++) expect(grid.char[2 * cols + 10 + i]).toBe(text[i]);
   });
 
   it("Mermaid and JSON adapters feed glyphDiagramObject unchanged — both produce the same node/edge/group id set", async () => {

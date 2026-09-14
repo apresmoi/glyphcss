@@ -22,3 +22,18 @@ export type {
 } from "./layout3d";
 export { glyphDiagramObject } from "./glyphDiagramObject";
 export type { GlyphDiagramObjectOptions } from "./glyphDiagramObject";
+export {
+  renderGlyphDiagram3d,
+  renderGlyphDiagram3dJson,
+  GLYPH_DIAGRAM_3D_LIGHT,
+  GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
+} from "./render3d";
+export type {
+  GlyphDiagram3dTarget,
+  GlyphDiagram3dCharset,
+  GlyphDiagram3dColorMode,
+  GlyphDiagram3dCamera,
+  GlyphDiagram3dRenderOptions,
+  GlyphDiagram3dReport,
+  GlyphDiagram3dResult,
+} from "./render3d";

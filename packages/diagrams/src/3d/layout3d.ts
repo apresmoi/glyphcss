@@ -108,6 +108,27 @@ function nodeSurfaceAnchor(center: Vec3, half: Vec3, sphere: boolean, toward: Ve
   return [center[0] + d[0] * t, center[1] + d[1] * t, center[2] + d[2] * t];
 }
 
+/**
+ * A self-loop's `from`/`to` node is the SAME node, so `nodeSurfaceAnchor`'s
+ * own `toward === center` degenerate case (`len === 0`) returned `center`
+ * for both endpoints — a self-loop drawn as a single point (P1-c, D1 review
+ * finding). Picks two DIFFERENT directions off the node's own footprint (the
+ * +X-ish and +Y-ish faces, tilted up slightly so a `zBy` floor's own Z gap
+ * doesn't collapse them either) so both endpoints land on a real face —
+ * never inside the box, never floating off it, exactly like a normal edge —
+ * and bulges a THIRD point out past the corner so the polyline reads as a
+ * loop leaving and re-entering the node rather than a chord across it.
+ */
+function selfLoopPoints(center: Vec3, half: Vec3, sphere: boolean): Vec3[] {
+  const reach = Math.max(half[0], half[1], half[2]) || 1;
+  const exitToward: Vec3 = [center[0] + reach, center[1] + reach * 0.35, center[2] + reach * 0.2];
+  const enterToward: Vec3 = [center[0] + reach * 0.35, center[1] + reach, center[2] + reach * 0.2];
+  const p0 = nodeSurfaceAnchor(center, half, sphere, exitToward);
+  const p1 = nodeSurfaceAnchor(center, half, sphere, enterToward);
+  const apex: Vec3 = [center[0] + reach * 1.6, center[1] + reach * 1.6, center[2] + reach * 0.4];
+  return [p0, apex, p1];
+}
+
 /** The smallest group (by member count, tied broken by id) that lists `nodeId` — mirrors `layoutGlyphGraph`'s own compound-parent choice (pipeline.ts), so a node's 3D "floor" agrees with which group dagre would nest it under. */
 function smallestContainingGroup(nodeId: string, groups: readonly { id: string; members: readonly string[] }[]): string | undefined {
   const containing = groups.filter((g) => g.members.includes(nodeId));
@@ -175,6 +196,9 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   const edges: GlyphDiagram3dEdge[] = laid.edges.map((e) => {
     const from = byId.get(e.from)!, to = byId.get(e.to)!;
     const fromSphere = from.shape === "circle", toSphere = to.shape === "circle";
+    if (e.from === e.to) {
+      return { id: e.id, from: e.from, to: e.to, label: e.label, style: e.style ?? "solid", priority: e.priority ?? 0, points: selfLoopPoints(from.center, from.half, fromSphere) };
+    }
     const sameFloor = from.center[2] === to.center[2];
     if (sameFloor) {
       const p0 = nodeSurfaceAnchor(from.center, from.half, fromSphere, to.center);
@@ -291,6 +315,9 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
 
   const edges: GlyphDiagram3dEdge[] = measured.edges.map((e) => {
     const from = byId.get(e.from)!, to = byId.get(e.to)!;
+    if (e.from === e.to) {
+      return { id: e.id, from: e.from, to: e.to, label: e.label, style: e.style ?? "solid", priority: e.priority ?? 0, points: selfLoopPoints(from.center, from.half, from.shape === "circle") };
+    }
     const p0 = nodeSurfaceAnchor(from.center, from.half, from.shape === "circle", to.center);
     const p1 = nodeSurfaceAnchor(to.center, to.half, to.shape === "circle", from.center);
     return { id: e.id, from: e.from, to: e.to, label: e.label, style: e.style ?? "solid", priority: e.priority ?? 0, points: [p0, p1] };

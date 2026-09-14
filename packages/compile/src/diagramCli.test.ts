@@ -117,3 +117,71 @@ describe("diagram CLI argument and file boundary", () => {
     expect(() => parseGlyphDiagramArgs([mermaidFile, ...arguments_])).toThrow(expect.objectContaining({ code: "bad-options" }));
   });
 });
+
+describe("diagram CLI — --3d (packet D2)", () => {
+  let directory: string;
+  let mermaidFile: string;
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "glyph-diagram-cli-3d-"));
+    mermaidFile = join(directory, "graph.mmd");
+    await writeFile(mermaidFile, "flowchart TB\n orchestrator[Orchestrator] --> planner[Planner]\n planner --> coder[Coder]\n coder --> reviewer[Reviewer]\n reviewer --> planner\n");
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("parses --3d, --layout and --camera", () => {
+    expect(parseGlyphDiagramArgs([mermaidFile, "--3d", "--layout", "force", "--camera", "55,35,12"]))
+      .toEqual({ file: mermaidFile, out: undefined, opts: { is3d: true, layout3d: "force", camera3d: { rotX: 55, rotY: 35, zoom: 12 } } });
+  });
+
+  it("--camera accepts rotX,rotY with zoom omitted (auto-fit)", () => {
+    expect(parseGlyphDiagramArgs([mermaidFile, "--3d", "--camera", "55,35"]).opts.camera3d).toEqual({ rotX: 55, rotY: 35 });
+  });
+
+  it("rejects a malformed --camera value", () => {
+    expect(() => parseGlyphDiagramArgs([mermaidFile, "--3d", "--camera", "not,numbers"])).toThrow(expect.objectContaining({ code: "bad-options" }));
+    expect(() => parseGlyphDiagramArgs([mermaidFile, "--3d", "--camera", "1"])).toThrow(expect.objectContaining({ code: "bad-options" }));
+  });
+
+  it("renders a real 3D frame with every node label on screen (mutation: dispatch --3d to the 2D pipeline) → red", async () => {
+    const output = join(directory, "3d.txt");
+    await runGlyphDiagram([mermaidFile, "--3d", "--color", "none", "-o", output]);
+    const text = await readFile(output, "utf8");
+    for (const label of ["Orchestrator", "Planner", "Coder", "Reviewer"]) expect(text).toContain(label);
+    // 3D geometry painted real cells, not just labels — a 2D dispatch would
+    // never emit box-drawing/solid-ramp glyphs connected by plain slope
+    // edge characters the way a rasterized 3D box does.
+    expect(text.replace(/\s/g, "").replace(/[A-Za-z]/g, "").length).toBeGreaterThan(10);
+  });
+
+  it("prints the ledger to stderr and exits 0 on a good render", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runGlyphDiagram([mermaidFile, "--3d", "--color", "none"]);
+    expect(stdout.mock.calls.flat().join("")).toContain("Orchestrator");
+  });
+
+  it("an explicit --camera zoom is honoured (no auto-fit) — a tiny zoom collapses every node onto one shared cell", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    await runGlyphDiagram([mermaidFile, "--3d", "--camera", "55,35,0.01", "--color", "none"]);
+    // A near-zero zoom (bypassing auto-fit, which would never pick this)
+    // shrinks the whole object under a single cell, so every node's label
+    // collides at the same anchor and the arbiter keeps exactly ONE
+    // winner ("Planner", the highest-degree node) rather than showing all
+    // four — the opposite of the auto-fit path's own gate.
+    const picture = stdout.mock.calls.flat().join("");
+    expect(picture).toContain("Planner");
+    expect(picture).not.toContain("Orchestrator");
+    expect(picture).not.toContain("Coder");
+    expect(picture).not.toContain("Reviewer");
+  });
+
+  it("a bad --3d option exits 1 with its rule code", async () => {
+    vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+    await expect(runGlyphDiagram([mermaidFile, "--3d", "--layout", "radial"])).rejects.toMatchObject({ status: 1 });
+    expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("bad-options");
+  });
+});
