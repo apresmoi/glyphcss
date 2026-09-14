@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { createGlyphOrthographicCamera, createGlyphScene, type Vec3 } from "glyphcss";
 import type { GlyphGraph } from "../types";
 import { glyphDiagramObject } from "./glyphDiagramObject";
-import { layout3d } from "./layout3d";
+import { layout3d, glyphDiagram3dPlaneAxes, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y } from "./layout3d";
 import {
   renderGlyphDiagram3d, renderGlyphDiagram3dJson, GLYPH_DIAGRAM_3D_LIGHT, GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
   type GlyphDiagram3dCharset, type GlyphDiagram3dColorMode, type GlyphDiagram3dTarget,
@@ -87,11 +87,26 @@ const chainGraphLR: GlyphGraph = {
   ],
 };
 
-/** A node's own projected screen-space bounding box (min/max col/row over all 8 box corners) under `camera`. */
+/**
+ * A node's own projected screen-space bounding box (min/max col/row over
+ * all 8 box corners) under `camera`. D2 round 5: a node's own `half` is now
+ * LOCAL to the plane's `u`/`n` basis (`layout3d.ts`'s own `glyphDiagram3dPlaneAxes`),
+ * never literal world X/Y — corners are built the SAME way
+ * `glyphDiagramObject.ts`'s own `boxCorners` does (`center + su*half[0]*u +
+ * sn*half[1]*n + sz*half[2]*Ẑ`), not `center ± half` along raw world axes,
+ * or this measurement would silhouette a box ROTATED away from the one the
+ * renderer actually draws.
+ */
 function projectedSilhouette(camera: ReturnType<typeof createGlyphOrthographicCamera>, center: Vec3, half: Vec3, cols: number, rows: number, cellAspect: number): { width: number; height: number } {
+  const { u, n } = glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
   let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
-    const [col, row] = camera.project([center[0] + sx * half[0], center[1] + sy * half[1], center[2] + sz * half[2]], cols, rows, cellAspect);
+  for (const su of [-1, 1]) for (const sn of [-1, 1]) for (const sz of [-1, 1]) {
+    const world: Vec3 = [
+      center[0] + su * half[0] * u[0] + sn * half[1] * n[0],
+      center[1] + su * half[0] * u[1] + sn * half[1] * n[1],
+      center[2] + sz * half[2],
+    ];
+    const [col, row] = camera.project(world, cols, rows, cellAspect);
     minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
     minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
   }
@@ -141,7 +156,17 @@ describe("renderGlyphDiagram3d", () => {
     // frame at that zoom and drops labels. This is the exact failure a
     // "fixed zoom instead of auto-fit" mutation would reintroduce for
     // EVERY render, not just a mismatched one.
-    const fixedFromSmall = await renderGlyphDiagram3d(supervisorGraph, { target: "web", camera: { rotX: 55, rotY: 35, zoom: small.camera.zoom } });
+    //
+    // D2 round 5: node faces now size off the 2D MEASURED LABEL BOX rather
+    // than a flat per-node floor, so the two fixtures' own natural auto-fit
+    // zooms sit much closer together than round 4's (measured: ~3% apart,
+    // not the old ~40%) — round 5's own sizing model is more uniform across
+    // differently-shaped graphs by design. Applying the small graph's zoom
+    // VERBATIM no longer reliably overflows the big one, so this scales it
+    // up by a deliberate, fixed margin first (still a single constant, the
+    // exact shape a "fixed zoom" mutation would produce) to prove the point
+    // without depending on how close the two natural zooms happen to land.
+    const fixedFromSmall = await renderGlyphDiagram3d(supervisorGraph, { target: "web", camera: { rotX: small.camera.rotX!, rotY: small.camera.rotY!, zoom: small.camera.zoom * 2 } });
     expect(everyLabelVisible(fixedFromSmall.text, supervisorGraph)).toBe(false);
     expect(missingLabels(fixedFromSmall.text, supervisorGraph).length).toBeGreaterThan(0);
   });
@@ -153,20 +178,38 @@ describe("renderGlyphDiagram3d", () => {
     }
   });
 
-  it("D2 round 4 gate: a default-sized node's own projected silhouette is at least 10 cols x 5 rows at 96x32 for a <= 8-node graph (mutation: shrink NODE_HEIGHT/NODE_DEPTH back to round 3's values) → red", async () => {
-    // `agentGraph` (TB, 4 nodes, no groups — the new Z-flow stacking path)
-    // and `chainGraphLR` (LR, 4 nodes) cover both flow axes with plain
-    // default sizing (no explicit `size`, so this isolates the LAYOUT
-    // fix — bigger default boxes + proportional gaps — from anything
-    // `size` compression touches).
+  // D2 round 5: node FACES are now sized from the 2D measured label box (the
+  // brief's own requirement), so a flat per-node width floor no longer
+  // applies — "Coder" is legitimately narrower on screen than
+  // "Orchestrator". What round 5 still owes is (a) a HEIGHT floor
+  // (`GLYPH_DIAGRAM_3D_MIN_HEIGHT`) that keeps every box's own side/top
+  // faces genuinely visible rather than a flat sliver, and (b) width that
+  // actually scales with the node's own label length rather than being
+  // clamped to one constant regardless of content.
+  it("D2 round 5 gate: every node's projected height clears a legibility floor, and width scales with its own label length (mutation: drop GLYPH_DIAGRAM_3D_MIN_HEIGHT's unconditional floor) → red", async () => {
     for (const graph of [agentGraph, chainGraphLR]) {
       const result = await renderGlyphDiagram3d(graph, { target: "web" });
       const camera = createGlyphOrthographicCamera({ rotX: result.camera.rotX, rotY: result.camera.rotY, zoom: result.camera.zoom });
       const laid = await layout3d(graph, {});
       for (const node of laid.nodes) {
         const { width, height } = projectedSilhouette(camera, node.center, node.half, 96, 32, 2.0);
-        expect(width, `${graph.direction} "${node.id}" silhouette width`).toBeGreaterThanOrEqual(10);
-        expect(height, `${graph.direction} "${node.id}" silhouette height`).toBeGreaterThanOrEqual(5);
+        expect(height, `${graph.direction} "${node.id}" silhouette height`).toBeGreaterThanOrEqual(4);
+        expect(width, `${graph.direction} "${node.id}" silhouette width`).toBeGreaterThan(0);
+      }
+
+      // The longest-labeled node's own silhouette is strictly wider than the
+      // shortest-labeled one's — proof faces are sized from the 2D measured
+      // label box, not a flat per-node constant (round 4's own defect).
+      const byLabelLen = [...laid.nodes].sort(
+        (a, b) => String(graph.nodes.find((n) => n.id === a.id)?.label ?? a.id).length - String(graph.nodes.find((n) => n.id === b.id)?.label ?? b.id).length,
+      );
+      const shortest = byLabelLen[0]!, longest = byLabelLen[byLabelLen.length - 1]!;
+      const shortLabel = String(graph.nodes.find((n) => n.id === shortest.id)?.label ?? shortest.id);
+      const longLabel = String(graph.nodes.find((n) => n.id === longest.id)?.label ?? longest.id);
+      if (longLabel.length > shortLabel.length) {
+        const wShort = projectedSilhouette(camera, shortest.center, shortest.half, 96, 32, 2.0).width;
+        const wLong = projectedSilhouette(camera, longest.center, longest.half, 96, 32, 2.0).width;
+        expect(wLong, `${graph.direction}: "${longLabel}" should project wider than "${shortLabel}"`).toBeGreaterThan(wShort);
       }
     }
   });

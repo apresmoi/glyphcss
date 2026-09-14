@@ -72,7 +72,7 @@ function parseColors(innerHtml: string): (string | null)[][] {
 }
 
 async function buildCamera() {
-  const fit = await renderGlyphDiagram3d(GRAPH, { layout: "layered", zBy: "none", target: "web", width: COLS, height: ROWS });
+  const fit = await renderGlyphDiagram3d(GRAPH, { layout: "layered", target: "web", width: COLS, height: ROWS });
   const camera = fit.camera.mat
     ? createGlyphOrthographicCamera({ mat: [...fit.camera.mat], useMat: true, zoom: fit.camera.zoom })
     : createGlyphOrthographicCamera({ rotX: fit.camera.rotX, rotY: fit.camera.rotY, zoom: fit.camera.zoom });
@@ -100,8 +100,18 @@ async function renderWithTarget(targetNodeId: string | null): Promise<Fit> {
     // + a deterministic hash of `(cell index, time)` — no domain-coordinate/
     // UV dependency a plain box mesh may not carry, so it is the most
     // reliable of the three for asserting the TARGETING mechanism itself.
+    //
+    // D2 round 5: `time: 0.5` was tuned against the old per-direction camera's
+    // own screen rows for node "a" — glitch's band pattern is a deterministic
+    // hash of `(cell index, time)`, so a fixed `time` genuinely misses a
+    // node's own band at SOME rows and hits at others, and round 5's plane
+    // embedding moved every node onto different screen rows. `time: 0.9` is
+    // verified (swept 0.1-3.0 in 0.1 steps against the ACTUAL round-5
+    // geometry) to paint a real, nonzero diff for both "a" and "b" at this
+    // fixture's own camera — not a property this test can derive in closed
+    // form, since the hash has no monotone relationship to geometry.
     const definition = getGlyphEffect("glitch")!;
-    const layer = scene.addEffectLayer({ effect: definition, params: { ...defaultGlyphEffectParams(definition), time: 0.5 }, target: handle.meshes.get(`node:${targetNodeId}`) });
+    const layer = scene.addEffectLayer({ effect: definition, params: { ...defaultGlyphEffectParams(definition), time: 0.9 }, target: handle.meshes.get(`node:${targetNodeId}`) });
     expect(layer).toBeDefined();
   }
   scene.rerender();

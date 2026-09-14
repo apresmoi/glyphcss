@@ -29,7 +29,7 @@ import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from
 import type { GlyphGraph } from "../types";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
 import { glyphDiagramObject, resolveGlyphDiagram3dLabelPlacement, glyphDiagram3dLabelSideDirection, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
-import { layout3d, type GlyphDiagram3dNode } from "./layout3d";
+import { layout3d, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dNode } from "./layout3d";
 import {
   ledger3dArrowheadsSuppressed, ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelsSuppressed,
   ledger3dLabelUnfittable, ledger3dLayoutAutoForce,
@@ -396,41 +396,26 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   if (camOpts.mat !== undefined && (camOpts.rotX !== undefined || camOpts.rotY !== undefined)) {
     glyphDiagramError("bad-options", "camera: pass either mat (trackball) or rotX/rotY (Euler), not both.");
   }
-  // D2 round 4 (codex: "the flow runs diagonally across the screen... the
-  // camera and flow axis must make the FLOW read along a screen axis").
-  // `rotateVec3Voxcss`'s own axis-swap+rotate math (`createGlyphCamera.ts`)
-  // gives `col ~ Y*cosY - X*sinY` and `row ~ (Y*sinY + X*cosY)*cosX - Z*sinX`
-  // for THIS camera's Euler convention. `col` has NO Z TERM AT ALL, at any
-  // rotX/rotY, so a pure-Z delta (a TB/BT stack, D2 round 4's own
-  // `zBy`-default Z-flow above) NEVER shows up as column drift, by
-  // construction — no angle choice needed there. A pure-X delta (an LR/RL
-  // flow) is the SYMMETRIC case: at `rotY = -90` exactly, `cosY = 0`, so
-  // `row`'s own X coefficient (`cosY*cosX`) is EXACTLY ZERO too — not merely
-  // small. The first cut used a gentler `rotY: -70` (ratio ~0.1245,
-  // comfortably under the round's own PER-STEP 0.15 gate) and still failed
-  // visually: 0.1245 is a per-CONSECUTIVE-PAIR bound, but it COMPOUNDS
-  // linearly over a long chain (LeNet's own 8-node span), so a per-step
-  // ratio that clears the gate still drew the WHOLE diagram sweeping several
-  // rows downward end to end — measured, ~12 rows of cumulative drift across
-  // the real LeNet-5 fixture. `-90` closes that at the ROOT rather than
-  // tightening the angle further: `col = -X` exactly (X drives the flow's
-  // own screen position at FULL scale, unreduced) and `row = Y*cosX - Z*sinX`
-  // carries NO `X` term whatsoever, so consecutive-pair AND whole-chain drift
-  // are both exactly zero, for a chain of any length. The tradeoff, stated:
-  // depth (`Y`) no longer shifts a box sideways on screen (its own
-  // COLUMN coefficient is `cosY = 0` too), so a box's side face reads as a
-  // vertical/row offset instead of a horizontal one — still a real 3D
-  // depth cue, just reoriented; height (`Z`, coefficient `-sinX`) still
-  // reads almost entirely as row at `rotX: 70`. TB/BT has no such
-  // constraint to satisfy at all (Z->col is always exactly zero, whatever
-  // the pitch), so its own default is chosen purely for a pleasant
-  // "slightly above and in front" 3/4 read.
+  // D2 round 5 — ONE fixed "architecture view" camera for every graph,
+  // regardless of its own 2D direction (TB/LR/BT/RL): `layout3d.ts`'s
+  // `glyphDiagram3dPlaneAxes` embeds the 2D layout's own x axis into a
+  // ground direction analytically SOLVED to project with zero screen-row
+  // component at THIS exact `rotY` — the flow never drifts, by
+  // construction, for any direction or chain length, so there is no more
+  // per-direction rotX/rotY special case to pick (the OLD system's own
+  // `rotY: -90` LR/RL exemption is gone: that was needed only because ITS
+  // geometry was built world-axis-aligned regardless of camera, so a
+  // diagonal flow had to be cancelled by camera angle instead of being
+  // solved away at the geometry layer, as it is now). `GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/
+  // `_ROT_Y` are `layout3d.ts`'s own constants (never a second, drifting
+  // copy) — the object's own mesh geometry is BAKED assuming exactly this
+  // yaw, so a caller overriding `camera.rotY` sees the object from an
+  // angle its own geometry wasn't built for (an ordinary "orbit away from
+  // the default" case, not a defect — D3's own live viewport orbits this
+  // exact object).
+  const rotX = camOpts.rotX ?? (camOpts.mat === undefined ? GLYPH_DIAGRAM_3D_CAMERA_ROT_X : undefined);
+  const rotY = camOpts.rotY ?? (camOpts.mat === undefined ? GLYPH_DIAGRAM_3D_CAMERA_ROT_Y : undefined);
   const effectiveDirection = options.direction ?? graph.direction;
-  const isVerticalFlow = effectiveDirection === "TB" || effectiveDirection === "BT";
-  const defaultRotX = isVerticalFlow ? 55 : 70;
-  const defaultRotY = isVerticalFlow ? 25 : -90;
-  const rotX = camOpts.rotX ?? (camOpts.mat === undefined ? defaultRotX : undefined);
-  const rotY = camOpts.rotY ?? (camOpts.mat === undefined ? defaultRotY : undefined);
 
   const ledger: GlyphDiagramLedgerEntry[] = [...charsetLedger];
 
@@ -484,6 +469,13 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
     glyphDiagramObject(graph, { ...resolvedOptions, tier: canvasTier, boxOutline, labelNodeIds, arrowheads: resolvedArrowheads }),
     layout3d(graph, resolvedOptions),
   ]);
+  // D2 round 5 — the layered path routes edges through the SAME 2D A*
+  // router `/diagrams` 2D uses (`route.ts`), which can genuinely fail to
+  // find a path (an unroutable edge, a folded label) where the OLD
+  // per-direction system's free 3D diagonals never could. `layout.ledger`
+  // carries those entries (plus label-folding/group-membership ones from
+  // the 2D pipeline itself) — surfaced here rather than silently dropped.
+  ledger.push(...layout.ledger);
 
   // Auto-fit's own label constraint set is the SAME suppressed subset
   // (D2 fix round 3, P1-2) — a label `glyphDiagramObject` never places

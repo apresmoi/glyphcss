@@ -75,10 +75,10 @@ describe("diagramsUrlState — round trip", () => {
 
   // Packet D3 — view/view3d/camera3d ride in the SAME `?d=` envelope as
   // every other field (append-only, per this file's own top-of-file rule).
-  it("round-trips the 3D view, layout/zBy/seed/controlsMode and an Euler camera", async () => {
+  it("round-trips the 3D view, layout/seed/controlsMode and an Euler camera", async () => {
     let state = createGlyphDiagramsWorkbenchState();
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view3d", patch: { layout: "force", zBy: "none", seed: 42, controlsMode: "trackball" } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view3d", patch: { layout: "force", seed: 42, controlsMode: "trackball" } });
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-camera3d", camera: { rotX: 12.5, rotY: -30, zoom: 8.75 } });
     const raw = await encodeDiagramsUrlState(state);
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);

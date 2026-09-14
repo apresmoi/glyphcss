@@ -7,13 +7,13 @@
  */
 export {
   layout3d,
-  GLYPH_DIAGRAM_3D_LAYER_HEIGHT,
-  GLYPH_DIAGRAM_3D_NODE_HEIGHT,
+  glyphDiagram3dPlaneAxes,
+  GLYPH_DIAGRAM_3D_CAMERA_ROT_X,
+  GLYPH_DIAGRAM_3D_CAMERA_ROT_Y,
   GLYPH_DIAGRAM_3D_GROUP_PAD,
 } from "./layout3d";
 export type {
   GlyphDiagram3dLayoutKind,
-  GlyphDiagram3dZBy,
   GlyphDiagram3dNode,
   GlyphDiagram3dEdge,
   GlyphDiagram3dGroup,

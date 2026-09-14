@@ -608,7 +608,7 @@ describe("Copy at the current camera (packet D3)", () => {
     expect(glyphDiagramsWorkbenchRenderOptions3d(state).camera).toEqual({ rotX: 12, rotY: -40, zoom: 6.5 });
   });
 
-  it("a layout/zBy/seed/controlsMode edit resets `camera3d` (a different layout needs its own fit)", () => {
+  it("a layout/seed/controlsMode edit resets `camera3d` (a different layout needs its own fit)", () => {
     let state = createGlyphDiagramsWorkbenchState();
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-camera3d", camera: { rotX: 1, rotY: 2, zoom: 3 } });
     expect(state.camera3d).toBeDefined();

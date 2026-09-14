@@ -4,7 +4,7 @@ import {
   type GlyphDiagramRenderOptions, type GlyphDiagramTarget, type GlyphGraph,
   type GlyphGraphDirection, type GlyphGraphEdge, type GlyphGraphGroup, type GlyphGraphNode,
 } from "@glyphcss/diagrams";
-import type { GlyphDiagram3dCamera, GlyphDiagram3dLayoutKind, GlyphDiagram3dRenderOptions, GlyphDiagram3dZBy } from "@glyphcss/diagrams/3d";
+import type { GlyphDiagram3dCamera, GlyphDiagram3dLayoutKind, GlyphDiagram3dRenderOptions } from "@glyphcss/diagrams/3d";
 import type { GlyphOrbitControlsMode } from "glyphcss";
 import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE, type Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import chain from "../../../../packages/diagrams/fixtures/chain.mmd?raw";
@@ -45,15 +45,15 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   { id: "crew", label: "CrewAI-style crew", source: crewSource },
   {
     id: "agent-supervisor-3d", label: "Agent supervisor (3D, example)", source: agentSupervisor,
-    dimension: "3d" as const, view3d: { layout: "layered" as const, zBy: "group" as const },
+    dimension: "3d" as const, view3d: { layout: "layered" as const },
   },
   {
     id: "crew-3d", label: "Multi-agent crew (3D, example)", source: crewSource,
-    dimension: "3d" as const, view3d: { layout: "layered" as const, zBy: "group" as const },
+    dimension: "3d" as const, view3d: { layout: "layered" as const },
   },
   {
     id: "karate-club-3d", label: "Zachary's karate club (3D)", source: karateClub,
-    dimension: "3d" as const, view3d: { layout: "force" as const, zBy: "none" as const },
+    dimension: "3d" as const, view3d: { layout: "force" as const },
   },
 ] as const;
 
@@ -84,15 +84,17 @@ export function resolveGlyphDiagramsWorkbenchControls(state: GlyphDiagramsWorkbe
 
 /**
  * `view3d` (packet D3) — the layout/rotation knobs the Rail/Dock exposes
- * for the 3D viewport (AGENTS.md's "Diagrams 3D"): `layout`/`zBy`/`seed`
+ * for the 3D viewport (AGENTS.md's "Diagrams 3D"): `layout`/`seed`
  * forward straight to `glyphDiagramObject`'s own options, `controlsMode`
  * picks turntable (default, axis-locked) vs. trackball (free rotation —
  * the user's "rotates in any direction" requirement) on the SAME
  * `createGlyphOrbitControls` the rest of the site's 3D surfaces use.
+ * D2 round 5 retired `zBy` — `layout: "layered"` is now ONE fixed planar
+ * embedding with no Z-axis-selection option (this file's "Diagrams 3D"
+ * section).
  */
 export interface GlyphDiagramsWorkbenchView3d {
   readonly layout: GlyphDiagram3dLayoutKind;
-  readonly zBy: GlyphDiagram3dZBy;
   readonly seed: number;
   readonly controlsMode: GlyphOrbitControlsMode;
 }
@@ -107,7 +109,7 @@ export interface GlyphDiagramsWorkbenchView3d {
  */
 export type GlyphDiagramsWorkbenchCamera3d = GlyphDiagram3dCamera & { readonly zoom: number };
 
-export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D: GlyphDiagramsWorkbenchView3d = { layout: "layered", zBy: "group", seed: 1, controlsMode: "turntable" };
+export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D: GlyphDiagramsWorkbenchView3d = { layout: "layered", seed: 1, controlsMode: "turntable" };
 
 /**
  * Fix round 1, P1-2 — the shared `Instrument3DEffectsFolder`'s own state
@@ -235,7 +237,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
       // `camera3d` to `undefined` so the newly-mounted object re-runs the
       // library's own auto-fit (AGENTS.md D3: never a page-tuned camera) —
       // a 2D preset resets `view3d` back to the shared default so an
-      // earlier 3D preset's `layout`/`zBy` choice doesn't leak into the
+      // earlier 3D preset's `layout` choice doesn't leak into the
       // next graph's own Rail/Dock reading.
       const is3d = "dimension" in preset && preset.dimension === "3d";
       const view3dPatch = is3d && "view3d" in preset ? preset.view3d : GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D;
@@ -259,7 +261,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
     // (or, on terminal/chat, the next static render) picks its own
     // auto-fit rather than inheriting a pose framed for the OTHER mode.
     case "set-view": return action.view === state.view ? state : { ...state, view: action.view, camera3d: undefined };
-    // A layout/zBy/seed/controlsMode edit invalidates the mounted object's
+    // A layout/seed/controlsMode edit invalidates the mounted object's
     // geometry (a different layout is a different set of node positions),
     // so the camera resets to auto-fit for the SAME reason a view switch
     // does — an old camera framed for the previous layout can clip or
@@ -284,7 +286,7 @@ export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenc
 export function glyphDiagramsWorkbenchRenderOptions3d(state: GlyphDiagramsWorkbenchState): GlyphDiagram3dRenderOptions {
   const controls = resolveGlyphDiagramsWorkbenchControls(state.controls);
   return {
-    layout: state.view3d.layout, zBy: state.view3d.zBy, seed: state.view3d.seed,
+    layout: state.view3d.layout, seed: state.view3d.seed,
     ...(state.layout.direction ? { direction: state.layout.direction } : {}),
     nodesep: state.layout.nodesep, ranksep: state.layout.ranksep,
     target: controls.target, charset: controls.charset, color: controls.color,

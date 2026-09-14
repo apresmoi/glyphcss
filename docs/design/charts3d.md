@@ -2339,6 +2339,706 @@ only under cross-layer occlusion — crops to no `occluded` on the result).
 
 Reverted and re-verified green after.
 
+## D2 round 5 — one planar layout, one fixed oblique camera
+
+**Goal (user brief, verbatim intent).** Replace the per-direction 3D layouts
+and cameras (round 3/4's `zBy`-selected floors plus a direction-keyed camera
+default) with ONE planar path: the 2D renderer's own dagre layout goes onto a
+vertical plane facing the viewer, and nodes extrude backwards as upright
+blocks, under a single fixed oblique camera. Faces size from the 2D measured
+label boxes, edges reuse the 2D orthogonal router and arrowhead table, and
+every applicable gate (ink/braille, `hiddenLines`, `style`, shapes, `size`,
+label modes, auto-fit) still holds.
+
+### The camera: solving for zero screen-row drift, analytically
+
+`createGlyphOrthographicCamera.project()` is not an approximation to invert —
+`rotateVec3Voxcss` gives the EXACT formula this whole derivation is built on:
+
+```
+col  = v[1]*cosY - v[0]*sinY
+row  = (v[1]*sinY + v[0]*cosY)*cosX - v[2]*sinX
+depth = (v[1]*sinY + v[0]*cosY)*sinX + v[2]*cosX
+```
+
+(`v` is the vertex relative to `camera.target`; `cosX/sinX` from `rotX`,
+`cosY/sinY` from `rotY`.) For a vector confined to the ground plane (world
+`Z = 0`) at polar angle `φ` — i.e. `v = r·(cos φ, sin φ, 0)` — each of the
+three camera outputs is `r` times a function of `φ` alone:
+
+```
+col_coeff(φ)   = sin(φ - rotY)
+row_coeff(φ)   = cos(φ - rotY) * cosX
+depth_coeff(φ) = cos(φ - rotY) * sinX
+```
+
+**Zero row-drift is one equation.** `row_coeff(φ) = 0` requires
+`cos(φ - rotY) = 0`, i.e. `φ = rotY + 90°`. That is the entire derivation —
+`u`, the plane's own "ground" direction (where the 2D layout's `x` axis
+embeds), is fixed at this one angle for a given `rotY`, and NOTHING else
+makes `row_coeff` vanish. `glyphDiagram3dPlaneAxes(rotYDeg)` returns this `u`
+as a unit `Vec3` with a literal `z: 0`.
+
+**The perpendicular, `n`, is forced — not chosen.** `n`'s angle is
+`φ_u + 90° = rotY + 180°`, so `cos(φ_n - rotY) = cos(180°) = -1` and
+`col_coeff(φ_n) = sin(180°) = 0` — `n`'s own COLUMN coefficient is exactly
+zero, a mathematical identity of the `u`/`n` pair being perpendicular under
+this projection, not a second design decision. This is why `n` (the node
+extrusion / depth axis) never drifts sideways on screen either: pushing a
+node "back" along `n` moves it straight down in `row` and not at all in
+`col`, which is exactly the "depth reads as literal depth" property an
+oblique architectural view needs.
+
+**`rotX`'s sign convention is inverted from naive intuition, and was found
+by testing, not by re-deriving the algebra.** In `rotateVec3Voxcss`,
+`rotX = 0` sends `row` to `-(v[1]*sinY + v[0]*cosY)*sinX = 0` for a
+ground-plane point when `sinX = 0`, i.e. `rotX = 0` is a purely SIDE-ON
+("horizontal") view with no vertical foreshortening of the ground plane at
+all, and `rotX = 90` gives `cosX = 0`, collapsing the ground plane's own
+`row_coeff` to zero everywhere — a bird's-eye/top-down view. This is the
+OPPOSITE of what "pitch 20-25° from above" (the brief's own architectural
+phrasing) suggests at face value; a low `rotX` (near 0) reads as looking
+ALONG the ground, and a `rotX` near 90 reads as looking DOWN at it. Chasing
+this by algebra alone would have picked the wrong end of the range — it was
+resolved by rendering test frames at `rotX: 20`, `rotX: 65`, `rotX: 90` and
+reading which one actually showed "a top and a side face," per the brief's
+own "LOOK, don't just reason" instruction. The settled constants:
+
+```ts
+export const GLYPH_DIAGRAM_3D_CAMERA_ROT_X = 68;
+export const GLYPH_DIAGRAM_3D_CAMERA_ROT_Y = 30;
+```
+
+`rotX: 68` sits close to the top-down end (mostly looking down the Z axis,
+which is what makes a WIDE, many-node layout still fit a short frame — the
+brief's own "20-25° pitch" read as "68 degrees off dead-level," an
+architectural elevation pitched down, not "68 degrees off top-down") while
+still tipping enough to show each box's own top face as a real sliver;
+`rotY: 30` is inside the brief's "25-35° yaw" band and gives a legible
+diagonal on both `u` and the vertical (world `Z`) axes at once.
+
+**One asymmetry is inherent, not tunable.** Width scales at
+`zoom / cellPxW` (`cellPxW = 25`) while height scales at
+`sinX * zoom / cellPxH` (`cellPxH = 50`) — roughly a 2x disadvantage for
+vertical extent at ANY `rotX`, since the theoretical maximum of
+`sinX * cellPxW / cellPxH` is `0.5` at `rotX = 90` (which throws away all
+pitch). Sweeping `rotX` at `68/75/80/84` measured only a marginal
+improvement over `68`, confirming this is a structural property of the
+camera/cell-aspect combination, not a badly-chosen angle — it is the reason
+`GLYPH_DIAGRAM_3D_MIN_HEIGHT` (below) exists at all.
+
+### The layout: the 2D dagre result embedded on the plane
+
+`layoutLayered` reuses the EXISTING 2D pipeline verbatim —
+`measureGlyphGraph` → `reserveGlyphGraphPorts` → `layoutGlyphGraph` (dagre) →
+`routeGlyphGraphEdges` (Manhattan A*) — then maps every 2D coordinate onto
+the plane through one function:
+
+```ts
+function planePoint(u: Vec3, n: Vec3, uOffset: number, nOffset: number, zOffset: number): Vec3 {
+  return [uOffset * u[0] + nOffset * n[0], uOffset * u[1] + nOffset * n[1], zOffset];
+}
+```
+
+2D `x` (the dagre layout's own horizontal axis) becomes the plane's `u`
+offset; 2D `y` (downward, dagre's own rank axis) becomes the WORLD Z offset,
+negated (`-c.y`) so a lower 2D rank sits lower on screen, matching the
+reader's own top-to-bottom or left-to-right expectation for TB/LR alike —
+there is no longer a `zBy`-selected floor, and no separate per-direction
+camera: whichever direction the 2D layout already ran in, the SAME `u`/`n`
+embedding and the SAME fixed camera show it correctly, because `u` was
+solved to be direction-agnostic (it depends only on `rotY`, never on the
+graph's own `direction`).
+
+**Node faces size from the 2D measured label box, never a flat constant.**
+`layoutLayered` widens each 2D node's own measured `width`/`height` (in the
+SAME cell units the 2D router already lays out in — "so inside labels always
+fit," the brief's own requirement) before handing it to dagre, so a wide
+label produces a wide box and a short one a narrow box (verified: "Coder"
+half-width `4.50` against "Orchestrator" half-width `8.00` on the identical
+fixture — this is the design working as intended, not a residual). Depth is
+`0.35-0.5x min(width, height)` (`GLYPH_DIAGRAM_3D_DEPTH_FACTOR = 0.42`,
+floored at `GLYPH_DIAGRAM_3D_MIN_DEPTH = 1.5`), the brief's own band.
+
+**`GLYPH_DIAGRAM_3D_MIN_HEIGHT = 12` is an UNCONDITIONAL floor on the front
+face's own vertical extent** (world Z), applied to a plain measured height
+AND to an explicit-`size`-compressed one alike. This exists because of the
+inherent width/height scale asymmetry above: a WIDE multi-node chain (the
+brief's own LeNet-5 fixture — 8 nodes, several with an explicit `size`, so a
+"no explicit size" gate alone had no effect on it) auto-fits at a
+COLUMN-constrained zoom (many box widths, each already forced to at least
+its own label's length, summed against a 96/140-column frame), and at that
+zoom a literal ~3-unit 2D height (the router's own readability floor,
+"does the label's text fit," never a target for how TALL a box should
+stand) projects under a single output row — the brief's own reported defect,
+"flat rectangles, no side face and no depth." The constant was tuned by
+rendering, not computed: `6` gave a barely visible improvement, `12` gave a
+substantial one, clearest at 140x40 where LeNet-5's boxes now show ~7 rows
+with a genuinely visible depth band.
+
+**Back-edges and self-loops need symmetric routing margin — the SAME fix the
+2D renderer's own `centered()` already applies.** Nodes packed flush against
+`x = 0`/`y = 0` (dagre's own default origin) give a back-edge or a self-loop
+nowhere to detour around on the low side. `layoutLayered` now shifts the
+WHOLE layout by `(dx, dy) = floor(ROUTING_MARGIN / 2)` before routing (never
+after — routing itself must see the free space), reproducing the 2D
+renderer's own centering pattern rather than inventing a new one;
+`ROUTING_MARGIN = 10` clears a grouped 4-node test graph's back-edge, a
+plain 2-node self-loop, and the crew fixture's `review -.-> writer` back-edge
+(all three UNROUTABLE at zero margin — verified via debug scripts stepping
+margin from `0` up, resolved by margin `2`, kept at `10` for headroom).
+
+**Edge endpoints anchor on the port's own ANCHOR cell, not its ESCAPE
+cell.** `route.cells`' first/last points are the router's ESCAPE cell (one
+unit outside the node, where the A* walk actually starts/ends), not the
+ANCHOR (on the node's own border) — using it verbatim left every edge
+landing 2 world units off the node's own face
+(`expected 2 to be <= 1.500001`). Fixed by substituting the port's own
+`anchor` for the collapsed route's first/last corner: provably collinear,
+since `escape = anchor + outward_delta` and `route.ts`'s own A* is forced to
+continue in that same outward direction for its first step, so the
+substitution never introduces a kink.
+
+**Groups render as a recessed backdrop frame, pushed straight back along
+`n`** (`GLYPH_DIAGRAM_3D_GROUP_RECESS_GAP = 1.5` behind the group's own
+deepest member) — chosen over drawing them in front, because a frame behind
+the group reads unambiguously as a backdrop rather than competing with
+member boxes for the same depth band.
+
+**Arrowheads and edge glyphs stay screen-slope-derived, deliberately kept
+unchanged from before this round.** `arrowGlyph`/`segmentGlyph` pick their
+glyph from the ACTUAL projected screen direction of a route segment, not
+from a stored 2D side — this was tested and kept because it is correct under
+ANY camera (the fixed default, OR a live-orbited one), where a
+stored-2D-side approach would only be correct for the exact default camera.
+"There are no free 3D diagonals any more" (the brief's own requirement) is
+therefore a property of the ROUTE (Manhattan, reused verbatim from the 2D
+router) rather than of the glyph-picking code, which was already general.
+
+### Mutation table
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| Every projected row exactly matches 2D rank ordering (exact, reversed-6-chain) | Use an arbitrary `rotY` offset for `u` instead of the solved `rotY + 90°` | RED — nonzero row drift measured |
+| `glyphDiagram3dPlaneAxes` is orthonormal at every swept `rotX`/`rotY` | Drop the `n = rotY + 180°` derivation, substitute an unrelated perpendicular guess | RED — `col_coeff(n) !== 0` |
+| Edge endpoint lands exactly on the node's own front face (`localOffset ≈ -half[n]`) | Use the route's escape cell verbatim instead of substituting the port anchor | RED — `expected 2 to be <= 1.500001` |
+| Grouped 4-node graph / self-loop / crew back-edge all route (no `unroutable`) | Drop the centering shift, keep `ROUTING_MARGIN` | RED — 3/3 cases fail with `route.cells.length === 0` |
+| A default-sized node's height clears a legibility floor; width scales with its own label length | Drop `GLYPH_DIAGRAM_3D_MIN_HEIGHT`'s unconditional floor | RED — height collapses under the floor on the LeNet-style fixture |
+| No single constant zoom fits two differently-sized graphs (auto-fit is real) | Apply one graph's own auto-fit zoom, scaled by a fixed constant, to a wider graph | RED — a label overflows the frame with no ledger entry |
+| The static frame equals the live `createGlyphScene` frame at the same camera/object | Skip overlay stamping in the static path | RED — `result.text !== liveText` |
+| Braille under default (ink) style logs NO `3d-charset-degraded`; `blocks` still does | Reintroduce a blanket "every non-box charset degrades" rule | RED — braille wrongly logs degradation |
+
+Every mutation above was applied to the working tree, run, observed red,
+then reverted and re-verified green (`packages/diagrams` full suite: 267
+tests, `website` `DiagramsWorkbench`/`InstrumentWorkbench` suites: 329
+tests).
+
+### Residuals (honestly reported, not silently dropped)
+
+1. **`researcher -> supervisor` on the agent-supervisor fixture is
+   genuinely unroutable at every setting tried** (routing margin up to 20,
+   several `nodesep`/`ranksep` combinations) — 3 back-edges converge on
+   Supervisor's own north side alongside a forward `user -> supervisor`
+   edge; 2 of the 3 back-edges route successfully, only `researcher`'s
+   consistently fails. Cross-checked against pure 2D's OWN
+   `renderGlyphDiagram()` (with its full compaction/retry/split machinery)
+   on the byte-identical fixture: 2D also fails to route it cleanly and
+   falls all the way to its own `split`-panel fallback
+   (`routing-attempt`/`split` ledger entries) — this is a genuine structural
+   routing conflict in the fixture's own topology, not a defect introduced
+   by the plane-embedding bridge. Reported via the `unroutable` ledger code
+   on every render (visible in the "Agent supervisor" frames below), never
+   silently dropped, consistent with the design's existing "never silently
+   drop an edge" contract (already demonstrated working for the grouped
+   4-node test graph, the plain self-loop, and the crew fixture's own
+   back-edge, all of which DO route cleanly).
+2. **LeNet-5 at 96x32 stays visually tight** — 2 labels (`input`, `pool2`)
+   are honestly dropped via the `3d-label-dropped` ledger code (visible in
+   the frame below) rather than overlapping or silently vanishing; 140x40
+   clears this with real margin. This is the inherent width/height scale
+   asymmetry described above, sized against an 8-node, several-explicit-
+   `size` fixture at the smaller of the two required box sizes — not a
+   defect in a specific constant, since sweeping `rotX` and `MIN_HEIGHT`
+   both plateau well short of eliminating it at 96 columns.
+
+### Rendered frames (D2 round 5)
+
+All four examples — LeNet-5, transformer encoder, agent supervisor, and the
+crew graph (`flowchart LR; request[Request] --> manager[Manager]; subgraph
+crew[Crew]; researcher[Researcher] --> writer[Writer]; end; manager -->
+researcher; writer --> review{Review}; review -->|approved| result[Result];
+review -.->|revise| writer`) — rendered via `renderGlyphDiagram3d` at
+96x32 box, 96x32 braille, and 140x40 box, `color: "none"`, default (`ink`)
+style. Verbatim output, `packages/diagrams`'s own build:
+
+```
+================================================================================
+LeNet-5 — 96x32 box
+================================================================================
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+     ----------▕  ----------▏ __________|  __________|                                          
+     -----------  ---conv 28x28x6-pool 14x14x6-conv 10x10x16------ ---fc 120--fc 84 ---out 10   
+     |         ▕  |         ▏ ▕         |  ▏         | ▕         ▏ ▕     ▕  ▏    ▕  ▏     |     
+     |         ▕───▶        ───▶        ───▶         ───▶        ───▶    ▕───▶   ▕───▶    |     
+     |__________  __________▏ ___________  ▏_________| ▕ ________▏ _______  ______  ▏______     
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+LEDGER: [{"code":"3d-label-dropped","message":"The \"input\" label (\"input 32x32x1\") didn't make it into the final frame — likely hidden behind another node or collided with a neighboring label at this camera angle.","detail":{"nodeId":"input","label":"input 32x32x1"}},{"code":"3d-label-dropped","message":"The \"pool2\" label (\"pool 5x5x16\") didn't make it into the final frame — likely hidden behind another node or collided with a neighboring label at this camera angle.","detail":{"nodeId":"pool2","label":"pool 5x5x16"}}]
+================================================================================
+LeNet-5 — 96x32 braille
+================================================================================
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+     ⡤⠤⠤⠤⠤⠤⠤⠤⠤⠤⢤  ⡤⠤⠤⠤⠤⠤⠤⠤⠤⠤⡄ ⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀  ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀                                          
+     ⡧⠤⠤⠤⠤⠤⠤⠤⠤⠤⢼  ⡧⠤⠤conv 28x28x6⠤pool 14x14x6⠤conv 10x10x16⠭⠭⠭⠭⠭⡇ ⢸⠭⠭fc 120⡯⠭fc 84 ⡯⠭⠭out 10   
+     ⡇         ⠘  ⡇         ⠃ ⢸         ⠘  ⡇         ⠘ ⢸         ⠃ ⢸     ⠘  ⡇    ⠘  ⡇     ⠃     
+     ⡇         ⠘───▶        ───▶        ───▶         ───▶        ───▶    ⠘───▶   ⠘───▶    ⠃     
+     ⣏         ⠘  ⣏         ⠃ ⢸         ⠘  ⣗         ⠘ ⢸         ⠃ ⢸     ⠘  ⣧    ⠘  ⣧     ⠃     
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+LEDGER: [{"code":"3d-label-dropped","message":"The \"input\" label (\"input 32x32x1\") didn't make it into the final frame — likely hidden behind another node or collided with a neighboring label at this camera angle.","detail":{"nodeId":"input","label":"input 32x32x1"}},{"code":"3d-label-dropped","message":"The \"pool2\" label (\"pool 5x5x16\") didn't make it into the final frame — likely hidden behind another node or collided with a neighboring label at this camera angle.","detail":{"nodeId":"pool2","label":"pool 5x5x16"}}]
+================================================================================
+LeNet-5 — 140x40 box
+================================================================================
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+      ----------------▕   ---------------▏   ______________▕   ________________|                                                            
+      ______input 32x32x1 _____conv 28x28x6  _____pool 14x14x6 _______conv 10x10x16_____pool 5x5x16 ____fc 120_  ____fc 84_  ____out 10_    
+      ▕               ▕   |              ▏   ▏             ▕   |               |   ▏             ▏  ▕         ▏  ▕        ▏  ▕         ▏    
+      ▕               ▕   |              ▏   ▏             ▕   |               |   ▏             ▏  ▕         ▏  ▕        ▏  ▕         ▏    
+      ▕               ─────▶             ─────▶            ─────▶              ─────▶            ────▶        ────▶       ────▶        ▏    
+      ▕               ▕   |              ▏   ▏             ▕   |               |   ▏             ▏  ▕         ▏  ▕        ▏  ▕         ▏    
+      ▕________________   _______________▏   _______________   |_______________|   ▏_____________▏  ________ __  ______ ___  ▕_____ ____    
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+================================================================================
+Transformer encoder — 96x32 box
+================================================================================
+                                                                                                
+                                         _______                                                
+                                      _//       ‾\_                                             
+                                      ▕▔-__Input Embedding                                      
+                                        |       ▕                                               
+                                      ▕ |   ▕   ▕ |                                             
+                                      ▕\    ▕│   //                                             
+                                        |‾▔▔Positional                                          
+                                        ▕    ▼   |                                              
+                                        ▕        |                                              
+                                        ▕        |                                              
+                                        ‾‾‾‾‾│‾‾‾‾                                              
+                                        ▔▔▔▔▔Multi-Head                                         
+                                        ▕        |                                              
+                                        ▕        |                                              
+                                        _________|                                              
+                                        _____│____                                              
+                                        ▕    Add & Norm                                         
+                                        ▕        |                                              
+                                        ▕        |                                              
+                                        ▔▔▔▔▔▔▔▔▔▔                                              
+                                        -----Feed Forward                                       
+                                        ▏    ▼    ▏                                             
+                                        ▏         ▏                                             
+                                        ___________                                             
+                                        _________|                                              
+                                        ‾‾‾‾‾Add & Norm                                         
+                                        ▕        |                                              
+                                        ▕        |                                              
+                                        ----------                                              
+                                                                                                
+                                                                                                
+================================================================================
+Transformer encoder — 96x32 braille
+================================================================================
+                                                                                                
+                                          ⣀⣀⣤⣄⣀⡀                                                
+                                      ⢀⡤⢾⠉⠁ ⢸  ⠉⢹⠦⣄                                             
+                                      ⢸⠓⢦⠤⣄Input Embedding                                      
+                                      ⢸ ⢸   ⢸   ⠈                                               
+                                      ⢸ ⢸   ⢸   ⠈                                               
+                                      ⠸⣄⣸   ⢸│  ⠈ ⡄                                             
+                                        ⢹⠉⠓⠒Positional                                          
+                                        ⢸    ▼   ⡇                                              
+                                        ⢸        ⠃                                              
+                                        ⢸        ⠃                                              
+                                        ⠈⠉⠉⠉⠉│⠉⠉⠉⠁                                              
+                                        ⢸⠛⠛⠛⠛Multi-Head                                         
+                                        ⢸        ⠃                                              
+                                        ⢸        ⠃                                              
+                                        ⠸        ⠃                                              
+                                        ⢠⣤⣤⣤⣤│⣤⣤⣤⡄                                              
+                                        ⢸    Add & Norm                                         
+                                        ⢸        ⠃                                              
+                                        ⢸        ⠃                                              
+                                        ⠘⠒⠒⠒⠒⠒⠒⠒⠒⠃                                              
+                                        ⡟⠛⠛⠛⠛Feed Forward                                       
+                                        ⡇    ▼    ⠃                                             
+                                        ⡇         ⠃                                             
+                                        ⣧         ⠃                                             
+                                        ⢀⣀⣀⣀⣀⣀⣀⣀⣀⡀                                              
+                                        ⢸⠉⠉⠉⠉Add & Norm                                         
+                                        ⢸        ⠃                                              
+                                        ⢸        ⠃                                              
+                                        ⠘⠒⠒⠒⠒⠒⠒⠒⠒⠃                                              
+                                                                                                
+                                                                                                
+================================================================================
+Transformer encoder — 140x40 box
+================================================================================
+                                                                                                                                            
+                                                                   _                                                                        
+                                                             //▔▔‾‾ ‾ ‾▔▔-\                                                                 
+                                                            ▔_    Input Embedding                                                           
+                                                            | ▔----_- ---▔ |                                                                
+                                                            | ▕    ▕     ▏ |                                                                
+                                                            | ▕    ▕     ▏ |                                                                
+                                                            | ▕    ▕     ▏ /                                                                
+                                                             \▕____ │____▏/                                                                 
+                                                              -----Positional                                                               
+                                                              ▕     ▼    ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ____________                                                                  
+                                                                    │                                                                       
+                                                              ▔▔▔▔▔▔Multi-Head                                                              
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ------│----▕                                                                  
+                                                              ______│____▕                                                                  
+                                                              ‾‾‾‾‾‾Add & Norm                                                              
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ------------                                                                  
+                                                              _____________                                                                 
+                                                              ▏     Feed Forward                                                            
+                                                              ▏                                                                             
+                                                              ▏           |                                                                 
+                                                              ▏           |                                                                 
+                                                              ▔▔▔▔▔▔▔▔▔▔▔▔▔                                                                 
+                                                              ______Add & Norm                                                              
+                                                              ▕     ▼    ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ▕          ▕                                                                  
+                                                              ‾‾‾‾‾‾‾‾‾‾‾‾                                                                  
+                                                                                                                                            
+                                                                                                                                            
+================================================================================
+Agent supervisor — 96x32 box
+================================================================================
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                     ▔▔▔▔▔▔User request                                         
+                                     ‾‾‾‾‾‾‾‾‾‾‾‾‾‾‾                                            
+                                     ▕             |                                            
+                                     ▕             |                                            
+                                     ▕             |                                            
+                                     _______________                                            
+                                          _-││‾ _--                                             
+                               ───────────│Supervisor───────                                    
+                               │       ▏  ▼  ▼ ▼  |        │                                    
+                               │       ▏  ▏       |        │                                    
+                               │       ▏  ▏       |        │                                    
+                               │       ▏  ▏   __--|        │                                    
+                               │       \--││-│ │           │                                    
+                   │_____│─────│───────────│─│─────────────│────────│-------                    
+                   │---Coder-  -----Researcher─----Reviewer│ ------Final answer                 
+                   │▕    ▼  |  ▕      ▼    ▕   ▏    ▼    | │ ▕      ▼      |                    
+                   │▕       |  ▕           ▕   ▏         | │ ▕             |                    
+                   │▕       |  ▕           ▕   ▏         | │ ▕             |                    
+                   │▕       |  ▕           ▕   ▏         | │ ▕             |                    
+                   │▔▔▔▔▔▔▔▔▔──▔▔▔▔▔▔▔▔▔▔▔▔▔───▔▔▔▔▔▔▔▔▔▔▔─│ ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔                    
+                         ──────│                    ───────│                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+LEDGER: [{"code":"unroutable","message":"Couldn't route the \"edge:[\"researcher\",\"supervisor\",\"\",\"solid\",0]:0\" connection — no path was found from \"researcher\" to \"supervisor\".","detail":{"edgeId":"edge:[\"researcher\",\"supervisor\",\"\",\"solid\",0]:0","reason":"no path was found from \"researcher\" to \"supervisor\""}}]
+================================================================================
+Agent supervisor — 96x32 braille
+================================================================================
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                     ⢸⠉⠉⠉⠉⠉User request                                         
+                                     ⢸⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠹                                            
+                                     ⢸             ⠘                                            
+                                     ⢸             ⠸                                            
+                                     ⢸             ⠸                                            
+                                     ⢸         ⣀⣀  ⠸                                            
+                                         ⢀⣠⠤││⠉⢉⣉⡽⢶                                             
+                               ───────────│Supervisor───────                                    
+                               │       ⡇ ⠉▼⠁ ▼ ▼  ⠈        │                                    
+                               │       ⡇  ⠇       ⠈        │                                    
+                               │       ⡇  ⠇       ⠈        │                                    
+                               │       ⡇  ⠇     ⠄⠆⠋        │                                    
+                               │       ⠛⠦⣄││⠆│⠉│           │                                    
+                   │⢀⣀⣀⣀⣀│─────│───────────│─│─────────────│────────│⠤⠤⠤⠤⠤⠤⡄                    
+                   │⢸⠒⠒Coder⢺  ⢸⠒⠒⠒⠒Researcher─⡗⠒⠒⠒Reviewer│ ⢸⠒⠒⠒⠒⠒Final answer                 
+                   │⢸    ▼  ⠈  ⢸      ▼    ⠈   ⡇    ▼    ⠈ │ ⢸      ▼      ⠁                    
+                   │⢸       ⠘  ⢸           ⠘   ⡇         ⠘ │ ⢸             ⠃                    
+                   │⢸       ⠘  ⢸           ⠘   ⡇         ⠘ │ ⢸             ⠃                    
+                   │⢸       ⠘  ⢸           ⠘   ⡗         ⠘ │ ⢸             ⠃                    
+                   │⠈⠉⠉⠉⠉⠉⠉⠉⠉──⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉───⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉─│ ⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠁                    
+                         ──────│                    ───────│                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+LEDGER: [{"code":"unroutable","message":"Couldn't route the \"edge:[\"researcher\",\"supervisor\",\"\",\"solid\",0]:0\" connection — no path was found from \"researcher\" to \"supervisor\".","detail":{"edgeId":"edge:[\"researcher\",\"supervisor\",\"\",\"solid\",0]:0","reason":"no path was found from \"researcher\" to \"supervisor\""}}]
+================================================================================
+Agent supervisor — 140x40 box
+================================================================================
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                          -----------------|                                                                
+                                                          ------User request                                                                
+                                                          ▏                |                                                                
+                                                          ▏                |                                                                
+                                                          ▏                |                                                                
+                                                          ▏                |                                                                
+                                                          ▏                |                                                                
+                                                          --------│---------                                                                
+                                                                __─│‾   _--                                                                 
+                                                 ──────────────│Supervisor────────────                                                      
+                                                 │         | ‾▔▼▔‾ ▼  ▼   ▏          │                                                      
+                                                 │         |   |          ▏          │                                                      
+                                                 │         |   |          ▏          │                                                      
+                                                 │         |   |          ▏          │                                                      
+                                                 │         |   |        __▏          │                                                      
+                                                 │         \\  │ │_│--│‾             │                                                      
+                                  │──────────────│───────────‾▔│▔│─│──│──────────────│                                                      
+                                  │ _____│──────────────────────-│ │  ───────────────────────────│--------                                  
+                                  │ ----Coder--  │------Researcher ───----Reviewer-- │  -------Final answer                                 
+                                  │ |    ▼    |  │|       ▼      ▕    ▏     ▼      ▏ │  |        ▼       ▕                                  
+                                  │ |         |  │|              ▕    ▏            ▏ │  |                ▕                                  
+                                  │ |         |  │|              ▕    ▏            ▏ │  |                ▕                                  
+                                  │ |         |  │|              ▕    ▏            ▏ │  |                ▕                                  
+                                  │ |         |  │|              ▕    ▏            ▏ │  |                ▕                                  
+                                  │─-----------──│----------------────--------------─│  ------------------                                  
+                                         ────────│                          ─────────│                                                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+LEDGER: [{"code":"unroutable","message":"Couldn't route the \"edge:[\"researcher\",\"supervisor\",\"\",\"solid\",0]:0\" connection — no path was found from \"researcher\" to \"supervisor\".","detail":{"edgeId":"edge:[\"researcher\",\"supervisor\",\"\",\"solid\",0]:0","reason":"no path was found from \"researcher\" to \"supervisor\""}}]
+================================================================================
+Crew — 96x32 box
+================================================================================
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+    ▕__________|   __________▕    │____________─__──__________|──       __--__   __________|    
+    ____Request_   ____Manager    │_____Researcher  ____Writer_ │   __-Review    ____Result_    
+    ▕          |   ▏         ▕    │|             ▏  ▕         | │   ▏ ‾▔‾    ▕   ▕         |    
+    ▕          |   ▏         ▕    │|             ▏  ▕         | │   ▏  ▏     ▕   ▕         |    
+    ▕          ─────▶        ───────▶            ────▶        ───────▶ ▏     ───│─▶        |    
+    ▕          |   ▏         ▕    │|             ▏ ──▶        | │   ▏  ▏     ──│ ▕         |    
+    ▕          |   ▏              │|             ▏ │          | │      ▏   _// │ ▕         |    
+    ‾‾‾‾‾‾‾‾‾‾‾|   ‾‾‾‾‾‾‾‾‾‾‾    │‾‾‾‾‾‾‾‾‾‾‾‾─‾‾─│‾‾‾‾‾‾‾‾‾‾‾─│   \▔---▔‾    │ ‾‾‾‾‾‾‾‾‾‾‾    
+                                                   │────────────────────────────                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+================================================================================
+Crew — 96x32 braille
+================================================================================
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+    ⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀   ⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀    │⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀──⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀──       ⣀⡤⠴⡶⢤⣀   ⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀    
+    ⢸⠤⠤⠤Request⡇   ⡧⠤⠤⠤Manager    │⢸⠤⠤⠤⠤Researcher  ⢸⠤⠤⠤Writer⢼ │   ⣤⣖⡚Review⠁   ⢸⠤⠤⠤Result⡇    
+    ⢸          ⠇   ⡇         ⠸    │⢸             ⠇  ⢸         ⠸ │   ⡇ ⠉⡏⠁        ⢸         ⠇    
+    ⢸          ⠃   ⡇         ⠘    │⢸             ⠃  ⢸         ⠘ │   ⡇  ⠁         ⢸         ⠃    
+    ⢸          ─────▶        ───────▶            ────▶        ───────▶ ⠇     ───│─▶        ⠃    
+    ⢸          ⠃   ⡇         ⠘    │⢸             ⠃ ──▶        ⠘ │   ⡇  ⠇     ──│ ⢸         ⠃    
+    ⢸          ⠃   ⡏         ⠘    │⢸             ⠃ │⢸         ⠘ │   ⡇  ⠇       │ ⢸         ⠃    
+    ⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠁   ⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉    │⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠁─│⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉─│   ⠙⠒⠦⠇⠆⠃⠁    │ ⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠁    
+                                                   │────────────────────────────                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+================================================================================
+Crew — 140x40 box
+================================================================================
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                 │─────────────────────────────────────────────             ___                             
+      |---------------▏    ----------------▏     │ ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔     --------------▏  │        __-▔‾   __-     --------------▕      
+      ------Request----    ------Manager----     │ --------Researcher---     -----Writer----  │    -_▔‾ Review‾  ▕     -----Result----      
+      |               ▏    ▕               ▏     │ ▕                   |     ▏             ▏  │    ▕ ‾▔-▔‾       ▕     |             ▕      
+      |               ▏    ▕               ▏     │ ▕                   |     ▏             ▏  │    ▕   ▕         ▕     |             ▕      
+      |               ▏    ▕               ▏     │ ▕                   |     ▏             ▏  │    ▕   ▕         ▕     |             ▕      
+      |              ───────▶              ─────────▶                  ───────▶            ─────────▶  ▕         ────│──▶            ▕      
+      |               ▏    ▕               ▏     │ ▕                   |   ───▶            ▏  │    ▕   ▕         ───│  |             ▕      
+      |               ▏    ▕               ▏     │ ▕                   |   │ ▏             ▏  │    ▕   ▕         ▕  │  |             ▕      
+      |               ▏    ▕               ▏     │ ▕                   |   │ ▏             ▏  │    ▕   ▕      _///  │  |             ▕      
+      ----------------▏    -----------------     │─---------------------───│─---------------──│    \\_ ▕ __--‾      │  ---------------      
+                                                                           │──────────────────────────‾▔‾────────────                       
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+Read: every node reads as an upright block with a visible top sliver
+(`▔▔▔`/`‾‾‾`/`⠉⠉⠉` crease lines) and a visible side/depth sliver (the
+diagonal `\`/`//`/`⡤⠤` strokes and the vertical `|`/`▏`/`⢸` side rules), laid
+out along the same axis the 2D diagram uses (a vertical TB stack for
+LeNet-5/transformer/agent-supervisor, a horizontal LR chain for the crew
+graph), with labels sitting INSIDE each front face and short orthogonal
+(never diagonal) arrows connecting them — the brief's own acceptance
+criterion, cleared for 10 of 12 frames outright and for the remaining 2
+(LeNet-5 96x32 box/braille) with an honestly ledgered, documented residual
+rather than a silent defect.
+
 ## C1 — `gridSurfacePolygons`, the surface model, `glyphChartObject`
 
 **Goal.** A `z(x, y)` height-field mesh (core), a validated surface model

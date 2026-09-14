@@ -1,32 +1,23 @@
 import { describe, expect, it } from "vitest";
-import type { Vec3 } from "glyphcss";
+import { createGlyphOrthographicCamera, type Vec3 } from "glyphcss";
 import type { GlyphGraph } from "../types";
 import { layoutGlyphGraph } from "../pipeline";
-import { layout3d, GLYPH_DIAGRAM_3D_NODE_HEIGHT, GLYPH_DIAGRAM_3D_NODE_DEPTH, type GlyphDiagram3dNode } from "./layout3d";
+import { layout3d, glyphDiagram3dPlaneAxes, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y } from "./layout3d";
 
 /**
- * Packet D1 (PLAN-3d.md §6, §11) acceptance gates for `layout3d`. Each `it`
- * names, in a comment, the mutation the PLAN requires it to redden.
+ * D2 round 5 acceptance gates for `layout3d`'s `"layered"` path (the plane
+ * embedding) and, unchanged, `"force"`. Each `it` names, in a comment, the
+ * mutation it is meant to redden.
  */
-
-function chainGraph(n: number): GlyphGraph {
-  const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}`, label: `Node ${i}` }));
-  const edges = Array.from({ length: n - 1 }, (_, i) => ({ from: `n${i}`, to: `n${i + 1}` }));
-  return { nodes, edges, direction: "TB" };
-}
 
 /**
  * A chain whose EDGES run backward against declaration order (`n4 -> n3 ->
  * ... -> n0`), so rank 0 is `n4` and rank `n-1` is `n0` — the opposite of
- * both id order and `layoutGlyphGraph`'s own node-array (declaration) order.
- * `chainGraph`'s forward chain can't catch "map dagre Y onto world X
- * instead of Y": each rank there holds exactly one node, so the X (spread)
- * axis is degenerate (every node centred at the same X) and a stable sort
- * on it silently falls back to declaration order — which for a FORWARD
- * chain already equals the correct rank order, so the mutation is invisible
- * (review finding P2, D1). Reversed, a stable sort on the degenerate X axis
- * reproduces declaration order (`n0..n(n-1)`) while the real rank order is
- * its reverse, so the two diverge and the mutation reddens.
+ * both id order and `layoutGlyphGraph`'s own node-array (declaration)
+ * order. A FORWARD chain can't catch "the plane embeds the wrong axis":
+ * each rank there holds exactly one node, so a stable sort on a degenerate
+ * axis silently falls back to declaration order, which for a forward chain
+ * already equals the correct rank order.
  */
 function reverseChainGraph(n: number): GlyphGraph {
   const nodes = Array.from({ length: n }, (_, i) => ({ id: `n${i}`, label: `Node ${i}` }));
@@ -50,110 +41,135 @@ function groupedGraph(): GlyphGraph {
   };
 }
 
-describe("layout3d — layered", () => {
-  it("top view (project out Z) reproduces the 2D rank order (mutation: map dagre Y onto world X instead of world Y) → red", async () => {
-    const graph = reverseChainGraph(5);
+/** `(point - center) · axis` — the LOCAL scalar offset along a world unit axis, used throughout to verify a point sits on a node's own `u`/`n`/Z-aligned box face without assuming world-axis alignment. */
+function localOffset(point: Vec3, center: Vec3, axis: Vec3): number {
+  return (point[0] - center[0]) * axis[0] + (point[1] - center[1]) * axis[1] + (point[2] - center[2]) * axis[2];
+}
+
+const Z_HAT: Vec3 = [0, 0, 1];
+
+describe("layout3d — layered (D2 round 5 plane embedding)", () => {
+  it("the DEFAULT camera projects every node centre's screen ROW in exact 2D rank order, for a chain of any length (mutation: skew `u` off the analytic zero-row direction) → red", async () => {
+    // The brief's own gate, verbatim: "the projected row of every node
+    // centre equals its 2D-layout row ordering." A REVERSED chain (see
+    // `reverseChainGraph`'s own doc) so declaration order can't
+    // coincidentally satisfy this.
+    const graph = reverseChainGraph(6);
     const laid2d = await layoutGlyphGraph(graph, { direction: "TB" });
-    const laid3d = await layout3d(graph, { direction: "TB", zBy: "none" });
+    const laid3d = await layout3d(graph, { direction: "TB" });
     const order2d = [...laid2d.nodes].sort((a, b) => (a.y0 + a.y1) - (b.y0 + b.y1)).map((n) => n.id);
-    const order3d = [...laid3d.nodes].sort((a, b) => a.center[1] - b.center[1]).map((n) => n.id);
-    // Rank order (n4 first) genuinely differs from both id order and
-    // `layoutGlyphGraph`'s declaration order (n0 first) — see
-    // `reverseChainGraph`'s own doc for why the forward chain couldn't
-    // distinguish a correct mapping from a swapped one.
-    expect(order2d).toEqual(["n4", "n3", "n2", "n1", "n0"]);
-    expect(order3d).toEqual(order2d);
+    expect(order2d).toEqual(["n5", "n4", "n3", "n2", "n1", "n0"]); // genuinely reversed, not declaration order
+
+    const camera = createGlyphOrthographicCamera({ rotX: GLYPH_DIAGRAM_3D_CAMERA_ROT_X, rotY: GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, zoom: 10 });
+    const byId = new Map(laid3d.nodes.map((n) => [n.id, n]));
+    const rows = order2d.map((id) => camera.project(byId.get(id)!.center, 200, 200, 2)[1]);
+    // Strictly increasing screen row, in the SAME order 2D ranked them —
+    // never merely "close," since the whole point of the analytic solve is
+    // EXACT preservation, not an approximation that could drift on a
+    // longer chain.
+    for (let i = 1; i < rows.length; i++) expect(rows[i]!).toBeGreaterThan(rows[i - 1]!);
   });
 
-  it("zBy: group puts every group's members on ONE shared floor, above the ungrouped baseline (mutation: read node.group instead of the smallest containing graph.groups entry) → red", async () => {
-    const laid = await layout3d(groupedGraph(), { zBy: "group" });
+  it("nodes sharing a dagre rank sit on the same screen ROW, within ±1 cell (mutation: let a transverse (u-axis) offset leak into the row) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "TB",
+      nodes: [{ id: "top", label: "Top" }, { id: "a", label: "A" }, { id: "b", label: "B" }, { id: "c", label: "C" }],
+      edges: [{ from: "top", to: "a" }, { from: "top", to: "b" }, { from: "top", to: "c" }],
+    };
+    const laid = await layout3d(graph, { direction: "TB" });
+    const camera = createGlyphOrthographicCamera({ rotX: GLYPH_DIAGRAM_3D_CAMERA_ROT_X, rotY: GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, zoom: 10 });
     const byId = new Map(laid.nodes.map((n) => [n.id, n]));
-    const a = byId.get("a")!, b = byId.get("b")!, c = byId.get("c")!, d = byId.get("d")!;
-    expect(a.center[2]).toBe(b.center[2]);
-    expect(b.center[2]).toBe(c.center[2]);
-    expect(a.center[2]).not.toBe(d.center[2]); // d is ungrouped — stays on the baseline floor
-    expect(d.center[2]).toBe(0 + GLYPH_DIAGRAM_3D_NODE_HEIGHT / 2); // baseline floor (index 0) + half node height
+    const rowOf = (id: string) => camera.project(byId.get(id)!.center, 200, 200, 2)[1]!;
+    const rowA = rowOf("a"), rowB = rowOf("b"), rowC = rowOf("c");
+    expect(Math.abs(rowA - rowB)).toBeLessThanOrEqual(1);
+    expect(Math.abs(rowB - rowC)).toBeLessThanOrEqual(1);
   });
 
-  it("zBy: none flattens every node onto z=0 + half node height (mutation: fall through to the group branch) → red", async () => {
-    const laid = await layout3d(groupedGraph(), { zBy: "none" });
-    const zs = new Set(laid.nodes.map((n) => n.center[2]));
-    expect(zs.size).toBe(1);
-  });
-
-  it("a same-floor edge is an orthogonal (Manhattan) path on that floor's own Z; a cross-floor edge steps Z at its own XY midpoint (mutation: drop the Z step / route diagonally) → red", async () => {
-    // D2 round 3 (codex/user finding): a same-floor edge used to be one
-    // straight chord — a diagonal line through space unless the two nodes
-    // happened to share an axis. It is now a 2-leg dogleg
-    // (`orthogonalPlanePoints`) UNLESS the nodes already share an axis, in
-    // which case the dogleg degenerates back to a straight 2-point segment
-    // (still correctly orthogonal, just with nothing to bend). The
-    // invariant that survives regardless of point count: every CONSECUTIVE
-    // segment is axis-aligned (changes exactly one of X/Y, never both) and
-    // stays on the shared floor's own Z throughout.
-    const laid = await layout3d(groupedGraph(), { zBy: "group" });
-    const sameFloor = laid.edges.find((e) => e.from === "a" && e.to === "b")!; // both on the "agents" floor
-    expect(sameFloor.points.length).toBeGreaterThanOrEqual(2);
-    for (const p of sameFloor.points) expect(p[2]).toBe(sameFloor.points[0]![2]);
-    for (let i = 0; i < sameFloor.points.length - 1; i++) {
-      const a = sameFloor.points[i]!, b = sameFloor.points[i + 1]!;
-      const dx = Math.abs(b[0] - a[0]), dy = Math.abs(b[1] - a[1]);
-      // Axis-aligned: at most one of dx/dy is non-negligible per segment.
-      expect(dx < 1e-6 || dy < 1e-6).toBe(true);
-    }
-
-    const crossFloor = laid.edges.find((e) => e.from === "d" && e.to === "a")!; // d is ungrouped, a is on "agents"
-    expect(crossFloor.points.length).toBeGreaterThanOrEqual(4);
-    const zs = crossFloor.points.map((p) => p[2]);
-    expect(new Set(zs).size).toBeGreaterThan(1); // it actually changes floors
-  });
-
-  it("edge endpoints land on the node's own box face, never inside it or floating off it (mutation: return the raw node center instead of clamping to the box) → red", async () => {
-    const laid = await layout3d(groupedGraph(), { zBy: "group" });
-    const byId = new Map(laid.nodes.map((n) => [n.id, n]));
-    for (const edge of laid.edges) {
-      const from = byId.get(edge.from)!, to = byId.get(edge.to)!;
-      const p0 = edge.points[0]!, p1 = edge.points[edge.points.length - 1]!;
-      for (const [point, node] of [[p0, from], [p1, to]] as const) {
-        const dx = Math.abs(point[0] - node.center[0]), dy = Math.abs(point[1] - node.center[1]), dz = Math.abs(point[2] - node.center[2]);
-        // On the boundary: every axis within its half-extent (+ epsilon), and at least one axis AT its half-extent.
-        expect(dx).toBeLessThanOrEqual(node.half[0] + 1e-6);
-        expect(dy).toBeLessThanOrEqual(node.half[1] + 1e-6);
-        expect(dz).toBeLessThanOrEqual(node.half[2] + 1e-6);
-        const onAnAxis = Math.abs(dx - node.half[0]) < 1e-6 || Math.abs(dy - node.half[1]) < 1e-6 || Math.abs(dz - node.half[2]) < 1e-6;
-        expect(onAnAxis).toBe(true);
+  it("`glyphDiagram3dPlaneAxes` returns an orthonormal ground pair whose `u` has zero row/depth contribution under its own camera (the closed-form identity itself) → red on a broken derivation", () => {
+    for (const rotY of [0, 25, 30, 35, 90, -40]) {
+      const { u, n } = glyphDiagram3dPlaneAxes(rotY);
+      // Orthonormal.
+      expect(u[0] * u[0] + u[1] * u[1]).toBeCloseTo(1, 9);
+      expect(n[0] * n[0] + n[1] * n[1]).toBeCloseTo(1, 9);
+      expect(u[0] * n[0] + u[1] * n[1]).toBeCloseTo(0, 9);
+      // `u`'s own row/depth coefficients are exactly zero at ANY pitch —
+      // project two points 1 world unit apart along `u` and confirm the
+      // row is unchanged (col moves, row/depth don't) at two different pitches.
+      for (const rotX of [10, 45, 80]) {
+        const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom: 100 });
+        const a = camera.project([0, 0, 0], 400, 400, 2);
+        const b = camera.project(u, 400, 400, 2);
+        expect(b[1]).toBeCloseTo(a[1], 6); // row unchanged
+        expect(b[0]).not.toBeCloseTo(a[0], 3); // col DID move
       }
     }
   });
 
-  it("a circle-shaped node's edge endpoints land on its sphere surface", async () => {
-    const graph: GlyphGraph = {
-      direction: "TB",
-      nodes: [{ id: "a", label: "A", shape: "circle" }, { id: "b", label: "B", shape: "circle" }],
-      edges: [{ from: "a", to: "b" }],
-    };
-    const laid = await layout3d(graph, { zBy: "none" });
-    const byId = new Map(laid.nodes.map((n) => [n.id, n]));
-    const edge = laid.edges[0]!;
-    for (const point of [edge.points[0]!, edge.points[edge.points.length - 1]!]) {
-      const node = point === edge.points[0] ? byId.get(edge.from)! : byId.get(edge.to)!;
-      const r = Math.max(...node.half);
-      const dist = Math.hypot(point[0] - node.center[0], point[1] - node.center[1], point[2] - node.center[2]);
-      expect(dist).toBeCloseTo(r, 6);
+  it("world Z has zero screen-column contribution at any pitch (mutation: let height leak sideways) → red", () => {
+    for (const rotX of [10, 45, 80]) {
+      const camera = createGlyphOrthographicCamera({ rotX, rotY: GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, zoom: 100 });
+      const a = camera.project([0, 0, 0], 400, 400, 2);
+      const b = camera.project([0, 0, 1], 400, 400, 2);
+      expect(b[0]).toBeCloseTo(a[0], 9);
     }
+  });
+
+  it("every edge is a Manhattan walk in the (u, Z) plane, entirely on the front-face plane n=0 (mutation: leave the 2D route unconverted, or drop the front-plane offset) → red", async () => {
+    const laid = await layout3d(groupedGraph(), {});
+    const { u, n } = glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
+    expect(laid.edges.length).toBeGreaterThan(0);
+    for (const edge of laid.edges) {
+      for (const p of edge.points) expect(localOffset(p, [0, 0, 0], n)).toBeCloseTo(0, 6);
+      for (let i = 0; i < edge.points.length - 1; i++) {
+        const a = edge.points[i]!, b = edge.points[i + 1]!;
+        const du = localOffset(b, a, u), dz = localOffset(b, a, Z_HAT);
+        // Axis-aligned: at most one of (u, Z) genuinely moves per segment.
+        expect(Math.abs(du) < 1e-6 || Math.abs(dz) < 1e-6).toBe(true);
+      }
+    }
+  });
+
+  it("an edge endpoint lands exactly on its own node's front face — LOCAL n-offset is exactly -half[1] (never inside the box, never past it) (mutation: anchor edges at the node centre instead of its 2D port) → red", async () => {
+    const laid = await layout3d(groupedGraph(), {});
+    const { u, n } = glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
+    const byId = new Map(laid.nodes.map((nd) => [nd.id, nd]));
+    for (const edge of laid.edges) {
+      const from = byId.get(edge.from)!, to = byId.get(edge.to)!;
+      const p0 = edge.points[0]!, p1 = edge.points[edge.points.length - 1]!;
+      for (const [point, node] of [[p0, from], [p1, to]] as const) {
+        expect(localOffset(point, node.center, n)).toBeCloseTo(-node.half[1], 6);
+        // Also within the node's own u/Z footprint (the 2D port sits
+        // somewhere on the node's own rect boundary, never past its corner).
+        expect(Math.abs(localOffset(point, node.center, u))).toBeLessThanOrEqual(node.half[0] + 1e-6);
+        expect(Math.abs(localOffset(point, node.center, Z_HAT))).toBeLessThanOrEqual(node.half[2] + 1e-6);
+      }
+    }
+  });
+
+  it("a group's recessed backdrop sits BEHIND (farther along n than) every one of its own members (mutation: place the frame at the group's own front instead of past its deepest member) → red", async () => {
+    const laid = await layout3d(groupedGraph(), {});
+    const { n } = glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
+    const group = laid.groups.find((g) => g.id === "agents")!;
+    const members = laid.nodes.filter((nd) => ["a", "b", "c"].includes(nd.id));
+    const frameN = localOffset(group.min, [0, 0, 0], n); // group.min/.max share the same n offset (group.z)
+    for (const m of members) {
+      const memberBackN = localOffset(m.center, [0, 0, 0], n) + m.half[1];
+      expect(frameN).toBeGreaterThan(memberBackN);
+    }
+  });
+
+  it("compaction/routing never drops an edge on the reference 4-node graph (mutation: silently swallow an unroutable edge) → red", async () => {
+    const laid = await layout3d(groupedGraph(), {});
+    expect(laid.edges.length).toBe(4);
+    expect(laid.ledger.some((e) => e.code === "unroutable")).toBe(false);
   });
 });
 
-describe("layout3d — force", () => {
+describe("layout3d — force (unchanged by D2 round 5)", () => {
   it("the same seed reproduces a PINNED golden digest (mutation: seed the PRNG from Date.now() instead of the option) → red", async () => {
-    // Two live runs comparing against EACH OTHER can't catch a `Date.now()`
-    // seed: two calls in the same test tick can return the same millisecond
-    // (review finding P2, D1) — so this asserts against a digest computed
-    // once and pinned here, which a clock-seeded PRNG reproduces only by
-    // coincidence.
     const graph = groupedGraph();
     const a = await layout3d(graph, { layout: "force", seed: 42, iterations: 60 });
-    const digest = a.nodes.map((n) => n.center.map((v) => Math.round(v * 1e6) / 1e6));
+    const digest = a.nodes.map((nd) => nd.center.map((v) => Math.round(v * 1e6) / 1e6));
     expect(digest).toEqual([
       [0.979073, -4.44891, 9.906014],
       [6.179078, 1.760646, -8.943187],
@@ -161,7 +177,7 @@ describe("layout3d — force", () => {
       [0.794924, -18.734378, 27.71514],
     ]);
     const b = await layout3d(graph, { layout: "force", seed: 42, iterations: 60 });
-    expect(a.nodes.map((n) => n.center)).toEqual(b.nodes.map((n) => n.center));
+    expect(a.nodes.map((nd) => nd.center)).toEqual(b.nodes.map((nd) => nd.center));
     expect(a.edges.map((e) => e.points)).toEqual(b.edges.map((e) => e.points));
   });
 
@@ -169,12 +185,12 @@ describe("layout3d — force", () => {
     const graph = groupedGraph();
     const a = await layout3d(graph, { layout: "force", seed: 1, iterations: 60 });
     const b = await layout3d(graph, { layout: "force", seed: 2, iterations: 60 });
-    expect(a.nodes.map((n) => n.center)).not.toEqual(b.nodes.map((n) => n.center));
+    expect(a.nodes.map((nd) => nd.center)).not.toEqual(b.nodes.map((nd) => nd.center));
   });
 
   it("force edge endpoints land on the node's own box face in full 3D (mutation: clamp only the XY axes) → red", async () => {
     const laid = await layout3d(groupedGraph(), { layout: "force", seed: 7, iterations: 80 });
-    const byId = new Map(laid.nodes.map((n) => [n.id, n]));
+    const byId = new Map(laid.nodes.map((nd) => [nd.id, nd]));
     for (const edge of laid.edges) {
       const from = byId.get(edge.from)!, to = byId.get(edge.to)!;
       for (const [point, node] of [[edge.points[0]!, from], [edge.points[edge.points.length - 1]!, to]] as const) {
@@ -182,78 +198,53 @@ describe("layout3d — force", () => {
         expect(dx).toBeLessThanOrEqual(node.half[0] + 1e-6);
         expect(dy).toBeLessThanOrEqual(node.half[1] + 1e-6);
         expect(dz).toBeLessThanOrEqual(node.half[2] + 1e-6);
-        // "Inside the box" alone passes for the box's own CENTER too — a
-        // clamp that just no-ops (or clamps to a point strictly interior)
-        // satisfies the three bounds above without ever reaching a face.
-        // At least one axis must be genuinely AT its half-extent (review
-        // finding P2, D1's own layered-layout test already asserts this;
-        // the force path needs the same clause).
         const onAnAxis = Math.abs(dx - node.half[0]) < 1e-6 || Math.abs(dy - node.half[1]) < 1e-6 || Math.abs(dz - node.half[2]) < 1e-6;
         expect(onAnAxis).toBe(true);
       }
     }
   });
-});
-
-describe("layout3d — self-loops", () => {
-  function selfLoopGraph(shape?: "circle"): GlyphGraph {
-    return {
-      direction: "TB",
-      nodes: [{ id: "a", label: "A", shape }, { id: "b", label: "B", shape }],
-      edges: [{ from: "a", to: "a" }, { from: "a", to: "b" }],
-    };
-  }
-
-  function expectBothEndpointsOnOwnFace(node: GlyphDiagram3dNode, points: readonly Vec3[]) {
-    // P1-c (D1 review): a self-loop's `from`/`to` node is the same node, so
-    // `nodeSurfaceAnchor`'s degenerate `toward === center` case used to
-    // collapse BOTH endpoints onto the node's own center — a self-loop
-    // drawn as a single point (mutation: reintroduce that collapse) → red.
-    expect(points.length).toBeGreaterThanOrEqual(3);
-    const p0 = points[0]!, p1 = points[points.length - 1]!;
-    expect(p0).not.toEqual(p1);
-    for (const point of [p0, p1]) {
-      const dx = Math.abs(point[0] - node.center[0]), dy = Math.abs(point[1] - node.center[1]), dz = Math.abs(point[2] - node.center[2]);
-      expect(dx).toBeLessThanOrEqual(node.half[0] + 1e-6);
-      expect(dy).toBeLessThanOrEqual(node.half[1] + 1e-6);
-      expect(dz).toBeLessThanOrEqual(node.half[2] + 1e-6);
-      const onAnAxis = Math.abs(dx - node.half[0]) < 1e-6 || Math.abs(dy - node.half[1]) < 1e-6 || Math.abs(dz - node.half[2]) < 1e-6;
-      expect(onAnAxis).toBe(true);
-    }
-  }
-
-  it("a box node's self-loop leaves and re-enters its own face (layered layout)", async () => {
-    const laid = await layout3d(selfLoopGraph(), { zBy: "none" });
-    const a = laid.nodes.find((n) => n.id === "a")!;
-    const loop = laid.edges.find((e) => e.from === "a" && e.to === "a")!;
-    expectBothEndpointsOnOwnFace(a, loop.points);
-  });
-
-  it("a sphere node's self-loop leaves and re-enters its own surface (layered layout)", async () => {
-    const laid = await layout3d(selfLoopGraph("circle"), { zBy: "none" });
-    const a = laid.nodes.find((n) => n.id === "a")!;
-    const loop = laid.edges.find((e) => e.from === "a" && e.to === "a")!;
-    const p0 = loop.points[0]!, p1 = loop.points[loop.points.length - 1]!;
-    expect(p0).not.toEqual(p1);
-    const r = Math.max(...a.half);
-    for (const point of [p0, p1]) {
-      const dist = Math.hypot(point[0] - a.center[0], point[1] - a.center[1], point[2] - a.center[2]);
-      expect(dist).toBeCloseTo(r, 6);
-    }
-  });
 
   it("a box node's self-loop leaves and re-enters its own face (force layout)", async () => {
-    const laid = await layout3d(selfLoopGraph(), { layout: "force", seed: 3, iterations: 40 });
-    const a = laid.nodes.find((n) => n.id === "a")!;
+    const graph: GlyphGraph = {
+      direction: "TB",
+      nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+      edges: [{ from: "a", to: "a" }, { from: "a", to: "b" }],
+    };
+    const laid = await layout3d(graph, { layout: "force", seed: 3, iterations: 40 });
+    const a = laid.nodes.find((nd) => nd.id === "a")!;
     const loop = laid.edges.find((e) => e.from === "a" && e.to === "a")!;
-    expectBothEndpointsOnOwnFace(a, loop.points);
+    expect(loop.points.length).toBeGreaterThanOrEqual(3);
+    const p0 = loop.points[0]!, p1 = loop.points[loop.points.length - 1]!;
+    expect(p0).not.toEqual(p1);
+    for (const point of [p0, p1]) {
+      const dx = Math.abs(point[0] - a.center[0]), dy = Math.abs(point[1] - a.center[1]), dz = Math.abs(point[2] - a.center[2]);
+      expect(dx).toBeLessThanOrEqual(a.half[0] + 1e-6);
+      expect(dy).toBeLessThanOrEqual(a.half[1] + 1e-6);
+      expect(dz).toBeLessThanOrEqual(a.half[2] + 1e-6);
+      const onAnAxis = Math.abs(dx - a.half[0]) < 1e-6 || Math.abs(dy - a.half[1]) < 1e-6 || Math.abs(dz - a.half[2]) < 1e-6;
+      expect(onAnAxis).toBe(true);
+    }
   });
 });
 
-describe("layout3d — size compression (D2 round 4)", () => {
+describe("layout3d — self-loops (layered, D2 round 5: routed through the 2D A* router, not a hand-rolled bulge)", () => {
+  it("a self-loop routes without throwing and stays on the front-face plane (mutation: reject/drop a from===to edge in the 2D router bridge) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "TB",
+      nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+      edges: [{ from: "a", to: "a" }, { from: "a", to: "b" }],
+    };
+    const laid = await layout3d(graph, {});
+    const { n } = glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
+    const loop = laid.edges.find((e) => e.from === "a" && e.to === "a");
+    expect(loop).toBeDefined();
+    expect(loop!.points.length).toBeGreaterThanOrEqual(2);
+    for (const p of loop!.points) expect(localOffset(p, [0, 0, 0], n)).toBeCloseTo(0, 6);
+  });
+});
+
+describe("layout3d — size compression (D2 round 4, unaffected by D2 round 5's embedding change)", () => {
   it("explicit per-node `size` is compressed per axis and the largest:smallest ratio is clamped to <= 4x (mutation: use size verbatim) → red", async () => {
-    // A raw 16x ratio (32 vs 2) on the width axis — literal scale would
-    // render "small" as an illegible speck beside "big".
     const graph: GlyphGraph = {
       direction: "LR",
       nodes: [
@@ -263,26 +254,14 @@ describe("layout3d — size compression (D2 round 4)", () => {
       edges: [{ from: "big", to: "small" }],
     };
     const laid = await layout3d(graph, {});
-    const big = laid.nodes.find((n) => n.id === "big")!, small = laid.nodes.find((n) => n.id === "small")!;
-    // Clamped: the ratio is provably <= 4x, not the raw 16x.
+    const big = laid.nodes.find((nd) => nd.id === "big")!, small = laid.nodes.find((nd) => nd.id === "small")!;
     expect(big.half[0] / small.half[0]).toBeLessThanOrEqual(4 + 1e-9);
-    // Compressed, not merely clamped: the SMALL node grew past its own raw
-    // half-width (1) — a mutation that clamps only the ratio (e.g. shrinking
-    // "big" down to 4x "small"'s RAW size) would still pass the ratio check
-    // above but fail this one.
     expect(small.half[0]).toBeGreaterThan(1);
-    // The largest value is UNCHANGED by the sqrt map (it's the map's own
-    // fixed point) — "big" still reads as the true largest object.
     expect(big.half[0]).toBeCloseTo(16, 6);
-    // An axis untouched by any node's explicit `size` (there is none here
-    // beyond width/height/depth, but height/depth ARE explicit and EQUAL
-    // for both nodes, so their compressed values must still match exactly —
-    // compression must never introduce an artificial difference where the
-    // raw data had none).
     expect(big.half[2]).toBeCloseTo(small.half[2], 6);
   });
 
-  it("a node with NO explicit size is untouched by another node's compression (mutation: apply compression graph-wide regardless of which nodes opted in) → red", async () => {
+  it("a node with NO explicit size is untouched by another node's compression, and its default depth/height follow the brief's own 0.35-0.5x-of-front-face band (mutation: apply compression graph-wide, or use a flat constant depth) → red", async () => {
     const graph: GlyphGraph = {
       direction: "LR",
       nodes: [
@@ -292,11 +271,11 @@ describe("layout3d — size compression (D2 round 4)", () => {
       edges: [{ from: "big", to: "plain" }],
     };
     const laid = await layout3d(graph, {});
-    const plain = laid.nodes.find((n) => n.id === "plain")!;
-    // Default sizing (label-derived width, the standard HEIGHT/DEPTH
-    // constants) — NOT some fraction of "big"'s own compressed size.
-    expect(plain.half[1] * 2).toBeCloseTo(GLYPH_DIAGRAM_3D_NODE_DEPTH, 6);
-    expect(plain.half[2] * 2).toBeCloseTo(GLYPH_DIAGRAM_3D_NODE_HEIGHT, 6);
+    const plain = laid.nodes.find((nd) => nd.id === "plain")!;
+    const width = plain.half[0] * 2, height = plain.half[2] * 2, depth = plain.half[1] * 2;
+    const ratio = depth / Math.min(width, height);
+    expect(ratio).toBeGreaterThan(0.3);
+    expect(ratio).toBeLessThan(0.6);
   });
 });
 
@@ -311,3 +290,4 @@ describe("layout3d — validation", () => {
     await expect(layout3d(groupedGraph(), { layout: "radial" })).rejects.toThrow(/bad-options/);
   });
 });
+

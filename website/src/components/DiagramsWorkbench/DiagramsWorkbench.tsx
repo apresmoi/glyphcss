@@ -293,7 +293,7 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
             {state.view === "3d" && state.controls.target === "web"
               // Live, orbitable scene — AGENTS.md's D3 row: no fixed cell
               // budget to scroll around, so this skips `.diagrams-grid-scroll`
-              // entirely. Remounts only when the GRAPH or layout/zBy/seed/
+              // entirely. Remounts only when the GRAPH or layout/seed/
               // rotation genuinely changes (see `Diagrams3DViewport.tsx`'s
               // own doc); target/charset/color edits leave it alone.
               ? (graph3d && <div className="diagrams-3d-frame">
@@ -305,7 +305,7 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
                    *  `DiagramsDock.tsx`'s Charset/Color rows), never as
                    *  chrome floating over the render. */}
                   <Diagrams3DViewport
-                    graph={graph3d} layout={state.view3d.layout} zBy={state.view3d.zBy} seed={state.view3d.seed}
+                    graph={graph3d} layout={state.view3d.layout} seed={state.view3d.seed}
                     direction={state.layout.direction} nodesep={state.layout.nodesep} ranksep={state.layout.ranksep}
                     controlsMode={state.view3d.controlsMode} initialCamera={state.camera3d}
                     charset={resolvedControls.charset} color={resolvedControls.color}

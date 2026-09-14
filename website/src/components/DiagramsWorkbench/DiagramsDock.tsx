@@ -101,14 +101,15 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   useToggle(terminal, "FORCE_COLOR", state.terminal.FORCE_COLOR, (value) => dispatch({ type: "set-terminal", flag: "FORCE_COLOR", value }));
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
-  // Packet D3 — layout/zBy/seed/rotation. Diagram's `Detail` (compaction
+  // Packet D3 — layout/seed/rotation. Diagram's `Detail` (compaction
   // ladder) is a 2D-only concept (the budget it manages doesn't apply to a
   // 3D scene, AGENTS.md's "Diagrams 3D": "the 2D ladder... does not apply
   // in 3D"), so it hides above rather than growing a 3D exception; this
-  // folder is the 3D-only counterpart and hides in 2D the same way.
+  // folder is the 3D-only counterpart and hides in 2D the same way. D2
+  // round 5 retired the "Z by" row along with the library's own `zBy`
+  // option — `layout: "layered"` is now ONE fixed planar embedding.
   const view3d = useFolder(gui, "3D", { open: true });
   useOption(view3d, "Layout", options(["layered", "force"] as const), state.view3d.layout, (layout) => dispatch({ type: "set-view3d", patch: { layout } }));
-  useOption(view3d, "Z by", options(["group", "kind", "rank", "none"] as const), state.view3d.zBy, (zBy) => dispatch({ type: "set-view3d", patch: { zBy } }));
   useSlider(view3d, "Seed", { min: 1, max: 9999, step: 1 }, state.view3d.seed, (seed) => dispatch({ type: "set-view3d", patch: { seed } }));
   useOption(view3d, "Rotation", options(["turntable", "trackball"] as const), state.view3d.controlsMode, (controlsMode) => dispatch({ type: "set-view3d", patch: { controlsMode } }));
   useEffect(() => { if (view3d) state.view === "3d" ? view3d.show() : view3d.hide(); }, [view3d, state.view]);

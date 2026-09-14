@@ -18,7 +18,7 @@ import {
 } from "./diagramsWorkbenchState";
 import type { Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import type { GlyphDiagramCharset, GlyphDiagramColorMode, GlyphDiagramDetail, GlyphDiagramTarget, GlyphGraph, GlyphGraphEdge, GlyphGraphGroup, GlyphGraphNode } from "@glyphcss/diagrams";
-import type { GlyphDiagram3dLayoutKind, GlyphDiagram3dZBy } from "@glyphcss/diagrams/3d";
+import type { GlyphDiagram3dLayoutKind } from "@glyphcss/diagrams/3d";
 import type { GlyphOrbitControlsMode } from "glyphcss";
 import { createDebouncedJsonUrlWriter, createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 
@@ -38,7 +38,6 @@ const GRAPH_NODE_SHAPES: readonly NonNullable<GlyphGraphNode["shape"]>[] = ["rec
 const GRAPH_EDGE_STYLES: readonly NonNullable<GlyphGraphEdge["style"]>[] = ["solid", "dotted", "thick", "undirected"];
 const VIEW_KINDS = ["2d", "3d"] as const;
 const VIEW3D_LAYOUTS: readonly GlyphDiagram3dLayoutKind[] = ["layered", "force"];
-const VIEW3D_ZBY: readonly GlyphDiagram3dZBy[] = ["group", "kind", "rank", "none"];
 const VIEW3D_CONTROLS_MODES: readonly GlyphOrbitControlsMode[] = ["turntable", "trackball"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -107,13 +106,19 @@ function validateControls(value: unknown): GlyphDiagramsWorkbenchControls | null
   return { target, overrides: clean };
 }
 
-/** Packet D3 — append-only, same rule as `tableGraph` above: omitted decodes to the shared default, never rejects the link. */
+/**
+ * Packet D3 — append-only, same rule as `tableGraph` above: omitted decodes
+ * to the shared default, never rejects the link. D2 round 5 retired `zBy`
+ * (the library's own option is gone — `layout: "layered"` is now one fixed
+ * planar embedding); a `zBy` key on an OLD link is simply ignored, not
+ * rejected — the surrounding object shape still validates.
+ */
 function validateView3d(value: unknown): GlyphDiagramsWorkbenchView3d | null {
   if (!isRecord(value)) return null;
-  const { layout, zBy, seed, controlsMode } = value;
-  if (!oneOf(layout, VIEW3D_LAYOUTS) || !oneOf(zBy, VIEW3D_ZBY) || !oneOf(controlsMode, VIEW3D_CONTROLS_MODES)) return null;
+  const { layout, seed, controlsMode } = value;
+  if (!oneOf(layout, VIEW3D_LAYOUTS) || !oneOf(controlsMode, VIEW3D_CONTROLS_MODES)) return null;
   if (typeof seed !== "number" || !Number.isFinite(seed)) return null;
-  return { layout, zBy, seed, controlsMode };
+  return { layout, seed, controlsMode };
 }
 /** Packet D3 — `rotX`/`rotY` XOR `mat`, mirroring `GlyphDiagram3dCamera`'s own shape (`render3d.ts`). */
 function validateCamera3d(value: unknown): GlyphDiagramsWorkbenchCamera3d | null {

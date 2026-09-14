@@ -1,62 +1,165 @@
 /**
- * 3D graph layout (PLAN-3d.md §6, packet D1). Two layouts share one output
- * shape (`GlyphDiagram3dLayout`): a `"layered"` one (the default, for agent
- * architectures) that reuses the EXISTING 2D dagre pipeline
- * (`measureGlyphGraph`/`layoutGlyphGraph`) for the X/Y plane and adds a
- * semantic Z axis (`zBy`); and a `"force"` one, a hand-rolled, SEEDED
- * Fruchterman-Reingold-style simulation in full 3D (springs + repulsion +
- * group attraction), deterministic by construction — no `Date.now()`, no
- * `Math.random()`, a fixed iteration count.
+ * 3D graph layout (D2 round 5 — "one layout path for every direction").
+ * Two layouts share one output shape (`GlyphDiagram3dLayout`): `"layered"`
+ * (the default) and `"force"` (a hand-rolled, SEEDED Fruchterman-Reingold
+ * simulation in full 3D, UNCHANGED by this round — kept as an explicit
+ * opt-in, brief's own instruction).
  *
- * `zBy` only applies to `"layered"` — a force layout already places every
- * node's Z from the simulation itself, so there is no separate "floor" to
- * assign it to.
+ * **The whole redesign, in one sentence**: `"layered"` no longer hand-rolls
+ * its own per-direction flow-axis packing and camera-dependent edge geometry
+ * — it runs the EXISTING 2D pipeline (`measureGlyphGraph` /
+ * `reserveGlyphGraphPorts` / `layoutGlyphGraph` / `routeGlyphGraphEdges`,
+ * the SAME dagre layout and A* router `/diagrams` 2D already uses) and
+ * embeds that 2D result onto a vertical PLANE facing the viewer: 2D x
+ * becomes the plane's own horizontal ground direction `u`, 2D y (downward)
+ * becomes world −Z (so TB reads top to bottom, matching AGENTS.md's
+ * numeric convention that Z is up). A node's FRONT FACE sits exactly on
+ * that plane (at local depth 0) and the box extrudes AWAY from the viewer
+ * by its own depth. Every direction (TB/LR/BT/RL, groups, a dagre DAG) is
+ * therefore laid out identically to its own 2D rendering, just given a
+ * uniform, analytically-chosen skew — never a per-direction special case.
+ *
+ * **The camera is fixed, not per-direction** (`GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/
+ * `_ROT_Y` below) — the SAME pitch/yaw for every graph, because `u` is
+ * SOLVED from that fixed yaw to have EXACTLY zero screen-row component
+ * (`glyphDiagram3dPlaneAxes`'s own doc has the closed-form derivation and
+ * the trigonometric identity that makes it exact, not approximate). World Z
+ * already has zero screen-COLUMN component under this camera for any pitch
+ * (`rotateVec3Voxcss`'s own axis-swap never lets Z touch `col` at all — "a
+ * pure world vertical already projects screen-vertical," the brief's own
+ * wording) — so the 2D layout's x AND y axes each map to a SINGLE, pure
+ * screen axis, with no cross-talk and therefore no compounding row drift
+ * for a chain of any length, by construction rather than by camera tuning.
+ * `layout3d.test.ts`'s own gate gate reads this off literally: every node
+ * centre's projected row equals its 2D rank ordering.
+ *
+ * Geometry is built in WORLD space directly (never a separate "virtual"
+ * frame rotated later): `glyphDiagram3dPlaneAxes()` returns the two
+ * ground-plane WORLD unit vectors (`u`, `n`) the fixed camera's own yaw
+ * implies, and every point this module emits (`GlyphDiagram3dNode.center`,
+ * `GlyphDiagram3dEdge.points`, `GlyphDiagram3dGroup.min`/`max`) is already
+ * expressed in that basis (`center = origin + uOffset*u + nOffset*n +
+ * zOffset*Ẑ`). `glyphDiagramObject.ts` reads the SAME `u`/`n` to build each
+ * node's box/cylinder/decision-object MESH aligned to those same axes (so
+ * its front face is the undistorted plane rectangle this doc promises, and
+ * its side faces are never independently re-derived) — one shared source
+ * for "which way is which," never two.
  */
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNode, GlyphGraphNodeShape } from "../types";
-import { measureGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayoutOptions } from "../pipeline";
+import { measureGlyphGraph, reserveGlyphGraphPorts, layoutGlyphGraph, type GlyphDiagramLayoutOptions, type GlyphDiagramMeasuredNode } from "../pipeline";
+import { routeGlyphGraphEdges } from "../route";
 import { glyphDiagramError } from "../validate";
+import type { GlyphDiagramLedgerEntry } from "../ledger";
 import type { Vec3 } from "glyphcss";
 
 /**
- * D2 round 3 — architecture objects (codex/user finding): fix round 1's
- * `NODE_HEIGHT = 0.35` (a "thin plate") over-corrected — at that thickness,
- * against the tiny auto-fit zoom a many-node diagram forces, a node
- * rasterized to a handful of near-collinear outline cells with no visible
- * FACE at all ("a tiny thin slanted outline... floating in empty space",
- * the user's own words). A diagram node is an upright STANDING object —
- * `GLYPH_DIAGRAM_3D_LAYER_HEIGHT` grew to match (still comfortably above
- * height + a real gap for a TB-stacked tier).
+ * The ONE fixed "architecture view" camera — pitch (`rotX`) and yaw
+ * (`rotY`) every layered graph renders with by default, regardless of its
+ * own 2D direction. `render3d.ts`'s default camera reads these SAME
+ * constants (never a second, drifting copy), because the object's own
+ * geometry is baked assuming exactly this yaw (`glyphDiagram3dPlaneAxes`).
+ *
+ * **Why `rotX` reads as steep, not shallow, in this codebase's OWN
+ * convention.** `rotateVec3Voxcss`'s axis-swap makes `rotX: 0` a literal
+ * BIRD'S-EYE view (`row` comes from world X with `rotX` still 0 — a
+ * genuinely top-down camera) and `rotX: 90` a level ELEVATION (`row` comes
+ * fully from world Z, `depth` loses Z entirely) — so "pitched `20-25`
+ * degrees down FROM HORIZONTAL," the architectural sense the brief's own
+ * wording means, is `rotX = 90 - 20..25 = 65..70` in THIS camera's own
+ * angle, not `20..25` read literally. Verified two ways: numerically,
+ * against the real renderer, `rotX: 68` (this module's own default) shows
+ * a legible front face (several output rows tall for a modest node) AND a
+ * visible depth-band above it, where `rotX: 22` (the literal misreading)
+ * rasterized a real box to a single stray line — and by continuity with
+ * what already shipped and read correctly: the OLD per-direction system's
+ * own `rotX: 55/70` (D2 round 4) sits in the exact same 65-70-ish band,
+ * which is what a "pitched down a little from a level view" camera looks
+ * like in this convention regardless of how many past rounds re-derived
+ * it. `rotY: 30` is the brief's own yaw band (`25-35`) — under THIS
+ * derivation `rotY`'s exact value never changes the projected (col,row)
+ * layout at all (`glyphDiagram3dPlaneAxes`'s own identity holds for any
+ * `rotY`), only the WORLD-space orientation of each box's own faces
+ * relative to the fixed light — so it is chosen for shading/crease
+ * contrast between front/top faces, not for the flatlayout geometry.
  */
-export const GLYPH_DIAGRAM_3D_LAYER_HEIGHT = 5;
+export const GLYPH_DIAGRAM_3D_CAMERA_ROT_X = 68;
+export const GLYPH_DIAGRAM_3D_CAMERA_ROT_Y = 30;
+
 /**
- * D2 round 4 (codex: "objects are slivers next to full-size labels"):
- * round 3's `3.2` was still too thin against a label's own FIXED
- * screen-cell footprint (a label never shrinks with zoom, since it is
- * stamped as literal characters — see `glyphDiagramObject.ts`'s own
- * `resolveGlyphDiagram3dLabelPlacement` doc) — at the zoom a many-node
- * diagram's own total span forces, a `3.2`-tall box under a 12-16-char
- * label rasterized to a handful of cells, all consumed by the label sitting
- * ON it. Bumped so a default box's own screen silhouette clears the
- * `>= 10 cols x 5 rows` legibility floor (`layout3d.test.ts`'s own gate)
- * for a modest (<= 8 node) graph at 96x32.
+ * The ground-plane WORLD unit vectors a fixed-yaw "architecture view"
+ * camera implies: `u` is the direction the 2D layout's own x axis embeds
+ * into (screen-horizontal, zero row contribution), `n` is the direction a
+ * node's box extrudes AWAY from the viewer along (its own "depth" axis).
+ *
+ * **Derivation.** `createGlyphOrthographicCamera`'s real projection (not an
+ * approximation — read directly off `rotateVec3Voxcss`/`project()` in
+ * `createGlyphCamera.ts`) gives, for a ground-plane unit vector at angle
+ * `φ` (`w = [cos φ, sin φ, 0]`): `col_coeff(φ) = sin(φ - rotY)`,
+ * `row_coeff(φ) = cos(φ - rotY) * cosX`, `depth_coeff(φ) = cos(φ - rotY) *
+ * sinX`. Setting `row_coeff = 0` requires `cos(φ - rotY) = 0`, i.e.
+ * `φ = rotY + 90°` — call this `u`. Its OWN `col_coeff` is then
+ * `sin(90°) = 1` exactly (never zero, so `u` genuinely moves the column).
+ * The ground-plane direction PERPENDICULAR to `u` (`φ = rotY + 180°`,
+ * call it `n`) then has `col_coeff = sin(180°) = 0` — an unavoidable
+ * consequence of `sin`/`cos` being 90°-out-of-phase in `φ`, not a separate
+ * choice: whichever ground direction has zero row is FORCED to leave its
+ * own perpendicular with zero column. This is WHY a node's own left/right
+ * (u-facing) side is never visible under this camera (it is always
+ * perfectly edge-on) while its front face stays a clean, undistorted
+ * rectangle and its depth reads as a real, if narrow, band above/beside
+ * that front face (`n`'s own nonzero row AND depth coefficients) — the
+ * brief's own "front face plus a clear sliver of top/side," achieved by
+ * the ONE face pair a rectangular box's OTHER two constraints (clean front
+ * face, `u`-aligned width) leave any freedom in at all.
+ *
+ * Verified numerically against the real camera (not merely algebraically):
+ * moving a test point along `u`/`n`/Z in isolation and reading `camera
+ * .project()` back reproduces these exact coefficients to floating-point
+ * precision, for the module's own default `rotY`.
  */
-export const GLYPH_DIAGRAM_3D_NODE_HEIGHT = 7;
-/** Default node DEPTH (world Y, "into the screen") when `size` is absent — modest, so a box reads as upright rather than squat, bumped alongside `NODE_HEIGHT` (D2 round 4). */
-export const GLYPH_DIAGRAM_3D_NODE_DEPTH = 2.4;
-/** Padding (world units, = cells for a layered layout) added around a group's member footprint before it becomes a floor plate / wireframe volume. */
+export function glyphDiagram3dPlaneAxes(rotYDeg: number = GLYPH_DIAGRAM_3D_CAMERA_ROT_Y): { readonly u: Vec3; readonly n: Vec3 } {
+  const rad = (rotYDeg + 90) * (Math.PI / 180);
+  const u: Vec3 = [Math.cos(rad), Math.sin(rad), 0];
+  const nRad = rad + Math.PI / 2;
+  const n: Vec3 = [Math.cos(nRad), Math.sin(nRad), 0];
+  return { u, n };
+}
+
+/** `origin + uOffset*u + nOffset*n + zOffset*Ẑ` — the one place every world point this module emits is built, so `u`/`n` are never re-derived per call site. */
+function planePoint(u: Vec3, n: Vec3, uOffset: number, nOffset: number, zOffset: number): Vec3 {
+  return [uOffset * u[0] + nOffset * n[0], uOffset * u[1] + nOffset * n[1], zOffset];
+}
+
+/** Default node depth (world units) when no explicit `size` is given — `0.35-0.5x` the smaller of the front face's own width/height (brief's own band), floored so a degenerate (near-zero) label box still reads as a real box. */
+const GLYPH_DIAGRAM_3D_DEPTH_FACTOR = 0.42;
+const GLYPH_DIAGRAM_3D_MIN_DEPTH = 1.5;
+/**
+ * A node's front-face HEIGHT floor (world units), applied UNCONDITIONALLY —
+ * to a plain measured 2D height AND to a `size`-compressed one alike
+ * (`Math.max` in both `widenedNodes` branches below), never only "when no
+ * explicit `size` is given". The 2D layout's own measured `height`
+ * (`lines.length + 2` — 3 world units for a single-line label) is a FLOOR ON
+ * READABILITY ("does the label's own text fit"), never a target for how TALL
+ * a 3D box should stand — measured on the LeNet-5/transformer fixtures: a
+ * WIDE multi-node chain's auto-fit zoom is COLUMN-constrained (many box
+ * widths, each already forced to at least its own label's length, summed
+ * against a 96/140-column frame), so at that zoom a literal 3-unit 2D height
+ * projects under a single output row — "flat rectangles, no side face and no
+ * depth" (the brief's own complaint about round 4's LeNet render, reproduced
+ * here at first with `height = node2D.height` verbatim, and reproduced again
+ * with an explicit `size`'s own compressed height left unfloored — a CNN's
+ * own fixture gives every node an explicit `size`, so gating the floor on
+ * "no explicit size" had no effect on it at all). Depth scales off
+ * `min(width, height)` (above), so a taller floor also restores a genuinely
+ * visible depth sliver, not just a taller front face. A node with a real
+ * MULTI-LINE label, or an explicit `size` taller than the floor, still grows
+ * past it (`Math.max`).
+ */
+const GLYPH_DIAGRAM_3D_MIN_HEIGHT = 12;
+/** How far behind its own deepest member a group's recessed backdrop frame sits (world units). */
+const GLYPH_DIAGRAM_3D_GROUP_RECESS_GAP = 1.5;
+/** Padding (world units) around a group's member footprint before it becomes a backdrop frame. */
 export const GLYPH_DIAGRAM_3D_GROUP_PAD = 2;
-/**
- * D2 round 4 (codex: "gaps between objects should be about 0.5-1x an
- * object width, not many object widths"): the flow-axis clear gap between
- * two adjacent objects, as a FRACTION of the (average of the) two
- * neighbors' own half-extent along the flow axis — never a flat constant
- * (dagre's own `ranksep`/a fixed cell count), which reads as "many object
- * widths" apart the moment an object is small. `0.6` sits inside the
- * requested 0.5-1x band.
- */
-const GLYPH_DIAGRAM_3D_FLOW_GAP_FACTOR = 0.5;
-/** Absolute floor under the proportional gap above, so two zero/near-zero-width objects never fully touch. */
-const GLYPH_DIAGRAM_3D_FLOW_GAP_MIN = 0.75;
 
 /**
  * D2 round 4, requirement 4 ("size scaling blows up... scale explicit
@@ -66,14 +169,12 @@ const GLYPH_DIAGRAM_3D_FLOW_GAP_MIN = 0.75;
  * down to 5), and rendering that literally makes the smallest layer an
  * illegible speck beside the largest. Compressed PER AXIS, independently,
  * across every node that gave an explicit `size` (a node with none is
- * UNTOUCHED — "defaults are uniform", the same requirement's own second
- * half): `compressed = max * (raw/max) ** 0.5` (sqrt) keeps the axis's own
- * largest value exactly where it was and pulls every smaller one up
- * nonlinearly (a raw ratio of 1/8 becomes ~0.35, not 0.125), then the
- * smallest is clamped UP to at least `max / SIZE_MAX_RATIO` so a real CNN
- * still visibly shrinks across its own layers but never collapses past a
- * 4x spread. `Vec3`-shaped per node so `resolveNodeSize` below can read it
- * exactly like a literal `size`, just pre-processed once per graph.
+ * UNTOUCHED — "defaults are uniform"): `compressed = max * (raw/max) **
+ * 0.5` (sqrt) keeps the axis's own largest value exactly where it was and
+ * pulls every smaller one up nonlinearly, then the smallest is clamped UP
+ * to at least `max / SIZE_MAX_RATIO`. Unchanged from D2 round 4 — this
+ * redesign only changes how a node's (compressed or default) size becomes
+ * a WORLD box, never the compression itself.
  */
 const GLYPH_DIAGRAM_3D_SIZE_COMPRESS_EXPONENT = 0.5;
 const GLYPH_DIAGRAM_3D_SIZE_MAX_RATIO = 4;
@@ -96,26 +197,7 @@ function compressExplicitSizes(nodes: readonly GlyphGraphNode[]): ReadonlyMap<st
   return result;
 }
 
-/**
- * `[width, height, depth]` for one node — the graph's own COMPRESSED
- * explicit size when the caller gave one (`compressExplicitSizes` above),
- * else the label-derived WIDTH (dagre's own measured box) paired with the
- * upright HEIGHT/DEPTH defaults above.
- */
-function resolveNodeSize(graphNode: GlyphGraphNode | undefined, labelWidthCells: number, compressed?: Vec3): Vec3 {
-  if (compressed) return [...compressed];
-  if (graphNode?.size) return [...graphNode.size];
-  // D2 round 4: `12` (up from round 3's `3`) — a short label ("Coder")
-  // still left its own box narrower than tall/deep even with dagre's own
-  // padding folded in (measured: 9 world units), and the auto-fit zoom a
-  // TB stack's own real HEIGHT total drives is the SAME zoom that box's
-  // WIDTH renders at, so a too-narrow floor still fell under the
-  // silhouette gate even once height/depth alone were legible.
-  return [Math.max(labelWidthCells, 12), GLYPH_DIAGRAM_3D_NODE_HEIGHT, GLYPH_DIAGRAM_3D_NODE_DEPTH];
-}
-
 export type GlyphDiagram3dLayoutKind = "layered" | "force";
-export type GlyphDiagram3dZBy = "group" | "kind" | "rank" | "none";
 
 export interface GlyphDiagram3dNode {
   readonly id: string;
@@ -124,9 +206,9 @@ export interface GlyphDiagram3dNode {
   readonly kind?: string;
   readonly group?: string;
   readonly degree: number;
-  /** Box/sphere center, world space. */
+  /** Box/sphere center, WORLD space (already embedded via `glyphDiagram3dPlaneAxes`'s own `u`/`n`, layered; a free 3D point, force). */
   readonly center: Vec3;
-  /** Half-extents along X (width), Y (depth), Z (height). */
+  /** Half-extents along the node's own LOCAL axes: index 0 = `u` (width), index 1 = `n` (depth), index 2 = world Z (height) — layered. Plain world X/Y/Z half-extents for `force`, which builds no shared plane. */
   readonly half: Vec3;
 }
 
@@ -137,13 +219,14 @@ export interface GlyphDiagram3dEdge {
   readonly label?: string;
   readonly style: GlyphGraphEdgeStyle;
   readonly priority: number;
-  /** >= 2 points; the first and last land on the source's/target's own box (or sphere) surface — never inside it, never floating off it. */
+  /** >= 2 points, WORLD space; the first and last land on the source's/target's own box (or sphere) surface. Layered: every corner where the underlying 2D route changes direction, all at local depth 0 (the front-face plane) — never a free 3D diagonal, so every projected segment is purely horizontal or vertical under the DEFAULT camera (never a diagonal glyph); `glyphDiagramObject`'s overlay still derives its glyph/arrowhead from the ACTUAL projected screen direction (not a stored 2D side), so a live-orbited camera still reads correctly. */
   readonly points: readonly Vec3[];
 }
 
 export interface GlyphDiagram3dGroup {
   readonly id: string;
   readonly label?: string;
+  /** The group's own recessed-backdrop depth offset along `n` (layered) — kept as `z` for shape continuity with `force`'s own wireframe-volume corners, which uses it as a literal Z centre instead. */
   readonly z: number;
   readonly min: Vec3;
   readonly max: Vec3;
@@ -153,16 +236,17 @@ export interface GlyphDiagram3dLayout {
   readonly nodes: readonly GlyphDiagram3dNode[];
   readonly edges: readonly GlyphDiagram3dEdge[];
   readonly groups: readonly GlyphDiagram3dGroup[];
+  readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
 
 export interface GlyphDiagram3dLayoutOptions extends Pick<GlyphDiagramLayoutOptions, "labelWidth"> {
   readonly layout?: GlyphDiagram3dLayoutKind;
   readonly direction?: GlyphGraphDirection;
-  /** Layered only (§6). Default `"group"`. */
-  readonly zBy?: GlyphDiagram3dZBy;
   readonly nodesep?: number;
   readonly ranksep?: number;
-  /** Force only. A fixed 32-bit seed — the SAME seed always produces the SAME layout (mutation: reseed from `Date.now()` → the digest test reddens). Default `1`. */
+  /** `"inside" | "side" | "auto"` — layered only, read here ONLY to decide whether a node's front face may ever be smaller than its own label box (never, for `"inside"`/`"auto"`) — the actual placement lives in `glyphDiagramObject.ts`'s `resolveGlyphDiagram3dLabelPlacement`, which reads the SAME option again. */
+  readonly labels?: "inside" | "side" | "auto";
+  /** Force only. A fixed 32-bit seed — the SAME seed always produces the SAME layout. Default `1`. */
   readonly seed?: number;
   /** Force only. Fixed tick count — never a convergence check against a clock. Default `300`. */
   readonly iterations?: number;
@@ -182,7 +266,7 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-/** A point on `boxHalf`-sized box (or sphere, when `boxHalf` is uniform and `sphere` is true) surface, in the direction of `toward`, starting from `center` — the generic "edge endpoint lands on a node face" primitive. Works for a 2D difference (`toward.z === center.z`, e.g. a same-floor layered edge) and a full 3D one (a force-layout edge) alike. */
+/** A point on `boxHalf`-sized box (or sphere) surface, in the direction of `toward`, starting from `center` — `force` layout's own edge-endpoint primitive ("an edge lands on a node face, never inside it"). Unchanged from D1/D2. */
 function nodeSurfaceAnchor(center: Vec3, half: Vec3, sphere: boolean, toward: Vec3): Vec3 {
   const d: Vec3 = [toward[0] - center[0], toward[1] - center[1], toward[2] - center[2]];
   const len = Math.hypot(d[0], d[1], d[2]);
@@ -198,52 +282,7 @@ function nodeSurfaceAnchor(center: Vec3, half: Vec3, sphere: boolean, toward: Ve
   return [center[0] + d[0] * t, center[1] + d[1] * t, center[2] + d[2] * t];
 }
 
-/**
- * D2 round 3 (codex, P1-2/user finding): a same-floor edge used to be one
- * STRAIGHT chord between the two nodes' own anchors — a diagonal line
- * through space wherever the two nodes aren't already X- or Y-aligned,
- * reading as "squiggles" rather than a structure. This is a 2-leg
- * Manhattan DOGLEG in the shared floor's XY plane instead: the DOMINANT
- * axis (the larger of `|dx|`, `|dy|`) is walked first, turning at `bend` —
- * built by copying ONE coordinate from each endpoint's own center, which
- * is what makes BOTH resulting legs exactly axis-aligned: `center -> bend`
- * has a zero component on whichever axis `bend` borrowed from that same
- * center, and `nodeSurfaceAnchor`'s own clip is a pure radial SCALE (never
- * a rotation), so clipping to the box/sphere surface preserves that
- * axis-alignment rather than introducing a new diagonal. Degenerates to
- * the old direct segment when the two centers already share an axis (a
- * bend point there would be redundant, not wrong).
- */
-function orthogonalPlanePoints(
-  fromCenter: Vec3, fromHalf: Vec3, fromSphere: boolean,
-  toCenter: Vec3, toHalf: Vec3, toSphere: boolean,
-  z: number,
-): Vec3[] {
-  const dx = toCenter[0] - fromCenter[0], dy = toCenter[1] - fromCenter[1];
-  const EPS = 1e-9;
-  if (Math.abs(dx) < EPS || Math.abs(dy) < EPS) {
-    const p0 = nodeSurfaceAnchor(fromCenter, fromHalf, fromSphere, [toCenter[0], toCenter[1], z]);
-    const p1 = nodeSurfaceAnchor(toCenter, toHalf, toSphere, [fromCenter[0], fromCenter[1], z]);
-    return [p0, p1];
-  }
-  const xFirst = Math.abs(dx) >= Math.abs(dy);
-  const bend: Vec3 = xFirst ? [toCenter[0], fromCenter[1], z] : [fromCenter[0], toCenter[1], z];
-  const p0 = nodeSurfaceAnchor(fromCenter, fromHalf, fromSphere, bend);
-  const p1 = nodeSurfaceAnchor(toCenter, toHalf, toSphere, bend);
-  return [p0, bend, p1];
-}
-
-/**
- * A self-loop's `from`/`to` node is the SAME node, so `nodeSurfaceAnchor`'s
- * own `toward === center` degenerate case (`len === 0`) returned `center`
- * for both endpoints — a self-loop drawn as a single point (P1-c, D1 review
- * finding). Picks two DIFFERENT directions off the node's own footprint (the
- * +X-ish and +Y-ish faces, tilted up slightly so a `zBy` floor's own Z gap
- * doesn't collapse them either) so both endpoints land on a real face —
- * never inside the box, never floating off it, exactly like a normal edge —
- * and bulges a THIRD point out past the corner so the polyline reads as a
- * loop leaving and re-entering the node rather than a chord across it.
- */
+/** `force`'s own self-loop endpoints (D1 review finding: `toward === center` degenerates to a point otherwise) — unchanged. */
 function selfLoopPoints(center: Vec3, half: Vec3, sphere: boolean): Vec3[] {
   const reach = Math.max(half[0], half[1], half[2]) || 1;
   const exitToward: Vec3 = [center[0] + reach, center[1] + reach * 0.35, center[2] + reach * 0.2];
@@ -254,176 +293,154 @@ function selfLoopPoints(center: Vec3, half: Vec3, sphere: boolean): Vec3[] {
   return [p0, apex, p1];
 }
 
-/** The smallest group (by member count, tied broken by id) that lists `nodeId` — mirrors `layoutGlyphGraph`'s own compound-parent choice (pipeline.ts), so a node's 3D "floor" agrees with which group dagre would nest it under. */
-function smallestContainingGroup(nodeId: string, groups: readonly { id: string; members: readonly string[] }[]): string | undefined {
-  const containing = groups.filter((g) => g.members.includes(nodeId));
-  if (containing.length === 0) return undefined;
-  containing.sort((a, b) => a.members.length - b.members.length || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-  return containing[0]!.id;
-}
-
-/** Builds a `key -> floor index` map from a sorted, deduplicated key list; `undefined`/`""` always maps to floor `0` (the ungrouped/kindless baseline), and every other key gets `1, 2, 3, …` in sorted order. */
-function floorIndexTable(keys: readonly (string | undefined)[]): Map<string | undefined, number> {
-  const distinct = [...new Set(keys.filter((k): k is string => !!k))].sort();
-  const table = new Map<string | undefined, number>([[undefined, 0], ["", 0]]);
-  distinct.forEach((k, i) => table.set(k, i + 1));
-  return table;
+/** Collapse a routed 2D cell walk to its own direction-change points only (endpoints always kept) — every intervening step is provably collinear (a Manhattan A* walk), so this loses no shape, only redundant per-cell points. */
+function collapseRouteCells(cells: readonly { readonly x: number; readonly y: number }[]): { readonly x: number; readonly y: number }[] {
+  if (cells.length <= 2) return [...cells];
+  const out: { readonly x: number; readonly y: number }[] = [cells[0]!];
+  for (let i = 1; i < cells.length - 1; i++) {
+    const a = cells[i - 1]!, b = cells[i]!, c = cells[i + 1]!;
+    const inX = Math.sign(b.x - a.x), inY = Math.sign(b.y - a.y);
+    const outX = Math.sign(c.x - b.x), outY = Math.sign(c.y - b.y);
+    if (inX !== outX || inY !== outY) out.push(b);
+  }
+  out.push(cells[cells.length - 1]!);
+  return out;
 }
 
 async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptions): Promise<GlyphDiagram3dLayout> {
-  const laid = await layoutGlyphGraph(graph, {
-    direction: options.direction, nodesep: options.nodesep, ranksep: options.ranksep, labelWidth: options.labelWidth,
+  const { u, n } = glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
+  const measured = measureGlyphGraph(graph, { labelWidth: options.labelWidth, direction: options.direction });
+  const compressedSizes = compressExplicitSizes(graph.nodes);
+
+  // Widen the 2D MEASUREMENT itself for a node whose compressed 3D size
+  // needs more room than its label alone would reserve (explicit `size`),
+  // or up to the module's own upright HEIGHT FLOOR (no explicit `size` —
+  // `GLYPH_DIAGRAM_3D_MIN_HEIGHT`'s own doc), so the 2D layout/router sees
+  // the box's real footprint and routes/spaces around it — never shrinks
+  // (a `Math.max`), so a label always still fits (and a genuinely
+  // multi-line one still grows past the floor), and downstream code can
+  // then read width/height straight off the 2D layout (`node2D.width`/
+  // `.height`) for EVERY node, explicit-size or not, rather than keeping
+  // two separately-computed sizes that could drift.
+  const widenedNodes: GlyphDiagramMeasuredNode[] = measured.nodes.map((node) => {
+    const compressed = compressedSizes.get(node.id);
+    if (compressed) return { ...node, width: Math.max(node.width, Math.ceil(compressed[0])), height: Math.max(node.height, Math.ceil(compressed[1]), GLYPH_DIAGRAM_3D_MIN_HEIGHT) };
+    return { ...node, height: Math.max(node.height, GLYPH_DIAGRAM_3D_MIN_HEIGHT) };
   });
+
+  const reserved = reserveGlyphGraphPorts({ ...measured, nodes: widenedNodes });
+  const laid = await layoutGlyphGraph(reserved, { nodesep: options.nodesep, ranksep: options.ranksep });
+  // A ROUTING MARGIN beyond the layout's own tight bounds, on EVERY SIDE —
+  // a back-edge (a cycle-closing edge like the crew fixture's own
+  // `review -.-> writer`, or a self-loop) must detour around the whole
+  // laid-out structure, which the tight bounds leave NO room for on ANY
+  // side (measured: the crew fixture's own back-edge, and a plain 2-node
+  // self-loop, are both unroutable at the tight bound, REGARDLESS of how
+  // much the grid is grown to the right/bottom alone — `layoutGlyphGraph`'s
+  // own margin-normalization already pins every node flush against x=0/
+  // y=0, so padding only `width`/`height` never opens space to the WEST or
+  // NORTH of the structure a leftward/upward detour needs). 2D's own
+  // `render.ts` gets this margin "for free" by CENTERING the tight layout
+  // within the reader's much larger target canvas before routing
+  // (`centered()`) — the SAME shift, reproduced here: every node/port is
+  // translated by `(dx, dy)` so the padding is symmetric, the router runs
+  // on the shifted layout, and the resulting route cells are translated
+  // BACK by `-dx, -dy` before becoming world points (below), so the
+  // margin never leaks into this module's own WORLD coordinates.
+  const ROUTING_MARGIN = 10;
+  const dx = Math.floor(ROUTING_MARGIN / 2), dy = Math.floor(ROUTING_MARGIN / 2);
+  const shiftedLaid = {
+    ...laid,
+    nodes: laid.nodes.map((nd) => ({ ...nd, x0: nd.x0 + dx, x1: nd.x1 + dx, y0: nd.y0 + dy, y1: nd.y1 + dy })),
+    ports: laid.ports.map((p) => ({ ...p, anchor: { x: p.anchor.x + dx, y: p.anchor.y + dy }, escape: { x: p.escape.x + dx, y: p.escape.y + dy } })),
+  };
+  const routing = routeGlyphGraphEdges(shiftedLaid, { width: laid.width + ROUTING_MARGIN, height: laid.height + ROUTING_MARGIN });
+
   const degree = new Map<string, number>();
   for (const edge of laid.edges) {
     degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1);
     degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
   }
 
-  // The EFFECTIVE direction is `options.direction ?? graph.direction` — the
-  // SAME fallback `pipeline.ts`'s `measureGlyphGraph` applies internally
-  // (`options.direction ?? canonical.direction`) — never `options.direction`
-  // alone, which is `undefined` in the ordinary case (a caller names the
-  // direction on the GRAPH, not as a separate layout override) and would
-  // otherwise misclassify every direction-on-the-graph-only LR/RL diagram
-  // as "vertical" here.
-  const effectiveDirection = options.direction ?? graph.direction;
-  const isVertical = effectiveDirection === "TB" || effectiveDirection === "BT";
-  // D2 round 4 (codex: "TB: the stack goes UP along world Z... not along a
-  // floor diagonal"): the OLD default (`zBy: "group"`, unconditionally) left
-  // every node of an UNGROUPED TB graph on floor 0 — a transformer's own
-  // stages then rode dagre's plain Y (rank) position, still on ONE floor, so
-  // the "vertical stack" the direction implies was really a flat diagonal
-  // under any 3/4 camera. `zBy` LEFT UNSET on an ungrouped TB/BT graph now
-  // means "stack along Z, one rank at a time" instead — the SAME real-size
-  // sequential packer LR/RL's own flow axis uses below, just walking Z. A
-  // graph that already has real groups (`agent-supervisor`) is UNCHANGED:
-  // its own `zBy: "group"` floors already give a genuine Z read (supervisor
-  // above workers), and an explicit `zBy` from the caller always wins,
-  // exactly as before this round.
-  const useRankZFlow = options.zBy === undefined && isVertical && laid.groups.length === 0;
-  const zBy = options.zBy ?? "group";
-
-  let zOf: (nodeId: string) => number = () => 0; // unused when `useRankZFlow` (Z comes from `flowOverride` directly)
-  if (!useRankZFlow) {
-    if (zBy === "none") {
-      zOf = () => 0;
-    } else if (zBy === "kind") {
-      const table = floorIndexTable(laid.nodes.map((n) => n.kind));
-      zOf = (id) => (table.get(laid.nodes.find((n) => n.id === id)?.kind) ?? 0) * GLYPH_DIAGRAM_3D_LAYER_HEIGHT;
-    } else if (zBy === "rank") {
-      // The layered X/Y plane already carries dagre's own rank order along one
-      // axis (Y for TB/BT, X for LR/RL) — bucket by that axis's rounded center
-      // rather than re-deriving ranks from dagre internals a second time.
-      const rankAxis = effectiveDirection === "LR" || effectiveDirection === "RL" ? 0 : 1;
-      const centers = laid.nodes.map((n) => Math.round(rankAxis === 0 ? (n.x0 + n.x1) / 2 : (n.y0 + n.y1) / 2));
-      const ranks = [...new Set(centers)].sort((a, b) => a - b);
-      const rankIndex = new Map(ranks.map((r, i) => [r, i]));
-      zOf = (id) => {
-        const node = laid.nodes.find((n) => n.id === id)!;
-        const c = Math.round(rankAxis === 0 ? (node.x0 + node.x1) / 2 : (node.y0 + node.y1) / 2);
-        return (rankIndex.get(c) ?? 0) * GLYPH_DIAGRAM_3D_LAYER_HEIGHT;
-      };
-    } else {
-      const table = floorIndexTable(laid.nodes.map((n) => smallestContainingGroup(n.id, laid.groups)));
-      zOf = (id) => (table.get(smallestContainingGroup(id, laid.groups)) ?? 0) * GLYPH_DIAGRAM_3D_LAYER_HEIGHT;
-    }
-  }
-
   const graphNodesById = new Map(graph.nodes.map((gn) => [gn.id, gn]));
-  const compressedSizes = compressExplicitSizes(graph.nodes);
-  // D2 round 4: `flowAxis` picks which WORLD axis a node's own FLOW-order
-  // position is packed along, using its REAL half-extent plus a
-  // size-PROPORTIONAL gap (`GLYPH_DIAGRAM_3D_FLOW_GAP_FACTOR`) instead of
-  // dagre's own guess — this now runs UNCONDITIONALLY (round 3 gated it
-  // behind "any node has a custom `size`"; a DEFAULT-sized graph needs the
-  // same proportional-gap discipline just as much, or its own gaps stay
-  // dagre's flat `nodesep`/`ranksep`, "many object widths" apart): `0` (X)
-  // for LR/RL, `2` (Z) for TB/BT when `useRankZFlow` engaged above, `1` (Y,
-  // dagre's own untouched rank axis) for a GROUPED or explicitly-`zBy`'d
-  // TB/BT graph, where Z already carries the semantic floor and re-walking
-  // Y too would fight it.
-  const flowAxis: 0 | 1 | 2 = effectiveDirection === "LR" || effectiveDirection === "RL" ? 0 : useRankZFlow ? 2 : 1;
-  const sizeComponentForFlowAxis = flowAxis === 0 ? 0 : flowAxis === 2 ? 1 : 2; // resolveNodeSize's own [width, height, depth]
-  const flowOverride = new Map<string, number>();
-  {
-    const ordered = [...laid.nodes].sort((a, b) => {
-      // The ORDER always comes from dagre's own rank axis (X for LR/RL, Y
-      // for TB/BT) regardless of which WORLD axis the override finally
-      // writes to — a Z-flow still walks nodes in RANK order, it just
-      // ignores dagre's own Y VALUE once that order is known.
-      const orderAxisIsX = effectiveDirection === "LR" || effectiveDirection === "RL";
-      const ca = orderAxisIsX ? (a.x0 + a.x1) / 2 : (a.y0 + a.y1) / 2;
-      const cb = orderAxisIsX ? (b.x0 + b.x1) / 2 : (b.y0 + b.y1) / 2;
-      return ca - cb;
-    });
-    let cursor = 0, prevHalf = 0;
-    ordered.forEach((n, i) => {
-      const labelWidthCells = n.x1 - n.x0 + 1;
-      const size = resolveNodeSize(graphNodesById.get(n.id), labelWidthCells, compressedSizes.get(n.id));
-      const half = size[sizeComponentForFlowAxis] / 2;
-      const gap = i === 0 ? 0 : Math.max(GLYPH_DIAGRAM_3D_FLOW_GAP_MIN, GLYPH_DIAGRAM_3D_FLOW_GAP_FACTOR * (prevHalf + half));
-      cursor = i === 0 ? half : cursor + prevHalf + gap + half;
-      flowOverride.set(n.id, cursor);
-      prevHalf = half;
-    });
-  }
-
-  const nodes: GlyphDiagram3dNode[] = laid.nodes.map((n) => {
-    const labelWidthCells = n.x1 - n.x0 + 1;
-    const [width, height, depth] = resolveNodeSize(graphNodesById.get(n.id), labelWidthCells, compressedSizes.get(n.id));
-    const dagreX = (n.x0 + n.x1) / 2, dagreY = (n.y0 + n.y1) / 2;
-    const flowOverrideValue = flowOverride.get(n.id)!;
-    const cx = flowAxis === 0 ? flowOverrideValue : dagreX;
-    // Z-flow abandons dagre's own Y (rank) value entirely — Z now carries
-    // the rank progression, so every node sits at the SAME depth (a single
-    // front-facing plane of boxes), matching "a vertical stack of wide
-    // slabs" rather than spreading them front-to-back too.
-    const cy = flowAxis === 2 ? 0 : dagreY;
-    const cz = flowAxis === 2 ? flowOverrideValue : zOf(n.id) + height / 2;
+  const nodes: GlyphDiagram3dNode[] = laid.nodes.map((n2d) => {
+    const width = n2d.width, height = n2d.height;
+    const compressedDepth = compressedSizes.get(n2d.id)?.[2];
+    const depth = compressedDepth !== undefined
+      ? Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, compressedDepth)
+      : Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, GLYPH_DIAGRAM_3D_DEPTH_FACTOR * Math.min(width, height));
+    const uOffset = (n2d.x0 + n2d.x1) / 2;
+    const zOffset = -(n2d.y0 + n2d.y1) / 2;
+    const center = planePoint(u, n, uOffset, depth / 2, zOffset);
     return {
-      id: n.id, label: n.lines.join("\n"), shape: n.shape ?? "rect", kind: n.kind, group: n.group,
-      degree: degree.get(n.id) ?? 0,
-      center: [cx, cy, cz],
+      id: n2d.id, label: n2d.lines.join("\n"), shape: n2d.shape ?? "rect", kind: n2d.kind, group: n2d.group,
+      degree: degree.get(n2d.id) ?? 0,
+      center,
       half: [width / 2, depth / 2, height / 2],
     };
   });
-  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const byId = new Map(nodes.map((nd) => [nd.id, nd]));
 
-  const edges: GlyphDiagram3dEdge[] = laid.edges.map((e) => {
-    const from = byId.get(e.from)!, to = byId.get(e.to)!;
-    const fromSphere = from.shape === "circle", toSphere = to.shape === "circle";
-    if (e.from === e.to) {
-      return { id: e.id, from: e.from, to: e.to, label: e.label, style: e.style ?? "solid", priority: e.priority ?? 0, points: selfLoopPoints(from.center, from.half, fromSphere) };
-    }
-    const sameFloor = from.center[2] === to.center[2];
-    if (sameFloor) {
-      const points = orthogonalPlanePoints(from.center, from.half, fromSphere, to.center, to.half, toSphere, from.center[2]);
-      return { id: e.id, from: e.from, to: e.to, label: e.label, style: e.style ?? "solid", priority: e.priority ?? 0, points };
-    }
-    // A cross-floor edge is an orthogonal 3D polyline: run at the source's
-    // own floor to the XY midpoint, step Z there (the "rank gap"), then run
-    // at the target's own floor into its face.
-    const midXY: [number, number] = [(from.center[0] + to.center[0]) / 2, (from.center[1] + to.center[1]) / 2];
-    const p0 = nodeSurfaceAnchor(from.center, from.half, fromSphere, [midXY[0], midXY[1], from.center[2]]);
-    const p1: Vec3 = [midXY[0], midXY[1], from.center[2]];
-    const p2: Vec3 = [midXY[0], midXY[1], to.center[2]];
-    const p3 = nodeSurfaceAnchor(to.center, to.half, toSphere, [midXY[0], midXY[1], to.center[2]]);
-    return { id: e.id, from: e.from, to: e.to, label: e.label, style: e.style ?? "solid", priority: e.priority ?? 0, points: [p0, p1, p2, p3] };
-  });
+  const routeByEdgeId = new Map(routing.routes.map((r) => [r.edge.id, r]));
+  const edges: GlyphDiagram3dEdge[] = [];
+  for (const edge of laid.edges) {
+    const route = routeByEdgeId.get(edge.id);
+    if (!route) continue; // unroutable — named in `routing.ledger`, surfaced below
+    // `route.cells` WALKS from each port's own ESCAPE cell (one cell
+    // OUTSIDE the node, `route.ts`'s own `start`/`goal`), never the port
+    // ANCHOR itself (ON the node's border) — 2D's own `paint.ts` papers
+    // over this by drawing the ARROWHEAD glyph separately, AT the anchor,
+    // which visually overwrites the escape-cell gap; this module has no
+    // such second write, so the raw escape cell would land the edge a
+    // whole unit outside the box, failing "the first and last land on the
+    // source's/target's own box surface" (this type's own doc). Swap the
+    // first/last COLLAPSED point for the exact port anchor instead.
+    const fromPort = laid.ports.find((p) => p.edgeId === edge.id && p.end === "from");
+    const toPort = laid.ports.find((p) => p.edgeId === edge.id && p.end === "to");
+    // `route.cells` are in the SHIFTED (routing-margin) coordinate space —
+    // translate back by `(-dx, -dy)` so they land on the SAME 2D grid
+    // `laid.nodes`/`laid.ports` (and this function's own `u`/`n`-embedded
+    // world points) already use.
+    const corners = collapseRouteCells(route.cells).map((c) => ({ x: c.x - dx, y: c.y - dy }));
+    if (fromPort) corners[0] = fromPort.anchor;
+    if (toPort) corners[corners.length - 1] = toPort.anchor;
+    const points = corners.map((c) => planePoint(u, n, c.x, 0, -c.y));
+    edges.push({ id: edge.id, from: edge.from, to: edge.to, label: edge.label, style: edge.style ?? "solid", priority: edge.priority ?? 0, points });
+  }
 
+  // A group draws as a RECESSED BACKDROP FRAME behind its own members
+  // (brief's own second option — "or draw the group as a recessed frame
+  // behind them"), never a floor plate: there is no more per-node "floor"
+  // Z for a plate to sit at (every node's own Z is its literal −2D-y row
+  // position now), so the group's plane sits at a FIXED `n` depth just
+  // past its deepest member's own back face, spanning the padded (u, Z)
+  // footprint of its members — a flat backdrop panel a reader reads as
+  // "these nodes belong together," never a mesh (still an overlay outline,
+  // D2 fix round 2's own reasoning: `compileScene({objects})` rejects a
+  // member mesh declaring `transparent`/a differing `mode`).
   const groups: GlyphDiagram3dGroup[] = laid.groups.map((g) => {
-    const members = g.members.map((id) => byId.get(id)).filter((n): n is GlyphDiagram3dNode => !!n);
-    if (members.length === 0) return { id: g.id, label: g.label, z: 0, min: [0, 0, 0], max: [0, 0, 0] };
-    const z = members.reduce((sum, m) => sum + m.center[2], 0) / members.length - GLYPH_DIAGRAM_3D_NODE_HEIGHT / 2;
-    const minX = Math.min(...members.map((m) => m.center[0] - m.half[0])) - GLYPH_DIAGRAM_3D_GROUP_PAD;
-    const maxX = Math.max(...members.map((m) => m.center[0] + m.half[0])) + GLYPH_DIAGRAM_3D_GROUP_PAD;
-    const minY = Math.min(...members.map((m) => m.center[1] - m.half[1])) - GLYPH_DIAGRAM_3D_GROUP_PAD;
-    const maxY = Math.max(...members.map((m) => m.center[1] + m.half[1])) + GLYPH_DIAGRAM_3D_GROUP_PAD;
-    return { id: g.id, label: g.label, z, min: [minX, minY, z], max: [maxX, maxY, z] };
+    const members = g.members.map((id) => byId.get(id)).filter((m): m is GlyphDiagram3dNode => !!m);
+    if (members.length === 0) return { id: g.id, label: g.label, z: 0, min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
+    // Members' own world centers already embed `uOffset`/`zOffset` via `u`/`n`
+    // — recover the plain (u, n, z) SCALARS by projecting back onto the
+    // orthonormal `u`/`n` basis (a plain dot product, since both are unit
+    // vectors) rather than re-deriving them from the 2D layout a second time.
+    const uOf = (c: Vec3) => c[0] * u[0] + c[1] * u[1];
+    const nOf = (c: Vec3) => c[0] * n[0] + c[1] * n[1];
+    const minU = Math.min(...members.map((m) => uOf(m.center) - m.half[0])) - GLYPH_DIAGRAM_3D_GROUP_PAD;
+    const maxU = Math.max(...members.map((m) => uOf(m.center) + m.half[0])) + GLYPH_DIAGRAM_3D_GROUP_PAD;
+    const minZ = Math.min(...members.map((m) => m.center[2] - m.half[2])) - GLYPH_DIAGRAM_3D_GROUP_PAD;
+    const maxZ = Math.max(...members.map((m) => m.center[2] + m.half[2])) + GLYPH_DIAGRAM_3D_GROUP_PAD;
+    const backN = Math.max(...members.map((m) => nOf(m.center) + m.half[1]));
+    const frameN = backN + GLYPH_DIAGRAM_3D_GROUP_RECESS_GAP;
+    return {
+      id: g.id, label: g.label, z: frameN,
+      min: planePoint(u, n, minU, frameN, minZ), max: planePoint(u, n, maxU, frameN, maxZ),
+    };
   });
 
-  return { nodes, edges, groups };
+  const ledger: GlyphDiagramLedgerEntry[] = [...measured.ledger, ...laid.ledger, ...routing.ledger];
+  return { nodes, edges, groups, ledger };
 }
 
 async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptions): Promise<GlyphDiagram3dLayout> {
@@ -434,18 +451,16 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
 
   const measured = measureGlyphGraph(graph, { labelWidth: options.labelWidth, direction: options.direction });
   const rand = mulberry32(seed);
-  const n = measured.nodes.length;
+  const count = measured.nodes.length;
   const degree = new Map<string, number>();
   for (const edge of measured.edges) {
     degree.set(edge.from, (degree.get(edge.from) ?? 0) + 1);
     degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
   }
 
-  // Ideal edge length from the average node footprint — the classical
-  // Fruchterman-Reingold `k`, generalized to 3D volume instead of 2D area.
-  const avgFootprint = measured.nodes.reduce((s, m) => s + Math.max(m.width, m.height), 0) / Math.max(1, n);
+  const avgFootprint = measured.nodes.reduce((s, m) => s + Math.max(m.width, m.height), 0) / Math.max(1, count);
   const k = Math.max(4, avgFootprint * 1.5);
-  const spread = k * Math.cbrt(n + 1);
+  const spread = k * Math.cbrt(count + 1);
 
   const pos: Vec3[] = measured.nodes.map(() => [
     (rand() - 0.5) * spread, (rand() - 0.5) * spread, (rand() - 0.5) * spread,
@@ -457,9 +472,8 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
   const cooling = Math.pow(0.01, 1 / iterations);
   for (let iter = 0; iter < iterations; iter++) {
     const disp: Vec3[] = pos.map(() => [0, 0, 0]);
-    // Repulsion — every pair.
-    for (let i = 0; i < n; i++) {
-      for (let j = i + 1; j < n; j++) {
+    for (let i = 0; i < count; i++) {
+      for (let j = i + 1; j < count; j++) {
         const dx = pos[i]![0] - pos[j]![0], dy = pos[i]![1] - pos[j]![1], dz = pos[i]![2] - pos[j]![2];
         const dist = Math.max(EPS, Math.hypot(dx, dy, dz));
         const force = (k * k) / dist;
@@ -468,7 +482,6 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
         disp[j]![0] -= ux * force; disp[j]![1] -= uy * force; disp[j]![2] -= uz * force;
       }
     }
-    // Attraction — springs along edges.
     for (const edge of measured.edges) {
       const i = idIndex.get(edge.from)!, j = idIndex.get(edge.to)!;
       const dx = pos[i]![0] - pos[j]![0], dy = pos[i]![1] - pos[j]![1], dz = pos[i]![2] - pos[j]![2];
@@ -478,7 +491,6 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
       disp[i]![0] -= ux * force; disp[i]![1] -= uy * force; disp[i]![2] -= uz * force;
       disp[j]![0] += ux * force; disp[j]![1] += uy * force; disp[j]![2] += uz * force;
     }
-    // Group attraction — every member is pulled toward its group's own centroid.
     for (const group of measured.groups) {
       const memberIdx = group.members.map((id) => idIndex.get(id)).filter((i): i is number => i !== undefined);
       if (memberIdx.length < 2) continue;
@@ -491,7 +503,7 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
         disp[i]![2] += (cz - pos[i]![2]) * 0.1;
       }
     }
-    for (let i = 0; i < n; i++) {
+    for (let i = 0; i < count; i++) {
       const dist = Math.max(EPS, Math.hypot(disp[i]![0], disp[i]![1], disp[i]![2]));
       const limited = Math.min(dist, temperature);
       pos[i]![0] += (disp[i]![0] / dist) * limited;
@@ -501,10 +513,10 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
     temperature *= cooling;
   }
 
-  const forceGraphNodesById = new Map(graph.nodes.map((gn) => [gn.id, gn]));
   const forceCompressedSizes = compressExplicitSizes(graph.nodes);
   const nodes: GlyphDiagram3dNode[] = measured.nodes.map((m, i) => {
-    const [width, height, depth] = resolveNodeSize(forceGraphNodesById.get(m.id), Math.max(1, m.width), forceCompressedSizes.get(m.id));
+    const compressed = forceCompressedSizes.get(m.id);
+    const [width, height, depth] = compressed ?? [Math.max(m.width, 12), 7, 2.4];
     return {
       id: m.id, label: m.lines.join("\n"), shape: m.shape ?? "rect", kind: m.kind, group: m.group,
       degree: degree.get(m.id) ?? 0,
@@ -526,7 +538,7 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
 
   const groups: GlyphDiagram3dGroup[] = measured.groups.map((g) => {
     const members = g.members.map((id) => byId.get(id)).filter((nd): nd is GlyphDiagram3dNode => !!nd);
-    if (members.length === 0) return { id: g.id, label: g.label, z: 0, min: [0, 0, 0], max: [0, 0, 0] };
+    if (members.length === 0) return { id: g.id, label: g.label, z: 0, min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 };
     const minX = Math.min(...members.map((m) => m.center[0] - m.half[0])) - GLYPH_DIAGRAM_3D_GROUP_PAD;
     const maxX = Math.max(...members.map((m) => m.center[0] + m.half[0])) + GLYPH_DIAGRAM_3D_GROUP_PAD;
     const minY = Math.min(...members.map((m) => m.center[1] - m.half[1])) - GLYPH_DIAGRAM_3D_GROUP_PAD;
@@ -536,7 +548,7 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
     return { id: g.id, label: g.label, z: (minZ + maxZ) / 2, min: [minX, minY, minZ], max: [maxX, maxY, maxZ] };
   });
 
-  return { nodes, edges, groups };
+  return { nodes, edges, groups, ledger: [...measured.ledger] };
 }
 
 export async function layout3d(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptions = {}): Promise<GlyphDiagram3dLayout> {

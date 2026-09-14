@@ -5,7 +5,7 @@ import {
 } from "glyphcss";
 import {
   GLYPH_DIAGRAM_3D_AMBIENT_LIGHT, GLYPH_DIAGRAM_3D_LIGHT, glyphDiagramObject, renderGlyphDiagram3d, resolveCharset,
-  type GlyphDiagram3dCharset, type GlyphDiagram3dColorMode, type GlyphDiagram3dLayoutKind, type GlyphDiagram3dZBy,
+  type GlyphDiagram3dCharset, type GlyphDiagram3dColorMode, type GlyphDiagram3dLayoutKind,
 } from "@glyphcss/diagrams/3d";
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
 import type { GlyphGraph, GlyphGraphDirection } from "@glyphcss/diagrams";
@@ -27,7 +27,7 @@ import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../I
  * fitted at one grid size is correct at any other.
  *
  * After mount, ORBIT CONTROLS own the camera — this component never
- * resets it on a re-render, only when `graph`/`layout`/`zBy`/`seed`/
+ * resets it on a re-render, only when `graph`/`layout`/`seed`/
  * `direction`/`nodesep`/`ranksep`/`controlsMode` genuinely change (a
  * different mesh needs a different fit). `initialCamera` (from
  * `state.camera3d`, when the reader already orbited this exact graph
@@ -93,7 +93,6 @@ import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../I
 export interface Diagrams3DViewportProps {
   readonly graph: GlyphGraph;
   readonly layout: GlyphDiagram3dLayoutKind;
-  readonly zBy: GlyphDiagram3dZBy;
   readonly seed: number;
   readonly direction?: GlyphGraphDirection;
   readonly nodesep: number;
@@ -123,7 +122,7 @@ interface EffectLayerHandleLike {
 }
 
 export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
-  const { graph, layout, zBy, seed, direction, nodesep, ranksep, controlsMode, charset, color, effectId, effectTargetNodeId } = props;
+  const { graph, layout, seed, direction, nodesep, ranksep, controlsMode, charset, color, effectId, effectTargetNodeId } = props;
   const hostRef = useRef<HTMLDivElement | null>(null);
   // Latest callbacks/initial camera, read inside the mount effect without
   // being part of its dependency array (see the component doc above).
@@ -217,7 +216,7 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
         // This call only needs to seed the INITIAL object with whatever
         // charset was selected at mount time.
         fit = await renderGlyphDiagram3d(graph, {
-          layout, zBy, seed, ...(direction ? { direction } : {}), nodesep, ranksep,
+          layout, seed, ...(direction ? { direction } : {}), nodesep, ranksep,
           target: "web", width: PROBE_WIDTH, height: PROBE_HEIGHT, charset: latest.current.charset,
           ...(initial ? { camera: initial } : {}),
         });
@@ -267,7 +266,7 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
       scene?.destroy();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the component doc: `initialCamera`/callbacks/charset/color/effect are read via `latest` or applied by their own effects below, deliberately not tracked here.
-  }, [graph, layout, zBy, seed, direction, nodesep, ranksep, controlsMode]);
+  }, [graph, layout, seed, direction, nodesep, ranksep, controlsMode]);
 
   // Charset/colour: `scene.setOptions` only — never remounts the mesh or resets the camera.
   useEffect(() => {
@@ -293,7 +292,7 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
       let next;
       try {
         next = await glyphDiagramObject(graph, {
-          layout, zBy, seed, ...(direction ? { direction } : {}), nodesep, ranksep,
+          layout, seed, ...(direction ? { direction } : {}), nodesep, ranksep,
           tier: canvasTier, boxOutline,
         });
       } catch (error) {
@@ -311,7 +310,7 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
       applyEffect();
     })();
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to `charset` alone: `graph`/`layout`/`zBy`/`seed`/`direction`/`nodesep`/`ranksep` changes already trigger the mount effect's own remount (which reads the current `charset` fresh via `latest`), and `color` never affects the object's own build (verified by `diagrams3dSceneOptions.test.ts`'s "independent of colour" case).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to `charset` alone: `graph`/`layout`/`seed`/`direction`/`nodesep`/`ranksep` changes already trigger the mount effect's own remount (which reads the current `charset` fresh via `latest`), and `color` never affects the object's own build (verified by `diagrams3dSceneOptions.test.ts`'s "independent of colour" case).
   }, [charset]);
 
   // Effect id/target.
