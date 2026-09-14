@@ -85,6 +85,38 @@ describe("GlyphOrbitControlsElement", () => {
     expect(scene!.camera.rotX).toBe(-30);
   });
 
+  // P2-a (codex gpt-5.6-sol fix round 1): _readOptions() used to OMIT
+  // pitch-range/mode from the options object entirely when the attribute
+  // was absent, and createGlyphOrbitControls's update() only overwrites a
+  // field when the key is PRESENT in opts — so removing the attribute left
+  // the previous value stuck instead of restoring the library default.
+  it("removing pitch-range restores the default [-90, 90] clamp", () => {
+    controls.setAttribute("pitch-range", "-30,30");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+
+    controls.removeAttribute("pitch-range");
+    scene!.camera.rotX = 0;
+    const host = scene!.host;
+    host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 1000, pointerId: 1, isPrimary: true, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    // Default clamp is [-90, 90], not the removed [-30, 30].
+    expect(scene!.camera.rotX).toBe(-90);
+  });
+
+  it("removing mode restores the default 'turntable' mode", () => {
+    controls.setAttribute("mode", "trackball");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+    expect(scene!.camera.useMat).toBe(true);
+
+    controls.removeAttribute("mode");
+    expect(scene!.camera.useMat).toBe(false);
+  });
+
   it("connects without throwing inside a scene", () => {
     expect(() => { sceneEl.appendChild(controls); }).not.toThrow();
   });

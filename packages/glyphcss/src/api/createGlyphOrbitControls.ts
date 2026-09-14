@@ -290,8 +290,23 @@ export function createGlyphOrbitControls(
       const axis = (typeof animOpts === "object" && animOpts.axis) ? animOpts.axis : "y";
       // speed is degrees per 60 Hz-equivalent frame; dt normalised to 16.67 ms reference.
       const dAngle = speed * (dt / 16.67);
-      if (axis === "y") camera.rotY = camera.rotY + dAngle;
-      else camera.rotX = camera.rotX + dAngle;
+      if (mode === "trackball") {
+        // rotX/rotY are inert while useMat is true (createGlyphCamera.ts's
+        // project() ignores them for the matrix path), so writing them here
+        // silently did nothing — P1-b. Compose the same increment about the
+        // CURRENT screen axis instead: (0,1,0) is the on-screen vertical
+        // (spinning about it reads as the familiar left-right turntable
+        // motion regardless of the trackball's accumulated orientation),
+        // (1,0,0) the on-screen horizontal (an up/down tumble).
+        const rollAxis: [number, number, number] = axis === "y" ? [0, 1, 0] : [1, 0, 0];
+        trackballMat = matMul3(axisAngleMat(rollAxis[0], rollAxis[1], rollAxis[2], dAngle * DEG), trackballMat);
+        camera.mat = trackballMat;
+        camera.useMat = true;
+      } else if (axis === "y") {
+        camera.rotY = camera.rotY + dAngle;
+      } else {
+        camera.rotX = camera.rotX + dAngle;
+      }
       scene.rerender();
       emitChange(snapshot);
     }
@@ -354,8 +369,35 @@ export function createGlyphOrbitControls(
       if (opts.pitchRange !== undefined) pitchRange = opts.pitchRange;
       if (opts.mode !== undefined && opts.mode !== mode) {
         mode = opts.mode;
-        if (mode === "trackball") ensureTrackballMat();
-        else camera.useMat = false; // turntable resumes from Euler rotX/rotY.
+        if (mode === "trackball") {
+          ensureTrackballMat();
+        } else {
+          // P1-a: a trackball drag/twist/auto-rotate only ever wrote
+          // `camera.mat` — rotX/rotY were left stale, so just flipping
+          // `useMat` off used to snap the picture back to whatever
+          // rotX/rotY held before trackball engaged, discarding every
+          // rotation performed while in trackball mode. Decompose the
+          // accumulated matrix into the nearest turntable (rotX, rotY)
+          // instead: turntable has no third rotational DOF, so any
+          // accumulated roll is DROPPED (documented in
+          // `decomposeMatToEuler`'s own comment), the result is clamped
+          // into `pitchRange`, and the picture stays put apart from the
+          // removed roll.
+          const { rotX, rotY } = decomposeMatToEuler(trackballMat);
+          // (rotX, rotY) and (-rotX, rotY+180) encode the IDENTICAL
+          // rotation matrix (same picture) — pick whichever needs less
+          // clamping into `pitchRange`, so a legitimately negative pitch
+          // isn't needlessly flipped to its equivalent positive branch
+          // and then clamped against it.
+          const altRotX = -rotX;
+          const altRotY = rotY + 180;
+          const clampedPrimary = clampPitchRange(rotX);
+          const clampedAlt = clampPitchRange(altRotX);
+          const usePrimary = Math.abs(clampedPrimary - rotX) <= Math.abs(clampedAlt - altRotX);
+          camera.rotX = usePrimary ? clampedPrimary : clampedAlt;
+          camera.rotY = usePrimary ? rotY : altRotY;
+          camera.useMat = false;
+        }
       }
       animOpts = opts.animate ?? animOpts;
       if (!stopped && activePointerId === null) {
@@ -436,4 +478,28 @@ function axisAngleMat(ax: number, ay: number, az: number, angleRad: number): num
     ay * ax * t + az * s, c + ay * ay * t, ay * az * t - ax * s,
     az * ax * t - ay * s, az * ay * t + ax * s, c + az * az * t,
   ];
+}
+
+/**
+ * Inverse of `eulerToMat`: decomposes a general trackball matrix into the
+ * NEAREST turntable orientation, dropping any roll turntable cannot
+ * represent (P1-a). This is exact, not an approximation — for ANY rotation
+ * matrix `M`, row 2 (`M[6..8]`) equals row 2 of the pure turntable matrix
+ * `RotX(rotX)·RotZ(rotY)` REGARDLESS of any left-multiplied roll about the
+ * output depth axis, because that roll only mixes rows 0/1 together (it
+ * never reads row 2). So this recovers rotX/rotY EXACTLY (a genuine z-x-z
+ * Euler decomposition; the discarded degree of freedom is precisely the
+ * roll), and only the col/row (screen-plane) projection of a point can
+ * differ from the trackball picture — depth never does.
+ *
+ * `rotX` is returned in its principal [0, 180] branch; `(rotX, rotY)` and
+ * `(-rotX, rotY + 180)` encode the IDENTICAL matrix (same picture), so the
+ * caller is free to use either — `update()` picks whichever needs less
+ * `pitchRange` clamping.
+ */
+function decomposeMatToEuler(mat: number[]): { rotX: number; rotY: number } {
+  const m6 = mat[6], m7 = mat[7], m8 = mat[8];
+  const rotX = Math.atan2(Math.hypot(m6, m7), m8) / DEG;
+  const rotY = Math.atan2(m6, m7) / DEG;
+  return { rotX, rotY };
 }

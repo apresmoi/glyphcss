@@ -45,8 +45,12 @@ interface Props {
   polygonsUrl?: string;
   /** Invert drag direction (grab-and-spin convention, good for globes). */
   invertDrag?: boolean;
-  /** Remove the ±π/2 pitch clamp (lets the user flip the model past the poles). */
-  noClampPitch?: boolean;
+  /**
+   * Orbit-controls turntable pitch clamp in degrees, `[min, max]`, or `null`
+   * to remove it (lets the user flip the model past the poles). Default
+   * `[-90, 90]` (the library's own default) when omitted.
+   */
+  pitchRange?: [number, number] | null;
   /**
    * Light the scene with a real-time sun position: subsolar lat/lon at the
    * current UTC. Updates every 30 s. For an Earth globe, this makes the
@@ -63,7 +67,8 @@ interface Props {
 
 import '../styles/glyph-demo.css';
 
-const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, autoRotate, interactive, noZoom, interactiveDownscale, polygonsUrl, invertDrag, noClampPitch, realSunLight, light } = Astro.props;
+const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, autoRotate, interactive, noZoom, interactiveDownscale, polygonsUrl, invertDrag, pitchRange, realSunLight, light } = Astro.props;
+const pitchRangeAttr = pitchRange === undefined ? undefined : pitchRange === null ? 'none' : pitchRange.join(',');
 ---
 
 <div class="glyph-demo" id={id}
@@ -79,7 +84,7 @@ const { id, geometry, mesh, controls, defaults, showStats, noCode, noControls, a
   data-no-zoom={noZoom ? "1" : undefined}
   data-interactive-downscale={interactiveDownscale !== undefined ? String(interactiveDownscale) : undefined}
   data-invert-drag={invertDrag ? "1" : undefined}
-  data-no-clamp-pitch={noClampPitch ? "1" : undefined}
+  data-pitch-range={pitchRangeAttr}
   data-real-sun-light={realSunLight ? "1" : undefined}
   data-light={light || undefined}>
   <div class="glyph-demo__viewer not-content" data-layout={noControls ? "canvas-only" : "two-col"}>

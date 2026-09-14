@@ -1,7 +1,7 @@
 /**
  * `<glyph-orbit-controls>` — declarative orbit controls.
  */
-import { createGlyphOrbitControls, type GlyphOrbitControlsHandle } from "../api/createGlyphOrbitControls";
+import { createGlyphOrbitControls, type GlyphOrbitControlsHandle, type GlyphOrbitControlsOptions } from "../api/createGlyphOrbitControls";
 import type { GlyphSceneElement } from "./GlyphSceneElement";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -59,7 +59,7 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     this._controls?.update(this._readOptions());
   }
 
-  private _readOptions() {
+  private _readOptions(): GlyphOrbitControlsOptions {
     const drag = parseBool(this.getAttribute("drag"));
     const wheel = parseBool(this.getAttribute("wheel"));
     const invert = parseBool(this.getAttribute("invert"));
@@ -67,12 +67,18 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     const mode = parseMode(this.getAttribute("mode"));
     const speed = parseNumber(this.getAttribute("animate-speed"));
     const axis: "x" | "y" = this.getAttribute("animate-axis") === "x" ? "x" : "y";
+    const defaultPitchRange: [number, number] = [-90, 90];
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
       ...(invert !== undefined ? { invert } : {}),
-      ...(pitchRange !== undefined ? { pitchRange } : {}),
-      ...(mode !== undefined ? { mode } : {}),
+      // pitch-range/mode are ALWAYS included (defaulting when absent or
+      // unparseable) so REMOVING the attribute restores the library
+      // default instead of leaving the previous value stuck (P2-a) —
+      // createGlyphOrbitControls's `update()` only resets a field when the
+      // key is present in its `opts` argument.
+      pitchRange: pitchRange !== undefined ? pitchRange : defaultPitchRange,
+      mode: mode !== undefined ? mode : "turntable",
       ...(speed !== undefined ? { animate: { speed, axis } } : {}),
     };
   }

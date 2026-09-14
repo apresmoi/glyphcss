@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphOrbitControls } from "./createGlyphOrbitControls";
 import type { GlyphSceneHandle } from "./createGlyphScene";
@@ -490,6 +490,116 @@ describe("createGlyphOrbitControls — trackball mode", () => {
 
     controls.update({ mode: "turntable" });
     expect(scene.camera.useMat).toBe(false);
+    controls.destroy();
+  });
+
+  // P1-a (codex gpt-5.6-sol fix round 1): a trackball drag only ever wrote
+  // camera.mat — rotX/rotY were left stale, so switching back to turntable
+  // (which just did `useMat = false`) snapped the picture to whatever
+  // rotX/rotY happened to hold before trackball engaged, discarding every
+  // drag performed while in trackball mode.
+  it("switching from trackball back to turntable reconstructs rotX/rotY so the picture stays put (depth of reference points is preserved)", () => {
+    // pitchRange: null so no clamp can interfere with the invariant below.
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: null });
+    pd(scene.host, 100, 100);
+    pm(scene.host, 260, 175); // an arbitrary two-axis drag — not a pure twist
+    pu(scene.host);
+    expect(scene.camera.useMat).toBe(true);
+
+    const refPoints: Array<[number, number, number]> = [
+      [1, 0, 0], [0, 1, 0], [0, 0, 1], [1, 1, 1], [-1, 0.5, -0.25],
+    ];
+    const depthsBefore = refPoints.map((p) => scene.camera.project(p, cols, rows, cellAspect)[2]);
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+
+    // Dropping roll is an IN-SCREEN-PLANE rotation only: it can never change
+    // a point's depth (out[2]), which is exactly what the turntable's own
+    // 2-DOF row (row2 of the rotation matrix) is unaffected by any amount
+    // of accumulated roll — see createGlyphOrbitControls.ts's
+    // `decomposeMatToEuler` comment for the derivation.
+    const depthsAfter = refPoints.map((p) => scene.camera.project(p, cols, rows, cellAspect)[2]);
+    for (let i = 0; i < refPoints.length; i++) {
+      expect(depthsAfter[i]).toBeCloseTo(depthsBefore[i], 6);
+    }
+    controls.destroy();
+  });
+
+  it("switching from trackball back to turntable after a pure twist (roll only) recovers the exact pre-twist rotX/rotY", () => {
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: null });
+    const rotX0 = scene.camera.rotX;
+    const rotY0 = scene.camera.rotY;
+
+    // A pure two-finger twist composes ONLY a rotation about the output
+    // depth axis on top of the entry orientation — no genuine yaw/pitch
+    // change — so decomposing back should recover rotX0/rotY0 exactly
+    // (mod the usual (rotX,-rotX) same-matrix branch), not merely
+    // "some" turntable orientation.
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 100, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 2, isPrimary: false, bubbles: true }));
+    expect(scene.camera.useMat).toBe(true);
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+
+    const p: [number, number, number] = [1, 0.5, 0.25];
+    const reconstructedDepth = scene.camera.project(p, cols, rows, cellAspect)[2];
+    // Depth of a reference point must match what the ORIGINAL rotX0/rotY0
+    // would have given directly (twist adds zero net yaw/pitch, all roll).
+    scene.camera.rotX = rotX0;
+    scene.camera.rotY = rotY0;
+    const originalDepth = scene.camera.project(p, cols, rows, cellAspect)[2];
+    expect(reconstructedDepth).toBeCloseTo(originalDepth, 5);
+    controls.destroy();
+  });
+
+  it("switching from trackball back to turntable clamps the reconstructed pitch into pitchRange", () => {
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", pitchRange: [-20, 20] });
+    // Drag far enough that the decomposed pitch would exceed 20deg.
+    pd(scene.host, 100, 100);
+    pm(scene.host, 100, 400);
+    pu(scene.host);
+    expect(scene.camera.useMat).toBe(true);
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
+    expect(scene.camera.rotX).toBeLessThanOrEqual(20);
+    expect(scene.camera.rotX).toBeGreaterThanOrEqual(-20);
+    controls.destroy();
+  });
+});
+
+describe("createGlyphOrbitControls — trackball auto-rotate (P1-b)", () => {
+  let scene: GlyphSceneHandle;
+  const cols = 20, rows = 10, cellAspect = 1;
+
+  beforeEach(() => { scene = makeScene(); });
+  afterEach(() => { scene.destroy(); });
+
+  it("auto-rotate visibly changes the projected picture in trackball mode", () => {
+    const frames: FrameRequestCallback[] = [];
+    const spy = vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((fn: FrameRequestCallback) => {
+      frames.push(fn);
+      return frames.length;
+    });
+
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball", animate: { speed: 10 } });
+    const before = scene.camera.project([1, 0.5, 0.25], cols, rows, cellAspect);
+
+    // Drive two animation frames manually; each `animTick` re-arms the next
+    // one via `requestAnimationFrame`, so pop and invoke the latest each time.
+    expect(frames.length).toBeGreaterThan(0);
+    frames.pop()!(16.67);
+    expect(frames.length).toBeGreaterThan(0);
+    frames.pop()!(33.34);
+
+    spy.mockRestore();
+    const after = scene.camera.project([1, 0.5, 0.25], cols, rows, cellAspect);
+    expect(after[0]).not.toBeCloseTo(before[0], 3);
     controls.destroy();
   });
 });

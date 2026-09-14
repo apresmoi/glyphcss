@@ -1193,9 +1193,18 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   type ControlsHandle = { destroy(): void; update(opts: { invert?: boolean | number; drag?: boolean; wheel?: boolean }): void };
   let controls: ControlsHandle | null = null;
 
-  // `data-no-clamp-pitch="1"` removes the orbit-controls vertical-rotation
-  // clamp (`pitchRange`) so a globe can roll past either pole.
-  const noClampPitch = demoEl.getAttribute('data-no-clamp-pitch') === '1';
+  // `data-pitch-range="min,max"` sets the orbit-controls vertical-rotation
+  // clamp; `data-pitch-range="none"` removes it so a globe can roll past
+  // either pole. Absent = the library's own default (`[-90, 90]`) — no
+  // clamp-shaped boolean alias here (AGENTS.md "Backward compatibility").
+  function parsePitchRangeAttr(value: string | null): [number, number] | null {
+    if (value === 'none') return null;
+    if (value === null) return [-90, 90];
+    const parts = value.split(',').map((s) => parseFloat(s.trim()));
+    if (parts.length !== 2 || !parts.every(Number.isFinite)) return [-90, 90];
+    return [parts[0], parts[1]];
+  }
+  const pitchRange = parsePitchRangeAttr(demoEl.getAttribute('data-pitch-range'));
 
   function buildControls(): void {
     controls?.destroy();
@@ -1212,7 +1221,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
       controls = createGlyphMapControls(scene, commonOpts);
     } else {
       // orbit (default) — pass through the pitch clamp.
-      controls = createGlyphOrbitControls(scene, { ...commonOpts, pitchRange: noClampPitch ? null : [-90, 90] });
+      controls = createGlyphOrbitControls(scene, { ...commonOpts, pitchRange });
     }
   }
 
