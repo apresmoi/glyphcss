@@ -121,7 +121,7 @@ describe("createGlyphOrbitControls", () => {
     controls.destroy();
   });
 
-  it("rotX is clamped to [-90, 90] degrees", () => {
+  it("rotX is clamped to [-90, 90] degrees (default pitchRange)", () => {
     const controls = createGlyphOrbitControls(scene);
 
     // Drag down massively — should clamp at -90
@@ -144,6 +144,96 @@ describe("createGlyphOrbitControls", () => {
     pu(scene.host);
 
     expect(scene.camera.rotX).toBe(-90);
+    controls.destroy();
+  });
+
+  it("pitchRange: null removes the clamp (old clampPitch: false)", () => {
+    const controls = createGlyphOrbitControls(scene, { pitchRange: null });
+    scene.camera.rotX = 0;
+
+    pd(scene.host, 0, 0);
+    pm(scene.host, 0, 1000); // 1000/4 = 250 deg
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBeCloseTo(-250, 5);
+    controls.destroy();
+  });
+
+  it("pitchRange: custom [min, max] clamps to those bounds", () => {
+    const controls = createGlyphOrbitControls(scene, { pitchRange: [-30, 30] });
+    scene.camera.rotX = 0;
+
+    pd(scene.host, 0, 0);
+    pm(scene.host, 0, 1000);
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBe(-30);
+    controls.destroy();
+  });
+
+  it("update({ pitchRange }) changes the clamp mid-session", () => {
+    const controls = createGlyphOrbitControls(scene);
+    controls.update({ pitchRange: [-10, 10] });
+    scene.camera.rotX = 0;
+
+    pd(scene.host, 0, 0);
+    pm(scene.host, 0, 1000);
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBe(-10);
+    controls.destroy();
+  });
+
+  it("world +Z projects screen-up (no roll) at every turntable pitch, including views past ±90 with pitchRange: null", () => {
+    const controls = createGlyphOrbitControls(scene, { pitchRange: null });
+    const cols = 20, rows = 10, cellAspect = 1;
+    for (const rotY of [0, 37, 90, 180, 275]) {
+      for (const rotX of [-170, -90, -45, 0, 45, 90, 135, 179]) {
+        scene.camera.rotX = rotX;
+        scene.camera.rotY = rotY;
+        const origin = scene.camera.project([0, 0, 0], cols, rows, cellAspect);
+        const tip = scene.camera.project([0, 0, 1], cols, rows, cellAspect);
+        // No roll: the +Z axis never picks up a horizontal (column) offset —
+        // the up-vector holds at every pitch this range now reaches.
+        expect(tip[0] - origin[0]).toBeCloseTo(0, 9);
+      }
+    }
+    controls.destroy();
+  });
+
+  it("default behaviour replays byte-identical to the pre-trackball implementation across a mixed drag/wheel/pinch sequence", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const rotX0 = scene.camera.rotX;
+    const rotY0 = scene.camera.rotY;
+    const zoom0 = scene.camera.zoom;
+
+    // single-finger drag: dx=+60, dy=-40
+    pd(scene.host, 100, 100);
+    pm(scene.host, 160, 60);
+    pu(scene.host);
+
+    // wheel zoom in
+    scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -50, bubbles: true }));
+
+    // two-finger pinch: 50px apart -> 100px apart
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 50, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 100, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    pu(scene.host, 1);
+    pu(scene.host, 2);
+
+    const DEG_PER_PX = 1 / 4;
+    const expectedRotY = rotY0 - 60 * DEG_PER_PX;
+    const expectedRotX = Math.max(-90, Math.min(90, rotX0 - -40 * DEG_PER_PX));
+    const afterWheel = Math.max(0.1, Math.min(500, zoom0 * (1 - -50 * 0.001)));
+    const expectedZoom = Math.max(0.1, Math.min(500, afterWheel * (100 / 50)));
+
+    expect(scene.camera.rotY).toBeCloseTo(expectedRotY, 6);
+    expect(scene.camera.rotX).toBeCloseTo(expectedRotX, 6);
+    expect(scene.camera.zoom).toBeCloseTo(expectedZoom, 6);
+    // Turntable mode never touches the matrix path.
+    expect(scene.camera.useMat).toBe(false);
+    expect(scene.camera.mat).toBeNull();
     controls.destroy();
   });
 
@@ -310,6 +400,96 @@ describe("createGlyphOrbitControls", () => {
     pm(scene.host, 300, 100, 2);
 
     expect(scene.camera.rotY).toBe(initialRotY);
+    controls.destroy();
+  });
+});
+
+describe("createGlyphOrbitControls — trackball mode", () => {
+  let scene: GlyphSceneHandle;
+  const cols = 20, rows = 10, cellAspect = 1;
+
+  beforeEach(() => { scene = makeScene(); });
+  afterEach(() => { scene.destroy(); });
+
+  it("single-finger drag rotates camera.mat/useMat, never rotX/rotY", () => {
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball" });
+    const rotX0 = scene.camera.rotX;
+    const rotY0 = scene.camera.rotY;
+
+    pd(scene.host, 100, 100);
+    pm(scene.host, 200, 150);
+    pu(scene.host);
+
+    expect(scene.camera.useMat).toBe(true);
+    expect(scene.camera.mat).not.toBeNull();
+    expect(scene.camera.rotX).toBe(rotX0);
+    expect(scene.camera.rotY).toBe(rotY0);
+    controls.destroy();
+  });
+
+  it("entering trackball mode carries the current turntable orientation over (no jump)", () => {
+    const controls = createGlyphOrbitControls(scene);
+    scene.camera.rotX = 20;
+    scene.camera.rotY = 30;
+    controls.update({ mode: "trackball" });
+
+    const p: [number, number, number] = [1, 0.5, 0.25];
+    const viaMat = scene.camera.project(p, cols, rows, cellAspect);
+
+    // What the same rotX/rotY would give through the Euler path.
+    scene.camera.useMat = false;
+    const viaEuler = scene.camera.project(p, cols, rows, cellAspect);
+    scene.camera.useMat = true;
+
+    expect(viaMat[0]).toBeCloseTo(viaEuler[0], 6);
+    expect(viaMat[1]).toBeCloseTo(viaEuler[1], 6);
+    controls.destroy();
+  });
+
+  it("a two-finger twist rolls in trackball mode but not in turntable mode", () => {
+    // Turntable (default): twist must be inert.
+    const turntable = createGlyphOrbitControls(scene);
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 100, pointerId: 2, isPrimary: false, bubbles: true }));
+    pu(scene.host, 1); pu(scene.host, 2);
+    expect(scene.camera.useMat).toBe(false);
+    expect(scene.camera.mat).toBeNull();
+    turntable.destroy();
+
+    // Trackball: the identical two-finger twist rolls the camera. Read the
+    // matrix directly (`mat[2]` is world +Z's contribution to the output's
+    // column axis — see `rotateVec3WithMat`) rather than through the full
+    // pixel projection, whose zoom/cell-size scaling would shrink a large,
+    // unambiguous matrix change to a fraction of a screen cell.
+    const trackball = createGlyphOrbitControls(scene, { mode: "trackball" });
+    const matBefore = scene.camera.mat;
+    expect(matBefore).not.toBeNull();
+    expect(matBefore![2]).toBeCloseTo(0, 9); // no roll yet
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 0, pointerId: 2, isPrimary: false, bubbles: true }));
+    // Rotate the finger pair by 90° about its midpoint: (100,0) → (0,100) relative to pointer 1.
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 100, pointerId: 2, isPrimary: false, bubbles: true }));
+    pu(scene.host, 1); pu(scene.host, 2);
+
+    expect(scene.camera.useMat).toBe(true);
+    const matAfter = scene.camera.mat;
+    expect(matAfter).not.toBeNull();
+    // A roll turntable can never produce: +Z now has a real column contribution.
+    expect(Math.abs(matAfter![2])).toBeGreaterThan(0.5);
+    trackball.destroy();
+  });
+
+  it("switching from trackball back to turntable disables the matrix path", () => {
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball" });
+    pd(scene.host, 100, 100);
+    pm(scene.host, 200, 150);
+    pu(scene.host);
+    expect(scene.camera.useMat).toBe(true);
+
+    controls.update({ mode: "turntable" });
+    expect(scene.camera.useMat).toBe(false);
     controls.destroy();
   });
 });

@@ -981,7 +981,7 @@ const description = "The Parthenon — octastyle Doric peripteral temple built f
       fpv.setOrigin(FPV_ORIGIN);
       fpv.pause();
 
-      const orbitControls = createGlyphOrbitControls(scene, { drag: true, wheel: true, clampPitch: true });
+      const orbitControls = createGlyphOrbitControls(scene, { drag: true, wheel: true, pitchRange: [-90, 90] });
 
       // fpv's own setup (initializeOriginFromTarget) stamps camera.target
       // before we pause it — reassert the orbit defaults now that it's inert.

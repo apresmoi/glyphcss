@@ -147,6 +147,7 @@ export { createGlyphOrbitControls } from "./api/createGlyphOrbitControls";
 export type {
   GlyphOrbitControlsOptions,
   GlyphOrbitControlsHandle,
+  GlyphOrbitControlsMode,
 } from "./api/createGlyphOrbitControls";
 
 export { createGlyphMapControls } from "./api/createGlyphMapControls";

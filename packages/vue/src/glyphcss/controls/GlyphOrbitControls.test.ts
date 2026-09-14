@@ -8,6 +8,8 @@ type OrbitProps = {
   drag?: boolean;
   wheel?: boolean;
   invert?: boolean | number;
+  pitchRange?: [number, number] | null;
+  mode?: "turntable" | "trackball";
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
 };
 
@@ -63,6 +65,18 @@ describe("GlyphOrbitControls (Vue) — mount inside scene", () => {
     expect(() =>
       renderScene({ animate: { speed: 0.5, axis: "y", pauseOnInteraction: true } }),
     ).not.toThrow();
+  });
+
+  it("mounts with mode='trackball'", () => {
+    expect(() => renderScene({ mode: "trackball" })).not.toThrow();
+  });
+
+  it("mounts with pitchRange: null", () => {
+    expect(() => renderScene({ pitchRange: null })).not.toThrow();
+  });
+
+  it("mounts with a custom pitchRange", () => {
+    expect(() => renderScene({ pitchRange: [-30, 30] })).not.toThrow();
   });
 
   it("reacts to drag prop change", async () => {

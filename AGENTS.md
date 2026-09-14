@@ -236,6 +236,7 @@ Native glyphcss/voxcss surface; the `*/three` subpaths convert internally.
 - **Perspective `distance`: default `0`.** A CSS-pixel pull-back under the default CSS-perspective projection; world-unit pinhole semantics only in legacy `perspective: 0` mode.
 - **Directional light `direction`: source-vector convention.** Unit vector from the surface toward the light. Up-right-forward lights faces whose normals point up-right-forward.
 - **Depth: larger = nearer** everywhere (`fillDepthTri`, `CellGrid.depth`, camera `.project()[2]`).
+- **`createGlyphOrbitControls`: `pitchRange: [min, max] | null`** (default `[-90, 90]`, replacing the old `clampPitch: boolean`) clamps turntable-mode pitch; `null` allows unrestricted tumbling past either pole — the Euler `rotX`/`rotY` path never introduces roll, so world `+Z` stays screen-up at any pitch this range reaches. `mode: "turntable" | "trackball"` (default `"turntable"`) — trackball rotates about the screen axis perpendicular to the drag, reaching any orientation including roll (a two-finger twist rolls, trackball only), composed into `camera.mat` with `useMat: true` rather than `rotX`/`rotY`. Mirrored in React/Vue props and `<glyph-orbit-controls>` (`pitch-range="min,max"` or `"none"`, `mode`).
 
 ## Cross-package discipline
 

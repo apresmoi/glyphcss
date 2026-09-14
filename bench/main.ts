@@ -105,7 +105,7 @@ if (zoomParam !== null) {
   scene.rerender();
 }
 
-const controls = createGlyphOrbitControls(scene, { clampPitch: false });
+const controls = createGlyphOrbitControls(scene, { pitchRange: null });
 
 window.__bench = { scene, camera, controls, polys: polys.length };
 window.__benchReady = true;
