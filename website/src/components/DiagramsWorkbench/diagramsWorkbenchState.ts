@@ -4,21 +4,18 @@ import {
   type GlyphDiagramRenderOptions, type GlyphDiagramTarget, type GlyphGraph,
   type GlyphGraphDirection, type GlyphGraphEdge, type GlyphGraphGroup, type GlyphGraphNode,
 } from "@glyphcss/diagrams";
+import type { GlyphDiagram3dCamera, GlyphDiagram3dLayoutKind, GlyphDiagram3dRenderOptions, GlyphDiagram3dZBy } from "@glyphcss/diagrams/3d";
+import type { GlyphOrbitControlsMode } from "glyphcss";
 import chain from "../../../../packages/diagrams/fixtures/chain.mmd?raw";
 import diamond from "../../../../packages/diagrams/fixtures/diamond.mmd?raw";
 import fanOut from "../../../../packages/diagrams/fixtures/fan-out.mmd?raw";
 import cycle from "../../../../packages/diagrams/fixtures/cycle.mmd?raw";
 import subgraph from "../../../../packages/diagrams/fixtures/subgraph.mmd?raw";
 import langgraph from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
+import agentSupervisor from "../../../../packages/diagrams/fixtures/agent-supervisor.mmd?raw";
+import karateClub from "../../../../packages/diagrams/fixtures/karate-club.mmd?raw";
 
-export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
-  { id: "chain", label: "Chain", source: chain },
-  { id: "diamond", label: "Diamond", source: diamond },
-  { id: "fan-out", label: "Fan-out", source: fanOut },
-  { id: "cycle", label: "Cycle", source: cycle },
-  { id: "subgraph", label: "Subgraph", source: subgraph },
-  { id: "langgraph", label: "LangGraph agent", source: langgraph },
-  { id: "crew", label: "CrewAI-style crew", source: `flowchart LR
+const crewSource = `flowchart LR
   request[Request] --> manager[Manager]
   subgraph crew[Crew]
     researcher[Researcher] --> writer[Writer]
@@ -27,7 +24,36 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   writer --> review{Review}
   review -->|approved| result[Result]
   review -.->|revise| writer
-` },
+`;
+
+/**
+ * `dimension`/`view3d` (packet D3, PLAN-3d.md §10) mark a preset that opens
+ * the 3D viewport instead of the 2D one — see `datasets3d/LICENSES.md` for
+ * where each 3D preset's data comes from (a real vendored dataset or a
+ * hand-authored, explicitly labelled example; never invented data presented
+ * as real). Omitted `dimension` (every pre-D3 preset) is `"2d"`,
+ * byte-identical to before this field existed.
+ */
+export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
+  { id: "chain", label: "Chain", source: chain },
+  { id: "diamond", label: "Diamond", source: diamond },
+  { id: "fan-out", label: "Fan-out", source: fanOut },
+  { id: "cycle", label: "Cycle", source: cycle },
+  { id: "subgraph", label: "Subgraph", source: subgraph },
+  { id: "langgraph", label: "LangGraph agent", source: langgraph },
+  { id: "crew", label: "CrewAI-style crew", source: crewSource },
+  {
+    id: "agent-supervisor-3d", label: "Agent supervisor (3D, example)", source: agentSupervisor,
+    dimension: "3d" as const, view3d: { layout: "layered" as const, zBy: "group" as const },
+  },
+  {
+    id: "crew-3d", label: "Multi-agent crew (3D, example)", source: crewSource,
+    dimension: "3d" as const, view3d: { layout: "layered" as const, zBy: "group" as const },
+  },
+  {
+    id: "karate-club-3d", label: "Zachary's karate club (3D)", source: karateClub,
+    dimension: "3d" as const, view3d: { layout: "force" as const, zBy: "none" as const },
+  },
 ] as const;
 
 export interface GlyphDiagramsWorkbenchControls {
@@ -54,6 +80,33 @@ export function reduceGlyphDiagramsWorkbenchControls(state: GlyphDiagramsWorkben
 export function resolveGlyphDiagramsWorkbenchControls(state: GlyphDiagramsWorkbenchControls) {
   return { target: state.target, ...GLYPH_DIAGRAM_TARGET_DEFAULTS[state.target], ...state.overrides };
 }
+
+/**
+ * `view3d` (packet D3) — the layout/rotation knobs the Rail/Dock exposes
+ * for the 3D viewport (AGENTS.md's "Diagrams 3D"): `layout`/`zBy`/`seed`
+ * forward straight to `glyphDiagramObject`'s own options, `controlsMode`
+ * picks turntable (default, axis-locked) vs. trackball (free rotation —
+ * the user's "rotates in any direction" requirement) on the SAME
+ * `createGlyphOrbitControls` the rest of the site's 3D surfaces use.
+ */
+export interface GlyphDiagramsWorkbenchView3d {
+  readonly layout: GlyphDiagram3dLayoutKind;
+  readonly zBy: GlyphDiagram3dZBy;
+  readonly seed: number;
+  readonly controlsMode: GlyphOrbitControlsMode;
+}
+/**
+ * The resolved 3D camera — mirrors `renderGlyphDiagram3d`'s own `camera`
+ * result shape (`rotX`/`rotY` XOR `mat`). `undefined` means "let the
+ * library's own auto-fit choose one" (a fresh mount, or a just-applied
+ * preset); set once the live viewport's orbit controls report a
+ * `"end"` interaction, so Copy ASCII/ANSI and the `?d=` link both read the
+ * camera the reader is actually looking through — AGENTS.md's D3 packet
+ * "what you copy is what you see".
+ */
+export type GlyphDiagramsWorkbenchCamera3d = GlyphDiagram3dCamera & { readonly zoom: number };
+
+export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D: GlyphDiagramsWorkbenchView3d = { layout: "layered", zBy: "group", seed: 1, controlsMode: "turntable" };
 
 export interface GlyphDiagramsWorkbenchState {
   readonly editor: "mermaid" | "json" | "table";
@@ -83,6 +136,20 @@ export interface GlyphDiagramsWorkbenchState {
   readonly layout: { readonly direction?: GlyphGraph["direction"]; readonly engine: "dagre"; readonly nodesep: number; readonly ranksep: number };
   readonly diagram: { readonly title: string; readonly detail: GlyphDiagramDetail };
   readonly terminal: { readonly NO_COLOR: boolean; readonly FORCE_COLOR: boolean };
+  /**
+   * `view`/`view3d`/`camera3d` (packet D3) — APPENDED fields (see
+   * `diagramsUrlState.ts`'s own append-only rule): a link saved before this
+   * packet existed decodes with `view: "2d"`, `view3d` at its default, and
+   * `camera3d` absent, i.e. exactly today's page. `view` picks which
+   * viewport `DiagramsWorkbench.tsx` mounts for the SAME graph — 2D
+   * (`TargetPreview`) or 3D (a live orbitable scene on `web`, a static
+   * `renderGlyphDiagram3d` frame through the SAME `TargetPreview` on
+   * `terminal`/`chat`, per AGENTS.md's Charts "Targets and page" export
+   * boundary this page mirrors).
+   */
+  readonly view: "2d" | "3d";
+  readonly view3d: GlyphDiagramsWorkbenchView3d;
+  readonly camera3d?: GlyphDiagramsWorkbenchCamera3d;
 }
 export type GlyphDiagramsWorkbenchAction =
   | { type: "set-editor"; editor: GlyphDiagramsWorkbenchState["editor"] }
@@ -98,7 +165,11 @@ export type GlyphDiagramsWorkbenchAction =
   | { type: "remove-node"; index: number }
   | { type: "set-edge"; index: number; patch: Partial<Pick<GlyphGraphEdge, "from" | "to" | "label">> }
   | { type: "add-edge" }
-  | { type: "remove-edge"; index: number };
+  | { type: "remove-edge"; index: number }
+  // 3D (packet D3).
+  | { type: "set-view"; view: "2d" | "3d" }
+  | { type: "set-view3d"; patch: Partial<GlyphDiagramsWorkbenchView3d> }
+  | { type: "set-camera3d"; camera: GlyphDiagramsWorkbenchCamera3d | undefined };
 
 function nextGlyphDiagramNodeId(existing: readonly GlyphGraphNode[]): string {
   let i = existing.length + 1;
@@ -115,6 +186,7 @@ export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState
     tableGraph: { groups: initialGraph.groups, direction: initialGraph.direction },
     controls: { target: "web", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
+    view: "2d", view3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, camera3d: undefined,
   };
 }
 export function buildGlyphDiagramsWorkbenchGraph(state: GlyphDiagramsWorkbenchState): GlyphGraph {
@@ -148,9 +220,18 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
       const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((item) => item.id === action.id);
       if (!preset) return state;
       const graph = glyphGraphFromMermaid(preset.source);
+      // A 3D preset (`dimension: "3d"`) switches the viewport AND resets
+      // `camera3d` to `undefined` so the newly-mounted object re-runs the
+      // library's own auto-fit (AGENTS.md D3: never a page-tuned camera) —
+      // a 2D preset resets `view3d` back to the shared default so an
+      // earlier 3D preset's `layout`/`zBy` choice doesn't leak into the
+      // next graph's own Rail/Dock reading.
+      const is3d = "dimension" in preset && preset.dimension === "3d";
+      const view3dPatch = is3d && "view3d" in preset ? preset.view3d : GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D;
       return { ...state, sourceKind: "mermaid", mermaid: preset.source, json: JSON.stringify(graph, null, 2), nodes: graph.nodes, edges: graph.edges,
         tableGraph: { groups: graph.groups, direction: graph.direction },
-        layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label } };
+        layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label },
+        view: is3d ? "3d" : "2d", view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined };
     }
     case "set-control": return { ...state, controls: reduceGlyphDiagramsWorkbenchControls(state.controls, action.control) };
     case "set-layout": return { ...state, layout: { ...state.layout, ...action.patch } };
@@ -162,11 +243,42 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
     case "set-edge": return { ...state, sourceKind: "table", edges: state.edges.map((e, i) => i === action.index ? { ...e, ...action.patch } : e) };
     case "add-edge": return { ...state, sourceKind: "table", edges: [...state.edges, { from: state.nodes[0]?.id ?? "", to: state.nodes[1]?.id ?? state.nodes[0]?.id ?? "" }] };
     case "remove-edge": return { ...state, sourceKind: "table", edges: state.edges.filter((_, i) => i !== action.index) };
+    // 3D (packet D3). A view switch clears `camera3d` — the fresh viewport
+    // (or, on terminal/chat, the next static render) picks its own
+    // auto-fit rather than inheriting a pose framed for the OTHER mode.
+    case "set-view": return action.view === state.view ? state : { ...state, view: action.view, camera3d: undefined };
+    // A layout/zBy/seed/controlsMode edit invalidates the mounted object's
+    // geometry (a different layout is a different set of node positions),
+    // so the camera resets to auto-fit for the SAME reason a view switch
+    // does — an old camera framed for the previous layout can clip or
+    // misplace the new one.
+    case "set-view3d": return { ...state, view3d: { ...state.view3d, ...action.patch }, camera3d: undefined };
+    case "set-camera3d": return { ...state, camera3d: action.camera };
   }
 }
 export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenchState): GlyphDiagramRenderOptions {
   return { ...resolveGlyphDiagramsWorkbenchControls(state.controls), ...state.layout, ...state.diagram,
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
+}
+/**
+ * `renderGlyphDiagram3d`'s own options for the CURRENT state — shared by
+ * the live viewport's initial auto-fit render, the static terminal/chat
+ * frame, Copy ASCII/ANSI, and preset thumbnails (packet D3). `direction`/
+ * `nodesep`/`ranksep` ride on the SAME "Layout" Dock folder the 2D path
+ * already exposes (`GlyphDiagram3dLayoutOptions` and `GlyphDiagramLayoutOptions`
+ * share those field names) rather than a duplicated 3D-only row set.
+ */
+export function glyphDiagramsWorkbenchRenderOptions3d(state: GlyphDiagramsWorkbenchState): GlyphDiagram3dRenderOptions {
+  const controls = resolveGlyphDiagramsWorkbenchControls(state.controls);
+  return {
+    layout: state.view3d.layout, zBy: state.view3d.zBy, seed: state.view3d.seed,
+    ...(state.layout.direction ? { direction: state.layout.direction } : {}),
+    nodesep: state.layout.nodesep, ranksep: state.layout.ranksep,
+    target: controls.target, charset: controls.charset, color: controls.color,
+    width: controls.width, height: controls.height, title: state.diagram.title,
+    ...(state.camera3d ? { camera: state.camera3d } : {}),
+    ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}),
+  };
 }
 export function generateGlyphDiagramsWorkbenchSnippets(state: GlyphDiagramsWorkbenchState) {
   const graph = buildGlyphDiagramsWorkbenchGraph(state);

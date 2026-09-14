@@ -61,7 +61,7 @@ describe("DiagramsWorkbench mounted integration", () => {
   // "buttons with symbols not dropdowns"), like ChartsDock.tsx's own —
   // Direction/Engine/Detail stay plain `<select>`s, so `select()` still
   // handles those.
-  const TOGGLE_ROWS = ["Target", "Charset", "Color"];
+  const TOGGLE_ROWS = ["Target", "Charset", "Color", "View"];
   function toggleRow(label: string): Element {
     return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;
   }
@@ -136,7 +136,9 @@ describe("DiagramsWorkbench mounted integration", () => {
   });
 
   // Mutation: disconnect a preset button or use a placeholder preview instead of rendering its source.
-  it.each(GLYPH_DIAGRAM_WORKBENCH_PRESETS)("renders $label through its real preset button in 7-bit ASCII", async (preset) => {
+  // 2D presets: byte-exact against the 2D render module, unchanged.
+  const PRESETS_2D = GLYPH_DIAGRAM_WORKBENCH_PRESETS.filter((preset) => !("dimension" in preset) || preset.dimension !== "3d");
+  it.each(PRESETS_2D)("renders $label through its real preset button in 7-bit ASCII", async (preset) => {
     await select("Charset", "ascii");
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Apply ${preset.label}"]`)!.click());
     await settlePreview();
@@ -151,6 +153,28 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(preview().textContent).toMatch(/^[\x00-\x7f]+$/);
     expect(preview().textContent).toBe(expected.text);
   });
+
+  // 3D presets (packet D3): applying one switches the view AND lands on a
+  // static frame (the default target is "web", but the live orbit viewport
+  // has no `<pre>` byte string to compare against — that codepath is
+  // covered by DiagramsWorkbench.3d.test.tsx instead). Switching to
+  // "terminal" here exercises the SAME static `TargetPreview` path 3D uses
+  // on terminal/chat. Deliberately NOT byte-exact — `@glyphcss/diagrams/3d`'s
+  // own frame content is being actively reworked upstream (D2 fix-round);
+  // this only pins PAGE behaviour: the preset applies, the view switches,
+  // the source shown is the preset's, and something real (not an error, not
+  // blank) renders.
+  const PRESETS_3D = GLYPH_DIAGRAM_WORKBENCH_PRESETS.filter((preset) => "dimension" in preset && preset.dimension === "3d");
+  it.each(PRESETS_3D)("applies the 3D preset $label, switches to the 3D view, and renders something real", async (preset) => {
+    await select("Target", "terminal");
+    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Apply ${preset.label}"]`)!.click());
+    await settlePreview();
+    expect(container.querySelector("[role='alert']")).toBeNull();
+    expect(container.querySelector("textarea")!.value).toBe(preset.source);
+    const activeView = Array.from(toggleRow("View").querySelectorAll<HTMLButtonElement>("button")).find((b) => b.classList.contains("is-active"));
+    expect(activeView && toggleOption(activeView)).toBe("3d");
+    expect(preview().textContent).toMatch(/\S/);
+  }, 15_000);
 
   it("updates untouched target defaults and resets every explicit override", async () => {
     await select("Target", "terminal");

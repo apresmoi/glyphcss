@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
-import { renderGlyphDiagram } from "@glyphcss/diagrams";
+import { glyphGraphFromMermaid, renderGlyphDiagram, type GlyphGraph } from "@glyphcss/diagrams";
+import { renderGlyphDiagram3d } from "@glyphcss/diagrams/3d";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import { InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail, InstrumentShell, InstrumentTray, InstrumentViewport } from "../InstrumentWorkbench/InstrumentWorkbench";
@@ -7,9 +8,16 @@ import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
 import { GlyphDiagramsDock } from "./DiagramsDock";
-import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import { Diagrams3DViewport } from "./Diagrams3DViewport";
+import {
+  GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState,
+  type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState,
+} from "./diagramsWorkbenchState";
 import { DIAGRAMS_URL_PARAM, createDiagramsUrlWriter, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
-import { glyphDiagramsWorkbenchDisplayResult, renderGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchRender } from "./diagramsWorkbenchRender";
+import {
+  glyphDiagramsWorkbenchDisplayResult, renderGlyphDiagramsWorkbenchState, renderGlyphDiagramsWorkbenchState3d,
+  type GlyphDiagramsWorkbenchRender, type GlyphDiagramsWorkbenchRender3d,
+} from "./diagramsWorkbenchRender";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
 
@@ -114,8 +122,21 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const lastGoodResultRef = useRef<Extract<GlyphDiagramsWorkbenchRender, { ok: true }> | null>(null);
   if (rendered?.ok) lastGoodResultRef.current = rendered;
   const displayResult = glyphDiagramsWorkbenchDisplayResult(rendered, lastGoodResultRef.current);
-  const isPending = rendered === null;
-  const hasError = rendered !== null && !rendered.ok;
+
+  // Packet D3 — the 3D static render. Computed whenever `state.view` is
+  // "3d", for EVERY target (`web` included): terminal/chat mount it
+  // directly (below), and `web`'s own live orbit viewport still needs it
+  // for Copy ASCII/ANSI at the CURRENT camera ("what you copy is what you
+  // see" — AGENTS.md's D3 row) — a live scene has no string to copy on its
+  // own. Skips entirely in 2D, so a reader who never opens 3D pays nothing.
+  const [completed3d, setCompleted3d] = useState<{ state: GlyphDiagramsWorkbenchState; result: GlyphDiagramsWorkbenchRender3d } | null>(null);
+  const rendered3d = state.view === "3d" && completed3d?.state === state ? completed3d.result : null;
+  const lastGoodResult3dRef = useRef<Extract<GlyphDiagramsWorkbenchRender3d, { ok: true }> | null>(null);
+  if (rendered3d?.ok) lastGoodResult3dRef.current = rendered3d;
+  const displayResult3d = rendered3d?.ok ? rendered3d : state.view === "3d" ? lastGoodResult3dRef.current : null;
+
+  const isPending = state.view === "2d" ? rendered === null : rendered3d === null;
+  const hasError = state.view === "2d" ? rendered !== null && !rendered.ok : rendered3d !== null && !rendered3d.ok;
   const isViewportStale = isPending || hasError;
   const snippets = useMemo(() => {
     try { return generateGlyphDiagramsWorkbenchSnippets(state); }
@@ -134,10 +155,31 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     return () => { current = false; };
   }, [state]);
   useEffect(() => {
+    if (state.view !== "3d") return;
+    let current = true;
+    void renderGlyphDiagramsWorkbenchState3d(state).then((result) => { if (current) setCompleted3d({ state, result }); });
+    return () => { current = false; };
+  }, [state]);
+  // The 3D-mounted LIVE viewport (`web` target only — terminal/chat mount
+  // the static frame above through the same `TargetPreview` the 2D path
+  // uses). `graph3d` depends only on the fields that change what gets
+  // MOUNTED — target/charset/color/terminal edits must not tear down and
+  // re-fit an orbiting scene the reader is mid-drag on.
+  const graph3d = useMemo<GlyphGraph | null>(() => {
+    try { return buildGlyphDiagramsWorkbenchGraph(state); }
+    catch { return null; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.sourceKind, state.mermaid, state.json, state.nodes, state.edges, state.tableGraph, state.layout.direction]);
+  useEffect(() => {
     let current = true;
     void Promise.all(GLYPH_DIAGRAM_WORKBENCH_PRESETS.map(async (preset) => {
-      try { return (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text; }
-      catch { return "Preview unavailable"; }
+      try {
+        if ("dimension" in preset && preset.dimension === "3d") {
+          const graph = glyphGraphFromMermaid(preset.source);
+          return (await renderGlyphDiagram3d(graph, { ...preset.view3d, target: "web", width: 60, height: 24 })).text;
+        }
+        return (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text;
+      } catch { return "Preview unavailable"; }
     })).then((previews) => { if (current) setThumbnails(previews); });
     return () => { current = false; };
   }, [state.controls.target]);
@@ -153,9 +195,14 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const [copyAnsiState, setCopyAnsiState] = useState<"idle" | "copied" | "error">("idle");
   const [copyLinkState, setCopyLinkState] = useState<"idle" | "copied" | "error">("idle");
   const [downloadState, setDownloadState] = useState<"idle" | "downloaded" | "error">("idle");
+  // Packet D3: in 3D, Copy reads `rendered3d` — a fresh `renderGlyphDiagram3d`
+  // at the CURRENT camera (`state.camera3d`, set by the live viewport's own
+  // orbit-end handler below) — so what Copy produces is what the reader is
+  // actually looking at, on every target including `web`'s own live scene.
   const copy = async (encoding: "text" | "ansi") => {
-    if (!rendered?.ok) return;
-    const value = encoding === "text" ? rendered.text : rendered.ansi;
+    const source = state.view === "3d" ? rendered3d : rendered;
+    if (!source?.ok) return;
+    const value = encoding === "text" ? source.text : source.ansi;
     if (value === undefined) return;
     const setState = encoding === "text" ? setCopyTextState : setCopyAnsiState;
     try { await navigator.clipboard.writeText(value); flashButtonState(setState, "idle", "copied"); }
@@ -183,21 +230,27 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     try { ok = downloadGlyphSvg(preRef.current, "glyphcss-diagram.svg"); } catch { ok = false; }
     flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
+  const currentRendered = state.view === "3d" ? rendered3d : rendered;
   const exportActions = <>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={() => void copy("text")}>
+    <button type="button" className="gw-code-panel__action" disabled={!currentRendered?.ok} onClick={() => void copy("text")}>
       {copyTextState === "copied" ? "Copied" : copyTextState === "error" ? "Copy failed" : "Copy as text"}
     </button>
     {/* Hidden on `chat` (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C3,
      *  mirrored from `ChartsWorkbench.tsx`'s own export bar): a chat paste
      *  shows SGR escapes as literal `\x1b[38;2;…m` text, so Copy as text
      *  (above) is the honest export there. */}
-    {rendered?.ok && rendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+    {currentRendered?.ok && currentRendered.ansi !== undefined && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
       {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
     </button>}
     <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>
       {copyLinkState === "copied" ? "Copied" : copyLinkState === "error" ? "Copy failed" : "Copy link"}
     </button>
-    <button type="button" className="gw-code-panel__action" disabled={!rendered?.ok} onClick={download}>
+    {/* Download SVG reads the visible `<pre>` node (`glyphSvgExport.ts`) —
+     *  the live 3D viewport's own `<pre>` is a real one (created by
+     *  `createGlyphScene`) but this button's `preRef` only ever attaches
+     *  to `TargetPreview`'s own node, so it stays disabled while a live
+     *  scene, rather than that `<pre>`, is what's on screen. */}
+    <button type="button" className="gw-code-panel__action" disabled={!currentRendered?.ok || (state.view === "3d" && state.controls.target === "web")} onClick={download}>
       {downloadState === "downloaded" ? "Downloaded" : downloadState === "error" ? "Download failed" : "Download SVG"}
     </button>
   </>;
@@ -211,7 +264,8 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
              *  the rail — never over the render, which keeps showing the
              *  last diagram that actually laid out (see the viewport
              *  below). */}
-            {rendered && !rendered.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered.error}</p>}
+            {state.view === "2d" && rendered && !rendered.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered.error}</p>}
+            {state.view === "3d" && rendered3d && !rendered3d.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered3d.error}</p>}
             <div className="gx-toggle" role="tablist" aria-label="Graph source format">
               {(["mermaid", "json", "table"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : editor === "json" ? "nodes/edges JSON" : "Table"}</button>)}
             </div>
@@ -232,13 +286,28 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
              *  layout still in flight) dims the LAST GOOD diagram instead
              *  of collapsing the frame; `is-loading` (in flight only) also
              *  pulses it — the page's own animation, never the render's. */}
-            <div className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}`}>
-              <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
-                isHtml={Boolean(displayResult?.isHtml)} text={displayResult?.text ?? ""}
-                html={displayResult?.isHtml ? displayResult.display : undefined} ansi={displayResult?.ansi}
-                charsetDowngraded={displayResult?.charsetDowngraded}
-                ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={displayResult?.meta.description ?? undefined} />
-            </div>
+            {state.view === "3d" && state.controls.target === "web"
+              // Live, orbitable scene — AGENTS.md's D3 row: no fixed cell
+              // budget to scroll around, so this skips `.diagrams-grid-scroll`
+              // entirely. Remounts only when the GRAPH or layout/zBy/seed/
+              // rotation genuinely changes (see `Diagrams3DViewport.tsx`'s
+              // own doc); target/charset/color edits leave it alone.
+              ? (graph3d && <Diagrams3DViewport
+                  graph={graph3d} layout={state.view3d.layout} zBy={state.view3d.zBy} seed={state.view3d.seed}
+                  direction={state.layout.direction} nodesep={state.layout.nodesep} ranksep={state.layout.ranksep}
+                  controlsMode={state.view3d.controlsMode} initialCamera={state.camera3d}
+                  onCameraSettled={(camera) => dispatch({ type: "set-camera3d", camera })}
+                  onError={() => {/* surfaced via `rendered3d` above — its own effect independently renders the same graph/options */}}
+                />)
+              : <div className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}`}>
+                  <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
+                    isHtml={Boolean(state.view === "2d" ? displayResult?.isHtml : displayResult3d?.html !== undefined)}
+                    text={(state.view === "2d" ? displayResult?.text : displayResult3d?.text) ?? ""}
+                    html={state.view === "2d" ? (displayResult?.isHtml ? displayResult.display : undefined) : displayResult3d?.html}
+                    ansi={(state.view === "2d" ? displayResult?.ansi : displayResult3d?.ansi)}
+                    charsetDowngraded={(state.view === "2d" ? displayResult?.charsetDowngraded : displayResult3d?.charsetDowngraded)}
+                    ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={state.view === "2d" ? displayResult?.meta.description ?? undefined : undefined} />
+                </div>}
           </div>
         </InstrumentViewport>
         <div className="synth-export-bar">{exportActions}
@@ -250,9 +319,20 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
       <Dock id="diagrams-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}><GlyphDiagramsDock state={state} dispatch={dispatch} /></Dock>
     </InstrumentBody>
     <InstrumentTray id="diagrams-presets-panel" label="Diagram presets" open={mobilePanel === "presets"}>
-      {GLYPH_DIAGRAM_WORKBENCH_PRESETS.map((preset, index) => <button type="button" className="synth-tile" key={preset.id} title={`Apply “${preset.label}”`} aria-label={`Apply ${preset.label}`} onClick={() => dispatch({ type: "apply-preset", id: preset.id })}>
-        <span className="synth-tile-scene diagrams-tile-preview" aria-hidden="true"><pre>{thumbnails[index] ?? ""}</pre></span><span className="synth-tile-label">{preset.label}</span>
-      </button>)}
+      {GLYPH_DIAGRAM_WORKBENCH_PRESETS.map((preset, index) => {
+        // Packet D3 — a labelled divider before the FIRST 3D preset (never
+        // interleaved: a 3D tile changes what the viewport IS, not merely
+        // what it shows — AGENTS.md's D3 row).
+        const is3d = "dimension" in preset && preset.dimension === "3d";
+        const previous = GLYPH_DIAGRAM_WORKBENCH_PRESETS[index - 1];
+        const startsSection = is3d && (index === 0 || !("dimension" in previous! && previous.dimension === "3d"));
+        return [
+          startsSection && <span key={`${preset.id}-divider`} className="diagrams-tray-divider" role="separator" aria-label="3D presets">3D</span>,
+          <button type="button" className="synth-tile" key={preset.id} title={`Apply “${preset.label}”`} aria-label={`Apply ${preset.label}`} onClick={() => dispatch({ type: "apply-preset", id: preset.id })}>
+            <span className="synth-tile-scene diagrams-tile-preview" aria-hidden="true"><pre>{thumbnails[index] ?? ""}</pre></span><span className="synth-tile-label">{preset.label}</span>
+          </button>,
+        ];
+      })}
     </InstrumentTray>
     <InstrumentMobileTabs label="Diagrams panels" items={(["source", "controls", "presets", "export"] as const).map((panel) => ({
       id: panel, label: panel[0]!.toUpperCase() + panel.slice(1), controls: `diagrams-${panel}-panel`, expanded: mobilePanel === panel,

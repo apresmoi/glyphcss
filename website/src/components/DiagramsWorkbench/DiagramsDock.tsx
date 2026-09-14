@@ -15,9 +15,26 @@ const options = <T extends string,>(values: readonly T[]): Record<T, T> => Objec
 // direction/engine there.
 const TARGET_TOGGLE = (["chat", "terminal", "web"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "terminal" ? "term" : v}</span>, label: v, desc: `Render for ${v}` }));
 const CHARSET_SYMBOL: Record<string, string> = { ascii: "#", box: "┼", blocks: "▓", braille: "⠿" };
-const CHARSET_TOGGLE = (["ascii", "box", "blocks", "braille"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{CHARSET_SYMBOL[v]}</span>, label: v, desc: `Charset: ${v}` }));
+/**
+ * `blocks`/`braille` in 3D are FAITHFUL DOWNGRADES, not defects (packet
+ * D3, `render3d.ts`'s own `resolveCharset`: `braille` -> wireframe,
+ * `blocks` -> solid ASCII), so this dims the reason rather than hiding the
+ * option — the reader can still pick it, and the target x charset x colour
+ * matrix stays every cell reachable, per AGENTS.md's "Targets and page".
+ */
+function charsetToggleOptions(view: "2d" | "3d") {
+  return (["ascii", "box", "blocks", "braille"] as const).map((v) => ({
+    value: v as string, icon: <span className="gx-toggle-text">{CHARSET_SYMBOL[v]}</span>, label: v,
+    desc: view === "3d" && v === "braille" ? "Braille draws wireframe outlines only in 3D, not solid surfaces" : view === "3d" && v === "blocks" ? "Blocks renders as solid ASCII in 3D (its sub-cell shading can't carry stamped edges/labels)" : `Charset: ${v}`,
+  }));
+}
 const COLOR_SYMBOL: Record<string, string> = { none: "off", ansi16: "16", ansi256: "256", truecolor: "rgb", css: "css" };
 const COLOR_TOGGLE = (["none", "ansi16", "ansi256", "truecolor", "css"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{COLOR_SYMBOL[v]}</span>, label: v, desc: `Color mode: ${v}` }));
+// Packet D3 — the 2D/3D view switch, right beside Output so it reads as
+// scene-wide (AGENTS.md's D3 row). Web-only fields (turntable/trackball
+// live geometry) dim in every other view/target combination via
+// `disabled`/`disabledReason`, the `mapDirectionLocked` idiom.
+const VIEW_TOGGLE = (["2d", "3d"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v}</span>, label: v, desc: `View: ${v}` }));
 
 export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWorkbenchState; dispatch: Dispatch<GlyphDiagramsWorkbenchAction> }) {
   const gui = useDockGui();
@@ -30,6 +47,7 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   // doc. Supersedes the older `useDockSlot({ position: "top" })` header row
   // this page used to carry independently.
   useFolderTitleReset(output, "Reset target, charset, color, width, and height to this target's defaults", () => setControl({ type: "reset" }));
+  const viewSlot = useDockSlot(output, { position: "top", className: "dock-toggle-row-slot" });
   const targetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const charsetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
@@ -47,12 +65,32 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   const diagram = useFolder(gui, "Diagram", { open: true });
   useText(diagram, "Title", state.diagram.title, (title) => dispatch({ type: "set-diagram", patch: { title } }));
   useOption(diagram, "Detail", options(["auto", "faithful", "balanced", "simplified"] as const), state.diagram.detail, (detail) => dispatch({ type: "set-diagram", patch: { detail } }));
+  useEffect(() => { if (diagram) state.view === "2d" ? diagram.show() : diagram.hide(); }, [diagram, state.view]);
   const terminal = useFolder(gui, "Terminal", { open: true });
   useToggle(terminal, "NO_COLOR", state.terminal.NO_COLOR, (value) => dispatch({ type: "set-terminal", flag: "NO_COLOR", value }));
   useToggle(terminal, "FORCE_COLOR", state.terminal.FORCE_COLOR, (value) => dispatch({ type: "set-terminal", flag: "FORCE_COLOR", value }));
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
+  // Packet D3 — layout/zBy/seed/rotation. Diagram's `Detail` (compaction
+  // ladder) is a 2D-only concept (the budget it manages doesn't apply to a
+  // 3D scene, AGENTS.md's "Diagrams 3D": "the 2D ladder... does not apply
+  // in 3D"), so it hides above rather than growing a 3D exception; this
+  // folder is the 3D-only counterpart and hides in 2D the same way.
+  const view3d = useFolder(gui, "3D", { open: true });
+  useOption(view3d, "Layout", options(["layered", "force"] as const), state.view3d.layout, (layout) => dispatch({ type: "set-view3d", patch: { layout } }));
+  useOption(view3d, "Z by", options(["group", "kind", "rank", "none"] as const), state.view3d.zBy, (zBy) => dispatch({ type: "set-view3d", patch: { zBy } }));
+  useSlider(view3d, "Seed", { min: 1, max: 9999, step: 1 }, state.view3d.seed, (seed) => dispatch({ type: "set-view3d", patch: { seed } }));
+  useOption(view3d, "Rotation", options(["turntable", "trackball"] as const), state.view3d.controlsMode, (controlsMode) => dispatch({ type: "set-view3d", patch: { controlsMode } }));
+  useEffect(() => { if (view3d) state.view === "3d" ? view3d.show() : view3d.hide(); }, [view3d, state.view]);
+
   return <>
+    {viewSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">View</span>
+        <IconToggle groupTitle="Diagram dimension" options={VIEW_TOGGLE} value={state.view} onChange={(v) => dispatch({ type: "set-view", view: v as "2d" | "3d" })} />
+      </div>,
+      viewSlot,
+    )}
     {targetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Target</span>
@@ -63,7 +101,7 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
     {charsetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Charset</span>
-        <IconToggle groupTitle="Character set" options={CHARSET_TOGGLE} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as typeof controls.charset })} />
+        <IconToggle groupTitle="Character set" options={charsetToggleOptions(state.view)} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as typeof controls.charset })} />
       </div>,
       charsetSlot,
     )}

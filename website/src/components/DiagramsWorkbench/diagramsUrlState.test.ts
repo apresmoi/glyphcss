@@ -73,6 +73,33 @@ describe("diagramsUrlState — round trip", () => {
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
   });
 
+  // Packet D3 — view/view3d/camera3d ride in the SAME `?d=` envelope as
+  // every other field (append-only, per this file's own top-of-file rule).
+  it("round-trips the 3D view, layout/zBy/seed/controlsMode and an Euler camera", async () => {
+    let state = createGlyphDiagramsWorkbenchState();
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view3d", patch: { layout: "force", zBy: "none", seed: 42, controlsMode: "trackball" } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-camera3d", camera: { rotX: 12.5, rotY: -30, zoom: 8.75 } });
+    const raw = await encodeDiagramsUrlState(state);
+    expect(await decodeDiagramsUrlState(raw)).toEqual(state);
+  });
+
+  it("round-trips a trackball (mat) camera", async () => {
+    let state = createGlyphDiagramsWorkbenchState();
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-camera3d", camera: { zoom: 5, mat: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] } });
+    const raw = await encodeDiagramsUrlState(state);
+    expect(await decodeDiagramsUrlState(raw)).toEqual(state);
+  });
+
+  it("rejects a camera3d carrying both rotX and mat", async () => {
+    const raw = await encodeDiagramsUrlState({
+      ...createGlyphDiagramsWorkbenchState(),
+      view: "3d", camera3d: { rotX: 1, zoom: 5, mat: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] },
+    } as unknown as GlyphDiagramsWorkbenchState);
+    expect(await decodeDiagramsUrlState(raw)).toBeNull();
+  });
+
   it("malformed input decodes to null (page falls back to the default state)", async () => {
     expect(await decodeDiagramsUrlState(null)).toBeNull();
     expect(await decodeDiagramsUrlState("")).toBeNull();

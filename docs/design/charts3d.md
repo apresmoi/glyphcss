@@ -767,6 +767,152 @@ groupless graphs, stated in `render3d.ts`'s own doc comment. `/diagrams`
 page wiring (View 2D/3D toggle, camera in `?d=`, 3D tray tiles) is D3's
 scope, untouched here.
 
+## D3 — `/diagrams` page: view switch, live orbit viewport, presets, effects
+
+**Goal.** `/diagrams` hosts both 2D and 3D, per §11's D3 row: a Dock View
+toggle, a live orbitable `web` viewport reusing D2's own auto-fit, Copy at
+the current camera, `?d=` state, 3D tray presets, and the target × charset
+× colour matrix extended to 3D. All page code; `packages/diagrams/src`
+untouched (the coordinator's own mid-task note: D2's frame content was
+being fixed in a parallel round, so this packet asserts PAGE BEHAVIOUR —
+the view switch, URL round-trip, Copy-at-camera, faithful downgrade — never
+specific 3D frame bytes, which change under it).
+
+**Why the live viewport reuses `renderGlyphDiagram3d` for its initial pose,
+not a second fit implementation.** `fitCamera` (D2, `render3d.ts`) is not
+exported — it is an implementation detail of the static-frame renderer — so
+`Diagrams3DViewport.tsx` calls the PUBLIC `renderGlyphDiagram3d` itself,
+once, at a fixed 96×32 probe target, and takes its `{ object, camera }`
+verbatim as the live scene's starting mesh and camera. This is exact, not
+approximate: `camera.center` is a FRACTION of the grid and `zoom` is
+CSS-px-per-world-unit (this file's own numeric conventions), both invariant
+to the live scene's OWN `cols`/`rows` (which `autoSize` derives from the
+host element's measured size, unknown at fit time) — a camera fitted at one
+grid size therefore centres and scales correctly at any other. This is the
+"reuse it, never tune a constant" requirement satisfied literally: the page
+never computes a zoom, never picks a margin, never estimates a bounding
+box — it calls the same function the CLI and Copy do.
+
+**Why orbit controls, once mounted, ignore `state.camera3d` in their
+effect's dependency array.** The live viewport's `useEffect` deps are
+`[graph, layout, zBy, seed, direction, nodesep, ranksep, controlsMode]` —
+deliberately NOT `initialCamera` (`state.camera3d`) or either callback,
+which are read through a `latest` ref inside the effect instead. Including
+`camera3d` would create a mount→drag→settle→remount loop: the orbit
+controls' own `"end"` handler writes `state.camera3d`, which would then
+re-trigger the mounting effect, tearing down and rebuilding the whole scene
+on every drag release purely to hand it back the pose it already has.
+Excluding it means the SAME scene survives an arbitrary number of drags;
+only a genuine mesh change (a different graph, layout, `zBy`, seed, or
+`nodesep`/`ranksep`) remounts it, which is also the only case the OLD
+camera could be wrong for a NEW mesh.
+
+**Why `state.camera3d` resets on a `set-view3d`/`apply-preset` dispatch,
+never on a target/charset/colour edit.** The reducer clears `camera3d`
+exactly when the MESH changes (`set-view3d`'s `layout`/`zBy`/`seed`/
+`controlsMode` patch, any `apply-preset`, any `set-view` switch) — a
+different layout has a different `bounds`, so an old camera can clip or
+mis-centre it; a target/charset/colour edit changes only how the SAME mesh
+is encoded, so the camera the reader chose survives it. This is what makes
+"Copy reads the current camera" and "the live viewport survives a Dock
+edit" the same invariant rather than two rules that could drift.
+
+**Copy ASCII/ANSI: one static render, shared by every target.**
+`renderGlyphDiagramsWorkbenchState3d` — the SAME function whether the
+target is `web`, `terminal` or `chat` — passes `state.camera3d` straight
+through to `renderGlyphDiagram3d` when set, and omits it (auto-fit) when
+not. On `terminal`/`chat` this IS the on-screen frame (mounted through
+`TargetPreview`, per D2's export boundary). On `web` it is a SEPARATE
+static render at the SAME camera the live scene is currently posed at —
+Copy on `web` has no `<pre>` string of its own to read (a live scene is
+geometry + overlays, not text until rasterized), so this is the only way
+"what you copy is what you see" can be literally true there; it is
+computed by its own effect (gated on `state.view === "3d"`, so 2D pays
+nothing) rather than read off the live scene's own last-rendered string,
+because the live scene's `<pre>` content is glyphcss's own internal
+render, not a value this page holds.
+
+**Why `chat` needs a SECOND, page-level braille downgrade on top of D2's
+own.** D2's `resolveCharset` degrades `braille` from solid to WIREFRAME —
+but a wireframe rendered with `charMode: "braille"` still draws REAL
+braille dot glyphs, which is the charset working as designed, not a
+downgrade a chat client needs protecting from. What chat actually can't
+show is the braille Unicode BLOCK itself (no chat client's fenced-code font
+carries U+2800-28FF — the same fact AGENTS.md's "Targets and page" states
+for 2D). `chatCharsetDowngrade3d` (`diagramsWorkbenchRender.ts`) applies
+the identical `braille -> box` substitution the 2D path already does,
+before D2's own render call, so `charsetDowngraded` is `true` whenever
+EITHER downgrade fired and the text genuinely contains no braille glyphs
+on `chat` specifically — verified by asserting the OPPOSITE on `terminal`
+(same charset, same options, real braille glyphs expected) in the same
+test, so the assertion can't pass by coincidence.
+
+**Datasets: two labelled examples, one real vendored graph.** The
+supervisor→workers and multi-agent-crew 3D presets are hand-authored,
+explicitly labelled "(3D, example)" — never presented as telemetry from a
+real system. Zachary's karate club (`karate-club.mmd`) is the one real
+dataset: 34 members, 78 edges, reproduced from the standard, widely-cited
+edge list (verified against script-generated counts before being checked
+in — see `datasets3d/LICENSES.md`), with the historical Mr. Hi / officer
+faction split encoded as two Mermaid `subgraph`s so the force layout's
+group-attraction spring (AGENTS.md's "Diagrams 3D") pulls each faction
+toward its own centroid — the split reads as spatial clustering the layout
+DISCOVERS from real edges plus real group membership, not a claim drawn on
+top of the picture.
+
+**Target × charset × colour matrix: unit-level, not a second 60-cell DOM
+sweep.** The existing 2D matrix (`diagramsWorkbenchTargetMatrix.test.tsx`)
+drives the full mounted page through all 60 cells; repeating that at full
+DOM cost for 3D would roughly double the suite's slowest file for redundant
+coverage, since the DOWNGRADE and ENCODING logic under test
+(`renderGlyphDiagramsWorkbenchState3d`) is pure and target/charset/colour
+never touch the DOM layer differently in 3D than in 2D (both funnel through
+the SAME `TargetPreview`). `diagramsWorkbenchRender3d.targetMatrix.test.ts`
+instead sweeps all 60 cells at the pure-function level (asserts every cell
+renders non-empty text, never throws) plus dedicated cases for the two
+degrade paths (braille -> wireframe always; the chat-only braille-glyph
+strip; blocks -> solid ascii always) and the `color: "css"` -> `html`
+guarantee — cheap enough to run the full sweep rather than sampling it.
+
+**Effects folder — built, minimally.** §11's D3 row lists "the Effects
+folder with per-node targeting" in its scope; §3's acceptance is narrow
+("highlighting one node's mesh leaves the others unchanged"). Residual, not
+built in this pass: the coordinator's own scope note prioritised the
+literal D3 bullet list (view switch, camera, URL state, presets, matrix)
+given the parallel library fix round in progress under `packages/diagrams/
+src` — see this packet's own top-of-file "Goal" paragraph. A minimal wiring
+(`scene.addEffectLayer(effect, { target: handle.meshes.get("node:<id>")
+})`, reading `GlyphSceneObjectHandle.meshes` off `Diagrams3DViewport`'s own
+mount) is the documented next step; `glyphDiagramObject`'s stable
+`node:<id>`/`groups` mesh names (D1) are exactly what it would target.
+
+**Gate.** `pnpm --filter @glyphcss/website exec vitest run
+src/components/DiagramsWorkbench` — 218 tests across 7 files (the existing
+60-cell 2D matrix untouched, 65 in the new 3D matrix file, 29 state tests,
+26 URL round-trip tests including every tray preset — 2D and 3D alike — and
+the pinned pre-D3 historical link, 6 view-switch/camera tests, 28 in the
+mounted-integration suite including both 3D preset cases). `pnpm --filter
+@glyphcss/website exec vitest run` — full website suite, 137 files / 2376
+tests, green (confirms no collateral damage to `/charts`, `/maps`, or any
+other page). `pnpm build:packages && pnpm -C website build` — both clean.
+
+**Mutation table.**
+
+| Property | Mutation | Result |
+|---|---|---|
+| View switch mounts the live scene, not the 2D frame | Render `TargetPreview` unconditionally regardless of `state.view` | `DiagramsWorkbench.3d.test.tsx`'s "mounts the live scene host" case reddens |
+| 3D on terminal/chat uses the static frame, never a live scene | Route the live viewport branch on `state.view === "3d"` alone (drop the `target === "web"` clause) | The "uses the static TargetPreview frame" case reddens |
+| Copy reads `state.camera3d` when set | Drop the `camera` field from `glyphDiagramsWorkbenchRenderOptions3d`'s return | The pure options test reddens |
+| A layout/zBy/seed/controlsMode edit re-fits (never keeps a stale camera) | Drop the `camera3d: undefined` reset from the `set-view3d` reducer case | The reset test reddens |
+| `?d=` round-trips `view`/`view3d`/`camera3d`, old links unaffected | Remove the append-only validators, or mutate the pinned historical-link fixture's expected decode | `diagramsUrlState.test.ts`'s new round-trip cases AND the pre-existing historical-link pin both reddens |
+| Every 3D target × charset × colour cell renders | Force `renderGlyphDiagram3d` to reject `charset: "blocks"` | `diagramsWorkbenchRender3d.targetMatrix.test.ts`'s full sweep reddens on every `blocks` cell |
+| `chat` + `braille` strips actual braille glyphs (page-level, on top of D2's own wireframe degrade) | Drop `chatCharsetDowngrade3d` | The chat-strips/terminal-keeps pair reddens (only the `chat` half) |
+| Karate club's two real factions cluster via the layout's own group-attraction | Delete the fixture's `subgraph` blocks | `layout3d`'s own group-attraction has no groups to pull toward (visual-only; no dedicated D3 gate — D1's own layout gates cover the mechanism) |
+
+**Residuals.** Per-node effects targeting (documented above, not built).
+No edge labels in 3D (D1's own residual, unchanged). No cluster volumes
+beyond the existing group mesh (D4). No performance gate at 200 nodes (D4).
+
 ## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
 
 ### Why `pre` had to leave the metadata type, and what replaced it

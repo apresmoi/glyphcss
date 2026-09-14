@@ -9,10 +9,15 @@
 // additive field is optional/defaulted in the `v1` validator, and only an
 // incompatible reshaping of an existing field bumps to `v2`.
 import {
+  GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D,
+  type GlyphDiagramsWorkbenchCamera3d,
   type GlyphDiagramsWorkbenchControls,
   type GlyphDiagramsWorkbenchState,
+  type GlyphDiagramsWorkbenchView3d,
 } from "./diagramsWorkbenchState";
 import type { GlyphDiagramCharset, GlyphDiagramColorMode, GlyphDiagramDetail, GlyphDiagramTarget, GlyphGraph, GlyphGraphEdge, GlyphGraphGroup, GlyphGraphNode } from "@glyphcss/diagrams";
+import type { GlyphDiagram3dLayoutKind, GlyphDiagram3dZBy } from "@glyphcss/diagrams/3d";
+import type { GlyphOrbitControlsMode } from "glyphcss";
 import { createDebouncedJsonUrlWriter, createJsonUrlEnvelope } from "../../lib/jsonUrlState";
 
 export const DIAGRAMS_URL_PARAM = "d";
@@ -29,6 +34,10 @@ const DIAGRAM_DETAILS: readonly GlyphDiagramDetail[] = ["auto", "faithful", "bal
 const GRAPH_DIRECTIONS: readonly GlyphGraph["direction"][] = ["TB", "LR", "BT", "RL"];
 const GRAPH_NODE_SHAPES: readonly NonNullable<GlyphGraphNode["shape"]>[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium"];
 const GRAPH_EDGE_STYLES: readonly NonNullable<GlyphGraphEdge["style"]>[] = ["solid", "dotted", "thick", "undirected"];
+const VIEW_KINDS = ["2d", "3d"] as const;
+const VIEW3D_LAYOUTS: readonly GlyphDiagram3dLayoutKind[] = ["layered", "force"];
+const VIEW3D_ZBY: readonly GlyphDiagram3dZBy[] = ["group", "kind", "rank", "none"];
+const VIEW3D_CONTROLS_MODES: readonly GlyphOrbitControlsMode[] = ["turntable", "trackball"];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -96,9 +105,32 @@ function validateControls(value: unknown): GlyphDiagramsWorkbenchControls | null
   return { target, overrides: clean };
 }
 
+/** Packet D3 — append-only, same rule as `tableGraph` above: omitted decodes to the shared default, never rejects the link. */
+function validateView3d(value: unknown): GlyphDiagramsWorkbenchView3d | null {
+  if (!isRecord(value)) return null;
+  const { layout, zBy, seed, controlsMode } = value;
+  if (!oneOf(layout, VIEW3D_LAYOUTS) || !oneOf(zBy, VIEW3D_ZBY) || !oneOf(controlsMode, VIEW3D_CONTROLS_MODES)) return null;
+  if (typeof seed !== "number" || !Number.isFinite(seed)) return null;
+  return { layout, zBy, seed, controlsMode };
+}
+/** Packet D3 — `rotX`/`rotY` XOR `mat`, mirroring `GlyphDiagram3dCamera`'s own shape (`render3d.ts`). */
+function validateCamera3d(value: unknown): GlyphDiagramsWorkbenchCamera3d | null {
+  if (!isRecord(value)) return null;
+  const { rotX, rotY, zoom, mat } = value;
+  if (typeof zoom !== "number" || !Number.isFinite(zoom)) return null;
+  if (mat !== undefined) {
+    if (!Array.isArray(mat) || !mat.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    if (rotX !== undefined || rotY !== undefined) return null;
+    return { zoom, mat };
+  }
+  if (rotX !== undefined && (typeof rotX !== "number" || !Number.isFinite(rotX))) return null;
+  if (rotY !== undefined && (typeof rotY !== "number" || !Number.isFinite(rotY))) return null;
+  return { zoom, ...(rotX !== undefined ? { rotX } : {}), ...(rotY !== undefined ? { rotY } : {}) };
+}
+
 function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchState | null {
   if (!isRecord(value)) return null;
-  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal } = value;
+  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal, view, view3d, camera3d } = value;
 
   if (!oneOf(editor, EDITOR_KINDS) || !oneOf(sourceKind, EDITOR_KINDS)) return null;
   if (typeof mermaid !== "string" || typeof json !== "string") return null;
@@ -157,6 +189,24 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
   if (!isRecord(terminal)) return null;
   if (typeof terminal.NO_COLOR !== "boolean" || typeof terminal.FORCE_COLOR !== "boolean") return null;
 
+  // Packet D3, append-only (this file's own top-of-file rule): `view`
+  // omitted is `"2d"` — an older link decodes to exactly today's page.
+  // `view3d` omitted is the shared default; `camera3d` omitted is
+  // `undefined` (auto-fit), never a rejection.
+  if (view !== undefined && !oneOf(view, VIEW_KINDS)) return null;
+  let cleanView3d = GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D;
+  if (view3d !== undefined) {
+    const resolved = validateView3d(view3d);
+    if (!resolved) return null;
+    cleanView3d = resolved;
+  }
+  let cleanCamera3d: GlyphDiagramsWorkbenchCamera3d | undefined;
+  if (camera3d !== undefined) {
+    const resolved = validateCamera3d(camera3d);
+    if (!resolved) return null;
+    cleanCamera3d = resolved;
+  }
+
   return {
     editor, sourceKind, mermaid, json, nodes: cleanNodes, edges: cleanEdges,
     tableGraph: cleanTableGraph,
@@ -164,6 +214,7 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     layout: { engine: "dagre", nodesep, ranksep, ...(direction !== undefined ? { direction } : {}) },
     diagram: { title: diagram.title, detail: diagram.detail },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
+    view: view ?? "2d", view3d: cleanView3d, ...(cleanCamera3d ? { camera3d: cleanCamera3d } : {}),
   };
 }
 

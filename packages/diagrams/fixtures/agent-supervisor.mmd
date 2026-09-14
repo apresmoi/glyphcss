@@ -1,0 +1,25 @@
+%% Hand-authored EXAMPLE architecture (not real telemetry from any running
+%% system) illustrating a LangGraph-style supervisor pattern: one supervisor
+%% node routes work out to specialist worker nodes and each worker reports
+%% back, grouped by role so a `zBy: "group"` 3D layout puts the supervisor
+%% on its own floor above its workers.
+flowchart TB
+  supervisor{Supervisor}
+  researcher(Researcher)
+  coder(Coder)
+  reviewer(Reviewer)
+  user([User request])
+  answer([Final answer])
+  subgraph workers[Workers]
+    researcher
+    coder
+    reviewer
+  end
+  user --> supervisor
+  supervisor -->|research| researcher
+  supervisor -->|code| coder
+  supervisor -->|review| reviewer
+  researcher --> supervisor
+  coder --> supervisor
+  reviewer --> supervisor
+  supervisor -->|done| answer
