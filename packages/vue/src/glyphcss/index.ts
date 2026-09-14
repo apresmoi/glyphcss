@@ -1,5 +1,5 @@
 // ── Scene ───────────────────────────────────────────────────────────────────
-export { GlyphScene, GlyphSceneStatic, GlyphMesh, GlyphEffectLayer, GlyphGround, GlyphHotspot, GlyphSceneContextKey, useGlyphMesh, useGlyphSceneContext, findGlyphMeshHandle, pointInMeshElement, findMeshUnderPoint } from "./scene";
+export { GlyphScene, GlyphSceneStatic, GlyphMesh, GlyphEffectLayer, GlyphObject, GlyphGround, GlyphHotspot, GlyphSceneContextKey, useGlyphMesh, useGlyphObject, useGlyphSceneContext, findGlyphMeshHandle, pointInMeshElement, findMeshUnderPoint } from "./scene";
 export type {
   GlyphSceneProps,
   GlyphSceneStaticProps,
@@ -7,11 +7,14 @@ export type {
   GlyphEffectLayerComponent,
   GlyphEffectLayerExposed,
   GlyphEffectLayerProps,
+  GlyphObjectProps,
   GlyphGroundProps,
   GlyphHotspotProps,
   GlyphSceneContextValue,
   UseGlyphMeshOptions,
   UseGlyphMeshResult,
+  UseGlyphObjectOptions,
+  UseGlyphObjectResult,
 } from "./scene";
 
 // ── Camera ──────────────────────────────────────────────────────────────────

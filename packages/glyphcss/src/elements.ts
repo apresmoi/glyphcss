@@ -18,6 +18,7 @@ import { GlyphOrbitControlsElement } from "./elements/GlyphOrbitControlsElement"
 import { GlyphMapControlsElement } from "./elements/GlyphMapControlsElement";
 import { GlyphFirstPersonControlsElement } from "./elements/GlyphFirstPersonControlsElement";
 import { GlyphEffectLayerElement } from "./elements/GlyphEffectLayerElement";
+import { GlyphObjectElement } from "./elements/GlyphObjectElement";
 
 if (typeof customElements !== "undefined") {
   if (!customElements.get("glyph-scene")) {
@@ -55,6 +56,9 @@ if (typeof customElements !== "undefined") {
   if (!customElements.get("glyph-effect-layer")) {
     customElements.define("glyph-effect-layer", GlyphEffectLayerElement);
   }
+  if (!customElements.get("glyph-object")) {
+    customElements.define("glyph-object", GlyphObjectElement);
+  }
 }
 
 export {
@@ -67,4 +71,5 @@ export {
   GlyphMapControlsElement,
   GlyphFirstPersonControlsElement,
   GlyphEffectLayerElement,
+  GlyphObjectElement,
 };

@@ -26,9 +26,20 @@ export type {
   GlyphHotspotHandle,
   GlyphShadowOptions,
   GlyphOcclusionCoverage,
+  GlyphSceneObject,
+  GlyphSceneObjectMesh,
+  GlyphSceneObjectHotspot,
+  GlyphSceneOverlay,
+  GlyphSceneObjectHandle,
+  GlyphSceneObjectTransform,
+  GlyphOverlayFrame,
 } from "./api/createGlyphScene";
 // Cross-scene occlusion sentinel (see `GlyphSceneHandle.setForeignOcclusion`).
 export { GLYPH_FOREIGN_OCCLUDER_ID } from "./render/rasterize";
+
+// ── Scene object overlays (label arbiter + generic stamp, see `sceneObject.ts`) ──
+export { stampGlyphOverlayCell, stampGlyphOverlayLine, createGlyphLabelArbiter, foldGlyphOverlayLabelToAscii } from "./render/overlay";
+export type { GlyphOverlayCellWrite, GlyphOverlayLinePoint, GlyphLabelArbiter, GlyphLabelCandidate } from "./render/overlay";
 
 // Effect-program protocol + scene-root compositor layers.
 export * from "./api/effects";
@@ -313,6 +324,7 @@ export { GlyphOrbitControlsElement } from "./elements/GlyphOrbitControlsElement"
 export { GlyphMapControlsElement } from "./elements/GlyphMapControlsElement";
 export { GlyphEffectLayerElement } from "./elements/GlyphEffectLayerElement";
 export type { GlyphEffectLayerElementConfig } from "./elements/GlyphEffectLayerElement";
+export { GlyphObjectElement } from "./elements/GlyphObjectElement";
 
 // ── Re-exports from @glyphcss/core ───────────────────────────────
 export * from "@glyphcss/core";

@@ -10,6 +10,10 @@ export type {
   GlyphEffectLayerExposed,
   GlyphEffectLayerProps,
 } from "./GlyphEffectLayer";
+export { GlyphObject } from "./GlyphObject";
+export type { GlyphObjectProps } from "./GlyphObject";
+export { useGlyphObject } from "./useGlyphObject";
+export type { UseGlyphObjectOptions, UseGlyphObjectResult } from "./useGlyphObject";
 export { GlyphGround } from "./GlyphGround";
 export type { GlyphGroundProps } from "./GlyphGround";
 export { GlyphHotspot } from "./GlyphHotspot";
