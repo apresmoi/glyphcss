@@ -21,9 +21,17 @@ export type GlyphDiagramsWorkbenchRender =
 function chatCharsetDowngrade(options: GlyphDiagramRenderOptions): GlyphDiagramRenderOptions {
   return options.target === "chat" && options.charset === "braille" ? { ...options, charset: "box" } : options;
 }
-/** Same rule, 3D's own options type (see `renderGlyphDiagramsWorkbenchState3d`'s doc for why chat still needs it). */
+/**
+ * Same measured font rule, 3D's own charset vocabulary (D2 round 7 —
+ * `braille`/`blocks` only): a chat client's fenced-code font genuinely has
+ * no braille glyphs (0/256 in every real chat-stack font, AGENTS.md's
+ * "Targets and page"), so an EXPLICIT `braille` request on `chat` still
+ * gets forced to `blocks` — the OTHER of the library's own two intended 3D
+ * looks (32/32 in the same fonts), never `box`, which no longer exists as
+ * a non-degraded 3D destination at all.
+ */
 function chatCharsetDowngrade3d(options: GlyphDiagram3dRenderOptions): GlyphDiagram3dRenderOptions {
-  return options.target === "chat" && options.charset === "braille" ? { ...options, charset: "box" } : options;
+  return options.target === "chat" && options.charset === "braille" ? { ...options, charset: "blocks" } : options;
 }
 
 export async function renderGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchState): Promise<GlyphDiagramsWorkbenchRender> {
@@ -61,14 +69,16 @@ export async function renderGlyphDiagramsWorkbenchState3d(state: GlyphDiagramsWo
   try {
     const graph = buildGlyphDiagramsWorkbenchGraph(state);
     const options = glyphDiagramsWorkbenchRenderOptions3d(state);
-    // `resolveCharset`'s own `braille` -> wireframe degrade (`render3d.ts`)
-    // still renders REAL braille dot glyphs — a wireframe rendered as
-    // braille is exactly what that charset means in 3D, unlike 2D's own
-    // chat-only concern. `chat` still can't display them (no chat client's
-    // fenced-code font carries the braille block — AGENTS.md's "Targets and
-    // page"), so this applies the SAME page-level downgrade the 2D path
-    // does, on top of (never instead of) the library's own solid->wireframe
-    // one.
+    // D2 round 7 — `resolveCharset` itself only degrades `ascii`/`box`
+    // (box-drawing/bar glyphs can't trace an edge or a box face at an
+    // angle at ANY target); an explicit `braille` request renders as REAL
+    // braille dot geometry everywhere the LIBRARY is concerned. `chat`
+    // still can't display braille glyphs at all (no chat client's
+    // fenced-code font carries the braille block — AGENTS.md's "Targets
+    // and page"), so this applies the SAME page-level downgrade the 2D
+    // path does (to `blocks`, this charset vocabulary's other undegraded
+    // look), on top of (never instead of) the library's own ascii/box
+    // degrade.
     const pageDowngraded = chatCharsetDowngrade3d(options);
     const result = await renderGlyphDiagram3d(graph, pageDowngraded);
     const charsetDowngraded = pageDowngraded !== options || result.report.ledger.some((entry) => entry.code === "3d-charset-degraded");

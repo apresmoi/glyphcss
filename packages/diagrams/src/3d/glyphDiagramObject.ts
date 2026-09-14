@@ -1,69 +1,61 @@
 /**
- * `glyphDiagramObject` (PLAN-3d.md §6, packet D1; readability fixed in D2's
- * review round; group meshes retired for overlay outlines in D2 fix round
- * 2; the whole layered path rebuilt on a plane embedding in D2 round 5) —
- * a `GlyphGraph` (the same IR the Mermaid/JSON adapters build) to a
- * `GlyphSceneObject` any `createGlyphScene` can mount via
- * `scene.addObject()`. Stable mesh names, per PLAN-3d.md §3.1: one
+ * `glyphDiagramObject` — a `GlyphGraph` (the same IR the Mermaid/JSON
+ * adapters build) to a `GlyphSceneObject` any `createGlyphScene` can mount
+ * via `scene.addObject()`. Stable mesh names, per PLAN-3d.md §3.1: one
  * `node:<id>` mesh per node (so a single agent's box is its own effect
  * target) — PLAIN meshes only (`castShadow`/`receiveShadow`, `depthBias`),
  * never `density`/`transparent`/a differing `mode`/`glyphPalette`/
  * `ambientIntensity`, since `render3d.ts` routes through the public
- * `compileScene({ objects })` (packet F5b), which REJECTS any member mesh
- * declaring one of those.
+ * `compileScene({ objects })`, which REJECTS any member mesh declaring one
+ * of those.
  *
- * Edges are NOT meshes — they stay depth-tested, in-grid OVERLAY stamps
- * (`stampGlyphOverlayLine`), the same reason `@glyphcss/maps`' `line`/
- * `contour` layers are stamps rather than tube meshes. Node labels go
- * through the SAME shared `GlyphLabelArbiter` a chart's ticks or another
- * diagram's own labels use, so two diagrams (or a diagram and a chart)
- * mounted in one scene never overwrite each other's text.
+ * **D2 round 7 (user, verbatim: "we need to use braille and blocks for 3d
+ * diagrams" — box-drawing/bar glyphs can't represent an edge at an angle;
+ * "edges as ribbon geometry and arrowheads as cone/pyramid geometry, not
+ * stamped glyphs").** Edges, arrowheads, and group outlines are now real
+ * MESH GEOMETRY (`orientedRibbonPolygons`/`orientedPyramidPolygons`/
+ * `groupOutlinePolygons` below) — never a `stampGlyphOverlayLine`
+ * box-drawing/bar glyph, which staircases the instant the segment it
+ * traces isn't screen-axis-aligned (and under `layout3d.ts`'s own D2
+ * round 7 triangulated-ring layout, most edges genuinely aren't). A node's
+ * own box OUTLINE is no longer drawn by this module AT ALL — it comes from
+ * the RENDER MODE itself now: `braille` is a real depth-tested wireframe
+ * (every polygon edge traced as sub-cell dots at any angle), and `blocks`
+ * is solid-shaded halfblock/quadrant, where a box's own edges read from
+ * FACE-CONTRAST SHADING (adjacent faces catch the light differently), not
+ * a drawn line. Only node LABELS remain a stamped overlay (`frame.labels
+ * .place`, through the SAME shared `GlyphLabelArbiter` a chart's ticks or
+ * another diagram's own labels use, so two diagrams mounted in one scene
+ * never overwrite each other's text) — everything else in this file is
+ * geometry the rasterizer draws (and depth-tests, for free) exactly like a
+ * node's own box.
  *
- * **D2 round 5 — every node's mesh, and every edge/group/label point this
- * overlay stamps, is built in the LOCAL plane frame `layout3d.ts`'s
- * `glyphDiagram3dPlaneAxes()` defines and then mapped to WORLD through the
- * SAME `u`/`n` ground-plane basis vectors that module already used to
- * compute `layout3d`'s own `node.center`/edge `points`.** For a LAYERED
- * layout, `layout3d.ts` already hands this module WORLD-space `center`/
- * `points` — the only thing genuinely LOCAL to a single node is its own
- * BOX GEOMETRY (built axis-aligned at the origin via the EXISTING
- * `boxPolygons`/`zUpCylinderPolygons`/`decisionPolygons` helpers, entirely
- * unchanged) and then placed via `toWorldFrame`, so a box's own width axis
- * is always exactly `u` (the flow-preserving ground direction) and its
- * depth axis is always exactly `n` (`u`'s ground-plane perpendicular) —
- * never re-derived, never independently rotated. A FORCE layout has no
- * shared plane at all (every node's own center/axes are literal world
- * X/Y/Z, unchanged from before this round), so `toWorldFrame` degenerates
- * there to a plain identity-frame placement (`u = X̂`, `n = Ŷ`).
+ * Every node's box is a PLAIN, world-axis-aligned box — width always world
+ * X, depth (extrusion) always world Y, height always world Z
+ * (`boxPolygons`'s own convention, `@glyphcss/core`) — for BOTH layouts.
+ * `layout3d.ts`'s own top-of-file doc has the full rationale: this round
+ * drops round 5/6's shared-plane embedding (`u`/`n` ground vectors solved
+ * from camera yaw) entirely, so there is no more per-graph basis to place a
+ * box's local geometry through — `nodePolygons` below just adds a node's
+ * own `center` to its LOCAL (origin-centred) shape verbatim.
  */
 import type { GlyphGraph, GlyphGraphDirection } from "../types";
-import type { GlyphCanvasTier, GlyphCanvasTierName, GlyphOverlayFrame, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay, Polygon, Vec3 } from "glyphcss";
-import { boxPolygons, spherePolygons, cylinderPolygons, stampGlyphOverlayCell, stampGlyphOverlayLine, GLYPH_CANVAS_TIERS } from "glyphcss";
-import { layout3d, glyphDiagram3dPlaneAxes, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dGroup, type GlyphDiagram3dLayout, type GlyphDiagram3dLayoutOptions, type GlyphDiagram3dNode } from "./layout3d";
+import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay, Polygon, Vec3 } from "glyphcss";
+import { boxPolygons, spherePolygons, cylinderPolygons } from "glyphcss";
+import { layout3d, type GlyphDiagram3dGroup, type GlyphDiagram3dLayout, type GlyphDiagram3dLayoutOptions, type GlyphDiagram3dNode } from "./layout3d";
 
 /**
- * D2 round 3 ("architecture objects" — verbatim user feedback: "make them
- * vertical 3d boxes and objects with labels either to the side or inside").
  * Shape-aware node geometry, checked against core FIRST: `cylinderPolygons`
  * already exists (`@glyphcss/core`) but is Y-AXIS-ALIGNED (height runs
  * along Y), while glyphcss's world is Z-up throughout (AGENTS.md's
  * "Numeric conventions"). This wraps it with the axis remap
- * `toZUp(v) = [v[0], -v[2], v[1]]` — a proper (determinant +1) rotation,
- * verified both algebraically and numerically, so winding/normals need no
- * extra reversal — converting the INPUT center via the inverse
- * `fromZUp(w) = [w[0], w[2], -w[1]]` first.
+ * `toZUp(v) = [v[0], -v[2], v[1]]` — a proper (determinant +1) rotation —
+ * converting the INPUT center via the inverse `fromZUp(w) = [w[0], w[2], -w[1]]` first.
  */
 function fromZUp(w: Vec3): Vec3 { return [w[0], w[2], -w[1]]; }
 function toZUp(v: Vec3): Vec3 { return [v[0], -v[2], v[1]]; }
 
-/**
- * D2 round 4 (visual review): core's `cylinderPolygons` default of 16
- * `sides` reads fine as a SOLID-shaded mesh but traces one crease per side
- * under `ink`/`wireframe` line art — at diagram scale that is FAR more
- * linework than a 6-face box gets. 8 is the fewest sides that still reads
- * unambiguously as round rather than a hexagon/octagon in box-drawing/
- * braille line art, while roughly halving the crease count.
- */
+/** 8 is the fewest cylinder sides that still reads unambiguously as round rather than a hexagon/octagon in line art, while roughly halving the crease count a 16-sided default would trace. */
 const GLYPH_DIAGRAM_3D_CYLINDER_SIDES = 8;
 
 function zUpCylinderPolygons(opts: { readonly center: Vec3; readonly radius: number; readonly height: number; readonly color: string }): Polygon[] {
@@ -71,51 +63,27 @@ function zUpCylinderPolygons(opts: { readonly center: Vec3; readonly radius: num
   return raw.map((poly) => ({ ...poly, vertices: poly.vertices.map(toZUp) }));
 }
 
-/** Rotate a point 45 degrees about `center`'s own Z axis. Operates on LOCAL (pre-`toWorldFrame`) coordinates for a node's own shape, so a "45 degrees about Z" rotation here means "45 degrees within the box's own footprint plane" (whatever `u`/`n` that later maps to) — never a rotation about WORLD X/Y, which would only coincide with the footprint plane when `u`/`n` happen to equal literal world X/Y. */
+/** Rotate a point 45 degrees about `center`'s own Z axis — operates on LOCAL (pre-placement) coordinates for a node's own shape. */
 function rotateZ45(p: Vec3, center: Vec3): Vec3 {
   const dx = p[0] - center[0], dy = p[1] - center[1];
   const c = Math.SQRT1_2; // cos(45deg) === sin(45deg)
   return [center[0] + dx * c - dy * c, center[1] + dx * c + dy * c, p[2]];
 }
 
-/**
- * The "decision object" for a `diamond`/rhombus Mermaid node — a rotated
- * box rather than an octahedron (reads immediately as "the diamond shape"
- * from a 3/4 camera, matching the 2D flowchart diamond it replaces). Built
- * and rotated in LOCAL coordinates (`opts.center` is `[0, 0, 0]` at every
- * call site — `toWorldFrame` places it afterward), so the 45-degree turn
- * always happens within the node's own footprint plane.
- */
+/** The "decision object" for a `diamond`/rhombus Mermaid node — a rotated box rather than an octahedron. Built and rotated in LOCAL coordinates (`opts.center` is `[0, 0, 0]` at every call site). */
 function decisionPolygons(opts: { readonly center: Vec3; readonly width: number; readonly depth: number; readonly height: number; readonly color: string }): Polygon[] {
   const box = boxPolygons({ center: opts.center, width: opts.width, depth: opts.depth, height: opts.height, color: opts.color });
   return box.map((poly) => ({ ...poly, vertices: poly.vertices.map((v) => rotateZ45(v, opts.center)) }));
 }
 
 /**
- * `local = [along-u, along-n, along-Z]` (the same axis order `half`/
- * `boxPolygons`'s own width/depth/height already use) → WORLD, via the
- * plane's own `u`/`n` ground vectors — the ONE place every node's own
- * local shape geometry (built axis-aligned at the origin) is placed into
- * the scene. `u`/`n` degenerate to literal world X/Y for a FORCE layout
- * (`glyphDiagram3dPlaneAxes` is never called there — its caller always
- * passes the identity pair), so this is a no-op translation in that case,
- * byte-identical to before this round.
+ * Shape follows Mermaid node shape: box/rect (and every other box-ish shape)
+ * -> box; `cylinder` (Mermaid `[( )]`, a datastore) -> the Z-up cylinder
+ * wrapper above; `circle` -> sphere; `diamond` -> the rotated-box decision
+ * object above. Built LOCALLY (`center: [0,0,0]`) then simply translated by
+ * `node.center` — no basis to map through any more (D2 round 7's own doc).
  */
-function toWorldFrame(local: Vec3, center: Vec3, u: Vec3, n: Vec3): Vec3 {
-  return [center[0] + local[0] * u[0] + local[1] * n[0], center[1] + local[0] * u[1] + local[1] * n[1], center[2] + local[2]];
-}
-
-const IDENTITY_AXES: { readonly u: Vec3; readonly n: Vec3 } = { u: [1, 0, 0], n: [0, 1, 0] };
-
-/**
- * Shape follows Mermaid node shape: box/rect (and every other box-ish shape
- * — rounded/subroutine/asymmetric/stadium) -> box; `cylinder` (Mermaid
- * `[( )]`, a datastore) -> the Z-up cylinder wrapper above; `circle` ->
- * sphere; `diamond` -> the rotated-box decision object above. Built LOCALLY
- * (`center: [0,0,0]`) and mapped to world via `axes`/`node.center` at the
- * end — the shape-dispatch logic itself is unchanged from D2 round 3.
- */
-function nodePolygons(node: GlyphDiagram3dNode, color: string, axes: { readonly u: Vec3; readonly n: Vec3 }): Polygon[] {
+function nodePolygons(node: GlyphDiagram3dNode, color: string): Polygon[] {
   const [hx, hy, hz] = node.half;
   const local: Polygon[] = (() => {
     switch (node.shape) {
@@ -129,7 +97,8 @@ function nodePolygons(node: GlyphDiagram3dNode, color: string, axes: { readonly 
         return boxPolygons({ center: [0, 0, 0], width: hx * 2, depth: hy * 2, height: hz * 2, color });
     }
   })();
-  return local.map((poly) => ({ ...poly, vertices: poly.vertices.map((v) => toWorldFrame(v, node.center, axes.u, axes.n)) }));
+  const [cx, cy, cz] = node.center;
+  return local.map((poly) => ({ ...poly, vertices: poly.vertices.map((v): Vec3 => [v[0] + cx, v[1] + cy, v[2] + cz]) }));
 }
 
 export type GlyphDiagram3dLabelMode = "inside" | "side" | "auto";
@@ -145,83 +114,37 @@ export interface GlyphDiagram3dLabelPlacement {
 }
 
 /**
- * D2 round 3, requirement 3 (`labels: "inside" | "side" | "auto"`) — a PURE,
- * camera-independent function shared verbatim by this module's own overlay
- * `stamp()` AND `render3d.ts`'s analytic camera fit, so the two can never
- * predict a different landing cell for the same node under the same
- * options.
+ * A PURE, camera-independent function shared verbatim by this module's own
+ * overlay `stamp()` AND `render3d.ts`'s analytic camera fit, so the two can
+ * never predict a different landing cell for the same node under the same
+ * options. `"inside"`'s own anchor sits on the node's own FRONT face
+ * (world `-Y`, `center - half[1]` along Y — the depth/extrusion axis every
+ * node's box always uses, D2 round 7's own top-of-file doc); `"side"`
+ * anchors in the free space past the node's own right edge (world `+X`,
+ * the box's own width axis) or below it (world `-Z`), with a leader-from
+ * point exactly on the node's own projected edge.
  *
- * **D2 round 5 fix** — `"inside"`'s own anchor now sits on the node's own
- * FRONT face explicitly (`center - half[1]*n`, i.e. local depth 0), never
- * `center` (the box's own CENTRE depth, `half[1]` behind the front
- * face): under the old per-direction system the node's own depth axis
- * genuinely WAS a literal world axis (there was no separate "front vs
- * centre" concept, and no non-axis-aligned `n` to speak of), but this
- * round's boxes are centred `half[1]` BEHIND their own visible front plane
- * by construction (so they extrude backward from it) — leaving the centre
- * in place would draw an "inside" label floating off the box's own visible
- * top edge instead of sitting on it.
- *
- * **D2 round 6 fix (labels misplaced/overflowing under a non-axis-aligned
- * plane)** — every anchor below now moves along the node's own `u`/`n`
- * GROUND VECTORS (`axes`, default the identity pair — byte-identical for
- * `force` layout, whose axes genuinely ARE world X/Y, and for a bare unit
- * test that passes no `axes` at all), never a literal `center[0]`/`center[1]`
- * COMPONENT shift. `glyphDiagram3dPlaneAxes`'s own `u`/`n` are NOT
- * axis-aligned in general (at the module's own default `rotY: 30`,
- * `u ≈ [-0.5, 0.866, 0]`) — round 5 shipped this function still doing
- * `center[0] + half[0]` (literally "move by `half[0]` along world X"),
- * which is only correct when `u === [1,0,0]` exactly (the `force` layout's
- * own case, which is why the existing pinned tests — built with an
- * arbitrary `center`/`half` and no `axes` at all — never caught it). Under
- * the real LAYERED plane this put a `"side"` label's `leaderFrom` many
- * world units from the node's own edge (measured on the transformer
- * fixture's `embed` node: the buggy point landed at `[2.3, 7.4, -0.5]`
- * against the correct `[-11.9, 15.6, -6.5]`) and an `"inside"` label's
- * anchor off the node's own front-face plane by `half[1] * (1 - |n[y]|)`
- * world units. `"below"` needed no fix — it moves along literal world Z
- * only, which has zero screen-column contribution under this camera
- * regardless of `u`/`n` (`layout3d.ts`'s own doc), so a Z-only shift was
- * already correct in every basis.
- *
- * **D2 round 6 fix (labels overflowing their own block)** — `screenWidthCols`,
- * when given, is the node's own front face's REAL PROJECTED SCREEN WIDTH
- * (columns) and REPLACES `node.half[0] * 2` (world units) as the "does it
- * fit" / clip budget. These are NOT the same quantity and conflating them
- * was the actual defect: a node's own front-face width in WORLD units maps
- * to screen columns at `worldWidth * zoom / cellPxW` (`layout3d.ts`'s own
- * width/height-scale-asymmetry doc), so at any auto-fit `zoom` below
- * `cellPxW` (25) — the ordinary case for a multi-node diagram, since the
- * auto-fit zooms OUT to fit the whole layout — a box's SCREEN width is
- * narrower than its own WORLD-unit label budget, so a label the old check
- * called "fits" (world units) genuinely overflowed on screen (measured on
- * the transformer fixture: "Input Embedding" node half-width 9.5 world
- * units passed the old `floor(19) >= 16` check, but at the auto-fit's
- * `zoom: 15.4` the box's real screen width is `~11.7` columns — 4-5
- * columns short of the 16 the label needs). `screenWidthCols` omitted
- * falls back to the old world-unit heuristic verbatim (byte-identical),
- * for a caller (or a pinned unit test) with no camera/zoom to derive it
- * from; both real call sites now supply it (`glyphDiagramObject`'s stamp
- * from the REAL `frame.camera` — correct under a live-orbited view too —
- * and `render3d.ts`'s fit from its own closed-form projected zoom).
- * Padding: `screenWidthCols` reserves >= 1 column on EACH side (the
- * brief's own requirement) by budgeting `floor(screenWidthCols) - 2` cells
- * for text, never the raw width.
+ * `screenWidthCols`, when given, is the node's own front face's REAL
+ * PROJECTED SCREEN WIDTH (columns) and REPLACES `node.half[0] * 2` (world
+ * units) as the "does it fit" / clip budget — a node's own front-face width
+ * in WORLD units maps to screen columns at `worldWidth * zoom / cellPxW`,
+ * so at any auto-fit `zoom` below `cellPxW` a box's SCREEN width is
+ * narrower than its own WORLD-unit label budget (D2 round 6's own root
+ * cause for labels overflowing their block). Padding: `screenWidthCols`
+ * reserves >= 1 column on EACH side by budgeting `floor(screenWidthCols) - 2`
+ * cells for text, never the raw width. Omitted, it falls back to the old
+ * world-unit heuristic (byte-identical for a caller/unit test with no
+ * camera/zoom to derive it from).
  */
 export function resolveGlyphDiagram3dLabelPlacement(
   node: GlyphDiagram3dNode, rawText: string, mode: GlyphDiagram3dLabelMode = "auto",
   sideDirection: "right" | "below" = "right", screenWidthCols?: number,
-  axes: { readonly u: Vec3; readonly n: Vec3 } = IDENTITY_AXES,
 ): GlyphDiagram3dLabelPlacement {
   const faceWidthCells = screenWidthCols !== undefined
     ? Math.max(1, Math.floor(screenWidthCols) - 2)
     : Math.max(1, Math.floor(node.half[0] * 2));
   const fitsInside = rawText.length <= faceWidthCells;
-  // Front face: `center - half[1]*n` (vector, along the plane's own depth
-  // axis) — NOT `center[1] - half[1]` (a literal world-Y component shift,
-  // wrong whenever `n` isn't `[0,1,0]`; see this function's own D2 round 6
-  // doc).
-  const front: Vec3 = [node.center[0] - node.half[1] * axes.n[0], node.center[1] - node.half[1] * axes.n[1], node.center[2]];
+  const front: Vec3 = [node.center[0], node.center[1] - node.half[1], node.center[2]];
   const top: Vec3 = [front[0], front[1], node.center[2] + node.half[2]];
   if (mode === "inside" || (mode === "auto" && fitsInside)) {
     const text = rawText.length > faceWidthCells ? rawText.slice(0, faceWidthCells) : rawText;
@@ -233,13 +156,9 @@ export function resolveGlyphDiagram3dLabelPlacement(
     const anchor: Vec3 = [node.center[0], node.center[1], node.center[2] - node.half[2] - gap];
     return { anchor, text: rawText, isSide: true, leaderFrom: bottom };
   }
-  // Right edge: `center + half[0]*u` (vector, along the plane's own ground
-  // direction) — NOT `center[0] + half[0]` (a literal world-X component
-  // shift, wrong whenever `u` isn't `[1,0,0]`).
-  const rightEdge: Vec3 = [node.center[0] + node.half[0] * axes.u[0], node.center[1] + node.half[0] * axes.u[1], top[2]];
-  const leaderFrom: Vec3 = rightEdge;
-  const anchor: Vec3 = [rightEdge[0] + gap * axes.u[0], rightEdge[1] + gap * axes.u[1], top[2]];
-  return { anchor, text: rawText, isSide: true, leaderFrom };
+  const rightEdge: Vec3 = [node.center[0] + node.half[0], node.center[1] - node.half[1], top[2]];
+  const anchor: Vec3 = [rightEdge[0] + gap, rightEdge[1], top[2]];
+  return { anchor, text: rawText, isSide: true, leaderFrom: rightEdge };
 }
 
 /** LR/RL -> `"below"`, everything else (TB/BT/unset) -> `"right"`. Shared by this module's overlay and `render3d.ts`'s analytic fit so both pick the identical side. */
@@ -249,10 +168,14 @@ export function glyphDiagram3dLabelSideDirection(direction: GlyphGraphDirection 
 
 const DEFAULT_NODE_COLOR = "#8fb4ff";
 const DEFAULT_EDGE_COLOR = "#cbd5e1";
-const DEFAULT_GROUP_COLOR = "#334155";
+const DEFAULT_GROUP_COLOR = "#64748b";
 const DEFAULT_LABEL_COLOR = "#f8fafc";
-/** High-contrast against the default light node fill — a border, not a shading value. */
-const DEFAULT_BOX_OUTLINE_COLOR = "#0f172a";
+
+/** Edge ribbon half-width, arrowhead half-width/length, group outline half-width — all world units, tuned by direct rendering at this module's own default node scale (a single-line label's box is roughly 5-12 units wide). */
+const GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH = 0.45;
+const GLYPH_DIAGRAM_3D_ARROWHEAD_HALF_WIDTH = 1.1;
+const GLYPH_DIAGRAM_3D_ARROWHEAD_LENGTH = 2.2;
+const GLYPH_DIAGRAM_3D_GROUP_OUTLINE_HALF_WIDTH = 0.3;
 
 export interface GlyphDiagramObjectOptions extends GlyphDiagram3dLayoutOptions {
   /** Object id — must be unique among objects mounted in the same scene. Default `"diagram"`. */
@@ -261,24 +184,6 @@ export interface GlyphDiagramObjectOptions extends GlyphDiagram3dLayoutOptions {
   readonly edgeColor?: string;
   readonly groupColor?: string;
   readonly labelColor?: string;
-  /** Depth-tested box-edge outline colour. Default a dark slate for contrast against `nodeColor`'s default light fill. */
-  readonly boxOutlineColor?: string;
-  /**
-   * Draw the depth-tested 12-edge box outline. Default `true`. `render3d.ts`
-   * passes `false` when the resolved render `mode` already draws every
-   * polygon edge itself (`ink`/`wireframe`) — a redundant overlay outline
-   * there would double-stamp the same cells with a possibly different
-   * glyph for no visual gain.
-   */
-  readonly boxOutline?: boolean;
-  /**
-   * Which `GLYPH_CANVAS_TIERS` glyph table the edge/arrowhead/box-outline
-   * overlay reads from — `render3d.ts`'s charset resolution passes the
-   * target's resolved tier; default `"ascii"` keeps a bare
-   * `glyphDiagramObject(graph)` call byte-identical to before this option
-   * existed.
-   */
-  readonly tier?: GlyphCanvasTierName;
   /**
    * When given, ONLY nodes whose id is in this set get a placed label —
    * every other node's box still renders (and still occludes/gets
@@ -289,11 +194,11 @@ export interface GlyphDiagramObjectOptions extends GlyphDiagram3dLayoutOptions {
    */
   readonly labelNodeIds?: ReadonlySet<string>;
   /**
-   * Draw a real arrowhead on each edge's final cell. Default `true`.
-   * `render3d.ts` passes `false` past an edge-count density budget — the
-   * plain slope glyph still marks the edge itself, just without the extra
-   * glyph write past a threshold where arrowheads read as noise rather
-   * than direction.
+   * Draw a real arrowhead PYRAMID on each edge's final segment. Default
+   * `true`. `render3d.ts` passes `false` past an edge-count density
+   * budget — the ribbon still marks the edge itself, just without the
+   * extra geometry past a threshold where arrowheads read as noise
+   * rather than direction.
    */
   readonly arrowheads?: boolean;
   /** `"inside"` | `"side"` | `"auto"` (default) — see `resolveGlyphDiagram3dLabelPlacement`'s own doc. */
@@ -305,78 +210,118 @@ function resolveNodeColor(option: GlyphDiagramObjectOptions["nodeColor"], node: 
   return option ?? DEFAULT_NODE_COLOR;
 }
 
-type GlyphCanvasDiagonalRawKey = "-" | "|" | "/" | "\\";
-
-/** Screen-space slope of a projected segment, snapped to `stampGlyphOverlayLine`'s own raw diagonal-key vocabulary. Under the module's own DEFAULT camera every layered edge/box-outline segment resolves to `"-"`/`"|"` exactly (D2 round 5's own zero-row/zero-col guarantees) — the diagonal branch stays reachable (and correct) the moment a caller/live-orbit viewer uses a DIFFERENT camera. */
-function diagonalKey(dCol: number, dRow: number): GlyphCanvasDiagonalRawKey {
-  const adx = Math.abs(dCol), ady = Math.abs(dRow);
-  if (adx > ady * 2) return "-";
-  if (ady > adx * 2) return "|";
-  return (dCol > 0) === (dRow > 0) ? "\\" : "/";
+function normalizeVec(v: Vec3): Vec3 {
+  const len = Math.hypot(v[0], v[1], v[2]);
+  if (len === 0) return [0, 0, 1];
+  return [v[0] / len, v[1] / len, v[2] / len];
+}
+function crossVec(a: Vec3, b: Vec3): Vec3 {
+  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
 }
 
-/** The tier's own glyph for a segment: `tier.straight.h`/`.v` for a near-axis-aligned run, `tier.diagonal[...]` only for a genuine diagonal, `tier.dot` for a degenerate (zero-length) one. */
-function segmentGlyph(tier: GlyphCanvasTier, dCol: number, dRow: number): string {
-  if (dCol === 0 && dRow === 0) return tier.dot;
-  const key = diagonalKey(dCol, dRow);
-  if (key === "-") return tier.straight.h;
-  if (key === "|") return tier.straight.v;
-  return tier.diagonal[key];
+/**
+ * A stable camera-style orthonormal frame from a forward direction:
+ * `right = normalize(cross(worldUp, forward))`, `up = cross(forward, right)`
+ * — the standard "look-at" construction, chosen because it gives
+ * `cross(right, up) === forward` EXACTLY (proof: `cross(right, cross(forward,
+ * right)) = forward*(right.right) - right*(right.forward) = forward`, since
+ * `right` is unit length and already perpendicular to `forward`), which is
+ * what keeps a ribbon/pyramid built from it winding CCW-from-outside in
+ * `boxPolygons`'s own convention (`X=right, Y=up, Z=forward` there).
+ * `worldUp` swaps to avoid the degenerate case where `forward` is nearly
+ * parallel to the usual Z reference.
+ */
+function frameFromForward(forward: Vec3): { readonly right: Vec3; readonly up: Vec3 } {
+  const worldUp: Vec3 = Math.abs(forward[2]) > 0.9 ? [1, 0, 0] : [0, 0, 1];
+  const right = normalizeVec(crossVec(worldUp, forward));
+  const up = crossVec(forward, right);
+  return { right, up };
 }
 
-/** Nearest of the tier's 4 arrowhead glyphs (N/E/S/W) to the screen-space DIRECTION OF TRAVEL of an edge's final segment — computed from the ACTUAL projected points (never a stored 2D port side), so it reads correctly at the fixed default camera AND under a live-orbited one. */
-function arrowGlyph(tier: GlyphCanvasTier, dCol: number, dRow: number): string {
-  if (Math.abs(dCol) >= Math.abs(dRow)) return dCol >= 0 ? tier.arrow.e : tier.arrow.w;
-  return dRow >= 0 ? tier.arrow.s : tier.arrow.n;
+/**
+ * A thin oriented box swept from `a` to `b` — an edge's own ribbon segment,
+ * or a group's own outline edge. Mirrors `boxPolygons`'s exact face/winding
+ * table (`AGENTS.md`'s own convention: X=right axis, Y=up axis, Z=forward
+ * here) with the "top"/"bottom" caps at `b`/`a` respectively.
+ */
+function orientedRibbonPolygons(a: Vec3, b: Vec3, halfWidth: number, color: string): Polygon[] {
+  const forward = normalizeVec([b[0] - a[0], b[1] - a[1], b[2] - a[2]]);
+  const { right, up } = frameFromForward(forward);
+  const at = (base: Vec3, sr: number, su: number): Vec3 => [
+    base[0] + right[0] * sr * halfWidth + up[0] * su * halfWidth,
+    base[1] + right[1] * sr * halfWidth + up[1] * su * halfWidth,
+    base[2] + right[2] * sr * halfWidth + up[2] * su * halfWidth,
+  ];
+  const v0 = at(a, -1, -1), v1 = at(a, 1, -1), v2 = at(a, 1, 1), v3 = at(a, -1, 1);
+  const v4 = at(b, -1, -1), v5 = at(b, 1, -1), v6 = at(b, 1, 1), v7 = at(b, -1, 1);
+  const faces: readonly (readonly [Vec3, Vec3, Vec3, Vec3])[] = [
+    [v4, v5, v6, v7], // +forward (b) cap
+    [v1, v0, v3, v2], // -forward (a) cap
+    [v5, v1, v2, v6], // +right side
+    [v0, v4, v7, v3], // -right side
+    [v7, v6, v2, v3], // +up side
+    [v0, v1, v5, v4], // -up side
+  ];
+  return faces.map((vertices) => ({ vertices: [...vertices], color }));
 }
 
-interface ProjectedPoint { readonly col: number; readonly row: number; readonly depth: number; }
-
-function project(frame: GlyphOverlayFrame, p: Vec3): ProjectedPoint {
-  const [col, row, depth] = frame.camera.project(frame.toWorld(p), frame.cols, frame.rows, frame.cellAspect);
-  return { col, row, depth };
+/**
+ * A pyramid with its APEX at `tip` (a face point on the target node,
+ * "pointing into" it) and a square base pulled back toward `source` by
+ * `length` — an edge's own arrowhead. Same frame/winding discipline as
+ * `orientedRibbonPolygons`; each side quad DEGENERATES to a triangle since
+ * the "top" cap collapses to one point (the box face pair that shared only
+ * an up/right sign difference at the top now shares the apex instead).
+ */
+function orientedPyramidPolygons(source: Vec3, tip: Vec3, halfWidth: number, length: number, color: string): Polygon[] {
+  const forward = normalizeVec([tip[0] - source[0], tip[1] - source[1], tip[2] - source[2]]);
+  const { right, up } = frameFromForward(forward);
+  const base: Vec3 = [tip[0] - forward[0] * length, tip[1] - forward[1] * length, tip[2] - forward[2] * length];
+  const at = (sr: number, su: number): Vec3 => [
+    base[0] + right[0] * sr * halfWidth + up[0] * su * halfWidth,
+    base[1] + right[1] * sr * halfWidth + up[1] * su * halfWidth,
+    base[2] + right[2] * sr * halfWidth + up[2] * su * halfWidth,
+  ];
+  const b0 = at(-1, -1), b1 = at(1, -1), b2 = at(1, 1), b3 = at(-1, 1);
+  return [
+    { vertices: [b1, b0, b3, b2], color }, // base cap (-forward, viewed from outside)
+    { vertices: [tip, b1, b2], color }, // +right side
+    { vertices: [b0, tip, b3], color }, // -right side
+    { vertices: [tip, b2, b3], color }, // +up side
+    { vertices: [b0, b1, tip], color }, // -up side
+  ];
 }
 
-/** A box's 8 LOCAL corners in the SAME (±u,±n,±z) order `boxPolygons`/`cubePolygons` use, and its 12 edges — shared by a node's own box outline AND a force-layout group's wireframe-volume overlay outline. */
-const BOX_OUTLINE_EDGES: readonly (readonly [number, number])[] = [
+/** A group's own 12-edge AABB, traced as thin ribbons — a plain outline tier, never a filled/recessed panel (D2 round 7: "a translucent-free outline tier around member blocks, drawn as geometry"). */
+const GROUP_OUTLINE_EDGE_PAIRS: readonly (readonly [number, number])[] = [
   [0, 1], [1, 2], [2, 3], [3, 0],
   [4, 5], [5, 6], [6, 7], [7, 4],
   [0, 4], [1, 5], [2, 6], [3, 7],
 ];
-
-/** A flat rectangle's 4 corners, in the SAME winding `BOX_OUTLINE_EDGES`'s first 4 entries walk — a layered group's recessed-frame overlay outline reuses just that first quarter of the table. */
-const FLOOR_OUTLINE_EDGES: readonly (readonly [number, number])[] = [[0, 1], [1, 2], [2, 3], [3, 0]];
-
-function localCornersFromMinMax(min: Vec3, max: Vec3): readonly Vec3[] {
-  return [
+function groupOutlinePolygons(min: Vec3, max: Vec3, halfWidth: number, color: string): Polygon[] {
+  const corners: readonly Vec3[] = [
     [min[0], min[1], min[2]], [max[0], min[1], min[2]], [max[0], max[1], min[2]], [min[0], max[1], min[2]],
     [min[0], min[1], max[2]], [max[0], min[1], max[2]], [max[0], max[1], max[2]], [min[0], max[1], max[2]],
   ];
+  return GROUP_OUTLINE_EDGE_PAIRS.flatMap(([ia, ib]) => orientedRibbonPolygons(corners[ia]!, corners[ib]!, halfWidth, color));
 }
 
-/** A node's own 8 WORLD corners — LOCAL axis-aligned extents (`half`) mapped through the plane's `u`/`n` (and, for a `diamond`, rotated 45 degrees IN THAT LOCAL FRAME first, matching `decisionPolygons`'s own mesh exactly). */
-function boxCorners(node: GlyphDiagram3dNode, axes: { readonly u: Vec3; readonly n: Vec3 }): readonly Vec3[] {
+/** A node's own 8 WORLD corners — used only for this object's own `bounds` (the auto-fit's AABB), never for drawing (no more hand-drawn box outline). */
+function boxCorners(node: GlyphDiagram3dNode): readonly Vec3[] {
   const [hx, hy, hz] = node.half;
-  let local = localCornersFromMinMax([-hx, -hy, -hz], [hx, hy, hz]);
-  if (node.shape === "diamond") local = local.map((p) => rotateZ45(p, [0, 0, 0]));
-  return local.map((p) => toWorldFrame(p, node.center, axes.u, axes.n));
+  const local: Vec3[] = [
+    [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
+    [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz],
+  ];
+  const rotated = node.shape === "diamond" ? local.map((p) => rotateZ45(p, [0, 0, 0])) : local;
+  const [cx, cy, cz] = node.center;
+  return rotated.map((p): Vec3 => [p[0] + cx, p[1] + cy, p[2] + cz]);
 }
 
-/**
- * A layered group's own 4 WORLD corners — its `min`/`max` are the
- * "minU,minZ"/"maxU,maxZ" world corners `layout3d.ts` already computed
- * (its own `planePoint` at the group's fixed depth `z`); the other two
- * corners mix `u`'s scalar range with `n`'s fixed one, recovered by
- * projecting `min`/`max` back onto the orthonormal `u` axis (a plain dot
- * product) rather than re-deriving the 2D bounds a second time.
- */
-function groupFrameCorners(group: GlyphDiagram3dGroup, axes: { readonly u: Vec3; readonly n: Vec3 }): readonly Vec3[] {
-  const { u, n } = axes;
-  const minU = group.min[0] * u[0] + group.min[1] * u[1];
-  const maxU = group.max[0] * u[0] + group.max[1] * u[1];
-  const minZ = group.min[2], maxZ = group.max[2];
-  const at = (uOffset: number, zOffset: number): Vec3 => [uOffset * u[0] + group.z * n[0], uOffset * u[1] + group.z * n[1], zOffset];
-  return [at(minU, minZ), at(maxU, minZ), at(maxU, maxZ), at(minU, maxZ)];
+interface ProjectedPoint { readonly col: number; readonly row: number; readonly depth: number; }
+function project(frame: GlyphOverlayFrame, p: Vec3): ProjectedPoint {
+  const [col, row, depth] = frame.camera.project(frame.toWorld(p), frame.cols, frame.rows, frame.cellAspect);
+  return { col, row, depth };
 }
 
 export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagramObjectOptions = {}): Promise<GlyphSceneObject> {
@@ -384,121 +329,51 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
   const edgeColor = options.edgeColor ?? DEFAULT_EDGE_COLOR;
   const groupColor = options.groupColor ?? DEFAULT_GROUP_COLOR;
   const labelColor = options.labelColor ?? DEFAULT_LABEL_COLOR;
-  const boxOutlineColor = options.boxOutlineColor ?? DEFAULT_BOX_OUTLINE_COLOR;
   const labelNodeIds = options.labelNodeIds;
   const arrowheads = options.arrowheads ?? true;
-  const boxOutline = options.boxOutline ?? true;
-  const tierName = options.tier ?? "ascii";
   const labelMode = options.labels ?? "auto";
   const labelSideDirection = glyphDiagram3dLabelSideDirection(options.direction ?? graph.direction);
-  const layoutKind = options.layout ?? "layered";
-  const wireframeGroups = layoutKind === "force";
-  // A `force` layout has no shared plane at all — every node/group/edge it
-  // emits is already a literal world-space point, so its own "plane axes"
-  // are the identity (`u = X̂`, `n = Ŷ`), a no-op in `toWorldFrame`/
-  // `boxCorners`/`groupFrameCorners` below.
-  const axes = layoutKind === "force" ? IDENTITY_AXES : glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
 
   const meshes: GlyphSceneObjectMesh[] = [];
-  const nodeMeshIndex = new Map<string, number>();
   for (const node of layout.nodes) {
     const color = resolveNodeColor(options.nodeColor, node);
-    const polygons = nodePolygons(node, color, axes);
-    nodeMeshIndex.set(node.id, meshes.length);
-    meshes.push({ name: `node:${node.id}`, polygons, options: { castShadow: true, receiveShadow: true } });
+    meshes.push({ name: `node:${node.id}`, polygons: nodePolygons(node, color), options: { castShadow: true, receiveShadow: true } });
   }
-  // Groups are NOT a mesh — drawn as a depth-tested overlay outline instead
-  // (a layered group's own recessed backdrop frame, or a force group's
-  // wireframe volume), in the SAME `stamp()` below that already draws node
-  // box outlines.
+
+  layout.edges.forEach((edge, i) => {
+    const polygons: Polygon[] = [];
+    for (let s = 0; s < edge.points.length - 1; s++) {
+      polygons.push(...orientedRibbonPolygons(edge.points[s]!, edge.points[s + 1]!, GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH, edgeColor));
+    }
+    if (arrowheads && edge.points.length >= 2) {
+      const tip = edge.points[edge.points.length - 1]!;
+      const source = edge.points[edge.points.length - 2]!;
+      polygons.push(...orientedPyramidPolygons(source, tip, GLYPH_DIAGRAM_3D_ARROWHEAD_HALF_WIDTH, GLYPH_DIAGRAM_3D_ARROWHEAD_LENGTH, edgeColor));
+    }
+    meshes.push({ name: `edge:${edge.id}:${i}`, polygons });
+  });
+
+  for (const group of layout.groups) {
+    meshes.push({ name: `group:${group.id}`, polygons: groupOutlinePolygons(group.min, group.max, GLYPH_DIAGRAM_3D_GROUP_OUTLINE_HALF_WIDTH, groupColor) });
+  }
 
   const overlay: GlyphSceneOverlay = {
     id: "glyph-diagram-3d",
     stamp(grid, frame): void {
-      const tier = GLYPH_CANVAS_TIERS[tierName];
-      const ownMeshIdsArray = Array.from(frame.ownMeshIds);
-      const meshIdForNode = (id: string): number | undefined => {
-        const index = nodeMeshIndex.get(id);
-        return index === undefined ? undefined : ownMeshIdsArray[index];
-      };
-      if (boxOutline) {
-        for (const node of layout.nodes) {
-          // No box edges on a sphere or a cylinder — `ink`/`wireframe`
-          // render modes already trace THEIR OWN silhouette from the real
-          // geometry, so this overlay only ever needs the box-ish shapes.
-          if (node.shape === "circle" || node.shape === "cylinder") continue;
-          const corners = boxCorners(node, axes).map((p) => project(frame, p));
-          for (const [ia, ib] of BOX_OUTLINE_EDGES) {
-            const a = corners[ia]!, b = corners[ib]!;
-            stampGlyphOverlayLine(grid, a, b, segmentGlyph(tier, b.col - a.col, b.row - a.row), boxOutlineColor);
-          }
-        }
-      }
-      // Group outlines — unconditional, unlike the node box outline above:
-      // with no backing polygon mesh, this overlay is the ONLY
-      // representation of a group's boundary in every charset/mode.
-      for (const group of layout.groups) {
-        const edges = wireframeGroups ? BOX_OUTLINE_EDGES : FLOOR_OUTLINE_EDGES;
-        const corners = (wireframeGroups ? localCornersFromMinMax(group.min, group.max) : groupFrameCorners(group, axes)).map((p) => project(frame, p));
-        for (const [ia, ib] of edges) {
-          const a = corners[ia]!, b = corners[ib]!;
-          stampGlyphOverlayLine(grid, a, b, segmentGlyph(tier, b.col - a.col, b.row - a.row), groupColor);
-        }
-      }
-      for (const edge of layout.edges) {
-        const projected = edge.points.map((p) => project(frame, p));
-        for (let i = 0; i < projected.length - 1; i++) {
-          const a = projected[i]!, b = projected[i + 1]!;
-          const dCol = b.col - a.col, dRow = b.row - a.row;
-          stampGlyphOverlayLine(grid, a, b, segmentGlyph(tier, dCol, dRow), edgeColor);
-          if (i === projected.length - 2 && arrowheads) {
-            // The final segment's own arrowhead. NOT depth-tested via
-            // `stampGlyphOverlayCell`'s own `depth` field against the RAW
-            // winning depth — the arrow's anchor is, by definition, ON the
-            // TARGET node's own surface, so a flat depth test loses it to
-            // that SAME node's own nearer top face. Narrowed instead: look
-            // up the depth-winning mesh (`CellGrid.winnerMesh`,
-            // solid-mode-only) and refuse the write ONLY when the winner
-            // is neither this edge's own source nor target node AND it is
-            // nearer than the arrowhead's own point.
-            const col = Math.round(b.col), row = Math.round(b.row);
-            let occludedByForeignNode = false;
-            if (grid.winnerMesh && col >= 0 && col < grid.cols && row >= 0 && row < grid.rows) {
-              const idx = row * grid.cols + col;
-              const winner = grid.winnerMesh[idx];
-              if (winner !== undefined && winner !== -1) {
-                const sourceId = meshIdForNode(edge.from), targetId = meshIdForNode(edge.to);
-                if (winner !== sourceId && winner !== targetId) {
-                  const winnerDepth = grid.depth[idx];
-                  if (Number.isFinite(winnerDepth) && winnerDepth > b.depth) occludedByForeignNode = true;
-                }
-              }
-            }
-            if (!occludedByForeignNode) {
-              stampGlyphOverlayCell(grid, { col, row, char: arrowGlyph(tier, dCol, dRow), color: edgeColor });
-            }
-          }
-        }
-      }
       for (const node of layout.nodes) {
         if (labelNodeIds && !labelNodeIds.has(node.id)) continue;
         const rawText = node.label.split("\n")[0] ?? node.id;
-        // D2 round 6 — the node's own REAL projected front-face screen
-        // width, from the frame's ACTUAL camera (never an estimate): two
-        // extra projections per labelled node, always correct, and correct
-        // under a live-orbited camera too (the width is re-derived every
-        // stamp call, never cached from the auto-fit's own camera).
-        const leftEdge = toWorldFrame([-node.half[0], -node.half[1], 0], node.center, axes.u, axes.n);
-        const rightEdge = toWorldFrame([node.half[0], -node.half[1], 0], node.center, axes.u, axes.n);
+        // The node's own REAL projected front-face screen width, from the
+        // frame's ACTUAL camera (never an estimate) — see this file's own
+        // `resolveGlyphDiagram3dLabelPlacement` doc.
+        const leftEdge: Vec3 = [node.center[0] - node.half[0], node.center[1] - node.half[1], node.center[2]];
+        const rightEdge: Vec3 = [node.center[0] + node.half[0], node.center[1] - node.half[1], node.center[2]];
         const screenWidthCols = Math.abs(project(frame, rightEdge).col - project(frame, leftEdge).col);
-        const placement = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols, axes);
+        const placement = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols);
         const { col: colF, row: rowF } = project(frame, placement.anchor);
-        if (placement.isSide && placement.leaderFrom) {
-          const from = project(frame, placement.leaderFrom), to = project(frame, placement.anchor);
-          stampGlyphOverlayLine(grid, from, to, segmentGlyph(tier, to.col - from.col, to.row - from.row), labelColor);
-        }
         // No `depth` here on purpose: occlusion by a FOREIGN mesh is
-        // already the `ownMeshIds`/`winnerMesh` check below.
+        // already the `ownMeshIds`/`winnerMesh` check the shared arbiter
+        // performs (AGENTS.md's "Scene objects" Declutter clause).
         frame.labels.place({
           id: `node:${node.id}`, priority: node.degree, col: Math.round(colF), row: Math.round(rowF),
           text: placement.text, color: labelColor, ownMeshIds: frame.ownMeshIds,
@@ -507,9 +382,10 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
     },
   };
 
-  const nodeCorners = layout.nodes.flatMap((n) => boxCorners(n, axes));
-  const groupCorners = layout.groups.flatMap((g) => (wireframeGroups ? localCornersFromMinMax(g.min, g.max) : groupFrameCorners(g, axes)));
-  const allPoints = [...nodeCorners, ...groupCorners];
+  const nodeCorners = layout.nodes.flatMap((n) => boxCorners(n));
+  const edgeCorners = layout.edges.flatMap((e) => e.points);
+  const groupCorners = layout.groups.flatMap((g): Vec3[] => [g.min, g.max]);
+  const allPoints = [...nodeCorners, ...edgeCorners, ...groupCorners];
   const bounds = allPoints.length === 0
     ? { min: [0, 0, 0] as Vec3, max: [0, 0, 0] as Vec3 }
     : {
@@ -524,3 +400,6 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
     bounds,
   };
 }
+
+// Re-export the group type for `render3d.ts`'s own bounds/fit computations.
+export type { GlyphDiagram3dGroup };

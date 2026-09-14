@@ -4,14 +4,15 @@
 // `TargetPreview` does with it — a full 60-cell DOM sweep already exists
 // for 2D in `diagramsWorkbenchTargetMatrix.test.tsx`; this stays at the
 // pure-function level, cheap enough to run every cell). Every cell must
-// WORK (never throw/reject) — `blocks` faithfully DOWNGRADES
-// (`charsetDowngraded: true`, never a silent misrender) on every target;
-// `braille` is the library's own INTENDED wireframe-braille look under the
-// default style (no library-level downgrade) and only picks up
-// `charsetDowngraded` on `chat`, from this page's OWN separate downgrade
-// (no chat client's fenced-code font carries the braille block) — matching
-// AGENTS.md's "Targets and page" export-boundary discipline this page
-// mirrors for 3D.
+// WORK (never throw/reject) — D2 round 7 made `braille`/`blocks` the
+// library's own ONLY two intended 3D looks (no library-level downgrade for
+// either, on any target); `ascii`/`box` faithfully DOWNGRADE
+// (`charsetDowngraded: true`, never a silent misrender), to `blocks` on
+// `chat` and `braille` everywhere else. `braille` ALSO picks up
+// `charsetDowngraded` on `chat` specifically, from this page's OWN
+// separate downgrade to `blocks` (no chat client's fenced-code font
+// carries the braille block) — matching AGENTS.md's "Targets and page"
+// export-boundary discipline this page mirrors for 3D.
 import { describe, expect, it } from "vitest";
 import { createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchControls, reduceGlyphDiagramsWorkbenchState, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
 import { renderGlyphDiagramsWorkbenchState3d } from "./diagramsWorkbenchRender";
@@ -73,19 +74,30 @@ describe("renderGlyphDiagramsWorkbenchState3d — target x charset x colour matr
     expect(BRAILLE_RANGE.test(terminal.text)).toBe(true);
   });
 
-  it("blocks always degrades to solid ASCII in 3D and reports charsetDowngraded", async () => {
-    const result = await renderGlyphDiagramsWorkbenchState3d(withControls("web", "blocks", "none"));
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.charsetDowngraded).toBe(true);
+  // D2 round 7 — `blocks` is now one of the library's own TWO intended 3D
+  // looks (a solid halfblock render), never a downgrade from anything
+  // else, on any target.
+  it("blocks never degrades, on any target", async () => {
+    for (const target of TARGETS) {
+      const result = await renderGlyphDiagramsWorkbenchState3d(withControls(target, "blocks", "none"));
+      expect(result.ok, target).toBe(true);
+      if (!result.ok) return;
+      expect(result.charsetDowngraded, target).toBeUndefined();
+    }
   });
 
-  it("ascii/box never degrade", async () => {
+  // D2 round 7 — `ascii`/`box` are now the ONLY two 3D charsets that
+  // degrade (box-drawing/bar glyphs can't trace an edge or a box face at
+  // an angle, the user's own stated reason) — on every target, since
+  // neither ever renders as requested.
+  it("ascii/box always degrade, on every target", async () => {
     for (const charset of ["ascii", "box"] as const) {
-      const result = await renderGlyphDiagramsWorkbenchState3d(withControls("web", charset, "none"));
-      expect(result.ok, charset).toBe(true);
-      if (!result.ok) return;
-      expect(result.charsetDowngraded, charset).toBeUndefined();
+      for (const target of TARGETS) {
+        const result = await renderGlyphDiagramsWorkbenchState3d(withControls(target, charset, "none"));
+        expect(result.ok, `${charset}/${target}`).toBe(true);
+        if (!result.ok) return;
+        expect(result.charsetDowngraded, `${charset}/${target}`).toBe(true);
+      }
     }
   });
 

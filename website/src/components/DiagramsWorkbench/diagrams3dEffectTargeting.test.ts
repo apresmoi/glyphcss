@@ -101,17 +101,18 @@ async function renderWithTarget(targetNodeId: string | null): Promise<Fit> {
     // UV dependency a plain box mesh may not carry, so it is the most
     // reliable of the three for asserting the TARGETING mechanism itself.
     //
-    // D2 round 5: `time: 0.5` was tuned against the old per-direction camera's
-    // own screen rows for node "a" — glitch's band pattern is a deterministic
-    // hash of `(cell index, time)`, so a fixed `time` genuinely misses a
-    // node's own band at SOME rows and hits at others, and round 5's plane
-    // embedding moved every node onto different screen rows. `time: 0.9` is
-    // verified (swept 0.1-3.0 in 0.1 steps against the ACTUAL round-5
-    // geometry) to paint a real, nonzero diff for both "a" and "b" at this
-    // fixture's own camera — not a property this test can derive in closed
-    // form, since the hash has no monotone relationship to geometry.
+    // D2 round 7: `time: 0.3` is re-tuned against the round-7 triangulated
+    // stage-by-stage layout (a genuinely different camera AND node
+    // placement from round 5's — this file's own "Diagrams 3D" section) —
+    // glitch's band pattern is a deterministic hash of `(cell index,
+    // time)`, so a fixed `time` genuinely misses a node's own band at SOME
+    // rows and hits at others. `time: 0.3` is verified (swept 0.1-3.0 in
+    // 0.1 steps against the ACTUAL round-7 geometry) to paint a real,
+    // nonzero diff for both "a" and "b" at this fixture's own camera — not
+    // a property this test can derive in closed form, since the hash has
+    // no monotone relationship to geometry.
     const definition = getGlyphEffect("glitch")!;
-    const layer = scene.addEffectLayer({ effect: definition, params: { ...defaultGlyphEffectParams(definition), time: 0.9 }, target: handle.meshes.get(`node:${targetNodeId}`) });
+    const layer = scene.addEffectLayer({ effect: definition, params: { ...defaultGlyphEffectParams(definition), time: 0.3 }, target: handle.meshes.get(`node:${targetNodeId}`) });
     expect(layer).toBeDefined();
   }
   scene.rerender();

@@ -12,34 +12,22 @@ function entry(code: string, message: string, detail?: Record<string, unknown>):
 }
 
 /**
- * D2 round 3: the default (and `style: "ink"`) detail comes from the
- * renderer's own `ink` (crisp silhouette+crease line art, box/ascii) or
- * `wireframe`+`charMode: "braille"` (2x4 sub-cell dots) modes rather than
- * solid Lambert-shaded fills — message 2's own "we should be able to render
- * those with good detail using braille or ink mode", and AGENTS.md's
- * `hiddenLines: "hide"` on both so an occluded object/back edge disappears
- * rather than showing through. Braille there is the INTENDED look, not a
- * fallback from something else, so `resolveCharset` logs no entry for it —
- * this constructor is never called for that case. `"blocks"` still can't
- * carry the stamped edge/label overlays this renderer depends on (its
- * quadrant/halfblock dual-color encoder bypasses `CellGrid`/`transformCells`
- * entirely), so it degrades to the SAME `ink` render `"ascii"`/`"box"` use,
- * just with ASCII glyphs instead of its own sub-cell shading — that call
- * IS logged (`renderedAs: "ascii ink"`). An explicit `style: "solid"`
- * override reaches the OLD Lambert-shaded box render for a caller who wants
- * it back; THERE braille genuinely can't follow (solid has no wireframe
- * analogue), so it falls back to wireframe and that call is logged too
- * (`renderedAs: "wireframe"`, `charset: "braille"` — the only caller of
- * that combination; `style: "solid"`'s own `"blocks"` case logs
- * `renderedAs: "ascii"` instead, a different message below).
+ * D2 round 7 (user, verbatim: "we need to use braille and blocks for 3d
+ * diagrams" — box-drawing/bar glyphs can't represent an edge/box seen at an
+ * angle). `braille` and `blocks` are the ONLY two 3D diagram charsets now;
+ * an `"ascii"`/`"box"` request DEGRADES rather than rendering literal
+ * line-glyph box drawing — to `"blocks"` on `chat` (a chat client's own
+ * fenced-code font carries the Block Elements range but essentially never
+ * braille, AGENTS.md's "Targets and page") and to `"braille"` everywhere
+ * else (`web`/`terminal`, which both already default to braille). Logged
+ * once per render, naming the target that decided the destination.
  */
-export function ledger3dCharsetDegraded(opts: { readonly charset: "blocks" | "braille"; readonly renderedAs: "ascii ink" | "wireframe" | "ascii" }): GlyphDiagramLedgerEntry {
-  const message = opts.renderedAs === "wireframe"
-    ? "Braille can only draw wireframe outlines in 3D, not solid Lambert-shaded surfaces — node and group volumes render as wireframe boxes."
-    : opts.renderedAs === "ascii ink"
-      ? "The blocks charset's sub-cell shading can't carry stamped edges and labels — rendering as ASCII ink line art instead."
-      : "The blocks charset's sub-cell shading can't carry stamped edges and labels — rendering as solid ASCII instead.";
-  return entry("3d-charset-degraded", message, { ...opts });
+export function ledger3dCharsetDegraded(opts: { readonly charset: "ascii" | "box"; readonly target: "chat" | "terminal" | "web"; readonly renderedAs: "braille" | "blocks" }): GlyphDiagramLedgerEntry {
+  return entry(
+    "3d-charset-degraded",
+    `3D diagrams only render through braille or blocks — box-drawing glyphs can't trace an edge or a box face at an angle. Requesting "${opts.charset}" on ${opts.target} rendered as ${opts.renderedAs} instead.`,
+    { ...opts },
+  );
 }
 
 /**
@@ -104,9 +92,21 @@ export function ledger3dLabelsSuppressed(opts: { readonly total: number; readonl
  * D2 fix round 3, P1-2 (codex): past an edge-count density budget, every
  * edge's own arrowhead adds more visual noise than direction information
  * on a dense graph — `render3d.ts` drops arrowheads by default there
- * (the plain slope glyph still shows the edge itself), reported ONCE.
+ * (the ribbon mesh still shows the edge itself), reported ONCE.
  * `arrowheads: true`/`false` always overrides this.
  */
 export function ledger3dArrowheadsSuppressed(opts: { readonly edgeCount: number; readonly threshold: number }): GlyphDiagramLedgerEntry {
   return entry("3d-arrowheads-suppressed", `${opts.edgeCount} edges is past the ${opts.threshold}-edge density budget — arrowheads are hidden to reduce clutter; pass arrowheads: true to override.`, { ...opts });
+}
+
+/**
+ * D2 round 7: the `blocks` charset paints two colours per cell
+ * (`glyphcss`'s `encodeGlyphBuffersDual`, halfblock), which has NO ANSI
+ * SGR form — only plain text or HTML `<span>` markup (AGENTS.md's "Render
+ * modes"). An ANSI colour mode (`ansi16`/`ansi256`/`truecolor`) requested
+ * alongside `charset: "blocks"` degrades to plain, colourless text rather
+ * than silently dropping the requested colour with no signal.
+ */
+export function ledger3dBlocksAnsiUnsupported(opts: { readonly color: string }): GlyphDiagramLedgerEntry {
+  return entry("3d-blocks-ansi-unsupported", `The blocks charset has no ANSI colour form — rendering "${opts.color}" as plain text instead. Use color: "css" for a coloured blocks export.`, { ...opts });
 }

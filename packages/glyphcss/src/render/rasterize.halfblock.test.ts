@@ -45,16 +45,48 @@ describe("rasterize — halfblock solid (charMode)", () => {
     }
   });
 
-  it("is a documented no-op when combined with a transformCells hook: falls back to the single-color ramp path", () => {
+  // D2 round 7 (`@glyphcss/diagrams/3d`'s "blocks" charset): halfblock/
+  // quadrant + a mounted `transformCells` hook used to be a documented
+  // no-op (fell back to the single-color ramp) — the fix in this round
+  // makes it WORK, so a diagram's node-label overlay can render real
+  // half-block/quadrant geometry with the labels stamped on top as
+  // whole-cell overrides. These two tests replace the old "falls back"
+  // pin with the new contract.
+  it("a hook that touches NOTHING still renders real halfblock glyphs — byte-identical to no hook at all", () => {
     const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
     const grid = { cols: 20, rows: 10, cellAspect: 2.0 };
     const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
     const identity = (g: CellGrid) => g;
-    const withAsciiHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "ascii", transformCells: identity }));
-    const withHalfblockHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "halfblock", transformCells: identity }));
-    expect(withHalfblockHook).toBe(withAsciiHook);
-    // Neither the ASCII ramp nor the fallback path ever emits a halfblock glyph.
-    expect(withHalfblockHook).not.toMatch(/[▀▄█]/);
+    const withoutHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "halfblock" }));
+    const withIdentityHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "halfblock", transformCells: identity }));
+    expect(withIdentityHook).toBe(withoutHook);
+    expect(withIdentityHook).toMatch(/[▀▄█]/);
+  });
+
+  it("a hook that writes one cell overrides it WHOLE (glyph + fg, bg cleared) while every other cell keeps real dual-colour halfblock ink", () => {
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
+    const grid = { cols: 20, rows: 10, cellAspect: 2.0 };
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
+    const geometryOnly = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "halfblock" }));
+    const stampOneCell = (g: CellGrid): CellGrid => {
+      g.char[0] = "X";
+      g.color[0] = "#ff0000";
+      return g;
+    };
+    const withStamp = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "halfblock", transformCells: stampOneCell }));
+    // The stamped cell renders as a plain single-colour span (glyph X, fg
+    // #ff0000), never carrying a `background-color` — this is the "whole
+    // cell override, bg cleared" contract, not a merge with whatever the
+    // untouched dual-colour decision would have painted there.
+    expect(withStamp).toMatch(/<span style="color:#ff0000">X<\/span>|^X/);
+    expect(withStamp).not.toMatch(/background-color:#ff0000/);
+    // Real halfblock ink survives elsewhere in the SAME render — the hook's
+    // one-cell write doesn't collapse the whole frame back to the ramp path.
+    expect(withStamp).toMatch(/[▀▄█]/);
+    // And it's still genuinely DIFFERENT from the untouched geometry render
+    // (the stamped cell changed), proving the merge is real, not a no-op
+    // that happened to look the same.
+    expect(withStamp).not.toBe(geometryOnly);
   });
 
   it("renders only halfblock glyphs (space/▀/▄/█) in solid mode when charMode is halfblock", () => {

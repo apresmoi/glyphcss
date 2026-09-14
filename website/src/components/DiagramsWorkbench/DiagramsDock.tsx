@@ -30,18 +30,20 @@ const CHARSET_SYMBOL: Record<string, string> = { ascii: "#", box: "┼", blocks:
  * title/aria-label) rather than surfaced as a note floating over the
  * viewport (that in-viewport note is gone, `DiagramsWorkbench.tsx`'s own
  * round-4 comment). The GATE is `diagrams3dCharsetDockReason`, which asks
- * the library's own `resolveCharset` live per option rather than naming
- * `blocks`/`braille` here — the library is being redesigned so braille/ink
- * become the PRIMARY 3D looks, so this dims whatever the resolver says
- * degrades today, nothing more, nothing hard-coded. The CURRENT charset is
- * never disabled (the Charts mark-type-fit precedent, AGENTS.md's own
- * "Dataset search" paragraph): a reader already on a degraded charset can
- * still see why on hover, but isn't locked out of the control that got
- * them there.
+ * the library's own `resolveCharset` live per option (and target) rather
+ * than naming a charset here — D2 round 7 made `blocks`/`braille` the
+ * ONLY two 3D charsets that render as requested (box-drawing glyphs can't
+ * trace an edge or a box face at an angle, the user's own stated reason),
+ * so `ascii`/`box` are what this dims today; the resolver-driven gate
+ * means a future charset change needs no page edit either way. The
+ * CURRENT charset is never disabled (the Charts mark-type-fit precedent,
+ * AGENTS.md's own "Dataset search" paragraph): a reader already on a
+ * degraded charset can still see why on hover, but isn't locked out of
+ * the control that got them there.
  */
-function charsetToggleOptions(view: "2d" | "3d", current: string) {
+function charsetToggleOptions(view: "2d" | "3d", current: string, target: "chat" | "terminal" | "web") {
   return (["ascii", "box", "blocks", "braille"] as const).map((v) => {
-    const reason = view === "3d" ? diagrams3dCharsetDockReason(v) : undefined;
+    const reason = view === "3d" ? diagrams3dCharsetDockReason(v, target) : undefined;
     // `desc` carries the reason whenever one applies, disabled or not — the
     // CURRENTLY selected degraded option stays enabled (below) but its
     // title still explains itself on hover via this same fallback
@@ -149,7 +151,7 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
     {charsetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Charset</span>
-        <IconToggle groupTitle="Character set" options={charsetToggleOptions(state.view, controls.charset)} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as typeof controls.charset })} />
+        <IconToggle groupTitle="Character set" options={charsetToggleOptions(state.view, controls.charset, controls.target)} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as typeof controls.charset })} />
       </div>,
       charsetSlot,
     )}

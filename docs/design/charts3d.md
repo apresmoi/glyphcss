@@ -7122,3 +7122,648 @@ All four ring-crater frames use the exact `ringRidgeVolcano()` fixture already e
 1. **Sub-cell braille dot axis lines are NOT implemented.** Documented above under "What was NOT done" — `CellGrid` has no sub-cell overlay write surface; building one is a `glyphcss`-layer feature outside this round's scope. The residual is a visual one only (axis lines stair-step on braille instead of reading as smooth dotted lines); occlusion, visibility, and tick/title placement are all otherwise correct on every charset.
 2. **No automated "is the axis visually prominent enough" gate exists.** The coordinator's own instruction was to LOOK at the frames, which this round did (both via the static renderer mid-fix and via the frame script above) — but there is no pixel-level or ink-coverage regression test asserting the specific property "an axis line's own visible run covers >= 70% of its edge" the way the P1-1 occlusion suite asserts "no label paints over ink." The corner-triad tests (existing plus this round's new render-based one) assert the CORNERS are resolved and touch correctly, which is the geometric precondition for visibility, but not visibility itself. A future round wanting a hard regression gate here would need an ink-density-along-the-silhouette-edge measurement, analogous to the grid's own 15%-of-plot-box cap.
 3. **`resolveCharts3dStyle`/`charts3dObjectCharset`** (`website/src/components/ChartsWorkbench/chartsWorkbench3d.ts`) are still page-local mirrors of the newly-exported `resolveGlyphChart3dStyle`/`glyphChart3dChromeTier` — the coordinator's own message says "I'll have the page switch to the exported functions after you land," so switching them is explicitly deferred to that follow-up, not done here (per this round's own out-of-scope boundary: `website/` was not touched).
+
+## D2 round 7 — braille and blocks only, geometry edges, triangulated stage-by-stage flow
+
+**The user, verbatim: "the 3d graphs make sense but clearly we cannot use lines and bars because they do not translate well to angles :/ we need to use braille and blocks for 3d diagrams."** A follow-up added the layout direction: "they could be like in the same plane at each depth, but not in the same line... like one in front two in the back... or two in the front one in the back, etc... triangulated." This round replaces D2 rounds 3-6's shared-plane embedding, `style: "ink"/"wireframe"/"solid"` switch, and hand-stamped box-outline/edge/arrowhead overlays outright.
+
+### Charsets
+
+`resolveCharset(charset, target)` (`render3d.ts`) is now a 2-way table, not the old ascii/box/blocks/braille 4-way one: `"braille"` -> `{ mode: "wireframe", charMode: "braille", hiddenLines: "hide" }`, `"blocks"` -> `{ mode: "solid", charMode: "halfblock", hiddenLines: "hide" }`, and `"ascii"`/`"box"` degrade to whichever of the two the TARGET supports (`"blocks"` on `chat`, `"braille"` otherwise), logging `3d-charset-degraded` once. Box-drawing and bar glyphs (`─ │ ▔ ‾ ▏ ▕ / \ _`) genuinely cannot trace an edge or a box face seen at an angle — that's the user's own stated reason, and it's mechanically true: those glyphs are drawn at fixed cell-aligned orientations, while a 3D edge or a box's own side face can land at any screen angle. Braille's 2x4 sub-cell dot mask and blocks' half-block sub-cell shading can both approximate an arbitrary angle; box-drawing cannot. Target defaults: `chat` -> `blocks` (a chat client's fenced-code font carries the Block Elements range but essentially never braille), `terminal`/`web` -> `braille`.
+
+### Edges and arrowheads as geometry
+
+The single biggest architectural change: an edge is no longer a stamped overlay glyph walking a 2D-routed polyline. `glyphDiagramObject.ts`'s `orientedRibbonPolygons(a, b, halfWidth, color)` sweeps a thin oriented box between two arbitrary 3D points — a `frameFromForward(forward)` orthonormal basis (`right = normalize(cross(worldUp, forward))`, `up = cross(forward, right)`) proven algebraically to give `cross(right, up) === forward` exactly, so the swept box's winding matches `boxPolygons`' own CCW-from-outside convention with no per-case correction. `orientedPyramidPolygons(source, tip, halfWidth, length, color)` builds a real 4-triangle-plus-cap pyramid, apex at the target face. Box outlines are no longer drawn at all — they come from the SOLID/WIREFRAME ENCODER itself (braille traces every polygon edge as sub-cell dots automatically; blocks reads face-contrast Lambert shading at the box's own edges). A group gets a 12-edge ribbon outline traced around its padded AABB (`groupOutlinePolygons`), the same ribbon primitive. The ONLY remaining stamped overlay is label text — `resolveGlyphDiagram3dLabelPlacement` is otherwise unchanged in spirit from earlier rounds (inside/side/auto anchoring against the real projected screen width), but its `axes` parameter is gone entirely: every box is now a literal world-axis-aligned box (see "Layout" below), so `"inside"`'s front face is the literal `[center[0], center[1]-half[1], center[2]]` point, no plane-basis vector math needed. A `"side"`-mode leader line is a documented residual of dropping the stamped-overlay machinery — it is simply not drawn any more (see "Residuals").
+
+### Layout — triangulated stage-by-stage flow (`layout3d.ts`, "layered")
+
+Round 5/6's shared-PLANE embedding put every node's front face on ONE wall (2D dagre x/y mapped onto two ground vectors chosen so the flow read with zero row drift) — which is exactly why it could only ever show one flat face: round 6's own proof showed the plane's depth axis `n` has a column coefficient forced to zero by the camera's own trig identity, so a genuine side face was mathematically impossible. This round drops the shared plane entirely. Each dagre RANK becomes its own cross-section PLANE, perpendicular to a flow axis chosen from the graph's own direction (`LR`/`RL` -> world X, `TB`/`BT` -> world Z). Every node's own box stays a plain, world-axis-aligned box in EVERY direction now — width always X, depth (extrusion) always Y, height always Z, exactly `boxPolygons`' own convention (`@glyphcss/core`) — because whichever of X/Z happens to be the flow axis for this direction is also, not coincidentally, the axis the node's own along-flow extent (its label width for LR/RL, its label height for TB/BT) already measures. This is why NO shared plane basis (`u`/`n`, round 5's `glyphDiagram3dPlaneAxes`) survives into this round at all.
+
+Within one rank's own cross-section plane, siblings are placed on a REGULAR RING via a single formula covering every count the brief enumerated as separate cases (`triangulatedOffsets`): 1 node sits at the plane's own centre (radius 0); 2+ nodes sit at `count` evenly-spaced points around a circle sized so adjacent points clear each other by `GLYPH_DIAGRAM_3D_RING_GAP` world units plus both points' own in-plane half-extents, starting at a base angle that ROTATES per rank (`GLYPH_DIAGRAM_3D_RING_BASE_ANGLE + rank * GLYPH_DIAGRAM_3D_RING_ROTATE_DEG`, an increment with no small common period against 360 degrees, so consecutive fans never realign to the same pattern). This single formula reproduces every case the brief named: 2 points 180 degrees apart at an off-axis base angle read as "one in front, one behind, offset sideways too"; 3 points are always a non-degenerate triangle for any positive radius; a rotating base angle naturally alternates which side has 1 vs 2 members. The `layout3d.test.ts` gate built specifically for the coordinator's own check ("Use `Merge` + `Side` -> `Output` from the fan-join-split example") confirms `Merge` and `Side` land at the SAME flow coordinate (same rank) but opposite DEPTH sign — a genuine front/back split, never side by side.
+
+Edges are now genuine straight 3D segments. The 2D A* router (`route.ts`) and its port reservation (`reserveGlyphGraphPorts`) are GONE from this path entirely — the module still calls `measureGlyphGraph`/`layoutGlyphGraph` (dagre), but only for rank assignment and within-rank crossing-minimized ORDER, never as a literal 3D placement any more. An edge's own endpoints are the source's OUTGOING face and the target's INCOMING face along the flow axis — a back-edge leaves its source's BACKWARD face and arrives at its target's FORWARD one, so a cycle-closing edge still reads correctly — falling back to the generic `nodeSurfaceAnchor`/`selfLoopPoints` primitives (unchanged from earlier rounds) for a same-rank edge or a self-loop. Because nothing here routes AROUND other geometry any more, this layout can never report an `unroutable` edge — this is a structural guarantee, not a policy: there is no routing step left that could fail. Groups get a plain world-axis-aligned bounding box (`min`/`max`, padded by `GLYPH_DIAGRAM_3D_GROUP_PAD`) — the SAME computation `"force"` layout already used, now shared by `"layered"` too since neither has a plane basis to project a group through any more. `"force"` itself is UNCHANGED by this round.
+
+The camera is now ONE fixed, EMPIRICALLY tuned pose (`GLYPH_DIAGRAM_3D_CAMERA_ROT_X = 62, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y = 36`) — there is no more shared plane for a yaw to analytically solve zero-row-drift against (round 5/6's own `u = rotY + 90deg` derivation), so this pose was found and verified the same way the coordinator's own instruction demanded: rendered and inspected directly.
+
+### The overlap bug found by rendering the real examples, and its fix
+
+Rendering the 8-node LeNet-5 chain at this new camera surfaced a real defect the small (3-4 node) unit-test fixtures never exercised: consecutive-rank boxes' own projected COLUMN WIDTHS overlapped their neighbour's by 17-22% (measured precisely, `render3d.test.ts`'s own "consecutive-RANK" gate, every rank-adjacent pair on the real fixture), which compounds visually across an 8-rank chain into a dense, hard-to-read diagonal smear rather than distinct blocks with real gaps between them. Root cause: rank-to-rank spacing was originally sized off each box's own raw FLOW-AXIS world half-extent alone (`flowHalfOf`, e.g. box width for LR). That is a correct bound on the box's own along-flow WORLD extent (no two ranks ever share the same world X range), but it is not a bound on the box's own SCREEN footprint — under this camera's oblique pitch, a box's DEPTH and HEIGHT axes contribute comparably to (and, measured, for the depth axis specifically, MORE than) the projected screen column than the flow axis itself does (measured on the real camera: `|d(col)/d(depth)| ~= 0.87` per world unit vs `|d(col)/d(flow)| ~= 0.63`, at the auto-fit zoom used for the 8-node chain). Spacing by flow-axis half-width alone therefore left the depth/height axes' own screen contribution completely unaccounted for, and consecutive ranks' silhouettes overlapped by that measured 17-22%. Fixed with `screenSafeFlowHalf(n) = flowHalfOf(n) + crossHalfOf(n) + depthHalfOf(n)` — summing all three of a box's own half-extents as its along-flow spacing unit, a simple, camera-angle-agnostic conservative bound (every axis's own screen-coefficient magnitude is within the same order for this camera, so summing all three safely over-spaces rather than under-spacing) rather than a per-camera-angle-exact analytic derivation; post-fix, the SAME rank-adjacent pairs measure EXACTLY 0% column overlap. Verified by re-rendering LeNet-5, the transformer, agent-supervisor, crew and the new fan-join-split fixture and confirming every box reads as a visibly separate block with real gaps — the frames below are the fix, not the bug.
+
+### glyphcss: halfblock/quadrant with a mounted `transformCells` hook
+
+The "blocks" charset's node labels are drawn through a scene-object OVERLAY, which mounts via `scene.transformCells` — and glyphcss's halfblock/quadrant dual-colour encoder used to fall back to the single-colour ramp whenever ANY `transformCells` hook was mounted at all, silently dropping every label. Fixed in `packages/glyphcss/src/render/rasterize.ts`'s `rasterizeSolid`: `wantsHalfblockSolidOverlay`/`wantsQuadrantSolidOverlay` mirror the ORIGINAL (`transformCells`-absent) eligibility predicates exactly except for one flipped clause (require the hook PRESENT rather than absent), so the no-overlay fast path is completely untouched, still gated on `!scene.transformCells`, byte-identical. The overlay case instead falls through the ORDINARY single-colour downsample -> hook pipeline (so the hook sees real occlusion via `finalDepth`/`finalWinnerMesh`, needed for the label arbiter), snapshotting the PRE-hook single-colour result first; after the hook runs, the SAME dual-colour decision table the fast path uses (extracted into `buildHalfblockSolidBuffers`/`buildQuadrantSolidBuffers`, shared by both paths, byte-identical refactor) is computed fresh from the raw supersampled subcells, and a per-cell diff against the pre-hook snapshot decides which cells the hook actually touched — those are overridden WHOLE (the hook's own glyph + foreground colour, background cleared), every other cell keeps real dual-colour geometry ink. Gated by two new tests per charMode: "a hook that touches NOTHING still renders real halfblock/quadrant glyphs — byte-identical to no hook at all," and "a hook that writes one cell overrides it WHOLE while every other cell keeps real dual-colour ink."
+
+A second, related bug: `compileScene`'s `grid` field would become non-null (and WRONG) for this new case — `scene.captureCells` fires unconditionally via the existing `applyCellHook` machinery whenever a hook exists, so it captured the ORDINARY single-colour post-hook snapshot, not the actual dual-colour string the render produces. Fixed by forcing `grid: null` in `compileScene.ts` whenever `mode === "solid" && (charMode === "halfblock" || charMode === "quadrant")`, UNCONDITIONALLY (not just in the no-overlay case) — restoring the pre-existing "a dual-colour cell has no honest single-`CellGrid` representation" contract regardless of whether an overlay is mounted. This forced a second architectural change: `render3d.ts` can no longer reconstruct a `GlyphCanvas` from a `CellGrid` for the "blocks" charset at all (there is none), so it now calls `compileScene` directly for that charMode and unescapes its own `inner` string for plain text — and since `encodeGlyphBuffersDual` has no ANSI form at all (only HTML `<span>` markup or plain text), an ANSI colour mode under "blocks" degrades to plain text with a new `3d-blocks-ansi-unsupported` ledger entry rather than a silent wrong render.
+
+### New example: fan-out / join / split
+
+A hand-authored fixture (`packages/diagrams/fixtures/fan-join-split.mmd`) exercising exactly the topology the coordinator specified: one input fans to 3 branches, joins to one node, splits into 3 again, two of those merge into one node while the third goes to a separate "side" node, and both `Merge` and `Side` feed one final `Output`. Added as a 5th 3D preset (`website`'s `diagramsWorkbenchState.ts`, id `fan-join-split-3d`) and to every round-7 gate. It renders cleanly at all three required settings with an empty ledger (no unroutable edges, no dropped labels) — see the frames below; `Merge` and `Side` visibly separate front/back before both feeding `Output`, per `layout3d.test.ts`'s own dedicated gate.
+
+### Website (`DiagramsWorkbench`)
+
+`resolveCharset` (and `resolveDiagrams3dSceneOptions`, its page-local wrapper) now take the render TARGET as a second argument, so the live 3D viewport's Dock dims exactly `ascii`/`box` (not `braille`/`blocks`, the library's own two primary looks) with the resolver's own reason, per target. Box outlines/edges being real mesh geometry with no charset-dependent tier baked into `glyphDiagramObject`'s option surface (`tier`/`boxOutline` are GONE from its type entirely) means `Diagrams3DViewport.tsx`'s prior `[charset]` object-rebuild effect is deleted outright — a charset or colour edit is now purely `scene.setOptions(resolveDiagrams3dSceneOptions(...))`, exactly like a colour-only edit always was, never touching the mounted object or camera. Applying a 3D preset now clears any charset OVERRIDE so it falls back to the target's own default (`GLYPH_DIAGRAM_TARGET_DEFAULTS`, which is already `braille` for `web`/`terminal`) — satisfying "presets open 3D on braille for web" without a second, parallel default table.
+
+### Gates
+
+All structural round-7 gates are automated tests, not just visual inspection: `layout3d.test.ts` — siblings in a rank share the flow coordinate but no two share both in-plane coordinates, a 3-sibling rank is a non-collinear triangle, a single-member rank stays centred, an edge lands on its own source/target face, no edge is ever reported unroutable, and the fan-join-split-specific `Merge`/`Side` front-back check. `render3d.test.ts` — no box-drawing/bar glyph appears anywhere in a 3D frame outside label text (both charsets), a single-node-per-rank LR chain reads as a genuine diagonal (both column and row progress monotonically in one direction each), `resolveCharset` never degrades braille/blocks and always degrades ascii/box, the target x charset x colour matrix (60 cells) all render real content with the right degrade/no-degrade behaviour, and the fan-join-split fixture renders with every label whole and no unroutable edges in both charsets. `glyphDiagramObject.test.ts` — an edge mesh is real ribbon geometry (>= 6 polygons), a group mesh is the 72-face outline bounding its members, an arrowhead's apex sits on the edge's own final point. `rasterize.halfblock.test.ts`/`rasterize.quadrant.test.ts` — the no-hook fast path stays byte-identical, and a hook touching one cell overrides it whole while the rest keeps real dual-colour ink.
+
+### Deliverables — all 5 examples, verbatim
+
+Rendered via `renderGlyphDiagram3d` at `target: "web"`, default camera (auto-fit), no explicit options beyond charset/size. Ledger is empty for every frame except agent-supervisor at 96x32 (2 labels dropped to on-screen collision at that small a target — both `3d-label-dropped`, no `unroutable`, and both labels reappear at 140x40).
+
+#### LeNet-5 CNN
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                           ⣠⢴⠦⣄⡀                
+                                                                        ⣠⡴⠋⢁⣠⠴⠋⠁                
+                                                                        ⡇⠉⠉⡏   ⠁                
+                                                                  ⣀⡀   ⣠⣷⠾ ⠃   ⠃                
+                                                              ⢀⣠⠴⠋⣇⣭⣿⣴⠿ ⠙⠒⠦⠇input 32x32x1       
+                                                              ⡟⠲⢤⠖⠋  ⠁                          
+                                                             ⢀⣧⣶⢸                               
+                                                     ⢀⣠⠖⡟⢲⣤⣤⣾⠟⠋⢤⣸ conv 28x28x6                  
+                                                    ⡾⢭⣀⡤⠖⠃⠘⠋                                    
+                                                    ⣇⣠⢸                                         
+                                            ⣀⡤⡶⢤⣀⣀⣴⡾⢿⠁⢸pool 14x14x6                             
+                                         ⢠⣖⡋⢁⣠⠴⠚⠙⠛⠁  ⠈⠉⠁                                        
+                                         ⢸⢀⠉⡏   ⠈                                               
+                                  ⢀⣠⣄⡀ ⢀⣤⣾⠟⠃⠃  ⠄⠚                                               
+                               ⢀⡤⠖⠋⢈⣠⠟⣿⠟⠁⠈⠙⠒⠃conv 10x10x16                                      
+                               ⢸⠉⠓⡞⠉  ⠇                                                         
+                          ⣀   ⢀⣼⡾⠇⠃   ⠇                                                         
+                       ⢠⣖⠋⣯⣽⣧⡾⠟⠉⠓⠦⠇pool 5x5x16                                                  
+                       ⢸⢈⢹⠁ ⠃                                                                   
+                 ⣀⣤⣀ ⣀⣴⣾⠛⢸  ⡇                                                                   
+               ⢰⠯⢥⠖⠃⠿⠋ ⠈⠙⠚fc 120                                                                
+               ⣸⣴⠸                                                                              
+       ⣠⠴⢺⢙⣲⣦⣴⠿⠋⣄⢸ ⠆                                                                            
+       ⡏⠙⢲⠋ ⠇⠁    fc 84                                                                         
+       ⣇ ⠸  ⡇                                                                                   
+       ⠙⠲⠼out 10                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                            ▄▄                  
+                                                                         ▄▄█████                
+                                                                        ████████                
+                                                                        ███████▀                
+                                                                ▄▄██▄▄▄▀▀▀▀▀input 32x32x1       
+                                                              ▄██████                           
+                                                              ███████                           
+                                                       ▄▄▄▄ ▄▀▀███conv 28x28x6                  
+                                                    ▄██████▀                                    
+                                                    ███████                                     
+                                              ▄   ▄▄███pool 14x14x6                             
+                                          ▄▄█████▀    ▀                                         
+                                          ███████                                               
+                                         ▄██████▀                                               
+                                 ▄▄███▄▄▀ ▀▀▀conv 10x10x16                                      
+                                ███████                                                         
+                                ██████▀                                                         
+                        ▄▄█▄▄▄▀▀▀▀█pool 5x5x16                                                  
+                        █████                                                                   
+                       ▄█████                                                                   
+                ▄███▄▀▀ ▀▀fc 120                                                                
+                ████                                                                            
+         ▄▄▄▄▄▄▀███▀                                                                            
+       ██████     fc 84                                                                         
+       ██████                                                                                   
+       ▀▀█out 10                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                  ⣀                         
+                                                                                                               ⣠⠴⠋⠏⠉⢙⡶⡆                     
+                                                                                                            ⣠⠴⠋⠁ ⢀⡤⠞⠁ ⠁                     
+                                                                                                            ⡏⠉⠙⠒⡞⠉    ⠁                     
+                                                                                                            ⣇⣠⡄ ⠁     ⠁                     
+                                                                                                  ⣀⣤⣀    ⢀⣤⣾⣿⠃⠁ ⠃   ⠂⠁                      
+                                                                                               ⣀⡴⠚⠁⠁⠈⣉⣷⣶⣾⠿⠃⠁⠙⠒⠲⠤⠃input 32x32x1              
+                                                                                             ⣴⣚⣁ ⢀⣠⠴⠚⠁ ⠇⠁                                   
+                                                                                             ⡇ ⠈⠉⡏     ⠇                                    
+                                                                                             ⣇⣤⣶ ⠃     ⡇                                    
+                                                                                   ⣠⢴⠦⣄⡀  ⣀⣴⣾⣿⠋  ⠃  ⠄⠃⠁                                     
+                                                                                ⣠⠴⠋⠁ ⢀⡤⠟⣷⣿⠟  ⠈⠉⠙⠒⠃conv 28x28x6                              
+                                                                              ⢰⠯⠥⣄⣠⠴⠚⠉  ⠃                                                   
+                                                                              ⢸   ⠇     ⠃                                                   
+                                                                             ⢀⣸⣶⠿ ⠇     ⠇                                                   
+                                                                   ⢀⡤⠖⡟⠲⢤⣀⢀⣤⣶⡿⠃⠁⣀ ⠇ pool 14x14x6                                            
+                                                                ⣀⡤⠞⠉  ⣀⡴⠚⠁⡿⠋⠁    ⠉⠉                                                         
+                                                               ⢸⠓⠦⣄⣠⠴⠚⠁                                                                     
+                                                               ⢸   ⠇                                                                        
+                                                              ⣀⣼⣿⠿ ⡇    ⠄⠂                                                                  
+                                                    ⢀⣠⠖⡟⠒⢲⣤⣀⣴⣾⠿⠋⠧⣄⡀⡇ conv 10x10x16                                                          
+                                                 ⢀⡤⠞⠉ ⢀⡤⠖⠋ ⠟      ⠉⠉                                                                        
+                                                 ⢸⠉⠉⠓⡞⠉                                                                                     
+                                                 ⢸⣀⣠ ⠁                                                                                      
+                                        ⣀⣤⣀⡀   ⣀⣴⣾⠟⠁ ⠇   ⠆⠉                                                                                 
+                                     ⢀⡤⠞⠁ ⣠⠟⣧⣴⡿⠛⠁⠈⠓⠒⠦⠃pool 5x5x16                                                                           
+                                     ⢸⠉⠙⢲⠋⠁ ⡇⠁                                                                                              
+                                     ⢸⣠⡄⢸   ⠃                                                                                               
+                            ⣠⢴⠦⣄⡀ ⢀⣤⣶⢿⠋⠁⢸   ⠇                                                                                               
+                          ⣴⣚⠁⣀⡴⠋⠁⣾⡿ ⠁⠈⠓⠲⠼fc 120                                                                                             
+                          ⡇⠈⢹⠁  ⠃⠁                                                                                                          
+                         ⢀⣧⣶⢸   ⠃                                                                                                           
+               ⢀⡴⢺⠓⢲⣤ ⣀⣴⡾⠟⠋ ⢸   ⠃                                                                                                           
+              ⡾⠭⣄⣠⠴⠋ ⡾⠏   ⠈⠙⠚fc 84                                                                                                          
+              ⡇  ⠇                                                                                                                          
+              ⡇  ⠇                                                                                                                          
+              ⢷⣀ ⠇  ⠁                                                                                                                       
+                ⠉⠁out 10                                                                                                                    
+                                                                                                                                            
+```
+
+#### Transformer encoder
+
+**96x32 braille**
+```
+                                                                                                
+                                        ⢀⣀⣤⠤⢤⣀                                                  
+                                        ⣿⣄⣀⣀⣈⣼⡇                                                 
+                                        Input Embedding                                         
+                                        ⠉⠛⠦⠼ ⠎⠁                                                 
+                                           ⡇                                                    
+                                           ⡇                                                    
+                                         ⣠⠴⣿⡷⡆                                                  
+                                         Positional                                             
+                                         ⢷⢸ ⠆⠃                                                  
+                                           ⡇                                                    
+                                           ⡇                                                    
+                                         ⣠⠴⣿⣳⡆                                                  
+                                         Multi-Head                                             
+                                         ⢷⢸ ⠆⠃                                                  
+                                           ⡇                                                    
+                                           ⡇                                                    
+                                         ⢀⡴⣿⣲⡄                                                  
+                                         Add & Norm                                             
+                                         ⢷⢸  ⠃                                                  
+                                           ⡇                                                    
+                                           ⡇                                                    
+                                          ⣠⣷⢦⡄                                                  
+                                        ⢰Feed Forward                                           
+                                        ⢸ ⠸                                                     
+                                         ⠉⠉⠁                                                    
+                                           ⡇                                                    
+                                          ⢀⣧⣄⡀                                                  
+                                         Add & Norm                                             
+                                         ⣧⢸  ⠁                                                  
+                                         ⠉⠛                                                     
+                                                                                                
+```
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                        ▄█████▄                                                 
+                                        Input Embedding                                         
+                                        ▀▀▀█▀▀                                                  
+                                                                                                
+                                                                                                
+                                          ▄▄▄▄                                                  
+                                         Positional                                             
+                                         ███▀▀                                                  
+                                                                                                
+                                                                                                
+                                           ▄▄▄                                                  
+                                         Multi-Head                                             
+                                         ███▀▀                                                  
+                                                                                                
+                                                                                                
+                                           ▄▄▄                                                  
+                                         Add & Norm                                             
+                                         ████▀                                                  
+                                                                                                
+                                                                                                
+                                           ▄▄                                                   
+                                         Feed Forward                                           
+                                         ████▀                                                  
+                                          ▀▀                                                    
+                                                                                                
+                                                                                                
+                                         Add & Norm                                             
+                                         █████                                                  
+                                         ▀▀▀                                                    
+                                                                                                
+```
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                ⢀⣀⣀⣀⡀                                                                       
+                                                              ⣰⡏⠉⡇  ⡟⣦                                                                      
+                                                              Input Embedding                                                               
+                                                              ⣷⢸                                                                            
+                                                              ⠉⠛⠒⠒⠚⠂⠃⠁                                                                      
+                                                                 ⢸⡇                                                                         
+                                                                 ⢸⠁                                                                         
+                                                                 ⢸⠁⡀                                                                        
+                                                               ⣠⠴⢻⣿⠽⢻                                                                       
+                                                               Positional                                                                   
+                                                               ⣧ ⠇  ⠂                                                                       
+                                                               ⠈⠉⠉⡇                                                                         
+                                                                 ⢸⠁                                                                         
+                                                                 ⢸⠁                                                                         
+                                                               ⢀⣠⢾⡅⢲⣤                                                                       
+                                                               Multi-Head                                                                   
+                                                               ⣇ ⠃                                                                          
+                                                               ⠛⠦⠇⠂⠉                                                                        
+                                                                 ⢸⠇                                                                         
+                                                                 ⢸⠁                                                                         
+                                                                 ⣸ ⣄⣀                                                                       
+                                                               ⣴⣚⣹⠵⠚⠁                                                                       
+                                                               Add & Norm                                                                   
+                                                               ⢷⣀⠇ ⠂⠉                                                                       
+                                                                 ⢸⠇                                                                         
+                                                                 ⢸⠁                                                                         
+                                                                 ⢸⠁                                                                         
+                                                               ⢀⣠⢾⡅⣳⢶                                                                       
+                                                               Feed Forward                                                                 
+                                                               ⣇ ⠁                                                                          
+                                                               ⠛⠦⠇⠂⠁                                                                        
+                                                                 ⢸⠇                                                                         
+                                                                 ⢸⠁                                                                         
+                                                                 ⣸⠁⣀                                                                        
+                                                               ⣴⡚⢛⣫⠼⠚                                                                       
+                                                               Add & Norm                                                                   
+                                                               ⣷⡀⡇ ⠄⠂                                                                       
+                                                                ⠉⠉                                                                          
+                                                                                                                                            
+```
+
+#### Agent supervisor
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                             ⢀⡤⡖⢦⣤                                              
+                                           ⡴⣞⣉⡤⠖⠋                                               
+                                           User request                                         
+                                           ⣧⡀⢸  ⠆⠁                                              
+                                            ⠉⠉⠁                                                 
+                                              ⣿                                                 
+                                              ⣿                                                 
+                                            ⢠⢤⣿⣤                                                
+                                            ⢸⣏⠛⢁⣧                                               
+                                           Supervisor                                           
+                                            ⠘⣾  ⠘                                               
+                                            ⢀⣿⠒⠚⠉                                               
+                                            ⣼⣿⣿⣧⢿⣄                                              
+                                         ⣠⣴⣿⣿⡏⣿⢿⣬⣿⣆                                             
+                                     ⢀⣠⡶⠟⠠⣾⡟⢛⡯⣿⢸⠂⠉⣻⣿⡿⣶⣤⣀                                        
+                                   ⢠⣶⣟  ⣀Reviewer⢯⣁⡭⣖⣷⡾⢻                                        
+                                   ⢸⠉⠙⢻⠿⣷⣭⣗⡋⠇⣠⣿⡶⣿⣷⣾⠾⠛⠁ ⢸                                        
+                                   ⢸ ⢀⣸  ⠋⠉⠛⡿⡶⣿Coder ⠃⢥⣸                                        
+                                   ⢸⣶⣟⠹⣄ ⠇ ⠞⠁⣇⣿⡇⢸  ⠁⣀⡴⠞⠉                                        
+                                    ⠉⠙⠛⠷⢿⣥⣿⣆ ⢿⣿⡇⠚⣀⡵⠚⠁                                           
+                                         ⠈⠉⠙⣿⢿⣿⠃⡟⠁                                              
+                                            ⠻⣿⣿⡿                                                
+                                           ⢀⡤⠿⠽⠃⡷⡆                                              
+                                           ⢸Reports                                             
+                                           ⢸  ⠃  ⠃                                              
+                                           ⠈⠓⠦⠇⠂⠁                                               
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                               ▄▄                                               
+                                            ▄█████                                              
+                                           User request                                         
+                                           ██████▀                                              
+                                             ▀█                                                 
+                                              █                                                 
+                                              █                                                 
+                                              █                                                 
+                                             ███▄                                               
+                                           Supervisor                                           
+                                             ████                                               
+                                             ███▀                                               
+                                             ███▀▄                                              
+                                           ▄████▄▀▄                                             
+                                       ▄▄▀▄████ █ ▀▄▄▄▄                                         
+                                    ▄ ▀  Reviewer▄█████▀                                        
+                                    ▀▀ ▄███████▄███████                                         
+                                       ██████▄█Coder██▀                                         
+                                    ▄ ▀████▀▀██████  ▄▄▀                                        
+                                     ▀  ▄▀▀▄ ████▀█▄▀                                           
+                                           ▀▄▀███▀                                              
+                                            ▀▄██                                                
+                                             ▄██▄▄                                              
+                                            Reports                                             
+                                            ██████                                              
+                                            ▀▀▀▀                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                      ⢀⡀                                                                    
+                                                                   ⢀⣠⠞⢹⠉⣹⢶                                                                  
+                                                                 ⢠⣖⣋ ⣀⡴⠚⠁                                                                   
+                                                                 ⢸User request                                                              
+                                                                 ⢸  ⢸                                                                       
+                                                                 ⠘⠦⢤⣸ ⠆⠁                                                                    
+                                                                     ⢸⡇                                                                     
+                                                                     ⢸⠁                                                                     
+                                                                     ⢸⠁                                                                     
+                                                                     ⢸⠁                                                                     
+                                                                   ⣖⠒⣾⠁⣧                                                                    
+                                                                   ⡟⣆⠈⢁⣸⡄                                                                   
+                                                                  Supervisor                                                                
+                                                                   ⢯⢸   ⠃                                                                   
+                                                                   ⠈⢿⣀⣠⠤⠃                                                                   
+                                                                   ⢀⣾⢻⣿⣿⣆                                                                   
+                                                                  ⢀⣾⠃⢹⢻⡏⠁⣦                                                                  
+                                                               ⣀⣤⣾⣿⠃⠇⢿⡏⣿⣈⣿⣧                                                                 
+                                                            ⣀⣴⡾⢟⣡⣼⠏⡿⢉⣿⠁⢿⡍⠛⢿⣷⣦⣶⣤⣄⡀                                                           
+                                                         ⣠⣴⡾⠟  Reviewer⢸⣇⣠⠞⠿⠿⣉⡽⢛⣷⣶                                                          
+                                                       ⢰⣿⣿⣄⣀ ⣠⠴⣿⡯⢉⣿⡆ ⢸⡇ Final answer                                                        
+                                                       ⢸⠃⠈⠉Researcher⢾⣇⣾⣿⣟⣶⡿⠛⠁  ⡇⣿                                                          
+                                                       ⢸⠇  ⢸  ⢸⠉⠙⠛⠿⢷⣧⣼Coder⡇ ⣦⠆⣁⡀⣿                                                          
+                                                       ⢸⠇⣴⡾⢿  ⢸  ⣠⠆⠃⡆⢹⣿⠁⠸  ⡇⠉ ⢈⣩⡿⠏                                                          
+                                                       ⠘⠿⢷⣦⣬⣓⡲⠼ ⠃⡀ ⢸⡇⢸⣿⣀⢸  ⢃⣤⡾⠟                                                             
+                                                           ⠉⠙⠛⠿⣶⣽⣄⣄ ⣿⢸⣿⢨⣉⣤⡾⠟                                                                
+                                                                ⠈⠙⠛⣿⢿⣿⣿⣾⠟⠉                                                                  
+                                                                  ⠈⠇⣞⣿⣷⠿                                                                    
+                                                                   ⠈⢻⣿⣿⠧⣄⡀                                                                  
+                                                                  ⣴⣚⡉⢛⣩⠴⠃⠁                                                                  
+                                                                  Reports⠃                                                                  
+                                                                  ⡇  ⠇   ⠁                                                                  
+                                                                  ⠻⠤⣄⠇ ⠂⠁                                                                   
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+#### Multi-agent crew
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                               ⢀⡤⡶⢤⣀            
+                                                                            ⢀⡤⠞⠉ ⢀⣠⠼⠚           
+                                                                            ⢸⠉⠉⠓⡞⠉              
+                                                                            ⢸⣀⢀ ⠁   ⠈           
+                                                                   ⢀⡀     ⣀⣴⣾⠿⠃ ⠇   ⡈           
+                                                               ⢀⣠⠴⠚⠹⠉⢉⡷⣆⣴⣾⠿ ⠙⠦⠤⣄⠇Request        
+                                                               ⡟⠲⢤⣀⡤⠞⠁ ⡇⠋                       
+                                                     ⣀⡀        ⡇  ⢸    ⠇                        
+                                                  ⣠⣴⡿⣿⠻⢷⣦⣤⣀   ⣀⣷⡾⠇⢸    ⠇                        
+                                               ⣠⣴⠿⠋⣀⡴⣿⠓⠦⢤⣩⣿⣿⣴⡿⠋⠉⣀ ⢸  ⠄⠃⠁                        
+                                            ⣠⣴⠿⠋⣠⠴⠋⠁ ⢀⣠⣶⠿⠋⠿⣿    ⠈⠙⠚Manager                      
+                                         ⣀⣴⠞⠋   ⡏⠙⢒⣦⣾⠟⠃⠁ ⠘ ⣿                                    
+                                      ⣀⡴⠞⠁     ⢀⣧⣾⡟⠃⡇      ⣿                                    
+                                   ⣀⡴⠞ ⣀    ⢀⣤⣾⣿⠋⠟⠃ ⠇    ⠄⣶⣿                                    
+                                 ⣶⣾⣁⣀⡴⠋⡏⠉⣹⣶⣾⠟⣿⣿⠋⡿⢤⣀ ⠇Researcher                                 
+                                 ⣿⠈⠙⠛⠷⣦⣶⡿⠟⢹⣿⠋⠿⠛⠁   ⠉⣩⣴⡾⠟                                        
+                                 ⣿ ⢸  ⠸⣿   ⠋⠁    ⣠⣴⡿⠛                                           
+                                 ⣿⣠⣼⣿⠇⢸⣿      ⣠⣴⡿⠛⠁                                             
+                       ⢰⡒⠒⠋⢹⡄ ⢀⣠⣴⣿⠟⠉⣀ ⢸⣿ ⠆⢃⣠⣴⡿⠛⠁                                                
+                       ⢸⢧⣀⣀⡤⢷⣶⡿⠇ ⠻⠿⣦⣬⣙⡚Writer                                                   
+                       ⢸⢸   ⢸⠛      ⠈⠉⠛⠛⠃⠁                                                      
+                     ⢀⣠⣾⣿   ⠈                                                                   
+           ⢀⡤⢾⠲⢤⣀ ⢀⣠⣶⡿⠃⠁⣾   ⠈                                                                   
+         ⢠⣖⣋ ⣀⡤⠞⠁⣶⠿⠃⠁   ⠙⠒Review                                                                
+         ⢸ ⠈⢹⠁   ⠁                                                                              
+         ⢸  ⢸                                                                                   
+         ⢸  ⢸                                                                                   
+         ⠈⠓⠲⠼Result                                                                             
+                                                                                                
+                                                                                                
+```
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                 ▄              
+                                                                              ▄██████           
+                                                                             ████████           
+                                                                             ████████           
+                                                                            ▄████████           
+                                                                 ▄▄██▄▄▄ ▄█▀ ▀███Request        
+                                                               ▄████████▀                       
+                                                               █████████                        
+                                                    ▄▄ ▄▄      █████████                        
+                                                 ▄▀▀ █▄▄  ██▄▄▀███████▀                         
+                                              ▄▀▀ ▄███████▄█▀    ▀▀Manager                      
+                                          ▄▄▀▀  ██████████ █                                    
+                                       ▄▄▀      ██████████ █                                    
+                                    ▄▄▀      ▄▄▀██████████▄█                                    
+                                 ▄▄▀  ▄█▄▄▄▄▀▄█▀█████Researcher                                 
+                                 █ ▀████████▀▄▀▀    ▀ ▄▀▀                                       
+                                 █  ███████▀▀      ▄▀▀                                          
+                                 █ ▄███████     ▄▀▀                                             
+                        ▄▄▄▄    ▄█▀███████▀ ▄▄▀▀                                                
+                        █████▄▄▀▀▀█▄ ▀▀Writer                                                   
+                        █████▀       ▀▀▀▀                                                       
+                       ▄█████                                                                   
+             ▄▄▄    ▄▄▀▀█████                                                                   
+          ▄██████▄█▀▀    ▀Review                                                                
+          ███████                                                                               
+          ███████                                                                               
+          ███████                                                                               
+          ▀▀▀Result                                                                             
+                                                                                                
+                                                                                                
+```
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                ⢀⡀                          
+                                                                                                             ⣀⡤⠞⢹⠉⠙⠒⣦⡄                      
+                                                                                                           ⣴⣚⡁   ⣠⠴⠚⠁⠃                      
+                                                                                                           ⡇ ⠉⠙⢲⠋⠁   ⠃                      
+                                                                                                           ⡇   ⢸     ⠃                      
+                                                                                                          ⣠⣷⣿⠿ ⢸     ⠃                      
+                                                                                              ⣠⢴⠦⢤⣀⡀  ⢀⣠⣴⣿⠞⠋⠁  ⢸    ⠃⠁                      
+                                                                                          ⢀⣠⠖⠋⠁  ⢀⣠⠟⣧⣶⣿⠏ ⠁ ⠈⠙⠲⢤⣸Request                     
+                                                                                          ⡟⠒⠦⢤⣀⡤⠞⠉  ⡇⠋                                      
+                                                                                          ⡇   ⢸     ⠇                                       
+                                                                            ⣠⣴⣶⣤⣄⣀        ⣇⣤⣦ ⢸     ⠇                                       
+                                                                        ⢀⣠⣴⡿⠛⠁⣇⠉⠙⠻⠿⣷⣶⣤ ⢀⣤⣾⡿⠏⠁ ⢸     ⡇                                       
+                                                                     ⢀⣠⣶⠿⠋⠁⣠⠴⢻⠏⠉⠓⣒⣶⡾⢟⣿⣾⡿⠃⠁⢷⣂⡀ ⢸Manager                                      
+                                                                  ⢀⣠⣶⠿⠁⢁⣠⠖⠋⠁  ⣠⣴⡿⠛⠉⡇⠿⣿⠁     ⠉⠙⠚⠃⠁                                           
+                                                               ⢀⣤⣶⠿⠁⠁  ⡟⠒⠦⠤⣤⣴⡿⠛⠁   ⠇ ⣿                                                      
+                                                            ⢀⣤⣾⠟       ⣇⣠⣴⡿⠛⠁      ⠇ ⣿                                                      
+                                                         ⢀⣤⣾⠟       ⢀⣠⣶⣿⠋⠁⡄ ⡇      ⠇ ⣿                                                      
+                                                      ⣀⣴⡾⠟⠁ ⣀    ⢀⣠⣶⢿⠋⠁⣿⠿⠋⠁ ⠇     ⠆⠃⣶⣿                                                      
+                                                    ⣴⣾⣟  ⣀⡴⠋⡏⠙⢒⣦⣶⢿⠋⠁⣿⠟⠋⣷⣂⡀  ⠇Researcher                                                     
+                                                    ⣿⠉⠛⣿⣿⣷⣤⣄⣤⣾⠟⠋⡇⡿⠟⠉⣶⠿⠋⠁ ⠉⠉⠓⠃⠁⣠⣴⡿⠛                                                          
+                                                    ⣿  ⡇ ⠈⠉⢹⡏   ⠇⣶⠿⠋⠁      ⣠⣴⡿⠋⠁                                                            
+                                                    ⣿  ⣇⢀  ⣿⠇   ⠇      ⢀⣠⣴⡿⠋⠁                                                               
+                                                    ⣿⢀⣤⣿⣿⠇ ⣿⠇   ⠇   ⢀⣠⣶⠿⠃⠁                                                                  
+                                        ⣖⠒⠒⠒⠒⣆    ⣀⣤⣿⡿⠛⠉   ⣿⠇⢀ ⠆⠃⢀⣠⣶⠿⠁⠁                                                                     
+                                        ⣿⡀   ⢸⣀⣀⣴⣾⡿⠃⠁⣾⣟⠉⠙⠒⠦⢿Writer⠁⠁                                                                        
+                                        ⡇⡗⠒⠒⠋⠉⡇⣿⠃⠁  ⠈⠉⠛⠻⠷⣶⣤⣼⠃⣾⠟                                                                             
+                                        ⡇⡇    ⠁           ⠈⠉⠁                                                                               
+                                      ⣀⣴⣿⡇    ⠃                                                                                             
+                         ⢀⣠⡶⠤⣄⣀    ⣀⣴⣾⠏ ⢳⡇    ⠃                                                                                             
+                       ⣠⠴⠋   ⣠⠼⢻⣠⣴⣿⠏    ⠘⣇⡀Review                                                                                           
+                      ⢸⠓⠒⠦⢤⠖⠋⠁ ⢸⠟                                                                                                           
+                      ⢸   ⠸    ⠈                                                                                                            
+                      ⢸   ⢸    ⠈                                                                                                            
+                      ⢸   ⢸    ⡈                                                                                                            
+                      ⠘⠦⢀⢀⢸Result                                                                                                           
+                         ⠈⠉⠁                                                                                                                
+                                                                                                                                            
+                                                                                                                                            
+```
+
+#### Fan-out / join / split (new)
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                          ⣀⡴⢺⠓⢲⣤                
+                                                             ⢀⡀          ⢸⠓⠦⡴⠚⠉                 
+                                                          ⣀⡤⠞⢹⠉⢉⣳⡆       ⣸⣀ ⠃  ⠈                
+                                                         ⢸⠓⠦⣄⣠⠴⠃ ⠁⠶⠶⣶⣾⣛⣛⢛⣿⡿⠁⠇  ⠈                
+                                                         ⢸   ⠃  ⢀⡧⠖⠋⠁ ⣀⡼⣿⠟⠯⣄⠇Input              
+                                                         ⢸⣼⡟ ⠇  ⣸⠉⠓⠦⡴⠚⠁                         
+                                                         ⣼⡿⠤⣄⠇Branch B                          
+                                                     ⢀⡀⢀⣾⠟  ⣾⣭⣴⣾⣿⠛⠁ ⠇   ⠌                       
+                                                  ⢠⣴⡚⢹⡭⣿⢏⣠⣴⣾⣿⠛⠉⢸⠈⠓⠒⠦⠷Branch A                   
+                                     ⢀⣠⣄⣀         ⢸ ⠉⡏  ⣿⠉⠁⠿⡿⠛⠃⢸   ⣀⡇                           
+                                  ⢀⡤⠖⠋⠈⣀⡼⢻  ⣠⣴⣤⣠⣤⣤⣼⣶⡆⠃      ⠻⢤⣀⢸Branch C                        
+                                  ⢸⠉⠙⢲⠋⠁ ⢠⣟⣛⡛⢘⣠⠼⠚⣾⣿⠏ ⠇        ⠈⠉⠁                               
+                                  ⢸⢀⣠⢸   ⢸  ⠉⡏   ⡿ ⠉⠓Join                                       
+                           ⢀⡤⢾⠓⣦⡄⣠⣾⠟⠃⢸   ⢼⣠⣦ ⠁                                                  
+                           ⡏⠓⢲⠋⠁⡇⠟⠉⠓⠲⠼Split 3⠃                                                  
+                           ⣇⣠⠘  ⠃     ⣠⣿⠟⠁⡟⠉⠓Split 2                                            
+                          ⣠⣿⠃⢸  ⠃   ⢀⣼⣟⠁⣦ ⠁   ⡇                                                 
+                        ⢀⣾⠟⠙⢲⠼Side⣄⣴⣿⠁⡿⠛⠁ ⠃  ⠆⠃                                                 
+                  ⢀⣠⣄⡀ ⣰⡿   ⡟⠒⠦⡴⠚⠁⡇⠋⠋⠁ ⠈⠉⠓⠃Split 1                                              
+                ⣠⠴⠋⠈⣀⡽⣿⠏⠁  ⢀⣇⣀ ⠁  ⠇                                                             
+                ⡏⠉⠓⡞⠁ ⠁⠿⠛⠛⠛⠋⠁⠁⠁⠇  ⠇                                                             
+                ⡇  ⠁  ⠁     ⠻⠤⣄Merge                                                            
+                ⣧  ⠃  ⠁                                                                         
+                ⠈⠉⠓Output                                                                       
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                            ▄▄▄                 
+                                                                          ▄█████                
+                                                            ▄██▄▄▄        ██████                
+                                                          ████████▄▄▄▄▄ ▀▀██████                
+                                                          ████████▄▄████▄█▀██Input              
+                                                          ███████████████                       
+                                                          ████Branch B███                       
+                                                         █  ▄████████████                       
+                                                    ▄██▄█  ▄█████████Branch A                   
+                                                   ████████▄█████████                           
+                                    ▄▄███▄        ▄█████    ▀███Branch C                        
+                                   ███████▄▄█████▄██████        ▀                               
+                                   ███████████████▀▀▀Join                                       
+                             ▄▄▄▄ ▄██████████████                                               
+                           ██████▀ ▀▀█Split 3███▀                                               
+                           ██████      ██████Split 2                                            
+                           ██████    ▄█████████                                                 
+                         ▄█▀▀█Side ▄██▄███████▀                                                 
+                        █▀  ▄███████▀  ▀▀▀▀Split 1                                              
+                 ▄▄███▄█    ███████                                                             
+                ███████▄  ▀▀███████                                                             
+                ███████     ▀██Merge                                                            
+                ██████▀                                                                         
+                ▀▀▀Output                                                                       
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                        ⣀⡴⢺⠓⢲⣤                              
+                                                                                                      ⢰⠯⢥⣀⡤⠖⠃                               
+                                                                                     ⣀⡴⢺⠓⠲⠤⣄⡀         ⢸  ⢸                                  
+                                                                                  ⣠⠴⠋⠁  ⢀⣠⠴⠋⠃  ⣀⣀⣀⣀⣤⣤⣤⣼⣶⣶⢸                                  
+                                                                                  ⡏⠉⠓⠲⢤⠖⠋   ⠇⠛⠛⣻⢿⠿⢭⣉⡉⢁⣿⡿ ⢸                                  
+                                                                                  ⡇   ⢸    ⢀⣧⠖⠋⠁⢸ ⢀⣠⠟⣿⠋⠯⢤⣸Input                             
+                                                                                  ⡇⣰⡿ ⢸    ⡟⠒⠦⢤⣀⡤⠞⠉  ⠇                                      
+                                                                                  ⣷⡿  ⢸  ⡀⠄⡏   ⢸     ⠇                                      
+                                                                                 ⣰⡿⠁⠓⠲⠼Branch B⢸     ⠇                                      
+                                                                            ⣀⣤⣀ ⣰⡿   ⢸⣓⣶⣶⣿⣿⠋⠁  ⢸    ⠆⠃                                      
+                                                                         ⢀⡤⠞⠁⢃⡼⣻⡿ ⣀⣤⣶⢿⠛⠁⠁ ⠃⠙⠒⠦⢤⣸Branch A                                    
+                                                                         ⢸⠉⠓⡞⠉ ⠘⣷⣿⠋ ⣶⣾⡿⠿⠆ ⠇    ⡇                                            
+                                                       ⢀⡤⠖⡟⠒⠲⣤⡄          ⢸⣀ ⠃   ⠁⠁   ⢸    ⠇    ⠃                                            
+                                                     ⣴⣚⠉  ⢀⡤⠞⠁⠃⣀⣠⣤⣶⣿⣶⣶⣾⡿⣿⣿⣿⠇⡇        ⠈⠓⠲⠤⣄⠇Branch C                                         
+                                                     ⡇⠈⠉⠓⡞⠉   ⣷⣛⠛  ⢀⡤⠞⠁⡇⡿⠃⠃ ⡇                                                               
+                                                     ⡇⣠  ⠃    ⡇⠈⠉⠓⡞⠉   ⡇⠏ ⠉⠓⠃Join                                                           
+                                             ⢀⡤⡶⠤⣄⡀⢀⣴⣿⡿⠇ ⠇    ⡇⢀⡀ ⠃    ⠃                                                                    
+                                           ⢠⣖⣋ ⣀⡴⠋⠁⣿⠾⠋⣀  ⠇Split 3 ⠇    ⠃                                                                    
+                                           ⢸ ⠈⢹⠁  ⡇⠁  ⠈⠉⠓⠃⢡⣞⣽⣿⠟⣁  ⠇  ⠆⠁                                                                     
+                                           ⢸⣠⡄⢸   ⠇      ⢀⣼⣿⠟⠁⢹⠉⠉⠓⠛Split 2                                                                  
+                                          ⢀⣼⡟ ⢸   ⠇     ⣠⣿⠏⠁⣄ ⠸    ⢸                                                                        
+                                         ⣠⣿⠋⣄⣀⢸ ⡴⠋⣁⣀  ⣠⣾⠏⠁⣾⡿⠃ ⢸    ⡈                                                                        
+                                       ⢀⣼⡟   ⣨⠽Side⡼⣻⣾⠟ ⠿⠋⠹⣄⣀ ⢸Split 1                                                                      
+                                ⢀⡤⡶⢤⣀ ⣠⣿⠁    ⡏⠉⠙⢲⠋⠁ ⠘⠁⠋⠁     ⠉⠉⠁                                                                            
+                             ⢀⡤⠞⠉ ⢀⣠⠼⢻⡟      ⣇⣀ ⠸                                                                                           
+                             ⢸⠉⠉⠓⡞⠉   ⣶⡶⠶⠾⠿⠿⠿⠛⠒⠃⢸                                                                                           
+                             ⢸   ⠁           ⣧  ⢸  ⡄⠂                                                                                       
+                             ⢸   ⠃           ⠈⠉⠙⠚Merge                                                                                      
+                             ⢸   ⠃  ⠄⠂                                                                                                      
+                              ⠉⠉⠓⠃Output                                                                                                    
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+### Residuals, stated plainly
+
+1. **A `"side"`-mode label's leader line is no longer drawn at all.** Round 3-6 stamped a leader line from the node's own edge to a side-placed label through the same `GLYPH_CANVAS_TIERS` overlay machinery that drew box outlines and edges — all of which is gone in round 7 (no more hand-stamped overlay glyphs of any kind besides label text itself). A side-placed label therefore floats with no visual connector back to its own node. This only affects nodes whose `size` is explicitly narrower than their own label (JSON-only, rare in practice — none of the 5 shipped examples trigger `"side"` mode at their default sizes).
+2. **The camera constants and ribbon/arrowhead thickness constants are first-guess-then-verified-by-rendering, not analytically derived.** Round 5/6 could derive their own camera yaw analytically against a shared plane; round 7 has no shared plane to solve against, so `GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/`_ROT_Y`, `GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH`/`_ARROWHEAD_HALF_WIDTH`/`_ARROWHEAD_LENGTH`, and the ring/rank gap constants were tuned by rendering the real examples and inspecting them directly (the same discipline every earlier round used for its own constants) rather than by closed-form derivation. The rank-spacing fix above (`screenSafeFlowHalf`) is a conservative bound, not a per-camera-angle-exact one — it is proven to eliminate the measured overlap on the shipped examples, not proven optimal for an arbitrary future camera angle.
+3. **The "blocks" charset has no ANSI colour form.** `encodeGlyphBuffersDual` (glyphcss) only ever emits HTML `<span>` markup or plain text — there is no dual-colour ANSI SGR encoder. An ANSI colour mode (`ansi16`/`ansi256`/`truecolor`) under `charset: "blocks"` degrades to plain text with a `3d-blocks-ansi-unsupported` ledger entry rather than a silently wrong (single-colour) ANSI render; `color: "css"` still produces real dual-colour HTML. Building a dual-colour ANSI encoder was judged out of scope/budget for this round.
+4. **Dense fan-in/fan-out graphs (agent-supervisor's 6-way Supervisor fan, fan-join-split's 3-way joins) read as busy at 96x32** — every edge is real, depth-tested geometry and every label is present (or honestly reported dropped), but the sheer number of crossing ribbon segments at that small a target produces a visually dense frame. This is inherent to rendering a genuinely 3D structure through a small braille/block grid, not a bug; 140x40 reads noticeably cleaner for the same graphs.

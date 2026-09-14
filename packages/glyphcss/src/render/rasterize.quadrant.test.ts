@@ -43,16 +43,36 @@ describe("rasterize — quadrant solid (charMode)", () => {
     }
   });
 
-  it("is a documented no-op when combined with a transformCells hook: falls back to the single-color ramp path", () => {
+  // D2 round 7 — see `rasterize.halfblock.test.ts`'s own matching pair for
+  // the full rationale: quadrant + a mounted hook used to fall back to the
+  // ramp; it now renders real quadrant geometry with the hook's own writes
+  // as whole-cell overrides.
+  it("a hook that touches NOTHING still renders real quadrant glyphs — byte-identical to no hook at all", () => {
     const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
     const grid = { cols: 20, rows: 10, cellAspect: 2.0 };
     const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
     const identity = (g: CellGrid) => g;
-    const withAsciiHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "ascii", transformCells: identity }));
-    const withQuadrantHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "quadrant", transformCells: identity }));
-    expect(withQuadrantHook).toBe(withAsciiHook);
-    // Neither the ASCII ramp nor the fallback path ever emits a quadrant glyph.
-    expect(withQuadrantHook).not.toMatch(/[▘▝▖▗▀▄▌▐▚▞▛▜▙▟█]/);
+    const withoutHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "quadrant" }));
+    const withIdentityHook = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "quadrant", transformCells: identity }));
+    expect(withIdentityHook).toBe(withoutHook);
+    expect(withIdentityHook).toMatch(/[▘▝▖▗▀▄▌▐▚▞▛▜▙▟█]/);
+  });
+
+  it("a hook that writes one cell overrides it WHOLE (glyph + fg, bg cleared) while every other cell keeps real dual-colour quadrant ink", () => {
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
+    const grid = { cols: 20, rows: 10, cellAspect: 2.0 };
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
+    const geometryOnly = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "quadrant" }));
+    const stampOneCell = (g: CellGrid): CellGrid => {
+      g.char[0] = "X";
+      g.color[0] = "#ff0000";
+      return g;
+    };
+    const withStamp = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "solid", useColors: true, charMode: "quadrant", transformCells: stampOneCell }));
+    expect(withStamp).toMatch(/<span style="color:#ff0000">X<\/span>|^X/);
+    expect(withStamp).not.toMatch(/background-color:#ff0000/);
+    expect(withStamp).toMatch(/[▘▝▖▗▀▄▌▐▚▞▛▜▙▟█]/);
+    expect(withStamp).not.toBe(geometryOnly);
   });
 
   it("renders only quadrant-set glyphs in solid mode when charMode is quadrant", () => {

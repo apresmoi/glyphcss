@@ -1049,6 +1049,30 @@ function wantsQuadrantSolid(scene: RasterizeContext): boolean {
     && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
 }
 
+/**
+ * D2 round 7 (`@glyphcss/diagrams/3d`'s "blocks" charset — halfblock/
+ * quadrant plus a scene-object overlay, e.g. a diagram's node labels): the
+ * MIRROR of `wantsHalfblockSolid`/`wantsQuadrantSolid` — same charMode and
+ * temporal-blend gate, but requiring a `transformCells` hook to be PRESENT
+ * rather than absent. Used only to (a) still force an even supersample >= 2
+ * so the dual-colour decision loop below has real subcells to read even
+ * when an overlay is mounted, and (b) pick the post-hook merge branch in
+ * `rasterizeSolid` — never the fast early-return path, which stays gated on
+ * `wantsHalfblockSolid`/`wantsQuadrantSolid` exactly as before (so the
+ * no-overlay case is byte-identical, unchanged code, unchanged control
+ * flow).
+ */
+function wantsHalfblockSolidOverlay(scene: RasterizeContext): boolean {
+  return scene.charMode === "halfblock"
+    && !!scene.transformCells
+    && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
+}
+function wantsQuadrantSolidOverlay(scene: RasterizeContext): boolean {
+  return scene.charMode === "quadrant"
+    && !!scene.transformCells
+    && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
+}
+
 export function rasterize(scene: RasterizeContext): string {
   // Output field, not input — see `RasterizeContext.atlasEncoded`. Cleared per
   // pass so a context reused across frames reports THIS one.
@@ -1071,7 +1095,7 @@ export function rasterize(scene: RasterizeContext): string {
     // (a clean 2×2 quadrant bisection instead of halfblock's top/bottom one),
     // so it forces the same minimum — see `wantsQuadrantSolid`.
     let ss = baseSS;
-    if (wantsHalfblockSolid(scene) || wantsQuadrantSolid(scene)) {
+    if (wantsHalfblockSolid(scene) || wantsQuadrantSolid(scene) || wantsHalfblockSolidOverlay(scene) || wantsQuadrantSolidOverlay(scene)) {
       ss = Math.max(2, baseSS);
       if (ss % 2 !== 0) ss++;
     }
@@ -3234,6 +3258,22 @@ function rasterizeSolid(
     finalWeight = ds.weight;
     finalWinnerMesh = ds.winnerMesh;
   }
+  // D2 round 7 — halfblock/quadrant WITH a mounted overlay (a diagram's node
+  // labels): unlike the fast dual-colour early-return above (which requires
+  // NO `transformCells` and terminates before any of this runs), this case
+  // needs the label arbiter's own occlusion (real `finalDepth`/
+  // `finalWinnerMesh`, already computed by `downsampleSolid` above) to
+  // decide which labels survive — so it falls through the ORDINARY
+  // single-colour downsample -> hook pipeline below UNCHANGED, and only
+  // diverges once that pipeline is done: snapshot the post-downsample,
+  // PRE-hook single-colour result here (before the hook mutates it), so the
+  // merge after the hook (below) can tell which cells the overlay actually
+  // touched — a diff against ORIGINAL geometry-only content, not a second,
+  // independently-decided "is this a label" test.
+  const halfblockOverlay = supersample > 1 && wantsHalfblockSolidOverlay(scene);
+  const quadrantOverlay = supersample > 1 && wantsQuadrantSolidOverlay(scene);
+  const preHookGlyph: string[] | null = (halfblockOverlay || quadrantOverlay) ? finalGlyph.slice() : null;
+  const preHookColor: (string | null)[] | null = (halfblockOverlay || quadrantOverlay) && finalColor ? finalColor.slice() : null;
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
     // `solidWeightRamp` is a documented no-op under active temporal-blend
@@ -3291,6 +3331,35 @@ function rasterizeSolid(
     finalColor = applied.color;
     finalWeight = applied.weight;
     if (__detail) (__detail.hook ??= []).push(performance.now() - __tHook);
+  }
+  // D2 round 7 — halfblock/quadrant + overlay merge: the dual-colour
+  // decision (SAME table the fast early-return path above uses, via the
+  // shared `buildHalfblockSolidBuffers`/`buildQuadrantSolidBuffers`) reads
+  // the raw supersampled subcells directly, exactly like the no-overlay
+  // path — untouched cells get real `▀`/`▄`/quadrant two-tone glyphs. A
+  // cell the hook actually wrote to (detected by diffing the hook's own
+  // single-colour result against the `preHookGlyph`/`preHookColor`
+  // snapshot taken before it ran — never a second, independently-decided
+  // "is this a label" test) is overridden WHOLE: the hook's own glyph +
+  // foreground colour, with `bg` cleared, per the brief's own "override
+  // WHOLE cells (their glyph + fg, bg cleared)" instruction.
+  if (preHookGlyph) {
+    const dual = halfblockOverlay
+      ? buildHalfblockSolidBuffers(colorBuf, depthBuf, outCols, outRows, supersample, useColors)
+      : buildQuadrantSolidBuffers(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    const n = outCols * outRows;
+    const char = dual.char.slice(), fg = dual.fg.slice(), bg = dual.bg.slice();
+    for (let i = 0; i < n; i++) {
+      const priorColor = preHookColor ? (preHookColor[i] ?? null) : null;
+      const nowColor = finalColor ? (finalColor[i] ?? null) : null;
+      if (finalGlyph[i] === preHookGlyph[i] && nowColor === priorColor) continue;
+      char[i] = finalGlyph[i]!;
+      fg[i] = nowColor;
+      bg[i] = null;
+    }
+    const out = encodeGlyphBuffersDual(char, fg, bg, outCols, outRows, useColors, scene.colorTolerance);
+    if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
+    return out;
   }
   // `finalWeight` is non-null only when `solidWeightRamp` is active (and
   // temporal reprojection didn't drop it) — the byte-identical default path
@@ -3598,15 +3667,23 @@ function downsampleSolid(
  * contract — the `transformCells` hook and the generic effect compositor
  * stay exactly as one-color-per-cell as they are today.
  */
-export function encodeHalfblockSolid(
+/**
+ * The per-cell decision loop `encodeHalfblockSolid` used to inline directly
+ * ahead of its own `encodeGlyphBuffersDual` call — split out (D2 round 7,
+ * byte-identical refactor) so `rasterizeSolid`'s new overlay branch can
+ * reuse the SAME decision table on the same raw supersampled buffers
+ * without a second, independently-maintained copy of it, and then merge in
+ * whatever a mounted scene-object overlay (a diagram's node labels) wrote
+ * over the post-downsample single-colour result before encoding.
+ */
+function buildHalfblockSolidBuffers(
   colorBuf: (string | null)[] | null,
   depthBuf: Float64Array,
   outCols: number,
   outRows: number,
   S: number,
   useColors: boolean,
-  colorTolerance = 0,
-): string {
+): { readonly char: string[]; readonly fg: (string | null)[]; readonly bg: (string | null)[] } {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
   const n = outCols * outRows;
@@ -3662,7 +3739,20 @@ export function encodeHalfblockSolid(
       }
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
+  return { char: charBuf, fg: fgBuf, bg: bgBuf };
+}
+
+export function encodeHalfblockSolid(
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  outCols: number,
+  outRows: number,
+  S: number,
+  useColors: boolean,
+  colorTolerance = 0,
+): string {
+  const b = buildHalfblockSolidBuffers(colorBuf, depthBuf, outCols, outRows, S, useColors);
+  return encodeGlyphBuffersDual(b.char, b.fg, b.bg, outCols, outRows, useColors, colorTolerance);
 }
 
 /** Quadrant bit ordering: TL/TR/BL/BR, matching the classic sixel/chafa quadrant convention. */
@@ -3752,15 +3842,15 @@ const QUADRANT_GLYPHS: Record<number, string> = {
  * `encodeGlyphBuffersDual`, so `CellGrid`/`transformCells`/the generic effect
  * compositor stay exactly one-color-per-cell, untouched by this path.
  */
-export function encodeQuadrantSolid(
+/** Split out for the same reason `buildHalfblockSolidBuffers` was (D2 round 7's own doc). */
+function buildQuadrantSolidBuffers(
   colorBuf: (string | null)[] | null,
   depthBuf: Float64Array,
   outCols: number,
   outRows: number,
   S: number,
   useColors: boolean,
-  colorTolerance = 0,
-): string {
+): { readonly char: string[]; readonly fg: (string | null)[]; readonly bg: (string | null)[] } {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
   const n = outCols * outRows;
@@ -3840,7 +3930,20 @@ export function encodeQuadrantSolid(
       fgBuf[oi] = avgColor(15);
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
+  return { char: charBuf, fg: fgBuf, bg: bgBuf };
+}
+
+export function encodeQuadrantSolid(
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  outCols: number,
+  outRows: number,
+  S: number,
+  useColors: boolean,
+  colorTolerance = 0,
+): string {
+  const b = buildQuadrantSolidBuffers(colorBuf, depthBuf, outCols, outRows, S, useColors);
+  return encodeGlyphBuffersDual(b.char, b.fg, b.bg, outCols, outRows, useColors, colorTolerance);
 }
 
 /**

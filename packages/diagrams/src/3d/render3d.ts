@@ -20,8 +20,8 @@
 import {
   compileScene, createGlyphOrthographicCamera, createGlyphCanvas,
   encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, foldGlyphOverlayLabelToAscii,
-  type GlyphCamera, type GlyphSceneObject, type GlyphSceneOverlay, type Vec3, type RenderMode,
-  type GlyphDirectionalLight, type GlyphAmbientLight, type GlyphCanvasTierName, type CellGrid,
+  type GlyphCamera, type GlyphSceneObject, type GlyphSceneOverlay, type Vec3, type RenderMode, type CellGrid,
+  type GlyphDirectionalLight, type GlyphAmbientLight,
 } from "glyphcss";
 import { glyphGraphFromMermaid } from "../mermaid";
 import { glyphGraphFromJson } from "../adapters";
@@ -29,9 +29,9 @@ import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from
 import type { GlyphGraph } from "../types";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
 import { glyphDiagramObject, resolveGlyphDiagram3dLabelPlacement, glyphDiagram3dLabelSideDirection, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
-import { layout3d, glyphDiagram3dPlaneAxes, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dNode, type GlyphDiagram3dLayoutKind } from "./layout3d";
+import { layout3d, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dNode, type GlyphDiagram3dLayoutKind } from "./layout3d";
 import {
-  ledger3dArrowheadsSuppressed, ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelsSuppressed,
+  ledger3dArrowheadsSuppressed, ledger3dBlocksAnsiUnsupported, ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelsSuppressed,
   ledger3dLabelUnfittable, ledger3dLayoutAutoForce,
 } from "./ledger3d";
 
@@ -68,16 +68,6 @@ export const GLYPH_DIAGRAM_3D_AMBIENT_LIGHT: GlyphAmbientLight = { intensity: 0.
 export type GlyphDiagram3dTarget = "chat" | "terminal" | "web";
 export type GlyphDiagram3dCharset = "ascii" | "box" | "blocks" | "braille";
 export type GlyphDiagram3dColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
-/**
- * D2 round 3, requirement 4: an explicit override of the automatic
- * charset->mode mapping below. `"ink"` (the default, undocumented as a
- * literal default so a bare `style` field reads as opt-in) is crisp
- * silhouette+crease line art; `"wireframe"` forces plain wireframe (what
- * `braille` already gets automatically); `"solid"` is the OLD Lambert-shaded
- * box render from D1/D2 fix rounds 1-2, kept reachable for a caller who
- * wants shaded slabs back rather than line art.
- */
-export type GlyphDiagram3dStyle = "ink" | "wireframe" | "solid";
 
 /**
  * `rotX`/`rotY` (degrees) or a trackball `mat` (AGENTS.md's numeric
@@ -115,8 +105,6 @@ export interface GlyphDiagram3dRenderOptions extends GlyphDiagramObjectOptions {
    * label on regardless of node count, or `0` to hide all of them.
    */
   readonly maxLabels?: number;
-  /** D2 round 3, requirement 4: override the automatic charset->render-mode mapping (see `GlyphDiagram3dStyle`'s own doc). Default: automatic (`"ink"` for `ascii`/`box`/`blocks`, wireframe+braille for `braille`). */
-  readonly style?: GlyphDiagram3dStyle;
 }
 
 export interface GlyphDiagram3dReport { readonly ledger: readonly GlyphDiagramLedgerEntry[] }
@@ -131,75 +119,57 @@ export interface GlyphDiagram3dResult {
   readonly report: GlyphDiagram3dReport;
 }
 
-// `braille`/`blocks` fall back to something 3D CAN actually draw (see
-// `ledger3dCharsetDegraded`'s own doc) — deliberately its OWN table, not
-// `GLYPH_DIAGRAM_TARGET_DEFAULTS` (2D): a solid Lambert-shaded scene wants
-// `box`/`ascii` as its natural default everywhere, where 2D's own hand-painted
-// box-drawing canvas defaults to braille on terminal/web for sub-cell edges.
+// D2 round 7 (user, verbatim: "we need to use braille and blocks for 3d
+// diagrams") — the ONLY two 3D diagram charsets now. `web`/`terminal`
+// default to `braille`; `chat` defaults to `blocks` (a chat client's own
+// fenced-code font carries the Block Elements range but essentially never
+// braille, AGENTS.md's "Targets and page"). Deliberately its OWN table,
+// not `GLYPH_DIAGRAM_TARGET_DEFAULTS` (2D), since 2D's own hand-painted
+// box-drawing canvas has a genuinely different default set.
 const GLYPH_DIAGRAM_3D_TARGET_DEFAULTS: Readonly<Record<GlyphDiagram3dTarget, { width: number; height: number; charset: GlyphDiagram3dCharset; color: GlyphDiagram3dColorMode }>> = Object.freeze({
-  chat: { width: 72, height: 24, charset: "box", color: "none" },
-  terminal: { width: 80, height: 24, charset: "box", color: "truecolor" },
-  web: { width: 96, height: 32, charset: "box", color: "css" },
+  chat: { width: 72, height: 24, charset: "blocks", color: "none" },
+  terminal: { width: 80, height: 24, charset: "braille", color: "truecolor" },
+  web: { width: 96, height: 32, charset: "braille", color: "css" },
 });
 
 /**
- * Exported (D3 fix round 1, P1-1) so `/diagrams`' own live 3D viewport can
- * derive the SAME `mode`/`charMode` a static `renderGlyphDiagram3d` frame
- * uses for a given charset, rather than re-deriving (and risking drifting
- * from) this table on the page. Zero behaviour change from the D2 fix
- * round's own version of this function — only its visibility moved.
+ * Exported so `/diagrams`' own live 3D viewport can derive the SAME
+ * `mode`/`charMode` a static `renderGlyphDiagram3d` frame uses for a given
+ * charset, rather than re-deriving (and risking drifting from) this table
+ * on the page.
  */
 export interface ResolvedCharset {
   readonly mode: RenderMode;
-  readonly charMode: "ascii" | "braille";
-  /** The `GLYPH_CANVAS_TIERS` table `glyphDiagramObject`'s overlay reads for its box-outline/edge/arrowhead glyphs — independent of `charMode` (the RASTERIZER's own vocabulary), since `blocks` degrades the render to ascii but the overlay can still draw box-tier line art. */
-  readonly canvasTier: GlyphCanvasTierName;
-  /**
-   * Skip the box-outline overlay when the render MODE already draws every
-   * polygon edge itself (D2 round 3: this is now `ink` and `wireframe`
-   * alike, not only `wireframe` — message 2's own "REUSE the renderer's
-   * modes. Do not hand-draw outlines with overlays where a render mode
-   * already does it"). Only the `"solid"` style override still wants the
-   * hand-drawn crisp outline, since a flat-lit Lambert fill draws no edges
-   * of its own at all (D2 review P1-1's original reason for the overlay).
-   */
-  readonly boxOutline: boolean;
+  readonly charMode: "braille" | "halfblock" | "quadrant";
   readonly hiddenLines: "show" | "hide";
   readonly ledger: GlyphDiagramLedgerEntry[];
 }
 
 /**
- * D2 round 3 (default: `style` undefined or `"ink"`) — crisp line art via
- * the renderer's OWN modes: `braille` -> `wireframe` + `charMode: "braille"`
- * (2x4 sub-cell dots); `box`/`ascii` -> `ink` (silhouette + crease outline);
- * `blocks` -> `ink` too, ASCII-downgraded (its sub-cell dual-color encoder
- * bypasses the stamped overlay path this renderer depends on, same as
- * before this round). `hiddenLines: "hide"` throughout, so a back edge or
- * an object standing behind another disappears rather than drawing through
- * it (message 2, requirement 4). `style: "wireframe"` forces wireframe for
- * every charset; `style: "solid"` reaches the OLD Lambert-shaded box render.
+ * D2 round 7 — box-drawing/bar glyphs can't trace an edge or a box face at
+ * an angle (the user's own reason for dropping them from 3D diagrams
+ * entirely), so this function no longer resolves to `ascii`/`box` at all:
+ * `"braille"` -> a real depth-tested WIREFRAME (`mode: "wireframe"` +
+ * `charMode: "braille"`, 2x4 sub-cell dots at any angle), `hiddenLines:
+ * "hide"` so an occluded object or back edge disappears rather than
+ * drawing through it; `"blocks"` -> solid-shaded halfblock (`mode: "solid"`
+ * + `charMode: "halfblock"`), where a box's own edges read from
+ * FACE-CONTRAST Lambert shading rather than a drawn outline (D2 round 7's
+ * own "box outlines come from the encoder itself" instruction — no more
+ * hand-drawn box-outline overlay anywhere in this pipeline,
+ * `glyphDiagramObject.ts`'s own top-of-file doc). An `"ascii"`/`"box"`
+ * request DEGRADES to whichever of the two `target` actually supports
+ * (`ledger3dCharsetDegraded`'s own doc has the exact destination table),
+ * logged once.
  */
-export function resolveCharset(charset: GlyphDiagram3dCharset, style?: GlyphDiagram3dStyle): ResolvedCharset {
-  if (style === "solid") {
-    if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, hiddenLines: "hide", ledger: [ledger3dCharsetDegraded({ charset: "braille", renderedAs: "wireframe" })] };
-    if (charset === "blocks") return { mode: "solid", charMode: "ascii", canvasTier: "box", boxOutline: true, hiddenLines: "hide", ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii" })] };
-    return { mode: "solid", charMode: "ascii", canvasTier: charset, boxOutline: true, hiddenLines: "hide", ledger: [] };
-  }
-  if (style === "wireframe") {
-    if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, hiddenLines: "hide", ledger: [] };
-    const canvasTier = charset === "blocks" ? "box" : charset;
-    return { mode: "wireframe", charMode: "ascii", canvasTier, boxOutline: false, hiddenLines: "hide", ledger: [] };
-  }
-  // `style === "ink"` or unset (the default). Braille here is the INTENDED
-  // look (message 2's own "render those with good detail using braille or
-  // ink mode") — wireframe + 2x4 sub-cell dots is what a braille request
-  // asks for, not a fallback from something else, so no ledger entry: a
-  // reader who picked braille gets exactly it. `blocks` still genuinely
-  // degrades (its sub-cell dual-color encoder can't carry the stamped
-  // overlay path this renderer depends on), so it keeps its entry.
-  if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, hiddenLines: "hide", ledger: [] };
-  if (charset === "blocks") return { mode: "ink", charMode: "ascii", canvasTier: "box", boxOutline: false, hiddenLines: "hide", ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii ink" })] };
-  return { mode: "ink", charMode: "ascii", canvasTier: charset, boxOutline: false, hiddenLines: "hide", ledger: [] };
+export function resolveCharset(charset: GlyphDiagram3dCharset, target: GlyphDiagram3dTarget): ResolvedCharset {
+  if (charset === "braille") return { mode: "wireframe", charMode: "braille", hiddenLines: "hide", ledger: [] };
+  if (charset === "blocks") return { mode: "solid", charMode: "halfblock", hiddenLines: "hide", ledger: [] };
+  const renderedAs = target === "chat" ? "blocks" : "braille";
+  const entry = ledger3dCharsetDegraded({ charset, target, renderedAs });
+  return renderedAs === "blocks"
+    ? { mode: "solid", charMode: "halfblock", hiddenLines: "hide", ledger: [entry] }
+    : { mode: "wireframe", charMode: "braille", hiddenLines: "hide", ledger: [entry] };
 }
 
 function boundsCentroid(bounds: GlyphSceneObject["bounds"]): Vec3 {
@@ -238,39 +208,34 @@ function titleChromeObject(title: string): GlyphSceneObject {
 
 interface RenderedFrame { readonly grid: CellGrid; }
 
-function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera: GlyphCamera; cols: number; rows: number; cellAspect: number; mode: RenderMode; charMode: "ascii" | "braille"; hiddenLines: "show" | "hide" }): RenderedFrame {
+function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera: GlyphCamera; cols: number; rows: number; cellAspect: number; mode: RenderMode; charMode: "braille" | "halfblock" | "quadrant"; hiddenLines: "show" | "hide" }): RenderedFrame {
   const result = compileScene({
     polygons: [], objects: objects as GlyphSceneObject[], camera: opts.camera, cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect,
     mode: opts.mode, charMode: opts.charMode, hiddenLines: opts.hiddenLines, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
     glyphPalette: "default", useColors: true, smoothShading: false, creaseAngle: 60, doubleSided: false, supersample: 1,
   });
-  // P2-3's own instruction: handle a `null` grid explicitly (an in-flight
-  // `compileScene` change may return one for a charMode this module never
-  // requests — `ascii`/`braille` only, never `halfblock`/`quadrant`) rather
-  // than assume the field is always populated.
+  // D2 round 7 — `halfblock` WITH this object's own label overlay mounted
+  // now returns a real `grid` (glyphcss's own fix, AGENTS.md's "Render
+  // modes"), so this used to guard against a `null` grid for exactly that
+  // combination; `null` is unreachable here now (this module never
+  // requests `quadrant`, the other charMode still allowed to return one),
+  // kept as a defensive check rather than a silent `grid!`.
   if (!result.grid) glyphDiagramError("bad-options", "glyphcss: compileScene returned no grid for this render (unsupported charMode).");
   return { grid: result.grid };
 }
 
 interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; readonly anchor: Vec3; }
 
-const RENDER3D_IDENTITY_AXES: { readonly u: Vec3; readonly n: Vec3 } = { u: [1, 0, 0], n: [0, 1, 0] };
-
 /**
- * The node's own front-face LEFT/RIGHT edge points (WORLD space, local
- * depth 0 — the same face `resolveGlyphDiagram3dLabelPlacement`'s
- * `"inside"` anchor sits on) — the SAME embedding `glyphDiagramObject.ts`'s
- * own (private) `toWorldFrame` computes, reimplemented here (not shared)
- * because this module only ever needs a WIDTH (a column difference), never
- * a general local-to-world placement.
+ * The node's own front-face LEFT/RIGHT edge points (WORLD space, world Y
+ * = the depth/extrusion axis every node box always uses now — D2 round
+ * 7's own top-of-file doc in `glyphDiagramObject.ts`) — the SAME face
+ * `resolveGlyphDiagram3dLabelPlacement`'s `"inside"` anchor sits on.
  */
-function frontFaceEdges(node: GlyphDiagram3dNode, axes: { readonly u: Vec3; readonly n: Vec3 }): { readonly left: Vec3; readonly right: Vec3 } {
+function frontFaceEdges(node: GlyphDiagram3dNode): { readonly left: Vec3; readonly right: Vec3 } {
   const [hx, hy] = node.half;
-  const base: [number, number] = [node.center[0] - hy * axes.n[0], node.center[1] - hy * axes.n[1]];
-  return {
-    left: [base[0] - hx * axes.u[0], base[1] - hx * axes.u[1], node.center[2]],
-    right: [base[0] + hx * axes.u[0], base[1] + hx * axes.u[1], node.center[2]],
-  };
+  const y = node.center[1] - hy;
+  return { left: [node.center[0] - hx, y, node.center[2]], right: [node.center[0] + hx, y, node.center[2]] };
 }
 
 /**
@@ -281,8 +246,8 @@ function frontFaceEdges(node: GlyphDiagram3dNode, axes: { readonly u: Vec3; read
  * single point — the additive `center`/`centerCol` terms cancel in a
  * difference, so this is exact for ANY `center` the reference camera used).
  */
-function frontFaceWidthCols(reference: GlyphCamera, node: GlyphDiagram3dNode, axes: { readonly u: Vec3; readonly n: Vec3 }, cols: number, rows: number, cellAspect: number, zoom: number): number {
-  const { left, right } = frontFaceEdges(node, axes);
+function frontFaceWidthCols(reference: GlyphCamera, node: GlyphDiagram3dNode, cols: number, rows: number, cellAspect: number, zoom: number): number {
+  const { left, right } = frontFaceEdges(node);
   const [colL] = reference.project(left, cols, rows, cellAspect);
   const [colR] = reference.project(right, cols, rows, cellAspect);
   return Math.abs(colR - colL) * zoom;
@@ -352,7 +317,6 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
 
   const labelMode = opts.labelMode ?? "auto";
   const labelSideDirection = glyphDiagram3dLabelSideDirection(opts.direction);
-  const axes = opts.layoutKind === "force" ? RENDER3D_IDENTITY_AXES : glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
   const cols = opts.cols, rows = opts.rows;
   const reference = makeCamera(1, [0.5, 0.5]);
 
@@ -362,8 +326,8 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
     for (const node of nodes) {
       const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
       if (rawText.length === 0) continue;
-      const screenWidthCols = frontFaceWidthCols(reference, node, axes, cols, rows, opts.cellAspect, opts.explicitZoom);
-      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols, axes);
+      const screenWidthCols = frontFaceWidthCols(reference, node, cols, rows, opts.cellAspect, opts.explicitZoom);
+      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols);
       if (placed.text.length > 0) fitLabels.push({ node, text: placed.text, anchor: placed.anchor });
     }
     return { camera, fitLabels, unfittable: [] };
@@ -439,8 +403,8 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
     for (const node of nodes) {
       const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
       if (rawText.length === 0) continue;
-      const screenWidthCols = zoomForWidth === undefined ? undefined : frontFaceWidthCols(reference, node, axes, cols, rows, opts.cellAspect, zoomForWidth);
-      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols, axes);
+      const screenWidthCols = zoomForWidth === undefined ? undefined : frontFaceWidthCols(reference, node, cols, rows, opts.cellAspect, zoomForWidth);
+      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols);
       if (placed.text.length === 0) continue;
       const entry: FitLabel = { node, text: placed.text, anchor: placed.anchor };
       if (placed.text.length > availCols) unfittable.push(entry);
@@ -471,6 +435,57 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
   return { camera: makeCamera(solved.zoom, solved.center), fitLabels: resolved.kept, unfittable: resolved.unfittable };
 }
 
+/**
+ * D2 review P1-2's own repro ("Orchestrator vanished... with an empty
+ * ledger"): the analytic fit proves every label's PREDICTED position
+ * clears the margin, but the shared `GlyphLabelArbiter` can still refuse
+ * one at render time — two labels genuinely colliding on screen from THIS
+ * rotation, or a foreign mesh's `winnerMesh` covering one of its cells — a
+ * real case no amount of geometry alone rules out in advance. Verify what
+ * ACTUALLY landed against what was predicted and name every miss, rather
+ * than trusting the fit's own prediction blindly. Shared by both charMode
+ * branches below (braille reads a real `CellGrid`; blocks reads the
+ * unescaped rendered LINES directly, `verifyLabelsLandedInLines`) so
+ * neither branch re-derives its own verification logic.
+ */
+function verifyLabelsLanded(
+  char: readonly string[], cols: number, rows: number, camera: GlyphCamera,
+  resolved: { readonly width: number; readonly height: number }, cellAspect: number,
+  fitLabels: readonly FitLabel[], ledger: GlyphDiagramLedgerEntry[],
+): void {
+  for (const label of fitLabels) {
+    const [colF, rowF] = camera.project(label.anchor, resolved.width, resolved.height, cellAspect);
+    const col = Math.round(colF), row = Math.round(rowF);
+    let landed = col >= 0 && row >= 0 && row < rows && col + label.text.length <= cols;
+    if (landed) {
+      for (let i = 0; i < label.text.length; i++) {
+        if (char[row * cols + col + i] !== label.text[i]) { landed = false; break; }
+      }
+    }
+    if (!landed) ledger.push(ledger3dLabelDropped({ nodeId: label.node.id, label: label.text }));
+  }
+}
+
+/** Same check as `verifyLabelsLanded`, reading fixed-width text LINES (the `blocks` charset's own exit — no `CellGrid` to read, `CompileSceneResult.grid`'s own doc) instead of a `char` array. */
+function verifyLabelsLandedInLines(
+  lines: readonly string[], cols: number, rows: number, camera: GlyphCamera,
+  resolved: { readonly width: number; readonly height: number }, cellAspect: number,
+  fitLabels: readonly FitLabel[], ledger: GlyphDiagramLedgerEntry[],
+): void {
+  for (const label of fitLabels) {
+    const [colF, rowF] = camera.project(label.anchor, resolved.width, resolved.height, cellAspect);
+    const col = Math.round(colF), row = Math.round(rowF);
+    const landed = col >= 0 && row >= 0 && row < rows && col + label.text.length <= cols
+      && lines[row] !== undefined && lines[row]!.slice(col, col + label.text.length) === label.text;
+    if (!landed) ledger.push(ledger3dLabelDropped({ nodeId: label.node.id, label: label.text }));
+  }
+}
+
+/** `compileScene`'s own `inner` is ALWAYS HTML-escaped (`escapeHtml(output)` even in the colourless case, since it's meant for embedding in a `<pre>`) — undo that for a plain-text exit (Copy ASCII, terminal paste), in entity-decode order (`&amp;` last, so `&amp;lt;` never double-unescapes into `<`). */
+function unescapeHtmlText(s: string): string {
+  return s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+}
+
 function resolvedTargetOptions(options: GlyphDiagram3dRenderOptions): { target: GlyphDiagram3dTarget; width: number; height: number; charset: GlyphDiagram3dCharset; color: GlyphDiagram3dColorMode } {
   const target = options.target ?? "web";
   if (!["chat", "terminal", "web"].includes(target)) glyphDiagramError("bad-options", "target must be chat, terminal, or web.");
@@ -487,29 +502,20 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   const resolved = resolvedTargetOptions(options);
   const cellAspect = options.cellAspect ?? 2.0;
   const graph = typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input);
-  const { mode, charMode, canvasTier, boxOutline, hiddenLines, ledger: charsetLedger } = resolveCharset(resolved.charset, options.style);
+  const { mode, charMode, hiddenLines, ledger: charsetLedger } = resolveCharset(resolved.charset, resolved.target);
 
   const camOpts = options.camera ?? {};
   if (camOpts.mat !== undefined && (camOpts.rotX !== undefined || camOpts.rotY !== undefined)) {
     glyphDiagramError("bad-options", "camera: pass either mat (trackball) or rotX/rotY (Euler), not both.");
   }
-  // D2 round 5 — ONE fixed "architecture view" camera for every graph,
-  // regardless of its own 2D direction (TB/LR/BT/RL): `layout3d.ts`'s
-  // `glyphDiagram3dPlaneAxes` embeds the 2D layout's own x axis into a
-  // ground direction analytically SOLVED to project with zero screen-row
-  // component at THIS exact `rotY` — the flow never drifts, by
-  // construction, for any direction or chain length, so there is no more
-  // per-direction rotX/rotY special case to pick (the OLD system's own
-  // `rotY: -90` LR/RL exemption is gone: that was needed only because ITS
-  // geometry was built world-axis-aligned regardless of camera, so a
-  // diagonal flow had to be cancelled by camera angle instead of being
-  // solved away at the geometry layer, as it is now). `GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/
-  // `_ROT_Y` are `layout3d.ts`'s own constants (never a second, drifting
-  // copy) — the object's own mesh geometry is BAKED assuming exactly this
-  // yaw, so a caller overriding `camera.rotY` sees the object from an
-  // angle its own geometry wasn't built for (an ordinary "orbit away from
-  // the default" case, not a defect — D3's own live viewport orbits this
-  // exact object).
+  // D2 round 7 — ONE fixed "3/4 isometric" camera for every graph,
+  // regardless of its own 2D direction (TB/LR/BT/RL): `layout3d.ts`'s own
+  // stage-by-stage triangulated layout picks the FLOW axis (world X for
+  // LR/RL, world Z for TB/BT) and the two in-plane cross-section axes from
+  // the direction itself, so the camera no longer needs to be analytically
+  // solved against a shared plane's yaw (round 5/6's own derivation) —
+  // `GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/`_ROT_Y` are `layout3d.ts`'s own fixed,
+  // empirically tuned constants (never a second, drifting copy).
   const rotX = camOpts.rotX ?? (camOpts.mat === undefined ? GLYPH_DIAGRAM_3D_CAMERA_ROT_X : undefined);
   const rotY = camOpts.rotY ?? (camOpts.mat === undefined ? GLYPH_DIAGRAM_3D_CAMERA_ROT_Y : undefined);
   const effectiveDirection = options.direction ?? graph.direction;
@@ -563,15 +569,14 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   // `resolvedOptions` — the SAME resolved `layout` kind the adaptive
   // policy above just decided, never each re-deriving it independently.
   const [object, layout] = await Promise.all([
-    glyphDiagramObject(graph, { ...resolvedOptions, tier: canvasTier, boxOutline, labelNodeIds, arrowheads: resolvedArrowheads }),
+    glyphDiagramObject(graph, { ...resolvedOptions, labelNodeIds, arrowheads: resolvedArrowheads }),
     layout3d(graph, resolvedOptions),
   ]);
-  // D2 round 5 — the layered path routes edges through the SAME 2D A*
-  // router `/diagrams` 2D uses (`route.ts`), which can genuinely fail to
-  // find a path (an unroutable edge, a folded label) where the OLD
-  // per-direction system's free 3D diagonals never could. `layout.ledger`
-  // carries those entries (plus label-folding/group-membership ones from
-  // the 2D pipeline itself) — surfaced here rather than silently dropped.
+  // D2 round 7 — every edge is now a straight 3D segment (no more 2D A*
+  // routing at all, `layout3d.ts`'s own top-of-file doc), so this layout
+  // can never report an `unroutable` edge; `layout.ledger` still carries
+  // the 2D pipeline's own label-folding/group-membership entries, surfaced
+  // here rather than silently dropped.
   ledger.push(...layout.ledger);
 
   // Auto-fit's own label constraint set is the SAME suppressed subset
@@ -587,50 +592,62 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   for (const label of unfittable) ledger.push(ledger3dLabelUnfittable({ nodeId: label.node.id, label: label.text, cols: resolved.width }));
 
   const objects: GlyphSceneObject[] = options.title ? [object, titleChromeObject(options.title)] : [object];
-  const { grid } = renderObjectFrame(objects, { camera, cols: resolved.width, rows: resolved.height, cellAspect, mode, charMode, hiddenLines });
-
-  // D2 review P1-2's own repro ("Orchestrator vanished... with an empty
-  // ledger"): the analytic fit above proves every label's PREDICTED
-  // position clears the margin, but the shared `GlyphLabelArbiter` can
-  // still refuse one at render time — two labels genuinely colliding on
-  // screen from THIS rotation, or a foreign mesh's `winnerMesh` covering
-  // one of its cells — a real case no amount of geometry alone rules out
-  // in advance. Verify what ACTUALLY landed against what was predicted and
-  // name every miss, rather than trusting the fit's own prediction blindly.
-  if (camOpts.zoom === undefined) {
-    for (const label of fitLabels) {
-      const [colF, rowF] = camera.project(label.anchor, resolved.width, resolved.height, cellAspect);
-      const col = Math.round(colF), row = Math.round(rowF);
-      let landed = col >= 0 && row >= 0 && row < grid.rows && col + label.text.length <= grid.cols;
-      if (landed) {
-        for (let i = 0; i < label.text.length; i++) {
-          if (grid.char[row * grid.cols + col + i] !== label.text[i]) { landed = false; break; }
-        }
-      }
-      if (!landed) ledger.push(ledger3dLabelDropped({ nodeId: label.node.id, label: label.text }));
-    }
-  }
-
-  // Three exits, over a real `GlyphCanvas` instead of a bare `CellGrid` —
-  // `encodeGlyphCanvasText`/`Ansi`/`Html` are the tested, NO_COLOR/
-  // FORCE_COLOR-aware, HTML-escaping exits AGENTS.md's "Targets and page"
-  // documents; a bare `CellGrid` string has neither (see this file's own
-  // top-of-file doc for why this renders through them instead of
-  // `compileScene`'s own `html`/`inner`, which is a browser-only exit with
-  // no ANSI/NO_COLOR concept at all).
-  const canvas = createGlyphCanvas({ cols: resolved.width, rows: resolved.height, cellAspect, tier: resolved.charset === "blocks" ? "box" : resolved.charset === "braille" ? "braille" : resolved.charset });
-  const colored = resolved.color !== "none";
-  for (let row = 0; row < grid.rows; row++) {
-    for (let col = 0; col < grid.cols; col++) {
-      const idx = row * grid.cols + col;
-      const ch = grid.char[idx]!;
-      if (ch === " ") continue;
-      canvas.text(col, row, [ch], { color: colored ? (grid.color[idx] ?? null) : null });
-    }
-  }
   const colorMode = resolved.color;
-  const text = colorMode === "none" || colorMode === "css" ? encodeGlyphCanvasText(canvas) : encodeGlyphCanvasAnsi(canvas, { colors: colorMode === "ansi16" ? "16" : colorMode === "ansi256" ? "256" : "truecolor", env: options.env });
-  const html = colorMode === "css" ? encodeGlyphCanvasHtml(canvas) : undefined;
+
+  let text: string, html: string | undefined;
+  if (charMode === "braille") {
+    // Braille always returns a real `CellGrid` (an ordinary single-colour
+    // wireframe pass, untouched by the D2 round 7 halfblock/quadrant merge
+    // — AGENTS.md's "Render modes") — three exits over a real `GlyphCanvas`
+    // reconstructed from it, so `encodeGlyphCanvasText`/`Ansi`/`Html` (the
+    // tested, NO_COLOR/FORCE_COLOR-aware, HTML-escaping exits AGENTS.md's
+    // "Targets and page" documents) apply, rather than `compileScene`'s own
+    // `html`/`inner`, a browser-only exit with no ANSI/NO_COLOR concept.
+    const { grid } = renderObjectFrame(objects, { camera, cols: resolved.width, rows: resolved.height, cellAspect, mode, charMode, hiddenLines });
+    if (camOpts.zoom === undefined) verifyLabelsLanded(grid.char, grid.cols, grid.rows, camera, resolved, cellAspect, fitLabels, ledger);
+    const canvas = createGlyphCanvas({ cols: resolved.width, rows: resolved.height, cellAspect, tier: "braille" });
+    const colored = colorMode !== "none";
+    for (let row = 0; row < grid.rows; row++) {
+      for (let col = 0; col < grid.cols; col++) {
+        const idx = row * grid.cols + col;
+        const ch = grid.char[idx]!;
+        if (ch === " ") continue;
+        canvas.text(col, row, [ch], { color: colored ? (grid.color[idx] ?? null) : null });
+      }
+    }
+    text = colorMode === "none" || colorMode === "css" ? encodeGlyphCanvasText(canvas) : encodeGlyphCanvasAnsi(canvas, { colors: colorMode === "ansi16" ? "16" : colorMode === "ansi256" ? "256" : "truecolor", env: options.env });
+    html = colorMode === "css" ? encodeGlyphCanvasHtml(canvas) : undefined;
+  } else {
+    // `halfblock` (D2 round 7's "blocks" charset) paints TWO colours per
+    // cell (fg+bg) — `compileScene`'s own `grid` is `null` for it (no
+    // honest single-`CellGrid` representation, `CompileSceneResult.grid`'s
+    // own doc), so there is no `CellGrid` to reconstruct a `GlyphCanvas`
+    // from here. This exits through `compileScene`'s own `inner`/`html`
+    // STRING output directly instead — the actual dual-colour render,
+    // unescaped back to plain text for Copy ASCII/terminal paste (`inner`
+    // is always HTML-escaped, even the colourless case, since it's meant
+    // for embedding in a `<pre>`). The dual-colour encoder has NO ANSI
+    // form (`AGENTS.md`'s own "Render modes" — `encodeGlyphBuffersDual`
+    // emits `<span>` markup only), so an ANSI colour mode DEGRADES to
+    // plain text for this charset, logged once.
+    if (colorMode !== "none" && colorMode !== "css") ledger.push(ledger3dBlocksAnsiUnsupported({ color: colorMode }));
+    const plain = compileScene({
+      polygons: [], objects: objects as GlyphSceneObject[], camera, cols: resolved.width, rows: resolved.height, cellAspect,
+      mode, charMode, hiddenLines, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
+      glyphPalette: "default", useColors: false, smoothShading: false, creaseAngle: 60, doubleSided: false, supersample: 1,
+    });
+    const plainLines = unescapeHtmlText(plain.inner).split("\n");
+    text = plainLines.join("\n");
+    if (camOpts.zoom === undefined) verifyLabelsLandedInLines(plainLines, resolved.width, resolved.height, camera, resolved, cellAspect, fitLabels, ledger);
+    if (colorMode === "css") {
+      const colored = compileScene({
+        polygons: [], objects: objects as GlyphSceneObject[], camera, cols: resolved.width, rows: resolved.height, cellAspect,
+        mode, charMode, hiddenLines, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
+        glyphPalette: "default", useColors: true, smoothShading: false, creaseAngle: 60, doubleSided: false, supersample: 1,
+      });
+      html = colored.html;
+    }
+  }
 
   return {
     text, ...(html === undefined ? {} : { html }), object,

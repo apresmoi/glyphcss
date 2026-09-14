@@ -4,7 +4,7 @@ import {
   type GlyphMeshHandle, type GlyphOrbitControlsMode, type GlyphSceneObjectHandle, type Vec3,
 } from "glyphcss";
 import {
-  GLYPH_DIAGRAM_3D_AMBIENT_LIGHT, GLYPH_DIAGRAM_3D_LIGHT, glyphDiagramObject, renderGlyphDiagram3d, resolveCharset,
+  GLYPH_DIAGRAM_3D_AMBIENT_LIGHT, GLYPH_DIAGRAM_3D_LIGHT, renderGlyphDiagram3d,
   type GlyphDiagram3dCharset, type GlyphDiagram3dColorMode, type GlyphDiagram3dLayoutKind,
 } from "@glyphcss/diagrams/3d";
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
@@ -35,37 +35,27 @@ import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../I
  * deliberately NOT an effect dependency — it must not fight the live
  * orbit controls on every settle.
  *
- * **Fix round 1, P1-1 — `charset`/`color` reach the live scene.** The
- * initial `createGlyphScene` call AND every later charset/colour edit both
- * go through `resolveDiagrams3dSceneOptions` (this file's own sibling,
- * which forwards to `@glyphcss/diagrams/3d`'s exported `resolveCharset` —
- * the SAME table `renderGlyphDiagram3d`'s static frame uses), applied via
- * `scene.setOptions` so a charset/colour change never tears the mesh or
- * camera down. `chromeNote` (rendered by the parent, from the SAME pure
- * function) is what "show the downgrade note in the frame chrome, exactly
- * like 2D" means here — `web` has no `TargetPreview` chrome to carry it.
+ * **`charset`/`color` reach the live scene via `scene.setOptions` alone.**
+ * The initial `createGlyphScene` call AND every later charset/colour edit
+ * both go through `resolveDiagrams3dSceneOptions` (this file's own
+ * sibling, which forwards to `@glyphcss/diagrams/3d`'s exported
+ * `resolveCharset` — the SAME table `renderGlyphDiagram3d`'s static frame
+ * uses), applied via `scene.setOptions` so a charset/colour change never
+ * tears the mesh or camera down. `chromeNote` (rendered by the parent,
+ * from the SAME pure function) is what "show the downgrade note in the
+ * frame chrome, exactly like 2D" means here — `web` has no `TargetPreview`
+ * chrome to carry it.
  *
- * **Fix round 2, P1-1 — the live OBJECT is built from the resolver's FULL
- * result, not just the scene's render options.** Round 1 only forwarded
- * `mode`/`charMode`/`useColors` to `scene.setOptions` — the mount effect's
- * own `renderGlyphDiagram3d` probe call never passed `charset` at all, so
- * the live mesh's overlay (box outlines, the braille wireframe degrade)
- * was always built from the DEFAULT charset's `tier`/`boxOutline`
- * regardless of what the reader picked, breaking Copy/live parity on
- * every charset but the default. The mount effect now passes
- * `charset: latest.current.charset` so the INITIAL object is correct, and
- * a dedicated `[charset]` effect REBUILDS the object via `glyphDiagramObject`
- * (the same `{ tier, boxOutline }` `resolveDiagrams3dSceneOptions` resolves)
- * and swaps it in via `objectHandle.update()` — which "replaces meshes/
- * overlays wholesale, keeping the handle's identity" (AGENTS.md's "Scene
- * objects"), so the CAMERA is untouched (only the object, not the scene, is
- * touched) exactly like a colour-only edit. Because `update()` disposes and
- * re-adds every member mesh (fresh `GlyphMeshHandle`s, fresh ids), any
- * currently-mounted effect layer's mesh-set target is stale the instant a
- * charset change lands — `scene.addEffectLayer`'s own `target` is immutable
- * after mount (AGENTS.md's "Per-object targeting"), so this effect disposes
- * and reapplies the effect layer AFTER the object swap, never merely
- * retargets an old one.
+ * **D2 round 7 — a charset edit no longer rebuilds the mounted OBJECT at
+ * all.** Box outlines and edges are now real MESH geometry, built once by
+ * `glyphDiagramObject` with no charset-dependent tier/overlay left in its
+ * option surface (AGENTS.md's "Diagrams 3D") — `mode`/`charMode`/
+ * `hiddenLines` alone decide how that SAME geometry rasterizes, so a
+ * charset change is purely a `scene.setOptions` call, exactly like a
+ * colour-only edit. The prior rounds' own object-rebuild effect (swapping
+ * `glyphDiagramObject({ tier, boxOutline })` in via `objectHandle.update()`
+ * on every charset change) is gone along with the `tier`/`boxOutline`
+ * options it existed to forward.
  *
  * **Fix round 1, P1-2 — per-node effect targeting.** `effectId`/`effectTarget`
  * mount, retarget, or dispose one `scene.addEffectLayer` layer against the
@@ -209,12 +199,13 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
       let fit: Awaited<ReturnType<typeof renderGlyphDiagram3d>>;
       try {
         const initial = latest.current.initialCamera;
-        // `charset` (fix round 2, P1-1) — read via `latest.current`, not the
-        // effect's own dependency array: a LATER charset change is handled
-        // by the dedicated `[charset]` object-rebuild effect below, which
-        // swaps the object in place without remounting the scene/camera.
-        // This call only needs to seed the INITIAL object with whatever
-        // charset was selected at mount time.
+        // `charset` — read via `latest.current`, not the effect's own
+        // dependency array: a LATER charset change is handled by the
+        // `[charset, color]` `scene.setOptions` effect below, which never
+        // remounts the scene/camera at all (D2 round 7 — the mounted
+        // OBJECT's own geometry is charset-independent, this file's own
+        // top-of-file doc). This call only needs to seed the initial mesh
+        // with whatever charset/target this graph fits at.
         fit = await renderGlyphDiagram3d(graph, {
           layout, seed, ...(direction ? { direction } : {}), nodesep, ranksep,
           target: "web", width: PROBE_WIDTH, height: PROBE_HEIGHT, charset: latest.current.charset,
@@ -231,7 +222,7 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
         : createGlyphOrthographicCamera({ rotX: fit.camera.rotX, rotY: fit.camera.rotY, zoom: fit.camera.zoom });
       camera.target = centroidOf(fit.object.bounds);
 
-      const resolved = resolveDiagrams3dSceneOptions(latest.current.charset, latest.current.color);
+      const resolved = resolveDiagrams3dSceneOptions(latest.current.charset, latest.current.color, "web");
       scene = createGlyphScene(hostRef.current, {
         autoSize: true, mode: resolved.mode, charMode: resolved.charMode, hiddenLines: resolved.hiddenLines, useColors: resolved.useColors,
         directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
@@ -268,50 +259,13 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- see the component doc: `initialCamera`/callbacks/charset/color/effect are read via `latest` or applied by their own effects below, deliberately not tracked here.
   }, [graph, layout, seed, direction, nodesep, ranksep, controlsMode]);
 
-  // Charset/colour: `scene.setOptions` only — never remounts the mesh or resets the camera.
+  // Charset/colour: `scene.setOptions` only — never remounts the mesh, the
+  // object, or the camera (D2 round 7 — the mounted object's own geometry
+  // no longer has any charset-dependent tier/overlay to rebuild, this
+  // file's own top-of-file doc).
   useEffect(() => {
-    sceneRef.current?.setOptions(resolveDiagrams3dSceneOptions(charset, color));
+    sceneRef.current?.setOptions(resolveDiagrams3dSceneOptions(charset, color, "web"));
   }, [charset, color]);
-
-  // Charset ALSO rebuilds the mounted OBJECT's own overlay (fix round 2,
-  // P1-1) — `tier`/`boxOutline` are baked into `glyphDiagramObject`'s
-  // geometry/overlay at build time, not a scene-level render option the
-  // effect above's `scene.setOptions` can reach. `objectHandle.update()`
-  // swaps meshes/overlays wholesale but keeps the handle's identity and
-  // never touches the scene's camera (AGENTS.md's "Scene objects"), so a
-  // charset edit still never resets the view. Skipped while the mount
-  // effect's own initial build is still in flight (`objectHandleRef.current`
-  // null) — that build already reads `charset` fresh via `latest.current`,
-  // so there is nothing stale for this effect to correct yet.
-  useEffect(() => {
-    const objectHandle = objectHandleRef.current;
-    if (!objectHandle) return;
-    let cancelled = false;
-    const { canvasTier, boxOutline } = resolveCharset(charset);
-    void (async () => {
-      let next;
-      try {
-        next = await glyphDiagramObject(graph, {
-          layout, seed, ...(direction ? { direction } : {}), nodesep, ranksep,
-          tier: canvasTier, boxOutline,
-        });
-      } catch (error) {
-        if (!cancelled) latest.current.onError((error as Error).message);
-        return;
-      }
-      if (cancelled || objectHandleRef.current !== objectHandle) return;
-      objectHandle.update(next);
-      // Every member mesh is disposed and re-added by `update()` (fresh
-      // `GlyphMeshHandle`s, fresh ids) — a currently-mounted effect layer's
-      // mesh-set TARGET is immutable after mount (AGENTS.md's "Per-object
-      // targeting"), so retargeting the OLD layer at a new id would throw;
-      // dispose and remount fresh against the NEW handles instead.
-      disposeEffect();
-      applyEffect();
-    })();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- reacts to `charset` alone: `graph`/`layout`/`seed`/`direction`/`nodesep`/`ranksep` changes already trigger the mount effect's own remount (which reads the current `charset` fresh via `latest`), and `color` never affects the object's own build (verified by `diagrams3dSceneOptions.test.ts`'s "independent of colour" case).
-  }, [charset]);
 
   // Effect id/target.
   useEffect(() => { applyEffect(); }, [effectId, effectTargetNodeId]); // eslint-disable-line react-hooks/exhaustive-deps

@@ -7,7 +7,6 @@
  */
 export {
   layout3d,
-  glyphDiagram3dPlaneAxes,
   GLYPH_DIAGRAM_3D_CAMERA_ROT_X,
   GLYPH_DIAGRAM_3D_CAMERA_ROT_Y,
   GLYPH_DIAGRAM_3D_GROUP_PAD,

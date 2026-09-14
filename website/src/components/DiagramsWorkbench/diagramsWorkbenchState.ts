@@ -14,6 +14,7 @@ import cycle from "../../../../packages/diagrams/fixtures/cycle.mmd?raw";
 import subgraph from "../../../../packages/diagrams/fixtures/subgraph.mmd?raw";
 import langgraph from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
 import agentSupervisor from "../../../../packages/diagrams/fixtures/agent-supervisor.mmd?raw";
+import fanJoinSplit from "../../../../packages/diagrams/fixtures/fan-join-split.mmd?raw";
 import lenet5Cnn from "../../../../packages/diagrams/fixtures/lenet5-cnn.json?raw";
 import transformerEncoder from "../../../../packages/diagrams/fixtures/transformer-encoder.json?raw";
 
@@ -65,6 +66,14 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   },
   {
     id: "crew-3d", label: "Multi-agent crew (3D, example)", source: crewSource,
+    dimension: "3d" as const, view3d: { layout: "layered" as const },
+  },
+  // D2 round 7 — the coordinator's own new example (a fan-out/join/split
+  // topology, requested verbatim to exercise the triangulated ring layout's
+  // "one in front, two in back" fan-in and a genuine front/back
+  // `Merge`/`Side` split feeding one `Output`).
+  {
+    id: "fan-join-split-3d", label: "Fan-out / join / split (3D, example)", source: fanJoinSplit,
     dimension: "3d" as const, view3d: { layout: "layered" as const },
   },
 ] as const;
@@ -260,12 +269,24 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
       // next graph's own Rail/Dock reading.
       const is3d = "dimension" in preset && preset.dimension === "3d";
       const view3dPatch = is3d && "view3d" in preset ? preset.view3d : GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D;
+      // D2 round 7 (coordinator, verbatim: "Presets open 3D on braille for
+      // web") — a 3D preset clears any charset OVERRIDE the reader made in
+      // 2D, so the charset falls back to `GLYPH_DIAGRAM_TARGET_DEFAULTS`'
+      // own per-target default (braille on web/terminal, box — which
+      // `resolveCharset` degrades to blocks — on chat) rather than
+      // carrying forward a 2D-picked value with no 3D meaning (`ascii`
+      // stays whatever the 2D default already was, since a reader who
+      // never touched the charset control should see no visible change on
+      // a 2D preset).
+      const { charset: _droppedCharsetOverride, ...overridesWithoutCharset } = state.controls.overrides;
+      const controls = is3d ? { ...state.controls, overrides: overridesWithoutCharset } : state.controls;
       return { ...state, sourceKind: isJsonSource ? "json" : "mermaid",
         mermaid: isJsonSource ? glyphDiagramsWorkbenchMermaid(graph) : preset.source,
         json: isJsonSource ? preset.source : JSON.stringify(graph, null, 2),
         nodes: graph.nodes, edges: graph.edges,
         tableGraph: { groups: graph.groups, direction: graph.direction },
         layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label },
+        controls,
         view: is3d ? "3d" : "2d", view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined,
         effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D };
     }

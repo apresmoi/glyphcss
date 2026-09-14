@@ -529,7 +529,21 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
   }
 
   const output = rasterize(ctx);
-  const grid = capturedGrid;
+  // D2 round 7 (`@glyphcss/diagrams/3d`'s "blocks" charset + its label
+  // overlay): `rasterize.ts`'s own halfblock/quadrant + `transformCells`
+  // merge (AGENTS.md's "Render modes") now calls `scene.captureCells` too
+  // (via the SAME `applyCellHook` every solid-mode render already routes
+  // through), but what it captures there is the ORDINARY single-colour
+  // post-hook result — never the real dual-colour `▀`/`▄`/quadrant output
+  // `output`/`inner` actually contain. A `CellGrid` cell still has exactly
+  // one glyph and one colour, so a dual-colour cell still has NO honest
+  // single-`CellGrid` representation (this field's own doc, unchanged by
+  // that round) — `grid` stays `null` for `halfblock`/`quadrant`
+  // regardless of whether an overlay is mounted, matching the charMode's
+  // own pre-existing no-overlay contract exactly, rather than silently
+  // returning a grid that disagrees with what was actually rendered.
+  const dualColourCharMode = mode === "solid" && (opts.charMode === "halfblock" || opts.charMode === "quadrant");
+  const grid = dualColourCharMode ? null : capturedGrid;
   const hotspots = projectHotspots(merged.hotspots, camera, cols, rows, cellAspect);
   // Colored output is HTML (spans); plain output is text → escape for inlining.
   const inner = useColors ? output : escapeHtml(output);

@@ -350,17 +350,17 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
   it("a charset or colour change calls scene.setOptions once, without remounting the scene", async () => {
     await select("View", "3d");
     await waitForLiveScene();
-    // Move off the default charset first (its default happens to already
-    // be a charset the SAME "solid"/"ascii" scene options apply to — this
-    // isolates the transition actually under test).
-    await select("Charset", "box");
+    // D2 round 7 — the web default is already "braille"; move to "blocks"
+    // first (both are undegraded, selectable options on `web`) so the step
+    // under test is a genuine charset transition, not a no-op.
+    await select("Charset", "blocks");
 
     const createCallsAfterMount = disposalSpies.sceneCreate.mock.calls.length;
     disposalSpies.sceneSetOptions.mockClear();
-    await select("Charset", "ascii");
+    await select("Charset", "braille");
     expect(disposalSpies.sceneSetOptions).toHaveBeenCalled();
     const afterCharset = disposalSpies.sceneSetOptions.mock.calls.at(-1)![0] as Record<string, unknown>;
-    const expectedCharset = resolveDiagrams3dSceneOptions("ascii", "css");
+    const expectedCharset = resolveDiagrams3dSceneOptions("braille", "css", "web");
     expect(afterCharset).toMatchObject({ mode: expectedCharset.mode, charMode: expectedCharset.charMode, useColors: expectedCharset.useColors });
     expect(disposalSpies.sceneCreate.mock.calls.length, "createGlyphScene must not be called again for a charset edit").toBe(createCallsAfterMount);
 
@@ -368,29 +368,31 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
     await select("Color", "none");
     expect(disposalSpies.sceneSetOptions).toHaveBeenCalled();
     const afterColor = disposalSpies.sceneSetOptions.mock.calls.at(-1)![0] as Record<string, unknown>;
-    const expectedColor = resolveDiagrams3dSceneOptions("ascii", "none");
+    const expectedColor = resolveDiagrams3dSceneOptions("braille", "none", "web");
     expect(afterColor).toMatchObject({ mode: expectedColor.mode, charMode: expectedColor.charMode, useColors: expectedColor.useColors });
     expect(disposalSpies.sceneCreate.mock.calls.length, "createGlyphScene must not be called again for a colour edit").toBe(createCallsAfterMount);
   });
 
-  // Fix round 2, P1-1 — the live OBJECT's own overlay tier must match the
-  // selected charset, not just the scene's render mode. "box" and "ascii"
-  // resolve to the IDENTICAL `mode`/`charMode` (both `solid`/`ascii`, only
-  // `canvasTier` differs — `diagrams3dSceneOptions.test.ts`'s own matrix),
-  // so `scene.setOptions` alone (round 1's fix) produces NO visible change
-  // between them; only rebuilding the object's own box-outline tier does.
-  // Mutation: drop `charset` from the `[charset]` object-rebuild effect's
-  // `glyphDiagramObject` call in `Diagrams3DViewport.tsx` (or from the mount
-  // effect's own `renderGlyphDiagram3d` probe call) → the live picture never
-  // loses its Unicode box-drawing glyphs when switching to "ascii", reddening.
-  it("switching Charset from box to ascii replaces the live object's Unicode box-outline glyphs with plain ASCII ones", async () => {
+  // D2 round 7 — box outlines/edges are now real MESH geometry, built once
+  // by `glyphDiagramObject` with no charset-dependent overlay tier left at
+  // all (this file's own "Diagrams 3D" contract) — a charset edit is
+  // therefore purely a `scene.setOptions` call (the encoder changes,
+  // nothing about the mounted geometry does), and the visible difference
+  // between "braille" and "blocks" comes from the RASTERIZER's own glyph
+  // family, not from rebuilding the object. Mutation: swap `charMode` for
+  // the wrong tier in `resolveCharset` → the two renders stop differing,
+  // reddening this.
+  it("switching Charset between braille and blocks changes the live picture's own glyph family, with no scene remount", async () => {
     await select("View", "3d");
     const host = await waitForLiveScene();
-    await select("Charset", "box");
+    await select("Charset", "braille");
     const pre = host.querySelector(".glyph-output")!;
-    expect(pre.textContent, "the box tier's straight box-outline glyphs (U+2500/U+2502) should be present").toMatch(/[─│]/);
-    await select("Charset", "ascii");
-    expect(pre.textContent, "the ascii tier draws no Unicode box-drawing glyphs at all (AGENTS.md: ASCII is 7-bit throughout)").not.toMatch(/[─│]/);
+    const brailleText = pre.textContent ?? "";
+    expect(brailleText, "braille wireframe draws real braille dot glyphs").toMatch(/[⠀-⣿]/);
+    const createCallsAfterBraille = disposalSpies.sceneCreate.mock.calls.length;
+    await select("Charset", "blocks");
+    expect(pre.textContent, "switching charset changes the rendered picture").not.toBe(brailleText);
+    expect(disposalSpies.sceneCreate.mock.calls.length, "createGlyphScene must not be called again for a charset edit").toBe(createCallsAfterBraille);
   });
 
   // Fix round 2 (found while implementing P1-1's own object-rebuild reuse
@@ -525,28 +527,32 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
   it("the Charset and Color rows dim exactly the options the live 3D view degrades, with the resolver's own reason", async () => {
     await select("View", "3d");
     await select("Target", "web");
-    // `web`'s own default charset is `braille` (`GLYPH_DIAGRAM_TARGET_DEFAULTS`)
-    // — move off it first so the "never disable the CURRENT option" rule
-    // (tested separately below) doesn't mask this row's own gate.
-    await select("Charset", "ascii");
+    // `web`'s own default charset is `braille` (`GLYPH_DIAGRAM_TARGET_DEFAULTS`,
+    // AND `resolveCharset`'s own undegraded destination) — move off it to
+    // "blocks" (the OTHER undegraded 3D look) first, so the "never disable
+    // the CURRENT option" rule (tested separately below) doesn't mask this
+    // row's own gate; `ascii`/`box` are disabled buttons and would not
+    // register a `.click()`.
+    await select("Charset", "blocks");
     const charsetButtons = Array.from(toggleRow("Charset").querySelectorAll<HTMLButtonElement>("button"));
     const colorButtons = Array.from(toggleRow("Color").querySelectorAll<HTMLButtonElement>("button"));
     const byValue = (buttons: HTMLButtonElement[], value: string) => buttons.find((b) => toggleOption(b).split(" — ")[0] === value)!;
 
-    // Braille is the library's own INTENDED wireframe+2x4-dot look under the
-    // default style (AGENTS.md's "Diagrams 3D" / D2 round 3) — `resolveCharset`
-    // logs no ledger entry for it, so it is fully selectable, never dimmed.
-    // Only `blocks` genuinely degrades (its sub-cell dual-color encoder can't
-    // carry the stamped edge/label overlays this renderer depends on).
-    for (const value of ["ascii", "box", "braille"]) {
+    // D2 round 7 — braille and blocks are the library's own ONLY two
+    // intended 3D looks (`resolveCharset` logs no ledger entry for
+    // either), so neither is ever dimmed. `ascii`/`box` genuinely degrade
+    // (box-drawing/bar glyphs can't trace an edge or a box face at an
+    // angle — the user's own stated reason) and are dimmed with the SAME
+    // reader-worded reason.
+    for (const value of ["blocks", "braille"]) {
       const b = byValue(charsetButtons, value);
       expect(b.disabled, value).toBe(false);
     }
-    for (const value of ["blocks"]) {
+    for (const value of ["ascii", "box"]) {
       const b = byValue(charsetButtons, value);
       expect(b.disabled, value).toBe(true);
-      expect(b.title, value).toBe("Not available for 3D diagrams yet");
-      expect(b.getAttribute("aria-label"), value).toBe(`Character set: ${value} — Not available for 3D diagrams yet`);
+      expect(b.title, value).toMatch(/box-drawing/i);
+      expect(b.getAttribute("aria-label"), value).toMatch(/box-drawing/i);
     }
     // An ANSI depth still shapes Copy ANSI's exported text, so no colour option is ever dimmed in 3D.
     for (const value of ["none", "ansi16", "ansi256", "truecolor", "css"]) {
@@ -561,14 +567,12 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
   // shares: a reader already on a degraded charset in 3D can still see why
   // on hover, but isn't locked inside a control that got them there.
   //
-  // `blocks` here, not `braille` — braille is the library's own INTENDED
-  // wireframe+2x4-dot look under the default style (AGENTS.md's "Diagrams
-  // 3D" / D2 round 3) and is never dimmed at all any more (see the sibling
-  // test above), so it can no longer exercise the "current selection is
-  // exempt from dimming" rule this test is actually about; `blocks` still
-  // genuinely degrades and stays the one live case for it.
+  // `box` here, not `braille`/`blocks` — D2 round 7 made those two the
+  // library's own ONLY intended 3D looks, so neither is dimmed at all any
+  // more (see the sibling test above); `ascii`/`box` are what now
+  // genuinely degrade, and `box` stays the one live case for this rule.
   it("never disables the currently-selected charset, even when it's the one degrading", async () => {
-    const state = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, controls: { target: "web" as const, overrides: { charset: "blocks" as const } } };
+    const state = { ...createGlyphDiagramsWorkbenchState(), view: "3d" as const, controls: { target: "web" as const, overrides: { charset: "box" as const } } };
     const el = document.createElement("div");
     document.body.append(el);
     const r = createRoot(el);
@@ -579,12 +583,12 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
         expect(el.querySelector(".diagrams-3d-host .glyph-output")).not.toBeNull();
       }, { timeout: 3000, interval: 10 });
       const row = Array.from(el.querySelectorAll(".dock-toggle-row")).find((n) => n.querySelector(".dock-toggle-row-label")?.textContent === "Charset")!;
-      const blocksButton = Array.from(row.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").includes("blocks"))!;
-      expect(blocksButton.disabled).toBe(false);
+      const boxButton = Array.from(row.querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").startsWith("Character set: box"))!;
+      expect(boxButton.disabled).toBe(false);
       // Still explains itself on hover even though it's reachable (not
       // disabled, so `IconToggle` falls back to `desc`, which carries the
       // same reason text for exactly this case).
-      expect(blocksButton.title).toBe("blocks — Not available for 3D diagrams yet");
+      expect(boxButton.title).toMatch(/box — .*box-drawing/i);
     } finally {
       await act(async () => r.unmount());
       el.remove();
