@@ -6,6 +6,7 @@
 // `DIAGNOSIS-mark-type-fit.md`), never against a rule re-derived here.
 import { describe, expect, it, vi } from "vitest";
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
+import { renderGlyphChart } from "@glyphcss/charts";
 import { buildChartCandidates } from "../../lib/chartCandidates";
 import { profileRows } from "../../lib/dataProfile";
 import type { TabularRow } from "../../lib/tabularParse";
@@ -14,9 +15,9 @@ import {
   CHARTS_MARK_TYPE_RULES, chartsCandidateBindable, chartsMarkOmittedRows, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsOmittedRowsNote, remoteDatasetRecommendationCheck,
 } from "./chartsMarkTypeFit";
 import {
-  CHART_MARK_TYPES, CHARTS_DATASETS, createChartsWorkbenchState, reduceChartsWorkbenchState, type ChartsWorkbenchState,
+  CHART_MARK_TYPES, CHARTS_DATASETS, chartsWorkbenchRenderOptions, createChartsWorkbenchState, reduceChartsWorkbenchState, type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
-import { renderChartsWorkbenchState } from "./chartsWorkbenchRender";
+import { buildStyledChartsWorkbenchSpec, chartsWorkbenchDisplayRender, renderChartsWorkbenchState } from "./chartsWorkbenchRender";
 
 const DIAGNOSIS = diagnosis as unknown as Record<string, Record<string, string>>;
 const selected = (id: string) => reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-dataset", id });
@@ -43,6 +44,8 @@ describe("mark-type fit matrix — all 16 vendored datasets x 11 types", () => {
       expect(next.marks[0]!.type).toBe(type);
       const rendered = renderChartsWorkbenchState(next);
       expect(rendered.ok ? "ok" : rendered.error).toBe("ok");
+      // Round 3: rendering is not enough, it must show the data.
+      expect(dataCells(next)).toBeGreaterThan(0);
     });
   });
 
@@ -147,6 +150,35 @@ const renderedOk = (state: ChartsWorkbenchState): string => {
   if (!r.ok) return r.error;
   return r.report.ledger.some((e) => e.code === "empty-total") ? "empty-total" : "ok";
 };
+/** Cells of the page's real render (web 96x32 braille, css colour, its own
+ *  region fill) that the chart's marks painted, counted independently of
+ *  the fit probe: the chart rendered twice with its marks in two different
+ *  colours, every cell whose colour differs. The legend is off, since its
+ *  swatches carry the marks' colours. */
+function htmlCellStyles(html: string): string[] {
+  const out: string[] = [];
+  for (const [, style, text, plain] of html.matchAll(/<span style="([^"]*)">([^<]*)<\/span>|([^<]+)/g)) {
+    const decoded = (text ?? plain ?? "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+    for (const _ of decoded) out.push(style ?? "");
+  }
+  return out;
+}
+const dataCells = (state: ChartsWorkbenchState): number => {
+  const legendOff = reduceChartsWorkbenchState(state, { type: "set-chart", patch: { legend: false } });
+  const [a, b] = ["#ff00ff", "#00ffff"].map((color) => renderSpecDirect({
+    ...legendOff, marks: legendOff.marks.map((mark) => ({ ...mark, color })),
+  }));
+  const cellsA = htmlCellStyles(a!), cellsB = htmlCellStyles(b!);
+  expect(cellsA.length).toBe(cellsB.length);
+  return cellsA.filter((style, i) => style !== cellsB[i]).length;
+};
+/** The library render behind `renderChartsWorkbenchState`, without its
+ *  nothing-drawn check: the count must not trust the code under test. */
+function renderSpecDirect(state: ChartsWorkbenchState): string {
+  const html = renderGlyphChart(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state)).html;
+  expect(html).toBeDefined();
+  return html!;
+}
 
 const day = (i: number) => new Date(Date.UTC(2020, 0, 1) + i * 864e5).toISOString().slice(0, 10);
 const HOSTILE: Record<string, TabularRow[]> = {
@@ -196,11 +228,15 @@ describe("round 2: every ENABLED type renders on hostile remote data, and the cu
       return;
     }
     expect(renderedOk(state)).toBe("ok");
+    expect(dataCells(state)).toBeGreaterThan(0);
     expect(fitsOf(state)[state.marks[0]!.type].fits).toBe(true);
     for (const type of enabled(state)) {
       const next = switchTo(state, type);
       expect(next.marks[0]!.type).toBe(type);
       expect(`${type}: ${renderedOk(next)}`).toBe(`${type}: ok`);
+      // Round 3: an enabled type draws a visible chart, counted
+      // independently of the fit probe at the page's own render settings.
+      expect(`${type}: ${dataCells(next) > 0}`).toBe(`${type}: true`);
       // Never stranded: the type just installed is still enabled, and so is
       // the one it came from.
       expect(fitsOf(next)[type].fits).toBe(true);
@@ -212,7 +248,7 @@ describe("round 2: every ENABLED type renders on hostile remote data, and the cu
     expect(Object.values(HOSTILE).filter((rows) => !remoteDatasetRecommendationCheck(rows).ok).length).toBeGreaterThan(0);
     const noted = Object.entries(HOSTILE).filter(([name, rows]) => {
       const state = remote(rows, `hostile/${name}`);
-      return state.data.source?.kind === "remote" && chartsMarkOmittedRows(fitsOf(state), state.marks[0]!) !== null;
+      return state.data.source?.kind === "remote" && chartsMarkOmittedRows(state.data, state.marks[0]!) !== null;
     });
     expect(noted.length).toBeGreaterThan(3);
   }, 30_000);
@@ -225,8 +261,13 @@ describe("round 2: the codex repros", () => {
     expect(state.marks[0]!.channels).toMatchObject({ x: "index", y: "value" });
     expect(JSON.parse(state.marks[0]!.dataText)).toEqual(rows.map((r) => r.value));
     expect(renderedOk(state)).toBe("ok");
-    expect(enabled(state)).toEqual(["line", "area", "bar", "dot"]);
-    for (const type of enabled(state)) expect(renderedOk(switchTo(state, type))).toBe("ok");
+    // Round 3: the one-row table is a single 0 — one point is no line or
+    // area, and a zero is no bar, so only Dot draws it.
+    expect(enabled(state)).toEqual(n === 1 ? ["dot"] : ["line", "area", "bar", "dot"]);
+    for (const type of enabled(state)) {
+      expect(renderedOk(switchTo(state, type))).toBe("ok");
+      expect(dataCells(switchTo(state, type))).toBeGreaterThan(0);
+    }
   }, 30_000);
 
   it("text-only records enable nothing: no placeholder bar whose click does nothing", () => {
@@ -243,8 +284,8 @@ describe("round 2: the codex repros", () => {
     for (const type of enabled(state)) {
       const next = switchTo(state, type);
       expect(renderedOk(next)).toBe("ok");
-      const omitted = chartsMarkOmittedRows(fitsOf(next), next.marks[0]!);
-      expect(omitted).toEqual({ count: 1, total: 3, columns: ["d"] });
+      const omitted = chartsMarkOmittedRows(next.data, next.marks[0]!);
+      expect(omitted).toEqual({ count: 1, total: 3, columns: ["d"], partial: false });
       expect(chartsOmittedRowsNote(omitted!)).toBe("1 of 3 rows has no usable d and isn't drawn.");
     }
   });
@@ -263,12 +304,12 @@ describe("round 2: the codex repros", () => {
     expect(sankey.marks[0]!.type).toBe("sankey");
     expect(renderedOk(sankey)).toBe("ok");
     expect(JSON.parse(sankey.marks[0]!.dataText)).toHaveLength(3);
-    expect(chartsMarkOmittedRows(fitsOf(sankey), sankey.marks[0]!)).toEqual({ count: 1, total: 4, columns: ["s"] });
+    expect(chartsMarkOmittedRows(sankey.data, sankey.marks[0]!)).toEqual({ count: 1, total: 4, columns: ["s"], partial: false });
   });
 
   it("a mark whose data holds nothing to drop carries no note", () => {
     const state = selected("olympics-2024-medals");
-    expect(chartsMarkOmittedRows(fitsOf(state), state.marks[0]!)).toBeNull();
+    expect(chartsMarkOmittedRows(state.data, state.marks[0]!)).toBeNull();
   });
 });
 
@@ -323,5 +364,119 @@ describe("round 2: the opus findings", () => {
     expect(renderedOk(bar)).toBe("ok");
     expect(bar.scales).toEqual({ x: { type: "auto", min: "", max: "" }, y: { type: "auto", min: "", max: "" } });
     expect(switchTo(bar, "line").scales.x.type).toBe("time");
+  });
+});
+
+// ── Round 3 (codex + opus review of round 2) ───────────────────────────
+// An ENABLED type must draw a visible chart, not only render: the fit
+// probe paints the built mark and requires a cell of its own
+// (`chartsBuiltMarkProbe`), and `dataCells` checks that at the page's own
+// settings independently of it. A channel edit re-derives the rows from the
+// table as loaded, and the note counts in that table.
+
+const withChannels = (state: ChartsWorkbenchState, channels: Record<string, string>) =>
+  reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: { channels: { ...state.marks[0]!.channels, ...channels } } });
+const markRows = (state: ChartsWorkbenchState) => (JSON.parse(state.marks[0]!.dataText) as unknown[]).length;
+const asType = (state: ChartsWorkbenchState, type: "line" | "area") => ({ ...state, marks: [{ ...state.marks[0]!, type }] });
+
+describe("round 3: the codex repros — an enabled type draws", () => {
+  it("one row of one measure opens on Bar; Line and Area (one point, no segment) are disabled with their reason", () => {
+    const state = remote([{ v: 7 }], "codex/v7");
+    expect(state.marks[0]!.type).toBe("bar");
+    expect(enabled(state)).toEqual(["bar", "dot"]);
+    for (const type of ["line", "area"] as const) expect(fitsOf(state)[type]).toEqual({ fits: false, reason: CHARTS_MARK_TYPE_RULES[type].needs });
+    for (const type of enabled(state)) expect(`${type}: ${dataCells(switchTo(state, type)) > 0}`).toBe(`${type}: true`);
+    // The converse: the two disabled types really draw nothing here.
+    for (const type of ["line", "area"] as const) expect(`${type}: ${dataCells(asType(state, type))}`).toBe(`${type}: 0`);
+  });
+
+  it("a table cleaned down to one dated row opens on Dot, the only type that draws it, and says what it left out", () => {
+    const state = remote([{ d: "2024-01-01", v: 5 }, { d: null, v: 2 }], "codex/one-dated-row");
+    expect(state.marks[0]!.type).toBe("dot");
+    expect(enabled(state)).toEqual(["dot"]);
+    expect(dataCells(state)).toBeGreaterThan(0);
+    expect(chartsOmittedRowsNote(chartsMarkOmittedRows(state.data, state.marks[0]!)!)).toBe("1 of 2 rows has no usable d and isn't drawn.");
+    for (const type of ["line", "area"] as const) expect(`${type}: ${dataCells(asType(state, type))}`).toBe(`${type}: 0`);
+  });
+});
+
+describe("round 3: a mark that draws nothing never shows a blank chart", () => {
+  it("a hand-built one-point line is an error naming what Line needs; the viewport keeps the last good chart, and the types that draw stay offered", () => {
+    const good = createChartsWorkbenchState();
+    const goodRender = renderChartsWorkbenchState(good);
+    if (!goodRender.ok) throw new Error(goodRender.error);
+    const bad = reduceChartsWorkbenchState(good, { type: "update-mark", id: good.marks[0]!.id, patch: { dataText: "[5]" } });
+    expect(bad.marks[0]!.type).toBe("line");
+    expect(dataCells(bad)).toBe(0); // the premise: the library draws it blank
+    const rendered = renderChartsWorkbenchState(bad);
+    expect(rendered).toEqual({ ok: false, code: "nothing-drawn", error: `Nothing to draw. ${CHARTS_MARK_TYPE_RULES.line.needs}` });
+    expect(chartsWorkbenchDisplayRender(rendered, goodRender)).toBe(goodRender);
+    expect(enabled(bad)).toEqual(["bar", "dot"]);
+    const bar = switchTo(bad, "bar");
+    expect(renderedOk(bar)).toBe("ok");
+    expect(dataCells(bar)).toBeGreaterThan(0);
+  });
+
+  it("a channel edit that leaves a line one point is the same error, and editing it back restores the chart", () => {
+    const rows: TabularRow[] = Array.from({ length: 20 }, (_, i) => ({ day: day(i), v: 3 + ((i * 7) % 11), w: i === 4 ? 6 : null }));
+    const line = withChannels(switchTo(remote(rows, "fallback/channel"), "line"), { x: "day", y: "v", fill: "" });
+    expect(line.marks[0]!.type).toBe("line");
+    expect(renderedOk(line)).toBe("ok");
+    const onePoint = withChannels(line, { y: "w" });
+    expect(markRows(onePoint)).toBe(1);
+    expect(renderChartsWorkbenchState(onePoint)).toMatchObject({ ok: false, code: "nothing-drawn" });
+    expect(chartsOmittedRowsNote(chartsMarkOmittedRows(onePoint.data, onePoint.marks[0]!)!)).toBe("19 of 20 rows have no usable w and aren't drawn.");
+    const back = withChannels(onePoint, { y: "v" });
+    expect(markRows(back)).toBe(20);
+    expect(renderedOk(back)).toBe("ok");
+    expect(dataCells(back)).toBeGreaterThan(0);
+  });
+});
+
+describe("round 3: the opus findings — the rows and the note follow the CURRENT channels", () => {
+  // Summable measure names, so the ranker's per-region bar is a `group`
+  // sum the page can bind and Bar is offered.
+  const rows: TabularRow[] = Array.from({ length: 20 }, (_, i) => ({
+    region: ["N", "S", "E", "W"][i % 4]!, sales_total: i % 4 === 1 ? null : 10 + ((i * 37) % 50), unit_count: 1 + ((i * 7) % 9), return_amount: i % 5 === 0 ? null : 1 + ((i * 3) % 7),
+  }));
+
+  it("P2-1: a channel edit re-derives the rows from the table as loaded, never from the previous channels' cleaning", () => {
+    const bySales = withChannels(switchTo(remote(rows, "opus/p2-1"), "bar"), { x: "region", y: "sales_total", fill: "" });
+    expect(bySales.marks[0]!.type).toBe("bar");
+    expect(markRows(bySales)).toBe(15);
+    expect(chartsMarkOmittedRows(bySales.data, bySales.marks[0]!)).toEqual({ count: 5, total: 20, columns: ["sales_total"], partial: false });
+    const byUnits = withChannels(bySales, { y: "unit_count" });
+    expect(markRows(byUnits)).toBe(20);
+    expect(chartsMarkOmittedRows(byUnits.data, byUnits.marks[0]!)).toBeNull();
+    const byReturns = withChannels(byUnits, { y: "return_amount" });
+    expect(markRows(byReturns)).toBe(16);
+    expect(chartsOmittedRowsNote(chartsMarkOmittedRows(byReturns.data, byReturns.marks[0]!)!)).toBe("4 of 20 rows have no usable return_amount and aren't drawn.");
+    const back = withChannels(byReturns, { y: "sales_total" });
+    expect(markRows(back)).toBe(15);
+    expect(chartsOmittedRowsNote(chartsMarkOmittedRows(back.data, back.marks[0]!)!)).toBe("5 of 20 rows have no usable sales_total and aren't drawn.");
+    for (const state of [bySales, byUnits, byReturns, back]) expect(dataCells(state)).toBeGreaterThan(0);
+  });
+
+  it("P3-1: a melted chart counts and names the reader's own rows and columns, and a channel edit keeps the melt", () => {
+    const table: TabularRow[] = [{ c: "a", x: 1, y: 2 }, { c: "b", x: 3, y: null }, { c: "c", x: 2, y: 5 }, { c: "d", x: 4, y: 1 }, { c: "e", x: 6, y: 3 }];
+    const state = remote(table, "opus/p3-1");
+    expect(state.marks[0]!.channels).toMatchObject({ x: "c", y: "value", fill: "measure" }); // the premise: melted
+    expect(markRows(state)).toBe(9);
+    expect(chartsMarkOmittedRows(state.data, state.marks[0]!)).toEqual({ count: 1, total: 5, columns: ["y"], partial: true });
+    expect(chartsOmittedRowsNote(chartsMarkOmittedRows(state.data, state.marks[0]!)!)).toBe("1 of 5 rows has no usable y; that value isn't drawn.");
+    const unsplit = withChannels(state, { fill: "" });
+    expect(markRows(unsplit)).toBe(9);
+    expect(chartsMarkOmittedRows(unsplit.data, unsplit.marks[0]!)).toEqual({ count: 1, total: 5, columns: ["y"], partial: true });
+    expect(dataCells(unsplit)).toBeGreaterThan(0);
+  });
+
+  it("a channel edit moves the x scale with its column: a date x is a time scale, a category x is not", () => {
+    const temps: TabularRow[] = Array.from({ length: 24 }, (_, i) => ({ month: day(i * 30), city: ["Oslo", "Rome"][i % 2]!, temp: -3 + ((i * 7) % 25) }));
+    const byMonth = withChannels(switchTo(remote(temps, "scale/x-edit"), "dot"), { x: "month", y: "temp", fill: "" });
+    expect(byMonth.scales.x.type).toBe("time");
+    const byCity = withChannels(byMonth, { x: "city" });
+    expect(byCity.scales.x).toEqual({ type: "auto", min: "", max: "" });
+    expect(renderedOk(byCity)).toBe("ok");
+    expect(withChannels(byCity, { x: "month" }).scales.x.type).toBe("time");
   });
 });

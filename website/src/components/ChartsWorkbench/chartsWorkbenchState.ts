@@ -18,7 +18,7 @@ import {
   type ChartsDataSource, type ChartsTopRecommendation,
 } from "./chartsDataSource";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
-import { chartsBestFit, chartsBuildBoundMark, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsRememberRemoteRows } from "./chartsMarkTypeFit";
+import { chartsBestFit, chartsBuildBoundMark, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsRebindMark, chartsRememberRemoteRows } from "./chartsMarkTypeFit";
 import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
@@ -394,7 +394,29 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
   switch (action.type) {
     case "add-mark": return { ...state, marks: [...state.marks, editableMark(sampleChartMark(action.markType ?? "line"), state.nextMarkId)], nextMarkId: state.nextMarkId + 1 };
     case "remove-mark": return { ...state, marks: state.marks.filter((mark) => mark.id !== action.id) };
-    case "update-mark": return { ...state, marks: state.marks.map((mark) => mark.id === action.id ? { ...mark, ...action.patch } : mark) };
+    case "update-mark": {
+      const mark = state.marks.find((m) => m.id === action.id);
+      if (!mark) return state;
+      const next: ChartsWorkbenchMark = { ...mark, ...action.patch };
+      const replaced = (m: ChartsWorkbenchMark) => state.marks.map((other) => other.id === mark.id ? m : other);
+      // A channel edit re-derives the rows from the reader's own table
+      // (`chartsRebindMark`): rows the previous channels left out come back,
+      // and rows the new ones can't use are left out and named in the rail.
+      // An explicit data or type patch is taken as given.
+      const rebound = action.patch.channels !== undefined && action.patch.dataText === undefined && action.patch.type === undefined
+        ? chartsRebindMark(state.data, next) : null;
+      if (!rebound) return { ...state, marks: replaced(next) };
+      // A typed domain or a time scale belongs to the column it was set on.
+      const xChanged = (next.channels.x || undefined) !== (mark.channels.x || undefined);
+      const yChanged = (next.channels.y || undefined) !== (mark.channels.y || undefined);
+      return {
+        ...state, marks: replaced({ ...next, dataText: rebound.mark.dataText }),
+        scales: {
+          x: xChanged ? { type: rebound.isDate ? "time" : "auto", min: "", max: "" } : state.scales.x,
+          y: yChanged ? autoScale() : state.scales.y,
+        },
+      };
+    }
     case "set-mark-type": {
       const mark = state.marks.find((m) => m.id === action.id);
       if (!mark || mark.type === action.markType) return state;

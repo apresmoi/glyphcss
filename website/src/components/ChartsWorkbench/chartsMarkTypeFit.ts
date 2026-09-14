@@ -7,11 +7,12 @@
 // A type FITS iff some candidate of it — the dataset's curated mapping, or
 // one the information ranker (`lib/chartCandidates.ts`) offers, in rank
 // order — binds every channel the type needs to a real column AND the mark
-// built from it through the page's own build path renders. Picking it
-// installs exactly that built mark, so an enabled button can't throw. The
-// table below is the only per-type data: nothing else in the page branches
-// on a type's name to decide fit.
-import { glyphChartScaleDomains, renderGlyphChart, type GlyphChartMarkType, type GlyphChartRenderOptions } from "@glyphcss/charts";
+// built from it through the page's own build path DRAWS: rendered, it
+// paints at least one cell of its own. Picking it installs exactly that
+// built mark, so an enabled button can neither throw nor draw a blank
+// chart. The table below is the only per-type data: nothing else in the
+// page branches on a type's name to decide fit.
+import { renderGlyphChart, type GlyphChartMarkType, type GlyphChartRenderOptions } from "@glyphcss/charts";
 import { buildChartCandidates, type ChartCandidate } from "../../lib/chartCandidates";
 import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profiledCellUsable, profileRows, type ColumnProfile } from "../../lib/dataProfile";
@@ -44,25 +45,21 @@ export interface ChartsMarkTypeRule {
   readonly series: boolean;
   /** Channels a binding of this type must name, each a real column. */
   readonly requires: readonly ChannelKey[];
-  /** How the fit probe proves a built mark renders
-   *  (`chartsBuiltMarkRenders`): the library's validation and scales, or a
-   *  small render for the marks that refuse while laying out. */
-  readonly probe: "scales" | "render";
 }
 
 const XY: readonly ChannelKey[] = ["x", "y"];
 export const CHARTS_MARK_TYPE_RULES: Readonly<Record<GlyphChartMarkType, ChartsMarkTypeRule>> = {
-  line: { name: "Line", ranked: true, series: true, requires: XY, probe: "scales", needs: "Line needs a date or steadily increasing number column and a number column." },
-  area: { name: "Area", ranked: true, series: true, requires: XY, probe: "scales", needs: "Area needs a date or steadily increasing number column and a number column." },
-  bar: { name: "Bar", ranked: true, series: true, requires: XY, probe: "scales", needs: "Bar needs a category or short date column and a number column." },
-  dot: { name: "Dot", ranked: true, series: true, requires: XY, probe: "scales", needs: "Dot needs two number columns, or a date and a number column." },
-  arc: { name: "Pie", ranked: true, series: false, requires: ["y"], probe: "render", needs: "Pie needs one category (2 to 6 values, one row each) and one non-negative number column that isn't all zero." },
-  cell: { name: "Heatmap", ranked: true, series: false, requires: ["x", "y", "fill"], probe: "scales", needs: "Heatmap needs two category columns and a number column." },
-  sankey: { name: "Sankey", ranked: true, series: false, requires: ["source", "target", "value"], probe: "render", needs: "Sankey needs source and target category columns, one row per link, and a positive number column." },
-  funnel: { name: "Funnel", ranked: true, series: false, requires: ["stage", "value"], probe: "render", needs: "Funnel needs a stage column (named like stage or step) and a positive number column." },
-  rect: { name: "Rect", ranked: false, series: false, requires: [], probe: "scales", needs: "Rect needs x/y range columns, which this page doesn't bind; Bar draws the same shapes." },
-  text: { name: "Text", ranked: false, series: false, requires: [], probe: "scales", needs: "Text labels annotate another chart, and this page draws one mark at a time." },
-  rule: { name: "Rule", ranked: false, series: false, requires: [], probe: "scales", needs: "Rule draws reference lines over another chart, and this page draws one mark at a time." },
+  line: { name: "Line", ranked: true, series: true, requires: XY, needs: "Line needs a date or steadily increasing number column and a number column, with at least two rows in one series." },
+  area: { name: "Area", ranked: true, series: true, requires: XY, needs: "Area needs a date or steadily increasing number column and a number column that isn't all zero, with at least two rows in one series." },
+  bar: { name: "Bar", ranked: true, series: true, requires: XY, needs: "Bar needs a category or short date column and a number column that isn't all zero." },
+  dot: { name: "Dot", ranked: true, series: true, requires: XY, needs: "Dot needs two number columns, or a date and a number column." },
+  arc: { name: "Pie", ranked: true, series: false, requires: ["y"], needs: "Pie needs one category (2 to 6 values, one row each) and one non-negative number column that isn't all zero." },
+  cell: { name: "Heatmap", ranked: true, series: false, requires: ["x", "y", "fill"], needs: "Heatmap needs two category columns and a number column that isn't all zero." },
+  sankey: { name: "Sankey", ranked: true, series: false, requires: ["source", "target", "value"], needs: "Sankey needs source and target category columns, one row per link, and a positive number column." },
+  funnel: { name: "Funnel", ranked: true, series: false, requires: ["stage", "value"], needs: "Funnel needs a stage column (named like stage or step) and a positive number column." },
+  rect: { name: "Rect", ranked: false, series: false, requires: [], needs: "Rect needs x/y range columns, which this page doesn't bind; Bar draws the same shapes." },
+  text: { name: "Text", ranked: false, series: false, requires: [], needs: "Text labels annotate another chart, and this page draws one mark at a time." },
+  rule: { name: "Rule", ranked: false, series: false, requires: [], needs: "Rule draws reference lines over another chart, and this page draws one mark at a time." },
 };
 const MARK_TYPES = Object.keys(CHARTS_MARK_TYPE_RULES) as GlyphChartMarkType[];
 
@@ -75,13 +72,18 @@ export interface ChartsMarkBinding {
   readonly pipeline?: readonly PipelineStep[];
   readonly series?: string;
 }
-/** Rows a binding leaves out because a column it charts holds no usable
- *  value of that column's type there (a null, or a stray string in a date
- *  or number column). */
+/** Rows of the READER's table a binding leaves out because a column it
+ *  charts holds no usable value of that column's type there (a null, or a
+ *  stray string in a date or number column). Counted and named in the
+ *  table as loaded, never in a reshape of it: `total` is its row count and
+ *  `columns` its own column names. `partial` when a reshape charts several
+ *  of a row's cells and some of that row still draws (one measure of a
+ *  melted multi-measure bar). */
 export interface ChartsOmittedRows {
   readonly count: number;
   readonly total: number;
   readonly columns: readonly string[];
+  readonly partial: boolean;
 }
 export type ChartsMarkTypeFit =
   | {
@@ -164,12 +166,27 @@ function seriesMark(id: number, type: GlyphChartMarkType, values: readonly numbe
   return { id, type, dataText: JSON.stringify(values, null, 2), channels: { ...SERIES_CHANNELS }, transform: "none", options: {} };
 }
 
+/** Carries each reshaped row's position in the reader's own table through a
+ *  melt, so the rows a chart leaves out are counted in that table
+ *  (`ChartsOmittedRows`). A NUL-prefixed key: no parsed header or JSON
+ *  field the page loads reaches a column name through it. */
+const ORIGIN = "\u0000origin";
+
+/** The only reshape the fit layer binds is a melt (`pivotLonger`), which
+ *  copies its id columns onto every row it emits; any other step could
+ *  drop or regroup on the origin column, so the count falls back to the
+ *  reshaped rows. */
+function tracksOrigin(pipeline: readonly PipelineStep[]): boolean {
+  return pipeline.every((step) => step.kind === "pivotLonger");
+}
+
 /**
  * Builds the mark a binding describes — `set-mark-type`, `select-dataset`,
- * `select-remote-dataset` and the fit probe all go through here, so what a
- * button was tested with is what it installs. `null` when the binding
- * can't be built: a channel the type requires is unbound or names no
- * column, the reshape fails, or no row survives.
+ * `select-remote-dataset`, a channel edit (`chartsRebindMark`) and the fit
+ * probe all go through here, so what a button was tested with is what it
+ * installs. `null` when the binding can't be built: a channel the type
+ * requires is unbound or names no column, the reshape fails, or no row
+ * survives.
  *
  * Rows whose charted cells don't hold their column's profiled type are
  * DROPPED and reported in `omitted` (the rail says so): the profiler types
@@ -186,20 +203,71 @@ export function chartsBuildBoundMark(id: number, type: GlyphChartMarkType, rows:
     const values = (rows as readonly number[]).filter(Number.isFinite);
     return values.length === 0 ? null : { mark: seriesMark(id, type, values), isDate: false, omitted: null };
   }
-  let out = rows as readonly TabularRow[];
+  const records = rows as readonly TabularRow[];
+  let out = records;
+  let tracked = false;
+  let melt: { readonly key: string; readonly value: string } | undefined;
   if (binding.pipeline && binding.pipeline.length > 0) {
-    const reshaped = runPipeline(out, binding.pipeline);
+    tracked = tracksOrigin(binding.pipeline);
+    const steps = tracked
+      ? binding.pipeline.map((step) => step.kind === "pivotLonger" ? { ...step, idColumns: [...step.idColumns, ORIGIN] } : step)
+      : binding.pipeline;
+    const reshaped = runPipeline(tracked ? records.map((row, i) => ({ ...row, [ORIGIN]: i })) : records, steps);
     if (!reshaped.ok) return null;
     out = reshaped.rows;
+    for (const step of binding.pipeline) {
+      if (step.kind === "pivotLonger") melt = { key: step.keyColumn ?? "key", value: step.valueColumn ?? "value" };
+    }
   }
+  const total = tracked || out === records ? records.length : out.length;
+  const originOf = (row: TabularRow, j: number): number => tracked ? row[ORIGIN] as number : j;
+  // A refused cell is named by the reader's own column: a melted value
+  // cell by the column it was melted from.
+  const readerColumn = (row: TabularRow, name: string): string =>
+    melt !== undefined && name === melt.value && typeof row[melt.key] === "string" ? row[melt.key] as string : name;
+  const strip = (row: TabularRow): TabularRow => {
+    if (!tracked) return row;
+    const { [ORIGIN]: _origin, ...rest } = row;
+    return rest;
+  };
   const columns = new Map(profileRows(out).columns.map((col) => [col.name, col]));
+
+  /** Keeps the rows `refused` finds nothing wrong with, counting the
+   *  reader's rows it leaves out (wholly, or some of their cells). */
+  const clean = (refused: (row: TabularRow) => readonly string[]) => {
+    const kept: TabularRow[] = [];
+    const names = new Set<string>();
+    const byOrigin = new Map<number, { rows: number; dropped: number }>();
+    out.forEach((row, j) => {
+      const origin = originOf(row, j);
+      const tally = byOrigin.get(origin) ?? { rows: 0, dropped: 0 };
+      byOrigin.set(origin, tally);
+      tally.rows++;
+      const bad = refused(row);
+      if (bad.length === 0) { kept.push(row); return; }
+      tally.dropped++;
+      for (const name of bad) names.add(readerColumn(row, name));
+    });
+    let count = 0;
+    let partial = false;
+    for (const tally of byOrigin.values()) {
+      if (tally.dropped === 0) continue;
+      count++;
+      if (tally.dropped < tally.rows) partial = true;
+    }
+    const omitted: ChartsOmittedRows | null = count > 0 ? { count, total, columns: [...names], partial } : null;
+    return { kept, omitted };
+  };
+
   if (binding.series !== undefined) {
-    const col = columns.get(binding.series);
-    if (!col) return null;
-    const values = out.map((row) => row[binding.series!] ?? null).filter((v): v is number => typeof v === "number" && Number.isFinite(v));
-    if (values.length === 0) return null;
-    const count = out.length - values.length;
-    return { mark: seriesMark(id, type, values), isDate: false, omitted: count > 0 ? { count, total: out.length, columns: [col.name] } : null };
+    const name = binding.series;
+    if (!columns.has(name)) return null;
+    const { kept, omitted } = clean((row) => {
+      const v = row[name] ?? null;
+      return typeof v === "number" && Number.isFinite(v) ? [] : [name];
+    });
+    if (kept.length === 0) return null;
+    return { mark: seriesMark(id, type, kept.map((row) => row[name] as number)), isDate: false, omitted };
   }
   const relevant = chartRelevantChannels(type) as readonly ChannelKey[];
   if (CHARTS_MARK_TYPE_RULES[type].requires.some((key) => !binding.channels[key])) return null;
@@ -211,65 +279,80 @@ export function chartsBuildBoundMark(id: number, type: GlyphChartMarkType, rows:
     if (!col) return null;
     if (!bound.includes(col)) bound.push(col);
   }
-  const refused = new Set<string>();
-  const kept = out.filter((row) => {
-    let ok = true;
-    for (const col of bound) {
-      if (!profiledCellUsable(col, row[col.name] ?? null)) { refused.add(col.name); ok = false; }
-    }
-    return ok;
-  });
+  const { kept, omitted } = clean((row) => bound.filter((col) => !profiledCellUsable(col, row[col.name] ?? null)).map((col) => col.name));
   if (kept.length === 0) return null;
   const stringify = bound.filter((col) => (col.type === "category" || col.type === "text") && kept.some((row) => typeof row[col.name] !== "string"));
   const dateColumn = binding.channels.x !== undefined && columns.get(binding.channels.x)?.type === "date" ? binding.channels.x : undefined;
-  const markRows = stringify.length === 0 && dateColumn === undefined ? kept : kept.map((row) => {
-    const next: TabularRow = { ...row };
-    for (const col of stringify) next[col.name] = String(row[col.name]);
-    if (dateColumn !== undefined) next[dateColumn] = normaliseDateColumn(row[dateColumn] ?? null);
+  const markRows = stringify.length === 0 && dateColumn === undefined && !tracked ? kept : kept.map((row) => {
+    const next: TabularRow = tracked ? strip(row) : { ...row };
+    for (const col of stringify) next[col.name] = String(next[col.name]);
+    if (dateColumn !== undefined) next[dateColumn] = normaliseDateColumn(next[dateColumn] ?? null);
     return next;
   });
-  const count = out.length - kept.length;
   return {
     mark: buildDatasetMark(id, type, markRows, binding.channels, binding.transform),
     isDate: dateColumn !== undefined,
-    omitted: count > 0 ? { count, total: out.length, columns: [...refused] } : null,
+    omitted,
   };
 }
 
-/** What the rail says about rows a chart leaves out. */
+/** What the rail says about rows a chart leaves out, in the reader's own
+ *  rows and columns. */
 export function chartsOmittedRowsNote(omitted: ChartsOmittedRows): string {
   const one = omitted.count === 1;
-  return `${omitted.count} of ${omitted.total} rows ${one ? "has" : "have"} no usable ${omitted.columns.join(", ")} and ${one ? "isn't" : "aren't"} drawn.`;
+  const head = `${omitted.count} of ${omitted.total} rows ${one ? "has" : "have"} no usable ${omitted.columns.join(", ")}`;
+  if (omitted.partial) return `${head}; ${one ? "that value isn't" : "those values aren't"} drawn.`;
+  return `${head} and ${one ? "isn't" : "aren't"} drawn.`;
 }
 
-// ── The render probe ────────────────────────────────────────────────────
+// ── The draw probe ──────────────────────────────────────────────────────
 
-/** Small, colourless and ASCII: a flow or share mark's refusals are
- *  statements about its data (an endpoint, a cycle, a zero total), made
- *  while it lays out, not about the grid it lands on. */
-const PROBE_OPTIONS: GlyphChartRenderOptions = { target: "web", width: 32, height: 12, charset: "ascii", color: "none" };
+/** The probed mark's own colour: no palette entry, axis default or text
+ *  colour is this, so a cell carrying it was painted by the mark. */
+const PROBE_COLOR = "#010203";
+/** The page's own default charset (web braille), small, one paint
+ *  (`regionFill: "texture"`, so a region mark isn't painted twice), no
+ *  legend (its swatch is in the mark's colour). A mark that paints nothing
+ *  here paints nothing at any size: every blank chart the probe catches
+ *  (one point per line series, an all-zero bar, heatmap, area or pie) is
+ *  blank because of its data, never its grid. The cost is the painters'
+ *  per-row work, so the grid is as small as a plot stays readable: an area
+ *  over 180 rows paints in 4 to 8 ms here and 9 to 14 at 32x12. */
+const PROBE_OPTIONS: GlyphChartRenderOptions = { target: "web", width: 20, height: 8, charset: "braille", color: "css", regionFill: "texture", legend: false };
 let probeBase: ChartsWorkbenchState | undefined;
 
+/** A cell in the probed mark's colour, as ink or as a solid cell's
+ *  background (`background-color:` ends in the same text). */
+function paintsProbeColor(html: string): boolean {
+  return html.includes(`color:${PROBE_COLOR}`);
+}
+
+export type ChartsDrawVerdict = "draws" | "blank" | "refused";
+
 /**
- * The built mark renders through the page's own spec builder, and draws
- * something (an all-zero pie renders an empty disc with `empty-total`).
- * A cartesian mark's every data refusal (channels, non-finite data, mixed
- * or bad time domains, a bar domain without zero) is made by the library's
- * validation and scale resolution, which `glyphChartScaleDomains` runs
- * without painting; painting a 3,000-row area even at 32x12 costs ~87 ms.
- * `arc`/`sankey`/`funnel` refuse while laying out, so they render.
+ * Renders the built mark through the page's own spec builder, alone and
+ * in `PROBE_COLOR`, and asks whether any cell carries that colour: the
+ * renderer itself decides, for every type, so no rule here restates when
+ * a line, an area or a heatmap has something to draw. `refused` when the
+ * library throws (a missing channel, a bad time domain, a sankey cycle).
+ * Cost is one small paint (`docs/design/charts.md`'s mark-type fit, round
+ * 3): 0.4 to 8 ms over 180 rows, an area the slowest.
  */
-export function chartsBuiltMarkRenders(built: ChartsBuiltMark): boolean {
-  probeBase ??= createChartsWorkbenchState();
+export function chartsBuiltMarkProbe(built: Pick<ChartsBuiltMark, "mark" | "isDate">): ChartsDrawVerdict {
+  probeBase ??= (() => { const base = createChartsWorkbenchState(); return { ...base, chart: { ...base.chart, title: "", legend: false } }; })();
   const state: ChartsWorkbenchState = {
     ...probeBase, marks: [built.mark],
     scales: { x: built.isDate ? { type: "time", min: "", max: "" } : probeBase.scales.x, y: probeBase.scales.y },
   };
   try {
     const spec = buildChartsWorkbenchSpec(state);
-    if (CHARTS_MARK_TYPE_RULES[built.mark.type].probe === "scales") { glyphChartScaleDomains(spec); return true; }
-    return !renderGlyphChart(spec, PROBE_OPTIONS).report.ledger.some((entry) => entry.code === "empty-total");
-  } catch { return false; }
+    const probe = { ...spec, marks: spec.marks.map((mark) => ({ ...mark, options: { ...mark.options, color: PROBE_COLOR } })) };
+    return paintsProbeColor(renderGlyphChart(probe, PROBE_OPTIONS).html ?? "") ? "draws" : "blank";
+  } catch { return "refused"; }
+}
+
+export function chartsBuiltMarkRenders(built: Pick<ChartsBuiltMark, "mark" | "isDate">): boolean {
+  return chartsBuiltMarkProbe(built) === "draws";
 }
 
 // ── The table ───────────────────────────────────────────────────────────
@@ -335,8 +418,9 @@ function computeFitTable(base: ChartsMarkTypeBase): ChartsMarkTypeFitTable {
   return table;
 }
 
-// Profiling, enumeration and one small probe render per fitting type cost
-// 1 to 14 ms on the vendored datasets (`docs/design/charts.md`'s round 2),
+// Profiling, enumeration and one small probe paint per fitting type cost
+// 0.7 to 9 ms warm on the vendored datasets and 8 ms on 200 rows, the most
+// a remote load brings (`docs/design/charts.md`'s mark-type fit, round 3),
 // and the card asks on every render; the answer only changes with the rows.
 // A stable array (a vendored or remote dataset's own rows) is memoised by
 // identity AND its curated mapping, since the same rows with and without
@@ -389,12 +473,98 @@ export function remoteDatasetRecommendationCheck(rows: readonly TabularRow[]): {
   return { ok: false, columns: profileRows(rows).columns.map((c) => `${c.name} (${c.type})`) };
 }
 
-/** Rows the CURRENT chart leaves out — reported only while the mark is
- *  still exactly its type's binding (a later channel edit or a hand-built
- *  link charts something else). */
-export function chartsMarkOmittedRows(table: ChartsMarkTypeFitTable, mark: ChartsWorkbenchMark): ChartsOmittedRows | null {
-  const fit = table[mark.type];
-  if (!fit.fits || fit.omitted === null || fit.binding.transform !== mark.transform) return null;
-  const keys: readonly ChannelKey[] = ["x", "y", "fill", "label", "source", "target", "value", "stage"];
-  return keys.every((key) => (fit.binding.channels[key] || undefined) === (mark.channels[key] || undefined)) ? fit.omitted : null;
+// ── The current mark ────────────────────────────────────────────────────
+
+const columnsMemo = new WeakMap<object, ReadonlySet<string>>();
+function columnsOf(rows: readonly TabularRow[]): ReadonlySet<string> {
+  let columns = columnsMemo.get(rows);
+  if (!columns) columnsMemo.set(rows, columns = new Set(rows.flatMap((row) => Object.keys(row))));
+  return columns;
+}
+const reshapedColumnsMemo = new WeakMap<object, WeakMap<object, ReadonlySet<string> | null>>();
+function reshapedColumnsOf(rows: readonly TabularRow[], pipeline: readonly PipelineStep[]): ReadonlySet<string> | null {
+  let byPipeline = reshapedColumnsMemo.get(rows);
+  if (!byPipeline) reshapedColumnsMemo.set(rows, byPipeline = new WeakMap());
+  if (!byPipeline.has(pipeline)) {
+    const reshaped = runPipeline(rows, pipeline);
+    byPipeline.set(pipeline, reshaped.ok ? columnsOf(reshaped.rows) : null);
+  }
+  return byPipeline.get(pipeline)!;
+}
+
+/**
+ * The binding the mark CURRENTLY describes over the reader's own table:
+ * its own channels and transform, plus the melt its channels are named
+ * after, if any. A channel edit therefore re-derives the chart from the
+ * table as loaded, never from rows an earlier binding already cleaned.
+ * `null` when there is no such table (a tray sample, a legacy link's own
+ * rows) or the channels name columns of neither the table nor a reshape
+ * the fit table offers.
+ */
+function chartsMarkCurrentBinding(data: ChartsWorkbenchDataState, mark: ChartsWorkbenchMark): { readonly rows: readonly TabularRow[]; readonly binding: ChartsMarkBinding } | null {
+  const base = chartsMarkTypeBase(data, mark);
+  if (base.key !== undefined || base.rows === null || base.rows.some((row) => typeof row === "number")) return null;
+  const rows = base.rows as readonly TabularRow[];
+  const keys = chartRelevantChannels(mark.type) as readonly ChannelKey[];
+  const channels: ChartsRecommendedChannels = Object.fromEntries(keys.map((key) => [key, mark.channels[key] || undefined]));
+  const names = keys.flatMap((key) => channels[key] ? [channels[key]!] : []);
+  const binding: ChartsMarkBinding = { channels, transform: mark.transform };
+  if (names.every((name) => columnsOf(rows).has(name))) return { rows, binding };
+  const table = chartsMarkTypeFitTable(base);
+  for (const type of [mark.type, ...MARK_TYPES]) {
+    const fit = table[type];
+    if (!fit.fits) continue;
+    if (fit.binding.series !== undefined) {
+      if (keys.every((key) => (fit.binding.channels[key] || undefined) === channels[key])) return { rows, binding: { ...fit.binding, transform: mark.transform } };
+      continue;
+    }
+    const pipeline = fit.binding.pipeline;
+    if (pipeline && names.every((name) => reshapedColumnsOf(rows, pipeline)?.has(name))) return { rows, binding: { ...binding, pipeline } };
+  }
+  return null;
+}
+
+/** The mark its current channels describe, rebuilt from the reader's own
+ *  table through the one build path (`update-mark`'s channel edits). */
+export function chartsRebindMark(data: ChartsWorkbenchDataState, mark: ChartsWorkbenchMark): ChartsBuiltMark | null {
+  const current = chartsMarkCurrentBinding(data, mark);
+  return current && chartsBuildBoundMark(mark.id, mark.type, current.rows, current.binding);
+}
+
+const omittedMemo = new WeakMap<ChartsWorkbenchMark, { readonly data: ChartsWorkbenchDataState; readonly omitted: ChartsOmittedRows | null }>();
+/** Rows of the reader's table the CURRENT chart leaves out, for its current
+ *  channels. Reported only while the mark's data is exactly what its
+ *  binding builds: a hand-built link's own data says nothing about the
+ *  table. */
+export function chartsMarkOmittedRows(data: ChartsWorkbenchDataState, mark: ChartsWorkbenchMark): ChartsOmittedRows | null {
+  const hit = omittedMemo.get(mark);
+  if (hit && hit.data === data) return hit.omitted;
+  const rebuilt = chartsRebindMark(data, mark);
+  const omitted = rebuilt && rebuilt.mark.dataText === mark.dataText ? rebuilt.omitted : null;
+  omittedMemo.set(mark, { data, omitted });
+  return omitted;
+}
+
+const drawMemo = new WeakMap<ChartsWorkbenchMark, Map<boolean, ChartsDrawVerdict>>();
+/**
+ * Why the chart shows nothing, when a data mark on it paints no cell (a
+ * channel edit or a hand-built link left it one point per line series, or
+ * all zeros). `renderChartsWorkbenchState` reports it as an error, so the
+ * viewport keeps the last good chart dimmed with this in the rail, and the
+ * Type toggle still offers every type that draws. `null` when every data
+ * mark draws, and for a mark the library refuses outright: the render
+ * reports that error itself.
+ */
+export function chartsWorkbenchNothingDrawn(state: Pick<ChartsWorkbenchState, "marks" | "scales">): string | null {
+  const isDate = state.scales.x.type === "time";
+  for (const mark of state.marks) {
+    const rule = CHARTS_MARK_TYPE_RULES[mark.type];
+    if (!rule.ranked) continue;
+    let byScale = drawMemo.get(mark);
+    if (!byScale) drawMemo.set(mark, byScale = new Map());
+    let verdict = byScale.get(isDate);
+    if (verdict === undefined) byScale.set(isDate, verdict = chartsBuiltMarkProbe({ mark, isDate }));
+    if (verdict === "blank") return `Nothing to draw. ${rule.needs}`;
+  }
+  return null;
 }

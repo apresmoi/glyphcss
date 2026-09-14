@@ -189,10 +189,10 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     try { return glyphChartSeriesPreview(buildStyledChartsWorkbenchSpec(state), { color: colorDisabled ? "none" : undefined }); }
     catch { return []; }
   }, [state, colorDisabled]);
-  // Memoised per base inside the fit module; the note says which rows the
-  // chart leaves out while the mark is still its type's binding.
+  // Memoised per base inside the fit module; the note says which of the
+  // reader's rows the chart leaves out for its CURRENT channels.
   const markTypeFits = state.marks.map((mark) => chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark)));
-  const omittedRows = state.marks.length > 0 ? chartsMarkOmittedRows(markTypeFits[0]!, state.marks[0]!) : null;
+  const omittedRows = state.marks.length > 0 ? chartsMarkOmittedRows(state.data, state.marks[0]!) : null;
   const omittedNote = omittedRows ? chartsOmittedRowsNote(omittedRows) : undefined;
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
   const snippets = useMemo(() => {

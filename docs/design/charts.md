@@ -597,7 +597,37 @@ The memo keys a stable rows array (a vendored or remote dataset's own) by identi
 
 **Gates.** The 16-dataset matrix is unchanged and green, and no curated type is disabled. A hostile remote-data suite (nulls in every column type, mixed columns, one row, one column, text only, numbers only, 3,000 rows, null sankey endpoints and flows, duplicate edges, booleans, all-zero shares, empty strings) renders every ENABLED type at the page's own settings (web 96x32 braille, CSS colour), checks the current type is never stranded, and checks the reducer selects a remote dataset exactly when `remoteDatasetRecommendationCheck` passes.
 
-**Residuals.** The probe paints no cartesian mark, so a paint-time library throw (`GLYPH_CHART_INTERNAL_COORD`) would not disable a type; the hostile suite renders every enabled type at full size to catch one. A bar of all-zero values stays enabled: it renders axes and no bars, which is a true picture of zeros rather than a refusal. A remote dataset evicted from the 8-ref memo falls back to the mark's own data until it is re-fetched.
+**Residuals.** The probe paints no cartesian mark, so a paint-time library throw (`GLYPH_CHART_INTERNAL_COORD`) would not disable a type; the hostile suite renders every enabled type at full size to catch one. A bar of all-zero values stays enabled: it renders axes and no bars, which is a true picture of zeros rather than a refusal. A remote dataset evicted from the 8-ref memo falls back to the mark's own data until it is re-fetched. (Both of the first two are retired by round 3.)
+
+#### Round 3: an enabled type must draw
+
+The requirement is "if the data cannot display a specific chart, the chart should be disabled in the selector", so an enabled type must draw a visible chart, not only render. Codex found round 2's probe short of that: remote `[{v:7}]` opened on a Line and enabled Area, and both painted zero data cells while Bar and Dot showed the value. A table cleaned down to one dated row did the same. Opus then found the cleaning stale after a channel edit: y changed from `sales` to `units` kept the 15 rows `sales` allowed, and the note vanished. On a melted chart the note counted reshaped rows and named `value`, a column the reader doesn't have. Each was reproduced through the page's real path, counting cells whose colour changes when only the mark's colour does.
+
+**The root decision: paint and look.** Round 2 checked a cartesian mark's validation and scales, which proves it renders, not that it draws. Restating the library's rules instead (a line needs two points per series, a bar a nonzero value) was rejected as a deep mirror: `chartSeries` splits a line by `fill` only when some value is a string; `group` drops `fill` and keys by x; `stack` keys by x; `bin` replaces the rows; and a heatmap's blank depends on its ramp's zero anchor. `chartsBuiltMarkProbe` renders the built mark alone at 20x8 braille (texture fill, no legend) with its `options.color` set to `#010203`. It returns `draws` when that colour appears, `blank` when the render succeeds without it, and `refused` when the library throws. One function now serves all eight data types, replacing round 2's scales-or-render split. A blank here is always a statement about the data, never the grid; the tests check the verdict independently at the page's own 96x32.
+
+**Cost.** The painters' per-row work dominates, so the grid is as small as a plot stays readable. At 180 rows a probe costs 0.4 to 3.5 ms for line/dot/bar/cell and 4 to 8 ms for area (9 to 14 ms at 32x12). A fit-table miss costs 0.7 to 9 ms warm per vendored dataset (cold up to 22 ms), against round 2's 0.04 to 1.7 ms. It is 8 ms at 200 rows, the page's remote cap (`DATASET_LOAD_DEFAULT_MAX_ROWS`), and about 97 ms at 3,000 rows, a size only the tests load. A miss happens once per dataset.
+
+**When the current type can't draw.** Every action that installs a mark (a dataset pick, a remote load, a type switch) installs one that draws. A mark can still arrive drawing nothing, through a channel edit or a hand-built link. `renderChartsWorkbenchState` then returns a `nothing-drawn` error naming the type's need (`chartsWorkbenchNothingDrawn`, memoised per mark). The viewport keeps the last good chart dimmed, the rail shows the reason, and the Type toggle keeps the current type enabled and offers every type that draws. The page never shows a blank chart and never strands the card.
+
+**The rows follow the current channels.** `update-mark` with a channel patch rebuilds the mark from the table as loaded (`chartsRebindMark`), reusing the melt the fit table offers when the channels name its columns. The x scale resets to `time` for a date column and `auto` otherwise, and the y scale to `auto`. A time scale left over from a date column otherwise reads the new column as dates. Cleaning at render time was the other option offered; it was rejected because a mark's data would stop being the rows it draws, which the `?c=` omission byte-match relies on. The note is recomputed for the current mark and shown only while the mark's data is exactly that rebuild. An origin column carried through the melt counts the reader's own rows, and a melted value is named by the column it came from. A row that still draws its other measures reads "that value isn't drawn" (`ChartsOmittedRows.partial`).
+
+**Mutation checks.** Each mutation was applied, both fit test files run, and the source restored.
+
+| Mutation | Red tests |
+|---|---|
+| probe ignores the paint (any render draws) | 9: both probe cases, hostile "a single row" and "an all-zero share column", the 1-row numeric column, both round-3 codex repros, both fallback tests |
+| no nothing-drawn check at render | both fallback tests |
+| no rebind on a channel edit | the channel-edit fallback, P2-1, the scale reset |
+| note reads the fit table, ignoring the current channels | the channel-edit fallback, P2-1 |
+| no origin tracking through the melt | P3-1 |
+| a melted value named `value` | P3-1 |
+| no scale reset on a channel edit | the scale reset |
+| no melt reused on a channel edit | P3-1 |
+| `partial` never set | P3-1 |
+
+The probe's detector first also required ink (not a blank) in the colour; that guard survived its mutation, because no mark writes its colour onto a blank cell. It was removed as defensive code for a case that can't happen.
+
+**Residuals.** The probe paints at 20x8 while the reader chooses the real size; the tests cover every dataset and hostile shape at 96x32, not every size. The render-time check runs a mark under auto scales (time kept for a date x), so a typed domain that excludes every point still renders blank, which is the reader's own choice. A channel edit re-derives rows only from a stable table (a vendored or remote dataset with no pipeline); a legacy link's own rows are patched as before.
 
 ## Round 18: monochrome shade-family fill (pie/region-mark contrast)
 

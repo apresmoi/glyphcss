@@ -8,6 +8,7 @@ import {
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { correctChartHtmlTextScale } from "./chartsWorkbenchHtmlColor";
+import { chartsWorkbenchNothingDrawn } from "./chartsMarkTypeFit";
 
 // ── Colour controls ──────────────────────────────────────────────────────
 //
@@ -327,6 +328,10 @@ export function buildStyledChartsWorkbenchSpec(state: ChartsWorkbenchState): Gly
 }
 export function renderChartsWorkbenchState(state: ChartsWorkbenchState): ChartsWorkbenchRender {
   try {
+    // A data mark that paints nothing is a chart that failed to show its
+    // data, never a blank frame (`chartsWorkbenchNothingDrawn`).
+    const nothingDrawn = chartsWorkbenchNothingDrawn(state);
+    if (nothingDrawn !== null) return { ok: false, error: nothingDrawn, code: "nothing-drawn" };
     return renderSpec(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state), chartsWorkbenchEffectiveDensity(state.controls));
   } catch (error) { return failure(error); }
 }
