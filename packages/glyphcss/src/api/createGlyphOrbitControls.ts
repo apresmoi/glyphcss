@@ -1,10 +1,20 @@
-// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to scale range [0.1,500].
+// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to scale range [0.1,500]; `pitchRange` (was `clampPitch`) plus a `trackball` mode (AGENTS.md "Cameras and orbit controls").
 /**
  * createGlyphOrbitControls — orbit-mode camera input for a GlyphScene.
  *
- * Left-drag rotates rotX / rotY around the target (orbit). Wheel zooms or
- * dollies. Mirrors voxcss's createPolyOrbitControls semantics, adapted for
- * the ASCII rasterizer's GlyphCamera instead of the CSS matrix3d camera.
+ * Two modes:
+ * - `"turntable"` (default) — left-drag rotates rotX / rotY around the
+ *   target (Euler orbit, up-vector locked: world +Z always projects
+ *   screen-up, at any pitch `pitchRange` allows). Byte-identical to the
+ *   pre-trackball behaviour.
+ * - `"trackball"` — left-drag rotates about the screen axis perpendicular
+ *   to the drag (any orientation reachable, including roll), and a
+ *   two-finger twist rolls. Backed by `camera.mat`/`useMat` (the core
+ *   quaternion/matrix path), never by rotX/rotY.
+ *
+ * Wheel zooms or dollies in both modes. Mirrors voxcss's
+ * createPolyOrbitControls semantics, adapted for the ASCII rasterizer's
+ * GlyphCamera instead of the CSS matrix3d camera.
  *
  * rotX and rotY are in DEGREES (three.js / voxcss convention).
  * Drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
@@ -21,6 +31,11 @@ export type {
   GlyphControlsListener,
 } from "./controls/common";
 
+/** Degrees-to-radians factor, matching `createGlyphCamera`'s own `DEG`. */
+const DEG = Math.PI / 180;
+
+export type GlyphOrbitControlsMode = "turntable" | "trackball";
+
 export interface GlyphOrbitControlsOptions {
   /** Pointer-drag. Default: true. */
   drag?: boolean;
@@ -29,11 +44,22 @@ export interface GlyphOrbitControlsOptions {
   /** Drag-direction inversion. Default: false. */
   invert?: boolean | number;
   /**
-   * Clamp vertical drag to ±90° (camera stays above the equator, never
-   * flipping past either pole). Default: true. Set to false for globe-style
-   * unrestricted tumbling.
+   * Turntable-mode pitch clamp, `[min, max]` degrees, or `null` for
+   * unrestricted tumbling (views from below the equator included — world
+   * +Z still projects screen-up at every pitch, since the Euler path never
+   * introduces roll). Default `[-90, 90]`, identical to the old
+   * `clampPitch: true`; `null` matches the old `clampPitch: false`. No-op
+   * in `"trackball"` mode.
    */
-  clampPitch?: boolean;
+  pitchRange?: [number, number] | null;
+  /**
+   * `"turntable"` (default) — two-axis Euler orbit, up-vector locked.
+   * `"trackball"` — free rotation about the screen axis perpendicular to
+   * the drag, reaching any orientation including roll; a two-finger twist
+   * rolls. Switching modes carries the current on-screen orientation over
+   * (no jump).
+   */
+  mode?: GlyphOrbitControlsMode;
   /** Auto-rotate. Pass false or omit to disable. */
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
 }
@@ -53,7 +79,9 @@ export function createGlyphOrbitControls(
   let drag = options.drag ?? true;
   let wheel = options.wheel ?? true;
   let invertFactor = resolveInvert(options.invert);
-  let clampPitch = options.clampPitch ?? true;
+  let pitchRange: [number, number] | null =
+    options.pitchRange !== undefined ? options.pitchRange : [-90, 90];
+  let mode: GlyphOrbitControlsMode = options.mode ?? "turntable";
   let animOpts = options.animate ?? false;
   let stopped = false;
   let animPaused = false;
@@ -67,6 +95,7 @@ export function createGlyphOrbitControls(
   let pointer = { x: 0, y: 0 };
   let pinchDist = 0; // finger distance when the pinch began
   let pinchZoom = 0; // camera.zoom when the pinch began
+  let pinchAngle = 0; // angle (rad) of the finger pair, updated per move (trackball twist)
 
   const camera = scene.camera;
   const registry = makeListenerRegistry(scene);
@@ -75,9 +104,56 @@ export function createGlyphOrbitControls(
   let wheelActive = false;
   let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Trackball orientation matrix — row-major 3×3, same layout as `camera.mat`.
+  // Only written while `mode === "trackball"`; turntable mode never reads it.
+  let trackballMat: number[] = eulerToMat(camera.rotX, camera.rotY);
+
+  /**
+   * Engage the trackball matrix path, carrying the CURRENT on-screen
+   * orientation over — from `camera.mat` if a matrix is already installed
+   * (re-entering trackball after a prior session), else derived from the
+   * live Euler `rotX`/`rotY` (leaving turntable) — so a mode switch never
+   * jumps the view.
+   */
+  function ensureTrackballMat(): void {
+    trackballMat = camera.useMat && camera.mat ? camera.mat.slice() : eulerToMat(camera.rotX, camera.rotY);
+    camera.mat = trackballMat;
+    camera.useMat = true;
+  }
+
+  if (mode === "trackball") ensureTrackballMat();
+
+  function clampPitchRange(value: number): number {
+    return pitchRange ? Math.max(pitchRange[0], Math.min(pitchRange[1], value)) : value;
+  }
+
+  /** Rotate the trackball matrix about the screen axis perpendicular to a drag of (dxPx, dyPx). */
+  function rotateTrackballDrag(dxPx: number, dyPx: number, degPerPx: number): void {
+    const dist = Math.hypot(dxPx, dyPx);
+    if (dist === 0) return;
+    const angleRad = dist * degPerPx * DEG;
+    const ax = -dyPx / dist;
+    const ay = dxPx / dist;
+    trackballMat = matMul3(axisAngleMat(ax, ay, 0, angleRad), trackballMat);
+    camera.mat = trackballMat;
+    camera.useMat = true;
+  }
+
+  /** Roll the trackball matrix about the view (depth) axis by `deltaRad` — the two-finger twist gesture. */
+  function rotateTrackballTwist(deltaRad: number): void {
+    trackballMat = matMul3(axisAngleMat(0, 0, 1, -deltaRad), trackballMat);
+    camera.mat = trackballMat;
+    camera.useMat = true;
+  }
+
   function twoFingerDist(): number {
     const p = [...pointers.values()];
     return p.length >= 2 ? Math.hypot(p[0].x - p[1].x, p[0].y - p[1].y) : 0;
+  }
+
+  function twoFingerAngle(): number {
+    const p = [...pointers.values()];
+    return p.length >= 2 ? Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x) : 0;
   }
 
   function onPointerDown(e: PointerEvent): void {
@@ -93,10 +169,11 @@ export function createGlyphOrbitControls(
     // capturing it would fire pointercancel mid-drag and abort the gesture.
     try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     if (pointers.size >= 2) {
-      // Two fingers → pinch-zoom; suspend orbit.
+      // Two fingers → pinch-zoom (+ twist-to-roll in trackball mode); suspend orbit.
       activePointerId = null;
       pinchDist = twoFingerDist();
       pinchZoom = camera.zoom;
+      pinchAngle = twoFingerAngle();
       host.style.cursor = "";
     } else {
       activePointerId = e.pointerId;
@@ -113,12 +190,32 @@ export function createGlyphOrbitControls(
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     if (pointers.size >= 2) {
-      // Pinch-zoom (only when zoom/wheel is enabled).
-      if (!wheel) return;
+      // Pinch-zoom (needs `wheel`) + two-finger twist-to-roll (needs `drag`,
+      // trackball mode only). Same gating as the pre-trackball code when
+      // `mode === "turntable"`: `!wheel` alone still short-circuits with no
+      // `preventDefault()`, keeping default behaviour byte-identical.
+      const zoomActive = wheel;
+      const twistActive = drag && mode === "trackball";
+      if (!zoomActive && !twistActive) return;
       e.preventDefault();
-      const d = twoFingerDist();
-      if (pinchDist > 0 && d > 0) {
-        camera.zoom = Math.max(0.1, Math.min(500, pinchZoom * (d / pinchDist)));
+      let changed = false;
+      if (zoomActive) {
+        const d = twoFingerDist();
+        if (pinchDist > 0 && d > 0) {
+          camera.zoom = Math.max(0.1, Math.min(500, pinchZoom * (d / pinchDist)));
+          changed = true;
+        }
+      }
+      if (twistActive) {
+        const angle = twoFingerAngle();
+        const deltaRad = angle - pinchAngle;
+        pinchAngle = angle;
+        if (pinchDist > 0 && deltaRad !== 0) {
+          rotateTrackballTwist(deltaRad);
+          changed = true;
+        }
+      }
+      if (changed) {
         scene.rerender();
         emitChange(snapshot);
       }
@@ -134,12 +231,16 @@ export function createGlyphOrbitControls(
     // Drag sensitivity: 4 px per degree (POINTER_DRAG_SPEED = 4).
     // rotX and rotY are in degrees — no radians conversion needed.
     const DEG_PER_PX = 1 / 4;
-    camera.rotY = camera.rotY - dx * DEG_PER_PX * f;
-    // Drag in the same direction as the pointer: dragging UP tilts the camera
-    // UP (positive rotX increase from the +Z-is-screen-up convention), so dy
-    // negates here. Matches the horizontal axis's `-dx` direction.
-    const nextRotX = camera.rotX - dy * DEG_PER_PX * f;
-    camera.rotX = clampPitch ? Math.max(-90, Math.min(90, nextRotX)) : nextRotX;
+    if (mode === "trackball") {
+      rotateTrackballDrag(dx * f, dy * f, DEG_PER_PX);
+    } else {
+      camera.rotY = camera.rotY - dx * DEG_PER_PX * f;
+      // Drag in the same direction as the pointer: dragging UP tilts the camera
+      // UP (positive rotX increase from the +Z-is-screen-up convention), so dy
+      // negates here. Matches the horizontal axis's `-dx` direction.
+      const nextRotX = camera.rotX - dy * DEG_PER_PX * f;
+      camera.rotX = clampPitchRange(nextRotX);
+    }
     scene.rerender();
     emitChange(snapshot);
   }
@@ -250,7 +351,12 @@ export function createGlyphOrbitControls(
       drag = opts.drag ?? drag;
       wheel = opts.wheel ?? wheel;
       invertFactor = resolveInvert(opts.invert);
-      if (opts.clampPitch !== undefined) clampPitch = opts.clampPitch;
+      if (opts.pitchRange !== undefined) pitchRange = opts.pitchRange;
+      if (opts.mode !== undefined && opts.mode !== mode) {
+        mode = opts.mode;
+        if (mode === "trackball") ensureTrackballMat();
+        else camera.useMat = false; // turntable resumes from Euler rotX/rotY.
+      }
       animOpts = opts.animate ?? animOpts;
       if (!stopped && activePointerId === null) {
         host.style.cursor = drag ? "grab" : "";
@@ -287,4 +393,47 @@ function resolveInvert(invert: boolean | number | undefined): number {
   if (invert === undefined || invert === false) return 1;
   if (invert === true) return -1;
   return invert;
+}
+
+/**
+ * The row-major 3×3 matrix equivalent to `rotateVec3Voxcss(v, rotXDeg,
+ * rotYDeg)` in `createGlyphCamera.ts` — RotX(rotX) · RotZ(rotY) applied to
+ * the axis-swapped world vector `rotateVec3WithMat` also swaps. Used ONLY to
+ * seed `trackballMat` with visual continuity when trackball mode engages
+ * from a turntable orientation; never read by the turntable path itself.
+ */
+function eulerToMat(rotXDeg: number, rotYDeg: number): number[] {
+  const x = rotXDeg * DEG, y = rotYDeg * DEG;
+  const cosX = Math.cos(x), sinX = Math.sin(x);
+  const cosY = Math.cos(y), sinY = Math.sin(y);
+  return [
+    cosY, -sinY, 0,
+    cosX * sinY, cosX * cosY, -sinX,
+    sinX * sinY, sinX * cosY, cosX,
+  ];
+}
+
+/** Row-major 3×3 matrix product `a · b` (apply `b` first, then `a`). */
+function matMul3(a: number[], b: number[]): number[] {
+  return [
+    a[0] * b[0] + a[1] * b[3] + a[2] * b[6],
+    a[0] * b[1] + a[1] * b[4] + a[2] * b[7],
+    a[0] * b[2] + a[1] * b[5] + a[2] * b[8],
+    a[3] * b[0] + a[4] * b[3] + a[5] * b[6],
+    a[3] * b[1] + a[4] * b[4] + a[5] * b[7],
+    a[3] * b[2] + a[4] * b[5] + a[5] * b[8],
+    a[6] * b[0] + a[7] * b[3] + a[8] * b[6],
+    a[6] * b[1] + a[7] * b[4] + a[8] * b[7],
+    a[6] * b[2] + a[7] * b[5] + a[8] * b[8],
+  ];
+}
+
+/** Rodrigues rotation matrix (row-major 3×3) about a UNIT axis `(ax, ay, az)` by `angleRad`. */
+function axisAngleMat(ax: number, ay: number, az: number, angleRad: number): number[] {
+  const c = Math.cos(angleRad), s = Math.sin(angleRad), t = 1 - c;
+  return [
+    c + ax * ax * t, ax * ay * t - az * s, ax * az * t + ay * s,
+    ay * ax * t + az * s, c + ay * ay * t, ay * az * t - ax * s,
+    az * ax * t - ay * s, az * ay * t + ax * s, c + az * az * t,
+  ];
 }

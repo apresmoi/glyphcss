@@ -42,12 +42,47 @@ describe("GlyphOrbitControlsElement", () => {
     expect(controls).toBeInstanceOf(GlyphOrbitControlsElement);
   });
 
-  it("observes drag, wheel, invert, animate-speed, animate-axis attributes", () => {
+  it("observes drag, wheel, invert, pitch-range, mode, animate-speed, animate-axis attributes", () => {
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("drag");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("wheel");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("invert");
+    expect(GlyphOrbitControlsElement.observedAttributes).toContain("pitch-range");
+    expect(GlyphOrbitControlsElement.observedAttributes).toContain("mode");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("animate-speed");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("animate-axis");
+  });
+
+  it("mode='trackball' engages the matrix camera path", () => {
+    controls.setAttribute("mode", "trackball");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene?.camera.useMat).toBe(true);
+  });
+
+  it("pitch-range='none' allows the camera past ±90 degrees", () => {
+    controls.setAttribute("pitch-range", "none");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+    scene!.camera.rotX = 0;
+    const host = scene!.host;
+    host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 1000, pointerId: 1, isPrimary: true, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    expect(scene!.camera.rotX).toBeCloseTo(-250, 5);
+  });
+
+  it("pitch-range='-30,30' clamps to a custom range", () => {
+    controls.setAttribute("pitch-range", "-30,30");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+    scene!.camera.rotX = 0;
+    const host = scene!.host;
+    host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 1000, pointerId: 1, isPrimary: true, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    expect(scene!.camera.rotX).toBe(-30);
   });
 
   it("connects without throwing inside a scene", () => {

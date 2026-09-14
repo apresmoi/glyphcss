@@ -27,9 +27,23 @@ function findScene(el: HTMLElement): GlyphSceneElement | null {
   return found ?? null;
 }
 
+function parsePitchRange(value: string | null): [number, number] | null | undefined {
+  if (value === null) return undefined;
+  if (value === "none") return null;
+  const parts = value.split(",").map((s) => parseFloat(s.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) return undefined;
+  return [parts[0], parts[1]];
+}
+
+function parseMode(value: string | null): "turntable" | "trackball" | undefined {
+  if (value === "trackball") return "trackball";
+  if (value === "turntable") return "turntable";
+  return undefined;
+}
+
 export class GlyphOrbitControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["drag", "wheel", "invert", "clamp-pitch", "animate-speed", "animate-axis"];
+    return ["drag", "wheel", "invert", "pitch-range", "mode", "animate-speed", "animate-axis"];
   }
 
   private _controls: GlyphOrbitControlsHandle | null = null;
@@ -49,14 +63,16 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     const drag = parseBool(this.getAttribute("drag"));
     const wheel = parseBool(this.getAttribute("wheel"));
     const invert = parseBool(this.getAttribute("invert"));
-    const clampPitch = parseBool(this.getAttribute("clamp-pitch"));
+    const pitchRange = parsePitchRange(this.getAttribute("pitch-range"));
+    const mode = parseMode(this.getAttribute("mode"));
     const speed = parseNumber(this.getAttribute("animate-speed"));
     const axis: "x" | "y" = this.getAttribute("animate-axis") === "x" ? "x" : "y";
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
       ...(invert !== undefined ? { invert } : {}),
-      ...(clampPitch !== undefined ? { clampPitch } : {}),
+      ...(pitchRange !== undefined ? { pitchRange } : {}),
+      ...(mode !== undefined ? { mode } : {}),
       ...(speed !== undefined ? { animate: { speed, axis } } : {}),
     };
   }

@@ -1194,7 +1194,7 @@ function initGlyphDemo(demoEl: HTMLElement): void {
   let controls: ControlsHandle | null = null;
 
   // `data-no-clamp-pitch="1"` removes the orbit-controls vertical-rotation
-  // clamp so a globe can roll past either pole.
+  // clamp (`pitchRange`) so a globe can roll past either pole.
   const noClampPitch = demoEl.getAttribute('data-no-clamp-pitch') === '1';
 
   function buildControls(): void {
@@ -1211,8 +1211,8 @@ function initGlyphDemo(demoEl: HTMLElement): void {
     if (controlState.dragMode === 'pan') {
       controls = createGlyphMapControls(scene, commonOpts);
     } else {
-      // orbit (default) — pass through the clamp flag.
-      controls = createGlyphOrbitControls(scene, { ...commonOpts, clampPitch: !noClampPitch });
+      // orbit (default) — pass through the pitch clamp.
+      controls = createGlyphOrbitControls(scene, { ...commonOpts, pitchRange: noClampPitch ? null : [-90, 90] });
     }
   }
 

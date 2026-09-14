@@ -67,6 +67,18 @@ describe("GlyphOrbitControls — mount inside scene", () => {
     ).not.toThrow();
   });
 
+  it("mounts with mode='trackball'", () => {
+    expect(() => renderScene({ mode: "trackball" })).not.toThrow();
+  });
+
+  it("mounts with pitchRange: null", () => {
+    expect(() => renderScene({ pitchRange: null })).not.toThrow();
+  });
+
+  it("mounts with a custom pitchRange", () => {
+    expect(() => renderScene({ pitchRange: [-30, 30] })).not.toThrow();
+  });
+
   it("updates props without throwing (drag toggle)", () => {
     const { container, root } = renderScene({ drag: true });
     expect(container.querySelector(".glyph-scene")).toBeTruthy();
