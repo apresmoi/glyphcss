@@ -1,4 +1,5 @@
 import type { Polygon, Vec3 } from "glyphcss";
+import { SURFACE_MEDIAN_STRIPS, surfaceMedianOfBlock } from "glyphcss";
 import type { GlyphMapProjection } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileVertexLonLat } from "./tile";
@@ -236,49 +237,20 @@ function gridLineIndices(total: number, count: number): Int32Array {
 }
 
 /**
- * The MINIMUM number of strips a block's surface is read at across the row
- * (`v`) direction, in {@link surfaceMedianElevation} — per source cell where
- * the block is one cell deep, divided among the cells where it is deeper.
- *
- * The statistic is EXACT along a row and discretized only across rows: for a
- * fixed `v` the bilinear surface is LINEAR in `u`, so that row's heights are
- * distributed uniformly between its two edge heights and its contribution to
- * the surface's value distribution is a closed form, not a sample. Only the
- * `v` direction is approximated, by a midpoint rule that converges as
- * `1/k^2`, so a handful of strips is already far more accurate than the same
- * work spent on a `k x k` lattice of point samples: measured against a
- * brute-force 64-strip reference over the real z4 tile under Buenos Aires
- * (16,200 quads), a 16-point lattice disagrees on the BAND of 27 quads and 8
- * strips on 5, of which 1 crosses sea level. On the vendored fixtures at
- * every mesh resolution the ladder can pick, 8 strips reproduces the area
- * majority exactly — zero quads misclassified against a 32x32 reference
- * lattice, which is what `mesh.seaLevelBand.test.ts` asserts with no
- * tolerance band; 4 strips leaves one, a quad 49.85% of whose surface is
- * above sea level.
- */
-const SURFACE_MEDIAN_STRIPS = 8;
-
-/**
  * The median of the terrain SURFACE over the vertex block a quad covers,
  * inclusive of both edges — see {@link GlyphMapPolygonsOptions.colorSample}
  * for why a quad's colour reads this rather than its 4 corners' mean or the
- * median of the SAMPLES it covers.
- *
- * Each source CELL of the block contributes one uniform interval per strip
- * (from that strip's west height to its east height, see
- * {@link SURFACE_MEDIAN_STRIPS}), so the block's value distribution is a
- * mixture of uniforms whose CDF is piecewise linear in the elevation, with a
- * breakpoint at every
- * interval end. The median is therefore solved EXACTLY rather than searched
- * for: sort the ends, binary-search the segment where the CDF crosses one
- * half, and invert the one linear piece it crosses on.
+ * median of the SAMPLES it covers. The algorithm itself now lives in
+ * `@glyphcss/core`'s `surfaceMedianOfBlock` (PLAN-3d.md packet C1 —
+ * `@glyphcss/charts/3d`'s surface mark needed the same statistic with no
+ * tile of its own, so it is lifted rather than duplicated); this is a thin
+ * accessor adapter from `GlyphMapGeoTile`'s own `elevation`/`cols` to that
+ * function's generic row-major `stride`+`values` field. `SURFACE_MEDIAN_STRIPS`
+ * is re-exported from the same place — see its own doc there for the
+ * strip-count derivation and the measurements behind it.
  *
  * `lo`/`hi`/`ends` are the caller's reusable buffers (one allocation per
- * `glyphMapPolygons` call, not one per quad). A cell with a non-finite corner
- * is left out rather than poisoning the block; the quad's own 4 corners are
- * already known finite by the time this runs (a non-finite corner skips the
- * quad entirely), so the empty-block fallback below is only reachable on a
- * coarsened tier whose every interior cell is broken.
+ * `glyphMapPolygons` call, not one per quad) — unchanged.
  */
 function surfaceMedianElevation(
   tile: GlyphMapGeoTile,
@@ -290,96 +262,7 @@ function surfaceMedianElevation(
   row: number,
   rowNext: number,
 ): number {
-  const stride = tile.cols + 1;
-  // Strips resolve the `v` direction WITHIN a cell, so a block that already
-  // spans several cell rows needs fewer of them: what the accuracy depends on
-  // is how many rows of the block's surface are read in total, and this keeps
-  // that at `SURFACE_MEDIAN_STRIPS` or more however the block is shaped. It
-  // matters because the statistic's work is proportional to the tile's own
-  // cells rather than to the quad count, so without it a coarsened backstop
-  // tier pays as much as the tier a reader is looking at: measured on the real
-  // z4 tile, a 32-quad floor tier costs 3.3 ms/tile with this and 8.2 ms
-  // without, at zero cost in accuracy (`mesh.seaLevelBand.test.ts`'s area
-  // invariant holds identically either way, at every rung of the ladder).
-  const strips = Math.max(1, Math.ceil(SURFACE_MEDIAN_STRIPS / (rowNext - row)));
-  let m = 0;
-  for (let r = row; r < rowNext; r++) {
-    const top = r * stride;
-    const bottom = (r + 1) * stride;
-    for (let c = col; c < colNext; c++) {
-      const nw = tile.elevation[top + c]!;
-      const ne = tile.elevation[top + c + 1]!;
-      const sw = tile.elevation[bottom + c]!;
-      const se = tile.elevation[bottom + c + 1]!;
-      if (!Number.isFinite(nw) || !Number.isFinite(ne) || !Number.isFinite(sw) || !Number.isFinite(se)) continue;
-      for (let j = 0; j < strips; j++) {
-        const v = (j + 0.5) / strips;
-        const west = nw + (sw - nw) * v;
-        const east = ne + (se - ne) * v;
-        lo[m] = west < east ? west : east;
-        hi[m] = west < east ? east : west;
-        m++;
-      }
-    }
-  }
-  if (m === 0) {
-    return (
-      tile.elevation[row * stride + col]! +
-      tile.elevation[row * stride + colNext]! +
-      tile.elevation[rowNext * stride + col]! +
-      tile.elevation[rowNext * stride + colNext]!
-    ) / 4;
-  }
-  let n = 0;
-  for (let i = 0; i < m; i++) {
-    ends[n++] = lo[i]!;
-    ends[n++] = hi[i]!;
-  }
-  const sorted = ends.subarray(0, n);
-  sorted.sort();
-  const half = m / 2;
-  // How much of the block's surface sits at or below `h`, in units of
-  // intervals. A FLAT strip (a cell whose east and west heights agree, so
-  // `lo === hi`) is an atom and has to be counted the moment `h` reaches it —
-  // a whole cell of terrain at exactly -1 m is the common case at a coast,
-  // and treating it as "not yet counted" at h = -1 loses half the mass of
-  // such a block and lands the median up on the one sloping corner.
-  const cdf = (h: number): number => {
-    let sum = 0;
-    for (let i = 0; i < m; i++) {
-      const l = lo[i]!;
-      const u = hi[i]!;
-      if (u <= l) {
-        if (h >= l) sum += 1;
-      } else if (h >= u) sum += 1;
-      else if (h > l) sum += (h - l) / (u - l);
-    }
-    return sum;
-  };
-  // The smallest sorted end whose CDF has reached one half. `sorted[n - 1]`
-  // is the block's maximum, where the CDF is `m`, so the search always lands.
-  let loIdx = 0;
-  let hiIdx = n - 1;
-  while (loIdx < hiIdx) {
-    const mid = (loIdx + hiIdx) >> 1;
-    if (cdf(sorted[mid]!) >= half) hiIdx = mid;
-    else loIdx = mid + 1;
-  }
-  const upper = sorted[loIdx]!;
-  if (loIdx === 0) return upper;
-  const lower = sorted[loIdx - 1]!;
-  // No end lies strictly between two consecutive ends, so on this segment
-  // every interval is fully below it, fully above it, or spanning it — and
-  // only the spanning ones vary, each at a constant rate.
-  let rate = 0;
-  for (let i = 0; i < m; i++) {
-    const l = lo[i]!;
-    const u = hi[i]!;
-    if (l <= lower && u >= upper && u > l) rate += 1 / (u - l);
-  }
-  if (rate <= 0) return upper;
-  const at = lower + (half - cdf(lower)) / rate;
-  return at < lower ? lower : at > upper ? upper : at;
+  return surfaceMedianOfBlock({ stride: tile.cols + 1, values: tile.elevation }, { lo, hi, ends }, col, colNext, row, rowNext);
 }
 
 interface ProjectedVertex {

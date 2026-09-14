@@ -660,3 +660,155 @@ dimension change mid-flight.
 
 Each mutation above (the decal's) was applied to the working tree, run,
 observed red, then reverted and re-verified green.
+
+## C1 — `gridSurfacePolygons`, the surface model, `glyphChartObject`
+
+**Goal.** A `z(x, y)` height-field mesh (core), a validated surface model
+(`@glyphcss/charts/3d`), and a producer turning that model into a mounted
+`GlyphSceneObject` — the surface mesh plus a 3D axis box, ticks and labels
+as overlays. No `renderGlyphChart3d`, no CLI, no page (C2/C3).
+
+### Why the geometry is a `@glyphcss/core` helper, not a `@glyphcss/charts` internal
+
+`gridSurfacePolygons` (`packages/core/src/helpers/gridSurfacePolygons.ts`)
+takes only normalized `x`/`y`/`z` numbers and a colour callback keyed on
+ORIGINAL (pre-decimation) grid indices — it knows nothing about chart
+specs, colour scales, or data domains, matching every other helper in that
+directory (`cubePolygons`, `planePolygons`, …: pure geometry, no "Glyph"
+prefix, per AGENTS.md's naming exception for generic math/geometry). This
+keeps the door open for a second consumer with no chart vocabulary at all
+(a hand-authored terrain mesh, a future non-chart 3D surface) without
+routing through `@glyphcss/charts`.
+
+### The area-median statistic is LIFTED, not duplicated
+
+`@glyphcss/maps`' `mesh.ts` already had exactly the statistic C1 needs — the
+median of a bilinearly-interpolated field over a block, closed-form via a
+piecewise-linear CDF (AGENTS.md's "Relief mesh": "the level that halves the
+AREA … not the mean of its 4 corners and not the median of the SAMPLES it
+covers"). Copying it would drift; maps cannot be imported by glyphcss or by
+charts (the dependency direction runs the other way, and glyphcss must stay
+free of both). The fix is the same shape F4 used for the label arbiter:
+generalize the algorithm's field accessor from `GlyphMapGeoTile`'s own
+`elevation`/`cols` to a bare `{ stride, values }` row-major pair
+(`packages/core/src/math/surfaceMedian.ts`, `surfaceMedianOfBlock`) and move
+it to `@glyphcss/core`, where both `@glyphcss/maps` (a two-line accessor
+wrapper, `mesh.ts`'s own `surfaceMedianElevation`) and
+`@glyphcss/charts/3d`'s `object.ts` (flattening the resolved `z` grid to a
+`Float64Array` once per mesh build) can reach it with no cross-package
+import. The algorithm itself — strip count, CDF construction, the atom
+special-case for a flat cell — is byte-for-byte unchanged; only the
+accessor moved. Gate: `packages/maps/src/mesh.surfaceMedian.test.ts`,
+`mesh.seaLevelBand.test.ts`, `widget.reliefSurfaceBand.test.ts` (all still
+green, unmodified, against the wrapped call) plus a new
+`packages/core/src/math/surfaceMedian.test.ts` exercising the same
+properties the maps design record documents (a flat field, an area
+majority the corner mean gets wrong, a point-mass "atom" tie, non-finite
+cells skipped, the empty-block fallback) directly against the generic
+`{ stride, values }` shape.
+
+### Decimation: nudge, don't append, and protect a forced slot from a later one
+
+`gridSurfacePolygons`' decimation mirrors `@glyphcss/maps`' own
+`gridLineIndices` (uniform point-sampling of grid LINES) but must also
+"always keep the argmax and argmin lines" (PLAN-3d.md §5, C1's own gate) —
+so the uniform sample is nudged: each required index REPLACES its nearest
+kept neighbour rather than growing the kept count, which is what keeps the
+decimation ratio exactly what `maxQuadsX`/`maxQuadsY` asked for. The first
+implementation nudged blindly and had a real bug, caught by the packet's own
+mutation test (`object.test.ts`'s "the argmax survives decimation" case,
+which is also gated one layer down in `gridSurfacePolygons.test.ts`): two
+required indices equidistant from the SAME nearest slot (the routine case —
+an argmax and an argmin symmetric around one uniform sample point) took
+turns evicting each other, and the SECOND one processed silently walked the
+slot back to where it started, dropping the first one's own forced value
+entirely (measured: a peak at row 2 requiring slot 0's neighbour on a
+`[0, 4, 8]` lattice for a required pair `[2, 0]` — processing `2` first
+correctly claimed slot 0, but processing `0` second then found slot 0
+"nearest" to itself too and reclaimed it, undoing the peak's own claim).
+The fix marks a slot FORCED the instant a required index claims it, and
+excludes forced slots from every later required index's own nearest search
+— a slot, once forced, is never evicted again. Two required indices per
+axis (argmax, argmin) against a budget of at least 2 kept lines means a
+free slot is always available for the second one; the fallback path for
+"no free slot" is intentionally absent (AGENTS.md's "no defensive code for
+cases that can't happen") since that configuration is unreachable from
+every caller in this repo.
+
+### Colour: quantized bands over an approximate colorscale, not a continuous ramp
+
+`glyphChart3dBandIndex`/`glyphChart3dBandColor` (`3d/colorscale.ts`)
+quantize the z-domain into `bands` (default 9) discrete levels before
+resolving a colour, the same "quantize so span-runs and the atlas palette
+survive" discipline `cell`'s own 5-level shade ramp already follows
+(AGENTS.md's "Charts" "Series and shading") — a continuous per-quad hue
+would produce as many distinct colours as there are quads, destroying both
+span-run merging in the text/ANSI exits and the 30-slot atlas palette (C2's
+concern once a static/live exit exists; the model layer quantizes
+regardless, so C2 inherits a bounded palette for free). The named
+colorscale anchors (`viridis`/`cividis`/`magma`/`greys`) are hand-picked
+reference stops for each published map, not a pixel-exact port of
+matplotlib's own spline — adequate for a monospace-cell render (`docs/design/render-modes.md`'s font-atlas budget is the actual fidelity ceiling here, not the anchor count), and a caller who needs exact fidelity supplies a custom anchor array, validated the same way.
+
+### "Matches the 2D `cell` heatmap band for band" — the concrete, testable form taken
+
+PLAN-3d.md's own honesty gate ("a surface viewed from straight above … must
+match the 2D `cell` heatmap of the same grid band for band") is stated
+against a page that doesn't exist until C2/C3 (`renderGlyphChart3d`, the
+`/charts` page). What C1 can and does prove at the model layer: an
+UNDECIMATED quad's band is a deterministic, monotone function of its own
+(exact, since a single undecimated quad's area-median is bounded by its own
+corners — and for a FLAT quad equals them exactly) z value, under the SAME
+linear domain-quantization scheme `2D cell` marks use (`(z - domainMin) /
+domainSpan`, quantized to `bands` levels — `paint.ts`'s own `shadeFor`
+convention for a non-diverging domain). `object.test.ts`'s "top view" case
+builds a grid of four DISTINCT flat quads and confirms each one's built
+colour equals the colour the SAME quantization function predicts for its
+own (exact) value — the honest, C1-scoped form of "band for band" until a
+real 2D-vs-3D pixel comparison exists to check against once C2 lands.
+
+### Overlays: a full box wireframe, per-axis nearest-edge ticks, no back-wall gridlines yet
+
+PLAN-3d.md describes gridlines on the camera's own back walls and ticks on
+the nearest edge, chosen per frame. C1 implements the tick half in full —
+`nearestEdge` compares the projected depth of each of an axis's 4 parallel
+edges' midpoints and picks the nearest (largest depth, this repo's
+"larger = nearer" convention) every `stamp()` call, so ticks visibly move
+to a different edge as the object (or the host camera) rotates — but
+DEFERS the interior back-wall gridlines: the box's own 12-edge wireframe
+(always drawn, one glyph per straight edge chosen from its screen-space
+slope) already gives the reader the 3D frame the acceptance gates need
+(no label overlaps, a real box + ticks + labels rendered), and gridlines
+are additive polish with no gate of their own in C1's acceptance list. A
+label (tick or axis title) is pushed outward from its own on-edge tick
+point along the SAME two axes the chosen edge's own corner already fixes
+(object-space, not screen-space — so no screen-direction math is needed at
+all: whichever screen direction that becomes is simply where the
+projection sends it), depth-tested via `stampGlyphOverlayCell`'s own
+`depth` field against the real surface, and registered through the shared
+`GlyphLabelArbiter` (`frame.labels.place`) with `ownMeshIds: frame.ownMeshIds`
+— so a tick or title never hides behind this object's OWN surface, only
+behind something else's.
+
+### Gates and mutations (packet C1)
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| The argmax/argmin survive decimation | Revert `decimateIndices`' forced-slot protection (let a later required index evict an earlier one) | RED — `gridSurfacePolygons.test.ts` and `object.test.ts`'s decimation cases both fail: the peak's own row/column drops out |
+| A quad's band is the area-median | Swap `object.ts`'s `surfaceMedianOfBlock` call for the 4-corner mean | RED — `object.test.ts`'s Buenos-Aires-shaped fixture (designed so the two statistics land on different bands) asserts the built colour against the median reference and fails against the mean |
+| Top view matches the domain-quantization a `cell` heatmap band uses | (verified directly, not mutation-gated: an UNDECIMATED flat quad's colour is checked against the shared quantization function for its own exact value) | — |
+| `objectPosition` is data space | (verified directly: the mesh's own x/y/z vertex coordinates are asserted affine and monotone in the resolved axis domains) | — |
+| The render is deterministic | Two builds from identical input are compared by `JSON.stringify` equality | Passes; any source of nondeterminism (iteration order, `Set`/`Map` insertion order leaking into output) would fail it |
+| Mounted in a real scene with an orbit-style camera, the surface plus axis labels render, with no overlaps | A real `createGlyphScene`/`camera`/`addObject` integration test | Passes; overlap-freedom itself is F4's own gate (the shared arbiter), exercised here through a real object rather than re-proven |
+
+**Gate.** `pnpm --filter @glyphcss/core test` (795 tests, +20 new: 13
+`gridSurfacePolygons`, 7 `surfaceMedianOfBlock`), `pnpm --filter
+@glyphcss/charts test` (1414 tests, +42 new under `src/3d/`), the targeted
+`@glyphcss/maps` surface-median suites (`mesh.surfaceMedian.test.ts`,
+`mesh.seaLevelBand.test.ts`, `mesh.test.ts`, `widget.reliefSurfaceBand.test.ts`
+— 30 tests) plus a full `pnpm --filter @glyphcss/maps test` run (1337 tests)
+as a safety net for the lifted shared code, the glyphcss scene/overlay
+suites this packet depends on (`createGlyphScene.sceneObject.test.ts`,
+`createGlyphScene.viewportOverlay.test.ts`, `GlyphObjectElement.test.ts` —
+17 tests), `tsc --noEmit` on `@glyphcss/charts`, and `pnpm build:packages`
+(all 17 workspace packages) all pass.

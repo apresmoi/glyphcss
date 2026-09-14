@@ -32,10 +32,19 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./3d": {
+      "types": "./dist/3d.d.ts",
+      "import": "./dist/3d.js",
+      "require": "./dist/3d.cjs"
     }
   },
   "typesVersions": {
-    "*": {}
+    "*": {
+      "3d": [
+        "dist/3d.d.ts"
+      ]
+    }
   },
   "scripts": {
     "build": "tsup",

@@ -100,3 +100,5 @@ export { pentagonalHexecontahedronPolygons } from "./pentagonalHexecontahedronPo
 export type { PentagonalHexecontahedronPolygonsOptions } from "./pentagonalHexecontahedronPolygons";
 export { resolveGeometry } from "./geometryRegistry";
 export type { GlyphGeometryName, GlyphGeometryOptions } from "./geometryRegistry";
+export { gridSurfacePolygons } from "./gridSurfacePolygons";
+export type { GridSurfaceField, GridSurfaceQuadBlock, GridSurfacePolygonsOptions, GridSurfaceDecimation, GridSurfacePolygonsResult } from "./gridSurfacePolygons";
