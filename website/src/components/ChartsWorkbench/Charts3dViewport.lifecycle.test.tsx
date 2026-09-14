@@ -38,10 +38,16 @@ vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAM
 // for glyphcss's own mount/dispose/update contract.
 const sceneSpies = vi.hoisted(() => ({
   createGlyphSceneCalls: 0,
+  createGlyphSceneOptions: vi.fn(),
   sceneDestroy: vi.fn(),
   controlsDestroy: vi.fn(),
   setOptions: vi.fn(),
   objectUpdate: vi.fn(),
+  // Packet C4, item 3/4 — effect-layer mount/dispose spies, mirroring
+  // `DiagramsWorkbench.3d.test.tsx`'s own `disposalSpies.effectLayerDispose`/
+  // `addEffectLayer`-args idiom.
+  addEffectLayer: vi.fn(),
+  effectLayerDispose: vi.fn(),
 }));
 vi.mock("glyphcss", async (importOriginal) => {
   const actual = await importOriginal<typeof import("glyphcss")>();
@@ -49,6 +55,7 @@ vi.mock("glyphcss", async (importOriginal) => {
     ...actual,
     createGlyphScene: (...args: Parameters<typeof actual.createGlyphScene>) => {
       sceneSpies.createGlyphSceneCalls += 1;
+      sceneSpies.createGlyphSceneOptions(args[1]);
       const scene = actual.createGlyphScene(...args);
       const originalDestroy = scene.destroy.bind(scene);
       scene.destroy = () => { sceneSpies.sceneDestroy(); originalDestroy(); };
@@ -61,6 +68,14 @@ vi.mock("glyphcss", async (importOriginal) => {
         handle.update = (object) => { sceneSpies.objectUpdate(); return originalUpdate(object); };
         return handle;
       };
+      const originalAddEffectLayer = scene.addEffectLayer.bind(scene);
+      scene.addEffectLayer = ((opts: unknown) => {
+        sceneSpies.addEffectLayer(opts);
+        const layer = originalAddEffectLayer(opts as never);
+        const originalDispose = layer.dispose.bind(layer);
+        layer.dispose = () => { sceneSpies.effectLayerDispose(); originalDispose(); };
+        return layer;
+      }) as typeof scene.addEffectLayer;
       return scene;
     },
     createGlyphOrbitControls: (...args: Parameters<typeof actual.createGlyphOrbitControls>) => {
@@ -71,8 +86,9 @@ vi.mock("glyphcss", async (importOriginal) => {
     },
   };
 });
+import { renderGlyphChart3d } from "@glyphcss/charts/3d";
 import ChartsWorkbench from "./ChartsWorkbench";
-import { CHART_CHARSETS, createChartsWorkbenchState, reduceChartsWorkbenchState } from "./chartsWorkbenchState";
+import { CHART_CHARSETS, createChartsWorkbenchState, reduceChartsWorkbenchState, resolveCharts3dView, resolveGlyphChartsWorkbenchControls } from "./chartsWorkbenchState";
 import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
 import { decodeChartsUrlState } from "./chartsUrlState";
 import { glyphChart3dCharsetDegrades } from "@glyphcss/charts/3d";
@@ -85,10 +101,13 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
 
   beforeEach(() => {
     sceneSpies.createGlyphSceneCalls = 0;
+    sceneSpies.createGlyphSceneOptions.mockClear();
     sceneSpies.sceneDestroy.mockClear();
     sceneSpies.controlsDestroy.mockClear();
     sceneSpies.setOptions.mockClear();
     sceneSpies.objectUpdate.mockClear();
+    sceneSpies.addEffectLayer.mockClear();
+    sceneSpies.effectLayerDispose.mockClear();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -195,18 +214,27 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     enter3d();
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
 
-    // Charset: never reaches the live scene at all (`chartsWorkbench3dSceneOptions`'s
-    // own doc — a 3D chart's box/tick overlay always disables the halfblock
-    // encoder, so charset carries no scene-option payload); still asserted
-    // here as the literal case the finding named.
+    // Charset (packet C4, codex review): `web`'s own default charset is
+    // `braille` (`GLYPH_CHART_TARGET_DEFAULTS`), which `style: "auto"`
+    // resolves to a real live WIREFRAME — switching to `ascii` is therefore
+    // a genuine mode change (wireframe -> solid), applied via the object's
+    // own `update()` (the grid/tick overlay's glyph tier is baked into the
+    // mesh at build time) AND `scene.setOptions` (the scene's own `mode`),
+    // never a remount.
+    const objectUpdatesBeforeCharset = sceneSpies.objectUpdate.mock.calls.length;
     pickToggle("Charset", "ascii");
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    expect(sceneSpies.objectUpdate.mock.calls.length).toBeGreaterThan(objectUpdatesBeforeCharset);
+    expect(sceneSpies.setOptions).toHaveBeenCalledWith({ mode: "solid", charMode: undefined, hiddenLines: undefined, useColors: true });
 
     // Colour: `color: css` -> `color: none` flips `useColors` — applied via
-    // `scene.setOptions`, never a remount.
+    // `scene.setOptions`, never a remount. `mode`/`charMode`/`hiddenLines`
+    // ride along in the SAME call (one bundle, `chartsWorkbench3dSceneOptions`'s
+    // own doc) — still resolved from the CURRENT charset (`ascii`, from
+    // above), so `solid`/`undefined`/`undefined`.
     pickToggle("Color", "none");
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
-    expect(sceneSpies.setOptions).toHaveBeenCalledWith({ useColors: false });
+    expect(sceneSpies.setOptions).toHaveBeenCalledWith({ mode: "solid", charMode: undefined, hiddenLines: undefined, useColors: false });
 
     // Shading: a new mark (different `glyphChartSurface` build) — applied
     // via the scene-object handle's `update()`, never a remount.
@@ -219,6 +247,17 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     pickToggle("Colorscale", "magma");
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
     expect(sceneSpies.objectUpdate.mock.calls.length).toBeGreaterThan(colorscaleUpdatesBefore);
+
+    // Style (packet C4, codex review): explicitly picking "Wireframe" on
+    // the CURRENT charset (`ascii`) mounts a real live wireframe — proving
+    // this is reachable at all, which was the coordinator's own literal
+    // finding ("ink is unreachable live").
+    pickToggle("Style", "Wireframe");
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    expect(sceneSpies.setOptions).toHaveBeenCalledWith({ mode: "wireframe", charMode: undefined, hiddenLines: "hide", useColors: false });
+    pickToggle("Style", "Ink");
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    expect(sceneSpies.setOptions).toHaveBeenCalledWith({ mode: "ink", charMode: undefined, hiddenLines: undefined, useColors: false });
   });
 
   // Disposal — `scene.destroy()`/`controls.destroy()` must run on a type
@@ -261,6 +300,25 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
   function charsetButton(charset: string): HTMLButtonElement {
     return Array.from(toggleRow("Charset").querySelectorAll<HTMLButtonElement>("button"))
       .find((b) => (b.getAttribute("aria-label") ?? "").startsWith(`Character set: ${charset}`))!;
+  }
+
+  // Packet C4 — the guide toggles (plain `useToggle` checkbox rows) and the
+  // Effects folder's dropdown rows (`useOption`, a real lil-gui `<select>`)
+  // share the SAME `.controller` shape `ChartsWorkbench.test.tsx`'s own
+  // `controller()` helper reads.
+  function controller(name: string): Element {
+    return Array.from(container.querySelectorAll(".controller")).find((node) => node.querySelector(".name")?.textContent?.toLowerCase() === name.toLowerCase())!;
+  }
+  function guideCheckbox(label: string): HTMLInputElement {
+    return controller(label).querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  }
+  function selectDropdown(name: string, optionText: string): void {
+    const field = controller(name).querySelector("select")!;
+    const index = Array.from(field.options).findIndex((o) => o.textContent === optionText);
+    act(() => {
+      field.selectedIndex = index;
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+    });
   }
 
   it("the viewport never renders a note or banner element, for every charset", () => {
@@ -326,4 +384,173 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     expect(container.querySelector(".charts-3d-viewport")!.children).toHaveLength(1);
     expect(container.querySelector(".charts-3d-downgrade-note")).toBeNull();
   });
+
+  // ── Packet C4 (codex review addition) ───────────────────────────────────
+  // The coordinator's own literal finding: `Charts3dViewport.tsx` hard-coded
+  // `mode: "solid"` and never read charset/style at all, so a live braille
+  // selection (the default `web` charset, `GLYPH_CHART_TARGET_DEFAULTS`)
+  // rendered SOLID geometry while Copy/terminal resolved the same state to
+  // a real wireframe. `enter3d()` mounts at exactly that default — no extra
+  // clicks needed to reproduce the premise. Asserted TWO ways: the real
+  // `createGlyphScene` call's own options (the exact bundle
+  // `chartsWorkbench3dSceneOptions` computed), and the rendered picture
+  // itself (real braille dot glyphs, U+2800-28FF, which only a genuine
+  // wireframe+braille render emits — a solid Lambert-shaded fill of this
+  // fixture never does).
+  it("entering 3D on the default web target mounts a LIVE braille wireframe (mode/charMode/hiddenLines resolved, not hard-coded solid)", () => {
+    const host = enter3d();
+    expect(sceneSpies.createGlyphSceneOptions).toHaveBeenCalledTimes(1);
+    const opts = sceneSpies.createGlyphSceneOptions.mock.calls[0]![0] as { mode?: string; charMode?: string; hiddenLines?: string };
+    expect(opts.mode).toBe("wireframe");
+    expect(opts.charMode).toBe("braille");
+    expect(opts.hiddenLines).toBe("hide");
+    expect(host.querySelector(".glyph-output")!.textContent).toMatch(/[⠀-⣿]/);
+  });
+
+  // ── Packet C4 ──────────────────────────────────────────────────────────
+
+  // Item 1 — a guide toggle updates the EXISTING scene-object handle IN
+  // PLACE (`handle.update()`), never remounting `createGlyphScene`, and
+  // keeps the camera untouched (auto-fit target/zoom unchanged) — the exact
+  // property C3 fix round 1 already proved for shading/colorscale/colour,
+  // now extended to guides.
+  // Mutation: drop `state.chart3d.guides` from `ChartsWorkbench.tsx`'s
+  // `chart3dResolvedLive` memo deps → `mark` never changes on a guide edit,
+  // so `objectUpdate` is never called and this reddens.
+  it("a guides toggle updates the live scene object in place (update(), no second createGlyphScene), and the camera survives", async () => {
+    enter3d();
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    const before = container.querySelector("pre.glyph-output")!.textContent!;
+    const cameraBefore = await copiedLinkChart3dCamera();
+    const updatesBefore = sceneSpies.objectUpdate.mock.calls.length;
+
+    // "Wall outline" (the `walls` field) defaults OFF — flipping it on
+    // always adds real geometry to the mesh's own overlay, so the render
+    // genuinely changes.
+    act(() => guideCheckbox("Wall outline").click());
+
+    expect(sceneSpies.createGlyphSceneCalls, "no remount on a guides edit").toBe(1);
+    expect(sceneSpies.objectUpdate.mock.calls.length, "the scene-object handle's update() must run").toBeGreaterThan(updatesBefore);
+    const after = container.querySelector("pre.glyph-output")!.textContent!;
+    expect(after, "the live frame must actually reflect the toggled guide").not.toBe(before);
+    const cameraAfter = await copiedLinkChart3dCamera();
+    expect(cameraAfter.rotX).toBe(cameraBefore.rotX);
+    expect(cameraAfter.rotY).toBe(cameraBefore.rotY);
+    expect(cameraAfter.zoom).toBe(cameraBefore.zoom);
+  });
+
+  // Item 3 — the Effects folder's Target row resolves "Surface" to the
+  // real mounted mesh handle and "Whole chart" to scene-wide (`undefined`),
+  // proving the WIRING (not just the rendered pixels, which
+  // `charts3dEffectTargeting.test.ts` already proves coincide for THIS
+  // object — guides carry no depth of their own).
+  // Mutation: `Charts3dViewport.tsx`'s `resolveEffectTarget` always
+  // returning `undefined` regardless of `targetId` → the "Surface" case's
+  // own assertion (a defined target) reddens.
+  it("selecting Effect target 'Surface' passes the real surface mesh handle to addEffectLayer; 'Whole chart' passes undefined", () => {
+    enter3d();
+    selectDropdown("Effect", "scan");
+    expect(sceneSpies.addEffectLayer).toHaveBeenCalledTimes(1);
+    const allTargetCall = sceneSpies.addEffectLayer.mock.calls.at(-1)![0] as { target: unknown };
+    expect(allTargetCall.target, "the implicit 'Whole chart' target must be scene-wide (undefined)").toBeUndefined();
+
+    selectDropdown("Target", "Surface");
+    expect(sceneSpies.addEffectLayer.mock.calls.length).toBeGreaterThan(1);
+    const surfaceTargetCall = sceneSpies.addEffectLayer.mock.calls.at(-1)![0] as { target?: { id: number } };
+    expect(surfaceTargetCall.target, "the 'Surface' target must be a real mesh handle, not undefined/null").toBeDefined();
+    expect(typeof surfaceTargetCall.target!.id).toBe("number");
+  });
+
+  // Item 3/4 — dispose on: effect id change, view switch away from 3D, and
+  // unmount. Mirrors `DiagramsWorkbench.3d.test.tsx`'s own three disposal
+  // tests exactly.
+  it("changing the effect disposes the old layer and cancels its rAF loop", () => {
+    enter3d();
+    selectDropdown("Effect", "scan");
+    expect(sceneSpies.effectLayerDispose).not.toHaveBeenCalled();
+    const cancelSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
+    // Mutation: `applyEffect()`'s "already correct" no-op guard mistakenly
+    // matching a genuinely different effect id → `effectLayerDispose` stays
+    // uncalled here.
+    selectDropdown("Effect", "glitch");
+    expect(sceneSpies.effectLayerDispose).toHaveBeenCalledTimes(1);
+    expect(cancelSpy, "the old effect's own rAF loop must be cancelled").toHaveBeenCalled();
+    cancelSpy.mockRestore();
+  });
+
+  it("disposes the mounted effect layer and its rAF loop on a mark-type switch away from 3D", () => {
+    const host = enter3d();
+    selectDropdown("Effect", "glitch");
+    const cancelSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
+    expect(sceneSpies.effectLayerDispose).not.toHaveBeenCalled();
+    act(() => container.querySelector<HTMLButtonElement>('.charts-mark-row[data-row="type"] [aria-label$=": line"]')!.click());
+    // Mutation: drop `disposeEffect()` from `Charts3dViewport.tsx`'s
+    // mount-effect cleanup → these two redden (the layer and its rAF loop
+    // leak past the view switch).
+    expect(sceneSpies.effectLayerDispose, "the mounted effect layer must be disposed too").toHaveBeenCalledTimes(1);
+    expect(cancelSpy, "the effect's own rAF loop must be cancelled").toHaveBeenCalled();
+    expect(host.isConnected).toBe(false);
+    cancelSpy.mockRestore();
+  });
+
+  it("disposes the mounted effect layer and its rAF loop on unmount", () => {
+    enter3d();
+    selectDropdown("Effect", "glitch");
+    const cancelSpy = vi.spyOn(globalThis, "cancelAnimationFrame");
+    expect(sceneSpies.effectLayerDispose).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    expect(sceneSpies.effectLayerDispose, "the mounted effect layer must be disposed too").toHaveBeenCalledTimes(1);
+    expect(cancelSpy, "the effect's own rAF loop must be cancelled").toHaveBeenCalled();
+    cancelSpy.mockRestore();
+  });
+
+  // Item 4 — Copy ASCII/ANSI must never reflect a mounted effect: both
+  // exits build a FRESH `renderGlyphChart3d` call with no effect-layer
+  // concept, so mounting/changing the live effect must not change what Copy
+  // returns. Mutation: threading `state.effect3d` into `chart3dCopyAscii`'s
+  // own memo deps or render call in `ChartsWorkbench.tsx` (there is nothing
+  // for it to actually DO there, since `renderGlyphChart3d` has no effect
+  // parameter — but a deps-array leak alone would still be a real defect
+  // worth catching, e.g. an accidental extra render pass) would show up
+  // here as `copiedAscii()` differing before/after the effect change, which
+  // it must not.
+  it("Copy ASCII stays byte-identical whether or not a live effect is mounted", async () => {
+    enter3d();
+    const before = await copiedAscii();
+    selectDropdown("Effect", "glitch");
+    selectDropdown("Target", "Surface");
+    const after = await copiedAscii();
+    expect(after).toBe(before);
+  });
+
+  // Item 2/4 — "Trackball Copy is exact": after a trackball drag, Copy
+  // ASCII equals a static render built DIRECTLY off the raw library
+  // (`renderGlyphChart3d`, never through `renderCharts3dStatic` — the same
+  // function under test — so a regression in `chartsWorkbench3dRender.ts`'s
+  // own camera-option construction can't hide behind testing itself).
+  // Mutation: revert `chartsWorkbench3dRender.ts`'s `cameraOption` back to
+  // `{ rotX, rotY, zoom }` only (dropping `mat`/`useMat`) → the live Copy
+  // (built through the real orbited `mat`) diverges from `expected` (built
+  // here from the SAME reported `mat`), reddening.
+  it("trackball Copy is exact: Copy ASCII after a drag equals a static renderGlyphChart3d at that exact mat/zoom", async () => {
+    const host = enter3d();
+    pickToggle("Rotate", "Trackball");
+    dragHost(host, 180, 140);
+    const camera = await copiedLinkChart3dCamera();
+    expect(camera.mat, "the premise this test exercises — a real trackball pose").toBeDefined();
+    const copiedText = await copiedAscii();
+
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const resolved = resolveCharts3dView(state.chart3d);
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    const controls = resolveGlyphChartsWorkbenchControls(state.controls);
+    const expectedOut = renderGlyphChart3d(resolved.resolved.mark, {
+      target: controls.target, charset: controls.charset, color: "none",
+      width: controls.width, height: controls.height,
+      camera: { mat: [...camera.mat!], useMat: true, zoom: camera.zoom },
+    });
+    expect(copiedText).toBe(expectedOut.text);
+  }, 15_000);
 });

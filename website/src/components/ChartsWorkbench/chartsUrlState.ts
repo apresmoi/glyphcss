@@ -17,12 +17,13 @@ import {
   CHART_AXIS_COLOR_MODES, CHART_CHANNELS, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_MARK_TYPES, CHART_REGION_FILLS,
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
   CHARTS_DENSITY_MIN, chartsDensitySliderMax,
+  CHARTS_WORKBENCH_DEFAULT_EFFECT3D,
   createChartsWorkbenchState, findChartsDataset, findCharts3dDataset, randomChartsDatasetId, reduceChartsWorkbenchState, createCharts3dViewState,
   type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchAxisTitlePlacementState,
   type ChartsWorkbenchDataState,
   type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
   type GlyphChartsWorkbenchControls,
-  type Charts3dCamera, type Charts3dSource, type Charts3dViewState,
+  type Charts3dCamera, type Charts3dGuideOptions, type Charts3dSource, type Charts3dViewState, type Instrument3DEffectsState,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
@@ -400,6 +401,10 @@ function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
 // of a later page-level step.
 const CHARTS_3D_ORBIT_MODES = ["turntable", "trackball"] as const;
 const CHARTS_3D_SHADINGS = ["auto", "relief", "value"] as const;
+// Packet C4 (codex review addition) — `Charts3dStyleOption`'s own
+// vocabulary, append-only: an old link (saved before this field existed)
+// carries no `style` key and decodes to `"auto"`, byte-identical to before.
+const CHARTS_3D_STYLES = ["auto", "solid", "wireframe", "ink"] as const;
 
 /** `mat` is glyphcss's own 9-element row-major 3x3 rotation matrix
  *  (`GlyphCamera.mat`'s own doc, `createGlyphCamera.ts`) — a trackball
@@ -460,9 +465,31 @@ function validateCharts3dSource(value: unknown): Charts3dSource | null {
   return null;
 }
 
+// Packet C4, item 1 — every `GlyphChart3dGuideOptions` field, read off
+// `packages/charts/src/3d/types.ts` directly (never invented): `axisLines`,
+// `ticks`, `tickLabels`, `titles`, `grid`, `floorGrid`, `walls`, `box`.
+// Append-only (item's own contract: "ride in `?c=` as append-only optional
+// fields, and an old link decodes unchanged") — a link saved before this
+// packet carries no `guides` key at all and decodes to `{}` (every field
+// follows the library's own default), byte-identical to before this feature
+// existed; an unrecognised/malformed boolean for one field is treated as
+// ABSENT for that field alone (mirrors `validateCharts3dCameraMat`'s own
+// "a bad field degrades to absent, never rejects the whole payload" rule),
+// never a rejected `chart3d`.
+const CHARTS_3D_GUIDE_KEYS = ["axisLines", "ticks", "tickLabels", "titles", "grid", "floorGrid", "walls", "box"] as const;
+function validateCharts3dGuides(value: unknown): Charts3dGuideOptions {
+  if (!isRecord(value)) return {};
+  const clean: Record<string, boolean> = {};
+  for (const key of CHARTS_3D_GUIDE_KEYS) {
+    const v = value[key];
+    if (typeof v === "boolean") clean[key] = v;
+  }
+  return clean as Charts3dGuideOptions;
+}
+
 function validateCharts3dViewState(value: unknown): Charts3dViewState | null {
   if (!isRecord(value)) return null;
-  const { source, camera, orbitMode, shading, colorscale } = value;
+  const { source, camera, orbitMode, shading, colorscale, style, guides } = value;
   const cleanSource = validateCharts3dSource(source);
   if (!cleanSource) return null;
   const cleanCamera = validateCharts3dCamera(camera);
@@ -470,7 +497,30 @@ function validateCharts3dViewState(value: unknown): Charts3dViewState | null {
   if (!oneOf(orbitMode, CHARTS_3D_ORBIT_MODES)) return null;
   if (!oneOf(shading, CHARTS_3D_SHADINGS)) return null;
   if (!oneOf(colorscale, GLYPH_CHART_3D_COLORSCALE_NAMES)) return null;
-  return { source: cleanSource, camera: cleanCamera, orbitMode, shading, colorscale };
+  // Append-only (this field's own C4 addition): absent decodes to "auto",
+  // never rejecting an otherwise-good `chart3d` payload written before it
+  // existed.
+  const cleanStyle = style === undefined ? "auto" : oneOf(style, CHARTS_3D_STYLES) ? style : null;
+  if (cleanStyle === null) return null;
+  return { source: cleanSource, camera: cleanCamera, orbitMode, shading, colorscale, style: cleanStyle, guides: validateCharts3dGuides(guides) };
+}
+
+// Packet C4, item 3 — the shared `Instrument3DEffectsFolder`'s own state
+// shape, mirroring `/diagrams`' own `validateEffect3d` exactly: `effectId`
+// is any non-empty string (a stock `@glyphcss/effects` id, or `"none"` for
+// no layer — a future added effect id needs no urlState change), `targetId`
+// likewise (`INSTRUMENT_3D_EFFECT_ALL_TARGET` or `"surface"` — a stale value
+// from a future library change degrades to "matches no mesh" at mount,
+// `Charts3dViewport.tsx`'s own `resolveEffectTarget` doc, never a decode
+// rejection). Append-only: an old link carries no `effect3d` at all and
+// decodes to `CHARTS_WORKBENCH_DEFAULT_EFFECT3D` (no layer), byte-identical
+// to before this packet existed.
+function validateChartsEffect3d(value: unknown): Instrument3DEffectsState | null {
+  if (!isRecord(value)) return null;
+  const { effectId, targetId } = value;
+  if (typeof effectId !== "string" || effectId.length === 0) return null;
+  if (typeof targetId !== "string" || targetId.length === 0) return null;
+  return { effectId, targetId };
 }
 
 function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | null {
@@ -526,6 +576,11 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
   const cleanChart3d = rawChart3d ?? createCharts3dViewState();
   const dimension = value.dimension === "3d" && rawChart3d !== null ? "3d" : "2d";
 
+  // Packet C4, item 3 — append-only, same posture as `chart3d`/`guides`
+  // above: absent or malformed decodes to the default (no effect layer)
+  // rather than failing the whole envelope.
+  const cleanEffect3d = validateChartsEffect3d(value.effect3d) ?? CHARTS_WORKBENCH_DEFAULT_EFFECT3D;
+
   return {
     marks: cleanMarks,
     nextMarkId,
@@ -542,6 +597,7 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
     data: cleanData,
     dimension,
     chart3d: cleanChart3d,
+    effect3d: cleanEffect3d,
     style: cleanStyle,
   };
 }

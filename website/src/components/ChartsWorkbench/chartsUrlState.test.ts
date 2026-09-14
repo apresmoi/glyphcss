@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  CHART_PRESETS, CHARTS_3D_DATASETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, createChartsWorkbenchState, reduceChartsWorkbenchState,
+  CHART_PRESETS, CHARTS_3D_DATASETS, CHARTS_CUSTOM_MAX_BYTES, CHARTS_DATASETS, CHARTS_WORKBENCH_DEFAULT_EFFECT3D,
+  createChartsWorkbenchState, reduceChartsWorkbenchState,
   type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
+import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import { buildDatasetMark, resolveChartsDataRows } from "./chartsDataSource";
 import {
   CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateForEncode, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState,
@@ -781,6 +783,122 @@ describe("chartsUrlState — 3D (dimension/chart3d)", () => {
     const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
     const decoded = await decodeChartsUrlState(raw);
     expect(decoded!.dimension).toBe("2d");
+  });
+
+  // Packet C4 (codex review addition) — the Style control round-trips, and
+  // an old link (no `style` key at all) decodes to `"auto"`, byte-identical
+  // to before this field existed.
+  it("round-trips an explicit style choice, and an old link with no style key decodes to auto", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    expect(state.chart3d.style).toBe("auto");
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-view", patch: { style: "wireframe" } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.style).toBe("wireframe");
+
+    const { style: _style, ...chart3dWithoutStyle } = state.chart3d;
+    const payload = { ...state, chart3d: chart3dWithoutStyle };
+    const oldLinkRaw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const oldLinkDecoded = await decodeChartsUrlState(oldLinkRaw);
+    expect(oldLinkDecoded).not.toBeNull();
+    expect(oldLinkDecoded!.chart3d.style).toBe("auto");
+  });
+
+  it("rejects an out-of-vocabulary style value rather than guessing", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const payload = { ...base, chart3d: { ...base.chart3d, style: "not-a-style" } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    // Mirrors `chart3d`'s own "one bad field degrades the whole chart3d
+    // payload to the 2D default" posture (`style` has no per-field
+    // degrade the way `guides`/`camera.mat` do, since it's a plain
+    // enum — a malformed value is as informative as a missing one).
+    expect(decoded!.dimension).toBe("2d");
+    expect(decoded!.chart3d).toEqual(createChartsWorkbenchState().chart3d);
+  });
+
+  // Packet C4, item 1 — guide overrides round-trip exactly, byte for byte
+  // (only the fields a reader actually toggled, never a full 8-field
+  // materialisation of the library's own defaults).
+  it("round-trips guide overrides exactly", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-guides", patch: { walls: true, box: true, floorGrid: true } });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-guides", patch: { axisLines: false } });
+    expect(state.chart3d.guides).toEqual({ walls: true, box: true, floorGrid: true, axisLines: false });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.guides).toEqual({ walls: true, box: true, floorGrid: true, axisLines: false });
+  });
+
+  // Packet C4, item 1 — an old link (`chart3d` present, but predating this
+  // packet, so its own payload carries no `guides` key at all) decodes to
+  // `{}` (every guide follows the library's own default), byte-identical to
+  // the pre-packet shape. Hand-built via the same plain-JSON envelope
+  // fallback the "malformed chart3d" test above uses — no reducer path
+  // produces a `chart3d` missing the key today.
+  it("an old link whose chart3d payload has no guides key decodes to guides: {} (every guide follows the library default)", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const { guides: _guides, ...chart3dWithoutGuides } = base.chart3d;
+    const payload = { ...base, dimension: "3d", chart3d: chart3dWithoutGuides };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.dimension).toBe("3d");
+    expect(decoded!.chart3d.guides).toEqual({});
+  });
+
+  // A non-boolean/garbage guide field degrades to ABSENT for that field
+  // alone (mirroring `validateCharts3dCameraMat`'s own "a bad field
+  // degrades to absent, never rejects the whole payload" rule) — never
+  // failing the whole `chart3d` payload the way a bad `camera` does.
+  it("a malformed individual guide field is dropped (treated as absent), the rest of chart3d survives", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const payload = { ...base, dimension: "3d", chart3d: { ...base.chart3d, guides: { walls: "not-a-boolean", box: true } } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.dimension).toBe("3d");
+    expect(decoded!.chart3d.guides).toEqual({ box: true }); // `walls` dropped, `box` survives
+  });
+
+  // Packet C4, item 3 — the shared Effects folder's own state round-trips
+  // exactly, and an old link (no `effect3d` key at all — the ordinary
+  // append-only case) decodes to the default (no mounted layer).
+  it("round-trips a non-default effect3d payload exactly", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-effect3d", patch: { effectId: "scan", targetId: "surface" } });
+    expect(state.effect3d).toEqual({ effectId: "scan", targetId: "surface" });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.effect3d).toEqual({ effectId: "scan", targetId: "surface" });
+  });
+
+  it("an old link with no effect3d key at all decodes to the default (no mounted effect layer)", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const { effect3d: _effect3d, ...payload } = { ...base, dimension: "3d" as const };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.effect3d).toEqual(CHARTS_WORKBENCH_DEFAULT_EFFECT3D);
+    expect(decoded!.effect3d).toEqual({ effectId: INSTRUMENT_3D_EFFECT_NONE, targetId: INSTRUMENT_3D_EFFECT_ALL_TARGET });
+  });
+
+  // A malformed effect3d payload (a non-string field, or a missing one)
+  // degrades to the WHOLE default, mirroring `chart3d`'s own "one bad field
+  // never takes the rest of the link down" posture.
+  it("a malformed effect3d payload degrades to the default rather than failing the whole decode", async () => {
+    const base = createChartsWorkbenchState();
+    const payload = { ...base, effect3d: { effectId: 42, targetId: "surface" } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.effect3d).toEqual(CHARTS_WORKBENCH_DEFAULT_EFFECT3D);
+    // The rest of the payload is untouched by this one bad field.
+    expect(decoded!.marks).toEqual(base.marks);
   });
 });
 

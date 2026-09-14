@@ -6,9 +6,9 @@
 // library's own `glyphChartSurface` decides.
 import {
   GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChartSurface,
-  type GlyphChart3dColorscaleName, type GlyphChart3dSurfaceChannels, type GlyphChart3dSurfaceMark,
+  type GlyphChart3dColorscaleName, type GlyphChart3dStyle, type GlyphChart3dSurfaceChannels, type GlyphChart3dSurfaceMark, type GlyphChart3dSurfaceOptions,
 } from "@glyphcss/charts/3d";
-import type { GlyphChartColorMode } from "@glyphcss/charts";
+import type { GlyphChartCharset, GlyphChartColorMode } from "@glyphcss/charts";
 import type { TabularRow } from "../../lib/tabularParse";
 import { profileRows } from "../../lib/dataProfile";
 import { chartsMarkTypeBase } from "./chartsMarkTypeFit";
@@ -16,6 +16,64 @@ import type { ChartsWorkbenchDataState, ChartsWorkbenchMark } from "./chartsWork
 import { CHARTS_3D_DATASETS, findCharts3dDataset } from "./datasets/chart3d";
 
 export type Charts3dOrbitMode = "turntable" | "trackball";
+
+/**
+ * Codex review finding (relayed by the coordinator): the live 3D viewport
+ * hard-coded `mode: "solid"` and never read charset/style at all, so a
+ * braille selection rendered solid geometry live while the STATIC exit
+ * (Copy, terminal) resolved the SAME selection to a real depth-tested
+ * wireframe (`render.ts`'s own `resolveGlyphChart3dStyle`) — live and Copy
+ * disagreed on the picture for the identical state, and `style: "ink"` was
+ * unreachable live at all.
+ *
+ * GAP (named, not fixed here — C2 round 5 owns `packages/charts/src/3d`):
+ * `resolveGlyphChart3dStyle` and the `mode`/`charMode`/`hiddenLines`
+ * assembly it feeds (`render.ts`'s `renderObjectFrame`) are private,
+ * unexported functions — there is no public resolver a live-scene consumer
+ * can call to stay in sync with the static exit's own resolution.
+ * `resolveCharts3dStyle`/`chartsWorkbench3dSceneOptions` below are a
+ * page-local MIRROR of that exact (small, stable) logic, verified line for
+ * line against `render.ts`'s own `resolveGlyphChart3dStyle`/`chromeTier`/
+ * `renderObjectFrame` — never re-derived or guessed. Exporting the two
+ * library functions by name would let this page call them directly
+ * instead of maintaining a copy.
+ */
+export type Charts3dStyleOption = "auto" | GlyphChart3dStyle;
+
+/** Mirrors `render.ts`'s own `resolveGlyphChart3dStyle` exactly: an
+ *  explicit style always wins; `"auto"` resolves `braille` to `"wireframe"`
+ *  (glyphcss's braille encoder is wireframe-only) and every other charset
+ *  to `"solid"`. */
+export function resolveCharts3dStyle(charset: GlyphChartCharset, styleOption: Charts3dStyleOption): GlyphChart3dStyle {
+  if (styleOption !== "auto") return styleOption;
+  return charset === "braille" ? "wireframe" : "solid";
+}
+
+/** Mirrors `render.ts`'s own `chromeTier` exactly: `blocks` degrades to
+ *  `ascii` for the object's own always-mounted grid/tick overlay glyphs —
+ *  the geometry can never actually render in halfblock either
+ *  (`glyphChart3dCharsetDegrades`), so the overlay tier follows suit. */
+export function charts3dObjectCharset(charset: GlyphChartCharset): GlyphChartCharset {
+  return charset === "blocks" ? "ascii" : charset;
+}
+
+/**
+ * Packet C4, item 1 — the View folder's guide toggles. Derived structurally
+ * off `glyphChartSurface`'s own `GlyphChart3dSurfaceOptions["guides"]`
+ * field (`packages/charts/src/3d/types.ts`'s `GlyphChart3dGuideOptions`)
+ * rather than a hand-duplicated `{ axisLines, ticks, ... }` shape — the
+ * fields ride along verbatim from whatever the library's own input type
+ * declares, so a field the library adds later needs no shape edit here
+ * (only a new toggle row in `ChartsDock.tsx`). NOTE (a library-export gap
+ * to fix, not fixed here — C2 round 5 owns `packages/charts/src/3d`):
+ * `GlyphChart3dGuideOptions`/`GlyphChart3dResolvedGuides`/`GlyphChart3dCornerOption`
+ * are NOT in `@glyphcss/charts/3d`'s own `index.ts` export list (only
+ * `GlyphChart3dSurfaceOptions`, which structurally references the
+ * unexported type, is) — this derived-by-indexed-access type is the
+ * workaround; exporting them by name would let a future page read the
+ * type directly instead.
+ */
+export type Charts3dGuideOptions = NonNullable<GlyphChart3dSurfaceOptions["guides"]>;
 /** `"auto"` (the default) OMITS `options.shading` from the `glyphChartSurface`
  *  call entirely, so the LIBRARY's own default applies — never re-derived
  *  or hardcoded here (a coordination note from the C2 fix round: its
@@ -39,13 +97,11 @@ export interface Charts3dCamera {
    *  `useMat: true` whenever the live viewport's orbit mode is trackball;
    *  `rotX`/`rotY` still ride along (turntable's own last pose before a
    *  mode switch) but are NOT what a trackball orientation renders from.
-   *  KNOWN GAP (coordination note from the C2 fix round): `renderGlyphChart3d`'s
-   *  own `camera` option doesn't accept `mat` yet — only `{ rotX, rotY, zoom
-   *  }`. Until it does, the static exit (terminal/chat/Copy ASCII/ANSI)
-   *  cannot reproduce a trackball pose exactly; `chartsWorkbench3dRender.ts`
-   *  still THREADS `mat`/`useMat` through (never silently dropped, never
-   *  decomposed to a lossy Euler approximation) so this starts working the
-   *  moment the library accepts it. */
+   *  `renderGlyphChart3d`'s own `camera` option accepts `{ mat, zoom, center
+   *  }` now (packet C4, closing the earlier library gap this doc used to
+   *  name) — `chartsWorkbench3dRender.ts` threads `mat`/`useMat` straight
+   *  through, so the static exit (terminal/chat/Copy ASCII/ANSI) reproduces
+   *  a trackball pose exactly. */
   readonly mat?: readonly number[];
   readonly useMat?: boolean;
 }
@@ -64,6 +120,17 @@ export interface Charts3dViewState {
   readonly orbitMode: Charts3dOrbitMode;
   readonly shading: Charts3dShading;
   readonly colorscale: GlyphChart3dColorscaleName;
+  /** `"auto"` (the default) resolves per charset (`resolveCharts3dStyle`'s
+   *  own doc) on BOTH exits; an explicit `"solid"`/`"wireframe"`/`"ink"`
+   *  always wins, independent of charset, on both too. */
+  readonly style: Charts3dStyleOption;
+  /** Guide-overlay overrides (packet C4, item 1) — an EMPTY object (the
+   *  default) means every guide follows the library's own defaults; only a
+   *  field a reader has actually toggled is present here, so a future
+   *  library default change reaches this page automatically for every
+   *  untouched field. Always populated (never `undefined`), mirroring
+   *  `effect3d`'s own "never a null check" rule. */
+  readonly guides: Charts3dGuideOptions;
 }
 
 /** Read straight off the library (`GLYPH_CHART_3D_DEFAULT_CAMERA`) — never
@@ -71,7 +138,7 @@ export interface Charts3dViewState {
 export const CHARTS_3D_DEFAULT_CAMERA: Charts3dCamera = { ...GLYPH_CHART_3D_DEFAULT_CAMERA };
 
 export function createCharts3dViewState(datasetId: string = CHARTS_3D_DATASETS[0]!.id): Charts3dViewState {
-  return { source: { kind: "dataset", id: datasetId }, camera: { ...CHARTS_3D_DEFAULT_CAMERA }, orbitMode: "turntable", shading: "auto", colorscale: "viridis" };
+  return { source: { kind: "dataset", id: datasetId }, camera: { ...CHARTS_3D_DEFAULT_CAMERA }, orbitMode: "turntable", shading: "auto", colorscale: "viridis", style: "auto", guides: {} };
 }
 
 export interface Charts3dResolved {
@@ -106,10 +173,10 @@ export function resolveCharts3dView(view: Charts3dViewState): Charts3dResolveRes
     if (view.source.kind === "dataset") {
       const dataset = findCharts3dDataset(view.source.id);
       if (!dataset) return { ok: false, error: `Unknown 3D dataset "${view.source.id}".` };
-      const mark = glyphChartSurface(dataset.data, dataset.channels, { ...dataset.options, ...shadingOption, colorscale: view.colorscale });
+      const mark = glyphChartSurface(dataset.data, dataset.channels, { ...dataset.options, ...shadingOption, colorscale: view.colorscale, guides: view.guides });
       return { ok: true, resolved: { mark, title: dataset.title, description: dataset.description, source: dataset.source } };
     }
-    const mark = glyphChartSurface(view.source.rows, view.source.channels, { ...shadingOption, colorscale: view.colorscale });
+    const mark = glyphChartSurface(view.source.rows, view.source.channels, { ...shadingOption, colorscale: view.colorscale, guides: view.guides });
     return { ok: true, resolved: { mark, title: view.source.title, description: "", source: null } };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -135,47 +202,61 @@ export function resolveCharts3dViewForLiveScene(view: Charts3dViewState, colorEn
   return resolveCharts3dView({ ...view, shading: colorEnabled ? "relief" : "value" });
 }
 
-// ── Live scene options (target x charset x colour, honoured live) ──────
+// ── Live scene options (target x charset x style x colour, honoured live) ──
 
 export interface Charts3dSceneOptions {
   readonly useColors: boolean;
+  /** The scene's own render mode — `resolveCharts3dStyle`'s own result. */
+  readonly mode: GlyphChart3dStyle;
+  /** Set only under a `"wireframe"` mode on the `braille` charset — every
+   *  other combination is `undefined` (explicitly, not omitted), so a
+   *  caller applying this whole bundle via `scene.setOptions` always
+   *  clears a stale value from a prior charset/style, never merges over
+   *  one that no longer applies. */
+  readonly charMode?: "braille";
+  /** Set only under a `"wireframe"` mode (`"ink"` computes its own
+   *  occlusion internally and needs none) — same explicit-`undefined`
+   *  clearing rule as `charMode`. */
+  readonly hiddenLines?: "hide";
 }
 
 /**
- * The live `createGlyphScene` options a resolved colour choice maps to
- * (packet C3's own gate: "the live viewport must honour the resolved
- * target x charset x colour choices" — `color: none` must be `useColors:
- * false`). No `charMode` here at all (unlike the 2D live scene) —
- * `glyphChart3dCharsetDegrades` (C2 fix round 1) is `true` for a charset a
- * 3D chart's always-mounted axis/tick overlay can't actually paint in
- * (halfblock/quadrant encoders self-disable under any `transformCells`
- * hook), so the scene mounts at its default `charMode` regardless of
- * charset — there is nothing for THIS function to do with it, and no
- * `charset` parameter here since fix round 2 (below). Target itself
- * doesn't enter this either — the live scene only ever mounts for `target
- * === "web"` (`ChartsWorkbench.tsx`'s own dimension/target branch);
- * `chat`/`terminal` show `renderGlyphChart3d`'s own static frame instead,
- * which already honours charset/colour through the library's own path.
+ * The live `createGlyphScene` options a resolved charset x style x colour
+ * choice maps to (packet C3's own gate, widened by C4: "the live viewport
+ * must honour the resolved target x charset x colour choices" — `color:
+ * none` must be `useColors: false` — now EXTENDED to `mode`/`charMode`/
+ * `hiddenLines`, a codex-review finding: the live viewport used to
+ * hard-code `mode: "solid"` and never read charset/style at all, so a
+ * braille selection rendered solid geometry live while Copy/terminal
+ * rendered the SAME selection as a real wireframe — live and Copy
+ * disagreed on the picture for identical state, and `style: "ink"` was
+ * unreachable live. `resolveCharts3dStyle`'s own doc has the "why a
+ * page-local mirror, not a library call" rationale. `glyphChart3dCharsetDegrades`
+ * (C2 fix round 1) still applies to the AXIS/TICK OVERLAY's own halfblock/
+ * quadrant self-disable (a SEPARATE, 2D-chart-only charMode concern —
+ * AGENTS.md's "Render modes": "halfblock/quadrant... no-ops with
+ * transformCells"), never to `"braille"`, which is wireframe-compatible
+ * and exactly what makes the `resolveCharts3dStyle`'s own braille-to-
+ * wireframe rule work. Target itself doesn't enter this — the live scene
+ * only ever mounts for `target === "web"` (`ChartsWorkbench.tsx`'s own
+ * dimension/target branch); `chat`/`terminal` show `renderGlyphChart3d`'s
+ * own static frame instead, which already honours charset/style/colour
+ * through the library's own path.
  *
- * C3 fix round 2 (user feedback): what to tell the reader about a charset
- * the 3D view can't show moved OUT of this function and out of the
- * viewport's own render area entirely — `ChartsDock.tsx`'s `chartsCharsetToggle`
- * now dims that charset's OWN toggle button, with the reason on its title/
- * aria-label (the `mapDirectionLocked` idiom this page already uses for an
- * unfit mark type), reading the SAME `glyphChart3dCharsetDegrades`
- * predicate this function used to. AGENTS.md's own "TargetPreview" rule —
- * "a chrome note lives in the frame's OWN chrome... never the viewport's
- * render area" — applies here too, and a `.charts-3d-downgrade-note`
- * banner painted INSIDE `Charts3dViewport.tsx`'s own render host violated
- * it (and read as developer-speak: "Braille is wireframe-only in
- * glyphcss"). An explicit override or an old `?c=` link that still hands
- * the live scene an unsupported charset renders the faithful downgrade
- * SILENTLY now (the scene never had a `charMode` to set for it either
- * way) — the reason lives only on the dimmed Charset toggle, never in the
- * viewport.
+ * C3 fix round 2 (user feedback, unchanged by this widening): what to tell
+ * the reader about a charset the 3D view can't show (`blocks` alone, per
+ * `glyphChart3dCharsetDegrades`) lives on the Dock's own dimmed Charset
+ * toggle (`ChartsDock.tsx`'s `chartsCharsetToggle`), never a note painted
+ * inside the viewport (AGENTS.md's own "TargetPreview" rule).
  */
-export function chartsWorkbench3dSceneOptions(color: GlyphChartColorMode): Charts3dSceneOptions {
-  return { useColors: color !== "none" };
+export function chartsWorkbench3dSceneOptions(charset: GlyphChartCharset, color: GlyphChartColorMode, style: Charts3dStyleOption): Charts3dSceneOptions {
+  const resolvedStyle = resolveCharts3dStyle(charset, style);
+  return {
+    useColors: color !== "none",
+    mode: resolvedStyle,
+    charMode: resolvedStyle === "wireframe" && charset === "braille" ? "braille" : undefined,
+    hiddenLines: resolvedStyle === "wireframe" ? "hide" : undefined,
+  };
 }
 
 // ── The mark card's "Surface" type fit ──────────────────────────────────

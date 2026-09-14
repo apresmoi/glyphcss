@@ -10,6 +10,9 @@ import type { Charts3dViewportHandle } from "./Charts3dViewport";
 import { RangeCategorySelect, RangeSlider, RangeUnavailable, rangeSliderStep } from "../InstrumentWorkbench/RangeSlider";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
+import { Instrument3DEffectsFolder, type Instrument3DEffectTarget } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
+import { CHARTS_3D_EFFECT_SURFACE_TARGET } from "./Charts3dViewport";
+import type { Charts3dGuideOptions } from "./chartsWorkbench3d";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_REGION_FILLS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
@@ -308,7 +311,43 @@ const CHARTS_3D_SHADING_TOGGLE = [
   { value: "relief", icon: <span className="gx-toggle-text">relief</span>, label: "Relief", desc: "Glyph shape reads slope; colour reads the z band." },
   { value: "value", icon: <span className="gx-toggle-text">value</span>, label: "Value", desc: "Glyph density reads the z band directly — legible with colour off." },
 ];
+// Packet C4 (codex review addition) — mirrors `renderGlyphChart3d`'s own
+// `style` option exactly (`resolveCharts3dStyle`'s own doc): "auto"
+// resolves braille to a real wireframe and every other charset to solid;
+// an explicit choice always wins, on both the live viewport and Copy.
+const CHARTS_3D_STYLE_TOGGLE = [
+  { value: "auto", icon: <span className="gx-toggle-text">auto</span>, label: "Auto", desc: "Follows charset — braille renders as a real wireframe, everything else solid." },
+  { value: "solid", icon: <span className="gx-toggle-text">solid</span>, label: "Solid", desc: "Lambert/value-shaded fill." },
+  { value: "wireframe", icon: <span className="gx-toggle-text">wire</span>, label: "Wireframe", desc: "The surface's own decimated quad grid as depth-tested lines." },
+  { value: "ink", icon: <span className="gx-toggle-text">ink</span>, label: "Ink", desc: "Silhouette + crease outline only." },
+];
 const CHARTS_3D_COLORSCALE_TOGGLE = GLYPH_CHART_3D_COLORSCALE_NAMES.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v.slice(0, 4)}</span>, label: v, desc: `Colorscale: ${v}` }));
+
+// Guide toggles (packet C4, item 1) — one row per `GlyphChart3dGuideOptions`
+// field, read off `packages/charts/src/3d/types.ts` directly: `axisLines`/
+// `ticks`/`tickLabels`/`titles`/`grid` default `true`, `floorGrid`/`walls`/
+// `box` default `false` (`GlyphChart3dGuideOptions`'s own doc comment).
+// `state.chart3d.guides` stores only OVERRIDES (an empty object means every
+// field follows the library's own default), so a row's shown value is
+// `state.chart3d.guides[key] ?? CHARTS_3D_GUIDE_DEFAULTS[key]` — never a
+// value re-derived from the resolved mark, which would need threading a new
+// prop through just to read 8 fields this page already knows statically.
+const CHARTS_3D_GUIDE_DEFAULTS: Record<keyof Charts3dGuideOptions, boolean> = {
+  axisLines: true, ticks: true, tickLabels: true, titles: true, grid: true, floorGrid: false, walls: false, box: false,
+};
+
+// Effects folder (packet C4, item 3) — the shared `Instrument3DEffectsFolder`,
+// reused verbatim (never a second one). The curated effect id set mirrors
+// `/diagrams`' own `DIAGRAMS_3D_EFFECT_IDS` (`DiagramsDock.tsx`) — the same
+// small set that reads well mesh-targeted, resolved against
+// `@glyphcss/effects`' own catalog by `Charts3dViewport.tsx`'s `applyEffect`.
+// Targets: guides render as an OVERLAY on the object (`object.ts`'s
+// `glyphChartObject`, confirmed by direct read — `meshes: [{ name:
+// "surface", ... }]`, `overlays: [axisTriadOverlay(...)]`, no second mesh),
+// so the only non-"whole chart" target is the surface itself — no guides
+// target is offered.
+const CHARTS_3D_EFFECT_IDS = ["none", "scan", "glitch", "ripple"] as const;
+const CHARTS_3D_EFFECT_TARGETS: readonly Instrument3DEffectTarget[] = [{ id: CHARTS_3D_EFFECT_SURFACE_TARGET, label: "Surface" }];
 
 export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef }: {
   state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction>; rendered?: ChartsWorkbenchRender;
@@ -454,8 +493,23 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
   useEffect(() => { if (view) is3d ? view.show() : view.hide(); }, [view, is3d]);
   const orbitModeSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
   const resetCameraSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
+  const styleSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
   const shadingSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorscaleSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
+  // Guide toggles (packet C4, item 1) — plain `useToggle` boolean rows, the
+  // same primitive the Axes folder's own "X grid"/"X tick marks" rows use.
+  // `guideValue`/`setGuide` avoid retyping the `?? CHARTS_3D_GUIDE_DEFAULTS`
+  // fallback and the `set-3d-guides` dispatch 8 times over.
+  const guideValue = (key: keyof Charts3dGuideOptions) => state.chart3d.guides[key] ?? CHARTS_3D_GUIDE_DEFAULTS[key];
+  const setGuide = (key: keyof Charts3dGuideOptions) => (value: boolean) => dispatch({ type: "set-3d-guides", patch: { [key]: value } });
+  useToggle(view, "Axis lines", guideValue("axisLines"), setGuide("axisLines"));
+  useToggle(view, "Ticks", guideValue("ticks"), setGuide("ticks"));
+  useToggle(view, "Tick labels", guideValue("tickLabels"), setGuide("tickLabels"));
+  useToggle(view, "Axis titles", guideValue("titles"), setGuide("titles"));
+  useToggle(view, "Wall grid", guideValue("grid"), setGuide("grid"));
+  useToggle(view, "Floor grid", guideValue("floorGrid"), setGuide("floorGrid"));
+  useToggle(view, "Wall outline", guideValue("walls"), setGuide("walls"));
+  useToggle(view, "Box outline", guideValue("box"), setGuide("box"));
 
   const terminal = useFolder(gui, "Terminal", { open: true });
   useToggle(terminal, "NO_COLOR", state.terminal.NO_COLOR, (value) => dispatch({ type: "set-terminal", flag: "NO_COLOR", value }));
@@ -463,6 +517,12 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
   useEffect(() => { if (terminal) controls.target === "terminal" ? terminal.show() : terminal.hide(); }, [terminal, controls.target]);
 
   return <>
+    <Instrument3DEffectsFolder
+      gui={gui} effectIds={CHARTS_3D_EFFECT_IDS} targets={CHARTS_3D_EFFECT_TARGETS} allTargetsLabel="Whole chart"
+      state={{ effectId: state.effect3d.effectId, targetId: state.effect3d.targetId }}
+      onChange={(patch) => dispatch({ type: "set-effect3d", patch })}
+      visible={is3d}
+    />
     {targetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Target</span>
@@ -574,6 +634,14 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
         <button type="button" className="gx-toggle-btn gx-toggle-text charts-3d-reset-camera" title="Reset the camera to the default framing" onClick={() => chart3dViewportHandleRef?.current?.resetCamera()}>Reset</button>
       </div>,
       resetCameraSlot,
+    )}
+    {styleSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Style</span>
+        <IconToggle groupTitle="Render style" options={CHARTS_3D_STYLE_TOGGLE} value={state.chart3d.style}
+          onChange={(value) => dispatch({ type: "set-3d-view", patch: { style: value as ChartsWorkbenchState["chart3d"]["style"] } })} />
+      </div>,
+      styleSlot,
     )}
     {shadingSlot && createPortal(
       <div className="dock-toggle-row">

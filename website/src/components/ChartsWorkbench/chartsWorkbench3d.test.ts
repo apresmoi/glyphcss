@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "@glyphcss/charts/3d";
 import { CHART_CHARSETS, CHART_COLORS } from "./chartsWorkbenchState";
 import {
-  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
-  createCharts3dViewState, resolveCharts3dView,
+  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, charts3dObjectCharset, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
+  createCharts3dViewState, resolveCharts3dStyle, resolveCharts3dView,
 } from "./chartsWorkbench3d";
 import { CHARTS_3D_DATASETS, findCharts3dDataset } from "./datasets/chart3d";
 import type { ChartsWorkbenchDataState, ChartsWorkbenchMark } from "./chartsWorkbenchState";
@@ -100,10 +100,108 @@ describe("chartsSurfaceFitFromRows — the mark card's Surface option", () => {
   });
 });
 
-describe("chartsWorkbench3dSceneOptions — the live viewport honours colour", () => {
-  it("useColors follows color === \"none\" exactly", () => {
-    for (const color of CHART_COLORS) {
-      expect(chartsWorkbench3dSceneOptions(color).useColors, color).toBe(color !== "none");
+describe("chartsWorkbench3dSceneOptions — the live viewport honours colour, charset and style (packet C4)", () => {
+  it("useColors follows color === \"none\" exactly, independent of charset/style", () => {
+    for (const charset of CHART_CHARSETS) {
+      for (const color of CHART_COLORS) {
+        expect(chartsWorkbench3dSceneOptions(charset, color, "auto").useColors, `${charset}/${color}`).toBe(color !== "none");
+      }
+    }
+  });
+
+  // Mirrors `render.ts`'s own `resolveGlyphChart3dStyle` exactly — the
+  // premise `chartsWorkbench3dSceneOptions` itself resolves `mode` from.
+  // Mutation: hardcode `resolveCharts3dStyle` to always return `"solid"`
+  // (the live bug this packet fixed) → the `braille`/`"auto"` case below
+  // reddens.
+  it("resolveCharts3dStyle: auto resolves braille to wireframe, every other charset to solid; an explicit style always wins", () => {
+    for (const charset of CHART_CHARSETS) {
+      expect(resolveCharts3dStyle(charset, "auto"), charset).toBe(charset === "braille" ? "wireframe" : "solid");
+    }
+    for (const style of ["solid", "wireframe", "ink"] as const) {
+      for (const charset of CHART_CHARSETS) {
+        expect(resolveCharts3dStyle(charset, style), `${charset}/${style}`).toBe(style);
+      }
+    }
+  });
+
+  // The exact `mode`/`charMode`/`hiddenLines` bundle the live scene mounts
+  // with — every combination, matching `render.ts`'s own `renderObjectFrame`
+  // assembly line for line. Mutation: drop the `charMode`/`hiddenLines`
+  // wiring from `chartsWorkbench3dSceneOptions` (the live bug this packet
+  // fixed: the viewport hard-coded `mode: "solid"` and never read
+  // charset/style) → every wireframe-resolving case below reddens.
+  it("resolves mode/charMode/hiddenLines for every charset x style combination, matching render.ts's own assembly", () => {
+    const styles = ["auto", "solid", "wireframe", "ink"] as const;
+    for (const charset of CHART_CHARSETS) {
+      for (const style of styles) {
+        const resolved = resolveCharts3dStyle(charset, style);
+        const opts = chartsWorkbench3dSceneOptions(charset, "css", style);
+        expect(opts.mode, `${charset}/${style}`).toBe(resolved);
+        expect(opts.charMode, `${charset}/${style}`).toBe(resolved === "wireframe" && charset === "braille" ? "braille" : undefined);
+        expect(opts.hiddenLines, `${charset}/${style}`).toBe(resolved === "wireframe" ? "hide" : undefined);
+      }
+    }
+  });
+});
+
+// Ground-truth check — never trust the page-local mirror against itself:
+// for every charset x style combination, the LIVE viewport's own resolved
+// `mode` (`chartsWorkbench3dSceneOptions`) must equal the REAL library's
+// own resolved style, read off `renderGlyphChart3d`'s own `resolved.style`
+// (never re-derived — the exact field the static exit reports). This is
+// the coordinator's own explicit gate: "live and Copy agree on the mode
+// for every charset/style combination." Mutation: hardcode
+// `resolveCharts3dStyle` to always return `"solid"` → the `braille`/
+// `"auto"` cell reddens (the real library resolves `"wireframe"` there,
+// the page mirror would claim `"solid"`).
+describe("live/Copy agreement — chartsWorkbench3dSceneOptions.mode vs. the REAL renderGlyphChart3d's own resolved.style", () => {
+  it("agrees for every charset x style combination", async () => {
+    const { renderGlyphChart3d } = await import("@glyphcss/charts/3d");
+    const resolved = resolveCharts3dView(createCharts3dViewState());
+    expect(resolved.ok).toBe(true);
+    if (!resolved.ok) return;
+    const styles = ["auto", "solid", "wireframe", "ink"] as const;
+    for (const charset of CHART_CHARSETS) {
+      for (const style of styles) {
+        const live = chartsWorkbench3dSceneOptions(charset, "css", style).mode;
+        const out = renderGlyphChart3d(resolved.resolved.mark, {
+          target: "web", charset, color: "css", width: 40, height: 20,
+          ...(style !== "auto" ? { style } : {}),
+        });
+        expect(live, `${charset}/${style}`).toBe(out.resolved.style);
+      }
+    }
+  });
+});
+
+// The STATIC exit's own forwarding: `state.chart3d.style` must actually
+// reach `renderGlyphChart3d`'s `options.style`, not just round-trip
+// through `?c=` (which `chartsUrlState.test.ts`'s own round-trip test
+// already pins, but proves nothing about whether the RENDER reads it).
+// Mutation: drop the `...(input.view.style !== "auto" ? { style:
+// input.view.style } : {})` spread from `chartsWorkbench3dRender.ts`'s
+// `renderCharts3dStatic` → this reddens (an explicit `"wireframe"` on the
+// `ascii` charset, which `"auto"` would resolve to `"solid"`, renders
+// byte-identical to leaving `style` at its default).
+describe("renderCharts3dStatic — the Style control actually reaches renderGlyphChart3d (packet C4, codex review)", () => {
+  it("an explicit wireframe style on a charset auto would resolve to solid changes the rendered text", async () => {
+    const { renderCharts3dStatic } = await import("./chartsWorkbench3dRender");
+    const baseView = { ...createCharts3dViewState() };
+    expect(resolveCharts3dStyle("ascii", "auto")).toBe("solid"); // the premise this test exercises
+    const solidOut = renderCharts3dStatic({ view: { ...baseView, style: "auto" }, target: "web", charset: "ascii", color: "css", width: 60, height: 24 });
+    const wireOut = renderCharts3dStatic({ view: { ...baseView, style: "wireframe" }, target: "web", charset: "ascii", color: "css", width: 60, height: 24 });
+    expect(solidOut.ok).toBe(true);
+    expect(wireOut.ok).toBe(true);
+    if (!solidOut.ok || !wireOut.ok) return;
+    expect(wireOut.text).not.toBe(solidOut.text);
+  });
+});
+
+describe("charts3dObjectCharset — mirrors render.ts's own chromeTier", () => {
+  it("blocks degrades to ascii; every other charset is unchanged", () => {
+    for (const charset of CHART_CHARSETS) {
+      expect(charts3dObjectCharset(charset), charset).toBe(charset === "blocks" ? "ascii" : charset);
     }
   });
 });

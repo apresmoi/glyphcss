@@ -28,27 +28,29 @@ export function renderCharts3dStatic(input: Charts3dRenderInput): Charts3dRender
   const { mark, title, description } = resolved.resolved;
   try {
     const cam = input.view.camera;
-    // KNOWN LIBRARY GAP (coordination note from the C2 fix round):
-    // `renderGlyphChart3d`'s own `camera` option type is `{ rotX?, rotY?,
-    // zoom? }` — it does not accept `{ mat }` yet, unlike
-    // `renderGlyphDiagram3d`'s own camera option, which already does. Under
-    // a TRACKBALL orbit (`cam.useMat`/`cam.mat` set — see
-    // `Charts3dCamera.mat`'s own doc) this branch still THREADS `mat`/
-    // `useMat` through rather than silently decomposing to `rotX`/`rotY`
-    // (which would lose roll and render a WRONG pose) or hiding the
-    // trackball case entirely — it is inert today (the library ignores the
-    // extra fields and falls back to whatever stale `rotX`/`rotY` the mark
-    // carries) and starts working the moment `GlyphChart3dCameraOptions`
-    // gains `mat`. TODO(library): accept `{ mat, useMat }` in
-    // `GlyphChart3dCameraOptions`, mirroring `renderGlyphDiagram3d`.
+    // Packet C4, item 2: `renderGlyphChart3d`'s own `camera` option now
+    // accepts `{ mat, zoom, center }` (mirroring `renderGlyphDiagram3d`
+    // exactly, `render.ts`'s own doc) — this thread `mat`/`useMat` straight
+    // through under a trackball orbit, reproducing that exact pose.
+    // `rotX`/`rotY` must NEVER accompany `mat` — `render.ts`'s own
+    // validation rejects both together with `bad-camera` ("pass either mat
+    // (trackball) or rotX/rotY (Euler), not both"), so the Euler fields
+    // (the last TURNTABLE pose before a mode switch, `Charts3dCamera.mat`'s
+    // own doc) are dropped entirely on this branch — they were never what a
+    // trackball orientation renders from anyway.
     const cameraOption = cam.useMat && cam.mat
-      ? { rotX: cam.rotX, rotY: cam.rotY, zoom: cam.zoom, mat: [...cam.mat], useMat: true }
+      ? { mat: [...cam.mat], useMat: true, zoom: cam.zoom }
       : { rotX: cam.rotX, rotY: cam.rotY, zoom: cam.zoom };
     const out = renderGlyphChart3d(mark, {
       target: input.target, charset: input.charset, color: input.color,
       width: input.width, height: input.height, env: input.env,
       ...(input.showTitle ? { title } : {}),
       camera: cameraOption,
+      // Packet C4 (codex review addition) — `"auto"` omits `options.style`
+      // entirely, letting `renderGlyphChart3d`'s own `resolveGlyphChart3dStyle`
+      // apply (the SAME resolution `resolveCharts3dStyle` mirrors for the
+      // live viewport), never a page-side re-derivation on this exit.
+      ...(input.view.style !== "auto" ? { style: input.view.style } : {}),
     });
     return { ok: true, text: out.text, html: out.html, title, description };
   } catch (e) {

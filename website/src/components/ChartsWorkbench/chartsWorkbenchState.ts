@@ -20,13 +20,20 @@ import {
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { chartsBestFit, chartsBuildBoundMark, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsRebindMark, chartsRememberRemoteRows } from "./chartsMarkTypeFit";
 import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
-import { CHARTS_3D_DEFAULT_CAMERA, chartsSurfaceFitFromRows, createCharts3dViewState, type Charts3dCamera, type Charts3dViewState } from "./chartsWorkbench3d";
+import { CHARTS_3D_DEFAULT_CAMERA, chartsSurfaceFitFromRows, createCharts3dViewState, type Charts3dCamera, type Charts3dGuideOptions, type Charts3dViewState } from "./chartsWorkbench3d";
 import { findCharts3dDataset } from "./datasets/chart3d";
+import {
+  INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE, type Instrument3DEffectsState,
+} from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 
-export type { Charts3dCamera, Charts3dOrbitMode, Charts3dSceneOptions, Charts3dShading, Charts3dSource, Charts3dSurfaceFit, Charts3dViewState } from "./chartsWorkbench3d";
+export type {
+  Charts3dCamera, Charts3dGuideOptions, Charts3dOrbitMode, Charts3dSceneOptions, Charts3dShading, Charts3dSource,
+  Charts3dStyleOption, Charts3dSurfaceFit, Charts3dViewState,
+} from "./chartsWorkbench3d";
+export type { Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 export {
-  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
-  createCharts3dViewState, resolveCharts3dView, resolveCharts3dViewForLiveScene,
+  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, charts3dObjectCharset, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
+  createCharts3dViewState, resolveCharts3dStyle, resolveCharts3dView, resolveCharts3dViewForLiveScene,
 } from "./chartsWorkbench3d";
 export { CHARTS_3D_DATASETS, findCharts3dDataset } from "./datasets/chart3d";
 export type { Chart3dDataset } from "./datasets/chart3d";
@@ -311,6 +318,13 @@ export interface ChartsWorkbenchState {
   // never reads it.
   readonly dimension: "2d" | "3d";
   readonly chart3d: Charts3dViewState;
+  // Packet C4, item 3 — the shared `Instrument3DEffectsFolder`'s own state
+  // shape, mirroring `/diagrams`' own top-level `effect3d` field exactly
+  // (never nested inside `chart3d`: an effect is a PREVIEW-ONLY live-scene
+  // concern, not part of what `resolveCharts3dView` builds a mark from).
+  // Always populated (a fresh default, never `undefined`) so switching INTO
+  // 3D needs no null check, same as `chart3d` itself.
+  readonly effect3d: Instrument3DEffectsState;
 }
 export type ChartsWorkbenchAction =
   | { type: "add-mark"; markType?: GlyphChartMarkType }
@@ -373,7 +387,13 @@ export type ChartsWorkbenchAction =
   | { type: "select-3d-table" }
   | { type: "set-3d-dimension"; dimension: "2d" | "3d" }
   | { type: "set-3d-camera"; camera: Charts3dCamera }
-  | { type: "set-3d-view"; patch: Partial<Pick<Charts3dViewState, "orbitMode" | "shading" | "colorscale">> };
+  | { type: "set-3d-view"; patch: Partial<Pick<Charts3dViewState, "orbitMode" | "shading" | "colorscale" | "style">> }
+  // Packet C4, item 1 — the View folder's guide toggles; merges into the
+  // EXISTING `chart3d.guides` object, so a single toggle patches one field
+  // without disturbing the rest (mirroring `set-axis`'s own merge shape).
+  | { type: "set-3d-guides"; patch: Partial<Charts3dGuideOptions> }
+  // Packet C4, item 3 — the shared Effects folder's own patch shape.
+  | { type: "set-effect3d"; patch: Partial<Instrument3DEffectsState> };
 
 function editableMark(mark: GlyphChartMark, id: number): ChartsWorkbenchMark {
   const numeric = mark.data.every((v) => typeof v === "number");
@@ -391,6 +411,10 @@ const autoScale = (): ChartsWorkbenchScale => ({ type: "auto", min: "", max: "" 
 const autoAxis = (): ChartsWorkbenchAxis => ({ ticks: 0, tickMarks: true, title: "", grid: false });
 const defaultAxisColor = (): ChartsWorkbenchAxisColorState => ({ mode: "shared", shared: CHARTS_AXIS_DEFAULT_COLOR, x: CHARTS_AXIS_DEFAULT_COLOR, y: CHARTS_AXIS_DEFAULT_COLOR });
 const defaultAxisTitlePlacement = (): ChartsWorkbenchAxisTitlePlacementState => ({ x: "center", y: "top" });
+/** Read straight off `InstrumentWorkbench/Instrument3DEffectsFolder`'s own
+ *  constants (never a page-side `"none"`/`"all"` copy), mirroring
+ *  `GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D`'s exact shape. */
+export const CHARTS_WORKBENCH_DEFAULT_EFFECT3D: Instrument3DEffectsState = { effectId: INSTRUMENT_3D_EFFECT_NONE, targetId: INSTRUMENT_3D_EFFECT_ALL_TARGET };
 export function createChartsWorkbenchState(): ChartsWorkbenchState {
   const preset = CHART_PRESETS[0]!;
   return {
@@ -402,6 +426,7 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     style: { axisColor: defaultAxisColor(), axisTitlePlacement: defaultAxisTitlePlacement() },
     dimension: "2d",
     chart3d: createCharts3dViewState(),
+    effect3d: CHARTS_WORKBENCH_DEFAULT_EFFECT3D,
   };
 }
 function isDefaultAxisColor(axisColor: ChartsWorkbenchAxisColorState): boolean {
@@ -623,6 +648,8 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "set-3d-dimension": return action.dimension === state.dimension ? state : { ...state, dimension: action.dimension };
     case "set-3d-camera": return { ...state, chart3d: { ...state.chart3d, camera: action.camera } };
     case "set-3d-view": return { ...state, chart3d: { ...state.chart3d, ...action.patch } };
+    case "set-3d-guides": return { ...state, chart3d: { ...state.chart3d, guides: { ...state.chart3d.guides, ...action.patch } } };
+    case "set-effect3d": return { ...state, effect3d: { ...state.effect3d, ...action.patch } };
   }
 }
 

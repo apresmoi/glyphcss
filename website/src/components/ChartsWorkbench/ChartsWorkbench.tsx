@@ -162,17 +162,22 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // identity is what used to trigger its full scene remount on every drag).
   const chart3dResolved = useMemo(
     () => resolveCharts3dView(state.chart3d),
-    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale],
+    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, state.chart3d.guides],
   );
-  // Colour, honoured LIVE (not only in the static exit) — `color: "none"`
-  // maps straight to `useColors: false`. Charset never reaches the live
-  // scene at all (3D has no live halfblock path — `chartsWorkbench3dSceneOptions`'s
-  // own doc); what to tell the reader about an unsupported charset lives on
-  // the Dock's own Charset toggle (`ChartsDock.tsx`'s `chartsCharsetToggle`,
-  // C3 fix round 2 — never a note painted inside this viewport).
+  // Colour, charset AND style, all honoured LIVE (not only in the static
+  // exit) — `color: "none"` maps straight to `useColors: false`, and
+  // (packet C4, codex review) charset x style now resolve to the scene's
+  // own `mode`/`charMode`/`hiddenLines` too, mirroring what
+  // `renderGlyphChart3d` resolves for Copy/terminal — a braille selection
+  // used to render solid geometry live while Copy showed a real wireframe
+  // for the identical state. `chartsWorkbench3dSceneOptions`'s own doc has
+  // the full "why a page-local mirror" rationale. What to tell the reader
+  // about an unsupported charset (`blocks` alone) still lives on the
+  // Dock's own Charset toggle (`ChartsDock.tsx`'s `chartsCharsetToggle`, C3
+  // fix round 2 — never a note painted inside this viewport).
   const chart3dSceneOptions = useMemo(
-    () => chartsWorkbench3dSceneOptions(resolvedControls.color),
-    [resolvedControls.color],
+    () => chartsWorkbench3dSceneOptions(resolvedControls.charset, resolvedControls.color, state.chart3d.style),
+    [resolvedControls.charset, resolvedControls.color, state.chart3d.style],
   );
   // The LIVE viewport's OWN resolve — `shading: "auto"` reads the LIVE
   // scene's `useColors` (`resolveCharts3dViewForLiveScene`'s own doc: a
@@ -187,7 +192,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // it) to actually keep the scene from rebuilding on every drag release.
   const chart3dResolvedLive = useMemo(
     () => resolveCharts3dViewForLiveScene(state.chart3d, chart3dSceneOptions.useColors),
-    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, chart3dSceneOptions.useColors],
+    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, state.chart3d.guides, chart3dSceneOptions.useColors],
   );
   const chart3dViewportRef = useRef<HTMLDivElement | null>(null);
   const chart3dViewportHandleRef = useRef<Charts3dViewportHandle | null>(null);
@@ -659,7 +664,9 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
               // reads the LIVE scene's `useColors`, see that memo's doc.
               chart3dResolvedLive.ok
                 ? <Charts3dViewport mark={chart3dResolvedLive.resolved.mark} camera={state.chart3d.camera} orbitMode={state.chart3d.orbitMode}
-                    sceneOptions={chart3dSceneOptions} onCameraChange={(camera) => dispatch({ type: "set-3d-camera", camera })}
+                    charset={resolvedControls.charset} sceneOptions={chart3dSceneOptions}
+                    effectId={state.effect3d.effectId} effectTargetId={state.effect3d.targetId}
+                    onCameraChange={(camera) => dispatch({ type: "set-3d-camera", camera })}
                     viewportRef={chart3dViewportRef} handleRef={chart3dViewportHandleRef} />
                 : <div className="charts-3d-viewport charts-3d-error">{chart3dResolvedLive.error}</div>
             ) : (

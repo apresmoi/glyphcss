@@ -6351,3 +6351,288 @@ test files (28 tests) all pass. `pnpm build:packages` is clean.
   `stampGlyphOverlayLine`/`stampGlyphOverlayCell` primitives, gated
   directly by `object.test.ts`'s existing "guide lines are depth-tested
   against the surface" test) and needed no change.
+
+## C4 — guide toggles, exact trackball Copy, and the Effects folder
+
+Three independent additions, none touching `packages/*/src` (this
+worktree's own scope boundary while C2 round 5 was concurrently editing
+`packages/charts/src/3d` elsewhere) — all three land entirely inside
+`website/src/components/ChartsWorkbench/`.
+
+### Item 1 — guide toggles in the View folder
+
+One `useToggle` boolean row per `GlyphChart3dGuideOptions` field, read off
+`packages/charts/src/3d/types.ts` directly rather than invented:
+`axisLines`, `ticks`, `tickLabels`, `titles`, `grid`, `floorGrid`, `walls`,
+`box`. `Charts3dViewState.guides` stores only OVERRIDES (`{}` default,
+every field then follows the library's own default) rather than a fully
+materialised 8-boolean record — the same "only what a reader actually
+touched" discipline `chart3d.camera`'s own `zoom?: undefined` already
+follows. `ChartsDock.tsx` shows each row's current value as
+`state.chart3d.guides[key] ?? CHARTS_3D_GUIDE_DEFAULTS[key]`, a page-local
+default table matching `types.ts`'s own documented per-field defaults
+(`axisLines`/`ticks`/`tickLabels`/`titles`/`grid` true, `floorGrid`/
+`walls`/`box` false) — a static table rather than reading the resolved
+mark's own `guides` field back, since the eight defaults are fixed public
+contract, not something that changes per render.
+
+**Live update, no remount.** `resolveCharts3dView` threads `guides:
+view.guides` straight into both `glyphChartSurface` calls (dataset and
+inline sources alike), so a guides edit produces a fresh
+`GlyphChart3dSurfaceMark` exactly like a shading/colorscale edit already
+did (C3 fix round 1's own P1-2 fix). `ChartsWorkbench.tsx`'s
+`chart3dResolved`/`chart3dResolvedLive` memos gained `state.chart3d.guides`
+in their (deliberately narrowed) dependency arrays, and
+`Charts3dViewport.tsx`'s existing mark-update effect — already keyed on
+`[mark]`, already calling `handle.update(object)` — needed no new code at
+all to pick this up; only its effect-disposal/reapply addition (Item 3,
+below) touches that effect body. Camera and orbit controls survive
+untouched, the same guarantee C3 fix round 1 proved for every other
+mark-affecting edit.
+
+**URL state.** `guides` rides in `?c=` as one more append-only optional
+`chart3d` field; an old link (no `guides` key at all) decodes to `{}`
+(every guide follows the library default), byte-identical to the pre-C4
+shape. A malformed individual field (wrong type) is dropped for that field
+alone — mirroring `validateCharts3dCameraMat`'s own "a bad field degrades
+to absent, never rejects the whole payload" rule — never failing the
+whole `chart3d` payload the way a bad `camera` does.
+
+### Item 2 — trackball Copy is exact (and a real, pre-existing bug found in the process)
+
+`renderGlyphChart3d`'s camera option now accepts `{ mat, zoom, center }`
+(the C2 round in flight closed the earlier library gap
+`chartsWorkbench3dRender.ts` carried a `TODO` for) — this packet's own
+first step was deleting that comment and confirming the pass-through
+already worked. It didn't: `chartsWorkbench3dRender.ts`'s `cameraOption`
+construction was
+
+```ts
+const cameraOption = cam.useMat && cam.mat
+  ? { rotX: cam.rotX, rotY: cam.rotY, zoom: cam.zoom, mat: [...cam.mat], useMat: true }
+  : { rotX: cam.rotX, rotY: cam.rotY, zoom: cam.zoom };
+```
+
+— always including `rotX`/`rotY` even on the `mat` branch. `render.ts`'s
+own validation rejects that combination outright:
+`cameraOption.mat !== undefined && (cameraOption.rotX !== undefined ||
+cameraOption.rotY !== undefined)` throws `bad-camera` ("pass either mat
+(trackball) or rotX/rotY (Euler), not both") — mirroring
+`renderGlyphDiagram3d`'s own camera contract exactly, per this file's own
+C3 doc. So **every Copy ASCII/ANSI, terminal, and chat render under a live
+trackball orbit was silently broken** — `renderCharts3dStatic` catches the
+thrown error and returns `{ ok: false, error }`, which the page reads as
+"Copy is unavailable" (the button disables) rather than a visible crash,
+which is exactly why no earlier round's own manual testing caught it: the
+failure mode is a disabled button, not a stack trace on screen. Found by
+this packet's own new "trackball Copy is exact" test (below), which is
+the first test in the whole 3D suite to actually take Copy ASCII *after* a
+real trackball drag rather than only checking the round-tripped camera
+*state* (C3 fix round 1's own "commits camera.mat/useMat" test stops at
+the `?c=` link, never calls Copy).
+
+**The fix** drops `rotX`/`rotY` entirely on the `mat` branch — they were
+never what a trackball orientation renders from anyway
+(`Charts3dCamera.mat`'s own doc: they ride along only as the last
+TURNTABLE pose before a mode switch):
+
+```ts
+const cameraOption = cam.useMat && cam.mat
+  ? { mat: [...cam.mat], useMat: true, zoom: cam.zoom }
+  : { rotX: cam.rotX, rotY: cam.rotY, zoom: cam.zoom };
+```
+
+**`center` is deliberately never threaded.** The live viewport's own
+camera `target` is ALWAYS the mark's own bounds centre —
+`Charts3dViewport.tsx` never exposes a pan control, so `cam.target` is set
+once, at mount, to `objectBoundsCenter(object.bounds)` (or an equivalent
+fit target that resolves to the same point), and nothing in the orbit
+controls or the Dock ever moves it. `render.ts`'s own default when
+`camera.center` is omitted is `[0.5, 0.5]` (identity, no offset) —
+`center = cameraOption.center ?? [0.5, 0.5]`. Since the live viewport's
+camera is always centred with no offset of its own, omitting `center`
+already reproduces the identical frame; threading a `center` field that
+can only ever be identity here would be dead code with no test able to
+distinguish it from omission.
+
+**Verified as a genuine mutation, not merely reasoned about**: reverting
+the fix (re-adding `rotX`/`rotY` to the `mat` branch) was applied directly
+to the file, the new "trackball Copy is exact" test was run and confirmed
+red (`AssertionError: expected undefined to be defined` — the Copy button
+never fires because it silently disabled), then reverted back to the fix
+and confirmed green again.
+
+### Item 3 — the Effects folder
+
+Reuses `InstrumentWorkbench/Instrument3DEffectsFolder` verbatim (no second
+folder built). `allTargetsLabel: "Whole chart"`; the target list is
+exactly one entry, `{ id: "surface", label: "Surface" }` —
+`glyphChartObject`'s own return shape (`object.ts`, confirmed by direct
+read) is a single `"surface"` mesh plus overlay-only axis/tick/grid guides
+(`overlays: [axisTriadOverlay(...)]`, no second mesh), so there is no
+guides target to offer; this is stated as fact, not inferred from the
+target list's own emptiness.
+
+**Wiring mirrors `Diagrams3DViewport.tsx`'s own `applyEffect` exactly**,
+including its fixes: `resolveEffectTarget` maps `INSTRUMENT_3D_EFFECT_ALL_TARGET`
+to `undefined` (scene-wide) and `"surface"` to
+`objectHandleRef.current?.meshes.get("surface") ?? null`, where `null`
+(never glyphcss's own rejected empty-array spelling) means "mount
+nothing" for a stale target; `applyEffect` always fully disposes and
+remounts on a genuine retarget (a different effect id OR target) rather
+than calling `layer.setOptions({ target })`, since glyphcss's own
+mesh-set effect target is immutable after mount; the mark-rebuild effect
+(Item 1's own `handle.update()` call) now also disposes and reapplies the
+effect afterward, since `update()` disposes and re-adds every member mesh,
+invalidating any currently-targeted `GlyphMeshHandle`.
+
+**Preview-only, proven, not assumed.** Copy ASCII/ANSI and the static
+`renderCharts3dStatic` exit build a fresh `renderGlyphChart3d` call with
+no effect-layer concept — there is nothing for a mounted live-scene effect
+to reach there. A dedicated test mounts an effect (`"scan"` targeting
+`"surface"`), takes Copy ASCII, changes nothing else, and asserts the
+text is byte-identical to Copy ASCII taken before the effect was mounted.
+
+**"Surface" vs "Whole chart" — measured, not assumed.** A new
+library-level test (`charts3dEffectTargeting.test.ts`, mirroring
+`diagrams3dEffectTargeting.test.ts`'s own `CellGrid.winnerMesh`-exact
+ownership check) mounts `"glitch"` targeted at `"surface"` and asserts
+every changed cell's baseline owner is the surface mesh, and every cell
+NOT owned by the surface mesh (an axis line, tick label, grid line, or
+blank background) stays byte-identical — glyph AND colour — to the
+no-effect baseline. A second measurement (not merely reasoned about)
+found that targeting `"Whole chart"` (`target: undefined`, scene-wide)
+paints the IDENTICAL cells "Surface" does for this object: the effect
+compositor's own coverage is the scene's finite-depth rule
+(`ctx.coverage`/`ctx.hasDepth`, this file's own "DOM-free compositor"
+paragraph), and the axis-triad overlay's stamped lines/ticks/labels carry
+no depth of their own (a canvas-level cell stamp, not rasterized mesh
+geometry) — so with only one real, depth-producing mesh in the object, a
+scene-wide effect has nothing else to paint. This is a property of THIS
+object shape, not a general claim; a future object with a second
+depth-producing mesh would need this re-measured.
+
+**URL state.** `state.effect3d: Instrument3DEffectsState` rides in `?c=`
+as an append-only top-level field (never nested inside `chart3d` — an
+effect is a preview-only live-scene concern, not part of what
+`resolveCharts3dView` builds a mark from), mirroring `/diagrams`' own
+`effect3d` field and `validateEffect3d` shape exactly: `effectId`/
+`targetId` are free-form non-empty strings, a stale value degrades to
+"matches no mesh" at mount rather than a decode rejection, and a
+malformed payload degrades to the whole default (`{ effectId: "none",
+targetId: "all" }`) rather than failing the envelope.
+
+### Item 4 — codex review: the live viewport ignored charset/style entirely
+
+A codex review (relayed by the coordinator, after items 1-3 above already
+landed) found `Charts3dViewport.tsx`'s mount effect hard-coding `mode:
+"solid"` on its `createGlyphScene` call, with neither charset nor style
+ever reaching the scene at all — only colour did (`scene.setOptions({
+useColors })`). Since `web`'s own default charset is `braille`
+(`GLYPH_CHART_TARGET_DEFAULTS`), **the live viewport rendered solid
+geometry by default for every fresh `/charts` 3D visit**, while Copy ASCII
+and the terminal/chat static frame — both routed through
+`renderGlyphChart3d`'s own `resolveGlyphChart3dStyle` — resolved the
+IDENTICAL state to a real depth-tested wireframe. `style: "ink"` was
+unreachable live at all, with no control to request it.
+
+**The fix mirrors the SAME library resolution the static exit uses**,
+since no public resolver exists for it (below). `chartsWorkbench3d.ts`
+gained:
+
+```ts
+export type Charts3dStyleOption = "auto" | GlyphChart3dStyle;
+
+export function resolveCharts3dStyle(charset: GlyphChartCharset, styleOption: Charts3dStyleOption): GlyphChart3dStyle {
+  if (styleOption !== "auto") return styleOption;
+  return charset === "braille" ? "wireframe" : "solid";
+}
+
+export function charts3dObjectCharset(charset: GlyphChartCharset): GlyphChartCharset {
+  return charset === "blocks" ? "ascii" : charset;
+}
+```
+
+— verbatim mirrors of `render.ts`'s own private `resolveGlyphChart3dStyle`/
+`chromeTier`, verified line for line against the source, not re-derived
+from the doc comments alone. `Charts3dSceneOptions` grew `mode`/`charMode`/
+`hiddenLines` alongside `useColors`, and `chartsWorkbench3dSceneOptions`
+(now `(charset, color, style)`, a signature change from C3's own
+`(color)`) assembles the whole bundle in one call, EXPLICITLY setting
+`charMode`/`hiddenLines` to `undefined` outside a wireframe resolution
+(never omitting the keys) so a `scene.setOptions` call always clears a
+stale value from a prior charset/style rather than merging over it.
+
+**Wiring**: the mount effect's `createGlyphScene` call now passes
+`mode`/`charMode`/`hiddenLines` from `sceneOptions` instead of a literal
+`"solid"`, and its initial `glyphChartObject(mark, { charset:
+charts3dObjectCharset(charset) })` call picks the matching grid/tick
+overlay glyph tier (mirroring `chromeTier`, which the mount used to skip
+entirely — every live 3D chart's grid glyphs defaulted to the library's
+own `"box"` tier regardless of charset). The colour-only `setOptions`
+effect became a scene-options effect keyed on `[mode, charMode,
+hiddenLines, useColors]`, applying the whole bundle via `scene.setOptions`
+— no remount. The mark-rebuild effect (item 1's own `[mark]` effect) is
+now keyed on `[mark, charset]` and rebuilds the object with the current
+charset's own tier on EITHER a mark change or a charset change — folded
+into one effect rather than a second `Diagrams3DViewport.tsx`-style
+`[charset]` effect, since both cases need the identical `update()`-then-
+reapply-effect sequence item 3 already built. A new View folder "Style"
+toggle (`auto`/`solid`/`wireframe`/`ink`) writes `state.chart3d.style`,
+threaded into `chartsWorkbench3dRender.ts`'s `renderGlyphChart3d` call as
+`options.style` (omitted at `"auto"`, letting the library's own default
+apply) — the SAME field the live viewport's own resolver reads, so both
+exits are driven from one piece of state.
+
+**Verified against the REAL library, not the page's own mirror.** A
+dedicated test builds the resolved mark once and, for every charset x
+style combination, calls the REAL `renderGlyphChart3d` and compares its
+own reported `resolved.style` against `chartsWorkbench3dSceneOptions(...)
+.mode` — proving the page's mirror agrees with the library's actual
+resolution, not merely that the mirror is internally consistent with
+itself. A mounted-page test enters 3D at the default (`web`/`braille`)
+and asserts BOTH the real `createGlyphScene` call's own options
+(`mode: "wireframe"`, `charMode: "braille"`, `hiddenLines: "hide"`) and
+the rendered picture itself (real braille dot glyphs, U+2800-28FF, which
+only a genuine wireframe render emits).
+
+### Library-export gaps found, named, not fixed
+
+`GlyphChart3dGuideOptions`, `GlyphChart3dResolvedGuides` and
+`GlyphChart3dCornerOption` are declared in `packages/charts/src/3d/types.ts`
+but are NOT in `@glyphcss/charts/3d`'s own `index.ts` export list — only
+`GlyphChart3dSurfaceOptions`, which structurally contains a `guides` field
+referencing the unexported type, is exported. This file's own "Exports"
+paragraph (AGENTS.md's "Charts 3D") already claims `GlyphChart3dGuideOptions`
+is exported ("the validation/type surface (`GlyphChart3dStyle`,
+`GlyphChart3dCornerOption`, `GlyphChart3dGuideOptions` included)") — that
+claim is ahead of the actual code as of this merge. The page works around
+it with a structurally-derived type, `NonNullable<GlyphChart3dSurfaceOptions
+["guides"]>` (`chartsWorkbench3d.ts`'s own `Charts3dGuideOptions`), rather
+than hand-duplicating the eight field names a second time — staying
+entirely inside `website/` per this packet's own scope boundary. Exporting
+the three types by name is a small, additive library change for whichever
+round next touches `packages/charts/src/3d/index.ts`.
+
+`resolveGlyphChart3dStyle` and `chromeTier` (`render.ts`), the second gap
+found (Item 4, above), are private, unexported functions with no public
+resolver a live-scene consumer can call to stay in sync with the static
+exit's own charset/style resolution — `resolveCharts3dStyle`/
+`charts3dObjectCharset` (`chartsWorkbench3d.ts`) are page-local mirrors,
+verified against the real library by direct comparison rather than
+exported and called.
+
+### Mutation table (this round's own additions)
+
+| Item | Gate | Mutation | Result |
+|---|---|---|---|
+| Guides live-update, no remount | `Charts3dViewport.lifecycle.test.tsx`'s "a guides toggle updates the live scene object in place" test | Drop `state.chart3d.guides` from `chart3dResolvedLive`'s memo deps | RED — `objectUpdate` is never called on a guide toggle |
+| Guides `?c=` round trip | `chartsUrlState.test.ts`'s "round-trips guide overrides exactly" / "a malformed individual guide field is dropped" tests | Make `validateCharts3dGuides` always return `{}` | RED — both tests fail (overrides lost; the surviving field also lost) |
+| Trackball Copy exact | `Charts3dViewport.lifecycle.test.tsx`'s "trackball Copy is exact" test | Re-add `rotX`/`rotY` alongside `mat` in `chartsWorkbench3dRender.ts` | RED — `renderGlyphChart3d` throws `bad-camera`, Copy ASCII's button silently disables, `copiedAscii()`'s own assertion fails |
+| Effect target resolution | Same file's "selecting Effect target 'Surface'..." test | `resolveEffectTarget` always returns `undefined` | RED — the "Surface" case's own defined-target assertion fails |
+| Effect layer/rAF disposal | Same file's three disposal tests (effect change, view switch, unmount) | Drop `disposeEffect()` from the relevant cleanup/branch | RED — `effectLayerDispose`/`cancelAnimationFrame` spies stay uncalled |
+| Effects preview-only | Same file's "Copy ASCII stays byte-identical..." test | N/A — `renderGlyphChart3d` has no effect parameter to leak through; gated as a direct regression signal instead | Passes today; would redden if a future edit threaded `state.effect3d` into either Copy memo |
+| Surface targeting is cell-exact | `charts3dEffectTargeting.test.ts`'s own ownership test | Mount the effect with `target: undefined` regardless of the requested target id | Not independently mutation-testable against THIS fixture (see "measured, not assumed" above — the two targets coincide here); the WIRING mutation above is what actually discriminates it |
+| Live mode/charMode/hiddenLines resolved (codex review, item 4) | `Charts3dViewport.lifecycle.test.tsx`'s "entering 3D on the default web target mounts a LIVE braille wireframe" test | Force `chartsWorkbench3dSceneOptions` to always return `mode: "solid"` | RED — both the real `createGlyphScene` call's own options AND the rendered picture (no braille dot glyphs) fail |
+| Live/Copy agreement (codex review, item 4) | `chartsWorkbench3d.test.ts`'s "agrees for every charset x style combination" test, against the REAL `renderGlyphChart3d` | Same mutation | RED at `ascii/wireframe` (and every other explicit-wireframe cell): the page mirror claims `"solid"`, the real library resolves `"wireframe"` |
+| Style control reaches the static exit | `chartsWorkbench3d.test.ts`'s "an explicit wireframe style... changes the rendered text" test | Drop `style` from `chartsWorkbench3dRender.ts`'s `renderGlyphChart3d` options call | RED — an explicit `wireframe` renders byte-identical to `auto` (which resolves `ascii` to `solid`) |
