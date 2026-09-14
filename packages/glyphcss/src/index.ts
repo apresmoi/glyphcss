@@ -270,6 +270,7 @@ export {
   encodeGlyphCanvasHtml,
   nearestAnsiCanvasColor,
 } from "./render/canvas";
+export { glyphCanvasTextureSampler, glyphInkMask, glyphInkDensity } from "./render/canvas";
 export type {
   GlyphCanvas,
   GlyphCanvasOptions,
@@ -282,6 +283,7 @@ export type {
   GlyphCanvasTextOptions,
   GlyphCanvasArrowheadOptions,
   GlyphCanvasDirection,
+  GlyphCanvasSurfaceUvRect,
   GlyphCanvasEdgeOptions,
   GlyphCanvasReport,
   GlyphCanvasFoldedGlyph,
@@ -296,6 +298,8 @@ export type {
   GlyphCanvasAnsiColorMode,
   GlyphCanvasAnsiOptions,
   GlyphCanvasHtmlOptions,
+  GlyphCanvasTextureSamplerOptions,
+  GlyphCanvasTextureSamplerRect,
 } from "./render/canvas";
 
 // ── RasterizeContext ──────────────────────────────────────────────

@@ -45,6 +45,8 @@ export type {
 } from "./labels";
 
 export { renderGlyphChart, buildGlyphChart, encodeGlyphChart, glyphChartRegionFill, GLYPH_CHART_TARGET_DEFAULTS } from "./render";
+export { glyphChartTextureSampler } from "./bridge";
+export type { GlyphChartTextureSamplerOptions } from "./bridge";
 export { GLYPH_CHART_AXIS_DEFAULT_COLOR } from "./layout";
 export { renderGlyphChartJson } from "./json";
 export { glyphChartScaleDomains } from "./domains";

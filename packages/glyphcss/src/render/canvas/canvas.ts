@@ -14,6 +14,7 @@
 import { buildCellGrid, isSingleCellGlyph, type CellGrid } from "../cells";
 import { isQuantizableColor } from "../paletteQuantize";
 import { inkGlyphForTangent } from "../rasterize";
+import { glyphInkDensity } from "./glyphInk";
 import { createGlyphCanvasReport, type GlyphCanvasFoldedGlyph, type GlyphCanvasReport } from "./report";
 import {
   GLYPH_CANVAS_TIERS,
@@ -139,6 +140,14 @@ export interface GlyphCanvasArrowheadOptions {
 
 export type GlyphCanvasDirection = "n" | "e" | "s" | "w";
 
+/** See {@link GlyphCanvas.setSurfaceUvRect}. */
+export interface GlyphCanvasSurfaceUvRect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
 export interface GlyphCanvasOptions {
   readonly cols: number;
   readonly rows: number;
@@ -208,12 +217,39 @@ export interface GlyphCanvas {
    * per-cell path below instead of `continue`-ing past it.
    */
   readonly textFillerBelowOrigin: Uint8Array;
+  /**
+   * `1` where a painter (`fillRect`/`line`/`text`/`arrowhead`) actually
+   * wrote a cell, `0` elsewhere — INK COVERAGE (AGENTS.md's "Cell canvas"
+   * contract 5): "a painted cell counts as covered", regardless of whether
+   * the glyph it landed on happens to be blank (a `shade: 0` fill still
+   * counts — the cell was addressed, not skipped). This is a canvas-owned
+   * bookkeeping buffer for a later consumer's `baseShade`/coverage read
+   * (`composeGlyphChartEffects`, `glyphChartTextureSampler`'s own callers);
+   * `glyphCanvasTextureSampler` itself does NOT read it — it derives its
+   * mask fresh from `grid.char` at build time via `glyphInk.ts`, so this
+   * buffer's presence or absence changes no rendered texel.
+   */
+  readonly ink: Uint8Array;
   readonly report: GlyphCanvasReport;
 
   fillRect(x0: number, y0: number, x1: number, y1: number, opts: GlyphCanvasFillOptions): void;
   line(a: GlyphCanvasPoint, b: GlyphCanvasPoint, opts?: GlyphCanvasLineOptions): void;
   text(x: number, y: number, lines: readonly string[], opts?: GlyphCanvasTextOptions): void;
   arrowhead(x: number, y: number, dir: GlyphCanvasDirection, opts?: GlyphCanvasArrowheadOptions): void;
+  /**
+   * Declares a PLOT RECT in cell coordinates (inclusive bounds) and fills
+   * `grid.surfaceUv` for every cell: `[u, v]` normalized to that rect (`u`
+   * along columns, `v` along rows — row 0 of the rect is `v = 0`), `[NaN,
+   * NaN]` outside it. `null` clears every cell back to `[NaN, NaN]`. Purely
+   * geometric — it never reads `grid.char`/`ink` and can be called before or
+   * after painting. Contract 5's "plot `surfaceUv`": a later `uv0` effect
+   * requirement (`composeGlyphChartEffects`, F3) reads this directly, so
+   * `scan`/`wipe` sweep along the chart's own data axis rather than raw
+   * screen space. `grid.surfaceUv` is allocated lazily on first call — a
+   * canvas that never calls this stays byte-identical to one that doesn't
+   * have the capability.
+   */
+  setSurfaceUvRect(rect: GlyphCanvasSurfaceUvRect | null): void;
   /** Register `edgeId`'s graph endpoints. Must be called before any
    * `route()` call for that id — see `junctions.ts`. */
   edge(edgeId: string, opts: GlyphCanvasEdgeOptions): void;
@@ -447,9 +483,11 @@ function paintSubcellLine(
   sub: Uint8Array,
   bg: (string | null)[],
   textFiller: Uint8Array,
+  ink: Uint8Array,
   cols: number,
   rows: number,
   report: GlyphCanvasReport,
+  tierName: GlyphCanvasTierName,
   tierTable: GlyphCanvasTier,
   a: GlyphCanvasPoint,
   b: GlyphCanvasPoint,
@@ -513,6 +551,12 @@ function paintSubcellLine(
     grid.color[idx] = color;
     if (bgColor !== undefined) bg[idx] = bgColor;
     if (depth !== undefined) grid.depth[idx] = depth;
+    // Density is re-derived from the FINAL accumulated glyph rather than
+    // tracked per dot — `sub[idx]` merges across multiple dot writes to the
+    // same cell (the doc above), so only the glyph the cell ends up on is
+    // ever actually rendered.
+    ink[idx] = 1;
+    grid.shade![idx] = glyphInkDensity(grid.char[idx]!, tierName);
   };
 
   // The pattern advances per DOT visited, whether or not it ends up
@@ -690,12 +734,18 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
   const tier = options.tier ?? "box";
   const n = cols * rows;
 
-  const grid = buildCellGrid(new Array<string>(n).fill(" "), null, null, cols, rows);
+  // `shade` is allocated up front (NaN = unpainted, matching `CellGrid`'s
+  // own "empty cells are NaN" convention elsewhere) and handed to
+  // `buildCellGrid` as its `shadeSrc` — the grid keeps its own defensive
+  // copy, which every painter below mutates directly at write time.
+  const shadeInit = new Float32Array(n).fill(NaN);
+  const grid = buildCellGrid(new Array<string>(n).fill(" "), null, null, cols, rows, null, shadeInit);
   const bg: (string | null)[] = new Array(n).fill(null);
   const sub = new Uint8Array(n);
   const textScale = new Uint8Array(n);
   const textFiller = new Uint8Array(n);
   const textFillerBelowOrigin = new Uint8Array(n);
+  const ink = new Uint8Array(n);
   const report: GlyphCanvasReport = createGlyphCanvasReport();
   const edgeState: GlyphCanvasEdgeState = createGlyphCanvasEdgeState();
 
@@ -710,6 +760,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
     textScale,
     textFiller,
     textFillerBelowOrigin,
+    ink,
     report,
 
     fillRect(x0, y0, x1, y1, opts) {
@@ -740,6 +791,8 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           }
           grid.color[idx] = color;
           if (bgColor !== undefined) bg[idx] = bgColor;
+          ink[idx] = 1;
+          grid.shade![idx] = shade;
         }
       }
     },
@@ -764,7 +817,7 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       // `GlyphCanvasLineOptions.subcell`'s doc.
       const useSubcell = opts.subcell ?? tierTable.subcell;
       if (useSubcell) {
-        paintSubcellLine(grid, sub, bg, textFiller, cols, rows, report, tierTable, a, b, opts.depth, style, color, bgColor, horizontal, vertical, width);
+        paintSubcellLine(grid, sub, bg, textFiller, ink, cols, rows, report, tier, tierTable, a, b, opts.depth, style, color, bgColor, horizontal, vertical, width);
         return;
       }
 
@@ -835,6 +888,8 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
         grid.char[idx] = glyph;
         grid.color[idx] = color;
         if (bgColor !== undefined) bg[idx] = bgColor;
+        ink[idx] = 1;
+        grid.shade![idx] = glyphInkDensity(glyph, tier);
       }
     },
 
@@ -876,6 +931,8 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
           grid.char[idx] = resolveTextGlyph(graphemes[i]!, report, x, y);
           grid.color[idx] = color;
           if (bgColor !== undefined) bg[idx] = bgColor;
+          ink[idx] = 1;
+          grid.shade![idx] = glyphInkDensity(grid.char[idx]!, tier);
           if (scale <= 1) continue;
           textScale[idx] = scale;
           // The remaining `scale*scale - 1` cells of this glyph's box: mark
@@ -919,8 +976,11 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
       if (x < 0 || x >= cols || y < 0 || y >= rows) return;
       const idx = y * cols + x;
       if (isOccludedCell(grid, idx) || isTextFillerCell(textFiller, idx)) return;
-      grid.char[idx] = GLYPH_CANVAS_TIERS[tier].arrow[dir];
+      const glyph = GLYPH_CANVAS_TIERS[tier].arrow[dir];
+      grid.char[idx] = glyph;
       grid.color[idx] = color;
+      ink[idx] = 1;
+      grid.shade![idx] = glyphInkDensity(glyph, tier);
     },
 
     edge(edgeId, opts) {
@@ -933,6 +993,33 @@ export function createGlyphCanvas(options: GlyphCanvasOptions): GlyphCanvas {
 
     resolveJunctions() {
       resolveGlyphCanvasJunctions(grid, edgeState, GLYPH_CANVAS_TIERS[tier], report);
+    },
+
+    setSurfaceUvRect(rect) {
+      if (!grid.surfaceUv) grid.surfaceUv = new Float32Array(n * 2).fill(NaN);
+      const uv = grid.surfaceUv;
+      if (rect === null) {
+        uv.fill(NaN);
+        return;
+      }
+      const loX = Math.min(rect.x0, rect.x1);
+      const hiX = Math.max(rect.x0, rect.x1);
+      const loY = Math.min(rect.y0, rect.y1);
+      const hiY = Math.max(rect.y0, rect.y1);
+      const spanX = hiX - loX;
+      const spanY = hiY - loY;
+      for (let row = 0; row < rows; row++) {
+        for (let col = 0; col < cols; col++) {
+          const idx = row * cols + col;
+          if (col < loX || col > hiX || row < loY || row > hiY) {
+            uv[idx * 2] = NaN;
+            uv[idx * 2 + 1] = NaN;
+            continue;
+          }
+          uv[idx * 2] = spanX === 0 ? 0 : (col - loX) / spanX;
+          uv[idx * 2 + 1] = spanY === 0 ? 0 : (row - loY) / spanY;
+        }
+      }
     },
   };
 

@@ -10,3 +10,5 @@ export * from "./labels";
 export * from "./degrade";
 export { paintGlyphDiagram } from "./paint";
 export { renderGlyphDiagram, renderGlyphDiagramJson, GLYPH_DIAGRAM_TARGET_DEFAULTS } from "./render";
+export { glyphDiagramTextureSampler } from "./bridge";
+export type { GlyphDiagramTextureSamplerOptions } from "./bridge";

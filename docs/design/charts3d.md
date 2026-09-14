@@ -54,6 +54,157 @@ An overlay author's alternative to these two functions is touching `CellGrid.cha
 
 Each mutation was applied to the working tree, run against `packages/glyphcss/src/api/createGlyphScene.sceneObject.test.ts`, observed red, then reverted and re-verified green — see that file's own per-`it` comments for the exact mutation each guards.
 
+## F2 — canvas ink coverage/shade/surfaceUv, `glyphCanvasTextureSampler`
+
+**Goal.** PLAN-3d.md §7 "A 2D chart as a texture": a `GlyphCanvas` (a chart's
+or a diagram's painted plot) becomes a `TextureSampler` a HOST scene can put
+on any other mesh via `scene.setTextureSamplers`, so a chart or diagram
+reads as texture on a wall, a card, a plane — reusing the renderer's existing
+per-cell texture path (AGENTS.md's "Per-cell textures") rather than
+inventing a second one.
+
+### Why a separate module for ink density, not a `canvas.ts` branch
+
+`glyphInk.ts` (`packages/glyphcss/src/render/canvas/`) owns the whole
+glyph → ink-mask/density engine and imports nothing from `canvas.ts`.
+`sampler.ts` imports BOTH `glyphInk.ts` (for the mask) and `canvas.ts`
+(for the `GlyphCanvas` type it samples); `canvas.ts` imports `glyphInk.ts`
+back (for the `shade` bookkeeping every painter now writes). Had the density
+engine lived inside `canvas.ts` instead, `sampler.ts`'s own need to import
+`canvas.ts` for the type would have made `canvas.ts` depend on `sampler.ts`
+right back — a cycle. Splitting the engine out breaks it cleanly: `glyphInk.ts`
+depends on nothing but `tiers.ts` (the tier tables), and both `canvas.ts` and
+`sampler.ts` depend on it one-directionally.
+
+### Three families, never a fourth silent path
+
+`glyphInkMask(glyph, tier, dims) → Uint8Array` and its cheaper sibling
+`glyphInkDensity(glyph, tier) → number` (no texel-grid allocation — O(1) per
+call, since `canvas.ts` calls it on every `line()`/`text()`/`arrowhead()`
+write and a diagram can paint thousands of cells) resolve every glyph
+through exactly one of three families, in this order:
+
+1. **Exact decode.** A real braille codepoint (`tier === "braille"`,
+   U+2800..28FF) or a `GLYPH_CANVAS_QUADRANT_GLYPHS` member
+   (`tier === "blocks" | "braille"` — braille's own `fillSubGlyph` reuses the
+   SAME quadrant table for solid fills, so both tiers must recognise it,
+   verified directly: `braille.fillSubGlyph!(rawDotMask)` and
+   `blocks.subGlyph!(rawDotMask)` resolve to the identical glyph string for
+   the same input). The glyph's own dot/quadrant BITS are the mask,
+   nearest-scaled (`resampleBitGrid`) to whatever resolution the caller asks
+   for.
+2. **Structural line art.** The Unicode box-drawing stems (`│─└┘┌┐├┤┬┴┼═║╌╎`),
+   the diagonal family (`‾▔▏▕/\_`), the dedicated dot (`·`) and the four
+   arrows render a real stroke/diagonal-walk/edge/half-fill shape
+   (`strokeMask` derives corners/tees/crosses from one N/E/S/W expression —
+   a corner is just "vertical stroke stops at centre, horizontal stroke
+   starts at centre"). Deliberately EXCLUDES every ASCII substitute for the
+   same stem (`| - + = # ~ :`) — `canvas.text("+")` is far more likely a
+   plus sign than a crossing, so ASCII falls through to family 3 instead
+   (verified: `glyphInkMask("│", "box", [5,5])` and `glyphInkMask("|", "box",
+   [5,5])` are NOT equal).
+3. **Flat density, ordered-dithered.** Everything else — a shading-ramp
+   glyph (density = its own ramp INDEX, `index/(len-1)`, read live off
+   `GLYPH_CANVAS_TIERS[*].shadeRamp` rather than duplicated), a glyph with a
+   measured entry in a small `GLYPH_INK_DENSITY` table (duplicated from
+   `packages/charts/src/fixtures/glyphInkCoverage.json`'s `glyphMonoFt`
+   column — glyphcss cannot depend on `@glyphcss/charts`, the dependency
+   runs the other way), or a flat default (`0.3`) for arbitrary text — turns
+   into a mask via a tiled order-4 Bayer matrix (`orderedFillMask`), so an
+   unrecognised glyph still reads as PATTERNED texture rather than a solid
+   blob or nothing.
+
+Every glyph any of the four `GLYPH_CANVAS_TIERS` tables can emit — walked
+programmatically in `glyphInk.test.ts` (`staticTierGlyphs`/
+`subcellTierGlyphs`, mirroring the style of the website's own
+`glyphMonoCmap.test.ts` cmap gate) — resolves through one of the three,
+never throws, never returns a wrong-length array.
+
+### `glyphCanvasTextureSampler`
+
+Each canvas cell becomes a `texelsPerCell` (default `[2, 4]`, the braille/
+blocks dot-lattice aspect) block of texels: an ink texel is the cell's own
+`grid.color` at full alpha (opaque WHITE when unset, so the host's own
+colour passes the per-cell multiply through unmodulated and the texel's
+luminance still drives the host's glyph pick — "the chart reads as the
+host's own ramp, patterned by the chart's ink", PLAN-3d.md §7); a non-ink
+texel is the cell's `bg` at full alpha, or fully transparent (alpha 0) —
+never black — so an un-backgrounded chart cell reads as open sky, and
+alpha-aware claims (AGENTS.md's "Per-cell textures") already keep a
+transparent texel from occluding. Row 0 of the buffer is the canvas's own
+row 0 (top): no flip needed, since `sampleUv`'s OBJ convention (`v=1` = a
+texture's visual top) already reads row 0 at `v=1`. Dimensions are exact —
+`cellCols * texelsPerCell[0]` by `cellRows * texelsPerCell[1]`, an optional
+`rect` narrows which cells are sampled, never rounded or padded.
+
+`@glyphcss/charts`' `glyphChartTextureSampler(build, { source?, ...})` and
+`@glyphcss/diagrams`' `glyphDiagramTextureSampler(page, opts?)` are the
+whole of `bridge.ts` in each package — they hand `build.canvas`/
+`build.colorCanvas`/`page.canvas` straight to `glyphCanvasTextureSampler`.
+Neither builds a scene object or a plane mesh (a later packet's
+`glyphChartPlaneObject`) — this packet's job stops at "produces something
+`scene.setTextureSamplers` accepts."
+
+### Contract 5's other two additions: `ink` and `shade`, `setSurfaceUvRect`
+
+`canvas.ink: Uint8Array` (`1` where any painter actually wrote a cell) and
+`canvas.grid.shade: Float32Array` (that painter's own ink density —
+`fillRect`'s exact `shade` argument, `glyphInkDensity(glyph, tier)` for the
+other three painters, `NaN` where unpainted, reusing `CellGrid`'s own
+already-existing optional `shade` field and its "empty cells are NaN"
+convention) are bookkeeping for a LATER consumer's `baseShade`/coverage read
+(a compositor packet) — `glyphCanvasTextureSampler` itself does NOT read
+either buffer; it derives its mask fresh from `grid.char`/`grid.color`/`bg`
+at sampler-build time, so their presence changes no rendered texel. Verified
+directly (`sampler.test.ts`'s "existing canvas encodes are byte-identical"
+posture): `encode.ts` (`encodeGlyphCanvasText`/`Html`/`Ansi`) reads neither
+field (grepped), so every existing `encode.test.ts` case is unchanged byte
+for byte.
+
+`canvas.setSurfaceUvRect(rect | null)` declares a plot rect in cell
+coordinates and fills `grid.surfaceUv` (`[u, v]` normalized to it row-major,
+`[NaN, NaN]` outside) — purely geometric (never reads `grid.char`), callable
+before or after painting, allocated lazily on first call. Not wired into
+`@glyphcss/charts`'/`@glyphcss/diagrams`' own paint pipelines by this packet
+— that is the effects-compositor packet's job, once it needs `uv0` to sweep
+along a chart's own data axis; the capability exists on the canvas now so
+that packet has nowhere else to add it.
+
+**Known residual.** `canvas.resolveJunctions()` (`junctions.ts`, diagrams'
+own edge/route paint — a diagram registers routes via `canvas.edge()`/
+`canvas.route()` and paints them ENTIRELY inside `resolveJunctions()`, never
+through `canvas.line()`) does not update `ink`/`shade`. Left alone rather
+than threading a `GlyphCanvasTierName` + the `ink` buffer through
+`resolveGlyphCanvasJunctions`'s signature (a heavily-tested file, out of this
+packet's stated scope: "the texture sampler plumbing it needs", and the
+sampler itself is unaffected by the gap). A diagram's edge cells therefore
+read `shade: NaN` until whichever packet needs accurate `baseShade` closes
+this — `glyphChartTextureSampler`/`glyphDiagramTextureSampler` are both
+unaffected either way.
+
+### Gates and mutations (packet F2)
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| Braille exact decode covers every 8-bit dot pattern | Comment out the `tier === "braille"` codepoint-decode branch | RED — 2 tests (`U+2800`/`U+28FF` exactness, the tier-discriminator test) |
+| Quadrant exact decode (shared by `blocks`/`braille`) | Comment out the `GLYPH_CANVAS_QUADRANT_GLYPHS` decode branch | RED — 2 tests (`▘`'s exact quadrant shape, the braille-`fillSubGlyph`-reuses-`blocks`-table case) |
+| Structural line art (box-drawing stems/diagonals/edges) | Remove the `LINE_ART_GLYPHS` lookup, falling through to flat density | RED — 7 tests (`┼`/`└`/`│`/`/`/`\`/`_`/`▏` exact shapes) |
+| The sampler's ink/non-ink split | Invert `mask[...] === 1` to `!== 1` in `glyphCanvasTextureSampler` | RED — 6 of 10 `sampler.test.ts` tests (left/right quad colours, bg/transparency, null-fg-is-white) |
+| Existing canvas encodes stay byte-identical | (verified structurally: `encode.ts` reads neither `ink` nor `shade`, grepped) | `encode.test.ts`'s 46 cases pass unmodified |
+
+Every mutation above was applied to the working tree, the affected test file
+run, observed red, then reverted and re-verified green.
+
+### Residuals for later packets
+
+- `ink`/`shade` are not yet wired into `resolveJunctions()` (above).
+- `setSurfaceUvRect` is not yet called by `@glyphcss/charts`/
+  `@glyphcss/diagrams` — the capability exists, the wiring is the effects
+  compositor packet's.
+- `glyphChartPlaneObject`/a diagram's own plane object (the scene-object
+  producer that actually MOUNTS a sampler on a mesh) is a later packet;
+  this one only guarantees the sampler it would use.
+
 ## F1 — the 2D entrypoint split
 
 **Goal.** Give a later consumer (a texture sampler, a decal effect, a scene

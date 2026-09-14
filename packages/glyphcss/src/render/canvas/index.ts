@@ -18,7 +18,13 @@ export type {
   GlyphCanvasTextOptions,
   GlyphCanvasArrowheadOptions,
   GlyphCanvasDirection,
+  GlyphCanvasSurfaceUvRect,
 } from "./canvas";
+
+export { glyphCanvasTextureSampler } from "./sampler";
+export type { GlyphCanvasTextureSamplerOptions, GlyphCanvasTextureSamplerRect } from "./sampler";
+
+export { glyphInkMask, glyphInkDensity } from "./glyphInk";
 
 export type { GlyphCanvasEdgeOptions } from "./junctions";
 
