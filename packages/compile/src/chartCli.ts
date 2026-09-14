@@ -38,15 +38,34 @@ export const CHART_HELP = `glyphcss chart <spec.json> [options]
   overrides it.
 `;
 
+function chartCliError(code: string, message: string): Error {
+  return Object.assign(new Error(message), { code });
+}
+
+/**
+ * `--camera rotX,rotY[,zoom]` requires EXACTLY 2 or 3 comma-separated
+ * FINITE numeric fields (fix round 1, P1-5) — the prior cut silently
+ * dropped a 4th+ field (`--camera 10,20,3,4` quietly became `rotX:10,
+ * rotY:20, zoom:3`) and silently built a partial camera from 1 field
+ * (`--camera 10` became `{rotX:10}` with no `rotY` at all, which
+ * `renderGlyphChart3d` would then reject with ITS OWN `bad-camera` for a
+ * reason the reader never asked about). Both are now a `bad-camera-arg`
+ * tagged rejection naming the raw value, at the CLI's own argument-parsing
+ * boundary rather than surfacing several layers downstream (or not at
+ * all).
+ */
 function parseCameraArg(raw: string | undefined): GlyphChart3dCameraOptions | undefined {
   if (raw === undefined) return undefined;
-  const parts = raw.split(",").map((p) => Number(p.trim()));
-  const [rotX, rotY, zoom] = parts;
-  return {
-    ...(rotX !== undefined ? { rotX } : {}),
-    ...(rotY !== undefined ? { rotY } : {}),
-    ...(zoom !== undefined ? { zoom } : {}),
-  };
+  const parts = raw.split(",").map((p) => p.trim());
+  if (parts.length !== 2 && parts.length !== 3) {
+    throw chartCliError("bad-camera-arg", `--camera expects rotX,rotY[,zoom] (2 or 3 fields), got ${parts.length}: ${JSON.stringify(raw)}.`);
+  }
+  const numbers = parts.map((p) => Number(p));
+  if (!numbers.every((n) => Number.isFinite(n))) {
+    throw chartCliError("bad-camera-arg", `--camera fields must all be finite numbers, got ${JSON.stringify(raw)}.`);
+  }
+  const [rotX, rotY, zoom] = numbers;
+  return zoom !== undefined ? { rotX: rotX!, rotY: rotY!, zoom } : { rotX: rotX!, rotY: rotY! };
 }
 
 export function parseChartArgs(argv: string[]): { file?: string; out?: string; opts: ChartCliOptions } {
@@ -77,6 +96,14 @@ export function parseChartArgs(argv: string[]): { file?: string; out?: string; o
       case "-h": case "--help": file = undefined; return { file, out, opts };
       default: if (!a.startsWith("-") && !file) file = a;
     }
+  }
+  // Every 3D-only flag needs `--3d` present too (fix round 1, P1-5) — today
+  // that is `--camera` alone, but the check is written against the FLAG
+  // that was actually set (never a fixed list of names) so a future 3D-only
+  // flag added here is covered automatically rather than needing its own
+  // matching clause.
+  if (mutableOpts.camera !== undefined && !mutableOpts.threeD) {
+    throw chartCliError("bad-3d-flag", "--camera is 3D-only; pass --3d too.");
   }
   return { file, out, opts };
 }
@@ -137,13 +164,18 @@ export function resolveChart3dCliOutput(
 }
 
 export async function runChart(argv: string[]): Promise<void> {
-  const { file, out, opts } = parseChartArgs(argv);
-  if (!file) {
-    process.stderr.write(CHART_HELP);
-    process.exit(argv.length === 0 ? 1 : 0);
-    return;
-  }
   try {
+    // `parseChartArgs` now throws a tagged `bad-camera-arg`/`bad-3d-flag`
+    // error for a malformed `--camera` or a 3D-only flag without `--3d`
+    // (fix round 1, P1-5) — moved inside `try` so that rejection reaches
+    // the SAME tagged-code/exit-1 boundary every other CLI failure does,
+    // rather than an unhandled throw before any error handling exists.
+    const { file, out, opts } = parseChartArgs(argv);
+    if (!file) {
+      process.stderr.write(CHART_HELP);
+      process.exit(argv.length === 0 ? 1 : 0);
+      return;
+    }
     const parsed = JSON.parse(await readFile(file, "utf8")) as GlyphChartInput | GlyphChart3dJsonInput;
     const { text, ledger } = opts.threeD
       ? resolveChart3dCliOutput(parsed as GlyphChart3dJsonInput, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env })

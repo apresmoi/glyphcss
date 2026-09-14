@@ -13,7 +13,7 @@
  * re-scaled quantity an effect would have to invert.
  */
 import { gridSurfacePolygons, surfaceMedianOfBlock, createSurfaceMedianScratch } from "glyphcss";
-import { stampGlyphOverlayCell, stampGlyphOverlayLine } from "glyphcss";
+import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey } from "glyphcss";
 import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
 import { glyphChart3dBandColor, glyphChart3dBandIndex } from "./colorscale";
 import type { GlyphChart3dMark, GlyphChart3dObjectOptions, GlyphChart3dResolvedAxis, GlyphChart3dSurfaceMark } from "./types";
@@ -57,15 +57,31 @@ function buildValueStripTexture(): TextureSampler {
  * colour callback computes — the two agree closely within one quad (three
  * corners sharing the block's own extent) and a per-vertex UV needs no
  * correlation back to `gridSurfacePolygons`' internal block indexing.
+ *
+ * `p.texture` must carry the NAMESPACED sampler key
+ * (`encodeGlyphSceneObjectSamplerKey(objectId, name)`), not the bare
+ * `GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY` name: `scene.addObject`/
+ * `compileScene({objects})` namespace an object's OWN `textureSamplers`
+ * entries under that key when they merge them into the scene's resolved
+ * sampler map (AGENTS.md's "Scene objects" contract 9), but they never
+ * rewrite a polygon's own `texture` field to match — a mesh polygon is
+ * mounted verbatim (`createGlyphScene.ts`'s `mountGlyphSceneObjectInto`
+ * calls `add(spec.polygons, ...)` with no texture-key translation). Every
+ * raw (unnamespaced) `p.texture` therefore looks up a key the scene's
+ * sampler map never has, and the whole surface collapses to the ramp's own
+ * `u=0` (or `u=NaN`) glyph — fix round 1's P1-1: `renderGlyphChart3d`'s
+ * hand-rolled renderer used the SAME raw key on both sides (the sampler
+ * map lookup and the polygon-authored key), which is why it never showed
+ * the bug a real `compileScene({objects})`/`scene.addObject` mount does.
  */
-function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly [number, number, number], bands: number): void {
+function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly [number, number, number], bands: number, textureKey: string): void {
   const zExtent = aspect[2] || 1;
   for (const p of polygons) {
     const avgZ = p.vertices.reduce((sum, v) => sum + v[2], 0) / p.vertices.length;
     const t = Math.max(0, Math.min(1, avgZ / zExtent));
     const bandIdx = glyphChart3dBandIndex(t, bands);
     const u = bands <= 1 ? 0.5 : (bandIdx + 0.5) / bands;
-    p.texture = GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY;
+    p.texture = textureKey;
     p.uvs = [[u, 0.5], [u, 0.5], [u, 0.5]];
   }
 }
@@ -226,7 +242,7 @@ function axisOverlay(axisIndex: 0 | 1 | 2, name: string, axis: GlyphChart3dResol
 
 const AXIS_BOX_COLOR = "#7a7f8a";
 
-function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark): Polygon[] {
+function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark, objectId: string): Polygon[] {
   const { grid, aspect, bands, colorAnchors } = mark;
   const rows = grid.z.length;
   const cols = grid.z[0]!.length;
@@ -268,7 +284,9 @@ function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark): Polygon[] {
         },
     },
   );
-  if (mark.shading === "value") applyValueShadingTexture(polygons, aspect, bands);
+  if (mark.shading === "value") {
+    applyValueShadingTexture(polygons, aspect, bands, encodeGlyphSceneObjectSamplerKey(objectId, GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY));
+  }
   return polygons;
 }
 
@@ -278,7 +296,7 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
     throw new TypeError(`glyphcss: unknown 3D mark type ${JSON.stringify((mark as { type?: unknown }).type)}.`);
   }
   const id = options.id ?? "surface";
-  const polygons = buildSurfaceMesh(mark);
+  const polygons = buildSurfaceMesh(mark, id);
   const ext = mark.aspect;
   const overlays: GlyphSceneOverlay[] = [
     boxWireframeOverlay(ext, AXIS_BOX_COLOR),

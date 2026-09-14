@@ -93,6 +93,23 @@ describe("--3d: parseChartArgs and resolveChart3dCliOutput", () => {
     for (const title of ["x", "y", "z"]) expect(text.includes(title)).toBe(true);
   });
 
+  // Fix round 1, P1-3: `--color none` with NO explicit `options.shading`
+  // must default to `shading: "value"` (§5) — the model step
+  // (`glyphChartSurface`) no longer bakes in `"relief"` itself
+  // (`surface.ts`), so `renderGlyphChart3d` resolves the default from ITS
+  // OWN colour mode. Proven two ways: the defaulted render is BYTE-IDENTICAL
+  // to an explicit `shading: "value"` render (same computation), and
+  // DIFFERENT from an explicit `shading: "relief"` one (mutation: reverting
+  // the default collapses this to the relief render instead).
+  it("--3d --color none with no explicit shading defaults to shading: value", () => {
+    const base: GlyphChart3dJsonInput = { data: { z: volcano() } };
+    const defaulted = resolveChart3dCliOutput(base, { target: "web", color: "none" }, { isTTY: false });
+    const explicitValue = resolveChart3dCliOutput({ ...base, options: { shading: "value" } }, { target: "web", color: "none" }, { isTTY: false });
+    const explicitRelief = resolveChart3dCliOutput({ ...base, options: { shading: "relief" } }, { target: "web", color: "none" }, { isTTY: false });
+    expect(defaulted.text).toBe(explicitValue.text);
+    expect(defaulted.text).not.toBe(explicitRelief.text);
+  });
+
   it("--camera overrides the auto-fit default", () => {
     const input: GlyphChart3dJsonInput = { data: { z: volcano() } };
     const fitted = resolveChart3dCliOutput(input, { target: "web", color: "none" }, { isTTY: false });
@@ -195,5 +212,40 @@ describe("chart CLI argument parsing and command boundary", () => {
     await expect(runChart([badFile, "--3d"])).rejects.toMatchObject({ status: 1 });
     expect(exit).toHaveBeenCalledWith(1);
     expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("surface-too-small");
+  });
+
+  // Fix round 1, P1-5: `--camera` requires exactly 2 or 3 FINITE fields, and
+  // EVERY 3D-only flag rejects with a code + exit 1 when `--3d` is absent —
+  // both used to be silently swallowed (a 1-field camera built a partial
+  // `{rotX}` with no `rotY`; a 4-field one silently dropped the extra
+  // field; `--camera` with no `--3d` just built an option `resolveChart3dCliOutput`
+  // never even ran, since `opts.threeD` gated dispatch).
+  describe("--camera validation (P1-5)", () => {
+    it("--camera 10 (1 field) rejects with bad-camera-arg and exit 1", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+      const surfaceFile = join(directory, "surface3.json");
+      await writeFile(surfaceFile, JSON.stringify({ data: { z: volcano() } } satisfies GlyphChart3dJsonInput));
+      await expect(runChart([surfaceFile, "--3d", "--camera", "10"])).rejects.toMatchObject({ status: 1 });
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("bad-camera-arg");
+    });
+
+    it("--camera 10,20,3,4 (4 fields) rejects with bad-camera-arg and exit 1", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+      const surfaceFile = join(directory, "surface4.json");
+      await writeFile(surfaceFile, JSON.stringify({ data: { z: volcano() } } satisfies GlyphChart3dJsonInput));
+      await expect(runChart([surfaceFile, "--3d", "--camera", "10,20,3,4"])).rejects.toMatchObject({ status: 1 });
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("bad-camera-arg");
+    });
+
+    it("--camera 10,20 without --3d rejects with bad-3d-flag and exit 1", async () => {
+      const exit = vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+      const surfaceFile = join(directory, "surface5.json");
+      await writeFile(surfaceFile, JSON.stringify({ data: { z: volcano() } } satisfies GlyphChart3dJsonInput));
+      await expect(runChart([surfaceFile, "--camera", "10,20"])).rejects.toMatchObject({ status: 1 });
+      expect(exit).toHaveBeenCalledWith(1);
+      expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("bad-3d-flag");
+    });
   });
 });

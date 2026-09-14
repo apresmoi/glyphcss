@@ -22,6 +22,14 @@ export function ledgerCharset3dBrailleUnsupported(): GlyphChart3dLedgerEntry {
   );
 }
 
+/** `blocks` is a 2D cell-canvas tier, not a 3D scene `charMode` a chart's ALWAYS-mounted overlays (box wireframe, ticks) leave usable — halfblock/quadrant disable themselves whenever a `transformCells` hook exists (fix round 1, P1-4). Faithfully downgrades to the default solid ramp, mirroring `braille`'s own downgrade above. */
+export function ledgerCharset3dBlocksUnsupported(): GlyphChart3dLedgerEntry {
+  return entry(
+    "chart3d-blocks-unsupported",
+    "3D charts always mount an axis box/tick overlay, which disables the halfblock encoder; this frame uses the default ramp instead.",
+  );
+}
+
 /** The chrome column for the value colorbar was skipped — the render is too narrow to reserve it and still leave a usable plot. */
 export function ledgerColorbarOmitted(opts: { readonly width: number; readonly minWidth: number }): GlyphChart3dLedgerEntry {
   return entry(

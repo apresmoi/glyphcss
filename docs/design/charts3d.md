@@ -2155,3 +2155,237 @@ adding a new one, plus one new endpoints test), `pnpm --filter
 `tsc --noEmit` on `@glyphcss/charts` and `@glyphcss/compile` clean, and
 `pnpm build:packages` (`@glyphcss/core`, `glyphcss`, `@glyphcss/charts`,
 `@glyphcss/diagrams` rebuilt for this packet) all pass.
+
+## C2 fix round 1 — canonical scene-object path, real showcase framing, honest charset/colour defaults
+
+A codex review of `f9fb6734` found five P1s and one P2, all inside the C2
+packet's own files. Six items, each fixed at the layer that owns it.
+
+### P1-1 / P2-6 — the unnamespaced texture key, and routing through `compileScene({ objects })`
+
+`object.ts`'s `applyValueShadingTexture` wrote the BARE
+`GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY` onto every triangle's `p.texture`,
+while `glyphChartObject`'s own `textureSamplers` map used that SAME bare
+name as its key — correct as a PAIR, but not what `scene.addObject`/
+`compileScene({ objects })` actually do with an object's `textureSamplers`:
+both NAMESPACE every entry under `encodeGlyphSceneObjectSamplerKey(id,
+name)` when merging it into the scene's own resolved sampler map
+(AGENTS.md's "Scene objects" contract 9), and NEITHER rewrites a mounted
+mesh's own `p.texture` field to match. So a chart's `value`-shaded surface,
+mounted through the canonical path, looked up a sampler key the scene never
+had, and the whole surface collapsed to the ramp's `u≈0` glyph — measured at
+52 of the compared cells differing (`compileScene({objects})` vs the
+hand-rolled renderer) and the composed frame reading uniform `@`. The
+hand-rolled `render.ts` this packet shipped used the identical raw key on
+BOTH sides of the lookup (the sampler map's own key AND the polygon's
+`texture` field), so it was internally consistent and never surfaced the
+mismatch — the bug was invisible until something else (a real scene, or
+`compileScene`) did the namespacing `render.ts` itself never did.
+
+Fixed at BOTH ends, together, since either alone leaves the other pointless:
+`applyValueShadingTexture` now takes the object's own `id` and writes
+`encodeGlyphSceneObjectSamplerKey(id, GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY)`
+onto `p.texture`, while the `textureSamplers` MAP keeps the bare name (the
+namespacing is `addObject`/`compileScene`'s own job, run exactly once).
+`render.ts` itself was rewritten to call `glyphcss`'s public `compileScene({
+objects: [object], camera, cols, rows, cellAspect, mode: "solid", useColors,
+directionalLight?, ambientLight? })` instead of hand-rolling
+`buildRasterizeContext`/`rasterize`/a manual overlay loop/a manual sampler
+merge — `compileScene` already merges `object.textureSamplers` (namespaced),
+runs the object's overlays through the shared label arbiter, and captures
+the resulting `CellGrid` from the one rasterize pass; `render.ts`'s own
+`cloneCellGridFields`/`rasterizeSurfaceToCells`/`pasteCellGrid`'s manual
+sampler-merge half are gone entirely. This is what makes "static frame
+equals a real scene" a STRUCTURAL guarantee (the same public entry point)
+rather than two independent implementations that happened to agree.
+
+**Mutation, verified by hand**: reverting ONLY the `p.texture` key back to
+the bare name (keeping `compileScene` routing) reddens
+`render.test.ts`'s existing "shading: 'value' keeps glyph density monotone
+in z" test — `expect(new Set(sampleIndices).size).toBeGreaterThan(1)` fails
+(`1` not `> 1`: every sampled cell reads the identical ramp index) — proving
+this test, unchanged in wording since the ORIGINAL C2 cut, is now a REAL
+P1-1 regression gate purely because the render path underneath it changed.
+The "static frame equals live scene" test (`render.test.ts`) was ALSO
+rewritten to be non-vacuous (it previously used `color: "none"` at the MODEL
+level — no colorAnchors, so no colorbar ever engaged — the library default
+`shading: "relief"`, and no title, comparing the WHOLE canvas): it now uses
+`shading: "value"`, a real colorbar (model-level `color: "auto"`, a
+SEPARATE axis from the render's own ANSI `color: "none"`), several ticks,
+and a title, comparing the static frame's own extracted PLOT sub-rectangle
+against a live scene rendered at exactly that sub-rectangle's `cols`x`rows`.
+
+### P1-2 — real showcase framing: fit from a probe render, not an AABB estimate
+
+`camera.ts`'s exported `glyphChart3dFitCamera` projects the object's
+EXPANDED AABB corners (`margin`-padded) through a reference `zoom: 1`
+camera — a fast, synchronous, analytic estimate with no rendering at all.
+It never sees the overlay LABELS' own projected extent (a tick/title is
+pushed outward from the box by a fraction of the axis extent, but the
+LABEL TEXT itself has no glyph-metrics input to this function), so a short
+axis title routinely fell off-frame at several rotations, and measured at
+the reported CLI sizes the kept plot covered only 14x18 of 80x24 (~7.9%),
+18x22 of 96x32 (~12.9%), and 22x28 of 140x40 (~11%) — all "about 5%" of
+usable ink once tick text crowding is subtracted.
+
+This function is KEPT UNCHANGED and stays exported exactly as it was — it
+is still the right tool for a cheap SEED (e.g. a live orbit viewport's
+initial pose, immediately refined by the reader's own drag) and C3 depends
+on its signature. What changed is `renderGlyphChart3d`'s OWN static-frame
+default, which no longer calls it at all: `render.ts`'s new
+`fitStaticCamera` renders TWICE, mirroring `@glyphcss/diagrams/3d`'s own D2
+packet (`render3d.ts`'s `fitCamera` — "a node LABEL's cell width doesn't
+shrink with zoom the way geometry does, so the only reliable source for
+'does this actually fit' is rendering it and measuring the painted cells").
+Pass 1 renders at a conservative, world-extent-derived small zoom into a
+generous 220x130 probe grid and measures the OCCUPIED cell bounding box —
+geometry AND every stamped tick/title glyph, since they share one
+`CellGrid` by construction now. Pass 2 scales zoom by the exact ratio needed
+to fill the requested plot `cols`x`rows` (minus a 1-cell margin) and
+recentres via `camera.center` (an additive PROJECTION offset —
+`centerCol = cols * center[0]` — so no rotation needs inverting, unlike
+moving `camera.target` would).
+
+Measured at the SAME reported sizes, the volcano fixture used throughout
+this section's gates: the occupied bounding box now covers comfortably over
+the "roughly 50%" target at every one of 5 sampled rotations x 3 sizes (a
+15-cell sweep, `render.test.ts`) — the gate itself pins the floor at 0.4
+(not the exact number, which varies render to render) specifically because
+it is FAR above the pre-fix ~5-13%, not because 0.4 is the achieved value.
+
+Before/after, the volcano fixture at 80x24 terminal/`color: none` (`x`/`y`/`z`
+axis titles requested; BEFORE reproduces the pre-fix behaviour exactly — the
+bare orthographic default `zoom: 0.65`, no fit at all):
+
+```
+BEFORE (zoom: 0.65, no fit)              AFTER (fitStaticCamera)
+                                30#                                       30#
+                                  *                             \           *
+                              22.5+                             /│\      22.5+
+                                  =                             / │ \        =
+                                15=                            //  │  \\   15=
+                                  -                            /    │    \   -
+                               7.5:                          0+     %     +07.5:
+                                  .                            │2  %%@%%  2│  .
+                                 0                              │y4 %@%@%/4x│ 0
+                                                                 │  +\#%#/+  │
+                                                                 │  #6\#/6*  │
+                                                                 │ ++#8+8#=+ │
+                    y+                                          │ =***│**+- │
+                                                                 │:++++30+=+:│
+                                                                 │-  ++25+  -│
+                                                                 │   =-│-+   │
+                                                                  \   -20   /
+                                                                   \  :15  /
+                                                                    \  │  /
+                                                                     \ z /
+                                                                      \5/
+                                                                       +
+                                                                       0
+```
+
+BEFORE painted 9 non-blank glyphs of the whole 1,920-cell frame outside the
+colorbar column; AFTER paints the full volcano surface, its 12-edge box,
+every tick, and all three axis titles (`x`, `y`, `z`) inside the SAME
+80x24. The colorbar's own labels also grew from 2 (endpoints only, `30`/`0`)
+to 5 intermediate rungs (`30`, `22.5`, `15`, `7.5`, `0`) — the second half
+of P1-2's own ask.
+
+### P1-3 — monochrome defaults to `shading: "value"`, resolved where the colour mode is known
+
+`surface.ts` used to default `shading` to `"relief"` unconditionally
+(`const shading = options.shading ?? "relief"`), regardless of §5's own
+"under `color: "none"`/NO_COLOR, default to `value`" rule — the two-step
+public API (`glyphChartSurface` builds a MARK, `renderGlyphChart3d` renders
+one) means the model step has no colour-mode input to default from AT ALL.
+Fixed by DEFERRING the default: `glyphChartSurface` now leaves `shading`
+`undefined` when the caller names none (still validating an explicit value),
+and `GlyphChart3dSurfaceMark.shading` is `"relief" | "value" | undefined`
+rather than always-resolved. `glyphChartObject` (a live scene, always full
+colour) still reads an undefined `shading` as `"relief"` — unchanged, since
+"colour mode" is not a meaningful concept for a live scene consumer.
+`renderGlyphChart3d`'s own `resolveMarkShading(mark, colorEnabled)` is the
+ONE place the §5 default actually applies: `mark.shading ?? (colorEnabled ?
+"relief" : "value")`.
+
+**Gate**: the CLI's `--3d --color none` with NO explicit
+`options.shading` is byte-identical to an explicit `shading: "value"` render
+of the same data, and DIFFERENT from an explicit `shading: "relief"` one
+(`chartCli.test.ts`) — reverting the default collapses the first comparison
+to the second.
+
+### P1-4 — `charset: "blocks"` was silently inert; now a faithful, ledgered downgrade
+
+A chart's overlays (the box wireframe, every axis's ticks/labels) are
+ALWAYS mounted — never optional — which means a chart's `compileScene` call
+ALWAYS installs a `transformCells` hook. glyphcss's `charMode: "halfblock"`/
+`"quadrant"` two-colour-per-cell encoders self-disable outright whenever a
+`transformCells` hook exists (`rasterize.ts`'s `wantsHalfblockSolid`/
+`wantsQuadrantSolid`, AGENTS.md's own "Render modes": "no-ops with
+`transformCells`"). The original cut requested `charMode: "halfblock"` for
+`charset: "blocks"` anyway; the hook silently defeated it every time, so
+`ascii` and `blocks` output were byte-identical with no ledger entry
+explaining why — the request simply never took effect.
+
+Two options were weighed. (a) Render geometry in REAL halfblock by DROPPING
+the overlay hook, stamping the box/ticks/labels some other way — rejected:
+the hook IS the box/ticks/labels, so dropping it to get halfblock geometry
+trades a charset for the chart's own axes, titles and frame, which is a
+strictly worse chart. (b) Degrade `blocks` to the default solid ramp with a
+VISIBLE ledger entry, exactly mirroring `braille`'s own existing downgrade
+(and `@glyphcss/diagrams/3d`'s own D2 packet, which made the identical
+`blocks -> ascii` call for the identical reason). (b) was taken:
+`chart3d-blocks-unsupported` joins `chart3d-braille-unsupported`, and the
+canvas CHROME tier (colorbar/title) degrades `blocks` to `ascii` too (it
+used to keep real half-block/quadrant swatch glyphs even while the geometry
+below it silently fell back to `ascii` — an inconsistent half-measure the
+matrix test's own "byte-identical to `ascii`" claim now rules out for both
+unsupported charsets).
+
+**Gate**: the target x charset x colour matrix (`render.test.ts`) no longer
+only checks `resolved.charset` (which always ECHOES the request, proving
+nothing about behaviour) — for `braille` and `blocks` alike it now asserts
+the matching ledger code AND that the frame is byte-for-byte identical to
+the SAME mark/target/color rendered with `charset: "ascii"`.
+
+### P1-5 — CLI `--camera` validation
+
+`chartCli.ts`'s `parseCameraArg` split `--camera`'s raw value on `,` with no
+length check at all: `--camera 10` (1 field) silently built `{rotX: 10}`
+with no `rotY`, and `--camera 10,20,3,4` (4 fields) silently dropped the
+4th field and kept `{rotX:10, rotY:20, zoom:3}`. `--camera` itself was also
+accepted and quietly built into `opts.camera` even without `--3d` present —
+`resolveChart3dCliOutput` simply never ran, so the flag had no effect and no
+diagnostic either.
+
+Fixed at the CLI's own argument-parsing boundary: `parseCameraArg` now
+requires EXACTLY 2 or 3 comma-separated fields, each a finite number, or
+throws a tagged `bad-camera-arg`; `parseChartArgs` throws a tagged
+`bad-3d-flag` when `--camera` is set without `--3d`. `runChart` was
+restructured so `parseChartArgs` runs INSIDE the same `try` block every
+other CLI failure already reaches, so both new rejections exit 1 with their
+code on stderr like every existing one.
+
+**Gate** (`chartCli.test.ts`): `--camera 10` and `--camera 10,20,3,4` both
+reject with `bad-camera-arg`/exit 1; `--camera 10,20` with no `--3d` rejects
+with `bad-3d-flag`/exit 1.
+
+### Fix round 1 — mutation table
+
+| Item | Gate | Mutation | Result |
+|---|---|---|---|
+| P1-1 | `render.test.ts`'s "shading: 'value' keeps glyph density monotone in z" | Revert `p.texture` to the bare (unnamespaced) key, keep `compileScene` routing | RED — `new Set(sampleIndices).size` is `1`, not `> 1` (verified by hand, restored after) |
+| P2-6 | `render.test.ts`'s rewritten "static frame equals live scene" (shading: value, colorbar, title, several ticks) | Any divergence between `render.ts`'s `compileScene({objects})` call and a real `scene.addObject()` mount | RED — the extracted plot sub-rectangle stops matching the live scene's own text |
+| P1-2 | `render.test.ts`'s 15-combination rotation x size sweep (footprint >= 0.4, all 3 axis titles present) | Fit from the raw AABB alone (`glyphChart3dFitCamera`, no probe render) instead of `fitStaticCamera` | RED on several of the SAME combinations (a dedicated test reproduces the old technique inline and asserts at least one rotation/size falls below the floor) |
+| P1-3 | `chartCli.test.ts`'s `--color none` default-shading test | Revert `resolveMarkShading`'s colour-mode branch (always default to `"relief"`) | RED — the defaulted render stops matching the explicit `shading: "value"` render |
+| P1-4 | `render.test.ts`'s target x charset x colour matrix | Keep `charMode: "halfblock"` requested for `blocks` with no downgrade | RED — `blocks` output diverges from `ascii` with no explaining ledger entry |
+| P1-5 | `chartCli.test.ts`'s 3 new `--camera` cases | Drop the field-count/finite check, or the `--3d`-required check | RED — `--camera 10`/`--camera 10,20,3,4`/`--camera 10,20` (no `--3d`) all stop rejecting |
+
+**Gate.** `pnpm --filter @glyphcss/charts test` (43 files, 1568 tests, +31
+over the C2 packet's own 1537), `pnpm --filter @glyphcss/compile test` (8
+files, 82 tests, +15), `pnpm --filter @glyphcss/core test` (26 files, 801
+tests, unchanged — this round touched no core file), `tsc --noEmit` clean
+on both `@glyphcss/charts` and `chartCli.ts`/`chartCli.test.ts`, and
+`pnpm build:packages` (all 17 packages) pass — all at the merged base
+BEFORE the pre-final-gates re-merge of `feat/diagrams`'s then-current head,
+which this section's own final report re-verifies.

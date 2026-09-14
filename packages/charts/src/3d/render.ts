@@ -6,32 +6,31 @@
  * no live orbit here, that is `/charts`' own web viewport (C3) — and
  * effects are out of scope for this packet.
  *
- * The frame is built with NO scene, NO DOM and NO `compileScene` object
- * support (that contract, PLAN-3d.md's F5, hasn't landed on this branch
- * yet) — instead this drives `glyphcss`'s own `buildRasterizeContext` +
- * `rasterize` directly, with a `transformCells` hook that runs the chart
- * object's OWN overlays (through the exact `GlyphOverlayFrame`/
- * `GlyphLabelArbiter` contract `createGlyphScene`'s own overlay registry
- * uses, AGENTS.md's "Scene objects") before capturing the resulting
- * `CellGrid` — so this is byte-identical to what a real scene would
- * produce for the SAME camera and object (`render.test.ts`'s own gate).
- * `GLYPH_CHART_TARGET_DEFAULTS`/`glyphChartColorEnabled` are reused
- * directly from the root package (relative import — this file is the ONE
- * direction PLAN-3d.md's root/3d isolation allows: 3D sharing the 2D
- * vocabulary, never the reverse, `rootIsolation.test.ts`).
+ * C2 fix round 1 (P2-6): routes through `glyphcss`'s public `compileScene({
+ * objects })` (F5b's own contract, AGENTS.md's "Compilation") instead of a
+ * hand-rolled `buildRasterizeContext`/`rasterize` call — `compileScene`
+ * already merges an object's `textureSamplers` under its own namespaced
+ * key, runs its overlays through the shared label arbiter, and captures the
+ * resulting `CellGrid` from the SAME single rasterize pass, all through the
+ * canonical `scene.addObject()` composition path (this file previously
+ * duplicated all three by hand, which is what let P1-1's texture-key bug
+ * hide: the hand-rolled renderer used the SAME raw, unnamespaced key on
+ * both the sampler-map side and the polygon-authored side, so it never
+ * diverged from itself — only a real `compileScene`/`scene.addObject` mount
+ * exposed the mismatch). This module now differs from mounting the same
+ * object in a live `createGlyphScene` at the same camera only in the ways
+ * `compileScene` itself documents (no detail layers, no shadows unless a
+ * mesh opts in — this object's own single mesh never does).
  */
 import { format as d3format } from "d3-format";
-import {
-  buildCellGrid, buildRasterizeContext, createGlyphCanvas, createGlyphLabelArbiter, createGlyphOrthographicCamera,
-  encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, rasterize,
-} from "glyphcss";
-import type { CellGrid, GlyphCanvas, GlyphOverlayFrame, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
+import { compileScene, createGlyphCanvas, createGlyphOrthographicCamera, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText } from "glyphcss";
+import type { CellGrid, GlyphAmbientLight, GlyphCanvas, GlyphDirectionalLight, GlyphSceneObject, Vec3 } from "glyphcss";
 import { GLYPH_CHART_TARGET_DEFAULTS } from "../render";
 import { glyphChartColorEnabled } from "../regionFill";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartTarget } from "../types";
-import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera } from "./camera";
+import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
 import { glyphChart3dBandColor } from "./colorscale";
-import { ledgerCharset3dBrailleUnsupported, ledgerColorbarOmitted } from "./ledger";
+import { ledgerCharset3dBlocksUnsupported, ledgerCharset3dBrailleUnsupported, ledgerColorbarOmitted } from "./ledger";
 import { glyphChartObject } from "./object";
 import { glyphChartSurface } from "./surface";
 import { chart3dError, glyphChart3dRepairHint } from "./validate";
@@ -42,7 +41,7 @@ import type {
 export interface GlyphChart3dCameraOptions {
   readonly rotX?: number;
   readonly rotY?: number;
-  /** Omit for AUTO-FIT (the default — fits the whole object + its axis labels on screen, PLAN-3d.md's C2 acceptance). An explicit value opts out of auto-fit for THIS render's zoom only; `target` still auto-fits. */
+  /** Omit for AUTO-FIT (the default — fits the whole object + its overlay labels on screen, PLAN-3d.md's C2 acceptance and fix round 1's P1-2). An explicit value opts out of auto-fit for THIS render's zoom only; `target` still auto-fits. */
   readonly zoom?: number;
 }
 
@@ -80,6 +79,15 @@ export interface GlyphChart3dResult {
   readonly html?: string;
   readonly resolved: GlyphChart3dResolved;
   readonly report: GlyphChart3dReport;
+  /**
+   * The mounted `GlyphSceneObject` this frame rasterized (with its
+   * `shading` resolved — see `resolveMarkShading`) — a caller can mount the
+   * SAME object into a live `createGlyphScene` for an orbitable view at
+   * `resolved.camera`, mirroring `@glyphcss/diagrams/3d`'s own D2/D3 split
+   * (`renderGlyphDiagram3d`'s result carries `object` for exactly this
+   * reason).
+   */
+  readonly object: GlyphSceneObject;
 }
 
 const CANVAS_TIERS = ["ascii", "box", "blocks", "braille"] as const;
@@ -96,134 +104,199 @@ function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
 }
 
 /**
- * Charset -> `RasterizeContextOptions.charMode` (PLAN-3d.md's "Charset
- * mapping for 3D"): `ascii`/`box` share the default ASCII solid ramp (there
- * is no distinct box-drawing SOLID mode in glyphcss — that vocabulary is the
- * 2D cell canvas's own tier system); `blocks` gets the two-colour-per-cell
- * `halfblock` encoder; `braille` is wireframe-only in glyphcss (AGENTS.md's
- * "Render modes"), so a 3D (always-solid) chart DOWNGRADES it to the
- * default ramp with a ledger entry rather than silently ignoring the
- * request or throwing.
+ * Charset -> a ledger degrade (fix round 1, P1-4): a 3D chart's overlays
+ * (the box wireframe, every axis's ticks/labels — ALWAYS mounted, never
+ * optional) install a `transformCells` hook on every render, and glyphcss's
+ * `charMode: "halfblock"`/`"quadrant"` two-colour-per-cell encoders are
+ * solid-mode-only AND disabled outright whenever a `transformCells` hook is
+ * present (`rasterize.ts`'s `wantsHalfblockSolid`/`wantsQuadrantSolid`,
+ * AGENTS.md's own "Render modes": "no-ops with `transformCells`"). A prior
+ * cut requested `charMode: "halfblock"` for `charset: "blocks"` anyway,
+ * which the hook silently defeated — `ascii` and `blocks` output were
+ * byte-identical, with no signal that the request never took effect.
+ * Rendering the geometry in real halfblock WITHOUT the hook was considered
+ * and rejected: the hook IS the axis box/ticks/labels, so dropping it to
+ * get halfblock geometry would draw a surface with no box, no ticks and no
+ * axis titles at all — a bigger loss than the charset downgrade itself, and
+ * "stamp the chrome separately" has no home to stamp INTO once the hook
+ * that owns stamping is gone. So both unsupported charsets get the SAME
+ * faithful, VISIBLE downgrade to the default solid ramp — `braille`
+ * (wireframe-only in glyphcss, so a chart's own always-solid geometry could
+ * never draw it) and now `blocks` too, each with its own ledger entry
+ * naming exactly what happened, mirroring `@glyphcss/diagrams/3d`'s own D2
+ * packet's identical `blocks -> ascii` choice (`render3d.ts`'s
+ * `resolveCharset`).
  */
-function resolveCharMode3d(charset: GlyphChartCharset, ledger: GlyphChart3dLedgerEntry[]): "halfblock" | undefined {
-  if (charset === "blocks") return "halfblock";
-  if (charset === "braille") { ledger.push(ledgerCharset3dBrailleUnsupported()); return undefined; }
-  return undefined;
-}
-
-/** The canvas CHROME (title/colorbar) tier — independent of the solid rasterizer's own `charMode`; `braille` downgrades to `box` here too (no braille glyphs in the 3D frame at all). */
-function chromeTier(charset: GlyphChartCharset): (typeof CANVAS_TIERS)[number] {
-  return charset === "braille" ? "box" : charset;
-}
-
-function cloneCellGridFields(g: CellGrid): CellGrid {
-  return buildCellGrid(
-    g.char, g.color, g.depth, g.cols, g.rows,
-    g.surfaceUv ?? null, g.shade ?? null, g.worldPosition ?? null, g.normal ?? null,
-    g.winnerPolygon ?? null, g.albedoRgb ?? null, g.targetRgb ?? null, g.weight ?? null,
-    g.objectPosition ?? null, g.objectExit ?? null, g.winnerMesh ?? null, g.objectNormal ?? null,
-  );
-}
-
-interface RasterizeSurfaceOptions {
-  readonly polygons: readonly Polygon[];
-  readonly overlays: readonly GlyphSceneOverlay[];
-  readonly textureSamplers?: ReadonlyMap<string, TextureSampler>;
-  readonly camera: ReturnType<typeof createGlyphOrthographicCamera>;
-  readonly cols: number;
-  readonly rows: number;
-  readonly cellAspect: number;
-  readonly useColors: boolean;
-  readonly charMode?: "halfblock";
-  readonly directionalLight?: { readonly direction: Vec3; readonly intensity: number };
-  readonly ambientLight?: { readonly intensity: number };
+function resolveCharsetDegrade3d(charset: GlyphChartCharset, ledger: GlyphChart3dLedgerEntry[]): void {
+  if (charset === "blocks") ledger.push(ledgerCharset3dBlocksUnsupported());
+  else if (charset === "braille") ledger.push(ledgerCharset3dBrailleUnsupported());
 }
 
 /**
- * Renders `polygons` + `overlays` to a `CellGrid`, with the overlays run
- * through the SAME `GlyphOverlayFrame`/`GlyphLabelArbiter` contract
- * `createGlyphScene`'s own overlay registry drives (`applyGlyphSceneObjectOverlays`,
- * AGENTS.md's "Scene objects") — no scene, no DOM. Mirrors `rasterizeToCells`'s
- * own capture-and-clone technique (`glyphcss`'s `render/rasterize.ts`), with
- * the object's overlays chained AHEAD of the capture rather than after it.
+ * The canvas CHROME (title/colorbar) tier. `braille` degrades to `box` (no
+ * braille glyphs anywhere in the 3D frame). `blocks` ALSO degrades to the
+ * default `ascii` tier here (fix round 1, P1-4) — the geometry itself can
+ * never actually render in halfblock (`resolveCharsetDegrade3d`'s own doc),
+ * and letting the CHROME alone keep real half-block/quadrant swatch glyphs
+ * while the geometry silently fell back would make a `blocks` frame
+ * genuinely DIFFERENT bytes from an `ascii` one for a reason no ledger
+ * entry explains — the matrix test's own "byte-identical to ascii" claim is
+ * what makes the downgrade FAITHFUL rather than a half-measure.
  */
-function rasterizeSurfaceToCells(opts: RasterizeSurfaceOptions): CellGrid {
-  const arbiter = createGlyphLabelArbiter();
-  const overlays = [...opts.overlays].sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-  let captured: CellGrid | null = null;
-  const ctx = buildRasterizeContext({
-    camera: opts.camera,
-    grid: { cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect },
-    polygons: [...opts.polygons],
-    mode: "solid",
-    useColors: opts.useColors,
-    charMode: opts.charMode,
-    ...(opts.directionalLight ? { directionalLight: opts.directionalLight } : {}),
-    ...(opts.ambientLight ? { ambientLight: opts.ambientLight } : {}),
-    ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),
-    transformCells: (grid) => {
-      const frame: GlyphOverlayFrame = {
-        camera: opts.camera,
-        cols: grid.cols,
-        rows: grid.rows,
-        cellAspect: opts.cellAspect,
-        layer: undefined,
-        toWorld: (p) => p,
-        // A single mounted object with a single mesh never hides behind a
-        // FOREIGN mesh (there is none) — no `retainWinnerMesh` request, so
-        // `grid.winnerMesh` never exists and the arbiter's own occlusion
-        // check is inert regardless of this set's contents.
-        ownMeshIds: new Set<number>(),
-        labels: arbiter,
-      };
-      for (const overlay of overlays) overlay.stamp(grid, frame);
-      arbiter.resolve(grid);
-      captured = cloneCellGridFields(grid);
-      return grid;
-    },
-  });
-  rasterize(ctx);
-  if (captured) return captured;
-  const n = opts.cols * opts.rows;
-  return buildCellGrid(new Array(n).fill(" "), null, null, opts.cols, opts.rows);
+function chromeTier(charset: GlyphChartCharset): (typeof CANVAS_TIERS)[number] {
+  return charset === "braille" || charset === "blocks" ? "ascii" : charset;
 }
 
-function pasteCellGrid(canvas: GlyphCanvas, src: CellGrid, x0: number, y0: number): void {
-  for (let r = 0; r < src.rows; r++) {
-    for (let c = 0; c < src.cols; c++) {
-      const srcIdx = r * src.cols + c;
-      const dstCol = x0 + c, dstRow = y0 + r;
-      if (dstCol < 0 || dstCol >= canvas.cols || dstRow < 0 || dstRow >= canvas.rows) continue;
-      const dstIdx = dstRow * canvas.cols + dstCol;
-      const ch = src.char[srcIdx] ?? " ";
-      canvas.grid.char[dstIdx] = ch;
-      canvas.grid.color[dstIdx] = src.color[srcIdx] ?? null;
-      if (ch !== " ") canvas.ink[dstIdx] = 1;
-    }
-  }
+/**
+ * `mark.shading` resolves from the render's OWN colour mode when the
+ * caller never named one (fix round 1, P1-3): §5 requires `shading:
+ * "value"` by default under `color: "none"`/NO_COLOR, and `glyphChartSurface`
+ * (the MODEL step) has no visibility into a later render's colour mode, so
+ * it now leaves `shading` `undefined` rather than baking in `"relief"`
+ * itself (`surface.ts`'s own doc). This is the ONE place that default is
+ * resolved — where the colour mode is actually known.
+ */
+function resolveMarkShading(mark: GlyphChart3dSurfaceMark, colorEnabled: boolean): "relief" | "value" {
+  return mark.shading ?? (colorEnabled ? "relief" : "value");
 }
 
-/** A vertical value-scale swatch strip at the canvas's own right edge — z max at the top, z min at the bottom, each row's shade AND colour reading its own band (monotone even with colour off, matching `shading: "value"`'s own discipline). */
+/** A vertical value-scale swatch strip at the canvas's own right edge — z max at the top, z min at the bottom, each row's shade AND colour reading its own band (monotone even with colour off, matching `shading: "value"`'s own discipline). Fix round 1 (P1-2): labels every band up to a legible cap, not just the two endpoints — a one-column colorbar with no intermediate reading is close to useless as a legend. */
 function paintColorbar(canvas: GlyphCanvas, mark: GlyphChart3dSurfaceMark, y0: number, rowsAvailable: number, colorEnabled: boolean): void {
   const swatchCol = canvas.cols - 1;
   const labelCol = swatchCol - 1;
   const bands = mark.bands;
   const rows = Math.max(1, Math.min(bands, rowsAvailable));
   const anchors = mark.colorAnchors;
+  const [zLo, zHi] = mark.axes.z.domain;
+  const zSpan = zHi - zLo;
+  const MAX_LABELS = 6;
+  const labelEvery = rows <= MAX_LABELS ? 1 : Math.ceil((rows - 1) / (MAX_LABELS - 1));
   for (let i = 0; i < rows; i++) {
     const row = y0 + i;
     const bandIdx = rows === 1 ? bands - 1 : Math.round(((rows - 1 - i) * (bands - 1)) / (rows - 1));
     const shade = bands <= 1 ? 1 : bandIdx / (bands - 1);
     const swatchColor = anchors ? glyphChart3dBandColor(anchors, bandIdx, bands) : null;
     canvas.fillRect(swatchCol, row, swatchCol, row, { fill: { shade }, color: colorEnabled ? swatchColor : null });
+    const isEndpoint = i === 0 || i === rows - 1;
+    if (!isEndpoint && i % labelEvery !== 0) continue;
+    const value = bands <= 1 ? zHi : zLo + (bandIdx / (bands - 1)) * zSpan;
+    canvas.text(labelCol, row, [zFormat(value)], { align: "right", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
   }
-  const [zLo, zHi] = mark.axes.z.domain;
-  canvas.text(labelCol, y0, [zFormat(zHi)], { align: "right", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
-  canvas.text(labelCol, y0 + rows - 1, [zFormat(zLo)], { align: "right", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
 }
 
 function objectBoundsCenter(bounds: { readonly min: Vec3; readonly max: Vec3 }): Vec3 {
   return [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
+}
+
+interface ResolvedLighting {
+  readonly directionalLight?: GlyphDirectionalLight;
+  readonly ambientLight?: GlyphAmbientLight;
+}
+
+function lightingForShading(shading: "relief" | "value"): ResolvedLighting {
+  // `shading: "value"` renders under ambient-only light so slope contributes
+  // nothing to the picture at all — glyph density alone carries z, matching
+  // AGENTS.md's "Charts 3D" own doc.
+  return shading === "value"
+    ? { directionalLight: { direction: [0.5, 0.7, 0.5], intensity: 0 }, ambientLight: { intensity: 1 } }
+    : {};
+}
+
+function renderObjectFrame(object: GlyphSceneObject, camera: ReturnType<typeof createGlyphOrthographicCamera>, cols: number, rows: number, cellAspect: number, useColors: boolean, lighting: ResolvedLighting): CellGrid {
+  const result = compileScene({
+    polygons: [],
+    objects: [object],
+    camera,
+    cols,
+    rows,
+    cellAspect,
+    mode: "solid",
+    useColors,
+    ...lighting,
+  });
+  // `objects` never requests `charMode: "halfblock"`/`"quadrant"` here (see
+  // `resolveCharsetDegrade3d`), so `grid` is never `null`
+  // (`CompileSceneResult.grid`'s own doc — `null` is exact to those two
+  // charModes only).
+  return result.grid!;
+}
+
+function occupiedBounds(grid: CellGrid): { minCol: number; maxCol: number; minRow: number; maxRow: number } | undefined {
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (let row = 0; row < grid.rows; row++) {
+    for (let col = 0; col < grid.cols; col++) {
+      if (grid.char[row * grid.cols + col] === " ") continue;
+      if (col < minCol) minCol = col;
+      if (col > maxCol) maxCol = col;
+      if (row < minRow) minRow = row;
+      if (row > maxRow) maxRow = row;
+    }
+  }
+  return Number.isFinite(minCol) ? { minCol, maxCol, minRow, maxRow } : undefined;
+}
+
+// Mirrors `createGlyphCamera.ts`'s own `BASE_TILE` (a documented public
+// default, `@glyphcss/diagrams/3d`'s `render3d.ts` cites the same constant
+// for the identical reason: a headless render has no DOM to measure a real
+// character cell from).
+const BASE_TILE = 50;
+const FIT_PROBE_COLS = 220, FIT_PROBE_ROWS = 130;
+const FIT_MARGIN_COLS = 1, FIT_MARGIN_ROWS = 1;
+
+/**
+ * Auto-fit the static frame's default camera (fix round 1, P1-2): the
+ * PREVIOUS cut fitted the mesh's expanded AABB only (`camera.ts`'s own
+ * `glyphChart3dFitCamera`, kept unchanged below as the cheap, synchronous,
+ * analytic pre-fit any scene consumer — e.g. a live orbit viewport's
+ * INITIAL pose — can afford), which measured neither the projected overlay
+ * labels (ticks, titles) nor the true glyph footprint those labels' own
+ * TEXT occupies, so a short axis title routinely fell off-frame at several
+ * rotations and the kept plot filled only ~5% of the requested cells at
+ * common CLI sizes (80x24/96x32/140x40, all measured in the review).
+ *
+ * This renders TWICE, the same probe-then-scale technique
+ * `@glyphcss/diagrams/3d`'s own D2 packet already shipped
+ * (`render3d.ts`'s `fitCamera` — a node LABEL's cell width doesn't shrink
+ * with zoom the way geometry does, so the only reliable source for "does
+ * this actually fit" is rendering it and measuring the painted cells, not
+ * an analytic estimate): pass 1 renders at a conservative, safely-small
+ * probe zoom into a generous grid and measures the OCCUPIED cell box —
+ * geometry AND every stamped tick/title glyph together, since they share
+ * one `CellGrid`; pass 2 scales zoom by exactly the ratio needed to fill
+ * `cols`x`rows` (minus a 1-cell margin) and recentres via `camera.center`
+ * (an additive projection offset — `centerCol = cols * center[0]` — so no
+ * rotation needs inverting, unlike moving `camera.target` would).
+ */
+function fitStaticCamera(object: GlyphSceneObject, rotX: number, rotY: number, cols: number, rows: number, cellAspect: number, useColors: boolean, lighting: ResolvedLighting): { readonly camera: ReturnType<typeof createGlyphOrthographicCamera>; readonly zoom: number } {
+  const centroid = objectBoundsCenter(object.bounds);
+  const makeCamera = (zoom: number, center: readonly [number, number]) => {
+    const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom, center: [center[0], center[1]] });
+    camera.target = centroid;
+    return camera;
+  };
+
+  const extentWorld = Math.max(
+    object.bounds.max[0] - object.bounds.min[0],
+    object.bounds.max[1] - object.bounds.min[1],
+    object.bounds.max[2] - object.bounds.min[2],
+    1,
+  );
+  const probeFramePx = Math.min(FIT_PROBE_COLS * (BASE_TILE / cellAspect), FIT_PROBE_ROWS * BASE_TILE);
+  const probeZoom = Math.max(0.05, probeFramePx / (6 * extentWorld * Math.SQRT2));
+  const probeCamera = makeCamera(probeZoom, [0.5, 0.5]);
+  const probeGrid = renderObjectFrame(object, probeCamera, FIT_PROBE_COLS, FIT_PROBE_ROWS, cellAspect, useColors, lighting);
+  const box = occupiedBounds(probeGrid);
+  if (!box) return { camera: makeCamera(probeZoom, [0.5, 0.5]), zoom: probeZoom };
+
+  const contentCols = box.maxCol - box.minCol + 1, contentRows = box.maxRow - box.minRow + 1;
+  const availableCols = Math.max(1, cols - 2 * FIT_MARGIN_COLS), availableRows = Math.max(1, rows - 2 * FIT_MARGIN_ROWS);
+  const scale = Math.min(availableCols / contentCols, availableRows / contentRows);
+  const finalZoom = probeZoom * scale;
+
+  const probeCenterCol = (box.minCol + box.maxCol + 1) / 2, probeCenterRow = (box.minRow + box.maxRow + 1) / 2;
+  const dCol = (probeCenterCol - FIT_PROBE_COLS / 2) * scale, dRow = (probeCenterRow - FIT_PROBE_ROWS / 2) * scale;
+  const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
+  return { camera: makeCamera(finalZoom, center), zoom: finalZoom };
 }
 
 /**
@@ -231,8 +304,8 @@ function objectBoundsCenter(bounds: { readonly min: Vec3; readonly max: Vec3 }):
  * `glyphChartSurface` result, mirroring `glyphChartObject`'s own `(mark,
  * options)` shape) at the resolved target/charset/color/camera, through the
  * same `text`/`html` exits the 2D entry uses. Auto-fits the default camera
- * to the object's own bounds (`glyphChart3dFitCamera`) so the whole surface
- * and all three axis labels are on screen with no explicit camera.
+ * to the object's own geometry AND overlay labels (`fitStaticCamera`) so
+ * the plot is the dominant element on screen with no explicit camera.
  */
 export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3dRenderOptions = {}): GlyphChart3dResult {
   if (mark.type !== "surface") {
@@ -269,8 +342,10 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   }
 
   const ledger: GlyphChart3dLedgerEntry[] = [...mark.report.ledger];
-  const charMode = resolveCharMode3d(charset, ledger);
+  resolveCharsetDegrade3d(charset, ledger);
   const colorEnabled = glyphChartColorEnabled(color, options.env);
+  const shading = resolveMarkShading(mark, colorEnabled);
+  const lighting = lightingForShading(shading);
 
   const titleRows = options.title ? 1 : 0;
   const wantColorbar = mark.colorAnchors !== null;
@@ -283,39 +358,35 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   const plotRows = Math.max(1, height - titleRows);
   const plotY0 = titleRows;
 
-  const object = glyphChartObject(mark);
+  const object = mark.shading === shading ? glyphChartObject(mark) : glyphChartObject({ ...mark, shading });
 
-  let zoom = cameraOption.zoom;
-  let cameraTarget: Vec3;
-  if (zoom === undefined) {
-    const fit = glyphChart3dFitCamera({ bounds: object.bounds, rotX, rotY, cols: plotCols, rows: plotRows, cellAspect });
+  let camera: ReturnType<typeof createGlyphOrthographicCamera>;
+  let zoom: number;
+  if (cameraOption.zoom === undefined) {
+    const fit = fitStaticCamera(object, rotX, rotY, plotCols, plotRows, cellAspect, colorEnabled, lighting);
+    camera = fit.camera;
     zoom = fit.zoom;
-    cameraTarget = fit.target;
   } else {
-    cameraTarget = objectBoundsCenter(object.bounds);
+    zoom = cameraOption.zoom;
+    camera = createGlyphOrthographicCamera({ rotX, rotY, zoom });
+    camera.target = objectBoundsCenter(object.bounds);
   }
-  const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom });
-  camera.target = cameraTarget;
 
-  const lighting = mark.shading === "value"
-    ? { directionalLight: { direction: [0.5, 0.7, 0.5] as Vec3, intensity: 0 }, ambientLight: { intensity: 1 } }
-    : {};
-
-  const surfaceGrid = rasterizeSurfaceToCells({
-    polygons: object.meshes[0]!.polygons,
-    overlays: object.overlays ?? [],
-    textureSamplers: object.textureSamplers,
-    camera,
-    cols: plotCols,
-    rows: plotRows,
-    cellAspect,
-    useColors: colorEnabled,
-    charMode,
-    ...lighting,
-  });
+  const surfaceGrid = renderObjectFrame(object, camera, plotCols, plotRows, cellAspect, colorEnabled, lighting);
 
   const canvas = createGlyphCanvas({ cols: width, rows: height, tier: chromeTier(charset), cellAspect });
-  pasteCellGrid(canvas, surfaceGrid, 0, plotY0);
+  for (let r = 0; r < surfaceGrid.rows; r++) {
+    for (let c = 0; c < surfaceGrid.cols; c++) {
+      const srcIdx = r * surfaceGrid.cols + c;
+      const dstCol = c, dstRow = plotY0 + r;
+      if (dstCol < 0 || dstCol >= canvas.cols || dstRow < 0 || dstRow >= canvas.rows) continue;
+      const dstIdx = dstRow * canvas.cols + dstCol;
+      const ch = surfaceGrid.char[srcIdx] ?? " ";
+      canvas.grid.char[dstIdx] = ch;
+      canvas.grid.color[dstIdx] = surfaceGrid.color[srcIdx] ?? null;
+      if (ch !== " ") canvas.ink[dstIdx] = 1;
+    }
+  }
 
   if (options.title) {
     canvas.text(Math.floor(width / 2), 0, [options.title], { align: "center", color: colorEnabled ? COLORBAR_TITLE_COLOR : undefined });
@@ -336,6 +407,7 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
     ...(html !== undefined ? { html } : {}),
     resolved: { target, charset, color, width, height, cellAspect, camera: { rotX, rotY, zoom } },
     report: { ledger },
+    object,
   };
 }
 
@@ -353,8 +425,10 @@ export interface GlyphChart3dJsonInput {
  * packaged as one object for a caller with only a string to hand around),
  * `options` is the SAME `GlyphChart3dRenderOptions` the JS entry takes
  * (never embedded in the JSON — mirrors the root split). Returns `{ text,
- * html?, resolved, report }` on success, `{ error, code, hint }` on a
- * validation failure.
+ * html?, resolved, report }` on success (`object` — a `GlyphSceneObject`
+ * carrying function-valued overlays — is NOT JSON-serializable and is
+ * therefore omitted from this string exit, unlike the JS entry's own
+ * result), `{ error, code, hint }` on a validation failure.
  */
 export function renderGlyphChart3dJson(json: string, options: GlyphChart3dRenderOptions = {}): string {
   let input: GlyphChart3dJsonInput;
@@ -365,7 +439,8 @@ export function renderGlyphChart3dJson(json: string, options: GlyphChart3dRender
   }
   try {
     const mark = glyphChartSurface(input.data, input.channels, input.options);
-    return JSON.stringify(renderGlyphChart3d(mark, options));
+    const { object: _object, ...rest } = renderGlyphChart3d(mark, options);
+    return JSON.stringify(rest);
   } catch (e) {
     const error = e as Error & { code?: string };
     const code = error.code ?? null;

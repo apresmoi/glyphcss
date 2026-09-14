@@ -193,8 +193,21 @@ export function glyphChartSurface(
   const resolved = isGridData(data) ? resolveGridShape(data, channels) : resolveLongRowShape(data, channels);
   const aspect = resolveAspect(options.aspect);
   const bands = resolveBands(options.bands);
-  const shading = options.shading ?? "relief";
-  if (shading !== "relief" && shading !== "value") chart3dError("bad-options", `shading must be "relief" or "value", got ${JSON.stringify(shading)}.`);
+  // NOT defaulted here (fix round 1, P1-3): §5 requires `shading: "value"`
+  // by default under `color: "none"`/NO_COLOR, and this model-build step has
+  // no visibility into the eventual render's own colour mode — that
+  // decision belongs to whoever DOES, `renderGlyphChart3d` (`render.ts`'s
+  // own `resolveMarkShading`). Leaving `shading` `undefined` when the caller
+  // never named one (rather than baking in "relief" here) is what makes
+  // that downstream default possible at all; every OTHER consumer of a mark
+  // (`glyphChartObject` mounted directly into a live scene, where "colour
+  // mode" is a meaningless concept — a real scene always has full colour
+  // capability) still reads an undefined `shading` as `"relief"`, its own
+  // unchanged default.
+  const shading = options.shading;
+  if (shading !== undefined && shading !== "relief" && shading !== "value") {
+    chart3dError("bad-options", `shading must be "relief" or "value", got ${JSON.stringify(shading)}.`);
+  }
   const colorOption = options.color ?? "auto";
   if (colorOption !== "auto" && colorOption !== "none") chart3dError("bad-options", `color must be "auto" or "none", got ${JSON.stringify(colorOption)}.`);
   const colorAnchors = colorOption === "none" ? null : resolveGlyphChart3dColorscaleAnchors(options.colorscale);

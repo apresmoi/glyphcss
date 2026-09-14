@@ -55,12 +55,17 @@ export interface GlyphChart3dSurfaceOptions {
   /** Colour band count — quantizes the z domain, following the 2D `cell` mark's own quantized-shade discipline. Default 9. */
   readonly bands?: number;
   /**
-   * `"relief"` (default): the mesh carries banded colour and the host
-   * scene's own Lambert shading does the rest — glyph SHAPE reads slope,
-   * colour reads value. `"value"` (a monochrome/`color: "none"` analogue
-   * of 2D `regionFill`'s glyph-carries-identity rule) is a C2/rendering
-   * concern — accepted here for forward JSON/schema compatibility but not
-   * yet wired to any different mesh; see `docs/design/charts3d.md`.
+   * `"relief"`: the mesh carries banded colour and the host scene's own
+   * Lambert shading does the rest — glyph SHAPE reads slope, colour reads
+   * value. `"value"` (a monochrome/`color: "none"` analogue of 2D
+   * `regionFill`'s glyph-carries-identity rule) authors a per-triangle
+   * grey-ramp texture instead, so glyph DENSITY reads z regardless of face
+   * normal or light — see `object.ts`'s own doc. Omitted: `glyphChartObject`
+   * (a live scene, always full colour) reads it as `"relief"`;
+   * `renderGlyphChart3d` instead resolves ITS OWN default from the render's
+   * colour mode (`"value"` under `color: "none"`/NO_COLOR, `"relief"`
+   * otherwise) — the model step has no colour-mode visibility to default
+   * from itself (fix round 1, P1-3).
    */
   readonly shading?: "relief" | "value";
   /** `"none"` drops all per-quad colour (uncoloured polygons — the scene's default gray, Lambert-shaded). Default `"auto"` (colorscale banding on). */
@@ -99,7 +104,8 @@ export interface GlyphChart3dSurfaceMark {
   readonly bands: number;
   /** `null` when `options.color === "none"`. */
   readonly colorAnchors: readonly string[] | null;
-  readonly shading: "relief" | "value";
+  /** Undefined iff the caller passed no explicit `options.shading` — see the input field's own doc. */
+  readonly shading?: "relief" | "value";
   readonly maxQuadsX?: number;
   readonly maxQuadsY?: number;
   readonly axes: {
