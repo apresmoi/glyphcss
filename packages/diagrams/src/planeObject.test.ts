@@ -344,9 +344,26 @@ describe("glyphDiagramPlaneObject", () => {
 
   // A real rendered diagram (not a hand-painted fixture), mounted head-on
   // at 1:1, must read as recognisable: each node's own label ink lands
-  // inside its own box, and left-to-right (LR) ordering survives.
-  it("mounts a real rendered diagram, viewed head-on, and reads as recognisable — each node's own label ink lands inside its own box", async () => {
-    const page = await renderGlyphDiagram("graph LR; Start --> Middle; Middle --> End");
+  // inside its own box's INTERIOR (excluding the one-cell border ring
+  // `paintGlyphDiagram` always draws at row y0/y1 and column x0/x1 —
+  // `packages/diagrams/src/paint.ts`'s `fillRect`+`line` node-box block),
+  // and left-to-right (LR) ordering survives in the RENDERED plane itself,
+  // not merely in the pre-render layout. P2 fix round 2: the prior version
+  // of this test scanned the whole node box (border included), so a drawn
+  // border with no label text still satisfied "some ink in the box" — it
+  // never proved the label itself survived the plane.
+  it("mounts a real rendered diagram, viewed head-on, and reads as recognisable — each node's own label ink lands in its box's INTERIOR, excluding the border ring", async () => {
+    // `color: "none"` (never the default) is load-bearing here, not
+    // cosmetic: with colour on, a node box's own `bg` fill
+    // (`packages/diagrams/src/paint.ts`'s `canvas.fillRect(..., { bg:
+    // "#0f172a" })`) makes even a BLANK interior cell sample as a dark,
+    // opaque (never transparent) texel, which the renderer's own
+    // luminance-driven glyph pick can print as non-space ink with no label
+    // painted at all — the false positive this test exists to rule out. At
+    // `color: "none"` a node's `bg` is `null` (`paint.ts`'s `colored ?
+    // "#0f172a" : null`), so a blank interior cell's texel is fully
+    // transparent and genuinely reads as no ink.
+    const page = await renderGlyphDiagram("graph LR; Start --> Middle; Middle --> End", { color: "none" });
     const canvas = page.canvas;
     const k = 4;
 
@@ -370,21 +387,40 @@ describe("glyphDiagramPlaneObject", () => {
     };
 
     expect(page.layout.nodes.length).toBeGreaterThan(0);
+    // Each node's own INTERIOR — one cell inset from its own box on every
+    // side, so the border ring itself (`x0`/`x1`/`y0`/`y1`) is excluded —
+    // must carry rendered ink of its own; a box with a blanked label paints
+    // its border but leaves this region empty (confirmed by mutation: see
+    // this suite's round-2 report). `firstInkCol` (the leftmost interior
+    // column carrying ink, in the RENDERED grid) doubles as this node's own
+    // screen position for the LR assertion below — read from the render,
+    // never from `node.x0` itself.
+    const firstInkColByNodeId = new Map<string, number>();
     for (const node of page.layout.nodes) {
-      let nodeInk = 0;
-      for (let r = Math.round(node.y0); r <= Math.round(node.y1); r++) {
-        for (let c = Math.round(node.x0); c <= Math.round(node.x1); c++) if (canvasInk(r, c)) nodeInk++;
+      const ix0 = Math.round(node.x0) + 1, ix1 = Math.round(node.x1) - 1;
+      const iy0 = Math.round(node.y0) + 1, iy1 = Math.round(node.y1) - 1;
+      expect(ix1).toBeGreaterThanOrEqual(ix0);
+      expect(iy1).toBeGreaterThanOrEqual(iy0);
+      let interiorInk = 0;
+      let firstInkCol: number | undefined;
+      for (let r = iy0; r <= iy1; r++) {
+        for (let c = ix0; c <= ix1; c++) {
+          if (!canvasInk(r, c)) continue;
+          interiorInk++;
+          if (firstInkCol === undefined || c < firstInkCol) firstInkCol = c;
+        }
       }
-      expect(nodeInk).toBeGreaterThan(0);
+      expect(interiorInk).toBeGreaterThan(0);
+      firstInkColByNodeId.set(node.id, firstInkCol!);
     }
 
-    // LR direction: the first node's box sits strictly left of the last
-    // node's box.
-    const start = page.layout.nodes.find((n) => n.id === "Start");
-    const end = page.layout.nodes.find((n) => n.id === "End");
-    expect(start).toBeDefined();
-    expect(end).toBeDefined();
-    expect(start!.x0).toBeLessThan(end!.x0);
+    // LR direction, read from the RENDERED plane's own ink positions, not
+    // from the source `page.layout.nodes` coordinates.
+    const startCol = firstInkColByNodeId.get("Start");
+    const endCol = firstInkColByNodeId.get("End");
+    expect(startCol).toBeDefined();
+    expect(endCol).toBeDefined();
+    expect(startCol!).toBeLessThan(endCol!);
 
     scene.destroy();
   });
