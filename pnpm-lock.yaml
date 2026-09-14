@@ -149,6 +149,9 @@ importers:
         specifier: workspace:^
         version: link:../glyphcss
     devDependencies:
+      '@glyphcss/effects':
+        specifier: workspace:^
+        version: link:../effects
       '@types/d3-array':
         specifier: ^3.2.2
         version: 3.2.2

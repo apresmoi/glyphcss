@@ -15,6 +15,10 @@ export default defineConfig({
       // Point at source so tests work without a prior `pnpm build:packages`.
       "glyphcss": resolve(__dirname, "../glyphcss/src/index.ts"),
       "@glyphcss/core": resolve(__dirname, "../core/src/index.ts"),
+      // `effectsBridge.test.ts`'s determinism gate mounts a real stock
+      // effect (`GlyphScrambleEffect`) — same reason as the two aliases
+      // above.
+      "@glyphcss/effects": resolve(__dirname, "../effects/src/index.ts"),
     },
   },
 });

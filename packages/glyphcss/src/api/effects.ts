@@ -297,6 +297,26 @@ export interface GlyphEffectProgramBase<P extends object, S> {
    * schedules a recompose.
    */
   dynamicRequirements?(params: Readonly<P>): readonly GlyphEffectRequirement[];
+  /**
+   * The subset of `dynamicRequirements(params)` a program has NO fallback
+   * for — checked ONLY by the camera-less `composeGlyphEffects` (never by a
+   * mounted scene layer, whose own render-mode degrade for a dynamic
+   * requirement is deliberate: `dynamicRequirements` has no render-mode gate
+   * because a scene MIGHT retain the buffer in solid mode and gracefully
+   * fall back to 2D in wireframe/voxel — see `dynamicRequirements`'s own
+   * doc). A camera-less grid has no render mode to fall back BY — it either
+   * carries the buffer or it never will — so a program whose params commit
+   * it to a volumetric-only code path (field-synth's `render: "carve"` /
+   * `"xray"`, which march `objectPosition` → `objectExit` with no 2D
+   * substitute, unlike plain `space: "object"` paint's designed 2D
+   * fallback) reports that HERE, and `composeGlyphEffects` throws
+   * {@link GlyphEffectRequirementUnavailableError} for any entry the grid
+   * cannot supply — exactly like a static `requirements` entry, never a
+   * silent paint. Entries here need not repeat in `dynamicRequirements`;
+   * both are asked and unioned. Omitted = no requirement this program
+   * cannot degrade without, byte-identical to before this hook existed.
+   */
+  hardDynamicRequirements?(params: Readonly<P>): readonly GlyphEffectRequirement[];
   readonly sceneSampling?: "nearest";
   readonly scratch?: GlyphEffectScratchRequirements;
   validateParams?(params: Readonly<P>): void;

@@ -920,6 +920,64 @@ dimension change mid-flight.
 Each mutation above (the decal's) was applied to the working tree, run,
 observed red, then reverted and re-verified green.
 
+### F3 fix round 1 (codex review of cfaf86e0)
+
+Four findings, each fixed at the layer that owns the behaviour:
+
+1. **Coverage/`baseShade` ignored `canvas.ink`.** `effectsBridge.ts` derived
+   both from `grid.char !== " "`, which reports 0 for a `shade: 0`
+   painted-but-blank cell — exactly the case "Cell canvas" contract 5 exists
+   to distinguish from "never addressed". Fixed by reading `canvas.ink`
+   directly; `baseShade` stays binary (painted = 1, blank = 0), matching the
+   AGENTS.md wording that was already correct — only the SOURCE was wrong.
+2. **Field-synth carve/xray silently became paint on a camera-less grid.**
+   PLAN-3d.md §8 requires a reject, but `objectPosition`/`objectExit` reach
+   the compositor only through `dynamicRequirements`, which is deliberately
+   degrade-only (a mounted scene's wireframe/voxel fallback depends on
+   that). Hard-failing every dynamic requirement would also kill field-
+   synth's legitimate `space: "object"`/`render: "paint"` 2D fallback on a
+   camera-less grid — not what §8 asks for. Fixed with a new, narrower
+   program hook, `hardDynamicRequirements(params)` (`packages/glyphcss/src/
+   api/effects.ts`), checked ONLY by `composeGlyphEffects` (never by a
+   mounted scene's `composeRetainedGlyphEffectOutput`, whose own guard stays
+   static-only): field-synth's own `hardDynamicRequirements` names
+   `objectPosition`/`objectExit` exactly when `render` is `"carve"`/`"xray"`
+   (`packages/effects/src/stock.ts`), so a scene's wireframe/voxel degrade
+   is untouched and a camera-less carve/xray patch rejects.
+3. **The decal wasn't exact over blanks/null colours.** A blank source
+   glyph emitted `coverage: 0` (`blend: "over"` then let the mesh's own
+   glyph show through); a null source colour never set the COLOR channel at
+   all (the mesh's own colour survived underneath). Both are "not exact
+   1:1" — fixed by always emitting `coverage: 1` on a valid `uv0` hit and
+   always emitting the COLOR channel, with `GlyphEffectNoColor` for a null
+   source colour (`packages/effects/src/decal.ts`).
+4. **The mutation gates were too weak to catch a regression on any of the
+   above.** The decal's checkerboard test sampled only exact texel centres,
+   where a bilinear reconstruction is indistinguishable from nearest (zero
+   distance to either candidate texel); added an off-centre uv0 near the
+   shared corner of all four source cells, where a bilinear blend would
+   diverge furthest. The determinism test used a constant custom effect,
+   which can't reveal a hidden non-deterministic source (`Date.now()`,
+   `Math.random()`, leftover `state`) that only shows up when output
+   actually varies with `time`; added `@glyphcss/charts`' own compose test
+   against `@glyphcss/effects`' real `GlyphScrambleEffect` at a fixed `time`
+   (`packages/charts` gained a `@glyphcss/effects` devDependency, aliased to
+   source in `vitest.config.ts` like `glyphcss`/`@glyphcss/core` already
+   are, so no `pnpm build:packages` is required to run the test).
+
+Every row below was VERIFIED, not asserted: the fix was reverted in the
+working tree, the named test run and observed red, then the revert undone
+and the suite re-verified green.
+
+| Finding | Fix location | Mutation (revert fix -> test red) |
+|---|---|---|
+| 1: coverage/baseShade ignore `canvas.ink` | `packages/charts/src/effectsBridge.ts` | Reverted `inkCoverage` to `canvas.grid.char[i] === " " ? 0 : 1` -> the new painted-blank-cell test failed (`expected [1] to deeply equal [0]`) |
+| 2: carve/xray silently paint camera-less | `packages/glyphcss/src/render/effectCompositor.ts`, `packages/glyphcss/src/api/effects.ts`, `packages/effects/src/stock.ts` | Removed field-synth's `hardDynamicRequirements` entry -> both new `composeOnChart.test.ts` carve/xray reject tests failed (`expected undefined to be an instance of GlyphEffectRequirementUnavailableError`) |
+| 3a: decal blank source coverage | `packages/effects/src/decal.ts` | Reverted `coverage[i] = 1` to `glyph === " " ? 0 : 1` -> the new painted-target blank-cell test failed (the target's own `"Q"` survived at cell 1 instead of `" "`) |
+| 3b: decal null source colour | `packages/effects/src/decal.ts` | Reverted to the old `if (color != null)` gate (no `GlyphEffectNoColor` emission) -> the new painted-target null-colour test failed (the target's own `"#111111"` survived at cell 1 instead of `null`) |
+| 4a: decal nearest-vs-bilinear gate | `packages/effects/src/decal.test.ts` | Inserted a real bilinear colour blend into `evaluate()`'s colour pick, in place of the nearest sample: the PRE-EXISTING exact-centre test still PASSED (`#ff0000` at its own texel centre — zero blend distance either way, the false negative the finding named), while the new off-centre test correctly failed (`expected "#807f40" to be "#ff0000"`) |
+| 4b: determinism gate strength | `packages/charts/src/effectsBridge.test.ts` | Injected a module-level counter into `scramble`'s own `frame` calculation (`Math.floor(params.time * params.rate) + leftoverState++`, simulating a hidden non-deterministic source surviving between calls): the PRE-EXISTING constant-`paintZ` determinism test still PASSED, while the new scramble-based test correctly failed (two composes of the identical layers at the identical `time` produced different encoded text) |
+
 ## F5b — `compileScene` accepts `objects`, `textureSamplers`, returns `grid`
 
 Contract 3's compile half (the orbit half, `pitchRange`/`mode: "trackball"`,

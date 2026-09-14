@@ -2711,6 +2711,22 @@ export const fieldSynth: GlyphStockEffectDefinition<typeof fieldSynthSchema, Fie
       }
       return Array.from(reqs);
     },
+    // PLAN-3d.md §8: `render: "carve"`/`"xray"` march `objectPosition` ->
+    // `objectExit` with NO 2D fallback (unlike plain `space: "object"`
+    // paint, which falls back to `generatedSurfaceField` when
+    // `objectPosition` is absent — see `evaluate()`'s `volumetric` guard —
+    // and unlike `colorStackOn`'s `objectNormal`/`objectExit` request,
+    // whose normal-derived fields degrade to 0). On a mounted SCENE this
+    // silently degrades to the 2D paint loop in wireframe/voxel mode
+    // (`carveActive`/`xrayActive` both require `context.base.objectExit`);
+    // that degrade is genuine and untouched — this hook is read only by
+    // `composeGlyphEffects` (glyphcss's camera-less compositor), which has
+    // no render mode to degrade BY, so a camera-less carve/xray patch is a
+    // real incompatibility, not a mode choice, and must reject rather than
+    // silently render flat.
+    hardDynamicRequirements(params) {
+      return params.render === "carve" || params.render === "xray" ? ["objectPosition", "objectExit"] : [];
+    },
     // Program-as-data (VOLUMETRIC-3.md §4): packages/glyphcss's compositor
     // calls this at mount, once, when a layer's `program` option is present
     // — glyphcss itself never interprets the payload (it's opaque data to

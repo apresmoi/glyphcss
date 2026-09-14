@@ -8,9 +8,12 @@
  * on it unchanged, since only the grid content changed, never its shape.
  *
  * What survives on a canvas grid (§8): `baseColor` (the canvas's own
- * `grid.color`, always present), `baseShade` (derived HERE from the
- * canvas's own INK coverage — a canvas has no Lambert shading, so "shaded"
- * means "painted"), and `uv0` (derived HERE as the PLOT-RECT-NORMALIZED
+ * `grid.color`, always present), `baseShade` (derived HERE from
+ * `canvas.ink` — "Cell canvas" contract 5's own INK COVERAGE: a painted
+ * cell counts as covered even when its glyph landed blank — a canvas has no
+ * Lambert shading, so "shaded" means "painted"; `grid.char !== " "` is a
+ * DIFFERENT, wrong predicate, since it reports 0 for exactly a painted
+ * `shade: 0` cell), and `uv0` (derived HERE as the PLOT-RECT-NORMALIZED
  * data position, so `scan`/`wipe` sweep along the chart's own data x axis;
  * `NaN` outside the plot rect — axis labels, the title, the legend carry no
  * data position). `depth`/`normal`/`worldPosition`/`objectPosition`/
@@ -49,10 +52,19 @@ export interface GlyphChartComposeEffectsOptions {
   readonly time?: number;
 }
 
-function inkCoverage(grid: CellGrid): Float32Array {
-  const n = grid.cols * grid.rows;
+/**
+ * Coverage/`baseShade` source: `canvas.ink` — "a painted cell counts as
+ * covered" (AGENTS.md "Cell canvas" contract 5), regardless of whether the
+ * glyph it landed on is blank (a `shade: 0` fill still counts — the cell
+ * was addressed, not skipped). `grid.char !== " "` is a DIFFERENT, wrong
+ * predicate: it reports 0 for exactly that painted-but-blank case, so a
+ * cell an effect should treat as "on the chart" reads as empty background
+ * instead.
+ */
+function inkCoverage(canvas: GlyphCanvas): Float32Array {
+  const n = canvas.ink.length;
   const coverage = new Float32Array(n);
-  for (let i = 0; i < n; i++) coverage[i] = grid.char[i] === " " ? 0 : 1;
+  for (let i = 0; i < n; i++) coverage[i] = canvas.ink[i] ? 1 : 0;
   return coverage;
 }
 
@@ -81,8 +93,8 @@ function plotUv0(grid: CellGrid, plot: GlyphChartPlotRect): Float32Array {
  * `screenY`) here is safe — nothing downstream mutates them through this
  * wrapper.
  */
-function chartComposeInputGrid(grid: CellGrid, plot: GlyphChartPlotRect): CellGrid {
-  return { ...grid, shade: inkCoverage(grid), surfaceUv: plotUv0(grid, plot) };
+function chartComposeInputGrid(canvas: GlyphCanvas, plot: GlyphChartPlotRect): CellGrid {
+  return { ...canvas.grid, shade: inkCoverage(canvas), surfaceUv: plotUv0(canvas.grid, plot) };
 }
 
 function readOnlyCanvasMethod(name: string): () => never {
@@ -165,9 +177,9 @@ export function composeGlyphChartEffects(
     ? layers
     : layers.map((layer) => withAmbientTime(layer, options.time!));
   const composeOne = (canvas: GlyphCanvas): GlyphCanvas => {
-    const inputGrid = chartComposeInputGrid(canvas.grid, build.plot);
+    const inputGrid = chartComposeInputGrid(canvas, build.plot);
     const composed = composeGlyphEffects(inputGrid, resolvedLayers, {
-      coverage: inkCoverage(canvas.grid),
+      coverage: inkCoverage(canvas),
       hasDepth: false,
     });
     return composedCanvas(canvas, composed);

@@ -93,6 +93,57 @@ describe("composeGlyphEffects (contract 4)", () => {
     expect(composed.char).toEqual(["N"]);
   });
 
+  it("hardDynamicRequirements (PLAN-3d.md §8): a camera-less grid rejects a dynamic requirement the program says it has no fallback for", () => {
+    const volumetricOnly = defineGlyphEffect<{ mode: string }>({
+      dynamicRequirements(params) {
+        return params.mode === "carve" ? ["objectPosition", "objectExit"] : [];
+      },
+      hardDynamicRequirements(params) {
+        return params.mode === "carve" ? ["objectPosition", "objectExit"] : [];
+      },
+      evaluate({ base, target, output }) {
+        for (let i = 0; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          output.glyph[i] = base.objectPosition ? "V" : "N";
+          output.coverage[i] = 1;
+          output.channels[i] = GLYPH;
+        }
+      },
+    });
+    const grid = blankGrid(["A"]);
+    let caught: unknown;
+    try {
+      composeGlyphEffects(grid, [{ effect: volumetricOnly, params: { mode: "carve" }, blend: "replace" }]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GlyphEffectRequirementUnavailableError);
+    expect((caught as GlyphEffectRequirementUnavailableError).code).toBe(GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE);
+    expect(["objectPosition", "objectExit"]).toContain((caught as GlyphEffectRequirementUnavailableError).requirement);
+  });
+
+  it("a dynamic requirement with no matching hardDynamicRequirements entry still degrades silently (no throw)", () => {
+    const paintFallback = defineGlyphEffect<{ mode: string }>({
+      dynamicRequirements(params) {
+        return params.mode === "carve" ? ["objectPosition"] : [];
+      },
+      // No `hardDynamicRequirements` at all — this program claims it CAN
+      // fall back to 2D, mirroring field-synth's plain `space: "object"`
+      // paint path, so a camera-less grid must degrade, not reject.
+      evaluate({ base, target, output }) {
+        for (let i = 0; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          output.glyph[i] = base.objectPosition ? "V" : "N";
+          output.coverage[i] = 1;
+          output.channels[i] = GLYPH;
+        }
+      },
+    });
+    const grid = blankGrid(["A"]);
+    const composed = composeGlyphEffects(grid, [{ effect: paintFallback, params: { mode: "carve" }, blend: "replace" }]);
+    expect(composed.char).toEqual(["N"]);
+  });
+
   it("hasDepth: true lets a hard depth requirement read the grid's own real depth", () => {
     const readDepth = defineGlyphEffect<{ phase: number }>({
       requirements: ["depth"],

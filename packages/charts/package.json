@@ -66,6 +66,7 @@
     "glyphcss": "workspace:^"
   },
   "devDependencies": {
+    "@glyphcss/effects": "workspace:^",
     "@types/d3-array": "^3.2.2",
     "@types/d3-format": "^3.0.4",
     "@types/d3-sankey": "^0.12.4",

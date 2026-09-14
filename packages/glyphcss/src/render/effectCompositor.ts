@@ -1079,6 +1079,23 @@ export interface GlyphEffectComposeContext {
   readonly worldToSceneScale?: number;
 }
 
+// The seven `GlyphEffectFrameView` buffers a camera can supply and a
+// camera-less grid genuinely cannot (`baseColor`/`uv0`/`surfaceKey`/
+// `uv0Footprint` are always present or unchecked here, matching
+// `composeRetainedGlyphEffectOutput`'s own static-requirements guard).
+function frameViewHasRequirement(base: GlyphEffectFrameView, requirement: GlyphEffectRequirement): boolean {
+  switch (requirement) {
+    case "depth": return !!base.depth;
+    case "baseShade": return !!base.shade;
+    case "worldPosition": return !!base.worldPosition;
+    case "objectPosition": return !!base.objectPosition;
+    case "objectExit": return !!base.objectExit;
+    case "normal": return !!base.normal;
+    case "objectNormal": return !!base.objectNormal;
+    default: return true;
+  }
+}
+
 /**
  * The DOM-free, camera-free Glyph Effects compositor (AGENTS.md "Retained
  * Glyph Effects", contract 4) — runs the SAME requirement/blend/opacity/
@@ -1100,8 +1117,17 @@ export interface GlyphEffectComposeContext {
  * A hard `requirements` entry the grid cannot supply throws
  * {@link GlyphEffectRequirementUnavailableError} (`GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE`)
  * rather than silently degrading — `optionalRequirements`/
- * `dynamicRequirements` are the only ones allowed to do that, exactly as
- * outside solid mode.
+ * `dynamicRequirements` degrade instead, exactly as outside solid mode,
+ * WITH ONE EXCEPTION: a program's own `hardDynamicRequirements(params)`
+ * (PLAN-3d.md §8) names the subset of its dynamic requirements it has no
+ * fallback for — field-synth's `render: "carve"`/`"xray"`, which march
+ * `objectPosition` → `objectExit` with no 2D substitute (unlike plain
+ * `space: "object"` paint's designed wireframe/voxel fallback, which stays
+ * a silent degrade here too). Checked ONLY here, never by a mounted scene
+ * layer (`composeRetainedGlyphEffectOutput`'s own guard stays static-only)
+ * — a scene's dynamic degrade is a genuine, deliberate render-MODE choice;
+ * a camera-less grid has no render mode to fall back by, so committing to a
+ * volumetric-only code path here is a real incompatibility, not a mode.
  */
 export function composeGlyphEffects(
   grid: CellGrid,
@@ -1129,5 +1155,18 @@ export function composeGlyphEffects(
     createRuntimeGlyphEffectLayer(layerOptions as any, index, () => {}, () => {}));
   const prepared = prepareRuntimeGlyphEffectLayers(runtimeLayers, sceneGridSize);
   const retained = retainGlyphEffectOutput(grid, metadata, { coverage, hasDepth: ctx.hasDepth ?? false });
+  for (const { layer, params } of prepared) {
+    const hard = layer.program.hardDynamicRequirements?.(params);
+    if (!hard) continue;
+    for (const requirement of hard) {
+      if (!frameViewHasRequirement(retained.base, requirement)) {
+        throw new GlyphEffectRequirementUnavailableError(
+          requirement,
+          `glyphcss: a camera-less grid cannot supply "${requirement}" for an effect whose params commit it to a `
+          + "volumetric-only code path with no 2D fallback.",
+        );
+      }
+    }
+  }
   return composeRetainedGlyphEffectOutput(retained, prepared);
 }

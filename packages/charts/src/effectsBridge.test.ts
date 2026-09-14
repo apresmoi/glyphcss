@@ -16,6 +16,7 @@ import {
   GlyphEffectRequirementUnavailableError,
   type GlyphEffectLayerOptions,
 } from "glyphcss";
+import { GlyphScrambleEffect } from "@glyphcss/effects";
 import { buildGlyphChart, encodeGlyphChart } from "./render";
 import { composeGlyphChartEffects } from "./effectsBridge";
 import { glyphChartLine } from "./spec";
@@ -75,6 +76,32 @@ describe("composeGlyphChartEffects", () => {
     expect(seen).toContain(0);
   });
 
+  it("baseShade/coverage match canvas.ink exactly, including a painted-but-blank cell (shade: 0) — `grid.char !== \" \"` would wrongly report it as uncovered", () => {
+    const build = lineBuild();
+    // Paint one cell with a `shade: 0` fill: it counts as ink (contract 5's
+    // "a painted cell counts as covered") but its glyph stays blank
+    // (`grid.char === " "`), so a char-based predicate reports 0 there
+    // while `canvas.ink` correctly reports 1.
+    build.canvas.fillRect(0, 0, 0, 0, { fill: { shade: 0 } });
+    expect(build.canvas.grid.char[0]).toBe(" ");
+    expect(build.canvas.ink[0]).toBe(1);
+
+    const seenAtZero: number[] = [];
+    const probe = defineGlyphEffect<{ phase: number }>({
+      optionalRequirements: ["baseShade"],
+      evaluate({ base, target, output }) {
+        if (target.coverage[0]! > 0) seenAtZero.push(base.shade ? base.shade[0]! : Number.NaN);
+        // Confirm every OTHER covered cell still matches canvas.ink exactly.
+        for (let i = 1; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          expect(base.shade ? base.shade[i]! : Number.NaN).toBe(build.canvas.ink[i] ? 1 : 0);
+        }
+      },
+    });
+    composeGlyphChartEffects(build, [{ effect: probe, params: { phase: 0 }, target: "viewport" }]);
+    expect(seenAtZero).toEqual([1]);
+  });
+
   it("uv0 is finite and plot-rect-normalized inside the plot, NaN outside it (the axis/title margin)", () => {
     const build = lineBuild();
     let sawInsidePlot = false;
@@ -130,6 +157,19 @@ describe("composeGlyphChartEffects", () => {
     const first = encodeGlyphChart(composeGlyphChartEffects(build, layers), "text");
     const second = encodeGlyphChart(composeGlyphChartEffects(build, layers), "text");
     expect(second).toBe(first);
+  });
+
+  it("composing a TIME-DEPENDENT stock effect (scramble) twice at the same time gives byte-identical text — a constant custom effect can't catch a hidden non-deterministic source (Date.now(), Math.random(), leftover state) that only shows up when output actually varies with time", () => {
+    const build = lineBuild();
+    const layers: readonly GlyphEffectLayerOptions[] = [
+      { effect: GlyphScrambleEffect, params: { time: 2.71828, amount: 0.9, seed: 7 }, blend: "over", target: "viewport" },
+    ];
+    const first = encodeGlyphChart(composeGlyphChartEffects(build, layers), "text");
+    const second = encodeGlyphChart(composeGlyphChartEffects(build, layers), "text");
+    expect(second).toBe(first);
+    // Confirm the effect actually did something time-dependent (not a
+    // no-op that would make the byte-identity claim vacuous).
+    expect(first).not.toBe(encodeGlyphChart(build, "text"));
   });
 
   it("reuses one compose when canvas and colorCanvas are the same object (color: 'none')", () => {

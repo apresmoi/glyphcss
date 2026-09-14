@@ -13,11 +13,13 @@ import {
   buildCellGrid,
   composeGlyphEffects,
   defineGlyphEffect,
+  GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE,
   GlyphEffectOutputChannel,
+  GlyphEffectRequirementUnavailableError,
   type GlyphEffectDefinition,
   type GlyphEffectParamSchema,
 } from "glyphcss";
-import { GlyphEffectCatalog } from "./stock";
+import { fieldSynth, GlyphEffectCatalog } from "./stock";
 
 function chartGrid(): ReturnType<typeof buildCellGrid> {
   const cols = 6, rows = 4;
@@ -44,6 +46,27 @@ describe("stock effects on a camera-less chart grid (AGENTS.md Charts §8)", () 
       expect(() => composeGlyphEffects(grid, [{ effect: definition as GlyphEffectDefinition<GlyphEffectParamSchema, unknown> }])).not.toThrow();
     },
   );
+
+  it.each(["carve", "xray"] as const)(
+    "field-synth render: \"%s\" on a camera-less chart grid rejects, tagged GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE (PLAN-3d.md §8) — it has no 2D fallback, unlike plain space: \"object\" paint",
+    (render) => {
+      const grid = chartGrid();
+      let caught: unknown;
+      try {
+        composeGlyphEffects(grid, [{ effect: fieldSynth, params: { space: "object", render } }]);
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toBeInstanceOf(GlyphEffectRequirementUnavailableError);
+      expect((caught as GlyphEffectRequirementUnavailableError).code).toBe(GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE);
+      expect(["objectPosition", "objectExit"]).toContain((caught as GlyphEffectRequirementUnavailableError).requirement);
+    },
+  );
+
+  it("field-synth space: \"object\" render: \"paint\" (no carve/xray) still degrades to the 2D fallback on a camera-less grid, with no throw", () => {
+    const grid = chartGrid();
+    expect(() => composeGlyphEffects(grid, [{ effect: fieldSynth, params: { space: "object", render: "paint" } }])).not.toThrow();
+  });
 
   it("an explicit ink-coverage array scopes a 'surfaces'-targeted effect to painted cells only", () => {
     const grid = chartGrid();

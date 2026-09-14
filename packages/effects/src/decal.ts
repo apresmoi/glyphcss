@@ -21,6 +21,7 @@
  * rule, not a new one.
  */
 import {
+  GlyphEffectNoColor,
   GlyphEffectOutputChannel,
   parseGlyphEffectColor,
   type CellGrid,
@@ -86,12 +87,21 @@ export const glyphGridDecalEffect: GlyphEffectDefinition<typeof decalSchema> = {
         const glyph = grid.char[sample]!;
         context.output.glyph[i] = glyph;
         context.output.channels[i] |= GLYPH;
-        context.output.coverage[i] = glyph === " " ? 0 : 1;
+        // Exact 1:1 (AGENTS.md's "DOM-free compositor"): inside the target
+        // mesh with a valid uv0, the output cell IS the source cell — a
+        // blank source glyph is still a HIT (coverage 1), not "nothing to
+        // decal here" (coverage 0, `uv0`'s own NaN-fill case above), or
+        // `blend: "over"` lets the mesh's own glyph show through a source
+        // cell that was deliberately blank.
+        context.output.coverage[i] = 1;
         const color = grid.color[sample];
-        if (color != null) {
-          context.output.color[i] = parseGlyphEffectColor(color).packed;
-          context.output.channels[i] |= COLOR;
-        }
+        // Always emit the COLOR channel on a hit — a null source colour is
+        // an explicit "this source cell carries no colour"
+        // (`GlyphEffectNoColor`), not "leave the channel untouched", or the
+        // mesh's own pre-existing colour survives underneath a colourless
+        // source cell instead of being cleared to match it.
+        context.output.color[i] = color != null ? parseGlyphEffectColor(color).packed : GlyphEffectNoColor;
+        context.output.channels[i] |= COLOR;
       }
     },
   },
