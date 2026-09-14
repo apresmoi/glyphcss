@@ -73,6 +73,47 @@ function worldMaxDim(polys: Polygon[]): number {
 }
 
 /**
+ * Row-major crop of one per-cell TYPED-ARRAY field (`stride` scalars per
+ * cell — 1 for a plain scalar field like `depth`, 2 for `surfaceUv`, 3 for
+ * a `[x,y,z]` field like `worldPosition`). `undefined` in (an optional
+ * field the source grid never populated) is `undefined` out — cropping
+ * never MANUFACTURES a buffer `compileScene` didn't retain.
+ */
+function cropTypedField<T extends ArrayLike<number>>(
+  src: T | undefined, srcCols: number, minCol: number, maxCol: number, minRow: number, maxRow: number, stride: number,
+): T | undefined {
+  if (!src) return undefined;
+  const cols = maxCol - minCol + 1;
+  const rows = maxRow - minRow + 1;
+  const Ctor = (src as unknown as { constructor: new (n: number) => T }).constructor;
+  const out = new Ctor(cols * rows * stride) as unknown as { [i: number]: number };
+  const flat = src as unknown as { [i: number]: number };
+  for (let r = 0; r < rows; r++) {
+    const srcBase = (r + minRow) * srcCols + minCol;
+    const dstBase = r * cols;
+    for (let c = 0; c < cols; c++) {
+      const s = (srcBase + c) * stride;
+      const d = (dstBase + c) * stride;
+      for (let k = 0; k < stride; k++) out[d + k] = flat[s + k]!;
+    }
+  }
+  return out as unknown as T;
+}
+
+/** Same row-major crop, for a plain (non-typed) per-cell array — `char`/`color`. */
+function cropPlainField<V>(src: readonly V[], srcCols: number, minCol: number, maxCol: number, minRow: number, maxRow: number): V[] {
+  const cols = maxCol - minCol + 1;
+  const rows = maxRow - minRow + 1;
+  const out: V[] = new Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    const srcBase = (r + minRow) * srcCols + minCol;
+    const dstBase = r * cols;
+    for (let c = 0; c < cols; c++) out[dstBase + c] = src[srcBase + c]!;
+  }
+  return out;
+}
+
+/**
  * Crop a `CellGrid` to its own content bounding box (non-space cells),
  * mirroring `cropGlyphInner`'s STRING-space crop exactly so the returned
  * `CompileSceneResult.grid` stays dimension-consistent with `cols`/`rows`/
@@ -80,9 +121,18 @@ function worldMaxDim(polys: Polygon[]): number {
  * bounding box to reuse, and a grid crop is simpler to derive directly (no
  * span re-tokenizing) than to re-derive from the already-cropped HTML.
  * All-whitespace input returns the grid unchanged, matching `cropLines`'s
- * own early return.
+ * own early return. `null` in (a `charMode: "halfblock"`/`"quadrant"`
+ * render has no `CellGrid` to crop at all — see `CompileSceneResult.grid`'s
+ * own doc) is `null` out — a `charMode` this package doesn't even expose,
+ * but the TYPE says `CellGrid | null` and this stays honest about it either
+ * way. Crops EVERY buffer the grid carries (P2-4, F5b fix round 1) — the
+ * original cut kept only `char`/`color` and rebuilt with `depthSrc: null`,
+ * silently losing `depth` and every optional effect-input buffer for an
+ * `autoFit` render, even though nothing here has a reason to.
  */
-function cropCellGrid(grid: CellGrid): CellGrid {
+/** @internal exported only for direct testing (`compileFile.test.ts`) — not part of the package's public surface (see `src/index.ts`). */
+export function cropCellGrid(grid: CellGrid | null): CellGrid | null {
+  if (!grid) return null;
   let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;
   for (let r = 0; r < grid.rows; r++) {
     for (let c = 0; c < grid.cols; c++) {
@@ -97,17 +147,27 @@ function cropCellGrid(grid: CellGrid): CellGrid {
   if (maxCol < 0) return grid;
   const cols = maxCol - minCol + 1;
   const rows = maxRow - minRow + 1;
-  const char: string[] = new Array(cols * rows);
-  const color: (string | null)[] = new Array(cols * rows);
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const srcIdx = (r + minRow) * grid.cols + (c + minCol);
-      const dstIdx = r * cols + c;
-      char[dstIdx] = grid.char[srcIdx]!;
-      color[dstIdx] = grid.color[srcIdx] ?? null;
-    }
-  }
-  return buildCellGrid(char, color, null, cols, rows);
+  const crop1 = <T extends ArrayLike<number>>(f: T | undefined) => cropTypedField(f, grid.cols, minCol, maxCol, minRow, maxRow, 1);
+  const crop2 = <T extends ArrayLike<number>>(f: T | undefined) => cropTypedField(f, grid.cols, minCol, maxCol, minRow, maxRow, 2);
+  const crop3 = <T extends ArrayLike<number>>(f: T | undefined) => cropTypedField(f, grid.cols, minCol, maxCol, minRow, maxRow, 3);
+  return buildCellGrid(
+    cropPlainField(grid.char, grid.cols, minCol, maxCol, minRow, maxRow),
+    cropPlainField(grid.color, grid.cols, minCol, maxCol, minRow, maxRow),
+    crop1(grid.depth) ?? null,
+    cols, rows,
+    crop2(grid.surfaceUv) ?? null,
+    crop1(grid.shade) ?? null,
+    crop3(grid.worldPosition) ?? null,
+    crop3(grid.normal) ?? null,
+    crop1(grid.winnerPolygon) ?? null,
+    crop1(grid.albedoRgb) ?? null,
+    crop1(grid.targetRgb) ?? null,
+    crop1(grid.weight) ?? null,
+    crop3(grid.objectPosition) ?? null,
+    crop3(grid.objectExit) ?? null,
+    crop1(grid.winnerMesh) ?? null,
+    crop3(grid.objectNormal) ?? null,
+  );
 }
 
 /** Content extent (in cells) of a rendered inner string, tags stripped. */

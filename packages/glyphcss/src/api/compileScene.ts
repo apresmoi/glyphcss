@@ -15,14 +15,14 @@ import { recenterPolygons } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
-import { rasterize, rasterizeToCells } from "../render/rasterize";
-import { buildCellGrid, cloneCellGrid, encodeGlyphBuffers, type CellGrid, type GlyphColorEncoding, type TransformCells } from "../render/cells";
+import { rasterize } from "../render/rasterize";
+import { buildCellGrid, cloneCellGrid, encodeGlyphBuffers, type CellGrid, type GlyphColorEncoding } from "../render/cells";
 import type { GlyphFontAtlas } from "../render/fontAtlas";
 import { buildGlyphControlFrame } from "./controlFrame";
 import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "./controlFrame";
 import { projectHotspots } from "./projectHotspots";
 import { encodeGlyphSceneObjectSamplerKey } from "./createGlyphScene";
-import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneOverlay } from "./sceneObject";
+import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay } from "./sceneObject";
 import { createGlyphLabelArbiter } from "../render/overlay/labelArbiter";
 import type {
   GlyphDirectionalLight,
@@ -139,6 +139,24 @@ export interface CompileSceneOptions {
    * semantic frame's `sceneManifest`/`dictionary` describe the caller's OWN
    * `polygons` 1:1, and object meshes have no corresponding manifest
    * entries to align with; passing `objects` there throws.
+   *
+   * A member mesh's own `options` (`GlyphSceneObjectMesh.options`) applies
+   * exactly as far as a FLAT static compile can represent it: `castShadow`/
+   * `receiveShadow`/`depthBias` reach the rasterizer per-polygon (a real,
+   * new capability — object shadow casting/receiving and z-fighting bias now
+   * work in `compileScene`, not just at runtime); `occlusionPriority`/
+   * `occlusionClaim`/`occlusionContourPx`/`detailGroup` are silently inert —
+   * they mean nothing without the cross-layer occlusion id-map a flat
+   * compile has no mechanism for, so this is a true no-op, not a dropped
+   * effect. A mesh option that pops a mesh into its OWN detail-layer `<pre>`
+   * at runtime — `density`, `fontSize`, `lineHeight`, `transparent`,
+   * `glyphPalette`, `ambientIntensity`, or a `mode` genuinely different from
+   * this call's own — has no flat-compile representation at all (AGENTS.md's
+   * "Static compile takes a flat polygon list and cannot represent detail
+   * layers"), and `compileScene` REJECTS it with a `RangeError` naming the
+   * object, mesh and field rather than silently flattening a mesh that was
+   * asking to render at a different density/opacity/mode/palette into the
+   * base grid as if it hadn't.
    */
   objects?: GlyphSceneObject[];
   /**
@@ -163,13 +181,22 @@ export interface CompileSceneResult {
   cellAspect: number;
   /**
    * The final rasterized `CellGrid` the string above was built from
-   * (contract 3) — the SAME cell contract a runtime `transformCells` hook
-   * receives, including any `objects` overlay stamping. Lets a caller (a C2/
-   * D2-style consumer) reuse the compiled render's own grid instead of
-   * re-rasterizing. A durable copy (`buildCellGrid`), safe to keep past this
-   * call — never the rasterizer's own scratch buffers.
+   * (contract 3) — captured from the SAME single rasterize pass that builds
+   * `inner` (never a second, independent traversal — a wireframe/voxel
+   * mode's own per-cell RANDOM glyph pick would otherwise diverge between
+   * two separate walks), so `grid` and `inner` are always the identical
+   * render. A durable copy (`buildCellGrid`/`cloneCellGrid`), safe to keep
+   * past this call — never the rasterizer's own scratch buffers.
+   *
+   * `null` under `charMode: "halfblock"` / `"quadrant"` (solid mode only):
+   * those encoders paint TWO colours per cell (`▀`/`▄`/`█` etc., fg+bg), and
+   * a `CellGrid` has exactly one `color` slot per cell — there is no honest
+   * single-`CellGrid` representation of what `inner` actually drew, so this
+   * is `null` rather than a silently-wrong single-colour fallback. Every
+   * other mode/charMode combination is exactly representable and never
+   * returns `null` here.
    */
-  grid: CellGrid;
+  grid: CellGrid | null;
   /** Every mounted object's hotspots, projected through this render's own camera/grid — `[]` when no object declares one. */
   hotspots: HotspotCell[];
 }
@@ -184,27 +211,80 @@ interface CompileOverlayEntry {
 }
 
 /**
+ * A mesh option that pops a mesh into its OWN detail-layer `<pre>` at
+ * runtime (AGENTS.md "Per-mesh detail layers") has no flat-compile
+ * representation — rejected explicitly (P1-3, F5b fix round 1) rather than
+ * silently flattened, which would render such a mesh at the WRONG density/
+ * opacity/mode/palette with no signal that anything was dropped. `mode` is
+ * the one field that's conditional: declaring the SAME mode this compile is
+ * already rendering in keeps the mesh in the shared grid at runtime too
+ * (AGENTS.md's own `GlyphMeshTransform.mode` doc), so only a genuinely
+ * DIFFERENT mode is rejected here.
+ */
+function assertCompileMeshOptionsRepresentable(
+  objectId: string,
+  meshName: string,
+  options: GlyphSceneObjectMesh["options"],
+  mode: RenderMode,
+): void {
+  if (!options) return;
+  const offending: string | undefined =
+    options.density !== undefined ? "density"
+    : options.fontSize !== undefined ? "fontSize"
+    : options.lineHeight !== undefined ? "lineHeight"
+    : options.transparent === true ? "transparent"
+    : options.glyphPalette !== undefined ? "glyphPalette"
+    : options.ambientIntensity !== undefined ? "ambientIntensity"
+    : (options.mode !== undefined && options.mode !== mode) ? "mode"
+    : undefined;
+  if (offending !== undefined) {
+    throw new RangeError(
+      `glyphcss: compileScene cannot represent object "${objectId}" mesh "${meshName}"'s "${offending}" option — `
+      + 'it separates the mesh into its own runtime detail-layer <pre>, and "static compile takes a flat polygon '
+      + 'list and cannot represent detail layers" (AGENTS.md\'s "Per-mesh detail layers"). Drop the option from '
+      + "this mesh, or flatten it into ordinary base polygons yourself before calling compileScene.",
+    );
+  }
+}
+
+/**
  * Flattens `objects` into the base polygon list — one unique numeric mesh id
  * per member mesh (0 is reserved for the caller's own non-object
  * `polygons`, so a base-geometry winner is always "foreign" to every
- * object's `ownMeshIds`) — plus the ordered overlay list and flattened
- * hotspots. `polygonMeshIds` is only built (and only handed to the
- * rasterizer) when at least one overlay exists, mirroring
+ * object's `ownMeshIds`) — plus the ordered overlay list, flattened
+ * hotspots, and every mesh option a FLAT compile can actually represent
+ * (`castShadow`/`receiveShadow`/`depthBias`, parallel to the merged polygon
+ * list — real capabilities `compileScene` did not have before this fix;
+ * `occlusionPriority`/`occlusionClaim`/`occlusionContourPx`/`detailGroup`
+ * are silently inert, since they mean nothing without the cross-layer
+ * occlusion id-map a flat compile has no mechanism for at all — a true
+ * no-op, never a dropped effect). `polygonMeshIds` is only built (and only
+ * handed to the rasterizer) when at least one overlay exists, mirroring
  * `createGlyphScene`'s own `retainWinnerMesh` gate — an object with meshes
  * but no overlay never pays for winner-mesh tracking.
  */
-function mergeCompileObjects(basePolygons: Polygon[], objects: readonly GlyphSceneObject[] | undefined): {
+function mergeCompileObjects(basePolygons: Polygon[], objects: readonly GlyphSceneObject[] | undefined, mode: RenderMode): {
   polygons: Polygon[];
   polygonMeshIds: number[] | undefined;
   overlayEntries: CompileOverlayEntry[];
   hotspots: Hotspot[];
   textureSamplers: Map<string, TextureSampler> | null;
+  depthBiases: number[] | undefined;
+  castShadowFlags: boolean[] | undefined;
+  receiveShadowFlags: boolean[] | undefined;
 } {
   if (!objects || objects.length === 0) {
-    return { polygons: basePolygons, polygonMeshIds: undefined, overlayEntries: [], hotspots: [], textureSamplers: null };
+    return {
+      polygons: basePolygons, polygonMeshIds: undefined, overlayEntries: [], hotspots: [], textureSamplers: null,
+      depthBiases: undefined, castShadowFlags: undefined, receiveShadowFlags: undefined,
+    };
   }
   const polygons = basePolygons.slice();
   const meshIds: number[] = new Array(basePolygons.length).fill(0);
+  const depthBiases: number[] = new Array(basePolygons.length).fill(0);
+  const castShadowFlags: boolean[] = new Array(basePolygons.length).fill(false);
+  const receiveShadowFlags: boolean[] = new Array(basePolygons.length).fill(false);
+  let anyDepthBias = false, anyCastShadow = false, anyReceiveShadow = false;
   let nextMeshId = 1;
   const sortable: Array<{ overlay: GlyphSceneOverlay; ownMeshIds: ReadonlySet<number>; order: number; mountIndex: number; overlayIndex: number }> = [];
   const hotspots: Hotspot[] = [];
@@ -213,11 +293,21 @@ function mergeCompileObjects(basePolygons: Polygon[], objects: readonly GlyphSce
     const object = objects[mountIndex]!;
     const ownMeshIds = new Set<number>();
     for (const spec of object.meshes) {
+      assertCompileMeshOptionsRepresentable(object.id, spec.name, spec.options, mode);
       const meshId = nextMeshId++;
       ownMeshIds.add(meshId);
+      const bias = spec.options?.depthBias ?? 0;
+      const cast = spec.options?.castShadow === true;
+      const receive = spec.options?.receiveShadow === true;
+      if (bias !== 0) anyDepthBias = true;
+      if (cast) anyCastShadow = true;
+      if (receive) anyReceiveShadow = true;
       for (const p of spec.polygons) {
         polygons.push(p);
         meshIds.push(meshId);
+        depthBiases.push(bias);
+        castShadowFlags.push(cast);
+        receiveShadowFlags.push(receive);
       }
     }
     const overlays = object.overlays ?? [];
@@ -237,7 +327,12 @@ function mergeCompileObjects(basePolygons: Polygon[], objects: readonly GlyphSce
   // order, then declaration order within the object.
   sortable.sort((a, b) => (a.order - b.order) || (a.mountIndex - b.mountIndex) || (a.overlayIndex - b.overlayIndex));
   const overlayEntries: CompileOverlayEntry[] = sortable.map(({ overlay, ownMeshIds }) => ({ overlay, ownMeshIds }));
-  return { polygons, polygonMeshIds: overlayEntries.length > 0 ? meshIds : undefined, overlayEntries, hotspots, textureSamplers };
+  return {
+    polygons, polygonMeshIds: overlayEntries.length > 0 ? meshIds : undefined, overlayEntries, hotspots, textureSamplers,
+    depthBiases: anyDepthBias ? depthBiases : undefined,
+    castShadowFlags: anyCastShadow ? castShadowFlags : undefined,
+    receiveShadowFlags: anyReceiveShadow ? receiveShadowFlags : undefined,
+  };
 }
 
 /**
@@ -361,7 +456,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
   // into the flat polygon list, gather its overlays into ONE ordered
   // registry, and flatten its hotspots — a no-op, `polygons` unchanged by
   // reference, when `opts.objects` is absent (the byte-identity gate).
-  const merged = mergeCompileObjects(polygons, opts.objects);
+  const merged = mergeCompileObjects(polygons, opts.objects, mode);
   const textureSamplers = resolveCompileTextureSamplers(merged.textureSamplers, opts.textureSamplers);
 
   const ctx = buildRasterizeContext({
@@ -388,6 +483,9 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     polygonMeshIds: merged.polygonMeshIds,
     retainWinnerMesh: mode === "solid" && merged.overlayEntries.length > 0,
     textureSamplers,
+    depthBiases: merged.depthBiases,
+    castShadowFlags: merged.castShadowFlags,
+    receiveShadowFlags: merged.receiveShadowFlags,
   });
   // Per-cell texture sampling from a fetched URL needs browser image
   // decoding (not Node-safe), so the static compile renders from material /
@@ -396,27 +494,34 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
   // object-owned) is PROCEDURAL, decoded pixels handed in directly with no
   // fetch, so it works here exactly as it does at runtime.
 
-  // Overlays are stamped inside the SAME hook that also captures `grid`
-  // (contract 3's second half) — never a second pass that re-invokes
-  // `overlay.stamp()`, which would run a stateful overlay twice for one
-  // `compileScene()` call. With no overlay, `ctx.transformCells` stays
-  // `undefined` exactly as before this option existed (the byte-identity
-  // gate: charMode `"halfblock"`/`"quadrant"` are documented no-ops the
-  // instant ANY hook is attached, so this must stay unset on that path), and
-  // `grid` is instead captured via a wholly separate `rasterizeToCells`
-  // pass that never touches the string-producing `ctx`.
+  // Overlays run inside `ctx.transformCells`, exactly as before — attached
+  // ONLY when an overlay actually exists, so `charMode: "halfblock"`/
+  // `"quadrant"`'s own "no transformCells hook" no-op rule is untouched on
+  // the ordinary no-objects path. `grid` is captured SEPARATELY, through
+  // `ctx.captureCells` (F5b fix round 1 — P1-1/P1-2): an independent
+  // observer `rasterize()` itself now supports, called from INSIDE the same
+  // single pass that builds `inner`, after any `transformCells` hook has
+  // already run — never a second `rasterizeToCells` traversal (which used to
+  // double every ordinary compile's rasterization cost, and could pick
+  // DIFFERENT random glyphs than `inner` in wireframe/voxel mode, since two
+  // separate walks each roll their own `Math.random()`). `captureCells` is
+  // a distinct field from `transformCells` — `wantsHalfblockSolid`/
+  // `wantsQuadrantSolid` and every mode's "safe" encoder choice key on
+  // `transformCells` alone, so attaching it changes zero rendered bytes; a
+  // halfblock/quadrant render's own early-return path never calls it at
+  // all, which is exactly how `grid` ends up `null` there (see
+  // `CompileSceneResult.grid`'s own doc).
   let capturedGrid: CellGrid | null = null;
+  ctx.captureCells = (grid) => { capturedGrid = cloneCellGrid(grid); };
   if (merged.overlayEntries.length > 0) {
-    const hook: TransformCells = (grid) => {
+    ctx.transformCells = (grid) => {
       applyCompileObjectOverlays(grid, camera, cellAspect, merged.overlayEntries);
-      capturedGrid = cloneCellGrid(grid);
       return grid;
     };
-    ctx.transformCells = hook;
   }
 
   const output = rasterize(ctx);
-  const grid = capturedGrid ?? rasterizeToCells(ctx);
+  const grid = capturedGrid;
   const hotspots = projectHotspots(merged.hotspots, camera, cols, rows, cellAspect);
   // Colored output is HTML (spans); plain output is text → escape for inlining.
   const inner = useColors ? output : escapeHtml(output);

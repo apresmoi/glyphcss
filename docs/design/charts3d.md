@@ -1258,6 +1258,134 @@ module resolution). `pnpm --filter @glyphcss/core --filter glyphcss
 build`: all five build clean, DTS included (the type gate this contract's
 public-surface change lives or dies by).
 
+### F5b fix round 1
+
+A codex review of the F5b commit found four defects, all in the shape of the
+work above rather than in a separate area: the "one raster pass" claim was
+false for the common (no-overlay) case, `grid` could diverge from `inner`,
+an object's member mesh options were silently dropped, and `@glyphcss/compile`'s
+`autoFit` crop threw away every buffer but `char`/`color`. Fixed at the layer
+each behaviour actually lives in — `rasterize.ts`/`cells.ts` (P1-1/P1-2),
+`compileScene.ts`/`rasterizeContext.ts` (P1-3), `compileFile.ts` (P2-4).
+
+**P1-1 — every ordinary compile rasterized twice.** The "with NO overlay,
+`grid` is captured via a wholly separate `rasterizeToCells(ctx)` pass"
+sentence above was the bug, not a design note: EVERY caller with no overlay
+mounted — which is every caller before this packet existed, and `autoFit`
+four times over (one probe, one full render, times two for the pass) — paid
+a second full rasterize to get `grid`, and that second pass forced its own
+`transformCells`-shaped hook, which is exactly what P1-2 turns out to also
+depend on. Fixed with a new, independent grid-OBSERVER field on
+`RasterizeContext`, `captureCells?: (grid: CellGrid) => void`
+(`rasterizeContext.ts`), invoked from inside the ONE existing rasterize pass
+at each render mode's own final buffer-construction point
+(`applyCellHook`'s new trailing `capture` parameter, `cells.ts`) — never
+counted as a `transformCells` hook, so it does not gate
+`charMode: "halfblock"`/`"quadrant"`'s own no-hook fast path the way a real
+hook would. Gate: `compileScene.test.ts`'s `vi.spyOn(rasterizeModule,
+"rasterize")` count — asserts exactly 1 call for a plain `compileScene()`
+with no overlay; reverting to the old two-pass shape reddens it at "expected
+1, got 2".
+
+**P1-2 — `grid` could differ from the cells that produced `inner`.** Two
+distinct risks, both closed by capturing FROM the same computation that
+builds the string rather than a second traversal: (1) the OLD two-pass
+shape's forced hook disabled halfblock/quadrant's dual-colour encoder for
+that second pass only, so `grid` could have single-colour fallback glyphs
+where `inner` had real halfblock ones — moot now that there is no second
+pass, but recorded because it is exactly why `captureCells` must never act
+like a hook; (2) `stampToGlyphs()` (the wireframe/voxel/ink no-hook
+stringifier) independently calls `wireframeGlyphForCell()`, which makes an
+internal `Math.random()`-based tier choice — a naive capture-only
+implementation that ran `stampToGlyphs` a SECOND time purely to build the
+capture buffer produced a DIFFERENT random glyph per cell than the actual
+returned string on every such render (caught by this fix's own new test on
+first write: captured `◈⊙╳` against returned `⊚╬▼` for the same cells).
+Fixed by moving capture INSIDE `stampToGlyphs()`'s own loop, reading the
+exact `g`/`col` locals that also build the returned string, so the two
+outputs cannot diverge by construction. The chosen, documented honest
+contract for a cell `CellGrid` genuinely cannot represent: `grid` is `null`
+precisely when `inner` used the halfblock/quadrant encoder (a `CellGrid`
+cell is one glyph, one colour; a halfblock/quadrant cell is two of each) —
+not a rejection, not a silently-wrong single-colour fallback. Gate: a
+grid-to-`inner` identity test (`gridToPlainText()` reconstructs a plain
+string from `grid.char`/`.cols`/`.rows` and compares it, tags stripped,
+against `inner`) across solid, wireframe and ink; a separate test asserts
+`grid === null` for halfblock and for quadrant.
+
+**P1-3 — compiled objects dropped member mesh options.** `mergeCompileObjects`
+copied only `spec.polygons`; the runtime (`createGlyphScene.ts`) also reads
+`spec.options` per member (`depthBias`, `castShadow`, `receiveShadow`, and
+the detail-layer-triggering options this file's own "Per-mesh detail
+layers" section lists). Every option a FLAT compile can represent —
+`depthBias`, `castShadow`, `receiveShadow` — is now applied: `mergeCompileObjects`
+builds parallel `depthBiases`/`castShadowFlags`/`receiveShadowFlags` arrays
+(gated `undefined` when every member is default, mirroring
+`createGlyphScene`'s own all-default gate) threaded through
+`buildRasterizeContext`, a genuinely new capability (a flat static compile
+can now cast/receive shadows and win a `depthBias` coplanar tie). An option
+a flat compile CANNOT represent — `density`, `fontSize`/`lineHeight`,
+`transparent`, a differing `mode`, `glyphPalette`, `ambientIntensity`, all
+of which pop a mesh into its own detail-layer `<pre>` at runtime — is
+REJECTED, not flattened: `assertCompileMeshOptionsRepresentable` throws a
+`RangeError` naming the object id, mesh name, and field. Flattening was
+considered and rejected — silently rendering a detail-layer mesh into the
+shared base grid changes what a reader sees (no separate density/palette/
+transparency) with no signal that anything was dropped, which is exactly
+the silent-mismatch failure mode this whole fix round exists to close; a
+loud, specific rejection matches this file's own precedent ("Static compile
+takes a flat polygon list and cannot represent detail layers") and gives
+the caller the object/mesh/field to fix. Gate: a parity test asserting a
+`depthBias`-losing mesh wins a coplanar tie exactly like the equivalent live
+`createGlyphScene` render (sign direction verified empirically against a
+real scene, not assumed — positive bias on the otherwise-winning mesh makes
+it LOSE); a `castShadow`/`receiveShadow` parity test reusing the geometry
+`shadow.hidden.test.ts` already proves shadow-casting correct with; a
+rejection test for `density`; a non-rejection test confirming a `mode` that
+merely MATCHES the scene's own mode is not mistaken for "differing" and
+rejected.
+
+**P2-4 — the `autoFit` crop kept only `char`/`color`.** `cropCellGrid`
+(`packages/compile/src/compileFile.ts`) rebuilt its result with
+`depthSrc: null` and every optional buffer argument omitted — every
+`autoFit` render lost `depth` and any effect-input buffer the grid carried.
+Rewritten with two generic row-major crop helpers, `cropTypedField`
+(any `TypedArray`, parametrized on `stride` — 1 for a scalar field like
+`depth`, 2 for `surfaceUv`, 3 for a `[x,y,z]` field like `worldPosition`,
+preserving the source's own typed-array constructor) and `cropPlainField`
+(for `char`/`color`) — every buffer `CellGrid` can carry is now cropped to
+the identical content bounding box, `screenX`/`screenY` freshly regenerated
+for the cropped dimensions via `buildCellGrid` rather than literally copied
+(the coordinate system changed size). `cropCellGrid` also now accepts and
+returns `CellGrid | null`, honoring the same P1-2 contract — a `null` grid
+crops to `null` — even though `CompileFileOptions` does not currently
+expose `charMode` (so `full.grid` is never actually `null` through this
+specific caller today; the type says `CellGrid | null` and this stays
+correct either way rather than assuming). Gate: a synthetic 6x4 `CellGrid`
+built via `buildCellGrid` with every optional buffer populated with
+distinct, position-derived values at every cell (not just painted ones),
+cropped, and compared field-by-field against the matching window of the
+uncropped source; plus an end-to-end `compilePolygons({ autoFit })` test
+asserting the real cropped grid's `depth` varies across painted cells
+(reverting to `depthSrc: null` collapses every painted cell's depth to one
+constant, which this catches without needing to reconstruct the renderer's
+own geometry by hand).
+
+### Gates and mutations (fix round 1)
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| A plain `compileScene()` with no overlay rasterizes exactly once | Restore the old two-pass shape (`rasterizeToCells` fallback) | RED — spy count 2, expected 1 |
+| `grid` is exactly the cells that produced `inner` (solid/wireframe/ink) | Capture via a second independent `stampToGlyphs`-style traversal instead of reading the same loop's locals | RED — captured glyphs differ from `inner`'s own glyphs on a wireframe render (caught on first write, not a synthetic mutation) |
+| `grid` is `null` for `charMode: "halfblock"`/`"quadrant"` | — (positive: asserts `grid === null` for both) | Both pass; the encoder's own no-hook fast path is the mechanism, verified never to run `captureCells` |
+| An object member's `depthBias` resolves a coplanar tie like the live scene | Drop `depthBiases` from the `mergeCompileObjects`/`buildRasterizeContext` threading | RED — the loser wins instead |
+| An object member's `castShadow`/`receiveShadow` matches the live scene | Drop `castShadowFlags`/`receiveShadowFlags` threading | RED — the shadow this test asserts present is absent |
+| A member declaring `density` (or another detail-layer-only option) rejects loudly | Remove the `assertCompileMeshOptionsRepresentable` call | RED — the option is silently accepted, no `RangeError` |
+| `autoFit`'s cropped grid carries every buffer, matching the uncropped window | Revert `cropCellGrid` to `char`/`color`-only with `depthSrc: null` | RED — synthetic-grid test: `expected 10.75, got 0`; end-to-end test: painted-cell depth set size `expected > 1, got 1` |
+
+Every mutation above was applied to the working tree, run, observed red
+(exact failures above), then reverted and re-verified green.
+
 ## C1 — `gridSurfacePolygons`, the surface model, `glyphChartObject`
 
 **Goal.** A `z(x, y)` height-field mesh (core), a validated surface model

@@ -2,8 +2,9 @@ import { describe, it, expect } from "vitest";
 import { resolve } from "node:path";
 import { resolveGeometry } from "@glyphcss/core";
 import type { Polygon } from "@glyphcss/core";
+import { buildCellGrid } from "glyphcss";
 import { loadMeshFromFile } from "./loadMeshFromFile";
-import { compileFile, compilePolygons } from "./compileFile";
+import { compileFile, compilePolygons, cropCellGrid } from "./compileFile";
 import { glyphcssCompile } from "./vite";
 
 // Resolve from cwd (the package dir under vitest) — env-agnostic, unlike
@@ -99,5 +100,99 @@ describe("@glyphcss/compile — geometry input", () => {
     const r = compilePolygons(tri, { cols: 20, rows: 10, autoCenter: true });
     expect(r.inner.replace(/<[^>]*>/g, "").replace(/\s/g, "").length).toBeGreaterThan(0);
     expect(r.html).toContain("glyph-output");
+  });
+});
+
+describe("@glyphcss/compile — cropCellGrid (P2-4 fix round 1)", () => {
+  // 6x4 grid, content occupies rows 1-2 / cols 1-4 (a 4x2 bounding box) so the
+  // crop must trim a real border on every side, not just one.
+  const cols = 6, rows = 4;
+  const n = cols * rows;
+  const char = new Array<string>(n).fill(" ");
+  const color = new Array<string | null>(n).fill(null);
+  const depth = new Float64Array(n);
+  const worldPosition = new Float32Array(n * 3);
+  const surfaceUv = new Float32Array(n * 2);
+  const winnerMesh = new Int32Array(n);
+  const contentCols = [1, 2, 3, 4];
+  const contentRows = [1, 2];
+  for (const r of contentRows) {
+    for (const c of contentCols) {
+      const i = r * cols + c;
+      char[i] = "#";
+      color[i] = "#336699";
+    }
+  }
+  // Every buffer gets a distinct, position-derived value at EVERY cell (not
+  // just the painted ones) so a wrong window offset is caught even where
+  // char/color alone wouldn't show it.
+  for (let i = 0; i < n; i++) {
+    depth[i] = i * 1.5 + 0.25;
+    worldPosition[i * 3] = i; worldPosition[i * 3 + 1] = i + 100; worldPosition[i * 3 + 2] = i + 200;
+    surfaceUv[i * 2] = i / n; surfaceUv[i * 2 + 1] = 1 - i / n;
+    winnerMesh[i] = i + 7;
+  }
+  const full = buildCellGrid(char, color, depth, cols, rows, surfaceUv, null, worldPosition, null, null, null, null, null, null, null, winnerMesh, null);
+
+  it("crops every buffer to the same content window, not just char/color", () => {
+    const cropped = cropCellGrid(full)!;
+    expect(cropped).not.toBeNull();
+    expect(cropped.cols).toBe(contentCols.length);
+    expect(cropped.rows).toBe(contentRows.length);
+    for (let r = 0; r < contentRows.length; r++) {
+      for (let c = 0; c < contentCols.length; c++) {
+        const srcIdx = (contentRows[r]! ) * cols + contentCols[c]!;
+        const dstIdx = r * contentCols.length + c;
+        // char/color: the window this test already exercised before the fix.
+        expect(cropped.char[dstIdx]).toBe(full.char[srcIdx]);
+        expect(cropped.color[dstIdx]).toBe(full.color[srcIdx]);
+        // depth: dropped entirely pre-fix (rebuilt with depthSrc: null).
+        expect(cropped.depth[dstIdx]).toBe(full.depth[srcIdx]);
+        // optional buffers: omitted entirely pre-fix.
+        expect(cropped.worldPosition![dstIdx * 3]).toBe(full.worldPosition![srcIdx * 3]);
+        expect(cropped.worldPosition![dstIdx * 3 + 1]).toBe(full.worldPosition![srcIdx * 3 + 1]);
+        expect(cropped.worldPosition![dstIdx * 3 + 2]).toBe(full.worldPosition![srcIdx * 3 + 2]);
+        expect(cropped.surfaceUv![dstIdx * 2]).toBe(full.surfaceUv![srcIdx * 2]);
+        expect(cropped.surfaceUv![dstIdx * 2 + 1]).toBe(full.surfaceUv![srcIdx * 2 + 1]);
+        expect(cropped.winnerMesh![dstIdx]).toBe(full.winnerMesh![srcIdx]);
+      }
+    }
+    // Screen coordinates stay consistent with the CROPPED dimensions (freshly
+    // derived, never the uncropped grid's own screenX/screenY).
+    expect(Math.max(...cropped.screenX)).toBe(contentCols.length - 1);
+    expect(Math.max(...cropped.screenY)).toBe(contentRows.length - 1);
+    // A buffer the source grid never carried (shade, normal, ...) stays absent
+    // rather than being manufactured.
+    expect(cropped.shade).toBeUndefined();
+    expect(cropped.normal).toBeUndefined();
+  });
+
+  it("null in, null out — the honest contract for a grid-less render (halfblock/quadrant)", () => {
+    expect(cropCellGrid(null)).toBeNull();
+  });
+
+  it("an all-whitespace grid returns unchanged (matches cropLines' own early return)", () => {
+    const blankChar = new Array<string>(n).fill(" ");
+    const blank = buildCellGrid(blankChar, new Array<string | null>(n).fill(null), depth, cols, rows);
+    expect(cropCellGrid(blank)).toBe(blank);
+  });
+
+  it("compilePolygons autoFit's real cropped grid carries real, non-degenerate depth", async () => {
+    // End-to-end: the actual autoFit call path (not the synthetic grid above)
+    // still produces a grid whose depth varies across the painted cells —
+    // reverting cropCellGrid to pass `depthSrc: null` collapses every painted
+    // cell to a single default (0), which this catches.
+    const r = compilePolygons(resolveGeometry("cube", { size: 1 }), {
+      autoFit: { target: 30, by: "cols" }, autoCenter: true, rotX: 60, rotY: 35,
+    });
+    expect(r.grid).not.toBeNull();
+    const g = r.grid!;
+    expect(g.cols).toBe(r.cols);
+    expect(g.rows).toBe(r.rows);
+    const paintedDepths = new Set<number>();
+    for (let i = 0; i < g.char.length; i++) {
+      if (g.char[i] !== " ") paintedDepths.add(g.depth[i]!);
+    }
+    expect(paintedDepths.size).toBeGreaterThan(1);
   });
 });

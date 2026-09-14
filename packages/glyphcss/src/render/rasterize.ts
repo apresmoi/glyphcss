@@ -1075,10 +1075,18 @@ export function rasterize(scene: RasterizeContext): string {
         if (cColor) cColor[i] = colorBuf ? (colorBuf[i] ?? null) : null;
       }
     }
-    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
+    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, scene.captureCells);
     return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
   }
 
+  // `captureCells`-only (no real hook) is handled INSIDE `stampToGlyphs`
+  // itself, from the exact same per-cell loop that builds the returned
+  // string — never a second, independently-reconstructed buffer. Rebuilding
+  // `cChar` a second time here (as an earlier cut of this fix did) called
+  // `wireframeGlyphForCell` AGAIN per cell, and that function's own random
+  // tier pick then diverged from the string's — the captured grid drew
+  // DIFFERENT glyphs than `inner` (caught by
+  // `compileScene.test.ts`'s own grid/inner identity gate).
   return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene);
 }
 
@@ -1771,9 +1779,14 @@ function rasterizeInk(
     }
   }
 
-  if (scene.transformCells) {
-    const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
+  if (scene.transformCells || scene.captureCells) {
+    // Both branches share ONE stringifier (`solidBufToString`) below,
+    // differing only in `safe` (`!!scene.transformCells`, never
+    // `captureCells`) — so routing `captureCells`-only through the same
+    // `applyCellHook` call changes no rendered byte: with no real `hook`,
+    // `applyCellHook` returns `charBuf`/`colorBuf` unchanged.
+    const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, scene.captureCells);
+    return solidBufToString(applied.char, applied.color, cols, rows, !!scene.transformCells, scene);
   }
   return solidBufToString(charBuf, colorBuf, cols, rows, false, scene);
 }
@@ -3153,7 +3166,7 @@ function rasterizeSolid(
   // when scene.transformCells is absent (block skipped entirely). Output-res
   // depth/surface fields share one representative winner after downsampling.
   // Runs BEFORE the single string is built (<pre>-write-once).
-  if (scene.transformCells) {
+  if (scene.transformCells || scene.captureCells) {
     const __tHook = __detail ? performance.now() : 0;
     const applied = applyCellHook(
       scene.transformCells, finalGlyph, finalColor,
@@ -3168,6 +3181,7 @@ function rasterizeSolid(
       finalWinnerMesh,
       finalObjectNormal,
       occludedBuf,
+      scene.captureCells,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
@@ -5006,9 +5020,9 @@ function rasterizeWireframeBraille(
 
   const { char: cChar, color: cColor } = foldBrailleSubStampToCells(subStamp, colorBuf, cols, rows, subCols);
 
-  if (scene.transformCells) {
-    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
+  if (scene.transformCells || scene.captureCells) {
+    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, scene.captureCells);
+    return solidBufToString(applied.char, applied.color, cols, rows, !!scene.transformCells, scene);
   }
 
   return solidBufToString(cChar, cColor, cols, rows, false, scene);
@@ -5274,6 +5288,16 @@ function stampToGlyphs(
   scene: RasterizeContext,
 ): string {
   const colorTolerance = scene.colorTolerance;
+  // `captureCells` (compileScene's own `grid` — AGENTS.md "Compilation"
+  // contract 3) must observe the EXACT glyphs this call returns, never a
+  // second, independently re-derived buffer: `wireframeGlyphForCell` picks
+  // randomly within a weight tier, so a second call over the same inputs can
+  // legitimately draw a DIFFERENT glyph. Both return paths below therefore
+  // capture from their OWN already-built `char`/`color` arrays — the same
+  // ones the returned string comes from — via `applyCellHook`'s own
+  // grid-construction (no real hook, so it only builds the grid and invokes
+  // `capture`, returning its inputs unchanged).
+  const capture = scene.captureCells;
   if (scene.colorEncoding === "atlas" && colorBuf && scene.atlasPalette) {
     // Gate on the palette's POTENTIAL glyph set BEFORE building a single
     // realized (random-drawn) buffer — see `isWireframePaletteAtlasEncodable`.
@@ -5308,6 +5332,7 @@ function stampToGlyphs(
         const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, atlasChar, atlasColor, n);
         if (palette && palette.length > 0 && palette.length <= scene.fontAtlas.maxPaletteSize) {
           scene.atlasEncoded = true;
+          if (capture) applyCellHook(undefined, atlasChar, atlasColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, capture);
           return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette, scene.fontAtlas);
         }
       }
@@ -5329,6 +5354,9 @@ function stampToGlyphs(
     }
     runText = "";
   };
+  const n2 = cols * rows;
+  const capChar: string[] | null = capture ? new Array(n2) : null;
+  const capColor: (string | null)[] | null = capture ? new Array(n2) : null;
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const idx = y * cols + x;
@@ -5342,6 +5370,7 @@ function stampToGlyphs(
         g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
         col = colorBuf ? (colorBuf[idx] ?? null) : null;
       }
+      if (capChar) { capChar[idx] = g; capColor![idx] = col; }
       if (!colorRunExtends(colorPackCache, tolerance2, runColor, col)) {
         flushRun();
         runColor = col;
@@ -5352,6 +5381,7 @@ function stampToGlyphs(
     runColor = null;
     if (y < rows - 1) parts.push("\n");
   }
+  if (capture && capChar) applyCellHook(undefined, capChar, capColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, capture);
   return parts.join("");
 }
 

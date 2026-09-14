@@ -5,7 +5,7 @@ import type {
   Polygon,
   TextureSampler,
 } from "@glyphcss/core";
-import type { TransformCells, GlyphColorEncoding } from "../render/cells";
+import type { CellGrid, TransformCells, GlyphColorEncoding } from "../render/cells";
 import type { GlyphAtlasPaletteInput, GlyphAtlasPaletteSource } from "../render/paletteQuantize";
 import { GLYPH_FONT_ATLAS, type GlyphFontAtlas } from "../render/fontAtlas";
 import type { GlyphCamera, GlyphProjectionMetrics } from "./createGlyphCamera";
@@ -518,6 +518,22 @@ export interface RasterizeContextOptions {
    * byte-identical to the pre-hook renderer. See {@link TransformCells}.
    */
   transformCells?: TransformCells;
+  /**
+   * Independent, mutation-free OBSERVER of the final per-render `CellGrid` —
+   * `compileScene`'s own single-pass `grid` capture (AGENTS.md "Compilation"
+   * contract 3). Unlike `transformCells` it never gates `charMode:
+   * "halfblock"`/`"quadrant"`'s own no-op rule, never forces the "safe"
+   * (hook-present) string encoder, and never mutates cells — it observes
+   * whatever grid the render actually produced (post-`transformCells`, when
+   * one is also set) and is called AT MOST ONCE per `rasterize()` call, from
+   * inside the SAME pass that builds the returned string, never a second
+   * traversal. With neither `transformCells` nor `captureCells` set, output
+   * is byte-identical to before this option existed. `charMode: "halfblock"`/
+   * `"quadrant"` never invoke it — a `CellGrid` cannot represent that
+   * encoder's two colours per cell — so a caller reads that skip as "no
+   * durable grid for this render" (see {@link CompileSceneResult.grid}).
+   */
+  captureCells?: (grid: CellGrid) => void;
 }
 
 /**
@@ -683,6 +699,8 @@ export interface RasterizeContext {
   retainTargetRgb?: boolean;
   /** Optional post-rasterize cell hook — see {@link RasterizeContextOptions.transformCells}. */
   transformCells?: TransformCells;
+  /** Independent grid-capture observer — see {@link RasterizeContextOptions.captureCells}. */
+  captureCells?: (grid: CellGrid) => void;
 }
 
 // Source vector from the surface toward the distant light.
@@ -805,6 +823,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     ...(opts.occlusion ? { occlusion: opts.occlusion } : {}),
     ...(opts.textureSamplers ? { textureSamplers: opts.textureSamplers } : {}),
     ...(opts.transformCells ? { transformCells: opts.transformCells } : {}),
+    ...(opts.captureCells ? { captureCells: opts.captureCells } : {}),
     ...(opts.solidWeightRamp ? { solidWeightRamp: opts.solidWeightRamp } : {}),
   };
 }

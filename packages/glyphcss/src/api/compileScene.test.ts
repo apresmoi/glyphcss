@@ -374,7 +374,8 @@ describe("compileScene — objects, textureSamplers, grid (contract 3, packet F5
 
     // The captured grid reflects the overlay's own stamp, not just the string.
     const idx = 2 * compiled.cols + 2;
-    expect(compiled.grid.char[idx]).toBe("@");
+    expect(compiled.grid).not.toBeNull();
+    expect(compiled.grid!.char[idx]).toBe("@");
 
     // Every mounted object's hotspots are projected through this render's camera.
     expect(compiled.hotspots).toHaveLength(1);
@@ -466,7 +467,9 @@ describe("compileScene — objects, textureSamplers, grid (contract 3, packet F5
     const baseline = compileScene(cfg);
     const withEmptyArray = compileScene({ ...cfg, objects: [] });
     expect(withEmptyArray.inner).toBe(baseline.inner);
-    expect(withEmptyArray.grid.char).toEqual(baseline.grid.char);
+    expect(withEmptyArray.grid).not.toBeNull();
+    expect(baseline.grid).not.toBeNull();
+    expect(withEmptyArray.grid!.char).toEqual(baseline.grid!.char);
 
     // And returning `grid` does not disable the halfblock/quadrant charMode
     // no-op gate (attaching ANY hook to the string-producing pass would).
@@ -482,9 +485,10 @@ describe("compileScene — objects, textureSamplers, grid (contract 3, packet F5
     const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
     const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 0.5 });
     const compiled = compileScene({ polygons: polys, camera, cols: 30, rows: 12 });
-    expect(compiled.grid.cols).toBe(30);
-    expect(compiled.grid.rows).toBe(12);
-    expect(compiled.grid.char.join("")).not.toBe(" ".repeat(30 * 12));
+    expect(compiled.grid).not.toBeNull();
+    expect(compiled.grid!.cols).toBe(30);
+    expect(compiled.grid!.rows).toBe(12);
+    expect(compiled.grid!.char.join("")).not.toBe(" ".repeat(30 * 12));
     expect(compiled.hotspots).toEqual([]);
   });
 
@@ -508,5 +512,185 @@ describe("compileScene — objects, textureSamplers, grid (contract 3, packet F5
     expect(() => compileScene({
       polygons: [semanticPolygon], cols: 12, rows: 8, glyphOutput: "semantic", sceneManifest: manifest, dictionary, objects: [object],
     })).toThrow(TypeError);
+  });
+});
+
+/**
+ * F5b fix round 1 — codex review findings P1-1 (double rasterize), P1-2
+ * (grid must match inner exactly, honest `null` for dual-colour charModes),
+ * P1-3 (dropped mesh options), P2-4 (autoFit crop loses buffers, gated in
+ * `@glyphcss/compile`'s own `compileFile.test.ts`).
+ */
+describe("compileScene — fix round 1 (single-pass grid, grid/inner identity, mesh options)", () => {
+  it("compiles in exactly ONE rasterize pass (mutation: a second independent pass, e.g. the old rasterizeToCells fallback, must go red)", async () => {
+    const rasterizeModule = await import("../render/rasterize");
+    const spy = vi.spyOn(rasterizeModule, "rasterize");
+    try {
+      const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+      compileScene({ polygons: polys, cols: 20, rows: 8 });
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  function gridToPlainText(grid: { char: readonly string[]; cols: number; rows: number }): string {
+    const lines: string[] = [];
+    for (let r = 0; r < grid.rows; r++) lines.push(grid.char.slice(r * grid.cols, (r + 1) * grid.cols).join(""));
+    return lines.join("\n");
+  }
+
+  it("grid is exactly the cells that produced inner — solid, wireframe (its own randomized glyph tiers included) and ink (mutation: a second independent rasterize pass diverges here first)", () => {
+    const polys = icosahedronPolygons({ center: [0, 0, 0], size: 3 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 25, zoom: 15 });
+    for (const mode of ["solid", "wireframe", "ink"] as const) {
+      const compiled = compileScene({ polygons: polys, camera, cols: 40, rows: 20, useColors: false, mode });
+      expect(compiled.grid).not.toBeNull();
+      const decoded = gridToPlainText(compiled.grid!);
+      const expectedPlain = compiled.inner.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+      expect(decoded).toBe(expectedPlain);
+    }
+  });
+
+  it("grid is null under charMode halfblock/quadrant (solid) — a CellGrid has one colour per cell, those encoders paint two", () => {
+    const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 0.5 });
+    const cfg = { polygons: polys, camera, cols: 30, rows: 12, useColors: true, mode: "solid" as const };
+    expect(compileScene({ ...cfg, charMode: "halfblock" }).grid).toBeNull();
+    expect(compileScene({ ...cfg, charMode: "quadrant" }).grid).toBeNull();
+    // Right beside it, the plain ascii encoding of the SAME geometry keeps a real grid.
+    expect(compileScene(cfg).grid).not.toBeNull();
+  });
+
+  function biasQuad(half: number, color: string): Polygon[] {
+    return [{
+      vertices: [[-half, -half, 0], [-half, half, 0], [half, half, 0], [half, -half, 0]],
+      color,
+    }];
+  }
+
+  it("an object mesh's own depthBias reaches the compiled render exactly like the live scene (mutation: drop depthBias, which must go red)", () => {
+    const probeOptions = {
+      cols: 3, rows: 1, useColors: true,
+      camera: createGlyphOrthographicCamera({ zoom: 50 }),
+      directionalLight: { direction: [0, 0, 1] as [number, number, number], intensity: 0 },
+      ambientLight: { intensity: 1 },
+      doubleSided: true,
+    } as const;
+    // Two fully-overlapping, equal-depth quads: with no bias at all, the
+    // FIRST-added mesh wins the tie (verified directly against this exact
+    // camera/option pair — the tie-break rule itself is an implementation
+    // detail this test does not depend on beyond "it's deterministic").
+    // Biasing that same (already-winning) mesh POSITIVE must flip the
+    // winner to the other one — the concrete, camera-independent way this
+    // codebase already asserts depthBias in
+    // `createGlyphScene.sceneObject.test.ts`'s own winnerMesh test: "one
+    // biased ... determine which ACTUALLY wins ... sidesteps needing to
+    // know the camera's own depth-sign convention".
+    const object: GlyphSceneObject = {
+      id: "bias-obj",
+      meshes: [
+        { name: "a", polygons: biasQuad(50, "#336699"), options: { depthBias: 0.5 } },
+        { name: "b", polygons: biasQuad(50, "#996633") },
+      ],
+      bounds: { min: [-50, -50, 0], max: [50, 50, 0] },
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, probeOptions);
+    scene.addObject(object);
+    scene.rerender();
+    const runtimeHtml = scene.output.innerHTML;
+    scene.destroy();
+    host.remove();
+
+    const compiled = compileScene({ polygons: [], objects: [object], ...probeOptions });
+    expect(compiled.inner).toBe(runtimeHtml);
+    // "b" ("#996633") wins — "a" would have won the tie unbiased (see the
+    // no-bias assertion below), so this is the bias actually taking effect.
+    expect(compiled.inner).toContain("#996633");
+    expect(compiled.inner).not.toContain("#336699");
+
+    // Mutation: drop depthBias -> the first-added mesh ("a") reasserts its
+    // draw-order win.
+    const withoutBias: GlyphSceneObject = { ...object, meshes: object.meshes.map(({ name, polygons }) => ({ name, polygons })) };
+    const compiledWithoutBias = compileScene({ polygons: [], objects: [withoutBias], ...probeOptions });
+    expect(compiledWithoutBias.inner).not.toBe(compiled.inner);
+    expect(compiledWithoutBias.inner).toContain("#336699");
+  });
+
+  function shadowWall(x: number, y: number): Polygon[] {
+    return [
+      { vertices: [[x, y, 0], [x + 1.2, y, 0], [x + 1.2, y, 2.2]], color: "#cccccc" },
+      { vertices: [[x, y, 0], [x + 1.2, y, 2.2], [x, y, 2.2]], color: "#cccccc" },
+    ];
+  }
+  function shadowGround(): Polygon[] {
+    return [
+      { vertices: [[-6, -6, 0], [6, -6, 0], [6, 6, 0]], color: "#888888" },
+      { vertices: [[-6, -6, 0], [6, 6, 0], [-6, 6, 0]], color: "#888888" },
+    ];
+  }
+
+  it("an object mesh's own castShadow/receiveShadow reach the compiled render exactly like the live scene (mutation: drop the flags, which must go red)", () => {
+    // Same geometry/camera/light `shadow.hidden.test.ts` already proves casts
+    // a real, on-screen shadow (its own "the fixture really does cast" clause).
+    const shadowSceneOptions = {
+      cols: 60, rows: 30, useColors: true,
+      camera: createGlyphPerspectiveCamera({ rotX: 55, rotY: 30, zoom: 250, distance: 20 }),
+      directionalLight: { direction: [0.35, 0.25, 0.9] as [number, number, number], intensity: 1 },
+      ambientLight: { intensity: 0.3 },
+      doubleSided: true,
+      shadow: { opacity: 0.8 },
+    } as const;
+    const object: GlyphSceneObject = {
+      id: "shadow-obj",
+      meshes: [
+        { name: "ground", polygons: shadowGround(), options: { receiveShadow: true } },
+        { name: "wall", polygons: shadowWall(-0.6, 0.4), options: { castShadow: true } },
+      ],
+      bounds: { min: [-6, -6, 0], max: [6, 6, 2.2] },
+    };
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, shadowSceneOptions);
+    scene.addObject(object);
+    scene.rerender();
+    const runtimeHtml = scene.output.innerHTML;
+    scene.destroy();
+    host.remove();
+
+    const compiled = compileScene({ polygons: [], objects: [object], ...shadowSceneOptions });
+    expect(compiled.inner).toBe(runtimeHtml);
+
+    // Mutation: drop the flags -> no shadow is cast or received, the render differs.
+    const withoutFlags: GlyphSceneObject = { ...object, meshes: object.meshes.map(({ name, polygons }) => ({ name, polygons })) };
+    const compiledWithoutFlags = compileScene({ polygons: [], objects: [withoutFlags], ...shadowSceneOptions });
+    expect(compiledWithoutFlags.inner).not.toBe(compiled.inner);
+  });
+
+  it("rejects a mesh option that separates into its own detail layer at runtime (density), naming the object, mesh and field", () => {
+    const object: GlyphSceneObject = {
+      id: "detail-obj",
+      meshes: [{ name: "hero", polygons: biasQuad(4, "#4488cc"), options: { density: 2 } }],
+      bounds: { min: [-4, -4, 0], max: [4, 4, 0] },
+    };
+    expect(() => compileScene({ polygons: [], objects: [object], cols: 20, rows: 10 }))
+      .toThrow(/"detail-obj"/);
+    expect(() => compileScene({ polygons: [], objects: [object], cols: 20, rows: 10 }))
+      .toThrow(/"hero"/);
+    expect(() => compileScene({ polygons: [], objects: [object], cols: 20, rows: 10 }))
+      .toThrow(/"density"/);
+  });
+
+  it("a mesh's own `mode` matching the compile's own mode is NOT rejected — only a genuinely different mode is (AGENTS.md's own conditional-separation rule)", () => {
+    const object: GlyphSceneObject = {
+      id: "same-mode-obj",
+      meshes: [{ name: "m", polygons: biasQuad(4, "#4488cc"), options: { mode: "solid" } }],
+      bounds: { min: [-4, -4, 0], max: [4, 4, 0] },
+    };
+    expect(() => compileScene({ polygons: [], objects: [object], cols: 20, rows: 10, mode: "solid" })).not.toThrow();
+    expect(() => compileScene({ polygons: [], objects: [object], cols: 20, rows: 10, mode: "wireframe" })).toThrow(/"mode"/);
   });
 });
