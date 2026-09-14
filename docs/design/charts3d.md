@@ -494,6 +494,27 @@ labels or cluster volumes beyond the group mesh (D4). No performance gate at
 200 nodes (D4) — the force O(n²) simulation is unbounded here, matching the
 PLAN's own stated ~200-node ceiling for a future Barnes-Hut upgrade.
 
+**Fixed: the shared arbiter printed a label straight through a foreign mesh
+covering a middle character.** D1's node labels carry no `depth` (the
+comment above `frame.labels.place` in `glyphDiagramObject.ts` explains why
+not), which is what made the defect reachable from this packet — the arbiter
+itself lives in `packages/glyphcss/src/render/overlay/labelArbiter.ts`, not
+here, and is shared with C1's surface tick labels. `resolve()` checked
+occlusion at the candidate's ANCHOR cell only; a foreign `winnerMesh` under
+any LATER character (a node box straddling behind an edge or a taller
+neighbour's box) painted the whole label anyway, since
+`stampGlyphOverlayCell` silently no-ops an individually-occluded cell rather
+than refusing the label. Fixed by scanning every one of a label's own cells
+before painting any of them and dropping the whole label — treated as
+unplaced, like a collision — the instant one is covered by a foreign mesh
+(`CellGrid.winnerMesh` outside `ownMeshIds`) or cross-layer `occluded`; a
+label's own object's mesh still never hides it, and a plain
+grid-with-neither-buffer render is byte-identical. AGENTS.md's "Scene
+objects" Declutter clause carries the contract; `labelArbiter.test.ts`'s
+mutation table (anchor-only check, own-mesh-as-foreign, no-`occluded`-check,
+no-mesh-buffers-at-all) is the gate, reproduced against the pre-fix code to
+confirm each one actually reddens there.
+
 ## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
 
 ### Why `pre` had to leave the metadata type, and what replaced it

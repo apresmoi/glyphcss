@@ -35,9 +35,12 @@ export interface GlyphLabelCandidate {
   readonly color?: string;
   /**
    * This label's own object's mesh ids — see AGENTS.md's "Occlusion" clause:
-   * a label hides iff the cell AT ITS ANCHOR is won (`CellGrid.winnerMesh`)
-   * by a mesh NOT in this set. Omitted, or `grid.winnerMesh` absent
-   * (non-solid mode, or nothing requested the buffer): never hidden.
+   * the label hides WHOLE iff ANY of its own cells (not only the anchor) is
+   * won (`CellGrid.winnerMesh`) by a mesh NOT in this set, or is cross-layer
+   * `occluded` — never clipped to just the covered characters, since a label
+   * with missing letters misreads. Omitted, or `grid.winnerMesh` absent
+   * (non-solid mode, or nothing requested the buffer): the mesh check never
+   * applies (the `occluded` check still does, independent of mesh identity).
    */
   readonly ownMeshIds?: ReadonlySet<number>;
   /** Optional depth test at the anchor, same convention as `stampGlyphOverlayCell`. */
@@ -92,15 +95,34 @@ export function createGlyphLabelArbiter(): GlyphLabelArbiterInternal {
         .sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
       const placed: PlacedBox[] = [];
       const winnerMesh = grid.winnerMesh;
+      const occluded = grid.occluded;
       for (const c of ordered) {
         const text = foldGlyphOverlayLabelToAscii(c.text);
         if (text.length === 0) continue;
         if (c.col < 0 || c.row < 0 || c.row >= grid.rows || c.col >= grid.cols) continue;
-        // Occlusion: a label hides behind a mesh that isn't its own.
-        if (c.ownMeshIds && winnerMesh) {
-          const winner = winnerMesh[c.row * grid.cols + c.col];
-          if (winner !== undefined && winner !== -1 && !c.ownMeshIds.has(winner)) continue;
+        // Occlusion: a label hides ENTIRELY if ANY of its own cells — not
+        // just the anchor — is covered by a foreign mesh or cross-layer
+        // `occluded`. A per-cell check here (what shipped first) painted
+        // whatever characters landed on clear cells and silently dropped the
+        // rest via `stampGlyphOverlayCell`'s own bounds/occlusion no-op,
+        // stamping a label with holes through the very mesh meant to hide it
+        // — a codex review finding: a foreign winner under a MIDDLE character
+        // (never the anchor) let the whole label print straight through.
+        // Dropped whole, like a collision, because a label with missing
+        // letters misreads (AGENTS.md's "Scene objects" Occlusion clause). A
+        // column past the grid's own width is not a foreign-mesh cover — it
+        // is the SAME off-grid crop `stampGlyphOverlayCell` already applies
+        // per cell — so it never counts here either.
+        let coveredByForeign = false;
+        for (let i = 0; i < text.length && c.col + i < grid.cols; i++) {
+          const idx = c.row * grid.cols + (c.col + i);
+          if (occluded && occluded[idx] === 1) { coveredByForeign = true; break; }
+          if (c.ownMeshIds && winnerMesh) {
+            const winner = winnerMesh[idx];
+            if (winner !== undefined && winner !== -1 && !c.ownMeshIds.has(winner)) { coveredByForeign = true; break; }
+          }
         }
+        if (coveredByForeign) continue;
         const box: PlacedBox = { col: c.col, row: c.row, width: text.length };
         if (placed.some((p) => boxesOverlap(box, p))) continue;
         placed.push(box);
