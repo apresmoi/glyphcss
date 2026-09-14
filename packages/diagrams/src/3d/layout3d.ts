@@ -19,8 +19,19 @@ import type { Vec3 } from "glyphcss";
 
 /** World units between two adjacent Z floors (`zBy` groups/kinds/ranks). */
 export const GLYPH_DIAGRAM_3D_LAYER_HEIGHT = 3;
-/** A node box's fixed thickness along world Z (up) — comfortably under `GLYPH_DIAGRAM_3D_LAYER_HEIGHT` so a floor's nodes never reach the next one. */
-export const GLYPH_DIAGRAM_3D_NODE_HEIGHT = 1;
+/**
+ * A node box's fixed thickness along world Z (up) — comfortably under
+ * `GLYPH_DIAGRAM_3D_LAYER_HEIGHT` so a floor's nodes never reach the next
+ * one. Thin (0.35, was 1) is deliberate — D2 review finding P1-1: at
+ * `GLYPH_DIAGRAM_3D_NODE_HEIGHT = 1` a node's TOP and SIDE faces (whichever
+ * the camera's default `rotX`/`rotY` happens to see) rasterized to a wide
+ * band of near-identical Lambert intensity, so two-plus faces read as one
+ * undifferentiated `@` slab with no visible edge between them — a box
+ * outline overlay (`glyphDiagramObject.ts`'s own fix) still helps, but a
+ * genuinely thin plate needs far less outline to read as 3D in the first
+ * place, the way a name badge or a floor plate does.
+ */
+export const GLYPH_DIAGRAM_3D_NODE_HEIGHT = 0.35;
 /** Padding (world units, = cells for a layered layout) added around a group's member footprint before it becomes a floor plate / wireframe volume. */
 export const GLYPH_DIAGRAM_3D_GROUP_PAD = 2;
 

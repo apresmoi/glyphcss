@@ -147,6 +147,26 @@ describe("diagram CLI — --3d (packet D2)", () => {
     expect(() => parseGlyphDiagramArgs([mermaidFile, "--3d", "--camera", "1"])).toThrow(expect.objectContaining({ code: "bad-options" }));
   });
 
+  // D2 fix round 1, P2-4 (codex): --layout/--camera without --3d used to be
+  // silently ignored — a 2D render with no signal the flag went nowhere.
+  it("rejects --layout without --3d", () => {
+    expect(() => parseGlyphDiagramArgs([mermaidFile, "--layout", "force"])).toThrow(expect.objectContaining({ code: "bad-options" }));
+  });
+
+  it("rejects --camera without --3d", () => {
+    expect(() => parseGlyphDiagramArgs([mermaidFile, "--camera", "55,35"])).toThrow(expect.objectContaining({ code: "bad-options" }));
+  });
+
+  it("--3d --layout/--camera together still parse cleanly (mutation: reject --3d itself) → red", () => {
+    expect(() => parseGlyphDiagramArgs([mermaidFile, "--3d", "--layout", "force", "--camera", "55,35"])).not.toThrow();
+  });
+
+  it("--layout without --3d exits 1 with its rule code from the CLI entrypoint", async () => {
+    vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+    await expect(runGlyphDiagram([mermaidFile, "--layout", "force"])).rejects.toMatchObject({ status: 1 });
+    expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("bad-options");
+  });
+
   it("renders a real 3D frame with every node label on screen (mutation: dispatch --3d to the 2D pipeline) → red", async () => {
     const output = join(directory, "3d.txt");
     await runGlyphDiagram([mermaidFile, "--3d", "--color", "none", "-o", output]);

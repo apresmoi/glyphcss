@@ -29,12 +29,29 @@ export function ledger3dCharsetDegraded(opts: { readonly charset: "blocks" | "br
 }
 
 /**
- * Auto-fit (§11's D2 row) measures a probe render and scales the camera to
- * fit `cols`×`rows` with margin — real content, so it can only be WRONG when
- * the graph is dense enough that label text (which doesn't shrink with
- * zoom, unlike geometry) still overflows the fitted frame. Never thrown:
- * the frame is returned as-is, clipped, with this entry naming it.
+ * D2 review P1-2 (codex): a single node's own label text is LONGER than the
+ * frame can ever show (`cols` minus both margins), independent of camera
+ * zoom or position — geometry shrinks with zoom, but a label's cell width
+ * doesn't. The analytic fit (`render3d.ts`'s `fitDiagramCamera`) excludes
+ * such a label from its own constraint set (so it can't force every OTHER
+ * label's zoom toward zero) and reports it here instead of silently
+ * clipping it with no signal at all.
  */
-export function ledger3dContentOverflow(opts: { readonly cols: number; readonly rows: number }): GlyphDiagramLedgerEntry {
-  return entry("3d-content-overflow", `The diagram is dense enough that some labels may be clipped at ${opts.cols}x${opts.rows} even after auto-fit — widen the frame or simplify the graph.`, { ...opts });
+export function ledger3dLabelUnfittable(opts: { readonly nodeId: string; readonly label: string; readonly cols: number }): GlyphDiagramLedgerEntry {
+  return entry("3d-label-unfittable", `The "${opts.nodeId}" label ("${opts.label}") is wider than the ${opts.cols}-column frame itself — no camera zoom can show it whole; widen the frame or shorten the label.`, { ...opts });
+}
+
+/**
+ * D2 review P1-2 (codex): the analytic fit computes where every label
+ * SHOULD land, but the shared `GlyphLabelArbiter` can still refuse one at
+ * render time (two labels genuinely colliding on screen from THIS
+ * rotation, or a foreign mesh's `winnerMesh` covering one of its cells) —
+ * a real case the fit's own geometry can't rule out in advance. `render3d.ts`
+ * verifies every node's predicted label text actually landed in the FINAL
+ * grid and logs this, naming the node, for any that didn't — never a
+ * silent drop (the review's own repro: "Orchestrator vanished... with an
+ * empty ledger").
+ */
+export function ledger3dLabelDropped(opts: { readonly nodeId: string; readonly label: string }): GlyphDiagramLedgerEntry {
+  return entry("3d-label-dropped", `The "${opts.nodeId}" label ("${opts.label}") didn't make it into the final frame — likely hidden behind another node or collided with a neighboring label at this camera angle.`, { ...opts });
 }

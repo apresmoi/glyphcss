@@ -767,6 +767,267 @@ groupless graphs, stated in `render3d.ts`'s own doc comment. `/diagrams`
 page wiring (View 2D/3D toggle, camera in `?d=`, 3D tray tiles) is D3's
 scope, untouched here.
 
+## D2 fix round 1 (codex review)
+
+The review rejected D2's own commit (`6985eb90`) on two P1s and three P2s.
+Each is fixed at the layer that actually owns the behaviour, not relocated.
+
+**P1-1 — unreadable default frame.** At `80x24`/`96x32` a node's box
+rasterized to a uniform `@` slab with no visible face/edge boundary, and
+every edge carried a plain slope glyph (`- | / \`) with no direction.
+Fixed in `glyphDiagramObject.ts`/`render3d.ts`, tier-aware via
+`GLYPH_CANVAS_TIERS` (the SAME glyph tables the 2D canvas painters use, per
+the review's own instruction — never a parallel table): a depth-tested
+12-edge BOX OUTLINE overlay per node (`tier.straight.h`/`.v` for a
+near-axis-aligned segment, `tier.diagonal[...]` only for a genuine
+diagonal — reading every segment through `diagonal` alone resolves to
+plain-ASCII-shaped entries even on `box`, since box-drawing has no
+diagonal glyph of its own to offer); a real ARROWHEAD
+(`tier.arrow.n/e/s/w`) on each edge's final cell, snapped to the nearest
+cardinal screen direction of travel; `GLYPH_DIAGRAM_3D_NODE_HEIGHT` shrank
+`1 -> 0.35` (a thin plate, not a thick block); and the scene's ambient
+light dropped (`GLYPH_DIAGRAM_3D_AMBIENT_LIGHT.intensity: 0.2`, was the
+generic scene default) so a box's top and side faces read as distinct
+Lambert intensities instead of one flat-lit slab. The arrowhead is
+DELIBERATELY not depth-tested against its own target node — measured (see
+below), a depth-tested write lost every one of the reference graph's
+arrowheads (0 of 3), because the anchor commonly lands on a thin box's
+SIDE face while that same screen cell's nearer winner is the box's own TOP
+face; the arrow is only ever meant to sit where its own edge enters its
+own target, so depth-testing it against that SAME node is wrong in
+exactly the reasoning the label-placement comment already gives for
+labels — it is still depth-tested against a genuinely FOREIGN node by the
+line segment immediately underneath it, which keeps its own `depth`.
+
+Before (4-node agent graph, `glyphcss diagram graph.mmd --3d --color none`, commit `6985eb90`):
+
+```
+                        @@@
+                     @@@@@@@@@@
+                   @@@@@@@@@@@@
+                @@@@@@@@@@%@
+              @@@@@@@@@@@@
+           @@@@@Orchestrator     @@@@@
+         @@@@@@@@@@--          @@@@@@@@@@
+       @@@@@@@@@@@%  ----    @@@@@@@@@%@
+    @@@@@@@@@@@@         -@@@@Planner@          @
+  @@@@@@@@@@%@          @@@@@@@@@@-@          @@@@@@@@
+ #%#%@@@@@@          @@@@@@@@@@@@  ----    @@@@@@@@@@@@          @@@
+     %#@@          @@@@@@@@@@@%        --@@@Coder@%@@          @@@@@@@@@
+                   #%#%#@@@@          @@@@@@@@@@--          @@@@@@@@@@@@
+                        #@          @@@@@@@@@@%@  ----    @@@@@@@@@@%@
+                                   #%#@@@@@@@         -@@@@@Reviewer
+                                      ###@%          @@@@@@@@@%@@
+                                                  @@@@@@@@@@@@
+                                                #@@@@@@@@@%@
+                                                 #%#%#@@@
+                                                     %#
+```
+
+After (same graph/target/render, fix round 1 — box outlines, thinner
+plates, lower ambient, real arrowheads):
+
+```
+                         ─*+──
+                       ─++++++++──
+                     ─++*+++*+──
+                  ─++++++++───
+                ─+*+++*++──
+              ++++Orchestrator      ─++──
+            *+++*+++───          ─++*+++*+─%
+         ─++++++++──   ────   ──++++++++──
+       +++*+++*───         ──▶*+++*+++──         ─│─
+    +++++++++──          ──+++++Planner        ──++++++─
+   ─*+++*++──         ──*+++*+++*──   ────   ─++*+++*+++──         ─────
+      ─────         ──+++++++++──         ──▶++++++++───         ─+++++++─│
+                    │─────*++──          ─*+++*Coder─         ──++*+++*──%│
+                        ─────          +++++++++──   ────   ─++++++++──@─
+                                     ─*─*+++*───         ──▶*+Reviewer
+                                        ─────         ──+++++++++───
+                                                    ──*+++*+++*───
+                                                  │─+++++++++───
+                                                  │─────*++──
+                                                      ─────
+```
+
+Every one of the 4 node labels is intact, all 3 edges show a `▶`
+arrowhead pointing into their target, and the box tier's `─`/`│` outline
+glyphs separate each node's own top/side faces from the next node's,
+against the review's own acceptance bar ("a reader must see four distinct
+boxes with labels, and three directed edges with arrowheads").
+
+**P1-2 — auto-fit can't guarantee visibility.** The rejected version
+probed a rendered frame and measured painted cells, which cannot tell
+"off-frame" from "collided and dropped by the arbiter" — both read as
+simply absent, so a caller had no way to tell an auto-fit bug from a
+genuine label collision. `fitDiagramCamera` (`render3d.ts`) is now
+CLOSED-FORM: for a fixed rotation/target/centre an orthographic camera's
+`col(zoom) = centerCol + (col1 - centerCol) * zoom` is exactly linear in
+`zoom`, so every one of the object's 8 bounds corners AND every node's own
+label anchor+text-width becomes one linear inequality in `zoom`; the
+tightest (`min`) upper bound across all of them is the largest zoom that
+keeps everything on screen with margin — computed once, from PROJECTED
+geometry and full label extents, with no render and no probe for an
+arbiter collision to hide behind. A label wider than the frame itself
+(`text.length > availCols`) can never fit at ANY zoom, so it is excluded
+from the constraint set (it can't force every other label toward zoom
+zero) and reported via `ledger3dLabelUnfittable` instead. After the fit,
+`renderGlyphDiagram3d` VERIFIES what actually landed against what the fit
+predicted — reading `grid.char` at each label's own predicted cells — and
+logs `ledger3dLabelDropped` naming the node for any miss, reproducing the
+review's own repro (force layout, seed 42, a near-top-down camera) as a
+permanent regression gate (`render3d.test.ts`'s "the review's own repro"
+case) rather than trusting the analytic prediction blindly.
+
+**P2-3 — duplicated composition path.** The rejected version hand-rolled
+the overlay-flatten-arbiter pipeline `compileScene` itself is built from
+(`buildRasterizeContext` + `rasterizeToCells`, plus an unsafe
+`(arbiter as unknown as {...}).resolve(grid)` cast to reach the scene-only
+`resolve` half of the label arbiter). `render3d.ts`'s `renderObjectFrame`
+is now a thin wrapper over the PUBLIC `compileScene({ objects,
+textureSamplers, cols, rows, ... })` surface (glyphcss, packet F5b,
+committed `2d218244`) — the exact composition `scene.addObject()` runs at
+runtime, so this module has nothing of its own left to drift from that
+contract, and the unsafe cast is gone entirely. A `null` grid (a future
+`charMode` this module never actually requests) is handled explicitly
+with `glyphDiagramError("bad-options", ...)` rather than assumed away, per
+the fix round's own instruction to code against the public API only.
+
+**P2-4 — `--layout`/`--camera` without `--3d` silently ignored.**
+`parseGlyphDiagramArgs` (`diagramCli.ts`) now rejects `--layout`/`--camera`
+with no `--3d` at PARSE time — `bad-options`, exit 1 — instead of quietly
+building `opts.layout3d`/`opts.camera3d` and then never reading them (the
+2D `renderGlyphDiagram` path has no field for either).
+
+**P2-5 — weak mutation gates.** `render3d.test.ts`'s target×charset×colour
+matrix used to assert only `text.length > 0`, which passed on a frame that
+was nothing but whitespace-padded label text with zero box/edge geometry,
+and on an `html` exit that existed but carried no colour at all. It now
+asserts every node's FULL label is present (`everyLabelVisible`, no
+longer a 3-character prefix check), real painted geometry beyond the
+label text (`paintedGeometryCellCount`), and that `color: "css"`'s `html`
+actually carries a canonical `#rrggbb` inline colour style; a separate
+gate confirms an ANSI colour mode actually emits SGR escapes when NOT
+`NO_COLOR`'d (the existing matrix only ever checked the NO_COLOR-suppressed
+case). Auto-fit gained: `layout: "force"` across five seeds including 42
+(the review's own repro seed); a near-top-down camera (`rotX: 90`) over
+force layout at seed 42, the review's own repro verbatim, checked against
+BOTH the rendered text and the ledger (a genuine collision must be named,
+never silent); and a trackball `mat` camera with a real roll (not the
+identity), on both the 4-node fixture (zero missing labels) and the wider
+6-node fixture (a lost label there must be named in the ledger, since the
+analytic fit bounds each label's own anchor+width but not pairwise
+label-vs-label overlap — a real collision at SOME orientation is expected,
+a SILENT one is not). The "fixed zoom" gate now PROVES no single constant
+zoom fits both fixtures, rather than trusting they merely look
+different-sized: it takes the small graph's own auto-fit zoom and applies
+it EXPLICITLY to the wider `supervisorGraph`, and asserts that a label
+provably goes missing there.
+
+**Gate.** `pnpm --filter @glyphcss/diagrams exec vitest run` (253 tests:
+14 `layout3d.test.ts` + 5 `glyphDiagramObject.test.ts` + 12
+`render3d.test.ts`) and `pnpm --filter @glyphcss/compile exec vitest run`
+(71 tests, 31 in `diagramCli.test.ts` including the P2-4 block) pass;
+`pnpm build:packages` builds every package with no errors.
+
+**Mutation table (this round's own additions).**
+
+| Property | Mutation | Result |
+|---|---|---|
+| A reader sees 4 distinct boxes and 3 arrowed edges | Revert to the pre-round `glyphDiagramObject.ts`/`layout3d.ts`/`render3d.ts` (`6985eb90`) | The "before" frame above — a uniform `@` slab, no outlines, no arrowheads |
+| Arrowhead survives its own target node's nearer top face | Depth-test the arrowhead write against its own node's geometry | 0 of 3 arrowheads paint on the reference graph (measured directly before the fix) |
+| Box-outline segments use the tier's crisp straight glyph on axis-aligned runs | Route every segment through `tier.diagonal` unconditionally | `box`'s outline loses its `─`/`│` glyphs to `diagonal`'s plain-ASCII-shaped entries |
+| Auto-fit works from geometry, not a render probe | (structural — no probe exists any more to skip) | `render3d.test.ts`'s force/seed/top-view/trackball gates below |
+| Force layout + seed 42 + top view never silently drops a label | Skip the post-render landed-vs-predicted verification loop | The review's own repro case reddens (label absent from both frame and ledger) |
+| `compileScene({ objects })` composition matches the live runtime | Hand-roll the flatten/stamp/resolve pipeline again | The byte-identity gate (unchanged from D2's own table) reddens |
+| `--layout`/`--camera` without `--3d` rejected | Drop the `!opts.is3d` guard in `parseGlyphDiagramArgs` | `diagramCli.test.ts`'s "rejects --layout/--camera without --3d" cases reddens |
+| Matrix gate asserts REAL content | Revert `everyLabelVisible`/`paintedGeometryCellCount` to `text.length > 0` | Passes on a whitespace-only frame — caught by re-running the old assertion against a deliberately blanked grid |
+| CSS `html` actually carries colour | Drop `color` from `encodeGlyphCanvasHtml`'s span style | The matrix gate's `/color:\s*#[0-9a-f]{6}/i` assertion reddens |
+| ANSI colour modes emit real SGR escapes | Force `color: "none"` internally regardless of the requested mode | "ANSI colour modes actually carry colour" gate reddens |
+| Fixed-zoom mutation provably reddens | (verified directly: `supervisorGraph` rendered at `agentGraph`'s own auto-fit zoom) | `missingLabels(...)` is non-empty — not merely "looks different" |
+
+**Residuals.** The arrowhead table is still cardinal-only (N/E/S/W, no
+diagonal arrow glyph in `GLYPH_CANVAS_TIERS`) — unchanged from D1/D2, a
+residual for a later packet if a diagonal-arrow table is ever added. A
+`supervisorGraph`-scale (6-node, 10-edge) diagram can still legitimately
+lose a label to a genuine screen-space collision at an adversarial camera
+angle — the analytic fit bounds each label's own anchor+width, not
+pairwise overlap between labels; this is reported (`3d-label-dropped`),
+never silent, and is the documented behaviour P1-2 actually guarantees.
+
+## D2 fix round 2 (codex review, F5b lands)
+
+**The finding.** F5b's own fix round landed on `feat/diagrams`
+(`compileScene`'s `assertCompileMeshOptionsRepresentable`, "Compilation"
+above): a member mesh declaring `density`/`transparent`/a differing
+`mode`/`glyphPalette`/`ambientIntensity` — options a flat static compile
+has no detail-layer pass to represent — now THROWS a `RangeError` instead
+of being silently flattened. `glyphDiagramObject`'s own `groups` mesh
+declared exactly one of those two fields on EVERY grouped diagram: `layout:
+"layered"`'s floor plate carried `transparent: true`, `layout: "force"`'s
+wireframe volume carried `mode: "wireframe"`. Once D2 fix round 1 routed
+`renderGlyphDiagram3d` through `compileScene({ objects })`, every grouped
+diagram — `agent-supervisor.mmd`, the CrewAI-style crew preset, `karate-club.mmd`
+— would throw the instant it rendered.
+
+**The fix, at the object layer.** `glyphDiagramObject.ts` no longer builds
+a `groups` mesh at all. A group's boundary is drawn as a depth-tested
+OVERLAY OUTLINE in the SAME `stamp()` that already draws a node's own
+12-edge box outline: a layered floor plate is 4 edges at the group's own
+`z` (`groupFloorCorners`/`FLOOR_OUTLINE_EDGES`, the first quarter of the
+node outline's own `BOX_OUTLINE_EDGES` table), a force volume is the full
+12-edge box (`boxCornersFromMinMax(group.min, group.max)`), and both reuse
+the identical `segmentGlyph`/`GLYPH_CANVAS_TIERS` machinery — never a
+parallel glyph table. Node meshes are untouched (`castShadow`/
+`receiveShadow` only, already compile-representable).
+
+**This is not a workaround, it is the layer that actually owns the
+behaviour.** The group-outline overlay draws UNCONDITIONALLY (unlike the
+node box outline, which `render3d.ts` skips in wireframe mode because
+wireframe already rasterizes a real mesh's own edges) — with no polygon
+mesh backing a group at all any more, the overlay is the ONLY
+representation of a group's boundary in every render mode, so skipping it
+under wireframe would draw nothing.
+
+**A genuine bonus, not a side effect.** D2 fix round 1's own byte-identity
+gate (`render3d.test.ts`'s "the static frame equals the live frame") was
+SCOPED to a groupless graph, with a documented residual: a grouped graph's
+`groups` mesh's `transparent`/`mode: "wireframe"` triggered AGENTS.md's own
+detail-layer separation rule in a LIVE scene (a private, CSS-translated
+`<pre>`), which a flat static compile has no representation for — so
+static and live provably DIVERGED for any grouped graph. An overlay has no
+detail-layer concept to diverge on: `stamp()` runs identically whether
+`compileScene` or a live `createGlyphScene` calls it. The byte-identity
+gate now covers a grouped graph, in BOTH layouts, with no exception
+(`render3d.test.ts`'s new "the static frame equals the live frame for a
+GROUPED graph too" case).
+
+**What is honestly lost, stated rather than hidden.** A layered floor
+plate's `transparent: true` mesh had a translucent FILL — the whole visual
+point of a semi-transparent floor plate. `stampGlyphOverlayLine`/`Cell`
+write opaque glyphs, not a blended tint, so a group now reads as an
+OUTLINED footprint, never a shaded plane. This is a real, permanent
+degrade of the visual — not a bug, and not silently absorbed: it is the
+honest answer to "can an overlay represent a group" for the fill case,
+stated per the fix round's own instruction ("if an overlay can't represent
+groups honestly, say so").
+
+**Gate.** `pnpm --filter @glyphcss/diagrams exec vitest run` — 3
+`glyphDiagramObject.test.ts` additions (mesh list has no `groups` entry
+and no member declares a compile-unrepresentable option; the group-outline
+overlay paints a real cell in both layouts; `renderGlyphDiagram3d` no
+longer throws for a grouped diagram) and 1 `render3d.test.ts` addition
+(grouped-graph static==live, both layouts) — all green; `pnpm
+build:packages` clean.
+
+**Mutation table.**
+
+| Property | Mutation | Result |
+|---|---|---|
+| No `groups` mesh, no member declares a detail-layer-only option | Reintroduce the old `transparent`/`mode: "wireframe"` `groups` mesh | `glyphDiagramObject.test.ts`'s mesh-list/options assertion reddens; `renderGlyphDiagram3d` throws for every grouped diagram |
+| A group's boundary still paints | Skip the group-outline loop in `stamp()` | The group-outline test's "some cell painted" assertion reddens |
+| Static equals live for a grouped graph, both layouts | Reintroduce the mesh (as above) | The new byte-identity gate reddens with a thrown `RangeError`, not merely a text mismatch |
+
 ## D3 — `/diagrams` page: view switch, live orbit viewport, presets, effects
 
 **Goal.** `/diagrams` hosts both 2D and 3D, per §11's D3 row: a Dock View

@@ -46,10 +46,58 @@ function fakeFrame(overrides: Partial<GlyphOverlayFrame> & { cols: number; rows:
 }
 
 describe("glyphDiagramObject", () => {
-  it("returns one node:<id> mesh per node and one groups mesh (mutation: drop a node from the mesh list) → red", async () => {
+  it("returns one node:<id> mesh per node, no groups mesh, and no member declares a compileScene-unrepresentable option (mutation: drop a node from the mesh list) → red", async () => {
+    // D2 fix round 2 (codex, F5b): a `groups` mesh used to carry
+    // `transparent: true` (layered) or `mode: "wireframe"` (force) — both
+    // now REJECTED by `compileScene({ objects })`'s
+    // `assertCompileMeshOptionsRepresentable` (a flat static compile has no
+    // detail-layer pass to represent them with). Groups are drawn as a
+    // depth-tested overlay outline instead (this file's next test), so
+    // there is no `groups` mesh at all any more, and EVERY mesh this
+    // object returns — node meshes included — must declare only
+    // compile-representable options.
     const object = await glyphDiagramObject(architectureGraph);
     const names = object.meshes.map((m) => m.name).sort();
-    expect(names).toEqual(["groups", "node:coder", "node:orchestrator", "node:planner", "node:reviewer"]);
+    expect(names).toEqual(["node:coder", "node:orchestrator", "node:planner", "node:reviewer"]);
+    for (const mesh of object.meshes) {
+      const opts = mesh.options as Record<string, unknown> | undefined;
+      expect(opts?.density).toBeUndefined();
+      expect(opts?.transparent).not.toBe(true);
+      expect(opts?.glyphPalette).toBeUndefined();
+      expect(opts?.ambientIntensity).toBeUndefined();
+      expect(opts?.mode).toBeUndefined();
+    }
+  });
+
+  it("a group's boundary renders as a depth-tested overlay outline, for both layered floor plates and force wireframe volumes (mutation: skip the group-outline loop) → red", async () => {
+    for (const layout of ["layered", "force"] as const) {
+      const object = await glyphDiagramObject(architectureGraph, { layout, tier: "ascii" });
+      const camera = createGlyphOrthographicCamera({ rotX: 55, rotY: 35, zoom: 8 });
+      const centroid: [number, number, number] = [
+        (object.bounds.min[0] + object.bounds.max[0]) / 2,
+        (object.bounds.min[1] + object.bounds.max[1]) / 2,
+        (object.bounds.min[2] + object.bounds.max[2]) / 2,
+      ];
+      camera.target = centroid;
+      const cols = 200, rows = 100;
+      const grid: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
+      const frame = fakeFrame({ camera, cols, rows, toWorld: (p) => p });
+      object.overlays![0]!.stamp(grid, frame);
+      // The group outline paints SOME cell distinct from a blank grid —
+      // the specific glyph varies by projected screen-space slope, so the
+      // gate is "something painted", not a literal character.
+      const paintedNonSpace = Array.from(grid.char).some((c) => c !== " " && c !== "");
+      expect(paintedNonSpace).toBe(true);
+    }
+  });
+
+  it("renderGlyphDiagram3d does not throw for a grouped diagram (mutation: reintroduce the transparent/wireframe groups mesh) → red", async () => {
+    // The literal reproduction of the fix round's report: a `groups` mesh
+    // used to make EVERY grouped diagram throw a `RangeError` the instant
+    // `renderGlyphDiagram3d` routed through `compileScene({ objects })`.
+    for (const layout of ["layered", "force"] as const) {
+      await expect(renderGlyphDiagram3d(architectureGraph, { target: "web", layout })).resolves.toBeDefined();
+    }
   });
 
   it("mounting the object in a real createGlyphScene renders painted box cells, edge glyphs and every node's label (mutation: never call frame.labels.place) → red", async () => {

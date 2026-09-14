@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { Vec3 } from "glyphcss";
 import type { GlyphGraph } from "../types";
 import { layoutGlyphGraph } from "../pipeline";
-import { layout3d, type GlyphDiagram3dNode } from "./layout3d";
+import { layout3d, GLYPH_DIAGRAM_3D_NODE_HEIGHT, type GlyphDiagram3dNode } from "./layout3d";
 
 /**
  * Packet D1 (PLAN-3d.md §6, §11) acceptance gates for `layout3d`. Each `it`
@@ -72,7 +72,7 @@ describe("layout3d — layered", () => {
     expect(a.center[2]).toBe(b.center[2]);
     expect(b.center[2]).toBe(c.center[2]);
     expect(a.center[2]).not.toBe(d.center[2]); // d is ungrouped — stays on the baseline floor
-    expect(d.center[2]).toBe(0 + 0.5); // baseline floor (index 0) + half node height
+    expect(d.center[2]).toBe(0 + GLYPH_DIAGRAM_3D_NODE_HEIGHT / 2); // baseline floor (index 0) + half node height
   });
 
   it("zBy: none flattens every node onto z=0 + half node height (mutation: fall through to the group branch) → red", async () => {

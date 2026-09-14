@@ -94,6 +94,14 @@ export function parseGlyphDiagramArgs(argv: readonly string[]): { file?: string;
         file = argument;
     }
   }
+  // D2 fix round 1, P2-4 (codex): `--layout`/`--camera` without `--3d` used
+  // to be silently ignored (the 2D `renderGlyphDiagram` path never reads
+  // `layout3d`/`camera3d`) — a caller who typo'd `--3d` got a normal 2D
+  // render with no signal that their camera/layout request went nowhere.
+  // Reject explicitly, same `bad-options` code and exit-1 path every other
+  // CLI validation failure takes.
+  if (!opts.is3d && opts.layout3d !== undefined) argumentError("--layout requires --3d.");
+  if (!opts.is3d && opts.camera3d !== undefined) argumentError("--camera requires --3d.");
   return { file, out, opts };
 }
 

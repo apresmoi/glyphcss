@@ -1,36 +1,27 @@
 /**
  * `renderGlyphDiagram3d`/`renderGlyphDiagram3dJson` (PLAN-3d.md §11, packet
- * D2) — a STATIC FRAME through the same scene rasterizer `createGlyphScene`
- * uses, at a caller-given (or auto-fit) camera. This is the export boundary
- * the user approved for terminal/chat/Copy ASCII/the CLI: no live orbit, no
- * turntable (that stays web-only, D3's own page), no effects (preview-only
- * everywhere).
+ * D2; fixed round 1 per the codex review) — a STATIC FRAME through the same
+ * scene rasterizer `createGlyphScene` uses, at a caller-given (or
+ * auto-fit) camera. This is the export boundary the user approved for
+ * terminal/chat/Copy ASCII/the CLI: no live orbit, no turntable (that stays
+ * web-only, D3's own page), no effects (preview-only everywhere).
  *
- * There is no DOM, no `createGlyphScene` — a scene needs an `HTMLElement`
- * host and `@glyphcss/compile`'s own Node-only contract rules that out for a
- * CLI/build-time export. Instead this composes the SAME public primitives
- * `compileScene` does (`buildRasterizeContext` + `rasterizeToCells`), plus
- * the generic `GlyphSceneObject` overlay contract (`stamp(grid, frame)`,
- * `createGlyphLabelArbiter`) `scene.addObject()` itself runs on
- * (`createGlyphScene.ts`'s `applyGlyphSceneObjectOverlays`) — so a
- * `glyphDiagramObject`'s edges/labels paint identically here and in a live
- * scene. What a static frame CANNOT do (AGENTS.md's "Compilation": "Static
- * compile takes a flat polygon list and cannot represent detail layers")
- * is separate a mesh into its own `<pre>` — `glyphDiagramObject`'s own
- * `groups` mesh (`transparent: true` for a layered floor plate, `mode:
- * "wireframe"` for a force cluster volume) WOULD detail-separate in a live
- * scene. This renderer flattens every mesh into ONE pass regardless
- * (exactly compileScene's own precedent), so "static frame equals live
- * frame" holds bit-for-bit only for a graph with no `groups` — documented,
- * not silently wrong: a grouped graph still renders, just without the
- * floor plate's own translucency/wireframe treatment a live scene would
- * give it its own layer for.
+ * P2-3 (fix round 1): routes through `compileScene({ objects })` (glyphcss,
+ * packet F5b) instead of hand-rolling the overlay-flatten-arbiter pipeline
+ * this module used to duplicate — `compileScene` composes an object's
+ * overlays with the LIVE runtime's own exact semantics (contract 3,
+ * AGENTS.md's "Compilation"), so this module has nothing of its own left to
+ * drift from that contract. Only the PUBLIC `compileScene`
+ * `{ objects, textureSamplers, grid, hotspots }` surface is used here — no
+ * `compileScene` internals — per the fix round's own instruction, and a
+ * `null` grid (a future charMode this module never requests) is handled
+ * explicitly rather than assumed away.
  */
 import {
-  createGlyphOrthographicCamera, createGlyphLabelArbiter, buildRasterizeContext, rasterizeToCells,
-  createGlyphCanvas, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml,
-  type GlyphCamera, type CellGrid, type GlyphSceneObject, type GlyphOverlayFrame, type GlyphLabelArbiter,
-  type Polygon, type Vec3, type RenderMode, type GlyphDirectionalLight, type GlyphAmbientLight,
+  compileScene, createGlyphOrthographicCamera, createGlyphCanvas,
+  encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, foldGlyphOverlayLabelToAscii,
+  type GlyphCamera, type GlyphSceneObject, type GlyphSceneOverlay, type Vec3, type RenderMode,
+  type GlyphDirectionalLight, type GlyphAmbientLight, type GlyphCanvasTierName, type CellGrid,
 } from "glyphcss";
 import { glyphGraphFromMermaid } from "../mermaid";
 import { glyphGraphFromJson } from "../adapters";
@@ -38,24 +29,20 @@ import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from
 import type { GlyphGraph } from "../types";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
 import { glyphDiagramObject, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
-import { ledger3dCharsetDegraded, ledger3dContentOverflow } from "./ledger3d";
-
-// Mirrors `createGlyphCamera.ts`'s own `BASE_TILE` — the CSS-px-per-cell
-// fallback a headless render always uses (no DOM to measure a real
-// character cell from). Not importable (module-private there), but it is a
-// documented public DEFAULT (`cellPxW`/`cellPxH`'s own doc comment), so
-// re-stating it here is citing a contract, not guessing a constant.
-const BASE_TILE = 50;
+import { layout3d, type GlyphDiagram3dNode } from "./layout3d";
+import { ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelUnfittable } from "./ledger3d";
 
 /**
- * Fixed lighting for a static 3D diagram frame — not exposed on
+ * Lighting for a static 3D diagram frame — LOWER ambient than a generic
+ * scene default (D2 review P1-1: a flat-lit thin plate loses the contrast
+ * between its top and side faces) — not exposed on
  * `GlyphDiagram3dRenderOptions` (the task's own input is graph + camera +
- * layout, AGENTS.md's D2 packet scope), but exported so a caller
- * reproducing this frame in a live `createGlyphScene` (or a byte-identity
- * test) can pass the exact same values.
+ * layout), but exported so a caller reproducing this frame in a live
+ * `createGlyphScene` (or a byte-identity test) can pass the exact same
+ * values.
  */
-export const GLYPH_DIAGRAM_3D_LIGHT: GlyphDirectionalLight = { direction: [0.4, 0.6, 0.7], intensity: 0.8 };
-export const GLYPH_DIAGRAM_3D_AMBIENT_LIGHT: GlyphAmbientLight = { intensity: 0.5 };
+export const GLYPH_DIAGRAM_3D_LIGHT: GlyphDirectionalLight = { direction: [0.5, 0.8, 0.4], intensity: 0.95 };
+export const GLYPH_DIAGRAM_3D_AMBIENT_LIGHT: GlyphAmbientLight = { intensity: 0.2 };
 
 export type GlyphDiagram3dTarget = "chat" | "terminal" | "web";
 export type GlyphDiagram3dCharset = "ascii" | "box" | "blocks" | "braille";
@@ -65,7 +52,7 @@ export type GlyphDiagram3dColorMode = "none" | "ansi16" | "ansi256" | "truecolor
  * `rotX`/`rotY` (degrees) or a trackball `mat` (AGENTS.md's numeric
  * conventions / orbit `pitchRange`+trackball contract) — never both; `mat`
  * wins when both are given. `zoom` omitted (the common case) triggers
- * auto-fit (see `fitCamera` below); an explicit `zoom` is used as-is,
+ * auto-fit (see `fitDiagramCamera` below); an explicit `zoom` is used as-is,
  * still centred on the object's own bounds.
  */
 export interface GlyphDiagram3dCamera {
@@ -110,116 +97,99 @@ const GLYPH_DIAGRAM_3D_TARGET_DEFAULTS: Readonly<Record<GlyphDiagram3dTarget, { 
   web: { width: 96, height: 32, charset: "box", color: "css" },
 });
 
-interface ResolvedCharset { readonly mode: RenderMode; readonly charMode: "ascii" | "braille"; readonly ledger: GlyphDiagramLedgerEntry[] }
-
-function resolveCharset(charset: GlyphDiagram3dCharset): ResolvedCharset {
-  if (charset === "braille") return { mode: "wireframe", charMode: "braille", ledger: [ledger3dCharsetDegraded({ charset: "braille", renderedAs: "wireframe" })] };
-  if (charset === "blocks") return { mode: "solid", charMode: "ascii", ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii" })] };
-  return { mode: "solid", charMode: "ascii", ledger: [] };
-}
-
-interface FlattenedObject { readonly polygons: Polygon[]; readonly polygonMeshIds: number[]; readonly ownMeshIds: ReadonlySet<number> }
-
-function flattenObject(object: GlyphSceneObject): FlattenedObject {
-  const polygons: Polygon[] = [];
-  const polygonMeshIds: number[] = [];
-  object.meshes.forEach((mesh, meshId) => { for (const p of mesh.polygons) { polygons.push(p); polygonMeshIds.push(meshId); } });
-  return { polygons, polygonMeshIds, ownMeshIds: new Set(object.meshes.map((_, i) => i)) };
-}
-
-/**
- * Placing candidates through the SAME two-phase `place()`-then-resolve
- * contract `scene.addObject()` runs (`labelArbiter.ts`'s own doc: "nothing
- * paints until the scene calls `resolve(grid)`") is what keeps a static
- * frame's label declutter byte-identical to the live one — `resolve` isn't
- * on the PUBLIC `GlyphLabelArbiter` type (only `place` is; `resolve` is the
- * scene's own call), so this reaches it the same way
- * `glyphDiagramObject.test.ts`'s own gate already does.
- */
-function resolveLabels(grid: CellGrid, arbiter: GlyphLabelArbiter): void {
-  (arbiter as unknown as { resolve(grid: CellGrid): void }).resolve(grid);
-}
-
-interface FrameOptions {
-  readonly camera: GlyphCamera;
-  readonly cols: number;
-  readonly rows: number;
-  readonly cellAspect: number;
+interface ResolvedCharset {
   readonly mode: RenderMode;
   readonly charMode: "ascii" | "braille";
-  readonly title?: string;
+  /** The `GLYPH_CANVAS_TIERS` table `glyphDiagramObject`'s overlay reads for its box-outline/edge/arrowhead glyphs — independent of `charMode` (the RASTERIZER's own vocabulary), since `blocks` degrades the SOLID render to ascii but the overlay can still draw box-tier line art. */
+  readonly canvasTier: GlyphCanvasTierName;
+  /** Skip the box-outline overlay in wireframe mode (P1-1 fix note): wireframe already rasterizes every polygon edge, so a box's own 12 edges are already drawn by the base render. */
+  readonly boxOutline: boolean;
+  readonly ledger: GlyphDiagramLedgerEntry[];
 }
 
-/** One rasterize + overlay-stamp + label-resolve pass — the primitive both the auto-fit probe and the final frame run. */
-function renderObjectGrid(object: GlyphSceneObject, opts: FrameOptions): CellGrid {
-  const { polygons, polygonMeshIds, ownMeshIds } = flattenObject(object);
-  const ctx = buildRasterizeContext({
-    camera: opts.camera, grid: { cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect },
-    polygons, mode: opts.mode, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
-    glyphPalette: "default", charMode: opts.charMode, useColors: true, smoothShading: false,
-    creaseAngle: 60, doubleSided: false, supersample: 1,
-    polygonMeshIds, retainWinnerMesh: opts.mode === "solid",
-  });
-  const grid = rasterizeToCells(ctx);
-  const arbiter = createGlyphLabelArbiter();
-  const frame: GlyphOverlayFrame = {
-    camera: opts.camera, cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect,
-    layer: undefined, toWorld: (p) => p, ownMeshIds, labels: arbiter,
-  };
-  for (const overlay of object.overlays ?? []) overlay.stamp(grid, frame);
-  if (opts.title) {
-    // Chrome, not geometry — never hidden behind a mesh (no `ownMeshIds`),
-    // and it wins every collision (2D diagram's own `paint.ts`:
-    // `priority: Infinity` for its title candidate).
-    arbiter.place({ id: "title", priority: Number.POSITIVE_INFINITY, col: Math.max(0, Math.floor((opts.cols - opts.title.length) / 2)), row: 0, text: opts.title });
-  }
-  resolveLabels(grid, arbiter);
-  return grid;
-}
-
-function occupiedBounds(grid: CellGrid): { minCol: number; maxCol: number; minRow: number; maxRow: number } | undefined {
-  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  for (let row = 0; row < grid.rows; row++) {
-    for (let col = 0; col < grid.cols; col++) {
-      if (grid.char[row * grid.cols + col] === " ") continue;
-      if (col < minCol) minCol = col;
-      if (col > maxCol) maxCol = col;
-      if (row < minRow) minRow = row;
-      if (row > maxRow) maxRow = row;
-    }
-  }
-  return Number.isFinite(minCol) ? { minCol, maxCol, minRow, maxRow } : undefined;
+function resolveCharset(charset: GlyphDiagram3dCharset): ResolvedCharset {
+  if (charset === "braille") return { mode: "wireframe", charMode: "braille", canvasTier: "braille", boxOutline: false, ledger: [ledger3dCharsetDegraded({ charset: "braille", renderedAs: "wireframe" })] };
+  if (charset === "blocks") return { mode: "solid", charMode: "ascii", canvasTier: "box", boxOutline: true, ledger: [ledger3dCharsetDegraded({ charset: "blocks", renderedAs: "ascii" })] };
+  return { mode: "solid", charMode: "ascii", canvasTier: charset, boxOutline: true, ledger: [] };
 }
 
 function boundsCentroid(bounds: GlyphSceneObject["bounds"]): Vec3 {
   return [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
 }
 
-const AUTO_FIT_PROBE_COLS = 220, AUTO_FIT_PROBE_ROWS = 130;
-const AUTO_FIT_MARGIN_COLS = 2, AUTO_FIT_MARGIN_ROWS = 1;
-
-interface CameraFitOptions {
-  readonly cols: number; readonly rows: number; readonly cellAspect: number;
-  readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[]; readonly explicitZoom?: number;
-  readonly mode: RenderMode; readonly charMode: "ascii" | "braille"; readonly title?: string;
+function boundsCorners(bounds: GlyphSceneObject["bounds"]): Vec3[] {
+  const { min, max } = bounds;
+  const pts: Vec3[] = [];
+  for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) pts.push([x, y, z]);
+  return pts;
 }
 
 /**
- * Auto-fit (§11's D2 acceptance clause: "auto-fit zoom to the object's
- * `bounds` so every node box, edge and label is on-screen"). Two real
- * renders, not an analytic estimate: a node LABEL's cell width doesn't
- * shrink with zoom the way geometry does, so the only reliable source for
- * "does this actually fit" is rendering it and measuring the painted cells
- * — the same reason `compilePolygons`' own `autoFit` (`@glyphcss/compile`)
- * probes rather than computes. Pass 1 renders at a conservative, safely-
- * small probe zoom into a generous grid and measures the occupied cell
- * box; pass 2 scales zoom by exactly the ratio needed to fill the
- * REQUESTED `cols`x`rows` (minus a fixed margin) and recentres via
- * `camera.center` (`centerCol = cols * center[0]` is additive in the
- * projection, so this needs no rotation inverse — see the derivation
- * inline below) rather than moving `camera.target`, which would need one.
+ * Chrome-only object (no meshes): registers the title through the SAME
+ * shared `GlyphLabelArbiter` `glyphDiagramObject`'s own overlay uses —
+ * `compileScene({ objects })` composes every mounted object's overlays into
+ * ONE ordered registry sharing one arbiter (AGENTS.md's "Scene objects"),
+ * so a title mounted as its own tiny object competes fairly (and always
+ * wins, `priority: Infinity`, matching 2D `paint.ts`'s own title candidate)
+ * without this module reaching into the arbiter directly.
  */
-function fitCamera(object: GlyphSceneObject, opts: CameraFitOptions): { camera: GlyphCamera; overflowed: boolean } {
+function titleChromeObject(title: string): GlyphSceneObject {
+  return {
+    id: "glyph-diagram-3d-title",
+    meshes: [],
+    overlays: [{
+      id: "title",
+      stamp(grid, frame): void {
+        frame.labels.place({ id: "title", priority: Number.POSITIVE_INFINITY, col: Math.max(0, Math.floor((frame.cols - title.length) / 2)), row: 0, text: title });
+      },
+    } satisfies GlyphSceneOverlay],
+    bounds: { min: [0, 0, 0], max: [0, 0, 0] },
+  };
+}
+
+interface RenderedFrame { readonly grid: CellGrid; }
+
+function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera: GlyphCamera; cols: number; rows: number; cellAspect: number; mode: RenderMode; charMode: "ascii" | "braille" }): RenderedFrame {
+  const result = compileScene({
+    polygons: [], objects: objects as GlyphSceneObject[], camera: opts.camera, cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect,
+    mode: opts.mode, charMode: opts.charMode, directionalLight: GLYPH_DIAGRAM_3D_LIGHT, ambientLight: GLYPH_DIAGRAM_3D_AMBIENT_LIGHT,
+    glyphPalette: "default", useColors: true, smoothShading: false, creaseAngle: 60, doubleSided: false, supersample: 1,
+  });
+  // P2-3's own instruction: handle a `null` grid explicitly (an in-flight
+  // `compileScene` change may return one for a charMode this module never
+  // requests — `ascii`/`braille` only, never `halfblock`/`quadrant`) rather
+  // than assume the field is always populated.
+  if (!result.grid) glyphDiagramError("bad-options", "glyphcss: compileScene returned no grid for this render (unsupported charMode).");
+  return { grid: result.grid };
+}
+
+interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; }
+
+/**
+ * D2 review P1-2 (codex): auto-fit must work from PROJECTED geometry PLUS
+ * FULL label extents BEFORE any clipping/arbitration — never from measuring
+ * a rendered probe's painted cells, which can't distinguish "off-frame" from
+ * "collided and dropped by the arbiter" (both read as simply absent).
+ *
+ * This is closed-form, not iterative: for an orthographic camera,
+ * `col(zoom) = centerCol + (col1 - centerCol) * zoom` is EXACTLY linear in
+ * `zoom` for a fixed rotation/target/center (`col1` = the projection at a
+ * reference `zoom = 1`), so every "this point/label must land within
+ * `[lo, hi]`" constraint reduces to one linear inequality in `zoom`. Taking
+ * the tightest (`min`) upper bound across every one of the object's 8
+ * bounds corners AND every node's own label anchor+text-width gives the
+ * LARGEST zoom that keeps everything on screen with margin — computed once,
+ * with no render, no probe, and therefore nothing an arbiter collision can
+ * hide from it. A label whose own text is wider than the frame itself
+ * (`text.length > availCols`) can never fit at ANY zoom — excluded from the
+ * constraint set (so it can't force every other label toward zoom zero) and
+ * reported via `ledger3dLabelUnfittable` instead.
+ */
+function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram3dNode[], opts: {
+  readonly cols: number; readonly rows: number; readonly cellAspect: number;
+  readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[];
+  readonly explicitZoom?: number; readonly title?: string;
+}): { readonly camera: GlyphCamera; readonly fitLabels: readonly FitLabel[]; readonly unfittable: readonly FitLabel[] } {
   const centroid = boundsCentroid(object.bounds);
   const useMat = opts.mat !== undefined;
   const makeCamera = (zoom: number, center: [number, number]): GlyphCamera => {
@@ -230,42 +200,80 @@ function fitCamera(object: GlyphSceneObject, opts: CameraFitOptions): { camera: 
     camera.target = centroid;
     return camera;
   };
-  if (opts.explicitZoom !== undefined) return { camera: makeCamera(opts.explicitZoom, [0.5, 0.5]), overflowed: false };
 
-  const extentWorld = Math.max(
-    object.bounds.max[0] - object.bounds.min[0],
-    object.bounds.max[1] - object.bounds.min[1],
-    object.bounds.max[2] - object.bounds.min[2],
-    1,
-  );
-  // Conservative: even a diagonal worst-case view (every axis contributing)
-  // fits comfortably inside the probe frame's own CSS-px footprint.
-  const probeFramePx = Math.min(AUTO_FIT_PROBE_COLS * (BASE_TILE / opts.cellAspect), AUTO_FIT_PROBE_ROWS * BASE_TILE);
-  const probeZoom = Math.max(0.05, probeFramePx / (6 * extentWorld * Math.SQRT2));
-  const probeCamera = makeCamera(probeZoom, [0.5, 0.5]);
-  const probeGrid = renderObjectGrid(object, { camera: probeCamera, cols: AUTO_FIT_PROBE_COLS, rows: AUTO_FIT_PROBE_ROWS, cellAspect: opts.cellAspect, mode: opts.mode, charMode: opts.charMode, title: opts.title });
-  const box = occupiedBounds(probeGrid);
-  if (!box) return { camera: makeCamera(probeZoom, [0.5, 0.5]), overflowed: false }; // nothing painted (an empty graph)
+  const fitLabels: FitLabel[] = [], unfittable: FitLabel[] = [];
+  for (const node of nodes) {
+    const text = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
+    if (text.length > 0) fitLabels.push({ node, text });
+  }
 
-  const contentCols = box.maxCol - box.minCol + 1, contentRows = box.maxRow - box.minRow + 1;
-  const availableCols = Math.max(1, opts.cols - 2 * AUTO_FIT_MARGIN_COLS), availableRows = Math.max(1, opts.rows - 2 * AUTO_FIT_MARGIN_ROWS);
-  const scale = Math.min(availableCols / contentCols, availableRows / contentRows);
-  const finalZoom = probeZoom * scale;
+  if (opts.explicitZoom !== undefined) return { camera: makeCamera(opts.explicitZoom, [0.5, 0.5]), fitLabels, unfittable: [] };
+
+  const marginCols = 1;
+  const marginRowTop = opts.title ? 2 : 1, marginRowBottom = 1;
+  const cols = opts.cols, rows = opts.rows;
+  const availCols = Math.max(1, cols - 2 * marginCols);
+  const centerCol = cols / 2, centerRow = rows / 2;
+  const reference = makeCamera(1, [0.5, 0.5]);
+
+  interface ColPoint { readonly col1: number; readonly widthRight: number; }
+  interface RowPoint { readonly row1: number; }
+  const colPoints: ColPoint[] = [], rowPoints: RowPoint[] = [];
+  for (const corner of boundsCorners(object.bounds)) {
+    const [col1, row1] = reference.project(corner, cols, rows, opts.cellAspect);
+    colPoints.push({ col1, widthRight: 0 });
+    rowPoints.push({ row1 });
+  }
+  const keptLabels: (FitLabel & { readonly col1: number; readonly row1: number })[] = [];
+  for (const label of fitLabels) {
+    if (label.text.length > availCols) { unfittable.push(label); continue; }
+    const anchor: Vec3 = [label.node.center[0], label.node.center[1], label.node.center[2] + label.node.half[2]];
+    const [col1, row1] = reference.project(anchor, cols, rows, opts.cellAspect);
+    keptLabels.push({ ...label, col1, row1 });
+    colPoints.push({ col1, widthRight: label.text.length });
+    rowPoints.push({ row1 });
+  }
+
+  let zUpper = Infinity;
+  const EPS = 1e-9;
+  for (const p of colPoints) {
+    const offset = p.col1 - centerCol;
+    if (offset > EPS) zUpper = Math.min(zUpper, (cols - marginCols - p.widthRight - centerCol) / offset);
+    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginCols - centerCol) / offset);
+  }
+  for (const p of rowPoints) {
+    const offset = p.row1 - centerRow;
+    if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - centerRow) / offset);
+    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop - centerRow) / offset);
+  }
+  if (!Number.isFinite(zUpper) || zUpper <= 0) zUpper = 1; // degenerate (no geometry/labels at all) — any positive zoom is equally arbitrary
+  const finalZoom = zUpper * 0.96; // rounding safety margin (labels/corners round to the nearest cell when stamped)
 
   // Recentre via `camera.center`, not `camera.target`: `col = centerCol +
   // r[0]*zoom/cellPxW` and `centerCol = cols*center[0]` is a pure ADDITIVE
-  // offset, so shifting `center` shifts every projected column by the SAME
-  // amount with no rotation to invert (shifting `target` instead moves the
-  // pre-rotation input, which needs undoing the camera's own rotation).
-  const probeCenterCol = (box.minCol + box.maxCol + 1) / 2, probeCenterRow = (box.minRow + box.maxRow + 1) / 2;
-  const dCol = (probeCenterCol - AUTO_FIT_PROBE_COLS / 2) * scale, dRow = (probeCenterRow - AUTO_FIT_PROBE_ROWS / 2) * scale;
-  const center: [number, number] = [0.5 - dCol / opts.cols, 0.5 - dRow / opts.rows];
-  const finalCamera = makeCamera(finalZoom, center);
+  // offset in the already-rotated projection, so shifting `center` shifts
+  // every projected column by the SAME amount with no rotation to invert —
+  // shifting `target` instead moves the PRE-rotation input, which would
+  // need the camera's own inverse rotation to solve for. Recentring after
+  // `zUpper` is computed cannot break the fit it just proved: every point's
+  // span already sat inside `[margin, size-margin]` at the ORIGINAL centre,
+  // so its (unchanged) SPAN still fits once the whole content is shifted to
+  // sit symmetrically within the same interval.
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (const p of colPoints) {
+    const c = centerCol + (p.col1 - centerCol) * finalZoom;
+    if (c < minCol) minCol = c;
+    if (c + p.widthRight > maxCol) maxCol = c + p.widthRight;
+  }
+  for (const p of rowPoints) {
+    const r = centerRow + (p.row1 - centerRow) * finalZoom;
+    if (r < minRow) minRow = r;
+    if (r > maxRow) maxRow = r;
+  }
+  const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
+  const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
 
-  const finalGrid = renderObjectGrid(object, { camera: finalCamera, cols: opts.cols, rows: opts.rows, cellAspect: opts.cellAspect, mode: opts.mode, charMode: opts.charMode, title: opts.title });
-  const finalBox = occupiedBounds(finalGrid);
-  const overflowed = !!finalBox && (finalBox.minCol < 0 || finalBox.maxCol >= opts.cols || finalBox.minRow < 0 || finalBox.maxRow >= opts.rows);
-  return { camera: finalCamera, overflowed };
+  return { camera: makeCamera(finalZoom, center), fitLabels, unfittable };
 }
 
 function resolvedTargetOptions(options: GlyphDiagram3dRenderOptions): { target: GlyphDiagram3dTarget; width: number; height: number; charset: GlyphDiagram3dCharset; color: GlyphDiagram3dColorMode } {
@@ -284,8 +292,7 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   const resolved = resolvedTargetOptions(options);
   const cellAspect = options.cellAspect ?? 2.0;
   const graph = typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input);
-  const object = await glyphDiagramObject(graph, options);
-  const { mode, charMode, ledger: charsetLedger } = resolveCharset(resolved.charset);
+  const { mode, charMode, canvasTier, boxOutline, ledger: charsetLedger } = resolveCharset(resolved.charset);
 
   const camOpts = options.camera ?? {};
   if (camOpts.mat !== undefined && (camOpts.rotX !== undefined || camOpts.rotY !== undefined)) {
@@ -294,21 +301,60 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   const rotX = camOpts.rotX ?? (camOpts.mat === undefined ? 55 : undefined);
   const rotY = camOpts.rotY ?? (camOpts.mat === undefined ? 35 : undefined);
 
+  // The layout is computed ONCE here (for the auto-fit's own label/bounds
+  // data) and AGAIN inside `glyphDiagramObject` (for its meshes/overlay) —
+  // a deliberate duplication, not an oversight: `layout3d` is pure and
+  // SEEDED (never `Date.now()`/`Math.random()`, AGENTS.md's Diagrams 3D
+  // contract), so the two calls with the identical `graph`/`options`
+  // produce a byte-identical layout, and keeping the fit's own "what
+  // SHOULD render" data independent of the object-building path is what
+  // makes the fit's own guarantee (every declared node/label fits) hold
+  // regardless of how the object happens to be built.
+  const [object, layout] = await Promise.all([
+    glyphDiagramObject(graph, { ...options, tier: canvasTier, boxOutline }),
+    layout3d(graph, options),
+  ]);
+
   const ledger: GlyphDiagramLedgerEntry[] = [...charsetLedger];
-  const { camera, overflowed } = fitCamera(object, {
+  const { camera, fitLabels, unfittable } = fitDiagramCamera(object, layout.nodes, {
     cols: resolved.width, rows: resolved.height, cellAspect, rotX, rotY, mat: camOpts.mat,
-    explicitZoom: camOpts.zoom, mode, charMode, title: options.title,
+    explicitZoom: camOpts.zoom, title: options.title,
   });
-  if (overflowed) ledger.push(ledger3dContentOverflow({ cols: resolved.width, rows: resolved.height }));
+  for (const label of unfittable) ledger.push(ledger3dLabelUnfittable({ nodeId: label.node.id, label: label.text, cols: resolved.width }));
 
-  const grid = renderObjectGrid(object, { camera, cols: resolved.width, rows: resolved.height, cellAspect, mode, charMode, title: options.title });
+  const objects: GlyphSceneObject[] = options.title ? [object, titleChromeObject(options.title)] : [object];
+  const { grid } = renderObjectFrame(objects, { camera, cols: resolved.width, rows: resolved.height, cellAspect, mode, charMode });
 
-  // Same three exits 2D diagrams use, over a real `GlyphCanvas` instead of a
-  // bare `CellGrid` — `encodeGlyphCanvasText`/`Ansi`/`Html` are the tested,
-  // NO_COLOR/FORCE_COLOR-aware, HTML-escaping exits AGENTS.md's "Targets and
-  // page" documents; a bare `CellGrid` string has neither (see this file's
-  // own top-of-file doc for why this renders through them instead of
-  // `compileScene`'s own `rasterize()`, which returns unescaped HTML).
+  // D2 review P1-2's own repro ("Orchestrator vanished... with an empty
+  // ledger"): the analytic fit above proves every label's PREDICTED
+  // position clears the margin, but the shared `GlyphLabelArbiter` can
+  // still refuse one at render time — two labels genuinely colliding on
+  // screen from THIS rotation, or a foreign mesh's `winnerMesh` covering
+  // one of its cells — a real case no amount of geometry alone rules out
+  // in advance. Verify what ACTUALLY landed against what was predicted and
+  // name every miss, rather than trusting the fit's own prediction blindly.
+  if (camOpts.zoom === undefined) {
+    for (const label of fitLabels) {
+      const anchor: Vec3 = [label.node.center[0], label.node.center[1], label.node.center[2] + label.node.half[2]];
+      const [colF, rowF] = camera.project(anchor, resolved.width, resolved.height, cellAspect);
+      const col = Math.round(colF), row = Math.round(rowF);
+      let landed = col >= 0 && row >= 0 && row < grid.rows && col + label.text.length <= grid.cols;
+      if (landed) {
+        for (let i = 0; i < label.text.length; i++) {
+          if (grid.char[row * grid.cols + col + i] !== label.text[i]) { landed = false; break; }
+        }
+      }
+      if (!landed) ledger.push(ledger3dLabelDropped({ nodeId: label.node.id, label: label.text }));
+    }
+  }
+
+  // Three exits, over a real `GlyphCanvas` instead of a bare `CellGrid` —
+  // `encodeGlyphCanvasText`/`Ansi`/`Html` are the tested, NO_COLOR/
+  // FORCE_COLOR-aware, HTML-escaping exits AGENTS.md's "Targets and page"
+  // documents; a bare `CellGrid` string has neither (see this file's own
+  // top-of-file doc for why this renders through them instead of
+  // `compileScene`'s own `html`/`inner`, which is a browser-only exit with
+  // no ANSI/NO_COLOR concept at all).
   const canvas = createGlyphCanvas({ cols: resolved.width, rows: resolved.height, cellAspect, tier: resolved.charset === "blocks" ? "box" : resolved.charset === "braille" ? "braille" : resolved.charset });
   const colored = resolved.color !== "none";
   for (let row = 0; row < grid.rows; row++) {
