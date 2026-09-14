@@ -50,6 +50,7 @@
  */
 import {
   buildRasterizeContext,
+  glyphEffectDepthCoverage,
   rasterize,
   retainGlyphEffectOutput,
   parseGlyphEffectColor,
@@ -257,10 +258,6 @@ function bake(
 
   const metadata: GlyphEffectOutputMetadata = {
     id: "static-export",
-    // Never dereferenced: retainGlyphEffectOutput / fieldSynthCoordinate only
-    // read the geometry fields below; `.pre` only matters to a real DOM write,
-    // which this pure builder never performs.
-    pre: null as unknown as HTMLPreElement,
     isBase: true,
     cellToSceneGrid: [1, 0, 0, 1, 0, 0],
     sceneGridSize: [options.cols, options.rows],
@@ -292,7 +289,11 @@ function bake(
     retainNormal: retainOptional,
   });
   ctx.transformCells = (grid: CellGrid) => {
-    retained = retainGlyphEffectOutput(grid, metadata);
+    // Contract 4 (AGENTS.md "Retained Glyph Effects"): the compositor no
+    // longer derives coverage from `grid.depth` itself — this IS a real
+    // camera-projected render (`rasterize` above), so "finite depth" is
+    // exactly the scene's own meaning of "this cell is on a surface".
+    retained = retainGlyphEffectOutput(grid, metadata, { coverage: glyphEffectDepthCoverage(grid) });
     return grid;
   };
   rasterize(ctx);

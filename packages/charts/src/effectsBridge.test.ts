@@ -1,0 +1,182 @@
+/**
+ * `composeGlyphChartEffects` (AGENTS.md "Charts" §8 "Effects on a 2D
+ * chart", packet F3) — the charts-side half of the compositor gate.
+ * Compositor-level mechanics (coverage, the tagged rejection, the nine
+ * stock effects, determinism) are covered in glyphcss's own
+ * `composeGlyphEffects.test.ts` and `@glyphcss/effects`' `composeOnChart.test.ts`;
+ * these tests are specific to what a CHART hands the compositor: ink-derived
+ * `baseShade`, plot-rect-normalized `uv0`, an untouched original `build`,
+ * and the `canvas === colorCanvas` reuse.
+ */
+import { describe, expect, it } from "vitest";
+import {
+  defineGlyphEffect,
+  GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE,
+  GlyphEffectOutputChannel,
+  GlyphEffectRequirementUnavailableError,
+  type GlyphEffectLayerOptions,
+} from "glyphcss";
+import { buildGlyphChart, encodeGlyphChart } from "./render";
+import { composeGlyphChartEffects } from "./effectsBridge";
+import { glyphChartLine } from "./spec";
+
+const GLYPH = GlyphEffectOutputChannel.Glyph;
+
+function lineBuild() {
+  return buildGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", width: 20, height: 8, color: "none" });
+}
+
+const paintZ = defineGlyphEffect<{ phase: number }>({
+  evaluate({ target, output }) {
+    for (let i = 0; i < output.coverage.length; i++) {
+      if (target.coverage[i]! <= 0) continue;
+      output.glyph[i] = "Z";
+      output.coverage[i] = 1;
+      output.channels[i] = GLYPH;
+    }
+  },
+});
+
+describe("composeGlyphChartEffects", () => {
+  it("actually changes the encoded text when a layer paints something", () => {
+    const build = lineBuild();
+    const before = encodeGlyphChart(build, "text");
+    const composed = composeGlyphChartEffects(build, [{ effect: paintZ, params: { phase: 0 }, blend: "replace", target: "viewport" }]);
+    const after = encodeGlyphChart(composed, "text");
+    expect(after).not.toBe(before);
+    expect(after).toContain("Z");
+  });
+
+  it("never mutates the original build — encoding it again after composing reproduces the same text", () => {
+    const build = lineBuild();
+    const before = encodeGlyphChart(build, "text");
+    composeGlyphChartEffects(build, [{ effect: paintZ, params: { phase: 0 }, blend: "replace", target: "viewport" }]);
+    expect(encodeGlyphChart(build, "text")).toBe(before);
+  });
+
+  it("baseShade reflects the canvas's own ink coverage — painted cells report 1, blank cells report 0", () => {
+    const build = lineBuild();
+    const seen: number[] = [];
+    const probe = defineGlyphEffect<{ phase: number }>({
+      optionalRequirements: ["baseShade"],
+      evaluate({ base, target, output }) {
+        for (let i = 0; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          seen.push(base.shade ? base.shade[i]! : Number.NaN);
+        }
+      },
+    });
+    composeGlyphChartEffects(build, [{ effect: probe, params: { phase: 0 }, target: "viewport" }]);
+    // Every covered cell (target: "viewport" = every cell) reported EXACTLY
+    // its own ink state — 0 or 1, never anything continuous/undefined.
+    for (const shade of seen) expect(shade === 0 || shade === 1).toBe(true);
+    // At least one painted and one blank cell exist on a real line chart.
+    expect(seen).toContain(1);
+    expect(seen).toContain(0);
+  });
+
+  it("uv0 is finite and plot-rect-normalized inside the plot, NaN outside it (the axis/title margin)", () => {
+    const build = lineBuild();
+    let sawInsidePlot = false;
+    let sawOutsidePlot = false;
+    const probe = defineGlyphEffect<{ phase: number }>({
+      requirements: ["uv0"],
+      evaluate({ base, coordinates, target, output }) {
+        for (let i = 0; i < output.coverage.length; i++) {
+          if (target.coverage[i]! <= 0) continue;
+          const u = base.uv0![i * 2]!;
+          const v = base.uv0![i * 2 + 1]!;
+          const col = i % coordinates.sceneGridSize[0];
+          const row = (i / coordinates.sceneGridSize[0]) | 0;
+          const inPlot = col >= build.plot.x0 && col <= build.plot.x1 && row >= build.plot.y0 && row <= build.plot.y1;
+          if (inPlot) {
+            sawInsidePlot = true;
+            expect(u).toBeGreaterThanOrEqual(0);
+            expect(u).toBeLessThanOrEqual(1);
+            expect(v).toBeGreaterThanOrEqual(0);
+            expect(v).toBeLessThanOrEqual(1);
+          } else {
+            sawOutsidePlot = true;
+            expect(Number.isFinite(u)).toBe(false);
+            expect(Number.isFinite(v)).toBe(false);
+          }
+        }
+      },
+    });
+    composeGlyphChartEffects(build, [{ effect: probe, params: { phase: 0 }, target: "viewport" }]);
+    expect(sawInsidePlot).toBe(true);
+    expect(sawOutsidePlot).toBe(true);
+  });
+
+  it("rejects a hard requirement a chart grid cannot supply, tagged GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE", () => {
+    const build = lineBuild();
+    const needsWorldPosition = defineGlyphEffect<{ phase: number }>({
+      requirements: ["worldPosition"],
+      evaluate() {},
+    });
+    let caught: unknown;
+    try {
+      composeGlyphChartEffects(build, [{ effect: needsWorldPosition, params: { phase: 0 } }]);
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toBeInstanceOf(GlyphEffectRequirementUnavailableError);
+    expect((caught as GlyphEffectRequirementUnavailableError).code).toBe(GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE);
+  });
+
+  it("composing twice at the same time gives byte-identical text", () => {
+    const build = lineBuild();
+    const layers: readonly GlyphEffectLayerOptions[] = [{ effect: paintZ, params: { phase: 0 }, blend: "over", opacity: 0.5, target: "viewport" }];
+    const first = encodeGlyphChart(composeGlyphChartEffects(build, layers), "text");
+    const second = encodeGlyphChart(composeGlyphChartEffects(build, layers), "text");
+    expect(second).toBe(first);
+  });
+
+  it("reuses one compose when canvas and colorCanvas are the same object (color: 'none')", () => {
+    const build = lineBuild();
+    expect(build.canvas).toBe(build.colorCanvas);
+    const composed = composeGlyphChartEffects(build, [{ effect: paintZ, params: { phase: 0 }, target: "viewport" }]);
+    expect(composed.canvas).toBe(composed.colorCanvas);
+  });
+
+  it("merges an ambient `time` into a definition layer's own params.time when its schema declares one", () => {
+    const build = lineBuild();
+    const seenTimes: number[] = [];
+    const timeSchema = { time: { kind: "number", default: 0 } } as const;
+    const probe = {
+      id: "test.time-probe",
+      version: 1,
+      parameterSchema: timeSchema,
+      program: defineGlyphEffect<{ time: number }>({
+        evaluate({ params }) {
+          seenTimes.push(params.time);
+        },
+      }),
+    };
+    composeGlyphChartEffects(build, [{ effect: probe }], { time: 42 });
+    expect(seenTimes).toEqual([42]);
+  });
+
+  it("a caller-supplied params.time on a layer wins over the ambient time", () => {
+    const build = lineBuild();
+    const seenTimes: number[] = [];
+    const timeSchema = { time: { kind: "number", default: 0 } } as const;
+    const probe = {
+      id: "test.time-probe-explicit",
+      version: 1,
+      parameterSchema: timeSchema,
+      program: defineGlyphEffect<{ time: number }>({
+        evaluate({ params }) {
+          seenTimes.push(params.time);
+        },
+      }),
+    };
+    composeGlyphChartEffects(build, [{ effect: probe, params: { time: 7 } }], { time: 42 });
+    expect(seenTimes).toEqual([7]);
+  });
+
+  it("never touches a layer with no `time` in its own schema", () => {
+    const build = lineBuild();
+    expect(() => composeGlyphChartEffects(build, [{ effect: paintZ, params: { phase: 0 } }], { time: 99 })).not.toThrow();
+  });
+});

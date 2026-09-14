@@ -493,3 +493,170 @@ octahedron/cylinder node shapes (diamond/stadium fall back to a box). No
 labels or cluster volumes beyond the group mesh (D4). No performance gate at
 200 nodes (D4) — the force O(n²) simulation is unbounded here, matching the
 PLAN's own stated ~200-node ceiling for a future Barnes-Hut upgrade.
+
+## Packet F3 — the DOM-free compositor, `composeGlyphChartEffects`, `glyphGridDecalEffect`
+
+### Why `pre` had to leave the metadata type, and what replaced it
+
+`GlyphEffectOutputMetadata` carried `pre: HTMLPreElement` because the scene
+needed, at compose time, to know which output element a retained output's
+encoded string gets written to (`commitRender`'s `writes` array). That is a
+real need, but it belongs to `createGlyphScene.ts`, not to the compositor —
+`composeGlyphEffects`'s whole point is running with no DOM at all, and a
+required-but-ignorable `pre` field is exactly the kind of "never
+dereferenced, just satisfies the type" field `@glyphcss/effects`'
+`staticExport.ts` was already carrying (`pre: null as unknown as
+HTMLPreElement`, with a comment explaining why) before this packet — a
+tell that the field was in the wrong place. The fix is not a new persistent
+map (`id -> pre`) either, which would have to be kept in sync with every
+detail-layer mount/removal and outlive layers it no longer describes;
+instead `renderRetainedEffects` resolves a `pre` element BY THE SAME ID
+SPACE the metadata already uses (`"base"` or `` `detail:${group.id}` ``)
+through `detailLayers` — the persistent, self-cleaning `Map<number,
+DetailLayerState>` every other detail-layer write already reads from in the
+same function. Zero new state, and it cannot go stale: a removed detail
+group is a removed `detailLayers` entry, the same event that already ends
+its participation in `retainedEffectOutputs`.
+
+### Why coverage became an explicit parameter instead of a derived one
+
+`retainGlyphEffectOutput` used to compute `baseCoverage[i] =
+Number.isFinite(baseGrid.depth[i]) ? 1 : 0` unconditionally — a rule that is
+exactly right for a scene render (a finite depth IS "something is here") and
+meaningless for a grid with no camera, where `depth` is a required
+`CellGrid` field carrying whatever a caller happened to put there (often
+`-Infinity` everywhere, from `buildCellGrid`'s own default). Baking the rule
+in meant a camera-less caller had no way to say what "covered" means for
+its own kind of grid. `GlyphEffectRetainOptions` splits it into two
+independent, explicit inputs: `coverage` (required — what `"surfaces"`/
+`"viewport"` targeting and `base.coverage` read) and `hasDepth` (optional,
+default `true` — whether `base.depth` is populated AT ALL). The scene keeps
+its exact prior behaviour with a one-line change at each of its two
+`retainGlyphEffectOutput` call sites (`{ coverage:
+glyphEffectDepthCoverage(grid) }`, the extracted helper); `hasDepth`'s
+default staying `true` there is what makes that a no-op rather than a
+second required change. `composeGlyphEffects` inverts both defaults for the
+opposite reason: `coverage` defaults to fully-covered (the least-surprising
+answer with no scene to ask), and `hasDepth` defaults `false` ("no camera"
+is precisely what a grid with no real depth means).
+
+### Why `depth` needed a new hard-requirement guard, and why it never mattered before
+
+`composeRetainedGlyphEffectOutput` already guarded six requirements
+(`baseShade`, `worldPosition`, `objectPosition`, `objectExit`, `normal`,
+`objectNormal`) against being requested by a program when the retained
+`base` view doesn't actually carry that buffer. `depth` was never on that
+list, because before this packet it was IMPOSSIBLE for `base.depth` to be
+missing — `retainGlyphEffectOutput` copied `baseGrid.depth` into `base`
+unconditionally, since `CellGrid.depth` is a non-optional field. Once
+`hasDepth` can be `false`, `base.depth` genuinely becomes absent for the
+first time, so the guard needed a seventh clause — and it needed to REJECT,
+not silently hand a program `undefined`/garbage depth, which is what
+motivated the new tagged error rather than reusing the existing bare
+`Error` throws: `GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE` is a `code` a caller
+(a Dock, a test, `composeGlyphChartEffects`'s own callers) can match on
+without parsing a message string. The other six guards were converted to
+the same tagged class in the same edit — not because their behaviour
+changed (same throw, same message text, same call sites), but because
+having two different "a hard requirement can't be met" error shapes in one
+file depending on which requirement failed would have been an arbitrary
+distinction with no caller-visible reason.
+
+### `composeGlyphEffects`: reusing the mount path with no live handle
+
+The temptation was to write a second, simpler param-validation/blend path
+for the one-shot case. Instead `composeGlyphEffects` calls
+`createRuntimeGlyphEffectLayer` once per layer (with no-op `onDirty`/
+`onDispose` — nothing here ever mutates a layer's params after construction,
+so they are never invoked in practice), then the EXACT `prepareRuntimeGlyphEffectLayers`
+→ `retainGlyphEffectOutput` → `composeRetainedGlyphEffectOutput` sequence
+the scene's own `renderRetainedEffects` runs. This is what makes "runs the
+SAME compositor a mounted scene layer does" true by construction rather
+than by two implementations happening to agree, and it is what gives byte-
+identical determinism for free: a fresh `RuntimeGlyphEffectLayer` (and, for
+a program declaring one, a fresh `program.createState()`) is built on every
+call, and `retainGlyphEffectOutput` is handed no `previous` to pool a
+working buffer against — there is no persistent object anywhere a second
+call could observe the first one having happened. `field-synth`'s own
+`createState()` (`{ carveInk: createCarveInkScratch() }`) was checked
+specifically: it is a per-frame SCRATCH allocation for the volumetric
+render path, not accumulated state, so discarding and rebuilding it every
+call changes nothing about the computed output.
+
+### `composeGlyphChartEffects`: what a canvas can honestly offer, computed at the bridge, not the canvas
+
+Contract 5 (canvas-owned ink coverage/shade/`surfaceUv`) is F2's packet, not
+landed as of F3. Rather than block on it or duplicate its future storage,
+`composeGlyphChartEffects` computes `baseShade` (ink coverage: painted =
+`1`, blank = `0`) and `uv0` (plot-rect-normalized position, `NaN` outside
+the plot rect) itself, on a SHALLOW clone of the canvas's own grid
+(`{ ...grid, shade, surfaceUv }` — safe because `composeGlyphEffects`, via
+`retainGlyphEffectOutput`, deep-copies every field into its own snapshot
+before the original could be read again, so sharing the untouched
+`char`/`color`/`depth` array references costs nothing and mutates nothing).
+If/when F2 lands real canvas-owned buffers for these, this bridge is the
+one place that would stop re-deriving them — the bridge's own contract
+(`baseShade` = ink, `uv0` = plot-rect position) does not change either way.
+Every OTHER requirement (`depth`/`normal`/`worldPosition`/`objectPosition`/
+`objectExit`) is simply absent on a `createGlyphCanvas` grid already (it
+only ever calls `buildCellGrid` with `char`/`color`/`depth`, nothing else),
+so no chart-specific exclusion logic was needed for them at all — they
+fall out of the SAME structural gating `retainGlyphEffectOutput` already
+does for a scene's optional buffers.
+
+The returned `GlyphChartBuild`'s `canvas`/`colorCanvas` are
+`GlyphCanvas`-shaped wrappers (`composedCanvas`) around the composed grid,
+carrying every OTHER canvas buffer (`bg`/`sub`/`textScale`/`textFiller`/
+`textFillerBelowOrigin`/`report`) through unchanged — effects replace glyph
+and colour only, never a canvas's own background or sub-cell occupancy,
+mirroring the scene's own retained-effect contract. The six painter methods
+(`fillRect`/`line`/`text`/`arrowhead`/`edge`/`route`/`resolveJunctions`)
+are stubs that throw: a composed canvas is a TERMINAL artifact for
+encoding, the same role a mounted effect layer's own retained output plays
+for a scene — nothing paints on it again. `time`, when passed, merges into
+a DEFINITION-shaped layer's own `params.time` only when that layer's
+`parameterSchema` actually declares a `time` key AND the caller didn't
+already set one — checked structurally (`"time" in schema`) rather than by
+name-matching a stock effect, so it works for any definition with a `time`
+parameter, present or future, and is a true no-op for a raw-program layer
+(which has no schema to introspect and must already supply complete
+params).
+
+### `glyphGridDecalEffect`: nearest, never bilinear, and why colour is the gate
+
+The effect samples `uv0` per output cell, floors it to the SOURCE grid's
+own `(col, row)`, and writes that cell's exact `char`/`color` — no
+interpolation. The design note this replaces briefly considered bilinear
+colour blending for a softer look at non-integer scale factors, and
+rejected it for the reason the packet's own acceptance clause names
+directly: there is no such thing as a blended GLYPH (`char` is a single
+codepoint, not a continuous quantity), so averaging colour while picking
+glyph from an arbitrary one of the blend's sources would silently corrupt
+colour with no visible glyph-level symptom. `decal.test.ts`'s 1:1 gate
+therefore asserts `composed.color` (not only `composed.char`) against a
+CHECKERBOARD of high-contrast adjacent colours specifically — a colour-only
+assertion is what a bilinear mutation actually reddens; a glyph-only one
+would not. Verified directly: patching the effect to average each sampled
+colour with its right neighbour's turns the 1:1 test red (`#ff0000`/
+`#0000ff` corners land on `#808000`/`#808080` instead of their own exact
+hex), confirming the gate is load-bearing before the patch was reverted.
+
+The source grid rides as `program` (VOLUMETRIC-3.md §4's opaque,
+definition-owned payload) rather than a data param, because that IS the
+shape `program` exists for — and it makes a live chart update a `program`
+change, which is immutable after mount by the existing rule (remove and
+re-add the layer), so a decal never has to reconcile a grid resize or
+dimension change mid-flight.
+
+### Gates and mutations (packet F3)
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| All nine stock effects run on a chart grid | — (positive assertion; `composeOnChart.test.ts` iterates `GlyphEffectCatalog`) | 9/9 compose with no throw |
+| A hard requirement the grid can't supply rejects with its code | — (`composeGlyphEffects.test.ts`/`effectsBridge.test.ts` mount a `requirements: ["depth"\|"worldPosition"]` program on a camera-less grid) | `GlyphEffectRequirementUnavailableError`, `.code === GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE` |
+| Composing twice at the same `time` gives identical bytes | — (call `composeGlyphEffects`/`composeGlyphChartEffects` twice with the same inputs) | `char`/`color`/encoded text deep-equal across calls |
+| The decal writes the exact chart glyph at 1:1 | Nearest sample → average with the right-neighbour cell's colour | RED — corner colours land on a blended hex no source cell carries |
+| The existing scene effects suites stay byte-identical | — (full `pnpm --filter glyphcss test`, `pnpm --filter @glyphcss/effects test`) | 1188/1188 and 679/679 pass, unmodified |
+
+Each mutation above (the decal's) was applied to the working tree, run,
+observed red, then reverted and re-verified green.

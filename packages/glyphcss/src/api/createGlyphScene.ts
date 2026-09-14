@@ -55,6 +55,7 @@ import type {
 import {
   composeRetainedGlyphEffectOutput,
   createRuntimeGlyphEffectLayer,
+  glyphEffectDepthCoverage,
   prepareRuntimeGlyphEffectLayers,
   retainGlyphEffectOutput,
   type GlyphEffectOutputMetadata,
@@ -1150,7 +1151,17 @@ export function createGlyphScene(
     // right source: it is never mutated once a render commits, exactly the
     // "safe to hand out, never itself corrupted by a failed frame" contract
     // `retainGlyphEffectOutput` documents.
-    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata, retainedEffectOutputs.get(currentEffectOutputMetadata.id));
+    const retained = retainGlyphEffectOutput(
+      grid,
+      currentEffectOutputMetadata,
+      // Contract 4 (AGENTS.md "Retained Glyph Effects"): the compositor no
+      // longer derives "this cell is on a surface" from `grid.depth` on its
+      // own — a scene render's own meaning of that ("finite depth") is
+      // supplied here explicitly, and `hasDepth` defaults `true`, so this is
+      // byte-identical to the pre-contract-4 behavior.
+      { coverage: glyphEffectDepthCoverage(grid) },
+      retainedEffectOutputs.get(currentEffectOutputMetadata.id),
+    );
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
     return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects), currentEffectOutputMetadata.transformCellsLayer);
   };
@@ -1158,6 +1169,24 @@ export function createGlyphScene(
   function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string, atlas = false): void {
     if (!stagedFullEffectWrites) throw new Error("glyphcss: output write escaped its render transaction.");
     stagedFullEffectWrites.push({ pre: outputPre, encoded, atlas });
+  }
+
+  /**
+   * Resolves an effect output's `<pre>` by its `GlyphEffectOutputMetadata.id`
+   * (contract 4: metadata itself carries no DOM reference any more). The id
+   * space is exactly the two shapes the base/detail metadata construction
+   * sites below produce — `"base"` and `` `detail:${group.id}` `` — so this
+   * needs no side map of its own; `detailLayers` is already the persistent,
+   * self-cleaning source of truth every OTHER detail-layer write already
+   * reads (e.g. `details: { next: new Map(detailLayers), ... }` just below).
+   */
+  function effectOutputPreElement(id: string): HTMLPreElement {
+    if (id === "base") return pre;
+    if (id.startsWith("detail:")) {
+      const layer = detailLayers.get(Number(id.slice("detail:".length)));
+      if (layer) return layer.pre;
+    }
+    throw new Error(`glyphcss: no output element for effect output "${id}".`);
   }
 
   function renderRetainedEffects(): void {
@@ -1193,7 +1222,7 @@ export function createGlyphScene(
       endAtlasPaletteTransaction();
     }
     commitRender({
-      writes: staged.map(({ output, encoded, atlas }) => ({ pre: output.metadata.pre, encoded, atlas })),
+      writes: staged.map(({ output, encoded, atlas }) => ({ pre: effectOutputPreElement(output.metadata.id), encoded, atlas })),
       details: { next: new Map(detailLayers), removed: [] },
       overlays: { next: new Map(viewportOverlayLayers), removed: [] },
       hotspots: [],
@@ -1970,7 +1999,6 @@ export function createGlyphScene(
     const baseTransformCellsLayer: GlyphTransformCellsLayer = { detail: false, cellToSceneGrid: baseCellToSceneGrid };
     currentEffectOutputMetadata = effectsActive ? {
       id: "base",
-      pre,
       isBase: true,
       cellToSceneGrid: baseCellToSceneGrid,
       sceneGridSize: [options.cols, options.rows],
@@ -2951,7 +2979,6 @@ export function createGlyphScene(
         };
         currentEffectOutputMetadata = effectsActive ? {
           id: `detail:${group.id}`,
-          pre: dpre,
           isBase: false,
           cellToSceneGrid: detailCellToSceneGrid,
           sceneGridSize: [options.cols, options.rows],

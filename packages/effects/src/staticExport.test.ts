@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   spherePolygons,
   buildRasterizeContext,
+  glyphEffectDepthCoverage,
   rasterize,
   retainGlyphEffectOutput,
   parseGlyphEffectColor,
@@ -161,11 +162,11 @@ function liveComposedGrid(
   const worldToSceneScale = computeWorldToSceneScale(polygons, cols, rows);
   const metadata: GlyphEffectOutputMetadata = {
     id: "parity-test",
-    pre: null as unknown as HTMLPreElement,
     isBase: true,
     cellToSceneGrid: [1, 0, 0, 1, 0, 0],
     sceneGridSize: [cols, rows],
     localCellFootprint: [1, 1],
+    transformCellsLayer: { detail: false, cellToSceneGrid: [1, 0, 0, 1, 0, 0] },
     worldToSceneScale,
   };
   let retained: RetainedGlyphEffectOutput | null = null;
@@ -182,7 +183,7 @@ function liveComposedGrid(
     retainNormal: true,
   });
   ctx.transformCells = (grid: CellGrid) => {
-    retained = retainGlyphEffectOutput(grid, metadata);
+    retained = retainGlyphEffectOutput(grid, metadata, { coverage: glyphEffectDepthCoverage(grid) });
     return grid;
   };
   rasterize(ctx);

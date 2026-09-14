@@ -10,21 +10,35 @@ import { buildCellGrid } from "./cells";
 import {
   composeRetainedGlyphEffectOutput,
   createRuntimeGlyphEffectLayer,
+  glyphEffectDepthCoverage,
   prepareRuntimeGlyphEffectLayers,
   retainGlyphEffectOutput,
   type GlyphEffectOutputMetadata,
+  type RetainedGlyphEffectOutput,
   type RuntimeGlyphEffectLayer,
 } from "./effectCompositor";
+import type { CellGrid } from "./cells";
 
 function metadata(cols: number, rows: number): GlyphEffectOutputMetadata {
   return {
     id: "base",
-    pre: document.createElement("pre"),
     isBase: true,
     cellToSceneGrid: [1, 0, 0, 1, 0, 0],
     sceneGridSize: [cols, rows],
     localCellFootprint: [1, 1],
+    transformCellsLayer: { detail: false, cellToSceneGrid: [1, 0, 0, 1, 0, 0] },
   };
+}
+
+/**
+ * Contract 4 (AGENTS.md "Retained Glyph Effects") moved coverage out of the
+ * compositor — a scene render's own meaning of it is "finite `depth`"
+ * (`glyphEffectDepthCoverage`), which is exactly what every fixture below
+ * relied on implicitly before the split (a `coveredGrid` all-zero, i.e.
+ * finite, depth buffer; a mixed-finiteness one in the occlusion suite).
+ */
+function retain(grid: CellGrid, meta: GlyphEffectOutputMetadata, previous?: RetainedGlyphEffectOutput): RetainedGlyphEffectOutput {
+  return retainGlyphEffectOutput(grid, meta, { coverage: glyphEffectDepthCoverage(grid) }, previous);
 }
 
 function coveredGrid(chars: string[], colors: (string | null)[]) {
@@ -144,7 +158,7 @@ describe("retained effect compositor", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(coveredGrid(["B"], [null]), metadata(1, 1));
+    const retained = retain(coveredGrid(["B"], [null]), metadata(1, 1));
 
     const composed = composeRetainedGlyphEffectOutput(retained, prepare([first, second], 1));
 
@@ -172,7 +186,7 @@ describe("retained effect compositor", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGrid(["A", "B", "C", "D"], [null, null, null, null]),
       metadata(4, 1),
     );
@@ -186,7 +200,7 @@ describe("retained effect compositor", () => {
   });
 
   it("reuses base color strings and caches each changed packed color once per composition", () => {
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGrid(["A", "B", "C"], ["#010203", "#010203", "#010203"]),
       metadata(3, 1),
     );
@@ -229,7 +243,7 @@ describe("retained effect compositor", () => {
     // distinct lit colors reused across many cells.
     const colors = ["#010203", null, "#abcdef", "#010203", "#abcdef", null, "#000000"];
     const chars = colors.map((_, i) => String.fromCharCode(65 + i));
-    const retained = retainGlyphEffectOutput(coveredGrid(chars, colors), metadata(colors.length, 1));
+    const retained = retain(coveredGrid(chars, colors), metadata(colors.length, 1));
 
     const expectedPacked = colors.map((color) => (
       color === null ? GlyphEffectNoColor : parseGlyphEffectColor(color).packed
@@ -258,7 +272,7 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGridWithWinnerMesh(["A", "B", "C", "D"], [null, null, null, null], [10, 10, 20, 20]),
       metadata(4, 1),
     );
@@ -277,7 +291,7 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGridWithWinnerMesh(["A", "B", "C", "D"], [null, null, null, null], [1, 2, 3, 4]),
       metadata(4, 1),
     );
@@ -294,7 +308,7 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
       () => {},
     );
     // No winnerMesh buffer at all — the wireframe/voxel/ink degradation case.
-    const retained = retainGlyphEffectOutput(coveredGrid(["A", "B"], [null, null]), metadata(2, 1));
+    const retained = retain(coveredGrid(["A", "B"], [null, null]), metadata(2, 1));
 
     let composed: ReturnType<typeof composeRetainedGlyphEffectOutput> | undefined;
     expect(() => {
@@ -310,7 +324,7 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGridWithWinnerMesh(["A", "B"], [null, null], [10, 20]),
       metadata(2, 1),
     );
@@ -325,7 +339,7 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGridWithWinnerMesh(["A", "B"], [null, null], [7, 8]),
       metadataFor(2, 1, false),
     );
@@ -340,7 +354,7 @@ describe("per-object effect targeting (VOLUMETRIC-3.md §1)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(
+    const retained = retain(
       coveredGridWithWinnerMesh([" ", "B"], [null, null], [-1, 10]),
       metadata(2, 1),
     );
@@ -415,7 +429,7 @@ describe("program-as-data (VOLUMETRIC-3.md §4)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    const retained = retain(coveredGrid(["A"], [null]), metadata(1, 1));
     composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
     expect(seenProgram).toBe(payload);
   });
@@ -436,7 +450,7 @@ describe("program-as-data (VOLUMETRIC-3.md §4)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    const retained = retain(coveredGrid(["A"], [null]), metadata(1, 1));
     composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
     expect(seenProgram).toBeUndefined();
     expect(sawProgramKey).toBe(false);
@@ -505,7 +519,7 @@ describe("program-as-data (VOLUMETRIC-3.md §4)", () => {
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    const retained = retain(coveredGrid(["A"], [null]), metadata(1, 1));
     composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
     expect(seenProgram).toBe(payload);
   });
@@ -556,7 +570,7 @@ describe("colorProgram (VOLUMETRIC-4.md §1, program-as-data's named sibling)", 
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    const retained = retain(coveredGrid(["A"], [null]), metadata(1, 1));
     composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
     expect(seenProgram).toBe(programPayload);
     expect(seenColorProgram).toBe(colorPayload);
@@ -578,7 +592,7 @@ describe("colorProgram (VOLUMETRIC-4.md §1, program-as-data's named sibling)", 
       () => {},
       () => {},
     );
-    const retained = retainGlyphEffectOutput(coveredGrid(["A"], [null]), metadata(1, 1));
+    const retained = retain(coveredGrid(["A"], [null]), metadata(1, 1));
     composeRetainedGlyphEffectOutput(retained, prepare([layer], 1));
     expect(seenColorProgram).toBeUndefined();
     expect(sawColorProgramKey).toBe(false);

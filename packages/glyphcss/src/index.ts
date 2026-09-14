@@ -53,8 +53,21 @@ export * from "./api/effects";
 export { retainGlyphEffectOutput } from "./render/effectCompositor";
 export type {
   GlyphEffectOutputMetadata,
+  GlyphEffectRetainOptions,
   RetainedGlyphEffectOutput,
 } from "./render/effectCompositor";
+
+// DOM-free, camera-free compositor entry (AGENTS.md "Retained Glyph
+// Effects", contract 4) — runs Glyph Effects over any bare `CellGrid` with
+// no scene and no camera. `@glyphcss/charts`'s `composeGlyphChartEffects` is
+// the reference consumer.
+export {
+  composeGlyphEffects,
+  glyphEffectDepthCoverage,
+  GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE,
+  GlyphEffectRequirementUnavailableError,
+} from "./render/effectCompositor";
+export type { GlyphEffectComposeContext } from "./render/effectCompositor";
 
 // Static compile — render a scene to its `<pre>` without a DOM (build-time / SSR).
 export { compileScene } from "./api/compileScene";
