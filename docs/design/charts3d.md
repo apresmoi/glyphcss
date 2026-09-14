@@ -703,6 +703,126 @@ dimension change mid-flight.
 Each mutation above (the decal's) was applied to the working tree, run,
 observed red, then reverted and re-verified green.
 
+## F5b — `compileScene` accepts `objects`, `textureSamplers`, returns `grid`
+
+Contract 3's compile half (the orbit half, `pitchRange`/`mode: "trackball"`,
+landed separately as F5). `createGlyphScene.ts`'s own object machinery
+(`mountGlyphSceneObjectInto`, `applyGlyphSceneObjectOverlays`,
+`withTransformCellsLayer`) is untouched — `compileScene.ts` re-derives the
+same three things standalone (mesh-id assignment, the overlay registry, the
+hotspot flatten) rather than importing scene internals, because a scene's
+version is entangled with live mesh handles, `scheduleRender()`, and the
+detail-layer machinery a flat static compile has none of. The one function
+actually reused across the boundary is `encodeGlyphSceneObjectSamplerKey`
+(pure, already exported) — duplicating its escaping rule would have been the
+one place a drift could silently break the `glyph-object:<id>:<name>` key
+two independent implementations must agree on byte-for-byte.
+
+**No second transform parameter.** `scene.addObject(object, transform?)` has
+one; `compileScene({ objects })` does not — every object mounts at the
+identity, matching how the base `polygons` field already expects
+already-positioned geometry rather than a transform to apply. Since
+`transformObjectPoint(p, {})` reduces to identity anyway, a live scene's
+`scene.addObject(object)` (no transform argument) and `compileScene`'s own
+`toWorld: (p) => p` hand every overlay the IDENTICAL frame — which is what
+makes byte-for-byte parity between the two paths provable rather than
+merely plausible.
+
+**One raster pass when overlays exist, not two.** The obvious shape — stamp
+overlays into the string-producing pass, then call `rasterizeToCells`
+separately for `grid` — invokes `overlay.stamp()` TWICE per `compileScene()`
+call, silently wrong for any overlay carrying its own mutable state (a
+counter, a running id) across calls, since a live scene calls it exactly
+once per render. Instead the SAME hook attached to the string pass captures
+a durable clone of the grid (`cloneCellGrid`, already public) as a side
+effect the instant after stamping, so both outputs come from one walk of
+the geometry. With NO overlay, `ctx.transformCells` is never set at all
+(matching the option's total absence before this packet) and `grid` is
+captured via a wholly separate `rasterizeToCells(ctx)` pass instead — this
+is the byte-identity gate: `charMode: "halfblock"`/`"quadrant"` are
+documented no-ops the INSTANT any hook is attached (`wantsHalfblockSolid`/
+`wantsQuadrantSolid` in `rasterize.ts` both check `!scene.transformCells`),
+so unconditionally attaching a capture-only hook to always return `grid`
+would have silently broken both charModes for every existing caller who
+never touched `objects`. Measured: reverting the conditional (`if (true)`
+in place of `if (merged.overlayEntries.length > 0)`) reddens the two
+pre-existing halfblock/quadrant parity tests AND the new no-objects
+byte-identity test — three failures, one root cause.
+
+**Mesh ids are local and disposable.** A live scene's `nextMeshId` is a
+module-level counter shared across every scene for the process's lifetime
+(mesh handles must stay distinguishable across `addObject`/`add` calls on
+the SAME scene over its whole life); `compileScene` has no such lifetime —
+one call, one render, done — so `mergeCompileObjects` assigns ids from a
+FRESH counter starting at 1 every call, with `0` reserved for the caller's
+own non-object `polygons` (never an object's own mesh, so a base-geometry
+winner is always "foreign" to every object's `ownMeshIds`, exactly the
+occlusion rule the live scene's `winnerMesh !== -1 own-vs-foreign` check
+encodes). `polygonMeshIds`/`retainWinnerMesh` are only ever attached to the
+rasterize context when at least one overlay exists (mirroring
+`createGlyphScene`'s own `objectHasAnyOverlay()` gate) — an object with
+meshes but no overlay pays nothing for winner-mesh tracking.
+
+**`glyphOutput: "semantic"` rejects `objects` outright.** A semantic frame's
+`sceneManifest`/`dictionary` describe the caller's OWN `polygons` array 1:1
+(polygon index → surface → instance → class); an object's meshes have no
+corresponding manifest entries to align with, and there is no way to
+extend the manifest for polygons the caller never declared. At runtime,
+overlay stamping already never runs under semantic output either
+(`createGlyphScene.ts`'s `ctx.transformCells` is set only when
+`options.glyphOutput === "visible"`), so silently dropping the objects'
+overlays there would already be a divergence from "objects render like the
+live scene" — rejecting explicitly, with a `TypeError` naming the
+combination, was the only choice that doesn't either silently misalign the
+manifest or silently drop half of what the caller asked for.
+
+**Ripple: `@glyphcss/compile`'s `autoFit` crop.** `compilePolygons`'s
+`autoFit` branch was the one caller in the tree that builds a
+`CompileSceneResult` object literal by hand (cropping `inner` via
+`cropGlyphInner`, then recomputing `cols`/`rows` from the cropped text) —
+adding required `grid`/`hotspots` fields to the type is a clean break with
+no BC shim, so this literal stopped type-checking the moment the DTS build
+ran. Returning the PRE-crop `full.grid` unmodified would have shipped a
+`CompileSceneResult` whose `grid.cols`/`.rows` disagree with its own
+`.cols`/`.rows` — a new, self-inconsistent result shape nothing asks for.
+`cropCellGrid` (`packages/compile/src/compileFile.ts`) re-derives the exact
+same non-space bounding box `cropGlyphInner`'s internal `cropLines` computes
+from the STRING, directly from `grid.char` instead — simpler than
+re-tokenizing already-cropped HTML, and provably dimension-consistent: the
+row/column that establishes the bounding box's own `maxCol`/`maxRow` always
+has real content there, so `cropGlyphInner`'s per-line trailing-whitespace
+strip can never shrink the measured width/height below what the grid crop
+already computed. `hotspots` passes through unshifted — `CompileFileOptions`
+does not accept `objects` (out of this packet's scope), so it is always `[]`
+on every path through `compilePolygons` today.
+
+### Gates and mutations (packet F5b)
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| A mounted object's mesh, overlay, and hotspot all reach the compiled string exactly like the live scene | Disable the overlay-stamping hook (`if (false && …)`) | RED — 2 tests: the overlay's own `@` marker and the shared-arbiter `HIGH`/`LOW` label both vanish from `compiled.inner` |
+| `objects`/`textureSamplers` absent is byte-identical, and `grid` never disables `halfblock`/`quadrant` | Always attach the capture hook (`if (true)`) regardless of overlays | RED — 3 tests: both pre-existing halfblock/quadrant parity tests AND the new no-objects byte-identity test |
+| An object's own `textureSamplers` merge in exactly like the live scene | — (positive: `compiled.inner === runtimeHtml` with a real per-cell texel; a second assertion drops the sampler and requires a DIFFERENT render) | Parity holds; dropping the sampler measurably changes the render |
+| An explicit `textureSamplers` entry wins a key collision (contract 9) | — (positive: a differently-colored explicit sampler at the SAME encoded key must change the render vs the object-only version) | Confirms the explicit map actually reaches the rasterizer, not merely accepted and ignored |
+| `glyphOutput: "semantic"` + `objects` rejects, never silently drops or misaligns | — (positive: asserts a thrown `TypeError`) | Explicit rejection, matching the "static export of a mounted effect rejects explicitly" precedent |
+| `@glyphcss/compile`'s `autoFit` crop keeps `grid` dimension-consistent with `cols`/`rows`/`inner` | — (`pnpm --filter @glyphcss/compile test`, `labelParity.test.ts`'s CLI/Vite/Node parity suite) | 60/60 pass; `cropCellGrid`'s bounding box matches `cropGlyphInner`'s own exactly |
+
+Every mutation above was applied to the working tree, run, observed red
+(with the exact reddened test names above), then reverted and re-verified
+green.
+
+### Gate counts (packet F5b)
+
+`pnpm --filter glyphcss test`: 114 files / 1238 tests. `pnpm --filter
+@glyphcss/react test`: 24 / 210. `pnpm --filter @glyphcss/vue test`: 26 /
+214. `pnpm --filter @glyphcss/compile test`: 8 / 60 (needs
+`@glyphcss/charts`/`@glyphcss/diagrams` built locally — unrelated packages
+this packet doesn't touch, built once to unblock the CLI-parity suite's
+module resolution). `pnpm --filter @glyphcss/core --filter glyphcss
+--filter @glyphcss/react --filter @glyphcss/vue --filter @glyphcss/compile
+build`: all five build clean, DTS included (the type gate this contract's
+public-surface change lives or dies by).
+
 ## C1 — `gridSurfacePolygons`, the surface model, `glyphChartObject`
 
 **Goal.** A `z(x, y)` height-field mesh (core), a validated surface model

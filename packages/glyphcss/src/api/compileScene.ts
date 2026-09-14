@@ -10,16 +10,20 @@
  * Defaults are identical to `createGlyphScene` so a compiled scene matches the
  * runtime render 1:1.
  */
-import type { Polygon, RenderMode } from "@glyphcss/core";
+import type { Hotspot, HotspotCell, Polygon, RenderMode, TextureSampler } from "@glyphcss/core";
 import { recenterPolygons } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildRasterizeContext } from "./rasterizeContext";
-import { rasterize } from "../render/rasterize";
-import { encodeGlyphBuffers, type GlyphColorEncoding } from "../render/cells";
+import { rasterize, rasterizeToCells } from "../render/rasterize";
+import { buildCellGrid, cloneCellGrid, encodeGlyphBuffers, type CellGrid, type GlyphColorEncoding, type TransformCells } from "../render/cells";
 import type { GlyphFontAtlas } from "../render/fontAtlas";
 import { buildGlyphControlFrame } from "./controlFrame";
 import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "./controlFrame";
+import { projectHotspots } from "./projectHotspots";
+import { encodeGlyphSceneObjectSamplerKey } from "./createGlyphScene";
+import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneOverlay } from "./sceneObject";
+import { createGlyphLabelArbiter } from "../render/overlay/labelArbiter";
 import type {
   GlyphDirectionalLight,
   GlyphAmbientLight,
@@ -115,6 +119,38 @@ export interface CompileSceneOptions {
   sceneManifest?: GlyphControlSceneManifest;
   /** Immutable class dictionary required by semantic output. */
   dictionary?: GlyphObjectDictionary;
+  /**
+   * `GlyphSceneObject`s to mount (contract 3, AGENTS.md's "Compilation"
+   * section). Every member mesh's polygons join the render; every object's
+   * overlays run — in mount order, then declaration order within the
+   * object, exactly the order `scene.addObject()` composes them in — against
+   * a single shared label arbiter, sharing the occlusion rule ("a label
+   * hides iff it's won by a mesh outside its own object"); every hotspot is
+   * projected through the same camera; every `textureSamplers` entry merges
+   * in under its namespaced key. `compileScene` mounts every object at the
+   * IDENTITY transform (no `position`/`rotation`/`scale`) — unlike
+   * `scene.addObject(object, transform)`, there is no second transform
+   * parameter here, matching how the base `polygons` field already expects
+   * final, already-positioned geometry rather than a transform to apply.
+   * Overlays are pure functions of `(grid, frame)` (AGENTS.md's own "their
+   * overlays are pure and Node-safe" clause), so they run identically here
+   * with no browser. Omitted (the default): byte-identical to before this
+   * option existed. Not supported with `glyphOutput: "semantic"` — a
+   * semantic frame's `sceneManifest`/`dictionary` describe the caller's OWN
+   * `polygons` 1:1, and object meshes have no corresponding manifest
+   * entries to align with; passing `objects` there throws.
+   */
+  objects?: GlyphSceneObject[];
+  /**
+   * Procedural texture samplers, keyed like `scene.setTextureSamplers()`'s
+   * own map (contract 3/9). Merges OVER every mounted object's own
+   * `textureSamplers` (namespaced via `encodeGlyphSceneObjectSamplerKey`) —
+   * this map's own entries win a key collision, exactly the order
+   * `resolvedTextureSamplers()` merges them in at runtime.
+   * `compileScene` never decodes a texture URL itself (Node-unsafe), so this
+   * is the only way a compiled bake gets per-cell texture sampling at all.
+   */
+  textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
 }
 
 export interface CompileSceneResult {
@@ -125,10 +161,136 @@ export interface CompileSceneResult {
   cols: number;
   rows: number;
   cellAspect: number;
+  /**
+   * The final rasterized `CellGrid` the string above was built from
+   * (contract 3) — the SAME cell contract a runtime `transformCells` hook
+   * receives, including any `objects` overlay stamping. Lets a caller (a C2/
+   * D2-style consumer) reuse the compiled render's own grid instead of
+   * re-rasterizing. A durable copy (`buildCellGrid`), safe to keep past this
+   * call — never the rasterizer's own scratch buffers.
+   */
+  grid: CellGrid;
+  /** Every mounted object's hotspots, projected through this render's own camera/grid — `[]` when no object declares one. */
+  hotspots: HotspotCell[];
 }
 
 function escapeHtml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+interface CompileOverlayEntry {
+  readonly overlay: GlyphSceneOverlay;
+  readonly ownMeshIds: ReadonlySet<number>;
+}
+
+/**
+ * Flattens `objects` into the base polygon list — one unique numeric mesh id
+ * per member mesh (0 is reserved for the caller's own non-object
+ * `polygons`, so a base-geometry winner is always "foreign" to every
+ * object's `ownMeshIds`) — plus the ordered overlay list and flattened
+ * hotspots. `polygonMeshIds` is only built (and only handed to the
+ * rasterizer) when at least one overlay exists, mirroring
+ * `createGlyphScene`'s own `retainWinnerMesh` gate — an object with meshes
+ * but no overlay never pays for winner-mesh tracking.
+ */
+function mergeCompileObjects(basePolygons: Polygon[], objects: readonly GlyphSceneObject[] | undefined): {
+  polygons: Polygon[];
+  polygonMeshIds: number[] | undefined;
+  overlayEntries: CompileOverlayEntry[];
+  hotspots: Hotspot[];
+  textureSamplers: Map<string, TextureSampler> | null;
+} {
+  if (!objects || objects.length === 0) {
+    return { polygons: basePolygons, polygonMeshIds: undefined, overlayEntries: [], hotspots: [], textureSamplers: null };
+  }
+  const polygons = basePolygons.slice();
+  const meshIds: number[] = new Array(basePolygons.length).fill(0);
+  let nextMeshId = 1;
+  const sortable: Array<{ overlay: GlyphSceneOverlay; ownMeshIds: ReadonlySet<number>; order: number; mountIndex: number; overlayIndex: number }> = [];
+  const hotspots: Hotspot[] = [];
+  let textureSamplers: Map<string, TextureSampler> | null = null;
+  for (let mountIndex = 0; mountIndex < objects.length; mountIndex++) {
+    const object = objects[mountIndex]!;
+    const ownMeshIds = new Set<number>();
+    for (const spec of object.meshes) {
+      const meshId = nextMeshId++;
+      ownMeshIds.add(meshId);
+      for (const p of spec.polygons) {
+        polygons.push(p);
+        meshIds.push(meshId);
+      }
+    }
+    const overlays = object.overlays ?? [];
+    for (let overlayIndex = 0; overlayIndex < overlays.length; overlayIndex++) {
+      const overlay = overlays[overlayIndex]!;
+      sortable.push({ overlay, ownMeshIds, order: overlay.order ?? 0, mountIndex, overlayIndex });
+    }
+    for (const h of object.hotspots ?? []) hotspots.push({ id: h.id, at: h.at });
+    if (object.textureSamplers) {
+      textureSamplers ??= new Map();
+      for (const [name, sampler] of object.textureSamplers) {
+        textureSamplers.set(encodeGlyphSceneObjectSamplerKey(object.id, name), sampler);
+      }
+    }
+  }
+  // Same sort key `applyGlyphSceneObjectOverlays` uses: `order`, then mount
+  // order, then declaration order within the object.
+  sortable.sort((a, b) => (a.order - b.order) || (a.mountIndex - b.mountIndex) || (a.overlayIndex - b.overlayIndex));
+  const overlayEntries: CompileOverlayEntry[] = sortable.map(({ overlay, ownMeshIds }) => ({ overlay, ownMeshIds }));
+  return { polygons, polygonMeshIds: overlayEntries.length > 0 ? meshIds : undefined, overlayEntries, hotspots, textureSamplers };
+}
+
+/**
+ * The overlay registry, standalone (no scene) — `createGlyphScene.ts`'s own
+ * `applyGlyphSceneObjectOverlays` mirrored for a Node-safe, DOM-free caller.
+ * `toWorld` is the identity function: `compileScene` mounts every object at
+ * the identity transform (see `CompileSceneOptions.objects`'s own doc), and
+ * `transformObjectPoint(p, {})` reduces to identity anyway, so this is
+ * exactly the frame a live `scene.addObject(object)` (no transform argument)
+ * would hand the SAME overlay. `layer` is always `undefined` here — a direct
+ * `rasterizeContext` caller (which is what `compileScene` is) supplies none
+ * (AGENTS.md's "Post-rasterize cell hook" paragraph).
+ */
+function applyCompileObjectOverlays(
+  grid: CellGrid,
+  camera: GlyphCamera,
+  cellAspect: number,
+  overlayEntries: readonly CompileOverlayEntry[],
+): CellGrid {
+  const arbiter = createGlyphLabelArbiter();
+  for (const { overlay, ownMeshIds } of overlayEntries) {
+    const frame: GlyphOverlayFrame = {
+      camera,
+      cols: grid.cols,
+      rows: grid.rows,
+      cellAspect,
+      layer: undefined,
+      toWorld: (p) => p,
+      ownMeshIds,
+      labels: arbiter,
+    };
+    overlay.stamp(grid, frame);
+  }
+  arbiter.resolve(grid);
+  return grid;
+}
+
+/**
+ * Contract 9's merge order, standalone: an object's own `textureSamplers`
+ * (already namespace-encoded by `mergeCompileObjects`) first, this call's
+ * own explicit `textureSamplers` winning any key collision — the same order
+ * `resolvedTextureSamplers()` merges them in at runtime.
+ */
+function resolveCompileTextureSamplers(
+  objectSamplers: Map<string, TextureSampler> | null,
+  explicit: ReadonlyMap<string, TextureSampler> | null | undefined,
+): ReadonlyMap<string, TextureSampler> | undefined {
+  const hasObject = objectSamplers !== null && objectSamplers.size > 0;
+  const hasExplicit = explicit != null && explicit.size > 0;
+  if (!hasObject && !hasExplicit) return undefined;
+  const merged = new Map<string, TextureSampler>(objectSamplers ?? []);
+  if (hasExplicit) for (const [key, sampler] of explicit) merged.set(key, sampler);
+  return merged;
 }
 
 export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
@@ -146,6 +308,18 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     if (mode !== "solid") throw new RangeError("glyphcss: semantic glyph output requires solid mode.");
     if (!opts.sceneManifest || !opts.dictionary) {
       throw new TypeError("glyphcss: semantic glyph output requires sceneManifest and dictionary.");
+    }
+    if (opts.objects && opts.objects.length > 0) {
+      // A semantic frame's `sceneManifest`/`dictionary` describe the
+      // caller's OWN `polygons` 1:1 (AGENTS.md's "Semantic output" — the
+      // lineage is a polygon → surface → instance → class identity map);
+      // an object's meshes have no corresponding manifest entries to align
+      // with, and overlay stamping never runs under `glyphOutput: "semantic"`
+      // at runtime either (`createGlyphScene.ts`'s `ctx.transformCells` is
+      // only ever set when `options.glyphOutput === "visible"`). Reject
+      // explicitly rather than silently drop the objects or misalign the
+      // manifest.
+      throw new TypeError('glyphcss: compileScene does not support "objects" with glyphOutput: "semantic".');
     }
     const frame = buildGlyphControlFrame({
       polygons,
@@ -169,16 +343,31 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
       : `#${(packed & 0xffffff).toString(16).padStart(6, "0")}`);
     const output = encodeGlyphBuffers(chars, colors, cols, rows, useColors);
     const inner = useColors ? output : escapeHtml(output);
-    return { html: `<pre class="glyph-output">${inner}</pre>`, inner, cols, rows, cellAspect };
+    return {
+      html: `<pre class="glyph-output">${inner}</pre>`,
+      inner,
+      cols,
+      rows,
+      cellAspect,
+      grid: buildCellGrid(chars, colors, null, cols, rows),
+      hotspots: [],
+    };
   }
   if (opts.glyphOutput !== undefined && opts.glyphOutput !== "visible") {
     throw new TypeError('glyphcss: glyphOutput must be "visible" or "semantic".');
   }
 
+  // Contract 3 (AGENTS.md "Compilation"): fold every mounted object's meshes
+  // into the flat polygon list, gather its overlays into ONE ordered
+  // registry, and flatten its hotspots — a no-op, `polygons` unchanged by
+  // reference, when `opts.objects` is absent (the byte-identity gate).
+  const merged = mergeCompileObjects(polygons, opts.objects);
+  const textureSamplers = resolveCompileTextureSamplers(merged.textureSamplers, opts.textureSamplers);
+
   const ctx = buildRasterizeContext({
     camera,
     grid: { cols, rows, cellAspect },
-    polygons,
+    polygons: merged.polygons,
     mode,
     directionalLight: opts.directionalLight ?? { direction: [0.5, 0.7, 0.5], intensity: 1 },
     ambientLight: opts.ambientLight ?? { intensity: 0.4 },
@@ -196,12 +385,39 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     doubleSided: opts.doubleSided ?? false,
     supersample: opts.supersample ?? 1,
     shadow: opts.shadow,
+    polygonMeshIds: merged.polygonMeshIds,
+    retainWinnerMesh: mode === "solid" && merged.overlayEntries.length > 0,
+    textureSamplers,
   });
-  // Per-cell texture sampling needs browser image decoding (not Node-safe), so
-  // the static compile renders from material / vertex colors — the same fallback
-  // the runtime uses before its async samplers resolve.
+  // Per-cell texture sampling from a fetched URL needs browser image
+  // decoding (not Node-safe), so the static compile renders from material /
+  // vertex colors for that case — the same fallback the runtime uses before
+  // its async samplers resolve. `textureSamplers` above (explicit +
+  // object-owned) is PROCEDURAL, decoded pixels handed in directly with no
+  // fetch, so it works here exactly as it does at runtime.
+
+  // Overlays are stamped inside the SAME hook that also captures `grid`
+  // (contract 3's second half) — never a second pass that re-invokes
+  // `overlay.stamp()`, which would run a stateful overlay twice for one
+  // `compileScene()` call. With no overlay, `ctx.transformCells` stays
+  // `undefined` exactly as before this option existed (the byte-identity
+  // gate: charMode `"halfblock"`/`"quadrant"` are documented no-ops the
+  // instant ANY hook is attached, so this must stay unset on that path), and
+  // `grid` is instead captured via a wholly separate `rasterizeToCells`
+  // pass that never touches the string-producing `ctx`.
+  let capturedGrid: CellGrid | null = null;
+  if (merged.overlayEntries.length > 0) {
+    const hook: TransformCells = (grid) => {
+      applyCompileObjectOverlays(grid, camera, cellAspect, merged.overlayEntries);
+      capturedGrid = cloneCellGrid(grid);
+      return grid;
+    };
+    ctx.transformCells = hook;
+  }
 
   const output = rasterize(ctx);
+  const grid = capturedGrid ?? rasterizeToCells(ctx);
+  const hotspots = projectHotspots(merged.hotspots, camera, cols, rows, cellAspect);
   // Colored output is HTML (spans); plain output is text → escape for inlining.
   const inner = useColors ? output : escapeHtml(output);
   return {
@@ -210,5 +426,7 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     cols,
     rows,
     cellAspect,
+    grid,
+    hotspots,
   };
 }

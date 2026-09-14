@@ -1,10 +1,14 @@
 import { describe, it, expect, vi } from "vitest";
-import { createGlyphScene } from "./createGlyphScene";
-import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
+import { createGlyphScene, encodeGlyphSceneObjectSamplerKey } from "./createGlyphScene";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { compileScene } from "./compileScene";
-import { icosahedronPolygons, cubePolygons } from "@glyphcss/core";
+import { icosahedronPolygons, cubePolygons, type Polygon, type TextureSampler } from "@glyphcss/core";
 import type { GlyphSolidWeightRampStep } from "./types";
 import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, decodeGlyphAtlasText } from "../render/fontAtlas";
+import { stampGlyphOverlayCell } from "../render/overlay";
+import type { GlyphSceneObject } from "./sceneObject";
+import { computeGlyphControlContentSha256, computeGlyphControlGeometryHashes } from "./controlFrame";
+import type { GlyphControlSceneManifest, GlyphObjectDictionary } from "./controlFrame";
 
 /**
  * The static compiler must produce byte-identical output to the runtime render
@@ -308,5 +312,201 @@ describe("compileScene — matches the runtime render", () => {
     expect(r.html.startsWith('<pre class="glyph-output">')).toBe(true);
     expect(r.html.endsWith("</pre>")).toBe(true);
     expect(r.cols).toBe(20);
+  });
+});
+
+/**
+ * Packet F5b (PLAN-3d.md §11's F5 row, contract 3): `compileScene` accepts
+ * `objects` and explicit `textureSamplers`, and returns `grid` as well.
+ */
+describe("compileScene — objects, textureSamplers, grid (contract 3, packet F5b)", () => {
+  function quad(cx: number, cy: number, half = 1, color = "#4488cc"): Polygon[] {
+    return [{
+      vertices: [
+        [cx - half, cy - half, 0],
+        [cx - half, cy + half, 0],
+        [cx + half, cy + half, 0],
+        [cx + half, cy - half, 0],
+      ],
+      color,
+    }];
+  }
+
+  const sceneOptions = {
+    cols: 40,
+    rows: 16,
+    useColors: true,
+    camera: createGlyphOrthographicCamera({ zoom: 30 }),
+    doubleSided: true,
+  } as const;
+
+  function runtimeObjectRender(object: GlyphSceneObject): string {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, sceneOptions);
+    scene.addObject(object);
+    scene.rerender();
+    const out = scene.output.innerHTML;
+    scene.destroy();
+    host.remove();
+    return out;
+  }
+
+  it("a mounted object's mesh, overlay and hotspot all reach the compiled render exactly like the live scene (mutation: skip overlays in compile, which must go red)", () => {
+    const object: GlyphSceneObject = {
+      id: "obj-1",
+      meshes: [{ name: "mesh", polygons: quad(0, 0) }],
+      overlays: [{
+        id: "marker",
+        stamp(grid): void {
+          stampGlyphOverlayCell(grid, { col: 2, row: 2, char: "@", color: "#ff00ff" });
+        },
+      }],
+      hotspots: [{ id: "h1", at: [0, 0, 0] }],
+      bounds: { min: [-1, -1, 0], max: [1, 1, 0] },
+    };
+
+    const runtimeHtml = runtimeObjectRender(object);
+
+    const compiled = compileScene({ polygons: [], objects: [object], ...sceneOptions });
+    expect(compiled.inner).toBe(runtimeHtml);
+    expect(compiled.inner).toContain("@");
+
+    // The captured grid reflects the overlay's own stamp, not just the string.
+    const idx = 2 * compiled.cols + 2;
+    expect(compiled.grid.char[idx]).toBe("@");
+
+    // Every mounted object's hotspots are projected through this render's camera.
+    expect(compiled.hotspots).toHaveLength(1);
+    expect(compiled.hotspots[0]!.id).toBe("h1");
+    expect(compiled.hotspots[0]!.visible).toBe(true);
+
+    // Mutation: an object mounted with its overlays stripped must render
+    // differently — proves the overlay is actually doing the work above,
+    // not merely failing to regress a no-op.
+    const withoutOverlay = compileScene({ polygons: [], objects: [{ ...object, overlays: [] }], ...sceneOptions });
+    expect(withoutOverlay.inner).not.toBe(compiled.inner);
+    expect(withoutOverlay.inner).not.toContain("@");
+  });
+
+  it("two objects' overlays share ONE label arbiter and compose in mount order, exactly like the live scene", () => {
+    const objectA: GlyphSceneObject = {
+      id: "a",
+      meshes: [],
+      overlays: [{ id: "low", stamp(_grid, frame): void { frame.labels.place({ id: "low", priority: 1, col: 10, row: 5, text: "LOW" }); } }],
+      bounds: { min: [0, 0, 0], max: [0, 0, 0] },
+    };
+    const objectB: GlyphSceneObject = {
+      id: "b",
+      meshes: [],
+      overlays: [{ id: "high", stamp(_grid, frame): void { frame.labels.place({ id: "high", priority: 2, col: 10, row: 5, text: "HIGH" }); } }],
+      bounds: { min: [0, 0, 0], max: [0, 0, 0] },
+    };
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, { ...sceneOptions, useColors: false });
+    scene.addObject(objectA);
+    scene.addObject(objectB);
+    scene.rerender();
+    const runtimeText = scene.output.textContent!;
+    scene.destroy();
+    host.remove();
+
+    const compiled = compileScene({ polygons: [], objects: [objectA, objectB], ...sceneOptions, useColors: false });
+    expect(compiled.inner).toBe(runtimeText);
+    expect(runtimeText).toContain("HIGH");
+    expect(runtimeText).not.toContain("LOW");
+  });
+
+  it("an object's own textureSamplers merge in exactly like the live scene (F2 sampler on a quad; mutation: drop object texture-sampler merging)", () => {
+    const sampler: TextureSampler = { width: 1, height: 1, lowDetail: false, data: new Uint8ClampedArray([10, 20, 30, 255]) };
+    const texturedQuad: Polygon = { ...quad(0, 0, 3, "#eeeeee")[0]!, texture: encodeGlyphSceneObjectSamplerKey("tex-obj", "tex"), uvs: [[0, 1], [1, 1], [1, 0], [0, 0]] };
+    const object: GlyphSceneObject = {
+      id: "tex-obj",
+      meshes: [{ name: "m", polygons: [texturedQuad] }],
+      textureSamplers: new Map([["tex", sampler]]),
+      bounds: { min: [-3, -3, 0], max: [3, 3, 0] },
+    };
+
+    const runtimeHtml = runtimeObjectRender(object);
+    const compiled = compileScene({ polygons: [], objects: [object], ...sceneOptions });
+    expect(compiled.inner).toBe(runtimeHtml);
+
+    const withoutSampler = compileScene({ polygons: [], objects: [{ ...object, textureSamplers: undefined }], ...sceneOptions });
+    expect(withoutSampler.inner).not.toBe(compiled.inner);
+  });
+
+  it("an explicit textureSamplers entry wins a key collision with an object's own sampler, matching the live scene (contract 9)", () => {
+    const objectSampler: TextureSampler = { width: 1, height: 1, lowDetail: false, data: new Uint8ClampedArray([10, 20, 30, 255]) };
+    const explicitSampler: TextureSampler = { width: 1, height: 1, lowDetail: false, data: new Uint8ClampedArray([250, 240, 230, 255]) };
+    const key = encodeGlyphSceneObjectSamplerKey("tex-obj-2", "tex");
+    const texturedQuad: Polygon = { ...quad(0, 0, 3, "#eeeeee")[0]!, texture: key, uvs: [[0, 1], [1, 1], [1, 0], [0, 0]] };
+    const object: GlyphSceneObject = {
+      id: "tex-obj-2",
+      meshes: [{ name: "m", polygons: [texturedQuad] }],
+      textureSamplers: new Map([["tex", objectSampler]]),
+      bounds: { min: [-3, -3, 0], max: [3, 3, 0] },
+    };
+
+    const withOnlyObjectSampler = compileScene({ polygons: [], objects: [object], ...sceneOptions });
+    const withExplicitOverride = compileScene({
+      polygons: [], objects: [object], textureSamplers: new Map([[key, explicitSampler]]), ...sceneOptions,
+    });
+    // Different pixel data must produce a different render — the explicit
+    // entry is actually reaching the rasterizer, not merely accepted and
+    // ignored (which would leave this equal to withOnlyObjectSampler).
+    expect(withExplicitOverride.inner).not.toBe(withOnlyObjectSampler.inner);
+  });
+
+  it("objects omitted (or []) is byte-identical to before this option existed", () => {
+    const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 0.5 });
+    const cfg = { polygons: polys, camera, cols: 40, rows: 16, useColors: true } as const;
+    const baseline = compileScene(cfg);
+    const withEmptyArray = compileScene({ ...cfg, objects: [] });
+    expect(withEmptyArray.inner).toBe(baseline.inner);
+    expect(withEmptyArray.grid.char).toEqual(baseline.grid.char);
+
+    // And returning `grid` does not disable the halfblock/quadrant charMode
+    // no-op gate (attaching ANY hook to the string-producing pass would).
+    const halfblock = compileScene({ ...cfg, mode: "solid", charMode: "halfblock" });
+    const quadrant = compileScene({ ...cfg, mode: "solid", charMode: "quadrant" });
+    const asciiSolid = compileScene({ ...cfg, mode: "solid" });
+    expect(halfblock.inner).not.toBe(asciiSolid.inner);
+    expect(quadrant.inner).not.toBe(asciiSolid.inner);
+    expect(quadrant.inner).not.toBe(halfblock.inner);
+  });
+
+  it("grid is always returned and matches the render, with or without objects", () => {
+    const polys = cubePolygons({ center: [0, 0, 0], size: 1 });
+    const camera = createGlyphPerspectiveCamera({ rotX: 30, rotY: 20, zoom: 0.5 });
+    const compiled = compileScene({ polygons: polys, camera, cols: 30, rows: 12 });
+    expect(compiled.grid.cols).toBe(30);
+    expect(compiled.grid.rows).toBe(12);
+    expect(compiled.grid.char.join("")).not.toBe(" ".repeat(30 * 12));
+    expect(compiled.hotspots).toEqual([]);
+  });
+
+  it("rejects objects with glyphOutput: \"semantic\" rather than silently dropping them or misaligning the manifest", () => {
+    const semanticPolygon: Polygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" };
+    const digest = (char: string) => char.repeat(64);
+    const dictionaryBase = {
+      schemaVersion: "glyph-object-dictionary/v2" as const, id: "dictionary/compile-objects-test",
+      font: { id: "font/compile-objects-test", version: "1", sha256: digest("a") },
+      classes: [{ id: 1, name: "quad", semanticGlyph: "Q", controlColor: "#123456" }],
+    };
+    const dictionary: GlyphObjectDictionary = { ...dictionaryBase, contentSha256: computeGlyphControlContentSha256(dictionaryBase) };
+    const hashes = computeGlyphControlGeometryHashes([semanticPolygon]);
+    const manifestBase = {
+      schemaVersion: "control-scene/v1" as const, id: "scene/compile-objects-test", dictionaryId: dictionary.id, dictionarySha256: dictionary.contentSha256,
+      ...hashes, contentSha256: "", instances: [{ id: "quad", classId: 1 }], surfaces: [{ id: "surface", instanceId: "quad" }], polygonSurfaceIds: ["surface"],
+    };
+    const manifest: GlyphControlSceneManifest = { ...manifestBase, contentSha256: computeGlyphControlContentSha256(manifestBase) };
+    const object: GlyphSceneObject = { id: "x", meshes: [{ name: "m", polygons: quad(0, 0) }], bounds: { min: [-1, -1, 0], max: [1, 1, 0] } };
+
+    expect(() => compileScene({
+      polygons: [semanticPolygon], cols: 12, rows: 8, glyphOutput: "semantic", sceneManifest: manifest, dictionary, objects: [object],
+    })).toThrow(TypeError);
   });
 });

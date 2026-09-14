@@ -7,13 +7,14 @@
  * the content automatically (handy for the terminal — no cols/rows needed).
  */
 import {
+  buildCellGrid,
   buildGlyphControlFrame,
   compileScene,
   createGlyphPerspectiveCamera,
   createGlyphOrthographicCamera,
   cropGlyphInner,
 } from "glyphcss";
-import type { CompileSceneResult, GlyphCamera, GlyphControlFrame, GlyphControlSceneManifest, GlyphObjectDictionary } from "glyphcss";
+import type { CellGrid, CompileSceneResult, GlyphCamera, GlyphControlFrame, GlyphControlSceneManifest, GlyphObjectDictionary } from "glyphcss";
 import type { MeshResolution, RenderMode, Polygon } from "@glyphcss/core";
 import { loadMeshFromFile } from "./loadMeshFromFile";
 import { verifyGlyphLabelSidecar, type GlyphLabelSidecar } from "./labelSidecar";
@@ -69,6 +70,44 @@ function worldMaxDim(polys: Polygon[]): number {
   }
   if (!isFinite(mnx)) return 1;
   return Math.max(mxx - mnx, mxy - mny, mxz - mnz, 1e-6);
+}
+
+/**
+ * Crop a `CellGrid` to its own content bounding box (non-space cells),
+ * mirroring `cropGlyphInner`'s STRING-space crop exactly so the returned
+ * `CompileSceneResult.grid` stays dimension-consistent with `cols`/`rows`/
+ * `inner` in the `autoFit` branch below — `cropGlyphInner` has no exposed
+ * bounding box to reuse, and a grid crop is simpler to derive directly (no
+ * span re-tokenizing) than to re-derive from the already-cropped HTML.
+ * All-whitespace input returns the grid unchanged, matching `cropLines`'s
+ * own early return.
+ */
+function cropCellGrid(grid: CellGrid): CellGrid {
+  let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;
+  for (let r = 0; r < grid.rows; r++) {
+    for (let c = 0; c < grid.cols; c++) {
+      if (grid.char[r * grid.cols + c] !== " ") {
+        if (c < minCol) minCol = c;
+        if (c > maxCol) maxCol = c;
+        if (r < minRow) minRow = r;
+        if (r > maxRow) maxRow = r;
+      }
+    }
+  }
+  if (maxCol < 0) return grid;
+  const cols = maxCol - minCol + 1;
+  const rows = maxRow - minRow + 1;
+  const char: string[] = new Array(cols * rows);
+  const color: (string | null)[] = new Array(cols * rows);
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const srcIdx = (r + minRow) * grid.cols + (c + minCol);
+      const dstIdx = r * cols + c;
+      char[dstIdx] = grid.char[srcIdx]!;
+      color[dstIdx] = grid.color[srcIdx] ?? null;
+    }
+  }
+  return buildCellGrid(char, color, null, cols, rows);
 }
 
 /** Content extent (in cells) of a rendered inner string, tags stripped. */
@@ -136,7 +175,15 @@ export function compilePolygons(polygons: Polygon[], options: CompileFileOptions
       const inner = cropGlyphInner(full.inner);
       const lines = inner.split("\n");
       const w = lines.reduce((a, l) => Math.max(a, l.replace(/<[^>]*>/g, "").length), 0);
-      return { html: `<pre class="glyph-output">${inner}</pre>`, inner, cols: w, rows: lines.length, cellAspect: options.cellAspect ?? 2.0 };
+      return {
+        html: `<pre class="glyph-output">${inner}</pre>`,
+        inner,
+        cols: w,
+        rows: lines.length,
+        cellAspect: options.cellAspect ?? 2.0,
+        grid: cropCellGrid(full.grid),
+        hotspots: full.hotspots,
+      };
     }
   }
 

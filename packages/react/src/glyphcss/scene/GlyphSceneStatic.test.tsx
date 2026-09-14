@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { GlyphSceneStatic } from "./GlyphSceneStatic";
 import { cubePolygons, icosahedronPolygons } from "@glyphcss/core";
-import { GLYPH_FONT_ATLAS_ASCII, compileScene, createGlyphPerspectiveCamera, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, type GlyphControlSceneManifest, type GlyphObjectDictionary } from "glyphcss";
+import { GLYPH_FONT_ATLAS_ASCII, compileScene, createGlyphPerspectiveCamera, computeGlyphControlContentSha256, computeGlyphControlGeometryHashes, stampGlyphOverlayCell, type GlyphControlSceneManifest, type GlyphObjectDictionary, type GlyphSceneObject } from "glyphcss";
 
 const semanticPolygon = { vertices: [[-1, -1, 0], [1, -1, 0], [1, 1, 0], [-1, 1, 0]], color: "#ffffff" } as const;
 const digest = (char: string) => char.repeat(64);
@@ -100,5 +100,25 @@ describe("GlyphSceneStatic (React)", () => {
     const inner = el.querySelector("pre.glyph-output")?.innerHTML ?? "";
     expect(inner).toBe(compileScene({ ...shared, fontAtlas: GLYPH_FONT_ATLAS_ASCII }).inner);
     expect(inner).not.toBe(compileScene(shared).inner);
+  });
+
+  it("forwards objects to compileScene, overlays included (mutation: drop the objects prop)", () => {
+    const object: GlyphSceneObject = {
+      id: "obj-1",
+      meshes: [],
+      overlays: [{
+        id: "marker",
+        stamp(grid): void {
+          stampGlyphOverlayCell(grid, { col: 1, row: 1, char: "@", color: "#ff00ff" });
+        },
+      }],
+      bounds: { min: [0, 0, 0], max: [0, 0, 0] },
+    };
+    const shared = { polygons: [], cols: 10, rows: 6, useColors: true } as const;
+    const expected = compileScene({ ...shared, objects: [object] }).inner;
+    expect(expected).toContain("@");
+    const el = render(<GlyphSceneStatic {...shared} objects={[object]} />);
+    expect(el.querySelector("pre")?.innerHTML).toBe(expected);
+    expect(el.querySelector("pre")?.innerHTML).not.toBe(compileScene(shared).inner);
   });
 });
