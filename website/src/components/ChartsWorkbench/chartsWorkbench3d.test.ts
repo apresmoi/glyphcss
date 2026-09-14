@@ -96,21 +96,39 @@ describe("chartsSurfaceFitFromRows — the mark card's Surface option", () => {
   });
 });
 
-describe("chartsWorkbench3dSceneOptions — the live viewport honours target x charset x colour", () => {
-  it("useColors follows color === \"none\" exactly, for every charset", () => {
-    for (const charset of CHART_CHARSETS) {
-      for (const color of CHART_COLORS) {
-        const opts = chartsWorkbench3dSceneOptions(charset, color);
-        expect(opts.useColors, `${charset}/${color}`).toBe(color !== "none");
-      }
+describe("chartsWorkbench3dSceneOptions — the live viewport honours colour", () => {
+  it("useColors follows color === \"none\" exactly", () => {
+    for (const color of CHART_COLORS) {
+      expect(chartsWorkbench3dSceneOptions(color).useColors, color).toBe(color !== "none");
     }
   });
-  it("both blocks and braille report a visible downgrade note (a 3D chart's always-mounted overlay disables the halfblock encoder, and glyphcss's solid mode has no braille one) — ascii/box report none", () => {
-    expect(chartsWorkbench3dSceneOptions("braille", "css").downgradeNote).not.toBeNull();
-    expect(chartsWorkbench3dSceneOptions("blocks", "css").downgradeNote).not.toBeNull();
-    for (const charset of ["ascii", "box"] as const) {
-      expect(chartsWorkbench3dSceneOptions(charset, "css").downgradeNote, charset).toBeNull();
+});
+
+// C3 fix round 2 (user feedback: the old `.charts-3d-downgrade-note` banner
+// inside the viewport's own render area violated AGENTS.md's own
+// "TargetPreview" rule and read as developer-speak) — the reason an
+// unsupported charset can't show live now lives on the Dock's OWN dimmed
+// Charset toggle, derived from the library's real `glyphChart3dCharsetDegrades`
+// predicate, never a hardcoded charset list. Mutation: hardcoding
+// `charset === "braille"` in `chartsCharsetToggle` instead of calling the
+// predicate would still pass the first two assertions here (braille IS
+// disabled today) but goes red the instant the C2 library round lands and
+// makes braille a real 3D surface — `blocks` alone stays disabled and a
+// hardcoded braille-only check would silently disable the WRONG charset
+// forever after that.
+describe("ChartsDock.chartsCharsetToggle — dims exactly what the library predicate says, in 3D only", () => {
+  it("in 3D, every charset glyphChart3dCharsetDegrades flags is disabled with the plain-English reason; the rest are not", async () => {
+    const { chartsCharsetToggle } = await import("./ChartsDock");
+    const { glyphChart3dCharsetDegrades } = await import("@glyphcss/charts/3d");
+    for (const option of chartsCharsetToggle(true)) {
+      const shouldDegrade = glyphChart3dCharsetDegrades(option.value as (typeof CHART_CHARSETS)[number]);
+      expect(option.disabled === true, option.value).toBe(shouldDegrade);
+      if (shouldDegrade) expect(option.disabledReason).toBe("Not available for 3D surfaces yet");
     }
+  });
+  it("in 2D, nothing is disabled", async () => {
+    const { chartsCharsetToggle } = await import("./ChartsDock");
+    for (const option of chartsCharsetToggle(false)) expect(option.disabled).toBeUndefined();
   });
 });
 

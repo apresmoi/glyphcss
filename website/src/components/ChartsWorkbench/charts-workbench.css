@@ -490,15 +490,14 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
    `instrument-workbench.css`), so `height: 100%` here fills it exactly. */
 .charts-3d-viewport { position: relative; height: 100%; min-height: 320px; display: flex; flex-direction: column; }
 .charts-3d-viewport-host { flex: 1 1 auto; min-height: 0; }
-/* The chrome-note idiom `TargetPreview`'s own terminal/chat frames use for
-   an unshowable choice (a braille request in a solid-only 3D scene) —
-   AGENTS.md's "Charts" "TargetPreview" doc: "A chrome note lives in the
-   frame's OWN chrome... never the viewport's render area." */
-.charts-3d-downgrade-note {
-  flex: 0 0 auto; padding: 4px 10px; font-size: 12px; line-height: 1.4;
-  color: rgba(255, 232, 184, 0.75); background: rgba(255, 200, 120, 0.08);
-  border-bottom: 1px solid rgba(255, 232, 184, 0.14);
-}
+/* C3 fix round 2 (user feedback): the viewport's own `.charts-3d-downgrade-note`
+   banner — despite the comment it shipped with citing the exact rule it
+   broke — WAS inside the render area (a flex sibling of the scene host,
+   inside `.charts-3d-viewport`), and read as developer-speak ("Braille is
+   wireframe-only in glyphcss"). Removed outright: the reason now lives on
+   the Dock's own dimmed Charset toggle (`ChartsDock.tsx`'s
+   `chartsCharsetToggle`), which is where `TargetPreview`'s own chrome-note
+   idiom actually lives for the 2D exit's equivalent cases too. */
 .charts-3d-error { padding: 24px; font-size: 13px; opacity: 0.7; }
 /* The mark card's own note while showing the 3D viewport (`ChartsMarkCard.tsx`) — the rest of that card describes a 2D mark that isn't mounted. */
 .charts-mark-3d-note { margin: 6px 0 0; font-size: 11px; line-height: 1.4; opacity: 0.7; }

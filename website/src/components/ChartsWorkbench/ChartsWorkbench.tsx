@@ -164,14 +164,15 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     () => resolveCharts3dView(state.chart3d),
     [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale],
   );
-  // Target x charset x colour, honoured LIVE (not only in the static exit)
-  // — `color: "none"` maps straight to `useColors: false`; charset can only
-  // ever DEGRADE with a chrome note (`glyphChart3dCharsetDegrades`), never
-  // change what the scene mounts with, since 3D has no live halfblock path
-  // any more (`chartsWorkbench3dSceneOptions`'s own doc).
+  // Colour, honoured LIVE (not only in the static exit) — `color: "none"`
+  // maps straight to `useColors: false`. Charset never reaches the live
+  // scene at all (3D has no live halfblock path — `chartsWorkbench3dSceneOptions`'s
+  // own doc); what to tell the reader about an unsupported charset lives on
+  // the Dock's own Charset toggle (`ChartsDock.tsx`'s `chartsCharsetToggle`,
+  // C3 fix round 2 — never a note painted inside this viewport).
   const chart3dSceneOptions = useMemo(
-    () => chartsWorkbench3dSceneOptions(resolvedControls.charset, resolvedControls.color),
-    [resolvedControls.charset, resolvedControls.color],
+    () => chartsWorkbench3dSceneOptions(resolvedControls.color),
+    [resolvedControls.color],
   );
   // The LIVE viewport's OWN resolve — `shading: "auto"` reads the LIVE
   // scene's `useColors` (`resolveCharts3dViewForLiveScene`'s own doc: a
@@ -648,11 +649,12 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
           <div className="charts-preview">
             {isWeb3d ? (
               // The live orbitable scene (web only, AGENTS.md's "Charts 3D"
-              // export boundary) — target x charset x colour honoured
-              // through `chart3dSceneOptions` (`useColors`), with a visible
-              // chrome note when a charset can't be shown live at all
-              // (braille, blocks — both wireframe/no-halfblock-path in a
-              // 3D scene). `chart3dResolvedLive`, not `chart3dResolved`,
+              // export boundary) — colour honoured through
+              // `chart3dSceneOptions` (`useColors`); the viewport itself
+              // never shows a note about an unsupported charset (C3 fix
+              // round 2 — that reason lives on the Dock's own dimmed
+              // Charset toggle instead, "the viewport holds only the
+              // render" below). `chart3dResolvedLive`, not `chart3dResolved`,
               // supplies the mark — its own `shading: "auto"` resolution
               // reads the LIVE scene's `useColors`, see that memo's doc.
               chart3dResolvedLive.ok

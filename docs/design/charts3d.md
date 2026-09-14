@@ -2788,3 +2788,95 @@ coordinator's own instruction ("if it isn't there yet, skip it and say
 so"), no Guides UI was built in the View folder this round; a C4-round
 agent adds it once the library option lands, using its real shape rather
 than an invented one.
+
+## C3 fix round 2 — the downgrade note moves out of the viewport, into the Charset toggle
+
+User feedback, verbatim: on seeing the banner "Braille is wireframe-only in
+glyphcss — this 3D scene (always solid) falls back to the default ramp."
+painted inside the live 3D viewport, "why do we have this in the rendering
+area?" Two problems in one: it violated AGENTS.md's own "TargetPreview"
+rule ("a chrome note lives in the frame's OWN chrome... never the
+viewport's render area") — despite the CSS comment shipping right above
+the offending rule and CITING that exact sentence, the element itself
+(`.charts-3d-downgrade-note`, a flex sibling of the scene host inside
+`.charts-3d-viewport`) was inside the render area regardless of what the
+comment claimed; and its wording ("wireframe-only in glyphcss") was
+developer-speak, not something a reader of the page needed explained to
+them.
+
+**Removed outright** (`Charts3dViewport.tsx`): the whole `sceneOptions.
+downgradeNote` conditional branch and its `<div className="charts-3d-
+downgrade-note">` — the component now returns exactly one shape,
+unconditionally: the bare scene host with nothing else inside
+`.charts-3d-viewport`. `Charts3dSceneOptions` lost the field entirely
+(`chartsWorkbench3d.ts`) — it now carries only `useColors` — and
+`chartsWorkbench3dSceneOptions` lost its `charset` parameter along with
+it, since nothing in the function needed it once the note it computed was
+deleted. The CSS rule (`charts-workbench.css`) is gone too, replaced with
+a comment explaining why (mirroring `glyphMonoCmap.test.ts`'s own idiom of
+documenting a fixed defect at the file that once had it).
+
+**The reason moved to where the choice is made**: the Dock's Output
+folder Charset `IconToggle` (`ChartsDock.tsx`'s new exported
+`chartsCharsetToggle(is3d)`) now dims each charset
+`glyphChart3dCharsetDegrades` flags — while `is3d` — with `disabled: true`
+and `disabledReason: "Not available for 3D surfaces yet"`, the SAME
+`IconToggle` `disabled`/`disabledReason` fields `chartsRegionFillToggle`
+(the Chart folder's "Textures" row, right above it in the same file)
+already uses — this page's own established `mapDirectionLocked` idiom for
+"an option this state can't honour, with the reason on its title/
+aria-label," not a new pattern. `is3d` itself was hoisted to the top of
+the component (it used to be computed only where the View folder needed
+it, further down) since the Charset row's own memo — `const charsetToggle
+= useMemo(() => chartsCharsetToggle(is3d), [is3d])` — needs it earlier in
+the function.
+
+**Reads the library predicate, never a hardcoded charset.** The brief was
+explicit that the C2 library round in flight is expected to make braille
+a REAL 3D surface (wireframe), leaving only `blocks` degraded — so
+`chartsCharsetToggle` calls `glyphChart3dCharsetDegrades(v)` directly, the
+identical predicate the removed viewport note used to call, never a
+literal `charset === "braille"` check. Verified live, not just argued:
+hardcoding `v === "braille"` in `chartsCharsetToggle` was tried and
+reverted — it reddens `chartsWorkbench3d.test.ts`'s new
+`chartsCharsetToggle` describe block immediately, TODAY, since the
+predicate already also flags `blocks` (the C2 braille round hasn't landed
+yet on this merge) — proving the mutation check catches a hardcoded list
+now, not only after the library changes underneath it.
+
+**Item 3 (an explicit override or an old link still handing the view an
+unsupported charset)** needed no code change at all — the live scene never
+read `charset` for anything besides the now-deleted note (AGENTS.md's own
+C3 doc: "the scene mounts at its default `charMode` regardless of
+charset"), so an unsupported value already rendered exactly like a
+supported one; the DIMMED toggle simply can't be used to reach it going
+forward, and a link built before this fix (or before the charset
+degraded) still decodes and renders in the viewport with no banner, the
+reason visible only on the toggle. Pinned by a new mounted-page test
+(`an explicit override handing the 3D view an unsupported charset still
+renders silently, with no banner`) that hand-builds a `dimension: "3d"` +
+`controls.overrides.charset: "braille"` state (unreachable via the
+disabled button, which — like a real browser — refuses a synthetic
+`.click()`) and asserts the scene still mounts and renders with `.charts-
+3d-viewport` holding exactly its one bare host child.
+
+**Gates** (`chartsWorkbench3d.test.ts`, `Charts3dViewport.lifecycle.test.tsx`):
+a pure `chartsCharsetToggle` unit test asserting the disabled set exactly
+equals what `glyphChart3dCharsetDegrades` flags, in 3D only, with the
+literal reason string; a mounted-page test iterating every real
+`CHART_CHARSETS` value in the LIVE 3D viewport (clicking each Charset
+button, including the disabled ones, which no-op) and asserting `.charts-
+3d-viewport` never grows past its one host child and `.charts-3d-
+downgrade-note` never appears; a mounted-page test reading the SAME
+charsets' real button `disabled`/`title`/`aria-label` off the fully
+rendered Dock; and the explicit-override test above. All four were run
+against a deliberate reintroduction of the old banner markup and against
+a hardcoded `braille`-only predicate and confirmed red before being
+reverted to the real fix.
+
+| Item | Gate | Mutation | Result |
+|---|---|---|---|
+| Banner removed | `Charts3dViewport.lifecycle.test.tsx`'s "never renders a note or banner" test | Reintroduce `<div className="charts-3d-downgrade-note">` inside the viewport's returned JSX | RED — `.charts-3d-viewport`'s child count goes from 1 to 2 for every charset |
+| Silent explicit-override downgrade | Same file's "explicit override... renders silently" test | Same reintroduction | RED — the explicit-`braille`-override state also grows the child count to 2 |
+| Reason on the real Toggle | Same file's "dimmed... with a plain-English reason" test | Drop `disabled`/`disabledReason` from `chartsCharsetToggle` | RED — `button.disabled` stays `false` for every charset in 3D |
+| Predicate-driven, not hardcoded | `chartsWorkbench3d.test.ts`'s `chartsCharsetToggle` describe block | Hardcode `v === "braille"` in place of `glyphChart3dCharsetDegrades(v)` | RED, TODAY — `blocks` is currently ALSO flagged by the real predicate, so the hardcoded version already disagrees with it before the C2 braille round even lands |

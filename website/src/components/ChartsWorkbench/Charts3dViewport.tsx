@@ -231,11 +231,14 @@ export function Charts3dViewport({ mark, camera, orbitMode, sceneOptions, onCame
     return () => { if (handleRef) handleRef.current = null; };
   }, [handleRef]);
 
-  if (sceneOptions.downgradeNote) {
-    return <div className="charts-3d-viewport">
-      <div className="charts-3d-downgrade-note">{sceneOptions.downgradeNote}</div>
-      <div className="charts-3d-viewport-host" ref={hostRef} />
-    </div>;
-  }
+  // Nothing is ever rendered inside the viewport besides the scene itself
+  // (C3 fix round 2, user feedback) — AGENTS.md's "TargetPreview" rule ("a
+  // chrome note lives in the frame's OWN chrome... never the viewport's
+  // render area") applies here exactly like it does to the 2D exit; what a
+  // reader needs to know about an unsupported charset lives on the Dock's
+  // own dimmed Charset toggle (`ChartsDock.tsx`'s `chartsCharsetToggle`)
+  // instead, and an explicit override or an old link that still hands this
+  // viewport one renders the faithful downgrade silently (there was never
+  // a `charMode` for it to set either way).
   return <div className="charts-3d-viewport"><div className="charts-3d-viewport-host" ref={hostRef} /></div>;
 }

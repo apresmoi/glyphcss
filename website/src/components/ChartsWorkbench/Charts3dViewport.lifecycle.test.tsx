@@ -72,9 +72,10 @@ vi.mock("glyphcss", async (importOriginal) => {
   };
 });
 import ChartsWorkbench from "./ChartsWorkbench";
-import { createChartsWorkbenchState } from "./chartsWorkbenchState";
+import { CHART_CHARSETS, createChartsWorkbenchState, reduceChartsWorkbenchState } from "./chartsWorkbenchState";
 import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
 import { decodeChartsUrlState } from "./chartsUrlState";
+import { glyphChart3dCharsetDegrades } from "@glyphcss/charts/3d";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -244,5 +245,75 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     expect(sceneSpies.sceneDestroy).toHaveBeenCalledTimes(1);
     expect(sceneSpies.controlsDestroy).toHaveBeenCalledTimes(1);
     expect(host.isConnected).toBe(false);
+  });
+
+  // C3 fix round 2 (user feedback: "why do we have this in the rendering
+  // area?" — the old `.charts-3d-downgrade-note` banner violated AGENTS.md's
+  // own "TargetPreview" rule). Mutation: re-adding any note/banner element
+  // inside `.charts-3d-viewport` (the old `sceneOptions.downgradeNote`
+  // branch, or a lookalike) reddens this — `.charts-3d-viewport`'s only
+  // child must always be the bare scene host, for every charset, including
+  // one the library predicate flags as unsupported.
+  // Matches by aria-label PREFIX, not `optionOf`'s "text after the last
+  // ': '" (a DISABLED option's own aria-label appends " — <reason>" after
+  // its value with no colon in it, which `optionOf` would fold into the
+  // match key and break an exact-equality lookup).
+  function charsetButton(charset: string): HTMLButtonElement {
+    return Array.from(toggleRow("Charset").querySelectorAll<HTMLButtonElement>("button"))
+      .find((b) => (b.getAttribute("aria-label") ?? "").startsWith(`Character set: ${charset}`))!;
+  }
+
+  it("the viewport never renders a note or banner element, for every charset", () => {
+    enter3d();
+    for (const charset of CHART_CHARSETS) {
+      act(() => charsetButton(charset).click()); // a no-op click on a disabled option, exactly like a real browser
+      const viewport = container.querySelector(".charts-3d-viewport")!;
+      expect(viewport.children, charset).toHaveLength(1);
+      expect(viewport.children[0]!.className, charset).toBe("charts-3d-viewport-host");
+      expect(viewport.querySelector(".charts-3d-downgrade-note"), charset).toBeNull();
+    }
+  });
+
+  // The reason instead lives on the Charset toggle's own button — the
+  // `mapDirectionLocked` idiom this page already uses for an unfit mark
+  // type — derived from the library's real `glyphChart3dCharsetDegrades`
+  // predicate (never a hardcoded charset), so it also proves the dimmed
+  // set actually tracks the predicate through the REAL mounted page, not
+  // just the pure `chartsCharsetToggle` unit test in `chartsWorkbench3d.test.ts`.
+  // Mutation: dropping `disabled`/`disabledReason` from `chartsCharsetToggle`
+  // reddens this (the button stays enabled with no title reason).
+  it("a charset the library predicate flags is dimmed on the Charset toggle with a plain-English reason, in 3D only", () => {
+    enter3d();
+    for (const charset of CHART_CHARSETS) {
+      const button = charsetButton(charset);
+      const shouldDegrade = glyphChart3dCharsetDegrades(charset);
+      expect(button.disabled, charset).toBe(shouldDegrade);
+      if (shouldDegrade) {
+        expect(button.title, charset).toContain("Not available for 3D surfaces yet");
+        expect(button.getAttribute("aria-label"), charset).toContain("Not available for 3D surfaces yet");
+      }
+    }
+  });
+
+  // Item 3 of the round-2 brief: an EXPLICIT override (unreachable through
+  // the now-dimmed toggle button, which a disabled `<button>` refuses a
+  // synthetic `.click()` for exactly like a real browser does) still lands
+  // an unsupported charset on the live scene — a hand-built `?c=` link
+  // could carry one from before this charset degraded, or a link saved
+  // under a since-changed library predicate. The scene must still mount
+  // and render (the faithful SILENT downgrade — there was never a live
+  // `charMode` to set for it either way), with no banner anywhere.
+  it("an explicit override handing the 3D view an unsupported charset still renders silently, with no banner", () => {
+    act(() => root.unmount());
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "charset", value: "braille" } });
+    expect(glyphChart3dCharsetDegrades("braille")).toBe(true); // the premise this test exercises
+    root = createRoot(container);
+    act(() => root.render(<ChartsWorkbench initialState={state} />));
+    const host = container.querySelector<HTMLElement>(".charts-3d-viewport-host")!;
+    expect(host.querySelector(".glyph-output")).not.toBeNull(); // the scene mounted and rendered
+    expect(container.querySelector(".charts-3d-viewport")!.children).toHaveLength(1);
+    expect(container.querySelector(".charts-3d-downgrade-note")).toBeNull();
   });
 });

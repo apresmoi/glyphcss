@@ -2,7 +2,7 @@ import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import type { GUI } from "lil-gui";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
-import { GLYPH_CHART_3D_COLORSCALE_NAMES } from "@glyphcss/charts/3d";
+import { GLYPH_CHART_3D_COLORSCALE_NAMES, glyphChart3dCharsetDegrades } from "@glyphcss/charts/3d";
 import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle, type DockOptionController } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
@@ -35,7 +35,29 @@ const options = <T extends string,>(values: readonly T[]): Record<T, T> => Objec
 // reused rather than approximated (see LoadersDock.tsx's own cross-import).
 const TARGET_TOGGLE = CHART_TARGETS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "terminal" ? "term" : v}</span>, label: v, desc: `Render for ${v}` }));
 const CHARSET_SYMBOL: Record<string, string> = { ascii: "#", box: "┼", blocks: "▓", braille: "⠿" };
-const CHARSET_TOGGLE = CHART_CHARSETS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{CHARSET_SYMBOL[v]}</span>, label: v, desc: `Charset: ${v}` }));
+// C3 fix round 2 (user feedback: the old `charts-3d-downgrade-note` banner
+// inside the viewport's own render area violated AGENTS.md's "TargetPreview"
+// rule — "a chrome note lives in the frame's OWN chrome... never the
+// viewport's render area" — and read as developer-speak). The reason now
+// lives where the CHOICE is made: the Charset row itself, the same
+// `mapDirectionLocked`/`chartsMarkTypeFit.ts` idiom every other unfit
+// control on this page already uses (`chartsRegionFillToggle`, right above,
+// is the closest sibling — same `disabled`/`disabledReason` shape). Derived
+// from the library's OWN `glyphChart3dCharsetDegrades` predicate, never a
+// hardcoded `charset === "braille"` list — the C2 fix round in flight is
+// expected to make braille a real (wireframe) 3D surface, at which point
+// this dims only what the predicate still says can't render, with no page
+// change needed.
+const CHARTS_3D_CHARSET_UNAVAILABLE_REASON = "Not available for 3D surfaces yet";
+export function chartsCharsetToggle(is3d: boolean) {
+  return CHART_CHARSETS.map((v) => {
+    const disabled = is3d && glyphChart3dCharsetDegrades(v);
+    return {
+      value: v as string, icon: <span className="gx-toggle-text">{CHARSET_SYMBOL[v]}</span>, label: v, desc: `Charset: ${v}`,
+      ...(disabled ? { disabled: true, disabledReason: CHARTS_3D_CHARSET_UNAVAILABLE_REASON } : {}),
+    };
+  });
+}
 const COLOR_SYMBOL: Record<string, string> = { none: "off", ansi16: "16", ansi256: "256", truecolor: "rgb", css: "css" };
 const COLOR_TOGGLE = CHART_COLORS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{COLOR_SYMBOL[v]}</span>, label: v, desc: `Color mode: ${v}` }));
 const DETAIL_SYMBOL: Record<string, string> = { auto: "auto", faithful: "full", balanced: "bal", simplified: "min" };
@@ -297,6 +319,12 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
   const gui = useDockGui();
   const controls = resolveGlyphChartsWorkbenchControls(state.controls);
   const setControl = (control: GlyphChartsWorkbenchControlAction) => dispatch({ type: "set-control", control });
+  // Hoisted above every consumer (the Charset row's own dim-with-reason
+  // below, AND the View folder's own show/hide gating further down) —
+  // `state.dimension === "3d"` is a single cheap boolean, no reason to
+  // compute it twice.
+  const is3d = state.dimension === "3d";
+  const charsetToggle = useMemo(() => chartsCharsetToggle(is3d), [is3d]);
   // P3-6 (REVIEW-dock-colours-sliders-opus.md): under `Color: none` the
   // library drops every colour from the render, but every swatch (axis and
   // per-mark) stayed fully live with no signal — a picked value that
@@ -420,8 +448,8 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
 
   // View folder (3D only, packet C3) — hidden entirely in 2D mode, the same
   // `.hide()`/`.show()` idiom the Terminal folder below already uses for
-  // its own target gating.
-  const is3d = state.dimension === "3d";
+  // its own target gating. `is3d` itself is hoisted above (the Charset
+  // row's own dim-with-reason needs it too).
   const view = useFolder(gui, "View", { open: true });
   useEffect(() => { if (view) is3d ? view.show() : view.hide(); }, [view, is3d]);
   const orbitModeSlot = useDockSlot(view, { position: "bottom", className: "dock-toggle-row-slot" });
@@ -445,7 +473,7 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     {charsetSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Charset</span>
-        <IconToggle groupTitle="Character set" options={CHARSET_TOGGLE} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as GlyphChartCharset })} />
+        <IconToggle groupTitle="Character set" options={charsetToggle} value={controls.charset} onChange={(v) => setControl({ type: "charset", value: v as GlyphChartCharset })} />
       </div>,
       charsetSlot,
     )}

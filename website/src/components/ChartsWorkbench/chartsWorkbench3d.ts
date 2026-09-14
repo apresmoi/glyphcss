@@ -5,10 +5,10 @@
 // (here: "iff it validates"), never a restated rule of its own — the
 // library's own `glyphChartSurface` decides.
 import {
-  GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dCharsetDegrades, glyphChartSurface,
+  GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChartSurface,
   type GlyphChart3dColorscaleName, type GlyphChart3dSurfaceChannels, type GlyphChart3dSurfaceMark,
 } from "@glyphcss/charts/3d";
-import type { GlyphChartCharset, GlyphChartColorMode } from "@glyphcss/charts";
+import type { GlyphChartColorMode } from "@glyphcss/charts";
 import type { TabularRow } from "../../lib/tabularParse";
 import { profileRows } from "../../lib/dataProfile";
 import { chartsMarkTypeBase } from "./chartsMarkTypeFit";
@@ -139,36 +139,43 @@ export function resolveCharts3dViewForLiveScene(view: Charts3dViewState, colorEn
 
 export interface Charts3dSceneOptions {
   readonly useColors: boolean;
-  /** A visible downgrade note for the viewport's OWN chrome (mirroring
-   *  `TargetPreview`'s "downgrades silently, never" rule, AGENTS.md's
-   *  "Charts" — "TargetPreview") — set exactly when a requested charset
-   *  can't be honoured live and had to fall back. `null` otherwise. */
-  readonly downgradeNote: string | null;
 }
 
 /**
- * The live `createGlyphScene` options a resolved target/charset/colour
- * choice maps to (packet C3's own gate: "the live viewport must honour the
- * resolved target x charset x colour choices" — `color: none` must be
- * `useColors: false`, and charset must be the SAME mapping the static
- * `renderGlyphChart3d` exit uses, never a duplicate of it). No `charMode`
- * here at all (unlike the 2D live scene) — `glyphChart3dCharsetDegrades`
- * (C2 fix round 1) is now `true` for BOTH `blocks` and `braille`: the
- * always-mounted axis/tick overlay disables glyphcss's halfblock/quadrant
- * encoders (they self-disable under any `transformCells` hook), so a 3D
- * chart's geometry can never actually paint in `blocks` either — the scene
- * mounts at its default `charMode` regardless of charset, and `ascii`/`box`
- * are the only two charsets with nothing to report. Target itself doesn't
- * enter this — the live scene only ever mounts for `target === "web"`
- * (`ChartsWorkbench.tsx`'s own dimension/target branch); `chat`/`terminal`
- * show `renderGlyphChart3d`'s own static frame instead, which already
- * honours charset/colour through the library's own path.
+ * The live `createGlyphScene` options a resolved colour choice maps to
+ * (packet C3's own gate: "the live viewport must honour the resolved
+ * target x charset x colour choices" — `color: none` must be `useColors:
+ * false`). No `charMode` here at all (unlike the 2D live scene) —
+ * `glyphChart3dCharsetDegrades` (C2 fix round 1) is `true` for a charset a
+ * 3D chart's always-mounted axis/tick overlay can't actually paint in
+ * (halfblock/quadrant encoders self-disable under any `transformCells`
+ * hook), so the scene mounts at its default `charMode` regardless of
+ * charset — there is nothing for THIS function to do with it, and no
+ * `charset` parameter here since fix round 2 (below). Target itself
+ * doesn't enter this either — the live scene only ever mounts for `target
+ * === "web"` (`ChartsWorkbench.tsx`'s own dimension/target branch);
+ * `chat`/`terminal` show `renderGlyphChart3d`'s own static frame instead,
+ * which already honours charset/colour through the library's own path.
+ *
+ * C3 fix round 2 (user feedback): what to tell the reader about a charset
+ * the 3D view can't show moved OUT of this function and out of the
+ * viewport's own render area entirely — `ChartsDock.tsx`'s `chartsCharsetToggle`
+ * now dims that charset's OWN toggle button, with the reason on its title/
+ * aria-label (the `mapDirectionLocked` idiom this page already uses for an
+ * unfit mark type), reading the SAME `glyphChart3dCharsetDegrades`
+ * predicate this function used to. AGENTS.md's own "TargetPreview" rule —
+ * "a chrome note lives in the frame's OWN chrome... never the viewport's
+ * render area" — applies here too, and a `.charts-3d-downgrade-note`
+ * banner painted INSIDE `Charts3dViewport.tsx`'s own render host violated
+ * it (and read as developer-speak: "Braille is wireframe-only in
+ * glyphcss"). An explicit override or an old `?c=` link that still hands
+ * the live scene an unsupported charset renders the faithful downgrade
+ * SILENTLY now (the scene never had a `charMode` to set for it either
+ * way) — the reason lives only on the dimmed Charset toggle, never in the
+ * viewport.
  */
-export function chartsWorkbench3dSceneOptions(charset: GlyphChartCharset, color: GlyphChartColorMode): Charts3dSceneOptions {
-  const downgradeNote = glyphChart3dCharsetDegrades(charset)
-    ? `${charset === "braille" ? "Braille is wireframe-only in glyphcss" : "3D charts always mount an axis box/tick overlay, which disables the halfblock encoder"} — this 3D scene (always solid) falls back to the default ramp.`
-    : null;
-  return { useColors: color !== "none", downgradeNote };
+export function chartsWorkbench3dSceneOptions(color: GlyphChartColorMode): Charts3dSceneOptions {
+  return { useColors: color !== "none" };
 }
 
 // ── The mark card's "Surface" type fit ──────────────────────────────────
