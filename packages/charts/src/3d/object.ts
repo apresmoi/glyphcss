@@ -14,9 +14,61 @@
  */
 import { gridSurfacePolygons, surfaceMedianOfBlock, createSurfaceMedianScratch } from "glyphcss";
 import { stampGlyphOverlayCell, stampGlyphOverlayLine } from "glyphcss";
-import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneOverlay, Polygon, Vec3 } from "glyphcss";
+import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
 import { glyphChart3dBandColor, glyphChart3dBandIndex } from "./colorscale";
 import type { GlyphChart3dMark, GlyphChart3dObjectOptions, GlyphChart3dResolvedAxis, GlyphChart3dSurfaceMark } from "./types";
+
+/**
+ * `shading: "value"` (PLAN-3d.md §5 "Lighting vs value", C1's own doc: "a
+ * C2/rendering-layer concern"). Under `relief`, glyph SHAPE (Lambert
+ * intensity) reads the face's own SLOPE — a flat monochrome surface then
+ * shades uniformly and carries no per-cell information at all. `value`
+ * instead makes glyph shape a function of the surface's own Z, the same
+ * "monochrome identity rides on the glyph" discipline 2D's `regionFill`
+ * texture path follows: a per-quad UV samples a 1D grey-ramp lookup texture
+ * (`glyphInkStripTexture3d`, `bands` texels wide, luminance strictly
+ * increasing left to right) whose LUMINANCE multiplies into the cell's own
+ * intensity, so higher z always reads denser ink — monotone regardless of
+ * the render's own light or colour. The texture is procedural (`glyphcss`'s
+ * `scene.setTextureSamplers`/`RasterizeContextOptions.textureSamplers`
+ * accept decoded pixels directly, "Per-cell textures", AGENTS.md's
+ * "Rendering model" — no fetch, no canvas).
+ */
+export const GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY = "glyph-chart3d-value-strip";
+const VALUE_STRIP_TEXELS = 64;
+
+function buildValueStripTexture(): TextureSampler {
+  const data = new Uint8ClampedArray(VALUE_STRIP_TEXELS * 4);
+  for (let i = 0; i < VALUE_STRIP_TEXELS; i++) {
+    const level = Math.round((i / (VALUE_STRIP_TEXELS - 1)) * 255);
+    data[i * 4 + 0] = level;
+    data[i * 4 + 1] = level;
+    data[i * 4 + 2] = level;
+    data[i * 4 + 3] = 255;
+  }
+  return { width: VALUE_STRIP_TEXELS, height: 1, data, lowDetail: false };
+}
+
+/**
+ * Authors `texture`/`uvs` on every triangle so its glyph density reads its
+ * OWN z-band, using the triangle's own vertex-average object-space z (which
+ * is already `aspect[2]`-scaled, so `t = avgZ / aspect[2]` needs no domain
+ * lookup) rather than re-deriving the area-median block statistic the
+ * colour callback computes — the two agree closely within one quad (three
+ * corners sharing the block's own extent) and a per-vertex UV needs no
+ * correlation back to `gridSurfacePolygons`' internal block indexing.
+ */
+function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly [number, number, number], bands: number): void {
+  const zExtent = aspect[2] || 1;
+  for (const p of polygons) {
+    const avgZ = p.vertices.reduce((sum, v) => sum + v[2], 0) / p.vertices.length;
+    const t = Math.max(0, Math.min(1, avgZ / zExtent));
+    const bandIdx = glyphChart3dBandIndex(t, bands);
+    const u = bands <= 1 ? 0.5 : (bandIdx + 0.5) / bands;
+    p.texture = GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY;
+    p.uvs = [[u, 0.5], [u, 0.5], [u, 0.5]];
+  }
+}
 
 /** How far outward (as a fraction of that axis's own box extent) a tick label / axis title is pushed past the box edge. */
 const TICK_LABEL_MARGIN = 0.12;
@@ -175,12 +227,20 @@ function axisOverlay(axisIndex: 0 | 1 | 2, name: string, axis: GlyphChart3dResol
 const AXIS_BOX_COLOR = "#7a7f8a";
 
 function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark): Polygon[] {
-  const { grid, zDomain, aspect, bands, colorAnchors } = mark;
+  const { grid, aspect, bands, colorAnchors } = mark;
   const rows = grid.z.length;
   const cols = grid.z[0]!.length;
+  // All three axes map through their own resolved (NICE) domain, exactly
+  // like the axis overlay's own ticks do — never `mark.zDomain` (the raw,
+  // un-niced data extent) for x/y. Mixing a nice x/y domain with a raw z
+  // domain put a tick at the wrong fraction of the box (P1-2: a raw [1.3,
+  // 8.7] against a nice [1, 9] puts tick "2" at 12.5% up the box instead of
+  // the 9.5% its own label claims), because the MESH and the TICKS would
+  // then be two different functions of z. `mark.zDomain` itself is left
+  // untouched as the public raw-extent field (its own documented meaning).
   const [xLo, xHi] = mark.axes.x.domain;
   const [yLo, yHi] = mark.axes.y.domain;
-  const [zLo, zHi] = zDomain;
+  const [zLo, zHi] = mark.axes.z.domain;
   const xSpan = xHi - xLo || 1;
   const ySpan = yHi - yLo || 1;
   const zSpan = zHi - zLo || 1;
@@ -208,6 +268,7 @@ function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark): Polygon[] {
         },
     },
   );
+  if (mark.shading === "value") applyValueShadingTexture(polygons, aspect, bands);
   return polygons;
 }
 
@@ -229,6 +290,9 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
     id,
     meshes: [{ name: "surface", polygons }],
     overlays,
+    ...(mark.shading === "value"
+      ? { textureSamplers: new Map([[GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY, buildValueStripTexture()]]) }
+      : {}),
     bounds: { min: [0, 0, 0], max: [ext[0], ext[1], ext[2]] },
   };
 }

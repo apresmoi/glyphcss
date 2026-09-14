@@ -10,6 +10,7 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { renderGlyphChart, type GlyphChartCharset, type GlyphChartColorMode, type GlyphChartInput, type GlyphChartLedgerEntry, type GlyphChartTarget } from "@glyphcss/charts";
+import { renderGlyphChart3d, glyphChartSurface, type GlyphChart3dCameraOptions, type GlyphChart3dJsonInput, type GlyphChart3dReport } from "@glyphcss/charts/3d";
 
 export interface ChartCliOptions {
   readonly target?: GlyphChartTarget;
@@ -17,6 +18,10 @@ export interface ChartCliOptions {
   readonly color?: GlyphChartColorMode;
   readonly width?: number;
   readonly height?: number;
+  /** `--3d` — dispatches to `renderGlyphChart3d` instead of the 2D entry; the spec file is then read as a `GlyphChart3dJsonInput` (`{ data, channels?, options? }`), not a 2D `GlyphChartSpec`. */
+  readonly threeD?: boolean;
+  /** `--camera rotX,rotY[,zoom]` — `--3d` only. */
+  readonly camera?: GlyphChart3dCameraOptions;
 }
 
 export const CHART_HELP = `glyphcss chart <spec.json> [options]
@@ -25,11 +30,24 @@ export const CHART_HELP = `glyphcss chart <spec.json> [options]
   --charset ascii|box|blocks|braille
   --color none|ansi16|ansi256|truecolor|css
   --width N  --height N
+  --3d                         Render a 3D surface spec ({ data, channels?, options? })
+  --camera rotX,rotY[,zoom]    --3d only; omit for auto-fit
   -o, --out FILE
 
   Output: ANSI when stdout is a TTY, plain text when piped, unless --color
   overrides it.
 `;
+
+function parseCameraArg(raw: string | undefined): GlyphChart3dCameraOptions | undefined {
+  if (raw === undefined) return undefined;
+  const parts = raw.split(",").map((p) => Number(p.trim()));
+  const [rotX, rotY, zoom] = parts;
+  return {
+    ...(rotX !== undefined ? { rotX } : {}),
+    ...(rotY !== undefined ? { rotY } : {}),
+    ...(zoom !== undefined ? { zoom } : {}),
+  };
+}
 
 export function parseChartArgs(argv: string[]): { file?: string; out?: string; opts: ChartCliOptions } {
   let file: string | undefined;
@@ -41,6 +59,8 @@ export function parseChartArgs(argv: string[]): { file?: string; out?: string; o
     color?: GlyphChartColorMode;
     width?: number;
     height?: number;
+    threeD?: boolean;
+    camera?: GlyphChart3dCameraOptions;
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
@@ -51,6 +71,8 @@ export function parseChartArgs(argv: string[]): { file?: string; out?: string; o
       case "--color": mutableOpts.color = next() as GlyphChartColorMode; break;
       case "--width": mutableOpts.width = Number(next()); break;
       case "--height": mutableOpts.height = Number(next()); break;
+      case "--3d": mutableOpts.threeD = true; break;
+      case "--camera": mutableOpts.camera = parseCameraArg(next()); break;
       case "-o": case "--out": out = next(); break;
       case "-h": case "--help": file = undefined; return { file, out, opts };
       default: if (!a.startsWith("-") && !file) file = a;
@@ -85,6 +107,35 @@ export function resolveChartCliOutput(
   return { text: result.text, ledger: result.report.ledger };
 }
 
+/**
+ * `--3d`'s own output resolver, mirroring `resolveChartCliOutput`: `target`
+ * defaults to `terminal`, `--color` overrides the TTY-derived default. The
+ * spec file is a `GlyphChart3dJsonInput` (`{ data, channels?, options? }`,
+ * `renderGlyphChart3dJson`'s own shape) — `glyphChartSurface` is called
+ * directly rather than going through the string-in/string-out JSON entry,
+ * since the CLI already has a parsed object and a thrown, tagged error is
+ * exactly what the `catch` block below wants.
+ */
+export function resolveChart3dCliOutput(
+  input: GlyphChart3dJsonInput,
+  opts: ChartCliOptions,
+  env: { readonly isTTY: boolean; readonly vars?: Readonly<Record<string, string | undefined>> },
+): { readonly text: string; readonly ledger: GlyphChart3dReport["ledger"] } {
+  const target = opts.target ?? "terminal";
+  const color = opts.color ?? (env.isTTY ? undefined : "none");
+  const mark = glyphChartSurface(input.data, input.channels, input.options);
+  const result = renderGlyphChart3d(mark, {
+    target,
+    charset: opts.charset,
+    color,
+    width: opts.width,
+    height: opts.height,
+    camera: opts.camera,
+    env: env.vars,
+  });
+  return { text: result.text, ledger: result.report.ledger };
+}
+
 export async function runChart(argv: string[]): Promise<void> {
   const { file, out, opts } = parseChartArgs(argv);
   if (!file) {
@@ -93,8 +144,10 @@ export async function runChart(argv: string[]): Promise<void> {
     return;
   }
   try {
-    const spec = JSON.parse(await readFile(file, "utf8")) as GlyphChartInput;
-    const { text, ledger } = resolveChartCliOutput(spec, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env });
+    const parsed = JSON.parse(await readFile(file, "utf8")) as GlyphChartInput | GlyphChart3dJsonInput;
+    const { text, ledger } = opts.threeD
+      ? resolveChart3dCliOutput(parsed as GlyphChart3dJsonInput, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env })
+      : resolveChartCliOutput(parsed as GlyphChartInput, opts, { isTTY: Boolean(process.stdout.isTTY), vars: process.env });
     if (out) {
       await writeFile(out, text, "utf8");
       process.stderr.write(`glyphcss: wrote ${out}\n`);

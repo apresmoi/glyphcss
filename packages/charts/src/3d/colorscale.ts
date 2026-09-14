@@ -23,7 +23,51 @@ const COLORSCALE_ANCHORS: Readonly<Record<GlyphChart3dColorscaleName, readonly s
   greys: ["#000000", "#ffffff"],
 };
 
-/** Resolves a `colorscale` option to its ordered anchor array, validating a custom array's own shape. */
+function hexToRgb(hex: string): readonly [number, number, number] {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
+}
+
+/**
+ * CIELAB `L*` (perceptual lightness) from an sRGB hex colour, `0` (black) to
+ * `100` (white). `L*` depends only on relative luminance `Y` (the standard
+ * `f(Y/Yn)` piecewise formula, `Yn = 1` for the sRGB white point) — the
+ * `a*`/`b*` (hue/chroma) channels would need the full `X`/`Z` tristimulus
+ * values, which this validation has no use for.
+ */
+function srgbChannelToLinear(c8: number): number {
+  const c = c8 / 255;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+}
+/** Exported for `colorscale.test.ts`'s own named-preset monotonicity gate. */
+export function hexLStar(hex: string): number {
+  const [r, g, b] = hexToRgb(hex);
+  const y = 0.2126 * srgbChannelToLinear(r) + 0.7152 * srgbChannelToLinear(g) + 0.0722 * srgbChannelToLinear(b);
+  const EPS = 216 / 24389, KAPPA = 24389 / 27;
+  return y > EPS ? 116 * Math.cbrt(y) - 16 : KAPPA * y;
+}
+
+/**
+ * A sequential colorscale's whole point is "higher value reads lighter/darker
+ * than lower value" — a colour a reader can't rank against its neighbour by
+ * lightness alone defeats that (P2-7). Named presets are hand-picked to
+ * already hold this property (each is itself gated by
+ * `colorscale.test.ts`'s own monotonicity suite); only a CUSTOM anchor array
+ * is checked here, once, at resolve time.
+ */
+function assertMonotoneLightness(anchors: readonly string[]): void {
+  const l = anchors.map(hexLStar);
+  let asc = true, desc = true;
+  for (let i = 1; i < l.length; i++) {
+    if (l[i]! < l[i - 1]!) asc = false;
+    if (l[i]! > l[i - 1]!) desc = false;
+  }
+  if (!asc && !desc) {
+    chart3dError("colorscale-not-monotone", `A custom colorscale's anchors must be monotonic in CIELAB L* (perceptual lightness); got L* = ${l.map((v) => v.toFixed(1)).join(", ")}.`);
+  }
+}
+
+/** Resolves a `colorscale` option to its ordered anchor array, validating a custom array's own shape and its monotone-lightness invariant. */
 export function resolveGlyphChart3dColorscaleAnchors(colorscale: GlyphChart3dColorscale | undefined): readonly string[] {
   if (colorscale === undefined) return COLORSCALE_ANCHORS.viridis;
   if (typeof colorscale === "string") {
@@ -35,12 +79,8 @@ export function resolveGlyphChart3dColorscaleAnchors(colorscale: GlyphChart3dCol
   if (!Array.isArray(colorscale) || colorscale.length < 2 || colorscale.some((c) => !isCanonicalHexColor(c))) {
     chart3dError("bad-options", `A custom colorscale must be an array of 2+ canonical #rrggbb anchors, got ${JSON.stringify(colorscale)}.`);
   }
+  assertMonotoneLightness(colorscale);
   return colorscale;
-}
-
-function hexToRgb(hex: string): readonly [number, number, number] {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 0xff, (n >> 8) & 0xff, n & 0xff];
 }
 function rgbToHex(r: number, g: number, b: number): string {
   const clamp = (v: number) => Math.max(0, Math.min(255, Math.round(v)));

@@ -85,6 +85,22 @@ function decimateIndices(n: number, keep: number, required: readonly number[]): 
   // both wanted slot 0, and the second one processed walked slot 0 right
   // back to its own original value, dropping the first one).
   const forced = new Array<boolean>(keep).fill(false);
+  // The two ENDPOINT slots are forced from the start, ahead of any required
+  // index — `kept[0] === 0` and `kept[keep - 1] === n - 1` by construction
+  // (i=0 and i=keep-1 of the stride sample), so without this an argmax/argmin
+  // whose nearest unforced slot happened to be an endpoint (common on a small
+  // `keep`) silently replaced it, cropping the mesh's own boundary short of
+  // the box it is mounted in (a 9x9 grid with `keep=3` resolved to cols
+  // [1,6,8] instead of [0,6,8] or [0,argminCol,8] — the review's own case).
+  // A required index that IS an endpoint is already `kept.indexOf`-matched
+  // below and never reaches this branch. The remaining edge case — `keep`
+  // too small to seat an interior extremum at all once both endpoints are
+  // forced (e.g. `keep === 2`) — silently drops that extremum, which is the
+  // correct trade: the box's own boundary is never optional, the extremum is
+  // (as the comment above already documents for the general "no free slot"
+  // case).
+  if (keep >= 1) forced[0] = true;
+  if (keep >= 2) forced[keep - 1] = true;
   for (const req of required) {
     const already = kept.indexOf(req);
     if (already >= 0) { forced[already] = true; continue; }

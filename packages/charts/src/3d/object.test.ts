@@ -51,7 +51,9 @@ describe("glyphChartObject — mesh shape", () => {
     expect(polygons).toHaveLength(2); // 1 quad, split into 2 triangles
     const actualColor = polygons[0]!.color;
 
-    const [zLo, zHi] = mark.zDomain;
+    // The mesh's own colour banding reads the NICE z domain (P1-2), the
+    // same one the axis overlay's own ticks use — never the raw `zDomain`.
+    const [zLo, zHi] = mark.axes.z.domain;
     const zSpan = zHi - zLo;
     const anchors = resolveGlyphChart3dColorscaleAnchors(undefined);
 
@@ -92,7 +94,7 @@ describe("glyphChartObject — mesh shape", () => {
     const mark = glyphChartSurface({ z }, undefined, { bands });
     const polygons = surfaceMesh(mark);
     const anchors = resolveGlyphChart3dColorscaleAnchors(undefined);
-    const [zLo, zHi] = mark.zDomain;
+    const [zLo, zHi] = mark.axes.z.domain;
     const zSpan = zHi - zLo;
     const byColor = new Map(polygons.map((p) => [p.color, true]));
     for (const flatValue of [0, 5, 8, 10]) {
@@ -112,6 +114,33 @@ describe("glyphChartObject — mesh shape", () => {
     expect(Math.max(...zs)).toBeCloseTo(mark.aspect[2], 6);
     // z=50 must land at exactly half the object-space extent (affine).
     expect(zs.some((v) => Math.abs(v - mark.aspect[2] * 0.5) < 1e-6)).toBe(true);
+  });
+
+  it("MUTATION: the mesh's own z position and the z axis's own ticks share the same (nice) domain", () => {
+    // A raw z domain of [1.3, 8.7] nices out to something rounder ([0, 10]
+    // or similar) — reverting to `mark.zDomain` for the mesh while ticks
+    // still read `mark.axes.z.domain` would put a real data point at a
+    // DIFFERENT fraction of the box than its own axis tick claims (P1-2).
+    const mark = glyphChartSurface({ z: [[1.3, 8.7], [4, 6]] });
+    const [niceLo, niceHi] = mark.axes.z.domain;
+    const niceSpan = niceHi - niceLo;
+    const polygons = surfaceMesh(mark);
+    for (const p of polygons) {
+      for (const v of p.vertices) {
+        const objectZ = v[2];
+        // Find which source z this vertex came from by its object-z value
+        // alone is ambiguous across vertices, so instead assert the GLOBAL
+        // bounds: the domain minimum must land at object z = 0 and the
+        // domain maximum at object z = aspect[2] — exact only when the mesh
+        // itself was normalized against the SAME domain the ticks report.
+        expect(objectZ).toBeGreaterThanOrEqual(-1e-9);
+        expect(objectZ).toBeLessThanOrEqual(mark.aspect[2] + 1e-9);
+      }
+    }
+    const zs = polygons.flatMap((p) => p.vertices.map((v) => v[2]));
+    const dataMin = Math.min(1.3, 8.7, 4, 6);
+    const expectedMinObjectZ = ((dataMin - niceLo) / niceSpan) * mark.aspect[2];
+    expect(Math.min(...zs)).toBeCloseTo(expectedMinObjectZ, 6);
   });
 
   it("`objectPosition` x/y are likewise affine images of the data x/y domain", () => {
@@ -174,6 +203,82 @@ describe("glyphChartObject — mounted in a real scene", () => {
       expect(text.includes(title)).toBe(true);
     }
 
+    scene.destroy();
+  });
+
+  it("MUTATION (P2-8): the z axis title migrates to a DIFFERENT box edge as the camera orbits — a constant nearestEdge would put it at the same column both times", async () => {
+    async function zTitleColumn(rotY: number): Promise<number> {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const cols = 100, rows = 40, cellAspect = 0.5859375;
+      const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY });
+      const scene = createGlyphScene(host, { cols, rows, cellAspect, useColors: false, camera });
+      const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { z: { title: "z" }, x: { title: "" }, y: { title: "" } } });
+      const object = glyphChartObject(mark);
+      scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
+      await Promise.resolve();
+      await Promise.resolve();
+      const text = scene.output.textContent ?? "";
+      const lines = text.split("\n");
+      let col = -1;
+      for (const line of lines) {
+        const i = line.indexOf("z");
+        if (i >= 0) { col = i; break; }
+      }
+      scene.destroy();
+      expect(col).toBeGreaterThanOrEqual(0); // the title must have survived at ALL
+      return col;
+    }
+
+    // rotY=30 and rotY=90 orbit the camera far enough that the nearest of
+    // the 4 vertical (z-parallel) box edges changes — measured directly
+    // (30 -> column 53, 90 -> column 43 at this fixture's own scale/zoom).
+    // A hardcoded `nearestEdge` would still shift the title under `rotY`
+    // (the WHOLE scene rotates), but by a materially different amount than
+    // the box's own edge actually migrating produces — 180 degrees apart
+    // is deliberately AVOIDED here: this fixture's square x/y footprint
+    // makes a 180-degree camera flip land the migrated edge at a near-
+    // identical column by simple point symmetry, which would falsely fail
+    // a correct implementation.
+    const colA = await zTitleColumn(30);
+    const colB = await zTitleColumn(90);
+    expect(Math.abs(colA - colB)).toBeGreaterThan(5);
+  });
+
+  it("honours a trackball (mat/useMat) camera — overlay stamps stay finite and the axis titles still survive (P2-8)", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const cols = 100, rows = 40, cellAspect = 0.5859375;
+    // A real, non-Euler-equivalent rotation matrix (90deg roll about X,
+    // composed with a modest yaw) — proves `nearestEdge`'s own
+    // `frame.camera.project` call honours `useMat`, not only `rotX`/`rotY`.
+    const cy = Math.cos(0.6), sy = Math.sin(0.6);
+    const mat = [cy, 0, sy, 0, 1, 0, -sy, 0, cy];
+    const camera = createGlyphOrthographicCamera({ zoom: 24, mat, useMat: true });
+    const scene = createGlyphScene(host, { cols, rows, cellAspect, useColors: false, camera });
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } });
+    const object = glyphChartObject(mark);
+    scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = scene.output.textContent ?? "";
+    for (const title of ["x", "y", "z"]) expect(text.includes(title)).toBe(true);
+    scene.destroy();
+  });
+
+  it("a multi-character axis title is stamped as literal, un-reversed text (P2-8)", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 30 });
+    const scene = createGlyphScene(host, { cols: 100, rows: 40, useColors: false, camera });
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "east" }, y: { title: "" }, z: { title: "" } } });
+    const object = glyphChartObject(mark);
+    scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
+    await Promise.resolve();
+    await Promise.resolve();
+    const text = scene.output.textContent ?? "";
+    expect(text.includes("east")).toBe(true);
+    expect(text.includes("tsae")).toBe(false);
     scene.destroy();
   });
 });

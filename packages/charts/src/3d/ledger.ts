@@ -14,6 +14,23 @@ function entry(code: string, message: string, detail?: Record<string, unknown>):
   return detail === undefined ? { code, message } : { code, message, detail };
 }
 
+/** Braille is wireframe-only in glyphcss (AGENTS.md's "Render modes"); a 3D chart is always solid, so a requested `braille` charset downgrades to the default ASCII solid ramp. */
+export function ledgerCharset3dBrailleUnsupported(): GlyphChart3dLedgerEntry {
+  return entry(
+    "chart3d-braille-unsupported",
+    "3D charts render solid geometry; braille is wireframe-only in glyphcss, so this frame uses the default ramp instead.",
+  );
+}
+
+/** The chrome column for the value colorbar was skipped — the render is too narrow to reserve it and still leave a usable plot. */
+export function ledgerColorbarOmitted(opts: { readonly width: number; readonly minWidth: number }): GlyphChart3dLedgerEntry {
+  return entry(
+    "chart3d-colorbar-omitted",
+    `Render width ${opts.width} is too narrow to reserve a colorbar column (needs at least ${opts.minWidth}); omitted it.`,
+    { ...opts },
+  );
+}
+
 export function ledgerSurfaceDecimated(opts: {
   readonly sourceRows: number;
   readonly sourceCols: number;

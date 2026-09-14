@@ -15,7 +15,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GlyphChartInput } from "@glyphcss/charts";
-import { parseChartArgs, resolveChartCliOutput, runChart } from "./chartCli";
+import type { GlyphChart3dJsonInput } from "@glyphcss/charts/3d";
+import { parseChartArgs, resolveChart3dCliOutput, resolveChartCliOutput, runChart } from "./chartCli";
 
 const SPEC = [3, 5, 2, 8];
 
@@ -55,6 +56,49 @@ describe("resolveChartCliOutput", () => {
     const spec = { marks: [{ type: "line", data: SPEC, channels: {} }], title: "<a>&b" } as unknown as GlyphChartInput;
     const { text: out } = resolveChartCliOutput(spec, { target: "chat", width: 30, height: 10 }, { isTTY: false });
     expect(out).toContain("<a>&b");
+  });
+});
+
+function volcano(rows = 8, cols = 8): number[][] {
+  const z = Array.from({ length: rows }, () => new Array(cols).fill(0));
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const dr = r - (rows - 1) / 2, dc = c - (cols - 1) / 2;
+      z[r]![c] = Math.max(0, 30 - (dr * dr + dc * dc));
+    }
+  }
+  return z;
+}
+
+describe("--3d: parseChartArgs and resolveChart3dCliOutput", () => {
+  it("parses --3d and --camera rotX,rotY,zoom", () => {
+    expect(parseChartArgs(["spec.json", "--3d", "--camera", "50,-30,12"])).toEqual({
+      file: "spec.json",
+      out: undefined,
+      opts: { threeD: true, camera: { rotX: 50, rotY: -30, zoom: 12 } },
+    });
+  });
+
+  it("parses --camera with only rotX,rotY (auto-fit zoom)", () => {
+    expect(parseChartArgs(["spec.json", "--3d", "--camera", "50,-30"])).toEqual({
+      file: "spec.json",
+      out: undefined,
+      opts: { threeD: true, camera: { rotX: 50, rotY: -30 } },
+    });
+  });
+
+  it("renders a 3D surface spec, with axis titles surviving in plain text", () => {
+    const input: GlyphChart3dJsonInput = { data: { z: volcano() }, options: { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } } };
+    const { text } = resolveChart3dCliOutput(input, { target: "web", color: "none" }, { isTTY: false });
+    for (const title of ["x", "y", "z"]) expect(text.includes(title)).toBe(true);
+  });
+
+  it("--camera overrides the auto-fit default", () => {
+    const input: GlyphChart3dJsonInput = { data: { z: volcano() } };
+    const fitted = resolveChart3dCliOutput(input, { target: "web", color: "none" }, { isTTY: false });
+    const fixed = resolveChart3dCliOutput(input, { target: "web", color: "none", camera: { rotX: 65, rotY: 45, zoom: 0.65 } }, { isTTY: false });
+    const nonBlank = (s: string) => s.replace(/\s/g, "").length;
+    expect(nonBlank(fixed.text)).toBeLessThan(nonBlank(fitted.text) / 3);
   });
 });
 
@@ -122,5 +166,34 @@ describe("chart CLI argument parsing and command boundary", () => {
     const diagnostic = vi.mocked(process.stderr.write).mock.calls.flat().join("");
     expect(diagnostic).toContain("ENOENT");
     expect(diagnostic).toContain("missing.json");
+  });
+
+  // Mutation: dispatch --3d to the 2D entry (or vice versa), or drop --camera.
+  it("--3d dispatches to renderGlyphChart3d and writes a real frame", async () => {
+    const surfaceFile = join(directory, "surface.json");
+    await writeFile(surfaceFile, JSON.stringify({ data: { z: volcano() } } satisfies GlyphChart3dJsonInput));
+    const outputFile = join(directory, "surface.txt");
+    await runChart([surfaceFile, "--3d", "--target", "web", "--color", "none", "-o", outputFile]);
+    const output = await readFile(outputFile, "utf8");
+    expect(output.replace(/\s/g, "").length).toBeGreaterThan(40);
+  });
+
+  // Mutation: forget to print the braille-unsupported ledger entry for --3d.
+  it("--3d --charset braille dims with its own ledger reason rather than throwing", async () => {
+    const surfaceFile = join(directory, "surface2.json");
+    await writeFile(surfaceFile, JSON.stringify({ data: { z: volcano() } } satisfies GlyphChart3dJsonInput));
+    await runChart([surfaceFile, "--3d", "--charset", "braille", "--color", "none"]);
+    const stderrText = vi.mocked(process.stderr.write).mock.calls.flat().join("");
+    expect(stderrText).toContain("glyphcss: chart3d-braille-unsupported:");
+  });
+
+  // Mutation: let --3d swallow renderGlyphChart3d's own tagged error code.
+  it("--3d rejects bad surface data with its own tagged code and exit 1", async () => {
+    const badFile = join(directory, "bad.json");
+    await writeFile(badFile, JSON.stringify({ data: { z: [[0]] } } satisfies GlyphChart3dJsonInput));
+    const exit = vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
+    await expect(runChart([badFile, "--3d"])).rejects.toMatchObject({ status: 1 });
+    expect(exit).toHaveBeenCalledWith(1);
+    expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("surface-too-small");
   });
 });

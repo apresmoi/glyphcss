@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   glyphChart3dBandColor,
   glyphChart3dBandIndex,
+  hexLStar,
   interpolateGlyphChart3dAnchors,
   resolveGlyphChart3dColorscaleAnchors,
 } from "./colorscale";
+import { GLYPH_CHART_3D_COLORSCALE_NAMES } from "./types";
 
 describe("resolveGlyphChart3dColorscaleAnchors", () => {
   it("defaults to viridis", () => {
@@ -26,6 +28,26 @@ describe("resolveGlyphChart3dColorscaleAnchors", () => {
   });
   it("rejects a single-anchor custom array", () => {
     expect(() => resolveGlyphChart3dColorscaleAnchors(["#000000"] as never)).toThrow(/bad-options/);
+  });
+  it("MUTATION (P2-7): rejects a custom colorscale whose lightness isn't monotone (white -> black -> white)", () => {
+    expect(() => resolveGlyphChart3dColorscaleAnchors(["#ffffff", "#000000", "#ffffff"]))
+      .toThrow(expect.objectContaining({ code: "colorscale-not-monotone" }));
+  });
+  it("accepts a monotone-lightness custom colorscale (black -> grey -> white)", () => {
+    expect(resolveGlyphChart3dColorscaleAnchors(["#000000", "#808080", "#ffffff"])).toEqual(["#000000", "#808080", "#ffffff"]);
+  });
+  it("every named preset is monotone in CIELAB L* across 9 bands (P2-7)", () => {
+    for (const name of GLYPH_CHART_3D_COLORSCALE_NAMES) {
+      const anchors = resolveGlyphChart3dColorscaleAnchors(name);
+      const bands = 9;
+      const lightness = Array.from({ length: bands }, (_, i) => hexLStar(glyphChart3dBandColor(anchors, i, bands)));
+      let asc = true, desc = true;
+      for (let i = 1; i < lightness.length; i++) {
+        if (lightness[i]! < lightness[i - 1]!) asc = false;
+        if (lightness[i]! > lightness[i - 1]!) desc = false;
+      }
+      expect(asc || desc, `"${name}" L* sequence not monotone: ${lightness.map((v) => v.toFixed(1)).join(", ")}`).toBe(true);
+    }
   });
 });
 

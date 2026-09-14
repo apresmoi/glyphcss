@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { glyphChartSurface } from "./surface";
+import { GLYPH_CHART_3D_VALIDATION_RULES, chart3dError } from "./validate";
 
 function flatGrid(rows: number, cols: number, value = 0): number[][] {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => value));
@@ -75,6 +76,35 @@ describe("glyphChartSurface — grid-shape input", () => {
     expect(mark.axes.x.title).toBe("");
   });
 
+  it("MUTATION: a strictly descending x/y vector is normalized (reversed) rather than inverting the mesh winding (P1-3)", () => {
+    // Descending x: [20, 10]. z[r][0] belongs to x=20, z[r][1] to x=10 in
+    // the CALLER's own row-major intent — after normalization the x vector
+    // must read ascending AND the z columns must have swapped with it, so
+    // the (x, z) PAIRING a reader wrote is preserved, not merely the x
+    // vector's own order.
+    const ascending = glyphChartSurface({ z: [[1, 2], [3, 4]] }, { x: [10, 20] });
+    const descending = glyphChartSurface({ z: [[2, 1], [4, 3]] }, { x: [20, 10] });
+    expect(descending.grid.x).toEqual(ascending.grid.x);
+    expect(descending.grid.z).toEqual(ascending.grid.z);
+    // Same for y.
+    const ascendingY = glyphChartSurface({ z: [[1, 2], [3, 4]] }, { y: [100, 200] });
+    const descendingY = glyphChartSurface({ z: [[3, 4], [1, 2]] }, { y: [200, 100] });
+    expect(descendingY.grid.y).toEqual(ascendingY.grid.y);
+    expect(descendingY.grid.z).toEqual(ascendingY.grid.z);
+  });
+
+  it("rejects a non-monotonic x/y position vector with surface-axis-unsorted", () => {
+    expect(() => glyphChartSurface({ z: [[0, 1, 2], [3, 4, 5]] }, { x: [0, 10, 5] }))
+      .toThrow(expect.objectContaining({ code: "surface-axis-unsorted" }));
+  });
+
+  it("MUTATION: a z row that is not itself an array rejects with a tagged surface-ragged code, not an untagged crash", () => {
+    expect(() => glyphChartSurface({ z: [1, 2] as unknown as number[][] }))
+      .toThrow(expect.objectContaining({ code: "surface-ragged" }));
+    expect(() => glyphChartSurface({ z: [[0, 1], null as unknown as number[]] }))
+      .toThrow(expect.objectContaining({ code: "surface-ragged" }));
+  });
+
   it("MUTATION: reports surface-decimated in the ledger only when maxQuads actually caps the grid", () => {
     const bigZ = { z: flatGrid(10, 10) };
     const undecimated = glyphChartSurface(bigZ);
@@ -130,4 +160,17 @@ describe("glyphChartSurface — long-row input", () => {
     const dup = [...rows, { x: 0, y: 0, z: 99 }];
     expect(() => glyphChartSurface(dup)).toThrow(/surface-ragged/);
   });
+});
+
+describe("chart3dError — every declared rule throws its own .code, not just a matching message (P2-8)", () => {
+  for (const code of GLYPH_CHART_3D_VALIDATION_RULES) {
+    it(`sets .code to "${code}"`, () => {
+      try {
+        chart3dError(code, "test");
+        expect.unreachable();
+      } catch (e) {
+        expect((e as { code?: string }).code).toBe(code);
+      }
+    });
+  }
 });

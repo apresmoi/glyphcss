@@ -52,13 +52,34 @@ interface ResolvedGrid {
   readonly yTitle: string;
 }
 
+/**
+ * Strictly-monotonic check for an explicit position vector (P1-3). A single
+ * value (length 1, unreachable today since `cols`/`rows` >= 2, kept for
+ * robustness) counts as ascending — there is no pair to disagree.
+ */
+function axisOrder(values: readonly number[], label: string): "asc" | "desc" {
+  let asc = true, desc = true;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i]! <= values[i - 1]!) asc = false;
+    if (values[i]! >= values[i - 1]!) desc = false;
+  }
+  if (!asc && !desc) {
+    chart3dError("surface-axis-unsorted", `channels.${label} must be strictly monotonic (ascending or descending), got ${JSON.stringify(values)}.`);
+  }
+  return asc ? "asc" : "desc";
+}
+
 function resolveGridShape(data: GlyphChart3dSurfaceGridData, channels: GlyphChart3dSurfaceChannels): ResolvedGrid {
   const rows = data.z.length;
-  const cols = rows > 0 ? data.z[0]!.length : 0;
+  if (rows > 0 && !Array.isArray(data.z[0])) {
+    chart3dError("surface-ragged", `z[0] must be an array of numbers, got ${JSON.stringify(data.z[0])}.`);
+  }
+  const cols = rows > 0 ? (data.z[0] as readonly number[]).length : 0;
   if (rows < 2 || cols < 2) chart3dError("surface-too-small", `A surface needs at least a 2x2 z grid, got ${rows}x${cols}.`);
   const z: number[][] = [];
   for (let r = 0; r < rows; r++) {
-    const row = data.z[r]!;
+    const row = data.z[r];
+    if (!Array.isArray(row)) chart3dError("surface-ragged", `z[${r}] must be an array of numbers, got ${JSON.stringify(row)}.`);
     if (row.length !== cols) chart3dError("surface-ragged", `z[${r}] has ${row.length} values; z[0] has ${cols}. Every row must have the same length.`);
     z.push(row.map((v, c) => finiteOrThrow(v, `z[${r}][${c}]`)));
   }
@@ -68,6 +89,21 @@ function resolveGridShape(data: GlyphChart3dSurfaceGridData, channels: GlyphChar
   const y = yArr ? yArr.map((v, i) => finiteOrThrow(v, `y[${i}]`)) : Array.from({ length: rows }, (_, r) => r);
   if (x.length !== cols) chart3dError("bad-options", `channels.x must have ${cols} entries (one per z column), got ${x.length}.`);
   if (y.length !== rows) chart3dError("bad-options", `channels.y must have ${rows} entries (one per z row), got ${y.length}.`);
+  // An explicit position vector may legitimately be given in DESCENDING
+  // order (Plotly allows it) — normalized here by reversing it and the
+  // matching z columns/rows, rather than letting a descending vector invert
+  // the mesh's winding (P1-3: `gridSurfacePolygons` assumes increasing
+  // order, so a descending vector culls the whole surface under
+  // single-sided rendering). A default (no explicit vector) is always
+  // ascending by construction and skips this check entirely.
+  if (xArr && axisOrder(x, "x") === "desc") {
+    x.reverse();
+    for (const row of z) row.reverse();
+  }
+  if (yArr && axisOrder(y, "y") === "desc") {
+    y.reverse();
+    z.reverse();
+  }
   return { z, x, y, xTitle: "", yTitle: "" };
 }
 

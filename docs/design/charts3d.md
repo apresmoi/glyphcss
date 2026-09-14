@@ -1263,3 +1263,225 @@ suites this packet depends on (`createGlyphScene.sceneObject.test.ts`,
 `createGlyphScene.viewportOverlay.test.ts`, `GlyphObjectElement.test.ts` —
 17 tests), `tsc --noEmit` on `@glyphcss/charts`, and `pnpm build:packages`
 (all 17 workspace packages) all pass.
+
+### C1 review fixes (folded in during C2)
+
+A codex review of `a5512ab2` found 8 issues in the packet above; all are
+fixed at the layer that actually owns the behaviour, each with a
+mutation-sensitive test:
+
+- **P1-1 (crop):** `decimateIndices` now forces slot 0 and the last slot
+  (the box's own two endpoints) BEFORE any required-index nudging runs, so
+  an argmax/argmin whose nearest unforced slot happened to be an endpoint
+  can no longer evict it — the box's own boundary always survives; an
+  interior extremum is best-effort alongside it (silently dropped only when
+  `keep` is too small to seat all of endpoints + both extrema at once, the
+  provably infeasible case). `gridSurfacePolygons.test.ts` reproduces the
+  review's own 9x9/keep-3 fixture.
+- **P1-2 (domain mismatch):** `object.ts`'s `buildSurfaceMesh` now reads
+  `mark.axes.z.domain` (the NICE domain, same as the ticks) instead of the
+  raw `mark.zDomain` — a mesh vertex and its own axis tick are now
+  guaranteed the same function of z. `mark.zDomain` itself is untouched
+  (still the public raw-extent field).
+- **P1-3 (winding):** `surface.ts`'s grid-shape resolver now checks an
+  explicit `channels.x`/`.y` vector's own order and, if strictly
+  descending, reverses it AND the matching z columns/rows (never a silent
+  winding flip); a genuinely non-monotonic vector rejects with the new
+  `surface-axis-unsorted` rule.
+- **P1-4 (unusable default framing):** see "C2" below —
+  `glyphChart3dFitCamera` plus `renderGlyphChart3d`'s own auto-fit call.
+- **P1-5 (missing schema):** `3d/schema.ts`'s `glyphChart3dSurfaceJsonSchema()`,
+  Ajv-parity-tested in `schema.test.ts` against the same rule ids.
+- **P2-6 (untagged crashes):** `surface.ts` now checks `Array.isArray` on
+  `z[0]` and every `z[r]` before touching `.length`/`.map`, rejecting a
+  malformed row with a tagged `surface-ragged` instead of a bare TypeError.
+- **P2-7 (unenforced monotone lightness):** `colorscale.ts`'s
+  `resolveGlyphChart3dColorscaleAnchors` computes each custom anchor's
+  CIELAB L* (`hexLStar`, the standard `f(Y/Yn)` formula — only `Y`,
+  relative luminance, is needed for `L*` alone) and rejects a non-monotone
+  sequence with `colorscale-not-monotone`; the 4 named presets are gated
+  monotone at 9 bands too, as a regression guard on the hand-picked anchors.
+- **P2-8 (test coverage):** `object.test.ts` gained a camera-sweep case
+  proving `nearestEdge` actually migrates (two cameras deliberately NOT 180
+  degrees apart — a square-footprint box's own point symmetry makes a
+  180-degree flip land the migrated edge at a near-identical column even
+  with a correct implementation, which would have made that the wrong
+  fixture), a trackball (`mat`/`useMat`) case, and an un-reversed-text case;
+  `surface.test.ts`/`colorscale.test.ts` gained `.code`-asserting coverage
+  for every rule; `rootIsolation.test.ts` gates that no root-level
+  `@glyphcss/charts` source file imports from `./3d`.
+
+## C2 — `renderGlyphChart3d`, the static-frame exit, canvas chrome, CLI dispatch
+
+**Goal.** A static frame of a `GlyphChart3dSurfaceMark` at a given (or
+auto-fitted) camera, through the same `text`/`html` exits and
+target/charset/colour vocabulary the 2D entry uses, plus canvas chrome (a
+title row, a value colorbar) and a CLI dispatch. No live orbit, no `/charts`
+UI (C3), no effects (out of the approved export boundary for this slice).
+
+### No scene, no DOM: driving `buildRasterizeContext`/`rasterize` directly
+
+`compileScene` does not yet accept `GlyphSceneObject`s or procedural
+`textureSamplers` on this branch (that is packet F5b's own work, tracked
+separately) — waiting for it would have blocked C2 entirely, and the
+contract it will eventually expose (`compileScene(objects, textureSamplers)
+→ CellGrid`) is a strict superset of what a SINGLE static surface object
+needs. So `render.ts` reproduces the relevant slice itself, using only
+already-PUBLIC `glyphcss` primitives: `buildRasterizeContext` + `rasterize`
+with a `transformCells` hook that (1) runs the object's own `overlays`,
+sorted by `order` then declaration order — the identical rule
+`createGlyphScene`'s `applyGlyphSceneObjectOverlays` uses — through a
+hand-built `GlyphOverlayFrame` (`toWorld` is the identity function, since
+there is no scene-level mount transform here; `ownMeshIds` is an empty set,
+since a single mounted object with one mesh can never hide behind a
+FOREIGN mesh and no `retainWinnerMesh` is even requested), (2) resolves the
+shared `GlyphLabelArbiter`, then (3) captures the resulting `CellGrid` via
+the exact clone-through-`buildCellGrid` technique `rasterizeToCells` itself
+uses (mirrored rather than reused, since `rasterizeToCells` installs its OWN
+capturing `transformCells` and would silently discard this one). This is
+provably byte-identical to a real scene at the same camera and grid —
+`render.test.ts`'s own gate mounts the SAME object into a real
+`createGlyphScene` at the SAME camera/cols/rows/cellAspect and asserts the
+two `text` outputs are equal, not merely similar.
+
+### Charset and colour: reusing the 2D vocabulary, never re-deriving it
+
+`renderGlyphChart3d` imports `GLYPH_CHART_TARGET_DEFAULTS` and
+`glyphChartColorEnabled` from the ROOT package directly (a relative import
+within the same package — the one direction PLAN-3d.md's isolation rule
+allows, `rootIsolation.test.ts` gates only that the root never imports back)
+so `target`/`charset`/`color`/`width`/`height`/`cellAspect` mean EXACTLY
+what they mean for a 2D chart, with the identical NO_COLOR/FORCE_COLOR
+handling. Charset maps onto the rasterizer's own `charMode`, not the 2D cell
+canvas's tier system (a 3D chart rasterizes real geometry, it never touches
+`createGlyphCanvas`'s tier tables for the SURFACE itself — only for the
+chrome painted around it): `ascii`/`box` share the default solid ramp (no
+distinct "box" solid mode exists at the scene layer); `blocks` requests
+`charMode: "halfblock"`; `braille` is wireframe-only in glyphcss (AGENTS.md's
+"Render modes"), so a 3D chart — always solid — downgrades it to the
+default ramp and logs `chart3d-braille-unsupported`, never throwing and
+never silently pretending to honour it. The CHROME canvas's own tier
+(`chromeTier`) follows the same charset, with `braille → box` for the same
+reason.
+
+### Auto-fit camera: a pure, reusable helper, not inline math
+
+P1-4's own defect — the library's bare orthographic default (`zoom: 0.65`,
+an untransformed object) renders one lonely tick mark and no surface at all
+on an 80x24-ish grid — is fixed by `glyphChart3dFitCamera` (`3d/camera.ts`),
+a PURE function taking any `GlyphSceneObject.bounds` plus a
+viewport/camera-angle description and returning `{ target, zoom }`: it
+builds a REAL `createGlyphOrthographicCamera` at a reference `zoom: 1`
+(never a re-derived rotation formula — this is what makes it exact for a
+`mat`/`useMat` trackball rotation too, not only Euler `rotX`/`rotY`),
+probes the 8 AABB corners of the bounds EXPANDED outward by `margin`
+(default `0.45`, approximating the label/tick push-out the axis overlay
+itself performs — object.ts's own `TICK_LABEL_MARGIN`/`AXIS_TITLE_MARGIN`
+plus slack for label text width, which this function has no glyph metrics
+to measure exactly) through that camera, and picks the largest zoom that
+keeps every probed corner within `safety` (default `0.92`) of the
+viewport's own half-extent in both columns and rows. `renderGlyphChart3d`
+calls it whenever `options.camera?.zoom` is omitted, at
+`GLYPH_CHART_3D_DEFAULT_CAMERA` (`rotX: 65, rotY: 45` — this repo's own
+documented isometric convention, reused rather than inventing a second
+default) unless `rotX`/`rotY` are overridden too. It is exported publicly
+specifically so a DIFFERENT scene consumer mounting the SAME (or any other)
+object gets the identical fitting math with no re-derivation — the "mount
+in any scene" half of composition (PLAN-3d.md §3.1) needs a camera that
+actually shows the thing it mounted, and this is that primitive.
+`camera.test.ts` proves it (target = bounds center; larger viewport → larger
+zoom; a wider margin → a smaller-or-equal zoom; a trackball `mat` case) and
+`render.test.ts`'s own P1-4 gate mounts a volcano-like fixture at the
+library's OWN default camera/target constants (no cherry-picked zoom) and
+requires all 3 axis titles plus real surface ink, contrasted against the
+SAME fixture at a fixed `zoom: 0.65` (materially less content — never an
+absolute magic-number threshold, which is fragile against unrelated layout
+changes).
+
+### `shading: "value"`: a procedural texture, not a lighting trick alone
+
+C1 left `shading: "value"` typed but unwired ("a C2/rendering-layer
+concern"). The wiring lives in `object.ts` (in scope for this packet, not
+`render.ts`), because the mechanism is MESH authoring, not a render-time
+light choice: `applyValueShadingTexture` walks every triangle
+`gridSurfacePolygons` returns, computes its own vertex-average object-space
+z (already `aspect[2]`-scaled, so no domain re-lookup is needed), quantizes
+it into the mark's own `bands` via the SAME `glyphChart3dBandIndex` the
+colour callback uses, and authors `uvs`/`texture` pointing into a 64-texel
+grey-ramp `TextureSampler` (`GLYPH_CHART_3D_VALUE_STRIP_TEXTURE_KEY`,
+luminance strictly increasing left to right) — carried on
+`GlyphSceneObject.textureSamplers`, the same public field the composition
+contract already defines (AGENTS.md's "Scene objects"). Per AGENTS.md's
+"Rendering model" "Per-cell textures", the texel LUMINANCE multiplies into
+the cell's own picked-glyph intensity, so glyph DENSITY reads z regardless
+of face normal. `renderGlyphChart3d` layers one more thing on top — under
+`shading: "value"` it renders with `ambientLight: { intensity: 1 }` and
+`directionalLight: { intensity: 0 }`, so slope contributes NOTHING to the
+picture at all, not merely "little"; this is a render-time convenience
+(removing a confound), not what makes the guarantee true — a mutation test
+that instead disables ONLY the texture authoring (keeping the ambient-only
+light) is what actually reddens `render.test.ts`'s own gate, proving the
+texture is the load-bearing half.
+
+**Building the gate itself took two false starts, kept here because the
+same mistake is easy to repeat**: a first version sampled `glyphInkDensity`
+(a MEASURED per-glyph ink-coverage function, `docs/design/canvas.md`'s own
+texture-bridge machinery) on the default solid ramp's own characters and
+found it NON-monotone in ramp position for several of them (e.g. `"@"`
+measures LESS ink than `"#"` in a real font, even though `"@"` is the
+ramp's own densest INTENDED level) — the right authority for "which glyph
+means more ink" is the ramp's own declared ORDER (`SOLID_RAMP`, exported
+from `glyphcss`), not a measured coverage function built for a different
+purpose. A second version then filtered "non-blank" cells to find a
+representative sample column/row and picked up FALSE signal from two
+sources that happen to share characters with `SOLID_RAMP`: a blank
+BACKGROUND cell (`" "` is `SOLID_RAMP[0]`) and the axis overlay's own tick
+mark glyph (`"+"` is `SOLID_RAMP[5]`) — both silently counted as "surface
+data at a specific band", and a version of the test with the feature
+DISABLED still passed because the tick glyphs alone produced enough
+spurious row-correlated noise. The gate that shipped excludes both
+explicitly (`NON_SURFACE_GLYPHS`) and correlates the REMAINING cells'
+`SOLID_RAMP` INDEX against screen row via a plain Pearson correlation
+(`|r| > 0.85`) computed over every surface-glyph cell in the whole frame —
+not one sampled row/column, since a quad's own two triangles split on their
+shorter 3D diagonal and can disagree by one band right at a boundary,
+noise a broad sample averages out but a single strict step-by-step
+monotonicity check would wrongly fail on.
+
+### Canvas chrome: title and colorbar, painted onto the SAME canvas the surface is pasted into
+
+The rasterized surface `CellGrid` is pasted CELL-BY-CELL (`pasteCellGrid`)
+into a `GlyphCanvas` at the plot rect's own offset (`char`/`color` copied
+directly, `ink` marked for any non-blank cell) — the canvas exists ONLY for
+chrome (a title row via `canvas.text({ align: "center" })`, and, whenever
+`mark.colorAnchors !== null`, a right-edge colorbar via `canvas.fillRect`
+swatches + `canvas.text` z max/min labels) and for its own encoders
+(`encodeGlyphCanvasText`/`Html`/`Ansi`, the IDENTICAL functions the 2D entry
+calls). The colorbar reserves `COLORBAR_COLS` (9) columns only when the
+remaining plot width still clears `COLORBAR_MIN_PLOT_WIDTH` (24); otherwise
+it is skipped with a `chart3d-colorbar-omitted` ledger entry rather than
+crushing the plot. Each colorbar row's `fill.shade` is the band's own
+normalized index (never `"solid"`) so the SAME "shape reads value" property
+`shading: "value"` gives the surface also holds for the legend swatch, even
+under `color: "none"`.
+
+### Gates and mutations (packet C2)
+
+| Gate | Mutation applied | Result |
+|---|---|---|
+| Static frame equals a real scene at the same camera | (verified directly: `createGlyphScene`/`addObject` at the identical camera/grid, `text` compared for equality) | — |
+| Every target x charset x colour cell renders (or dims with its reason) | 60-cell sweep, `render.test.ts` | All pass; `braille` always logs `chart3d-braille-unsupported` |
+| NO_COLOR honoured for ANSI text | env-injected `NO_COLOR: "1"` against `ansi16`/`ansi256`/`truecolor` | No `\x1b[` in `text` |
+| `shading: "value"` glyph density correlates with z | Disable `applyValueShadingTexture` in `object.ts` | RED — Pearson correlation check fails (the whole surface renders one glyph) |
+| Auto-fit shows the whole surface + all 3 axis titles | Force a fixed `zoom: 0.65` (the bare library default) instead of auto-fitting | RED (relative to the fitted render) — non-blank character count drops by more than 3x |
+| Render-option/camera validation | Bad `width`/`height`/`target`/`charset`/`color`/`camera.rotX`/`camera.zoom` | Each rejects with its own tagged code (`bad-render-size`/`bad-render-options`/`bad-camera`) |
+| CLI `--3d`/`--camera` dispatch | `chartCli.test.ts`: parses `--camera rotX,rotY[,zoom]`, writes a real frame, surfaces `chart3d-braille-unsupported` and a bad-input tagged code to stderr with exit 1 | Green |
+
+**Gate.** `pnpm --filter @glyphcss/charts test` (42 files, 1537 tests, +141
+under `src/3d/`), `pnpm --filter @glyphcss/core test` (26 files, 801 tests,
+unchanged count — the P1-1 fix reshapes one existing fixture rather than
+adding a new one, plus one new endpoints test), `pnpm --filter
+@glyphcss/compile` `chartCli`/full suite (8 files, 67 tests, +9 new),
+`tsc --noEmit` on `@glyphcss/charts` and `@glyphcss/compile` clean, and
+`pnpm build:packages` (`@glyphcss/core`, `glyphcss`, `@glyphcss/charts`,
+`@glyphcss/diagrams` rebuilt for this packet) all pass.
