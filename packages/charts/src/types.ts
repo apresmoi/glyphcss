@@ -7,7 +7,7 @@
  * (or a bare array/mark), normalising through `normalizeGlyphChartInput`.
  */
 
-import type { GlyphCanvasRouteConflict } from "glyphcss";
+import type { GlyphCanvas, GlyphCanvasRouteConflict } from "glyphcss";
 import type { GlyphChartLedgerEntry } from "./ledger";
 export type { GlyphChartLedgerEntry };
 
@@ -324,6 +324,19 @@ export interface GlyphChartRenderOptions {
   readonly regionFill?: GlyphChartRegionFill;
 }
 
+/**
+ * The plot rect in canvas cells (inclusive bounds) — canonical home for a
+ * type `layout.ts` used to define locally (Packet F1: it is now part of the
+ * public `GlyphChartBuild.plot` shape, the source of a mesh's uv0 mapping
+ * once a chart becomes a texture, AGENTS.md's "Charts" §4).
+ */
+export interface GlyphChartPlotRect {
+  readonly x0: number;
+  readonly y0: number;
+  readonly x1: number;
+  readonly y1: number;
+}
+
 export interface GlyphChartMeta {
   readonly title: string | null;
   readonly series: readonly string[];
@@ -347,15 +360,50 @@ export interface GlyphChartReport {
   readonly routeConflicts: readonly GlyphCanvasRouteConflict[];
 }
 
+/**
+ * The render's own resolved settings (Packet F1) — everything `encodeGlyphChart`
+ * needs to pick an exit, and everything a later bridge (`glyphChartTextureSampler`,
+ * `glyphChartPlaneObject`, F2/F4) needs to know how the model was rendered.
+ */
+export interface GlyphChartResolved {
+  readonly target: GlyphChartTarget;
+  readonly charset: GlyphChartCharset;
+  readonly color: GlyphChartColorMode;
+  readonly width: number;
+  readonly height: number;
+  readonly detail: GlyphChartDetail;
+  readonly cellAspect: number;
+  readonly textScale: number;
+  readonly env: Readonly<Record<string, string | undefined>> | undefined;
+}
+
+/**
+ * `buildGlyphChart`'s result (AGENTS.md's "Charts" §4, Packet F1) — the MODEL
+ * step: validate → resolve → scales → layout → paint, with no encoding yet.
+ * `canvas` is the TEXTURED paint (monochrome series identity, what every
+ * plain-text/ASCII exit and a chart-as-texture reads); `colorCanvas` is the
+ * SOLID-fill paint when `regionFill` resolves solid, and is the exact same
+ * object as `canvas` otherwise (never a second allocation when nothing
+ * distinguishes them) — only the colour-carrying exits (`html` under `css`,
+ * `text` under an ANSI mode) read it. `plot` is the plot rect in cells: the
+ * source of `uv0` once a chart becomes a texture on a mesh (F2) or a plane
+ * object (F4).
+ */
+export interface GlyphChartBuild {
+  readonly canvas: GlyphCanvas;
+  readonly colorCanvas: GlyphCanvas;
+  readonly plot: GlyphChartPlotRect;
+  readonly meta: GlyphChartMeta;
+  readonly report: GlyphChartReport;
+  readonly resolved: GlyphChartResolved;
+}
+
 export interface GlyphChartResult {
   readonly text: string;
-  /** Present only for `target: "web"` — the HTML exit. */
+  /** Present only for `color: "css"`, or any other colour mode once `textScale > 1`. */
   readonly html?: string;
-  readonly grid: {
-    readonly cols: number;
-    readonly rows: number;
-    readonly char: readonly string[];
-  };
+  /** The model this render painted — `encodeGlyphChart(build, exit)` reproduces `text`/`html` from it. */
+  readonly build: GlyphChartBuild;
   readonly meta: GlyphChartMeta;
   readonly report: GlyphChartReport;
 }

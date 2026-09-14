@@ -90,16 +90,16 @@ describe("sankey/funnel render at multiple sizes and charsets", () => {
   it.each(sizes.flatMap(([w, h]) => charsets.map((charset) => ({ w, h, charset }))))("sankey renders at $w x $h on $charset", ({ w, h, charset }) => {
     const r = renderGlyphChart(energySpec, { target: "chat", width: w, height: h, charset });
     expect(r.text.length).toBeGreaterThan(0);
-    expect(r.grid.cols).toBe(w);
-    expect(r.grid.rows).toBe(h);
+    expect(r.build.canvas.grid.cols).toBe(w);
+    expect(r.build.canvas.grid.rows).toBe(h);
     if (charset === "ascii") expect(r.text).toMatch(/^[\x20-\x7e\n]*$/);
   });
 
   it.each(sizes.flatMap(([w, h]) => charsets.map((charset) => ({ w, h, charset }))))("funnel renders at $w x $h on $charset", ({ w, h, charset }) => {
     const r = renderGlyphChart(funnelSpec, { target: "chat", width: w, height: h, charset });
     expect(r.text.length).toBeGreaterThan(0);
-    expect(r.grid.cols).toBe(w);
-    expect(r.grid.rows).toBe(h);
+    expect(r.build.canvas.grid.cols).toBe(w);
+    expect(r.build.canvas.grid.rows).toBe(h);
     if (charset === "ascii") expect(r.text).toMatch(/^[\x20-\x7e\n]*$/);
   });
 });
@@ -1629,14 +1629,14 @@ describe("chat-target renders (visual reference)", () => {
     const r = renderGlyphChart(energySpec, { target: "chat" });
     expect(r.text.length).toBeGreaterThan(0);
     // eslint-disable-next-line no-console
-    console.log(`\n--- sankey (chat, ${r.grid.cols}x${r.grid.rows}) ---\n${r.text}\n`);
+    console.log(`\n--- sankey (chat, ${r.build.canvas.grid.cols}x${r.build.canvas.grid.rows}) ---\n${r.text}\n`);
   });
 
   it("funnel: e-commerce conversion", () => {
     const r = renderGlyphChart(funnelSpec, { target: "chat" });
     expect(r.text.length).toBeGreaterThan(0);
     // eslint-disable-next-line no-console
-    console.log(`\n--- funnel (chat, ${r.grid.cols}x${r.grid.rows}) ---\n${r.text}\n`);
+    console.log(`\n--- funnel (chat, ${r.build.canvas.grid.cols}x${r.build.canvas.grid.rows}) ---\n${r.text}\n`);
   });
 
   // N13: README.md's own "glyphChartSankey" render, pinned byte-exactly so

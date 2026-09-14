@@ -122,5 +122,5 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   const colorMode = options.color ?? "none";
   const text = colorMode === "none" || colorMode === "css" ? encodeGlyphCanvasText(canvas) : encodeGlyphCanvasAnsi(canvas, { colors: colorMode === "ansi16" ? "16" : colorMode === "ansi256" ? "256" : "truecolor", env: options.env });
   const html = colorMode === "css" ? encodeGlyphCanvasHtml(canvas) : undefined;
-  return { text, ...(html === undefined ? {} : { html }), grid: canvas.grid, layout, routes: routing.routes, labels: labels.placed, ledger, unsupportedGlyphs: [...canvas.report.unsupportedGlyphs] };
+  return { text, ...(html === undefined ? {} : { html }), canvas, layout, routes: routing.routes, labels: labels.placed, ledger, unsupportedGlyphs: [...canvas.report.unsupportedGlyphs] };
 }

@@ -11,12 +11,12 @@ import type { GlyphChartResult } from "./types";
 const data = [{ x: 0, y: 1 }, { x: 1, y: 3 }, { x: 2, y: 2 }, { x: 3, y: 4 }];
 
 function at(r: GlyphChartResult, x: number, y: number): string {
-  return r.grid.char[y * r.grid.cols + x]!;
+  return r.build.canvas.grid.char[y * r.build.canvas.grid.cols + x]!;
 }
 function findRow(r: GlyphChartResult, text: string): number {
-  for (let y = 0; y < r.grid.rows; y++) {
+  for (let y = 0; y < r.build.canvas.grid.rows; y++) {
     let s = "";
-    for (let x = 0; x < r.grid.cols; x++) s += at(r, x, y);
+    for (let x = 0; x < r.build.canvas.grid.cols; x++) s += at(r, x, y);
     if (s.includes(text)) return y;
   }
   return -1;
@@ -43,8 +43,8 @@ describe("legend placement (owner packet item 1)", () => {
     expect(cornerRow).toBeLessThan(bottomRow);
     // Right corner: the legend text ends near the plot's own right edge, not the left.
     let cornerLine = "";
-    for (let x = 0; x < corner.grid.cols; x++) cornerLine += at(corner, x, cornerRow);
-    expect(cornerLine.indexOf("Revenue")).toBeGreaterThan(corner.grid.cols / 2);
+    for (let x = 0; x < corner.build.canvas.grid.cols; x++) cornerLine += at(corner, x, cornerRow);
+    expect(cornerLine.indexOf("Revenue")).toBeGreaterThan(corner.build.canvas.grid.cols / 2);
   });
 
   it("top-left places the legend near the plot's top-left, above where 'bottom' would reserve a row", () => {
@@ -53,8 +53,8 @@ describe("legend placement (owner packet item 1)", () => {
     const row = findRow(r, "Revenue");
     expect(row).toBeGreaterThanOrEqual(0);
     let line = "";
-    for (let x = 0; x < r.grid.cols; x++) line += at(r, x, row);
-    expect(line.indexOf("Revenue")).toBeLessThan(r.grid.cols / 2);
+    for (let x = 0; x < r.build.canvas.grid.cols; x++) line += at(r, x, row);
+    expect(line.indexOf("Revenue")).toBeLessThan(r.build.canvas.grid.cols / 2);
   });
 
   it("a corner legend that overlaps painted data reports legend-overlaps-marks with the covered cell count", () => {
@@ -73,7 +73,7 @@ describe("legend placement (owner packet item 1)", () => {
     const row = findRow(r, "Sales");
     expect(row).toBeGreaterThanOrEqual(0);
     let line = "";
-    for (let x = 0; x < r.grid.cols; x++) line += at(r, x, row);
+    for (let x = 0; x < r.build.canvas.grid.cols; x++) line += at(r, x, row);
     expect(line).toContain("Revenue");
     expect(line.indexOf("Revenue")).toBeGreaterThan(line.indexOf("Sales"));
     expect(r.report.ledger.some((e) => e.code === "legend-placement-degraded")).toBe(false);

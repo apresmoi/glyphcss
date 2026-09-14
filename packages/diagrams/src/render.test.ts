@@ -48,8 +48,8 @@ describe("render contracts", () => {
     // Mutation: restore `options.target ?? "chat"` in `resolvedOptions` ->
     // a bare call returns 72x24 with no `html` -> red.
     const result = await renderGlyphDiagram("graph LR; A --> B");
-    expect(result.grid.cols).toBe(96);
-    expect(result.grid.rows).toBe(32);
+    expect(result.canvas.grid.cols).toBe(96);
+    expect(result.canvas.grid.rows).toBe(32);
     expect(result.html).toBeDefined();
     const json = JSON.parse(await renderGlyphDiagramJson(JSON.stringify({ nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }], edges: [{ from: "a", to: "b" }] })));
     expect(json.html).toBeDefined();
@@ -58,8 +58,8 @@ describe("render contracts", () => {
     const result = await renderGlyphDiagram("graph LR; A[Alpha] --> B[[Beta]]", { charset: "ascii" });
     for (const n of result.layout.nodes) {
       const target = result.layout.ports.some((p) => p.end === "to" && p.anchor.x === n.x0 && p.anchor.y === n.y0 + 1);
-      expect(result.grid.char[(n.y0 + 1) * result.grid.cols + n.x0]).toBe(target ? ">" : "|");
-      expect(result.grid.char[(n.y0 + 1) * result.grid.cols + n.x1]).toBe("|");
+      expect(result.canvas.grid.char[(n.y0 + 1) * result.canvas.grid.cols + n.x0]).toBe(target ? ">" : "|");
+      expect(result.canvas.grid.char[(n.y0 + 1) * result.canvas.grid.cols + n.x1]).toBe("|");
     }
   });
   it("renders the LangGraph agent fixture in one chat 60x20 panel", async () => {
@@ -85,7 +85,7 @@ describe("render contracts", () => {
     expect(result.routes).toHaveLength(1);
     const last = result.layout.ports.find((p) => p.end === "to")!.anchor;
     const side = { TB: "s", BT: "n", LR: "e", RL: "w" }[direction] as "n" | "e" | "s" | "w";
-    expect(result.grid.char[last.y * result.grid.cols + last.x]).toBe(GLYPH_CANVAS_TIERS.ascii.arrow[side]);
+    expect(result.canvas.grid.char[last.y * result.canvas.grid.cols + last.x]).toBe(GLYPH_CANVAS_TIERS.ascii.arrow[side]);
   });
   // Mutation: pass no obstacles into paint's label layout or paint node fills after labels -> red.
   it("real edge labels stay disjoint from painted nodes, routes and each other", async () => {
@@ -95,15 +95,15 @@ describe("render contracts", () => {
       const obstacles = [...result.layout.nodes, ...result.routes.flatMap((r) => r.cells.map((p) => ({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })))];
       result.labels.forEach((label, i) => {
         [...obstacles, ...result.labels.slice(0, i)].forEach((rect) => expect(glyphDiagramRectsOverlap(label, rect)).toBe(false));
-        expect(result.grid.char.slice(label.y * result.grid.cols + label.x, label.y * result.grid.cols + label.x + label.text.length).join("")).toBe(label.text);
+        expect(result.canvas.grid.char.slice(label.y * result.canvas.grid.cols + label.x, label.y * result.canvas.grid.cols + label.x + label.text.length).join("")).toBe(label.text);
       });
     }
   });
   it("uses fresh canvas storage for every render and retains prior results", async () => {
     const a = await renderGlyphDiagram(fixture("cycle"), { width: 80, height: 32 });
-    const before = a.grid.char.join("");
+    const before = a.canvas.grid.char.join("");
     const b = await renderGlyphDiagram("graph LR; X", { width: 80, height: 32 });
-    expect(b.grid).not.toBe(a.grid); expect(a.grid.char.join("")).toBe(before);
+    expect(b.canvas.grid).not.toBe(a.canvas.grid); expect(a.canvas.grid.char.join("")).toBe(before);
     expect(b.text).not.toContain("▼"); expect(b.text).toContain("X");
   });
   it("has separate raw, escaped HTML and explicit-environment ANSI exits", async () => {
@@ -190,8 +190,8 @@ describe("RC1-RC4: LR fan-out/fan-in at the real chat size", () => {
         expect(result.report.unroutable).toEqual([]);
         expect(result.routes).toHaveLength(result.meta.edges.length);
         expect(result.report.ledger.some((entry) => entry.code === "routing-attempt")).toBe(false);
-        expect(result.layout.width).toBeLessThanOrEqual(result.grid.cols);
-        expect(result.layout.height).toBeLessThanOrEqual(result.grid.rows);
+        expect(result.layout.width).toBeLessThanOrEqual(result.canvas.grid.cols);
+        expect(result.layout.height).toBeLessThanOrEqual(result.canvas.grid.rows);
       }
     });
   }

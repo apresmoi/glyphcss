@@ -152,7 +152,7 @@ describe("A: sankey and funnel follow regionFill", () => {
     expect(solid.filter((c) => isBrailleDot(c.ch))).toEqual([]);
     for (const g of ["░", "▒", "▓", "╱", "═"]) expect(solid.some((c) => c.ch === g), g).toBe(false);
     expect(solid.filter((c) => c.ch === "█").length).toBeGreaterThan(400);
-    expect(r.grid.char.filter(isBrailleDot).length).toBeGreaterThan(400);
+    expect(r.build.canvas.grid.char.filter(isBrailleDot).length).toBeGreaterThan(400);
   });
 
   it("box: solid ribbons and funnel bars are `█` with square corners; the texture fallback's lighter run and rounded corners are gone", () => {
@@ -205,7 +205,7 @@ describe("A: sankey and funnel follow regionFill", () => {
     expect(legend).toMatch(/█ {2}Coal +█ {2}Natural Gas +█ {2}Nuclear +█ {2}Renewables/);
     const funnelLegend = renderGlyphChart(funnel, { ...WEB, legend: true }).html!;
     expect(htmlCells(funnelLegend).at(-1)!.map((c) => c.ch).join("")).not.toMatch(/[░▚╱▌═▓▒]/);
-    const terminalLegend = renderGlyphChart(energySankey, { target: "terminal" }).grid.char.slice(-80).join("");
+    const terminalLegend = renderGlyphChart(energySankey, { target: "terminal" }).build.canvas.grid.char.slice(-80).join("");
     expect(terminalLegend).toMatch(/░ {2}Natural Gas/);
   });
 });
@@ -536,14 +536,14 @@ describe("texture output is byte-identical to b662a509, the energy sankey's re-p
       const expectHash = (key: string, value: string) => { expect(hash(value), key).toBe(parent[key]); checked++; };
       const none = renderGlyphChart(spec, { ...base, color: "none" });
       expectHash(`${k}:none:text`, none.text);
-      expectHash(`${k}:none:grid`, none.grid.char.join(""));
+      expectHash(`${k}:none:grid`, none.build.canvas.grid.char.join(""));
       const css = renderGlyphChart(spec, { ...base, color: "css", regionFill: "texture" });
       expectHash(`${k}:css:texture:html`, css.html!);
       expectHash(`${k}:css:texture:text`, css.text);
-      expectHash(`${k}:css:texture:grid`, css.grid.char.join(""));
+      expectHash(`${k}:css:texture:grid`, css.build.canvas.grid.char.join(""));
       const auto = renderGlyphChart(spec, { ...base, color: "css" });
       expectHash(`${k}:css:auto:text`, auto.text);
-      expectHash(`${k}:css:auto:grid`, auto.grid.char.join(""));
+      expectHash(`${k}:css:auto:grid`, auto.build.canvas.grid.char.join(""));
       for (const color of ["truecolor", "ansi256", "ansi16"] as const) expectHash(`${k}:${color}:texture:text`, renderGlyphChart(spec, { ...base, color, regionFill: "texture" }).text);
       expectHash(`${k}:terminal:text`, renderGlyphChart(spec, { ...base, target: "terminal" }).text);
       expectHash(`${k}:nocolor:text`, renderGlyphChart(spec, { ...base, color: "truecolor", env: { NO_COLOR: "1" } }).text);

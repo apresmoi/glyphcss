@@ -226,7 +226,7 @@ describe("color: \"none\" byte-identity (d)", () => {
     const rBase = renderGlyphChart(base, { color: "none", width: 24, height: 10 });
     const rOverride = renderGlyphChart(withOverrides, { color: "none", width: 24, height: 10 });
     expect(rOverride.text).toBe(rBase.text);
-    expect(rOverride.grid).toEqual(rBase.grid);
+    expect(rOverride.build.canvas.grid).toEqual(rBase.build.canvas.grid);
   });
 });
 

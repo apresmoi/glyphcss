@@ -52,8 +52,9 @@ function htmlRows(html: string): string[] {
   const text = html.replace(/<[^>]+>/g, "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&amp;/g, "&");
   return text.split("\n").map((row) => [...row].join(""));
 }
-function gridRows(r: { grid: { cols: number; rows: number; char: readonly string[] } }): string[] {
-  return Array.from({ length: r.grid.rows }, (_, y) => r.grid.char.slice(y * r.grid.cols, (y + 1) * r.grid.cols).join(""));
+function gridRows(r: { build: { canvas: { grid: { cols: number; rows: number; char: readonly string[] } } } }): string[] {
+  const grid = r.build.canvas.grid;
+  return Array.from({ length: grid.rows }, (_, y) => grid.char.slice(y * grid.cols, (y + 1) * grid.cols).join(""));
 }
 const count = (rows: readonly string[], glyph: string): number => rows.reduce((n, row) => n + [...row].filter((c) => c === glyph).length, 0);
 /** The glyph three cells before a legend name (`swatchGutter` is 3), searched bottom-up so a pie's callout of the same name is never read. */
@@ -247,7 +248,7 @@ describe("plain exits keep textures", () => {
     const r = renderGlyphChart(energy, { color: "css" });
     for (const glyph of ["░", "▚", "╱"]) {
       expect(r.text.includes(glyph), `text has ${glyph}`).toBe(true);
-      expect(r.grid.char.includes(glyph), `grid has ${glyph}`).toBe(true);
+      expect(r.build.canvas.grid.char.includes(glyph), `grid has ${glyph}`).toBe(true);
     }
   });
 });
@@ -268,12 +269,12 @@ describe("byte-identity against the commit before regionFill existed (reviewFixt
       const base: GlyphChartRenderOptions = { width: 60, height: 24, charset };
       const none = renderGlyphChart(spec, { ...base, color: "none" });
       expect(hash(none.text), `${i}:${charset}:none:text`).toBe(parent[`${i}:${charset}:none:text`]);
-      expect(hash(none.grid.char.join("")), `${i}:${charset}:none:grid`).toBe(parent[`${i}:${charset}:none:grid`]);
+      expect(hash(none.build.canvas.grid.char.join("")), `${i}:${charset}:none:grid`).toBe(parent[`${i}:${charset}:none:grid`]);
       const css = renderGlyphChart(spec, { ...base, color: "css" });
       expect(hash(css.text), `${i}:${charset}:css:text`).toBe(parent[`${i}:${charset}:css:text`]);
-      expect(hash(css.grid.char.join("")), `${i}:${charset}:css:grid`).toBe(parent[`${i}:${charset}:css:grid`]);
+      expect(hash(css.build.canvas.grid.char.join("")), `${i}:${charset}:css:grid`).toBe(parent[`${i}:${charset}:css:grid`]);
       for (const color of ["truecolor", "ansi256", "ansi16"] as const) {
-        expect(hash(renderGlyphChart(spec, { ...base, color }).grid.char.join("")), `${i}:${charset}:${color}:grid`).toBe(parent[`${i}:${charset}:${color}:grid`]);
+        expect(hash(renderGlyphChart(spec, { ...base, color }).build.canvas.grid.char.join("")), `${i}:${charset}:${color}:grid`).toBe(parent[`${i}:${charset}:${color}:grid`]);
       }
       expect(hash(renderGlyphChart(spec, { ...base, color: "truecolor", env: { NO_COLOR: "1" } }).text), `${i}:${charset}:nocolor:text`).toBe(parent[`${i}:${charset}:nocolor:text`]);
       expect(hash(renderGlyphChart(spec, { ...base, target: "terminal" }).text), `${i}:${charset}:terminal:text`).toBe(parent[`${i}:${charset}:terminal:text`]);

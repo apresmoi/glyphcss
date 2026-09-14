@@ -24,7 +24,10 @@ export function renderGlyphChartJson(json: string, options: GlyphChartRenderOpti
 
   try {
     const result = renderGlyphChart(input, options);
-    const { grid: _grid, ...rest } = result;
+    // `build` carries live `GlyphCanvas` objects (Packet F1) — never
+    // JSON-representable and never part of this entry's contract, which
+    // never emitted `grid` either.
+    const { build: _build, ...rest } = result;
     return JSON.stringify(rest);
   } catch (e) {
     const error = e as Error & { code?: string };

@@ -27,12 +27,12 @@ describe("exact Phase 1 review regressions", () => {
   it("1: all-zero bars at 20x8 have zero painted quantity cells", () => {
     // Mutation: retain inclusive coincident bar endpoints -> three nonzero bars.
     const r = renderGlyphChart(glyphChartBar([0, 0, 0]), { width: 20, height: 8 });
-    expect(r.grid.char.filter((c) => c === "█")).toHaveLength(0);
+    expect(r.build.canvas.grid.char.filter((c) => c === "█")).toHaveLength(0);
   });
   it("1: all-zero pie at 20x6 is empty with EMPTY_TOTAL", () => {
     // Mutation: total || 1 plus last-slice fallback -> paints a full disc.
     const r = renderGlyphChart(glyphChartArc([0, 0, 0]), { width: 20, height: 6 });
-    expect(r.grid.char.every((c) => c === " ")).toBe(true);
+    expect(r.build.canvas.grid.char.every((c) => c === " ")).toBe(true);
     expect(r.report.ledger).toContainEqual(expect.objectContaining({ code: "empty-total" }));
   });
   it("1: positive and negative bars exclude the zero baseline, which is now the axis line itself", () => {
@@ -299,7 +299,7 @@ describe("exact Phase 1 review regressions", () => {
     expect(r.text.split("\n")[0]).toBe("ABCDEFGHIJKLMNOPQRSTU...");
     expect(r.text).toContain("cafe");
     const dots = renderGlyphChart(glyphChartDot([-1, 1]), { charset: "ascii", width: 20, height: 6 });
-    expect(dots.grid.char.filter((c) => c === "o")).toHaveLength(2);
+    expect(dots.build.canvas.grid.char.filter((c) => c === "o")).toHaveLength(2);
   });
   it("7: exact long band labels at 20x6 are abbreviated in slots, never clipped", () => {
     // Mutation: pass raw labels directly to canvas -> clipped middles, no abbreviation ledger.

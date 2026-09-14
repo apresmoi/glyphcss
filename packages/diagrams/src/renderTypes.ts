@@ -18,7 +18,9 @@ export interface GlyphDiagramRenderOptions extends GlyphDiagramLayoutOptions {
 export interface GlyphDiagramMeta { readonly nodes: GlyphGraph["nodes"]; readonly edges: GlyphGraph["edges"]; readonly groups: NonNullable<GlyphGraph["groups"]>; readonly description: string }
 export interface GlyphDiagramReport { readonly ledger: readonly GlyphDiagramLedgerEntry[]; readonly unsupportedGlyphs: readonly string[]; readonly unroutable: readonly string[] }
 export interface GlyphDiagramPage {
-  readonly text: string; readonly html?: string; readonly grid: GlyphCanvas["grid"];
+  readonly text: string; readonly html?: string;
+  /** The canvas this page painted (Packet F1 — was `grid: GlyphCanvas["grid"]`); `canvas.grid` is the same `CellGrid` this field used to hold directly. */
+  readonly canvas: GlyphCanvas;
   readonly layout: GlyphDiagramLayout; readonly routes: readonly GlyphDiagramRoute[]; readonly labels: readonly GlyphDiagramPlacedLabel[];
 }
 export interface GlyphDiagramResult extends GlyphDiagramPage {

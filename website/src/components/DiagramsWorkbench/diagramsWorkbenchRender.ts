@@ -24,7 +24,7 @@ export async function renderGlyphDiagramsWorkbenchState(state: GlyphDiagramsWork
     const downgraded = chatCharsetDowngrade(options);
     const charsetDowngraded = downgraded !== options;
     const result = await renderGlyphDiagram(buildGlyphDiagramsWorkbenchGraph(state), downgraded);
-    const text = result.pages.map(({ grid }) => Array.from({ length: grid.rows }, (_, row) => grid.char.slice(row * grid.cols, (row + 1) * grid.cols).join("")).join("\n")).join("\n\n");
+    const text = result.pages.map(({ canvas }) => { const { grid } = canvas; return Array.from({ length: grid.rows }, (_, row) => grid.char.slice(row * grid.cols, (row + 1) * grid.cols).join("")).join("\n"); }).join("\n\n");
     const isHtml = result.html !== undefined;
     return {
       ok: true, text, display: result.html ?? text, isHtml, ansi: result.text.includes("\x1b[") ? result.text : undefined, meta: result.meta,

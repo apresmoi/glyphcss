@@ -218,13 +218,13 @@ describe("area silhouette slopes at sub-cell resolution on braille/blocks (S3)",
   it("an unstacked area without a boundary line gets the same sub-cell silhouette (same painter, same defect)", () => {
     // Mutation: gate the silhouette on `stacked` alone -> red.
     const unnamed = renderGlyphChart(glyphChartArea(sample), { charset: "braille", width: 48, height: 16, color: "none" });
-    expect(unnamed.grid.char.some(quadrants)).toBe(true);
+    expect(unnamed.build.canvas.grid.char.some(quadrants)).toBe(true);
   });
 
   it("an unstacked area whose colour-off boundary line IS its edge draws no silhouette on top of it", () => {
     // Mutation: always pass `silhouette: true` -> quadrant caps sit above
     // the named area's own boundary line, a doubled edge -> red.
     const named = renderGlyphChart(glyphChartArea(sample, undefined, { name: "Traffic" }), { charset: "braille", width: 48, height: 16, color: "none" });
-    expect(named.grid.char.some(quadrants)).toBe(false);
+    expect(named.build.canvas.grid.char.some(quadrants)).toBe(false);
   });
 });

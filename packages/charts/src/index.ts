@@ -44,7 +44,7 @@ export type {
   GlyphChartPlacedLabel,
 } from "./labels";
 
-export { renderGlyphChart, glyphChartRegionFill, GLYPH_CHART_TARGET_DEFAULTS } from "./render";
+export { renderGlyphChart, buildGlyphChart, encodeGlyphChart, glyphChartRegionFill, GLYPH_CHART_TARGET_DEFAULTS } from "./render";
 export { GLYPH_CHART_AXIS_DEFAULT_COLOR } from "./layout";
 export { renderGlyphChartJson } from "./json";
 export { glyphChartScaleDomains } from "./domains";
@@ -53,6 +53,7 @@ export type { GlyphChartSeriesPreviewEntry } from "./seriesPublic";
 
 export type {
   GlyphChartAxisOptions,
+  GlyphChartBuild,
   GlyphChartCharset,
   GlyphChartChannels,
   GlyphChartChannelValue,
@@ -67,11 +68,13 @@ export type {
   GlyphChartMarkRow,
   GlyphChartMarkType,
   GlyphChartMeta,
+  GlyphChartPlotRect,
   GlyphChartRegionFill,
   GlyphChartRegionFillReason,
   GlyphChartRegionFillResolution,
   GlyphChartRenderOptions,
   GlyphChartReport,
+  GlyphChartResolved,
   GlyphChartResult,
   GlyphChartScaleOptions,
   GlyphChartSpec,

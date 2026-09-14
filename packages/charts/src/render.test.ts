@@ -89,7 +89,18 @@ describe("renderGlyphChart — legend option", () => {
     expect(off.meta).toEqual(on.meta);
     expect(off.meta.series).toEqual(["North", "South"]);
     expect(off.report.ledger.some((entry) => entry.code === "legend-dropped")).toBe(false);
-    expect(renderGlyphChart(spec, options)).toEqual(on);
+    // `build.canvas`/`build.colorCanvas` (Packet F1) carry live painter
+    // methods, so two separately-built `GlyphCanvas`es are never
+    // `toEqual` (different closures per call) even when byte-identical —
+    // compare the JSON-serializable surface plus the grid's own data.
+    const defaulted = renderGlyphChart(spec, options);
+    expect(defaulted.text).toBe(on.text);
+    expect(defaulted.html).toBe(on.html);
+    expect(defaulted.meta).toEqual(on.meta);
+    expect(defaulted.report).toEqual(on.report);
+    expect(defaulted.build.canvas.grid).toEqual(on.build.canvas.grid);
+    expect(defaulted.build.plot).toEqual(on.build.plot);
+    expect(defaulted.build.resolved).toEqual(on.build.resolved);
   });
 
   it("does not report an intentionally hidden legend as dropped in a small viewport", () => {
@@ -172,7 +183,7 @@ describe("renderGlyphChart — honesty", () => {
   it("an all-zero series renders with no filled cells (never NaN/garbage)", () => {
     const r = renderGlyphChart(glyphChartBar([0, 0, 0]), { target: "chat", width: 30, height: 12, color: "none" });
     // Mutation: inclusive baseline -> three one-cell bars appear.
-    expect(r.grid.char.filter((c) => c === "█")).toHaveLength(0);
+    expect(r.build.canvas.grid.char.filter((c) => c === "█")).toHaveLength(0);
     expect(r.text).not.toContain("undefined");
     expect(r.text).not.toContain("NaN");
   });
@@ -237,8 +248,8 @@ describe("renderGlyphChart — web target", () => {
   it("defaults the bare call (no options object) to the web target", () => {
     const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8]));
     expect(r.html).toBeDefined();
-    expect(r.grid.cols).toBe(96);
-    expect(r.grid.rows).toBe(32);
+    expect(r.build.canvas.grid.cols).toBe(96);
+    expect(r.build.canvas.grid.rows).toBe(32);
   });
 });
 

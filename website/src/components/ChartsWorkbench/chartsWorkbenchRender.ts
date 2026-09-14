@@ -287,8 +287,9 @@ function renderSpec(input: GlyphChartInput, options: GlyphChartRenderOptions, lo
     const downgraded = chatCharsetDowngrade(options);
     const charsetDowngraded = downgraded !== options;
     const result = renderGlyphChart(input, downgraded);
-    const text = Array.from({ length: result.grid.rows }, (_, row) =>
-      result.grid.char.slice(row * result.grid.cols, (row + 1) * result.grid.cols).join("")
+    const grid = result.build.canvas.grid;
+    const text = Array.from({ length: grid.rows }, (_, row) =>
+      grid.char.slice(row * grid.cols, (row + 1) * grid.cols).join("")
     ).join("\n");
     // `html` is produced for `color: "css"` on every target, and for any
     // OTHER colour mode once `textScale > 1` (N2) — the library has no

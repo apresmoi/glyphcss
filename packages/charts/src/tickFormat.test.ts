@@ -342,8 +342,8 @@ it("a chat-target render with currency on y and month on x", () => {
     axes: { y: { format: { preset: "currency", symbol: "$" } }, x: { format: "month", title: "" } },
   });
   const r = renderGlyphChart(spec, { target: "chat", color: "none" });
-  expect(r.grid.cols).toBe(72);
-  expect(r.grid.rows).toBe(24);
+  expect(r.build.canvas.grid.cols).toBe(72);
+  expect(r.build.canvas.grid.rows).toBe(24);
   expect(r.text).toMatch(/\$[\d,]+/);
   expect(r.text).toMatch(/[A-Z][a-z]{2} 2024/);
 });

@@ -11,7 +11,7 @@ function disc(r: GlyphChartResult): string[] {
   // non-space cell but the last row IS the disc" — a callout's own leader/
   // label glyphs would otherwise land in that same slice and corrupt the
   // glyph-area ratios these regression tests exist to pin.
-  return r.grid.char.slice(0, -r.grid.cols).filter((c) => c !== " ");
+  return r.build.canvas.grid.char.slice(0, -r.build.canvas.grid.cols).filter((c) => c !== " ");
 }
 function shares(cells: readonly string[], glyphs: readonly string[]): number[] {
   return glyphs.map((glyph) => cells.filter((c) => c === glyph).length / cells.length);
@@ -99,7 +99,7 @@ describe("Phase 1 round 2 arc regressions", () => {
     const insideDisc: string[] = [];
     for (let y = 0; y < height; y++) {
       for (let x = 0; x < width; x++) {
-        const c = r.grid.char[y * width + x]!;
+        const c = r.build.canvas.grid.char[y * width + x]!;
         if (!glyphs.includes(c)) continue;
         const dx = (x - cx) / rx, dy = (y - cy) / ry;
         if (dx * dx + dy * dy <= 1) insideDisc.push(c);

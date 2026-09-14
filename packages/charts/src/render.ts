@@ -1,7 +1,16 @@
 /**
  * `renderGlyphChart` — the public render entry (PLAN.md Phase 1 §"Public
- * render"). Runs `spec → resolveScales → budget-first layout →
- * paint → encode` and returns `{ text, html?, grid, meta, report }`.
+ * render"; split into a model + exits by Packet F1, AGENTS.md's "Charts"
+ * §4). Runs `spec → resolveScales → budget-first layout → paint → encode`
+ * and returns `{ text, html?, build, meta, report }`.
+ *
+ * The MODEL step (`buildGlyphChart`) and the ENCODE step
+ * (`encodeGlyphChart`) are now public on their own: a caller building a
+ * texture, a decal, or a scene object (F2/F3/F4) needs the painted
+ * `GlyphCanvas`es without paying for — or duplicating — the plain-text/HTML
+ * string work. `renderGlyphChart` itself is exactly `buildGlyphChart` +
+ * `encodeGlyphChart`, so its OWN behaviour is unchanged; only the shape of
+ * its result changed (`grid` → `build`, Packet F1's public break).
  *
  * `text` is the ENCODED string for the call's own `color` setting — raw
  * (`encodeGlyphCanvasText`) when `color: "none"`, SGR (`encodeGlyphCanvasAnsi`)
@@ -49,6 +58,7 @@ import {
   validateGlyphChartLegendOption, validateGlyphChartRegionFill, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
 } from "./validate";
 import type {
+  GlyphChartBuild,
   GlyphChartCharset,
   GlyphChartColorMode,
   GlyphChartDetail,
@@ -135,7 +145,15 @@ export function glyphChartRegionFill(input: GlyphChartInput, options: GlyphChart
   });
 }
 
-export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartResult {
+/**
+ * The MODEL step (AGENTS.md's "Charts" §4, Packet F1): validate → resolve →
+ * scales → budget-first layout → paint, with no encoding. `encodeGlyphChart`
+ * turns the result into a `text`/`html` string; `renderGlyphChart` is
+ * exactly the two composed. A later bridge (`glyphChartTextureSampler`,
+ * `glyphChartPlaneObject`, `composeGlyphChartEffects` — F2/F3/F4) starts
+ * here too, so this is the one place the paint actually happens.
+ */
+export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartBuild {
   const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
   // `spec.title`/`spec.legend` are validated inside `validateGlyphChartSpec`
   // above; `options.legend` is a render-only override with the identical
@@ -167,11 +185,11 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   // can carry series identity; suppressed colour needs monochrome styles.
   const colorEnabled = glyphChartColorEnabled(color, options.env);
   const regionFill = resolveGlyphChartRegionFill(marks, { requested: options.regionFill ?? "auto", color, colorEnabled, target });
-  // `canvas` is ALWAYS the textured paint: it feeds `grid` and every
-  // colour-free exit, so a coloured chart's plain text still tells its
-  // series apart. A solid resolution paints a second canvas that only the
-  // colour-carrying exits read; its ledger is the same paint's and is
-  // discarded (`DIAGNOSIS-solid-colour-fills.md` §4).
+  // `canvas` is ALWAYS the textured paint: it feeds every colour-free exit
+  // (and a chart-as-texture, F2), so a coloured chart's plain text still
+  // tells its series apart. A solid resolution paints a second canvas that
+  // only the colour-carrying exits read; its ledger is the same paint's and
+  // is discarded (`DIAGNOSIS-solid-colour-fills.md` §4).
   paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale }, ledger);
   let colorCanvas = canvas;
   if (regionFill.fill === "solid") {
@@ -181,32 +199,6 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
     ledger.push(ledgerRegionFillSolidRefused({ reason: regionFill.reason, explanation: regionFill.message, ...(regionFill.colliding ? { colliding: regionFill.colliding } : {}) }));
   }
 
-  let text: string;
-  let html: string | undefined;
-  if (color === "none") {
-    text = encodeGlyphCanvasText(canvas);
-    // No colour was painted (`colorEnabled` is false), so the canvas
-    // already carries none — `encodeGlyphCanvasHtml` needs no `recolor` to
-    // stay colourless; it exists purely to recover the `.glyph-text`
-    // scaled-text markup for `textScale > 1` (N2, this file's own doc).
-    if (textScale > 1) html = encodeGlyphCanvasHtml(canvas);
-  } else if (color === "css") {
-    text = encodeGlyphCanvasText(canvas);
-    html = encodeGlyphCanvasHtml(colorCanvas);
-  } else {
-    text = encodeGlyphCanvasAnsi(colorCanvas, { colors: ansiColorMode(color), env: options.env });
-    if (textScale > 1) {
-      // `truecolor`'s `colorEnabled` is identical to `css`'s own, so its
-      // canvas (and thus its `html`) is already byte-identical — no
-      // recolour needed. `ansi16`/`ansi256` requantize per span to the
-      // SAME palette `encodeGlyphCanvasAnsi` above just downgraded to.
-      const recolor = color === "truecolor"
-        ? undefined
-        : (hex: string) => nearestAnsiCanvasColor(hex, color === "ansi16" ? "16" : "256");
-      html = encodeGlyphCanvasHtml(colorCanvas, recolor ? { recolor } : {});
-    }
-  }
-
   const series = seriesNames(marks);
   const values = marks.reduce(
     (n, m) => n + (m.mark.type === "rule" ? (m.ruleValues?.length ?? 0) : m.rows.length),
@@ -214,9 +206,9 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
   );
 
   return {
-    text,
-    ...(html !== undefined ? { html } : {}),
-    grid: { cols: width, rows: height, char: canvas.grid.char.slice() },
+    canvas,
+    colorCanvas,
+    plot: layout.plot,
     meta: {
       title: spec.title === undefined ? null : typeof spec.title === "string" ? spec.title : spec.title.text,
       series,
@@ -228,5 +220,53 @@ export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRend
       unsupportedGlyphs: canvas.report.unsupportedGlyphs.slice(),
       routeConflicts: canvas.report.routeConflicts.slice(),
     },
+    resolved: { target, charset, color, width, height, detail, cellAspect, textScale, env: options.env },
+  };
+}
+
+/**
+ * The ENCODE step (Packet F1): turns a `GlyphChartBuild` into a `text` or
+ * `html` string, replaying exactly the exit rule this file's own header doc
+ * states — `text` always reads the plain `canvas` under `none`/`css` and the
+ * ANSI-encoded `colorCanvas` under an ANSI mode; `html` always reads
+ * `colorCanvas` (which IS `canvas` whenever `regionFill` didn't resolve
+ * solid, so `color: "none"`'s `html` is colourless without a special case),
+ * recoloured per span for `ansi16`/`ansi256` to the exact palette
+ * `encodeGlyphCanvasAnsi` itself downgrades to. `renderGlyphChart` decides
+ * WHETHER to call this for `"html"` (its own `color === "css" ||
+ * textScale > 1` rule); this function only decides HOW.
+ */
+export function encodeGlyphChart(build: GlyphChartBuild, exit: "text" | "html"): string {
+  const { canvas, colorCanvas, resolved } = build;
+  if (exit === "text") {
+    if (resolved.color === "none" || resolved.color === "css") return encodeGlyphCanvasText(canvas);
+    return encodeGlyphCanvasAnsi(colorCanvas, { colors: ansiColorMode(resolved.color), env: resolved.env });
+  }
+  if (resolved.color === "ansi16" || resolved.color === "ansi256") {
+    const depth = resolved.color === "ansi16" ? "16" : "256";
+    return encodeGlyphCanvasHtml(colorCanvas, { recolor: (hex: string) => nearestAnsiCanvasColor(hex, depth) });
+  }
+  // `none`: colourless already (`colorCanvas === canvas`, `colorEnabled`
+  // false). `css`/`truecolor`: `colorCanvas` already carries the real
+  // colour, so no recolour is needed either.
+  return encodeGlyphCanvasHtml(colorCanvas);
+}
+
+export function renderGlyphChart(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartResult {
+  const build = buildGlyphChart(input, options);
+  const text = encodeGlyphChart(build, "text");
+  // `html` follows `buildGlyphChart`'s own doc: always present under
+  // `color: "css"`; otherwise only once `textScale > 1` gives it something
+  // to carry (the `.glyph-text` scaled-text markup, N2 in this file's
+  // header doc).
+  const html = build.resolved.color === "css" || build.resolved.textScale > 1
+    ? encodeGlyphChart(build, "html")
+    : undefined;
+  return {
+    text,
+    ...(html !== undefined ? { html } : {}),
+    build,
+    meta: build.meta,
+    report: build.report,
   };
 }

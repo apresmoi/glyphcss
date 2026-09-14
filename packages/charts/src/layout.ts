@@ -21,7 +21,7 @@ import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScale, GlyphChartResolvedScales, GlyphChartTick } from "./scales";
 import type {
   GlyphChartCharset, GlyphChartDetail, GlyphChartLegendOption, GlyphChartLegendPlacement,
-  GlyphChartSpec, GlyphChartTitleAlign, GlyphChartTitleOption, GlyphChartTitlePosition,
+  GlyphChartPlotRect, GlyphChartSpec, GlyphChartTitleAlign, GlyphChartTitleOption, GlyphChartTitlePosition,
   GlyphChartXAxisTitleAt, GlyphChartYAxisTitleAt,
 } from "./types";
 
@@ -91,12 +91,11 @@ export interface GlyphChartLayoutTick {
   readonly labelStart: number;
 }
 
-export interface GlyphChartPlotRect {
-  readonly x0: number;
-  readonly y0: number;
-  readonly x1: number;
-  readonly y1: number;
-}
+// `GlyphChartPlotRect` now lives in `./types` — it is part of the public
+// `GlyphChartBuild.plot` shape (Packet F1), so `types.ts` is its canonical
+// home; re-exported here so every existing `from "./layout"` import keeps
+// working unchanged.
+export type { GlyphChartPlotRect } from "./types";
 
 export interface GlyphChartLegendItem {
   readonly label: string;

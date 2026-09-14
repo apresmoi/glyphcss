@@ -224,7 +224,7 @@ describe("arc callouts: leader + name · NN% label per slice", () => {
       const discEdgeCol = sign > 0 ? Math.floor(radii.cx + edgeDx) : Math.ceil(radii.cx - edgeDx);
       const outCol = discEdgeCol + sign;
       firstCells.push([outCol, anchorRow]);
-      expect(r.grid.char[anchorRow * r.grid.cols + outCol]).not.toBe(" ");
+      expect(r.build.canvas.grid.char[anchorRow * r.build.canvas.grid.cols + outCol]).not.toBe(" ");
     }
     // No two slices' own first leader cell coincide.
     const keys = firstCells.map(([x, y]) => `${x},${y}`);
@@ -334,11 +334,11 @@ describe("P1-1: the web target's disc is a circle on REAL glass, not merely in c
       legend: false,
       cellAspect,
     });
-    const cols = r.grid.cols, rows = r.grid.rows;
+    const cols = r.build.canvas.grid.cols, rows = r.build.canvas.grid.rows;
     let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
     for (let y = 0; y < rows; y++) {
       for (let x = 0; x < cols; x++) {
-        const c = r.grid.char[y * cols + x];
+        const c = r.build.canvas.grid.char[y * cols + x];
         if (c === " " || c === "") continue;
         minCol = Math.min(minCol, x); maxCol = Math.max(maxCol, x);
         minRow = Math.min(minRow, y); maxRow = Math.max(maxRow, y);

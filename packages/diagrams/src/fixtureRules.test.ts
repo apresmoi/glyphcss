@@ -24,7 +24,7 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
       for (const p of route.cells) expect(r.layout.nodes.some((n) => inside(p, n)), route.edge.id).toBe(false);
       const port = r.layout.ports.find((p) => p.edgeId === route.edge.id && p.end === "to")!;
       const arrow = { n: "s", s: "n", e: "w", w: "e" }[port.side] as "n" | "s" | "e" | "w";
-      expect(r.grid.char[port.anchor.y * r.grid.cols + port.anchor.x]).toBe(GLYPH_CANVAS_TIERS[charset].arrow[arrow]);
+      expect(r.canvas.grid.char[port.anchor.y * r.canvas.grid.cols + port.anchor.x]).toBe(GLYPH_CANVAS_TIERS[charset].arrow[arrow]);
       expect(route.cells.at(-1)).toEqual(port.escape);
     }
     const segments = r.routes.map((route) => route.cells.slice(1).map((b, i) => ({ a: route.cells[i]!, b, horizontal: b.y === route.cells[i]!.y })));
@@ -35,12 +35,12 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     }
     for (const node of r.layout.nodes) {
       const top = node.y0 + Math.floor((node.height - node.lines.length) / 2);
-      node.lines.forEach((line, i) => expect(r.grid.char.slice((top + i) * r.grid.cols + node.x0 + 1, (top + i) * r.grid.cols + node.x1).join("")).toContain(line));
+      node.lines.forEach((line, i) => expect(r.canvas.grid.char.slice((top + i) * r.canvas.grid.cols + node.x0 + 1, (top + i) * r.canvas.grid.cols + node.x1).join("")).toContain(line));
     }
     const obstacles = [...r.layout.nodes, ...r.routes.flatMap((route) => route.cells.map((p) => ({ x0: p.x, x1: p.x, y0: p.y, y1: p.y })))];
     r.labels.forEach((label, i) => {
       for (const rect of [...obstacles, ...r.labels.slice(0, i)]) expect(glyphDiagramRectsOverlap(label, rect)).toBe(false);
-      expect(r.grid.char.slice(label.y * r.grid.cols + label.x, label.y * r.grid.cols + label.x + label.text.length).join("")).toBe(label.text);
+      expect(r.canvas.grid.char.slice(label.y * r.canvas.grid.cols + label.x, label.y * r.canvas.grid.cols + label.x + label.text.length).join("")).toBe(label.text);
     });
     for (const route of r.routes.filter((route) => route.edge.label)) {
       const label = r.labels.find((l) => l.id === `edge:${route.edge.id}`)!;
@@ -99,10 +99,10 @@ it.each(["box", "ascii"] as const)("%s painter distinguishes a real merge from a
   const second = { id: "b", from: "top", to: "bottom", style: "undirected" as const };
   const layout = { nodes: [], edges: [first, second], ports: [], groups: [], direction: "TB" as const, width: 12, height: 10, ledger: [] };
   const crossing = paintGlyphDiagram(layout, { routes: [{ edge: first, cells: horizontal }, { edge: second, cells: vertical }], unroutable: [], ledger: [] }, { width: 12, height: 10, charset });
-  expect(crossing.grid.char[4 * 12 + 5]).toBe(GLYPH_CANVAS_TIERS[charset].hop.h);
+  expect(crossing.canvas.grid.char[4 * 12 + 5]).toBe(GLYPH_CANVAS_TIERS[charset].hop.h);
   expect(crossing.ledger).toEqual([]);
   const mergeCells = [...vertical.slice(0, 4), ...horizontal.slice(5)];
   const merge = paintGlyphDiagram(layout, { routes: [{ edge: first, cells: horizontal }, { edge: { ...second, to: "right" }, cells: mergeCells }], unroutable: [], ledger: [] }, { width: 12, height: 10, charset });
-  expect(merge.grid.char[4 * 12 + 5]).toBe(GLYPH_CANVAS_TIERS[charset].junction[11]);
+  expect(merge.canvas.grid.char[4 * 12 + 5]).toBe(GLYPH_CANVAS_TIERS[charset].junction[11]);
   expect(merge.ledger).toEqual([]);
 });
