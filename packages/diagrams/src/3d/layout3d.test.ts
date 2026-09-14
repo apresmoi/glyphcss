@@ -261,7 +261,7 @@ describe("layout3d — size compression (D2 round 4, unaffected by D2 round 5's 
     expect(big.half[2]).toBeCloseTo(small.half[2], 6);
   });
 
-  it("a node with NO explicit size is untouched by another node's compression, and its default depth/height follow the brief's own 0.35-0.5x-of-front-face band (mutation: apply compression graph-wide, or use a flat constant depth) → red", async () => {
+  it("a node with NO explicit size is untouched by another node's compression, and its default depth/height follow D2 round 6's own (deeper) depth-factor band (mutation: apply compression graph-wide, or use a flat constant depth) → red", async () => {
     const graph: GlyphGraph = {
       direction: "LR",
       nodes: [
@@ -274,8 +274,13 @@ describe("layout3d — size compression (D2 round 4, unaffected by D2 round 5's 
     const plain = laid.nodes.find((nd) => nd.id === "plain")!;
     const width = plain.half[0] * 2, height = plain.half[2] * 2, depth = plain.half[1] * 2;
     const ratio = depth / Math.min(width, height);
-    expect(ratio).toBeGreaterThan(0.3);
-    expect(ratio).toBeLessThan(0.6);
+    // D2 round 6 ("the 3D reads too faintly... make depth big enough to show
+    // it; 0.35-0.5x min(w,h) may be too shallow at these sizes") raised
+    // `GLYPH_DIAGRAM_3D_DEPTH_FACTOR` from round 4/5's 0.35-0.5x band to
+    // 0.6x — this node's own default (unfloored, uncompressed) depth is
+    // exactly `DEPTH_FACTOR * min(width, height)`.
+    expect(ratio).toBeGreaterThan(0.5);
+    expect(ratio).toBeLessThanOrEqual(0.6 + 1e-9);
   });
 });
 

@@ -14,7 +14,8 @@ import cycle from "../../../../packages/diagrams/fixtures/cycle.mmd?raw";
 import subgraph from "../../../../packages/diagrams/fixtures/subgraph.mmd?raw";
 import langgraph from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
 import agentSupervisor from "../../../../packages/diagrams/fixtures/agent-supervisor.mmd?raw";
-import karateClub from "../../../../packages/diagrams/fixtures/karate-club.mmd?raw";
+import lenet5Cnn from "../../../../packages/diagrams/fixtures/lenet5-cnn.json?raw";
+import transformerEncoder from "../../../../packages/diagrams/fixtures/transformer-encoder.json?raw";
 
 const crewSource = `flowchart LR
   request[Request] --> manager[Manager]
@@ -43,6 +44,21 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   { id: "subgraph", label: "Subgraph", source: subgraph },
   { id: "langgraph", label: "LangGraph agent", source: langgraph },
   { id: "crew", label: "CrewAI-style crew", source: crewSource },
+  // D2 round 6 — the 3D tray order is LeNet-5, Transformer, Agent
+  // supervisor, Multi-agent crew. The first two are JSON-sourced
+  // (`sourceKind: "json"`, `apply-preset`'s own branch below): Mermaid has
+  // no syntax for `GlyphGraphNode.size` (AGENTS.md's "Diagrams 3D"), and
+  // that per-node explicit sizing is the entire point of both fixtures (a
+  // CNN's shrinking activation maps, a transformer block's uniform stack) —
+  // round-tripping them through Mermaid would silently drop it.
+  {
+    id: "lenet5-3d", label: "LeNet-5 CNN (3D, example)", source: lenet5Cnn, sourceKind: "json" as const,
+    dimension: "3d" as const, view3d: { layout: "layered" as const },
+  },
+  {
+    id: "transformer-3d", label: "Transformer encoder (3D, example)", source: transformerEncoder, sourceKind: "json" as const,
+    dimension: "3d" as const, view3d: { layout: "layered" as const },
+  },
   {
     id: "agent-supervisor-3d", label: "Agent supervisor (3D, example)", source: agentSupervisor,
     dimension: "3d" as const, view3d: { layout: "layered" as const },
@@ -50,10 +66,6 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   {
     id: "crew-3d", label: "Multi-agent crew (3D, example)", source: crewSource,
     dimension: "3d" as const, view3d: { layout: "layered" as const },
-  },
-  {
-    id: "karate-club-3d", label: "Zachary's karate club (3D)", source: karateClub,
-    dimension: "3d" as const, view3d: { layout: "force" as const },
   },
 ] as const;
 
@@ -232,7 +244,14 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
     case "apply-preset": {
       const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((item) => item.id === action.id);
       if (!preset) return state;
-      const graph = glyphGraphFromMermaid(preset.source);
+      // D2 round 6 — a preset whose own `sourceKind` is `"json"` (LeNet-5,
+      // Transformer: explicit per-node `size`, no Mermaid vocabulary for
+      // it) parses/authors through the JSON path instead of Mermaid's; the
+      // Mermaid TAB still gets a real (size-less) derived rendering rather
+      // than being left stale, the same "switching tabs refreshes from the
+      // authoritative source" rule `set-editor` already follows.
+      const isJsonSource = "sourceKind" in preset && preset.sourceKind === "json";
+      const graph = isJsonSource ? glyphGraphFromJson(JSON.parse(preset.source)) : glyphGraphFromMermaid(preset.source);
       // A 3D preset (`dimension: "3d"`) switches the viewport AND resets
       // `camera3d` to `undefined` so the newly-mounted object re-runs the
       // library's own auto-fit (AGENTS.md D3: never a page-tuned camera) —
@@ -241,7 +260,10 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
       // next graph's own Rail/Dock reading.
       const is3d = "dimension" in preset && preset.dimension === "3d";
       const view3dPatch = is3d && "view3d" in preset ? preset.view3d : GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D;
-      return { ...state, sourceKind: "mermaid", mermaid: preset.source, json: JSON.stringify(graph, null, 2), nodes: graph.nodes, edges: graph.edges,
+      return { ...state, sourceKind: isJsonSource ? "json" : "mermaid",
+        mermaid: isJsonSource ? glyphDiagramsWorkbenchMermaid(graph) : preset.source,
+        json: isJsonSource ? preset.source : JSON.stringify(graph, null, 2),
+        nodes: graph.nodes, edges: graph.edges,
         tableGraph: { groups: graph.groups, direction: graph.direction },
         layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label },
         view: is3d ? "3d" : "2d", view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined,
@@ -319,7 +341,17 @@ export function glyphDiagramsWorkbenchMermaid(graph: GlyphGraph): string {
     return [node.id, id];
   }));
   const label = (text: string) => `"${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\\/g, "&#92;").replace(/\n/g, "<br/>")}"`;
-  const shapes = { rect: ["[", "]"], rounded: ["(", ")"], diamond: ["{", "}"], circle: ["((", "))"], subroutine: ["[[", "]]"], asymmetric: [">(", "]"], stadium: ["([", "])"] };
+  // D2 round 6 — `cylinder` (the LeNet-5 preset's own `embed`-style
+  // datastore nodes) was missing here entirely, crashing this function the
+  // first time a JSON-sourced 3D preset needed a Mermaid-tab rendering
+  // (`apply-preset`'s own JSON branch). Mermaid's real cylinder/database
+  // token is `[( )]` — the mermaid ADAPTER (`packages/diagrams/src/mermaid.ts`)
+  // does not parse it back into `shape: "cylinder"` yet (AGENTS.md's own
+  // "JSON-only shape today" — the library side of this gap, out of scope
+  // here), so this is a best-effort DISPLAY string, not a round-trippable
+  // one; the JSON tab stays authoritative for a `cylinder` node exactly
+  // like it already is for `size`.
+  const shapes = { rect: ["[", "]"], rounded: ["(", ")"], diamond: ["{", "}"], circle: ["((", "))"], subroutine: ["[[", "]]"], asymmetric: [">(", "]"], stadium: ["([", "])"], cylinder: ["[(", ")]"] };
   const groups = graph.groups ?? [];
   // Same collision avoidance as node aliases: a group whose own id already
   // happens to equal another group's generated fallback alias (e.g.

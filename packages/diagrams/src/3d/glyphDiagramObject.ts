@@ -152,28 +152,77 @@ export interface GlyphDiagram3dLabelPlacement {
  * options.
  *
  * **D2 round 5 fix** — `"inside"`'s own anchor now sits on the node's own
- * FRONT face explicitly (`center[1] - half[1]`, i.e. local depth 0), never
- * `center[1]` (the box's own CENTRE depth, `half[1]` behind the front
- * face): under the old per-direction system `center[1]` genuinely WAS a
- * node's depth-axis position (there was no separate "front vs centre"
- * concept), but this round's boxes are centred `half[1]` BEHIND their own
- * visible front plane by construction (so they extrude backward from it),
- * and depth has a real, nonzero row-coefficient under the fixed camera
- * (`glyphDiagram3dPlaneAxes`'s own doc) — leaving `center[1]` in place
- * would draw an "inside" label floating a fraction of a row ABOVE the
- * box's own visible top edge instead of sitting on it. `"side"`/`"below"`
- * keep `center[1]` (the pinned "leader touches its own object" test's own
- * exact value) — their anchor is already OUTSIDE the box in a different
- * axis, so the small depth offset is immaterial there.
+ * FRONT face explicitly (`center - half[1]*n`, i.e. local depth 0), never
+ * `center` (the box's own CENTRE depth, `half[1]` behind the front
+ * face): under the old per-direction system the node's own depth axis
+ * genuinely WAS a literal world axis (there was no separate "front vs
+ * centre" concept, and no non-axis-aligned `n` to speak of), but this
+ * round's boxes are centred `half[1]` BEHIND their own visible front plane
+ * by construction (so they extrude backward from it) — leaving the centre
+ * in place would draw an "inside" label floating off the box's own visible
+ * top edge instead of sitting on it.
+ *
+ * **D2 round 6 fix (labels misplaced/overflowing under a non-axis-aligned
+ * plane)** — every anchor below now moves along the node's own `u`/`n`
+ * GROUND VECTORS (`axes`, default the identity pair — byte-identical for
+ * `force` layout, whose axes genuinely ARE world X/Y, and for a bare unit
+ * test that passes no `axes` at all), never a literal `center[0]`/`center[1]`
+ * COMPONENT shift. `glyphDiagram3dPlaneAxes`'s own `u`/`n` are NOT
+ * axis-aligned in general (at the module's own default `rotY: 30`,
+ * `u ≈ [-0.5, 0.866, 0]`) — round 5 shipped this function still doing
+ * `center[0] + half[0]` (literally "move by `half[0]` along world X"),
+ * which is only correct when `u === [1,0,0]` exactly (the `force` layout's
+ * own case, which is why the existing pinned tests — built with an
+ * arbitrary `center`/`half` and no `axes` at all — never caught it). Under
+ * the real LAYERED plane this put a `"side"` label's `leaderFrom` many
+ * world units from the node's own edge (measured on the transformer
+ * fixture's `embed` node: the buggy point landed at `[2.3, 7.4, -0.5]`
+ * against the correct `[-11.9, 15.6, -6.5]`) and an `"inside"` label's
+ * anchor off the node's own front-face plane by `half[1] * (1 - |n[y]|)`
+ * world units. `"below"` needed no fix — it moves along literal world Z
+ * only, which has zero screen-column contribution under this camera
+ * regardless of `u`/`n` (`layout3d.ts`'s own doc), so a Z-only shift was
+ * already correct in every basis.
+ *
+ * **D2 round 6 fix (labels overflowing their own block)** — `screenWidthCols`,
+ * when given, is the node's own front face's REAL PROJECTED SCREEN WIDTH
+ * (columns) and REPLACES `node.half[0] * 2` (world units) as the "does it
+ * fit" / clip budget. These are NOT the same quantity and conflating them
+ * was the actual defect: a node's own front-face width in WORLD units maps
+ * to screen columns at `worldWidth * zoom / cellPxW` (`layout3d.ts`'s own
+ * width/height-scale-asymmetry doc), so at any auto-fit `zoom` below
+ * `cellPxW` (25) — the ordinary case for a multi-node diagram, since the
+ * auto-fit zooms OUT to fit the whole layout — a box's SCREEN width is
+ * narrower than its own WORLD-unit label budget, so a label the old check
+ * called "fits" (world units) genuinely overflowed on screen (measured on
+ * the transformer fixture: "Input Embedding" node half-width 9.5 world
+ * units passed the old `floor(19) >= 16` check, but at the auto-fit's
+ * `zoom: 15.4` the box's real screen width is `~11.7` columns — 4-5
+ * columns short of the 16 the label needs). `screenWidthCols` omitted
+ * falls back to the old world-unit heuristic verbatim (byte-identical),
+ * for a caller (or a pinned unit test) with no camera/zoom to derive it
+ * from; both real call sites now supply it (`glyphDiagramObject`'s stamp
+ * from the REAL `frame.camera` — correct under a live-orbited view too —
+ * and `render3d.ts`'s fit from its own closed-form projected zoom).
+ * Padding: `screenWidthCols` reserves >= 1 column on EACH side (the
+ * brief's own requirement) by budgeting `floor(screenWidthCols) - 2` cells
+ * for text, never the raw width.
  */
 export function resolveGlyphDiagram3dLabelPlacement(
   node: GlyphDiagram3dNode, rawText: string, mode: GlyphDiagram3dLabelMode = "auto",
-  sideDirection: "right" | "below" = "right",
+  sideDirection: "right" | "below" = "right", screenWidthCols?: number,
+  axes: { readonly u: Vec3; readonly n: Vec3 } = IDENTITY_AXES,
 ): GlyphDiagram3dLabelPlacement {
-  const faceWidthCells = Math.max(1, Math.floor(node.half[0] * 2));
+  const faceWidthCells = screenWidthCols !== undefined
+    ? Math.max(1, Math.floor(screenWidthCols) - 2)
+    : Math.max(1, Math.floor(node.half[0] * 2));
   const fitsInside = rawText.length <= faceWidthCells;
-  const frontY = node.center[1] - node.half[1];
-  const top: Vec3 = [node.center[0], frontY, node.center[2] + node.half[2]];
+  // Front face: `center - half[1]*n` (vector, along the plane's own depth
+  // axis) — NOT `center[1] - half[1]` (a literal world-Y component shift,
+  // wrong whenever `n` isn't `[0,1,0]`; see this function's own D2 round 6
+  // doc).
+  const front: Vec3 = [node.center[0] - node.half[1] * axes.n[0], node.center[1] - node.half[1] * axes.n[1], node.center[2]];
+  const top: Vec3 = [front[0], front[1], node.center[2] + node.half[2]];
   if (mode === "inside" || (mode === "auto" && fitsInside)) {
     const text = rawText.length > faceWidthCells ? rawText.slice(0, faceWidthCells) : rawText;
     return { anchor: top, text, isSide: false };
@@ -184,8 +233,12 @@ export function resolveGlyphDiagram3dLabelPlacement(
     const anchor: Vec3 = [node.center[0], node.center[1], node.center[2] - node.half[2] - gap];
     return { anchor, text: rawText, isSide: true, leaderFrom: bottom };
   }
-  const leaderFrom: Vec3 = [node.center[0] + node.half[0], node.center[1], top[2]];
-  const anchor: Vec3 = [node.center[0] + node.half[0] + gap, node.center[1], top[2]];
+  // Right edge: `center + half[0]*u` (vector, along the plane's own ground
+  // direction) — NOT `center[0] + half[0]` (a literal world-X component
+  // shift, wrong whenever `u` isn't `[1,0,0]`).
+  const rightEdge: Vec3 = [node.center[0] + node.half[0] * axes.u[0], node.center[1] + node.half[0] * axes.u[1], top[2]];
+  const leaderFrom: Vec3 = rightEdge;
+  const anchor: Vec3 = [rightEdge[0] + gap * axes.u[0], rightEdge[1] + gap * axes.u[1], top[2]];
   return { anchor, text: rawText, isSide: true, leaderFrom };
 }
 
@@ -430,7 +483,15 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
       for (const node of layout.nodes) {
         if (labelNodeIds && !labelNodeIds.has(node.id)) continue;
         const rawText = node.label.split("\n")[0] ?? node.id;
-        const placement = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection);
+        // D2 round 6 — the node's own REAL projected front-face screen
+        // width, from the frame's ACTUAL camera (never an estimate): two
+        // extra projections per labelled node, always correct, and correct
+        // under a live-orbited camera too (the width is re-derived every
+        // stamp call, never cached from the auto-fit's own camera).
+        const leftEdge = toWorldFrame([-node.half[0], -node.half[1], 0], node.center, axes.u, axes.n);
+        const rightEdge = toWorldFrame([node.half[0], -node.half[1], 0], node.center, axes.u, axes.n);
+        const screenWidthCols = Math.abs(project(frame, rightEdge).col - project(frame, leftEdge).col);
+        const placement = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols, axes);
         const { col: colF, row: rowF } = project(frame, placement.anchor);
         if (placement.isSide && placement.leaderFrom) {
           const from = project(frame, placement.leaderFrom), to = project(frame, placement.anchor);

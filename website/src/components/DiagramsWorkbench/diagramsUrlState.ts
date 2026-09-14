@@ -34,7 +34,7 @@ const DIAGRAM_CHARSETS: readonly GlyphDiagramCharset[] = ["ascii", "box", "block
 const DIAGRAM_COLORS: readonly GlyphDiagramColorMode[] = ["none", "ansi16", "ansi256", "truecolor", "css"];
 const DIAGRAM_DETAILS: readonly GlyphDiagramDetail[] = ["auto", "faithful", "balanced", "simplified"];
 const GRAPH_DIRECTIONS: readonly GlyphGraph["direction"][] = ["TB", "LR", "BT", "RL"];
-const GRAPH_NODE_SHAPES: readonly NonNullable<GlyphGraphNode["shape"]>[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium"];
+const GRAPH_NODE_SHAPES: readonly NonNullable<GlyphGraphNode["shape"]>[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder"];
 const GRAPH_EDGE_STYLES: readonly NonNullable<GlyphGraphEdge["style"]>[] = ["solid", "dotted", "thick", "undirected"];
 const VIEW_KINDS = ["2d", "3d"] as const;
 const VIEW3D_LAYOUTS: readonly GlyphDiagram3dLayoutKind[] = ["layered", "force"];
@@ -49,12 +49,26 @@ function oneOf<T extends string>(value: unknown, values: readonly T[]): value is
 
 function validateNode(value: unknown): GlyphGraphNode | null {
   if (!isRecord(value)) return null;
-  const { id, label, kind, group, shape } = value;
+  const { id, label, kind, group, shape, size } = value;
   if (typeof id !== "string" || typeof label !== "string") return null;
   if (kind !== undefined && typeof kind !== "string") return null;
   if (group !== undefined && typeof group !== "string") return null;
   if (shape !== undefined && !oneOf(shape, GRAPH_NODE_SHAPES)) return null;
-  return { id, label, ...(kind !== undefined ? { kind } : {}), ...(group !== undefined ? { group } : {}), ...(shape !== undefined ? { shape } : {}) };
+  // D2 round 6 — `size` (JSON-only, AGENTS.md's "Diagrams 3D": a CNN's
+  // per-layer activation-map extent, a transformer block's uniform stack)
+  // used to be silently dropped on DECODE — this function reconstructs
+  // every node field-by-field rather than spreading the raw value, and
+  // `size` was missing from that list, so the LeNet-5/Transformer 3D
+  // presets' own `?d=` round trip lost their explicit sizing.
+  let cleanSize: readonly [number, number, number] | undefined;
+  if (size !== undefined) {
+    if (!Array.isArray(size) || size.length !== 3 || !size.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
+    cleanSize = [size[0], size[1], size[2]];
+  }
+  return {
+    id, label, ...(kind !== undefined ? { kind } : {}), ...(group !== undefined ? { group } : {}),
+    ...(shape !== undefined ? { shape } : {}), ...(cleanSize !== undefined ? { size: cleanSize } : {}),
+  };
 }
 
 function validateGroup(value: unknown): GlyphGraphGroup | null {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
-import { glyphGraphFromMermaid, renderGlyphDiagram, type GlyphGraph } from "@glyphcss/diagrams";
+import { glyphGraphFromJson, glyphGraphFromMermaid, renderGlyphDiagram, type GlyphGraph } from "@glyphcss/diagrams";
 import { renderGlyphDiagram3d } from "@glyphcss/diagrams/3d";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
@@ -179,7 +179,13 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     void Promise.all(GLYPH_DIAGRAM_WORKBENCH_PRESETS.map(async (preset) => {
       try {
         if ("dimension" in preset && preset.dimension === "3d") {
-          const graph = glyphGraphFromMermaid(preset.source);
+          // D2 round 6 — a JSON-sourced 3D preset (LeNet-5, Transformer:
+          // explicit per-node `size`, no Mermaid vocabulary for it) parses
+          // through `glyphGraphFromJson`, never `glyphGraphFromMermaid`
+          // (which would either throw on the JSON text or, worse, silently
+          // parse SOME of it as garbage Mermaid).
+          const graph = "sourceKind" in preset && preset.sourceKind === "json"
+            ? glyphGraphFromJson(JSON.parse(preset.source)) : glyphGraphFromMermaid(preset.source);
           return (await renderGlyphDiagram3d(graph, { ...preset.view3d, target: "web", width: 60, height: 24 })).text;
         }
         return (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text;

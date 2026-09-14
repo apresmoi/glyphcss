@@ -82,8 +82,8 @@ import type { Vec3 } from "glyphcss";
  * relative to the fixed light — so it is chosen for shading/crease
  * contrast between front/top faces, not for the flatlayout geometry.
  */
-export const GLYPH_DIAGRAM_3D_CAMERA_ROT_X = 68;
-export const GLYPH_DIAGRAM_3D_CAMERA_ROT_Y = 30;
+export const GLYPH_DIAGRAM_3D_CAMERA_ROT_X = 58;
+export const GLYPH_DIAGRAM_3D_CAMERA_ROT_Y = 35;
 
 /**
  * The ground-plane WORLD unit vectors a fixed-yaw "architecture view"
@@ -131,8 +131,8 @@ function planePoint(u: Vec3, n: Vec3, uOffset: number, nOffset: number, zOffset:
 }
 
 /** Default node depth (world units) when no explicit `size` is given — `0.35-0.5x` the smaller of the front face's own width/height (brief's own band), floored so a degenerate (near-zero) label box still reads as a real box. */
-const GLYPH_DIAGRAM_3D_DEPTH_FACTOR = 0.42;
-const GLYPH_DIAGRAM_3D_MIN_DEPTH = 1.5;
+const GLYPH_DIAGRAM_3D_DEPTH_FACTOR = 0.6;
+const GLYPH_DIAGRAM_3D_MIN_DEPTH = 4;
 /**
  * A node's front-face HEIGHT floor (world units), applied UNCONDITIONALLY —
  * to a plain measured 2D height AND to a `size`-compressed one alike
@@ -329,7 +329,16 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   });
 
   const reserved = reserveGlyphGraphPorts({ ...measured, nodes: widenedNodes });
-  const laid = await layoutGlyphGraph(reserved, { nodesep: options.nodesep, ranksep: options.ranksep });
+  // D2 round 6 — layered's own default `nodesep` is 5, not the 2D
+  // pipeline's own 4: the agent-supervisor example's three workers all
+  // converging on one shared "reports" node (this round's own fix for the
+  // 3-back-edge routing conflict below) is UNROUTABLE at `nodesep: 4`
+  // (measured: `researcher -> reports` fails A*) and clean at `5` — one
+  // extra cell of port-lane clearance is what a 3-way fan-in needs at this
+  // graph's own density, and it costs nothing visually (still an explicit
+  // `nodesep` override is honoured verbatim).
+  const nodesep = options.nodesep ?? 5;
+  const laid = await layoutGlyphGraph(reserved, { nodesep, ranksep: options.ranksep });
   // A ROUTING MARGIN beyond the layout's own tight bounds, on EVERY SIDE —
   // a back-edge (a cycle-closing edge like the crew fixture's own
   // `review -.-> writer`, or a self-loop) must detour around the whole
@@ -366,9 +375,21 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   const nodes: GlyphDiagram3dNode[] = laid.nodes.map((n2d) => {
     const width = n2d.width, height = n2d.height;
     const compressedDepth = compressedSizes.get(n2d.id)?.[2];
-    const depth = compressedDepth !== undefined
-      ? Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, compressedDepth)
-      : Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, GLYPH_DIAGRAM_3D_DEPTH_FACTOR * Math.min(width, height));
+    // D2 round 6 — depth now scales off the node's OWN (possibly
+    // compressed) width/height for EVERY node, explicit-size or not: an
+    // explicit `size`'s own compressed depth is respected as a FLOOR
+    // (never shrunk below what the fixture asked for), but the dominant
+    // term is `DEPTH_FACTOR * min(width, height)`, same as a default node
+    // — a flat `Math.max(MIN_DEPTH, compressedDepth)` (round 6's own first
+    // cut) applied ONE uniform large depth to every explicit-size node
+    // regardless of the diagram's own node count, which is fine for a
+    // single-column diagram (spare width to spend) but genuinely wrong for
+    // a WIDE multi-node chain (LeNet-5): every node's own depth adds to the
+    // auto-fit's ROW constraint, so a flat large depth on all 8 nodes made
+    // the already width-tight diagram newly ROW-constrained too, shrinking
+    // zoom further and cramming every label together. `MIN_DEPTH` is now
+    // only a SMALL absolute floor against a genuinely degenerate box.
+    const depth = Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, GLYPH_DIAGRAM_3D_DEPTH_FACTOR * Math.min(width, height), compressedDepth ?? 0);
     const uOffset = (n2d.x0 + n2d.x1) / 2;
     const zOffset = -(n2d.y0 + n2d.y1) / 2;
     const center = planePoint(u, n, uOffset, depth / 2, zOffset);

@@ -29,7 +29,7 @@ import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from
 import type { GlyphGraph } from "../types";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
 import { glyphDiagramObject, resolveGlyphDiagram3dLabelPlacement, glyphDiagram3dLabelSideDirection, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
-import { layout3d, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dNode } from "./layout3d";
+import { layout3d, glyphDiagram3dPlaneAxes, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dNode, type GlyphDiagram3dLayoutKind } from "./layout3d";
 import {
   ledger3dArrowheadsSuppressed, ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelsSuppressed,
   ledger3dLabelUnfittable, ledger3dLayoutAutoForce,
@@ -254,6 +254,40 @@ function renderObjectFrame(objects: readonly GlyphSceneObject[], opts: { camera:
 
 interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; readonly anchor: Vec3; }
 
+const RENDER3D_IDENTITY_AXES: { readonly u: Vec3; readonly n: Vec3 } = { u: [1, 0, 0], n: [0, 1, 0] };
+
+/**
+ * The node's own front-face LEFT/RIGHT edge points (WORLD space, local
+ * depth 0 — the same face `resolveGlyphDiagram3dLabelPlacement`'s
+ * `"inside"` anchor sits on) — the SAME embedding `glyphDiagramObject.ts`'s
+ * own (private) `toWorldFrame` computes, reimplemented here (not shared)
+ * because this module only ever needs a WIDTH (a column difference), never
+ * a general local-to-world placement.
+ */
+function frontFaceEdges(node: GlyphDiagram3dNode, axes: { readonly u: Vec3; readonly n: Vec3 }): { readonly left: Vec3; readonly right: Vec3 } {
+  const [hx, hy] = node.half;
+  const base: [number, number] = [node.center[0] - hy * axes.n[0], node.center[1] - hy * axes.n[1]];
+  return {
+    left: [base[0] - hx * axes.u[0], base[1] - hx * axes.u[1], node.center[2]],
+    right: [base[0] + hx * axes.u[0], base[1] + hx * axes.u[1], node.center[2]],
+  };
+}
+
+/**
+ * D2 round 6 — the node's own front-face REAL PROJECTED SCREEN WIDTH
+ * (columns) at `zoom`, from a `zoom: 1` reference camera scaled linearly
+ * (`resolveGlyphDiagram3dLabelPlacement`'s own doc has the "why this is
+ * exact" derivation, reused here for a column DIFFERENCE rather than a
+ * single point — the additive `center`/`centerCol` terms cancel in a
+ * difference, so this is exact for ANY `center` the reference camera used).
+ */
+function frontFaceWidthCols(reference: GlyphCamera, node: GlyphDiagram3dNode, axes: { readonly u: Vec3; readonly n: Vec3 }, cols: number, rows: number, cellAspect: number, zoom: number): number {
+  const { left, right } = frontFaceEdges(node, axes);
+  const [colL] = reference.project(left, cols, rows, cellAspect);
+  const [colR] = reference.project(right, cols, rows, cellAspect);
+  return Math.abs(colR - colL) * zoom;
+}
+
 /**
  * D2 review P1-2 (codex): auto-fit must work from PROJECTED geometry PLUS
  * FULL label extents BEFORE any clipping/arbitration — never from measuring
@@ -273,12 +307,37 @@ interface FitLabel { readonly node: GlyphDiagram3dNode; readonly text: string; r
  * (`text.length > availCols`) can never fit at ANY zoom — excluded from the
  * constraint set (so it can't force every other label toward zoom zero) and
  * reported via `ledger3dLabelUnfittable` instead.
+ *
+ * **D2 round 6 — a THREE-PASS solve, not one, to close the "labels overflow
+ * their block" defect** (`resolveGlyphDiagram3dLabelPlacement`'s own doc has
+ * the root cause: a node's WORLD-unit width is not its SCREEN-column width,
+ * and the two only coincide at `zoom === cellPxW`, never guaranteed by an
+ * auto-fit that typically zooms OUT to fit a whole multi-node layout).
+ * PASS 1 solves with the OLD world-unit inside/side decision, purely to get
+ * a reasonable zoom ESTIMATE. PASS 2 re-decides every node's placement from
+ * its REAL projected screen width AT THAT ESTIMATE (a node whose world-unit
+ * budget looked wide enough can genuinely be too narrow on screen, and now
+ * falls back to `"side"` instead of silently overflowing) and re-solves —
+ * this is the FINAL zoom, since PASS 2's constraint set is the true one an
+ * "auto" mode should have used from the start. A FINAL re-clip pass then
+ * re-derives every kept `"inside"` label's text against THAT true final
+ * zoom (never pass 1's estimate) — pass 2's zoom can only be <= pass 1's
+ * (a demoted node's `"side"` placement needs MORE margin, never less), so a
+ * label clipped against the pass-1 estimate could still be a hair too wide
+ * for the true final box; re-clipping against the real final zoom is what
+ * makes "no inside-label glyph lands outside its node's projected front
+ * face" an actual guarantee rather than a usual case. `glyphDiagramObject`'s
+ * own overlay independently re-derives this SAME real screen width from the
+ * frame's ACTUAL camera at stamp time (so it also stays correct under a
+ * live-orbited view, where no auto-fit ran at all) — the two are proven to
+ * compute the identical linear quantity (this file's own `frontFaceWidthCols`
+ * doc), so they cannot predict a different landing cell for the same node.
  */
 function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram3dNode[], opts: {
   readonly cols: number; readonly rows: number; readonly cellAspect: number;
   readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[];
   readonly explicitZoom?: number; readonly title?: string; readonly labelMode?: "inside" | "side" | "auto";
-  readonly direction?: GlyphGraph["direction"];
+  readonly direction?: GlyphGraph["direction"]; readonly layoutKind?: GlyphDiagram3dLayoutKind;
 }): { readonly camera: GlyphCamera; readonly fitLabels: readonly FitLabel[]; readonly unfittable: readonly FitLabel[] } {
   const centroid = boundsCentroid(object.bounds);
   const useMat = opts.mat !== undefined;
@@ -293,85 +352,123 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
 
   const labelMode = opts.labelMode ?? "auto";
   const labelSideDirection = glyphDiagram3dLabelSideDirection(opts.direction);
-  const fitLabels: FitLabel[] = [], unfittable: FitLabel[] = [];
-  for (const node of nodes) {
-    const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
-    if (rawText.length === 0) continue;
-    // Resolve through the SAME pure function `glyphDiagramObject`'s overlay
-    // uses, so the fit's own `text`/anchor NEVER drifts from what actually
-    // gets stamped (an `inside` label's clip, or a `side` label's shifted
-    // anchor, both need to be visible to the fit or it would reserve zoom
-    // for text that was never drawn, or too little for text that was).
-    const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection);
-    if (placed.text.length > 0) fitLabels.push({ node, text: placed.text, anchor: placed.anchor });
-  }
+  const axes = opts.layoutKind === "force" ? RENDER3D_IDENTITY_AXES : glyphDiagram3dPlaneAxes(GLYPH_DIAGRAM_3D_CAMERA_ROT_Y);
+  const cols = opts.cols, rows = opts.rows;
+  const reference = makeCamera(1, [0.5, 0.5]);
 
-  if (opts.explicitZoom !== undefined) return { camera: makeCamera(opts.explicitZoom, [0.5, 0.5]), fitLabels, unfittable: [] };
+  if (opts.explicitZoom !== undefined) {
+    const camera = makeCamera(opts.explicitZoom, [0.5, 0.5]);
+    const fitLabels: FitLabel[] = [];
+    for (const node of nodes) {
+      const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
+      if (rawText.length === 0) continue;
+      const screenWidthCols = frontFaceWidthCols(reference, node, axes, cols, rows, opts.cellAspect, opts.explicitZoom);
+      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols, axes);
+      if (placed.text.length > 0) fitLabels.push({ node, text: placed.text, anchor: placed.anchor });
+    }
+    return { camera, fitLabels, unfittable: [] };
+  }
 
   const marginCols = 1;
   const marginRowTop = opts.title ? 2 : 1, marginRowBottom = 1;
-  const cols = opts.cols, rows = opts.rows;
   const availCols = Math.max(1, cols - 2 * marginCols);
   const centerCol = cols / 2, centerRow = rows / 2;
-  const reference = makeCamera(1, [0.5, 0.5]);
 
   interface ColPoint { readonly col1: number; readonly widthRight: number; }
   interface RowPoint { readonly row1: number; }
-  const colPoints: ColPoint[] = [], rowPoints: RowPoint[] = [];
-  for (const corner of boundsCorners(object.bounds)) {
-    const [col1, row1] = reference.project(corner, cols, rows, opts.cellAspect);
-    colPoints.push({ col1, widthRight: 0 });
-    rowPoints.push({ row1 });
-  }
-  const keptLabels: (FitLabel & { readonly col1: number; readonly row1: number })[] = [];
-  for (const label of fitLabels) {
-    if (label.text.length > availCols) { unfittable.push(label); continue; }
-    const [col1, row1] = reference.project(label.anchor, cols, rows, opts.cellAspect);
-    keptLabels.push({ ...label, col1, row1 });
-    colPoints.push({ col1, widthRight: label.text.length });
-    rowPoints.push({ row1 });
+
+  // Shared closed-form solve — bounds corners plus a resolved label set
+  // (anchor + already-clipped text) — reused verbatim by every pass below,
+  // never re-derived per pass.
+  function solve(labels: readonly FitLabel[]): { readonly zoom: number; readonly center: [number, number] } {
+    const colPoints: ColPoint[] = [], rowPoints: RowPoint[] = [];
+    for (const corner of boundsCorners(object.bounds)) {
+      const [col1, row1] = reference.project(corner, cols, rows, opts.cellAspect);
+      colPoints.push({ col1, widthRight: 0 });
+      rowPoints.push({ row1 });
+    }
+    for (const label of labels) {
+      const [col1, row1] = reference.project(label.anchor, cols, rows, opts.cellAspect);
+      colPoints.push({ col1, widthRight: label.text.length });
+      rowPoints.push({ row1 });
+    }
+    let zUpper = Infinity;
+    const EPS = 1e-9;
+    for (const p of colPoints) {
+      const offset = p.col1 - centerCol;
+      if (offset > EPS) zUpper = Math.min(zUpper, (cols - marginCols - p.widthRight - centerCol) / offset);
+      else if (offset < -EPS) zUpper = Math.min(zUpper, (marginCols - centerCol) / offset);
+    }
+    for (const p of rowPoints) {
+      const offset = p.row1 - centerRow;
+      if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - centerRow) / offset);
+      else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop - centerRow) / offset);
+    }
+    if (!Number.isFinite(zUpper) || zUpper <= 0) zUpper = 1; // degenerate (no geometry/labels at all) — any positive zoom is equally arbitrary
+    const finalZoom = zUpper * 0.96; // rounding safety margin (labels/corners round to the nearest cell when stamped)
+
+    // Recentre via `camera.center`, not `camera.target`: `col = centerCol +
+    // r[0]*zoom/cellPxW` and `centerCol = cols*center[0]` is a pure ADDITIVE
+    // offset in the already-rotated projection, so shifting `center` shifts
+    // every projected column by the SAME amount with no rotation to invert —
+    // shifting `target` instead moves the PRE-rotation input, which would
+    // need the camera's own inverse rotation to solve for. Recentring after
+    // `zUpper` is computed cannot break the fit it just proved: every point's
+    // span already sat inside `[margin, size-margin]` at the ORIGINAL centre,
+    // so its (unchanged) SPAN still fits once the whole content is shifted to
+    // sit symmetrically within the same interval.
+    let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+    for (const p of colPoints) {
+      const c = centerCol + (p.col1 - centerCol) * finalZoom;
+      if (c < minCol) minCol = c;
+      if (c + p.widthRight > maxCol) maxCol = c + p.widthRight;
+    }
+    for (const p of rowPoints) {
+      const r = centerRow + (p.row1 - centerRow) * finalZoom;
+      if (r < minRow) minRow = r;
+      if (r > maxRow) maxRow = r;
+    }
+    const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
+    const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
+    return { zoom: finalZoom, center };
   }
 
-  let zUpper = Infinity;
-  const EPS = 1e-9;
-  for (const p of colPoints) {
-    const offset = p.col1 - centerCol;
-    if (offset > EPS) zUpper = Math.min(zUpper, (cols - marginCols - p.widthRight - centerCol) / offset);
-    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginCols - centerCol) / offset);
+  /** Resolve every node's label at a given (possibly zero, meaning "no screen-width known yet") zoom, splitting into kept-vs-unfittable against the frame's own `availCols`. */
+  function resolveAll(zoomForWidth: number | undefined): { readonly kept: FitLabel[]; readonly unfittable: FitLabel[] } {
+    const kept: FitLabel[] = [], unfittable: FitLabel[] = [];
+    for (const node of nodes) {
+      const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
+      if (rawText.length === 0) continue;
+      const screenWidthCols = zoomForWidth === undefined ? undefined : frontFaceWidthCols(reference, node, axes, cols, rows, opts.cellAspect, zoomForWidth);
+      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols, axes);
+      if (placed.text.length === 0) continue;
+      const entry: FitLabel = { node, text: placed.text, anchor: placed.anchor };
+      if (placed.text.length > availCols) unfittable.push(entry);
+      else kept.push(entry);
+    }
+    return { kept, unfittable };
   }
-  for (const p of rowPoints) {
-    const offset = p.row1 - centerRow;
-    if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - centerRow) / offset);
-    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop - centerRow) / offset);
-  }
-  if (!Number.isFinite(zUpper) || zUpper <= 0) zUpper = 1; // degenerate (no geometry/labels at all) — any positive zoom is equally arbitrary
-  const finalZoom = zUpper * 0.96; // rounding safety margin (labels/corners round to the nearest cell when stamped)
 
-  // Recentre via `camera.center`, not `camera.target`: `col = centerCol +
-  // r[0]*zoom/cellPxW` and `centerCol = cols*center[0]` is a pure ADDITIVE
-  // offset in the already-rotated projection, so shifting `center` shifts
-  // every projected column by the SAME amount with no rotation to invert —
-  // shifting `target` instead moves the PRE-rotation input, which would
-  // need the camera's own inverse rotation to solve for. Recentring after
-  // `zUpper` is computed cannot break the fit it just proved: every point's
-  // span already sat inside `[margin, size-margin]` at the ORIGINAL centre,
-  // so its (unchanged) SPAN still fits once the whole content is shifted to
-  // sit symmetrically within the same interval.
-  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  for (const p of colPoints) {
-    const c = centerCol + (p.col1 - centerCol) * finalZoom;
-    if (c < minCol) minCol = c;
-    if (c + p.widthRight > maxCol) maxCol = c + p.widthRight;
+  // Bounded fixed-point loop, not a single 2-pass estimate: re-deciding a
+  // node's placement from its REAL screen width can only ever DEMOTE it
+  // (inside -> side, never the reverse) as the estimate's own zoom shrinks
+  // across iterations — a demoted node's `"side"` placement needs MORE
+  // margin than `"inside"` would have, so each iteration's solved zoom is
+  // monotonically <= the previous one, and the sequence converges (bounded
+  // below by the frame's own geometry-only fit). 4 iterations is ample for
+  // any real diagram (each one only reconsiders the few nodes sitting right
+  // at their own fit boundary); the LAST iteration's `resolveAll` result
+  // (re-clipped against that iteration's own solved zoom) is what ships, so
+  // the guarantee holds against the TRUE zoom the frame renders with, not
+  // an early estimate.
+  let solved = solve(resolveAll(undefined).kept);
+  let resolved = resolveAll(solved.zoom);
+  for (let i = 0; i < 3; i++) {
+    solved = solve(resolved.kept);
+    resolved = resolveAll(solved.zoom);
   }
-  for (const p of rowPoints) {
-    const r = centerRow + (p.row1 - centerRow) * finalZoom;
-    if (r < minRow) minRow = r;
-    if (r > maxRow) maxRow = r;
-  }
-  const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
-  const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
 
-  return { camera: makeCamera(finalZoom, center), fitLabels, unfittable };
+  return { camera: makeCamera(solved.zoom, solved.center), fitLabels: resolved.kept, unfittable: resolved.unfittable };
 }
 
 function resolvedTargetOptions(options: GlyphDiagram3dRenderOptions): { target: GlyphDiagram3dTarget; width: number; height: number; charset: GlyphDiagram3dCharset; color: GlyphDiagram3dColorMode } {
@@ -485,6 +582,7 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   const { camera, fitLabels, unfittable } = fitDiagramCamera(object, fitNodes, {
     cols: resolved.width, rows: resolved.height, cellAspect, rotX, rotY, mat: camOpts.mat,
     explicitZoom: camOpts.zoom, title: options.title, labelMode: options.labels, direction: effectiveDirection,
+    layoutKind: resolvedLayoutKind,
   });
   for (const label of unfittable) ledger.push(ledger3dLabelUnfittable({ nodeId: label.node.id, label: label.text, cols: resolved.width }));
 

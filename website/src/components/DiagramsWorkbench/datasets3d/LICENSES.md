@@ -6,12 +6,12 @@ illustrative example — never invented data presented as real.
 
 | Preset | Fixture | Nature | Source | Licence |
 |---|---|---|---|---|
+| LeNet-5 CNN | `packages/diagrams/fixtures/lenet5-cnn.json` | Hand-authored EXAMPLE (labelled "example" in its title) — layer shapes/sizes are a DESCRIPTION of a published architecture, not real training telemetry or vendored data. | Architecture per Y. LeCun, L. Bottou, Y. Bengio, P. Haffner, "Gradient-Based Learning Applied to Document Recognition," *Proceedings of the IEEE* 86(11), 1998. Diagram authored by the glyphcss project. | Diagram: MIT (glyphcss project). Architecture: a published description, not separately licensed data. |
+| Transformer encoder | `packages/diagrams/fixtures/transformer-encoder.json` | Hand-authored EXAMPLE (labelled "example" in its title) — a single encoder block's layer shapes are a DESCRIPTION of a published architecture, not real training telemetry or vendored data. | Architecture per A. Vaswani et al., "Attention Is All You Need," *NeurIPS*, 2017. Diagram authored by the glyphcss project. | Diagram: MIT (glyphcss project). Architecture: a published description, not separately licensed data. |
 | Agent supervisor architecture | `packages/diagrams/fixtures/agent-supervisor.mmd` | Hand-authored EXAMPLE (labelled "example" in its title) illustrating a LangGraph-style supervisor → workers pattern. Not telemetry from any real running system. | glyphcss project | MIT (glyphcss project) |
 | Multi-agent crew | inline in `diagramsWorkbenchState.ts`'s `GLYPH_DIAGRAM_WORKBENCH_PRESETS` (`"crew"`, "CrewAI-style crew") | Hand-authored EXAMPLE, already labelled "CrewAI-style" — reused verbatim as a 3D preset over the same source. | glyphcss project | MIT (glyphcss project) |
-| Zachary's karate club | `packages/diagrams/fixtures/karate-club.mmd` | Real, vendored network data — 34 members, 78 observed friendships, and the two-faction split after the club's historical fission. | W. W. Zachary, "An Information Flow Model for Conflict and Fission in Small Groups," *Journal of Anthropological Research* 33(4), 1977. Edge list and faction assignment as commonly reproduced (e.g. NetworkX's `karate_club_graph()`). | Public domain (academic data, widely reproduced) |
 
-The karate club preset renders with `layout: "force"` — force
-layout's group-attraction spring (AGENTS.md's "Diagrams 3D") uses the two
-`subgraph` blocks the fixture declares (`mr_hi`/`officer`) to pull each
-faction toward its own centroid, which is what makes the historical split
-visible as spatial clustering rather than a claim drawn on top of the data.
+D2 round 6 retired the Zachary's karate club preset (real vendored network
+data, `layout: "force"`) — an old `?d=` link naming it degrades to the
+first 3D preset (`diagramsUrlState.ts`'s own fallback) rather than
+throwing.

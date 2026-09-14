@@ -170,7 +170,21 @@ describe("DiagramsWorkbench mounted integration", () => {
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Apply ${preset.label}"]`)!.click());
     await settlePreview();
     expect(container.querySelector("[role='alert']")).toBeNull();
-    expect(container.querySelector("textarea")!.value).toBe(preset.source);
+    // D2 round 6 — a JSON-sourced preset (LeNet-5, Transformer: explicit
+    // per-node `size`, no Mermaid vocabulary for it) applies through the
+    // JSON path, so the SOURCE tab shown by default (Mermaid, still the
+    // editor's own default) displays a DERIVED (size-less) rendering, not
+    // `preset.source` verbatim. Switching to the JSON tab re-derives ITS OWN
+    // text from the graph too (`set-editor`'s own refresh-from-authoritative
+    // rule), so even there the exact BYTES can legitimately reformat (key
+    // order, `direction` placement) — compare PARSED content instead.
+    if ("sourceKind" in preset && preset.sourceKind === "json") {
+      await act(async () => button("nodes/edges JSON").click());
+      await settlePreview();
+      expect(JSON.parse(container.querySelector("textarea")!.value)).toEqual(JSON.parse(preset.source));
+    } else {
+      expect(container.querySelector("textarea")!.value).toBe(preset.source);
+    }
     const activeView = Array.from(toggleRow("View").querySelectorAll<HTMLButtonElement>("button")).find((b) => b.classList.contains("is-active"));
     expect(activeView && toggleOption(activeView)).toBe("3d");
     expect(preview().textContent).toMatch(/\S/);

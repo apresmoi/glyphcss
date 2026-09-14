@@ -238,7 +238,17 @@ describe("glyphDiagramObject", () => {
     // that SOME cell did.
     const cols = 200, rows = 100;
     const countOutlineGlyphs = async (boxOutline: boolean): Promise<number> => {
-      const object = await glyphDiagramObject(soloGraph, { tier: "box", boxOutline });
+      // D2 round 6 — `resolveGlyphDiagram3dLabelPlacement`'s own screen-width
+      // fix (real defect: a node's own label used to be checked against its
+      // WORLD-unit face width, not the SCREEN-projected one) means "Solo"'s
+      // own label can legitimately fall through to `"side"` mode at THIS
+      // test's own deliberately zoomed-out camera, whose leader-line stamp
+      // ALSO emits a `─`/`│` glyph — a real, correct consequence of the
+      // fix, but one this test's own isolation (box outline ONLY) doesn't
+      // want to count. `labelNodeIds: new Set()` suppresses every label
+      // candidate outright, the same mechanism the adaptive large-graph
+      // policy already uses (`render3d.ts`'s own doc).
+      const object = await glyphDiagramObject(soloGraph, { tier: "box", boxOutline, labelNodeIds: new Set() });
       const camera = createGlyphOrthographicCamera({ rotX: 55, rotY: 35, zoom: 8 });
       camera.target = [
         (object.bounds.min[0] + object.bounds.max[0]) / 2,
