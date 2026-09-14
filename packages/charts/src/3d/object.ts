@@ -13,7 +13,7 @@
  * re-scaled quantity an effect would have to invert.
  */
 import { gridSurfacePolygons, surfaceMedianOfBlock, createSurfaceMedianScratch } from "glyphcss";
-import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey, foldGlyphOverlayLabelToAscii } from "glyphcss";
+import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey } from "glyphcss";
 import type { GlyphCamera, GlyphSceneObject, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
 import { glyphChart3dBandColor, glyphChart3dBandIndex } from "./colorscale";
 import type { GlyphChart3dMark, GlyphChart3dObjectOptions, GlyphChart3dResolvedAxis, GlyphChart3dSurfaceMark } from "./types";
@@ -175,64 +175,6 @@ function projectObjectPoint(frame: Projector, p: Vec3): Projected {
   return { col: Math.round(result[0]), row: Math.round(result[1]), depth };
 }
 
-/**
- * Fix round 5, Item 1 ("tick labels are stamped over the surface"): a
- * per-SCREEN-CELL nearest-depth map of the mesh's OWN vertices, built
- * directly from `mark.grid`/`mark.axes` (the SAME domain-to-`[0,aspect]`
- * mapping `buildSurfaceMesh` applies — replicated here rather than shared,
- * since this overlay has no access to the already-built `Polygon[]`, only
- * the mark's own resolved data) — NOT `glyphcss`'s `CellGrid.winnerMesh`,
- * which `compileScene` only ever populates for `mode: "solid"`
- * (`compileScene.ts`'s `retainWinnerMesh: mode === "solid" && ...`): under
- * `style: "wireframe"` (the braille charset's own default) winnerMesh is
- * NEVER retained, so the `occlusionDepth`/`ownMeshIds` mechanism below —
- * correct for titles and for ticks under `solid` — silently never fires
- * there, which is exactly how round 4's own fix (dropping the tick
- * label's stray `depth`, closing a DIFFERENT bug) left braille labels with
- * NOTHING stopping them from painting straight over real surface ink
- * (measured directly against the coordinator's own report: "0", "10",
- * "20", "30" embedded inside the dense braille fill). Sampling the mesh's
- * own VERTICES (not a full triangle rasterization) is an approximation —
- * good enough at this grid's typical resolution (finer than the ~32-40 row
- * output grid almost everywhere a tick label's own screen cells fall,
- * since a tick sits at a domain EDGE where the grid's own boundary row/
- * column is always fully sampled) — verified by LOOKING at the rendered
- * frames, not assumed correct from the algorithm alone.
- */
-function buildMeshScreenDepth(mark: GlyphChart3dSurfaceMark, frame: Projector): Map<string, number> {
-  const { grid, aspect } = mark;
-  const rows = grid.z.length;
-  const cols = grid.z[0]?.length ?? 0;
-  const [xLo, xHi] = mark.axes.x.domain;
-  const [yLo, yHi] = mark.axes.y.domain;
-  const [zLo, zHi] = mark.axes.z.domain;
-  const xSpan = xHi - xLo || 1;
-  const ySpan = yHi - yLo || 1;
-  const zSpan = zHi - zLo || 1;
-  const depthByCell = new Map<string, number>();
-  for (let r = 0; r < rows; r++) {
-    const y = ((grid.y[r]! - yLo) / ySpan) * aspect[1];
-    for (let c = 0; c < cols; c++) {
-      const x = ((grid.x[c]! - xLo) / xSpan) * aspect[0];
-      const z = ((grid.z[r]![c]! - zLo) / zSpan) * aspect[2];
-      const p = projectObjectPoint(frame, [x, y, z]);
-      const key = `${p.col},${p.row}`;
-      const existing = depthByCell.get(key);
-      if (existing === undefined || p.depth > existing) depthByCell.set(key, p.depth);
-    }
-  }
-  return depthByCell;
-}
-
-/** Whole-label test against `buildMeshScreenDepth`'s own map: occluded (drop the WHOLE label, never partially) iff ANY of its own left-aligned character cells has a recorded mesh depth nearer than the label's own anchor depth. Mirrors the arbiter's own "any cell, not just the anchor" rule (AGENTS.md's "Scene objects" Occlusion clause) at the geometry level, since `winnerMesh`-based occlusion cannot see this under wireframe (see `buildMeshScreenDepth`'s own doc). */
-function tickLabelOccludedByMesh(depthByCell: Map<string, number>, labelProjected: Projected, textLength: number): boolean {
-  for (let i = 0; i < textLength; i++) {
-    const meshDepth = depthByCell.get(`${labelProjected.col + i},${labelProjected.row}`);
-    if (meshDepth !== undefined && meshDepth > labelProjected.depth) return true;
-  }
-  return false;
-}
-
 /** A straight box edge needs exactly one glyph for its whole run — the direction never changes along it. */
 function edgeGlyph(from: Projected, to: Projected): string {
   const dc = to.col - from.col, dr = to.row - from.row;
@@ -330,6 +272,88 @@ function resolveSharedCorner(ext: readonly [number, number, number], frame: Proj
   return [bit(0), bit(1), bit(2)];
 }
 
+/**
+ * USER FEEDBACK (round 6): "for the 3d charts I still cannot see the axes
+ * for the munga whau nor the alps" — reproduced directly on both real
+ * datasets at the library default camera. `resolveSharedCorner`'s own
+ * "farther face wins" rule (above) is right for the guide WALLS/GRID, which
+ * exist to sit BEHIND the data as a backdrop, but a fully opaque solid
+ * surface routinely occludes that SAME far corner entirely, and putting the
+ * axis TRIAD there too hid it completely: only two short edge stubs and a
+ * column of z tick labels survived — the reported defect.
+ *
+ * The x/y axis lines now sit on the FRONT floor edges instead — the two
+ * bottom (z=0) edges meeting at whichever of the 4 base corners is NEAREST
+ * the camera (largest projected depth). A floor edge at z=0 is, for any
+ * camera looking down at positive-height data, always at least as near the
+ * camera as the surface point directly above it, so it reads correctly as
+ * the FRAME the data sits inside — the 2D chart's own plot-rect convention,
+ * extended by one dimension, rather than round 2's "guide plane behind the
+ * data" rule (which is still right for `guides.walls`/`guides.grid`, and is
+ * untouched — see `resolveSharedCorner` above).
+ */
+function resolveFrontFloorCorner(ext: readonly [number, number, number], frame: Projector): readonly [Bit, Bit] {
+  let best: [Bit, Bit] = [0, 0];
+  let bestDepth = -Infinity;
+  for (const bx of [0, 1] as const) {
+    for (const by of [0, 1] as const) {
+      const d = projectObjectPoint(frame, [bx ? ext[0] : 0, by ? ext[1] : 0, 0]).depth;
+      if (d > bestDepth) { bestDepth = d; best = [bx, by]; }
+    }
+  }
+  return best;
+}
+
+/**
+ * The z (vertical) axis edge is resolved INDEPENDENTLY of the front floor
+ * corner above — the reported case had that same corner's own vertical edge
+ * behind the surface too at the library default camera, so pinning z to the
+ * x/y corner does not, in general, fix z's own visibility. Instead: the
+ * SILHOUETTE vertical — whichever of the 4 possible corner verticals
+ * projects furthest to one screen side (leftmost, for a stable, deterministic
+ * pick) — always stands clear of the data, since nothing in the mesh can
+ * project further left than the box's own leftmost edge. Comparing screen
+ * COLUMN (not depth) is still a pure function of camera ROTATION alone for
+ * an orthographic camera: `zoom` only scales the column delta between two
+ * candidates (never flips its sign) and `center` shifts every candidate by
+ * the same constant, so the ORDERING used here is `cols`/`rows`/`zoom`/
+ * `center`-invariant exactly like `resolveSharedCorner`'s own depth
+ * comparison is — no stored "last corner" state, naturally stable except at
+ * a genuine silhouette transition.
+ */
+function resolveSilhouetteVerticalCorner(ext: readonly [number, number, number], frame: Projector): readonly [Bit, Bit] {
+  let best: [Bit, Bit] = [0, 0];
+  let bestCol = Infinity;
+  for (const bx of [0, 1] as const) {
+    for (const by of [0, 1] as const) {
+      const col = projectObjectPoint(frame, [bx ? ext[0] : 0, by ? ext[1] : 0, 0]).col;
+      if (col < bestCol) { bestCol = col; best = [bx, by]; }
+    }
+  }
+  return best;
+}
+
+/**
+ * The two corners the axis TRIAD (lines/ticks/labels/titles) itself reads —
+ * `xy` for the x and y axes (which legitimately share one corner: the front
+ * floor corner), `z` for the z axis (independently resolved for visibility,
+ * per `resolveSilhouetteVerticalCorner`'s own doc). An explicit
+ * `axes.corner` override still pins ALL THREE to the SAME given corner
+ * (unchanged from before this round) — only `"auto"` resolution drops
+ * strict single-corner sharing, and only because enforcing it can hide an
+ * axis outright (the reported defect). `guides.walls`/`guides.box`/
+ * `guides.grid`/`floorGrid` are UNTOUCHED by this — they keep reading
+ * `resolveSharedCorner`'s own single far corner, since they are meant to sit
+ * behind the data as a backdrop, a different design goal from the triad's
+ * own "frame the data, stay visible" one.
+ */
+function resolveAxisTriadCorners(ext: readonly [number, number, number], frame: Projector, cornerOption: "auto" | Corner): { readonly xy: Corner; readonly z: Corner } {
+  if (cornerOption !== "auto") return { xy: cornerOption, z: cornerOption };
+  const [fx, fy] = resolveFrontFloorCorner(ext, frame);
+  const [zx, zy] = resolveSilhouetteVerticalCorner(ext, frame);
+  return { xy: [fx, fy, 0], z: [zx, zy, 0] };
+}
+
 function flipCorner(corner: Corner, axis: 0 | 1 | 2): Corner {
   const out: [Bit, Bit, Bit] = [corner[0], corner[1], corner[2]];
   out[axis] = corner[axis] ? 0 : 1;
@@ -405,13 +429,32 @@ function outwardPoint(axis: 0 | 1 | 2, corner: Corner, t: number, ext: readonly 
  * the plot's own bounding box, `object.test.ts`), not a claim that 2 lines
  * is the ideal look for every fixture.
  */
-const GRID_MAX_LINES_PER_SWEEP_AXIS = 2;
+const GRID_MAX_LINES_PER_SWEEP_AXIS = 1;
+/**
+ * P1-2 (codex review, round 6): the plane's own first/last tick IS the plane
+ * BOUNDARY — an edge every wall/box/axis-line write already owns (whichever
+ * of those is on, `edgeGlyph`'s own strong glyph) — so a grid line at that
+ * SAME position is a coincident, fainter duplicate of an edge some OTHER
+ * write already drew, which used to repaint a real axis-line cell with the
+ * grid's own weaker glyph (measured: a flat 8x8 surface's `grid` toggle
+ * added 0 cells and downgraded 2 axis-line cells to `┈`). Grid lines now
+ * sweep INTERIOR tick positions only — `ticks.slice(1, -1)` — so a plane
+ * with only its own two boundary ticks (no interior tick at all) draws NO
+ * grid line for that sweep axis, which is correct: there is nothing left to
+ * show once the boundary is excluded.
+ */
 function subsampleTicksForGrid(ticks: readonly number[], max: number): readonly number[] {
-  if (ticks.length <= max || max < 2) return ticks;
+  const interior = ticks.length > 2 ? ticks.slice(1, -1) : [];
+  if (interior.length === 0 || max < 1) return [];
+  if (interior.length <= max) return interior;
+  // `max === 1` divides by `max - 1 === 0` in the general stride formula
+  // below — pick the single MIDDLE interior tick directly instead (this
+  // library's own default, `GRID_MAX_LINES_PER_SWEEP_AXIS`, is exactly 1).
+  if (max === 1) return [interior[Math.floor((interior.length - 1) / 2)]!];
   const out: number[] = [];
   for (let i = 0; i < max; i++) {
-    const idx = Math.round((i * (ticks.length - 1)) / (max - 1));
-    const value = ticks[idx]!;
+    const idx = Math.round((i * (interior.length - 1)) / (max - 1));
+    const value = interior[idx]!;
     if (out[out.length - 1] !== value) out.push(value);
   }
   return out;
@@ -424,13 +467,29 @@ function subsampleTicksForGrid(ticks: readonly number[], max: number): readonly 
  * `subsampleTicksForGrid`'s own doc — never every tick, unlike the 2D
  * chart's own `axes.{x,y}.grid`, which this otherwise mirrors in spirit),
  * a line sweeping the plane's own full extent along the remaining axis.
+ *
+ * P1-2 (codex review, round 6): a WALL plane (`fixedAxis` 0 or 1) sweeps
+ * ONLY its own z-tick direction (matplotlib's own wall-pane convention —
+ * horizontal HEIGHT gridlines, one per z tick) rather than both in-plane
+ * directions — round 5's own fix round-5-Item-1 doc's "boundary tick"
+ * removal (`subsampleTicksForGrid`'s own doc) already cut density once;
+ * this round's interior-only lines genuinely PAINT (round 5's boundary
+ * lines mostly coincided with edges some other write already owned), so
+ * sweeping BOTH wall directions measurably exceeded the coordinator's own
+ * 15%-of-plot-box cap (`object.test.ts`'s own regression gate) — halving
+ * wall density to one direction clears it with margin. The FLOOR plane
+ * (`fixedAxis` 2, `guides.floorGrid`, opt-in) is unaffected — a ground
+ * plane's own grid conventionally shows both x/y directions.
  */
 function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axes: readonly [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis]): readonly (readonly [Vec3, Vec3])[] {
-  const others = ([0, 1, 2] as const).filter((a) => a !== fixedAxis) as [0 | 1 | 2, 0 | 1 | 2];
+  const inPlane = ([0, 1, 2] as const).filter((a) => a !== fixedAxis) as [0 | 1 | 2, 0 | 1 | 2];
+  // Wall planes (fixedAxis 0/1) sweep ONLY the z direction — see this
+  // function's own doc. The floor (fixedAxis 2) sweeps both in-plane axes.
+  const sweepAxes: readonly (0 | 1 | 2)[] = fixedAxis === 2 ? inPlane : inPlane.filter((a) => a === 2);
   const fixedVal = corner[fixedAxis] ? ext[fixedAxis] : 0;
   const lines: (readonly [Vec3, Vec3])[] = [];
-  for (const sweepAxis of others) {
-    const alongAxis = others[0] === sweepAxis ? others[1] : others[0];
+  for (const sweepAxis of sweepAxes) {
+    const alongAxis = inPlane[0] === sweepAxis ? inPlane[1] : inPlane[0];
     const axisData = axes[sweepAxis];
     const [lo, hi] = axisData.domain;
     const span = hi - lo || 1;
@@ -453,10 +512,16 @@ const AXIS_NAMES = ["x", "y", "z"] as const;
 
 /**
  * ONE overlay drawing everything the axis triad owns — box/wall/axis-line
- * edges, guide-plane gridlines, ticks, tick labels and axis titles — so the
- * shared corner is resolved EXACTLY ONCE per `stamp()` call and every piece
- * reads the SAME corner (mutation gate: "all three axis lines share one
- * corner vertex, at every camera").
+ * edges, guide-plane gridlines, ticks, tick labels and axis titles — so
+ * every piece resolves its corners EXACTLY ONCE per `stamp()` call.
+ *
+ * `wallCorner` (`resolveSharedCorner`, unchanged) governs ONLY
+ * `guides.walls`/`guides.box`/`guides.grid`/`floorGrid` — the backdrop
+ * geometry, meant to sit behind the data. The axis TRIAD itself (lines,
+ * ticks, labels, titles) reads `resolveAxisTriadCorners`' own `xy`/`z`
+ * corners instead (round 6, USER FEEDBACK — "cannot see the axes"):
+ * pinning the triad to the SAME far corner as the backdrop routinely hid it
+ * entirely behind a fully opaque surface.
  */
 function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, number, number], color: string, charset: GlyphChartCharset): GlyphSceneOverlay {
   const guides = mark.guides;
@@ -464,8 +529,8 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
     id: "axis-triad",
     order: 0,
     stamp(grid, frame) {
-      const corner = resolveSharedCorner(ext, frame, mark.corner);
-      const { axisLines, wallOutline, boxOnly } = classifyEdges(corner);
+      const wallCorner = resolveSharedCorner(ext, frame, mark.corner);
+      const { wallOutline, boxOnly } = classifyEdges(wallCorner);
       const drawEdges = (edges: readonly Edge[]) => {
         for (const [a, b] of edges) {
           const from = projectObjectPoint(frame, cornerPoint(a, ext));
@@ -473,10 +538,15 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
           stampGlyphOverlayLine(grid, from, to, edgeGlyph(from, to), color);
         }
       };
-      if (guides.axisLines) drawEdges(axisLines);
-      if (guides.walls) drawEdges(wallOutline);
-      if (guides.box) drawEdges(boxOnly);
-
+      // P1-2 (codex review, round 6): grid lines are stamped BEFORE the
+      // axis-line/wall/box edges below, never after — `subsampleTicksForGrid`
+      // already excludes the plane's own boundary ticks (the only positions
+      // that could coincide with an edge some OTHER write also owns), but
+      // drawing the grid FIRST is the belt-and-suspenders guarantee: at a
+      // genuinely coincident cell, `stampGlyphOverlayLine`'s own depth test
+      // permits an EQUAL-depth overwrite, so the stronger axis/wall/box
+      // glyph drawn after always wins over the fainter grid glyph, never
+      // the other way around.
       if (guides.grid || guides.floorGrid) {
         // Fix round 4, Item 2: `fixedAxis` 0/1 are the WALL planes
         // (perpendicular to x/y) — `guides.grid`'s own toggle, default
@@ -492,7 +562,7 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
         const axesTriple: [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis] = [mark.axes.x, mark.axes.y, mark.axes.z];
         for (const fixedAxis of [0, 1, 2] as const) {
           if (fixedAxis === 2 ? !guides.floorGrid : !guides.grid) continue;
-          for (const [p0, p1] of planeGridLines(fixedAxis, corner, ext, axesTriple)) {
+          for (const [p0, p1] of planeGridLines(fixedAxis, wallCorner, ext, axesTriple)) {
             const from = projectObjectPoint(frame, p0);
             const to = projectObjectPoint(frame, p1);
             stampGlyphOverlayLine(grid, from, to, gridEdgeGlyph(from, to, charset), AXIS_GRID_COLOR);
@@ -500,36 +570,36 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
         }
       }
 
-      // Fix round 5, Item 1: built ONCE per `stamp()` call (not per tick —
-      // O(mesh vertices), reused across all 3 axes' own tick labels) so the
-      // per-label check below is a couple of Map lookups, not a re-scan.
-      const meshScreenDepth = guides.tickLabels ? buildMeshScreenDepth(mark, frame) : null;
+      const { xy: xyCorner, z: zCorner } = resolveAxisTriadCorners(ext, frame, mark.corner);
+      const axisCorner = (axisIndex: 0 | 1 | 2): Corner => (axisIndex === 2 ? zCorner : xyCorner);
+      if (guides.axisLines) {
+        for (const axisIndex of [0, 1, 2] as const) {
+          const c = axisCorner(axisIndex);
+          const from = projectObjectPoint(frame, outwardPoint(axisIndex, c, 0, ext, 0));
+          const to = projectObjectPoint(frame, outwardPoint(axisIndex, c, 1, ext, 0));
+          stampGlyphOverlayLine(grid, from, to, edgeGlyph(from, to), color);
+        }
+      }
+      if (guides.walls) drawEdges(wallOutline);
+      if (guides.box) drawEdges(boxOnly);
 
       for (let axisIndex = 0 as 0 | 1 | 2; axisIndex < 3; axisIndex++) {
         const name = AXIS_NAMES[axisIndex];
         const axis = mark.axes[name];
         const [lo, hi] = axis.domain;
         const span = hi - lo;
+        const axisPushCorner = axisCorner(axisIndex);
         for (let i = 0; i < axis.ticks.length; i++) {
           const value = axis.ticks[i]!;
           const t = span === 0 ? 0 : (value - lo) / span;
           if (guides.ticks) {
-            const onEdge = outwardPoint(axisIndex, corner, t, ext, 0);
+            const onEdge = outwardPoint(axisIndex, axisPushCorner, t, ext, 0);
             const tickProjected = projectObjectPoint(frame, onEdge);
             stampGlyphOverlayCell(grid, { col: tickProjected.col, row: tickProjected.row, char: "+", color, depth: tickProjected.depth });
           }
           if (!guides.tickLabels) continue;
-          const label = outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN);
+          const label = outwardPoint(axisIndex, axisPushCorner, t, ext, TICK_LABEL_MARGIN);
           const labelProjected = projectObjectPoint(frame, label);
-          // Fix round 5, Item 1 ("tick labels are stamped over the
-          // surface"): a real GEOMETRIC occlusion test against the mesh's
-          // own vertices (`buildMeshScreenDepth`'s own doc — necessary
-          // because `winnerMesh`-based occlusion, below, never fires under
-          // `style: "wireframe"`, the braille charset's own default,
-          // leaving braille tick labels with nothing to stop them
-          // painting over real surface ink). Dropped WHOLE, never
-          // partially, exactly like an arbiter collision.
-          if (meshScreenDepth && tickLabelOccludedByMesh(meshScreenDepth, labelProjected, foldGlyphOverlayLabelToAscii(axis.tickLabels[i]!).length)) continue;
           const priority = i === 0 || i === axis.ticks.length - 1
             ? PRIORITY_TICK_EXTREME
             : value === 0
@@ -570,12 +640,27 @@ function axisTriadOverlay(mark: GlyphChart3dSurfaceMark, ext: readonly [number, 
             // fixes both: the label is dropped WHOLE when the surface is
             // truly nearer at its anchor, and never partially eaten by
             // sibling overlay geometry either way.
+            //
+            // Fix round 6, P1-1: this mechanism now works under
+            // `style: "wireframe"`/`"ink"` too, not only `solid` — round 5's
+            // own `buildMeshScreenDepth`/`tickLabelOccludedByMesh` vertex-
+            // sampling workaround (deleted) is no longer needed. The real
+            // fix lives in `glyphcss` itself: `CellGrid.winnerMesh` used to
+            // be populated ONLY for `mode: "solid"`
+            // (`compileScene.ts`/`createGlyphScene.ts`'s own
+            // `retainWinnerMesh` gate), which is what made this same
+            // `ownMeshIds`/`occlusionDepth` check silently inert under
+            // wireframe/ink and let a label print through rasterized surface
+            // ink between two sampled mesh vertices — `rasterize.ts`'s
+            // `buildSurfaceOcclusionMap` now rasterizes the SAME real
+            // triangles (not a vertex sample) into `winnerMesh`/`depth`
+            // whenever an overlay is mounted, in every render mode.
             ownMeshIds: new Set(),
             occlusionDepth: labelProjected.depth,
           });
         }
         if (guides.titles && axis.title.length > 0) {
-          const titlePoint = outwardPoint(axisIndex, corner, 0.5, ext, AXIS_TITLE_MARGIN);
+          const titlePoint = outwardPoint(axisIndex, axisPushCorner, 0.5, ext, AXIS_TITLE_MARGIN);
           const titleProjected = projectObjectPoint(frame, titlePoint);
           frame.labels.place({
             id: `axis-${name}-title`,
@@ -619,15 +704,20 @@ export interface GlyphChart3dLabelAnchor {
 }
 
 /**
- * The shared axis-triad corner the mark's `axes.corner` option would resolve
- * to for `referenceCamera` — the SAME `resolveSharedCorner` `axisTriadOverlay`
- * calls every `stamp()`, exposed standalone for a caller (a test, a fit) that
- * needs the exact corner without rendering. A pure function of `camera`
- * rotation only (this file's own `resolveSharedCorner` doc).
+ * The axis-triad's own `xy`/`z` corners (`resolveAxisTriadCorners`) the mark's
+ * `axes.corner` option would resolve to for `referenceCamera` — the SAME
+ * resolution `axisTriadOverlay` calls every `stamp()`, exposed standalone for
+ * a caller (a test, a fit) that needs the exact corners without rendering. A
+ * pure function of `camera` rotation only (`resolveSharedCorner`'s own doc;
+ * `resolveFrontFloorCorner`/`resolveSilhouetteVerticalCorner` share the same
+ * invariance property, documented in place). Round 6: was a single shared
+ * `[0|1,0|1,0|1]` corner — now `{ xy, z }`, since the triad no longer pins
+ * all three axes to one corner under `"auto"` (`resolveAxisTriadCorners`'s
+ * own doc: doing so could hide an axis entirely behind the surface).
  */
-export function glyphChart3dResolvedCorner(mark: GlyphChart3dSurfaceMark, referenceCamera: GlyphCamera): readonly [0 | 1, 0 | 1, 0 | 1] {
+export function glyphChart3dResolvedCorner(mark: GlyphChart3dSurfaceMark, referenceCamera: GlyphCamera): { readonly xy: readonly [0 | 1, 0 | 1, 0 | 1]; readonly z: readonly [0 | 1, 0 | 1, 0 | 1] } {
   const proj: Projector = { camera: referenceCamera, cols: 1, rows: 1, cellAspect: 1, toWorld: (p) => p };
-  return resolveSharedCorner(mark.aspect, proj, mark.corner);
+  return resolveAxisTriadCorners(mark.aspect, proj, mark.corner);
 }
 
 /**
@@ -651,18 +741,26 @@ export function glyphChart3dResolvedCorner(mark: GlyphChart3dSurfaceMark, refere
 export function glyphChart3dLabelAnchors(mark: GlyphChart3dSurfaceMark, referenceCamera: GlyphCamera): readonly GlyphChart3dLabelAnchor[] {
   const ext = mark.aspect;
   const proj: Projector = { camera: referenceCamera, cols: 1, rows: 1, cellAspect: 1, toWorld: (p) => p };
-  const corner = resolveSharedCorner(ext, proj, mark.corner);
+  const { xy: xyCorner, z: zCorner } = resolveAxisTriadCorners(ext, proj, mark.corner);
   const anchors: GlyphChart3dLabelAnchor[] = [];
   const axes: readonly (readonly [0 | 1 | 2, GlyphChart3dResolvedAxis])[] = [[0, mark.axes.x], [1, mark.axes.y], [2, mark.axes.z]];
+  const guides = mark.guides;
   for (const [axisIndex, axis] of axes) {
+    const corner = axisIndex === 2 ? zCorner : xyCorner;
     const [lo, hi] = axis.domain;
     const span = hi - lo || 1;
-    for (let i = 0; i < axis.ticks.length; i++) {
-      const value = axis.ticks[i]!;
-      const t = (value - lo) / span;
-      anchors.push({ text: axis.tickLabels[i]!, point: outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN) });
+    // A caller (a camera FIT) must never reserve margin for a label the
+    // overlay itself won't draw — `guides.tickLabels`/`titles` off means
+    // `axisTriadOverlay`'s own `stamp()` skips these `place()` calls
+    // entirely, so the fit's own anchor set has to match.
+    if (guides.tickLabels) {
+      for (let i = 0; i < axis.ticks.length; i++) {
+        const value = axis.ticks[i]!;
+        const t = (value - lo) / span;
+        anchors.push({ text: axis.tickLabels[i]!, point: outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN) });
+      }
     }
-    if (axis.title.length > 0) {
+    if (guides.titles && axis.title.length > 0) {
       anchors.push({ text: axis.title, point: outwardPoint(axisIndex, corner, 0.5, ext, AXIS_TITLE_MARGIN) });
     }
   }

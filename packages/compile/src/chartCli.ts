@@ -43,8 +43,24 @@ export const CHART_HELP = `glyphcss chart <spec.json> [options]
 
 const CHART_3D_STYLES: readonly GlyphChart3dStyle[] = ["solid", "wireframe", "ink"];
 
-function parseStyleArg(raw: string | undefined): GlyphChart3dStyle | undefined {
-  if (raw === undefined) return undefined;
+/**
+ * P1-4 (codex review, round 6): `raw === undefined` here means `--style` was
+ * PRESENT in argv with NO following token (`next()` ran off the end) — never
+ * "the flag was omitted", since this function is only ever called from
+ * inside the `--style` switch case, i.e. only once the flag has already been
+ * seen. The prior cut treated that as "no style requested" and silently
+ * returned `undefined`, which is how `--style` (bare, no value, no `--3d`)
+ * slipped past the "3D-only flag without `--3d`" check below: that check
+ * only ever looked at whether the PARSED value ended up defined, and a
+ * silently-swallowed missing value can never be. Requiring a value here
+ * unconditionally means `mutableOpts.style` is defined if and only if
+ * `--style` was actually present and syntactically valid — exactly the
+ * presence signal the post-loop check needs, with no separate "seen" flag.
+ */
+function parseStyleArg(raw: string | undefined): GlyphChart3dStyle {
+  if (raw === undefined) {
+    throw chartCliError("bad-style-arg", "--style requires a value (one of solid, wireframe, ink).");
+  }
   if (!(CHART_3D_STYLES as readonly string[]).includes(raw)) {
     throw chartCliError("bad-style-arg", `--style expects one of ${CHART_3D_STYLES.join(", ")}, got ${JSON.stringify(raw)}.`);
   }
@@ -66,12 +82,31 @@ function chartCliError(code: string, message: string): Error {
  * tagged rejection naming the raw value, at the CLI's own argument-parsing
  * boundary rather than surfacing several layers downstream (or not at
  * all).
+ *
+ * P1-4 (codex review, round 6): two further holes in that same round's own
+ * fix. (1) `raw === undefined` — `--camera` PRESENT with no following token,
+ * exactly `parseStyleArg`'s own case (see its doc) — used to silently
+ * return `undefined`, which both dropped the "requires a value" error AND
+ * broke the post-loop "3D-only flag without `--3d`" presence check the same
+ * way. Now throws unconditionally, so `mutableOpts.camera` is defined iff
+ * `--camera` was present and syntactically valid. (2) `Number("")` is `0`,
+ * not `NaN` — `Number.isFinite` alone therefore ACCEPTED an empty field
+ * (`--camera 10,` parsed as `{rotX:10, rotY:0}`, `--camera ,` as
+ * `{rotX:0, rotY:0}`), silently fabricating a zero the reader never typed.
+ * An explicit empty-string check runs BEFORE the numeric conversion, so an
+ * empty field is caught as its own syntax error rather than laundered
+ * through `Number` into a plausible-looking `0`.
  */
-function parseCameraArg(raw: string | undefined): GlyphChart3dCameraOptions | undefined {
-  if (raw === undefined) return undefined;
+function parseCameraArg(raw: string | undefined): GlyphChart3dCameraOptions {
+  if (raw === undefined) {
+    throw chartCliError("bad-camera-arg", "--camera requires a value (rotX,rotY[,zoom]).");
+  }
   const parts = raw.split(",").map((p) => p.trim());
   if (parts.length !== 2 && parts.length !== 3) {
     throw chartCliError("bad-camera-arg", `--camera expects rotX,rotY[,zoom] (2 or 3 fields), got ${parts.length}: ${JSON.stringify(raw)}.`);
+  }
+  if (parts.some((p) => p.length === 0)) {
+    throw chartCliError("bad-camera-arg", `--camera fields must all be non-empty finite numbers, got ${JSON.stringify(raw)}.`);
   }
   const numbers = parts.map((p) => Number(p));
   if (!numbers.every((n) => Number.isFinite(n))) {

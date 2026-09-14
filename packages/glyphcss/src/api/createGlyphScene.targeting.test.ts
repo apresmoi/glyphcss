@@ -164,6 +164,34 @@ describe("createGlyphScene per-object effect targeting (VOLUMETRIC-3.md §1)", (
     scene.destroy();
   });
 
+  it("fix round 6 regression: a mesh-targeted EFFECT stays inactive in wireframe mode even when a SEPARATE mounted object's overlay activates real occlusion data there — retainWinnerMesh (effects) and retainOverlayOcclusion (overlays) must stay independently gated", async () => {
+    // The bug this guards: `rasterize.ts`'s wireframe/ink paths used to gate
+    // their new real-geometry occlusion buffer on the SAME `retainWinnerMesh`
+    // flag effects targeting reads — so mounting an unrelated object with a
+    // no-op overlay (which only needs `retainWinnerMesh` for ITS OWN
+    // occlusion, now `retainOverlayOcclusion`) silently reactivated
+    // `CellGrid.winnerMesh` for mesh-targeted EFFECTS too, breaking
+    // `effectCompositor.ts`'s own documented "solid mode only" contract.
+    const scene = createGlyphScene(host, { ...baseSceneOptions, mode: "wireframe" });
+    const mesh = scene.add(quad(0));
+    // A mounted object whose overlay does nothing but EXIST — enough to set
+    // `objectHasAnyOverlay()` true and, before this fix, leak winnerMesh
+    // data into the wireframe pass for the unrelated effect layer below.
+    scene.addObject({ id: "noop-overlay-object", meshes: [], overlays: [{ id: "noop", stamp(): void {} }], bounds: { min: [0, 0, 0], max: [0, 0, 0] } });
+    await flushRenders();
+
+    expect(() => scene.addEffectLayer({
+      effect: markerProgram("X"),
+      params: { phase: 0 },
+      target: mesh,
+      blend: "replace",
+      opacity: 1,
+    })).not.toThrow();
+    await flushRenders();
+    expect(scene.output.textContent).not.toContain("X");
+    scene.destroy();
+  });
+
   it("removed mesh: disposing the only targeted mesh makes the layer inactive without error", async () => {
     const scene = createGlyphScene(host, baseSceneOptions);
     scene.add(quad(-8, "#335577"));

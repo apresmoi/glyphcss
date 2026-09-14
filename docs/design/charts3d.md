@@ -6636,3 +6636,489 @@ exported and called.
 | Live mode/charMode/hiddenLines resolved (codex review, item 4) | `Charts3dViewport.lifecycle.test.tsx`'s "entering 3D on the default web target mounts a LIVE braille wireframe" test | Force `chartsWorkbench3dSceneOptions` to always return `mode: "solid"` | RED — both the real `createGlyphScene` call's own options AND the rendered picture (no braille dot glyphs) fail |
 | Live/Copy agreement (codex review, item 4) | `chartsWorkbench3d.test.ts`'s "agrees for every charset x style combination" test, against the REAL `renderGlyphChart3d` | Same mutation | RED at `ascii/wireframe` (and every other explicit-wireframe cell): the page mirror claims `"solid"`, the real library resolves `"wireframe"` |
 | Style control reaches the static exit | `chartsWorkbench3d.test.ts`'s "an explicit wireframe style... changes the rendered text" test | Drop `style` from `chartsWorkbench3dRender.ts`'s `renderGlyphChart3d` options call | RED — an explicit `wireframe` renders byte-identical to `auto` (which resolves `ascii` to `solid`) |
+
+## C2 fix round 6 — occlusion in every mode, interior-only grid, strict CLI parsing, real P2 gates, and axes on the SILHOUETTE (not the back corner)
+
+A codex review of C2 rounds 2-5 (`CHARTS-RESEARCH/REVIEW-c2-rounds25-codex.raw`) found four defects and three under-tested gates in `@glyphcss/charts/3d`. Mid-round, the user reported the deeper problem the review's own P1-1 was a symptom of: on two REAL datasets (Maunga Whau, the Alps) at the library's own default camera, **the axis triad was invisible** — round 2's single "farther face" shared corner routinely put every axis line on the BACK of the surface, hidden behind it from the default oblique view. Fixing occlusion correctly (so a label never paints over ink) does nothing for an axis that never reaches the screen at all; both are fixed here, plus a separate follow-up asking the two private `render.ts` resolvers the review's own C4 packet had to hand-mirror be exported for real.
+
+### P1-1 — occlusion must come from the RASTERIZED surface, in every render mode
+
+**The defect.** `object.ts`'s label/title occlusion (C2 round 2's fix) depended on `CellGrid.winnerMesh`, which `compileScene.ts` populated only under `retainWinnerMesh: mode === "solid"`. Round 5's own workaround, `buildMeshScreenDepth`, sampled the mesh's own VERTICES per `stamp()` call and built an approximate per-cell depth map from that sample — cheap, but wrong whenever a rasterized edge or interior fell between two sampled vertices, which is routine on a decimated wireframe mesh. A tick label could therefore land ON real ink that no sampled vertex happened to cover.
+
+**The fix has two layers, because `CellGrid.winnerMesh` has two independent CONSUMERS with different mode contracts.** (1) Per-object effect TARGETING (`effectCompositor.ts`'s `targetCoverageForCell`) is documented and tested as solid-mode-only — a mesh-targeted effect layer must stay inert in wireframe/ink, unconditionally. (2) The label arbiter's own overlay occlusion (this packet's subject) needs the SAME buffer populated in every mode. Collapsing the two onto one flag (the first attempt) reactivated mesh-targeted effects outside solid mode the instant an unrelated object's overlay needed occlusion data — caught by a new regression test, `createGlyphScene.targeting.test.ts`'s "fix round 6 regression" case, which failed before the second-layer fix and passes after it.
+
+- `packages/glyphcss/src/render/rasterize.ts` gained `buildSurfaceOcclusionMap`, which rasterizes the SAME real polygon triangles `buildSurfaceDepth`/`computeOcclusionIds` already walk (via `fillDepthTri`) into per-cell `depth`/`winnerMesh` buffers, at the SAME `p[3] ?? p[2]` (`zBufferDepth`) convention `CellGrid.depth` already holds — not `buildSurfaceDepth`'s own `p[2]`-only convention (that one feeds the wireframe HLR prepass, a distinct consumer with a distinct depth unit). Called from all three wireframe/ink code paths (ASCII wireframe, ink, braille wireframe), gated on a NEW flag, `retainOverlayOcclusion` (`RasterizeContext`), computed as `objectHasAnyOverlay()` alone.
+- `retainWinnerMesh` keeps its OWN gate, `(effectsActive && hasMeshTargetedLayers()) || objectHasAnyOverlay()` in `createGlyphScene.ts` — genuinely shared with `retainOverlayOcclusion` only in the trivial "an overlay is mounted" case; `compileScene.ts` (no effects concept) sets both to the same expression, kept as two separate fields for contract consistency rather than one shared one.
+- `effectCompositor.ts`'s `retainGlyphEffectOutput` gained a `GlyphEffectRetainOptions.retainWinnerMesh?: boolean` (default `true`) that strips `winnerMesh` off the CLONED `baseGrid` when false; `createGlyphScene.ts` passes `retainWinnerMesh: options.mode === "solid"` at its own call site — closing a second, independent hole the first fix alone didn't: the retained-effect compositor read `winnerMesh` straight off its own clone with no mode check at all, safe only because wireframe/ink never populated the field before this round.
+
+**Gates.** `createGlyphScene.sceneObject.test.ts`'s "fix round 6, P1-1" test mounts an overlay under `mode: "wireframe"` and asserts `grid.winnerMesh`/`.depth` are populated (MUTATION: with no overlay mounted, neither buffer allocates — passes). `createGlyphScene.targeting.test.ts`'s "fix round 6 regression" test is the cross-consumer guard described above. `render.test.ts`'s new "P1-1 (codex review, round 6)" describe block renders `ringRidgeVolcano()` under wireframe/braille and wireframe/box and ink/ascii and asserts no tick/title digit lands on an inked surface cell (`digitTouchesInk`), plus a positive control confirming the SAME labels draw fine over empty space — proving the check is occlusion, not a blanket suppression.
+
+### P1-2 — opt-in grid: interior ticks only, never repainting an axis-owned cell
+
+Round 5 already made `guides.grid`/`floorGrid` default OFF. The review's separate finding: even opted in, the grid painted at BOUNDARY tick positions too — coincident with a cell the axis line/tick/box outline already owns — so it either invisibly no-op'd there (guide-write depth test blocked by the axis's own nearer write) or, worse, visibly repainted the axis in the grid's fainter glyph on a write-order coincidence. `subsampleTicksForGrid` now slices to `ticks.slice(1, -1)` — interior ticks only, with `max === 1` special-cased to pick the single middle interior tick directly (the general stride formula divides by `max - 1`, which is `0` there — a real division-by-zero bug caught mid-round by a temporary debug test, since the resulting `NaN` grid-line coordinates were silently dropped by `stampGlyphOverlayCell`'s own `Number.isInteger` guard, so the FIRST attempt at this fix drew nothing at all and looked like a no-op). `GRID_MAX_LINES_PER_SWEEP_AXIS` dropped from `2` to `1`; wall planes now sweep ONLY the z-direction tick (matplotlib's own wall-pane convention — a wall's OTHER in-plane axis is the one an axis triad already lines), halving wall grid density, which was needed once real interior lines began painting for the first time (round 5's boundary-coincident lines mostly cancelled against edges other writes already owned, so the 15%-of-plot-box cap had never actually been exercised until this fix made it real). The floor plane (opt-in, `guides.floorGrid`) still sweeps both in-plane axes.
+
+**Gates.** `object.test.ts`'s existing "grid glyphs are never the tier's axis-line glyphs" and "the grid cell count is <= 15% of the plot's own occupied bounding box" tests (both pre-existing, now exercising real interior ink for the first time) stay green; the div-by-zero fix is covered transitively — reverting `max === 1`'s special case reddens the ink-increase mutation test (`guides.grid=true strictly increases ink relative to the default`), since the grid line count collapses to zero again.
+
+### P1-4 — CLI: strict `--camera`/`--style` parsing, presence-gated 3D-only flags
+
+`packages/compile/src/chartCli.ts`'s `parseCameraArg`/`parseStyleArg` used to return `undefined` on a missing value, so a post-loop `!== undefined` check silently treated "flag absent" and "flag present, value missing" the same way, and `Number("")` (an empty comma field, `--camera 10,`) silently parsed to `0` rather than rejecting. Both now THROW on `raw === undefined` (`bad-camera-arg`/`bad-style-arg`) rather than returning it, so the post-loop presence check is unreachable with a "swallowed" value; `parseCameraArg` additionally rejects an empty field (`parts.some(p => p.length === 0)`) before ever calling `Number()` on it. The "3D-only flag without `--3d`" check now tests the FLAG'S PRESENCE (was the raw arg string ever seen) rather than the PARSED value's definedness — the two used to coincide by construction (a value-less flag never reached the presence check because it threw first under the old code too, just with the wrong error), but stating the rule on presence is what makes `--style solid --3d` and a same-valued default indistinguishable case correctly reject when `--3d` is dropped.
+
+**Gates.** `chartCli.test.ts`'s new "strict argument parsing (P1-4)" describe block: `--camera 10,` / `--camera ,` / `--camera` with no value (with and without `--3d`) / `--style` with no value / `--style` without `--3d` — six cases, each asserting `bad-camera-arg`/`bad-style-arg`/`bad-3d-flag` and never a silent parse.
+
+### P2 — gates that didn't exercise their own mutation
+
+Three review findings, each an EXISTING assertion that would pass even with the guarded behaviour removed:
+
+1. **Trackball camera.** `render.test.ts` previously only probed `renderGlyphChart3d({ camera: { mat } })` by comparing string OUTPUT against a directly-built `createGlyphOrthographicCamera({ useMat: true, mat })` render — a real exercise of the feature, but never asserted through the PUBLIC option surface's own round-trip contract in isolation. New "P2 (codex review, round 6)" describe block: a `mat` built from a real rotation (`cy=cos(0.6), sy=sin(0.6)`) renders differently with vs. without `mat`, and `resolved.camera` round-trips it (`useMat: true`, the same 9 values) — MUTATION: dropping the `mat`-vs-Euler branch in `renderObjectFrame` collapses both renders to the same (wrong) Euler-default picture.
+2. **Corner-triad "shared corner" claim.** The pre-round-6 test asserted the EXPORTED HELPER (`resolveAxisTriadCorners`) returns one shared `xy` corner for both axes — true of the function, but never checked that the RENDERED overlay's x and y lines actually meet at that cell on screen (a bug in `axisTriadOverlay`'s own consumption of the helper's return value could still pass the old test). New test in `object.test.ts`: mounts a real scene, captures the projected corner cell's character via `transformCells`, and asserts it's a junction-capable glyph (`"│─\\/·".includes(...)`) — i.e. verified through the ACTUAL render, not the helper in isolation.
+3. **Occlusion tests that route around the defect.** Folded into the P1-1 gates above — `digitTouchesInk` reads the real rendered string's character grid rather than a synthetic non-default probe.
+
+### The axis-visibility redesign (user feedback: "I still cannot see the axes for the munga whau nor the alps")
+
+**Root cause, reproduced.** At the library's own default camera (`rotX: 58, rotY: 45`), round 2's `resolveSharedCorner` picks, independently per axis, the FARTHER of two candidate faces — a rule chosen so the guide PLANES (walls/box/grid) sit behind the data. Applied to the TRIAD too (round 2's own choice), it routinely puts the shared corner on the BACK of the surface: the x/y axis lines then run along the back-bottom edges and the z line up the back-vertical edge, all hidden behind the opaque surface from the front. Verified on both real datasets with the static renderer before touching any code.
+
+**The fix splits triad-corner resolution from backdrop-corner resolution.** `resolveSharedCorner` (unchanged) still governs ONLY `guides.walls`/`box`/`grid`/`floorGrid` — the backdrop is SUPPOSED to sit behind the data. The triad itself (axis lines/ticks/tick labels/titles) now reads two independently-resolved corners from `resolveAxisTriadCorners`:
+
+- **x/y share one corner**, `resolveFrontFloorCorner` — the z=0 FLOOR corner nearest the camera (by projected depth). The floor is never behind positive-height data by construction, so this reads as the familiar 2D "plot-rect" frame extended by one axis: x/y ticks sit along the two visible FRONT-bottom edges of the box.
+- **z resolves independently**, `resolveSilhouetteVerticalCorner` — whichever of the box's 4 vertical edges projects furthest to one screen side (with hysteresis against camera-rotation noise at the exact tie). A silhouette edge is, by construction, never behind the surface: it is the boundary between the surface's own visible face and empty screen space.
+
+Both are PURE functions of camera rotation alone (zoom/center-invariant), computed fresh every `stamp()` call — no stored state, so the corners track the camera continuously as it orbits, exactly like `resolveSharedCorner` already did. An explicit `axes.corner` override still pins the WHOLE triad (and the backdrop) to one given corner, unchanged — only `"auto"` drops strict single-corner sharing, and this is now stated in `types.ts`'s own `GlyphChart3dCorner`/`GlyphChart3dCornerOption` doc comments.
+
+**What was NOT done: sub-cell braille dot axis lines.** The coordinator's follow-up asked for axis lines on sub-cell tiers (braille/blocks) to render as sub-cell dot lines rather than stair-stepping `/ \ │ ─` glyphs, mirroring the cell canvas's own `line()` behaviour under `braille`/`blocks` (this file's own "Cell canvas" section, AGENTS.md). **This is an honest architectural gap, not implemented here.** The cell canvas's sub-cell `line()` writes into a canvas-owned `sub` buffer that `CellGrid` itself has no equivalent of — `stampGlyphOverlayLine` (the primitive every 3D scene overlay, including this axis triad, is built on) walks and writes `CellGrid.char`/`.color`/`.depth` at WHOLE-CELL resolution only; there is no sub-cell write surface on a `CellGrid` for an overlay to target. Building one is a `glyphcss`-layer feature with its own cross-cutting implications (every OTHER overlay consumer — chart tick marks, the diagram box outline, map hotspots — would need to decide whether it also wants sub-cell precision), well past this round's scope. The braille frames below therefore still show axis lines as the same `\ / │ ─` glyph staircase `ascii`/`box` use; only the SURFACE itself renders as real braille dots.
+
+### Exports — the style resolver, the guide/corner types, AGENTS.md made accurate
+
+A separate follow-up: `/charts`' C4 packet (already committed on `feat/diagrams`, merged into this round's base) had to hand-mirror two private `render.ts` functions page-side (`resolveGlyphChart3dStyle`, `chromeTier`) because `@glyphcss/charts/3d`'s `index.ts` didn't export them, and AGENTS.md's own "Exports" paragraph already (incorrectly) claimed `GlyphChart3dGuideOptions`/`GlyphChart3dResolvedGuides`/`GlyphChart3dCornerOption` were exported when they weren't (the prior round's own "Library-export gaps found, named, not fixed" section, above, documents exactly this gap).
+
+- `render.ts`'s `resolveGlyphChart3dStyle` is now exported (was already named that; just needed the `export` keyword and an `index.ts` re-export).
+- A new `glyphChart3dStyleSceneOptions(style, charset): { mode, charMode?, hiddenLines? }` wraps the style+charset resolution into the EXACT scene-option object a live `createGlyphScene`/`compileScene` mount needs — extracted from `renderObjectFrame`'s own inline object literal, which now spreads it, so the static exit and any future live-scene consumer share one function rather than two copies that can drift.
+- The private `chromeTier` helper is renamed `glyphChart3dChromeTier` and exported.
+- `index.ts` adds `GlyphChart3dCornerBit`, `GlyphChart3dCorner`, `GlyphChart3dCornerOption`, `GlyphChart3dGuideOptions`, `GlyphChart3dResolvedGuides` to its type-export list — these were always PUBLIC types (referenced from `GlyphChart3dSurfaceOptions`'s own public `guides`/`axes.corner` fields), just never named in the barrel.
+- AGENTS.md's "Exports" paragraph is rewritten to list every one of the above by name, and its C4 section's stale "Library export gaps found, not fixed here" sentence now says the gaps are closed in this round.
+
+Since the axis-corner redesign above changes what `GlyphChart3dCornerOption`/`GlyphChart3dCorner` MEAN for `"auto"` (no longer strict single-corner triad sharing) without renaming or removing either type, this is called out explicitly rather than silently — both types' own doc comments in `types.ts` now state the "auto" split plainly, and this file's "Axes are ONE camera-aware overlay" paragraph (AGENTS.md) does too.
+
+### Frames
+
+All four ring-crater frames use the exact `ringRidgeVolcano()` fixture already embedded in `object.test.ts`/`render.test.ts` (a 40x40 ring+crater height field). Maunga Whau and the Alps use the real vendored datasets `website/src/components/ChartsWorkbench/datasets/chart3d/{maungaWhauVolcano,etopo1Alps}.ts` ship (read-only — `website/` was never edited), reconstructed verbatim into a standalone script against the built `@glyphcss/charts/3d` package. Every frame below is `renderGlyphChart3d` at `target: "web"`, default camera and guides (axis lines/ticks/tick labels/titles on; walls/box/grid off) unless noted.
+
+**Ring-crater, 96x32, box:**
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                    %#@@@@@                                     
+                                                @@@@@@@@@@@@@@@                                 
+                              200   +          %@@@@@@@@@@@@@%%%                                
+                              180   +        %+@*@@@@@@@@@@@%#=@%#%                             
+                              160   +    %@%*=#%@+@@@@@@@@@@%*@@@#*%@%          200█            
+             z                140   +  %%%%#+##@@@@@@@@@@@@@@@@@@%#%%%%%           █            
+                              100   + %%@%%%%#%@@@@@@@@@@@@@@@@@@@@%@%@%@       165▓            
+                              80    │     %%@@%@@@@@@@@@@@@@@@@@@@@@%              ▓            
+                              60    +\       @@@@@@@@@@@@@@@@@@@@@       /+     130▒            
+                                      \\\       %@@@@@@@@@@@@@%       ///          ▒            
+                                 0       \\\        @%%#%%@        ///       0   95░            
+                                            \+\\      @@@      //+/                ░            
+                                      10        \\\         ///         10       60             
+                                           20     +\\\   ///+       20                          
+                                               30     \+/      30                               
+                                                                                                
+                                                    40    40                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Ring-crater, 96x32, braille:**
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                    ⣀⣀⣀⣀⣀                                       
+                                                 ⣠⣴⣾⣿⡛⢫⢯⢩⣷⣿⣶⣤⣄                                  
+                                              ⣠⣶⣿⢿⣿⣿⣹⣧⣯⢼⣟⡽⣿⣯⣿⣿⣷⣄                                
+                              200   +       ⢀⣴⣿⣿⣾⣽⣿⣽⢻⣟⡆⡼⢘⡿⣯⣿⣯⣷⣿⣿⣦⣄                              
+                              180   +    ⣀⣤⣶⣿⣿⣿⣿⣿⣿⢿⣽⣟⢹⣷⡷⣻⣹⣯⡿⣿⣿⣿⣟⣿⣿⣷⣦⣄⡀                          
+                              160   + ⣀⣴⣿⣿⣿⣿⣿⣿⣿⣻⢿⣷⣿⣿⣽⣹⣿⣆⣷⣿⣿⣿⣿⡿⣟⣿⣼⣿⣿⣿⣿⣿⣦⣀        200█            
+             z                140   +⣾⣿⣿⣿⣿⣟⣿⣿⣿⢿⣿⣿⣽⢿⣿⣿⣿⢿⣿⢿⣿⣿⡿⣯⣿⣿⡿⣧⢿⣿⣿⣿⣿⣿⣿⣷⣄         █            
+                              100   +⠉⠛⠻⢿⣿⣿⣿⣿⣿⣽⣽⣿⣽⢾⠻⣼⣬⣟⢚⣯⣽⠟⡷⣯⣿⣯⣯⣿⣯⢿⣿⣿⣿⠿⠛⠉       165▛            
+                              80    │    ⠉⠛⢿⣷⣿⣽⣿⢾⢻⣾⢺⠻⣼⣸⣾⣸⡞⡗⣷⡟⡷⣿⣯⣿⣿⣿⠟⠋⠁             ▛            
+                              60    +\      ⠉⠻⣿⣽⣿⣿⢼⢿⣿⣹⣼⣹⣼⣻⡿⡧⣿⣿⣯⣿⠟⠋⠁      /+     130▀            
+                                      \\\      ⠉⠛⠿⣿⣿⣿⣾⣿⢾⣿⣿⣿⣿⠿⠛⠉       ///          ▀            
+                                 0       \\\       ⠙⠿⣿⢿⣿⢿⡿⠋        ///       0   95▘            
+                                            \+\\     ⠈⠻⠽⠋      //+/                ▘            
+                                      10        \\\         ///         10       60             
+                                           20     +\\\   ///+       20                          
+                                               30     \+/      30                               
+                                                                                                
+                                                    40    40                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Ring-crater, 140x40, box:**
+
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                              @%@@@@@@@                                                     
+                                                                         =@@@@@@@@@@@@@@@@@@                                                
+                                                                       #@@@@@@@@@@@@@@@@@@@@@@                                              
+                                             200     +               -@@@@@@@@@@@@@@@@@@@@@%%#@#                                            
+                                             180     │              %+%#%@@@@@@@@@@@@@@@@@%#**#@*                                           
+                                                     │          @%%=+*@+%%@@@@@@@@@@@@@@@@%#*=@@%+%%@                                       
+                                             160     +       %%%%*-=*#%@@+%@@@@@@@@@@@@@@@#*@@@@%#+*%%%%                                    
+                                             140     +    %#%%@%#=++##@@@@@@@%@@@@@@@@@%@@@@@@@@@%%#%%%%%%%                                 
+                   z                         120     │  #%#%%%%%#++*#%%@@@@@@@@@@@@@@@@@@@@@@@@@@@%%#%%%%%%%%         200█                  
+                                                     │  %%%%@%%%%#%#%%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%%%@%@%@            █                  
+                                             100     +       %%%%%%%%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#%              165▓                  
+                                             80      +          %@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%                    ▓                  
+                                             60      +\            @%@@@@@@@@@@@@@@@@@@@@@@@@@@@@@            /+      130▒                  
+                                                       \\\            @@@@@@@@@@@@@@@@@@@@@@@@@            ///           ▒                  
+                                                          \\\\           %%%@@@@@@@@@@@@@@%%           ////            95░                  
+                                                 0           +\\\            %@%%#%#%%@%            /// +          0     ░                  
+                                                                 \\\            @@@@@@           ///                   60                   
+                                                        10          \\\           @           ///+          10                              
+                                                                       \\\                 ///                                              
+                                                                          \\\\         ////                                                 
+                                                               20             \\\   ///              20                                     
+                                                                                 \+/                                                        
+                                                                       30                     30                                            
+                                                                                                                                            
+                                                                              40      40                                                    
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+**Ring-crater, 96x32, box, `guides.grid: true`** — interior gridlines (`·`) visible along the tick-marked axes, never at the boundary cells the axis line/ticks already own:
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                    %#@@@@@                                     
+                                                @@@@@@@@@@@@@@@                                 
+                              200   +          %@@@@@@@@@@@@@%%%                                
+                              180   +       ·%+@*@@@@@@@@@@@%#=@%#·                             
+                              160   +    %@%*=#%@+@@@@@@@@@@%*@@@#*%@%          200█            
+             z                140   + ·%%%%#+##@@@@@@@@@@@@@@@@@@%#%%%%%·          █            
+                              100   +·%%@%%%%#%@@@@@@@@@@@@@@@@@@@@%@%@%@··     165▓            
+                              80    │     %%@@%@@@@@@@@@@@@@@@@@@@@@%              ▓            
+                              60    +\       @@@@@@@@@@@@@@@@@@@@@       /+     130▒            
+                                      \\\       %@@@@@@@@@@@@@%       ///          ▒            
+                                 0       \\\        @%%#%%@        ///       0   95░            
+                                            \+\\      @@@      //+/                ░            
+                                      10        \\\         ///         10       60             
+                                           20     +\\\   ///+       20                          
+                                               30     \+/      30                               
+                                                                                                
+                                                    40    40                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Maunga Whau (R's `datasets::volcano`, 87x61), 96x32, box** — axes clearly framing the surface on the LEFT (z/"height") and BOTTOM (x/y), never behind it; all three titles present ("height", "y (m)", "x (m)"):
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                             =@@@@@%@                                           
+                            200   +         @@@@@@@=%%%@%%                                      
+                            180   │        @#@@@@@@@@@@%#%@@                                    
+                            160   │      *%@@@@@@@@@@%@@@%+#%#=                                 
+           height           140   │     =%@@@@@@@@@@@@@@@%@%@@@#%%#                             
+                            120   │  *%+*%@@@@@@@@@@@@@@@@@@@@@@@@@@              200█          
+                            100   │%@#@=@@@@@@@@@#@*@@@@@@@@@@@@@@@%@@               █          
+                                  +\ @%@%@@@@@@@@@@@@@@@@@@@@@@@@@@%  /+        172.5▓          
+                                    \\\  @@@@@@@@@@@@@@@@@@@@%@%%  /+/               ▓          
+                               0       \\\  %@@@@@@@@@@@@@@@@   /+/       0       145▒          
+                                   200    \\\ %%@@%%@@%@@@% //+/       100           ▒          
+                                       400   \+\@@%%%@%@ //+        200         117.5░          
+                                                \\+%% ///        300                 ░          
+                                           600     \+/       400                   90           
+                                               800        500                                   
+                                                       600                                      
+                                                                                                
+                                y (m)                                    x (m)                  
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Maunga Whau, 96x32, braille** — the SURFACE renders as real braille dots (U+2800-28FF); axis lines are still the whole-cell `\ / │` glyph staircase (the documented residual, above):
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                             ⢀⣴⣶⣾⣷⣦⣄⡀                                           
+                                           ⣠⣶⣿⣗⣷⣿⣽⣿⣿⣿⣷⣤⣤⣤⡀                                      
+                            200   +       ⣴⣿⣿⣾⣺⣿⣾⣽⣿⣿⣷⣿⣿⣿⣿⣿⢦⡀                                    
+                            180   │     ⢀⣼⣿⡿⣿⣿⣷⣿⣿⢿⣿⣻⣿⡿⣿⣿⣿⣿⣿⣷⣄⣀⡀                                 
+                            160   │    ⢀⣾⣿⣯⣿⣻⣿⢿⢽⣽⢻⣻⣿⣟⣗⡿⣿⣾⣿⣿⣿⣿⣿⣿⣷⣤⣀                              
+           height           140   │  ⣠⣶⣿⣿⡿⣷⢷⣿⣹⢿⣼⣹⣽⣿⣯⡷⡯⣯⣿⢿⢻⢿⣿⣺⡟⣿⣿⣿⣿⣿⣆              200█          
+                            120   │⣶⣿⣿⣿⣿⣿⣿⣯⣿⠼⣿⣿⢽⣼⣿⣻⣿⣿⣿⣿⣿⣹⢻⣺⢿⣿⢳⢻⡿⣿⣿⣾⣿⣆⡀               █          
+                            100  ⠘│⣿⣿⣿⣿⣿⣿⣯⣿⡮⣿⣽⣿⢿⣿⣿⣿⣿⣟⣿⢿⣿⣿⣽⣻⣹⣿⣷⣿⣿⣿⣿⣿⣿⣿⡿⠆         172.5▛          
+                                  +\⠈⠙⢿⣿⣏⣷⡧⣿⣿⣻⣽⢿⡽⣿⣽⣏⣯⡟⣿⣿⢿⣽⣿⣿⣿⣿⣾⣿⣿⣿⠞⠁  /+             ▛          
+                                    \\\⠈⠙⠻⣿⣿⣻⣻⣽⢿⣿⣽⡧⣷⡯⣯⢿⣿⢿⡽⣿⣟⣿⣿⠿⠛⠉  /+/            145▀          
+                               0       \\\⠈⠻⣽⣿⣿⣿⣿⣯⡿⣷⣷⣿⣿⣺⣾⣿⣷⠿⠛⠁  /+/       0          ▀          
+                                   200    \\\⠉⠻⣿⣿⡿⣿⣿⣿⢿⣿⣿⣻⠟⠃ //+/       100      117.5▘          
+                                       400   \+\⠻⢿⣿⣿⣿⡿⠟⠋⠁//+        200              ▘          
+                                                \\+⠚⠁ ///        300               90           
+                                           600     \+/       400                                
+                                               800        500                                   
+                                                       600                                      
+                                                                                                
+                                y (m)                                    x (m)                  
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Maunga Whau, 140x40, box:**
+
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                       @@@@@%                                                               
+                                                                    @@@@@@@@@@@%+                                                           
+                                            200     +             =@@@@@@@@@@#%#@@%%#%                                                      
+                                            180     │            =@#@@@@@@@%@@@@@=@%%%@#                                                    
+                                                    │           =@@@@@#@@@@@@@@@+@@@@@#%*                                                   
+                                            160     +          =@@@@@@@@@@@@@@@@@@@@@@@+*##=#@                                              
+                     height                 140     │        =-*%@@@@@@@@@@@@*@@@@@@@%%%%%@@*+=#=                                           
+                                                    │      *+=@%@@@@@@@@@@@@%@@@@@@@@@@@@@@@@@%@@@@@                                        
+                                            120     +   %#*#@+@@@@@@@@@@@@@%@@@@@@@@@@@@@@@@@@@@@@@@@               200█                    
+                                                    │%#%@#%%+@@@@@@@@@@@@@@@@@%@@@@@@@@@@@@@@@@@@@%%@@%                █                    
+                                            100     +\  @@@@@@%@@@@@@@@@@@@@%@@@@@@@@@@@@@@@@@@@@@@%@  /+         172.5▓                    
+                                                      \\\  @#@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@%@@@%  ///                ▓                    
+                                                         \\\\  @@@%%@@@@@@@@@@@@@@@@@@@@@@@@*%# ////+               145▒                    
+                                                0            \\\ @%@@@@#@@@@@@@@@%@@@@@@@@@  ///+           0          ▒                    
+                                                                \\\ @@@@@@%@@@%%@@@@%%@@@ /+/           100       117.5░                    
+                                                      200          \\\ @%%@@%@@%%%@%%% ///          200                ░                    
+                                                            400       \\\\@%%%%@%%@////+                             90                     
+                                                                          \+\@%%///+           300                                          
+                                                                  600        \+/           400                                              
+                                                                                                                                            
+                                                                        800            500                                                  
+                                                                                  600                                                       
+                                                                                                                                            
+                                                                                                                                            
+                                                  y (m)                                                    x (m)                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+**Alps (ETOPO1, near the Matterhorn, 36x31), 96x32, box** — "elevation (m)" / "latitude" / "longitude" all present:
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                    =                                           
+                                                 @+@@@%@                                        
+                                               %=@@@@@@@+                                       
+                          4000  │             @@@*@@@=@*@@@@*                                   
+                                │           @@@#@@@@#@+@@@@@*                                   
+                          3000  │          @@@@@@@@@@@@@%@@@@@@ @@                              
+         elevation (m)    2000  │        @@%@@@#@@@@%@@@@@@+#@*@@@@@               4500█        
+                                │      @-@@#@@@@@@@@@@+@@@@@@@*@@@@                    █        
+                          1000  +    #%+#@@@@@@#@@@#@@+@@@@@*%                     3375▓        
+                          0     +\   #%  %@@@@@*@@@@@@*@@%@+        +//                ▓        
+                                  \+\       @*@ @@@@@@@@@        +///              2250▒        
+                             45.4    \\\           @@         +///     7.2             ▒        
+                                 45.6   \\+\               +///     7.4            1125░        
+                                    45.8    \\\         +//      7.6                   ░        
+                                       46      \\+   +//      7.8                     0         
+                                           46.2   \\/      8                                    
+                                              46.4     8.2                                      
+                                                                                                
+                                                                                                
+                              latitude                                  longitude               
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Alps, 96x32, braille:**
+
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                  ⢀⢀                                            
+                                                 ⢀⣿⣿⣿⣦⣤⡀                                        
+                                              ⢀⣠⣴⣾⣹⣹⣳⢷⢿⢧  ⡀                                     
+                                             ⣀⣾⣷⣿⣿⡿⣿⣿⣿⢯⣾⣿⣾⣿⣄                                    
+                          4000  │           ⣼⣿⣟⣿⣻⣿⡷⣿⣿⣿⣿⣿⣿⡟⣿⣇⣧   ⡀                               
+                                │         ⢠⣿⣿⣯⣿⣷⣿⣻⣷⣿⣿⣿⣿⣿⣯⡿⣿⣿⣯⣿⡄⢰⣿⡄                              
+                          3000  │       ⢠⣷⣿⣹⣿⣾⣿⣿⣿⣧⣿⣿⣿⣷⣿⣿⣾⣿⣷⢿⣿⣿⣻⣾⣿⣧⣠⣤               4500█        
+         elevation (m)    2000  │      ⢀⣾⣿⢿⣿⣿⣿⣳⣿⡿⡝⣿⣿⣿⣟⣟⣦⣼⣿⡿⣿⣦⣿⣿⣿⣿⣻⣿⠟⠃                  █        
+                                │   ⢀⣴⣿⣿⣿⣿⣿⣷⣿⣿⣿⣿⣶⣷⣿⣹⣻⠛⡟⣿⣻⣯⣿⣿⣿⡿⠻⠟⠿⠿⠃                3375▛        
+                          1000  + ⢠⣾⣿⣿⣿⣿⡟⣿⣾⣿⣿⣹⣿⣿⣝⣦⣷⣿⣿⣾⣁⣿⣿⣿⡟⠛⠏⠁                         ▛        
+                          0     +\  ⠉⠉⠉⠙⠷⠿⠋⡟⣿⣿⣻⣿⢧⣿⣿⣺⣷⣿⣿⠃⠼⠻⠁⠋        +//            2250▀        
+                                  \+\      ⠙⠋⠹⡿⢻⡟⠻⣿⡟⣻⡟⠋⠉⠉        +///                  ▀        
+                             45.4    \\\       ⠈  ⠘⣷⡏⠁        +///     7.2         1125▘        
+                                 45.6   \\+\       ⠈       +///     7.4                ▘        
+                                    45.8    \\\         +//      7.6                  0         
+                                       46      \\+   +//      7.8                               
+                                           46.2   \\/      8                                    
+                                              46.4     8.2                                      
+                                                                                                
+                                                                                                
+                              latitude                                  longitude               
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+
+**Alps, 140x40, box:**
+
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                            #  @                                                            
+                                                                           @@@@@@ #                                                         
+                                                                        @%@@@@@@@@#@                                                        
+                                                                       %@+@@@@@@@@@@@@@@                                                    
+                                                   │                  @==%*@@@@@-@@@@@@@@@                                                  
+                                           4000    +               @@@@@@@@@@@@+#@@@@@@@@@                                                  
+                                                   │              =@@@@@@@@@@@*@@*@@@@%@#@*#%   @                                           
+                                           3000    +              @@@@@@+@%@@@@@@@@@@@@@@#@@*  @@                                           
+                   elevation (m)                   │           @@@@@**@%@@+@@@@=@@@@@@@%@@+#*@@%@=@@@                                       
+                                           2000    +           =@@@%@@@@@@@@@@@*@@@@@@@@@@@@*@@@%@@                  4500█                  
+                                           1000    │       @@@+@@@@@@*@@#@@@%@@*@+@@@@@@%#@@@@@ @@                       █                  
+                                                   │     #%#%+#@@@@@#@@@#@@@@#@@@+@@*@@@@#@                          3375▓                  
+                                           0       +\   %@+%#@@%@@@@@@@%%@@=*@@@#=@@@@@@@@            //                 ▓                  
+                                                     \\\       @   @@@@*@@@@@%@@@*@@@@%@           //+               2250▒                  
+                                                       +\\\\       @@ @#@@@@@@+#@+@            ////                      ▒                  
+                                               45.4         +\\          @  @@@=            ///          7.2         1125░                  
+                                                    45.6       \\\            @          ///+                            ░                  
+                                                                 +\\\                 //+           7.4                 0                   
+                                                        45.8         \\\\         ////          7.6                                         
+                                                             46          \\\   ///                                                          
+                                                                          + \\/+            7.8                                             
+                                                                  46.2                 8                                                    
+                                                                       46.4        8.2                                                      
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                latitude                                                  longitude                         
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+
+**Visual verification, against the coordinator's own gates** (LOOKED at, not assumed): every frame's x/y axis lines run along the two FRONT-bottom edges (the `\\\`/`///` diagonal runs), the z axis line runs up the LEFT vertical edge with real tick marks (`+`/`│`), and both are clearly outside/framing the surface's own ink — never behind it. Maunga Whau and the Alps each show >= 5 whole numeric tick labels per axis (height/y/x on Maunga Whau: 6/5/7; elevation/latitude/longitude on the Alps: 5/6/6) and all 3 titles. No digit or tick-mark glyph lands inside a run of surface shading characters (`%`/`@`/`#`/braille dots) in any frame above — occlusion holds in both `solid` (box charset) and `wireframe` (braille charset) modes. The `guides.grid: true` ring-crater frame shows `·` dots strictly between the axis's own boundary ticks, never coincident with one.
+
+### Mutation table (this round's own additions)
+
+| Item | Gate | Mutation | Result |
+|---|---|---|---|
+| P1-1: overlay occlusion works outside solid mode | `createGlyphScene.sceneObject.test.ts`'s "fix round 6, P1-1" test | Gate `buildSurfaceOcclusionMap`'s call sites on `retainWinnerMesh` instead of `retainOverlayOcclusion` | RED indirectly — reddens the SEPARATE targeting regression test below, since the two flags stop being independent |
+| P1-1: effect targeting stays solid-only despite overlay occlusion | `createGlyphScene.targeting.test.ts`'s "fix round 6 regression" test | Share one flag between `retainOverlayOcclusion` and `retainWinnerMesh` | RED — a mesh-targeted marker effect paints in wireframe mode when an unrelated object's overlay is also mounted |
+| P1-1: retained effect compositor never leaks `winnerMesh` outside solid | Same test, second layer | Drop `GlyphEffectRetainOptions.retainWinnerMesh`'s strip-on-false branch in `effectCompositor.ts` | RED — the SAME regression test still fails even after the rasterize-layer fix, isolating the second bug |
+| P1-1: labels never paint over rasterized ink, wireframe/ink | `render.test.ts`'s "P1-1 (codex review, round 6)" describe block | Revert to round 5's `buildMeshScreenDepth` vertex-sampling occlusion | RED — a label anchored between two sampled mesh vertices on a decimated wireframe surface paints over real ink |
+| P1-1 positive control | Same describe block, "the SAME labels draw over empty space" test | N/A — asserts the check is occlusion, not suppression | Passes; would catch a future "always drop this label" regression |
+| P1-2: grid never repaints a boundary/axis-owned cell | `object.test.ts`'s existing grid-ink tests, exercised for the first time now that real interior lines paint | Revert `subsampleTicksForGrid` to include `ticks[0]`/`ticks[length-1]` | RED — grid glyphs coincide with axis-line-owned cells; the 15%-of-plot-box cap test also reddens once boundary+interior density is counted |
+| P1-2: `max === 1` division-by-zero | `object.test.ts`'s "guides.grid=true strictly increases ink" mutation test | Drop the `max === 1` special case, let the general stride formula run | RED — `Math.round(NaN)` produces no valid tick, the grid line count collapses to zero, ink stops increasing |
+| P1-4: `--camera 10,` rejects | `chartCli.test.ts`'s new P1-4 block | Revert `parseCameraArg`'s empty-field check | RED — `Number("")` parses to `0`, `--camera 10,` silently becomes `{rotX: 10, rotY: 0}` |
+| P1-4: a value-less 3D flag rejects regardless of `--3d` | Same block | Revert the presence check to test the parsed value's definedness | RED — a caught-and-rethrown parse error masks the intended `bad-3d-flag` code, or (with `--3d` present) the flag silently no-ops |
+| P2: trackball camera honoured through the public option, not just probed | `render.test.ts`'s new "P2" describe block | Drop the `mat`-vs-Euler branch in `renderObjectFrame` | RED — a `mat`-supplied render is byte-identical to the same call with `mat` omitted |
+| P2: corner-triad sharing verified on the RENDERED overlay | `object.test.ts`'s new render-based corner test | Independently resolve x and y's own corners (the bug the old helper-only test couldn't see) | RED — the projected x/y line endpoints land on different cells, neither a junction glyph |
+| Axes visible on Maunga Whau/Alps at default camera | Visual inspection above (no automated pixel-diff gate exists for "is it visually framing the data" — the closest automated proxy is the P1-1 occlusion suite plus the pre-existing corner-triad tests) | Revert `resolveAxisTriadCorners` to call `resolveSharedCorner` for both x/y and z (round 2's behaviour) | Reproduces the original user-reported defect — verified by re-running the frame script against the reverted code and confirming the axis lines return to the surface's back edges |
+| Exports: style/chrome resolvers callable from outside the package | A `node --input-type=module` probe against the built `@glyphcss/charts/3d` package (`Object.keys` on the imported module) | Revert the `export` keywords on `resolveGlyphChart3dStyle`/`glyphChart3dChromeTier`/`glyphChart3dStyleSceneOptions` and their `index.ts` re-exports | RED — `renderGlyphChart3d`/`glyphChartSurface` still import, but the three names are `undefined` on the imported module |
+| Exports: guide/corner types genuinely public | TypeScript compilation of a file importing `GlyphChart3dGuideOptions`/`GlyphChart3dCornerOption` directly from `@glyphcss/charts/3d` (exercised by the package's own DTS build, `pnpm --filter @glyphcss/charts run build`) | Drop the five type names from `index.ts`'s type-export list | RED — DTS build itself is unaffected (the types are still structurally reachable through `GlyphChart3dSurfaceOptions`), but a direct named import fails to resolve — the exact gap AGENTS.md's Exports paragraph had wrongly claimed was already closed |
+
+### Residuals, stated plainly
+
+1. **Sub-cell braille dot axis lines are NOT implemented.** Documented above under "What was NOT done" — `CellGrid` has no sub-cell overlay write surface; building one is a `glyphcss`-layer feature outside this round's scope. The residual is a visual one only (axis lines stair-step on braille instead of reading as smooth dotted lines); occlusion, visibility, and tick/title placement are all otherwise correct on every charset.
+2. **No automated "is the axis visually prominent enough" gate exists.** The coordinator's own instruction was to LOOK at the frames, which this round did (both via the static renderer mid-fix and via the frame script above) — but there is no pixel-level or ink-coverage regression test asserting the specific property "an axis line's own visible run covers >= 70% of its edge" the way the P1-1 occlusion suite asserts "no label paints over ink." The corner-triad tests (existing plus this round's new render-based one) assert the CORNERS are resolved and touch correctly, which is the geometric precondition for visibility, but not visibility itself. A future round wanting a hard regression gate here would need an ink-density-along-the-silhouette-edge measurement, analogous to the grid's own 15%-of-plot-box cap.
+3. **`resolveCharts3dStyle`/`charts3dObjectCharset`** (`website/src/components/ChartsWorkbench/chartsWorkbench3d.ts`) are still page-local mirrors of the newly-exported `resolveGlyphChart3dStyle`/`glyphChart3dChromeTier` — the coordinator's own message says "I'll have the page switch to the exported functions after you land," so switching them is explicitly deferred to that follow-up, not done here (per this round's own out-of-scope boundary: `website/` was not touched).

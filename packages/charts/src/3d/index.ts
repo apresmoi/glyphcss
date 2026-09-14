@@ -23,7 +23,10 @@ export { glyphChart3dSurfaceJsonSchema } from "./schema";
 export type { GlyphChart3dSurfaceJsonSchema } from "./schema";
 export { glyphChart3dFitCamera, GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
 export type { GlyphChart3dBounds, GlyphChart3dFitCameraOptions, GlyphChart3dFitCameraResult } from "./camera";
-export { renderGlyphChart3d, renderGlyphChart3dJson, glyphChart3dCharsetDegrades } from "./render";
+export {
+  renderGlyphChart3d, renderGlyphChart3dJson, glyphChart3dCharsetDegrades,
+  resolveGlyphChart3dStyle, glyphChart3dStyleSceneOptions, glyphChart3dChromeTier,
+} from "./render";
 export type {
   GlyphChart3dCameraOptions,
   GlyphChart3dRenderOptions,
@@ -49,4 +52,9 @@ export type {
   GlyphChart3dObjectOptions,
   GlyphChart3dBuildReport,
   GlyphChart3dLedgerEntry,
+  GlyphChart3dCornerBit,
+  GlyphChart3dCorner,
+  GlyphChart3dCornerOption,
+  GlyphChart3dGuideOptions,
+  GlyphChart3dResolvedGuides,
 } from "./types";

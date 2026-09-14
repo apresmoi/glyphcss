@@ -1159,7 +1159,17 @@ export function createGlyphScene(
       // own — a scene render's own meaning of that ("finite depth") is
       // supplied here explicitly, and `hasDepth` defaults `true`, so this is
       // byte-identical to the pre-contract-4 behavior.
-      { coverage: glyphEffectDepthCoverage(grid) },
+      {
+        coverage: glyphEffectDepthCoverage(grid),
+        // Fix round 6, P1-1: `CellGrid.winnerMesh` can now be populated
+        // under `wireframe`/`ink` too, for a mounted OBJECT'S OVERLAY
+        // (`retainOverlayOcclusion`, above) — but per-object EFFECT
+        // targeting keeps its own documented solid-mode-only contract
+        // (`effectCompositor.ts`'s own `targetCoverageForCell` doc)
+        // regardless of whether some unrelated overlay happens to be
+        // mounted in the same scene.
+        retainWinnerMesh: options.mode === "solid",
+      },
       retainedEffectOutputs.get(currentEffectOutputMetadata.id),
     );
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
@@ -1896,11 +1906,21 @@ export function createGlyphScene(
     // buffer at `polygonMeshIds`-supply time, below.
     // A scene object's own overlay uses `winnerMesh` for the "hides behind a
     // foreign mesh" rule (AGENTS.md "Scene objects" / PLAN-3d.md §3.2
-    // "Occlusion") — solid mode only, and only when some mounted object
-    // actually carries an overlay (checked once, not per-grid: the buffer is
-    // scene-wide, exactly like the effect-targeting OR-gate beside it).
-    const retainWinnerMesh = (effectsActive && hasMeshTargetedLayers())
-      || (options.mode === "solid" && objectHasAnyOverlay());
+    // "Occlusion") whenever some mounted object actually carries an overlay
+    // (checked once, not per-grid: the buffer is scene-wide, exactly like the
+    // effect-targeting OR-gate beside it).
+    const objectOverlayActive = objectHasAnyOverlay();
+    const retainWinnerMesh = (effectsActive && hasMeshTargetedLayers()) || objectOverlayActive;
+    // Fix round 6, P1-1: a SEPARATE flag — `retainWinnerMesh` above also
+    // gates per-object EFFECT targeting (`targetCoverage`), which
+    // `effectCompositor.ts`'s own doc keeps solid-mode-only by design. This
+    // one means "a mounted object's OVERLAY needs occlusion data," which
+    // `rasterize.ts`'s wireframe/ink paths now honour too
+    // (`buildSurfaceOcclusionMap`), so a tick/title/node-label occlusion
+    // test is sound in every render mode — without also reactivating
+    // mesh-targeted effects outside solid mode, which stay exactly as
+    // inactive there as before this fix.
+    const retainOverlayOcclusion = objectOverlayActive;
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       const parts: readonly Polygon[][] = [
@@ -1980,6 +2000,7 @@ export function createGlyphScene(
       retainObjectExit,
       retainObjectNormal,
       retainWinnerMesh,
+      retainOverlayOcclusion,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
@@ -2055,6 +2076,7 @@ export function createGlyphScene(
       retainObjectExit,
       retainObjectNormal,
       retainWinnerMesh,
+      retainOverlayOcclusion,
       worldToSceneScale,
       semanticLineage,
       globalPolygonOffsets,
@@ -2665,6 +2687,10 @@ export function createGlyphScene(
     retainObjectExit: boolean,
     retainObjectNormal: boolean,
     retainWinnerMesh: boolean,
+    // Fix round 6, P1-1: see the base layer's own doc — kept separate from
+    // `retainWinnerMesh` so a mesh-targeted EFFECT layer's own solid-mode-only
+    // contract survives a detail grid rendering in wireframe/ink too.
+    retainOverlayOcclusion: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
@@ -2963,6 +2989,7 @@ export function createGlyphScene(
           polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? detailPolygonMeshIds(group, memberPolys) : undefined,
           retainObjectExit,
           retainWinnerMesh,
+          retainOverlayOcclusion,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = resolvedTextureSamplers();

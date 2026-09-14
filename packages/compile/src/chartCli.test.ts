@@ -97,6 +97,37 @@ describe("--3d: parseChartArgs and resolveChart3dCliOutput", () => {
     expect(() => parseChartArgs(["spec.json", "--3d", "--style", "bogus"])).toThrow(expect.objectContaining({ code: "bad-style-arg" }));
   });
 
+  // P1-4 (codex review, round 6): `parseCameraArg`/`parseStyleArg` used to
+  // accept a missing argument as `undefined` (silently no-op'd, rather than
+  // an error) and `Number("")` (an empty comma field) as a plausible-looking
+  // `0` — both examples from the review, reproduced here as pure
+  // `parseChartArgs` cases (no file I/O needed).
+  describe("strict argument parsing (P1-4)", () => {
+    it("--camera 10, (a trailing empty field) rejects with bad-camera-arg, never a silent rotY: 0", () => {
+      expect(() => parseChartArgs(["spec.json", "--3d", "--camera", "10,"])).toThrow(expect.objectContaining({ code: "bad-camera-arg" }));
+    });
+
+    it("--camera ,  (both fields empty) rejects with bad-camera-arg, never a silent {rotX:0, rotY:0}", () => {
+      expect(() => parseChartArgs(["spec.json", "--3d", "--camera", ","])).toThrow(expect.objectContaining({ code: "bad-camera-arg" }));
+    });
+
+    it("--camera with no following value rejects with bad-camera-arg, never a silent no-op", () => {
+      expect(() => parseChartArgs(["spec.json", "--3d", "--camera"])).toThrow(expect.objectContaining({ code: "bad-camera-arg" }));
+    });
+
+    it("--camera with no following value AND no --3d still rejects (a thrown parse error, not a silent no-op)", () => {
+      expect(() => parseChartArgs(["spec.json", "--camera"])).toThrow(expect.objectContaining({ code: "bad-camera-arg" }));
+    });
+
+    it("--style with no following value rejects with bad-style-arg, never a silent no-op", () => {
+      expect(() => parseChartArgs(["spec.json", "--3d", "--style"])).toThrow(expect.objectContaining({ code: "bad-style-arg" }));
+    });
+
+    it("--style without --3d rejects regardless of its value — a flag's PRESENCE is what's tested, not the parsed value's definedness", () => {
+      expect(() => parseChartArgs(["spec.json", "--style", "solid"])).toThrow(expect.objectContaining({ code: "bad-3d-flag" }));
+    });
+  });
+
   it("--style wireframe renders real braille-capable wireframe output, distinct from the solid default", () => {
     const input: GlyphChart3dJsonInput = { data: { z: volcano() } };
     const solid = resolveChart3dCliOutput(input, { target: "web", color: "none", charset: "ascii" }, { isTTY: false });

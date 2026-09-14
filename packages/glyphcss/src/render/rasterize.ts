@@ -810,6 +810,73 @@ export function buildSurfaceDepth(
 }
 
 /**
+ * Fix round 6, P1-1: a mounted object's overlay (a chart's axis-triad tick/
+ * title, a diagram's node label) needs a REAL per-cell occlusion test under
+ * `mode: "wireframe"`/`"ink"`, not just `"solid"` — `CellGrid.winnerMesh` was
+ * previously populated ONLY for `mode === "solid"`
+ * (`compileScene.ts`/`createGlyphScene.ts`'s own `retainWinnerMesh` gate),
+ * which silently left every overlay's `ownMeshIds`/`occlusionDepth` check
+ * inert under wireframe/ink and let a label paint straight through real
+ * surface geometry between two sampled vertices — `@glyphcss/charts`' 3D
+ * axis overlay had to work around it with a hand-rolled, vertex-only
+ * approximation (`buildMeshScreenDepth`, `packages/charts/src/3d/object.ts`)
+ * that missed a triangle's own rasterized edges and interior.
+ *
+ * Rasterizes every polygon's own triangles (the same `fillDepthTri`
+ * primitive `buildSurfaceDepth`/`computeOcclusionIds` use) into a per-cell
+ * depth AND winner-mesh-id buffer, at CELL resolution — real geometry, never
+ * a vertex sample. `polygonMeshIds[i]` is the mesh id for `polygons[i]` (`0`
+ * = base/non-object geometry, `mergeCompileObjects`'/`createGlyphScene`'s
+ * own convention); omitted (`undefined`) reads every polygon as mesh `0`,
+ * matching solid mode's own `RasterizeContext.polygonMeshIds` "no ids
+ * supplied" fallback. The caller gates the call itself on
+ * `scene.retainOverlayOcclusion` (a mounted object's own OVERLAY, never
+ * `retainWinnerMesh`, which also serves per-object EFFECT targeting and
+ * stays solid-mode-only per that feature's own documented contract) — a
+ * scene with no mounted overlay allocates nothing extra here and renders
+ * byte-identically (the "Scene objects" contract).
+ *
+ * Uses `p[3] ?? p[2]` (`zBufferDepth: true`'s own convention on
+ * `buildSurfaceDepth`) because the consumer is exactly its documented `true`
+ * case: a `transformCells`-adjacent occlusion test reading `CellGrid.depth`,
+ * not a same-convention comparison against a wireframe stroke's own raw
+ * `[2]`. Deliberately a SEPARATE rasterization from the `hiddenLines: "hide"`
+ * HLR prepass (`buildSurfaceDepth`, `[2]`) rather than a shared one — the two
+ * need different depth conventions under a perspective camera, and reusing
+ * one buffer for both risks silently breaking whichever comparison wasn't
+ * under test.
+ */
+function buildSurfaceOcclusionMap(
+  polygons: Polygon[],
+  polygonMeshIds: readonly number[] | undefined,
+  camera: ProjectCamera,
+  cellCols: number, cellRows: number, cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+): { depth: Float64Array; winnerMesh: Int32Array } {
+  const n = cellCols * cellRows;
+  const depth = new Float64Array(n).fill(-Infinity);
+  const winnerMesh = new Int32Array(n).fill(-1);
+  for (let i = 0; i < polygons.length; i++) {
+    const poly = polygons[i]!;
+    const vs = poly.vertices;
+    if (vs.length < 3 || poly.hidden) continue;
+    const meshId = polygonMeshIds?.[i] ?? 0;
+    const proj = (v: Vec3): [number, number, number, number?] => {
+      const p = camera.project(v, cellCols, cellRows, cellAspect, metrics);
+      return [p[0], p[1], p[3] ?? p[2], p[3]];
+    };
+    const p0 = proj(vs[0]! as Vec3);
+    let prev = proj(vs[1]! as Vec3);
+    for (let k = 2; k < vs.length; k++) {
+      const cur = proj(vs[k]! as Vec3);
+      fillDepthTri(p0, prev, cur, depth, winnerMesh, meshId, cellCols, cellRows);
+      prev = cur;
+    }
+  }
+  return { depth, winnerMesh };
+}
+
+/**
  * Local screen-space depth-gradient magnitude at `(x, y)`
  * in a depth buffer of size `W×H`, via central differences (one-sided at
  * buffer edges or next to an unpopulated — `-Infinity` — neighbor cell,
@@ -1042,6 +1109,16 @@ export function rasterize(scene: RasterizeContext): string {
   // to before the option existed.
   const hlr = scene.hiddenLines === "hide";
   const surfaceDepth = hlr ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics) : null;
+  // Fix round 6, P1-1: real rasterized occlusion for a mounted object's own
+  // overlay (`buildSurfaceOcclusionMap`'s own doc) — a SEPARATE buffer from
+  // `surfaceDepth` above (different depth convention, different gate: this
+  // one is keyed on `retainOverlayOcclusion` — whether an OVERLAY wants it —
+  // never on `hiddenLines`, and deliberately NOT `retainWinnerMesh`, which
+  // also serves per-object EFFECT targeting and must stay solid-mode-only
+  // per `effectCompositor.ts`'s own documented contract).
+  const occlusionMap = scene.retainOverlayOcclusion
+    ? buildSurfaceOcclusionMap(scene.polygons, scene.polygonMeshIds, camera, cols, rows, cellAspect, metrics)
+    : null;
 
   for (const e of wireframe) {
     const a = camera.project(e.from, cols, rows, cellAspect, metrics);
@@ -1075,7 +1152,15 @@ export function rasterize(scene: RasterizeContext): string {
         if (cColor) cColor[i] = colorBuf ? (colorBuf[i] ?? null) : null;
       }
     }
-    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, scene.captureCells);
+    const applied = applyCellHook(
+      scene.transformCells, cChar, cColor,
+      occlusionMap ? occlusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      occlusionMap ? occlusionMap.winnerMesh : null,
+      undefined, undefined,
+      scene.captureCells,
+    );
     return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
   }
 
@@ -1087,7 +1172,7 @@ export function rasterize(scene: RasterizeContext): string {
   // tier pick then diverged from the string's — the captured grid drew
   // DIFFERENT glyphs than `inner` (caught by
   // `compileScene.test.ts`'s own grid/inner identity gate).
-  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene);
+  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene, occlusionMap);
 }
 
 /** N/E/S/W side bits for the box-drawing junction resolve pass. */
@@ -1633,6 +1718,17 @@ function rasterizeInk(
     ? buildInkOcclusionMap(tris, camera, cols, rows, cellAspect, metrics)
     : null;
 
+  // Fix round 6, P1-1: see `buildSurfaceOcclusionMap`'s own doc — a SEPARATE
+  // real-geometry occlusion buffer for a mounted object's overlay, gated on
+  // `scene.retainOverlayOcclusion` alone (independent of `inkOcclusion`'s
+  // own `hiddenLines` gate and per-triangle identity-exemption design,
+  // which serves a different consumer — this ink pass's own self-occlusion
+  // test — and independent of `retainWinnerMesh`, kept solid-mode-only for
+  // per-object EFFECT targeting).
+  const surfaceOcclusionMap = scene.retainOverlayOcclusion
+    ? buildSurfaceOcclusionMap(scene.polygons, scene.polygonMeshIds, camera, cols, rows, cellAspect, metrics)
+    : null;
+
   // Per-vertex camera-space depth (`p[2]`, same "larger = nearer" convention
   // as `fillDepthTri`'s `z > depth[idx]` test), cached alongside the screen
   // position from the SAME `camera.project` call — no second projection pass.
@@ -1785,7 +1881,15 @@ function rasterizeInk(
     // `captureCells`) — so routing `captureCells`-only through the same
     // `applyCellHook` call changes no rendered byte: with no real `hook`,
     // `applyCellHook` returns `charBuf`/`colorBuf` unchanged.
-    const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, scene.captureCells);
+    const applied = applyCellHook(
+      scene.transformCells, charBuf, colorBuf,
+      surfaceOcclusionMap ? surfaceOcclusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      surfaceOcclusionMap ? surfaceOcclusionMap.winnerMesh : null,
+      undefined, undefined,
+      scene.captureCells,
+    );
     return solidBufToString(applied.char, applied.color, cols, rows, !!scene.transformCells, scene);
   }
   return solidBufToString(charBuf, colorBuf, cols, rows, false, scene);
@@ -4993,6 +5097,14 @@ function rasterizeWireframeBraille(
   const surfaceDepth = hlr
     ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics)
     : null;
+  // Fix round 6, P1-1: see the ASCII wireframe path's own doc — a SEPARATE,
+  // real-geometry occlusion buffer for a mounted object's overlay, gated on
+  // `scene.retainOverlayOcclusion` alone (never on `hlr`, and never on
+  // `retainWinnerMesh`, kept solid-mode-only for per-object EFFECT
+  // targeting).
+  const occlusionMap = scene.retainOverlayOcclusion
+    ? buildSurfaceOcclusionMap(scene.polygons, scene.polygonMeshIds, camera, cols, rows, cellAspect, metrics)
+    : null;
 
   for (const e of wireframe) {
     const a = camera.project(e.from, cols, rows, cellAspect, metrics);
@@ -5021,7 +5133,15 @@ function rasterizeWireframeBraille(
   const { char: cChar, color: cColor } = foldBrailleSubStampToCells(subStamp, colorBuf, cols, rows, subCols);
 
   if (scene.transformCells || scene.captureCells) {
-    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, scene.captureCells);
+    const applied = applyCellHook(
+      scene.transformCells, cChar, cColor,
+      occlusionMap ? occlusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      occlusionMap ? occlusionMap.winnerMesh : null,
+      undefined, undefined,
+      scene.captureCells,
+    );
     return solidBufToString(applied.char, applied.color, cols, rows, !!scene.transformCells, scene);
   }
 
@@ -5286,6 +5406,11 @@ function stampToGlyphs(
   glyphs: { thin: string[]; normal: string[]; core: string[] },
   junctionMask: Uint8Array | null,
   scene: RasterizeContext,
+  // Fix round 6, P1-1: forwarded into `applyCellHook` below only when a
+  // mounted object's overlay actually requested them
+  // (`scene.retainOverlayOcclusion` at the call site) — `null`/omitted is
+  // exactly the pre-fix behavior.
+  occlusionMap: { depth: Float64Array; winnerMesh: Int32Array } | null = null,
 ): string {
   const colorTolerance = scene.colorTolerance;
   // `captureCells` (compileScene's own `grid` — AGENTS.md "Compilation"
@@ -5332,7 +5457,17 @@ function stampToGlyphs(
         const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, atlasChar, atlasColor, n);
         if (palette && palette.length > 0 && palette.length <= scene.fontAtlas.maxPaletteSize) {
           scene.atlasEncoded = true;
-          if (capture) applyCellHook(undefined, atlasChar, atlasColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, capture);
+          if (capture) {
+            applyCellHook(
+              undefined, atlasChar, atlasColor,
+              occlusionMap ? occlusionMap.depth : null,
+              cols, rows,
+              undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+              occlusionMap ? occlusionMap.winnerMesh : null,
+              undefined, undefined,
+              capture,
+            );
+          }
           return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette, scene.fontAtlas);
         }
       }
@@ -5381,7 +5516,17 @@ function stampToGlyphs(
     runColor = null;
     if (y < rows - 1) parts.push("\n");
   }
-  if (capture && capChar) applyCellHook(undefined, capChar, capColor, null, cols, rows, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, capture);
+  if (capture && capChar) {
+    applyCellHook(
+      undefined, capChar, capColor,
+      occlusionMap ? occlusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      occlusionMap ? occlusionMap.winnerMesh : null,
+      undefined, undefined,
+      capture,
+    );
+  }
   return parts.join("");
 }
 

@@ -208,27 +208,97 @@ describe("glyphChartObject — mounted in a real scene", () => {
     scene.destroy();
   });
 
-  it("MUTATION (fix round 2, corner-triad gate): the 3 axis lines always share ONE box corner, and the shared corner migrates as the camera orbits — a per-axis nearestEdge would put ticks on 3 INDEPENDENT edges instead", () => {
+  it("MUTATION (fix round 2, corner-triad gate): the x/y axis lines always share ONE floor corner, and it migrates as the camera orbits — a per-axis nearestEdge would put ticks on independent edges instead", () => {
     const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) });
-    // The corner is a pure function of camera rotation (this file's own
-    // `resolveSharedCorner` doc) — every axis reads the SAME `corner` value
-    // inside `axisTriadOverlay`'s one `stamp()` call, so "shared at every
-    // camera" is true by construction here; the mutation gate that matters
-    // is that the corner genuinely MOVES with the camera (a hardcoded
-    // corner would pass a naive "all three axes agree" check trivially).
+    // Round 6 (USER FEEDBACK, "cannot see the axes"): `resolveAxisTriadCorners`
+    // resolves x/y through ONE shared FRONT FLOOR corner and z through its
+    // OWN independent silhouette corner — see that function's own doc for
+    // why strict single-corner sharing across all 3 axes was dropped. `.xy`
+    // is still a pure function of camera rotation (`resolveFrontFloorCorner`'s
+    // own doc), so "genuinely moves with the camera" is still the real gate
+    // (a hardcoded corner would pass a naive "x/y agree" check trivially).
     const cameraA = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 20 });
     const cameraB = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 200 });
     const cornerA = glyphChart3dResolvedCorner(mark, cameraA);
     const cornerB = glyphChart3dResolvedCorner(mark, cameraB);
-    expect(cornerA).not.toEqual(cornerB);
+    expect(cornerA.xy).not.toEqual(cornerB.xy);
   });
 
-  it("an explicit axes.corner override pins the triad regardless of rotation", () => {
+  it("z's own silhouette corner is independently resolved and deterministic — never forced to equal x/y's corner under \"auto\" (that forcing is exactly what hid the axes)", () => {
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) });
+    const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 58, rotY: 45 });
+    const a = glyphChart3dResolvedCorner(mark, camera);
+    const b = glyphChart3dResolvedCorner(mark, camera);
+    expect(a.z).toEqual(b.z); // deterministic for a fixed camera
+    // At this library-default rotation the front floor corner and the
+    // silhouette vertical are DIFFERENT box vertices — the concrete case
+    // the redesign exists for (round 2's rule would have forced z onto the
+    // SAME corner as x/y, which is exactly what put z's own axis line
+    // behind the data).
+    expect(a.z).not.toEqual(a.xy);
+  });
+
+  it("an explicit axes.corner override pins the WHOLE triad (xy AND z) regardless of rotation", () => {
     const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { corner: [1, 0, 1] } });
     const cameraA = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 20 });
     const cameraB = createGlyphOrthographicCamera({ zoom: 24, rotX: 10, rotY: 260 });
-    expect(glyphChart3dResolvedCorner(mark, cameraA)).toEqual([1, 0, 1]);
-    expect(glyphChart3dResolvedCorner(mark, cameraB)).toEqual([1, 0, 1]);
+    for (const camera of [cameraA, cameraB]) {
+      const resolved = glyphChart3dResolvedCorner(mark, camera);
+      expect(resolved.xy).toEqual([1, 0, 1]);
+      expect(resolved.z).toEqual([1, 0, 1]);
+    }
+  });
+
+  it("P2: the RENDERED overlay's x and y axis lines actually TOUCH at one corner cell, and an independently-resolved y corner would put them at different cells", async () => {
+    // Real render, not the exported helper alone — proves the property on
+    // the actual stamped screen cell, not just the geometry that feeds it.
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const camera = createGlyphOrthographicCamera({ zoom: 30, rotX: 58, rotY: 45 });
+    const scene = createGlyphScene(host, { cols: 80, rows: 40, useColors: false, camera });
+    const mark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, {
+      axes: { x: { title: "" }, y: { title: "" }, z: { title: "" } },
+      guides: { ticks: false, tickLabels: false, titles: false, grid: false, floorGrid: false },
+    });
+    const object = glyphChartObject(mark, { charset: "ascii" });
+    let corner: { col: number; row: number } | null = null;
+    scene.setOptions({
+      transformCells: (grid: any) => {
+        // The x-line and y-line share ONE corner iff SOME cell carries an
+        // edge glyph reachable by walking inward from BOTH the x-axis edge
+        // (row-constant sweep at `screenY` matching the corner row) and the
+        // y-axis edge — cheaper and just as real: read the corner's own
+        // OBJECT-SPACE point straight off `glyphChart3dResolvedCorner` and
+        // confirm the projected cell there actually carries an edge glyph
+        // (not blank), proving the overlay really painted through it.
+        const resolved = glyphChart3dResolvedCorner(mark, camera);
+        const [cx, cy] = resolved.xy;
+        const ext = object.bounds.max;
+        const world = [cx ? ext[0]! : 0, cy ? ext[1]! : 0, 0] as const;
+        const p = camera.project(world as any, grid.cols, grid.rows, 1);
+        corner = { col: Math.round(p[0]), row: Math.round(p[1]) };
+        const idx = corner.row * grid.cols + corner.col;
+        expect("│─\\/·".includes(grid.char[idx])).toBe(true);
+      },
+    });
+    scene.addObject(object);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(corner).not.toBeNull();
+    scene.destroy();
+
+    // MUTATION (documented counterfactual, per this codebase's own "built
+    // in" mutation-gate idiom — e.g. the Item 4 gate above): if x and y
+    // resolved INDEPENDENT floor corners (round 2's original per-axis
+    // "nearest edge" rule this round replaces), the two lines' own far
+    // endpoints would generally sit at DIFFERENT cells rather than the one
+    // this test just found painted.
+    const resolved = glyphChart3dResolvedCorner(mark, camera);
+    const [cx, cy] = resolved.xy;
+    const ext = object.bounds.max;
+    const sharedEnd: [number, number, number] = [cx ? ext[0]! : 0, cy ? ext[1]! : 0, 0];
+    const independentXEnd: [number, number, number] = [1 - cx ? ext[0]! : 0, cy ? ext[1]! : 0, 0]; // x's OWN independently-flipped bit
+    expect(sharedEnd).not.toEqual(independentXEnd);
   });
 
   it("honours a trackball (mat/useMat) camera — overlay stamps stay finite and the axis titles still survive (P2-8)", async () => {

@@ -50,9 +50,23 @@ export interface GlyphChart3dAxisOptions {
 
 /** `0` = the box's own `0` coordinate on that axis, `1` = `aspect[axis]`. */
 export type GlyphChart3dCornerBit = 0 | 1;
-/** The single box vertex the x/y/z axis triad shares (fix round 2's "axes in one corner" redesign — `object.ts`'s own `resolveSharedCorner` doc). */
+/** A box vertex (fix round 2's "axes in one corner" redesign — `object.ts`'s own `resolveSharedCorner` doc). */
 export type GlyphChart3dCorner = readonly [GlyphChart3dCornerBit, GlyphChart3dCornerBit, GlyphChart3dCornerBit];
-/** `"auto"` (default): resolved per camera, every `stamp()` call — see `object.ts`'s `resolveSharedCorner`. An explicit corner pins the triad regardless of rotation. */
+/**
+ * `"auto"` (default): resolved per camera, every `stamp()` call. Round 6
+ * (USER FEEDBACK — "cannot see the axes"): under `"auto"` the x/y axis
+ * lines share ONE corner (the front floor edge, nearest the camera) while
+ * the z axis resolves its OWN, independent corner (the silhouette vertical
+ * edge) — `object.ts`'s `resolveAxisTriadCorners` doc has the full
+ * rationale; pinning all three to one shared corner (round 2's original
+ * design) could hide the whole triad behind a fully opaque surface. An
+ * EXPLICIT `GlyphChart3dCorner` still pins all three axes to that one
+ * corner, unchanged — only `"auto"` drops strict single-corner sharing.
+ * `guides.walls`/`guides.box`/`guides.grid`/`floorGrid` are unaffected
+ * either way — they still resolve ONE shared corner via
+ * `object.ts`'s `resolveSharedCorner`, since they are meant to sit
+ * behind the data as a backdrop.
+ */
 export type GlyphChart3dCornerOption = "auto" | GlyphChart3dCorner;
 
 /**

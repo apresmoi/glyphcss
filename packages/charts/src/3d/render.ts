@@ -216,9 +216,25 @@ export function glyphChart3dCharsetDegrades(charset: GlyphChartCharset): boolean
  * default. An explicit `options.style` always wins, independent of
  * charset — a caller can ask for a `box`/`ascii` wireframe too.
  */
-function resolveGlyphChart3dStyle(charset: GlyphChartCharset, styleOption: GlyphChart3dStyle | undefined): GlyphChart3dStyle {
+export function resolveGlyphChart3dStyle(charset: GlyphChartCharset, styleOption: GlyphChart3dStyle | undefined): GlyphChart3dStyle {
   if (styleOption !== undefined) return styleOption;
   return charset === "braille" ? "wireframe" : "solid";
+}
+
+/**
+ * Public (round 6): the exact `createGlyphScene`/`compileScene` render
+ * options a resolved `style` needs — `renderObjectFrame`'s own logic below,
+ * extracted so a LIVE scene consumer (`/charts`' own orbit viewport) reads
+ * the identical mapping instead of keeping its own copy that can drift from
+ * this one (the page had to mirror this exact object literal before this
+ * export existed). `mode` is `style` itself — glyphcss's `RenderMode` and
+ * `GlyphChart3dStyle` share the same 3 string values by construction.
+ */
+export function glyphChart3dStyleSceneOptions(style: GlyphChart3dStyle, charset: GlyphChartCharset): { readonly mode: GlyphChart3dStyle; readonly charMode?: "braille"; readonly hiddenLines?: "hide" } {
+  return {
+    mode: style,
+    ...(style === "wireframe" ? { charMode: charset === "braille" ? "braille" as const : undefined, hiddenLines: "hide" as const } : {}),
+  };
 }
 
 /**
@@ -234,7 +250,8 @@ function resolveGlyphChart3dStyle(charset: GlyphChartCharset, styleOption: Glyph
  * shares the SAME braille tier the geometry genuinely renders under, so a
  * colorbar swatch reads sub-cell dot density too, consistent with the plot.
  */
-function chromeTier(charset: GlyphChartCharset): (typeof CANVAS_TIERS)[number] {
+/** Public (round 6) — was `chromeTier`, private; `/charts`' own live viewport had to mirror it before this export existed. */
+export function glyphChart3dChromeTier(charset: GlyphChartCharset): (typeof CANVAS_TIERS)[number] {
   return charset === "blocks" ? "ascii" : charset;
 }
 
@@ -421,9 +438,8 @@ function renderObjectFrame(
     cols,
     rows,
     cellAspect: sceneCellAspect,
-    mode: style,
     useColors,
-    ...(style === "wireframe" ? { charMode: charset === "braille" ? "braille" as const : undefined, hiddenLines: "hide" as const } : {}),
+    ...glyphChart3dStyleSceneOptions(style, charset),
     ...lighting,
   });
   // `objects` never requests `charMode: "halfblock"`/`"quadrant"` here (see
@@ -645,11 +661,11 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   }
   const plotCols = Math.max(1, width - colorbarCols);
 
-  // `chromeTier(charset)` (never the raw `charset`) so a `blocks` request —
+  // `glyphChart3dChromeTier(charset)` (never the raw `charset`) so a `blocks` request —
   // which already downgrades to ascii-identical rendering for this chart's
   // ALWAYS-overlaid box/tick geometry — gets the ascii grid glyph, not a
   // box-drawing one the rest of the frame will never otherwise show.
-  const objectCharset = chromeTier(charset);
+  const objectCharset = glyphChart3dChromeTier(charset);
   // Fix round 4, Item 3: `style: "wireframe"` draws EVERY quad edge of the
   // surface mesh — at the fixture's own 40x40 grid resolution that is
   // ~1,600 quads, so a braille wireframe reads as one solid blob with no
@@ -694,7 +710,7 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
 
   const surfaceGrid = renderObjectFrame(object, camera, plotCols, plotRows, sceneCellAspect, colorEnabled, lighting, style, charset);
 
-  const canvas = createGlyphCanvas({ cols: width, rows: height, tier: chromeTier(charset), cellAspect });
+  const canvas = createGlyphCanvas({ cols: width, rows: height, tier: glyphChart3dChromeTier(charset), cellAspect });
   for (let r = 0; r < surfaceGrid.rows; r++) {
     for (let c = 0; c < surfaceGrid.cols; c++) {
       const srcIdx = r * surfaceGrid.cols + c;

@@ -679,6 +679,24 @@ export interface GlyphEffectRetainOptions {
    * means no depth semantics unless the caller explicitly says otherwise.
    */
   readonly hasDepth?: boolean;
+  /**
+   * Fix round 6, P1-1: whether `grid.winnerMesh`, if present, may actually
+   * be used for per-object EFFECT targeting (`targetCoverageForCell`).
+   * Default `true` (byte-identical to before this option existed —
+   * `composeGlyphEffects`' own bare-`CellGrid` callers have no scene "mode"
+   * concept at all, so they keep trusting the grid's own field presence).
+   * `createGlyphScene.ts` passes `false` outside `mode: "solid"` explicitly:
+   * `CellGrid.winnerMesh` used to be populated ONLY in solid mode, so
+   * effect targeting's own "no winner data outside solid mode, degrade to
+   * inactive" contract (this file's own `targetCoverageForCell` doc) held
+   * for free. Now that a mounted OBJECT OVERLAY can populate `winnerMesh`
+   * in `wireframe`/`ink` too (`rasterize.ts`'s `buildSurfaceOcclusionMap`,
+   * gated on a SEPARATE `retainOverlayOcclusion` flag — AGENTS.md's "Scene
+   * objects" Occlusion clause), effect targeting needs its own explicit
+   * gate to keep its documented solid-only contract independent of whether
+   * some unrelated object's overlay happens to be mounted in the same scene.
+   */
+  readonly retainWinnerMesh?: boolean;
 }
 
 /**
@@ -712,6 +730,12 @@ export function retainGlyphEffectOutput(
   previous?: RetainedGlyphEffectOutput,
 ): RetainedGlyphEffectOutput {
   const baseGrid = cloneCellGrid(grid);
+  // Fix round 6, P1-1: stripped from the CLONE itself (not merely the `base`
+  // view below), because `composeRetainedGlyphEffectOutput`'s own
+  // `targetCoverageForCell` call reads `retained.baseGrid.winnerMesh`
+  // DIRECTLY — gating only `base`'s own field would leave that read
+  // unaffected. See `GlyphEffectRetainOptions.retainWinnerMesh`'s own doc.
+  if (!(options.retainWinnerMesh ?? true)) delete baseGrid.winnerMesh;
   const n = baseGrid.cols * baseGrid.rows;
   if (options.coverage.length !== n) {
     throw new RangeError("glyphcss: effect retain coverage length must equal cols*rows.");

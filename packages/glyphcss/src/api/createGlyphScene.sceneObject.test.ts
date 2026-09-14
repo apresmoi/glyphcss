@@ -174,6 +174,58 @@ describe("createGlyphScene scene objects (GlyphSceneObject / addObject / overlay
     scene.destroy();
   });
 
+  it("fix round 6, P1-1: CellGrid.winnerMesh/.depth are populated for a mounted object's overlay under mode: 'wireframe' too, not only 'solid' — MUTATION: with no overlay mounted, neither buffer is allocated", async () => {
+    // `CellGrid.winnerMesh` used to be populated ONLY in solid mode
+    // (`retainWinnerMesh: mode === "solid" && ...`), which silently left
+    // every overlay's own `ownMeshIds`/`occlusionDepth` occlusion check
+    // (the "a label hides behind a foreign mesh" test above) inert under
+    // `wireframe`/`ink` — a chart's axis tick/title or a diagram's node
+    // label could then paint straight through real surface geometry there.
+    // `rasterize.ts`'s `buildSurfaceOcclusionMap` now rasterizes the SAME
+    // real triangles (not a vertex sample) into `winnerMesh`/`depth`
+    // whenever a mounted object's overlay needs it, in every render mode.
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const scene = createGlyphScene(host, { ...baseSceneOptions, mode: "wireframe" });
+    let winnerMeshSeen: Int32Array | null | undefined;
+    let depthSeen: Float64Array | null | undefined;
+    scene.addObject({
+      id: "probe-object",
+      meshes: [{ name: "m", polygons: quad(0, 0, 20) }],
+      overlays: [{
+        id: "probe",
+        stamp(grid): void {
+          winnerMeshSeen = grid.winnerMesh ?? null;
+          depthSeen = grid.depth ?? null;
+        },
+      }],
+      bounds: { min: [-20, -20, 0], max: [20, 20, 0] },
+    });
+    await flushRenders();
+    expect(winnerMeshSeen).not.toBeNull();
+    expect(winnerMeshSeen).not.toBeUndefined();
+    // At least one cell must carry a REAL winner (not the -1 "uncovered"
+    // sentinel) — the mesh genuinely occupies part of the 60x16 grid.
+    expect(Array.from(winnerMeshSeen!).some((v) => v !== -1)).toBe(true);
+    expect(depthSeen).not.toBeNull();
+    expect(depthSeen).not.toBeUndefined();
+    scene.destroy();
+
+    // MUTATION: no object mounted at all — the scene has nothing to retain
+    // winnerMesh/depth FOR, so the buffers must never be built.
+    const baselineHost = document.createElement("div");
+    document.body.appendChild(baselineHost);
+    const baselineScene = createGlyphScene(baselineHost, { ...baseSceneOptions, mode: "wireframe" });
+    baselineScene.add(quad(0, 0, 20));
+    let baselineWinnerMesh: Int32Array | null | undefined = "unset" as any;
+    baselineScene.setOptions({
+      transformCells: (grid): void => { baselineWinnerMesh = grid.winnerMesh ?? null; },
+    });
+    await flushRenders();
+    expect(baselineWinnerMesh).toBeNull();
+    baselineScene.destroy();
+  });
+
   it("overlays run AFTER effects — a full-viewport effect never overwrites an overlay's label (mutation: swap the composition order)", async () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

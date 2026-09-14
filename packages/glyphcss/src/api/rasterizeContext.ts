@@ -506,6 +506,24 @@ export interface RasterizeContextOptions {
    * `GlyphEffectRequirement`, never read by a program directly.
    */
   retainWinnerMesh?: boolean;
+  /**
+   * Fix round 6, P1-1: a SEPARATE flag from {@link retainWinnerMesh} — that
+   * one also serves per-object EFFECT targeting (`targetCoverage`), which
+   * `effectCompositor.ts`'s own doc deliberately keeps solid-mode-only ("a
+   * cell with no winner data at all... the layer degrades to inactive
+   * rather than throwing"). This flag instead means "a mounted OBJECT'S
+   * OVERLAY needs real per-cell occlusion data" (`CellGrid.winnerMesh` +
+   * `.depth`, `AGENTS.md`'s "Scene objects" Occlusion clause), which DOES
+   * need to work in `wireframe`/`ink` too — a chart's axis-triad tick/title
+   * or a diagram's node label must not paint through rasterized geometry
+   * there either. `rasterize.ts`'s wireframe/ink paths gate their own
+   * `buildSurfaceOcclusionMap` call on THIS flag, never on
+   * `retainWinnerMesh` — so a scene with a mesh-targeted EFFECT layer but
+   * no object overlay stays exactly as inactive outside solid mode as
+   * before this fix, while a scene with an object overlay gets sound
+   * occlusion in every mode.
+   */
+  retainOverlayOcclusion?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
   retainAlbedoRgb?: boolean;
   /** Retain final lit RGB from the depth-winning surface. */
@@ -693,6 +711,8 @@ export interface RasterizeContext {
   retainWinnerPolygon?: boolean;
   /** Retain the winning mesh id per cell — see {@link RasterizeContextOptions.retainWinnerMesh}. */
   retainWinnerMesh?: boolean;
+  /** A mounted object's overlay needs occlusion data outside solid mode too — see {@link RasterizeContextOptions.retainOverlayOcclusion}. */
+  retainOverlayOcclusion?: boolean;
   /** Retain the unlit albedo from the depth-winning surface. */
   retainAlbedoRgb?: boolean;
   /** Retain final lit RGB from the depth-winning surface. */
@@ -814,6 +834,7 @@ export function buildRasterizeContext(opts: RasterizeContextOptions): RasterizeC
     retainObjectNormal: opts.retainObjectNormal ?? false,
     retainWinnerPolygon: opts.retainWinnerPolygon ?? false,
     retainWinnerMesh: opts.retainWinnerMesh ?? false,
+    retainOverlayOcclusion: opts.retainOverlayOcclusion ?? false,
     retainAlbedoRgb: opts.retainAlbedoRgb ?? false,
     retainTargetRgb: opts.retainTargetRgb ?? false,
     ...(opts.depthBiases ? { depthBiases: opts.depthBiases } : {}),

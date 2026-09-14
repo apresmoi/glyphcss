@@ -481,7 +481,15 @@ export function compileScene(opts: CompileSceneOptions): CompileSceneResult {
     supersample: opts.supersample ?? 1,
     shadow: opts.shadow,
     polygonMeshIds: merged.polygonMeshIds,
-    retainWinnerMesh: mode === "solid" && merged.overlayEntries.length > 0,
+    retainWinnerMesh: merged.overlayEntries.length > 0,
+    // Fix round 6, P1-1: a SEPARATE flag from `retainWinnerMesh` above — an
+    // object's own overlay needs real occlusion data under wireframe/ink
+    // too (`rasterize.ts`'s `buildSurfaceOcclusionMap`, mode-independent),
+    // not only in solid mode. `compileScene` has no effects concept (no
+    // per-object EFFECT targeting to keep solid-only), so the two flags are
+    // always equal here — kept separate anyway to match
+    // `RasterizeContextOptions.retainOverlayOcclusion`'s own contract.
+    retainOverlayOcclusion: merged.overlayEntries.length > 0,
     textureSamplers,
     depthBiases: merged.depthBiases,
     castShadowFlags: merged.castShadowFlags,
