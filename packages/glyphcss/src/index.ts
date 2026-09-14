@@ -36,6 +36,13 @@ export type {
 } from "./api/createGlyphScene";
 // Cross-scene occlusion sentinel (see `GlyphSceneHandle.setForeignOcclusion`).
 export { GLYPH_FOREIGN_OCCLUDER_ID } from "./render/rasterize";
+// Namespaced texture-sampler key an object's own `textureSamplers` entry
+// resolves under once mounted (see "Scene objects" — "Object texture
+// samplers") — a plane-object producer (`glyphChartPlaneObject`,
+// `glyphDiagramPlaneObject`) needs this to point a mesh's `Polygon.texture`
+// at its own sampler ahead of mount, since `scene.addObject` never rewrites
+// a mesh's authored `texture` field.
+export { encodeGlyphSceneObjectSamplerKey } from "./api/createGlyphScene";
 
 // ── Scene object overlays (label arbiter + generic stamp, see `sceneObject.ts`) ──
 export { stampGlyphOverlayCell, stampGlyphOverlayLine, createGlyphLabelArbiter, foldGlyphOverlayLabelToAscii } from "./render/overlay";

@@ -49,6 +49,8 @@ export { glyphChartTextureSampler } from "./bridge";
 export type { GlyphChartTextureSamplerOptions } from "./bridge";
 export { composeGlyphChartEffects } from "./effectsBridge";
 export type { GlyphChartComposeEffectsOptions } from "./effectsBridge";
+export { glyphChartPlaneObject } from "./planeObject";
+export type { GlyphChartPlaneObjectOptions } from "./planeObject";
 export { GLYPH_CHART_AXIS_DEFAULT_COLOR } from "./layout";
 export { renderGlyphChartJson } from "./json";
 export { glyphChartScaleDomains } from "./domains";
