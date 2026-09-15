@@ -7,13 +7,43 @@
 .charts-mark-row { align-items: center; font-size: 11px; }
 .charts-mark-row > span:first-child { flex: 0 0 70px; }
 .charts-mark-row > .gx-toggle { flex: 1; }
-/* The mark-type row has no text label: the eleven chart icons ARE the row
-   and span the card's full width (the group keeps its accessible name via
+/* The mark-type row has no text label: the chart icons ARE the row and span
+   the card's full width (the group keeps its accessible name via
    `groupTitle`). Icons render a touch larger than the shared 15px so each
-   chart shape reads at a glance. */
-.charts-mark-row[data-row="type"] > .gx-toggle { flex: 1 1 100%; }
+   chart shape reads at a glance.
+   Two rows, not one, laid out as a fixed 11-COLUMN GRID rather than a
+   width-driven `flex-wrap` (user feedback: "the one row is a bit difficult
+   to see" once C6 appended 3D types onto the same single row). A grid,
+   never a natural wrap, because the split must be STABLE at every rail
+   width — a `flex-wrap` regroups ragged-ly as the rail narrows, which is
+   exactly what was rejected in favour of this. `CHART_MARK_TYPE_TOGGLE`
+   always carries exactly 11 entries (`chartsWorkbenchState.ts`'s
+   `CHART_MARK_TYPES`), so 11 columns fills row 1 with the WHOLE 2D set on
+   its own and spills any 3D entries (`CHARTS_3D_MARK_TYPES` — first mark
+   card only, up to 5: Surface through Parametric) onto row 2 automatically,
+   with no JS split logic and no row-count branching in `ChartsMarkCard.tsx`
+   — the two candidate splits the request offered ("a fixed grid of N per
+   row" and "2D row 1, 3D row 2") collapse into the SAME rule here, since
+   the 2D set's own count already equals a natural column count. Row 1's own
+   button width is therefore BYTE-IDENTICAL to the single-row layout that
+   shipped before 3D types existed (11 buttons across the same rail), so
+   this reverts the crowding C6 introduced rather than inventing a new
+   density; a plain 2D-only card (index > 0, no 3D options) still renders
+   exactly one row — 11 items in an 11-column grid never wraps. */
+.charts-mark-row[data-row="type"] > .gx-toggle {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: repeat(11, 1fr);
+}
 .charts-mark-row[data-row="type"] .gx-toggle-btn { padding: 6px 0; }
 .charts-mark-row[data-row="type"] .gx-toggle-btn svg { width: 19px; height: 19px; }
+/* The shared-border strip (`.gx-toggle-btn` drops its own `border-left` and
+   relies on the previous button's right edge, `border-left-width: 0` except
+   `:first-child`) breaks at a grid row start: row 2's first button (the
+   12th child overall) is not `:first-child`, so it kept the "mid-row
+   neighbour" rule and lost its own left edge. Restore it at every row
+   start — child 1, 12, 23, ... — for the fixed 11-column grid above. */
+.charts-mark-row[data-row="type"] .gx-toggle-btn:nth-child(11n + 1) { border-left-width: 1px; }
 .charts-mark-data {
   box-sizing: border-box;
   width: 100%;

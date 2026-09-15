@@ -197,4 +197,39 @@ describe("ChartsMarkCard — 3D Type row (packet C6)", () => {
     });
     expect(container.querySelector('[aria-label$=": Surface"]')).toBeNull();
   });
+
+  // User feedback, verbatim: "could we make the chart selection on the left
+  // maybe two rows? currently the one row is a bit difficult to see" — the
+  // Type toggle is a fixed 11-column GRID (charts-workbench.css's own doc
+  // above the rule), so the 11 2D entries always fill row 1 on their own and
+  // any 3D entries (up to 5, this card only) spill onto row 2. happy-dom
+  // resolves the cascade with no layout engine (this file's own top-of-file
+  // doc), so `display`/`grid-template-columns` read back the AUTHORED
+  // values — real enough to pin the rule without a browser.
+  it("lays the 16-button Type toggle out as a fixed 11-column grid — two rows, not a ragged wrap", () => {
+    const host = mount3d(createChartsWorkbenchState());
+    const toggle = host.querySelector<HTMLElement>('[data-row="type"] > .gx-toggle')!;
+    const cs = getComputedStyle(toggle);
+    expect(cs.display).toBe("grid");
+    expect(cs.gridTemplateColumns.replace(/\s+/g, "")).toContain("repeat(11,1fr)");
+
+    const buttons = host.querySelectorAll<HTMLButtonElement>('[data-row="type"] .gx-toggle-btn');
+    expect(buttons.length).toBe(16); // 11 2D + 5 3D
+    // The 12th button (index 11, "Surface" — the first 3D entry) starts row
+    // 2 in an 11-column grid, so the row-start border fix must apply there;
+    // a mid-row button (index 1) keeps sharing its neighbour's border.
+    // Mutation check: reverting the grid rule to plain `flex: 1 1 100%`
+    // turns `display` back to "flex" and drops `grid-template-columns`
+    // entirely, redding the two assertions above.
+    expect(getComputedStyle(buttons[11]!).borderLeftWidth).toBe("1px");
+    expect(getComputedStyle(buttons[1]!).borderLeftWidth).toBe("0px");
+  });
+
+  it("a plain 2D-only card (no 3D options) still fills exactly one row — 11 items never wrap an 11-column grid", () => {
+    const host = mountMarks(createChartsWorkbenchState());
+    const buttons = host.querySelectorAll<HTMLButtonElement>('[data-row="type"] .gx-toggle-btn');
+    expect(buttons.length).toBe(11);
+    const toggle = host.querySelector<HTMLElement>('[data-row="type"] > .gx-toggle')!;
+    expect(getComputedStyle(toggle).display).toBe("grid");
+  });
 });
