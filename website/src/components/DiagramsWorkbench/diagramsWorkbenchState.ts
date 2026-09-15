@@ -162,6 +162,33 @@ export type GlyphDiagramsWorkbenchCamera3d = GlyphDiagram3dCamera & { readonly z
 export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D: GlyphDiagramsWorkbenchView3d = { layout: "layered", seed: 1, controlsMode: "turntable" };
 
 /**
+ * Packet D5 (AGENTS.md "Diagrams" — mirrors "Charts" "Data layer") —
+ * provenance for the graph currently loaded: a tray preset (`apply-preset`
+ * sets this on every pick, so it's never absent after one), or a specific
+ * row of a Hugging Face `graphs-datasets` dataset (`select-remote-graph`).
+ * `rowIdx`/`ref` are what a `?d=` link carries — the row itself is
+ * re-fetched fresh on load, never stored (mirrors `ChartsDataSource`'s own
+ * `"remote"` kind). Optional on the state type so an OLD link (saved before
+ * this field existed) decodes with it simply absent — the rail's graph-
+ * source card shows nothing rather than guessing at an origin the link
+ * never recorded.
+ */
+export type GlyphDiagramsGraphSource =
+  | { readonly kind: "builtin"; readonly presetId: string }
+  | {
+      readonly kind: "remote"; readonly ref: string; readonly rowIdx: number; readonly totalRows: number;
+      readonly title: string; readonly description?: string; readonly label?: string; readonly simplified?: boolean;
+      readonly source: { readonly name: string; readonly url: string; readonly licence?: string };
+      /** Set only by `diagramsUrlStateForEncode` (`diagramsUrlState.ts`) —
+       *  `true` means this state's own `nodes`/`edges`/`mermaid`/`json`
+       *  were blanked before writing the `?d=` link (the graph itself is
+       *  never stored for a remote pick) and `DiagramsWorkbench.tsx`'s
+       *  mount effect must re-fetch `ref`/`rowIdx` fresh rather than
+       *  trusting the (empty) decoded graph. */
+      readonly omitted?: true;
+    };
+
+/**
  * Fix round 1, P1-2 — the shared `Instrument3DEffectsFolder`'s own state
  * shape, reused verbatim (not re-declared) so this file and the folder can
  * never drift on what "no effect"/"every node" mean.
@@ -212,6 +239,15 @@ export interface GlyphDiagramsWorkbenchState {
   readonly camera3d?: GlyphDiagramsWorkbenchCamera3d;
   /** Fix round 1, P1-2 — the live viewport's mounted effect + its mesh target. Preview-only (never rides into Copy/the static frame). */
   readonly effect3d: Instrument3DEffectsState;
+  /** Packet D5 — see {@link GlyphDiagramsGraphSource}'s own doc. */
+  readonly graphSource?: GlyphDiagramsGraphSource;
+  /** Packet D5 — `true` once the reader has directly edited the currently
+   *  loaded graph (any Mermaid/JSON/table edit), reset on every fresh
+   *  load (`apply-preset`, `select-remote-graph`). Read only by
+   *  `diagramsUrlState.ts`'s `diagramsUrlStateForEncode`: a REMOTE
+   *  graph's own edits must never be silently discarded by the "never
+   *  store the graph" omission that applies to an UN-edited remote pick. */
+  readonly graphEdited?: boolean;
 }
 export type GlyphDiagramsWorkbenchAction =
   | { type: "set-editor"; editor: GlyphDiagramsWorkbenchState["editor"] }
@@ -232,7 +268,18 @@ export type GlyphDiagramsWorkbenchAction =
   | { type: "set-view"; view: "2d" | "3d" }
   | { type: "set-view3d"; patch: Partial<GlyphDiagramsWorkbenchView3d> }
   | { type: "set-camera3d"; camera: GlyphDiagramsWorkbenchCamera3d | undefined }
-  | { type: "set-effect3d"; patch: Partial<Instrument3DEffectsState> };
+  | { type: "set-effect3d"; patch: Partial<Instrument3DEffectsState> }
+  // Graph dataset search (packet D5): a loaded Hugging Face graph row commits
+  // with ONE synchronous dispatch, mirroring `select-remote-dataset`
+  // (`chartsWorkbenchState.ts`) — the async fetch happens in the component,
+  // never the reducer. `preferred3d` is the loader's own molecule judgement
+  // (`DIAGRAMS_MOLECULE_GRAPH_REFS`), threaded through so the reducer stays
+  // a pure function of its payload rather than importing the curated index.
+  | {
+      type: "select-remote-graph"; graph: GlyphGraph; ref: string; rowIdx: number; totalRows: number;
+      title: string; description?: string; label?: string; simplified?: boolean;
+      source: { name: string; url: string; licence?: string }; preferred3d: boolean;
+    };
 
 function nextGlyphDiagramNodeId(existing: readonly GlyphGraphNode[]): string {
   let i = existing.length + 1;
@@ -250,6 +297,7 @@ export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState
     controls: { target: "web", overrides: {} }, layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" }, terminal: { NO_COLOR: false, FORCE_COLOR: false },
     view: "2d", view3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, camera3d: undefined, effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D,
+    graphSource: { kind: "builtin", presetId: "langgraph" }, graphEdited: false,
   };
 }
 export function buildGlyphDiagramsWorkbenchGraph(state: GlyphDiagramsWorkbenchState): GlyphGraph {
@@ -278,7 +326,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
         return { ...state, editor: action.editor, sourceKind: action.editor };
       }
     }
-    case "edit-source": return { ...state, sourceKind: state.editor, [state.editor]: action.value };
+    case "edit-source": return { ...state, sourceKind: state.editor, [state.editor]: action.value, graphEdited: true };
     case "apply-preset": {
       const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((item) => item.id === action.id);
       if (!preset) return state;
@@ -317,18 +365,19 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
         layout: { ...state.layout, direction: undefined }, diagram: { ...state.diagram, title: preset.label },
         controls,
         view: is3d ? "3d" : "2d", view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined,
-        effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D };
+        effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D,
+        graphSource: { kind: "builtin", presetId: preset.id }, graphEdited: false };
     }
     case "set-control": return { ...state, controls: reduceGlyphDiagramsWorkbenchControls(state.controls, action.control) };
     case "set-layout": return { ...state, layout: { ...state.layout, ...action.patch } };
     case "set-diagram": return { ...state, diagram: { ...state.diagram, ...action.patch } };
     case "set-terminal": return { ...state, terminal: { ...state.terminal, [action.flag]: action.value } };
-    case "set-node": return { ...state, sourceKind: "table", nodes: state.nodes.map((n, i) => i === action.index ? { ...n, ...action.patch } : n) };
-    case "add-node": return { ...state, sourceKind: "table", nodes: [...state.nodes, { id: nextGlyphDiagramNodeId(state.nodes), label: "New node" }] };
-    case "remove-node": return { ...state, sourceKind: "table", nodes: state.nodes.filter((_, i) => i !== action.index) };
-    case "set-edge": return { ...state, sourceKind: "table", edges: state.edges.map((e, i) => i === action.index ? { ...e, ...action.patch } : e) };
-    case "add-edge": return { ...state, sourceKind: "table", edges: [...state.edges, { from: state.nodes[0]?.id ?? "", to: state.nodes[1]?.id ?? state.nodes[0]?.id ?? "" }] };
-    case "remove-edge": return { ...state, sourceKind: "table", edges: state.edges.filter((_, i) => i !== action.index) };
+    case "set-node": return { ...state, sourceKind: "table", nodes: state.nodes.map((n, i) => i === action.index ? { ...n, ...action.patch } : n), graphEdited: true };
+    case "add-node": return { ...state, sourceKind: "table", nodes: [...state.nodes, { id: nextGlyphDiagramNodeId(state.nodes), label: "New node" }], graphEdited: true };
+    case "remove-node": return { ...state, sourceKind: "table", nodes: state.nodes.filter((_, i) => i !== action.index), graphEdited: true };
+    case "set-edge": return { ...state, sourceKind: "table", edges: state.edges.map((e, i) => i === action.index ? { ...e, ...action.patch } : e), graphEdited: true };
+    case "add-edge": return { ...state, sourceKind: "table", edges: [...state.edges, { from: state.nodes[0]?.id ?? "", to: state.nodes[1]?.id ?? state.nodes[0]?.id ?? "" }], graphEdited: true };
+    case "remove-edge": return { ...state, sourceKind: "table", edges: state.edges.filter((_, i) => i !== action.index), graphEdited: true };
     // 3D (packet D3). A view switch clears `camera3d` — the fresh viewport
     // (or, on terminal/chat, the next static render) picks its own
     // auto-fit rather than inheriting a pose framed for the OTHER mode.
@@ -341,6 +390,34 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
     case "set-view3d": return { ...state, view3d: { ...state.view3d, ...action.patch }, camera3d: undefined };
     case "set-camera3d": return { ...state, camera3d: action.camera };
     case "set-effect3d": return { ...state, effect3d: { ...state.effect3d, ...action.patch } };
+    // Packet D5 — mirrors `apply-preset`'s own shape (fresh
+    // nodes/edges/tableGraph/mermaid/json snapshots, view reset, camera
+    // reset to auto-fit) but reads a already-loaded `GlyphGraph` instead of
+    // parsing a fixture string, and picks the 3D view only for a molecule
+    // dataset (`preferred3d`, resolved by the caller from
+    // `DIAGRAMS_MOLECULE_GRAPH_REFS` — this reducer stays a pure function
+    // of its own payload).
+    case "select-remote-graph": {
+      const { graph } = action;
+      const view3dPatch = action.preferred3d ? { layout: "layered" as const } : GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D;
+      return {
+        ...state, sourceKind: "json",
+        mermaid: glyphDiagramsWorkbenchMermaid(graph), json: JSON.stringify(graph, null, 2),
+        nodes: graph.nodes, edges: graph.edges,
+        tableGraph: { groups: graph.groups, direction: graph.direction },
+        layout: { ...state.layout, direction: undefined },
+        diagram: { ...state.diagram, title: action.title },
+        view: action.preferred3d ? "3d" : "2d",
+        view3d: { ...GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D, ...view3dPatch }, camera3d: undefined,
+        effect3d: GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D,
+        graphSource: {
+          kind: "remote", ref: action.ref, rowIdx: action.rowIdx, totalRows: action.totalRows,
+          title: action.title, description: action.description, label: action.label, simplified: action.simplified,
+          source: action.source,
+        },
+        graphEdited: false,
+      };
+    }
   }
 }
 /** `viewportPx` — the measured live viewport (`useElementSize`) — is read

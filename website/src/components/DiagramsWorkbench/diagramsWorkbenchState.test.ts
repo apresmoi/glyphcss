@@ -211,4 +211,51 @@ describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", (
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
     expect(JSON.parse(state.json).nodes[0].label).toBe("Edited label");
   });
+
+  // Packet D5 — graph dataset search.
+  describe("select-remote-graph", () => {
+    const remoteGraph = { nodes: [{ id: "0", label: "C" }, { id: "1", label: "N" }], edges: [{ from: "0", to: "1" }], direction: "LR" as const };
+    const basePayload = {
+      type: "select-remote-graph" as const, graph: remoteGraph, ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188,
+      title: "MUTAG", description: "Molecules.", label: "1", simplified: false,
+      source: { name: "MUTAG", url: "https://huggingface.co/datasets/graphs-datasets/MUTAG", licence: "unknown" },
+    };
+
+    it("loads the graph into nodes/edges/mermaid/json and records graphSource", () => {
+      const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: false });
+      expect(state.nodes).toEqual(remoteGraph.nodes);
+      expect(state.edges).toEqual(remoteGraph.edges);
+      expect(JSON.parse(state.json).nodes).toEqual(remoteGraph.nodes);
+      expect(state.mermaid).toContain("C");
+      expect(state.graphSource).toEqual({
+        kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188,
+        title: "MUTAG", description: "Molecules.", label: "1", simplified: false,
+        source: { name: "MUTAG", url: "https://huggingface.co/datasets/graphs-datasets/MUTAG", licence: "unknown" },
+      });
+      expect(state.graphEdited).toBe(false);
+      expect(state.view).toBe("2d");
+    });
+
+    it("defaults a molecule dataset to the 3D layered view (measured: layered reads cleanly, force does not — see docs/design/diagrams.md's D5 section)", () => {
+      const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: true });
+      expect(state.view).toBe("3d");
+      expect(state.view3d.layout).toBe("layered");
+    });
+
+    it("a subsequent table edit marks the graph edited, and edited state survives a further edit", () => {
+      let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: false });
+      expect(state.graphEdited).toBe(false);
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Edited" } });
+      expect(state.graphEdited).toBe(true);
+      expect(state.graphSource?.kind).toBe("remote"); // provenance stays visible even once edited
+    });
+
+    it("applying a tray preset afterward resets graphSource to the preset and graphEdited to false", () => {
+      let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: true });
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "apply-preset", id: "chain" });
+      expect(state.graphSource).toEqual({ kind: "builtin", presetId: "chain" });
+      expect(state.graphEdited).toBe(false);
+    });
+  });
 });

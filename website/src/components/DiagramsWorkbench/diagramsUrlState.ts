@@ -11,6 +11,7 @@
 import {
   GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_EFFECT3D,
   GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D,
+  type GlyphDiagramsGraphSource,
   type GlyphDiagramsWorkbenchCamera3d,
   type GlyphDiagramsWorkbenchControls,
   type GlyphDiagramsWorkbenchState,
@@ -166,9 +167,43 @@ function validateEffect3d(value: unknown): Instrument3DEffectsState | null {
   return { effectId, targetId };
 }
 
+/**
+ * Packet D5 — append-only, same rule as `view3d` above: a link saved before
+ * this field existed simply omits `graphSource`, decoding to `undefined`
+ * (the graph-source card then shows nothing, rather than guessing an
+ * origin the link never recorded) — never a decode rejection. The graph
+ * itself never rides in `graphSource` for a `"remote"` source (only `ref`/
+ * `rowIdx`/a title SNAPSHOT) — `DiagramsWorkbench.tsx` re-fetches it fresh
+ * on mount, mirroring `chartsUrlState.ts`'s own remote-dataset rule.
+ */
+function validateGraphSource(value: unknown): GlyphDiagramsGraphSource | null {
+  if (!isRecord(value)) return null;
+  if (value.kind === "builtin") {
+    return typeof value.presetId === "string" ? { kind: "builtin", presetId: value.presetId } : null;
+  }
+  if (value.kind !== "remote") return null;
+  const { ref, rowIdx, totalRows, title, description, label, simplified, source, omitted } = value;
+  if (typeof ref !== "string" || typeof title !== "string") return null;
+  if (typeof rowIdx !== "number" || !Number.isFinite(rowIdx)) return null;
+  if (typeof totalRows !== "number" || !Number.isFinite(totalRows)) return null;
+  if (description !== undefined && typeof description !== "string") return null;
+  if (label !== undefined && typeof label !== "string") return null;
+  if (simplified !== undefined && typeof simplified !== "boolean") return null;
+  if (omitted !== undefined && omitted !== true) return null;
+  if (!isRecord(source) || typeof source.name !== "string" || typeof source.url !== "string") return null;
+  if (source.licence !== undefined && typeof source.licence !== "string") return null;
+  return {
+    kind: "remote", ref, rowIdx, totalRows, title,
+    ...(description !== undefined ? { description } : {}), ...(label !== undefined ? { label } : {}), ...(simplified !== undefined ? { simplified } : {}),
+    ...(omitted === true ? { omitted: true as const } : {}),
+    source: { name: source.name, url: source.url, ...(source.licence !== undefined ? { licence: source.licence } : {}) },
+  };
+}
+
 function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchState | null {
   if (!isRecord(value)) return null;
-  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal, view, view3d, camera3d, effect3d } = value;
+  const { editor, sourceKind, mermaid, json, nodes, edges, tableGraph, controls, layout, diagram, terminal, view, view3d, camera3d, effect3d, graphSource, graphEdited } = value;
+  if (graphEdited !== undefined && typeof graphEdited !== "boolean") return null;
 
   if (!oneOf(editor, EDITOR_KINDS) || !oneOf(sourceKind, EDITOR_KINDS)) return null;
   if (typeof mermaid !== "string" || typeof json !== "string") return null;
@@ -250,6 +285,12 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     if (!resolved) return null;
     cleanEffect3d = resolved;
   }
+  let cleanGraphSource: GlyphDiagramsGraphSource | undefined;
+  if (graphSource !== undefined) {
+    const resolved = validateGraphSource(graphSource);
+    if (!resolved) return null;
+    cleanGraphSource = resolved;
+  }
 
   return {
     editor, sourceKind, mermaid, json, nodes: cleanNodes, edges: cleanEdges,
@@ -259,13 +300,39 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     diagram: { title: diagram.title, detail: diagram.detail },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
     view: view ?? "2d", view3d: cleanView3d, ...(cleanCamera3d ? { camera3d: cleanCamera3d } : {}), effect3d: cleanEffect3d,
+    ...(cleanGraphSource ? { graphSource: cleanGraphSource } : {}),
+    ...(typeof graphEdited === "boolean" ? { graphEdited } : {}),
+  };
+}
+
+/**
+ * Exported for its own direct test — mirrors `chartsUrlState.ts`'s own
+ * `chartsUrlStateForEncode`: the state actually handed to the JSON
+ * envelope. A remote graph the reader has NOT edited since loading
+ * (`!state.graphEdited`) has its `nodes`/`edges`/`mermaid`/`json` blanked
+ * and its `graphSource` stamped `omitted: true` — the graph itself is
+ * never stored for a remote pick, `DiagramsWorkbench.tsx`'s mount effect
+ * re-fetches `ref`/`rowIdx` fresh instead (this file's own "URL state"
+ * doc). A remote graph the reader HAS edited rides in the link in full —
+ * there is no local copy to re-derive an edit from, so omitting it would
+ * silently discard real work. Every other source (`"builtin"`, absent) is
+ * untouched — a tray preset already round-trips through its own fixture
+ * text with no network dependency.
+ */
+export function diagramsUrlStateForEncode(state: GlyphDiagramsWorkbenchState): GlyphDiagramsWorkbenchState {
+  if (state.graphSource?.kind !== "remote" || state.graphEdited) return state;
+  return {
+    ...state,
+    nodes: [], edges: [], mermaid: "", json: "[]",
+    tableGraph: { direction: state.tableGraph.direction },
+    graphSource: { ...state.graphSource, omitted: true },
   };
 }
 
 const diagramsUrlEnvelope = createJsonUrlEnvelope<GlyphDiagramsWorkbenchState>(VERSION, validateDiagramsWorkbenchState);
 
 export function encodeDiagramsUrlState(state: GlyphDiagramsWorkbenchState): Promise<string> {
-  return diagramsUrlEnvelope.encode(state);
+  return diagramsUrlEnvelope.encode(diagramsUrlStateForEncode(state));
 }
 export function decodeDiagramsUrlState(raw: string | null | undefined): Promise<GlyphDiagramsWorkbenchState | null> {
   return diagramsUrlEnvelope.decode(raw);
@@ -275,5 +342,9 @@ export function decodeDiagramsUrlState(raw: string | null | undefined): Promise<
  *  150ms-debounced, replaceState-only, skip-when-unchanged writer as
  *  chartsUrlState.ts's. */
 export function createDiagramsUrlWriter(onEncoded?: (info: { raw: string; sizeBytes: number }) => void): (state: GlyphDiagramsWorkbenchState) => void {
-  return createDebouncedJsonUrlWriter(diagramsUrlEnvelope, DIAGRAMS_URL_PARAM, 150, onEncoded);
+  const write = createDebouncedJsonUrlWriter(diagramsUrlEnvelope, DIAGRAMS_URL_PARAM, 150, onEncoded);
+  // `diagramsUrlStateForEncode` runs here too (not just in `encodeDiagramsUrlState`,
+  // Copy Link's own path) — every write to the live `?d=` param must omit
+  // an un-edited remote graph's own data, same as a copied link would.
+  return (state) => write(diagramsUrlStateForEncode(state));
 }

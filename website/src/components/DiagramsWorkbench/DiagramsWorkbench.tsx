@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
 import { glyphGraphFromJson, glyphGraphFromMermaid, renderGlyphDiagram, type GlyphGraph } from "@glyphcss/diagrams";
 import { renderGlyphDiagram3d } from "@glyphcss/diagrams/3d";
 import { Dock } from "../Dock/Dock";
@@ -19,6 +19,11 @@ import {
   glyphDiagramsWorkbenchDisplayResult, renderGlyphDiagramsWorkbenchState, renderGlyphDiagramsWorkbenchState3d,
   type GlyphDiagramsWorkbenchRender, type GlyphDiagramsWorkbenchRender3d,
 } from "./diagramsWorkbenchRender";
+import { DiagramsDataOverlay } from "./DiagramsDataOverlay";
+import { DiagramsGraphSourceCard } from "./DiagramsGraphSourceCard";
+import { diagramsGraphSourceKey, randomDiagramsGraphPick } from "./diagramsRandomGraph";
+import { DIAGRAMS_MOLECULE_GRAPH_REFS, DIAGRAMS_REMOTE_GRAPH_INDEX } from "./datasets/remoteGraphIndex";
+import { isAbort as isGraphAbort, loadGraphDatasetRow, loadRandomGraphDatasetRow, type GraphDatasetLoadResult } from "../../lib/graphDatasetLoad";
 import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
 
@@ -102,10 +107,21 @@ export default function GlyphDiagramsWorkbench({ initialState }: { initialState?
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   if (!resolved) return null;
-  return <GlyphDiagramsWorkbenchInner initialState={resolved} />;
+  // Packet D5 — a decoded link naming an un-edited remote graph
+  // (`graphSource.omitted`, `diagramsUrlState.ts`'s own doc) carries no
+  // node/edge data at all; this is the ONE thing the outer wrapper computes
+  // from `resolved` before handing off, mirroring `ChartsWorkbench.tsx`'s
+  // own `initialRemoteRef` split.
+  const initialRemoteGraph = resolved.graphSource?.kind === "remote" && resolved.graphSource.omitted
+    ? { ref: resolved.graphSource.ref, rowIdx: resolved.graphSource.rowIdx, title: resolved.graphSource.title, description: resolved.graphSource.description, licence: resolved.graphSource.source.licence }
+    : undefined;
+  return <GlyphDiagramsWorkbenchInner initialState={resolved} initialRemoteGraph={initialRemoteGraph} />;
 }
 
-function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiagramsWorkbenchState }) {
+function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
+  readonly initialState: GlyphDiagramsWorkbenchState;
+  readonly initialRemoteGraph?: { readonly ref: string; readonly rowIdx: number; readonly title: string; readonly description?: string; readonly licence?: string };
+}) {
   const [state, dispatch] = useReducer(reduceGlyphDiagramsWorkbenchState, initialState);
   // Fix round 1, P1-1 — the resolved (default-applied) target/charset/colour,
   // shared by the 3D thumbnail/render options above and the live viewport's
@@ -218,6 +234,100 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
+  // Graph dataset search (packet D5, mirrors `ChartsWorkbench.tsx`'s own
+  // `loadRemoteDataset`): loads a specific row (or, `rowIdx === "random"`,
+  // Random's own within-dataset pick) off-network, then commits it with
+  // ONE synchronous dispatch once it lands. `hitInfo` supplies the display
+  // title/description/licence — from the search box's own `DatasetHit`, a
+  // curated-index lookup by ref (Random's own pick, or a decoded link whose
+  // ref happens to be curated), or (a pasted arbitrary id) just the ref
+  // itself. The generation guard mirrors `ChartsWorkbench.tsx`'s own
+  // `remoteLoadSeq`: a superseded load's result is dropped on arrival
+  // rather than clobbering whatever the reader picked next.
+  const [remoteGraphLoadingTitle, setRemoteGraphLoadingTitle] = useState<string | undefined>(undefined);
+  const [graphNotice, setGraphNotice] = useState<string | undefined>(undefined);
+  const graphNoticeTimer = useRef<number | null>(null);
+  const showGraphNotice = useCallback((message: string) => {
+    setGraphNotice(message);
+    if (graphNoticeTimer.current !== null) window.clearTimeout(graphNoticeTimer.current);
+    graphNoticeTimer.current = window.setTimeout(() => setGraphNotice(undefined), 4000);
+  }, []);
+  useEffect(() => () => { if (graphNoticeTimer.current !== null) window.clearTimeout(graphNoticeTimer.current); }, []);
+  const remoteGraphController = useRef<AbortController | null>(null);
+  const remoteGraphSeq = useRef(0);
+  useEffect(() => () => remoteGraphController.current?.abort(), []);
+  const loadRemoteGraph = useCallback(async (
+    ref: string, rowIdx: number | "random",
+    hitInfo: { readonly title: string; readonly description?: string; readonly licence?: string } | undefined,
+    fromRandom = false,
+  ) => {
+    remoteGraphController.current?.abort();
+    const controller = new AbortController();
+    remoteGraphController.current = controller;
+    const seq = ++remoteGraphSeq.current;
+    const info = hitInfo ?? DIAGRAMS_REMOTE_GRAPH_INDEX.find((h) => h.ref === ref) ?? { title: ref, description: undefined, licence: undefined };
+    setRemoteGraphLoadingTitle(info.title);
+    let result: GraphDatasetLoadResult;
+    try {
+      result = rowIdx === "random"
+        ? await loadRandomGraphDatasetRow(ref, { signal: controller.signal })
+        : await loadGraphDatasetRow(ref, rowIdx, { signal: controller.signal });
+    } catch (error) {
+      if (seq !== remoteGraphSeq.current) return;
+      setRemoteGraphLoadingTitle(undefined);
+      if (isGraphAbort(error)) return; // superseded — a newer load (or nothing) already owns the UI
+      showGraphNotice(`Couldn't load "${info.title}": ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (seq !== remoteGraphSeq.current) return; // superseded while in flight
+    setRemoteGraphLoadingTitle(undefined);
+    if (!result.ok) {
+      showGraphNotice(`Couldn't load "${info.title}": ${result.error}`);
+      // Random's own remote pick falls back to a random BUILT-IN preset
+      // (never a blank/unchanged diagram on the button that just promised
+      // a new one, and never a SECOND remote pick that could fail again the
+      // same way) — a manual search-box pick or a stale link stays on the
+      // reader's current graph with only the notice.
+      if (fromRandom) {
+        const fallback = GLYPH_DIAGRAM_WORKBENCH_PRESETS[Math.floor(Math.random() * GLYPH_DIAGRAM_WORKBENCH_PRESETS.length)]!;
+        dispatch({ type: "apply-preset", id: fallback.id });
+      }
+      return;
+    }
+    dispatch({
+      type: "select-remote-graph", graph: result.graph, ref, rowIdx: result.rowIdx, totalRows: result.totalRows,
+      title: info.title, description: info.description, label: result.label, simplified: result.simplified,
+      source: { name: info.title, url: result.source.url, licence: info.licence },
+      preferred3d: DIAGRAMS_MOLECULE_GRAPH_REFS.has(ref),
+    });
+    if (result.simplified) {
+      showGraphNotice(`Simplified "${info.title}" for legibility — the full graph has ${result.originalNodeCount} nodes.`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatch, showGraphNotice]);
+
+  const handleRandomGraph = useCallback(() => {
+    const pick = randomDiagramsGraphPick(diagramsGraphSourceKey(state.graphSource));
+    if (pick.kind === "preset") { dispatch({ type: "apply-preset", id: pick.id }); return; }
+    void loadRemoteGraph(pick.hit.ref, "random", { title: pick.hit.title, description: pick.hit.description, licence: pick.hit.licence }, true);
+  }, [state.graphSource, loadRemoteGraph]);
+
+  // A `?d=` link naming an un-edited remote graph carries no node/edge data
+  // (`diagramsUrlState.ts`'s own doc) — re-fetch the SAME `ref`/`rowIdx`
+  // exactly once on mount, mirroring `ChartsWorkbench.tsx`'s own
+  // `initialRemoteRef` effect.
+  const remoteGraphLoadedOnMount = useRef(false);
+  useEffect(() => {
+    if (!initialRemoteGraph || remoteGraphLoadedOnMount.current) return;
+    remoteGraphLoadedOnMount.current = true;
+    void loadRemoteGraph(initialRemoteGraph.ref, initialRemoteGraph.rowIdx, { title: initialRemoteGraph.title, description: initialRemoteGraph.description, licence: initialRemoteGraph.licence });
+    // Runs once on mount only — `loadRemoteGraph`'s own identity is stable
+    // across the reducer's lifetime (it closes only over `dispatch`/
+    // `showGraphNotice`, neither of which `useReducer`/this component ever
+    // changes across renders).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Every export/copy action confirms on its OWN button label
   // (`flashButtonState`, above) rather than a separate readout.
   const [copyTextState, setCopyTextState] = useState<"idle" | "copied" | "error">("idle");
@@ -287,6 +397,16 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   return <InstrumentShell kind="synth" className="diagrams-shell">
     <InstrumentBody>
       <InstrumentRail id="diagrams-source-panel" title="Graph" open={mobilePanel === "source"}>
+        {/* The graph source card — the rail's own FIRST thing (packet D5,
+         *  mirrors `ChartsWorkbench.tsx`'s own dataset card): title/
+         *  description/credit/label for whatever is currently loaded, a
+         *  tray preset or a Hugging Face graph row alike. */}
+        <DiagramsGraphSourceCard
+          graphSource={state.graphSource}
+          presetLabel={GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId)?.label}
+          loadingTitle={remoteGraphLoadingTitle}
+          notice={graphNotice}
+        />
         <div className="voice-card diagrams-source-card">
           <div className="voice-controls">
             {/* A render error (invalid Mermaid/JSON) names itself here, in
@@ -295,19 +415,36 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
              *  below). */}
             {state.view === "2d" && rendered && !rendered.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered.error}</p>}
             {state.view === "3d" && rendered3d && !rendered3d.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered3d.error}</p>}
-            <div className="gx-toggle" role="tablist" aria-label="Graph source format">
-              {(["mermaid", "json", "table"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : editor === "json" ? "nodes/edges JSON" : "Table"}</button>)}
-            </div>
-            <div role="tabpanel" id={`diagrams-${state.editor}-editor`} aria-labelledby={`diagrams-${state.editor}-tab`}>
-              {state.editor === "table"
-                ? <DiagramsGraphTable state={state} dispatch={dispatch} />
-                : <textarea className="diagrams-source" aria-label={state.editor === "mermaid" ? "Mermaid source" : "Nodes and edges JSON"} value={state[state.editor]} onChange={(event) => dispatch({ type: "edit-source", value: event.target.value })} spellCheck={false} />}
-            </div>
-            <p className="diagrams-readout">{state.editor === "mermaid" ? "Mermaid flowcharts and graphs. Styling and click directives are ignored." : state.editor === "json" ? "Edit nodes, edges, groups and direction. TS and JSON exports preserve every graph field." : "Edit nodes and edges directly. Group/shape/style/priority fields carry over untouched from whichever source was authoritative before."}</p>
+            {/* The Mermaid/JSON/Table editors move BELOW the graph source
+             *  card, in a collapsed "Edit source ▸" disclosure (packet D5)
+             *  — /diagrams stays editable, unlike /charts' read-only data,
+             *  so this is a DISCLOSURE (closed by default, same idiom as
+             *  the charts dataset card's own "View data ▸"), never removed. */}
+            <details className="diagrams-source-details">
+              <summary className="diagrams-source-summary">Edit source <span className="diagrams-source-marker" aria-hidden="true">▸</span></summary>
+              <div className="gx-toggle" role="tablist" aria-label="Graph source format">
+                {(["mermaid", "json", "table"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : editor === "json" ? "nodes/edges JSON" : "Table"}</button>)}
+              </div>
+              <div role="tabpanel" id={`diagrams-${state.editor}-editor`} aria-labelledby={`diagrams-${state.editor}-tab`}>
+                {state.editor === "table"
+                  ? <DiagramsGraphTable state={state} dispatch={dispatch} />
+                  : <textarea className="diagrams-source" aria-label={state.editor === "mermaid" ? "Mermaid source" : "Nodes and edges JSON"} value={state[state.editor]} onChange={(event) => dispatch({ type: "edit-source", value: event.target.value })} spellCheck={false} />}
+              </div>
+              <p className="diagrams-readout">{state.editor === "mermaid" ? "Mermaid flowcharts and graphs. Styling and click directives are ignored." : state.editor === "json" ? "Edit nodes, edges, groups and direction. TS and JSON exports preserve every graph field." : "Edit nodes and edges directly. Group/shape/style/priority fields carry over untouched from whichever source was authoritative before."}</p>
+            </details>
           </div>
         </div>
       </InstrumentRail>
       <InstrumentMain>
+        {/* Search + Random, floating over the viewport — the SAME overlay
+         *  shape `ChartsWorkbench.tsx`'s own `<ChartsDataOverlay>` uses,
+         *  a sibling of `<InstrumentViewport>` (packet D5). */}
+        <DiagramsDataOverlay
+          loadedTitle={state.graphSource?.kind === "remote" ? state.graphSource.title : (GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId)?.label ?? "")}
+          onSelectBuiltIn={(id) => dispatch({ type: "apply-preset", id })}
+          onSelectRemote={(hit) => void loadRemoteGraph(hit.ref, "random", { title: hit.title, description: hit.description, licence: hit.licence })}
+          onRandom={handleRandomGraph}
+        />
         <InstrumentViewport className="diagrams-viewport" elementRef={diagramsViewportRef}>
           <div className="diagrams-preview" aria-busy={isPending}>
             {/* The viewport holds only the render; feedback lives on the

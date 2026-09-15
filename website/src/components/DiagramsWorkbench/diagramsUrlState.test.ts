@@ -3,7 +3,7 @@ import {
   GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState,
   type GlyphDiagramsWorkbenchState,
 } from "./diagramsWorkbenchState";
-import { DIAGRAMS_URL_PARAM, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
+import { DIAGRAMS_URL_PARAM, decodeDiagramsUrlState, diagramsUrlStateForEncode, encodeDiagramsUrlState } from "./diagramsUrlState";
 import { glyphDiagramsWorkbenchRenderOptions } from "./diagramsWorkbenchState";
 
 const presetState = (id: string): GlyphDiagramsWorkbenchState =>
@@ -30,6 +30,57 @@ describe("diagramsUrlState — round trip", () => {
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-edge", index: state.edges.length - 1, patch: { from: state.nodes[0]!.id, to: "extra", label: "routes to" } });
     const raw = await encodeDiagramsUrlState(state);
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
+  });
+
+  // Packet D5 — a remote graph never stores the graph itself in `?d=`.
+  describe("a remote graph source", () => {
+    const remoteState = (): GlyphDiagramsWorkbenchState => reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), {
+      type: "select-remote-graph", ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188,
+      graph: { nodes: [{ id: "0", label: "C" }], edges: [], direction: "LR" },
+      title: "MUTAG", description: "Molecules.", label: "1", simplified: false,
+      source: { name: "MUTAG", url: "https://huggingface.co/datasets/graphs-datasets/MUTAG", licence: "unknown" },
+      preferred3d: false,
+    });
+
+    it("an un-edited remote graph omits nodes/edges/mermaid/json from the encoded state, and decodes with graphSource.omitted", async () => {
+      const state = remoteState();
+      const forEncode = diagramsUrlStateForEncode(state);
+      expect(forEncode.nodes).toEqual([]);
+      expect(forEncode.edges).toEqual([]);
+      expect(forEncode.graphSource).toMatchObject({ kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, omitted: true });
+      const raw = await encodeDiagramsUrlState(state);
+      const decoded = await decodeDiagramsUrlState(raw);
+      // The whole point: the graph itself never round-trips for an
+      // un-edited remote pick — only the ref/rowIdx/title snapshot does.
+      expect(decoded?.nodes).toEqual([]);
+      expect(decoded?.edges).toEqual([]);
+      expect(decoded?.graphSource).toMatchObject({ kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188, title: "MUTAG", omitted: true });
+    });
+
+    it("a remote graph the reader has edited rides in the link in full — never silently discarded", async () => {
+      let state = remoteState();
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Edited by hand" } });
+      expect(state.graphEdited).toBe(true);
+      const raw = await encodeDiagramsUrlState(state);
+      const decoded = await decodeDiagramsUrlState(raw);
+      expect(decoded).toEqual(state);
+      expect(decoded?.nodes[0]?.label).toBe("Edited by hand");
+      expect(decoded?.graphSource).toEqual(state.graphSource); // no `omitted` stamped on it
+    });
+
+    it("an old link naming no graphSource at all still decodes unchanged (append-only)", async () => {
+      const state = createGlyphDiagramsWorkbenchState();
+      const { graphSource: _dropped, graphEdited: _dropped2, ...withoutGraphSource } = state;
+      // Simulate a link encoded before packet D5 by hand-decoding a payload
+      // with no `graphSource`/`graphEdited` key at all, mirroring what
+      // `HISTORICAL_DEFAULT_LINK`'s own fixed pin, below, already proves
+      // for a REAL pre-existing encoded string.
+      const raw = await encodeDiagramsUrlState(withoutGraphSource as GlyphDiagramsWorkbenchState);
+      const decoded = await decodeDiagramsUrlState(raw);
+      expect(decoded?.graphSource).toBeUndefined();
+      expect(decoded?.graphEdited).toBeUndefined();
+    });
   });
 
   // Web viewport fill (AGENTS.md's "Diagrams" "Targets and page") — mirrors
@@ -172,9 +223,14 @@ describe("diagramsUrlState — fixed historical link (regression pin)", () => {
   // rule as chartsUrlState.ts's own pinned link.
   const HISTORICAL_DEFAULT_LINK = "v1.rVVda9swFP0r4o6QFJSuK2MPasnD2m0PKwuUvtUhKJbkaFOkIF-3BOP_PiR_xGnqrJS92NLVuefce66clCCFRueBwUb6DdcCKOSu8Kn8qa04CLcrBqNRqa1GRsqxMu45XXOP47BLC_8kx4yMjbaS-3FVVaNRYjPPt2vycHuV2ASXyxy5x-Vy8ni9nXW764_b2eKMMaa0zzEAeSYtTuLzLOzROZNP4vOsJpJWdDRx3ZEYXnN09GQ6nZHIddVxx1jk68fOSUNGzqezdn3VFfCCKDU8z2-lIkIqXhgkShvDPqhLdaEUDTZM11Jna2Sfzi8PEmKfET51W55q3LGLA0DooaFbqdUXlSYWKPzOnQUGZWIJScA6IfMEGHkMe0LK-hWOtAjxBDoLEqD7U8NX0pwC5Gu-lTUgRy50sUmgPq3ooFb0ZUjn-LCn4V1hhRRv0IhTGNI4PnyXRjP1YceOj0_4FV4LWg9MimxoYMq7zamJoBv0EXem1XZGn-pwL3JM0wq8YuL_FXjVv72EcIhhTP8w_w0lHHfyDhP74xPayxS1szXw4WtAVUDrDxHYYwnxF7KbINC69hexeFuAtVcFKtokxrp6Se2-TWju8D4htthLaPeDCY1_B4W1kaOyFrS-sbGz4OuLPtD1awwOhuxgXxRsMlpARHcFvgndq63B17fjlfJ7FK3GqfIWFFJn0QckKwG5zyQCg2e5AgruSXqv40zLqgpiO1dgAEqbaRsL4ZmX7ejlFthnCp7bP_W6oiA0zzzfRHaNUfuO2-xH_DdsqxISuY6TLtBBRQGl32jLTUj7NV_ezO_m98AUN7mk8H1-f_PtIFZVfwE";
 
-  it("decodes to exactly today's default state", async () => {
+  it("decodes to exactly today's default state, except the fields packet D5 (graphSource/graphEdited) added after this link was captured", async () => {
     const decoded = await decodeDiagramsUrlState(HISTORICAL_DEFAULT_LINK);
-    expect(decoded).toEqual(createGlyphDiagramsWorkbenchState());
+    // This link predates `graphSource`/`graphEdited` entirely — append-only
+    // means it decodes with them genuinely ABSENT (`diagramsUrlState.ts`'s
+    // own doc), not backfilled to today's default `{ kind: "builtin", ... }`
+    // — every OTHER field still pins exactly, so a regression to any of
+    // them still reddens this test.
+    expect(decoded).toEqual({ ...createGlyphDiagramsWorkbenchState(), graphSource: undefined, graphEdited: undefined });
   });
 
   it("mutation: changing the version prefix on the SAME historical link breaks the decode (proves the pin actually discriminates)", async () => {

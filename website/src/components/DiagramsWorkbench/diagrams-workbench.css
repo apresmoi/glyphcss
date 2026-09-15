@@ -18,6 +18,35 @@
 }
 .diagrams-source:focus-visible { outline: 1px solid #38bdf8; }
 
+/* Graph source card (packet D5, mirrors `charts-workbench.css`'s own
+   `.charts-data-info`/`.charts-data-title`/`.charts-readout`) — the rail's
+   own FIRST thing, above the "Edit source ▸" disclosure below. */
+.diagrams-graph-source { display: flex; flex-direction: column; gap: 6px; padding-bottom: 4px; }
+.diagrams-graph-info { display: flex; flex-direction: column; gap: 2px; }
+.diagrams-graph-title { margin: 0; font-size: 12px; font-weight: 700; color: rgba(255, 232, 184, 0.9); }
+.diagrams-graph-info a { color: #38bdf8; }
+.diagrams-data-loading { font-style: italic; }
+.diagrams-data-loading-spinner { display: inline-block; animation: diagrams-spin 0.9s linear infinite; }
+@keyframes diagrams-spin { to { transform: rotate(360deg); } }
+/* Reduced-motion opt-out lives in the SAME `@media (prefers-reduced-motion:
+   reduce)` block as `.diagrams-grid-scroll.is-loading`, further down this
+   file, rather than a second one here — `DiagramsWorkbench.test.tsx`'s own
+   regression pin matches the FIRST such block in the file and asserts it
+   covers the viewport pulse; a second, earlier block would shadow it. */
+
+/* "Edit source ▸" disclosure (packet D5) — /diagrams stays editable, so
+   this wraps the SAME Mermaid/JSON/Table editor that used to sit directly
+   in the rail, closed by default (same `<details>` idiom as
+   `charts-workbench.css`'s own `.charts-mark-data-details`). */
+.diagrams-source-details { margin-top: 4px; }
+.diagrams-source-summary {
+  list-style: none; cursor: pointer; font-size: 11px; color: rgba(255, 232, 184, 0.65); padding: 2px 0;
+}
+.diagrams-source-summary::-webkit-details-marker { display: none; }
+.diagrams-source-summary:hover { color: rgba(255, 232, 184, 0.9); }
+.diagrams-source-marker { display: inline-block; transition: transform 0.1s ease; }
+details[open] > .diagrams-source-summary .diagrams-source-marker { transform: rotate(90deg); }
+
 /* Table editor (packet item 7): a nodes table + an edges table, beside Mermaid/JSON. */
 .diagrams-table-group { display: flex; flex-direction: column; gap: 12px; max-height: 360px; overflow: auto; }
 .diagrams-table-wrap { border: 1px solid rgba(255, 232, 184, 0.22); }
@@ -35,8 +64,92 @@
 }
 .diagrams-table-remove:hover { color: #fda4af; border-color: #fda4af; }
 
-/* Fixed cell budgets scroll as text while keeping the floating Dock lane free. */
-.diagrams-viewport.synth-viewport { box-sizing: border-box; padding: 24px 400px 56px 24px; overflow: auto; }
+/* Data overlay — ONE search field (`DiagramsDatasetSearchBox.tsx`: built-in
+   presets + Hugging Face `graphs-datasets` browse behind a chevron) plus
+   "Random", floating over the graph viewport (packet D5) — identical shape
+   and rationale to `charts-workbench.css`'s own `.charts-data-overlay`
+   block (see that file's doc; not repeated here). `.diagrams-data-overlay`
+   itself carries no position of its own — its two children anchor straight
+   to `.synth-main` (`position: relative`, `instrument-workbench.css`,
+   shared with `/charts`), the same positioned ancestor
+   `.charts-dataset-search`/`.maps-search` use. */
+.diagrams-dataset-search {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+}
+.diagrams-data-overlay {
+  --diagrams-overlay-control-h: 30px;
+}
+.diagrams-dataset-search .instrument-search-field,
+.diagrams-random-btn {
+  box-sizing: border-box;
+  height: var(--diagrams-overlay-control-h);
+}
+.diagrams-random-btn {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: calc(50% + 170px + 6px);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+@media (max-width: 760px) {
+  .diagrams-data-overlay {
+    position: absolute;
+    top: var(--overlay-top, 12px);
+    left: 12px;
+    right: 12px;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .diagrams-dataset-search {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  .diagrams-random-btn {
+    position: static;
+    flex: 0 0 auto;
+  }
+}
+.diagrams-search-chevron {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+  color: rgba(255, 232, 184, 0.55);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.diagrams-search-chevron:hover,
+.diagrams-search-chevron[aria-expanded="true"] {
+  color: rgba(255, 232, 184, 0.94);
+}
+.diagrams-dataset-search .instrument-search-list {
+  position: absolute; top: 100%; left: 0; right: 0; margin-top: 2px; z-index: 20;
+}
+
+/* Fixed cell budgets scroll as text while keeping the floating Dock lane
+   free. Top padding grew from 24px to 64px (matching `charts-workbench.css`'s
+   own `.charts-viewport.synth-viewport`) to clear the data overlay above —
+   one row of controls at this width, so the render never starts under it. */
+.diagrams-viewport.synth-viewport { box-sizing: border-box; padding: 64px 400px 56px 24px; overflow: auto; }
 /* `height: 100%`, not `min-height: 100%` — mirrors `charts-workbench.css`'s
    identical fix on `.charts-preview` exactly (see that rule's own doc for
    the full ratchet mechanism this closes: a min-height-only box stays
@@ -129,6 +242,7 @@
 @keyframes diagrams-viewport-pulse { 0%, 100% { opacity: 0.45; } 50% { opacity: 0.7; } }
 @media (prefers-reduced-motion: reduce) {
   .diagrams-grid-scroll.is-loading { animation: none; }
+  .diagrams-data-loading-spinner { animation: none; }
 }
 /* Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
    the same A4/A5 cascade defect this file's `.diagrams-grid-scroll >
@@ -237,6 +351,6 @@
 }
 
 @media (max-width: 760px) {
-  .diagrams-viewport.synth-viewport { padding: 20px 12px var(--mobile-panel-bottom); }
+  .diagrams-viewport.synth-viewport { padding: 96px 12px var(--mobile-panel-bottom); }
   .diagrams-source { height: 240px; }
 }
