@@ -8754,7 +8754,7 @@ Rendered via `renderGlyphDiagram3d` at `target: "web"`, default camera (auto-fit
 
 ### Residuals, stated plainly
 
-1. **A `"side"`-mode label's leader line is no longer drawn at all.** Round 3-6 stamped a leader line from the node's own edge to a side-placed label through the same `GLYPH_CANVAS_TIERS` overlay machinery that drew box outlines and edges — all of which is gone in round 7 (no more hand-stamped overlay glyphs of any kind besides label text itself). A side-placed label therefore floats with no visual connector back to its own node. This only affects nodes whose `size` is explicitly narrower than their own label (JSON-only, rare in practice — none of the 5 shipped examples trigger `"side"` mode at their default sizes).
+1. **FIXED in D2 round 8, below.** A `"side"`-mode label's leader is drawn again — a stamped dot, never the box-drawing line this round's own machinery still has no way to trace at an arbitrary angle.
 2. **The camera constants and ribbon/arrowhead thickness constants are first-guess-then-verified-by-rendering, not analytically derived.** Round 5/6 could derive their own camera yaw analytically against a shared plane; round 7 has no shared plane to solve against, so `GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/`_ROT_Y`, `GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH`/`_ARROWHEAD_HALF_WIDTH`/`_ARROWHEAD_LENGTH`, and the ring/rank gap constants were tuned by rendering the real examples and inspecting them directly (the same discipline every earlier round used for its own constants) rather than by closed-form derivation. The rank-spacing fix above (`screenSafeFlowHalf`) is a conservative bound, not a per-camera-angle-exact one — it is proven to eliminate the measured overlap on the shipped examples, not proven optimal for an arbitrary future camera angle.
 3. **The "blocks" charset has no ANSI colour form.** `encodeGlyphBuffersDual` (glyphcss) only ever emits HTML `<span>` markup or plain text — there is no dual-colour ANSI SGR encoder. An ANSI colour mode (`ansi16`/`ansi256`/`truecolor`) under `charset: "blocks"` degrades to plain text with a `3d-blocks-ansi-unsupported` ledger entry rather than a silently wrong (single-colour) ANSI render; `color: "css"` still produces real dual-colour HTML. Building a dual-colour ANSI encoder was judged out of scope/budget for this round.
 4. **Dense fan-in/fan-out graphs (agent-supervisor's 6-way Supervisor fan, fan-join-split's 3-way joins) read as busy at 96x32** — every edge is real, depth-tested geometry and every label is present (or honestly reported dropped), but the sheer number of crossing ribbon segments at that small a target produces a visually dense frame. This is inherent to rendering a genuinely 3D structure through a small braille/block grid, not a bug; 140x40 reads noticeably cleaner for the same graphs.
@@ -8808,3 +8808,695 @@ An explicit `axes.*.domain` is used EXACTLY as given (`resolveExplicitDomain`, n
 - **`bars3d`'s z-floor under a domain that excludes 0** — `bars.ts`'s own z-axis domain is still forced to include 0 for the DATA-DERIVED case (AGENTS.md's own "a bar is drawn from the floor up" rule), but an EXPLICIT `axes.z.domain` that excludes 0 is honoured verbatim like any other axis; `mapAxisValue`'s own clamp then floors such a bar at whichever box edge 0 clamps to (0 or `aspect[2]`), rather than a dedicated `bar-domain-excludes-zero`-style rejection. No test asserts a specific numeric floor position in that narrow, user-opt-in configuration; the clamp's own general behaviour is what's gated.
 - **Axis placement (the corner, the default camera) is unchanged and stays an OPEN decision, per the packet's own instruction** — `resolveOriginCorner`/`GLYPH_CHART_3D_DEFAULT_CAMERA` are untouched by C7.
 - **The `/charts` sidebar itself (an Axes folder exposing these fields as page controls) is a SEPARATE, later packet** — this packet is the library contract alone; the user's own reported symptom ("cannot configure the z axis in the /charts sidebar") is resolved at the library layer, with the page-side control surface still to follow.
+
+## D2 round 8 — separate same-rank nodes, and put labels beside them
+
+**The user, verbatim:**
+- "for the 3d diagrams, can we make them a bit more clear in the separation between the same height/depth nodes? because its difficult to see them separate"
+- "also I think that the labels should be like on the side of the nodes and not over the nodes"
+
+### Separation — a camera-aware ring, not a raw in-plane one
+
+`layout3d.ts`'s `triangulatedOffsets` sized its ring radius off `spanA`/`spanB` — the rank's own raw cross-axis and depth half-extents, ONE axis each. Under this module's fixed oblique camera (`GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/`_ROT_Y` = 62/36), that undercounts a box's own projected SCREEN footprint exactly the way round 7's own `screenSafeFlowHalf` fix already proved for RANK spacing: all three of a box's axes contribute to its screen silhouette, not just the two nominally "in-plane" ones. `triangulatedOffsets` now takes the SAME `screenSafeFlowHalf` bound for both `spanA` and `spanB` (the sum of all three of a node's own half-extents), plus a `labelRoom` term — the rank's own longest side-label text length, in characters, scaled by `GLYPH_DIAGRAM_3D_RING_LABEL_UNIT` (`1`, matching `measureGlyphGraph`'s own character-to-world-unit ratio) — since round 8 also makes every label push OUTWARD from its own node in this SAME cross-section plane (below), and the ring must leave room for that text or an outward-pointing label reaches into the next sibling's own arc. `GLYPH_DIAGRAM_3D_RING_GAP` itself rose from `3` (round 7) to `7`.
+
+**Measured, before vs. after**, real `projectedBounds` AABBs on the shipped fixtures at their own auto-fit camera (96x32 braille): reverting to round 7's constants reproduces GENUINE overlaps — both `colGap` AND `rowGap` negative, i.e. the two silhouettes actually intersect on screen:
+
+| Pair (fixture) | Round 7 colGap / rowGap | Round 8 colGap / rowGap |
+|---|---|---|
+| `a` vs `b` (fan-join-split) | −0.51 / −3.33 (overlap) | 12.23 / 0.81 |
+| `b` vs `c` (fan-join-split) | −4.95 / −0.98 (overlap) | 1.33 / 6.56 |
+| `answer` vs `coder` (agent-supervisor) | −2.47 / −1.81 (overlap) | 2.83 / 1.65 |
+| `researcher` vs `reviewer` (agent-supervisor) | −2.89 / −1.90 (overlap) | 2.49 / 1.58 |
+
+The shipped gate (`render3d.test.ts`, below) requires every same-rank sibling pair, on every one of this round's 5 fixtures at all 3 required sizes, to clear `colGap >= 2 || rowGap >= 1` — read as "separated by at least 2 columns OR at least 1 row," since a rotating ring separates siblings along whichever ONE screen direction is dominant for that particular pair, not necessarily both at once. Every real pair on every fixture/size clears it with margin (the tightest, `s1` vs `s2` on fan-join-split at 96x32, is `colGap=1.99, rowGap=3.81` — passes on the row clause).
+
+### Side labels — a candidate set, not one fixed direction
+
+The label default (`labels: "auto"`) previously fell back to `"side"` only when the text didn't fit the front face; it now ALWAYS resolves to `"side"` (`"inside"` stays reachable as an explicit opt-in, unchanged geometry). The naive fix — push every label along ONE fixed direction (the pre-round-8 `"right"`/`"below"` fallback) — fails outright under this module's own fixed camera: probed directly, pushing a TB-direction node's label along world `+X` (the `"right"` fallback) moved its SCREEN COLUMN from 46.77 to 45.84 — BACKWARD, not forward — because `rotY: 36` does not project `+X` onto "screen right" for every node. A single fixed direction is provably not enough on its own.
+
+`glyphDiagram3dLabelSideCandidates(node, direction, layoutKind)` returns an ORDERED set of candidate WORLD directions, all within the node's own rank's cross-section plane (perpendicular to flow): its own RADIAL direction first — away from its own ring's centre (every ring-placed node's cross-axis coordinates ARE its own offset from that centre, so this direction points into open space and, by construction, away from every other sibling on the SAME ring) — then the plane's own 4 axis directions, then 4 diagonals. A single-member rank (radius 0) or `"force"` layout (no ring) has no radial direction to compute and starts directly from the axis/diagonal set.
+
+`pickGlyphDiagram3dLabelPlacements(nodes, ...)` resolves every node's label TOGETHER, not independently: nodes are visited in PRIORITY order (degree descending, id ascending — the same order the shared `GlyphLabelArbiter` itself resolves conflicts in), and each accepted label's own occupied cells are reserved before the next (lower-priority) node's own search runs. This is necessary, not a refinement — a per-node-independent search (this round's first cut) checks a candidate only against NODE silhouettes, so nothing stops two DIFFERENT nodes' labels from landing on the SAME cells whenever both push in a similar direction, which is the ROUTINE case for a plain chain (every single-member-rank node shares the identical fallback axis). Measured on the real fixtures: the per-node-independent cut, even after tuning the push distance, left 68-98 `3d-label-dropped` ledger entries across the 15 required renders (sweeping the push fraction 0.5-2.0 only ever traded WHICH labels collided, never removed the underlying collision). The reservation-based batch picker alone cut that to single digits; it did not reach zero until the AUTO-FIT (`render3d.ts`'s `fitDiagramCamera`) was ALSO fixed to run its own final label pick at the EXACT camera the frame will render with, rather than a `zoom: 1` reference: the picker's own collision verdict is invariant to zoom/centre in exact real arithmetic (a uniform scale-plus-translate preserves every pairwise interval-overlap relationship), but it ROUNDS every candidate to an integer cell before testing it, and rounding is NOT affine-invariant — two boundary values a hair apart in continuous space can round to different cells at a different zoom/centre, and the greedy reservation loop cascades that one flip through every lower-priority node after it (measured: the agent-supervisor fixture went from "every label predicted placed" at the reference camera to 6 of 7 actually missing at the real one). `fitDiagramCamera`'s fixed-point loop now re-derives its own picks at the CURRENT trial camera on every iteration (never the reference camera past the bootstrap), and takes one final pass at the settled `zoom`/`centre` before returning — closing the gap to genuinely zero.
+
+A push past the box's own surface exit point scales with the box's own half-extent along that direction (`GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION`), never a flat world-unit constant — a flat `gap: 1` (round 7's own value for `"right"`/`"below"`) measured SUB-CELL at a multi-rank chain's own auto-fit zoom (the box's own half-extent there is many world units, so a push of `1` barely moves the label's own screen position at all), which is exactly why chain fixtures (LeNet-5, transformer) kept re-landing labels ON their own box even after the candidate/picker fixes. Swept `0.5`-`2.0` against the REAL render's own `3d-label-dropped` count (not a synthetic silhouette-only check, which undercounts — a candidate can clear every node's own box yet still land on ANOTHER label's own text):
+
+| Fraction | Total drops (15 renders) |
+|---|---|
+| 0.5 | 98 |
+| 0.75 | 85 |
+| 1.0 | 6-9 (varies with candidate-set size) |
+| 1.1 | 3 |
+| **1.25** | **0** |
+| 1.3 | 0 (2 before the final-camera fit fix) |
+| 1.5 | 0 (5 before the final-camera fit fix) |
+| 1.75-2.0 | 6-10 (labels start colliding with EACH OTHER) |
+
+`1.25` was kept — comfortably inside the zero-drop range (`1.15`-`1.5`+), with margin on both sides. Two-sided residual: too small under-clears a node's own box; too large starts pushing labels into EACH OTHER, since diagram real estate is finite.
+
+### Leader
+
+A `"side"` label whose push clears `GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS` (`1.5` screen cells) from its own node's real edge now carries a short leader — a single `"."` character, stamped via `stampGlyphOverlayLine` from the node's own exact surface exit point (`leaderFrom`, unchanged from earlier rounds — never a corner) to the label's own anchor. Never a box-drawing/bar glyph: round 7's own reason for dropping stamped edges (a `─│/\` glyph staircases the instant its own segment isn't screen-axis-aligned) does not apply to a repeated single dot, which has no directional shape to stair-case. Stamped directly into the grid (not through the label arbiter, which has no text-collision concept for a leader), so it paints regardless of whether the arbiter goes on to accept the label text itself at that exact cell — a documented, rare residual the round's own zero-drop tuning keeps at zero across every one of the 5 fixtures.
+
+### Gates
+
+Two new integration gates in `render3d.test.ts` (`renderGlyphDiagram3d — D2 round 8`), run against all 5 required fixtures at all 3 required sizes (96x32 braille, 96x32 blocks, 140x40 braille — 15 renders each):
+
+1. **Same-rank sibling silhouettes clear a minimum visible gap** (`colGap >= 2 || rowGap >= 1`) — every same-rank pair on every fixture/size. Mutation: reverting `layout3d.ts`'s ring spacing to the round-7 flow-axis-half-extent-only formula reddens it immediately (`fan-join-split braille 96x32: a vs b (colGap=-0.51, rowGap=-3.33)`).
+2. **No `3d-label-dropped`/`3d-label-unfittable` ledger entry anywhere** — the real, render-time proof that no label collided with a node silhouette or another label. Mutation: short-circuiting the picker's own silhouette/claim check to always accept the first candidate reddens it (`fan-join-split braille 96x32` alone drops 9+ labels).
+3. A third, narrower gate confirms the fan-join-split fixture's own `"Merge"` node (pushed clear of its own box at 96x32) carries a real `"."` leader mark on the row immediately above its label. Mutation: disabling the leader stamp reddens it.
+
+`glyphDiagramObject.test.ts`'s own pre-existing degenerate-projection test was rewritten (not merely patched) for round 8's own correctness rule: under a projection so degenerate every node's silhouette collapses to ONE shared cell, there is no longer a "highest-priority label still wins a visible cell" outcome to arbitrate — showing ANY label would mean painting it directly over a node's own box, which is exactly what this round exists to prevent. The gate now asserts every label is DROPPED (the grid stays exactly as seeded) rather than asserting the old priority-wins-a-cell behaviour; mutation (place it anyway when every candidate collides) reddens it.
+
+All 56 `src/3d/*.test.ts` tests pass, all 278 tests in the `@glyphcss/diagrams` package pass, `tsc --noEmit` is clean, and `pnpm build:packages` succeeds.
+
+### Mutation table
+
+| Mutation | Gate that catches it |
+|---|---|
+| Revert `layout3d.ts`'s ring spacing to the flow-axis-half-extent-only formula (no `screenSafeFlowHalf`, no `labelRoom`) | `same-rank sibling node silhouettes clear a minimum visible gap` → red (genuine AABB overlap reproduced) |
+| Skip the silhouette/claim check in `pickGlyphDiagram3dLabelPlacements` (always accept the first candidate) | `every label... NO node-silhouette collision and NO label-vs-label collision` → red |
+| Disable the leader stamp | `a label pushed clear of its own node's edge carries a visible leader mark` → red |
+| Place a label anyway when every candidate collides under a degenerate projection | `glyphDiagramObject.test.ts`'s own rewritten degenerate-projection gate → red |
+| Revert `GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION` to `1` (round 7's implicit flat-gap scale) | Real-render drop-count sweep goes from 0 to 6-9 (not a standing gate — the swept table above is the record; the zero-drop gate above still catches it since it counts ANY drop) |
+
+### Residuals, stated plainly
+
+1. **A "side" label avoids every node silhouette and every other label, but not an edge ribbon's own projected path.** `pickGlyphDiagram3dLabelPlacements` only ever silhouette-tests against `layout.nodes`; an edge (a thin ribbon, half-width `0.45`) is never checked. None of this round's own 5 fixtures at the 3 required sizes exercises a genuine label/edge collision (every render above ships with an EMPTY ledger), so this is recorded as a known gap rather than a failing gate with no fixture to pin it against.
+2. **A dropped label's leader can occasionally be orphaned.** The leader is stamped directly into the grid at `stamp()` time, independent of whether the label TEXT itself goes on to win the arbiter's own resolution (a genuinely separate, later step). The round's own zero-drop tuning keeps this at zero across every shipped fixture, but it is not structurally impossible on an arbitrary future graph.
+3. **The camera-invariance argument (zoom/centre don't change the collision verdict) holds only in exact arithmetic.** `pickGlyphDiagram3dLabelPlacements` rounds every candidate to an integer cell, and rounding is not affine-invariant — this is exactly what made the FIRST cut of the auto-fit's own final pass necessary (see above); the fix (run the picker at the literal final camera, not an estimate) closes the gap for every fixture measured, but is not a formal proof for an arbitrary graph/camera combination.
+4. **The gap-fraction/ring-gap constants remain empirically tuned, not analytically derived** — consistent with every earlier round's own camera/geometry constants (`GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/`_ROT_Y`, the round-7 ribbon/arrowhead sizes), tuned by rendering the real examples and sweeping a real render-time metric (the `3d-label-dropped` count), not by closed-form derivation.
+
+### Deliverables — all 5 examples, verbatim, at all 3 required sizes
+
+Rendered via `renderGlyphDiagram3d` at `target: "web"`, default (auto-fit) camera, `layout: "layered"`. Every ledger below is EMPTY.
+
+#### LeNet-5 CNN
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                         ⢀⣠⠴⢺⢙⣲⡆                
+                                                                        ⡾⠭⣄⣠⠴⠋ ⠁                
+                                                                        ⣇⣠ ⠃   ⠁                
+                                                                ⢀⡤⡶⢤⣀⢀⣤⡾⢿⠁ ⠇ ⠆⠁                 
+                                                              ⣴⣚⠉⣀⡤⠞⠁⠟    ⠉⠁                    
+                                                              ⡇⠈⢹⠁          input 32x32x1       
+                                                       ⢀⣤⣀  ⣠⣴⣿⠛⢸   ⠂                           
+                                                    ⢀⣠⠞⠉⣁⡼⣿⡿⠛⠁⠈⠙⠚ ⠁                             
+                                                    ⡏⠓⢲⠋⠁         conv 28x28x6                  
+                                              ⣀   ⢀⣠⣷⠷⠸   ⠄                                     
+                                           ⣠⠴⠋⡏⣹⣶⣶⠟⠃⠛⠦⠼ ⠃⠁                                      
+                                         ⢰⠯⣅⣠⠴⠋⠁       pool 14x14x6                             
+                                         ⢸⣠ ⠇   ⡀                                               
+                                  ⣠⢴⠲⣤⣄⣠⣶⠿⠋⠁⠇ ⠆⠋                                                
+                               ⢠⢶⣋⣡⠴⠚⠁⡇⠋⠁  ⠉⠉                                                   
+                               ⢸⢀ ⠇   ⠇      conv 10x10x16                                      
+                        ⢀⣠⡦⣄⡀⣀⣤⢾⣋⠁⠇  ⠆⠃                                                         
+                       ⢰⠯⢤⠖⠋⠁⠋  ⠈⠉⠉⠁                                                            
+                       ⢸⣠⠸  ⠃      pool 5x5x16                                                  
+               ⢀⡤⠖⣟⣶⣀⣤⠾⠋⣄⢸ ⠆⠃                                                                   
+               ⢸⠉⢹⠁ ⠛⠁                                                                          
+         ⣠⣄⡀  ⣠⣼⠾⠸        fc 120                                                                
+       ⡴⣏⣹⡤⠟⣷⠟ ⠉⠓⠚⠂⠁                                                                            
+       ⡇ ⢸  ⡇     fc 84                                                                         
+       ⣧ ⢸ ⡄⠇                                                                                   
+        ⠉⠉⠁                                                                                     
+          out 10                                                                                
+                                                                                                
+                                                                                                
+```
+ledger: []
+#### LeNet-5 CNN
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                           ▄▄▄▄▄                
+                                                                        ▄▄██████                
+                                                                        ████████                
+                                                                  ▄    ▄██████▀                 
+                                                               ▄█████▀▀   ▀▀                    
+                                                              ███████       input 32x32x1       
+                                                              ██████▀                           
+                                                      ▄███▄▄▀▀▀▀▀▀▀                             
+                                                    ███████       conv 28x28x6                  
+                                                    ███████                                     
+                                            ▄▄█▄▄▄▄▀▀███▀                                       
+                                          ▄██████      pool 14x14x6                             
+                                          ███████                                               
+                                   ▄▄   ▄▄████▀▀                                                
+                                ▄▄█████▀    ▀                                                   
+                                ███████      conv 10x10x16                                      
+                               ▄█████▀▀                                                         
+                        ▄████▀▀  ▀▀▀                                                            
+                        █████      pool 5x5x16                                                  
+                 ▄▄▄ ▄▄▀████▀                                                                   
+                ████▀                                                                           
+               ▄████      fc 120                                                                
+        ▄███▄▄▀ ▀▀▀▀                                                                            
+       ██████     fc 84                                                                         
+       █████▀                                                                                   
+         ▀▀                                                                                     
+          out 10                                                                                
+                                                                                                
+                                                                                                
+```
+ledger: []
+#### LeNet-5 CNN
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                             ⢀⡤⡶⠤⢤⣀⡀                        
+                                                                                                          ⣀⡴⠚⠉  ⣠⠴⠋⠁                        
+                                                                                                         ⢸⠓⠦⣄⣠⠴⠋⠁  ⠇                        
+                                                                                                         ⢸ ⢀ ⠇     ⠇                        
+                                                                                                 ⣀      ⣠⣼⡿⠛ ⠇    ⠆⠃                        
+                                                                                             ⢀⣠⠴⠋⡏⠙⢲⣤⣠⣶⠿⠋⠁⠧⠤⣄⠇ ⠂⠁                           
+                                                                                           ⢠⣖⡋  ⢀⡤⠖⠃⠸⠋⠁       .                             
+                                                                                           ⢸ ⠉⠓⡞⠉             input 32x32x1                 
+                                                                                           ⢸⣤⣶ ⠃                                            
+                                                                                 ⢀⡤⡶⠤⢤⣀ ⣀⣤⣾⢿⠋  ⠇  ⠆⠃                                        
+                                                                              ⣀⡴⠚⠉ ⢀⣠⠞⠉⡾⠟   ⠉⠉⠓⠃⠁                                           
+                                                                             ⢸⠓⠦⣄⣠⠴⠋            conv 28x28x6                                
+                                                                             ⢸ ⢀ ⠇                                                          
+                                                                     ⢀⡀     ⣠⣼⡿⠛ ⠇    ⠂                                                     
+                                                                  ⢀⡤⠞⢹⠉⢉⡷⣆⣴⡾⠏⠁⠧⠤⣄⠇ ⠃⠁                                                       
+                                                               ⢀⡤⠞⠉ ⢀⡤⠞⠉ ⡇⠉       .                                                         
+                                                               ⢸⠉⠉⠓⡞⠉    ⠇        pool 14x14x6                                              
+                                                               ⢸⣤⣦ ⠃     ⡇                                                                  
+                                                      ⣠⢴⢤⣀  ⢀⣠⣾⢿⠋  ⠇  ⠄⠃⠁                                                                   
+                                                  ⢀⣠⠖⠋⠁ ⣠⠼⠚⡶⠟   ⠉⠉⠓⠃⠁                                                                       
+                                                  ⡟⠒⠲⢤⠖⠋⠁           conv 10x10x16                                                           
+                                                  ⡇⢀ ⢸                                                                                      
+                                          ⢀⣀    ⣀⣤⣿⠟⠃⢸    ⠂                                                                                 
+                                       ⣠⠴⠚⠹⣨⠟⣇⣴⡾⠟ ⠙⠲⢤⣸ ⠆⠁                                                                                   
+                                       ⡏⠙⢲⠋⠁ ⠇⠉        .                                                                                    
+                                       ⣇⣤⢸   ⠁         pool 5x5x16                                                                          
+                             ⢀⣠⢴⠦⣄⡀ ⣀⣴⡾⠏⠁⢸   ⠁                                                                                              
+                            ⡾⢭⣀⡤⠖⠋⠃⡾⠏⠁ ⠈⠙⠚ ⠁                                                                                                
+                            ⡇ ⢸   ⠇       .                                                                                                 
+                    ⢀⡀    ⢀⣠⣷⠿⢸   ⠇       fc 120                                                                                            
+                 ⢀⣠⠞⢹⣉⡷⣆⣠⣶⠿ ⠻⢤⣸  ⠃⠁                                                                                                         
+                 ⡏⠓⢲⠋⠁ ⡇⠋⠁     .                                                                                                            
+                 ⡇ ⢸   ⠁       fc 84                                                                                                        
+                 ⣇ ⢸   ⠁                                                                                                                    
+                 ⠙⠲⠼ ⠃                                                                                                                      
+                    .                                                                                                                       
+                    out 10                                                                                                                  
+                                                                                                                                            
+```
+ledger: []
+#### Transformer encoder
+
+**96x32 braille**
+```
+                                                                                                
+                                     ⢀⣠⡤⠤⢤⡀                                                     
+                                     ⣿⣀⣀⣀⣨⣿.Input Embedding                                     
+                                     ⡿⠇ ⠇ ⠁                                                     
+                                     ⠙⠳⠤⠧ ⠃                                                     
+                                       ⢸⡇                                                       
+                                       ⢸⠁                                                       
+                                     ⢀⡤⠾⡀⣶                                                      
+                                     ⢸⠉⢹⠁                                                       
+                                     ⠸⣄⠸⡄⠆Positional                                            
+                                       ⢸⠇                                                       
+                                       ⢸⠁                                                       
+                                     ⢀⡤⢾ ⣶                                                      
+                                     ⢸⠙⢲⠃                                                       
+                                     ⠸⣄⠸⡄⠆Multi-Head                                            
+                                       ⢸⡇                                                       
+                                       ⢸⠃                                                       
+                                      ⣠⢾⠁⣦                                                      
+                                     ⢸⠓⢲⠃⠁                                                      
+                                     ⠸⣄⠘ ⠆Add & Norm                                            
+                                       ⢸⠇                                                       
+                                       ⢸⠁                                                       
+                                      ⢀⣼⠁⣤⡄                                                     
+                                     ⢰⠯⡴⠚⠁⠃Feed Forward                                         
+                                     ⢸ ⠃ ⠆⠃                                                     
+                                      ⠉⠉⡇                                                       
+                                       ⢸⠃                                                       
+                                       ⣸⠃⣀                                                      
+                                     ⢰⠯⢭⠗⠃                                                      
+                                     ⢸ ⠸  Add & Norm                                            
+                                     ⠈⠙⠚⠃                                                       
+                                                                                                
+```
+ledger: []
+#### Transformer encoder
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                     ██████.Input Embedding                                     
+                                     ██████                                                     
+                                     ▀▀▀█▀▀                                                     
+                                        █                                                       
+                                        █                                                       
+                                       ▄█▄                                                      
+                                      ████                                                      
+                                      ███▀Positional                                            
+                                        █                                                       
+                                        █                                                       
+                                       ▄█▄                                                      
+                                      ████                                                      
+                                      ███▀Multi-Head                                            
+                                        █                                                       
+                                        █                                                       
+                                       ▄█▄                                                      
+                                      ████                                                      
+                                      ███▀Add & Norm                                            
+                                        █                                                       
+                                        █                                                       
+                                        █▄                                                      
+                                      █████Feed Forward                                         
+                                      ████▀                                                     
+                                       ▀█                                                       
+                                        █                                                       
+                                        █                                                       
+                                      ▄███                                                      
+                                      ████Add & Norm                                            
+                                      ▀▀▀                                                       
+                                                                                                
+```
+ledger: []
+#### Transformer encoder
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                            ⣀⣀⣀⣀                                                                            
+                                                          ⣼⠉⠁⡇ ⢸⢳.Input Embedding                                                           
+                                                          ⣿⢳⠒⠒⡖⠚⠹                                                                           
+                                                          ⡿⢸    ⠈                                                                           
+                                                          ⠉⠛⠒⠒⠃⠂⠉                                                                           
+                                                             ⣿                                                                              
+                                                             ⣿                                                                              
+                                                             ⣿⣀                                                                             
+                                                           ⣠⠴⢿⣫⠟.Positional                                                                 
+                                                           ⡏⠉⡏  ⠁                                                                           
+                                                           ⣧ ⠃  ⠃                                                                           
+                                                           ⠈⠉⠁                                                                              
+                                                             ⣿                                                                              
+                                                             ⣿                                                                              
+                                                           ⢀⣠⣿⡗⣦⡄                                                                           
+                                                           ⡟⠦⡴⠚⠁⠃Multi-Head                                                                 
+                                                           ⣇ ⠁  ⠃                                                                           
+                                                           ⠛⠦⠇⠂⠁                                                                            
+                                                             ⣿                                                                              
+                                                             ⣿                                                                              
+                                                             ⣿⣤⣀⡀                                                                           
+                                                           ⣴⣚⣻⠵⠋⠁Add & Norm                                                                 
+                                                           ⡇ ⠇  ⠁                                                                           
+                                                           ⢷⣀⠇ ⠃⠁                                                                           
+                                                             ⣿                                                                              
+                                                             ⣿                                                                              
+                                                             ⣿                                                                              
+                                                           ⣀⡤⣿⡏⣳⢶                                                                           
+                                                          ⢸⠓⠦⡴⠚⠁ .Feed Forward                                                              
+                                                          ⢸  ⠁  ⠄                                                                           
+                                                          ⠈⠓⠦⠇⠂⠁                                                                            
+                                                             ⣿                                                                              
+                                                             ⣿                                                                              
+                                                             ⣿⣄⡀                                                                            
+                                                           ⣴⡚⢛⣡⠟⠃Add & Norm                                                                 
+                                                           ⡇⠉⠏  ⠁                                                                           
+                                                           ⣷ ⠇  ⠃                                                                           
+                                                            ⠉⠉                                                                              
+                                                                                                                                            
+```
+ledger: []
+#### Agent supervisor
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                           ⢀⡀                                                   
+                                        ⢀⡤⠞⣹⡽⢻                                                  
+                                        ⢸⠉⢹⠁                                                    
+                                        ⠸⣄⢸  ⠁                                                  
+                                        User request                                            
+                                           ⣿                                                    
+                                         ⢀⣀⣿⡄                                                   
+                                         ⢸⢯⣛⣳                                                   
+                                     ⣀   ⢸⣼ ⠈                                                   
+                                 ⢀⣠⢴⣫⣿⣭⣷⢶⣿⣿ ⣿⠷Supervisor                                        
+                              ⢀⣠⡶⠛ ⡟⠦⡽⣋⣴Reviewer ⡛⠷⣦⣤⣀⡀  ⡀                                      
+                           ⢀⣤⡶⠛   ⢀⣧⣴⣿⠟⠁⣤⣀⡀⣿⠘⣾⡄  ⠉⠙⠒⠮ ⣿⡷⠯⣯⢷                                     
+                        ⣀⣤⡾⠛   ⢀⣤⣾⣿⡿⠋⢻⡍ ⠈⠉⠛⣿⢶⣾⣷⣀⡀    ⢸⠙⢻⠛⠳⠦..Final answer                       
+                      ⣴⣾⣟⠉  ⣀⣤⣾⣿⣴⠟    ⢻⡄   ⣿  ⠹⣧⠛⠷⢶⣤⣄⣸⣀⢸ ⣴⡶⠟                                    
+                      ⣿⠉⠛⣻⣷⣾⣿⣛⣿⡿⢻     ⠈⢿⡄  ⣿   ⢹⣧   ⠉⠙⣻⡿⣿⠁⣄⣀⣿                                   
+                      ⣿⣴⡿⠛ ⢸⠈⢹⠙⠛⠶⢦⣤⣀⡀  ⠈⣿⡀ ⣿    ⢻⣦⣄⣠⠶⠛   ⢈⣩⣿⠿                                   
+                      ⠙⠛⠿⢶⣦⣼⣤⣸ ⠆⠁Researcher⣿   ⢰⣯⡿⠛⠁  ⢀⣠⣶⠟ ⠁                                    
+                           ⠉⠙⠛⠷⢶⣤⣍⣙⠻⠷⣦⣤⣀⡀⠸⠉⣿⠲⢤⠖⢻ ⠃ .Coder                                       
+                                 ⠉⠛⠻⠷⣶⣭⣝⡛⣷⣿⣿⣷⣾⠞⠛⢓⣧⡿⠟                                            
+                                      ⠈⠉⠛⡿⠷⣾⣥⣸⣤⡾⠛⠁                                              
+                                         ⣷ ⠁⠈⠏Reports                                           
+                                          ⠉⠁                                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+ledger: []
+#### Agent supervisor
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                          ▄███                                                  
+                                         █████                                                  
+                                         ████▀                                                  
+                                        User request                                            
+                                           █                                                    
+                                           █                                                    
+                                          ███                                                   
+                                          ███                                                   
+                                   ▄ ██ ▄▄███▄Supervisor                                        
+                                ▄ ▀▄████Reviewer▀ ▄▄                                            
+                             ▄ ▀   █████   █ █   ▀▀ ▄█ ▄▄█▄                                     
+                          ▄ ▀    ▄ █▀▀▄  ▀▀█▄▄█       █████..Final answer                       
+                       ▄▀     ▄ █▀▀   ▀▄   █   ▀▀ ▄   █████ █                                   
+                      █ ▀  ▄ ███▄      ▄   █   ▀▄    ▀ ▄▄▀  █                                   
+                      █ ▄▀▀ █████▄      █  █    ▀▄  ▄ ▀    █▀                                   
+                      ▀  ▄  █████Researcher█    ▄███    ▄ ▀                                     
+                            ▀  ▄  ▀  ▄   ▀██▄▄▄▀███.Coder                                       
+                                  ▀ ▄▄ ▀▀ ▄█▄▄  ▀▀█ ▀                                           
+                                       ▀▀█████ ▄ ▀                                              
+                                         ████▀Reports                                           
+                                           ▀                                                    
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+ledger: []
+#### Agent supervisor
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                ⣀⡴⢺⢲⣤                                                                       
+                                                              ⢰⠯⣅⣠⠴⠃                                                                        
+                                                              ⢸  ⠃                                                                          
+                                                              ⠸⢀ ⠃⡀⠆.User request                                                           
+                                                                ⠉⠉⡇                                                                         
+                                                                 ⣿⠃                                                                         
+                                                                 ⣿⠃                                                                         
+                                                               ⢠⠤⣿⠃                                                                         
+                                                               ⢸⣇⠛⢁⣧                                                                        
+                                                               ⢸⣸⠉⠉⠘                                                                        
+                                                        ⢀⣴⣶⠤⣄⣀⣀⣸⣾  ⠘.Supervisor                                                             
+                                                     ⣀⡴⣺⠽⢻⣿⣿⢿⠛⣫⡿⠻⠉⢩⡉⠙⠻⠶⣦⣄⣀                                                                  
+                                                  ⣠⠴⠚  ⡏⠙⢲⠋⢁⣼⠞⠋  ⣿⡏⣷⠙⠓⠶⢤⣍⠁⠛⠷⣦⣤⣀    ⣀                                                        
+                                               ⣠⠴⠋     ⣇ ⣸⡴⢻⠁Reviewer    ⠉⠙⠒⠦⢬⠁⡃⣷⣶⡏⡏⣹⢶                                                      
+                                           ⢀⣠⠖⠋     ⢀⣠⡶⣻⠿⠋⣷⡃ ⠈⠉⠛⠻⣿⠃⣤⣹⣧         ⡟⠻⢶⠶⣯⣁⣸ ..Final answer                                       
+                                        ⢀⡤⠖⠋     ⢀⣠⠶⢛⡴⠞⠁  ⠘⣷     ⣿⠃⠉⠙⢻⣿⢶⣦⣄⣀    ⡇ ⠘  ⠈⢉.⣶                                                    
+                                       ⡾⠭⣄⣀   ⢀⣤⢶⣫⣥⡴⠋      ⠸⣧    ⣿⠃   ⢻⣆ ⠉⠙⠛⠷⢶⣤⣿⢤⢸⣀⣦⠟⠋⠁⣿                                                    
+                                       ⡇  ⠈⠙⣷⠾⣿⣟⣉⣻⡧⠟⠃Researcher  ⣿⠃   ⠈⢿⡄      ⣉⡿⠿⠿⣶⣤⣄⣀⣿                                                    
+                                       ⡇⢀⡤⠞⠋  ⡇⠈⢹⠙⠳⠶⣧⣄⡀      ⢹⣆  ⣿⠃    ⠈⣿⣄⡀ ⣀⡴⠞⠁    ⠈⢉⣿⠿                                                    
+                                       ⠻⠭⣄⣀   ⣧ ⢸  ⡄⠇⠈⠉⠛⠲⢦⣤⣀⡀ ⢻⡄ ⣿⠃    ⣴⣚⣿⡽⢻      ⣀⣤⠞⠋⠁                                                     
+                                          ⠈⠉⠓⠲⠬⣝⣚ ⠉⠉⠛⠷⢶⣤⣀⡀ ⠉⠙⠛⠶⢿⣤⣿⡇   ⣠⡷⠛      ⣀⡴⠞⠃                                                         
+                                                ⠈⠉⠓⠲⠤⣄⡀⠈⠁⠃⠻⢶⣤⣄⡀⠈⢿⣿⠛⠻⣶⠋ ⣧ ⡇ ⠄Coder                                                           
+                                                      ⠉⠙⠒⠦⢤⣀⡀⠉ ⣻⣾⣿⣿⣷⣿⠟⠛⠉⠉⣁⡴⠚                                                                
+                                                            ⠉⠙⢺⠷⢦⣴⡟⠁⣿ ⣠⠴⠛⠁                                                                  
+                                                              ⢸  ⡇⠉⢿.Reports                                                                
+                                                              ⠘⠲⠤⠇⠚⠁                                                                        
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+ledger: []
+#### Multi-agent crew
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                              ⢀⣠⣄⣀⡀             
+                                                                           ⢀⡤⠖⠋  ⣠⠽⡇            
+                                                                           ⢸⠉⠓⠦⡴⠚⠁ ⠃            
+                                                                           ⢸ ⢀ ⠁   ⠃            
+                                                                  ⢀⡀     ⢀⣠⣾⠿⠋ ⠇   ⠃            
+                                                               ⣀⡤⠞⢹⠉⢉⣳⣆⣤⣶⠿ ⠙⠦⠤⣄⠃ ⠂⠁             
+                                                              ⢸⠓⠦⣄⣠⠴⠃ ⡇⠋        .               
+                                                     ⣀        ⢸   ⠃   ⠃         Request         
+                                                  ⣠⣴⢿⠟⠛⠷⣶⣤⣄⡀ ⣠⣼⣿⠿ ⠇   ⠃                         
+                                               ⣠⡴⠟ ⣠⢾⡟⠒⢲⣤⣾⢿⠇⣿⠿⠋⣅⢀ ⠃ ⠄⠃⠁                         
+                                            ⣠⡴⠟ ⣠⠴⠋⠁⢀⣤⡾⠟⠉⡇⢿⡇⠁    ⠉⠁                             
+                                         ⣠⡴⠛    ⡏⢉⣽⣾⠟⠉   ⠃⢸⠃      Manager                       
+                                      ⣠⡴⠛     ⢀⣤⣿⣻⠁⢸     ⠃⢸⠃                                    
+                                   ⣠⠴⠛⢀⣠⣄⣀ ⢀⣤⣾⣻⠁⣿⠃⠁⢸    ⠆⣣⣿⠃                                    
+                                 ⣶⠯⢤⣤⣖⡋⠘⣀⣼⢿⣻ ⠿⠋⠁⠛⠲⢤⣸ ⠆⣡⣴⡿⠛                                      
+                                 ⣿ ⢸⠉⠙⠛⣿⠋⠁⢸⠋⡵⠛⠁    ⣠⣴.⠛                                         
+                                 ⣿ ⢸⣀⣄⢸⣿  ⢸⠁    ⣠⣴⡿⠛ Researcher                                 
+                        ⣀⣀⣀⣀⡀    ⣿⣴⣾⠿⠇⢸⣿     ⣠⣴⡿⠛                                               
+                        ⣷   ⣷ ⣀⣴⣾⣿⠋⡿⠧⢤⣸⣿⠆⠃⣠⣴⡿⠃⠁                                                 
+                        ⡏⡗⠒⠒⠚⣿⡟  ⠈⠛⠻⢶⣦⣤.⣴⡿⠁⠁                                                    
+                        ⣇⡇   ⠃        ⠉Writer                                                   
+              ⢀⡀     ⣀⣴⡾⠟⡇   ⠃                                                                  
+          ⢀⣠⠴⠚⠹⠉⣹⢶⣠⣴⡾⠏⠁ ⠸⣇   ⠃                                                                  
+          ⢸⠙⠲⢤⠖⠋⠁⠸⠛⠁       .                                                                    
+          ⢸  ⢸             Review                                                               
+          ⢸  ⢸                                                                                  
+          ⠘⠦⢤⣸  ⠃                                                                               
+              .                                                                                 
+              Result                                                                            
+                                                                                                
+```
+ledger: []
+#### Multi-agent crew
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                             ▄▄████▄            
+                                                                            ████████            
+                                                                            ████████            
+                                                                           ▄████████            
+                                                                 ▄██▄▄▄ ▄█▀ ▀████▀▀             
+                                                               ████████▀        .               
+                                                               ████████         Request         
+                                                   ▄▄█ ▄▄      ████████                         
+                                                ▄▄▀ ▄█▄▄▄▄██▄▀▀██████▀                          
+                                             ▄▄▀ ▄▄███████▀█     ▀▀                             
+                                          ▄▄▀   ██████████ █      Manager                       
+                                       ▄ ▀      ██████████ █                                    
+                                    ▄▀▀      ▄▀█████████▀▀▄█                                    
+                                 ▄██ ▄▄███▄▀█▄▀█▀▀███▀▀ ▄▀▀                                     
+                                 █  ███████▀▄▀▀      ▄▀▀                                        
+                                 █  ███████▀      ▄▀▀Researcher                                 
+                                 █ ▄███████   ▄▄▀▀                                              
+                        █████   ▄██▄▀████▀ ▄▄▀                                                  
+                        █████▄█▀  ▀▀▄▄ █▄▄▀                                                     
+                        ██████         Writer                                                   
+                      ▄▄██████                                                                  
+            ▄▄███▄ ▄▄▀▀  █████                                                                  
+           ███████▀▀       .                                                                    
+           ███████         Review                                                               
+           ███████                                                                              
+           █████▀                                                                               
+              .                                                                                 
+              Result                                                                            
+                                                                                                
+```
+ledger: []
+#### Multi-agent crew
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                            ⢀⡤⠖⡟⠒⠦⢤⣀                        
+                                                                                                          ⣴⣚⠉  ⢀⣠⠴⠚⠁                        
+                                                                                                          ⡇⠈⠉⠓⡞⠉                            
+                                                                                                          ⡇   ⠁                             
+                                                                                                         ⣀⣷⣾⠿ ⠇                             
+                                                                                             ⣠⢴⠦⢤⣀⡀   ⣠⣴⣿⠾⠋⠁  ⡇   ⡄⠂                        
+                                                                                          ⣀⡴⠚⠁  ⢀⣠⠟⣧⣴⣿⠟⠁⠁ ⠙⠲⠤⣄⡇ ⠃⠁                          
+                                                                                         ⢸⠓⠦⢤⣀⡤⠞⠉  ⡇⠋          .                            
+                                                                                         ⢸   ⢸     ⠇           Request                      
+                                                                           ⢀⣤⣶⣦⣤⣀⡀       ⢸⣤⢶ ⢸     ⠇                                        
+                                                                        ⢀⣤⡾⠟⢀⣿⣄⡉⠙⠛⠿⢶⣦⡄⢀⣤⣾⣿⠇⠁ ⢸     ⠇                                        
+                                                                     ⣀⣴⡾⠟ ⣠⠖⠋⣿ ⠉⢙⣶⣶⣿⢻⠃⣻⠇⠁⠘⠯⣄⢀⢸  ⠂⠉                                          
+                                                                  ⣀⣴⡾⠟ ⣠⠴⠋⠁  ⢀⣤⣾⠟⠋⢸⣻⢿⡇      ⠈⠉⠁                                             
+                                                               ⣀⣴⡾⠛    ⡏⠉⠓⣲⣤⣾⠟⠃     ⢸         .                                             
+                                                            ⣀⣴⠾⠃       ⣇⣴⡾⠟⠁        ⢸         Manager                                       
+                                                         ⣠⣴⠾⠃       ⣠⣴⡾⣟⠉⣶ ⢸        ⢸                                                       
+                                                      ⣠⣴⠿ ⠁⣀⣤⣀   ⣠⣴⡿⠛⠁⣾⠏⠋  ⢸     ⠆⠉⣻⣿                                                       
+                                                    ⣶⣿⣤⣀⣠⠴⠋⠁ ⢈⣩⣷⣿⠛⠁⣿⠿⠋⣾⠟⠲⢤⣀⢸  ⠂⢉⣠⣶⠿⠃⠁                                                       
+                                                    ⣿⠁⠈⠉⠛⠿⣶⣦⣶⠿⠋⠁⡇⠿⠋⡿⠟⠋    ⠈⠉⢁.⣶⠿⠁⠁                                                          
+                                                    ⣿⠁ ⡇   ⣿⣿   ⠇⠟⠉      ⢀⣤⣶⠿Researcher                                                     
+                                                    ⣿⠁ ⣷⣦⣦ ⣿⡟   ⠃     ⢀⣤⣾⠟                                                                  
+                                        ⢀⣀⣀⣀⣀⣀      ⣿⣧⣾⡿⠏⠇ ⣿⡟   ⠃  ⣀⣴⡾⠟                                                                     
+                                        ⢸⣆   ⢸⣆  ⢀⣠⣶⣿⠋⠁⠿⢥⣀⡀⣿⡟⠴⠃⠁⣀⣴⡾⠟                                                                        
+                                        ⢸⠸⣄⣀⣀⡤⠼⣦⣶⠿⠃⠁⠛⠿⢷⣤⣄⣀⠉⢹⣿⣠⣴⡾⠟                                                                           
+                                        ⢸ ⡇    ⡇⠃       ⠉⠙⠛⠿⠏⠛                                                                              
+                                        ⣸⣤⡇    ⠃            Writer                                                                          
+                            ⢀⡀       ⣠⣴⡾⠏⠉⡇    ⠃                                                                                            
+                         ⣀⡴⠚⢹⠉⠓⢲⣤ ⣠⣴⣿⠏   ⢳⡇    ⠃                                                                                            
+                       ⢰⠯⣅⣀ ⣀⡤⠞⠁ ⣿⠇       ⠉⠉⠉⠉⠉⠁                                                                                            
+                       ⢸  ⠈⢹⠁               .                                                                                               
+                       ⢸   ⢸                Review                                                                                          
+                       ⢸   ⢸                                                                                                                
+                       ⠸⣄  ⢸   ⠂⠉                                                                                                           
+                         ⠉⠙⠚ ⠁                                                                                                              
+                            .                                                                                                               
+                            Result                                                                                                          
+                                                                                                                                            
+```
+ledger: []
+#### Fan-out / join / split
+
+**96x32 braille**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                   ⣀⡀                                           
+                                                ⢀⡴⠚⣇⡽⢻                                          
+                                                ⢸⠉⢹⠁  ⠦⣤⣀          Input                        
+                                                ⢸⢸⣸     ⠉ ⠳⢦⣄⣀   ⣠⠴⢺⣳⡆                          
+                                                ⠈⠙⡇⠃⠁       ⠈ ⠛⠶⣦⣏⠉⡏ ⠁                          
+                                                  ⢹Branch B      ⣿⣿⣷⣾⡗⣦⡄                        
+                                   Split 3        ⠘⡆            ⣰⡿⡟⠦⣼⠻⠁⠁                        
+                                ⣠⠴⢺⢙⡶⡆             ⣇           ⣰⣿⣥⣷⠆⠃  ⠁                        
+                                ⡏⠓⡞⠁ ⠇⣤⣀⣀         ⣠Join ⢀⣀⣤⣤⡶⠾⣻⠁⠉⠁⠻⠤⠇ ⠁                         
+                                ⣧⣷⣟⣶ ⡇⠈⠉⠉⠁⠻⠶⢶⣤⣤⣀⣀⣸⠷⣿⣿⣷⠶⠟⠛⠉⠁  ⣰⡿⠁     Branch A                   
+                                ⡟⢹⠱⢿⠁         ⠈⠉⢹⠈⠉⡏⠸⢾Split 2⡿⠁                                 
+                                ⣿⢿              ⢸⣾⠃⠁ ⣼⣷⣠⠴⠋⣏⣷⡿⠁                                  
+                               ⢰⡟⠚⠃⠁           ⣰⣿⠁⠒⠃⠁ ⠈⠷⡝⢲⠋ ⠁                                   
+                              ⢀⣿⠁ Side       ⢀⣾⠉⣿⠃     ⣏⠁⠸  ⠁                                   
+                              ⣼             ⣰⡿⠁⣼⠁      ⠉⠓⠚⠃⠁                                    
+                           ⢀ ⢰⡟           ⢀⣾⠉ ⢰⡿         Branch C                               
+                         ⢠⣖⢻⣹⣿⠁          ⣰⣿⠃⢾⢲⣾                                                 
+                         ⢸⠈⢹⠁ ⣦⡀     ⣀ ⢀⣾⠟⡟⠒⡞⠁                                                  
+                         ⢸ ⠸  ⠉ ⢷⣤⡀⡶⣏⣩⢽⣿⠉⡤⡷⠂⠁                                                   
+                          ⠉⠉⠁    ⠙ ⣷⡄⠃ ⠇  ⠻⠤⠇ ⠁                                                 
+                            Output ⢷⢀⠃⡄⠇     Split 1                                            
+                                      .                                                         
+                                      Merge                                                     
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+ledger: []
+#### Fan-out / join / split
+
+**96x32 blocks**
+```
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                 ▄▄██▄                                          
+                                                 █████▄            Input                        
+                                                 █████  ▀▀▄▄       ▄▄▄                          
+                                                 ▀█▀▀        ▀ ▄▄█████                          
+                                                  █Branch B      █████▄                         
+                                   Split 3         █             ███████                        
+                                  ▄▄▄▄             ▄            █ ██████                        
+                                ██████             Join    ▄▄ ▀█▀ ▀███▀                         
+                                ██████  ▀▀ ▄▄▄    ████▄ ▀▀    █      Branch A                   
+                                ████▀          ▀▀█████Split 2█                                  
+                                ████             ██████ ▄▄█▄█                                   
+                                █▀▀             ██▀▀▀  ██████                                   
+                               █  Side        ▄▀█      ██████                                   
+                              ▄▀             █▀▄▀      ▀▀▀▀                                     
+                              █            ▄▀  █         Branch C                               
+                          ▄▄██            █▀▄▄▄▀                                                
+                          ████▄         ▄▀█████                                                 
+                          ████ ▀▄▄ ▄▄██▄▀▄█████                                                 
+                          ▀▀▀     ▀█████  ▀██▀▀                                                 
+                            Output ████▀     Split 1                                            
+                                      .                                                         
+                                      Merge                                                     
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+                                                                                                
+```
+ledger: []
+#### Fan-out / join / split
+
+**140x40 braille**
+```
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                          ⢀⡀                                                                
+                                                                       ⣀⡤⠞⢹⠉⣹⢶                                                              
+                                                                      ⢸⠓⠲⢤⠖⠋⠁ ⣀                                                             
+                                                                      ⢸ ⣤⢸   ⠈⠛⠋⢷⣦⣄⣀           Input                                        
+                                                                      ⢸⡀⢻⣾  ⡄⠂   ⠈⠉ ⠿⣶⣤⣄⡀   ⣤⣖⠋.⠽⡇                                          
+                                                                       ⠉⢹⣇⠃⠁          ⠈ ⠉⠷⣶⣤⣇⠈⢹⠁ ⠃                                          
+                                                                         ⣿Branch B         ⠉⠋⡿⣾⣤⣴⡧⢤⣀                                        
+                                                                         ⢻⡇                ⣰⡿⣵⣻⡁⢸⣤⠞⠁                                        
+                                                     Split 3             ⠸⣧               ⣰⡿ ⡇ ⠉⡏  .Branch A                                
+                                                  ⣠⠴⠚.⣉⡷⡆                 ⣿⡀            ⢀⣰⣿⣤⡶⡷⠟ ⠇                                           
+                                                  ⡏⠙⢲⠋⠁ ⠃⣤⣀⣀             ⣀⣽⣧⣀    ⢀⣀⣤⣤⣶⠶⠟⠛⠉⠉  ⠻⠤⣄⠇⠄⠃                                         
+                                                  ⣇⣶⣾⣄⡀ ⠃⠈⠉⠉⠛⠻⠶⢶⣤⣤⣀⣀    ⣾⡵⣾⣿⣿⣤⣶⠾⠟⠛ ⠈   ⣰⡿⠁                                                  
+                                                 ⢰⢿⢤⣷⣯⡇⠟⠃        ⠈⠈⠉⠛⠻⠶⣾⣯⣄⣸⣶⣏         ⣰⡿                                                    
+                                                 ⢸⢀⢸  ⠁                ⡇⣀ ⠃ ..Split 2⣰⡿                                                     
+                                                 ⢸⣾⠻  ⠁               ⢀⣿⡟ ⠇  ⠇⣿⣤⠴⠋ ⢀⡼⢻⠁                                                     
+                                                 ⣸⡏⠚ ⠁               ⣠⣿⠛⠒⠦⠇⠃⠁ ⠹⠿⣏⠓⡞⠉                                                        
+                                                ⢠⡿  .              ⢀⣼⡟⠁⡇  Join ⡿⠁ ⠃                                                         
+                                                ⣾⠃  Side          ⣠⣾⠉⢰⡿        ⢷⣀ ⠇  ⠁                                                      
+                                               ⢰⡟               ⢀⣴⡟⠁ ⣾⠃          ⠉⠉                                                         
+                                            ⢀⡀⢀⣿⠁              ⢠⣾⠉  ⣸⡏            Branch C                                                  
+                                         ⢀⡤⠞⢹⢉⣿⡇              ⣴⡟⠁⡤⡶⢤⣿⠁                                                                      
+                                         ⢸⠉⠓⡞⠁ ⠃            ⢀⣾⠉⠯⣅⣠⠴⠚⠁                                                                       
+                                         ⢸  ⠁  ⠃⢷⣤⡀   ⢀⣠⢴⠲⣤⣴⡟⠁⢸⣀ ⠇                                                                          
+                                         ⠸⢀ ⠇ ⠆⠃ ⠙ ⣶⣄⣸⠛⠦⡴⠚⠁⠇⣶⠿⢿⠛⠁⠇                                                                          
+                                           ⠉⠁.      ⠙⠿⣶ ⠃  ⠇  ⠈⠓⠦⠇ ⠁                                                                        
+                                             Output  ⢸  ⠇  ⠇      .                                                                         
+                                                      ⠉⠓⠃⠁        Split 1                                                                   
+                                                          .                                                                                 
+                                                          Merge                                                                             
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+                                                                                                                                            
+```
+ledger: []

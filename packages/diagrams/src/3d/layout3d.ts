@@ -88,6 +88,18 @@
  * now plain world-axis-aligned scenes with no shared-plane basis to
  * project through). `glyphDiagramObject.ts` draws it as a thin 12-edge
  * wireframe ribbon outline around the box, never a filled/recessed panel.
+ *
+ * **D2 round 8** (user, verbatim: "can we make them a bit more clear in
+ * the separation between the same height/depth nodes? because its
+ * difficult to see them separate"). The ring's own radius (`GLYPH_
+ * DIAGRAM_3D_RING_GAP`/`triangulatedOffsets`) is now sized off the SAME
+ * camera-aware conservative bound rank spacing already used
+ * (`screenSafeFlowHalf`, both cross-axis AND depth) rather than a single
+ * raw in-plane axis, plus extra room for this rank's own longest SIDE
+ * LABEL (`GLYPH_DIAGRAM_3D_RING_LABEL_UNIT`) — labels now sit BESIDE a
+ * node by default (`glyphDiagramObject.ts`'s own round-8 doc), radially
+ * OUTWARD from the ring's own centre, so the ring must leave room for that
+ * text or it reaches into the next sibling's own arc.
  */
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNode, GlyphGraphNodeShape } from "../types";
 import { measureGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayoutOptions, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode } from "../pipeline";
@@ -124,8 +136,29 @@ const GLYPH_DIAGRAM_3D_MIN_DEPTH = 4;
 const GLYPH_DIAGRAM_3D_MIN_HEIGHT = 12;
 /** Padding (world units) around a group's member footprint before it becomes a bounding outline. */
 export const GLYPH_DIAGRAM_3D_GROUP_PAD = 2;
-/** Clearance (world units), beyond both points' own in-plane half-extents, between adjacent ring-placed siblings. */
-const GLYPH_DIAGRAM_3D_RING_GAP = 3;
+/**
+ * Clearance (world units), beyond both points' own in-plane half-extents,
+ * between adjacent ring-placed siblings. **D2 round 8** (user, verbatim:
+ * "can we make them a bit more clear in the separation between the same
+ * height/depth nodes? because its difficult to see them separate") —
+ * raised from `3` (round 7) after rendering the real fixtures: `3` gave
+ * adjacent siblings a screen gap of 0-1 cells at 96x32, which the reader
+ * cannot distinguish from a shared edge. Reused directly by
+ * `triangulatedOffsets` below.
+ */
+const GLYPH_DIAGRAM_3D_RING_GAP = 7;
+/**
+ * Extra clearance (world units) per character of a rank's own LONGEST side
+ * label, added on top of `GLYPH_DIAGRAM_3D_RING_GAP` (round 8) — a side
+ * label now extends past its own node in the SAME cross-section plane the
+ * ring packs siblings into (`glyphDiagram3dNodeSideVector`'s own doc,
+ * `glyphDiagramObject.ts`), so the ring must leave room for it or an
+ * outward-pointing label collides with the next sibling around the ring.
+ * `1` world unit per character matches `measureGlyphGraph`'s own
+ * character-to-cell ratio (`pipeline.ts`'s `width = lines[0].length + ...`),
+ * so a label's WORLD footprint and its own rendered CHARACTER count agree.
+ */
+const GLYPH_DIAGRAM_3D_RING_LABEL_UNIT = 1;
 /** Clearance (world units), beyond both ranks' own along-flow half-extents, between consecutive rank planes. */
 const GLYPH_DIAGRAM_3D_RANK_GAP = 5;
 /** First rank's own ring base angle (degrees) — chosen so the FIRST sibling (dagre order 0) lands front-left (negative cross-axis, positive depth) rather than on an axis. */
@@ -304,11 +337,16 @@ function clusterRanks(values: readonly number[], tolerance: number, ascending: b
  * file's own top-of-file doc for why one ring formula covers every count
  * the brief enumerated. `spanA`/`spanB` are the rank's own largest
  * cross-axis-1/depth half-extents (for radius sizing); `baseAngleDeg`
- * rotates the whole ring for this rank.
+ * rotates the whole ring for this rank. **D2 round 8**: `spanA`/`spanB` are
+ * now the CAMERA-AWARE conservative bound (`screenSafeFlowHalf`, this
+ * file's own doc) rather than a single raw world axis, and `labelRoom`
+ * (world units, this rank's own longest side label) is added to the
+ * required chord so a label pointing radially outward from one sibling
+ * never reaches into its neighbour's own arc.
  */
-function triangulatedOffsets(count: number, spanA: number, spanB: number, baseAngleDeg: number): { readonly a: number; readonly b: number }[] {
+function triangulatedOffsets(count: number, spanA: number, spanB: number, baseAngleDeg: number, labelRoom = 0): { readonly a: number; readonly b: number }[] {
   if (count <= 1) return [{ a: 0, b: 0 }];
-  const need = Math.max(spanA, spanB) * 2 + GLYPH_DIAGRAM_3D_RING_GAP;
+  const need = Math.max(spanA, spanB) * 2 + GLYPH_DIAGRAM_3D_RING_GAP + labelRoom;
   const radius = need / (2 * Math.sin(Math.PI / count));
   const base = (baseAngleDeg * Math.PI) / 180;
   const out: { a: number; b: number }[] = [];
@@ -406,13 +444,29 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
     frontier = center + maxFlowHalf + GLYPH_DIAGRAM_3D_RANK_GAP;
   }
 
+  // D2 round 8 — a rank's own longest side-label text, in CHARACTERS
+  // (`n2d.lines[0]` is the same folded first line `glyphDiagramObject.ts`'s
+  // overlay places), fed into `triangulatedOffsets`' own `labelRoom` so the
+  // ring leaves room for a label reaching past its own node's edge.
+  const labelLenOf = (n: GlyphDiagramPositionedNode) => n.lines[0]?.length ?? 0;
+
   const positions: Vec3[] = new Array(laid.nodes.length);
   clusters.forEach((idxs, rank) => {
     const ordered = [...idxs].sort((ia, ib) => crossAxisValue(laid.nodes[ia]!) - crossAxisValue(laid.nodes[ib]!));
-    const spanA = Math.max(...ordered.map((i) => crossHalfOf(laid.nodes[i]!)));
-    const spanB = Math.max(...ordered.map((i) => depthHalfOf(laid.nodes[i]!)));
+    // D2 round 8 — the ring's own radius is sized off the SAME camera-aware
+    // conservative bound `screenSafeFlowHalf` already uses for rank
+    // spacing (this function's own doc above), not a single raw in-plane
+    // axis: under this file's oblique fixed camera every one of a box's
+    // three axes contributes to its projected SCREEN silhouette, so
+    // spacing siblings by only their cross/depth half-extents left them
+    // reading as one fused block at 96x32 even though their WORLD-space
+    // ring positions were already distinct (the reported "difficult to
+    // see them separate").
+    const spanSafe = Math.max(...ordered.map((i) => screenSafeFlowHalf(laid.nodes[i]!)));
+    const maxLabelLen = Math.max(0, ...ordered.map((i) => labelLenOf(laid.nodes[i]!)));
+    const labelRoom = maxLabelLen > 0 ? maxLabelLen * GLYPH_DIAGRAM_3D_RING_LABEL_UNIT + GLYPH_DIAGRAM_3D_RING_GAP : 0;
     const baseAngle = GLYPH_DIAGRAM_3D_RING_BASE_ANGLE + rank * GLYPH_DIAGRAM_3D_RING_ROTATE_DEG;
-    const offsets = triangulatedOffsets(ordered.length, spanA, spanB, baseAngle);
+    const offsets = triangulatedOffsets(ordered.length, spanSafe, spanSafe, baseAngle, labelRoom);
     const flowCoord = flowSign * rankFlowCoord[rank]!;
     ordered.forEach((i, orderIdx) => {
       const { a, b } = offsets[orderIdx]!;

@@ -28,7 +28,10 @@ import { glyphGraphFromJson } from "../adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "../validate";
 import type { GlyphGraph } from "../types";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
-import { glyphDiagramObject, resolveGlyphDiagram3dLabelPlacement, glyphDiagram3dLabelSideDirection, type GlyphDiagramObjectOptions } from "./glyphDiagramObject";
+import {
+  glyphDiagramObject, glyphDiagram3dNodeSilhouettes, pickGlyphDiagram3dLabelPlacements,
+  type GlyphDiagramObjectOptions, type GlyphDiagram3dScreenBox,
+} from "./glyphDiagramObject";
 import { layout3d, GLYPH_DIAGRAM_3D_CAMERA_ROT_X, GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, type GlyphDiagram3dNode, type GlyphDiagram3dLayoutKind } from "./layout3d";
 import {
   ledger3dArrowheadsSuppressed, ledger3dBlocksAnsiUnsupported, ledger3dCharsetDegraded, ledger3dLabelDropped, ledger3dLabelsSuppressed,
@@ -303,7 +306,7 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
   readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[];
   readonly explicitZoom?: number; readonly title?: string; readonly labelMode?: "inside" | "side" | "auto";
   readonly direction?: GlyphGraph["direction"]; readonly layoutKind?: GlyphDiagram3dLayoutKind;
-}): { readonly camera: GlyphCamera; readonly fitLabels: readonly FitLabel[]; readonly unfittable: readonly FitLabel[] } {
+}): { readonly camera: GlyphCamera; readonly fitLabels: readonly FitLabel[]; readonly unfittable: readonly FitLabel[]; readonly droppedBySide: readonly FitLabel[] } {
   const centroid = boundsCentroid(object.bounds);
   const useMat = opts.mat !== undefined;
   const makeCamera = (zoom: number, center: [number, number]): GlyphCamera => {
@@ -316,21 +319,32 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
   };
 
   const labelMode = opts.labelMode ?? "auto";
-  const labelSideDirection = glyphDiagram3dLabelSideDirection(opts.direction);
   const cols = opts.cols, rows = opts.rows;
   const reference = makeCamera(1, [0.5, 0.5]);
+  // D2 round 8 — every node's own projected silhouette at the REFERENCE
+  // camera (`zoom: 1`); the collision VERDICT `pickGlyphDiagram3dLabel
+  // Placements` derives from it is invariant to the eventual real zoom
+  // (`glyphDiagram3dNodeSilhouettes`' own doc), so this stays valid across
+  // every `solve`/`resolveAll` pass below with no re-projection.
+  const referenceSilhouettes = glyphDiagram3dNodeSilhouettes(nodes, reference, cols, rows, opts.cellAspect);
 
   if (opts.explicitZoom !== undefined) {
     const camera = makeCamera(opts.explicitZoom, [0.5, 0.5]);
-    const fitLabels: FitLabel[] = [];
+    const explicitSilhouettes = glyphDiagram3dNodeSilhouettes(nodes, camera, cols, rows, opts.cellAspect);
+    const picks = pickGlyphDiagram3dLabelPlacements(
+      nodes, (node) => foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id),
+      labelMode, opts.direction, opts.layoutKind, camera, cols, rows, opts.cellAspect, explicitSilhouettes,
+      (node) => frontFaceWidthCols(reference, node, cols, rows, opts.cellAspect, opts.explicitZoom!),
+    );
+    const fitLabels: FitLabel[] = [], droppedBySide: FitLabel[] = [];
     for (const node of nodes) {
-      const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
-      if (rawText.length === 0) continue;
-      const screenWidthCols = frontFaceWidthCols(reference, node, cols, rows, opts.cellAspect, opts.explicitZoom);
-      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols);
-      if (placed.text.length > 0) fitLabels.push({ node, text: placed.text, anchor: placed.anchor });
+      const pick = picks.get(node.id);
+      if (!pick || pick.placement.text.length === 0) continue;
+      const entry: FitLabel = { node, text: pick.placement.text, anchor: pick.placement.anchor };
+      if (pick.dropped) droppedBySide.push(entry);
+      else fitLabels.push(entry);
     }
-    return { camera, fitLabels, unfittable: [] };
+    return { camera, fitLabels, unfittable: [], droppedBySide };
   }
 
   const marginCols = 1;
@@ -397,20 +411,35 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
     return { zoom: finalZoom, center };
   }
 
-  /** Resolve every node's label at a given (possibly zero, meaning "no screen-width known yet") zoom, splitting into kept-vs-unfittable against the frame's own `availCols`. */
-  function resolveAll(zoomForWidth: number | undefined): { readonly kept: FitLabel[]; readonly unfittable: FitLabel[] } {
-    const kept: FitLabel[] = [], unfittable: FitLabel[] = [];
+  /**
+   * Resolve every node's label at a given (possibly zero, meaning "no
+   * screen-width known yet") zoom, splitting into kept-vs-unfittable
+   * against the frame's own `availCols` — plus, D2 round 8, dropped-by-
+   * side (`pickGlyphDiagram3dLabelPlacements`' own verdict: no candidate
+   * direction cleared every node's own silhouette AND every
+   * higher-priority label already placed). Runs at `camera`/`silhouettes`
+   * (default: the REFERENCE camera, for the fixed-point loop below, which
+   * only needs a stable ESTIMATE) — see the loop's own doc for why the
+   * FINAL call swaps in the real, final camera instead.
+   */
+  function resolveAll(
+    zoomForWidth: number | undefined, camera: GlyphCamera = reference, silhouettes: ReadonlyMap<string, GlyphDiagram3dScreenBox> = referenceSilhouettes,
+  ): { readonly kept: FitLabel[]; readonly unfittable: FitLabel[]; readonly droppedBySide: FitLabel[] } {
+    const kept: FitLabel[] = [], unfittable: FitLabel[] = [], droppedBySide: FitLabel[] = [];
+    const picks = pickGlyphDiagram3dLabelPlacements(
+      nodes, (node) => foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id),
+      labelMode, opts.direction, opts.layoutKind, camera, cols, rows, opts.cellAspect, silhouettes,
+      zoomForWidth === undefined ? undefined : (node) => frontFaceWidthCols(reference, node, cols, rows, opts.cellAspect, zoomForWidth),
+    );
     for (const node of nodes) {
-      const rawText = foldGlyphOverlayLabelToAscii(node.label.split("\n")[0] ?? node.id);
-      if (rawText.length === 0) continue;
-      const screenWidthCols = zoomForWidth === undefined ? undefined : frontFaceWidthCols(reference, node, cols, rows, opts.cellAspect, zoomForWidth);
-      const placed = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols);
-      if (placed.text.length === 0) continue;
-      const entry: FitLabel = { node, text: placed.text, anchor: placed.anchor };
-      if (placed.text.length > availCols) unfittable.push(entry);
-      else kept.push(entry);
+      const pick = picks.get(node.id);
+      if (!pick || pick.placement.text.length === 0) continue;
+      const fitEntry: FitLabel = { node, text: pick.placement.text, anchor: pick.placement.anchor };
+      if (pick.dropped) droppedBySide.push(fitEntry);
+      else if (pick.placement.text.length > availCols) unfittable.push(fitEntry);
+      else kept.push(fitEntry);
     }
-    return { kept, unfittable };
+    return { kept, unfittable, droppedBySide };
   }
 
   // Bounded fixed-point loop, not a single 2-pass estimate: re-deciding a
@@ -419,20 +448,45 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
   // across iterations — a demoted node's `"side"` placement needs MORE
   // margin than `"inside"` would have, so each iteration's solved zoom is
   // monotonically <= the previous one, and the sequence converges (bounded
-  // below by the frame's own geometry-only fit). 4 iterations is ample for
-  // any real diagram (each one only reconsiders the few nodes sitting right
-  // at their own fit boundary); the LAST iteration's `resolveAll` result
-  // (re-clipped against that iteration's own solved zoom) is what ships, so
-  // the guarantee holds against the TRUE zoom the frame renders with, not
-  // an early estimate.
+  // below by the frame's own geometry-only fit).
+  //
+  // D2 round 8 — iterations 1+ re-derive `resolveAll`'s OWN picks at the
+  // EXACT camera the CURRENT zoom/centre estimate implies — not the
+  // zoom=1 REFERENCE camera iteration 0 bootstraps from — and the LAST
+  // iteration's `solve` runs again after that exact-camera pass, so the
+  // reported zoom/centre are fitted to the picks that will ACTUALLY render,
+  // not to an estimate. The picker's collision verdict is invariant to
+  // zoom/centre in EXACT real arithmetic (`glyphDiagram3dNodeSilhouettes`'s
+  // own doc), but `pickGlyphDiagram3dLabelPlacements` rounds every
+  // candidate to an INTEGER cell before testing it, and rounding is not
+  // affine-invariant — two boundary values a hair apart in continuous
+  // space can round to different cells at a different zoom/centre, and the
+  // greedy reservation loop cascades that one flip through every
+  // LOWER-priority node after it, changing which candidate side several
+  // nodes land on. Bootstrapping from the reference camera alone (this
+  // round's first cut) got the zoom close but not exact: a label's own
+  // candidate could still differ between the reference-camera estimate
+  // that fitted the zoom and the real-camera pass that rendered it,
+  // occasionally pushing that one label's own text past the frame edge —
+  // measured on the real LeNet-5 fixture (`"input 32x32x1"` at 96x32,
+  // `docs/design/charts3d.md`'s "D2 round 8"). Re-solving against the
+  // EXACT camera's own picks removes the estimate entirely.
   let solved = solve(resolveAll(undefined).kept);
   let resolved = resolveAll(solved.zoom);
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 4; i++) {
+    const camera = makeCamera(solved.zoom, solved.center);
+    const silhouettes = glyphDiagram3dNodeSilhouettes(nodes, camera, cols, rows, opts.cellAspect);
+    resolved = resolveAll(solved.zoom, camera, silhouettes);
     solved = solve(resolved.kept);
-    resolved = resolveAll(solved.zoom);
   }
+  // One final pass at the LATEST solved zoom/centre (the loop's last
+  // action was `solve`, so `resolved` still reflects the PREVIOUS
+  // camera) — this is what actually ships.
+  const finalCamera = makeCamera(solved.zoom, solved.center);
+  const finalSilhouettes = glyphDiagram3dNodeSilhouettes(nodes, finalCamera, cols, rows, opts.cellAspect);
+  resolved = resolveAll(solved.zoom, finalCamera, finalSilhouettes);
 
-  return { camera: makeCamera(solved.zoom, solved.center), fitLabels: resolved.kept, unfittable: resolved.unfittable };
+  return { camera: finalCamera, fitLabels: resolved.kept, unfittable: resolved.unfittable, droppedBySide: resolved.droppedBySide };
 }
 
 /**
@@ -584,12 +638,20 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   // must not consume any of the fit's own zoom budget, or the adaptive
   // suppression would buy nothing.
   const fitNodes = labelNodeIds ? layout.nodes.filter((n) => labelNodeIds.has(n.id)) : layout.nodes;
-  const { camera, fitLabels, unfittable } = fitDiagramCamera(object, fitNodes, {
+  const { camera, fitLabels, unfittable, droppedBySide } = fitDiagramCamera(object, fitNodes, {
     cols: resolved.width, rows: resolved.height, cellAspect, rotX, rotY, mat: camOpts.mat,
     explicitZoom: camOpts.zoom, title: options.title, labelMode: options.labels, direction: effectiveDirection,
     layoutKind: resolvedLayoutKind,
   });
   for (const label of unfittable) ledger.push(ledger3dLabelUnfittable({ nodeId: label.node.id, label: label.text, cols: resolved.width }));
+  // D2 round 8 — no candidate side cleared every node's own silhouette at
+  // ANY rotation this fit tried (`pickGlyphDiagram3dSidePlacement`'s own
+  // doc); `glyphDiagramObject.ts`'s own overlay independently reaches the
+  // identical verdict at render time and skips placing it, so this is
+  // reported here rather than relying on `verifyLabelsLanded`'s own
+  // after-the-fact diff (a label that was never a `fitLabel` is never
+  // compared against the rendered grid at all).
+  for (const label of droppedBySide) ledger.push(ledger3dLabelDropped({ nodeId: label.node.id, label: label.text }));
 
   const objects: GlyphSceneObject[] = options.title ? [object, titleChromeObject(options.title)] : [object];
   const colorMode = resolved.color;

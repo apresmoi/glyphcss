@@ -38,11 +38,31 @@
  * from camera yaw) entirely, so there is no more per-graph basis to place a
  * box's local geometry through — `nodePolygons` below just adds a node's
  * own `center` to its LOCAL (origin-centred) shape verbatim.
+ *
+ * **D2 round 8** (user, verbatim: "I think that the labels should be like
+ * on the side of the nodes and not over the nodes") — the label default
+ * (`GlyphDiagramObjectOptions.labels`, `"auto"`) now ALWAYS resolves to
+ * `"side"`; the old "sits inside if the text happens to fit the front
+ * face" fallback is gone (`"inside"` stays reachable as an explicit
+ * opt-in). Each node's own side is chosen from a small ORDERED set of
+ * candidate WORLD directions — its own RADIAL direction first (away from
+ * its own rank's ring centre, `glyphDiagram3dLabelSideCandidates`'s own
+ * doc below), then the rank's own 4 in-plane axis directions — and
+ * `pickGlyphDiagram3dSidePlacement` (this module, camera-aware) keeps the
+ * FIRST candidate whose anchor clears every node's own projected
+ * silhouette, dropping the label (with a ledger entry) only when none do.
+ * This is genuinely necessary, not belt-and-suspenders: this module's own
+ * FIXED camera does not project every world axis onto a "moves away from
+ * the box on screen" direction (measured on the shipped chain fixtures —
+ * `docs/design/charts3d.md`'s own "D2 round 8" section has the numbers),
+ * so a single fixed direction per node is not enough on its own. The SAME
+ * round widened `layout3d.ts`'s own ring spacing to leave room for a
+ * sibling's own label text (`layout3d.ts`'s own "D2 round 8" doc).
  */
 import type { GlyphGraph, GlyphGraphDirection } from "../types";
-import type { GlyphOverlayFrame, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay, Polygon, Vec3 } from "glyphcss";
-import { boxPolygons, spherePolygons, cylinderPolygons, orientedRibbonPolygons, orientedPyramidPolygons } from "glyphcss";
-import { layout3d, type GlyphDiagram3dGroup, type GlyphDiagram3dLayout, type GlyphDiagram3dLayoutOptions, type GlyphDiagram3dNode } from "./layout3d";
+import type { GlyphCamera, GlyphOverlayFrame, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay, Polygon, Vec3 } from "glyphcss";
+import { boxPolygons, spherePolygons, cylinderPolygons, orientedRibbonPolygons, orientedPyramidPolygons, stampGlyphOverlayLine } from "glyphcss";
+import { layout3d, type GlyphDiagram3dGroup, type GlyphDiagram3dLayout, type GlyphDiagram3dLayoutKind, type GlyphDiagram3dLayoutOptions, type GlyphDiagram3dNode } from "./layout3d";
 
 /**
  * Shape-aware node geometry, checked against core FIRST: `cylinderPolygons`
@@ -117,16 +137,32 @@ export interface GlyphDiagram3dLabelPlacement {
  * A PURE, camera-independent function shared verbatim by this module's own
  * overlay `stamp()` AND `render3d.ts`'s analytic camera fit, so the two can
  * never predict a different landing cell for the same node under the same
- * options. `"inside"`'s own anchor sits on the node's own FRONT face
- * (world `-Y`, `center - half[1]` along Y — the depth/extrusion axis every
- * node's box always uses, D2 round 7's own top-of-file doc); `"side"`
- * anchors in the free space past the node's own right edge (world `+X`,
- * the box's own width axis) or below it (world `-Z`), with a leader-from
- * point exactly on the node's own projected edge.
+ * options.
+ *
+ * **D2 round 8** (user, verbatim: "I think that the labels should be like
+ * on the side of the nodes and not over the nodes") — `"auto"` no longer
+ * falls back to `"inside"` when the label happens to fit the front face:
+ * it ALWAYS resolves to `"side"` now, so a node's own block stays fully
+ * visible with no label cell on its own silhouette. `"inside"` survives
+ * only as an explicit opt-in, unchanged from D2 round 6 (front-face
+ * `"top"` anchor, clipped verbatim to `faceWidthCells`, no ellipsis).
+ *
+ * `"side"`'s own anchor pushes OUT from the node's own box surface along
+ * `sideDirection` — the exit point is wherever that ray leaves the box
+ * (never a fixed corner), and `leaderFrom` is that exact exit point, so
+ * the leader always touches the node's own real edge in whatever direction
+ * it was pushed. Two legacy string values, `"right"`/`"below"`, keep their
+ * ORIGINAL D2 round 6/7 geometry byte-for-byte (a front-top-right edge / a
+ * bottom-centre edge — deliberately not the generic box-exit formula,
+ * which would shift both); anything else is read as a raw WORLD direction
+ * vector (`Vec3`, not necessarily unit-length) — this module's own
+ * `pickGlyphDiagram3dSidePlacement` is the production caller, choosing
+ * from `glyphDiagram3dLabelSideCandidates`' own ordered per-node list
+ * (round 8's own doc on both).
  *
  * `screenWidthCols`, when given, is the node's own front face's REAL
  * PROJECTED SCREEN WIDTH (columns) and REPLACES `node.half[0] * 2` (world
- * units) as the "does it fit" / clip budget — a node's own front-face width
+ * units) as the `"inside"` clip budget — a node's own front-face width
  * in WORLD units maps to screen columns at `worldWidth * zoom / cellPxW`,
  * so at any auto-fit `zoom` below `cellPxW` a box's SCREEN width is
  * narrower than its own WORLD-unit label budget (D2 round 6's own root
@@ -134,48 +170,271 @@ export interface GlyphDiagram3dLabelPlacement {
  * reserves >= 1 column on EACH side by budgeting `floor(screenWidthCols) - 2`
  * cells for text, never the raw width. Omitted, it falls back to the old
  * world-unit heuristic (byte-identical for a caller/unit test with no
- * camera/zoom to derive it from).
+ * camera/zoom to derive it from). Unused outside `"inside"` mode.
  */
 export function resolveGlyphDiagram3dLabelPlacement(
   node: GlyphDiagram3dNode, rawText: string, mode: GlyphDiagram3dLabelMode = "auto",
-  sideDirection: "right" | "below" = "right", screenWidthCols?: number,
+  sideDirection: "right" | "below" | Vec3 = "right", screenWidthCols?: number,
 ): GlyphDiagram3dLabelPlacement {
-  const faceWidthCells = screenWidthCols !== undefined
-    ? Math.max(1, Math.floor(screenWidthCols) - 2)
-    : Math.max(1, Math.floor(node.half[0] * 2));
-  const fitsInside = rawText.length <= faceWidthCells;
-  const front: Vec3 = [node.center[0], node.center[1] - node.half[1], node.center[2]];
-  const top: Vec3 = [front[0], front[1], node.center[2] + node.half[2]];
-  if (mode === "inside" || (mode === "auto" && fitsInside)) {
+  if (mode === "inside") {
+    const faceWidthCells = screenWidthCols !== undefined
+      ? Math.max(1, Math.floor(screenWidthCols) - 2)
+      : Math.max(1, Math.floor(node.half[0] * 2));
+    const front: Vec3 = [node.center[0], node.center[1] - node.half[1], node.center[2]];
+    const top: Vec3 = [front[0], front[1], node.center[2] + node.half[2]];
     const text = rawText.length > faceWidthCells ? rawText.slice(0, faceWidthCells) : rawText;
     return { anchor: top, text, isSide: false };
   }
-  const gap = 1;
   if (sideDirection === "below") {
     const bottom: Vec3 = [node.center[0], node.center[1], node.center[2] - node.half[2]];
+    const gap = Math.max(GLYPH_DIAGRAM_3D_LABEL_GAP_MIN, node.half[2] * GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION);
     const anchor: Vec3 = [node.center[0], node.center[1], node.center[2] - node.half[2] - gap];
     return { anchor, text: rawText, isSide: true, leaderFrom: bottom };
   }
-  const rightEdge: Vec3 = [node.center[0] + node.half[0], node.center[1] - node.half[1], top[2]];
-  const anchor: Vec3 = [rightEdge[0] + gap, rightEdge[1], top[2]];
-  return { anchor, text: rawText, isSide: true, leaderFrom: rightEdge };
+  if (sideDirection === "right") {
+    const front: Vec3 = [node.center[0], node.center[1] - node.half[1], node.center[2]];
+    const top: Vec3 = [front[0], front[1], node.center[2] + node.half[2]];
+    const rightEdge: Vec3 = [node.center[0] + node.half[0], node.center[1] - node.half[1], top[2]];
+    const gap = Math.max(GLYPH_DIAGRAM_3D_LABEL_GAP_MIN, node.half[0] * GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION);
+    const anchor: Vec3 = [rightEdge[0] + gap, rightEdge[1], top[2]];
+    return { anchor, text: rawText, isSide: true, leaderFrom: rightEdge };
+  }
+  // A generic WORLD direction vector — exits the box surface along `u`
+  // (whichever axis its own half-extent is reached FIRST along, the same
+  // "box exit" rule `layout3d.ts`'s own `nodeSurfaceAnchor` uses for edge
+  // endpoints) and pushes the anchor a FURTHER `t * GLYPH_DIAGRAM_3D_LABEL_
+  // GAP_FRACTION` beyond it — proportional to the exit distance itself
+  // (round 8: a FLAT world-unit gap, correct at D2 round 6/7's own
+  // "labels sit inside, occasionally spill to the side" scale, left every
+  // multi-rank chain's own gap sub-cell at its auto-fit zoom — measured on
+  // the real LeNet-5/transformer fixtures, a flat `gap: 1` anchor still
+  // rounded to a row/column INSIDE the node's own silhouette, because the
+  // box's own half-extent the exit point sits on is many world units while
+  // the push past it was one. Scaling the push by the SAME half-extent
+  // that put the exit there keeps the anchor's own screen displacement in
+  // the same order of magnitude as the box's own visible size, regardless
+  // of auto-fit zoom).
+  const raw = sideDirection;
+  const len = Math.hypot(raw[0], raw[1], raw[2]) || 1;
+  const u: Vec3 = [raw[0] / len, raw[1] / len, raw[2] / len];
+  let t = Infinity;
+  for (let i = 0; i < 3; i++) if (Math.abs(u[i]) > 1e-9) t = Math.min(t, node.half[i] / Math.abs(u[i]));
+  if (!Number.isFinite(t)) t = 0;
+  const gap = Math.max(GLYPH_DIAGRAM_3D_LABEL_GAP_MIN, t * GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION);
+  const exit: Vec3 = [node.center[0] + u[0] * t, node.center[1] + u[1] * t, node.center[2] + u[2] * t];
+  const anchor: Vec3 = [exit[0] + u[0] * gap, exit[1] + u[1] * gap, exit[2] + u[2] * gap];
+  return { anchor, text: rawText, isSide: true, leaderFrom: exit };
 }
 
-/** LR/RL -> `"below"`, everything else (TB/BT/unset) -> `"right"`. Shared by this module's overlay and `render3d.ts`'s analytic fit so both pick the identical side. */
+/** LR/RL -> `"below"`, everything else (TB/BT/unset) -> `"right"`. Kept as the FIRST of `glyphDiagram3dLabelSideCandidates`' own 4 in-plane axis directions, and reachable directly by any caller wanting that OLD global-direction behaviour verbatim. */
 export function glyphDiagram3dLabelSideDirection(direction: GlyphGraphDirection | undefined): "right" | "below" {
   return direction === "LR" || direction === "RL" ? "below" : "right";
+}
+
+/**
+ * **D2 round 8** — the ORDERED set of candidate WORLD directions a node's
+ * `"side"` label tries, all within its own rank's cross-section plane
+ * (perpendicular to flow, `layout3d.ts`'s own top-of-file doc): its own
+ * RADIAL direction first — away from the ring's own centre, since every
+ * node's cross-axis coordinates ARE its own offset from that centre, so
+ * this direction points into open space and, by construction, away from
+ * every OTHER sibling on the SAME ring (a single-member rank, radius 0,
+ * has none, and neither does `"force"` layout, which has no ring at all)
+ * — then the plane's own 4 axis directions, `glyphDiagram3dLabelSide
+ * Direction`'s pair included as the first of the four, as a fallback set
+ * `pickGlyphDiagram3dSidePlacement` below tries in order. Plain WORLD
+ * directions, not yet screen-tested — the CALLER (camera-aware) decides
+ * which one actually clears the frame.
+ */
+export function glyphDiagram3dLabelSideCandidates(
+  node: GlyphDiagram3dNode, direction: GlyphGraphDirection | undefined, layoutKind: GlyphDiagram3dLayoutKind | undefined,
+): readonly Vec3[] {
+  const horizontalFlow = direction === "LR" || direction === "RL";
+  // The 4 axis directions first, THEN the 4 diagonals — a diagonal reaches
+  // both silhouettes an axis push runs parallel to at once, so it is the
+  // fallback of last resort, tried only once every axis-aligned option is
+  // exhausted.
+  const inPlane: Vec3[] = horizontalFlow
+    ? [[0, 0, -1], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1]]
+    : [[1, 0, 0], [0, 1, 0], [0, -1, 0], [-1, 0, 0], [1, 1, 0], [1, -1, 0], [-1, 1, 0], [-1, -1, 0]];
+  if (layoutKind === "force") return inPlane;
+  const outward: Vec3 = horizontalFlow ? [0, node.center[1], node.center[2]] : [node.center[0], node.center[1], 0];
+  const len = Math.hypot(outward[0], outward[1], outward[2]);
+  return len > 1e-6 ? [outward, ...inPlane] : inPlane;
+}
+
+/** A node's own projected screen AABB — used only to keep a `"side"` label off any node's silhouette, never for drawing. */
+export interface GlyphDiagram3dScreenBox { readonly minCol: number; readonly maxCol: number; readonly minRow: number; readonly maxRow: number; }
+
+const IDENTITY_TO_WORLD = (p: Vec3): Vec3 => p;
+
+function projectBoxSilhouette(camera: GlyphCamera, center: Vec3, half: Vec3, cols: number, rows: number, cellAspect: number, toWorld: (p: Vec3) => Vec3): GlyphDiagram3dScreenBox {
+  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
+  for (const sx of [-1, 1]) for (const sy of [-1, 1]) for (const sz of [-1, 1]) {
+    const local: Vec3 = [center[0] + sx * half[0], center[1] + sy * half[1], center[2] + sz * half[2]];
+    const [col, row] = camera.project(toWorld(local), cols, rows, cellAspect);
+    minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
+    minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
+  }
+  return { minCol, maxCol, minRow, maxRow };
+}
+
+/**
+ * D2 round 8 — every node's own projected silhouette, computed ONCE per
+ * render (never per label) and reused by `pickGlyphDiagram3dSidePlacement`
+ * for every node's own candidate test. The collision VERDICT (does anchor
+ * X clear box Y) is invariant to the camera's own `zoom` under a FIXED
+ * rotation — `zoom` is one uniform scale from a fixed centre applied to
+ * both the label and every box alike, which preserves every pairwise
+ * col/row ORDERING — so a caller mid auto-fit (zoom not yet known) can
+ * pass a cheap `zoom: 1` reference camera and get the identical verdict a
+ * later pass would get from the real, final camera. `toWorld` (default
+ * identity, `render3d.ts`'s own static exit mounts objects at the
+ * identity transform) is `GlyphOverlayFrame.toWorld` for a live-mounted
+ * object — this module's own `stamp()` below is the caller that needs it.
+ */
+export function glyphDiagram3dNodeSilhouettes(
+  nodes: readonly GlyphDiagram3dNode[], camera: GlyphCamera, cols: number, rows: number, cellAspect: number,
+  toWorld: (p: Vec3) => Vec3 = IDENTITY_TO_WORLD,
+): ReadonlyMap<string, GlyphDiagram3dScreenBox> {
+  const m = new Map<string, GlyphDiagram3dScreenBox>();
+  for (const n of nodes) m.set(n.id, projectBoxSilhouette(camera, n.center, n.half, cols, rows, cellAspect, toWorld));
+  return m;
+}
+
+function boxesOverlap(a: GlyphDiagram3dScreenBox, b: GlyphDiagram3dScreenBox): boolean {
+  return a.maxCol >= b.minCol && a.minCol <= b.maxCol && a.maxRow >= b.minRow && a.minRow <= b.maxRow;
+}
+
+function labelClearsEverySilhouette(col: number, row: number, textLength: number, silhouettes: ReadonlyMap<string, GlyphDiagram3dScreenBox>): boolean {
+  const box: GlyphDiagram3dScreenBox = { minCol: col, maxCol: col + textLength - 1, minRow: row, maxRow: row };
+  for (const other of silhouettes.values()) if (boxesOverlap(box, other)) return false;
+  return true;
+}
+
+export interface GlyphDiagram3dLabelPick { readonly placement: GlyphDiagram3dLabelPlacement; readonly dropped: boolean; }
+
+/**
+ * D2 round 8 — the camera-aware ARBITER over every node's own `"side"`
+ * placement, run ONCE per render for the WHOLE node set (never per node in
+ * isolation): each node tries `glyphDiagram3dLabelSideCandidates`' own
+ * ordered list and keeps the FIRST whose anchor clears BOTH every node's
+ * own projected silhouette ("the block itself stays fully visible" — its
+ * own box included, so a label never lands on the box it names) AND every
+ * label ALREADY accepted for a higher-priority node this same pass. Nodes
+ * are visited in PRIORITY order — degree descending, id ascending — the
+ * SAME order the shared `GlyphLabelArbiter` itself resolves conflicts in
+ * (AGENTS.md's "Scene objects" Declutter clause) — and an accepted
+ * label's own occupied cells are reserved before the next node's own
+ * search runs.
+ *
+ * This reservation step is genuinely necessary, not a refinement: a
+ * per-node-independent search (this file's FIRST round-8 cut) checked a
+ * candidate only against node silhouettes, so nothing stopped two
+ * DIFFERENT nodes' labels from landing on the SAME cells whenever both
+ * pushed in a similar direction — the routine case for a plain CHAIN,
+ * whose single-member ranks all fall back to the identical fixed axis
+ * (`glyphDiagram3dLabelSideCandidates`'s own doc). The shared arbiter
+ * still caught every such collision at render time (`render3d.ts`'s own
+ * `verifyLabelsLanded`) and dropped one — correctly, but SILENTLY and by
+ * the dozen on a real chain fixture (`docs/design/charts3d.md`'s own "D2
+ * round 8" section has the swept counts before this fix). Reserving
+ * cells here closes that gap for the vast majority of real graphs; a
+ * genuine residual remains — the arbiter's own tie-break (a FOREIGN
+ * mesh's `winnerMesh`, or a rotation this module didn't anticipate) can
+ * still refuse a cell this pre-check missed, which is exactly why
+ * `verifyLabelsLanded` stays the final, render-time truth rather than
+ * being replaced by this pre-check.
+ */
+export function pickGlyphDiagram3dLabelPlacements(
+  nodes: readonly GlyphDiagram3dNode[],
+  labelTextOf: (node: GlyphDiagram3dNode) => string,
+  mode: GlyphDiagram3dLabelMode, direction: GlyphGraphDirection | undefined, layoutKind: GlyphDiagram3dLayoutKind | undefined,
+  camera: GlyphCamera, cols: number, rows: number, cellAspect: number,
+  silhouettes: ReadonlyMap<string, GlyphDiagram3dScreenBox>,
+  screenWidthColsOf?: (node: GlyphDiagram3dNode) => number | undefined,
+  toWorld: (p: Vec3) => Vec3 = IDENTITY_TO_WORLD,
+): ReadonlyMap<string, GlyphDiagram3dLabelPick> {
+  const ordered = [...nodes].sort((a, b) => b.degree - a.degree || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const claimed: GlyphDiagram3dScreenBox[] = [];
+  const result = new Map<string, GlyphDiagram3dLabelPick>();
+  for (const node of ordered) {
+    const rawText = labelTextOf(node);
+    const screenWidthCols = screenWidthColsOf?.(node);
+    if (mode === "inside") {
+      result.set(node.id, { placement: resolveGlyphDiagram3dLabelPlacement(node, rawText, "inside", "right", screenWidthCols), dropped: false });
+      continue;
+    }
+    if (rawText.length === 0) {
+      result.set(node.id, { placement: resolveGlyphDiagram3dLabelPlacement(node, rawText, "side", "right", screenWidthCols), dropped: false });
+      continue;
+    }
+    const candidates = glyphDiagram3dLabelSideCandidates(node, direction, layoutKind);
+    let picked: GlyphDiagram3dLabelPlacement | undefined;
+    let pickedBox: GlyphDiagram3dScreenBox | undefined;
+    let dropped = true;
+    for (const candidate of candidates) {
+      const placement = resolveGlyphDiagram3dLabelPlacement(node, rawText, "side", candidate, screenWidthCols);
+      const [colF, rowF] = camera.project(toWorld(placement.anchor), cols, rows, cellAspect);
+      const col = Math.round(colF), row = Math.round(rowF);
+      const box: GlyphDiagram3dScreenBox = { minCol: col, maxCol: col + placement.text.length - 1, minRow: row, maxRow: row };
+      if (labelClearsEverySilhouette(col, row, placement.text.length, silhouettes) && !claimed.some((c) => boxesOverlap(box, c))) {
+        picked = placement; pickedBox = box; dropped = false; break;
+      }
+      picked ??= placement;
+    }
+    if (!dropped && pickedBox) claimed.push(pickedBox);
+    result.set(node.id, { placement: picked!, dropped });
+  }
+  return result;
 }
 
 const DEFAULT_NODE_COLOR = "#8fb4ff";
 const DEFAULT_EDGE_COLOR = "#cbd5e1";
 const DEFAULT_GROUP_COLOR = "#64748b";
 const DEFAULT_LABEL_COLOR = "#f8fafc";
+/**
+ * D2 round 8 (user, verbatim: "a short leader connecting label and block
+ * when it isn't flush against the block's edge") — a plain dot, stamped
+ * via `stampGlyphOverlayLine` between a side label's own `leaderFrom` (the
+ * exact box-surface exit point, never a corner) and its anchor, so a
+ * label pushed a full `GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION` past its own
+ * node still reads as belonging to it. Never a box-drawing/bar glyph
+ * (this file's own D2 round 7 doc, "no stamped line traces at any angle
+ * without staircasing") — a repeated single character has no direction to
+ * stair-case, unlike `─│/\`. Skipped entirely under `GLYPH_DIAGRAM_3D_
+ * LEADER_MIN_CELLS` (so a label sitting flush against its own edge draws
+ * no redundant dot on top of it).
+ */
+const GLYPH_DIAGRAM_3D_LEADER_CHAR = ".";
+const GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS = 1.5;
 
 /** Edge ribbon half-width, arrowhead half-width/length, group outline half-width — all world units, tuned by direct rendering at this module's own default node scale (a single-line label's box is roughly 5-12 units wide). */
 const GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH = 0.45;
 const GLYPH_DIAGRAM_3D_ARROWHEAD_HALF_WIDTH = 1.1;
 const GLYPH_DIAGRAM_3D_ARROWHEAD_LENGTH = 2.2;
 const GLYPH_DIAGRAM_3D_GROUP_OUTLINE_HALF_WIDTH = 0.3;
+/**
+ * D2 round 8 — `resolveGlyphDiagram3dLabelPlacement`'s own `"side"` push,
+ * PAST the box's own surface exit point, as a FRACTION of the exit
+ * distance itself (the box's own relevant half-extent) — never a flat
+ * world-unit constant, which measured sub-cell at a multi-rank chain's own
+ * auto-fit zoom (this function's own doc has the exact repro). Tuned by
+ * direct rendering against the real fixtures, sweeping `0.5` to `2.0` and
+ * counting `3d-label-dropped` ledger entries at the ACTUAL render (not a
+ * standalone silhouette check, which undercounts — a candidate can clear
+ * every node's own box yet still land on ANOTHER label's own text, the
+ * defect `pickGlyphDiagram3dLabelPlacements`'s own reservation pass
+ * exists to catch): `1` cleared a node's own box but too tightly to leave
+ * every OTHER candidate room too, `1.5`-`2` pushed labels far enough to
+ * start colliding with EACH OTHER instead. `1.25` sits in the middle of
+ * the swept range that clears every label on every one of this round's
+ * own 5 fixtures at all 3 required sizes with zero drops
+ * (`docs/design/charts3d.md`'s "D2 round 8" has the full sweep). `_MIN` is
+ * the floor for a near-zero half-extent (a degenerate box).
+ */
+const GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION = 1.25;
+const GLYPH_DIAGRAM_3D_LABEL_GAP_MIN = 1;
 
 export interface GlyphDiagramObjectOptions extends GlyphDiagram3dLayoutOptions {
   /** Object id — must be unique among objects mounted in the same scene. Default `"diagram"`. */
@@ -250,7 +509,13 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
   const labelNodeIds = options.labelNodeIds;
   const arrowheads = options.arrowheads ?? true;
   const labelMode = options.labels ?? "auto";
-  const labelSideDirection = glyphDiagram3dLabelSideDirection(options.direction ?? graph.direction);
+  const labelDirection = options.direction ?? graph.direction;
+  // D2 round 8 — the resolved layout kind, mirroring `layout3d`'s own
+  // default (`options.layout ?? "layered"`); `render3d.ts` always passes
+  // its own already-resolved `layout` through `options` (never leaves it
+  // undefined for THIS module), so this only ever re-derives the default
+  // for a direct caller that left it unset too.
+  const layoutKind = options.layout ?? "layered";
 
   const meshes: GlyphSceneObjectMesh[] = [];
   for (const node of layout.nodes) {
@@ -278,17 +543,57 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
   const overlay: GlyphSceneOverlay = {
     id: "glyph-diagram-3d",
     stamp(grid, frame): void {
-      for (const node of layout.nodes) {
-        if (labelNodeIds && !labelNodeIds.has(node.id)) continue;
-        const rawText = node.label.split("\n")[0] ?? node.id;
-        // The node's own REAL projected front-face screen width, from the
-        // frame's ACTUAL camera (never an estimate) — see this file's own
-        // `resolveGlyphDiagram3dLabelPlacement` doc.
-        const leftEdge: Vec3 = [node.center[0] - node.half[0], node.center[1] - node.half[1], node.center[2]];
-        const rightEdge: Vec3 = [node.center[0] + node.half[0], node.center[1] - node.half[1], node.center[2]];
-        const screenWidthCols = Math.abs(project(frame, rightEdge).col - project(frame, leftEdge).col);
-        const placement = resolveGlyphDiagram3dLabelPlacement(node, rawText, labelMode, labelSideDirection, screenWidthCols);
-        const { col: colF, row: rowF } = project(frame, placement.anchor);
+      const labeledNodes = labelNodeIds ? layout.nodes.filter((n) => labelNodeIds.has(n.id)) : layout.nodes;
+      // D2 round 8 — every node's own projected silhouette, computed ONCE
+      // for this frame (`glyphDiagram3dNodeSilhouettes`'s own doc), so
+      // `pickGlyphDiagram3dLabelPlacements` can pick every node's own side
+      // together, reserving cells as it goes.
+      const silhouettes = glyphDiagram3dNodeSilhouettes(layout.nodes, frame.camera, frame.cols, frame.rows, frame.cellAspect, frame.toWorld);
+      const picks = pickGlyphDiagram3dLabelPlacements(
+        labeledNodes,
+        (node) => node.label.split("\n")[0] ?? node.id,
+        labelMode, labelDirection, layoutKind, frame.camera, frame.cols, frame.rows, frame.cellAspect, silhouettes,
+        (node) => {
+          // The node's own REAL projected front-face screen width, from
+          // the frame's ACTUAL camera (never an estimate) — see this
+          // file's own `resolveGlyphDiagram3dLabelPlacement` doc.
+          const leftEdge: Vec3 = [node.center[0] - node.half[0], node.center[1] - node.half[1], node.center[2]];
+          const rightEdge: Vec3 = [node.center[0] + node.half[0], node.center[1] - node.half[1], node.center[2]];
+          return Math.abs(project(frame, rightEdge).col - project(frame, leftEdge).col);
+        },
+        frame.toWorld,
+      );
+      for (const node of labeledNodes) {
+        const pick = picks.get(node.id);
+        if (!pick) continue;
+        const { placement, dropped } = pick;
+        // Dropped (no candidate side cleared every silhouette or every
+        // already-claimed label) — this module has no ledger to report
+        // into (that lives in `render3d.ts`, which independently reaches
+        // the SAME verdict from its own reference-camera silhouettes and
+        // logs it there, this function's own doc); skip placing it rather
+        // than showing it over geometry regardless.
+        if (dropped || placement.text.length === 0) continue;
+        const { col: colF, row: rowF, depth: anchorDepth } = project(frame, placement.anchor);
+        // D2 round 8 — a short LEADER dot from the node's own real edge
+        // (`leaderFrom`) to the label, when it isn't flush against that
+        // edge (`GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS`). Stamped directly
+        // (never through the label arbiter — a leader has no text
+        // collision to arbitrate), so it paints regardless of whether the
+        // arbiter goes on to accept or refuse the label text itself at
+        // this exact cell (a documented, rare residual: this module's own
+        // pre-check already keeps that mismatch at zero across every one
+        // of this round's own fixtures, `docs/design/charts3d.md`'s "D2
+        // round 8").
+        if (placement.isSide && placement.leaderFrom) {
+          const from = project(frame, placement.leaderFrom);
+          if (Math.hypot(colF - from.col, rowF - from.row) > GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS) {
+            stampGlyphOverlayLine(
+              grid, { col: Math.round(from.col), row: Math.round(from.row), depth: from.depth },
+              { col: Math.round(colF), row: Math.round(rowF), depth: anchorDepth }, GLYPH_DIAGRAM_3D_LEADER_CHAR, labelColor,
+            );
+          }
+        }
         // No `depth` here on purpose: occlusion by a FOREIGN mesh is
         // already the `ownMeshIds`/`winnerMesh` check the shared arbiter
         // performs (AGENTS.md's "Scene objects" Declutter clause).

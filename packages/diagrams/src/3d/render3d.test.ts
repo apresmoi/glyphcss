@@ -486,3 +486,136 @@ describe("renderGlyphDiagram3d", () => {
     expect(parsed.camera).toBeTruthy();
   });
 });
+
+/**
+ * **D2 round 8** (user, verbatim: "can we make them a bit more clear in the
+ * separation between the same height/depth nodes?... also I think that the
+ * labels should be like on the side of the nodes and not over the nodes").
+ * Every gate below runs on the coordinator's own required fixture set — the
+ * hand-authored `fan-join-split` (real fan-out/fan-in siblings), the shipped
+ * `crew` example, and the vendored `agent-supervisor`/`lenet5-cnn`/
+ * `transformer-encoder` fixtures — at every one of the 3 required target
+ * sizes (96x32 braille, 96x32 blocks, 140x40 braille). Each `it` names, in
+ * a comment, the mutation it is meant to redden.
+ */
+describe("renderGlyphDiagram3d — D2 round 8 (separation and side labels)", () => {
+  const crewSource = `flowchart LR
+  request[Request] --> manager[Manager]
+  subgraph crew[Crew]
+    researcher[Researcher] --> writer[Writer]
+  end
+  manager --> researcher
+  writer --> review{Review}
+  review -->|approved| result[Result]
+  review -.->|revise| writer
+`;
+
+  const fixtures: { readonly name: string; readonly input: GlyphGraph | string }[] = [
+    { name: "fan-join-split", input: readFileSync(join(__dirname, "../../fixtures/fan-join-split.mmd"), "utf8") },
+    { name: "crew", input: crewSource },
+    { name: "agent-supervisor", input: readFileSync(join(__dirname, "../../fixtures/agent-supervisor.mmd"), "utf8") },
+    { name: "lenet5", input: glyphGraphFromJson(JSON.parse(readFileSync(join(__dirname, "../../fixtures/lenet5-cnn.json"), "utf8"))) },
+    { name: "transformer", input: glyphGraphFromJson(JSON.parse(readFileSync(join(__dirname, "../../fixtures/transformer-encoder.json"), "utf8"))) },
+  ];
+  const sizes: { readonly charset: "braille" | "blocks"; readonly width: number; readonly height: number }[] = [
+    { charset: "braille", width: 96, height: 32 },
+    { charset: "blocks", width: 96, height: 32 },
+    { charset: "braille", width: 140, height: 40 },
+  ];
+
+  async function renderedNodes(input: GlyphGraph | string, charset: "braille" | "blocks", width: number, height: number) {
+    const result = await renderGlyphDiagram3d(input, { target: "web", charset, width, height, layout: "layered" });
+    const graph = typeof input === "string" ? glyphGraphFromMermaid(input) : input;
+    const laid = await layout3d(graph, { layout: "layered" });
+    const camera = createGlyphOrthographicCamera({ rotX: result.camera.rotX, rotY: result.camera.rotY, zoom: result.camera.zoom, mat: result.camera.mat ? [...result.camera.mat] : undefined, useMat: result.camera.mat !== undefined });
+    return { result, graph, laid, camera };
+  }
+
+  // Requirement 1: a minimum VISIBLE gap between same-rank siblings' own
+  // projected silhouettes — measured, not asserted blind: reverting
+  // `layout3d.ts`'s own `GLYPH_DIAGRAM_3D_RING_GAP`/camera-aware span (D2
+  // round 7's value, `3` + raw per-axis half-extents) against these SAME
+  // fixtures produced GENUINE AABB overlaps (both colGap AND rowGap
+  // negative) on multiple pairs — e.g. "researcher" vs "reviewer" on
+  // agent-supervisor, "b" vs "c" on fan-join-split — not merely a thin
+  // gap (`docs/design/charts3d.md`'s "D2 round 8" has the full sweep).
+  // The bound here (col >= 2 OR row >= 1 — a pair reading as separated in
+  // EITHER screen direction, matching how the ring itself only ever
+  // separates siblings along one dominant axis at a time) is comfortably
+  // cleared by every real same-rank pair on every fixture/size below.
+  it("same-rank sibling node silhouettes clear a minimum visible gap (>= 2 columns or >= 1 row) on every fixture with real fan-out, at every required size (mutation: revert ring spacing to the flow-axis-half-extent-only formula) → red", async () => {
+    for (const fx of fixtures) {
+      for (const sz of sizes) {
+        const { graph, laid, camera } = await renderedNodes(fx.input, sz.charset, sz.width, sz.height);
+        const direction = graph.direction ?? "TB";
+        const horizontalFlow = direction === "LR" || direction === "RL";
+        const flowOf = (c: readonly [number, number, number]) => (horizontalFlow ? c[0] : c[2]);
+        const byRank = new Map<string, typeof laid.nodes>();
+        for (const n of laid.nodes) {
+          const key = flowOf(n.center).toFixed(2);
+          byRank.set(key, [...(byRank.get(key) ?? []), n]);
+        }
+        for (const members of byRank.values()) {
+          if (members.length < 2) continue;
+          for (let i = 0; i < members.length; i++) {
+            for (let j = i + 1; j < members.length; j++) {
+              const a = projectedBounds(camera, members[i]!.center, members[i]!.half, sz.width, sz.height, 2.0);
+              const b = projectedBounds(camera, members[j]!.center, members[j]!.half, sz.width, sz.height, 2.0);
+              const colGap = a.maxCol < b.minCol ? b.minCol - a.maxCol : b.maxCol < a.minCol ? a.minCol - b.maxCol : -Math.min(a.maxCol, b.maxCol) + Math.max(a.minCol, b.minCol);
+              const rowGap = a.maxRow < b.minRow ? b.minRow - a.maxRow : b.maxRow < a.minRow ? a.minRow - b.maxRow : -Math.min(a.maxRow, b.maxRow) + Math.max(a.minRow, b.minRow);
+              const label = `${fx.name} ${sz.charset} ${sz.width}x${sz.height}: ${members[i]!.id} vs ${members[j]!.id}`;
+              expect(colGap >= 2 || rowGap >= 1, `${label} (colGap=${colGap.toFixed(2)}, rowGap=${rowGap.toFixed(2)})`).toBe(true);
+            }
+          }
+        }
+      }
+    }
+  }, 30_000);
+
+  // Requirements 2/3: the block itself stays fully visible (no label cell
+  // on any node's own or a neighbour's silhouette) AND no two labels
+  // overlap each other — both are exactly what `renderGlyphDiagram3d`'s
+  // own `report.ledger` already proves when it carries NO
+  // `3d-label-dropped`/`3d-label-unfittable` entry: `pickGlyphDiagram3d
+  // LabelPlacements` only ever accepts a candidate that clears every node
+  // silhouette AND every already-claimed label, and `verifyLabelsLanded`
+  // independently confirms the predicted text actually landed intact at
+  // the real camera — so an empty ledger here is the real, render-time
+  // guarantee, not a stand-in for it.
+  it("every label on every fixture, at every required size, is placed with NO node-silhouette collision and NO label-vs-label collision (mutation: skip the silhouette/claim check in the picker) → red", async () => {
+    for (const fx of fixtures) {
+      for (const sz of sizes) {
+        const result = await renderGlyphDiagram3d(fx.input, { target: "web", charset: sz.charset, width: sz.width, height: sz.height, layout: "layered" });
+        const dropped = result.report.ledger.filter((e) => e.code === "3d-label-dropped" || e.code === "3d-label-unfittable");
+        expect(dropped, `${fx.name} ${sz.charset} ${sz.width}x${sz.height}: ${JSON.stringify(dropped)}`).toEqual([]);
+      }
+    }
+  }, 30_000);
+
+  // Requirement 3 (label beside, not over): the fan-join-split fixture's
+  // own "Merge" node sits deep enough in the diagram, at 96x32, that its
+  // label pushes past `GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS` from the node's
+  // own edge — a real case (not a synthetic one) that must carry a visible
+  // leader mark connecting the two, per the brief's own "a short leader
+  // connecting label and block when it isn't flush against the block's
+  // edge."
+  it("a label pushed clear of its own node's edge carries a visible leader mark between them (fan-join-split, 96x32 braille — mutation: drop the leader stamp) → red", async () => {
+    const result = await renderGlyphDiagram3d(readFileSync(join(__dirname, "../../fixtures/fan-join-split.mmd"), "utf8"), { target: "web", charset: "braille", width: 96, height: 32, layout: "layered" });
+    const lines = result.text.split("\n");
+    const mergeLine = lines.findIndex((l) => l.includes("Merge"));
+    expect(mergeLine).toBeGreaterThan(0);
+    // The leader is a plain "." stamped on the row immediately above the
+    // label (this fixture's own real camera geometry, confirmed by direct
+    // rendering) — never a box-drawing/bar glyph.
+    expect(lines[mergeLine - 1]).toMatch(/\./);
+  });
+
+  // Documented residual (not fixed this round): a "side" label avoids
+  // every NODE's own silhouette and every OTHER label's own cells, but not
+  // an EDGE ribbon's own projected path — `pickGlyphDiagram3dLabelPlacements`
+  // only ever silhouette-tests against `layout.nodes`. None of this
+  // round's own 5 fixtures at the 3 required sizes exercises a genuine
+  // label/edge collision (the fixtures above all render with an empty
+  // ledger), so this is recorded as a known gap rather than a failing
+  // gate with no fixture to pin it against.
+});

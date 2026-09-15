@@ -179,7 +179,19 @@ describe("glyphDiagramObject", () => {
     scene.destroy();
   });
 
-  it("no two labels overlap, even under a degenerate projection that collapses every node onto the same cell (mutation: omit priority/degree so the arbiter can't order them) → red", async () => {
+  // D2 round 8 superseded this test's own premise (user, verbatim: "the
+  // block itself stays fully visible: no label cell on any node's
+  // silhouette, its own or a neighbour's"): under a projection this
+  // degenerate every node's own silhouette IS the label's own candidate
+  // cell, at EVERY direction tried, so there is no longer a "highest
+  // priority still wins a visible cell" outcome to arbitrate — showing
+  // ANY label here would mean showing it painted directly over a node's
+  // own box, exactly what this round exists to stop. The correct,
+  // intended outcome is that `pickGlyphDiagram3dLabelPlacements` drops
+  // every one of them (each candidate collides with every node's own
+  // identical silhouette) and `stamp()` never calls `frame.labels.place`
+  // for a dropped label — so the grid stays exactly as seeded.
+  it("under a fully degenerate projection (every node's own silhouette collapses to ONE shared cell) every label is DROPPED rather than painted over a node's own box (mutation: place it anyway when every candidate collides) → red", async () => {
     const object = await glyphDiagramObject(architectureGraph);
     const cols = 20, rows = 6;
     const grid: CellGrid = buildCellGrid(new Array(cols * rows).fill(" "), null, null, cols, rows);
@@ -188,8 +200,7 @@ describe("glyphDiagramObject", () => {
     const frame = fakeFrame({ cols, rows, camera, labels: arbiter, ownMeshIds: new Set(object.meshes.map((_, i) => i)) });
     object.overlays![0]!.stamp(grid, frame);
     (arbiter as unknown as { resolve(grid: CellGrid): void }).resolve(grid);
-    const text = "Planner";
-    for (let i = 0; i < text.length; i++) expect(grid.char[2 * cols + 10 + i]).toBe(text[i]);
+    expect(grid.char.every((c) => c === " ")).toBe(true);
   });
 
   it("shape follows node shape: cylinder gets a real cylinder mesh (not a 6-face box), diamond gets a box rotated 45° about its own center (mutation: always use boxPolygons) → red", async () => {
