@@ -8,6 +8,7 @@ import { randomChartsDatasetPick, type ChartsRandomDatasetPick } from "./chartsR
 import { CHARTS_DATASETS } from "./datasets";
 import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
 import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
+import { CHARTS_3D_REMOTE_DATASET_INDEX } from "./datasets/chart3dRemoteIndex";
 
 function keyOf(pick: ChartsRandomDatasetPick): string {
   if (pick.kind === "dataset") return `dataset:${pick.id}`;
@@ -85,5 +86,53 @@ describe("randomChartsDatasetPick", () => {
       }
       expect(reached, dataset.id).toBe(true);
     }
+  });
+
+  // Packet C6 — the curated Hugging Face 3D index joins the SAME combined
+  // pool as a fourth segment, appended after `chart3d` (never inserted
+  // earlier, which would renumber every existing index-based fixture —
+  // `chartsRandomDataset.ts`'s own doc).
+  it("reaches the curated Hugging Face 3D index too, over many draws", () => {
+    let sawChart3dRemote = false;
+    for (let i = 0; i < 500; i++) {
+      const pick = randomChartsDatasetPick();
+      if (pick.kind === "chart3d-remote") {
+        sawChart3dRemote = true;
+        expect(CHARTS_3D_REMOTE_DATASET_INDEX.some((hit) => hit.ref === pick.hit.ref)).toBe(true);
+      }
+    }
+    expect(sawChart3dRemote).toBe(true);
+  });
+
+  // Coordinator addendum — "Random in 3D picks from 3D-fitting datasets
+  // only": passing `dimension: "3d"` restricts the draw to `chart3d`/
+  // `chart3d-remote` picks alone, never a 2D built-in or 2D remote one —
+  // so a reader looking at a 3D chart is never bounced back to 2D by
+  // Random. Mutation: dropping the `dimension === "3d"` filter in
+  // `randomChartsDatasetPick` → a `"dataset"`/`"remote"` kind shows up here.
+  describe("dimension: \"3d\" narrows the pool to 3D-fitting picks only", () => {
+    it("every draw is chart3d or chart3d-remote, over many draws", () => {
+      for (let i = 0; i < 300; i++) {
+        const pick = randomChartsDatasetPick(undefined, "3d");
+        expect(["chart3d", "chart3d-remote"]).toContain(pick.kind);
+      }
+    });
+    it("both 3D kinds stay reachable (the restriction narrows the pool, it doesn't collapse it to one kind)", () => {
+      let sawChart3d = false, sawChart3dRemote = false;
+      for (let i = 0; i < 300; i++) {
+        const pick = randomChartsDatasetPick(undefined, "3d");
+        if (pick.kind === "chart3d") sawChart3d = true;
+        if (pick.kind === "chart3d-remote") sawChart3dRemote = true;
+      }
+      expect(sawChart3d).toBe(true);
+      expect(sawChart3dRemote).toBe(true);
+    });
+    it("omitting dimension (the default, every pre-existing call site) still reaches every kind, unchanged", () => {
+      let sawBuiltIn = false;
+      for (let i = 0; i < 300; i++) {
+        if (randomChartsDatasetPick().kind === "dataset") sawBuiltIn = true;
+      }
+      expect(sawBuiltIn).toBe(true);
+    });
   });
 });

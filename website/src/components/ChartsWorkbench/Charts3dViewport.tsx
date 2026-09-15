@@ -8,14 +8,15 @@
 // of writing, `feat/diagrams` carries no shared 3D viewport for D3's own
 // `/diagrams` to have contributed (grepped `addObject` under
 // `website/src/components` — none landed). Factored to make a later lift
-// trivial: this component takes only a resolved `GlyphChart3dSurfaceMark`
-// plus plain camera/scene-option props, no `ChartsWorkbenchState` import.
+// trivial: this component takes only a resolved `GlyphChart3dMark` (any of
+// the five mark types, packet C6) plus plain camera/scene-option props, no
+// `ChartsWorkbenchState` import.
 import { useEffect, useRef } from "react";
 import {
   createGlyphOrbitControls, createGlyphOrthographicCamera, createGlyphScene, injectGlyphBaseStyles,
   type GlyphMeshHandle, type GlyphOrbitControlsHandle, type GlyphSceneHandle, type GlyphSceneObjectHandle, type Vec3,
 } from "glyphcss";
-import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject, type GlyphChart3dSurfaceMark } from "@glyphcss/charts/3d";
+import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject, type GlyphChart3dMark } from "@glyphcss/charts/3d";
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
 import type { GlyphChartCharset } from "@glyphcss/charts";
 import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
@@ -44,10 +45,14 @@ export interface Charts3dViewportHandle {
   resetCamera(): void;
 }
 
-/** The one mesh `glyphChartObject` mounts (`object.ts`'s `glyphChartObject`
- *  return shape — a single `"surface"` mesh plus overlay-only axis guides,
- *  confirmed by direct read, no separate guides mesh) — the Effects
- *  folder's ONE non-"whole chart" target (packet C4, item 3). */
+/** The Effects folder's ONE non-"whole chart" target id (packet C4, item
+ *  3) — kept as this STABLE, storable string across every mark type
+ *  (`?c=`/`effect3d.targetId` never changes shape when the reader switches
+ *  3D type), even though `glyphChartObject`'s own DATA mesh name differs
+ *  per type (`"surface"` for surface/parametric3d, `"points"` for
+ *  scatter3d, `"bars"` for bars3d, `"line"` for line3d — `object.ts`'s own
+ *  mesh-name table, packet C6). `resolveEffectTarget` below resolves this
+ *  id to whichever data mesh the CURRENTLY mounted object actually has. */
 export const CHARTS_3D_EFFECT_SURFACE_TARGET = "surface";
 
 interface EffectLayerHandleLike {
@@ -56,7 +61,7 @@ interface EffectLayerHandleLike {
 }
 
 export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOptions, effectId, effectTargetId, onCameraChange, viewportRef, handleRef }: {
-  mark: GlyphChart3dSurfaceMark;
+  mark: GlyphChart3dMark;
   camera: Charts3dCamera;
   orbitMode: Charts3dOrbitMode;
   /** The resolved charset — feeds the object's own grid/tick overlay glyph
@@ -116,7 +121,14 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
    */
   function resolveEffectTarget(targetId: string): GlyphMeshHandle | undefined | null {
     if (targetId === INSTRUMENT_3D_EFFECT_ALL_TARGET) return undefined; // scene-wide — glyphcss's own default target
-    if (targetId === CHARTS_3D_EFFECT_SURFACE_TARGET) return objectHandleRef.current?.meshes.get(CHARTS_3D_EFFECT_SURFACE_TARGET) ?? null;
+    if (targetId !== CHARTS_3D_EFFECT_SURFACE_TARGET) return null;
+    // The data mesh's own real name varies by mark type (this constant's
+    // own doc) — the first mounted mesh that isn't the axis-triad's own
+    // "axis-lines" ribbon mesh is always exactly the one data mesh
+    // `glyphChartObject` built for the CURRENT mark, whatever its name.
+    const meshes = objectHandleRef.current?.meshes;
+    if (!meshes) return null;
+    for (const [name, handle] of meshes) { if (name !== "axis-lines") return handle; }
     return null;
   }
 

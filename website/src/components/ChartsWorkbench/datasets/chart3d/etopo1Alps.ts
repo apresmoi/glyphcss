@@ -13,7 +13,7 @@
  * this window's own max (4,271 m at stride 2) is consistent with that.
  */
 import type { GlyphChart3dSurfaceGridData } from "@glyphcss/charts/3d";
-import type { Chart3dDataset } from "./types";
+import type { Chart3dSurfaceDataset } from "./types";
 
 const z: number[][] = [
   [1534, 1687, 1816, 1823, 1659, 1257, 1700, 1366, 2011, 2006, 1918, 1804, 2279, 2707, 2822, 2406, 2227, 2232, 2143, 2757, 2258, 1567, 1795, 2715, 3094, 2887, 2862, 3026, 2681, 1867, 2114, 2135, 1396, 1102, 1706, 2181],
@@ -54,8 +54,9 @@ const y = [46.4063, 46.375, 46.3438, 46.3125, 46.2813, 46.25, 46.2188, 46.1875, 
 
 const data: GlyphChart3dSurfaceGridData = { z };
 
-export const etopo1AlpsDataset: Chart3dDataset = {
+export const etopo1AlpsDataset: Chart3dSurfaceDataset = {
   id: "etopo1-alps",
+  markType: "surface",
   title: "Alps (ETOPO1, near the Matterhorn)",
   description: "A 36x31 window of the site's own baked ETOPO1 terrain pyramid around the Matterhorn (curated Switzerland z7 tile).",
   source: {

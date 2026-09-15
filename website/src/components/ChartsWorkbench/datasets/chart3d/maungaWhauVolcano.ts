@@ -17,7 +17,7 @@
  * digitization.
  */
 import type { GlyphChart3dSurfaceGridData } from "@glyphcss/charts/3d";
-import type { Chart3dDataset } from "./types";
+import type { Chart3dSurfaceDataset } from "./types";
 
 const ROWS = 87;
 const COLS = 61;
@@ -118,8 +118,9 @@ const y = Array.from({ length: ROWS }, (_, i) => i * GRID_SPACING_M);
 
 const data: GlyphChart3dSurfaceGridData = { z };
 
-export const maungaWhauVolcanoDataset: Chart3dDataset = {
+export const maungaWhauVolcanoDataset: Chart3dSurfaceDataset = {
   id: "maunga-whau-volcano",
+  markType: "surface",
   title: "Maunga Whau (volcano)",
   description: "87x61 digitized topographic grid of Maunga Whau (Mt Eden), Auckland — R's classic 'volcano' surface example.",
   source: {

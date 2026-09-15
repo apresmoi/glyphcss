@@ -42,12 +42,12 @@ describe("createCharts3dViewState", () => {
 });
 
 describe("resolveCharts3dView", () => {
-  it("resolves both vendored datasets to a valid GlyphChart3dSurfaceMark", () => {
+  it("resolves every vendored 3D dataset to a valid mark of its OWN markType (packet C6 — surface, scatter3d, bars3d, parametric3d, line3d)", () => {
     for (const dataset of CHARTS_3D_DATASETS) {
       const result = resolveCharts3dView(createCharts3dViewState(dataset.id));
       expect(result.ok, dataset.id).toBe(true);
       if (!result.ok) continue;
-      expect(result.resolved.mark.type).toBe("surface");
+      expect(result.resolved.mark.type, dataset.id).toBe(dataset.markType);
       expect(result.resolved.title).toBe(dataset.title);
     }
   });

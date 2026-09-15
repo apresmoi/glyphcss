@@ -2,8 +2,8 @@ import { useEffect, useMemo, type Dispatch } from "react";
 import { createPortal } from "react-dom";
 import type { GUI } from "lil-gui";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartDetail, GlyphChartTarget } from "@glyphcss/charts";
-import { GLYPH_CHART_3D_COLORSCALE_NAMES, glyphChart3dCharsetDegrades } from "@glyphcss/charts/3d";
-import { useDockSlot, useFolder, useOption, useSlider, useText, useToggle, type DockOptionController } from "../Dock/primitives";
+import { GLYPH_CHART_3D_COLORSCALE_NAMES, glyphChart3dCharsetDegrades, type GlyphChart3dResolvedAxis } from "@glyphcss/charts/3d";
+import { useColor, useDockSlot, useFolder, useOption, useSlider, useText, useToggle, type DockOptionController } from "../Dock/primitives";
 import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
 import type { Charts3dViewportHandle } from "./Charts3dViewport";
@@ -12,10 +12,11 @@ import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import { Instrument3DEffectsFolder, type Instrument3DEffectTarget } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import { CHARTS_3D_EFFECT_SURFACE_TARGET } from "./Charts3dViewport";
-import type { Charts3dGuideOptions } from "./chartsWorkbench3d";
+import type { Charts3dAxisOverride, Charts3dGuideOptions, Charts3dResolveResult } from "./chartsWorkbench3d";
 import {
   CHART_AXIS_COLOR_MODES, CHART_CHARSETS, CHART_COLORS, CHART_DETAILS, CHART_LEGEND_PLACEMENTS, CHART_REGION_FILLS, CHART_SCALE_TYPES, CHART_TARGETS,
   CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_X_AXIS_TITLE_ATS,
+  CHARTS_3D_AXIS_FORMAT_NAMES,
   CHARTS_DENSITY_MIN, CHARTS_DENSITY_MIN_FONT_PX, CHARTS_DENSITY_STEP,
   CHARTS_NO_SCALE_REASON, CHARTS_TIME_UNIT_MS, chartsDensitySliderMax, chartsDomainNumberDisplay, chartsIsoDateStamp, chartsNumberToScaleBound, chartsScaleBoundToNumber,
   chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsTimeBoundSnap, chartsTimeDisplayPrecision, chartsTimePrecisionOf,
@@ -117,7 +118,7 @@ const AXIS_Y_TITLE_AT_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as s
 // the theme's own `!important` rules for either (P3-4).
 const CHART_TICKS_MIN = 2;
 const CHART_TICKS_MAX = 40;
-function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, actualTicks: number | undefined, dispatch: Dispatch<ChartsWorkbenchAction>): void {
+function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, actualTicks: number | undefined, dispatch: Dispatch<ChartsWorkbenchAction>, visible = true): void {
   const AXIS = axis.toUpperCase();
   const auto = ticks === 0;
   // Unchecking auto seeds the slider from the axis's own last-rendered
@@ -126,11 +127,14 @@ function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, act
   // only as the last-resort floor for the rare grid this can't read a
   // count off at all (REVIEW-dock-addenda-opus.md P2-2).
   const seed = Math.max(CHART_TICKS_MIN, Math.min(CHART_TICKS_MAX, actualTicks ?? CHART_TICKS_MIN));
-  useToggle(folder, `${AXIS} ticks: auto`, auto, (checked) => dispatch({ type: "set-axis", axis, patch: { ticks: checked ? 0 : seed } }));
+  const autoCtrl = useToggle(folder, `${AXIS} ticks: auto`, auto, (checked) => dispatch({ type: "set-axis", axis, patch: { ticks: checked ? 0 : seed } }));
   const shown = auto ? seed : ticks;
   const sliderCtrl = useSlider(folder, `${AXIS} ticks`, { min: CHART_TICKS_MIN, max: CHART_TICKS_MAX, step: 1 }, shown,
     (value) => dispatch({ type: "set-axis", axis, patch: { ticks: value } }));
   useEffect(() => { sliderCtrl?.setEnabled(!auto); }, [sliderCtrl, auto]);
+  // Packet C6 — the whole 2D Axes folder content hides while a 3D type is
+  // active (this file's own new 3D axis rows take over the SAME folder).
+  useEffect(() => { autoCtrl?.setVisible(visible); sliderCtrl?.setVisible(visible); }, [autoCtrl, sliderCtrl, visible]);
   // Clearing the number field goes back to auto — never `Number("") === 0`
   // (AGENTS.md's own rule for this page's other number fields). lil-gui's
   // own `NumberController` leaves an emptied field's `input` a no-op (it
@@ -152,6 +156,72 @@ function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, act
     return () => { input.removeEventListener("input", onInput); input.removeEventListener("blur", onBlur); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sliderCtrl, axis]);
+}
+
+const CHARTS_3D_AXIS_FORMAT_OPTIONS: Record<string, string> = Object.fromEntries(["auto", ...CHARTS_3D_AXIS_FORMAT_NAMES].map((v) => [v, v]));
+
+/**
+ * One 3D axis's full row set (packet C6, coordinator addendum) — title,
+ * ticks (auto + slider, seeded off the axis's own ACTUAL resolved tick
+ * count, mirroring `useTicksControl`'s idiom exactly), a tick-format
+ * preset select (`CHARTS_3D_AXIS_FORMAT_NAMES`'s own safe subset), four
+ * visibility toggles seeded from the axis's own FULLY RESOLVED visibility
+ * (`GlyphChart3dResolvedAxis.lineVisible`/etc. — already the library-
+ * default-then-guide-then-axis-override chain, so the shown value is
+ * always what the reader is currently looking at) and a colour swatch,
+ * every row LIVE in the SAME "Axes" folder the 2D rows use, toggled
+ * `.setVisible(visible)` together rather than a second folder — mirrors
+ * `useTicksControl`'s own `visible` parameter. Each row's own label carries
+ * a "(3D)" suffix so it never collides with the 2D row of the same name
+ * mounted alongside it in the identical folder (only one of the two sets
+ * is ever visible at a time, but both always exist as real DOM rows).
+ *
+ * Writing a visibility toggle or colour ALWAYS sets an explicit override —
+ * there is no separate "[reset] back to auto" control for these two kinds
+ * of row (a documented, bounded simplification; text/ticks/format/domain
+ * all keep a real "auto" path). A future increment can add one without
+ * changing this function's own shape.
+ */
+function use3dAxisControls(
+  folder: GUI | null,
+  axisLabel: "X" | "Y" | "Z",
+  axisKey: "x" | "y" | "z",
+  override: Charts3dAxisOverride,
+  resolved: GlyphChart3dResolvedAxis | undefined,
+  visible: boolean,
+  colorDisabled: boolean,
+  colorDisabledReason: string | undefined,
+  dispatch: Dispatch<ChartsWorkbenchAction>,
+): void {
+  const patch = (p: Partial<Charts3dAxisOverride>) => dispatch({ type: "set-3d-axis", axis: axisKey, patch: p });
+
+  const titleCtrl = useText(folder, `${axisLabel} title (3D)`, override.title ?? "", (title) => patch({ title }));
+
+  const ticksAuto = override.ticks === undefined;
+  const ticksSeed = Math.max(CHART_TICKS_MIN, Math.min(CHART_TICKS_MAX, resolved?.ticks.length ?? 5));
+  const ticksAutoCtrl = useToggle(folder, `${axisLabel} ticks: auto (3D)`, ticksAuto, (checked) => patch({ ticks: checked ? undefined : ticksSeed }));
+  const ticksShown = ticksAuto ? ticksSeed : override.ticks!;
+  const ticksCtrl = useSlider(folder, `${axisLabel} ticks (3D)`, { min: CHART_TICKS_MIN, max: CHART_TICKS_MAX, step: 1 }, ticksShown,
+    (value) => patch({ ticks: value }));
+  useEffect(() => { ticksCtrl?.setEnabled(!ticksAuto); }, [ticksCtrl, ticksAuto]);
+
+  const formatCtrl = useOption(folder, `${axisLabel} format (3D)`, CHARTS_3D_AXIS_FORMAT_OPTIONS, override.format ?? "auto",
+    (value) => patch({ format: value === "auto" ? undefined : value }));
+
+  const lineCtrl = useToggle(folder, `${axisLabel} line (3D)`, override.line ?? resolved?.lineVisible ?? true, (line) => patch({ line }));
+  const tickMarksCtrl = useToggle(folder, `${axisLabel} tick marks (3D)`, override.tickMarks ?? resolved?.tickMarksVisible ?? true, (tickMarks) => patch({ tickMarks }));
+  const tickLabelsCtrl = useToggle(folder, `${axisLabel} tick labels (3D)`, override.tickLabels ?? resolved?.tickLabelsVisible ?? true, (tickLabels) => patch({ tickLabels }));
+  const gridCtrl = useToggle(folder, `${axisLabel} grid (3D)`, override.grid ?? resolved?.gridVisible ?? false, (grid) => patch({ grid }));
+
+  const colorCtrl = useColor(folder, `${axisLabel} colour (3D)`, override.color ?? resolved?.color ?? "#7a7f8a", (color) => patch({ color }));
+  useEffect(() => {
+    colorCtrl?.setEnabled(!colorDisabled);
+    colorCtrl?.raw.domElement.setAttribute("title", colorDisabled ? (colorDisabledReason ?? "") : "");
+  }, [colorCtrl, colorDisabled, colorDisabledReason]);
+
+  useEffect(() => {
+    for (const ctrl of [titleCtrl, ticksAutoCtrl, ticksCtrl, formatCtrl, lineCtrl, tickMarksCtrl, tickLabelsCtrl, gridCtrl, colorCtrl]) ctrl?.setVisible(visible);
+  }, [titleCtrl, ticksAutoCtrl, ticksCtrl, formatCtrl, lineCtrl, tickMarksCtrl, tickLabelsCtrl, gridCtrl, colorCtrl, visible]);
 }
 
 /**
@@ -296,6 +366,42 @@ export function ScaleDomainControl({ axis, scale, inferred, zeroAnchored, hasCar
     })} />;
 }
 
+/**
+ * A 3D axis's own domain row (packet C6, coordinator addendum) — MUCH
+ * simpler than the 2D `ScaleDomainControl` above: a 3D axis domain is
+ * ALWAYS plain finite linear numbers (`GlyphChart3dResolvedAxis.domain`),
+ * never log/time/zero-anchored, so none of that control's own
+ * `loFloor`/`loCeiling`/`capReason` machinery applies. Bounds are the
+ * resolved axis's own NICE domain padded +/-20%, mirroring 2D's own
+ * padding convention (`chartsScaleSliderBounds`'s ordinary-scale case).
+ * Either end left `null` (cleared) reverts BOTH ends to auto — the
+ * library's own `GlyphChart3dAxisOptions.domain` is one atomic `[min, max]`
+ * tuple with no partial-override shape, unlike 2D's independently-nullable
+ * min/max (a documented, bounded simplification). `resolved === undefined`
+ * (no 3D mark currently resolved, e.g. mid-error) disables the row rather
+ * than guessing bounds.
+ */
+function Charts3dAxisDomainRow({ label, override, resolved, dispatch, axis }: {
+  label: string; axis: "x" | "y" | "z";
+  override: readonly [number, number] | undefined;
+  resolved: GlyphChart3dResolvedAxis | undefined;
+  dispatch: Dispatch<ChartsWorkbenchAction>;
+}) {
+  if (!resolved) return <RangeUnavailable label={`${label} domain`} reason="No 3D chart is currently resolved." />;
+  const [dataMin, dataMax] = resolved.domain;
+  const span = dataMax - dataMin || 1;
+  const min = dataMin - span * 0.2;
+  const max = dataMax + span * 0.2;
+  const step = rangeSliderStep(min, max);
+  const value: readonly [number | null, number | null] = override ? [override[0], override[1]] : [null, null];
+  return <RangeSlider label={`${label} domain`} min={min} max={max} step={step} domain={[dataMin, dataMax]}
+    value={value} format={(n) => chartsDomainNumberDisplay(n, step)}
+    onChange={(next) => dispatch({
+      type: "set-3d-axis", axis,
+      patch: { domain: !next || next[0] === null || next[1] === null ? undefined : [next[0], next[1]] },
+    })} />;
+}
+
 // View folder (packet C3, 3D only) — turntable/trackball, reset camera,
 // colorscale and shading. `aspect` (mentioned as optional in the packet
 // scope, "if the library exposes it") is skipped: `glyphChartSurface`'s
@@ -343,18 +449,26 @@ const CHARTS_3D_GUIDE_DEFAULTS: Record<keyof Charts3dGuideOptions, boolean> = {
 // small set that reads well mesh-targeted, resolved against
 // `@glyphcss/effects`' own catalog by `Charts3dViewport.tsx`'s `applyEffect`.
 // Targets: guides render as an OVERLAY on the object (`object.ts`'s
-// `glyphChartObject`, confirmed by direct read — `meshes: [{ name:
-// "surface", ... }]`, `overlays: [axisTriadOverlay(...)]`, no second mesh),
-// so the only non-"whole chart" target is the surface itself — no guides
-// target is offered.
+// `glyphChartObject`, confirmed by direct read — ONE data mesh (`"surface"`/
+// `"points"`/`"bars"`/`"line"` depending on mark type, packet C6) plus
+// `overlays: [axisTriadOverlay(...)]`, no second mesh), so the only
+// non-"whole chart" target is that one data mesh — no guides target is
+// offered. Labelled "Chart" (not "Surface") since packet C6 widened this
+// to every 3D mark type, not only `surface`.
 const CHARTS_3D_EFFECT_IDS = ["none", "scan", "glitch", "ripple"] as const;
-const CHARTS_3D_EFFECT_TARGETS: readonly Instrument3DEffectTarget[] = [{ id: CHARTS_3D_EFFECT_SURFACE_TARGET, label: "Surface" }];
+const CHARTS_3D_EFFECT_TARGETS: readonly Instrument3DEffectTarget[] = [{ id: CHARTS_3D_EFFECT_SURFACE_TARGET, label: "Chart" }];
 
-export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef }: {
+export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef, chart3dResolved }: {
   state: ChartsWorkbenchState; dispatch: Dispatch<ChartsWorkbenchAction>; rendered?: ChartsWorkbenchRender;
   /** The live 3D viewport's own reset-camera entry point — `undefined`/not
    *  yet mounted is a no-op button, never a crash. */
   chart3dViewportHandleRef?: { current: Charts3dViewportHandle | null };
+  /** The CURRENTLY resolved 3D mark (packet C6) — the Axes folder's own
+   *  per-axis rows read its `axes.{x,y,z}` for their tick-count/domain
+   *  seeds, mirroring `rendered`'s own "seed from what actually rendered"
+   *  role for the 2D ticks row. `undefined`/not `ok` leaves every 3D axis
+   *  row at its own built-in fallback seed rather than crashing. */
+  chart3dResolved?: Charts3dResolveResult;
 }) {
   const gui = useDockGui();
   const controls = resolveGlyphChartsWorkbenchControls(state.controls);
@@ -488,19 +602,44 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
   // (its tooltip already named "axis colour" before this moved, and still
   // does) — only the ROW moved, not which reset owns it.
   const axisColorSlot = useDockSlot(axes, { position: "top", className: "charts-axis-color-slot" });
-  useTicksControl(axes, "x", state.axes.x.ticks, actualXTicks, dispatch);
-  useToggle(axes, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
-  useToggle(axes, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
-  useText(axes, "X title", state.axes.x.title, (title) => dispatch({ type: "set-axis", axis: "x", patch: { title } }));
+  const xTickMarksCtrl = useToggle(axes, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
+  const xGridCtrl = useToggle(axes, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
+  const xTitleCtrl = useText(axes, "X title", state.axes.x.title, (title) => dispatch({ type: "set-axis", axis: "x", patch: { title } }));
+  useTicksControl(axes, "x", state.axes.x.ticks, actualXTicks, dispatch, !is3d);
   // Axis title placement (Dock item "Axis Title + Title at") — the same
   // pair (text + placement toggle) the chart's own title row has, added
   // right after each axis's existing Title text field.
   const xTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
-  useTicksControl(axes, "y", state.axes.y.ticks, actualYTicks, dispatch);
-  useToggle(axes, "Y tick marks", state.axes.y.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "y", patch: { tickMarks } }));
-  useToggle(axes, "Y grid", state.axes.y.grid, (grid) => dispatch({ type: "set-axis", axis: "y", patch: { grid } }));
-  useText(axes, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
+  const yTickMarksCtrl = useToggle(axes, "Y tick marks", state.axes.y.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "y", patch: { tickMarks } }));
+  const yGridCtrl = useToggle(axes, "Y grid", state.axes.y.grid, (grid) => dispatch({ type: "set-axis", axis: "y", patch: { grid } }));
+  const yTitleCtrl = useText(axes, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
+  useTicksControl(axes, "y", state.axes.y.ticks, actualYTicks, dispatch, !is3d);
   const yTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
+  // Packet C6 — the whole 2D Axes folder content hides while a 3D type is
+  // active; the new 3D axis rows below take over the SAME folder instead
+  // of a second one, per the coordinator's own instruction.
+  useEffect(() => {
+    for (const ctrl of [xTickMarksCtrl, xGridCtrl, xTitleCtrl, yTickMarksCtrl, yGridCtrl, yTitleCtrl]) ctrl?.setVisible(!is3d);
+  }, [xTickMarksCtrl, xGridCtrl, xTitleCtrl, yTickMarksCtrl, yGridCtrl, yTitleCtrl, is3d]);
+
+  // The 3D Axes rows (packet C6, coordinator addendum) — x, y AND z, live
+  // in the SAME "Axes" folder as the 2D rows above, `.setVisible(is3d)`
+  // together with the 2D content flipped the other way. Colour dims (with
+  // the SAME reason the 2D axis-colour swatches already use) under
+  // `Color: none`, since a 3D axis colour paints nothing there either.
+  const resolved3dAxes = chart3dResolved?.ok ? chart3dResolved.resolved.mark.axes : undefined;
+  const axes3dColorCtrl = useColor(axes, "Axes colour (3D)", state.chart3d.axes.color ?? "#7a7f8a", (color) => dispatch({ type: "set-3d-axes-color", color }));
+  useEffect(() => {
+    axes3dColorCtrl?.setVisible(is3d);
+    axes3dColorCtrl?.setEnabled(!colorDisabled);
+    axes3dColorCtrl?.raw.domElement.setAttribute("title", colorDisabled ? (colorDisabledReason ?? "") : "");
+  }, [axes3dColorCtrl, is3d, colorDisabled, colorDisabledReason]);
+  use3dAxisControls(axes, "X", "x", state.chart3d.axes.x, resolved3dAxes?.x, is3d, colorDisabled, colorDisabledReason, dispatch);
+  const x3dDomainSlot = useDockSlot(axes, { position: "bottom", className: "charts-scale-domain-slot" });
+  use3dAxisControls(axes, "Y", "y", state.chart3d.axes.y, resolved3dAxes?.y, is3d, colorDisabled, colorDisabledReason, dispatch);
+  const y3dDomainSlot = useDockSlot(axes, { position: "bottom", className: "charts-scale-domain-slot" });
+  use3dAxisControls(axes, "Z", "z", state.chart3d.axes.z, resolved3dAxes?.z, is3d, colorDisabled, colorDisabledReason, dispatch);
+  const z3dDomainSlot = useDockSlot(axes, { position: "bottom", className: "charts-scale-domain-slot" });
 
   // View folder (3D only, packet C3) — hidden entirely in 2D mode, the same
   // `.hide()`/`.show()` idiom the Terminal folder below already uses for
@@ -591,7 +730,7 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
       </div>,
       regionFillSlot,
     )}
-    {axisColorSlot && createPortal(
+    {!is3d && axisColorSlot && createPortal(
       <div className="charts-axis-color">
         <div className="dock-toggle-row">
           <span className="dock-toggle-row-label">Axes</span>
@@ -621,7 +760,19 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
         unfit={unfitOf("y")} timePrecision={timePrecision.y} dispatch={dispatch} />,
       yDomainSlot,
     )}
-    {xTitleAtSlot && createPortal(
+    {is3d && x3dDomainSlot && createPortal(
+      <Charts3dAxisDomainRow label="X" axis="x" override={state.chart3d.axes.x.domain} resolved={resolved3dAxes?.x} dispatch={dispatch} />,
+      x3dDomainSlot,
+    )}
+    {is3d && y3dDomainSlot && createPortal(
+      <Charts3dAxisDomainRow label="Y" axis="y" override={state.chart3d.axes.y.domain} resolved={resolved3dAxes?.y} dispatch={dispatch} />,
+      y3dDomainSlot,
+    )}
+    {is3d && z3dDomainSlot && createPortal(
+      <Charts3dAxisDomainRow label="Z" axis="z" override={state.chart3d.axes.z.domain} resolved={resolved3dAxes?.z} dispatch={dispatch} />,
+      z3dDomainSlot,
+    )}
+    {!is3d && xTitleAtSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">X title at</span>
         <IconToggle groupTitle="X axis title placement" options={AXIS_X_TITLE_AT_TOGGLE} value={state.style.axisTitlePlacement.x}
@@ -629,7 +780,7 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
       </div>,
       xTitleAtSlot,
     )}
-    {yTitleAtSlot && createPortal(
+    {!is3d && yTitleAtSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Y title at</span>
         <IconToggle groupTitle="Y axis title placement" options={AXIS_Y_TITLE_AT_TOGGLE} value={state.style.axisTitlePlacement.y}

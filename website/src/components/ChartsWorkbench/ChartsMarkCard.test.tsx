@@ -24,7 +24,10 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
-import { createChartsWorkbenchState, reduceChartsWorkbenchState, type ChartsWorkbenchState } from "./chartsWorkbenchState";
+import {
+  chartsFitTableFromRows, createChartsWorkbenchState, reduceChartsWorkbenchState,
+  type ChartsWorkbenchAction, type ChartsWorkbenchState,
+} from "./chartsWorkbenchState";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -115,5 +118,83 @@ describe("ChartsMarkCard — Stroke row", () => {
     host = mountMarks(unstacked);
     input = host.querySelector<HTMLInputElement>('[aria-label="Chart stroke width"]')!;
     expect(input.disabled).toBe(false);
+  });
+});
+
+// Packet C6 — the mark card's Type row grows five 3D entries (Surface,
+// Scatter 3D, Columns 3D, Line 3D, Parametric) alongside the 2D ones,
+// offered only on the first card, and only when `chart3dFits` is passed.
+describe("ChartsMarkCard — 3D Type row (packet C6)", () => {
+  function mount3d(state: ChartsWorkbenchState, dispatch: (action: ChartsWorkbenchAction) => void = () => {}): HTMLElement {
+    for (const css of [INSTRUMENT_CSS, CHARTS_CSS]) {
+      const style = document.createElement("style");
+      style.textContent = css;
+      document.head.appendChild(style);
+      styles.push(style);
+    }
+    container = document.createElement("div");
+    container.className = "charts-marks-section";
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const chart3dFits = chartsFitTableFromRows(state.data, state.marks);
+    act(() => {
+      root!.render(<ChartsMarkCard mark={state.marks[0]!} index={0} markCount={state.marks.length}
+        typeFits={chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, state.marks[0]!))} series={[]} colorDisabled={false}
+        dimension={state.dimension} chart3dMarkType={state.dimension === "3d" ? "surface" : undefined} chart3dFits={chart3dFits}
+        dispatch={dispatch} />);
+    });
+    return container;
+  }
+
+  it("offers all five 3D type buttons, disabling parametric3d (preset-only) with its own reason", () => {
+    const host = mount3d(createChartsWorkbenchState());
+    // `[aria-label*=...]` (contains), not `$=` (ends-with) — a DISABLED
+    // option's own aria-label carries " — <reason>" appended after the
+    // label (`synthKit.tsx`'s `IconToggle`'s own doc), and several of
+    // these five are genuinely disabled against the default 2D preset's
+    // own non-gridded data.
+    for (const label of ["Surface", "Scatter 3D", "Columns 3D", "Line 3D", "Parametric"]) {
+      expect(host.querySelector(`[aria-label*=": ${label}"]`), label).not.toBeNull();
+    }
+    const parametricBtn = host.querySelector<HTMLButtonElement>('[aria-label*=": Parametric"]')!;
+    expect(parametricBtn.disabled).toBe(true);
+    expect(parametricBtn.title).toMatch(/preset-only/i);
+  });
+
+  it("clicking an enabled 3D type dispatches select-3d-table with that markType", () => {
+    // A synthetic 3-numeric-column dataset fits scatter3d (and, being a
+    // complete unique grid, surface too) on the built-in "Line" preset's
+    // own data shape — swap in one that only fits scatter/line, not a grid.
+    let state = createChartsWorkbenchState();
+    const rows = Array.from({ length: 8 }, (_, i) => ({ a: i, b: Math.sin(i) * 10, c: Math.cos(i) * 3 }));
+    state = reduceChartsWorkbenchState(state, { type: "update-mark", id: state.marks[0]!.id, patch: { dataText: JSON.stringify(rows) } });
+    const dispatch = vi.fn();
+    const host = mount3d(state, dispatch);
+    const scatterBtn = host.querySelector<HTMLButtonElement>('[aria-label$=": Scatter 3D"]')!;
+    expect(scatterBtn.disabled).toBe(false);
+    act(() => scatterBtn.click());
+    expect(dispatch).toHaveBeenCalledWith({ type: "select-3d-table", markType: "scatter3d" });
+  });
+
+  it("the CURRENTLY resolved 3D markType always stays enabled, even when the current table can't fit it", () => {
+    const state = { ...createChartsWorkbenchState(), dimension: "3d" as const };
+    const host = mount3d(state);
+    // `chart3dMarkType` is forced to "surface" by the mount helper above;
+    // none of the built-in "Line" preset's own rows form a grid, so surface
+    // would otherwise be disabled — the CURRENT-type rule keeps it live.
+    const surfaceBtn = host.querySelector<HTMLButtonElement>('[aria-label$=": Surface"]')!;
+    expect(surfaceBtn.disabled).toBe(false);
+  });
+
+  it("no 3D buttons at all when chart3dFits is undefined (index !== 0, or the caller never resolved it)", () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    const state = createChartsWorkbenchState();
+    act(() => {
+      root!.render(<ChartsMarkCard mark={state.marks[0]!} index={0} markCount={1}
+        typeFits={chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, state.marks[0]!))} series={[]} colorDisabled={false} dispatch={() => {}} />);
+    });
+    expect(container.querySelector('[aria-label$=": Surface"]')).toBeNull();
   });
 });

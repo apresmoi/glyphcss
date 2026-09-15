@@ -26,11 +26,18 @@ import type { DatasetHit } from "../../lib/datasetSearch";
 import { ChartsDatasetSearchBox } from "./ChartsDatasetSearchBox";
 import { CHARTS_DATASETS, findChartsDataset, type ChartsWorkbenchAction } from "./chartsWorkbenchState";
 
-export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, onRandom }: {
+export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, onRandom, remoteSuggestions }: {
   readonly activeDatasetId: string | undefined;
   readonly dispatch: Dispatch<ChartsWorkbenchAction>;
   readonly onSelectRemote: (hit: DatasetHit) => void;
   readonly onRandom: () => void;
+  /** Overrides the search box's own default curated-Hugging-Face
+   *  suggestion list (`remoteIndex.ts`'s 2D set) — `ChartsWorkbench.tsx`
+   *  passes the 3D-verified list (packet C6) while a 3D type is active, so
+   *  the empty-query suggestions read well as 3D scatter picks instead of
+   *  the 2D-curated set. `undefined` (the default) keeps the search box's
+   *  own default untouched. */
+  readonly remoteSuggestions?: readonly DatasetHit[];
 }) {
   // The search box's idle display needs "whatever is currently loaded",
   // but its own props (frozen by `ChartsWorkbench.tsx`, which this packet

@@ -18,12 +18,14 @@ import {
   CHART_SCALE_TYPES, CHART_TARGETS, CHART_TITLE_ALIGNS, CHART_TITLE_POSITIONS, CHART_TRANSFORMS, CHART_X_AXIS_TITLE_ATS, CHARTS_CUSTOM_MAX_BYTES,
   CHARTS_DENSITY_MIN, chartsDensitySliderMax,
   CHARTS_WORKBENCH_DEFAULT_EFFECT3D,
+  CHARTS_3D_AXIS_FORMAT_NAMES,
   createChartsWorkbenchState, findChartsDataset, findCharts3dDataset, randomChartsDatasetId, reduceChartsWorkbenchState, createCharts3dViewState,
   type ChartsDataSource, type ChartsWorkbenchAxis, type ChartsWorkbenchAxisColorState, type ChartsWorkbenchAxisTitlePlacementState,
   type ChartsWorkbenchDataState,
   type ChartsWorkbenchMark, type ChartsWorkbenchScale, type ChartsWorkbenchState, type ChartsWorkbenchStyleState,
   type GlyphChartsWorkbenchControls,
-  type Charts3dCamera, type Charts3dGuideOptions, type Charts3dSource, type Charts3dViewState, type Instrument3DEffectsState,
+  type Charts3dAxesOverride, type Charts3dAxisOverride, type Charts3dCamera, type Charts3dGuideOptions,
+  type Charts3dSource, type Charts3dViewState, type Instrument3DEffectsState,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { resolveChartsDataRows, xChannelIsDate } from "./chartsDataSource";
@@ -442,27 +444,57 @@ function validateCharts3dCamera(value: unknown): Charts3dCamera | null {
 }
 
 /**
- * An INLINE surface source (the mark card's "Surface" option, built from
- * the reader's own currently-loaded table) is NEVER carried in the link —
- * `chartsUrlStateForEncode` blanks its `rows` unconditionally, mirroring a
- * `"remote"` 2D dataset's own "no local copy to compare against" rule
- * (this file's own doc, above) — so a decoded `sourceOmitted: true` (or a
- * missing `rows` array) always returns `null` here, which the caller reads
- * as "3D is unavailable on this link" and falls back to the 2D default.
+ * An INLINE source (the mark card's Type toggle, built from the reader's
+ * own currently-loaded table or a freshly loaded Hugging Face one) is
+ * NEVER carried in the link — `chartsUrlStateForEncode` blanks its `rows`
+ * unconditionally, mirroring a `"remote"` 2D dataset's own "no local copy
+ * to compare against" rule (this file's own doc, above) — so a decoded
+ * `sourceOmitted: true` (or a missing `rows` array) always returns `null`
+ * here, which the caller reads as "3D is unavailable on this link" and
+ * falls back to the 2D default. One branch per `markType` (packet C6,
+ * generalizing C3's surface-only version) — `parametric3d` has no inline
+ * variant at all (`Charts3dSource`'s own doc: preset-only), so an inline
+ * payload naming it is simply unrecognised and returns `null` like any
+ * other malformed source.
  */
 function validateCharts3dSource(value: unknown): Charts3dSource | null {
   if (!isRecord(value)) return null;
   if (value.kind === "dataset") {
     return typeof value.id === "string" ? { kind: "dataset", id: value.id } : null;
   }
-  if (value.kind === "inline") {
-    if (value.sourceOmitted === true || !Array.isArray(value.rows)) return null;
-    if (typeof value.title !== "string" || !isRecord(value.channels)) return null;
-    const { x, y, z } = value.channels;
-    if (typeof x !== "string" || typeof y !== "string" || typeof z !== "string") return null;
-    return { kind: "inline", title: value.title, rows: value.rows as readonly TabularRow[], channels: { x, y, z } };
+  if (value.kind !== "inline") return null;
+  if (value.sourceOmitted === true || !Array.isArray(value.rows)) return null;
+  if (typeof value.title !== "string" || !isRecord(value.channels)) return null;
+  const rows = value.rows as readonly TabularRow[];
+  const title = value.title;
+  const channels = value.channels; // narrowed to Record<string, unknown> by the isRecord check above
+  switch (value.markType) {
+    case "surface": {
+      const { x, y, z } = channels;
+      if (typeof x !== "string" || typeof y !== "string" || typeof z !== "string") return null;
+      return { kind: "inline", markType: "surface", title, rows, channels: { x, y, z } };
+    }
+    case "scatter3d": {
+      const { x, y, z, series } = channels;
+      if (typeof x !== "string" || typeof y !== "string" || typeof z !== "string") return null;
+      if (series !== undefined && typeof series !== "string") return null;
+      return { kind: "inline", markType: "scatter3d", title, rows, channels: { x, y, z, ...(series !== undefined ? { series } : {}) } };
+    }
+    case "bars3d": {
+      const { x, y, z, xLabel, yLabel } = channels;
+      if (typeof x !== "string" || typeof y !== "string" || typeof z !== "string") return null;
+      if (xLabel !== undefined && typeof xLabel !== "string") return null;
+      if (yLabel !== undefined && typeof yLabel !== "string") return null;
+      return { kind: "inline", markType: "bars3d", title, rows, channels: { x, y, z, ...(xLabel !== undefined ? { xLabel } : {}), ...(yLabel !== undefined ? { yLabel } : {}) } };
+    }
+    case "line3d": {
+      const { x, y, z } = channels;
+      if (typeof x !== "string" || typeof y !== "string" || typeof z !== "string") return null;
+      return { kind: "inline", markType: "line3d", title, rows, channels: { x, y, z } };
+    }
+    default:
+      return null;
   }
-  return null;
 }
 
 // Packet C4, item 1 — every `GlyphChart3dGuideOptions` field, read off
@@ -487,9 +519,52 @@ function validateCharts3dGuides(value: unknown): Charts3dGuideOptions {
   return clean as Charts3dGuideOptions;
 }
 
+/** Packet C6, coordinator addendum ("you cannot configure the z axis in
+ *  the /charts sidebar"), widened to every C7 field by the coordinator's
+ *  own follow-up — one override per axis, the same "a bad field degrades
+ *  to absent, never rejects the whole payload" rule `validateCharts3dGuides`
+ *  already follows: EACH field is checked independently and a bad one is
+ *  simply omitted rather than invalidating its siblings or the whole
+ *  `chart3d` payload. Append-only: an old link carries no `axes` key at all
+ *  and decodes to `{x:{},y:{},z:{}}` (every axis follows the library's own
+ *  default), byte-identical to before this field existed; a link written
+ *  before C7's own fields existed carries none of them and decodes exactly
+ *  as it did then. `format` accepts only a bare preset NAME already in
+ *  `CHARTS_3D_AXIS_FORMAT_NAMES` (this Dock's own safe subset) — never an
+ *  arbitrary string, which could name a preset requiring a param this row
+ *  has no field for, or no preset at all. */
+function validateCharts3dAxisOverride(value: unknown): Charts3dAxisOverride {
+  if (!isRecord(value)) return {};
+  const title = typeof value.title === "string" ? value.title : undefined;
+  const ticks = typeof value.ticks === "number" && Number.isFinite(value.ticks) && value.ticks > 0 ? value.ticks : undefined;
+  const format = typeof value.format === "string" && CHARTS_3D_AXIS_FORMAT_NAMES.includes(value.format) ? value.format : undefined;
+  const line = typeof value.line === "boolean" ? value.line : undefined;
+  const tickMarks = typeof value.tickMarks === "boolean" ? value.tickMarks : undefined;
+  const tickLabels = typeof value.tickLabels === "boolean" ? value.tickLabels : undefined;
+  const grid = typeof value.grid === "boolean" ? value.grid : undefined;
+  const color = isChartsHex(value.color) ? value.color : undefined;
+  const domain = Array.isArray(value.domain) && value.domain.length === 2
+    && typeof value.domain[0] === "number" && Number.isFinite(value.domain[0])
+    && typeof value.domain[1] === "number" && Number.isFinite(value.domain[1]) && value.domain[0] < value.domain[1]
+    ? (value.domain as [number, number]) : undefined;
+  return {
+    ...(title !== undefined ? { title } : {}), ...(ticks !== undefined ? { ticks } : {}), ...(format !== undefined ? { format } : {}),
+    ...(line !== undefined ? { line } : {}), ...(tickMarks !== undefined ? { tickMarks } : {}), ...(tickLabels !== undefined ? { tickLabels } : {}),
+    ...(grid !== undefined ? { grid } : {}), ...(color !== undefined ? { color } : {}), ...(domain !== undefined ? { domain } : {}),
+  };
+}
+function validateCharts3dAxes(value: unknown): Charts3dAxesOverride {
+  const record = isRecord(value) ? value : {};
+  const color = isChartsHex(record.color) ? record.color : undefined;
+  return {
+    x: validateCharts3dAxisOverride(record.x), y: validateCharts3dAxisOverride(record.y), z: validateCharts3dAxisOverride(record.z),
+    ...(color !== undefined ? { color } : {}),
+  };
+}
+
 function validateCharts3dViewState(value: unknown): Charts3dViewState | null {
   if (!isRecord(value)) return null;
-  const { source, camera, orbitMode, shading, colorscale, style, guides } = value;
+  const { source, camera, orbitMode, shading, colorscale, style, guides, axes } = value;
   const cleanSource = validateCharts3dSource(source);
   if (!cleanSource) return null;
   const cleanCamera = validateCharts3dCamera(camera);
@@ -502,7 +577,7 @@ function validateCharts3dViewState(value: unknown): Charts3dViewState | null {
   // existed.
   const cleanStyle = style === undefined ? "auto" : oneOf(style, CHARTS_3D_STYLES) ? style : null;
   if (cleanStyle === null) return null;
-  return { source: cleanSource, camera: cleanCamera, orbitMode, shading, colorscale, style: cleanStyle, guides: validateCharts3dGuides(guides) };
+  return { source: cleanSource, camera: cleanCamera, orbitMode, shading, colorscale, style: cleanStyle, guides: validateCharts3dGuides(guides), axes: validateCharts3dAxes(axes) };
 }
 
 // Packet C4, item 3 — the shared `Instrument3DEffectsFolder`'s own state
@@ -701,10 +776,11 @@ export function chartsUrlStateForEncode(state: ChartsWorkbenchState): ChartsWork
     });
     if (changed) next = { ...next, marks };
   }
-  // An INLINE 3D surface (the mark card's "Surface" option built from the
-  // reader's own table) is never written into the link — mirrors a remote
-  // 2D dataset's own "no local copy to compare against" rule
-  // (`validateCharts3dSource`'s own doc). Cast for the same reason
+  // An INLINE 3D mark (the mark card's Type toggle, or a freshly loaded
+  // Hugging Face table, built from real rows kept only in memory) is never
+  // written into the link — mirrors a remote 2D dataset's own "no local
+  // copy to compare against" rule (`validateCharts3dSource`'s own doc), for
+  // every `markType` alike (packet C6). Cast for the same reason
   // `markWithDataOmitted` casts: `rows` is stringify-time-only missing here,
   // never read back as real state afterward.
   if (next.chart3d.source.kind === "inline") {

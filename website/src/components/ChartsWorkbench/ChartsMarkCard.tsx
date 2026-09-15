@@ -1,9 +1,9 @@
 import type { CSSProperties, Dispatch, ReactNode } from "react";
 import type { GlyphChartMarkType, GlyphChartSeriesPreviewEntry } from "@glyphcss/charts";
 import {
-  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields,
+  CHART_MARK_TYPES, CHART_TRANSFORMS, CHARTS_3D_MARK_TYPES, CHARTS_DEFAULT_SWATCH_COLOR, chartMarkFields,
   chartRelevantChannels,
-  type Charts3dSurfaceFit, type ChartsWorkbenchAction, type ChartsWorkbenchMark,
+  type Charts3dFitTable, type Charts3dMarkTypeId, type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
 import type { ChartsMarkTypeFitTable } from "./chartsMarkTypeFit";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
@@ -69,15 +69,40 @@ export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
   value: type as string, icon: CHART_MARK_TYPE_ICONS[type], label: type, desc: CHART_MARK_TYPE_DESCRIPTIONS[type],
 }));
 
-// "Surface" (packet C3, AGENTS.md's "Charts 3D") — the ONE 3D type, offered
-// only on the first mark card (3D mounts a single object, so a second/third
-// mark has no meaning in it). Not a `GlyphChartMarkType` — `@glyphcss/charts`
-// and `@glyphcss/charts/3d` are separate spec vocabularies (AGENTS.md's
-// "Charts 3D": "the two mark vocabularies don't share a spec yet") — so it
-// rides the SAME `IconToggle` (whose options are plain strings) as one more
-// entry rather than widening `CHART_MARK_TYPE_TOGGLE`'s own typed list.
-export const CHARTS_SURFACE_TYPE_VALUE = "surface";
-const CHARTS_SURFACE_ICON = <ToggleIcon><path d="M1.5 9.5 L5 4.5 L9 8 L14.5 2.5" /><path d="M1.5 12.5 L5 7.5 L9 11 L14.5 5.5" /><path d="M1.5 6 L1.5 13" /><path d="M1.5 13 L14.5 13" /></ToggleIcon>;
+// 3D types (packet C3's "Surface", widened to every `@glyphcss/charts/3d`
+// mark type by packet C6) — offered only on the first mark card (3D mounts
+// a single object, so a second/third mark has no meaning in it). Not
+// `GlyphChartMarkType` values — `@glyphcss/charts` and `@glyphcss/charts/3d`
+// are separate spec vocabularies (AGENTS.md's "Charts 3D": "the two mark
+// vocabularies don't share a spec yet") — so each rides the SAME
+// `IconToggle` (whose options are plain strings) as one more entry rather
+// than widening `CHART_MARK_TYPE_TOGGLE`'s own typed list.
+const CHARTS_3D_TYPE_ICON: Record<Charts3dMarkTypeId, ReactNode> = {
+  surface: <ToggleIcon><path d="M1.5 9.5 L5 4.5 L9 8 L14.5 2.5" /><path d="M1.5 12.5 L5 7.5 L9 11 L14.5 5.5" /><path d="M1.5 6 L1.5 13" /><path d="M1.5 13 L14.5 13" /></ToggleIcon>,
+  scatter3d: (
+    <ToggleIcon fill="currentColor" stroke="none">
+      <circle cx="3.5" cy="11" r="1.2" /><circle cx="7.5" cy="6" r="1.2" /><circle cx="11.5" cy="10" r="1.2" /><circle cx="9.5" cy="3.5" r="1.2" /><circle cx="13" cy="5.5" r="1.2" />
+    </ToggleIcon>
+  ),
+  bars3d: (
+    <ToggleIcon fill="currentColor" stroke="none">
+      <rect x="2" y="9" width="2.4" height="4.5" /><rect x="6" y="5" width="2.4" height="8.5" /><rect x="10" y="7" width="2.4" height="6.5" />
+      <path d="M1 14 L14 14" stroke="currentColor" strokeWidth={1} fill="none" />
+    </ToggleIcon>
+  ),
+  line3d: <ToggleIcon><path d="M2 13 L5 6 L8 10 L11 4 L14 8" /><path d="M2 13 L1 14 M14 8 L15 7" strokeOpacity={0.4} /></ToggleIcon>,
+  parametric3d: <ToggleIcon><circle cx="8" cy="8" r="6" /><path d="M2 8 C2 5, 14 5, 14 8" /><path d="M2 8 C2 11, 14 11, 14 8" /></ToggleIcon>,
+};
+const CHARTS_3D_TYPE_LABEL: Record<Charts3dMarkTypeId, string> = {
+  surface: "Surface", scatter3d: "Scatter 3D", bars3d: "Columns 3D", line3d: "Line 3D", parametric3d: "Parametric",
+};
+const CHARTS_3D_TYPE_DESC: Record<Charts3dMarkTypeId, string> = {
+  surface: "a 3D height-field surface, z(x, y)",
+  scatter3d: "points in 3-space, optionally coloured by series or value",
+  bars3d: "upright columns on an x/y grid, height z",
+  line3d: "a connected 3D trajectory",
+  parametric3d: "a parametrized surface (sphere, torus, ...) — preset only",
+};
 
 // Stroke width (`options.strokeWidth`, `@glyphcss/charts` — landed with a
 // canvas `line({ width })` option, AGENTS.md's "Charts" own
@@ -201,12 +226,18 @@ function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch 
  * gets a "Mark N" heading per mark and "Mark N" accessible names; a lone
  * mark's names read "Chart type: line", "Chart x", …
  */
-export function ChartsMarkCard({ mark, index, markCount, typeFits, series, colorDisabled, dimension, surfaceFit, dispatch }: {
+export function ChartsMarkCard({ mark, index, markCount, typeFits, series, colorDisabled, dimension, chart3dMarkType, chart3dFits, dispatch }: {
   mark: ChartsWorkbenchMark; index: number; markCount: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean;
-  /** `state.dimension` — only `index === 0`'s card offers "Surface" at all, and only that card's Type row reads this to show it as the active option. */
+  /** `state.dimension` — only `index === 0`'s card offers a 3D type at all, and only that card's Type row reads this to show one as the active option. */
   dimension?: "2d" | "3d";
-  /** Whether the reader's currently-loaded table can become a surface (`chartsSurfaceFitFromRows`) — `index === 0` only. */
-  surfaceFit?: Charts3dSurfaceFit;
+  /** The CURRENTLY resolved 3D mark's own type (`index === 0` only) — kept
+   *  enabled on the Type row even when the table currently loaded can't fit
+   *  it (a tray preset, a hand-built link), mirroring the 2D "current type
+   *  always stays enabled" rule below. */
+  chart3dMarkType?: Charts3dMarkTypeId;
+  /** Whether the reader's currently-loaded table can become each 3D mark
+   *  type (`chartsFitTableFromRows`) — `index === 0` only. */
+  chart3dFits?: Charts3dFitTable;
   dispatch: Dispatch<ChartsWorkbenchAction>;
 }) {
   const name = markCount > 1 ? `Mark ${index + 1}` : "Chart";
@@ -221,17 +252,22 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
     const fit = typeFits[option.value as GlyphChartMarkType];
     return fit.fits || option.value === mark.type ? option : { ...option, disabled: true, disabledReason: fit.reason };
   });
-  const showSurface = index === 0 && surfaceFit !== undefined;
+  const showChart3d = index === 0 && chart3dFits !== undefined;
   const in3d = dimension === "3d" && index === 0;
-  const allTypeOptions = showSurface
-    ? [...typeOptions, {
-        value: CHARTS_SURFACE_TYPE_VALUE, icon: CHARTS_SURFACE_ICON, label: "Surface", desc: "a 3D height-field surface, z(x, y)",
-        ...(surfaceFit!.fits ? {} : { disabled: true, disabledReason: surfaceFit!.reason }),
-      }]
-    : typeOptions;
-  const activeType = in3d ? CHARTS_SURFACE_TYPE_VALUE : mark.type;
+  const type3dOptions = showChart3d
+    ? CHARTS_3D_MARK_TYPES.map((markType) => {
+        const fit = chart3dFits![markType];
+        const active = markType === chart3dMarkType;
+        return {
+          value: markType, icon: CHARTS_3D_TYPE_ICON[markType], label: CHARTS_3D_TYPE_LABEL[markType], desc: CHARTS_3D_TYPE_DESC[markType],
+          ...(fit.fits || active ? {} : { disabled: true, disabledReason: fit.reason }),
+        };
+      })
+    : [];
+  const allTypeOptions = showChart3d ? [...typeOptions, ...type3dOptions] : typeOptions;
+  const activeType = in3d ? (chart3dMarkType ?? "surface") : mark.type;
   const onTypeChange = (value: string) => {
-    if (value === CHARTS_SURFACE_TYPE_VALUE) dispatch({ type: "select-3d-table" });
+    if ((CHARTS_3D_MARK_TYPES as readonly string[]).includes(value)) dispatch({ type: "select-3d-table", markType: value as Charts3dMarkTypeId });
     else dispatch({ type: "set-mark-type", id: mark.id, markType: value as GlyphChartMarkType });
   };
   return <div className="charts-mark-card">
@@ -242,7 +278,7 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
       <div className="voice-row charts-mark-row" data-row="type">
         <IconToggle groupTitle={`${name} type`} options={allTypeOptions} value={activeType} onChange={onTypeChange} />
       </div>
-      {in3d && <p className="charts-mark-3d-note">Showing a 3D surface. Pick a 2D type above, or open the preset tray for a real 3D dataset (Maunga Whau, Alps).</p>}
+      {in3d && <p className="charts-mark-3d-note">Showing a 3D chart. Pick a 2D type above, or open the preset tray for a real 3D dataset.</p>}
       {/* The rest of the card describes a 2D mark's own colour/stroke/channel
        *  rows, which have nothing to say about the object mounted in 3D. */}
       {!in3d && <ChartsMarkColorControls mark={mark} index={index} series={series} colorDisabled={colorDisabled} dispatch={dispatch} />}

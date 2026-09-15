@@ -22,22 +22,29 @@ import {
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { chartsBestFit, chartsBuildBoundMark, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsRebindMark, chartsRememberRemoteRows } from "./chartsMarkTypeFit";
 import { energyConsumptionBySourceDataset, findChartsDataset } from "./datasets";
-import { CHARTS_3D_DEFAULT_CAMERA, chartsSurfaceFitFromRows, createCharts3dViewState, type Charts3dCamera, type Charts3dGuideOptions, type Charts3dViewState } from "./chartsWorkbench3d";
+import {
+  CHARTS_3D_DEFAULT_CAMERA, CHARTS_3D_MARK_TYPES, chartsFitTableFromRows, createCharts3dViewState,
+  type Charts3dAxesOverride, type Charts3dAxisOverride, type Charts3dCamera, type Charts3dFit,
+  type Charts3dGuideOptions, type Charts3dMarkTypeId, type Charts3dSource, type Charts3dViewState,
+} from "./chartsWorkbench3d";
 import { findCharts3dDataset } from "./datasets/chart3d";
 import {
   INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE, type Instrument3DEffectsState,
 } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 
 export type {
-  Charts3dCamera, Charts3dGuideOptions, Charts3dOrbitMode, Charts3dSceneOptions, Charts3dShading, Charts3dSource,
-  Charts3dStyleOption, Charts3dSurfaceFit, Charts3dViewState,
+  Charts3dAxesOverride, Charts3dAxisOverride, Charts3dCamera, Charts3dColumnRanking, Charts3dFit, Charts3dFitTable,
+  Charts3dGuideOptions, Charts3dMarkTypeId, Charts3dOrbitMode, Charts3dSceneOptions, Charts3dShading, Charts3dSource,
+  Charts3dStyleOption, Charts3dViewState,
 } from "./chartsWorkbench3d";
 export type { Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 export {
-  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, charts3dObjectCharset, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
+  CHARTS_3D_AXIS_FORMAT_NAMES, CHARTS_3D_DEFAULT_CAMERA, CHARTS_3D_MARK_TYPES, CHARTS_BARS3D_NEEDS, CHARTS_LINE3D_NEEDS, CHARTS_PARAMETRIC3D_NEEDS,
+  CHARTS_SCATTER3D_NEEDS, CHARTS_SURFACE_NEEDS, charts3dObjectCharset, chartsBest3dFitFromRows, chartsFitTableFromRows,
+  chartsRankColumnsForScatter3d, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
   createCharts3dViewState, resolveCharts3dStyle, resolveCharts3dView, resolveCharts3dViewForLiveScene,
 } from "./chartsWorkbench3d";
-export { CHARTS_3D_DATASETS, findCharts3dDataset } from "./datasets/chart3d";
+export { CHARTS_3D_DATASETS, findCharts3dDataset, randomCharts3dDatasetId } from "./datasets/chart3d";
 export type { Chart3dDataset } from "./datasets/chart3d";
 
 export type { ChartsDataSource, ChartsRecommendedChannels, ChartsTopRecommendation } from "./chartsDataSource";
@@ -402,17 +409,23 @@ export type ChartsWorkbenchAction =
   | { type: "set-axis-title-at"; axis: "y"; value: GlyphChartYAxisTitleAt }
   // Textures row (DIAGNOSIS-solid-colour-fills.md).
   | { type: "set-region-fill"; value: GlyphChartRegionFill }
-  // 3D (packet C3). `select-3d-dataset` mounts a vendored `datasets/chart3d/`
-  // preset (the tray tile / the mark card's "Surface" option when the
-  // current table doesn't fit); `select-3d-table` mounts an INLINE grid
-  // resolved from the reader's own currently-loaded 2D table
-  // (`chartsSurfaceFitFromRows`) — the mark card's "Surface" option when it
-  // does. Both reset the camera to auto-fit, mirroring `select-dataset`'s
-  // own scale reset. `set-3d-dimension` is what picking a 2D type while in
-  // 3D mode dispatches (`set-mark-type` itself always carries `dimension:
-  // "2d"` too, so a direct 2D pick needs no separate action).
+  // 3D (packet C3, generalized to every mark type by C6). `select-3d-dataset`
+  // mounts a vendored `datasets/chart3d/` preset (the tray tile / the mark
+  // card's Type toggle when the current table doesn't fit); `select-3d-table`
+  // mounts an INLINE mark of the given `markType` resolved from the reader's
+  // own currently-loaded 2D table (`chartsFitTableFromRows`) — the mark
+  // card's own Type toggle when it does; `select-3d-remote-table` mounts an
+  // ALREADY-RESOLVED inline source (`chartsBest3dFitFromRows`, run against a
+  // freshly loaded Hugging Face table — `ChartsWorkbench.tsx`'s own
+  // `loadRemote3dDataset`, which cannot dispatch a reducer action mid-async
+  // fetch and so resolves the fit itself before dispatching). All three
+  // reset the camera to auto-fit, mirroring `select-dataset`'s own scale
+  // reset. `set-3d-dimension` is what picking a 2D type while in 3D mode
+  // dispatches (`set-mark-type` itself always carries `dimension: "2d"` too,
+  // so a direct 2D pick needs no separate action).
   | { type: "select-3d-dataset"; id: string }
-  | { type: "select-3d-table" }
+  | { type: "select-3d-table"; markType: Charts3dMarkTypeId }
+  | { type: "select-3d-remote-table"; source: Extract<Charts3dSource, { kind: "inline" }> }
   | { type: "set-3d-dimension"; dimension: "2d" | "3d" }
   | { type: "set-3d-camera"; camera: Charts3dCamera }
   | { type: "set-3d-view"; patch: Partial<Pick<Charts3dViewState, "orbitMode" | "shading" | "colorscale" | "style">> }
@@ -420,6 +433,15 @@ export type ChartsWorkbenchAction =
   // EXISTING `chart3d.guides` object, so a single toggle patches one field
   // without disturbing the rest (mirroring `set-axis`'s own merge shape).
   | { type: "set-3d-guides"; patch: Partial<Charts3dGuideOptions> }
+  // Packet C6, coordinator addendum — the Axes folder's per-axis
+  // title/ticks/format/line/tickMarks/tickLabels/grid/color/domain
+  // overrides while a 3D type is active; merges into the ONE named axis's
+  // own override object, mirroring `set-axis`'s own 2D shape exactly.
+  // `set-3d-axes-color` writes the SHARED `axes.color` every axis's own
+  // `color` overrides (C7) — `undefined` clears it back to the library's
+  // own default (never `""`, since this is a real hex value, not text).
+  | { type: "set-3d-axis"; axis: "x" | "y" | "z"; patch: Partial<Charts3dAxisOverride> }
+  | { type: "set-3d-axes-color"; color: string | undefined }
   // Packet C4, item 3 — the shared Effects folder's own patch shape.
   | { type: "set-effect3d"; patch: Partial<Instrument3DEffectsState> };
 
@@ -669,14 +691,22 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       return { ...state, dimension: "3d", chart3d: { ...state.chart3d, source: { kind: "dataset", id: action.id }, camera: { ...CHARTS_3D_DEFAULT_CAMERA } } };
     }
     case "select-3d-table": {
-      const fit = chartsSurfaceFitFromRows(state.data, state.marks);
+      const fit = chartsFitTableFromRows(state.data, state.marks)[action.markType];
       if (!fit.fits) return state;
       return { ...state, dimension: "3d", chart3d: { ...state.chart3d, source: fit.source, camera: { ...CHARTS_3D_DEFAULT_CAMERA } } };
     }
+    case "select-3d-remote-table":
+      return { ...state, dimension: "3d", chart3d: { ...state.chart3d, source: action.source, camera: { ...CHARTS_3D_DEFAULT_CAMERA } } };
     case "set-3d-dimension": return action.dimension === state.dimension ? state : { ...state, dimension: action.dimension };
     case "set-3d-camera": return { ...state, chart3d: { ...state.chart3d, camera: action.camera } };
     case "set-3d-view": return { ...state, chart3d: { ...state.chart3d, ...action.patch } };
     case "set-3d-guides": return { ...state, chart3d: { ...state.chart3d, guides: { ...state.chart3d.guides, ...action.patch } } };
+    case "set-3d-axis":
+      return { ...state, chart3d: { ...state.chart3d, axes: { ...state.chart3d.axes, [action.axis]: { ...state.chart3d.axes[action.axis], ...action.patch } } } };
+    case "set-3d-axes-color": {
+      const { color: _color, ...rest } = state.chart3d.axes;
+      return { ...state, chart3d: { ...state.chart3d, axes: { ...rest, ...(action.color !== undefined ? { color: action.color } : {}) } } };
+    }
     case "set-effect3d": return { ...state, effect3d: { ...state.effect3d, ...action.patch } };
   }
 }

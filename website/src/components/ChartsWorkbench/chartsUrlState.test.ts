@@ -774,7 +774,7 @@ describe("chartsUrlState — 3D (dimension/chart3d)", () => {
       type: "update-mark", id: state.marks[0]!.id,
       patch: { dataText: JSON.stringify(rows), channels: { x: "x", y: "y" } },
     });
-    state = reduceChartsWorkbenchState(state, { type: "select-3d-table" });
+    state = reduceChartsWorkbenchState(state, { type: "select-3d-table", markType: "surface" });
     expect(state.dimension).toBe("3d");
     expect(state.chart3d.source.kind).toBe("inline");
     const raw = await encodeChartsUrlState(state);
@@ -935,6 +935,84 @@ describe("chartsUrlState — 3D (dimension/chart3d)", () => {
     expect(decoded!.effect3d).toEqual(CHARTS_WORKBENCH_DEFAULT_EFFECT3D);
     // The rest of the payload is untouched by this one bad field.
     expect(decoded!.marks).toEqual(base.marks);
+  });
+
+  // Packet C6 — every 3D dataset (one per mark type, `CHARTS_3D_DATASETS`)
+  // round-trips exactly, mirroring the surface-only round trip above but
+  // generalized. Mutation: a markType-specific branch missing from
+  // `validateCharts3dSource`'s inline handling would still pass for
+  // `"dataset"`-kind sources (this loop), since a vendored dataset source
+  // carries only `{kind:"dataset", id}` — the INLINE per-markType branches
+  // are covered separately below.
+  it.each(CHARTS_3D_DATASETS)("round-trips the $id ($markType) dataset exactly", async (dataset) => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: dataset.id });
+    expect(state.dimension).toBe("3d");
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+  });
+
+  // Packet C6 — an INLINE source of EVERY markType (scatter3d/bars3d/line3d,
+  // not just the original surface case above) is blanked the same way: no
+  // local copy rides in the link, and decode falls back to 2D gracefully.
+  it.each(["scatter3d", "bars3d", "line3d"] as const)("an INLINE %s source is never written into the link, and decodes back to 2D", async (markType) => {
+    const rows = Array.from({ length: 6 }, (_, i) => ({ x: i, y: i * 2, z: i * 991, label: `row-${i}` }));
+    let source: { readonly kind: "inline"; readonly markType: typeof markType; readonly title: string; readonly rows: typeof rows; readonly channels: Record<string, string> };
+    if (markType === "bars3d") source = { kind: "inline", markType, title: "t", rows, channels: { x: "x", y: "y", z: "z", xLabel: "label" } };
+    else source = { kind: "inline", markType, title: "t", rows, channels: { x: "x", y: "y", z: "z" } };
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const state: ChartsWorkbenchState = { ...base, chart3d: { ...base.chart3d, source: source as never } };
+    const raw = await encodeChartsUrlState(state);
+    expect(raw.includes("991")).toBe(false); // the distinctive z value never rides in the link
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.dimension).toBe("2d"); // no local copy to rehydrate from — graceful fallback
+  });
+
+  // Coordinator addendum — the Axes folder's per-axis overrides
+  // (title/ticks now; format/line/tickMarks/tickLabels/grid/color/domain
+  // once C7 landed, all wired the SAME append-only way) round-trip exactly,
+  // for all three axes, plus the shared `axes.color`.
+  it("round-trips per-axis title/ticks/format/visibility/colour/domain overrides, and the shared axes colour", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-axis", axis: "x", patch: { title: "Longitude", ticks: 7, format: "si", line: false, tickMarks: false, tickLabels: true, grid: true, color: "#ff0000", domain: [0, 100] } });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-axis", axis: "y", patch: { title: "Latitude" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-axis", axis: "z", patch: { ticks: 3 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-axes-color", color: "#00ff00" });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.axes.x).toEqual({ title: "Longitude", ticks: 7, format: "si", line: false, tickMarks: false, tickLabels: true, grid: true, color: "#ff0000", domain: [0, 100] });
+    expect(decoded!.chart3d.axes.color).toBe("#00ff00");
+  });
+
+  // An old link (saved before packet C6's axes field existed) carries no
+  // `axes` key at all and decodes to every axis empty — byte-identical to
+  // before this feature existed.
+  it("an old link with no chart3d.axes key at all decodes to every axis empty", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const { axes: _axes, ...chart3dPayload } = base.chart3d;
+    const payload = { ...base, chart3d: chart3dPayload };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.chart3d.axes).toEqual({ x: {}, y: {}, z: {} });
+  });
+
+  // A bad `format` name (not in the Dock's own safe preset subset) degrades
+  // to absent for that ONE field, never rejecting the whole `chart3d`
+  // payload — mirrors `validateCharts3dGuides`'s own per-field posture.
+  it("a format name outside CHARTS_3D_AXIS_FORMAT_NAMES degrades to absent, keeping every other axis field", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    // "decimals" is a REAL library preset (`GLYPH_CHART_TICK_FORMAT_PRESET_NAMES`)
+    // but excluded from this Dock row's own safe subset because it has a
+    // REQUIRED `places` param the row has no field for — exactly the case
+    // this validator must degrade rather than pass through blindly.
+    const payload = { ...base, chart3d: { ...base.chart3d, axes: { x: { title: "X", format: "decimals" }, y: {}, z: {} } } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.chart3d.axes.x).toEqual({ title: "X" }); // format dropped
   });
 });
 

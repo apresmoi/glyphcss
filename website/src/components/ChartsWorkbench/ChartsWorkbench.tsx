@@ -23,9 +23,11 @@ import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
   dataSourceKey, findChartsDataset, generateChartsWorkbenchSnippets, randomChartsDatasetId, randomChartsDatasetPick,
   reduceChartsWorkbenchState, remoteDatasetRecommendationCheck, resolveGlyphChartsWorkbenchControls,
-  CHARTS_3D_DATASETS, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions, createCharts3dViewState, resolveCharts3dView, resolveCharts3dViewForLiveScene,
+  CHARTS_3D_DATASETS, chartsBest3dFitFromRows, chartsFitTableFromRows, chartsWorkbench3dSceneOptions,
+  createCharts3dViewState, randomCharts3dDatasetId, resolveCharts3dView, resolveCharts3dViewForLiveScene,
   type ChartsWorkbenchState,
 } from "./chartsWorkbenchState";
+import { CHARTS_3D_REMOTE_DATASET_INDEX } from "./datasets/chart3dRemoteIndex";
 import { CHARTS_URL_PARAM, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState, encodeChartsUrlStateInfo } from "./chartsUrlState";
 import { buildStyledChartsWorkbenchSpec, chartsWorkbenchDisplayRender, renderChartsWorkbenchState, type ChartsWorkbenchRender } from "./chartsWorkbenchRender";
 import { renderCharts3dStatic } from "./chartsWorkbench3dRender";
@@ -185,7 +187,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // identity is what used to trigger its full scene remount on every drag).
   const chart3dResolved = useMemo(
     () => resolveCharts3dView(state.chart3d),
-    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, state.chart3d.guides],
+    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, state.chart3d.guides, state.chart3d.axes],
   );
   // Colour, charset AND style, all honoured LIVE (not only in the static
   // exit) — `color: "none"` maps straight to `useColors: false`, and
@@ -215,7 +217,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // it) to actually keep the scene from rebuilding on every drag release.
   const chart3dResolvedLive = useMemo(
     () => resolveCharts3dViewForLiveScene(state.chart3d, chart3dSceneOptions.useColors),
-    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, state.chart3d.guides, chart3dSceneOptions.useColors],
+    [state.chart3d.source, state.chart3d.shading, state.chart3d.colorscale, state.chart3d.guides, state.chart3d.axes, chart3dSceneOptions.useColors],
   );
   const chart3dViewportRef = useRef<HTMLDivElement | null>(null);
   const chart3dViewportHandleRef = useRef<Charts3dViewportHandle | null>(null);
@@ -298,12 +300,14 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // Memoised per base inside the fit module; the note says which of the
   // reader's rows the chart leaves out for its CURRENT channels.
   const markTypeFits = state.marks.map((mark) => chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark)));
-  // The mark card's "Surface" option (packet C3) — only the first card
-  // offers it (3D mounts one object). Real memoisation would need its own
-  // per-rows cache (mirroring `chartsMarkTypeFitTable`'s own); the direct
-  // `glyphChartSurface` probe this runs is cheap (one validation pass, no
-  // paint) so a plain call per render is fine at this page's data sizes.
-  const surfaceFit = useMemo(() => chartsSurfaceFitFromRows(state.data, state.marks), [state.data, state.marks]);
+  // The mark card's 3D Type row (packet C3's "Surface", widened to every
+  // mark type by C6) — only the first card offers it (3D mounts one
+  // object). Real memoisation would need its own per-rows cache (mirroring
+  // `chartsMarkTypeFitTable`'s own); the four real-constructor probes this
+  // runs are cheap (one validation pass each, no paint) so a plain call per
+  // render is fine at this page's data sizes.
+  const chart3dFits = useMemo(() => chartsFitTableFromRows(state.data, state.marks), [state.data, state.marks]);
+  const chart3dMarkType = chart3dResolved.ok ? chart3dResolved.resolved.mark.type : undefined;
   const omittedRows = state.marks.length > 0 ? chartsMarkOmittedRows(state.data, state.marks[0]!) : null;
   const omittedNote = omittedRows ? chartsOmittedRowsNote(omittedRows) : undefined;
   const thumbnails = useMemo(() => CHART_PRESETS.map((preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text), [state.controls.target]);
@@ -483,6 +487,69 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     }
   }, [dispatch]);
 
+  /**
+   * The 3D sibling of `loadRemoteDataset` (packet C6) — a curated or
+   * live-searched Hugging Face table, fit through `chartsBest3dFitFromRows`
+   * (surface, then columns, then scatter — that function's own doc) rather
+   * than the 2D ranker, and mounted as an INLINE 3D source via
+   * `select-3d-remote-table`. Shares `remoteLoadController`/`remoteLoadSeq`
+   * with `loadRemoteDataset` so only ONE remote fetch — 2D or 3D — is ever
+   * treated as "the current one"; mirrors its own fromRandom/manual split
+   * exactly (Random falls back to a random 3D preset on any failure, a
+   * manual search-box pick stays on the current chart with only a notice).
+   * There is no `"remote"` `Charts3dSource` kind to re-fetch on decode —
+   * the inline source's rows are simply blanked on encode, like every other
+   * inline 3D source, so a shared link falls back to 2D.
+   */
+  const loadRemote3dDataset = useCallback(async (hit: DatasetHit, fromRandom = false) => {
+    remoteLoadController.current?.abort();
+    const controller = new AbortController();
+    remoteLoadController.current = controller;
+    const seq = ++remoteLoadSeq.current;
+    setRemoteLoadingTitle(hit.title);
+    let result: Awaited<ReturnType<typeof loadDatasetRows>>;
+    try {
+      result = await loadDatasetRows(hit, { signal: controller.signal });
+    } catch (error) {
+      if (seq !== remoteLoadSeq.current) return;
+      setRemoteLoadingTitle(undefined);
+      if (isAbort(error)) return;
+      if (fromRandom) {
+        skipNextNoticeClear.current = true;
+        dispatch({ type: "select-3d-dataset", id: randomCharts3dDatasetId() });
+      }
+      setDatasetNotice(`Couldn't load "${hit.title}": ${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+    if (seq !== remoteLoadSeq.current) return;
+    setRemoteLoadingTitle(undefined);
+    if (!result.ok) {
+      if (fromRandom) {
+        skipNextNoticeClear.current = true;
+        dispatch({ type: "select-3d-dataset", id: randomCharts3dDatasetId() });
+      }
+      setDatasetNotice(`Couldn't load "${hit.title}": ${result.error}`);
+      return;
+    }
+    const fit = chartsBest3dFitFromRows(result.rows, hit.title);
+    if (!fit) {
+      if (fromRandom) {
+        skipNextNoticeClear.current = true;
+        dispatch({ type: "select-3d-dataset", id: randomCharts3dDatasetId() });
+        setDatasetNotice(`Couldn't fit a 3D chart to "${hit.title}" — showing a random 3D dataset instead.`);
+      } else {
+        setDatasetNotice(`Couldn't fit a 3D chart to "${hit.title}".`);
+      }
+      return;
+    }
+    pushRecentRemoteDataset(hit);
+    dispatch({ type: "select-3d-remote-table", source: fit.source });
+    if (result.truncated) {
+      skipNextNoticeClear.current = true;
+      setDatasetNotice(`Loaded a ${result.rows.length}-row sample of "${hit.title}" (it's larger than this page loads).`);
+    }
+  }, [dispatch]);
+
   // A `?c=` link naming a remote dataset carries no rows (see
   // `chartsUrlState.ts`'s "URL state" doc) — the page mounts on the
   // decoded shell immediately and this re-fetches the SAME ref exactly
@@ -612,15 +679,21 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // still names whatever was loaded before switching to 3D). A built-in
   // pick dispatches `select-dataset` exactly as before; a remote pick goes
   // through the SAME `loadRemoteDataset` the search box uses; a 3D pick
-  // dispatches `select-3d-dataset` — the variety comes from the dataset
-  // pick, never from a weaker view of the same data.
+  // dispatches `select-3d-dataset`; a 3D REMOTE pick (packet C6) goes
+  // through `loadRemote3dDataset` — the variety comes from the dataset
+  // pick, never from a weaker view of the same data. `randomChartsDatasetPick`'s
+  // own `dimension` argument keeps a 3D reader's Random draw inside the 3D
+  // pool (coordinator's own "Random in 3D picks from 3D-fitting datasets
+  // only" instruction) — a 2D reader's Random is UNCHANGED, still free to
+  // land on a 3D dataset.
   const handleRandomDataset = () => {
     cancelInFlightRemoteLoad(); // P1-4 — see this ref's own doc, above
     const excludeKey = state.dimension === "3d" && state.chart3d.source.kind === "dataset"
       ? `chart3d:${state.chart3d.source.id}` : dataSourceKey(state.data.source);
-    const pick = randomChartsDatasetPick(excludeKey);
+    const pick = randomChartsDatasetPick(excludeKey, state.dimension);
     if (pick.kind === "dataset") { dispatch({ type: "select-dataset", id: pick.id }); return; }
     if (pick.kind === "chart3d") { dispatch({ type: "select-3d-dataset", id: pick.id }); return; }
+    if (pick.kind === "chart3d-remote") { void loadRemote3dDataset(pick.hit, true); return; }
     void loadRemoteDataset(pick.hit, true);
   };
   // P1-4: the overlay's own `<select>` dispatches `select-dataset` DIRECTLY
@@ -669,7 +742,8 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
           {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled}
-            dimension={index === 0 ? state.dimension : undefined} surfaceFit={index === 0 ? surfaceFit : undefined} dispatch={dispatch} />)}
+            dimension={index === 0 ? state.dimension : undefined} chart3dMarkType={index === 0 ? chart3dMarkType : undefined}
+            chart3dFits={index === 0 ? chart3dFits : undefined} dispatch={dispatch} />)}
         </div>
       </InstrumentRail>
       <InstrumentMain>
@@ -720,7 +794,8 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
          *  sits on `/maps` — the same overlay idiom, three controls in one
          *  bar instead of one. */}
         <ChartsDataOverlay activeDatasetId={activeDatasetId} dispatch={overlayDispatch}
-          onSelectRemote={(hit) => void loadRemoteDataset(hit)} onRandom={handleRandomDataset} />
+          onSelectRemote={(hit) => void (is3d ? loadRemote3dDataset(hit) : loadRemoteDataset(hit))} onRandom={handleRandomDataset}
+          remoteSuggestions={is3d ? CHARTS_3D_REMOTE_DATASET_INDEX : undefined} />
         <div className="synth-export-bar">
           {exportActions}
           <button type="button" className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`} aria-controls="charts-export-panel" aria-expanded={codeOpen} onClick={() => { setMobilePanel(null); setCodeOpen((current) => !current); }}>Export</button>
@@ -731,7 +806,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
           actions={exportActions} />}
       </InstrumentMain>
       <Dock id="charts-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
-        <ChartsDock state={state} dispatch={dispatch} rendered={rendered} chart3dViewportHandleRef={chart3dViewportHandleRef} />
+        <ChartsDock state={state} dispatch={dispatch} rendered={rendered} chart3dViewportHandleRef={chart3dViewportHandleRef} chart3dResolved={chart3dResolved} />
       </Dock>
     </InstrumentBody>
     <InstrumentTray id="charts-presets-panel" label="Chart presets" open={mobilePanel === "presets"}>

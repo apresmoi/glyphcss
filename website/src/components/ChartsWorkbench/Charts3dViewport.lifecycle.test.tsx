@@ -439,26 +439,61 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     expect(cameraAfter.zoom).toBe(cameraBefore.zoom);
   });
 
-  // Item 3 — the Effects folder's Target row resolves "Surface" to the
-  // real mounted mesh handle and "Whole chart" to scene-wide (`undefined`),
-  // proving the WIRING (not just the rendered pixels, which
+  // Item 3 — the Effects folder's Target row resolves "Chart" (renamed
+  // from "Surface" by packet C6, which widened the live viewport to every
+  // 3D mark type — `ChartsDock.tsx`'s own `CHARTS_3D_EFFECT_TARGETS` doc)
+  // to the real mounted data-mesh handle and "Whole chart" to scene-wide
+  // (`undefined`), proving the WIRING (not just the rendered pixels, which
   // `charts3dEffectTargeting.test.ts` already proves coincide for THIS
   // object — guides carry no depth of their own).
   // Mutation: `Charts3dViewport.tsx`'s `resolveEffectTarget` always
-  // returning `undefined` regardless of `targetId` → the "Surface" case's
+  // returning `undefined` regardless of `targetId` → the "Chart" case's
   // own assertion (a defined target) reddens.
-  it("selecting Effect target 'Surface' passes the real surface mesh handle to addEffectLayer; 'Whole chart' passes undefined", () => {
+  it("selecting Effect target 'Chart' passes the real data-mesh handle to addEffectLayer; 'Whole chart' passes undefined", () => {
     enter3d();
     selectDropdown("Effect", "scan");
     expect(sceneSpies.addEffectLayer).toHaveBeenCalledTimes(1);
     const allTargetCall = sceneSpies.addEffectLayer.mock.calls.at(-1)![0] as { target: unknown };
     expect(allTargetCall.target, "the implicit 'Whole chart' target must be scene-wide (undefined)").toBeUndefined();
 
-    selectDropdown("Target", "Surface");
+    selectDropdown("Target", "Chart");
     expect(sceneSpies.addEffectLayer.mock.calls.length).toBeGreaterThan(1);
     const surfaceTargetCall = sceneSpies.addEffectLayer.mock.calls.at(-1)![0] as { target?: { id: number } };
-    expect(surfaceTargetCall.target, "the 'Surface' target must be a real mesh handle, not undefined/null").toBeDefined();
+    expect(surfaceTargetCall.target, "the 'Chart' target must be a real mesh handle, not undefined/null").toBeDefined();
     expect(typeof surfaceTargetCall.target!.id).toBe("number");
+  });
+
+  // Coordinator addendum (packet C6) — the Axes folder's per-axis rows:
+  // editing one updates the mounted scene-object handle IN PLACE
+  // (`objectUpdate`, `GlyphSceneObjectHandle.update`) — never a scene
+  // remount (`createGlyphSceneCalls` stays 1, the SAME P1-2 guarantee a
+  // shading/colorscale/guides edit already gets) — and the change reaches
+  // the static Copy ASCII exit too, proving the override actually flows
+  // into the built mark rather than only existing in Dock state.
+  function setTextInput(input: HTMLInputElement, value: string): void {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => { setter.call(input, value); input.dispatchEvent(new Event("input", { bubbles: true })); });
+  }
+  it("editing 'X title (3D)' updates the live object in place (no remount) and reaches Copy ASCII", async () => {
+    enter3d();
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    const before = await copiedAscii();
+    sceneSpies.objectUpdate.mockClear();
+    const titleInput = controller("X title (3D)").querySelector<HTMLInputElement>('input[type="text"]')!;
+    setTextInput(titleInput, "Custom Longitude Title");
+    expect(sceneSpies.objectUpdate, "the mesh handle must update in place").toHaveBeenCalled();
+    expect(sceneSpies.createGlyphSceneCalls, "never a scene remount for an axis edit").toBe(1);
+    const after = await copiedAscii();
+    expect(after).not.toBe(before);
+    expect(after).toContain("Custom Longitude Title");
+  });
+  it("the 2D Axes folder's own 'X title' row is hidden while a 3D type is active, and 'X title (3D)' is hidden in 2D", () => {
+    // 2D first (before entering 3D).
+    expect(controller("X title").querySelector("input")!.closest(".controller")!.classList.contains("disabled")).toBe(false);
+    expect(getComputedStyle(controller("X title (3D)")).display).toBe("none");
+    enter3d();
+    expect(getComputedStyle(controller("X title (3D)")).display).not.toBe("none");
+    expect(getComputedStyle(controller("X title")).display).toBe("none");
   });
 
   // Item 3/4 — dispose on: effect id change, view switch away from 3D, and
@@ -518,7 +553,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     enter3d();
     const before = await copiedAscii();
     selectDropdown("Effect", "glitch");
-    selectDropdown("Target", "Surface");
+    selectDropdown("Target", "Chart");
     const after = await copiedAscii();
     expect(after).toBe(before);
   });
