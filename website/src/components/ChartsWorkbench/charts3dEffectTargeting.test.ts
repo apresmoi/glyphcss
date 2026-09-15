@@ -171,20 +171,20 @@ it("targeting Surface changes only the surface mesh's own cells (glyph AND colou
   }
 }, 20_000);
 
-// "Whole chart" (`target: undefined`, scene-wide) reaches the SAME cells
-// "Surface" does for this particular object, and no more — the effect
-// compositor's own coverage is the scene's "finite depth" rule (AGENTS.md's
-// "DOM-free compositor": `ctx.coverage`/`ctx.hasDepth`), and the axis-triad
-// overlay's stamped lines/ticks/labels carry no such depth of their own (a
-// canvas-level cell stamp, not rasterized mesh geometry) — so with only one
-// real mesh (`"surface"`) in the object, a scene-wide effect has nothing
-// else to paint. This is a genuine, verified property of THIS object shape
-// (confirmed by direct measurement below), not an assumption — a future
-// object with a second depth-producing mesh would show the two targets
-// diverge, and this test would need revisiting then.
-it("targeting Whole chart (scene-wide) paints the SAME cells as targeting Surface, since guides carry no depth of their own", async () => {
+// "Whole chart" (`target: undefined`, scene-wide) reaches every cell
+// "Surface" does, identically — plus, since packet C5 made the axis triad's
+// lines real `"axis-lines"` ribbon geometry (depth-producing, unlike the old
+// stamped glyphs), cells on those lines too. So Surface's changed cells are a
+// SUBSET of Whole chart's, each carrying the same glyph and colour.
+it("targeting Whole chart (scene-wide) paints every cell Surface paints, identically, and may reach the axis-line geometry beyond it", async () => {
+  const baseline = await renderWithTarget(null);
   const targetedSurface = await renderWithTarget("surface");
   const targetedAll = await renderWithTarget("all");
-  expect(targetedAll.rows).toEqual(targetedSurface.rows);
-  expect(targetedAll.colors).toEqual(targetedSurface.colors);
+  const surfaceChanged = diffCells(baseline, targetedSurface);
+  expect(surfaceChanged.length).toBeGreaterThan(0);
+  for (const { row, col } of surfaceChanged) {
+    expect(targetedAll.rows[row]![col], `surface cell (row ${row}, col ${col}) glyph under Whole chart`).toBe(targetedSurface.rows[row]![col]);
+    expect(targetedAll.colors[row]![col], `surface cell (row ${row}, col ${col}) colour under Whole chart`).toBe(targetedSurface.colors[row]![col]);
+  }
+  expect(diffCells(baseline, targetedAll).length).toBeGreaterThanOrEqual(surfaceChanged.length);
 }, 20_000);

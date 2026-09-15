@@ -4,19 +4,13 @@
  * step: no mesh, no overlay, no scene — `object.ts`'s `glyphChartObject`
  * consumes the result.
  */
-import { scaleLinear } from "d3-scale";
-import { format as d3format } from "d3-format";
 import { chart3dError } from "./validate";
 import { resolveGlyphChart3dColorscaleAnchors } from "./colorscale";
 import { ledgerSurfaceDecimated } from "./ledger";
+import { resolveAspect, resolveAxis, resolveBands, resolveCorner, resolveGuides } from "./axisTriadShared";
 import type {
-  GlyphChart3dAxisOptions,
   GlyphChart3dBuildReport,
   GlyphChart3dChannelValue,
-  GlyphChart3dCornerOption,
-  GlyphChart3dGuideOptions,
-  GlyphChart3dResolvedAxis,
-  GlyphChart3dResolvedGuides,
   GlyphChart3dSurfaceChannels,
   GlyphChart3dSurfaceData,
   GlyphChart3dSurfaceGridData,
@@ -24,69 +18,6 @@ import type {
   GlyphChart3dSurfaceOptions,
   GlyphChart3dSurfaceRecord,
 } from "./types";
-
-/** `axes.corner` — `"auto"` (default) or an explicit `[0|1,0|1,0|1]` triple/named corner shorthand. */
-const CORNER_NAMES: Record<string, readonly [0 | 1, 0 | 1, 0 | 1]> = {
-  "x0-y0-z0": [0, 0, 0], "x1-y0-z0": [1, 0, 0], "x1-y1-z0": [1, 1, 0], "x0-y1-z0": [0, 1, 0],
-  "x0-y0-z1": [0, 0, 1], "x1-y0-z1": [1, 0, 1], "x1-y1-z1": [1, 1, 1], "x0-y1-z1": [0, 1, 1],
-};
-
-function resolveCorner(option: GlyphChart3dCornerOption | keyof typeof CORNER_NAMES | undefined): GlyphChart3dCornerOption {
-  if (option === undefined || option === "auto") return "auto";
-  if (typeof option === "string") {
-    const named = CORNER_NAMES[option];
-    if (named === undefined) chart3dError("bad-options", `axes.corner must be "auto", a [0|1,0|1,0|1] triple, or one of ${Object.keys(CORNER_NAMES).join(", ")}, got ${JSON.stringify(option)}.`);
-    return named!;
-  }
-  if (
-    Array.isArray(option) && option.length === 3
-    && option.every((b) => b === 0 || b === 1)
-  ) {
-    return option as GlyphChart3dCornerOption;
-  }
-  chart3dError("bad-options", `axes.corner must be "auto" or a [0|1,0|1,0|1] triple, got ${JSON.stringify(option)}.`);
-}
-
-function resolveGuides(options: GlyphChart3dGuideOptions | undefined): GlyphChart3dResolvedGuides {
-  const g = options ?? {};
-  for (const [key, value] of Object.entries(g)) {
-    if (value !== undefined && typeof value !== "boolean") {
-      chart3dError("bad-options", `guides.${key} must be a boolean, got ${JSON.stringify(value)}.`);
-    }
-  }
-  return {
-    axisLines: g.axisLines ?? true,
-    ticks: g.ticks ?? true,
-    tickLabels: g.tickLabels ?? true,
-    titles: g.titles ?? true,
-    // Fix round 5, Item 2 ("the wall grid is still a cage"): default FALSE
-    // now (opt-in), not true. Measured ink share was already honest
-    // (7-11% of the plot's own bounding box, well under the round-5 gate's
-    // 15% cap — `render.test.ts`'s own regression test), so this was never
-    // an ink-DENSITY defect; it was a visual-WEIGHT one — the coordinator's
-    // own report ("a big dotted diamond... filling the whole upper half of
-    // the frame... visually outweigh the data") and this round's own
-    // side-by-side render (`docs/design/charts3d.md`'s "C2 fix round 5")
-    // both read the SAME geometric wall-plane crosshatch as visually
-    // dominant against a typical fixture's own data ink, even at a
-    // technically-modest cell count — a few evenly-spaced lines across two
-    // full guide planes still reads as a cage shape (a diamond, at this
-    // library's own default oblique camera) the eye locks onto ahead of
-    // the surface. Decided by LOOKING (the coordinator's own explicit
-    // instruction), not by the ink metric alone: with the grid off, the
-    // SAME two fixtures read as a clean oblique surface with axis
-    // structure only — closer to matplotlib's own DEFAULT (panes with no
-    // gridlines drawn unless the reader asks). `guides.grid: true` (or the
-    // `floorGrid` companion) still works exactly as built for a caller who
-    // wants the guide planes back.
-    grid: g.grid ?? false,
-    floorGrid: g.floorGrid ?? false,
-    walls: g.walls ?? false,
-    box: g.box ?? false,
-  };
-}
-
-const PLAIN_FORMAT = d3format("~r");
 
 function isGridData(data: GlyphChart3dSurfaceData): data is GlyphChart3dSurfaceGridData {
   return typeof data === "object" && data !== null && !Array.isArray(data) && Array.isArray((data as GlyphChart3dSurfaceGridData).z);
@@ -204,51 +135,10 @@ function resolveLongRowShape(data: readonly GlyphChart3dSurfaceRecord[], channel
   return { z: z as number[][], x: xs, y: ys, xTitle, yTitle };
 }
 
-function resolveAspect(aspect: GlyphChart3dSurfaceOptions["aspect"]): readonly [number, number, number] {
-  // Fix round 2, P1-a: the prior [1,1,0.6] left the plot-only (colorbar-
-  // excluded) footprint at ~19-23% of the frame at the default camera —
-  // wide of the P1-a target (>=45%) — because a row-BOUND fit (the ROW
-  // constraint, not columns, binds the auto-fit's own zoom at the default
-  // pitch) leaves most of the generous column budget unused. Widening x/y
-  // spreads the SAME row-bound zoom across more columns, measured (real
-  // renderer, volcano fixture, 100x34, a colorbar + title reserved) to
-  // clear the target with margin (0.459) at the DEFAULT camera below.
-  if (aspect === undefined) return [1.3, 1.3, 0.6];
-  if (!Array.isArray(aspect) || aspect.length !== 3 || aspect.some((v) => typeof v !== "number" || !Number.isFinite(v) || v <= 0)) {
-    chart3dError("bad-options", `aspect must be 3 positive finite numbers [x, y, z], got ${JSON.stringify(aspect)}.`);
-  }
-  return [aspect[0]!, aspect[1]!, aspect[2]!];
-}
-
-function resolveBands(bands: number | undefined): number {
-  if (bands === undefined) return 9;
-  if (!Number.isInteger(bands) || bands < 1) chart3dError("bad-options", `bands must be a positive integer, got ${JSON.stringify(bands)}.`);
-  return bands;
-}
-
 function resolveMaxQuads(value: number | undefined, name: string): number | undefined {
   if (value === undefined) return undefined;
   if (!Number.isInteger(value) || value < 1) chart3dError("bad-options", `${name} must be a positive integer, got ${JSON.stringify(value)}.`);
   return value;
-}
-
-function resolveAxis(values: readonly number[], defaultTitle: string, options: GlyphChart3dAxisOptions | undefined): GlyphChart3dResolvedAxis {
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const domain: [number, number] = min === max ? [min - 1, max + 1] : [min, max];
-  const scale = scaleLinear().domain(domain).nice();
-  const requested = options?.ticks;
-  if (requested !== undefined && (!Number.isInteger(requested) || requested < 1)) {
-    chart3dError("bad-options", `axes ticks must be a positive integer, got ${JSON.stringify(requested)}.`);
-  }
-  const ticks = scale.ticks(requested ?? 5);
-  const title = options?.title !== undefined ? options.title : defaultTitle;
-  return {
-    title,
-    domain: scale.domain() as [number, number],
-    ticks,
-    tickLabels: ticks.map((t) => PLAIN_FORMAT(t)),
-  };
 }
 
 /**

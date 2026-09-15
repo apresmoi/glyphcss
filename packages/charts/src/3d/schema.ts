@@ -10,10 +10,14 @@
  * header doc).
  */
 import { GLYPH_CHART_3D_COLORSCALE_NAMES } from "./types";
-import { GLYPH_CHART_3D_VALIDATION_RULES, glyphChart3dRepairHint } from "./validate";
+import {
+  GLYPH_CHART_3D_BARS_RULES, GLYPH_CHART_3D_LINE3D_RULES, GLYPH_CHART_3D_PARAMETRIC_RULES,
+  GLYPH_CHART_3D_SCATTER_RULES, GLYPH_CHART_3D_SURFACE_RULES, glyphChart3dRepairHint,
+} from "./validate";
 import type { GlyphChart3dValidationRuleId } from "./validate";
 
-export interface GlyphChart3dSurfaceJsonSchema {
+/** Shared shape every `glyphChart3d*JsonSchema()` function returns. */
+export interface GlyphChart3dJsonSchema {
   readonly $schema: string;
   readonly title: string;
   readonly type: "object";
@@ -22,6 +26,7 @@ export interface GlyphChart3dSurfaceJsonSchema {
   readonly [key: string]: unknown;
   readonly "x-glyphcss-validation-rules": Readonly<Record<GlyphChart3dValidationRuleId, string>>;
 }
+export type GlyphChart3dSurfaceJsonSchema = GlyphChart3dJsonSchema;
 
 const NUMBER_ARRAY = { type: "array", items: { type: "number" } };
 const HEX_COLOR_SCHEMA = { type: "string", pattern: "^#[0-9a-f]{6}$" };
@@ -102,7 +107,143 @@ export function glyphChart3dSurfaceJsonSchema(): GlyphChart3dSurfaceJsonSchema {
       },
     },
     "x-glyphcss-validation-rules": Object.fromEntries(
-      GLYPH_CHART_3D_VALIDATION_RULES.map((id) => [id, glyphChart3dRepairHint(id)]),
+      GLYPH_CHART_3D_SURFACE_RULES.map((id) => [id, glyphChart3dRepairHint(id)]),
     ) as Record<GlyphChart3dValidationRuleId, string>,
+  };
+}
+
+function rulesOf(rules: readonly GlyphChart3dValidationRuleId[]): Record<GlyphChart3dValidationRuleId, string> {
+  return Object.fromEntries(rules.map((id) => [id, glyphChart3dRepairHint(id)])) as Record<GlyphChart3dValidationRuleId, string>;
+}
+
+/** C5: `glyphChartScatter3d`'s own input shape. */
+export function glyphChart3dScatterJsonSchema(): GlyphChart3dJsonSchema {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "GlyphChart3dScatterInput",
+    type: "object",
+    required: ["data"],
+    properties: {
+      data: { type: "array", minItems: 1, items: { type: "object" } },
+      channels: {
+        type: "object", additionalProperties: false,
+        properties: { x: { type: "string" }, y: { type: "string" }, z: { type: "string" }, series: { type: "string" }, color: { type: "string" }, size: { type: "string" } },
+      },
+      options: {
+        type: "object", additionalProperties: false,
+        properties: {
+          aspect: { type: "array", minItems: 3, maxItems: 3, items: { type: "number", exclusiveMinimum: 0 } },
+          colorscale: { anyOf: [{ enum: GLYPH_CHART_3D_COLORSCALE_NAMES }, { type: "array", minItems: 2, items: HEX_COLOR_SCHEMA }] },
+          bands: { type: "integer", minimum: 1 },
+          color: { enum: ["auto", "none"] },
+          markerSize: { type: "number", exclusiveMinimum: 0 },
+          axes: {
+            type: "object", additionalProperties: false,
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+          },
+          guides: GUIDE_OPTIONS_SCHEMA,
+        },
+      },
+    },
+    "x-glyphcss-validation-rules": rulesOf(GLYPH_CHART_3D_SCATTER_RULES),
+  };
+}
+
+const PARAMETRIC_GRID_SCHEMA = { type: "array", minItems: 1, items: { type: "array", minItems: 1, items: { type: "number" } } };
+
+/** C5: `glyphChartParametric3d`'s own input shape — precomputed x/y/z (and optional value) grids only, a function has no JSON form (this file's own header doc). */
+export function glyphChart3dParametricJsonSchema(): GlyphChart3dJsonSchema {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "GlyphChart3dParametricInput",
+    type: "object",
+    required: ["data"],
+    properties: {
+      data: {
+        type: "object", required: ["x", "y", "z"], additionalProperties: false,
+        properties: { x: PARAMETRIC_GRID_SCHEMA, y: PARAMETRIC_GRID_SCHEMA, z: PARAMETRIC_GRID_SCHEMA, value: PARAMETRIC_GRID_SCHEMA },
+      },
+      options: {
+        type: "object", additionalProperties: false,
+        properties: {
+          aspect: { type: "array", minItems: 3, maxItems: 3, items: { type: "number", exclusiveMinimum: 0 } },
+          colorscale: { anyOf: [{ enum: GLYPH_CHART_3D_COLORSCALE_NAMES }, { type: "array", minItems: 2, items: HEX_COLOR_SCHEMA }] },
+          bands: { type: "integer", minimum: 1 },
+          color: { enum: ["auto", "none"] },
+          wrapU: { type: "boolean" },
+          wrapV: { type: "boolean" },
+          axes: {
+            type: "object", additionalProperties: false,
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+          },
+          guides: GUIDE_OPTIONS_SCHEMA,
+        },
+      },
+    },
+    "x-glyphcss-validation-rules": rulesOf(GLYPH_CHART_3D_PARAMETRIC_RULES),
+  };
+}
+
+/** C5: `glyphChartBars3d`'s own input shape. */
+export function glyphChart3dBarsJsonSchema(): GlyphChart3dJsonSchema {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "GlyphChart3dBarsInput",
+    type: "object",
+    required: ["data"],
+    properties: {
+      data: { type: "array", minItems: 1, items: { type: "object" } },
+      channels: {
+        type: "object", additionalProperties: false,
+        properties: { x: { type: "string" }, y: { type: "string" }, z: { type: "string" }, xLabel: { type: "string" }, yLabel: { type: "string" } },
+      },
+      options: {
+        type: "object", additionalProperties: false,
+        properties: {
+          aspect: { type: "array", minItems: 3, maxItems: 3, items: { type: "number", exclusiveMinimum: 0 } },
+          colorscale: { anyOf: [{ enum: GLYPH_CHART_3D_COLORSCALE_NAMES }, { type: "array", minItems: 2, items: HEX_COLOR_SCHEMA }] },
+          bands: { type: "integer", minimum: 1 },
+          color: { enum: ["auto", "none"] },
+          barWidth: { type: "number", exclusiveMinimum: 0, maximum: 1 },
+          axes: {
+            type: "object", additionalProperties: false,
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+          },
+          guides: GUIDE_OPTIONS_SCHEMA,
+        },
+      },
+    },
+    "x-glyphcss-validation-rules": rulesOf(GLYPH_CHART_3D_BARS_RULES),
+  };
+}
+
+const POINT3_SCHEMA = { type: "array", minItems: 3, maxItems: 3, items: { type: "number" } };
+const LINE3D_SERIES_SCHEMA = {
+  type: "object", required: ["points"], additionalProperties: false,
+  properties: { name: { type: "string" }, color: HEX_COLOR_SCHEMA, points: { type: "array", minItems: 2, items: POINT3_SCHEMA } },
+};
+
+/** C5: `glyphChartLine3d`'s own input shape — a bare point list (one unnamed series) or an array of named series. */
+export function glyphChart3dLineJsonSchema(): GlyphChart3dJsonSchema {
+  return {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    title: "GlyphChart3dLineInput",
+    type: "object",
+    required: ["data"],
+    properties: {
+      data: { anyOf: [{ type: "array", minItems: 1, items: POINT3_SCHEMA }, { type: "array", minItems: 1, items: LINE3D_SERIES_SCHEMA }] },
+      options: {
+        type: "object", additionalProperties: false,
+        properties: {
+          aspect: { type: "array", minItems: 3, maxItems: 3, items: { type: "number", exclusiveMinimum: 0 } },
+          axes: {
+            type: "object", additionalProperties: false,
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+          },
+          guides: GUIDE_OPTIONS_SCHEMA,
+        },
+      },
+    },
+    "x-glyphcss-validation-rules": rulesOf(GLYPH_CHART_3D_LINE3D_RULES),
   };
 }

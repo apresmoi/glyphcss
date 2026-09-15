@@ -57,7 +57,15 @@ export interface GlyphChart3dFitCameraOptions {
    * marks, tick labels and axis titles (`object.ts`'s own `TICK_LABEL_MARGIN`/
    * `AXIS_TITLE_MARGIN` push-out, plus slack for the label TEXT's own
    * width/height, which this function has no glyph metrics to measure
-   * exactly). Default `0.45`.
+   * exactly). Default `0.65` (C2 fix round 8: raised from `0.45`, which sat
+   * BELOW `object.ts`'s own real `AXIS_TITLE_MARGIN` of `0.6` — at some
+   * rotations, including round 8's own new default `rotY: 235`, the title
+   * push-out this cheap pre-fit reserves for was smaller than the push-out
+   * the real overlay actually applies, and a title's own row could clip
+   * off the fitted viewport entirely. `0.65` clears the real `0.6` with a
+   * small margin; this function stays an approximate, camera-agnostic
+   * pre-fit, never a promise as exact as `render.ts`'s own closed-form
+   * `fitStaticCamera`, which reads the real label anchors directly).
    */
   readonly margin?: number;
   /**
@@ -73,7 +81,7 @@ export interface GlyphChart3dFitCameraResult {
   readonly zoom: number;
 }
 
-const DEFAULT_MARGIN = 0.45;
+const DEFAULT_MARGIN = 0.65;
 const DEFAULT_SAFETY = 0.92;
 
 function boundsCenter(bounds: GlyphChart3dBounds): Vec3 {
@@ -145,7 +153,8 @@ export function glyphChart3dFitCamera(options: GlyphChart3dFitCameraOptions): Gl
  * confused "more screen pixels occupied" with "reads better" — round 3
  * reverts to a Plotly-like oblique eye elevation (~30-35 degrees above the
  * horizon, i.e. `rotX` in glyphcss's own convention is `90 - elevation`):
- * `rotX: 58` (32 degrees of elevation). `rotY: 45` is unchanged.
+ * `rotX: 58` (32 degrees of elevation) — KEPT unchanged through C2 fix
+ * rounds 7 and 8 (below).
  *
  * Fix round 4 (coordinator root-cause finding, the `cellAspect` convention
  * bug — `render.ts`'s `renderObjectFrame` doc has the full derivation):
@@ -165,5 +174,80 @@ export function glyphChart3dFitCamera(options: GlyphChart3dFitCameraOptions): Gl
  * (`render.test.ts`'s "auto-fit makes the plot the DOMINANT element")
  * clears >= 0.55 at every one of 15 rotation/size combinations post-fix,
  * well above its own re-floored `0.5`.
+ *
+ * **C2 fix round 7 (`rotY: 45 -> 228`, USER FEEDBACK, verbatim: "put the
+ * 0,0,0 in one of the corners... do not put it in the center").** The axis
+ * TRIAD's origin corner became a FIXED constant at the data-min box vertex
+ * (`object.ts`'s `resolveOriginCorner`) rather than searched per camera —
+ * so unlike round 2-6, WHICH corner is used is no longer a free variable
+ * the camera can dodge around; only the CAMERA can be chosen so that ONE
+ * specific corner reads well. `rotY: 45` was measured to put that corner's
+ * own two floor edges 92-100% BEHIND the terrain on both real dataset
+ * fixtures — the corner sat on the FAR side of the data, exactly the
+ * "cannot see the axes" defect one level up — and `228` was chosen purely
+ * by maximizing the worst-of-6 real occlusion-visibility measurement,
+ * which also passes at the box's own front (near) corner, not only at a
+ * side one (superseded finding, below).
+ *
+ * **C2 fix round 8 (`rotY: 228 -> 235`, coordinator review of round 7:
+ * "the origin corner is at the FRONT, so the z axis runs up through the
+ * middle of the shape").** Round 7's own visibility-only sweep found the
+ * NEAREST box corner to the camera, not a SIDE one — at `228` the origin
+ * corner's own projected COLUMN sat within ~2% of the box's own 8-corner
+ * column midpoint (genuinely centred among the box's own vertices,
+ * confirmed by direct measurement), so the z axis's tick labels landed
+ * visually inside the terrain's own silhouette even though the axis LINE
+ * itself was correctly depth-tested and unoccluded — occlusion and
+ * horizontal centring are different properties, and round 7 only checked
+ * the first.
+ *
+ * **The two properties are in real, measured tension for this box shape.**
+ * `resolveOriginCorner`'s corner is provably the box's own STRICT leftmost
+ * projected vertex (of all 8) for `rotY` in the open interval `(270, 360)`
+ * at ANY `rotX` (closed-form: with the default symmetric `aspect[0] ===
+ * aspect[1]`, screen column is an affine function of world x/y only —
+ * `z` never moves it — so the 4 base-plane corners' own columns are
+ * `0`, `E*cos(rotY)`, `-E*sin(rotY)`, `E*(cos(rotY) - sin(rotY))` for a
+ * box half-width `E`, and the origin's own `0` is the strict minimum of
+ * those four exactly when `cos(rotY) > 0` and `sin(rotY) < 0`). Every
+ * `rotY` in that entire range was swept (also across `rotX` 15-75) against
+ * BOTH real dataset fixtures with a genuine render + `winnerMesh` depth
+ * read: axis-line visibility there never exceeds ~21%, because a corner
+ * that is the box's own screen-column extreme is, for this camera family
+ * and a terrain height-field, ALSO the corner FARTHEST from the camera —
+ * its own two floor edges then run BEHIND the raised terrain for most of
+ * their length. Strict left-corner placement and real axis-line
+ * visibility are therefore NOT jointly reachable for this symmetric
+ * `[1.3, 1.3, 0.6]` aspect box, at any pitch tested — a measured geometric
+ * fact, not a search failure (`docs/design/charts3d.md`'s "C2 fix round 8"
+ * has the full swept tables).
+ *
+ * **`rotY: 235` is the best point on that real trade-off**, found by
+ * sweeping `rotY` narrowly around round 7's own high-visibility band
+ * (`rotX: 58`, `rotY` 195-260) and scoring each candidate on BOTH how far
+ * left of the box's own 8-corner column MIDPOINT the origin corner sits
+ * (`leftFraction`, `0` = the strict leftmost vertex, `0.5` = dead centre)
+ * and the worst-of-6 real axis-line visibility. `228` measured
+ * `leftFraction ~= 0.474` (barely left of centre — the reported defect);
+ * `235` measures `leftFraction ~= 0.41` (a real, visually material move
+ * toward the side) while KEEPING axis-line visibility at 92-100% on both
+ * real fixtures (`[1.00, 0.92-0.95, 1.00]`, both comfortably above the
+ * 70% floor `render.test.ts`'s own gate checks, and markedly above round
+ * 7's own 228 numbers on the weakest axis). This is the genuine ceiling on
+ * "how far left" this box shape and terrain class can go before axis-line
+ * visibility collapses — documented as a residual, not silently claimed
+ * as the literal "leftmost of 8" the review's own language asked for.
+ *
+ * **The origin-column-target SHIFT (`ORIGIN_COLUMN_TARGET_FRACTION`,
+ * round 7's own post-fit recentring) is REMOVED in round 8**: it pushed
+ * the WHOLE rendered frame sideways to force the corner to a fixed
+ * fraction of the plot width, which is what left ~55% of the frame empty
+ * on one side (the reported defect) — `render.ts`'s `fitStaticCamera` now
+ * centres the FULL projected content (surface + axes + labels + colorbar)
+ * symmetrically, exactly as it did before round 7's shift existed, and the
+ * `235` yaw's own real `leftFraction` improvement is what moves the
+ * corner visually off-centre now, with LEFT/RIGHT ink margins measured
+ * within ~5% of each other on Maunga Whau at the default camera (well
+ * inside the review's own +/-15% gate).
  */
-export const GLYPH_CHART_3D_DEFAULT_CAMERA = { rotX: 58, rotY: 45 } as const;
+export const GLYPH_CHART_3D_DEFAULT_CAMERA = { rotX: 58, rotY: 235 } as const;

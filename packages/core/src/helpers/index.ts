@@ -102,3 +102,6 @@ export { resolveGeometry } from "./geometryRegistry";
 export type { GlyphGeometryName, GlyphGeometryOptions } from "./geometryRegistry";
 export { gridSurfacePolygons } from "./gridSurfacePolygons";
 export type { GridSurfaceField, GridSurfaceQuadBlock, GridSurfacePolygonsOptions, GridSurfaceDecimation, GridSurfacePolygonsResult } from "./gridSurfacePolygons";
+export { parametricSurfacePolygons } from "./parametricSurfacePolygons";
+export type { ParametricSurfaceField, ParametricSurfacePolygonsOptions } from "./parametricSurfacePolygons";
+export { frameFromForward, orientedRibbonPolygons, orientedPyramidPolygons } from "./orientedGeometry";

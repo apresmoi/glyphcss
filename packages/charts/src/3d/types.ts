@@ -50,24 +50,43 @@ export interface GlyphChart3dAxisOptions {
 
 /** `0` = the box's own `0` coordinate on that axis, `1` = `aspect[axis]`. */
 export type GlyphChart3dCornerBit = 0 | 1;
-/** A box vertex (fix round 2's "axes in one corner" redesign — `object.ts`'s own `resolveSharedCorner` doc). */
+/** A box vertex — `object.ts`'s own `resolveOriginCorner`/`resolveSharedCorner` docs. */
 export type GlyphChart3dCorner = readonly [GlyphChart3dCornerBit, GlyphChart3dCornerBit, GlyphChart3dCornerBit];
 /**
- * `"auto"` (default): resolved per camera, every `stamp()` call. Round 6
- * (USER FEEDBACK — "cannot see the axes"): under `"auto"` the x/y axis
- * lines share ONE corner (the front floor edge, nearest the camera) while
- * the z axis resolves its OWN, independent corner (the silhouette vertical
- * edge) — `object.ts`'s `resolveAxisTriadCorners` doc has the full
- * rationale; pinning all three to one shared corner (round 2's original
- * design) could hide the whole triad behind a fully opaque surface. An
- * EXPLICIT `GlyphChart3dCorner` still pins all three axes to that one
- * corner, unchanged — only `"auto"` drops strict single-corner sharing.
- * `guides.walls`/`guides.box`/`guides.grid`/`floorGrid` are unaffected
- * either way — they still resolve ONE shared corner via
- * `object.ts`'s `resolveSharedCorner`, since they are meant to sit
- * behind the data as a backdrop.
+ * `"auto"` (default, C2 fix round 7 — USER FEEDBACK, verbatim: "put the
+ * 0,0,0 in one of the corners"): the axis TRIAD (lines/ticks/labels/titles)
+ * always resolves to the SINGLE data-min box vertex, `[0, 0, 0]` — the only
+ * corner where every axis's own first tick can legitimately sit, so there
+ * is nothing left to search for per camera (`object.ts`'s
+ * `resolveOriginCorner` doc has the full rationale, superseding round 6's
+ * own per-camera `resolveAxisTriadCorners` split). An EXPLICIT
+ * `GlyphChart3dCorner` still pins the whole triad to that given corner.
+ * `guides.walls`/`guides.box`/`guides.grid`/`floorGrid` are UNAFFECTED
+ * either way — they still resolve their own single BACKDROP corner per
+ * camera via `object.ts`'s `resolveSharedCorner`, since they are meant to
+ * sit behind the data, a different design goal from the triad's own
+ * "anchor the data at a fixed, always-visible-by-construction corner" one.
  */
 export type GlyphChart3dCornerOption = "auto" | GlyphChart3dCorner;
+
+/**
+ * The shared shape every 3D mark type's axis-triad machinery
+ * (`object.ts`'s `axisTriadOverlay`/`glyphChart3dLabelAnchors`/
+ * `glyphChart3dResolvedCorner`, `render.ts`'s `fitStaticCamera`) reads —
+ * `GlyphChart3dSurfaceMark` and every later mark type structurally satisfy
+ * it. Generic over WHAT is being plotted; the triad only ever needs to know
+ * the box it frames and how to draw its own furniture.
+ */
+export interface GlyphChart3dAxisTriadSpec {
+  readonly aspect: readonly [number, number, number];
+  readonly axes: {
+    readonly x: GlyphChart3dResolvedAxis;
+    readonly y: GlyphChart3dResolvedAxis;
+    readonly z: GlyphChart3dResolvedAxis;
+  };
+  readonly corner: GlyphChart3dCornerOption;
+  readonly guides: GlyphChart3dResolvedGuides;
+}
 
 /**
  * Independent toggles over what the axis triad draws (fix round 2, message
@@ -189,15 +208,120 @@ export interface GlyphChart3dSurfaceMark {
     readonly y: GlyphChart3dResolvedAxis;
     readonly z: GlyphChart3dResolvedAxis;
   };
-  /** `"auto"` (default) or an explicit override — `object.ts`'s `resolveSharedCorner` resolves `"auto"` per camera, per `stamp()` call. */
+  /** `"auto"` (default, the fixed data-min corner) or an explicit override — `object.ts`'s `resolveOriginCorner` doc. */
   readonly corner: GlyphChart3dCornerOption;
   /** Every toggle resolved to a concrete boolean (defaults: all `true` except `walls`/`box`, which default `false`). */
   readonly guides: GlyphChart3dResolvedGuides;
   readonly report: GlyphChart3dBuildReport;
 }
 
-/** A 3D chart mark — a union of one member today; `scatter3d` (C5) joins it later. */
-export type GlyphChart3dMark = GlyphChart3dSurfaceMark;
+/**
+ * A resolved colour legend (colorbar) — present on a mark whenever it has a
+ * CONTINUOUS numeric colour channel to explain (`surface`'s own z-band
+ * colour; `scatter3d`'s optional numeric `color` channel; `parametric3d`'s
+ * value grid; `bars3d`'s height colour). `renderGlyphChart3d`'s colorbar
+ * chrome reads this ONE shape regardless of mark type — never `surface`'s
+ * own `colorAnchors`/`bands`/`axes.z.domain` triple directly, which stays a
+ * surface-only public field for backward-compatible reasons alone.
+ */
+export interface GlyphChart3dColorLegend {
+  readonly anchors: readonly string[];
+  readonly bands: number;
+  readonly domain: readonly [number, number];
+}
+
+/** C5: `glyphChartScatter3d` — points in 3-space, optionally banded by a categorical `series` or a continuous `color` channel. */
+export interface GlyphChart3dScatterPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  /** Index into `series` (`-1` when the mark carries no categorical channel). */
+  readonly seriesIndex: number;
+  /** The raw numeric `color` channel value, when the mark has one (mutually exclusive with `series`). */
+  readonly colorValue?: number;
+  /** Resolved object-space half-size for this point's own marker (`markerSize` scaled by the `size` channel, when given). */
+  readonly markerSize: number;
+}
+export interface GlyphChart3dScatterSeriesEntry {
+  readonly name: string;
+  readonly color: string;
+  /** Marker shape cycled by series index — read ONLY under `color: "none"` (object.ts's own doc). */
+  readonly shape: "cube" | "octahedron" | "tetrahedron" | "icosahedron";
+}
+export interface GlyphChart3dScatterMark {
+  readonly type: "scatter3d";
+  readonly points: readonly GlyphChart3dScatterPoint[];
+  readonly series: readonly GlyphChart3dScatterSeriesEntry[];
+  readonly colorLegend: GlyphChart3dColorLegend | null;
+  readonly aspect: readonly [number, number, number];
+  readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
+  readonly corner: GlyphChart3dCornerOption;
+  readonly guides: GlyphChart3dResolvedGuides;
+  readonly report: GlyphChart3dBuildReport;
+}
+
+/** C5: `glyphChartParametric3d` — a `(u, v)`-parametrized surface (sphere, torus, Möbius strip, ...) from precomputed x/y/z grids. */
+export interface GlyphChart3dParametricGrid {
+  readonly x: readonly (readonly number[])[];
+  readonly y: readonly (readonly number[])[];
+  readonly z: readonly (readonly number[])[];
+  /** Optional 4th scalar grid (same shape) driving colour instead of z — spherical harmonics on a sphere, for instance. */
+  readonly value?: readonly (readonly number[])[];
+  readonly wrapU?: boolean;
+  readonly wrapV?: boolean;
+}
+export interface GlyphChart3dParametricMark {
+  readonly type: "parametric3d";
+  readonly grid: GlyphChart3dParametricGrid;
+  /** The resolved `[min, max]` of whichever field (`value`, else `z`) drives colour. */
+  readonly colorLegend: GlyphChart3dColorLegend | null;
+  readonly aspect: readonly [number, number, number];
+  /** Axis domains are the RAW x/y/z extents of the computed grid — a parametric surface has no independent per-axis data domain to nice separately (unlike `surface`'s own row/col position vectors). */
+  readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
+  readonly corner: GlyphChart3dCornerOption;
+  readonly guides: GlyphChart3dResolvedGuides;
+  readonly report: GlyphChart3dBuildReport;
+}
+
+/** C5: `glyphChartBars3d` — upright boxes on a categorical or numeric x/y grid, height z, coloured by height. */
+export interface GlyphChart3dBar {
+  readonly x: number;
+  readonly y: number;
+  readonly z: number;
+  readonly xLabel?: string;
+  readonly yLabel?: string;
+}
+export interface GlyphChart3dBarsMark {
+  readonly type: "bars3d";
+  readonly bars: readonly GlyphChart3dBar[];
+  /** Half-width of a bar's own footprint, object space, on each axis — sized from the tightest x/y spacing so bars never touch. */
+  readonly barHalfWidth: readonly [number, number];
+  readonly colorLegend: GlyphChart3dColorLegend | null;
+  readonly aspect: readonly [number, number, number];
+  readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
+  readonly corner: GlyphChart3dCornerOption;
+  readonly guides: GlyphChart3dResolvedGuides;
+  readonly report: GlyphChart3dBuildReport;
+}
+
+/** C5: `glyphChartLine3d` — one or more ordered 3D polylines (a trajectory, a helix), drawn as ribbon geometry. */
+export interface GlyphChart3dLineSeriesEntry {
+  readonly name: string;
+  readonly color: string;
+  readonly points: readonly (readonly [number, number, number])[];
+}
+export interface GlyphChart3dLineMark {
+  readonly type: "line3d";
+  readonly series: readonly GlyphChart3dLineSeriesEntry[];
+  readonly aspect: readonly [number, number, number];
+  readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
+  readonly corner: GlyphChart3dCornerOption;
+  readonly guides: GlyphChart3dResolvedGuides;
+  readonly report: GlyphChart3dBuildReport;
+}
+
+/** A 3D chart mark. */
+export type GlyphChart3dMark = GlyphChart3dSurfaceMark | GlyphChart3dScatterMark | GlyphChart3dParametricMark | GlyphChart3dBarsMark | GlyphChart3dLineMark;
 
 export interface GlyphChart3dObjectOptions {
   /** Stable object id — default `"surface"`. Two surfaces in one scene need distinct ids (`scene.addObject`'s own uniqueness rule). */
@@ -211,6 +335,15 @@ export interface GlyphChart3dObjectOptions {
    * viewport) sets it to match whatever tier that scene is rendering in.
    */
   readonly charset?: GlyphChartCharset;
+  /**
+   * `scatter3d` only: render every point through its SERIES SHAPE (cube,
+   * octahedron, tetrahedron, icosahedron) instead of relying on colour to
+   * separate series — the marker-shape half of `renderGlyphChart3d`'s own
+   * `color: "none"`/NO_COLOR default (`resolveMarkShading`'s sibling
+   * decision for scatter marks). A live scene (always full colour
+   * capability) never sets this; default `false`.
+   */
+  readonly monochrome?: boolean;
 }
 
 export interface GlyphChart3dBuildReport {

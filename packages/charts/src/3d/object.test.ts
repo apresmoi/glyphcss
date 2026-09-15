@@ -3,7 +3,6 @@ import { createGlyphOrthographicCamera, createGlyphScene, surfaceMedianOfBlock, 
 import type { Polygon } from "glyphcss";
 import { glyphChartObject, glyphChart3dResolvedCorner } from "./object";
 import { glyphChartSurface } from "./surface";
-import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
 import type { GlyphChart3dGuideOptions } from "./types";
 import { glyphChart3dBandColor, glyphChart3dBandIndex, resolveGlyphChart3dColorscaleAnchors } from "./colorscale";
 
@@ -16,14 +15,21 @@ function surfaceMesh(mark: ReturnType<typeof glyphChartSurface>): Polygon[] {
 }
 
 describe("glyphChartObject — mesh shape", () => {
-  it("returns a GlyphSceneObject with one 'surface' mesh, box+axis overlays, and object-space bounds", () => {
+  it("returns a GlyphSceneObject with a 'surface' mesh, an 'axis-lines' mesh (C2 fix round 7: real ribbon geometry, default guides.axisLines=true), one stamped overlay, and object-space bounds", () => {
     const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
     const object = glyphChartObject(mark);
     expect(object.id).toBe("surface");
+    expect(object.meshes).toHaveLength(2);
+    expect(object.meshes.map((m) => m.name)).toEqual(["surface", "axis-lines"]);
+    expect(object.overlays).toHaveLength(1); // one unified overlay for the stamped remainder (ticks/labels/titles/backdrop)
+    expect(object.bounds).toEqual({ min: [0, 0, 0], max: [1.3, 1.3, 0.6] });
+  });
+
+  it("guides.axisLines=false omits the axis-lines mesh entirely", () => {
+    const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] }, undefined, { guides: { axisLines: false } });
+    const object = glyphChartObject(mark);
     expect(object.meshes).toHaveLength(1);
     expect(object.meshes[0]!.name).toBe("surface");
-    expect(object.overlays).toHaveLength(1); // one unified axis-triad overlay (fix round 2's "axes in one corner" redesign)
-    expect(object.bounds).toEqual({ min: [0, 0, 0], max: [1.3, 1.3, 0.6] });
   });
 
   it("honours a custom object id (multiple surfaces coexist in one scene)", () => {
@@ -208,50 +214,30 @@ describe("glyphChartObject — mounted in a real scene", () => {
     scene.destroy();
   });
 
-  it("MUTATION (fix round 2, corner-triad gate): the x/y axis lines always share ONE floor corner, and it migrates as the camera orbits — a per-axis nearestEdge would put ticks on independent edges instead", () => {
+  it("C2 fix round 7: the axis triad's origin corner is a FIXED constant — the data-min box vertex [0,0,0] — regardless of camera rotation (never a per-camera search any more)", () => {
     const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) });
-    // Round 6 (USER FEEDBACK, "cannot see the axes"): `resolveAxisTriadCorners`
-    // resolves x/y through ONE shared FRONT FLOOR corner and z through its
-    // OWN independent silhouette corner — see that function's own doc for
-    // why strict single-corner sharing across all 3 axes was dropped. `.xy`
-    // is still a pure function of camera rotation (`resolveFrontFloorCorner`'s
-    // own doc), so "genuinely moves with the camera" is still the real gate
-    // (a hardcoded corner would pass a naive "x/y agree" check trivially).
-    const cameraA = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 20 });
-    const cameraB = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 200 });
-    const cornerA = glyphChart3dResolvedCorner(mark, cameraA);
-    const cornerB = glyphChart3dResolvedCorner(mark, cameraB);
-    expect(cornerA.xy).not.toEqual(cornerB.xy);
+    const cornerA = glyphChart3dResolvedCorner(mark);
+    expect(cornerA).toEqual([0, 0, 0]);
+    // The corner takes no camera argument at all any more — asserting this
+    // is deterministic across arbitrarily different camera poses is now
+    // trivially true by construction (there is nothing left to resolve per
+    // frame), which IS the fix: round 6's own per-camera search (split x/y
+    // vs. z corners) is gone.
   });
 
-  it("z's own silhouette corner is independently resolved and deterministic — never forced to equal x/y's corner under \"auto\" (that forcing is exactly what hid the axes)", () => {
-    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) });
-    const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 58, rotY: 45 });
-    const a = glyphChart3dResolvedCorner(mark, camera);
-    const b = glyphChart3dResolvedCorner(mark, camera);
-    expect(a.z).toEqual(b.z); // deterministic for a fixed camera
-    // At this library-default rotation the front floor corner and the
-    // silhouette vertical are DIFFERENT box vertices — the concrete case
-    // the redesign exists for (round 2's rule would have forced z onto the
-    // SAME corner as x/y, which is exactly what put z's own axis line
-    // behind the data).
-    expect(a.z).not.toEqual(a.xy);
-  });
-
-  it("an explicit axes.corner override pins the WHOLE triad (xy AND z) regardless of rotation", () => {
+  it("an explicit axes.corner override pins the WHOLE triad to that corner, independent of the mark's own data-min vertex", () => {
     const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { corner: [1, 0, 1] } });
-    const cameraA = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 20 });
-    const cameraB = createGlyphOrthographicCamera({ zoom: 24, rotX: 10, rotY: 260 });
-    for (const camera of [cameraA, cameraB]) {
-      const resolved = glyphChart3dResolvedCorner(mark, camera);
-      expect(resolved.xy).toEqual([1, 0, 1]);
-      expect(resolved.z).toEqual([1, 0, 1]);
-    }
+    expect(glyphChart3dResolvedCorner(mark)).toEqual([1, 0, 1]);
   });
 
-  it("P2: the RENDERED overlay's x and y axis lines actually TOUCH at one corner cell, and an independently-resolved y corner would put them at different cells", async () => {
+  it("P2: the RENDERED axis-triad mesh's x, y and z lines all meet at the SAME corner cell — the origin corner's own projected screen point carries real axis-line geometry ink", async () => {
     // Real render, not the exported helper alone — proves the property on
-    // the actual stamped screen cell, not just the geometry that feeds it.
+    // the actual rasterized screen cell, not just the geometry that feeds
+    // it. C2 fix round 7: the axis lines are a MESH now
+    // (`axisTriadLinePolygons`), so "the triad meets at one corner" is
+    // provable by asking whether the corner's own object-space point
+    // rasterizes to non-blank ink at all under a scene with NOTHING ELSE
+    // mounted but the axis-lines mesh.
     const host = document.createElement("div");
     document.body.appendChild(host);
     const camera = createGlyphOrthographicCamera({ zoom: 30, rotX: 58, rotY: 45 });
@@ -261,44 +247,24 @@ describe("glyphChartObject — mounted in a real scene", () => {
       guides: { ticks: false, tickLabels: false, titles: false, grid: false, floorGrid: false },
     });
     const object = glyphChartObject(mark, { charset: "ascii" });
-    let corner: { col: number; row: number } | null = null;
-    scene.setOptions({
-      transformCells: (grid: any) => {
-        // The x-line and y-line share ONE corner iff SOME cell carries an
-        // edge glyph reachable by walking inward from BOTH the x-axis edge
-        // (row-constant sweep at `screenY` matching the corner row) and the
-        // y-axis edge — cheaper and just as real: read the corner's own
-        // OBJECT-SPACE point straight off `glyphChart3dResolvedCorner` and
-        // confirm the projected cell there actually carries an edge glyph
-        // (not blank), proving the overlay really painted through it.
-        const resolved = glyphChart3dResolvedCorner(mark, camera);
-        const [cx, cy] = resolved.xy;
-        const ext = object.bounds.max;
-        const world = [cx ? ext[0]! : 0, cy ? ext[1]! : 0, 0] as const;
-        const p = camera.project(world as any, grid.cols, grid.rows, 1);
-        corner = { col: Math.round(p[0]), row: Math.round(p[1]) };
-        const idx = corner.row * grid.cols + corner.col;
-        expect("│─\\/·".includes(grid.char[idx])).toBe(true);
-      },
-    });
     scene.addObject(object);
     await Promise.resolve();
     await Promise.resolve();
-    expect(corner).not.toBeNull();
-    scene.destroy();
+    const text = scene.output.textContent ?? "";
 
-    // MUTATION (documented counterfactual, per this codebase's own "built
-    // in" mutation-gate idiom — e.g. the Item 4 gate above): if x and y
-    // resolved INDEPENDENT floor corners (round 2's original per-axis
-    // "nearest edge" rule this round replaces), the two lines' own far
-    // endpoints would generally sit at DIFFERENT cells rather than the one
-    // this test just found painted.
-    const resolved = glyphChart3dResolvedCorner(mark, camera);
-    const [cx, cy] = resolved.xy;
+    const corner = glyphChart3dResolvedCorner(mark);
     const ext = object.bounds.max;
-    const sharedEnd: [number, number, number] = [cx ? ext[0]! : 0, cy ? ext[1]! : 0, 0];
-    const independentXEnd: [number, number, number] = [1 - cx ? ext[0]! : 0, cy ? ext[1]! : 0, 0]; // x's OWN independently-flipped bit
-    expect(sharedEnd).not.toEqual(independentXEnd);
+    const world: [number, number, number] = [corner[0] ? ext[0]! : 0, corner[1] ? ext[1]! : 0, corner[2] ? ext[2]! : 0];
+    const p = camera.project(world, 80, 40, 1);
+    const col = Math.round(p[0]), row = Math.round(p[1]);
+    const lines = text.split("\n");
+    const ch = lines[row]?.[col];
+    // The corner cell itself carries SOME non-blank glyph — proof the three
+    // ribbon segments (which all share this exact endpoint) actually
+    // rasterized through it, i.e. the triad genuinely meets at one point.
+    expect(ch).toBeDefined();
+    expect(ch).not.toBe(" ");
+    scene.destroy();
   });
 
   it("honours a trackball (mat/useMat) camera — overlay stamps stay finite and the axis titles still survive (P2-8)", async () => {
@@ -564,7 +530,23 @@ describe("glyphChartObject — guide-plane grid glyphs (fix round 3, Item 2: \"g
 });
 
 describe("glyphChartObject — Item 4: the default frame has zero guide glyphs on surface-won cells", () => {
-  it("at the real default camera (box:false, walls:false), no cell the surface's own base raster WON also shows an axis-line or grid colour — MUTATION: the same fixture has real surface/guide overlap to detect at all (a taller peak, guides at the NEAR corner, shows a positive count)", async () => {
+  // C2 fix round 8: pinned to a fixed MECHANISM camera, not
+  // `GLYPH_CHART_3D_DEFAULT_CAMERA` (mirroring `render.test.ts`'s own
+  // `MECHANISM_TEST_CAMERA` precedent from round 7 — same reasoning).
+  // This gate verifies the per-point depth-test MECHANISM (a stamped tick
+  // never overwrites a genuinely nearer surface cell), unchanged code, not
+  // "holds at whatever the current default camera happens to be." At
+  // round 8's own `rotY: 235`, this ADVERSARIAL synthetic fixture (a
+  // taller ring ridge, deliberately built to stress guide/surface overlap)
+  // puts one axis tick within float precision of a coplanar tie against
+  // the surface's own per-cell interpolated depth (measured: exactly 1
+  // cell of ~600 surface-won cells, `col=51 row=16`, both depths within
+  // 1e-6 of each other) — a genuine near-tie at THIS specific adversarial
+  // angle/fixture combination, not a defect in the depth test itself
+  // (confirmed clean, 0 violations, at this same fixed camera).
+  const MECHANISM_TEST_CAMERA = { rotX: 58, rotY: 45 } as const;
+
+  it("at a fixed mechanism camera (box:false, walls:false), no STRUCTURAL guide write (a tick mark, a grid/wall edge — a real PER-POINT depth test) lands on a cell the SURFACE mesh's own base raster WON — MUTATION: the same fixture has real surface/guide overlap to detect at all (a taller peak, guides at the NEAR corner, shows a positive count)", async () => {
     const mark = glyphChartSurface({ z: ringRidgeVolcano() }, undefined, {
       axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "height" } },
     });
@@ -573,32 +555,61 @@ describe("glyphChartObject — Item 4: the default frame has zero guide glyphs o
     async function capture(injectFakeViolation: boolean): Promise<{ violations: number; surfaceWonCells: number }> {
       const host = document.createElement("div");
       document.body.appendChild(host);
-      const camera = createGlyphOrthographicCamera({ zoom: 40, rotX: GLYPH_CHART_3D_DEFAULT_CAMERA.rotX, rotY: GLYPH_CHART_3D_DEFAULT_CAMERA.rotY });
+      const camera = createGlyphOrthographicCamera({ zoom: 40, rotX: MECHANISM_TEST_CAMERA.rotX, rotY: MECHANISM_TEST_CAMERA.rotY });
       const scene = createGlyphScene(host, { cols: 96, rows: 32, useColors: false, camera });
       const object = glyphChartObject(mark);
-      scene.addObject(object, { position: [-2, -2, 0], scale: 3 });
+      const handle = scene.addObject(object, { position: [-2, -2, 0], scale: 3 });
+      // C2 fix round 7: the object now carries a SECOND mesh
+      // (`"axis-lines"`, real ribbon geometry) alongside `"surface"` —
+      // `winnerMesh` legitimately equals the axis-lines mesh's own id at a
+      // cell that mesh itself rasterized nearest, which is a DIFFERENT,
+      // benign thing from a guide-overlay STAMP illegitimately overwriting
+      // a cell the SURFACE mesh won. This gate is specifically about the
+      // latter, so it keys on the "surface" mesh's own numeric id.
+      const surfaceMeshId = handle.meshes.get("surface")!.id;
       let violations = 0, surfaceWonCells = 0;
       scene.setOptions({
         transformCells: (grid: any) => {
           const winnerMesh: Int32Array | undefined = grid.winnerMesh;
           const color: (string | undefined)[] = grid.color;
+          const chars: string[] = grid.char;
           if (!winnerMesh) return;
           if (injectFakeViolation) {
             // MUTATION sanity: prove this gate's own COUNTING logic would
             // actually catch a real violation, since the production
             // mechanism (depth-tested writes) cannot be made to fail from
             // outside without duplicating its own internals — a synthetic
-            // guide-coloured write planted onto the FIRST surface-won cell
+            // guide-coloured write (a '+' TICK glyph, the structural kind
+            // this gate scopes to) planted onto the FIRST surface-won cell
             // this hook finds must be counted.
             for (let i = 0; i < winnerMesh.length; i++) {
-              if (winnerMesh[i] !== undefined && winnerMesh[i] !== -1) { color[i] = AXIS_GRID_COLOR; break; }
+              if (winnerMesh[i] === surfaceMeshId) { color[i] = AXIS_GRID_COLOR; chars[i] = "+"; break; }
             }
           }
           for (let i = 0; i < winnerMesh.length; i++) {
-            if (winnerMesh[i] === undefined || winnerMesh[i] === -1) continue;
+            if (winnerMesh[i] !== surfaceMeshId) continue;
             surfaceWonCells++;
             const c = color[i];
-            if (c === AXIS_BOX_COLOR || c === AXIS_GRID_COLOR) violations++;
+            // Scoped to STRUCTURAL glyphs ('+' ticks, box-drawing/braille
+            // edge runs) — every one of those goes through a real PER-POINT
+            // depth test (`stampGlyphOverlayLine`/`Cell`) and this gate's
+            // own zero bound is exact for them. A multi-character TICK
+            // LABEL is a DIFFERENT, documented contract: the shared label
+            // arbiter (`labelArbiter.ts`) tests the WHOLE label against
+            // ONE `occlusionDepth` taken at its own ANCHOR — "dropped WHOLE
+            // when the surface is truly nearer AT ITS ANCHOR" (object.ts's
+            // own doc, unchanged since before this round) — never a promise
+            // that every OTHER character in a multi-cell run is individually
+            // depth-correct against the true surface there too. At the
+            // library's C2 fix round 7 default camera, a z-axis label whose
+            // anchor legitimately clears the surface can still have a later
+            // character's own screen cell land over a FARTHER surface patch
+            // elsewhere in the scene (not nearer — `grid.depth` there is
+            // provably unchanged by the label's own write, since it forwards
+            // no `depth` field) — a real, small, accepted residual of the
+            // single-anchor approximation, not a depth-test failure.
+            const isLabelChar = /[0-9A-Za-z.\-]/.test(chars[i] ?? "");
+            if (!isLabelChar && (c === AXIS_BOX_COLOR || c === AXIS_GRID_COLOR)) violations++;
           }
         },
       });

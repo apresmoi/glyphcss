@@ -35,7 +35,8 @@ import { glyphChart3dLabelAnchors, glyphChartObject } from "./object";
 import { glyphChartSurface } from "./surface";
 import { chart3dError, glyphChart3dRepairHint } from "./validate";
 import type {
-  GlyphChart3dLedgerEntry, GlyphChart3dMark, GlyphChart3dSurfaceChannels, GlyphChart3dSurfaceData, GlyphChart3dSurfaceMark, GlyphChart3dSurfaceOptions,
+  GlyphChart3dAxisTriadSpec, GlyphChart3dColorLegend, GlyphChart3dLedgerEntry, GlyphChart3dMark,
+  GlyphChart3dSurfaceChannels, GlyphChart3dSurfaceData, GlyphChart3dSurfaceMark, GlyphChart3dSurfaceOptions,
 } from "./types";
 
 /**
@@ -147,7 +148,9 @@ const CANVAS_TIERS = ["ascii", "box", "blocks", "braille"] as const;
 const COLOR_MODES = ["none", "ansi16", "ansi256", "truecolor", "css"] as const;
 const COLORBAR_MIN_PLOT_WIDTH = 24;
 const COLORBAR_TITLE_COLOR = "#e5e7eb";
-const zFormat = d3format("~r");
+const zFormatRaw = d3format("~r");
+/** C2 fix round 8, P1-C: `d3-format` emits U+2212 MINUS SIGN, which the ascii/box/braille chrome tiers can't paint (folds to `?`) — same fix as `axisTriadShared.ts`'s own `asciiMinus`, applied to the colorbar's own labels. */
+const zFormat = (v: number) => zFormatRaw(v).replace(/−/g, "-");
 
 function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
   if (mode === "ansi16") return "16";
@@ -308,11 +311,11 @@ interface ColorbarRow {
   readonly label: string | undefined;
 }
 
-/** The colorbar's own row layout — bands, shades and WHICH rows get a label (endpoints always, up to `COLORBAR_MAX_LABELS` intermediates evenly spaced) — factored out of `paintColorbar` so `colorbarLabelWidth` (fix round 2, P1-a: the colorbar column reservation) can measure the SAME label set it paints, never a duplicated/driftable copy. */
-function colorbarRows(mark: GlyphChart3dSurfaceMark, y0: number, rowsAvailable: number): readonly ColorbarRow[] {
-  const bands = mark.bands;
+/** The colorbar's own row layout — bands, shades and WHICH rows get a label (endpoints always, up to `COLORBAR_MAX_LABELS` intermediates evenly spaced) — factored out of `paintColorbar` so `colorbarLabelWidth` (fix round 2, P1-a: the colorbar column reservation) can measure the SAME label set it paints, never a duplicated/driftable copy. Generic over `GlyphChart3dColorLegend` (C5) — every mark type's own colour legend shares this ONE shape now, never `surface`'s own `bands`/`colorAnchors`/`axes.z.domain` triple read directly. */
+function colorbarRows(legend: GlyphChart3dColorLegend, y0: number, rowsAvailable: number): readonly ColorbarRow[] {
+  const bands = legend.bands;
   const rows = Math.max(1, Math.min(bands, rowsAvailable));
-  const [zLo, zHi] = mark.axes.z.domain;
+  const [zLo, zHi] = legend.domain;
   const zSpan = zHi - zLo;
   const labelEvery = rows <= COLORBAR_MAX_LABELS ? 1 : Math.ceil((rows - 1) / (COLORBAR_MAX_LABELS - 1));
   const out: ColorbarRow[] = [];
@@ -327,9 +330,9 @@ function colorbarRows(mark: GlyphChart3dSurfaceMark, y0: number, rowsAvailable: 
 }
 
 /** The exact column width the colorbar's OWN labels need (fix round 2, P1-a: the prior fixed `COLORBAR_COLS = 9` reserved far more than the 2 columns `paintColorbar` ever actually painted — a 7-column dead gap between the plot and the colorbar the review's own footprint measurement fell into). Measures the SAME label set `colorbarRows` produces. */
-function colorbarLabelWidth(mark: GlyphChart3dSurfaceMark, rowsAvailable: number): number {
+function colorbarLabelWidth(legend: GlyphChart3dColorLegend, rowsAvailable: number): number {
   let width = 1;
-  for (const r of colorbarRows(mark, 0, rowsAvailable)) {
+  for (const r of colorbarRows(legend, 0, rowsAvailable)) {
     if (r.label !== undefined) width = Math.max(width, r.label.length);
   }
   return width;
@@ -361,11 +364,11 @@ function occupiedGridBounds(grid: CellGrid): { readonly minCol: number; readonly
 }
 
 /** A vertical value-scale swatch strip — z max at the top, z min at the bottom, each row's shade AND colour reading its own band (monotone even with colour off, matching `shading: "value"`'s own discipline). Fix round 1 (P1-2): labels every band up to a legible cap, not just the two endpoints — a one-column colorbar with no intermediate reading is close to useless as a legend. Fix round 4, Item 5: `swatchCol`/`y0` are the CALLER's own choice (placed a fixed `COLORBAR_GAP_COLS` past the plot's own actual right edge, vertically centred on its own occupied row range — `renderGlyphChart3d`'s own doc), never `canvas.cols - 1`/the plot's top row unconditionally. */
-function paintColorbar(canvas: GlyphCanvas, mark: GlyphChart3dSurfaceMark, swatchCol: number, y0: number, rowsAvailable: number, colorEnabled: boolean): void {
+function paintColorbar(canvas: GlyphCanvas, legend: GlyphChart3dColorLegend, swatchCol: number, y0: number, rowsAvailable: number, colorEnabled: boolean): void {
   const labelCol = swatchCol - 1;
-  const bands = mark.bands;
-  const anchors = mark.colorAnchors;
-  for (const r of colorbarRows(mark, y0, rowsAvailable)) {
+  const bands = legend.bands;
+  const anchors = legend.anchors;
+  for (const r of colorbarRows(legend, y0, rowsAvailable)) {
     const swatchColor = anchors ? glyphChart3dBandColor(anchors, r.bandIdx, bands) : null;
     canvas.fillRect(swatchCol, r.row, swatchCol, r.row, { fill: { shade: r.shade }, color: colorEnabled ? swatchColor : null });
     if (r.label === undefined) continue;
@@ -483,7 +486,7 @@ const FIT_ZOOM_SAFETY = 0.96;
  * only ever asks the reference camera to `project()`.
  */
 function fitStaticCamera(
-  mark: GlyphChart3dSurfaceMark,
+  mark: GlyphChart3dAxisTriadSpec,
   object: GlyphSceneObject,
   rotation: { readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[] },
   cols: number,
@@ -518,7 +521,7 @@ function fitStaticCamera(
 
   const availCols = Math.max(1, cols - 2 * FIT_MARGIN_COLS);
   const unfittable: FitLabel[] = [];
-  for (const anchor of glyphChart3dLabelAnchors(mark, reference)) {
+  for (const anchor of glyphChart3dLabelAnchors(mark)) {
     const text = foldGlyphOverlayLabelToAscii(anchor.text);
     if (text.length === 0) continue;
     if (text.length > availCols) { unfittable.push(anchor); continue; }
@@ -559,6 +562,21 @@ function fitStaticCamera(
     if (r > maxRow) maxRow = r;
   }
   const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
+
+  // C2 fix round 8 (coordinator review of round 7): round 7's own EXTRA
+  // column shift (`ORIGIN_COLUMN_TARGET_FRACTION`) is REMOVED. It treated
+  // "off-centre corner" as a FRAMING problem to solve by shoving the whole
+  // picture sideways — which left ~55% of the frame empty on one side
+  // (P1-B) and did nothing about WHICH box corner the camera even put
+  // there (the origin corner was still the NEAREST/front corner at
+  // `rotY: 228`, not a SIDE one — P1-A, `camera.ts`'s own updated doc).
+  // The actual fix is the YAW ITSELF (`GLYPH_CHART_3D_DEFAULT_CAMERA`):
+  // chosen so the origin corner is the box's own LEFTMOST silhouette
+  // vertex, at which point plain symmetric bbox-centering (below,
+  // unchanged since before round 7) already puts it near the frame's own
+  // left side — because the corner is no longer at the box's own
+  // symmetric middle, centering the WHOLE content naturally leaves it
+  // off-centre. No corner-specific shift is needed or applied any more.
   const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
 
   return { camera: makeCamera(finalZoom, center), zoom: finalZoom, center, unfittable };
@@ -573,10 +591,6 @@ function fitStaticCamera(
  * the plot is the dominant element on screen with no explicit camera.
  */
 export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3dRenderOptions = {}): GlyphChart3dResult {
-  if (mark.type !== "surface") {
-    throw new TypeError(`glyphcss: unknown 3D mark type ${JSON.stringify((mark as { type?: unknown }).type)}.`);
-  }
-
   const target: GlyphChartTarget = options.target ?? "web";
   const defaults = GLYPH_CHART_TARGET_DEFAULTS[target];
   if (!defaults) chart3dError("bad-render-options", `target must be one of chat, terminal, web, got ${JSON.stringify(options.target)}.`);
@@ -633,15 +647,36 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   const ledger: GlyphChart3dLedgerEntry[] = [...mark.report.ledger];
   resolveCharsetDegrade3d(charset, ledger);
   const colorEnabled = glyphChartColorEnabled(color, options.env);
-  // `shading: "value"` has no analogue under wireframe (a line has no fill
-  // face to texture) — colour stays the surface's own per-quad band colour
-  // per line, so the effective shading is always `"relief"` there
-  // regardless of `mark.shading`/colour mode, and an explicit
-  // `shading: "value"` request is ledgered as a no-op rather than silently
-  // ignored.
-  if (style === "wireframe" && mark.shading === "value") ledger.push(ledgerChart3dValueShadingWireframeNoop());
-  const shading = style === "wireframe" ? "relief" : resolveMarkShading(mark, colorEnabled);
-  const lighting = lightingForShading(shading);
+  // `shading: "value"` (the texture-density monochrome discipline) is a
+  // SURFACE-only concept — a scatter marker/bar/line has no fill FACE for
+  // slope to shade in the first place, so every other mark type just keeps
+  // the scene's own default Lambert lighting; `scatter3d`'s own monochrome
+  // answer is marker SHAPE (`glyphChartObject`'s `monochrome` option),
+  // resolved right below instead.
+  let lighting: ResolvedLighting = {};
+  let surfaceShading: "relief" | "value" = "relief";
+  if (mark.type === "surface") {
+    // `shading: "value"` has no analogue under wireframe (a line has no fill
+    // face to texture) — colour stays the surface's own per-quad band colour
+    // per line, so the effective shading is always `"relief"` there
+    // regardless of `mark.shading`/colour mode, and an explicit
+    // `shading: "value"` request is ledgered as a no-op rather than silently
+    // ignored.
+    if (style === "wireframe" && mark.shading === "value") ledger.push(ledgerChart3dValueShadingWireframeNoop());
+    surfaceShading = style === "wireframe" ? "relief" : resolveMarkShading(mark, colorEnabled);
+    lighting = lightingForShading(surfaceShading);
+  }
+
+  // C5: every mark type's own colour legend, generic — `surface`'s own
+  // `colorAnchors`/`bands`/`axes.z.domain` triple is folded into the SAME
+  // `GlyphChart3dColorLegend` shape every other mark type already carries
+  // directly on `mark.colorLegend`, so the colorbar chrome below (and
+  // `colorbarRows`/`colorbarLabelWidth`/`paintColorbar`) reads ONE field
+  // regardless of mark type. `line3d` never carries a legend at all — a
+  // trajectory's own colour is per-SERIES, not a continuous scalar.
+  const colorLegend: GlyphChart3dColorLegend | null = mark.type === "surface"
+    ? (mark.colorAnchors === null ? null : { anchors: mark.colorAnchors, bands: mark.bands, domain: mark.axes.z.domain })
+    : mark.type === "line3d" ? null : mark.colorLegend;
 
   const titleRows = options.title ? 1 : 0;
   const plotRows = Math.max(1, height - titleRows);
@@ -652,10 +687,9 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   // 1-column gap — never a fixed budget wider than what `paintColorbar`
   // actually paints, which left a dead gap between the plot and the
   // colorbar the review's own footprint measurement fell straight into.
-  const wantColorbar = mark.colorAnchors !== null;
   let colorbarCols = 0;
-  if (wantColorbar) {
-    const needed = colorbarLabelWidth(mark, plotRows) + 1 + COLORBAR_GAP_COLS;
+  if (colorLegend !== null) {
+    const needed = colorbarLabelWidth(colorLegend, plotRows) + 1 + COLORBAR_GAP_COLS;
     if (width - needed >= COLORBAR_MIN_PLOT_WIDTH) colorbarCols = needed;
     else ledger.push(ledgerColorbarOmitted({ width, minWidth: COLORBAR_MIN_PLOT_WIDTH + needed }));
   }
@@ -677,10 +711,18 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   // `object.ts`'s own doc: ALWAYS keeps the peak/trough row+column, never
   // just a blind stride) rather than a second mesh-thinning pass. Never
   // decimates BELOW a caller's own explicit, already-smaller request.
-  const meshMark = style === "wireframe" ? wireframeDecimatedMark(mark) : mark;
-  const object = meshMark.shading === shading
-    ? glyphChartObject(meshMark, { charset: objectCharset })
-    : glyphChartObject({ ...meshMark, shading }, { charset: objectCharset });
+  let object: GlyphSceneObject;
+  if (mark.type === "surface") {
+    const meshMark = style === "wireframe" ? wireframeDecimatedMark(mark) : mark;
+    object = meshMark.shading === surfaceShading
+      ? glyphChartObject(meshMark, { charset: objectCharset })
+      : glyphChartObject({ ...meshMark, shading: surfaceShading }, { charset: objectCharset });
+  } else {
+    object = glyphChartObject(mark, {
+      charset: objectCharset,
+      ...(mark.type === "scatter3d" ? { monochrome: !colorEnabled } : {}),
+    });
+  }
 
   let camera: ReturnType<typeof createGlyphOrthographicCamera>;
   let zoom: number;
@@ -744,8 +786,8 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
     // painted nothing at all (an all-blank frame has no "actual extent" to
     // measure from).
     const bounds = occupiedGridBounds(surfaceGrid);
-    const barRowsCount = Math.max(1, Math.min(mark.bands, plotRows));
-    const labelWidth = colorbarLabelWidth(mark, plotRows);
+    const barRowsCount = Math.max(1, Math.min(colorLegend!.bands, plotRows));
+    const labelWidth = colorbarLabelWidth(colorLegend!, plotRows);
     let swatchCol = width - 1;
     let colorbarY0 = plotY0;
     if (bounds) {
@@ -764,7 +806,7 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
       const idealY0 = plotY0 + bounds.minRow + Math.round((occupiedRowSpan - barRowsCount) / 2);
       colorbarY0 = Math.max(plotY0, Math.min(plotY0 + plotRows - barRowsCount, idealY0));
     }
-    paintColorbar(canvas, mark, swatchCol, colorbarY0, plotRows, colorEnabled);
+    paintColorbar(canvas, colorLegend!, swatchCol, colorbarY0, plotRows, colorEnabled);
   }
 
   const text = color === "none" || color === "css"

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import Ajv2020 from "ajv/dist/2020";
 import { glyphChart3dSurfaceJsonSchema } from "./schema";
-import { GLYPH_CHART_3D_VALIDATION_RULES, glyphChart3dRepairHint } from "./validate";
+import { GLYPH_CHART_3D_SURFACE_RULES, GLYPH_CHART_3D_VALIDATION_RULES, glyphChart3dRepairHint } from "./validate";
 import { glyphChartSurface } from "./surface";
 
 const schema = glyphChart3dSurfaceJsonSchema();
@@ -70,9 +70,10 @@ describe("glyphChart3dSurfaceJsonSchema — schema and runtime agree (P1-5)", ()
 
   it("every schema-describable rule has an independent bad fixture", () => {
     const covered = new Set(badFixtures.map((f) => f.id));
-    const schemaOnly = GLYPH_CHART_3D_VALIDATION_RULES.filter(
-      (r) => !["bad-render-size", "bad-render-options", "bad-camera"].includes(r),
-    );
-    for (const rule of schemaOnly) expect(covered.has(rule)).toBe(true);
+    // Scoped to the SURFACE mark's own rule subset (C5: the other 4 mark
+    // types' own rules — `scatter-empty`, `parametric-ragged`, etc — live in
+    // GLYPH_CHART_3D_VALIDATION_RULES too now, but this schema never claims
+    // them, so this suite has no reason to cover them).
+    for (const rule of GLYPH_CHART_3D_SURFACE_RULES) expect(covered.has(rule)).toBe(true);
   });
 });
