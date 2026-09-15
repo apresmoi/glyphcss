@@ -90,6 +90,26 @@ export interface GlyphChart3dAxisOptions {
    * `min >= max`.
    */
   readonly domain?: readonly [number, number];
+  /**
+   * Where the axis TITLE sits ALONG its own triad edge — `"start"` (at the
+   * origin corner itself, the axis's own data-minimum end), `"center"`
+   * (default, byte-identical to before this field existed), or `"end"` (the
+   * far end of the edge, the axis's own data-maximum end). Mirrors 2D's
+   * `axes.x.titleAt: "start" | "center" | "end"` naming (AGENTS.md's
+   * "Charts" "Axes"), though 3D has one shared vocabulary for every axis —
+   * there is no analogue of 2D's y-axis `"top" | "bottom"` split, since a 3D
+   * title is always pushed OUTWARD from the same fixed corner regardless of
+   * which axis it belongs to. Rejects with `bad-axis-title-at` otherwise.
+   */
+  readonly titleAt?: "start" | "center" | "end";
+  /**
+   * How far OUTWARD from the triad edge (as a fraction of that axis's own
+   * box extent, the same unit `object.ts`'s `outwardPoint` already uses for
+   * tick labels) the title is pushed — default the library's own constant
+   * (`AXIS_TITLE_MARGIN`, `object.ts`), byte-identical when omitted. Must be
+   * a finite number; rejects with `bad-options` otherwise.
+   */
+  readonly titleOffset?: number;
 }
 
 /** `0` = the box's own `0` coordinate on that axis, `1` = `aspect[axis]`. */
@@ -236,6 +256,9 @@ export interface GlyphChart3dResolvedAxis {
   readonly tickMarksVisible?: boolean;
   readonly tickLabelsVisible?: boolean;
   readonly gridVisible?: boolean;
+  /** This axis's own `titleAt`/`titleOffset` overrides; `undefined` falls back to `object.ts`'s own defaults (`"center"` / `AXIS_TITLE_MARGIN`). */
+  readonly titleAt?: "start" | "center" | "end";
+  readonly titleOffset?: number;
 }
 
 /** A resolved, validated surface model — everything `glyphChartObject` needs, and nothing it has to re-derive. */

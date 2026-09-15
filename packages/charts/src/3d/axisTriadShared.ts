@@ -131,6 +131,24 @@ function resolveOptionalBoolean(value: boolean | undefined, field: string): bool
   return value;
 }
 
+/** C7 (P1-3): `axes.{x,y,z}.titleAt` — mirrors 2D's `axes.x.titleAt` vocabulary/naming (AGENTS.md's "Charts" "Axes"), one shared set for every 3D axis. */
+const TITLE_AT_VALUES = ["start", "center", "end"] as const;
+function resolveTitleAt(value: "start" | "center" | "end" | undefined): "start" | "center" | "end" | undefined {
+  if (value === undefined) return undefined;
+  if (!(TITLE_AT_VALUES as readonly string[]).includes(value)) {
+    chart3dError("bad-axis-title-at", `axes titleAt must be one of ${TITLE_AT_VALUES.join(", ")}, got ${JSON.stringify(value)}.`);
+  }
+  return value;
+}
+
+function resolveTitleOffset(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    chart3dError("bad-options", `axes titleOffset must be a finite number, got ${JSON.stringify(value)}.`);
+  }
+  return value;
+}
+
 /**
  * C7's own `axes.{x,y,z}.domain` — an explicit `[min, max]` override for the
  * data-derived NICE domain. Used VERBATIM, never `.nice()`d (mirroring
@@ -185,5 +203,7 @@ export function resolveAxis(values: readonly number[], defaultTitle: string, opt
     tickMarksVisible: resolveOptionalBoolean(options?.tickMarks, "tickMarks"),
     tickLabelsVisible: resolveOptionalBoolean(options?.tickLabels, "tickLabels"),
     gridVisible: resolveOptionalBoolean(options?.grid, "grid"),
+    titleAt: resolveTitleAt(options?.titleAt),
+    titleOffset: resolveTitleOffset(options?.titleOffset),
   };
 }

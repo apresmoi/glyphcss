@@ -24,6 +24,17 @@ export interface GlyphOrbitControlsProps {
    */
   mode?: GlyphOrbitControlsMode;
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Wheel/pinch zoom clamp, `[min, max]`, or `null` to disable clamping.
+   * Omitted (default): resolved once at mount from the camera's own
+   * starting `zoom` — see `createGlyphOrbitControls`'s own doc.
+   */
+  zoomRange?: [number, number] | null;
+  /**
+   * Middle/right-button drag, Shift+left drag, or a two-finger touch drag
+   * pans `camera.target` in the screen plane. Default true.
+   */
+  pan?: boolean;
 }
 
 export const GlyphOrbitControls = defineComponent({
@@ -35,6 +46,8 @@ export const GlyphOrbitControls = defineComponent({
     pitchRange: { type: null as unknown as PropType<[number, number] | null>, default: () => [-90, 90] },
     mode: { type: String as unknown as () => GlyphOrbitControlsMode, default: "turntable" },
     animate: { type: [Boolean, Object] as unknown as () => false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean }, default: false },
+    zoomRange: { type: null as unknown as PropType<[number, number] | null | undefined>, default: undefined },
+    pan: { type: Boolean, default: true },
   },
   setup(props) {
     const sceneCtx = inject(GlyphSceneContextKey);
@@ -56,6 +69,8 @@ export const GlyphOrbitControls = defineComponent({
         pitchRange: props.pitchRange,
         mode: props.mode,
         animate: props.animate === false ? false : props.animate,
+        zoomRange: props.zoomRange,
+        pan: props.pan,
       };
       controlsRef.value = createGlyphOrbitControls(scene, opts);
     });
@@ -67,7 +82,7 @@ export const GlyphOrbitControls = defineComponent({
     });
 
     watch(
-      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, pitchRange: props.pitchRange, mode: props.mode, animate: props.animate }),
+      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, pitchRange: props.pitchRange, mode: props.mode, animate: props.animate, zoomRange: props.zoomRange, pan: props.pan }),
       (next) => {
         controlsRef.value?.update({
           drag: next.drag,
@@ -76,6 +91,8 @@ export const GlyphOrbitControls = defineComponent({
           pitchRange: next.pitchRange,
           mode: next.mode,
           animate: next.animate === false ? false : next.animate,
+          zoomRange: next.zoomRange,
+          pan: next.pan,
         });
       },
     );

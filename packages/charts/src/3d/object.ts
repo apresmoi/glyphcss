@@ -374,6 +374,23 @@ function axisVisible(override: boolean | undefined, fallback: boolean): boolean 
 }
 
 /**
+ * User feedback, verbatim: "we need to be able to configure the position of
+ * the title of the axis". Where the title sits ALONG the triad edge, as the
+ * same `t` parameter `outwardPoint` uses for a tick — `"start"` is the
+ * origin corner itself (the axis's own data-minimum end), `"end"` the far
+ * end (data-maximum), `"center"` (default) the midpoint, unchanged from
+ * before `titleAt` existed.
+ */
+const AXIS_TITLE_AT_T: Readonly<Record<"start" | "center" | "end", number>> = { start: 0, center: 0.5, end: 1 };
+function axisTitleAtT(axis: GlyphChart3dResolvedAxis): number {
+  return AXIS_TITLE_AT_T[axis.titleAt ?? "center"];
+}
+/** This axis's own `titleOffset` override, falling back to the library's own `AXIS_TITLE_MARGIN` constant. */
+function axisTitleOffset(axis: GlyphChart3dResolvedAxis): number {
+  return axis.titleOffset ?? AXIS_TITLE_MARGIN;
+}
+
+/**
  * The axis TRIAD's own ribbon-mesh half-width, as a fraction of the SHORTER
  * of the box's own x/y extents (never the z one, which the default aspect
  * already compresses to 0.6 — sizing off it would make the line's own
@@ -538,7 +555,7 @@ function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number
           });
         }
         if (guides.titles && axis.title.length > 0) {
-          const titlePoint = outwardPoint(axisIndex, corner, 0.5, ext, AXIS_TITLE_MARGIN);
+          const titlePoint = outwardPoint(axisIndex, corner, axisTitleAtT(axis), ext, axisTitleOffset(axis));
           const titleProjected = projectObjectPoint(frame, titlePoint);
           frame.labels.place({
             id: `axis-${name}-title`,
@@ -603,7 +620,7 @@ export function glyphChart3dLabelAnchors(mark: GlyphChart3dAxisTriadSpec): reado
       }
     }
     if (guides.titles && axis.title.length > 0) {
-      anchors.push({ text: axis.title, point: outwardPoint(axisIndex, corner, 0.5, ext, AXIS_TITLE_MARGIN) });
+      anchors.push({ text: axis.title, point: outwardPoint(axisIndex, corner, axisTitleAtT(axis), ext, axisTitleOffset(axis)) });
     }
   }
   return anchors;

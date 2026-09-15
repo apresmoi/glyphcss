@@ -1,4 +1,4 @@
-// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to scale range [0.1,500]; `pitchRange` (was `clampPitch`) plus a `trackball` mode (AGENTS.md "Cameras and orbit controls").
+// Vendored from voxcss packages/polycss/src/api/createPolyOrbitControls.ts@cac9da3. glyphcss deltas: Poly→Glyph rename; rotX/rotY in degrees (camera expects degrees); wheel/anim/options helpers inlined (controls/common.ts holds only the shared event registry); zoom clamp widened to scale range [0.1,500]; `pitchRange` (was `clampPitch`) plus a `trackball` mode (AGENTS.md "Cameras and orbit controls"); `zoomRange` (configurable/auto-derived zoom clamp) and `pan` (middle/right/shift-left/two-finger drag translating `camera.target` in the screen plane) added for 3D charts (a fitted camera's own zoom is routinely far outside the old hard-coded [0.1,500]).
 /**
  * createGlyphOrbitControls — orbit-mode camera input for a GlyphScene.
  *
@@ -21,6 +21,7 @@
  * Animate speed: degrees per 60 Hz-equivalent frame.
  */
 
+import type { Vec3 } from "@glyphcss/core";
 import type { GlyphSceneHandle } from "./createGlyphScene";
 import { makeListenerRegistry, makeCameraSnapshot, makeEventMethods, type GlyphControlsEventTarget } from "./controls/common";
 export type {
@@ -62,6 +63,30 @@ export interface GlyphOrbitControlsOptions {
   mode?: GlyphOrbitControlsMode;
   /** Auto-rotate. Pass false or omit to disable. */
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Wheel/pinch zoom clamp, `[min, max]`, or `null` to disable clamping
+   * entirely. Omitted (the default): resolved ONCE, at mount, from the
+   * camera's own `zoom` at that moment — `camera.zoom === 0.65` (the
+   * library's own default for both camera kinds, `createGlyphCamera.ts`)
+   * keeps the historical `[0.1, 500]` clamp verbatim (byte-identical for
+   * every caller who never set a starting zoom), while any other starting
+   * zoom (a fitted 3D-chart camera routinely sits at 500+) derives
+   * `[zoom0 / 64, zoom0 * 64]` so the very first wheel notch doesn't snap
+   * the view down to the old hard-coded ceiling. `update()` re-resolves
+   * only when its own `zoomRange` key is present (including `null`) —
+   * otherwise the mount-time value is kept.
+   */
+  zoomRange?: [number, number] | null;
+  /**
+   * Pan `camera.target` in the camera's own screen plane — middle-button
+   * drag, right-button drag (suppresses the context menu while enabled),
+   * Shift + left-button drag, or a two-finger drag on touch (composes with
+   * the existing pinch-zoom/trackball-twist gesture, all three read from
+   * the same finger pair). Default `true`. A left-button drag with no
+   * modifier still orbits, exactly as before — pan claims only the buttons/
+   * modifier no existing gesture used.
+   */
+  pan?: boolean;
 }
 
 export interface GlyphOrbitControlsHandle extends GlyphControlsEventTarget {
@@ -69,6 +94,14 @@ export interface GlyphOrbitControlsHandle extends GlyphControlsEventTarget {
   pause(): void;
   resume(): void;
   destroy(): void;
+  /** The current pan target (world space) — the point the camera orbits/looks at. */
+  getTarget(): Vec3;
+  /**
+   * Explicitly set the pan target (world space) — resets a pan gesture, or
+   * restores one persisted elsewhere (a URL). Triggers a re-render and a
+   * `change` event, exactly like a drag/wheel/pan gesture does.
+   */
+  setTarget(target: Vec3): void;
 }
 
 export function createGlyphOrbitControls(
@@ -83,6 +116,7 @@ export function createGlyphOrbitControls(
     options.pitchRange !== undefined ? options.pitchRange : [-90, 90];
   let mode: GlyphOrbitControlsMode = options.mode ?? "turntable";
   let animOpts = options.animate ?? false;
+  let pan = options.pan ?? true;
   let stopped = false;
   let animPaused = false;
   let rafId: ReturnType<typeof requestAnimationFrame> | null = null;
@@ -92,10 +126,12 @@ export function createGlyphOrbitControls(
   // one finger orbits. `activePointerId` is the single pointer driving the orbit.
   const pointers = new Map<number, { x: number; y: number }>();
   let activePointerId: number | null = null;
+  let activePointerMode: "orbit" | "pan" | null = null;
   let pointer = { x: 0, y: 0 };
   let pinchDist = 0; // finger distance when the pinch began
   let pinchZoom = 0; // camera.zoom when the pinch began
   let pinchAngle = 0; // angle (rad) of the finger pair, updated per move (trackball twist)
+  let pinchMidpoint: { x: number; y: number } | null = null; // finger-pair midpoint, updated per move (two-finger pan)
 
   const camera = scene.camera;
   const registry = makeListenerRegistry(scene);
@@ -103,6 +139,14 @@ export function createGlyphOrbitControls(
   const { emitChange, emitInteraction } = registry;
   let wheelActive = false;
   let wheelIdleTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let zoomRange: [number, number] | null = options.zoomRange !== undefined
+    ? options.zoomRange
+    : resolveInitialZoomRange(camera.zoom);
+
+  function clampZoom(z: number): number {
+    return zoomRange ? Math.max(zoomRange[0], Math.min(zoomRange[1], z)) : z;
+  }
 
   // Trackball orientation matrix — row-major 3×3, same layout as `camera.mat`.
   // Only written while `mode === "trackball"`; turntable mode never reads it.
@@ -156,10 +200,48 @@ export function createGlyphOrbitControls(
     return p.length >= 2 ? Math.atan2(p[1].y - p[0].y, p[1].x - p[0].x) : 0;
   }
 
+  function twoFingerMidpoint(): { x: number; y: number } {
+    const p = [...pointers.values()];
+    return p.length >= 2 ? { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 } : { x: 0, y: 0 };
+  }
+
+  /**
+   * Translate `camera.target` so the picture shifts by exactly `(dxPx,
+   * dyPx)` SCREEN pixels in the direction of the drag (content follows the
+   * pointer, the standard "grab" pan) — the inverse of `camera.project()`'s
+   * own `zoom`/rotation composition (`unrotateVec3`'s own doc). `zoom` is
+   * "CSS pixels per world unit" by contract (AGENTS.md's numeric
+   * conventions), so it is the exact conversion factor with no font-metric
+   * lookup needed; `fovScale` composes the same way the projection itself
+   * does. Works identically under `mode: "turntable"` (via `eulerToMat`,
+   * proven byte-identical to `rotateVec3Voxcss` above) and `"trackball"`.
+   */
+  function panCamera(dxPx: number, dyPx: number): void {
+    const zoom = camera.zoom || 1;
+    const fov = camera.fovScale || 1;
+    const drCol = dxPx / (zoom * fov);
+    const drRow = dyPx / (zoom * fov);
+    const mat = camera.useMat && camera.mat ? camera.mat : eulerToMat(camera.rotX, camera.rotY);
+    const delta = unrotateVec3([-drCol, -drRow, 0], mat);
+    const t = camera.target;
+    camera.target = [t[0] + delta[0], t[1] + delta[1], t[2] + delta[2]];
+  }
+
+  function onContextMenu(e: MouseEvent): void {
+    if (pan && !stopped) e.preventDefault();
+  }
+
   function onPointerDown(e: PointerEvent): void {
-    if (!drag || stopped) return;
+    if (stopped) return;
+    // Middle/right-button, or Shift+left-button, claims the gesture as a PAN
+    // instead of an orbit — never a button any existing gesture already
+    // used (left-drag orbits, wheel/pinch zoom, a two-finger twist rolls).
+    // `pan: false` makes `panTrigger` always false, so every button falls
+    // through to orbit exactly as before this option existed.
+    const panTrigger = pan && (e.button === 1 || e.button === 2 || (e.button === 0 && e.shiftKey));
+    if (!drag && !panTrigger) return;
     // The first pointer must be primary (ignore stray secondary buttons); later
-    // pointers join regardless so a second finger can pinch-zoom.
+    // pointers join regardless so a second finger can pinch-zoom/pan.
     if (pointers.size === 0 && e.isPrimary === false) return;
     e.preventDefault();
     if (pointers.size === 0) emitInteraction("start", snapshot);
@@ -169,14 +251,18 @@ export function createGlyphOrbitControls(
     // capturing it would fire pointercancel mid-drag and abort the gesture.
     try { host.setPointerCapture(e.pointerId); } catch { /* ignore */ }
     if (pointers.size >= 2) {
-      // Two fingers → pinch-zoom (+ twist-to-roll in trackball mode); suspend orbit.
+      // Two fingers → pinch-zoom (+ twist-to-roll in trackball mode) + pan
+      // by the pair's own midpoint; suspend single-pointer orbit/pan.
       activePointerId = null;
+      activePointerMode = null;
       pinchDist = twoFingerDist();
       pinchZoom = camera.zoom;
       pinchAngle = twoFingerAngle();
+      pinchMidpoint = twoFingerMidpoint();
       host.style.cursor = "";
     } else {
       activePointerId = e.pointerId;
+      activePointerMode = panTrigger ? "pan" : "orbit";
       pointer = { x: e.clientX, y: e.clientY };
       host.style.cursor = "grabbing";
       if (animOpts && (animOpts as { pauseOnInteraction?: boolean }).pauseOnInteraction !== false) {
@@ -191,18 +277,22 @@ export function createGlyphOrbitControls(
 
     if (pointers.size >= 2) {
       // Pinch-zoom (needs `wheel`) + two-finger twist-to-roll (needs `drag`,
-      // trackball mode only). Same gating as the pre-trackball code when
-      // `mode === "turntable"`: `!wheel` alone still short-circuits with no
-      // `preventDefault()`, keeping default behaviour byte-identical.
+      // trackball mode only) + two-finger pan (needs `pan`) — all three
+      // compose from the same finger pair, mirroring `@glyphcss/maps`'s own
+      // "pan + pinch + twist COMPOSE" touch discipline. Same gating as
+      // the pre-pan code when `mode === "turntable"`/`pan === false`:
+      // neither alone still short-circuits with no `preventDefault()`,
+      // keeping default behaviour byte-identical.
       const zoomActive = wheel;
       const twistActive = drag && mode === "trackball";
-      if (!zoomActive && !twistActive) return;
+      const panActive = pan;
+      if (!zoomActive && !twistActive && !panActive) return;
       e.preventDefault();
       let changed = false;
       if (zoomActive) {
         const d = twoFingerDist();
         if (pinchDist > 0 && d > 0) {
-          camera.zoom = Math.max(0.1, Math.min(500, pinchZoom * (d / pinchDist)));
+          camera.zoom = clampZoom(pinchZoom * (d / pinchDist));
           changed = true;
         }
       }
@@ -215,6 +305,15 @@ export function createGlyphOrbitControls(
           changed = true;
         }
       }
+      if (panActive && pinchMidpoint) {
+        const mid = twoFingerMidpoint();
+        const dx = mid.x - pinchMidpoint.x, dy = mid.y - pinchMidpoint.y;
+        pinchMidpoint = mid;
+        if (dx !== 0 || dy !== 0) {
+          panCamera(dx, dy);
+          changed = true;
+        }
+      }
       if (changed) {
         scene.rerender();
         emitChange(snapshot);
@@ -222,7 +321,20 @@ export function createGlyphOrbitControls(
       return;
     }
 
-    if (!drag || e.pointerId !== activePointerId) return;
+    if (e.pointerId !== activePointerId) return;
+
+    if (activePointerMode === "pan") {
+      e.preventDefault();
+      const dx = e.clientX - pointer.x;
+      const dy = e.clientY - pointer.y;
+      pointer = { x: e.clientX, y: e.clientY };
+      panCamera(dx, dy);
+      scene.rerender();
+      emitChange(snapshot);
+      return;
+    }
+
+    if (!drag) return;
     e.preventDefault();
     const dx = e.clientX - pointer.x;
     const dy = e.clientY - pointer.y;
@@ -249,12 +361,15 @@ export function createGlyphOrbitControls(
     if (!pointers.has(e.pointerId)) return;
     pointers.delete(e.pointerId);
     try { host.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
-    if (e.pointerId === activePointerId) activePointerId = null;
-    if (pointers.size < 2) pinchDist = 0;
+    if (e.pointerId === activePointerId) { activePointerId = null; activePointerMode = null; }
+    if (pointers.size < 2) { pinchDist = 0; pinchMidpoint = null; }
     if (pointers.size === 1) {
-      // One finger left after a pinch → resume orbit from it (no jump).
+      // One finger left after a pinch → resume orbit from it (no jump) —
+      // same as before pan existed; a touch pointer carries no button/
+      // modifier signal to re-derive a pan trigger from.
       const [id, pos] = [...pointers.entries()][0];
       activePointerId = id;
+      activePointerMode = "orbit";
       pointer = { x: pos.x, y: pos.y };
       host.style.cursor = drag && !stopped ? "grabbing" : "";
     } else if (pointers.size === 0) {
@@ -268,9 +383,7 @@ export function createGlyphOrbitControls(
     if (!wheel || stopped) return;
     e.preventDefault();
     const delta = e.deltaY * 0.001;
-    // Absolute CSS px/world-unit zoom. Keep a wide clamp: a low
-    // floor avoids div-by-zero, a high ceiling allows deep zoom.
-    camera.zoom = Math.max(0.1, Math.min(500, camera.zoom * (1 - delta)));
+    camera.zoom = clampZoom(camera.zoom * (1 - delta));
     scene.rerender();
     if (!wheelActive) { wheelActive = true; emitInteraction("start", snapshot); }
     emitChange(snapshot);
@@ -335,6 +448,7 @@ export function createGlyphOrbitControls(
     host.addEventListener("pointerup", onPointerUp);
     host.addEventListener("pointercancel", onPointerUp);
     host.addEventListener("wheel", onWheel, { passive: false });
+    host.addEventListener("contextmenu", onContextMenu);
     host.style.cursor = drag ? "grab" : "";
     host.style.touchAction = "none";
     host.style.userSelect = "none";
@@ -346,6 +460,7 @@ export function createGlyphOrbitControls(
     host.removeEventListener("pointerup", onPointerUp);
     host.removeEventListener("pointercancel", onPointerUp);
     host.removeEventListener("wheel", onWheel);
+    host.removeEventListener("contextmenu", onContextMenu);
     host.style.cursor = "";
     host.style.touchAction = "";
     host.style.userSelect = "";
@@ -365,8 +480,10 @@ export function createGlyphOrbitControls(
       const wasAnimating = !!animOpts;
       drag = opts.drag ?? drag;
       wheel = opts.wheel ?? wheel;
+      pan = opts.pan ?? pan;
       invertFactor = resolveInvert(opts.invert);
       if (opts.pitchRange !== undefined) pitchRange = opts.pitchRange;
+      if (opts.zoomRange !== undefined) zoomRange = opts.zoomRange;
       if (opts.mode !== undefined && opts.mode !== mode) {
         mode = opts.mode;
         if (mode === "trackball") {
@@ -411,6 +528,7 @@ export function createGlyphOrbitControls(
       stopAnim();
       clearWheelIdle();
       activePointerId = null;
+      activePointerMode = null;
       animPaused = false;
     },
     resume(): void {
@@ -425,7 +543,51 @@ export function createGlyphOrbitControls(
       clearWheelIdle();
       stopped = true;
     },
+    getTarget(): Vec3 {
+      const t = camera.target;
+      return [t[0], t[1], t[2]];
+    },
+    setTarget(target: Vec3): void {
+      camera.target = [target[0], target[1], target[2]];
+      scene.rerender();
+      emitChange(snapshot);
+    },
   };
+}
+
+/**
+ * `zoomRange`'s own mount-time default (see the option's doc): a scene
+ * whose camera starts at the library's own `0.65` default keeps the
+ * historical hard-coded `[0.1, 500]` clamp verbatim; anything else derives
+ * `[zoom0 / 64, zoom0 * 64]` — wide enough that a fitted 3D-chart camera
+ * (routinely 500+) can zoom in AND out from its own starting point.
+ */
+const LIBRARY_DEFAULT_ZOOM = 0.65;
+const LEGACY_ZOOM_RANGE: [number, number] = [0.1, 500];
+const AUTO_ZOOM_RANGE_FACTOR = 64;
+function resolveInitialZoomRange(zoomAtMount: number): [number, number] {
+  if (zoomAtMount === LIBRARY_DEFAULT_ZOOM) return LEGACY_ZOOM_RANGE;
+  const z = Math.abs(zoomAtMount) || 1;
+  return [z / AUTO_ZOOM_RANGE_FACTOR, z * AUTO_ZOOM_RANGE_FACTOR];
+}
+
+/**
+ * The exact inverse of `rotateVec3WithMat`/`rotateVec3Voxcss` composed with
+ * `eulerToMat` (`createGlyphCamera.ts`'s `r = Mat · S · v`, `S` the
+ * axis-swap permutation baked into both — `eulerToMat`'s own doc proves it
+ * produces the identical matrix `rotateVec3Voxcss` uses): given an `r`-space
+ * vector, returns the world-space `v` whose forward rotation equals it.
+ * `Mat` is orthonormal (a rotation matrix), so `Mat^{-1} = Mat^T`; applying
+ * the transpose then undoing the swap is exact, not an approximation.
+ * `panCamera` uses this to convert a desired on-screen pixel shift into the
+ * `camera.target` delta that produces it, under EITHER rotation
+ * representation (turntable Euler, via `eulerToMat`, or a trackball `mat`).
+ */
+function unrotateVec3(r: readonly [number, number, number], mat: readonly number[]): Vec3 {
+  const vx = mat[0]! * r[0] + mat[3]! * r[1] + mat[6]! * r[2];
+  const vy = mat[1]! * r[0] + mat[4]! * r[1] + mat[7]! * r[2];
+  const vz = mat[2]! * r[0] + mat[5]! * r[1] + mat[8]! * r[2];
+  return [vy, vx, vz];
 }
 
 function resolveInvert(invert: boolean | number | undefined): number {

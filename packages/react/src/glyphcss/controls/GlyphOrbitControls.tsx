@@ -30,6 +30,17 @@ export interface GlyphOrbitControlsProps {
   mode?: GlyphOrbitControlsMode;
   /** Auto-rotate config. Default false. */
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Wheel/pinch zoom clamp, `[min, max]`, or `null` to disable clamping.
+   * Omitted (default): resolved once at mount from the camera's own
+   * starting `zoom` — see `createGlyphOrbitControls`'s own doc.
+   */
+  zoomRange?: [number, number] | null;
+  /**
+   * Middle/right-button drag, Shift+left drag, or a two-finger touch drag
+   * pans `camera.target` in the screen plane. Default true.
+   */
+  pan?: boolean;
 }
 
 export function GlyphOrbitControls({
@@ -39,12 +50,14 @@ export function GlyphOrbitControls({
   pitchRange = [-90, 90],
   mode = "turntable",
   animate = false,
+  zoomRange,
+  pan = true,
 }: GlyphOrbitControlsProps): null {
   const { sceneRef } = useGlyphSceneContext();
   const controlsRef = useRef<GlyphOrbitControlsHandle | null>(null);
 
-  const propsRef = useRef({ drag, wheel, invert, pitchRange, mode, animate });
-  propsRef.current = { drag, wheel, invert, pitchRange, mode, animate };
+  const propsRef = useRef({ drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan });
+  propsRef.current = { drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan };
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -57,6 +70,8 @@ export function GlyphOrbitControls({
       pitchRange: propsRef.current.pitchRange,
       mode: propsRef.current.mode,
       animate: propsRef.current.animate === false ? false : propsRef.current.animate,
+      zoomRange: propsRef.current.zoomRange,
+      pan: propsRef.current.pan,
     };
     const controls = createGlyphOrbitControls(scene, opts);
     controlsRef.current = controls;
@@ -71,7 +86,7 @@ export function GlyphOrbitControls({
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.update({ drag, wheel, invert, pitchRange, mode, animate: animate === false ? false : animate });
+    controls.update({ drag, wheel, invert, pitchRange, mode, animate: animate === false ? false : animate, zoomRange, pan });
   });
 
   return null;

@@ -57,6 +57,8 @@ const AXIS_OPTIONS_SCHEMA = {
     grid: { type: "boolean" },
     color: HEX_COLOR_SCHEMA,
     domain: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } },
+    titleAt: { enum: ["start", "center", "end"] },
+    titleOffset: { type: "number" },
   },
 };
 const CORNER_BIT_SCHEMA = { enum: [0, 1] };

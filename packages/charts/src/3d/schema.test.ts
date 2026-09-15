@@ -38,6 +38,7 @@ const goodFixtures: Fixture[] = [
         color: "#123456",
         x: { format: "si", color: "#ff0000", line: false, tickMarks: false, tickLabels: true, grid: true, domain: [-1, 5] },
         y: { format: { preset: "currency", symbol: "$" } },
+        z: { titleAt: "start", titleOffset: 0.9 },
       },
     },
   },
@@ -56,6 +57,7 @@ const badFixtures: readonly { readonly id: (typeof GLYPH_CHART_3D_VALIDATION_RUL
   { id: "bad-tick-format", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { format: "not-a-real-preset" } } } } },
   { id: "bad-axis-color", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { color: "red" } } } } },
   { id: "bad-axis-domain", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { domain: [5, 1] } } } } },
+  { id: "bad-axis-title-at", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { titleAt: "top" } } } } },
 ];
 
 describe("glyphChart3dSurfaceJsonSchema — schema and runtime agree (P1-5)", () => {

@@ -10,12 +10,13 @@
  */
 // C7 (AGENTS.md's "Charts 3D" "C7"): every mark's own axis triad shares
 // `axisTriadShared.ts`'s `resolveAxis`, so every mark type's rule list gets
-// the SAME three axis-option rules — `bad-tick-format`/`bad-axis-color` are
-// the 2D rule CODES reused verbatim (the meaning is identical: an unknown
-// tick-format preset, or a non-canonical hex colour), never a parallel 3D
-// spelling of the same check; `bad-axis-domain` is new (2D has no single
-// `[min, max]` axis-domain option shaped like this one).
-const AXIS_OPTION_RULES = ["bad-tick-format", "bad-axis-color", "bad-axis-domain"] as const;
+// the SAME axis-option rules — `bad-tick-format`/`bad-axis-color`/
+// `bad-axis-title-at` are the 2D rule CODES reused verbatim (the meaning is
+// identical: an unknown tick-format preset, a non-canonical hex colour, or
+// an unknown titleAt value), never a parallel 3D spelling of the same
+// check; `bad-axis-domain` is new (2D has no single `[min, max]`
+// axis-domain option shaped like this one).
+const AXIS_OPTION_RULES = ["bad-tick-format", "bad-axis-color", "bad-axis-domain", "bad-axis-title-at"] as const;
 
 /** Rules SHARED by every 3D mark type's own model step. */
 export const GLYPH_CHART_3D_SHARED_RULES = ["non-finite-data", "bad-options", "colorscale-not-monotone", ...AXIS_OPTION_RULES] as const;
@@ -73,6 +74,7 @@ export const GLYPH_CHART_3D_VALIDATION_REPAIR_HINTS: Readonly<Record<GlyphChart3
   "bad-tick-format": "Use a known tick format preset name, { preset, ...params }, or (TS/JS only) a callback function — see the 2D axes.{x,y}.format vocabulary.",
   "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color and axes.{x,y,z}.color.",
   "bad-axis-domain": "axes.{x,y,z}.domain must be two finite numbers [min, max] with min < max.",
+  "bad-axis-title-at": "axes.{x,y,z}.titleAt must be one of start, center, end.",
 };
 
 export function glyphChart3dRepairHint(id: string): string | undefined {

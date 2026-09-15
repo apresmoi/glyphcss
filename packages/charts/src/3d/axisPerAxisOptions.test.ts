@@ -10,7 +10,9 @@ import { describe, expect, it } from "vitest";
 import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
 import { glyphChartSurface } from "./surface";
 import { glyphChartScatter3d } from "./scatter";
-import { glyphChartObject } from "./object";
+import { glyphChart3dLabelAnchors, glyphChartObject } from "./object";
+import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "./camera";
+import { renderGlyphChart3d } from "./render";
 
 function flatGrid(rows: number, cols: number, value = 0): number[][] {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => value));
@@ -231,4 +233,136 @@ describe("axes.{x,y,z}.domain — C7", () => {
       expect(z).toBeLessThanOrEqual(mark.aspect[2] + 0.1);
     }
   });
+});
+
+describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure the position of the title of the axis')", () => {
+  function titleAnchor(titleAt: "start" | "center" | "end" | undefined, titleOffset?: number): readonly [number, number, number] {
+    const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] }, undefined, {
+      axes: { z: { title: "height", titleAt, titleOffset } },
+    });
+    const anchor = glyphChart3dLabelAnchors(mark).find((a) => a.text === "height");
+    if (!anchor) throw new Error("title anchor not found");
+    return anchor.point;
+  }
+
+  it("MUTATION: default titleAt is 'center' — byte-identical object-space anchor to before titleAt existed (t=0.5 along the z edge)", () => {
+    const withDefault = titleAnchor(undefined);
+    const withExplicitCenter = titleAnchor("center");
+    expect(withDefault).toEqual(withExplicitCenter);
+    // z's edge runs from object-space 0 to aspect[2] at fixed x/y (the
+    // origin corner's own push-out) — center sits at exactly half that.
+    const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
+    expect(withDefault[2]).toBeCloseTo(mark.aspect[2] / 2, 6);
+  });
+
+  it("MUTATION: titleAt 'start'/'center'/'end' each put the title at a measurably different anchor point", () => {
+    const start = titleAnchor("start");
+    const center = titleAnchor("center");
+    const end = titleAnchor("end");
+    expect(start).not.toEqual(center);
+    expect(center).not.toEqual(end);
+    expect(start).not.toEqual(end);
+    // 'start' sits at the origin corner's own z coordinate (0); 'end' at the
+    // far end (aspect[2]) — center is the exact midpoint of the two.
+    expect(start[2]).toBeCloseTo(0, 6);
+    const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
+    expect(end[2]).toBeCloseTo(mark.aspect[2], 6);
+    expect(center[2]).toBeCloseTo((start[2] + end[2]) / 2, 6);
+  });
+
+  it("MUTATION: titleOffset changes how far outward the title pushes, independent of titleAt", () => {
+    const close = titleAnchor("center", 0.1);
+    const far = titleAnchor("center", 2);
+    const withDefault = titleAnchor("center");
+    expect(close).not.toEqual(far);
+    expect(close).not.toEqual(withDefault);
+    // The z coordinate (position ALONG the edge) is unaffected by offset —
+    // only the OTHER two axes (the outward push) move.
+    expect(close[2]).toBeCloseTo(far[2], 9);
+    expect(close[2]).toBeCloseTo(withDefault[2], 9);
+    expect(close[0]).not.toBeCloseTo(far[0], 6);
+  });
+
+  it("every axis independently honours its own titleAt — x/y/z can each be positioned differently", () => {
+    const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] }, undefined, {
+      axes: {
+        x: { title: "x", titleAt: "start" },
+        y: { title: "y", titleAt: "end" },
+        z: { title: "z", titleAt: "center" },
+      },
+    });
+    expect(mark.axes.x.titleAt).toBe("start");
+    expect(mark.axes.y.titleAt).toBe("end");
+    expect(mark.axes.z.titleAt).toBe("center");
+    const anchors = glyphChart3dLabelAnchors(mark);
+    const xPoint = anchors.find((a) => a.text === "x")!.point;
+    const yPoint = anchors.find((a) => a.text === "y")!.point;
+    // x's own edge coordinate (axis 0) sits at 0 ('start'); y's own edge
+    // coordinate (axis 1) sits at aspect[1] ('end').
+    expect(xPoint[0]).toBeCloseTo(0, 6);
+    expect(yPoint[1]).toBeCloseTo(mark.aspect[1], 6);
+  });
+
+  it("titleAt applies to the STAMPED overlay too, not only the fit's own anchor set — moving titleAt changes the rendered title's cell", async () => {
+    function stampedTitleCell(titleAt: "start" | "end"): { col: number; row: number } {
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 30 });
+      const scene = createGlyphScene(host, { cols: 100, rows: 40, useColors: false, camera });
+      const mark = glyphChartSurface({ z: bumpGrid() }, undefined, { axes: { z: { title: "height", titleAt } } });
+      const object = glyphChartObject(mark);
+      scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
+      scene.rerender();
+      const text = scene.output.textContent ?? "";
+      scene.destroy();
+      const idx = text.indexOf("height");
+      expect(idx).toBeGreaterThanOrEqual(0);
+      const lines = text.slice(0, idx).split("\n");
+      return { row: lines.length - 1, col: lines[lines.length - 1]!.length };
+    }
+
+    const startCell = stampedTitleCell("start");
+    const endCell = stampedTitleCell("end");
+    expect(startCell).not.toEqual(endCell);
+  });
+
+  it("bad-axis-title-at: an unknown titleAt value rejects", () => {
+    expect(() => glyphChartSurface({ z: [[0, 1], [2, 3]] }, undefined, { axes: { z: { titleAt: "top" as never } } }))
+      .toThrowError(expect.objectContaining({ code: "bad-axis-title-at" }));
+  });
+
+  it("bad-options: a non-finite titleOffset rejects", () => {
+    expect(() => glyphChartSurface({ z: [[0, 1], [2, 3]] }, undefined, { axes: { z: { titleOffset: Number.NaN } } }))
+      .toThrowError(expect.objectContaining({ code: "bad-options" }));
+  });
+
+  // The camera fit's own closed-form anchor set (`fitStaticCamera`, reused
+  // via `glyphChart3dLabelAnchors`) reads THIS mark's resolved titleAt, so
+  // a title pushed to 'start'/'end' never clips off frame — mirrors
+  // `render.test.ts`'s own rotation/size sweep, restricted to a couple of
+  // representative rotations to keep this file's own runtime bounded.
+  const ROTATIONS: readonly { readonly rotX: number; readonly rotY: number }[] = [
+    { rotX: GLYPH_CHART_3D_DEFAULT_CAMERA.rotX, rotY: GLYPH_CHART_3D_DEFAULT_CAMERA.rotY },
+    { rotX: 20, rotY: 10 },
+    { rotX: 80, rotY: 160 },
+  ];
+  for (const titleAt of ["start", "center", "end"] as const) {
+    for (const { rotX, rotY } of ROTATIONS) {
+      it(`titleAt: "${titleAt}" at rotX:${rotX} rotY:${rotY} — every axis title stays fully in frame (auto-fit accounts for it, never clipped)`, () => {
+        const mark = glyphChartSurface({ z: [[0, 1, 2], [3, 4, 5], [6, 7, 8]] }, undefined, {
+          axes: {
+            x: { title: "x (m)", titleAt }, y: { title: "y (m)", titleAt }, z: { title: "height", titleAt },
+          },
+          color: "none",
+        });
+        const result = renderGlyphChart3d(mark, { target: "web", color: "none", charset: "ascii", width: 96, height: 32, camera: { rotX, rotY } });
+        for (const title of ["x (m)", "y (m)", "height"]) {
+          expect(result.text.includes(title)).toBe(true);
+        }
+        // A label the fit could not seat at all is reported, never silently
+        // truncated into a clipped fragment.
+        expect(result.report.ledger.some((e) => e.code === "chart3d-label-unfittable")).toBe(false);
+      });
+    }
+  }
 });

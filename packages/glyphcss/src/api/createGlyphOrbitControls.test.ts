@@ -861,3 +861,245 @@ describe("createGlyphOrbitControls — events", () => {
     c.destroy();
   });
 });
+
+describe("createGlyphOrbitControls — zoomRange", () => {
+  let scene: GlyphSceneHandle;
+  beforeEach(() => { scene = makeScene(); });
+  afterEach(() => { scene.destroy(); });
+
+  function zoomOut(times = 80): void {
+    for (let i = 0; i < times; i++) {
+      scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 10000, bubbles: true }));
+    }
+  }
+  function zoomIn(times = 80): void {
+    for (let i = 0; i < times; i++) {
+      scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -10000, bubbles: true }));
+    }
+  }
+
+  it("a default-zoom scene (camera.zoom === 0.65) keeps the historical [0.1, 500] clamp byte-identical", () => {
+    expect(scene.camera.zoom).toBe(0.65);
+    const controls = createGlyphOrbitControls(scene);
+    zoomOut();
+    expect(scene.camera.zoom).toBeCloseTo(0.1, 9);
+    zoomIn(200);
+    expect(scene.camera.zoom).toBeCloseTo(500, 9);
+    controls.destroy();
+  });
+
+  it("a non-default starting zoom (a fitted 3D-chart camera) auto-derives [zoom0/64, zoom0*64] instead of snapping to the old [0.1, 500] ceiling", () => {
+    scene.camera.zoom = 672;
+    const controls = createGlyphOrbitControls(scene);
+    // The very first notch must not clamp down to the legacy 500 ceiling.
+    scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: -1, bubbles: true }));
+    expect(scene.camera.zoom).toBeGreaterThan(500);
+    zoomIn(400);
+    expect(scene.camera.zoom).toBeCloseTo(672 * 64, 6);
+    zoomOut(400);
+    expect(scene.camera.zoom).toBeCloseTo(672 / 64, 6);
+    controls.destroy();
+  });
+
+  it("an explicit zoomRange overrides the auto-derived default", () => {
+    scene.camera.zoom = 672;
+    const controls = createGlyphOrbitControls(scene, { zoomRange: [1, 1000] });
+    zoomOut(400);
+    expect(scene.camera.zoom).toBeCloseTo(1, 6);
+    zoomIn(400);
+    expect(scene.camera.zoom).toBeCloseTo(1000, 6);
+    controls.destroy();
+  });
+
+  it("zoomRange: null disables clamping entirely", () => {
+    const controls = createGlyphOrbitControls(scene, { zoomRange: null });
+    // A large deltaY (as `zoomOut` uses) flips the multiplier negative
+    // (`1 - delta`) and diverges in magnitude — use a small, realistic
+    // per-notch delta so the unclamped zoom shrinks monotonically toward 0
+    // instead, the case the clamp's floor exists to prevent.
+    for (let i = 0; i < 40; i++) {
+      scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 500, bubbles: true }));
+    }
+    expect(scene.camera.zoom).toBeLessThan(0.1);
+    controls.destroy();
+  });
+
+  it("update({ zoomRange }) changes the clamp mid-session", () => {
+    const controls = createGlyphOrbitControls(scene);
+    controls.update({ zoomRange: [1, 2] });
+    zoomOut();
+    expect(scene.camera.zoom).toBeCloseTo(1, 6);
+    zoomIn(200);
+    expect(scene.camera.zoom).toBeCloseTo(2, 6);
+    controls.destroy();
+  });
+
+  it("pinch zoom is clamped by the same zoomRange as wheel zoom", () => {
+    scene.camera.zoom = 672;
+    const controls = createGlyphOrbitControls(scene, { zoomRange: [10, 20] });
+    const dispatch = (type: string, x: number, y: number, pointerId: number, isPrimary: boolean) =>
+      scene.host.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId, isPrimary, bubbles: true }));
+    dispatch("pointerdown", 100, 100, 1, true);
+    dispatch("pointerdown", 150, 100, 2, false);
+    dispatch("pointermove", 5000, 100, 2, false); // huge spread → would zoom in far past 20
+    expect(scene.camera.zoom).toBeCloseTo(20, 6);
+    pu(scene.host, 1); pu(scene.host, 2);
+    controls.destroy();
+  });
+});
+
+describe("createGlyphOrbitControls — pan", () => {
+  let scene: GlyphSceneHandle;
+  beforeEach(() => { scene = makeScene(); });
+  afterEach(() => { scene.destroy(); });
+
+  it("middle-button drag pans camera.target without changing rotX/rotY", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const rotX0 = scene.camera.rotX, rotY0 = scene.camera.rotY;
+    const target0 = controls.getTarget();
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 150, clientY: 130, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    pu(scene.host);
+
+    expect(scene.camera.rotX).toBe(rotX0);
+    expect(scene.camera.rotY).toBe(rotY0);
+    expect(controls.getTarget()).not.toEqual(target0);
+    controls.destroy();
+  });
+
+  it("right-button drag pans and suppresses the context menu", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const target0 = controls.getTarget();
+
+    const cm = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    scene.host.dispatchEvent(cm);
+    expect(cm.defaultPrevented).toBe(true);
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, button: 2, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 140, clientY: 100, pointerId: 1, isPrimary: true, button: 2, bubbles: true }));
+    pu(scene.host);
+
+    expect(controls.getTarget()).not.toEqual(target0);
+    controls.destroy();
+  });
+
+  it("Shift + left-button drag pans instead of orbiting", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const rotY0 = scene.camera.rotY;
+    const target0 = controls.getTarget();
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, button: 0, shiftKey: true, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 160, clientY: 100, pointerId: 1, isPrimary: true, button: 0, shiftKey: true, bubbles: true }));
+    pu(scene.host);
+
+    expect(scene.camera.rotY).toBe(rotY0); // no orbit
+    expect(controls.getTarget()).not.toEqual(target0);
+    controls.destroy();
+  });
+
+  it("plain left-button drag (no shift) still orbits, not pans", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const rotY0 = scene.camera.rotY;
+    const target0 = controls.getTarget();
+
+    pd(scene.host, 100, 100);
+    pm(scene.host, 200, 100);
+    pu(scene.host);
+
+    expect(scene.camera.rotY).not.toBe(rotY0);
+    expect(controls.getTarget()).toEqual(target0);
+    controls.destroy();
+  });
+
+  it("pan: false disables every pan trigger — middle/right/shift-left drags fall through to plain orbit", () => {
+    const controls = createGlyphOrbitControls(scene, { pan: false });
+    const target0 = controls.getTarget();
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 150, clientY: 130, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    pu(scene.host);
+
+    expect(controls.getTarget()).toEqual(target0); // no pan happened
+    controls.destroy();
+  });
+
+  it("pan: false does not suppress the context menu", () => {
+    const controls = createGlyphOrbitControls(scene, { pan: false });
+    const cm = new MouseEvent("contextmenu", { bubbles: true, cancelable: true });
+    scene.host.dispatchEvent(cm);
+    expect(cm.defaultPrevented).toBe(false);
+    controls.destroy();
+  });
+
+  it("update({ pan: false }) disables pan mid-session", () => {
+    const controls = createGlyphOrbitControls(scene);
+    controls.update({ pan: false });
+    const target0 = controls.getTarget();
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 150, clientY: 130, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    pu(scene.host);
+
+    expect(controls.getTarget()).toEqual(target0);
+    controls.destroy();
+  });
+
+  it("setTarget()/getTarget() round-trip, and setTarget resets a pan gesture exactly", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const original = controls.getTarget();
+
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 200, clientY: 180, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    pu(scene.host);
+    expect(controls.getTarget()).not.toEqual(original);
+
+    controls.setTarget(original);
+    expect(controls.getTarget()).toEqual(original);
+    controls.destroy();
+  });
+
+  it("setTarget() emits a 'change' event", () => {
+    const controls = createGlyphOrbitControls(scene);
+    let fired = false;
+    controls.addEventListener("change", () => { fired = true; });
+    controls.setTarget([1, 2, 3]);
+    expect(fired).toBe(true);
+    expect(controls.getTarget()).toEqual([1, 2, 3]);
+    controls.destroy();
+  });
+
+  it("two-finger drag pans without disrupting pinch-zoom or trackball twist", () => {
+    const controls = createGlyphOrbitControls(scene, { mode: "trackball" });
+    const zoom0 = scene.camera.zoom;
+    const target0 = controls.getTarget();
+    const dispatch = (type: string, x: number, y: number, pointerId: number, isPrimary: boolean) =>
+      scene.host.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId, isPrimary, bubbles: true }));
+
+    // Two fingers 100px apart, both drag right by 40px (pan) with no spread
+    // change (no zoom) and no rotation of the pair (no twist).
+    dispatch("pointerdown", 0, 0, 1, true);
+    dispatch("pointerdown", 100, 0, 2, false);
+    dispatch("pointermove", 40, 0, 1, true);
+    dispatch("pointermove", 140, 0, 2, false);
+
+    expect(scene.camera.zoom).toBeCloseTo(zoom0, 6); // spread unchanged → no zoom
+    expect(controls.getTarget()).not.toEqual(target0); // midpoint moved → panned
+    pu(scene.host, 1); pu(scene.host, 2);
+    controls.destroy();
+  });
+
+  it("a middle-finger-left pointer after a two-finger pinch resumes plain orbit (touch has no button signal)", () => {
+    const controls = createGlyphOrbitControls(scene);
+    const dispatch = (type: string, x: number, y: number, pointerId: number, isPrimary: boolean) =>
+      scene.host.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId, isPrimary, bubbles: true }));
+    dispatch("pointerdown", 0, 0, 1, true);
+    dispatch("pointerdown", 100, 0, 2, false);
+    pu(scene.host, 2); // one finger left
+    const rotY0 = scene.camera.rotY;
+    dispatch("pointermove", 40, 0, 1, true);
+    expect(scene.camera.rotY).not.toBe(rotY0); // resumed orbit, not pan
+    pu(scene.host, 1);
+    controls.destroy();
+  });
+});

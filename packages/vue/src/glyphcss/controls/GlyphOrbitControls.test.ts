@@ -58,6 +58,8 @@ type OrbitProps = {
   pitchRange?: [number, number] | null;
   mode?: "turntable" | "trackball";
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  zoomRange?: [number, number] | null;
+  pan?: boolean;
 };
 
 function renderScene(
@@ -143,6 +145,40 @@ describe("GlyphOrbitControls (Vue) — mount inside scene", () => {
     scene.camera.rotX = 0;
     dragDown(scene.host, 1000); // 1000/4 = 250deg, unclamped
     expect(scene.camera.rotX).toBeCloseTo(-250, 5);
+  });
+
+  it("zoomRange actually reaches createGlyphOrbitControls (clamps a real wheel zoom)", async () => {
+    const { scene } = await renderSceneWithProbe({ zoomRange: [1, 2] });
+    for (let i = 0; i < 40; i++) {
+      scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 10000, bubbles: true }));
+    }
+    expect(scene.camera.zoom).toBeCloseTo(1, 6);
+  });
+
+  it("zoomRange: null actually reaches createGlyphOrbitControls (removes the clamp)", async () => {
+    const { scene } = await renderSceneWithProbe({ zoomRange: null });
+    for (let i = 0; i < 20; i++) {
+      scene.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 500, bubbles: true }));
+    }
+    expect(scene.camera.zoom).toBeLessThan(0.1);
+  });
+
+  it("pan=false actually reaches createGlyphOrbitControls (a middle-button drag no longer moves camera.target)", async () => {
+    const { scene } = await renderSceneWithProbe({ pan: false });
+    const target0 = [...scene.camera.target];
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 40, clientY: 0, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    expect([...scene.camera.target]).toEqual(target0);
+  });
+
+  it("default pan=true pans camera.target on a middle-button drag", async () => {
+    const { scene } = await renderSceneWithProbe({});
+    const target0 = [...scene.camera.target];
+    scene.host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointermove", { clientX: 40, clientY: 0, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    scene.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    expect([...scene.camera.target]).not.toEqual(target0);
   });
 
   it("reacts to drag prop change", async () => {

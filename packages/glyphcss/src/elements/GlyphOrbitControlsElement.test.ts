@@ -42,7 +42,7 @@ describe("GlyphOrbitControlsElement", () => {
     expect(controls).toBeInstanceOf(GlyphOrbitControlsElement);
   });
 
-  it("observes drag, wheel, invert, pitch-range, mode, animate-speed, animate-axis attributes", () => {
+  it("observes drag, wheel, invert, pitch-range, mode, animate-speed, animate-axis, zoom-range, pan attributes", () => {
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("drag");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("wheel");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("invert");
@@ -50,6 +50,43 @@ describe("GlyphOrbitControlsElement", () => {
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("mode");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("animate-speed");
     expect(GlyphOrbitControlsElement.observedAttributes).toContain("animate-axis");
+    expect(GlyphOrbitControlsElement.observedAttributes).toContain("zoom-range");
+    expect(GlyphOrbitControlsElement.observedAttributes).toContain("pan");
+  });
+
+  it("zoom-range='1,2' clamps wheel zoom to those bounds", () => {
+    controls.setAttribute("zoom-range", "1,2");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+    for (let i = 0; i < 40; i++) {
+      scene!.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 10000, bubbles: true }));
+    }
+    expect(scene!.camera.zoom).toBeCloseTo(1, 6);
+  });
+
+  it("zoom-range='none' disables the clamp", () => {
+    controls.setAttribute("zoom-range", "none");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+    for (let i = 0; i < 20; i++) {
+      scene!.host.dispatchEvent(new WheelEvent("wheel", { deltaY: 500, bubbles: true }));
+    }
+    expect(scene!.camera.zoom).toBeLessThan(0.1);
+  });
+
+  it("pan='false' disables the middle-button pan gesture", () => {
+    controls.setAttribute("pan", "false");
+    sceneEl.appendChild(controls);
+    const scene = sceneEl.getScene();
+    expect(scene).toBeTruthy();
+    const target0 = [...scene!.camera.target];
+    const host = scene!.host;
+    host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointermove", { clientX: 40, clientY: 0, pointerId: 1, isPrimary: true, button: 1, bubbles: true }));
+    host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, isPrimary: true, bubbles: true }));
+    expect([...scene!.camera.target]).toEqual(target0);
   });
 
   it("mode='trackball' engages the matrix camera path", () => {

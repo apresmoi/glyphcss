@@ -35,6 +35,14 @@ function parsePitchRange(value: string | null): [number, number] | null | undefi
   return [parts[0], parts[1]];
 }
 
+function parseZoomRange(value: string | null): [number, number] | null | undefined {
+  if (value === null) return undefined;
+  if (value === "none") return null;
+  const parts = value.split(",").map((s) => parseFloat(s.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) return undefined;
+  return [parts[0], parts[1]];
+}
+
 function parseMode(value: string | null): "turntable" | "trackball" | undefined {
   if (value === "trackball") return "trackball";
   if (value === "turntable") return "turntable";
@@ -43,7 +51,7 @@ function parseMode(value: string | null): "turntable" | "trackball" | undefined 
 
 export class GlyphOrbitControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["drag", "wheel", "invert", "pitch-range", "mode", "animate-speed", "animate-axis"];
+    return ["drag", "wheel", "invert", "pitch-range", "mode", "animate-speed", "animate-axis", "zoom-range", "pan"];
   }
 
   private _controls: GlyphOrbitControlsHandle | null = null;
@@ -68,6 +76,15 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     const speed = parseNumber(this.getAttribute("animate-speed"));
     const axis: "x" | "y" = this.getAttribute("animate-axis") === "x" ? "x" : "y";
     const defaultPitchRange: [number, number] = [-90, 90];
+    // `zoom-range` has no single static "library default" to substitute on
+    // removal the way `pitch-range` does (its default is a computed
+    // AUTO-DERIVE from the camera's own starting zoom, resolved once at
+    // mount) — so, like `drag`/`wheel`/`invert`, it is included only when
+    // the attribute is present ("none" for explicit no-clamp), leaving a
+    // prior explicit override in place until the attribute is set again
+    // rather than un-derivable "back to auto".
+    const zoomRange = parseZoomRange(this.getAttribute("zoom-range"));
+    const pan = parseBool(this.getAttribute("pan"));
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
@@ -80,6 +97,8 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
       pitchRange: pitchRange !== undefined ? pitchRange : defaultPitchRange,
       mode: mode !== undefined ? mode : "turntable",
       ...(speed !== undefined ? { animate: { speed, axis } } : {}),
+      ...(zoomRange !== undefined ? { zoomRange } : {}),
+      ...(pan !== undefined ? { pan } : {}),
     };
   }
 
