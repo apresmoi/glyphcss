@@ -43,6 +43,15 @@ const sceneSpies = vi.hoisted(() => ({
   controlsDestroy: vi.fn(),
   setOptions: vi.fn(),
   objectUpdate: vi.fn(),
+  // Bug-fix packet (type-swap crash): counts the SCENE's own `addObject`
+  // calls (mount + every genuine type swap) and each mounted object
+  // handle's own `remove()` (a type swap only) — the mechanism-level
+  // counterpart to `objectUpdate` above, so a same-type swap ("still uses
+  // update()") and a type swap ("remove + addObject, never a scene
+  // remount") are each pinned on the primitive the fix actually calls,
+  // not just on the rendered pixels.
+  addObject: vi.fn(),
+  objectRemove: vi.fn(),
   // Packet C4, item 3/4 — effect-layer mount/dispose spies, mirroring
   // `DiagramsWorkbench.3d.test.tsx`'s own `disposalSpies.effectLayerDispose`/
   // `addEffectLayer`-args idiom.
@@ -63,9 +72,12 @@ vi.mock("glyphcss", async (importOriginal) => {
       scene.setOptions = (opts) => { sceneSpies.setOptions(opts); return originalSetOptions(opts); };
       const originalAddObject = scene.addObject.bind(scene);
       scene.addObject = (...addArgs: Parameters<typeof scene.addObject>) => {
+        sceneSpies.addObject();
         const handle = originalAddObject(...addArgs);
         const originalUpdate = handle.update.bind(handle);
         handle.update = (object) => { sceneSpies.objectUpdate(); return originalUpdate(object); };
+        const originalRemove = handle.remove.bind(handle);
+        handle.remove = () => { sceneSpies.objectRemove(); return originalRemove(); };
         return handle;
       };
       const originalAddEffectLayer = scene.addEffectLayer.bind(scene);
@@ -92,6 +104,7 @@ import { CHART_CHARSETS, createChartsWorkbenchState, reduceChartsWorkbenchState,
 import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
 import { decodeChartsUrlState } from "./chartsUrlState";
 import { glyphChart3dCharsetDegrades } from "@glyphcss/charts/3d";
+import { renderCharts3dStatic } from "./chartsWorkbench3dRender";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -106,6 +119,8 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     sceneSpies.controlsDestroy.mockClear();
     sceneSpies.setOptions.mockClear();
     sceneSpies.objectUpdate.mockClear();
+    sceneSpies.addObject.mockClear();
+    sceneSpies.objectRemove.mockClear();
     sceneSpies.addEffectLayer.mockClear();
     sceneSpies.effectLayerDispose.mockClear();
     container = document.createElement("div");
@@ -136,6 +151,17 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     const host = container.querySelector<HTMLElement>(".charts-3d-viewport-host")!;
     expect(host.querySelector(".glyph-output")).not.toBeNull(); // the real live mount, synchronous under `createGlyphScene`
     return host;
+  }
+  // Picks a DIFFERENT tray tile without ever leaving 3D mode — every
+  // `CHARTS_3D_DATASETS` entry gets its own always-rendered tile
+  // (`ChartsWorkbench.tsx`'s own preset-tray map), so this reaches the
+  // reported crash directly: `chart3dResolvedLive.ok` stays `true`
+  // throughout, so React keeps mounting the SAME `Charts3dViewport`
+  // instance (no `key` differs), and the mark-rebuild effect is what has
+  // to cope with the new mark, never a remount.
+  function selectDataset(title: string): void {
+    const tile = container.querySelector<HTMLButtonElement>(`[aria-label="View ${title} in 3D"]`)!;
+    act(() => tile.click());
   }
   function dispatchPointer(target: Element, type: string, x: number, y: number, pointerId = 1) {
     target.dispatchEvent(new PointerEvent(type, { clientX: x, clientY: y, pointerId, isPrimary: true, bubbles: true }));
@@ -588,4 +614,108 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     });
     expect(copiedText).toBe(expectedOut.text);
   }, 15_000);
+
+  // ── Bug fix: switching between 3D preset TYPES no longer crashes ───────
+  // `GlyphSceneObjectHandle.update()` refuses an id change by contract
+  // (`createGlyphScene.ts`'s own `RangeError`), and each 3D mark type
+  // builds its OWN object id (`object.ts`'s `id = options.id ?? mark.
+  // type`) — so the mark-rebuild effect used to call `handle.update()`
+  // unconditionally and crash with `Uncaught RangeError: ... cannot change
+  // an object's id ("surface" -> "bars3d")` the moment a reader picked a
+  // different-TYPE tray tile after a same-type one. Mutation: reverting
+  // `Charts3dViewport.tsx`'s id-branch back to an unconditional
+  // `handle.update(object)` reddens every test in this block (a real
+  // uncaught `RangeError` inside a `useEffect`, re-thrown out of `act()`).
+
+  it("switching between 3D presets of DIFFERENT mark types renders each without throwing, with createGlyphScene called exactly once", () => {
+    enter3d(); // "Maunga Whau (volcano)" — surface
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    const bars3d = CHARTS_3D_DATASETS.find((d) => d.markType === "bars3d")!;
+    const parametric3d = CHARTS_3D_DATASETS.find((d) => d.markType === "parametric3d")!;
+
+    expect(() => selectDataset(bars3d.title)).not.toThrow();
+    expect(container.querySelector(".charts-3d-error")).toBeNull();
+    expect(container.querySelector("pre.glyph-output")!.textContent).not.toBe("");
+    expect(sceneSpies.createGlyphSceneCalls, "columns preset — no scene remount").toBe(1);
+
+    expect(() => selectDataset(parametric3d.title)).not.toThrow();
+    expect(container.querySelector(".charts-3d-error")).toBeNull();
+    expect(container.querySelector("pre.glyph-output")!.textContent).not.toBe("");
+    expect(sceneSpies.createGlyphSceneCalls, "sphere preset — still no scene remount").toBe(1);
+  });
+
+  it("switching between two presets of the SAME mark type still uses update() in place (never remove+addObject)", () => {
+    enter3d(); // "Maunga Whau (volcano)" — surface
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    const addObjectCallsAtMount = sceneSpies.addObject.mock.calls.length;
+    const updatesBefore = sceneSpies.objectUpdate.mock.calls.length;
+    const alps = CHARTS_3D_DATASETS.find((d) => d.markType === "surface" && d.id !== CHARTS_3D_DATASETS[0]!.id)!;
+
+    selectDataset(alps.title);
+
+    expect(sceneSpies.createGlyphSceneCalls, "no scene remount for a same-type swap").toBe(1);
+    expect(sceneSpies.objectUpdate.mock.calls.length, "update() must run").toBeGreaterThan(updatesBefore);
+    expect(sceneSpies.addObject.mock.calls.length, "no fresh addObject — the SAME object id stays mounted").toBe(addObjectCallsAtMount);
+    expect(sceneSpies.objectRemove).not.toHaveBeenCalled();
+  });
+
+  it("a genuine type swap removes the old object and mounts a fresh one, never a scene remount", () => {
+    enter3d(); // "Maunga Whau (volcano)" — surface
+    expect(sceneSpies.createGlyphSceneCalls).toBe(1);
+    const addObjectCallsAtMount = sceneSpies.addObject.mock.calls.length;
+    const bars3d = CHARTS_3D_DATASETS.find((d) => d.markType === "bars3d")!;
+
+    selectDataset(bars3d.title);
+
+    expect(sceneSpies.createGlyphSceneCalls, "no scene remount for a type swap").toBe(1);
+    expect(sceneSpies.objectRemove, "the old (surface) object must be removed").toHaveBeenCalledTimes(1);
+    expect(sceneSpies.addObject.mock.calls.length, "a fresh object must be mounted on the SAME scene").toBe(addObjectCallsAtMount + 1);
+  });
+
+  it("a mounted effect still targets the right mesh after a type swap", () => {
+    const bars3d = CHARTS_3D_DATASETS.find((d) => d.markType === "bars3d")!;
+    enter3d(); // "Maunga Whau (volcano)" — surface
+    selectDropdown("Effect", "scan");
+    selectDropdown("Target", "Chart");
+    const surfaceTargetCall = sceneSpies.addEffectLayer.mock.calls.at(-1)![0] as { target?: { id: number } };
+    expect(surfaceTargetCall.target, "premise: the surface mesh is targeted before the swap").toBeDefined();
+    const disposalsBeforeSwap = sceneSpies.effectLayerDispose.mock.calls.length;
+
+    selectDataset(bars3d.title);
+
+    // A genuine type swap disposes and remounts the effect layer against
+    // the NEW mesh handle (`applyEffect`'s own doc: a currently-mounted
+    // effect layer's mesh-set target is immutable after mount, so
+    // retargeting the OLD layer at the fresh handle would throw).
+    expect(sceneSpies.effectLayerDispose.mock.calls.length, "the layer targeting the old (surface) mesh must be disposed").toBeGreaterThan(disposalsBeforeSwap);
+    const barsTargetCall = sceneSpies.addEffectLayer.mock.calls.at(-1)![0] as { target?: { id: number } };
+    expect(barsTargetCall.target, "the effect must remount against the NEW (bars) mesh handle").toBeDefined();
+    expect(typeof barsTargetCall.target!.id).toBe("number");
+    expect(barsTargetCall.target!.id, "a genuinely different mesh, not the disposed surface one").not.toBe(surfaceTargetCall.target!.id);
+  });
+
+  it("Copy ASCII after a type swap matches the newly selected mark", async () => {
+    enter3d(); // "Maunga Whau (volcano)" — surface
+    const before = await copiedAscii();
+    const bars3d = CHARTS_3D_DATASETS.find((d) => d.markType === "bars3d")!;
+
+    selectDataset(bars3d.title);
+    const after = await copiedAscii();
+    expect(after).not.toBe(before);
+
+    // `select-3d-dataset` resets `state.chart3d.camera` to auto-fit
+    // (`chartsWorkbenchState.ts`'s own doc), so Copy ASCII — which always
+    // reads a FRESH `renderCharts3dStatic({ view: state.chart3d, ... })`,
+    // never the live viewport's own orbited camera — is reproducible from
+    // a plain reducer-built state with no drag involved.
+    let refState = createChartsWorkbenchState();
+    refState = reduceChartsWorkbenchState(refState, { type: "select-3d-dataset", id: bars3d.id });
+    const controls = resolveGlyphChartsWorkbenchControls(refState.controls);
+    const expected = renderCharts3dStatic({
+      view: refState.chart3d, target: controls.target, charset: controls.charset,
+      color: "none", width: controls.width, height: controls.height,
+    });
+    expect(expected.ok).toBe(true);
+    if (expected.ok) expect(after).toBe(expected.text);
+  });
 });

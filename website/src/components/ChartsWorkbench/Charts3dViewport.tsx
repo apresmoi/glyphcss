@@ -11,10 +11,10 @@
 // trivial: this component takes only a resolved `GlyphChart3dMark` (any of
 // the five mark types, packet C6) plus plain camera/scene-option props, no
 // `ChartsWorkbenchState` import.
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createGlyphOrbitControls, createGlyphOrthographicCamera, createGlyphScene, injectGlyphBaseStyles,
-  type GlyphMeshHandle, type GlyphOrbitControlsHandle, type GlyphSceneHandle, type GlyphSceneObjectHandle, type Vec3,
+  type GlyphMeshHandle, type GlyphOrbitControlsHandle, type GlyphSceneHandle, type GlyphSceneObject, type GlyphSceneObjectHandle, type Vec3,
 } from "glyphcss";
 import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject, type GlyphChart3dMark } from "@glyphcss/charts/3d";
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
@@ -24,6 +24,10 @@ import { charts3dObjectCharset, type Charts3dCamera, type Charts3dOrbitMode, typ
 
 function objectBoundsCenter(bounds: { readonly min: Vec3; readonly max: Vec3 }): Vec3 {
   return [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
+}
+
+function chart3dBuildErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 // `createGlyphScene`'s OWN fallbacks (`createGlyphScene.ts`: `cols: opts.
@@ -101,7 +105,27 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
   const cameraObjRef = useRef<ReturnType<typeof createGlyphOrthographicCamera> | null>(null);
   const objectBoundsRef = useRef<{ min: Vec3; max: Vec3 } | null>(null);
   const objectHandleRef = useRef<GlyphSceneObjectHandle | null>(null);
+  // `GlyphSceneObjectHandle.update()` refuses an id change by contract (the
+  // id namespaces the object's texture samplers, AGENTS.md's "Scene
+  // objects") — each 3D mark type builds its OWN id ("surface", "bars3d",
+  // "scatter3d", …, `object.ts`'s own `id = options.id ?? mark.type`), so
+  // the mark-rebuild effect below tracks the CURRENTLY mounted object's own
+  // id to tell an appearance edit (same id, `update()` in place) apart from
+  // a genuine type swap (different id, remove + `addObject` fresh — never a
+  // scene remount, camera/controls/effect layer all kept and re-pointed).
+  const mountedObjectIdRef = useRef<string>("");
   const effectRef = useRef<{ id: string; targetId: string; layer: EffectLayerHandleLike; raf: number; t: number; last: number } | null>(null);
+  // Set only on a MOUNT-time object-build failure (permanent for this
+  // component instance — the mount effect runs exactly once) so the
+  // component renders the SAME `.charts-3d-viewport.charts-3d-error` shape
+  // `ChartsWorkbench.tsx` already shows for a `chart3dResolvedLive` resolve
+  // failure, rather than crashing with no scene ever mounted. A LATER
+  // (post-mount) build failure — e.g. a type swap whose new mark somehow
+  // fails `glyphChartObject` — never touches this: it keeps the last good
+  // frame and the live host DOM node exactly as they were (tearing the host
+  // div down here would orphan the scene's own detached `<pre>`, since the
+  // mount effect captures `hostRef.current` only once).
+  const [mountBuildError, setMountBuildError] = useState<string | null>(null);
 
   function disposeEffect(): void {
     if (!effectRef.current) return;
@@ -213,7 +237,20 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
     // `charts3dObjectCharset` (mirrors `render.ts`'s own `chromeTier`) picks
     // the grid/tick overlay's own glyph tier to match — a later charset
     // change is handled by the mark-rebuild effect below (`[mark, charset]`).
-    const object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+    // Guarded: an error building the FIRST object must not crash the
+    // component with an uncaught exception (this file's own doc, above,
+    // on `mountBuildError`) — nothing was ever mounted here, so the scene
+    // just built is torn straight back down and the component renders the
+    // same error shape `ChartsWorkbench.tsx` already uses for a
+    // `chart3dResolvedLive` resolve failure.
+    let object: GlyphSceneObject;
+    try {
+      object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+    } catch (error) {
+      scene.destroy();
+      setMountBuildError(chart3dBuildErrorMessage(error));
+      return;
+    }
     objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
     const opts = scene.getOptions();
     const fit = glyphChart3dFitCamera({
@@ -226,6 +263,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
     cameraObjRef.current = cam;
     sceneRef.current = scene;
     objectHandleRef.current = scene.addObject(object);
+    mountedObjectIdRef.current = object.id;
     scene.rerender();
     applyEffect(); // picks up whatever effectId/target were already selected when this mesh finished mounting
     const orbitControls = createGlyphOrbitControls(scene, {
@@ -283,6 +321,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
       cameraObjRef.current = null;
       objectBoundsRef.current = null;
       objectHandleRef.current = null;
+      mountedObjectIdRef.current = "";
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -297,33 +336,86 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
   // `scene.setOptions` can reach — mirroring `Diagrams3DViewport.tsx`'s own
   // `[charset]` object-rebuild effect, folded into this ONE effect rather
   // than a second one since both cases need the identical update()-then-
-  // reapply-effect sequence) — updates the EXISTING scene-object handle IN
-  // PLACE (`GlyphSceneObjectHandle.update`, AGENTS.md's "Scene objects":
+  // reapply-effect sequence). Skips its own first run — the mount effect
+  // above already added this exact mark/charset as the object's initial
+  // content, so re-running against it here would be a redundant (if
+  // harmless) rebuild of the identical meshes.
+  //
+  // A same-TYPE edit (shading/colorscale/dataset-with-the-same-mark-type/
+  // guides/charset) updates the EXISTING scene-object handle IN PLACE
+  // (`GlyphSceneObjectHandle.update`, AGENTS.md's "Scene objects":
   // "replaces meshes/overlays/hotspots/samplers wholesale, keeping the
   // handle's identity") rather than rebuilding the whole scene: the camera
-  // and orbit controls survive a shading/colorscale/dataset/guides/charset
-  // edit exactly the way they already survive an ordinary orbit drag (P1-2
-  // fix round 1). Skips its own first run — the mount effect above already
-  // added this exact mark/charset as the object's initial content, so
-  // re-running `update()` on it here would be a redundant (if harmless)
-  // rebuild of the identical meshes.
+  // and orbit controls survive it exactly the way they already survive an
+  // ordinary orbit drag (P1-2 fix round 1). A DIFFERENT mark type (a type
+  // swap in the preset tray — Surface/Scatter/Columns/Line/Parametric each
+  // build their OWN object id, `object.ts`'s own `id = options.id ??
+  // mark.type`) is a genuinely different case: `update()` refuses an id
+  // change by contract (the id namespaces the object's own texture
+  // samplers), so it is removed and a fresh object is mounted on the SAME
+  // scene instead — never a scene/controls remount, so the camera and
+  // orbit controls still survive, and the camera is re-fit to the new
+  // object's bounds (a sphere and a bar chart have very different extents)
+  // exactly like a fresh preset load would, unless the reader pinned a
+  // zoom (mirrors the mount effect's own `camera.zoom !== undefined` rule).
   const isFirstMarkEffect = useRef(true);
   useEffect(() => {
     if (isFirstMarkEffect.current) { isFirstMarkEffect.current = false; return; }
+    const scene = sceneRef.current;
     const handle = objectHandleRef.current;
-    if (!handle) return;
-    const object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+    if (!scene || !handle) return; // the mount itself never succeeded — nothing to update
+
+    // Guarded exactly like the mount effect's own build (see
+    // `mountBuildError`'s doc): a build failure here must not crash the
+    // component. Unlike a mount-time failure there IS a last-good frame
+    // worth keeping — hiding the host div would orphan the scene's own
+    // detached DOM node, since the mount effect captures `hostRef.current`
+    // only once — so this is swallowed with a console error and the
+    // previous mount is left exactly as it was.
+    let object: GlyphSceneObject;
+    try {
+      object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+    } catch (error) {
+      console.error("glyphcss: failed to build the 3D chart object", error);
+      return;
+    }
     objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
-    handle.update(object);
-    // `update()` disposes and re-adds every member mesh (fresh
-    // `GlyphMeshHandle`s, fresh ids) — a currently-mounted effect layer's
-    // mesh-set TARGET is immutable after mount (AGENTS.md's "Per-object
-    // targeting"), so retargeting the OLD layer at a new handle would throw;
-    // dispose and remount fresh against the NEW handle instead, mirroring
-    // `Diagrams3DViewport.tsx`'s own `[charset]` object-rebuild effect.
+
+    if (object.id === mountedObjectIdRef.current) {
+      handle.update(object);
+    } else {
+      handle.remove();
+      objectHandleRef.current = scene.addObject(object);
+      mountedObjectIdRef.current = object.id;
+      const cam = cameraObjRef.current;
+      if (cam) {
+        if (camera.zoom !== undefined) {
+          cam.target = objectBoundsCenter(object.bounds);
+        } else {
+          const o = scene.getOptions();
+          const fit = glyphChart3dFitCamera({
+            bounds: object.bounds, rotX: cam.rotX, rotY: cam.rotY,
+            ...(cam.useMat && cam.mat ? { mat: [...cam.mat], useMat: true } : {}),
+            cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
+          });
+          cam.target = fit.target;
+          cam.zoom = fit.zoom;
+        }
+      }
+    }
+    // Both branches leave the object's own mesh handles fresh (`update()`
+    // disposes and re-adds every member mesh — fresh `GlyphMeshHandle`s,
+    // fresh ids, though the SAME live `entry.meshHandles` map — and a type
+    // swap mounts a wholly new handle) — a currently-mounted effect
+    // layer's mesh-set TARGET is immutable after mount (AGENTS.md's
+    // "Per-object targeting"), so retargeting the OLD layer would throw;
+    // dispose and remount fresh against the CURRENT handle instead,
+    // mirroring `Diagrams3DViewport.tsx`'s own `[charset]` object-rebuild
+    // effect.
     disposeEffect();
     applyEffect();
-    sceneRef.current?.rerender();
+    scene.rerender();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mark, charset]);
 
   // A colour edit (`color: none` <-> a colour mode) OR a STYLE edit (packet
@@ -385,6 +477,11 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
   // own dimmed Charset toggle (`ChartsDock.tsx`'s `chartsCharsetToggle`)
   // instead, and an explicit override or an old link that still hands this
   // viewport one renders the faithful downgrade silently (there was never
-  // a `charMode` for it to set either way).
+  // a `charMode` for it to set either way). A MOUNT-time object-build
+  // failure is the one exception — nothing was ever mounted to show, so
+  // this renders the SAME `.charts-3d-viewport.charts-3d-error` shape
+  // `ChartsWorkbench.tsx` already uses for a `chart3dResolvedLive` resolve
+  // failure, rather than the bare (permanently empty) scene host.
+  if (mountBuildError !== null) return <div className="charts-3d-viewport charts-3d-error">{mountBuildError}</div>;
   return <div className="charts-3d-viewport"><div className="charts-3d-viewport-host" ref={hostRef} /></div>;
 }
