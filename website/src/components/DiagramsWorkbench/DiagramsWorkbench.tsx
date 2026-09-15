@@ -118,12 +118,18 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const preRef = useRef<HTMLPreElement | null>(null);
   // `web` fills the measured viewport instead of a fixed logical grid
   // (AGENTS.md's "Diagrams" "Targets and page" — mirrors `/charts`'
-  // identical feature; see `ChartsWorkbench.tsx`'s own doc for the "why
-  // measuring `.diagrams-preview` is never circular" reasoning, which
-  // applies here unchanged). `.diagrams-preview` is what `InstrumentViewport`
-  // wraps, so this is the render's own available box.
-  const diagramsPreviewRef = useRef<HTMLDivElement | null>(null);
-  const measuredViewportPx = useElementSize(diagramsPreviewRef);
+  // identical feature; see `ChartsWorkbench.tsx`'s own doc for the full
+  // "why `.diagrams-preview` itself is the WRONG thing to observe"
+  // reasoning). Observes `.diagrams-viewport` (`InstrumentViewport`'s own
+  // element) instead — a genuinely definite, content-independent box —
+  // never `.diagrams-preview`, whose `height: auto` block sizing lets a
+  // previously-rendered large grid inflate it, which would ratchet the
+  // measured size on a window shrink (agy review finding, verified in a
+  // real Chromium). `diagrams-workbench.css`'s own `.diagrams-preview`
+  // rule (`height: 100%`) closes the matching hole for anything further
+  // down this flex chain this component has no ref to redirect.
+  const diagramsViewportRef = useRef<HTMLDivElement | null>(null);
+  const measuredViewportPx = useElementSize(diagramsViewportRef);
   const viewportPx = measuredViewportPx ?? undefined;
   // State AND viewportPx identity together prevent an old (or now
   // viewport-stale) result from becoming copyable during a new layout —
@@ -302,8 +308,8 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
         </div>
       </InstrumentRail>
       <InstrumentMain>
-        <InstrumentViewport className="diagrams-viewport">
-          <div className="diagrams-preview" aria-busy={isPending} ref={diagramsPreviewRef}>
+        <InstrumentViewport className="diagrams-viewport" elementRef={diagramsViewportRef}>
+          <div className="diagrams-preview" aria-busy={isPending}>
             {/* The viewport holds only the render; feedback lives on the
              *  buttons and in the rail. `is-stale` (a config error or a
              *  layout still in flight) dims the LAST GOOD diagram instead

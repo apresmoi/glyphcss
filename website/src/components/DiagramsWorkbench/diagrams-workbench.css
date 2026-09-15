@@ -37,7 +37,16 @@
 
 /* Fixed cell budgets scroll as text while keeping the floating Dock lane free. */
 .diagrams-viewport.synth-viewport { box-sizing: border-box; padding: 24px 400px 56px 24px; overflow: auto; }
-.diagrams-preview { min-width: 0; min-height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
+/* `height: 100%`, not `min-height: 100%` — mirrors `charts-workbench.css`'s
+   identical fix on `.charts-preview` exactly (see that rule's own doc for
+   the full ratchet mechanism this closes: a min-height-only box stays
+   inflated by a previously-rendered large grid, so a viewport-fill
+   `ResizeObserver` further down this flex chain — including glyphcss's
+   own internal `autoSize` one on the live 3D host — never sees the
+   window shrink). `overflow` stays the default `visible`, so an
+   oversized `terminal`/`chat` grid still escapes to `.diagrams-viewport`'s
+   own `overflow: auto` scrollport unchanged. */
+.diagrams-preview { min-width: 0; height: 100%; display: flex; flex-direction: column; justify-content: center; gap: 10px; }
 .diagrams-grid-scroll { overflow: auto; flex: 0 0 auto; }
 /* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
    as a direct-child selector so nothing about its byte-identical render
@@ -66,9 +75,32 @@
    for the 3D viewport specifically. `flex-grow: 1` fills the flex column's
    main axis unconditionally, independent of whether the parent's own
    height counts as "definite" (mirrors `charts-workbench.css`'s identical
-   fix for `.charts-3d-viewport`). */
-.diagrams-3d-frame { display: flex; flex-direction: column; width: 100%; flex: 1 1 auto; gap: 6px; }
-.diagrams-3d-host { flex: 1 1 auto; width: 100%; height: 100%; min-height: 420px; touch-action: none; cursor: grab; }
+   fix for `.charts-3d-viewport`). The 420px FLOOR itself lives here now,
+   not on `.diagrams-3d-host` below — see that rule's own doc for why. */
+.diagrams-3d-frame { display: flex; flex-direction: column; width: 100%; flex: 1 1 auto; min-height: 420px; gap: 6px; }
+/* NEITHER `width: 100%` NOR `height: 100%` — `flex: 1 1 auto` alone, plus
+   the flex column's own default `align-items: stretch` for the cross
+   (width) axis, already fills `.diagrams-3d-frame` on both axes and is
+   what `.charts-3d-viewport-host` uses (no explicit size at all, its own
+   320px floor living on ITS wrapper too — `.charts-3d-viewport`, the exact
+   pattern this rule and `.diagrams-3d-frame` above now mirror). An
+   explicit `height: 100%` ALONGSIDE `flex: 1 1 auto` resolves the flex-
+   basis to that percentage instead of the item's own content size — and a
+   percentage flex-basis needs the flex CONTAINER's own height to be
+   "definite" the same way `height: 100%` needed one two rules up; `.diagrams-
+   3d-frame`'s height comes from `flex-grow` distribution, not an explicit
+   value, and measured live (real Chromium) this combination FROZE the
+   live 3D scene's own height at its very first measurement — width
+   tracked every resize correctly, height never moved again (agy review's
+   own remaining P1, found by direct measurement after the fix above:
+   `hostW` genuinely changed at every viewport width in the sweep, `hostH`
+   read the exact same value — 598/603.5px, rounding-close — at 900px,
+   500px AND 700px of window height alike). `min-height: 0` (not `auto`,
+   flexbox's own DEFAULT minimum-size floor, which refuses to shrink a
+   flex item below its own CONTENT'S intrinsic size) plus `min-width: 0`
+   for the same reason on the cross axis — the floor moved to the WRAPPER
+   above, so this can shrink freely within it. */
+.diagrams-3d-host { flex: 1 1 auto; min-width: 0; min-height: 0; touch-action: none; cursor: grab; }
 .diagrams-3d-host:active { cursor: grabbing; }
 /* Three classes deep (0,3,0), not `.diagrams-3d-host .glyph-output`'s own
    (0,2,0) — glyphcss's runtime-injected `.glyph-scene .glyph-output` rule

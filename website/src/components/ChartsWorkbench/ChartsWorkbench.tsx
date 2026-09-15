@@ -138,14 +138,23 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // (AGENTS.md's "Charts" "Targets and page" — the same idiom `/maps`,
   // `/synth` and `/gallery` already use via `createGlyphScene({ autoSize:
   // true })`, applied here at the website layer since a 2D chart has no
-  // live scene of its own to `autoSize`). `.charts-preview` is the render's
-  // own available box — no padding of its own, and it fills `.charts-
-  // viewport`'s content area exactly via ordinary block layout regardless
-  // of what its content measures (`useElementSize.ts`'s own doc) — so
-  // measuring it is never circular: the render is always sized to FIT
-  // inside whatever this reports, never the other way round.
-  const chartsPreviewRef = useRef<HTMLDivElement | null>(null);
-  const measuredViewportPx = useElementSize(chartsPreviewRef);
+  // live scene of its own to `autoSize`). Observes `.charts-viewport`
+  // itself (`InstrumentViewport`'s own element), NOT `.charts-preview`
+  // inside it — `.charts-preview` is a `height: auto` block box whose size
+  // can be INFLATED by its own content (a previously-rendered large grid),
+  // so measuring it would ratchet: a window shrink never reports a smaller
+  // box once something bigger has rendered inside it (agy review finding,
+  // verified in a real Chromium). `.charts-viewport` is `position:
+  // absolute; inset: 0` against its own positioned ancestor — a genuinely
+  // DEFINITE box, immune to what's rendered inside it — and `ResizeObserver`'s
+  // own `contentRect` already excludes its padding, so no manual padding
+  // math is needed either. `charts-workbench.css`'s own `.charts-preview`
+  // rule (`height: 100%`, not `min-height: 100%`) closes the matching hole
+  // for the LIVE 3D SCENE, whose own host this component has no ref to
+  // redirect (glyphcss's internal `autoSize` measures `.charts-3d-
+  // viewport-host` directly) — see that rule's own doc.
+  const chartsViewportRef = useRef<HTMLDivElement | null>(null);
+  const measuredViewportPx = useElementSize(chartsViewportRef);
   const viewportPx = measuredViewportPx ?? undefined;
   const rendered = useMemo(() => renderChartsWorkbenchState(state, viewportPx), [state, viewportPx]);
   // The viewport's own content: the CURRENT render when it's valid, else
@@ -664,8 +673,8 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
         </div>
       </InstrumentRail>
       <InstrumentMain>
-        <InstrumentViewport className="charts-viewport">
-          <div className="charts-preview" ref={chartsPreviewRef}>
+        <InstrumentViewport className="charts-viewport" elementRef={chartsViewportRef}>
+          <div className="charts-preview">
             {isWeb3d ? (
               // The live orbitable scene (web only, AGENTS.md's "Charts 3D"
               // export boundary) — colour honoured through

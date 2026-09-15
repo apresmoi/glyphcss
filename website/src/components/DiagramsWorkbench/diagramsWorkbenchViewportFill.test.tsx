@@ -22,6 +22,8 @@ vi.hoisted(async () => {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
   }
 });
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -75,8 +77,11 @@ describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
     }, { timeout: 2000, interval: 10 });
   }
   function previewObserver(): MockResizeObserver {
-    const observer = MockResizeObserver.instances.find((o) => o.target?.className === "diagrams-preview");
-    expect(observer, "the preview element must be observed").toBeDefined();
+    // `.diagrams-viewport` (`InstrumentViewport`'s own element), NEVER
+    // `.diagrams-preview` inside it — see `chartsWorkbenchViewportFill.test.tsx`'s
+    // own matching helper for the full "why not the inner box" doc.
+    const observer = MockResizeObserver.instances.find((o) => o.target?.classList.contains("diagrams-viewport"));
+    expect(observer, "the viewport element must be observed").toBeDefined();
     return observer!;
   }
   async function resize(width: number, height: number) {
@@ -152,4 +157,42 @@ describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
     expect(controller("Width").classList.contains("disabled")).toBe(false);
     expect((controller("Width") as HTMLElement).title).toBe("");
   }, 15_000);
+
+  // The RATCHET fix (agy review finding) — mirrors `chartsWorkbenchViewportFill.test.tsx`'s
+  // own matching CSS-invariant test exactly; see that file's doc for why a
+  // mocked-resize test cannot itself catch this under happy-dom's real
+  // absence of layout, and why the observed box must have a DEFINITE
+  // height rather than merely a `min-height` floor.
+  it("(CSS invariant, agy review) .diagrams-preview has a DEFINITE height, never merely a min-height floor a stale render could inflate", () => {
+    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const rule = css.match(/\.diagrams-preview \{[^}]*\}/)![0];
+    expect(rule).toMatch(/(?<!min-)height:\s*100%/);
+    expect(rule).not.toMatch(/min-height:\s*100%/);
+  });
+
+  // A SECOND, diagrams-only ratchet (agy review, found by direct
+  // Playwright measurement AFTER the `.diagrams-preview` fix above already
+  // landed): `.diagrams-3d-host` used to carry an explicit `height: 100%`
+  // ALONGSIDE `flex: 1 1 auto` — a percentage flex-basis, which itself
+  // needs the flex CONTAINER's height to be "definite" the same way a
+  // plain `height: 100%` does, and `.diagrams-3d-frame`'s own height comes
+  // from flex-grow distribution, not an explicit value. Measured live: the
+  // live 3D scene's own host WIDTH tracked every resize correctly while
+  // its HEIGHT froze at the very first measurement and never moved again
+  // — `.charts-3d-viewport-host` (no explicit `height` at all, `flex: 1 1
+  // auto` alone) never had this defect, which is what exposed the
+  // diagrams-only difference. Fixed by dropping the redundant `height`/
+  // `width` entirely and relocating the 420px floor onto the WRAPPER
+  // (`.diagrams-3d-frame`), mirroring `.charts-3d-viewport`'s/`.charts-3d-
+  // viewport-host`'s own split exactly.
+  it("(CSS invariant, agy review) .diagrams-3d-host relies on flex-grow alone, never an explicit height fighting it, and its floor lives on the wrapper", () => {
+    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const hostRule = css.match(/\.diagrams-3d-host \{[^}]*\}/)![0];
+    expect(hostRule).toMatch(/flex:\s*1\s+1\s+auto/);
+    expect(hostRule).not.toMatch(/(?<!min-)height:/);
+    expect(hostRule).not.toMatch(/(?<!min-)width:/);
+    expect(hostRule).toMatch(/min-height:\s*0/);
+    const frameRule = css.match(/\.diagrams-3d-frame \{[^}]*\}/)![0];
+    expect(frameRule).toMatch(/min-height:\s*420px/);
+  });
 });

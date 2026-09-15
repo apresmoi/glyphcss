@@ -26,6 +26,8 @@ vi.hoisted(async () => {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
   }
 });
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -79,11 +81,14 @@ describe("ChartsWorkbench — web viewport fill (live DOM)", () => {
     return container.querySelector<HTMLPreElement>("pre.glyph-output")!;
   }
   function previewObserver(): MockResizeObserver {
-    // `.charts-preview` is the ONE element `useElementSize` observes
-    // (`ChartsWorkbench.tsx`'s own `chartsPreviewRef`) — a fresh mount with
-    // no 3D scene means this is the only live `ResizeObserver` instance.
-    const observer = MockResizeObserver.instances.find((o) => o.target?.className === "charts-preview");
-    expect(observer, "the preview element must be observed").toBeDefined();
+    // `.charts-viewport` (`InstrumentViewport`'s own element) is the ONE
+    // element `useElementSize` observes (`ChartsWorkbench.tsx`'s own
+    // `chartsViewportRef`) — NEVER `.charts-preview` inside it, whose
+    // content-driven size is exactly the ratchet this component's own doc
+    // explains. A fresh mount with no 3D scene means this is the only live
+    // `ResizeObserver` instance.
+    const observer = MockResizeObserver.instances.find((o) => o.target?.classList.contains("charts-viewport"));
+    expect(observer, "the viewport element must be observed").toBeDefined();
     return observer!;
   }
   function controller(name: string): Element {
@@ -165,5 +170,26 @@ describe("ChartsWorkbench — web viewport fill (live DOM)", () => {
     expect(heightInput().disabled).toBe(false);
     expect(controller("Width").classList.contains("disabled")).toBe(false);
     expect((controller("Width") as HTMLElement).title).toBe("");
+  });
+
+  // The RATCHET fix (agy review finding): happy-dom computes no real CSS
+  // layout at all (this file's own header doc), so a mocked-resize test
+  // above cannot prove a genuine browser would ever report a SMALLER box
+  // after `.charts-preview` has once rendered something larger — that was
+  // verified separately in a real Chromium via Playwright (see the task
+  // report). What a source assertion CAN pin is the CSS invariant the fix
+  // actually rests on: `.charts-preview` must have a DEFINITE `height`
+  // (not merely a `min-height` floor), because a `height: auto` block
+  // grows to fit whatever last rendered inside it and never reports a
+  // smaller box on its own — regardless of what observes it.
+  // Mutation: reverting `.charts-preview` to `min-height: 100%` (dropping
+  // the `height: 100%` fix in `charts-workbench.css`) reddens this without
+  // touching the mocked-resize tests above, which never exercise real
+  // layout and so cannot catch it themselves.
+  it("(CSS invariant, agy review) .charts-preview has a DEFINITE height, never merely a min-height floor a stale render could inflate", () => {
+    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const rule = css.match(/\.charts-preview \{[^}]*\}/)![0];
+    expect(rule).toMatch(/(?<!min-)height:\s*100%/);
+    expect(rule).not.toMatch(/min-height:\s*100%/);
   });
 });

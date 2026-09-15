@@ -77,7 +77,30 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
   padding: 64px 400px 56px 24px;
   overflow: auto;
 }
-.charts-preview { min-width: 0; display: flex; flex-direction: column; justify-content: center; min-height: 100%; gap: 10px; }
+/* `height: 100%`, not `min-height: 100%` — a MIN-height is only a FLOOR: a
+   block box with `height: auto` still grows to its own content's height
+   whenever that content is taller, so once a large `web` grid (or an
+   oversized terminal/chat one) has rendered once, this box stays inflated
+   to match it — and since `ChartsWorkbench.tsx`'s own viewport-fill
+   `ResizeObserver` (and, for the live 3D scene, glyphcss's own internal
+   `autoSize` one) sit further down this SAME flex chain, they inherit that
+   stale, content-driven size instead of the real available space: the
+   render can only ever GROW on a window resize, never SHRINK — a ratchet
+   on desktop, overflow on mobile (agy review finding, verified in a real
+   Chromium). A definite `height: 100%` — resolvable because `.charts-
+   viewport` itself is `position: absolute; inset: 0`, a genuinely
+   definite box independent of content — pins this to the ancestor's real
+   size regardless of what's rendered inside; `overflow` stays the
+   default `visible`, so a legitimately oversized `terminal`/`chat` grid
+   still escapes this box and reaches `.charts-viewport`'s own `overflow:
+   auto` scrollport exactly as before (a descendant that overflows a
+   non-clipping ancestor still contributes to a SCROLLING ancestor's own
+   scrollable-overflow region). See `ChartsWorkbench.tsx`'s own
+   `useElementSize` call for the other half of this fix — it observes
+   `.charts-viewport` directly now, not this box, so the DERIVED grid size
+   was already correct; this half is what keeps the LIVE 3D scene (whose
+   own host `useElementSize` cannot reach) equally protected. */
+.charts-preview { min-width: 0; display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 10px; }
 .charts-grid-scroll { overflow: auto; flex: 0 0 auto; }
 /* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
    as a direct-child selector so nothing about its byte-identical render
