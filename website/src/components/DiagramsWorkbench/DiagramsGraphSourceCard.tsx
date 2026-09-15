@@ -13,7 +13,7 @@
  */
 import type { GlyphDiagramsGraphSource } from "./diagramsWorkbenchState";
 
-export function DiagramsGraphSourceCard({ graphSource, presetLabel, loadingTitle, notice }: {
+export function DiagramsGraphSourceCard({ graphSource, presetLabel, loadingTitle, notice, nodeCount, edgeCount }: {
   readonly graphSource: GlyphDiagramsGraphSource | undefined;
   /** The tray preset's own label, when `graphSource.kind === "builtin"` —
    *  `diagramsWorkbenchState.ts`'s preset list, not re-imported here so
@@ -21,8 +21,23 @@ export function DiagramsGraphSourceCard({ graphSource, presetLabel, loadingTitle
   readonly presetLabel?: string;
   readonly loadingTitle?: string;
   readonly notice?: string;
+  /** P3 fix round — the CURRENTLY loaded graph's own `nodes`/`edges`
+   *  lengths (`state.nodes.length`/`state.edges.length`), i.e. the "N"/"K"
+   *  halves of "N of M nodes, K of L edges shown" — read off live state
+   *  rather than duplicated on `graphSource`, since they're already exactly
+   *  `graph.nodes.length`/`graph.edges.length` for a remote pick and this
+   *  card would otherwise be the one place they could drift from it (an
+   *  edit changes them; `graphSource`'s own snapshot fields don't). */
+  readonly nodeCount?: number;
+  readonly edgeCount?: number;
 }) {
   const remote = graphSource?.kind === "remote" ? graphSource : undefined;
+  // Only meaningful while the loaded graph still matches the remote
+  // snapshot's own counts (an un-edited pick) — `nodeCount`/`edgeCount`
+  // read live state, so a table edit that adds/removes nodes stops this
+  // line from claiming a truncation the edit itself may have already
+  // changed the shape of.
+  const showCounts = remote && typeof nodeCount === "number" && typeof remote.originalNodeCount === "number" && typeof edgeCount === "number" && typeof remote.logicalEdgeCount === "number";
 
   return <div className="diagrams-graph-source">
     {notice && <p className="diagrams-readout" role="status">{notice}</p>}
@@ -37,7 +52,19 @@ export function DiagramsGraphSourceCard({ graphSource, presetLabel, loadingTitle
       {remote.description && <p className="diagrams-readout">{remote.description}</p>}
       <p className="diagrams-readout"><a href={remote.source.url} target="_blank" rel="noreferrer">{remote.source.name}</a>{remote.source.licence ? ` — ${remote.source.licence}` : ""}</p>
       {remote.label !== undefined && <p className="diagrams-readout">Graph label: {remote.label}</p>}
-      {remote.simplified && <p className="diagrams-readout">Simplified for legibility — the full graph is larger than what's shown.</p>}
+      {/* P1 — states which case applied (a symmetric edge_index reads as
+       *  undirected, no arrowheads; anything else keeps every edge with
+       *  its own arrowhead), rather than leaving a reader to infer it from
+       *  the render alone. */}
+      {remote.edgeDirection && <p className="diagrams-readout">Edges: {remote.edgeDirection}</p>}
+      {/* P3 — "N of M nodes, K of L edges shown": states exactly how much
+       *  the node cap trimmed, nodes AND edges (a graph can lose real
+       *  edges to the cap even when its own node count barely exceeds it —
+       *  a hub node just past the cap takes every one of its own edges
+       *  with it). Shown whenever the counts are known, not only while
+       *  `simplified` — an un-truncated graph reads "N of N nodes, K of K
+       *  edges shown", which is a fine thing to state plainly too. */}
+      {showCounts && <p className="diagrams-readout">Showing {nodeCount} of {remote.originalNodeCount} nodes, {edgeCount} of {remote.logicalEdgeCount} edges.</p>}
     </div>}
   </div>;
 }

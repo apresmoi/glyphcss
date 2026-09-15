@@ -19,7 +19,16 @@
  *    Verified live on MUTAG/ZINC/AIDS/twitch_egos/deezer_ego_nets/
  *    reddit_threads/IMDB-BINARY: an undirected relationship is typically
  *    stored as BOTH `(a, b)` and `(b, a)`, which this module dedupes down
- *    to one `GlyphGraphEdge`, reporting the count removed.
+ *    to one `GlyphGraphEdge`, reporting the count removed. This is a
+ *    convention of the CURATED `graphs-datasets` datasets, never assumed of
+ *    an arbitrary live-search hit: the mapper checks every `(s, d)` pair for
+ *    its own `(d, s)` mirror and dedupes to undirected edges ONLY when the
+ *    WHOLE graph is symmetric that way — a single one-way pair anywhere
+ *    keeps every edge, directed, with arrowheads (P1 fix round, agy
+ *    review — the blind sort-and-dedupe used to drop a genuinely directed
+ *    edge whenever its own reverse happened to exist elsewhere in the
+ *    graph). {@link GraphDatasetRowOk.edgeDirection} records which case
+ *    applied, for the graph source card to state honestly.
  *  - `num_nodes`: the graph's node count.
  *  - `node_feat` (optional): per-node features — a one-hot atom-type vector
  *    for a molecule dataset, absent for a plain social/ego-net graph.
@@ -93,10 +102,28 @@ export interface GraphDatasetRowOk {
   /** `true` when {@link GRAPH_DATASET_NODE_CAP} truncated this graph. */
   readonly simplified: boolean;
   readonly originalNodeCount: number;
+  /** The raw `edge_index` COLUMN count — 38 for the vendored MUTAG row0
+   *  fixture, i.e. counting a mirrored pair (a,b)+(b,a) as two. Kept for its
+   *  own informational value (it is what `dedupedMirrorEdges` is subtracted
+   *  from); a reader-facing "K of L edges shown" count should read
+   *  {@link GraphDatasetRowOk.logicalEdgeCount} instead, which already
+   *  reflects the dedupe. */
   readonly originalEdgeCount: number;
   /** How many `edge_index` columns were dropped as an undirected mirror of
-   *  an edge already kept (this module's own "say so" — see the file doc). */
+   *  an edge already kept (this module's own "say so" — see the file doc);
+   *  `0` when the graph is classified `"directed"`. */
   readonly dedupedMirrorEdges: number;
+  /** The edge total BEFORE the node cap (after the symmetry dedupe, when
+   *  one applied) — the "L" half of "K of L edges shown"; `graph.edges
+   *  .length` is the "K" half, and the gap between them is exactly what
+   *  {@link GRAPH_DATASET_NODE_CAP} truncated. */
+  readonly logicalEdgeCount: number;
+  /** `"undirected"` when EVERY `(s, d)` pair in the raw, uncapped edge list
+   *  has its own `(d, s)` mirror (MUTAG/ZINC/AIDS's own PyG storage
+   *  convention) — every kept edge then carries `style: "undirected"` and
+   *  no arrowhead. `"directed"` otherwise: not one edge is deduped, and
+   *  every kept edge renders with its own arrowhead. */
+  readonly edgeDirection: "directed" | "undirected";
   readonly source: GraphDatasetSource;
 }
 export type GraphDatasetLoadResult =
@@ -153,11 +180,26 @@ function isFiniteNumberArray(value: unknown): value is readonly number[] {
   return Array.isArray(value) && value.every((v) => typeof v === "number" && Number.isFinite(v));
 }
 
-/** Validates and maps one raw `datasets-server` row into a `GlyphGraph`,
- *  applying the node cap and the undirected-mirror dedupe described in the
- *  file doc. `null` (never a throw) when the row doesn't have the shape a
- *  graph dataset row must — a caller reports `"not-graph"`. */
-function graphDatasetRowToGraph(ref: string, row: RawGraphRow, cap: number): { readonly graph: GlyphGraph; readonly simplified: boolean; readonly originalNodeCount: number; readonly originalEdgeCount: number; readonly dedupedMirrorEdges: number } | null {
+interface GraphDatasetMapped {
+  readonly graph: GlyphGraph;
+  readonly simplified: boolean;
+  readonly originalNodeCount: number;
+  readonly originalEdgeCount: number;
+  readonly dedupedMirrorEdges: number;
+  readonly logicalEdgeCount: number;
+  readonly edgeDirection: "directed" | "undirected";
+}
+
+/**
+ * Validates and maps one raw `datasets-server` row into a `GlyphGraph`.
+ * Symmetry is classified over the FULL, UNCAPPED edge set (P1 fix round) —
+ * classifying after cap-filtering could call a graph "directed" merely
+ * because the node cap happened to cut one side of a genuine mirror pair,
+ * which is a truncation artefact, not a fact about the dataset. `null`
+ * (never a throw) when the row doesn't have the shape a graph dataset row
+ * must — a caller reports `"not-graph"`.
+ */
+function graphDatasetRowToGraph(ref: string, row: RawGraphRow, cap: number): GraphDatasetMapped | null {
   const numNodes = row.num_nodes;
   if (typeof numNodes !== "number" || !Number.isFinite(numNodes) || numNodes <= 0) return null;
   const edgeIndex = row.edge_index;
@@ -172,18 +214,45 @@ function graphDatasetRowToGraph(ref: string, row: RawGraphRow, cap: number): { r
   const nodes: GlyphGraphNode[] = [];
   for (let i = 0; i < keepNodeCount; i++) nodes.push({ id: String(i), label: nodeLabel(i, vocab, nodeFeat) });
 
-  const seen = new Set<string>();
-  const edges: GlyphGraphEdge[] = [];
-  let dedupedMirrorEdges = 0;
+  // Pass 1 — every well-formed (s, d) pair, UNCAPPED (a malformed column —
+  // non-integer or out of the graph's own declared node range — is dropped
+  // here regardless of the cap; it was never a real edge to begin with).
+  const rawPairs: { readonly s: number; readonly d: number }[] = [];
   for (let i = 0; i < srcs.length; i++) {
     const s = srcs[i]!, d = dsts[i]!;
-    if (!Number.isInteger(s) || !Number.isInteger(d) || s < 0 || d < 0) continue;
-    if (s >= keepNodeCount || d >= keepNodeCount) continue; // dropped by the node cap
-    const key = s <= d ? `${s}:${d}` : `${d}:${s}`;
-    if (seen.has(key)) { dedupedMirrorEdges++; continue; }
-    seen.add(key);
-    edges.push({ from: String(s), to: String(d) });
+    if (!Number.isInteger(s) || !Number.isInteger(d) || s < 0 || d < 0 || s >= numNodes || d >= numNodes) continue;
+    rawPairs.push({ s, d });
   }
+
+  // Pass 2 — classify symmetry over that full, uncapped set: undirected
+  // ONLY when every pair's own reverse is present too. A self-loop (s===d)
+  // is its own mirror and never blocks the verdict.
+  const pairKeys = new Set(rawPairs.map(({ s, d }) => `${s}->${d}`));
+  const edgeDirection: "directed" | "undirected" = rawPairs.every(({ s, d }) => s === d || pairKeys.has(`${d}->${s}`)) ? "undirected" : "directed";
+
+  // Pass 3 — the LOGICAL edge list, pre-cap: deduped to one entry per
+  // undirected pair when the graph is symmetric, kept in full (every
+  // directed edge, no dedupe at all) otherwise.
+  let logicalPairs: { readonly s: number; readonly d: number }[];
+  let dedupedMirrorEdges = 0;
+  if (edgeDirection === "undirected") {
+    const seen = new Set<string>();
+    const deduped: { readonly s: number; readonly d: number }[] = [];
+    for (const { s, d } of rawPairs) {
+      const key = s <= d ? `${s}:${d}` : `${d}:${s}`;
+      if (seen.has(key)) { dedupedMirrorEdges++; continue; }
+      seen.add(key);
+      deduped.push({ s, d });
+    }
+    logicalPairs = deduped;
+  } else {
+    logicalPairs = rawPairs;
+  }
+
+  // Pass 4 — the node cap, applied last, to the LOGICAL list.
+  const edges: GlyphGraphEdge[] = logicalPairs
+    .filter(({ s, d }) => s < keepNodeCount && d < keepNodeCount)
+    .map(({ s, d }) => ({ from: String(s), to: String(d), ...(edgeDirection === "undirected" ? { style: "undirected" as const } : {}) }));
 
   return {
     graph: { nodes, edges, direction: "LR" },
@@ -191,6 +260,8 @@ function graphDatasetRowToGraph(ref: string, row: RawGraphRow, cap: number): { r
     originalNodeCount: numNodes,
     originalEdgeCount: srcs.length,
     dedupedMirrorEdges,
+    logicalEdgeCount: logicalPairs.length,
+    edgeDirection,
   };
 }
 
@@ -260,7 +331,7 @@ export async function loadGraphDatasetRow(ref: string, rowIdx: number, options: 
     ok: true, graph: mapped.graph, rowIdx, totalRows: fetched.totalRows,
     label: formatGraphDatasetLabel(fetched.row.y), simplified: mapped.simplified,
     originalNodeCount: mapped.originalNodeCount, originalEdgeCount: mapped.originalEdgeCount,
-    dedupedMirrorEdges: mapped.dedupedMirrorEdges,
+    dedupedMirrorEdges: mapped.dedupedMirrorEdges, logicalEdgeCount: mapped.logicalEdgeCount, edgeDirection: mapped.edgeDirection,
     source: { name: ref, url: `https://huggingface.co/datasets/${ref}` },
   };
 }
@@ -298,7 +369,7 @@ export async function loadRandomGraphDatasetRow(ref: string, options: GraphDatas
     ok: true, graph: mapped.graph, rowIdx: best.rowIdx, totalRows,
     label: formatGraphDatasetLabel(best.row.y), simplified: mapped.simplified,
     originalNodeCount: mapped.originalNodeCount, originalEdgeCount: mapped.originalEdgeCount,
-    dedupedMirrorEdges: mapped.dedupedMirrorEdges,
+    dedupedMirrorEdges: mapped.dedupedMirrorEdges, logicalEdgeCount: mapped.logicalEdgeCount, edgeDirection: mapped.edgeDirection,
     source: { name: ref, url: `https://huggingface.co/datasets/${ref}` },
   };
 }

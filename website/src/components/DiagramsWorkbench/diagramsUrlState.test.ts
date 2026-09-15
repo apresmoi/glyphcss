@@ -40,6 +40,15 @@ describe("diagramsUrlState — round trip", () => {
       title: "MUTAG", description: "Molecules.", label: "1", simplified: false,
       source: { name: "MUTAG", url: "https://huggingface.co/datasets/graphs-datasets/MUTAG", licence: "unknown" },
       preferred3d: false,
+      // P3 fix round.
+      originalNodeCount: 17, logicalEdgeCount: 19, edgeDirection: "undirected",
+    });
+
+    it("round-trips the P3 count/direction readout even for an OMITTED (un-edited) remote graph", async () => {
+      const state = remoteState();
+      const raw = await encodeDiagramsUrlState(state);
+      const decoded = await decodeDiagramsUrlState(raw);
+      expect(decoded?.graphSource).toMatchObject({ originalNodeCount: 17, logicalEdgeCount: 19, edgeDirection: "undirected" });
     });
 
     it("an un-edited remote graph omits nodes/edges/mermaid/json from the encoded state, and decodes with graphSource.omitted", async () => {

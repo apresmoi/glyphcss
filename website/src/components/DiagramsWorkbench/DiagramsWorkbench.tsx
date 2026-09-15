@@ -299,9 +299,14 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
       title: info.title, description: info.description, label: result.label, simplified: result.simplified,
       source: { name: info.title, url: result.source.url, licence: info.licence },
       preferred3d: DIAGRAMS_MOLECULE_GRAPH_REFS.has(ref),
+      originalNodeCount: result.originalNodeCount, logicalEdgeCount: result.logicalEdgeCount, edgeDirection: result.edgeDirection,
     });
+    // P3 — names how much the node cap trimmed, nodes AND edges, not just
+    // nodes: a graph can lose real edges to the cap even when its own node
+    // count barely exceeds it (a hub node just past the cap takes every one
+    // of its own edges with it).
     if (result.simplified) {
-      showGraphNotice(`Simplified "${info.title}" for legibility — the full graph has ${result.originalNodeCount} nodes.`);
+      showGraphNotice(`Simplified "${info.title}" for legibility — showing ${result.graph.nodes.length} of ${result.originalNodeCount} nodes, ${result.graph.edges.length} of ${result.logicalEdgeCount} edges.`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dispatch, showGraphNotice]);
@@ -406,6 +411,8 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
           presetLabel={GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId)?.label}
           loadingTitle={remoteGraphLoadingTitle}
           notice={graphNotice}
+          nodeCount={state.nodes.length}
+          edgeCount={state.edges.length}
         />
         <div className="voice-card diagrams-source-card">
           <div className="voice-controls">

@@ -182,7 +182,7 @@ function validateGraphSource(value: unknown): GlyphDiagramsGraphSource | null {
     return typeof value.presetId === "string" ? { kind: "builtin", presetId: value.presetId } : null;
   }
   if (value.kind !== "remote") return null;
-  const { ref, rowIdx, totalRows, title, description, label, simplified, source, omitted } = value;
+  const { ref, rowIdx, totalRows, title, description, label, simplified, source, omitted, originalNodeCount, logicalEdgeCount, edgeDirection } = value;
   if (typeof ref !== "string" || typeof title !== "string") return null;
   if (typeof rowIdx !== "number" || !Number.isFinite(rowIdx)) return null;
   if (typeof totalRows !== "number" || !Number.isFinite(totalRows)) return null;
@@ -190,12 +190,20 @@ function validateGraphSource(value: unknown): GlyphDiagramsGraphSource | null {
   if (label !== undefined && typeof label !== "string") return null;
   if (simplified !== undefined && typeof simplified !== "boolean") return null;
   if (omitted !== undefined && omitted !== true) return null;
+  // P3 fix round — append-only, same rule as every other optional field
+  // here: absent on an older link, never rejected.
+  if (originalNodeCount !== undefined && (typeof originalNodeCount !== "number" || !Number.isFinite(originalNodeCount))) return null;
+  if (logicalEdgeCount !== undefined && (typeof logicalEdgeCount !== "number" || !Number.isFinite(logicalEdgeCount))) return null;
+  if (edgeDirection !== undefined && !oneOf(edgeDirection, ["directed", "undirected"] as const)) return null;
   if (!isRecord(source) || typeof source.name !== "string" || typeof source.url !== "string") return null;
   if (source.licence !== undefined && typeof source.licence !== "string") return null;
   return {
     kind: "remote", ref, rowIdx, totalRows, title,
     ...(description !== undefined ? { description } : {}), ...(label !== undefined ? { label } : {}), ...(simplified !== undefined ? { simplified } : {}),
     ...(omitted === true ? { omitted: true as const } : {}),
+    ...(originalNodeCount !== undefined ? { originalNodeCount } : {}),
+    ...(logicalEdgeCount !== undefined ? { logicalEdgeCount } : {}),
+    ...(edgeDirection !== undefined ? { edgeDirection } : {}),
     source: { name: source.name, url: source.url, ...(source.licence !== undefined ? { licence: source.licence } : {}) },
   };
 }

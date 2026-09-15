@@ -186,6 +186,21 @@ export type GlyphDiagramsGraphSource =
        *  mount effect must re-fetch `ref`/`rowIdx` fresh rather than
        *  trusting the (empty) decoded graph. */
       readonly omitted?: true;
+      /** P3 fix round (added after this field's siblings — append-only,
+       *  same rule as the rest of this type) — the graph source card's own
+       *  "N of M nodes, K of L edges shown" readout: `originalNodeCount`
+       *  is "M", `logicalEdgeCount` is "L" (the edge total the node cap
+       *  truncated FROM, already net of any undirected dedupe — see
+       *  `graphDatasetLoad.ts`'s own doc); "N"/"K" are simply the loaded
+       *  `nodes`/`edges` arrays' own lengths, not duplicated here. Optional
+       *  so a link from before this fix round decodes with the readout
+       *  absent rather than wrong. */
+      readonly originalNodeCount?: number;
+      readonly logicalEdgeCount?: number;
+      /** P1 fix round — whether every kept edge is `style: "undirected"`
+       *  (a symmetric `edge_index`) or genuinely directed (arrowheads),
+       *  read straight off `GraphDatasetRowOk.edgeDirection`. */
+      readonly edgeDirection?: "directed" | "undirected";
     };
 
 /**
@@ -279,6 +294,8 @@ export type GlyphDiagramsWorkbenchAction =
       type: "select-remote-graph"; graph: GlyphGraph; ref: string; rowIdx: number; totalRows: number;
       title: string; description?: string; label?: string; simplified?: boolean;
       source: { name: string; url: string; licence?: string }; preferred3d: boolean;
+      // P3 fix round — see `GlyphDiagramsGraphSource`'s own doc.
+      originalNodeCount?: number; logicalEdgeCount?: number; edgeDirection?: "directed" | "undirected";
     };
 
 function nextGlyphDiagramNodeId(existing: readonly GlyphGraphNode[]): string {
@@ -414,6 +431,7 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
           kind: "remote", ref: action.ref, rowIdx: action.rowIdx, totalRows: action.totalRows,
           title: action.title, description: action.description, label: action.label, simplified: action.simplified,
           source: action.source,
+          originalNodeCount: action.originalNodeCount, logicalEdgeCount: action.logicalEdgeCount, edgeDirection: action.edgeDirection,
         },
         graphEdited: false,
       };

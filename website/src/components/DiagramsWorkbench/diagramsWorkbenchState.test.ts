@@ -219,9 +219,11 @@ describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", (
       type: "select-remote-graph" as const, graph: remoteGraph, ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188,
       title: "MUTAG", description: "Molecules.", label: "1", simplified: false,
       source: { name: "MUTAG", url: "https://huggingface.co/datasets/graphs-datasets/MUTAG", licence: "unknown" },
+      // P3 fix round.
+      originalNodeCount: 17, logicalEdgeCount: 19, edgeDirection: "undirected" as const,
     };
 
-    it("loads the graph into nodes/edges/mermaid/json and records graphSource", () => {
+    it("loads the graph into nodes/edges/mermaid/json and records graphSource, including the P3 count/direction readout", () => {
       const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: false });
       expect(state.nodes).toEqual(remoteGraph.nodes);
       expect(state.edges).toEqual(remoteGraph.edges);
@@ -231,6 +233,7 @@ describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", (
         kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188,
         title: "MUTAG", description: "Molecules.", label: "1", simplified: false,
         source: { name: "MUTAG", url: "https://huggingface.co/datasets/graphs-datasets/MUTAG", licence: "unknown" },
+        originalNodeCount: 17, logicalEdgeCount: 19, edgeDirection: "undirected",
       });
       expect(state.graphEdited).toBe(false);
       expect(state.view).toBe("2d");

@@ -33,7 +33,11 @@ describe("loadGraphDatasetRow — vendored MUTAG row0 fixture", () => {
     expect(result.graph.nodes.length).toBe(17);
     expect(result.originalNodeCount).toBe(17);
     expect(result.originalEdgeCount).toBe(38);
+    expect(result.logicalEdgeCount).toBe(19);
+    expect(result.edgeDirection).toBe("undirected");
     expect(result.simplified).toBe(false);
+    // Every kept edge carries `style: "undirected"` — no arrowhead.
+    expect(result.graph.edges.every((e) => e.style === "undirected")).toBe(true);
     // Every edge is a real (from,to) pair over existing node ids, and no
     // edge appears with both orderings (the dedupe's own promise).
     const seen = new Set<string>();
@@ -89,12 +93,78 @@ describe("loadGraphDatasetRow — vendored MUTAG row0 fixture", () => {
     expect(result.originalNodeCount).toBe(GRAPH_DATASET_NODE_CAP + 10);
     // Every edge touching a dropped node (id >= cap) is gone too.
     expect(result.graph.edges.every((e) => Number(e.from) < GRAPH_DATASET_NODE_CAP && Number(e.to) < GRAPH_DATASET_NODE_CAP)).toBe(true);
+    // P3 — "K of L edges shown": the path graph (a simple chain, no
+    // mirrors) is directed and keeps every one of its 49 edges pre-cap
+    // (`logicalEdgeCount`), but only 39 of them touch two surviving nodes
+    // (`graph.edges.length`) — the gap IS the count the card must show. A
+    // regression that stops counting the cap's own edge loss (reporting
+    // `logicalEdgeCount === graph.edges.length`) goes red here.
+    expect(result.edgeDirection).toBe("directed");
+    expect(result.logicalEdgeCount).toBe(49);
+    expect(result.graph.edges.length).toBe(39);
+    expect(result.logicalEdgeCount).toBeGreaterThan(result.graph.edges.length);
+  });
+});
+
+describe("loadGraphDatasetRow — edge direction (P1 fix round)", () => {
+  it("classifies a fully symmetric edge_index as undirected and dedupes it", async () => {
+    // Every (s,d) has its own (d,s): a plain 3-node triangle stored both ways.
+    const symmetricRow = {
+      num_rows_total: 1,
+      rows: [{ row: {
+        num_nodes: 3,
+        edge_index: [[0, 1, 1, 2, 0, 2], [1, 0, 2, 1, 2, 0]],
+        y: [0],
+      } }],
+    };
+    const result = await loadGraphDatasetRow(REF, 0, { fetch: stubFetch(symmetricRow) });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.edgeDirection).toBe("undirected");
+    expect(result.graph.edges.length).toBe(3);
+    expect(result.dedupedMirrorEdges).toBe(3);
+    expect(result.graph.edges.every((e) => e.style === "undirected")).toBe(true);
+  });
+
+  it("keeps a genuinely directed graph in full — a one-way edge anywhere stops the whole graph from being deduped", async () => {
+    // A->B and B->A DO mirror each other, but C->D has no D->C — the graph
+    // as a whole is NOT symmetric, so nothing is deduped: all 3 edges
+    // survive, directed. A regression that dedupes per-pair (rather than
+    // classifying the WHOLE graph first) would drop A->B or B->A to 1 edge
+    // here, losing a genuinely directed relationship — this test goes red
+    // on that mutation.
+    const asymmetricRow = {
+      num_rows_total: 1,
+      rows: [{ row: {
+        num_nodes: 4,
+        edge_index: [[0, 1, 2], [1, 0, 3]], // A->B, B->A, C->D
+        y: [0],
+      } }],
+    };
+    const result = await loadGraphDatasetRow(REF, 0, { fetch: stubFetch(asymmetricRow) });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.edgeDirection).toBe("directed");
+    expect(result.dedupedMirrorEdges).toBe(0);
+    expect(result.graph.edges.length).toBe(3);
+    expect(result.logicalEdgeCount).toBe(3);
+    // No edge carries `style: "undirected"` — every one keeps its arrowhead.
+    expect(result.graph.edges.some((e) => e.style === "undirected")).toBe(false);
+    expect(result.graph.edges).toEqual(expect.arrayContaining([
+      { from: "0", to: "1" }, { from: "1", to: "0" }, { from: "2", to: "3" },
+    ]));
   });
 });
 
 describe("loadGraphDatasetRow — failure kinds", () => {
-  it("reports gated on a 401/403 from /splits", async () => {
+  it("reports gated on a 401 from /splits", async () => {
     const fetch: GraphDatasetLoadFetch = vi.fn(async () => jsonResponse(401, {}));
+    const result = await loadGraphDatasetRow(REF, 0, { fetch });
+    expect(result).toMatchObject({ ok: false, kind: "gated" });
+  });
+
+  it("reports gated on a 403 from /splits too — a genuinely distinct status the 401 case alone never exercises", async () => {
+    const fetch: GraphDatasetLoadFetch = vi.fn(async () => jsonResponse(403, {}));
     const result = await loadGraphDatasetRow(REF, 0, { fetch });
     expect(result).toMatchObject({ ok: false, kind: "gated" });
   });

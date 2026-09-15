@@ -27,10 +27,18 @@ describe("searchGraphDatasets", () => {
     expect(fetchJson).not.toHaveBeenCalled();
   });
 
-  it("drops a private/gated/disabled hit and ranks by downloads", async () => {
+  it("drops a private/gated/disabled hit and ranks the survivors by downloads", async () => {
+    // Each of the three exclusion flags gets its own hit — a mutation that
+    // deletes only ONE of the three `||` clauses in `toGraphHit`'s guard
+    // still fails this (that hit alone survives and the exact `["org/high",
+    // "org/low"]` list gains an extra id), where the original single-hit
+    // "gated" test could not distinguish "checks gated" from "checks
+    // private/disabled too".
     const fetchJson: GraphDatasetSearchFetch = vi.fn(async () => [
       { id: "org/low", downloads: 1, tags: [] },
       { id: "org/gated", downloads: 999, gated: true, tags: [] },
+      { id: "org/private", downloads: 998, private: true, tags: [] },
+      { id: "org/disabled", downloads: 997, disabled: true, tags: [] },
       { id: "org/high", downloads: 500, tags: [] },
     ]);
     const hits = await searchGraphDatasets("x", { fetchJson });
