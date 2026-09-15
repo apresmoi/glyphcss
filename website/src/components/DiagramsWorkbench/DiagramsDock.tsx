@@ -5,7 +5,10 @@ import { useDockGui } from "../Dock/slots";
 import { IconToggle } from "../SynthWorkbench/synthKit";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import { Instrument3DEffectsFolder } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
-import { buildGlyphDiagramsWorkbenchGraph, glyphDiagramsWorkbenchEffectTargets, resolveGlyphDiagramsWorkbenchControls, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
+import {
+  buildGlyphDiagramsWorkbenchGraph, diagramsWorkbenchSizeLocked, glyphDiagramsWorkbenchEffectTargets, resolveGlyphDiagramsWorkbenchControls,
+  type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState,
+} from "./diagramsWorkbenchState";
 import { diagrams3dCharsetDockReason, diagrams3dColorDockReason } from "./diagrams3dSceneOptions";
 
 // Fix round 1, P1-2 — the small, curated set that "reads well" mesh-targeted
@@ -83,8 +86,20 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   const targetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const charsetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
-  useSlider(output, "Width", { min: 12, max: 240, step: 1 }, controls.width, (value) => setControl({ type: "width", value }));
-  useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
+  const widthCtrl = useSlider(output, "Width", { min: 12, max: 240, step: 1 }, controls.width, (value) => setControl({ type: "width", value }));
+  const heightCtrl = useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
+  // `web` fills the measured viewport instead of a fixed logical grid
+  // (AGENTS.md's "Diagrams" "Targets and page") — mirrors `ChartsDock.tsx`'s
+  // own identical lock exactly (`diagramsWorkbenchSizeLocked`'s own doc).
+  const sizeLocked = diagramsWorkbenchSizeLocked(controls.target);
+  useEffect(() => {
+    if (!widthCtrl || !heightCtrl) return;
+    widthCtrl.setEnabled(!sizeLocked);
+    heightCtrl.setEnabled(!sizeLocked);
+    const reason = sizeLocked ? "Web fills the viewport." : "";
+    widthCtrl.raw.domElement.title = reason;
+    heightCtrl.raw.domElement.title = reason;
+  }, [widthCtrl, heightCtrl, sizeLocked]);
 
   let direction = state.layout.direction ?? "TB";
   try { direction = buildGlyphDiagramsWorkbenchGraph(state).direction; } catch { /* Draft syntax must not disable the controls needed to repair it. */ }

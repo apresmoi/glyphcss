@@ -110,19 +110,30 @@ describe("ChartsWorkbench state", () => {
       expect(chartsWorkbenchDensity(reset.controls)).toBe(CHARTS_DEFAULT_DENSITY);
     });
 
-    it("chartsWorkbenchRenderOptions scales width/height by density on web, and never off web", () => {
+    // Width/Height are now LOCKED on `web` (`chartsWorkbenchSizeLocked`) —
+    // the grid fills the measured viewport instead of a fixed logical size
+    // — so a `web` render with no `viewportPx` (this test calls the pure
+    // function directly, exactly like every other caller with no live DOM:
+    // `renderGlyphChartJson`, the CLI, SSR) falls back to the TARGET's own
+    // default grid, density-scaled, never the dialed-in override. Off web,
+    // width/height/density overrides still all survive a target switch and
+    // apply exactly as before this feature existed (only the EFFECTIVE
+    // density itself drops to 1 there).
+    it("chartsWorkbenchRenderOptions ignores width/height overrides on web (fills the measured viewport instead) and scales the target default by density with no viewportPx measured yet", () => {
       let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 2 } });
       state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 40 } });
       state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 10 } });
       const webOptions = chartsWorkbenchRenderOptions(state);
-      expect(webOptions.width).toBe(80);
-      expect(webOptions.height).toBe(20);
+      // NOT 80/20 (40*2, the old override-scaling behaviour) — the web
+      // target's own default (96x32) scaled by density instead.
+      expect(webOptions.width).toBe(192);
+      expect(webOptions.height).toBe(64);
       // `density` is a website-only concept, never forwarded to the library's own options.
       expect(webOptions).not.toHaveProperty("density");
       // Explicit width/height/density overrides all survive a target
       // switch (`reduceGlyphChartsWorkbenchControls`'s own rule) — only the
       // EFFECTIVE density drops to 1 off web, so the same 40x10 override
-      // renders unscaled on terminal and chat.
+      // renders unscaled on terminal and chat, which still honour it.
       const terminalState = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "terminal" } });
       const terminalOptions = chartsWorkbenchRenderOptions(terminalState);
       expect(terminalOptions.width).toBe(40);
@@ -133,11 +144,31 @@ describe("ChartsWorkbench state", () => {
       expect(chatOptions.height).toBe(10);
     });
 
+    // A real measured `viewportPx` DOES reach the render on web, and STILL
+    // ignores the width/height override — proving the lock isn't merely "no
+    // viewport measured yet" but a genuine, permanent redirection.
+    it("chartsWorkbenchRenderOptions derives width/height from a measured viewportPx on web, still ignoring the override", () => {
+      let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "width", value: 40 } });
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 10 } });
+      // 13px cells, cellW = 13 * 0.5859375 = 7.6171875px -> 100 cols; cellH = 13px -> 10 rows.
+      const options = chartsWorkbenchRenderOptions(state, { width: 761.71875, height: 130 });
+      expect(options.width).toBe(100);
+      expect(options.height).toBe(10);
+    });
+
     it("a fractional round (round(width×d)) rounds to the nearest cell rather than truncating or throwing", () => {
-      let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "density", value: 1.25 } });
+      // Off web (where width still comes from the override, unlike above).
+      let state = reduceChartsWorkbenchState(initial(), { type: "set-control", control: { type: "target", value: "terminal" } });
+      state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "density", value: 1.25 } });
       state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 41 } });
-      // 41 * 1.25 = 51.25 -> rounds to 51
-      expect(chartsWorkbenchRenderOptions(state).width).toBe(51);
+      // Density is always 1 off web (`chartsWorkbenchEffectiveDensity`), so
+      // this instead exercises the SAME rounding rule on `web`'s own
+      // fallback default-grid path: 96 * 1.25 = 120 -> exact, so use a
+      // density that lands on a genuine fraction of it.
+      const webState = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
+      const fractional = reduceChartsWorkbenchState(webState, { type: "set-control", control: { type: "density", value: 1.3 } });
+      // 96 * 1.3 = 124.8 -> rounds to 125.
+      expect(chartsWorkbenchRenderOptions(fractional).width).toBe(125);
     });
 
     // `@glyphcss/charts`' own `textScale` (AGENTS.md's "Charts" "Density"
@@ -294,15 +325,21 @@ describe("ChartsWorkbench generated TypeScript", () => {
     };
     const emitted = executeSnippet(state);
     const cellAspect = target === "web" ? 0.5859375 : 0.5;
-    expect(emitted.options).toEqual({ target, width: 57, height: 19, charset: "ascii", detail: "faithful", cellAspect, color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
+    // `web` ignores the width/height override entirely (`chartsWorkbenchSizeLocked` —
+    // the render fills the measured viewport instead; with no viewport to
+    // measure here, `chartsWorkbenchRenderOptions` falls back to the
+    // target's own default grid) — only `terminal`/`chat` still honour 57x19.
+    const expectedWidth = target === "web" ? 96 : 57;
+    const expectedHeight = target === "web" ? 32 : 19;
+    expect(emitted.options).toEqual({ target, width: expectedWidth, height: expectedHeight, charset: "ascii", detail: "faithful", cellAspect, color: target === "web" ? "css" : target === "terminal" ? "ansi16" : "none", ...(target === "terminal" ? { env: { NO_COLOR: "1", FORCE_COLOR: "1" } } : {}) });
     expect(JSON.parse(emitted.json)).toEqual(emitted.spec);
     const live = renderChartsWorkbenchState(state);
     expect(live.ok).toBe(true);
     if (!live.ok) return;
     expect(emitted.result.text.replace(/\x1b\[[0-9;]*m/g, "")).toBe(live.text);
     if (target === "web") expect(emitted.result.html).toBe(live.display);
-    expect(live.text.split("\n")).toHaveLength(19);
-    expect(live.text.split("\n")[0]).toHaveLength(57);
+    expect(live.text.split("\n")).toHaveLength(expectedHeight);
+    expect(live.text.split("\n")[0]).toHaveLength(expectedWidth);
   });
 });
 
@@ -316,7 +353,13 @@ describe("final-gate-2 (Opus finding 1): the Heatmap tray preset paints every ca
     // checked by their own visible tick label; `Noon`'s label is thinned by
     // the (unrelated, pre-existing) tick-collision logic at this size, so
     // its row is instead covered by the "every plot-body row" sweep below.
-    let state = reduceChartsWorkbenchState(presetState("heatmap"), { type: "set-control", control: { type: "charset", value: "box" } });
+    // `target: "terminal"` — this test's whole premise is the width/height
+    // OVERRIDE (a tiny 24x8 grid, to force the collision this fix guards
+    // against); `web` now fills the measured viewport and ignores that
+    // override entirely (`chartsWorkbenchSizeLocked`'s own doc), so the
+    // override needs a target that still honours it.
+    let state = reduceChartsWorkbenchState(presetState("heatmap"), { type: "set-control", control: { type: "target", value: "terminal" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "charset", value: "box" } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "color", value: "none" } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 24 } });
     state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 8 } });

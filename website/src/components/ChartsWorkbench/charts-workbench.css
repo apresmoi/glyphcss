@@ -488,8 +488,28 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
    box — `.charts-preview`'s `min-height: 100%` already gives it a definite
    height (its ancestor `.charts-viewport` is `position: absolute; inset: 0`,
    `instrument-workbench.css`), so `height: 100%` here fills it exactly. */
-.charts-3d-viewport { position: relative; height: 100%; min-height: 320px; display: flex; flex-direction: column; }
+/* `flex: 1 1 auto`, not `height: 100%` — `.charts-preview` (the flex-column
+   parent) has no EXPLICIT `height` of its own (only `min-height: 100%`,
+   which flex/percentage resolution does not treat as definite), so a
+   plain `height: 100%` child measured live at only its own `min-height`
+   floor (320px) instead of the parent's real ~560px+ — the reported
+   "shouldn't be cutting" vertical limit, for the 3D viewport specifically.
+   `flex-grow: 1` fills the flex column's main axis unconditionally,
+   independent of whether the parent's own height counts as "definite". */
+.charts-3d-viewport { position: relative; flex: 1 1 auto; min-height: 320px; display: flex; flex-direction: column; }
 .charts-3d-viewport-host { flex: 1 1 auto; min-height: 0; }
+/* This host had NO font rule at all — the live 3D `<pre>` rendered in
+   whichever system monospace glyphcss's runtime-injected `.glyph-scene
+   .glyph-output` rule fell back to (`font-family: monospace`), which lacks
+   the braille block; a fallback face's braille cell measures ~13.5% wider
+   than every other glyph (AGENTS.md's "Targets and page" A4/A5), so
+   rotating a braille wireframe visibly shimmered as columns disagreed on
+   width. Three classes deep (0,3,0) — beats the injected rule's (0,2,0)
+   by SPECIFICITY, not by hoping this stylesheet loads after glyphcss's own
+   mount-effect-injected `<style>` (which, tied, would win by source order
+   regardless): see `diagrams-workbench.css`'s matching rule for the fuller
+   doc — the two pages share the exact same defect and fix shape. */
+.charts-3d-viewport .charts-3d-viewport-host .glyph-output { display: block; width: 100%; height: 100%; margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; line-height: 1; white-space: pre; user-select: none; }
 /* C3 fix round 2 (user feedback): the viewport's own `.charts-3d-downgrade-note`
    banner — despite the comment it shipped with citing the exact rule it
    broke — WAS inside the render area (a flex sibling of the scene host,

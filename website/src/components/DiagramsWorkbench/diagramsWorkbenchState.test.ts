@@ -131,7 +131,14 @@ describe("diagram workbench state and exports", () => {
       capturedOptions = options;
       return renderGlyphDiagram(input, options);
     });
-    expect(capturedOptions).toMatchObject({ target, width: 60, height: 20, direction: "LR", nodesep: 5, ranksep: 5, title: "My agent", detail: "faithful" });
+    // `web` ignores the width/height override — it fills the measured
+    // viewport instead (`diagramsWorkbenchSizeLocked`); with no viewport to
+    // measure here, `glyphDiagramsWorkbenchRenderOptions` falls back to the
+    // target's own default grid (96x32). Only `terminal`/`chat` still
+    // honour the dialed-in 60x20 override.
+    const expectedWidth = target === "web" ? 96 : 60;
+    const expectedHeight = target === "web" ? 32 : 20;
+    expect(capturedOptions).toMatchObject({ target, width: expectedWidth, height: expectedHeight, direction: "LR", nodesep: 5, ranksep: 5, title: "My agent", detail: "faithful" });
     const live = await renderGlyphDiagramsWorkbenchState(state);
     expect(live.ok).toBe(true);
     if (!live.ok) return;

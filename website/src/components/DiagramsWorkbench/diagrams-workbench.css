@@ -57,10 +57,32 @@
    containers: fills the available viewport rather than scrolling as fixed
    text (the 2D `.diagrams-grid-scroll` rule above), because an orbitable
    scene has no fixed cell budget to scroll around. */
-.diagrams-3d-frame { display: flex; flex-direction: column; width: 100%; height: 100%; gap: 6px; }
+/* `flex: 1 1 auto`, not `height: 100%` — `.diagrams-preview` (the flex-
+   column parent) has no EXPLICIT `height` of its own (only `min-height:
+   100%`, which flex/percentage resolution does not treat as definite), so
+   a plain `height: 100%` child measured live at only `.diagrams-3d-host`'s
+   own `min-height` floor (420px) instead of the parent's real, larger
+   available height — the reported "shouldn't be cutting" vertical limit,
+   for the 3D viewport specifically. `flex-grow: 1` fills the flex column's
+   main axis unconditionally, independent of whether the parent's own
+   height counts as "definite" (mirrors `charts-workbench.css`'s identical
+   fix for `.charts-3d-viewport`). */
+.diagrams-3d-frame { display: flex; flex-direction: column; width: 100%; flex: 1 1 auto; gap: 6px; }
 .diagrams-3d-host { flex: 1 1 auto; width: 100%; height: 100%; min-height: 420px; touch-action: none; cursor: grab; }
 .diagrams-3d-host:active { cursor: grabbing; }
-.diagrams-3d-host .glyph-output { display: block; width: 100%; height: 100%; margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; line-height: 1; white-space: pre; user-select: none; }
+/* Three classes deep (0,3,0), not `.diagrams-3d-host .glyph-output`'s own
+   (0,2,0) — glyphcss's runtime-injected `.glyph-scene .glyph-output` rule
+   (packages/glyphcss/src/styles/styles.ts) is ALSO (0,2,0), and its
+   `<style>` lands in `<head>` from this component's own mount EFFECT,
+   i.e. strictly after this page's bundled stylesheet — a tied specificity
+   is resolved by SOURCE ORDER, so the later (injected) rule silently won
+   regardless of what this rule said (`font-family: monospace`, no braille
+   glyphs, plus `display: inline-block` instead of the fill layout below).
+   Higher specificity wins independent of order, closing the hole for good
+   rather than depending on which script happens to run last (AGENTS.md's
+   "Targets and page": "no ancestor can re-open the cascade" — the same
+   rule, extended to a same-specificity SIBLING <style> tag). */
+.diagrams-3d-frame .diagrams-3d-host .glyph-output { display: block; width: 100%; height: 100%; margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; line-height: 1; white-space: pre; user-select: none; }
 .diagrams-tray-divider { display: flex; align-items: center; padding: 0 4px; font-size: 10px; letter-spacing: 0.08em; text-transform: uppercase; color: rgba(255, 232, 184, 0.5); white-space: nowrap; }
 
 /* The viewport holds only the render — no readout ever lives beside it.

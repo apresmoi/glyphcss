@@ -4,6 +4,7 @@ import {
   type GlyphDiagramsWorkbenchState,
 } from "./diagramsWorkbenchState";
 import { DIAGRAMS_URL_PARAM, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
+import { glyphDiagramsWorkbenchRenderOptions } from "./diagramsWorkbenchState";
 
 const presetState = (id: string): GlyphDiagramsWorkbenchState =>
   reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-preset", id });
@@ -29,6 +30,31 @@ describe("diagramsUrlState — round trip", () => {
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-edge", index: state.edges.length - 1, patch: { from: state.nodes[0]!.id, to: "extra", label: "routes to" } });
     const raw = await encodeDiagramsUrlState(state);
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
+  });
+
+  // Web viewport fill (AGENTS.md's "Diagrams" "Targets and page") — mirrors
+  // `chartsUrlState.test.ts`'s own identical test: an OLD link carrying an
+  // explicit width/height override on `web` still decodes exactly (the
+  // `?d=` envelope is unchanged by this feature), but the render itself
+  // ignores it there — only a target switch reactivates it.
+  it("an old link carrying width/height on web still decodes exactly, even though the web render now ignores it", async () => {
+    let state = createGlyphDiagramsWorkbenchState();
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 60 } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 20 } });
+    const raw = await encodeDiagramsUrlState(state);
+    const decoded = await decodeDiagramsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.controls.overrides.width).toBe(60);
+    expect(decoded!.controls.overrides.height).toBe(20);
+
+    const options = glyphDiagramsWorkbenchRenderOptions(decoded!);
+    expect(options.width).toBe(96);
+    expect(options.height).toBe(32);
+    const terminalState = reduceGlyphDiagramsWorkbenchState(decoded!, { type: "set-control", control: { type: "target", value: "terminal" } });
+    const terminalOptions = glyphDiagramsWorkbenchRenderOptions(terminalState);
+    expect(terminalOptions.width).toBe(60);
+    expect(terminalOptions.height).toBe(20);
   });
 
   it("round-trips unicode Mermaid source and JSON editor text", async () => {

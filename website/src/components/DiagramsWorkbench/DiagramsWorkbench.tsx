@@ -4,6 +4,7 @@ import { renderGlyphDiagram3d } from "@glyphcss/diagrams/3d";
 import { Dock } from "../Dock/Dock";
 import { CodePanel } from "../GalleryWorkbench/CodePanel";
 import { InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail, InstrumentShell, InstrumentTray, InstrumentViewport } from "../InstrumentWorkbench/InstrumentWorkbench";
+import { useElementSize, type ElementPixelSize } from "../InstrumentWorkbench/useElementSize";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
@@ -112,11 +113,23 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const resolvedControls = resolveGlyphDiagramsWorkbenchControls(state.controls);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [completed, setCompleted] = useState<{ state: GlyphDiagramsWorkbenchState; result: GlyphDiagramsWorkbenchRender } | null>(null);
+  const [completed, setCompleted] = useState<{ state: GlyphDiagramsWorkbenchState; viewportPx: ElementPixelSize | undefined; result: GlyphDiagramsWorkbenchRender } | null>(null);
   const [thumbnails, setThumbnails] = useState<readonly string[]>([]);
   const preRef = useRef<HTMLPreElement | null>(null);
-  // State identity prevents an old result from becoming copyable during a new layout.
-  const rendered = completed?.state === state ? completed.result : null;
+  // `web` fills the measured viewport instead of a fixed logical grid
+  // (AGENTS.md's "Diagrams" "Targets and page" — mirrors `/charts`'
+  // identical feature; see `ChartsWorkbench.tsx`'s own doc for the "why
+  // measuring `.diagrams-preview` is never circular" reasoning, which
+  // applies here unchanged). `.diagrams-preview` is what `InstrumentViewport`
+  // wraps, so this is the render's own available box.
+  const diagramsPreviewRef = useRef<HTMLDivElement | null>(null);
+  const measuredViewportPx = useElementSize(diagramsPreviewRef);
+  const viewportPx = measuredViewportPx ?? undefined;
+  // State AND viewportPx identity together prevent an old (or now
+  // viewport-stale) result from becoming copyable during a new layout —
+  // `useElementSize` keeps the SAME object across a no-op remeasurement, so
+  // this comparison never restarts a layout pass that isn't actually stale.
+  const rendered = completed?.state === state && completed.viewportPx === viewportPx ? completed.result : null;
   // The viewport's own content: while a layout is in flight for the
   // CURRENT state (`rendered === null`) or the current one errored, this
   // stays on the last one that actually succeeded — dimmed, never blank —
@@ -143,9 +156,9 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
   const hasError = state.view === "2d" ? rendered !== null && !rendered.ok : rendered3d !== null && !rendered3d.ok;
   const isViewportStale = isPending || hasError;
   const snippets = useMemo(() => {
-    try { return generateGlyphDiagramsWorkbenchSnippets(state); }
+    try { return generateGlyphDiagramsWorkbenchSnippets(state, viewportPx); }
     catch { return null; }
-  }, [state]);
+  }, [state, viewportPx]);
   // One writer for the component's lifetime — see diagramsUrlState.ts's doc
   // (150ms debounced, `history.replaceState`-only, skip-when-unchanged). No
   // size-warning readout lives on this page — diagrams carry no "custom
@@ -155,9 +168,9 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
 
   useEffect(() => {
     let current = true;
-    void renderGlyphDiagramsWorkbenchState(state).then((result) => { if (current) setCompleted({ state, result }); });
+    void renderGlyphDiagramsWorkbenchState(state, viewportPx).then((result) => { if (current) setCompleted({ state, viewportPx, result }); });
     return () => { current = false; };
-  }, [state]);
+  }, [state, viewportPx]);
   useEffect(() => {
     if (state.view !== "3d") return;
     let current = true;
@@ -290,7 +303,7 @@ function GlyphDiagramsWorkbenchInner({ initialState }: { initialState: GlyphDiag
       </InstrumentRail>
       <InstrumentMain>
         <InstrumentViewport className="diagrams-viewport">
-          <div className="diagrams-preview" aria-busy={isPending}>
+          <div className="diagrams-preview" aria-busy={isPending} ref={diagramsPreviewRef}>
             {/* The viewport holds only the render; feedback lives on the
              *  buttons and in the rail. `is-stale` (a config error or a
              *  layout still in flight) dims the LAST GOOD diagram instead

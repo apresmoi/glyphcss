@@ -7,6 +7,8 @@ import {
 import type { GlyphDiagram3dCamera, GlyphDiagram3dLayoutKind, GlyphDiagram3dRenderOptions } from "@glyphcss/diagrams/3d";
 import type { GlyphOrbitControlsMode } from "glyphcss";
 import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE, type Instrument3DEffectsState } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
+import { glyphMonoWebGridSize, type GlyphPixelBox } from "../../lib/glyphMonoMetrics";
+export type { GlyphPixelBox } from "../../lib/glyphMonoMetrics";
 import chain from "../../../../packages/diagrams/fixtures/chain.mmd?raw";
 import diamond from "../../../../packages/diagrams/fixtures/diamond.mmd?raw";
 import fanOut from "../../../../packages/diagrams/fixtures/fan-out.mmd?raw";
@@ -101,6 +103,33 @@ export function reduceGlyphDiagramsWorkbenchControls(state: GlyphDiagramsWorkben
 }
 export function resolveGlyphDiagramsWorkbenchControls(state: GlyphDiagramsWorkbenchControls) {
   return { target: state.target, ...GLYPH_DIAGRAM_TARGET_DEFAULTS[state.target], ...state.overrides };
+}
+
+// ── Web viewport fill (mirrors `@glyphcss/charts`' own workbench — this
+// file's `GlyphDiagramsWorkbenchControls` has no `density` concept, so this
+// is the simpler half of that page's same feature) ───────────────────────
+/** The web `<pre>`'s fixed base `font-size` (`.diagrams-grid-scroll >
+ *  .glyph-output`, `diagrams-workbench.css`) — the SAME 13px `/charts`
+ *  uses (both pages share the identical Glyph Mono stack at `line-height:
+ *  1`), kept as a page-local constant since diagrams has no per-target
+ *  Density slider to derive it from. */
+export const DIAGRAMS_WEB_BASE_FONT_PX = 13;
+/** `true` when the Width/Height sliders have no effect at this target —
+ *  `web` fills the measured viewport instead (this file's own
+ *  `glyphDiagramsWorkbenchWebGridSize`), mirroring `@glyphcss/charts`'
+ *  own workbench's `chartsWorkbenchSizeLocked` exactly. */
+export function diagramsWorkbenchSizeLocked(target: GlyphDiagramTarget): boolean {
+  return target === "web";
+}
+/** The grid a `web` render fills to — `viewportPx` (measured live,
+ *  `InstrumentWorkbench/useElementSize.ts`) when available, else the
+ *  target's own default grid (`GLYPH_DIAGRAM_TARGET_DEFAULTS.web`) for a
+ *  caller with no viewport to measure (SSR, a headless test, the CLI). The
+ *  Width/Height overrides are never read here — see `diagramsWorkbenchSizeLocked`. */
+export function glyphDiagramsWorkbenchWebGridSize(viewportPx: GlyphPixelBox | undefined): { width: number; height: number } {
+  if (viewportPx) return glyphMonoWebGridSize(viewportPx, DIAGRAMS_WEB_BASE_FONT_PX, 1);
+  const defaults = GLYPH_DIAGRAM_TARGET_DEFAULTS.web;
+  return { width: defaults.width, height: defaults.height };
 }
 
 /**
@@ -314,8 +343,14 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
     case "set-effect3d": return { ...state, effect3d: { ...state.effect3d, ...action.patch } };
   }
 }
-export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenchState): GlyphDiagramRenderOptions {
-  return { ...resolveGlyphDiagramsWorkbenchControls(state.controls), ...state.layout, ...state.diagram,
+/** `viewportPx` — the measured live viewport (`useElementSize`) — is read
+ *  ONLY on `web`; every other target ignores it entirely, exactly like it
+ *  ignores `state.controls.overrides.width`/`.height` there
+ *  (`diagramsWorkbenchSizeLocked`'s own doc). */
+export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenchState, viewportPx?: GlyphPixelBox): GlyphDiagramRenderOptions {
+  const resolved = resolveGlyphDiagramsWorkbenchControls(state.controls);
+  const size = state.controls.target === "web" ? glyphDiagramsWorkbenchWebGridSize(viewportPx) : { width: resolved.width, height: resolved.height };
+  return { ...resolved, width: size.width, height: size.height, ...state.layout, ...state.diagram,
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
 /**
@@ -342,12 +377,12 @@ export function glyphDiagramsWorkbenchRenderOptions3d(state: GlyphDiagramsWorkbe
 export function glyphDiagramsWorkbenchEffectTargets(nodes: readonly GlyphGraphNode[]): readonly { readonly id: string; readonly label: string }[] {
   return nodes.map((node) => ({ id: node.id, label: node.label }));
 }
-export function generateGlyphDiagramsWorkbenchSnippets(state: GlyphDiagramsWorkbenchState) {
+export function generateGlyphDiagramsWorkbenchSnippets(state: GlyphDiagramsWorkbenchState, viewportPx?: GlyphPixelBox) {
   const graph = buildGlyphDiagramsWorkbenchGraph(state);
   const json = JSON.stringify(graph, null, 2);
   const input = state.sourceKind === "mermaid" ? JSON.stringify(state.mermaid) : json;
   const mermaid = state.sourceKind === "mermaid" && !state.layout.direction ? state.mermaid : glyphDiagramsWorkbenchMermaid(graph);
-  return { json, mermaid, typescript: `import { renderGlyphDiagram } from "@glyphcss/diagrams";\n\nconst diagram = await renderGlyphDiagram(${input}, ${JSON.stringify(glyphDiagramsWorkbenchRenderOptions(state), null, 2)});\n` };
+  return { json, mermaid, typescript: `import { renderGlyphDiagram } from "@glyphcss/diagrams";\n\nconst diagram = await renderGlyphDiagram(${input}, ${JSON.stringify(glyphDiagramsWorkbenchRenderOptions(state, viewportPx), null, 2)});\n` };
 }
 
 export function glyphDiagramsWorkbenchMermaid(graph: GlyphGraph): string {

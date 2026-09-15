@@ -21,6 +21,7 @@ import {
   chartsScaleSliderBounds, chartsTimeBoundDisplay, chartsTimeBoundFromDisplay, chartsTimeBoundSnap, chartsTimeDisplayPrecision, chartsTimePrecisionOf,
   chartsWorkbenchAxisTimePrecision, chartsWorkbenchScaleTypeFits,
   chartsWorkbenchDensity, chartsWorkbenchDensityLocked, chartsWorkbenchHasCartesianMark, chartsWorkbenchHasZeroAnchoredMark, chartsWorkbenchInferredDomains,
+  chartsWorkbenchSizeLocked,
   resolveGlyphChartsWorkbenchControls, type ChartsScaleTypeFitTable, type ChartsTimePrecision, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain,
   type ChartsWorkbenchScale, type ChartsWorkbenchState,
   type GlyphChartsWorkbenchControlAction,
@@ -386,8 +387,24 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
   const targetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const charsetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
-  useSlider(output, "Width", { min: 12, max: 240, step: 1 }, controls.width, (value) => setControl({ type: "width", value }));
-  useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
+  const widthCtrl = useSlider(output, "Width", { min: 12, max: 240, step: 1 }, controls.width, (value) => setControl({ type: "width", value }));
+  const heightCtrl = useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) => setControl({ type: "height", value }));
+  // `web` fills the measured viewport instead of a fixed logical grid
+  // (AGENTS.md's "Charts" "Targets and page") — the mirror image of
+  // Density's own lock just below: there the row dims OFF web (a fixed
+  // consuming-renderer cell size has nothing to scale), here it dims ON
+  // web (the viewport, not this slider, now owns the grid). The dialed-in
+  // value still survives the round trip back to terminal/chat exactly like
+  // density's own does off web (`chartsWorkbenchSizeLocked`'s own doc).
+  const sizeLocked = chartsWorkbenchSizeLocked(controls.target);
+  useEffect(() => {
+    if (!widthCtrl || !heightCtrl) return;
+    widthCtrl.setEnabled(!sizeLocked);
+    heightCtrl.setEnabled(!sizeLocked);
+    const reason = sizeLocked ? "Web fills the viewport." : "";
+    widthCtrl.raw.domElement.title = reason;
+    heightCtrl.raw.domElement.title = reason;
+  }, [widthCtrl, heightCtrl, sizeLocked]);
   // Density (the user's own framing: "like in the 3D renderers we have the
   // density sliders" — AGENTS.md's "Per-mesh detail layers", the same
   // multiplier-on-cells-per-unit rule, applied to the chart's own render

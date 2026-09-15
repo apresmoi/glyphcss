@@ -312,6 +312,62 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(tileRule).toMatch(/line-height:\s*1\s*;/);
   });
 
+  // The live 3D viewport's `<pre>` used to have NO font rule at all here —
+  // it rendered in whatever glyphcss's own runtime-injected `.glyph-scene
+  // .glyph-output` rule fell back to (`font-family: monospace`, no braille
+  // glyphs), which measures every braille cell ~13.5% wider than every
+  // other glyph (AGENTS.md's "Targets and page" A4/A5) — exactly the
+  // reported "the braille fills different sizes of spaces... [it] moves
+  // around" as the camera orbits. Mirrors `DiagramsWorkbench.test.tsx`'s
+  // own matching test (the two pages share the exact defect and fix
+  // shape) — see that file's doc for why SPECIFICITY, not stylesheet
+  // order, is what has to win here.
+  it("the live 3D host's font rule outranks glyphcss's own runtime-injected .glyph-scene .glyph-output rule by SPECIFICITY, never by load order (braille-stability fix)", () => {
+    const classSpecificity = (selector: string) => (selector.match(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g) ?? []).length;
+    const injectedSrc = readFileSync(fileURLToPath(new URL("../../../../packages/glyphcss/src/styles/styles.ts", import.meta.url)), "utf8");
+    const injectedRule = injectedSrc.match(/\.glyph-scene \.glyph-output \{[^}]*\}/)![0];
+    expect(injectedRule).toMatch(/font-family:\s*monospace/); // the premise: glyphcss's own default has no braille
+    const injectedSpecificity = classSpecificity(injectedRule.split("{")[0]!);
+    expect(injectedSpecificity).toBe(2); // (0,2,0) — pins the number this test's ">" check is really comparing against
+
+    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const hostRule = css.match(/\.charts-3d-viewport \.charts-3d-viewport-host \.glyph-output \{[^}]*\}/)![0];
+    expect(hostRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(hostRule).not.toContain("font-family: inherit");
+    // Mutation: dropping the outer `.charts-3d-viewport` ancestor (back to
+    // a bare `.charts-3d-viewport-host .glyph-output`, 2 classes) makes
+    // this `2 > 2` — false.
+    expect(classSpecificity(hostRule.split("{")[0]!)).toBeGreaterThan(injectedSpecificity);
+
+    // DOM shape: `Charts3dViewport.tsx`'s own return statement nests
+    // `.charts-3d-viewport-host` (where glyphcss writes its `.glyph-output`
+    // `<pre>`) directly inside `.charts-3d-viewport` — the exact chain the
+    // selector above targets.
+    const viewportSrc = readFileSync(fileURLToPath(new URL("./Charts3dViewport.tsx", import.meta.url)), "utf8");
+    expect(viewportSrc).toMatch(/className="charts-3d-viewport"[\s\S]{0,200}className="charts-3d-viewport-host"/);
+  });
+
+  // The web viewport-fill fix (AGENTS.md's "Charts" "Targets and page"):
+  // `.charts-3d-viewport` used to declare `height: 100%` — but its flex-
+  // column parent (`.charts-preview`) has no EXPLICIT `height` of its own
+  // (only `min-height: 100%`, which percentage-height resolution does not
+  // treat as definite), so that measured live at only its own `min-height`
+  // FLOOR (320px) instead of the parent's real, larger available height —
+  // verified in a real Chromium via Playwright (not just reasoned about:
+  // happy-dom computes no layout at all, this file's own A4 test doc).
+  // `flex: 1 1 auto` fills the flex column's main axis unconditionally,
+  // independent of whether the parent's own height counts as "definite".
+  it("the live 3D viewport fills its flex-column parent via flex-grow, never a plain height:100% (web viewport-fill fix)", () => {
+    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const rule = css.match(/\.charts-3d-viewport \{[^}]*\}/)![0];
+    // Mutation: reverting to `height: 100%` (no `flex: 1 1 auto`) reddens
+    // this — the rule still parses/matches, it just no longer contains the
+    // fix.
+    expect(rule).toMatch(/flex:\s*1\s+1\s+auto/);
+    expect(rule).not.toMatch(/height:\s*100%/);
+    expect(rule).toMatch(/min-height:\s*320px/); // the floor survives — a real lower bound, never removed
+  });
+
   it("shows exactly TypeScript and JSON tabs and copies each current snippet", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     act(() => button("Export").click());

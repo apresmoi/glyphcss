@@ -4,7 +4,7 @@ import {
   type GlyphChartReport, type GlyphChartSpec, type GlyphChartXAxisTitleAt, type GlyphChartYAxisTitleAt,
 } from "@glyphcss/charts";
 import {
-  buildChartsWorkbenchSpec, chartsWorkbenchEffectiveDensity, chartsWorkbenchRenderOptions, type ChartsWorkbenchState,
+  buildChartsWorkbenchSpec, chartsWorkbenchEffectiveDensity, chartsWorkbenchRenderOptions, type ChartsWorkbenchState, type GlyphPixelBox,
 } from "./chartsWorkbenchState";
 import { CHARTS_AXIS_DEFAULT_COLOR } from "./chartsAxisDefaultColor";
 import { correctChartHtmlTextScale } from "./chartsWorkbenchHtmlColor";
@@ -327,13 +327,16 @@ export function renderChartsWorkbenchSpec(specJson: string, options: GlyphChartR
 export function buildStyledChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChartSpec {
   return applyChartStyle(buildChartsWorkbenchSpec(state), chartsWorkbenchChartStyle(state));
 }
-export function renderChartsWorkbenchState(state: ChartsWorkbenchState): ChartsWorkbenchRender {
+/** `viewportPx` — the measured live viewport (`useElementSize`) — reaches
+ *  `chartsWorkbenchRenderOptions` unchanged; see that function's own doc
+ *  for why every target but `web` ignores it. */
+export function renderChartsWorkbenchState(state: ChartsWorkbenchState, viewportPx?: GlyphPixelBox): ChartsWorkbenchRender {
   try {
     // A data mark that paints nothing is a chart that failed to show its
     // data, never a blank frame (`chartsWorkbenchNothingDrawn`).
     const nothingDrawn = chartsWorkbenchNothingDrawn(state);
     if (nothingDrawn !== null) return { ok: false, error: nothingDrawn, code: "nothing-drawn" };
-    return renderSpec(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state), chartsWorkbenchEffectiveDensity(state.controls));
+    return renderSpec(buildStyledChartsWorkbenchSpec(state), chartsWorkbenchRenderOptions(state, viewportPx), chartsWorkbenchEffectiveDensity(state.controls));
   } catch (error) { return failure(error); }
 }
 

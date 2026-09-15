@@ -2,8 +2,9 @@ import { renderGlyphDiagram, type GlyphDiagramRenderOptions, type GlyphDiagramRe
 import { renderGlyphDiagram3d, type GlyphDiagram3dRenderOptions, type GlyphDiagram3dResult } from "@glyphcss/diagrams/3d";
 import {
   buildGlyphDiagramsWorkbenchGraph, glyphDiagramsWorkbenchRenderOptions, glyphDiagramsWorkbenchRenderOptions3d,
-  type GlyphDiagramsWorkbenchCamera3d, type GlyphDiagramsWorkbenchState,
+  type GlyphDiagramsWorkbenchCamera3d, type GlyphDiagramsWorkbenchState, type GlyphPixelBox,
 } from "./diagramsWorkbenchState";
+export type { GlyphPixelBox } from "./diagramsWorkbenchState";
 
 export type GlyphDiagramsWorkbenchRender =
   | {
@@ -34,9 +35,9 @@ function chatCharsetDowngrade3d(options: GlyphDiagram3dRenderOptions): GlyphDiag
   return options.target === "chat" && options.charset === "braille" ? { ...options, charset: "blocks" } : options;
 }
 
-export async function renderGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchState): Promise<GlyphDiagramsWorkbenchRender> {
+export async function renderGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchState, viewportPx?: GlyphPixelBox): Promise<GlyphDiagramsWorkbenchRender> {
   try {
-    const options = glyphDiagramsWorkbenchRenderOptions(state);
+    const options = glyphDiagramsWorkbenchRenderOptions(state, viewportPx);
     const downgraded = chatCharsetDowngrade(options);
     const charsetDowngraded = downgraded !== options;
     const result = await renderGlyphDiagram(buildGlyphDiagramsWorkbenchGraph(state), downgraded);

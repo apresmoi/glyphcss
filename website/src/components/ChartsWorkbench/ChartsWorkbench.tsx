@@ -6,6 +6,7 @@ import {
   InstrumentBody, InstrumentMain, InstrumentMobileTabs, InstrumentRail,
   InstrumentShell, InstrumentTray, InstrumentViewport,
 } from "../InstrumentWorkbench/InstrumentWorkbench";
+import { useElementSize } from "../InstrumentWorkbench/useElementSize";
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { isAbort, loadDatasetRows } from "../../lib/datasetLoad";
@@ -133,7 +134,20 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   // viewport dims + pulses the LAST GOOD render rather than going blank.
   const [remoteLoadingTitle, setRemoteLoadingTitle] = useState<string | undefined>(undefined);
   const preRef = useRef<HTMLPreElement | null>(null);
-  const rendered = useMemo(() => renderChartsWorkbenchState(state), [state]);
+  // `web` fills the measured viewport instead of a fixed logical grid
+  // (AGENTS.md's "Charts" "Targets and page" — the same idiom `/maps`,
+  // `/synth` and `/gallery` already use via `createGlyphScene({ autoSize:
+  // true })`, applied here at the website layer since a 2D chart has no
+  // live scene of its own to `autoSize`). `.charts-preview` is the render's
+  // own available box — no padding of its own, and it fills `.charts-
+  // viewport`'s content area exactly via ordinary block layout regardless
+  // of what its content measures (`useElementSize.ts`'s own doc) — so
+  // measuring it is never circular: the render is always sized to FIT
+  // inside whatever this reports, never the other way round.
+  const chartsPreviewRef = useRef<HTMLDivElement | null>(null);
+  const measuredViewportPx = useElementSize(chartsPreviewRef);
+  const viewportPx = measuredViewportPx ?? undefined;
+  const rendered = useMemo(() => renderChartsWorkbenchState(state, viewportPx), [state, viewportPx]);
   // The viewport's own content: the CURRENT render when it's valid, else
   // whatever last rendered OK — so a config error (Dock controls, a bad
   // legacy link) dims the frame instead of collapsing it. Mutated during
@@ -248,8 +262,8 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const logicalRendered = useMemo(
     () => (density === 1 ? rendered : renderChartsWorkbenchState({
       ...state, controls: { ...state.controls, overrides: { ...state.controls.overrides, density: 1 } },
-    })),
-    [state, density, rendered],
+    }, viewportPx)),
+    [state, density, rendered, viewportPx],
   );
   // Fed to every `ChartsMarkCard`'s colour swatches (P2-3/P2-4/P2-5,
   // REVIEW-dock-colours-sliders-opus.md) — computed on the SAME styled
@@ -295,9 +309,9 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     return out.ok ? out.text : "";
   }), [state.controls.target]);
   const snippets = useMemo(() => {
-    try { return generateChartsWorkbenchSnippets(state); }
+    try { return generateChartsWorkbenchSnippets(state, viewportPx); }
     catch { return null; }
-  }, [state]);
+  }, [state, viewportPx]);
   // One writer for the component's lifetime — see chartsUrlState.ts's doc
   // (150ms debounced, `history.replaceState`-only, skip-when-unchanged). No
   // size-warning readout lives on this page any more (unreachable through
@@ -651,7 +665,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
       </InstrumentRail>
       <InstrumentMain>
         <InstrumentViewport className="charts-viewport">
-          <div className="charts-preview">
+          <div className="charts-preview" ref={chartsPreviewRef}>
             {isWeb3d ? (
               // The live orbitable scene (web only, AGENTS.md's "Charts 3D"
               // export boundary) — colour honoured through

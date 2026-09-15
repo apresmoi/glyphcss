@@ -12,6 +12,8 @@ import {
 } from "@glyphcss/charts";
 import type { PipelineStep } from "../../lib/dataPipeline";
 import type { TabularRow } from "../../lib/tabularParse";
+import { glyphMonoWebGridSize, type GlyphPixelBox } from "../../lib/glyphMonoMetrics";
+export type { GlyphPixelBox } from "../../lib/glyphMonoMetrics";
 import {
   CHARTS_CUSTOM_MAX_BYTES, profileChartsData,
   resolveChartsDataRows, topChartsRecommendation,
@@ -156,6 +158,32 @@ export function chartsWorkbenchDensity(controls: GlyphChartsWorkbenchControls): 
 /** The density that actually reaches the render grid — always 1 off `web`. */
 export function chartsWorkbenchEffectiveDensity(controls: GlyphChartsWorkbenchControls): number {
   return chartsWorkbenchDensityLocked(controls.target) ? CHARTS_DEFAULT_DENSITY : chartsWorkbenchDensity(controls);
+}
+
+// ── Web viewport fill (the mirror image of Density's own lock: `web` FILLS
+// the measured browser viewport instead of a fixed logical grid, so the
+// Width/Height sliders — which SET that fixed grid — have nothing left to
+// do there; `terminal`/`chat` render at a size the CONSUMING renderer picks
+// with no viewport of this page's own to measure, so they keep the sliders
+// exactly as before this feature existed) ────────────────────────────────
+/** `true` when the Width/Height sliders have no effect at this target —
+ *  `chartsWorkbenchDensityLocked`'s mirror image, `@glyphcss/maps`'
+ *  `mapDirectionLocked` idiom (dim with a reason, never hide). */
+export function chartsWorkbenchSizeLocked(target: GlyphChartTarget): boolean {
+  return target === "web";
+}
+/** The grid a `web` render fills to — `viewportPx` (measured live,
+ *  `InstrumentWorkbench/useElementSize.ts`) when available, else the
+ *  target's own default grid (`GLYPH_CHART_TARGET_DEFAULTS.web`,
+ *  density-scaled like every other target) for a caller with no viewport to
+ *  measure (SSR, a headless test, `renderGlyphChartJson`, the CLI) — the
+ *  Width/Height overrides are NEVER read here, on either branch: they own
+ *  nothing on `web` (`chartsWorkbenchSizeLocked`), dialed-in-but-inert
+ *  exactly like an off-web density override. */
+export function chartsWorkbenchWebGridSize(viewportPx: GlyphPixelBox | undefined, density: number): { width: number; height: number } {
+  if (viewportPx) return glyphMonoWebGridSize(viewportPx, CHARTS_DENSITY_BASE_FONT_PX, density);
+  const defaults = GLYPH_CHART_TARGET_DEFAULTS.web;
+  return { width: Math.round(defaults.width * density), height: Math.round(defaults.height * density) };
 }
 
 const SAMPLE = [3, 5, 2, 8, 6, 9, 4];
@@ -1128,7 +1156,13 @@ export function chartsDomainNumberDisplay(value: number, step: number): string {
   const decimals = step > 0 && Number.isFinite(step) ? Math.min(6, Math.max(0, Math.ceil(-Math.log10(step)))) : 3;
   return String(Number(value.toFixed(decimals)));
 }
-export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): GlyphChartRenderOptions {
+/**
+ * `viewportPx` — the measured live viewport box (`useElementSize`) — is
+ * read ONLY on `web`; every other target ignores it entirely, exactly as
+ * it ignores `state.controls.overrides.width`/`.height` there (this
+ * function's own "Web viewport fill" doc, above `chartsWorkbenchWebGridSize`).
+ */
+export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState, viewportPx?: GlyphPixelBox): GlyphChartRenderOptions {
   // `legend` is NOT set here — it already rides in the built spec
   // (`buildChartsWorkbenchSpec`, carrying the chosen placement), and a
   // render `options.legend` would OVERRIDE that placement object with a
@@ -1137,15 +1171,26 @@ export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): Glyph
   // `density` is stripped out of the spread rather than reaching
   // `renderGlyphChart` — it is a WEBSITE-only render-grid multiplier, not a
   // library render option, and this function's own return type
-  // (`GlyphChartRenderOptions`) has no such field. Width/Height in
-  // `resolved` stay the reader's LOGICAL size; only the values actually
-  // handed to the library are multiplied, at the SAME render pass the
-  // library already runs — glyphcss's own `density` never adds a pass
-  // either (AGENTS.md's "Per-mesh detail layers").
+  // (`GlyphChartRenderOptions`) has no such field. Off `web`, `resolved`'s
+  // width/height stay the reader's LOGICAL size and only the values
+  // actually handed to the library are multiplied, at the SAME render pass
+  // the library already runs — glyphcss's own `density` never adds a pass
+  // either (AGENTS.md's "Per-mesh detail layers"). ON `web`, `resolved`'s
+  // own width/height (the override, or the target default) are DISCARDED
+  // outright — `chartsWorkbenchWebGridSize` derives the grid from the
+  // measured viewport instead (`chartsWorkbenchSizeLocked`'s own doc: the
+  // Width/Height sliders own nothing there).
   const { density: _density, ...resolved } = resolveGlyphChartsWorkbenchControls(state.controls);
   const density = chartsWorkbenchEffectiveDensity(state.controls);
   const textScale = Math.round(density);
-  return { ...resolved, width: Math.round(resolved.width * density), height: Math.round(resolved.height * density),
+  // `size` OVERRIDES `resolved.width`/`.height` below regardless of which
+  // branch runs (object-spread order) — computed separately only so the
+  // `web` branch never even READS `resolved.width`/`.height` (the ignored
+  // override), rather than computing a value and throwing it away.
+  const size = state.controls.target === "web"
+    ? chartsWorkbenchWebGridSize(viewportPx, density)
+    : { width: Math.round(resolved.width * density), height: Math.round(resolved.height * density) };
+  return { ...resolved, width: size.width, height: size.height,
     detail: state.controls.overrides.detail ?? "auto",
     // `@glyphcss/charts`' own `textScale` (AGENTS.md's "Charts" "Density"
     // paragraph) — the library's ONE render, two-font-size mechanism that
@@ -1161,9 +1206,9 @@ export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState): Glyph
     ...(state.style.regionFill !== undefined ? { regionFill: state.style.regionFill } : {}),
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
-export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState) {
+export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState, viewportPx?: GlyphPixelBox) {
   const spec = buildChartsWorkbenchSpec(state);
-  const options = chartsWorkbenchRenderOptions(state);
+  const options = chartsWorkbenchRenderOptions(state, viewportPx);
   const json = JSON.stringify(spec, null, 2);
   return { json, typescript: `import { glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";\n\nconst chart = renderGlyphChart(glyphChartPlot(${json}), ${JSON.stringify(options, null, 2)});\n` };
 }

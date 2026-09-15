@@ -126,6 +126,65 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(tileRule).toMatch(/line-height:\s*1\s*;/);
   });
 
+  // The live 3D viewport is a DIFFERENT `<pre>` from the 2D one above — its
+  // own font rule used to not exist at all (`/charts`) or tie glyphcss's
+  // own runtime-injected `.glyph-scene .glyph-output` rule on specificity
+  // (`/diagrams`), which a same-specificity tie resolves by SOURCE ORDER:
+  // that injected `<style>` is appended from the live scene's own mount
+  // EFFECT, strictly after this page's bundled CSS, so it silently won —
+  // the live `<pre>` rendered in a fallback monospace face with no braille
+  // glyphs, whose cell measures ~13.5% wider than every other glyph
+  // (AGENTS.md's "Targets and page" A4/A5), which is exactly the reported
+  // "the braille fills different sizes of spaces... [it] moves around" as
+  // the camera orbits. The fix is a HIGHER-specificity selector, so it
+  // wins independent of injection order — this proves that property
+  // directly rather than trusting cascade order (which happy-dom can't
+  // even compute, this file's own A4 test doc above).
+  it("the live 3D host's font rule outranks glyphcss's own runtime-injected .glyph-scene .glyph-output rule by SPECIFICITY, never by load order (braille-stability fix)", () => {
+    const classSpecificity = (selector: string) => (selector.match(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g) ?? []).length;
+    const injectedSrc = readFileSync(fileURLToPath(new URL("../../../../packages/glyphcss/src/styles/styles.ts", import.meta.url)), "utf8");
+    const injectedRule = injectedSrc.match(/\.glyph-scene \.glyph-output \{[^}]*\}/)![0];
+    expect(injectedRule).toMatch(/font-family:\s*monospace/); // the premise: glyphcss's own default has no braille
+    const injectedSpecificity = classSpecificity(injectedRule.split("{")[0]!);
+    expect(injectedSpecificity).toBe(2); // (0,2,0) — pins the number this test's ">" check is really comparing against
+
+    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const hostRule = css.match(/\.diagrams-3d-frame \.diagrams-3d-host \.glyph-output \{[^}]*\}/)![0];
+    expect(hostRule).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(hostRule).not.toContain("font-family: inherit");
+    // Mutation: reverting the selector to the old `.diagrams-3d-host
+    // .glyph-output` (2 classes) makes this `2 > 2` — false.
+    expect(classSpecificity(hostRule.split("{")[0]!)).toBeGreaterThan(injectedSpecificity);
+
+    // DOM shape: the selector's own ancestor chain must match what actually
+    // mounts — `.diagrams-3d-frame` wraps `<Diagrams3DViewport>`
+    // (`DiagramsWorkbench.tsx`), whose own root IS `.diagrams-3d-host`
+    // (`Diagrams3DViewport.tsx`), which is where glyphcss writes its
+    // `.glyph-output` `<pre>`. Mutation: renaming either class breaks this
+    // structural pin even though the CSS-source assertions above stay green.
+    const workbenchSrc = readFileSync(fileURLToPath(new URL("./DiagramsWorkbench.tsx", import.meta.url)), "utf8");
+    const frameAt = workbenchSrc.indexOf('className="diagrams-3d-frame"');
+    const viewportAt = workbenchSrc.indexOf("<Diagrams3DViewport");
+    expect(frameAt).toBeGreaterThan(-1);
+    expect(viewportAt).toBeGreaterThan(frameAt);
+    const viewportSrc = readFileSync(fileURLToPath(new URL("./Diagrams3DViewport.tsx", import.meta.url)), "utf8");
+    expect(viewportSrc).toMatch(/className="diagrams-3d-host"/);
+  });
+
+  // The web viewport-fill fix (AGENTS.md's "Diagrams" "Targets and page") —
+  // mirrors `ChartsWorkbench.test.tsx`'s own identical test/doc:
+  // `.diagrams-3d-frame` used to declare `height: 100%`, but its flex-
+  // column parent (`.diagrams-preview`) has no EXPLICIT height of its own,
+  // so it measured live at only `.diagrams-3d-host`'s `min-height` floor
+  // (420px) instead of the real available height — verified in a real
+  // Chromium via Playwright.
+  it("the live 3D viewport fills its flex-column parent via flex-grow, never a plain height:100% (web viewport-fill fix)", () => {
+    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const rule = css.match(/\.diagrams-3d-frame \{[^}]*\}/)![0];
+    expect(rule).toMatch(/flex:\s*1\s+1\s+auto/);
+    expect(rule).not.toMatch(/height:\s*100%/);
+  });
+
   it("preloads the vendored LangGraph bytes and mounts the shared instrument shell", () => {
     expect(container.querySelector("textarea")!.value).toBe(langgraph);
     expect(preview().textContent).toContain("agent");

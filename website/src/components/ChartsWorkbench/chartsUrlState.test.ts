@@ -10,6 +10,7 @@ import {
   CHARTS_URL_PARAM, CHARTS_URL_SIZE_WARN_BYTES, chartsUrlStateForEncode, chartsUrlStateResolveDataset, createChartsUrlWriter, decodeChartsUrlState,
   encodeChartsUrlState, encodeChartsUrlStateInfo,
 } from "./chartsUrlState";
+import { chartsWorkbenchRenderOptions } from "./chartsWorkbenchState";
 
 const presetState = (id: string): ChartsWorkbenchState =>
   reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "apply-preset", id });
@@ -102,6 +103,41 @@ describe("chartsUrlState — round trip", () => {
     expect(decoded!.controls.overrides.height).toBe(6); // CHARTS_HEIGHT_SLIDER_MIN
     expect(decoded!.controls.overrides.density).toBeLessThanOrEqual(4); // CHARTS_DENSITY_MAX
     expect(decoded!.controls.overrides.density).toBeGreaterThanOrEqual(1); // CHARTS_DENSITY_MIN
+  });
+
+  // Web viewport fill (AGENTS.md's "Charts" "Targets and page"): an OLD
+  // link written before this feature existed still carries an explicit
+  // width/height override on `web` (the `?c=` envelope is append-only —
+  // nothing about this feature changed the encode/decode schema), and it
+  // still DECODES exactly — `chartsUrlStateResolveDataset`'s own clamp
+  // above already proves that for a hostile value; this proves it for an
+  // ordinary one, tied to the render-time lock: the decoded override
+  // survives round-trip, but `chartsWorkbenchRenderOptions` (with no
+  // `viewportPx`, matching a caller with no live DOM to measure) never
+  // reads it on `web` — only a target switch reactivates it.
+  it("an old link carrying width/height on web still decodes exactly, even though the web render now ignores it", async () => {
+    let state = createChartsWorkbenchState();
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "web" } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "width", value: 57 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-control", control: { type: "height", value: 19 } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.controls.overrides.width).toBe(57);
+    expect(decoded!.controls.overrides.height).toBe(19);
+    expect(decoded).toEqual(state); // the whole decoded state matches, not just these two fields
+
+    // The render itself never sees 57x19 on `web` — the target's own
+    // default (96x32) instead, pre-measurement.
+    const options = chartsWorkbenchRenderOptions(decoded!);
+    expect(options.width).toBe(96);
+    expect(options.height).toBe(32);
+    // Switching to a target that still honours the override reactivates it
+    // with NO further edit — the value was never lost, only inert.
+    const terminalState = reduceChartsWorkbenchState(decoded!, { type: "set-control", control: { type: "target", value: "terminal" } });
+    const terminalOptions = chartsWorkbenchRenderOptions(terminalState);
+    expect(terminalOptions.width).toBe(57);
+    expect(terminalOptions.height).toBe(19);
   });
 
   it("decodes a pre-density link (no density key) to the default, unmaterialized overrides", async () => {
