@@ -60,7 +60,10 @@ const TICK_FORMAT_OBJECT_SCHEMA = {
 // throws). A plain function value (the TS/JS-only callback escape hatch)
 // has no JSON representation at all, so it never reaches this schema either way.
 const TICK_FORMAT_BARE_NAMES = GLYPH_CHART_TICK_FORMAT_PRESET_NAMES.filter((name) => (TICK_FORMAT_PRESET_PARAMS[name]?.required?.length ?? 0) === 0);
-const TICK_FORMAT_SCHEMA = { anyOf: [{ enum: TICK_FORMAT_BARE_NAMES }, TICK_FORMAT_OBJECT_SCHEMA] };
+// Exported so `@glyphcss/charts/3d`'s own `schema.ts` (C7) reuses the SAME
+// clause for `axes.{x,y,z}.format` rather than a parallel derivation off
+// `GLYPH_CHART_TICK_FORMAT_PRESET_NAMES` — one schema fragment, two schemas.
+export const TICK_FORMAT_SCHEMA = { anyOf: [{ enum: TICK_FORMAT_BARE_NAMES }, TICK_FORMAT_OBJECT_SCHEMA] };
 const X_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: X_AXIS_TITLE_ATS }, format: TICK_FORMAT_SCHEMA } };
 const Y_AXIS_SCHEMA = { type: "object", properties: { color: HEX_COLOR_SCHEMA, titleAt: { enum: Y_AXIS_TITLE_ATS }, format: TICK_FORMAT_SCHEMA } };
 const SCALE_SCHEMA = {

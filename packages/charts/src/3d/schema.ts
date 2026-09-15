@@ -15,6 +15,10 @@ import {
   GLYPH_CHART_3D_SCATTER_RULES, GLYPH_CHART_3D_SURFACE_RULES, glyphChart3dRepairHint,
 } from "./validate";
 import type { GlyphChart3dValidationRuleId } from "./validate";
+// C7: reuses the ROOT package's own tick-format schema fragment verbatim
+// (AGENTS.md's "Charts 3D" C7) — one derivation of
+// `GLYPH_CHART_TICK_FORMAT_PRESETS`' own shape, not a parallel 3D copy.
+import { TICK_FORMAT_SCHEMA } from "../schema";
 
 /** Shared shape every `glyphChart3d*JsonSchema()` function returns. */
 export interface GlyphChart3dJsonSchema {
@@ -34,10 +38,26 @@ const HEX_COLOR_SCHEMA = { type: "string", pattern: "^#[0-9a-f]{6}$" };
 // field-name string — never an accessor function (JSON has no functions,
 // exactly like the root schema's own tick-format callback exclusion).
 const CHANNEL_VALUE_SCHEMA = { anyOf: [{ type: "string" }, NUMBER_ARRAY] };
+// C7 (AGENTS.md's "Charts 3D" C7): mirrors `GlyphChart3dAxisOptions` field
+// for field — `format` is the SAME schema fragment a 2D `axes.{x,y}.format`
+// uses, `color` the same canonical-hex pattern, `domain` two ordered finite
+// numbers (`min < max` is a cross-value invariant no JSON Schema keyword
+// expresses on its own, exactly like `surface-axis-unsorted` — runtime-only,
+// `schema.test.ts`'s own exception list).
 const AXIS_OPTIONS_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  properties: { title: { type: "string" }, ticks: { type: "integer", minimum: 1 } },
+  properties: {
+    title: { type: "string" },
+    ticks: { type: "integer", minimum: 1 },
+    format: TICK_FORMAT_SCHEMA,
+    line: { type: "boolean" },
+    tickMarks: { type: "boolean" },
+    tickLabels: { type: "boolean" },
+    grid: { type: "boolean" },
+    color: HEX_COLOR_SCHEMA,
+    domain: { type: "array", minItems: 2, maxItems: 2, items: { type: "number" } },
+  },
 };
 const CORNER_BIT_SCHEMA = { enum: [0, 1] };
 const CORNER_NAME_SCHEMA = { enum: ["x0-y0-z0", "x1-y0-z0", "x1-y1-z0", "x0-y1-z0", "x0-y0-z1", "x1-y0-z1", "x1-y1-z1", "x0-y1-z1"] };
@@ -100,7 +120,7 @@ export function glyphChart3dSurfaceJsonSchema(): GlyphChart3dSurfaceJsonSchema {
           maxQuadsY: { type: "integer", minimum: 1 },
           axes: {
             type: "object", additionalProperties: false,
-            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA, color: HEX_COLOR_SCHEMA },
           },
           guides: GUIDE_OPTIONS_SCHEMA,
         },
@@ -139,7 +159,7 @@ export function glyphChart3dScatterJsonSchema(): GlyphChart3dJsonSchema {
           markerSize: { type: "number", exclusiveMinimum: 0 },
           axes: {
             type: "object", additionalProperties: false,
-            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA, color: HEX_COLOR_SCHEMA },
           },
           guides: GUIDE_OPTIONS_SCHEMA,
         },
@@ -174,7 +194,7 @@ export function glyphChart3dParametricJsonSchema(): GlyphChart3dJsonSchema {
           wrapV: { type: "boolean" },
           axes: {
             type: "object", additionalProperties: false,
-            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA, color: HEX_COLOR_SCHEMA },
           },
           guides: GUIDE_OPTIONS_SCHEMA,
         },
@@ -207,7 +227,7 @@ export function glyphChart3dBarsJsonSchema(): GlyphChart3dJsonSchema {
           barWidth: { type: "number", exclusiveMinimum: 0, maximum: 1 },
           axes: {
             type: "object", additionalProperties: false,
-            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA, color: HEX_COLOR_SCHEMA },
           },
           guides: GUIDE_OPTIONS_SCHEMA,
         },
@@ -238,7 +258,7 @@ export function glyphChart3dLineJsonSchema(): GlyphChart3dJsonSchema {
           aspect: { type: "array", minItems: 3, maxItems: 3, items: { type: "number", exclusiveMinimum: 0 } },
           axes: {
             type: "object", additionalProperties: false,
-            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA },
+            properties: { x: AXIS_OPTIONS_SCHEMA, y: AXIS_OPTIONS_SCHEMA, z: AXIS_OPTIONS_SCHEMA, corner: CORNER_OPTIONS_SCHEMA, color: HEX_COLOR_SCHEMA },
           },
           guides: GUIDE_OPTIONS_SCHEMA,
         },

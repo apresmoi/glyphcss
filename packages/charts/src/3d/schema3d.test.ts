@@ -32,10 +32,16 @@ const suites: readonly Suite[] = [
     good: [
       { data: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }] },
       { data: [{ x: 0, y: 0, z: 0, g: "a" }, { x: 1, y: 1, z: 1, g: "b" }], channels: { series: "g" } },
+      // C7 (AGENTS.md's "Charts 3D" C7): every mark's own axis triad reads
+      // the SAME `axisTriadShared.ts` resolution, so the schema for every
+      // mark type carries the new per-axis fields identically.
+      { data: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }], options: { axes: { color: "#112233", z: { format: "si", color: "#445566", domain: [-5, 5], line: false, tickMarks: false, tickLabels: false, grid: true } } } },
     ],
     bad: [
       { id: "scatter-empty", fixture: { data: [] } },
       { id: "non-finite-data", fixture: { data: [{ x: 0, y: 0, z: "nope" }] } },
+      { id: "bad-axis-color", fixture: { data: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }], options: { axes: { z: { color: "red" } } } } },
+      { id: "bad-tick-format", fixture: { data: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }], options: { axes: { z: { format: "not-a-preset" } } } } },
     ],
     runtime: (f) => { try { glyphChartScatter3d(f.data, f.channels, f.options); return true; } catch { return false; } },
   },
@@ -45,9 +51,11 @@ const suites: readonly Suite[] = [
     rules: GLYPH_CHART_3D_PARAMETRIC_RULES,
     good: [
       { data: { x: [[0, 1], [0, 1]], y: [[0, 0], [1, 1]], z: [[0, 0], [0, 0]] } },
+      { data: { x: [[0, 1], [0, 1]], y: [[0, 0], [1, 1]], z: [[0, 0], [0, 0]] }, options: { axes: { color: "#112233", z: { format: "si", color: "#445566", domain: [-5, 5] } } } },
     ],
     bad: [
       { id: "parametric-too-small", fixture: { data: { x: [[0]], y: [[0]], z: [[0]] } } },
+      { id: "bad-axis-color", fixture: { data: { x: [[0, 1], [0, 1]], y: [[0, 0], [1, 1]], z: [[0, 0], [0, 0]] }, options: { axes: { z: { color: "red" } } } } },
     ],
     runtime: (f) => { try { glyphChartParametric3d(f.data, f.options); return true; } catch { return false; } },
   },
@@ -57,9 +65,11 @@ const suites: readonly Suite[] = [
     rules: GLYPH_CHART_3D_BARS_RULES,
     good: [
       { data: [{ x: 0, y: 0, z: 1 }, { x: 1, y: 1, z: 2 }] },
+      { data: [{ x: 0, y: 0, z: 1 }, { x: 1, y: 1, z: 2 }], options: { axes: { color: "#112233", z: { format: "si", color: "#445566", domain: [-5, 5] } } } },
     ],
     bad: [
       { id: "bars-empty", fixture: { data: [] } },
+      { id: "bad-axis-color", fixture: { data: [{ x: 0, y: 0, z: 1 }, { x: 1, y: 1, z: 2 }], options: { axes: { z: { color: "red" } } } } },
     ],
     runtime: (f) => { try { glyphChartBars3d(f.data, f.channels, f.options); return true; } catch { return false; } },
   },
@@ -70,9 +80,11 @@ const suites: readonly Suite[] = [
     good: [
       { data: [[0, 0, 0], [1, 1, 1]] },
       { data: [{ name: "a", points: [[0, 0, 0], [1, 0, 0]] }] },
+      { data: [[0, 0, 0], [1, 1, 1]], options: { axes: { color: "#112233", z: { format: "si", color: "#445566", domain: [-5, 5] } } } },
     ],
     bad: [
       { id: "line3d-empty", fixture: { data: [] } },
+      { id: "bad-axis-color", fixture: { data: [[0, 0, 0], [1, 1, 1]], options: { axes: { z: { color: "red" } } } } },
     ],
     runtime: (f) => { try { glyphChartLine3d(f.data, f.options); return true; } catch { return false; } },
   },

@@ -5,8 +5,9 @@
  */
 import { chart3dError } from "./validate";
 import { resolveGlyphChart3dColorscaleAnchors, glyphChart3dBandIndex } from "./colorscale";
-import { resolveAspect, resolveAxis, resolveCorner, resolveGuides } from "./axisTriadShared";
+import { resolveAspect, resolveAxesColor, resolveAxis, resolveCorner, resolveGuides } from "./axisTriadShared";
 import type {
+  GlyphChart3dAxisOptions,
   GlyphChart3dBuildReport,
   GlyphChart3dChannelValue,
   GlyphChart3dColorscale,
@@ -43,10 +44,12 @@ export interface GlyphChart3dScatterOptions {
   /** Base object-space marker half-size. Default `0.035`. */
   readonly markerSize?: number;
   readonly axes?: {
-    readonly x?: { readonly title?: string; readonly ticks?: number };
-    readonly y?: { readonly title?: string; readonly ticks?: number };
-    readonly z?: { readonly title?: string; readonly ticks?: number };
+    readonly x?: GlyphChart3dAxisOptions;
+    readonly y?: GlyphChart3dAxisOptions;
+    readonly z?: GlyphChart3dAxisOptions;
     readonly corner?: GlyphChart3dCornerOption;
+    /** C7: a shared axis colour every axis's own `color` overrides. */
+    readonly color?: string;
   };
   readonly guides?: GlyphChart3dGuideOptions;
 }
@@ -157,6 +160,7 @@ export function glyphChartScatter3d(
     axes,
     corner: resolveCorner(axesOptions?.corner),
     guides: resolveGuides(options.guides),
+    axesColor: resolveAxesColor(axesOptions?.color),
     report,
   };
 }

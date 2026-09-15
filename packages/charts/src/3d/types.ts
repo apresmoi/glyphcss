@@ -7,7 +7,7 @@
  * `GlyphSceneObject`.
  */
 import type { GlyphChart3dLedgerEntry } from "./ledger";
-import type { GlyphChartCharset } from "../types";
+import type { GlyphChartCharset, GlyphChartTickFormat } from "../types";
 export type { GlyphChart3dLedgerEntry };
 
 /** Row-major `z` grid, the Plotly `surface` shape: `z[row][col]`. */
@@ -41,11 +41,55 @@ export type GlyphChart3dColorscaleName = typeof GLYPH_CHART_3D_COLORSCALE_NAMES[
 /** A named preset, or an ORDERED array of canonical `#rrggbb` anchors (custom colorscale — interpolated the same way a preset's own anchors are). */
 export type GlyphChart3dColorscale = GlyphChart3dColorscaleName | readonly string[];
 
+/**
+ * C7 (AGENTS.md's "Charts 3D" "C7"): every field an axis can configure on
+ * its own, mirroring the 2D `axes.{x,y}` contract name-for-name
+ * (`axisTriadShared.ts`'s `resolveAxis` resolves every one of these; the
+ * booleans compose with the mark's own `GlyphChart3dGuideOptions` — an
+ * axis's own value wins, `undefined` follows the matching global default).
+ */
 export interface GlyphChart3dAxisOptions {
   /** Defaults to the resolved field name where the channel is a plain string, following the 2D axis-title default rule; omit/`""` suppresses it. */
   readonly title?: string;
   /** Requested tick count — `d3-scale`'s own `.ticks(n)`, like a 2D axis. Default 5. */
   readonly ticks?: number;
+  /**
+   * Tick label override — the SAME preset/callback vocabulary as a 2D axis
+   * (`GlyphChartTickFormat`, `tickFormat.ts`'s `resolveGlyphChartTickFormat`),
+   * folded through the same ASCII-minus rule every 3D label already follows
+   * (`axisTriadShared.ts`'s `asciiMinus`). Omitted: today's plain `~r`
+   * numeric label, unchanged.
+   */
+  readonly format?: GlyphChartTickFormat;
+  /** Per-axis visibility overriding `guides.axisLines` for this axis ALONE. `undefined` follows the global default. */
+  readonly line?: boolean;
+  /** Per-axis visibility overriding `guides.ticks` (tick marks, the `+` glyphs) for this axis alone. */
+  readonly tickMarks?: boolean;
+  /** Per-axis visibility overriding `guides.tickLabels` for this axis alone. */
+  readonly tickLabels?: boolean;
+  /**
+   * Per-axis visibility overriding the guide-plane gridlines whose own tick
+   * VALUE belongs to this axis — a wall plane's lines are always z's
+   * (`guides.grid`'s own default), a floor plane's are x's and y's
+   * (`guides.floorGrid`'s own default); see `axisTriadShared.ts`'s doc.
+   */
+  readonly grid?: boolean;
+  /**
+   * Canonical `#rrggbb` colouring this axis's own line, ticks, labels and
+   * title — overrides a mark-wide `axes.color` (the 2D `axes.color`
+   * pattern), which itself falls back to the library's own muted grey
+   * default. Rejects with `bad-axis-color` otherwise.
+   */
+  readonly color?: string;
+  /**
+   * Explicit `[min, max]` overriding the data-derived NICE domain. The
+   * box's own `aspect` extent is unaffected — only where a data value maps
+   * INSIDE it changes — and a value outside this domain clamps to the
+   * nearest box edge rather than mapping past it (`object.ts`'s
+   * `mapAxisValue`). Rejects with `bad-axis-domain` when non-finite or
+   * `min >= max`.
+   */
+  readonly domain?: readonly [number, number];
 }
 
 /** `0` = the box's own `0` coordinate on that axis, `1` = `aspect[axis]`. */
@@ -86,6 +130,8 @@ export interface GlyphChart3dAxisTriadSpec {
   };
   readonly corner: GlyphChart3dCornerOption;
   readonly guides: GlyphChart3dResolvedGuides;
+  /** C7: the shared `axes.color` every axis's own `color` overrides — `object.ts`'s `axisRenderColor`. */
+  readonly axesColor?: string;
 }
 
 /**
@@ -170,6 +216,8 @@ export interface GlyphChart3dSurfaceOptions {
     readonly z?: GlyphChart3dAxisOptions;
     /** Explicit override for the shared axis-triad corner — default `"auto"`. */
     readonly corner?: GlyphChart3dCornerOption;
+    /** C7: a shared axis colour every axis's own `color` overrides — mirrors 2D `axes.color`. */
+    readonly color?: string;
   };
   /** Independent axis-triad rendering toggles — see `GlyphChart3dGuideOptions`'s own doc. */
   readonly guides?: GlyphChart3dGuideOptions;
@@ -179,8 +227,15 @@ export interface GlyphChart3dResolvedAxis {
   readonly title: string;
   readonly domain: readonly [number, number];
   readonly ticks: readonly number[];
-  /** `d3-format`'s own `"~r"` — a plain, non-abbreviated numeric label per tick, matching the tick's own index in `ticks`. */
+  /** `d3-format`'s own `"~r"` (or `axes.{x,y,z}.format`'s own resolved preset/callback) — matching the tick's own index in `ticks`. */
   readonly tickLabels: readonly string[];
+  /** This axis's own `color` override; `undefined` falls back to the mark's shared `axesColor`, then the library default. */
+  readonly color?: string;
+  /** This axis's own `line`/`tickMarks`/`tickLabels`/`grid` overrides; `undefined` follows the matching `GlyphChart3dResolvedGuides` field. */
+  readonly lineVisible?: boolean;
+  readonly tickMarksVisible?: boolean;
+  readonly tickLabelsVisible?: boolean;
+  readonly gridVisible?: boolean;
 }
 
 /** A resolved, validated surface model — everything `glyphChartObject` needs, and nothing it has to re-derive. */
@@ -212,6 +267,8 @@ export interface GlyphChart3dSurfaceMark {
   readonly corner: GlyphChart3dCornerOption;
   /** Every toggle resolved to a concrete boolean (defaults: all `true` except `walls`/`box`, which default `false`). */
   readonly guides: GlyphChart3dResolvedGuides;
+  /** C7: the resolved shared `axes.color`, or `undefined` when none was given. */
+  readonly axesColor?: string;
   readonly report: GlyphChart3dBuildReport;
 }
 
@@ -257,6 +314,7 @@ export interface GlyphChart3dScatterMark {
   readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
   readonly corner: GlyphChart3dCornerOption;
   readonly guides: GlyphChart3dResolvedGuides;
+  readonly axesColor?: string;
   readonly report: GlyphChart3dBuildReport;
 }
 
@@ -280,6 +338,7 @@ export interface GlyphChart3dParametricMark {
   readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
   readonly corner: GlyphChart3dCornerOption;
   readonly guides: GlyphChart3dResolvedGuides;
+  readonly axesColor?: string;
   readonly report: GlyphChart3dBuildReport;
 }
 
@@ -301,6 +360,7 @@ export interface GlyphChart3dBarsMark {
   readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
   readonly corner: GlyphChart3dCornerOption;
   readonly guides: GlyphChart3dResolvedGuides;
+  readonly axesColor?: string;
   readonly report: GlyphChart3dBuildReport;
 }
 
@@ -317,6 +377,7 @@ export interface GlyphChart3dLineMark {
   readonly axes: { readonly x: GlyphChart3dResolvedAxis; readonly y: GlyphChart3dResolvedAxis; readonly z: GlyphChart3dResolvedAxis };
   readonly corner: GlyphChart3dCornerOption;
   readonly guides: GlyphChart3dResolvedGuides;
+  readonly axesColor?: string;
   readonly report: GlyphChart3dBuildReport;
 }
 

@@ -6,9 +6,10 @@
  * series, each an ordered point list.
  */
 import { chart3dError } from "./validate";
-import { resolveAspect, resolveAxis, resolveCorner, resolveGuides } from "./axisTriadShared";
+import { resolveAspect, resolveAxesColor, resolveAxis, resolveCorner, resolveGuides } from "./axisTriadShared";
 import { GLYPH_CHART_3D_SERIES_PALETTE } from "./scatter";
 import type {
+  GlyphChart3dAxisOptions,
   GlyphChart3dBuildReport,
   GlyphChart3dCornerOption,
   GlyphChart3dGuideOptions,
@@ -27,10 +28,12 @@ export type GlyphChart3dLineInput = readonly GlyphChart3dPoint3[] | readonly Gly
 export interface GlyphChart3dLineOptions {
   readonly aspect?: readonly [number, number, number];
   readonly axes?: {
-    readonly x?: { readonly title?: string; readonly ticks?: number };
-    readonly y?: { readonly title?: string; readonly ticks?: number };
-    readonly z?: { readonly title?: string; readonly ticks?: number };
+    readonly x?: GlyphChart3dAxisOptions;
+    readonly y?: GlyphChart3dAxisOptions;
+    readonly z?: GlyphChart3dAxisOptions;
     readonly corner?: GlyphChart3dCornerOption;
+    /** C7: a shared axis colour every axis's own `color` overrides. */
+    readonly color?: string;
   };
   readonly guides?: GlyphChart3dGuideOptions;
 }
@@ -82,6 +85,7 @@ export function glyphChartLine3d(data: GlyphChart3dLineInput, options: GlyphChar
     axes,
     corner: resolveCorner(axesOptions?.corner),
     guides: resolveGuides(options.guides),
+    axesColor: resolveAxesColor(axesOptions?.color),
     report,
   };
 }

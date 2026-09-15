@@ -9,8 +9,9 @@
  */
 import { chart3dError } from "./validate";
 import { resolveGlyphChart3dColorscaleAnchors } from "./colorscale";
-import { resolveAspect, resolveAxis, resolveCorner, resolveGuides } from "./axisTriadShared";
+import { resolveAspect, resolveAxesColor, resolveAxis, resolveCorner, resolveGuides } from "./axisTriadShared";
 import type {
+  GlyphChart3dAxisOptions,
   GlyphChart3dBar,
   GlyphChart3dBarsMark,
   GlyphChart3dBuildReport,
@@ -37,10 +38,12 @@ export interface GlyphChart3dBarsOptions {
   /** Fraction of the tightest neighbour spacing each bar's own footprint occupies. Default `0.7`. */
   readonly barWidth?: number;
   readonly axes?: {
-    readonly x?: { readonly title?: string; readonly ticks?: number };
-    readonly y?: { readonly title?: string; readonly ticks?: number };
-    readonly z?: { readonly title?: string; readonly ticks?: number };
+    readonly x?: GlyphChart3dAxisOptions;
+    readonly y?: GlyphChart3dAxisOptions;
+    readonly z?: GlyphChart3dAxisOptions;
     readonly corner?: GlyphChart3dCornerOption;
+    /** C7: a shared axis colour every axis's own `color` overrides. */
+    readonly color?: string;
   };
   readonly guides?: GlyphChart3dGuideOptions;
 }
@@ -138,6 +141,7 @@ export function glyphChartBars3d(
     axes,
     corner: resolveCorner(axesOptions?.corner),
     guides: resolveGuides(options.guides),
+    axesColor: resolveAxesColor(axesOptions?.color),
     report,
   };
 }

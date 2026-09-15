@@ -8,13 +8,22 @@
  * `mixed-dimension` unification is a later, C2+ concern), so this file has
  * no reason to touch `packages/charts/src/validate.ts`.
  */
+// C7 (AGENTS.md's "Charts 3D" "C7"): every mark's own axis triad shares
+// `axisTriadShared.ts`'s `resolveAxis`, so every mark type's rule list gets
+// the SAME three axis-option rules — `bad-tick-format`/`bad-axis-color` are
+// the 2D rule CODES reused verbatim (the meaning is identical: an unknown
+// tick-format preset, or a non-canonical hex colour), never a parallel 3D
+// spelling of the same check; `bad-axis-domain` is new (2D has no single
+// `[min, max]` axis-domain option shaped like this one).
+const AXIS_OPTION_RULES = ["bad-tick-format", "bad-axis-color", "bad-axis-domain"] as const;
+
 /** Rules SHARED by every 3D mark type's own model step. */
-export const GLYPH_CHART_3D_SHARED_RULES = ["non-finite-data", "bad-options", "colorscale-not-monotone"] as const;
-export const GLYPH_CHART_3D_SURFACE_RULES = ["surface-not-gridded", "surface-ragged", "surface-too-small", "surface-axis-unsorted", "non-finite-data", "bad-options", "colorscale-not-monotone"] as const;
-export const GLYPH_CHART_3D_SCATTER_RULES = ["scatter-empty", "scatter-bad-channel", "non-finite-data", "bad-options", "colorscale-not-monotone"] as const;
-export const GLYPH_CHART_3D_PARAMETRIC_RULES = ["parametric-too-small", "parametric-ragged", "non-finite-data", "bad-options", "colorscale-not-monotone"] as const;
-export const GLYPH_CHART_3D_BARS_RULES = ["bars-empty", "bars-bad-channel", "non-finite-data", "bad-options", "colorscale-not-monotone"] as const;
-export const GLYPH_CHART_3D_LINE3D_RULES = ["line3d-too-short", "line3d-empty", "non-finite-data", "bad-options"] as const;
+export const GLYPH_CHART_3D_SHARED_RULES = ["non-finite-data", "bad-options", "colorscale-not-monotone", ...AXIS_OPTION_RULES] as const;
+export const GLYPH_CHART_3D_SURFACE_RULES = ["surface-not-gridded", "surface-ragged", "surface-too-small", "surface-axis-unsorted", "non-finite-data", "bad-options", "colorscale-not-monotone", ...AXIS_OPTION_RULES] as const;
+export const GLYPH_CHART_3D_SCATTER_RULES = ["scatter-empty", "scatter-bad-channel", "non-finite-data", "bad-options", "colorscale-not-monotone", ...AXIS_OPTION_RULES] as const;
+export const GLYPH_CHART_3D_PARAMETRIC_RULES = ["parametric-too-small", "parametric-ragged", "non-finite-data", "bad-options", "colorscale-not-monotone", ...AXIS_OPTION_RULES] as const;
+export const GLYPH_CHART_3D_BARS_RULES = ["bars-empty", "bars-bad-channel", "non-finite-data", "bad-options", "colorscale-not-monotone", ...AXIS_OPTION_RULES] as const;
+export const GLYPH_CHART_3D_LINE3D_RULES = ["line3d-too-short", "line3d-empty", "non-finite-data", "bad-options", ...AXIS_OPTION_RULES] as const;
 // Render-option-level rules (C2, `render.ts`) — same asymmetry the root
 // package's own table has (`bad-size` lives beside the spec-level rules,
 // even though `glyphChartJsonSchema()` describes the spec, not options):
@@ -31,6 +40,7 @@ export const GLYPH_CHART_3D_VALIDATION_RULES = [
   "bars-empty", "bars-bad-channel",
   "line3d-too-short", "line3d-empty",
   "bad-render-size", "bad-render-options", "bad-camera",
+  ...AXIS_OPTION_RULES,
 ] as const;
 export type GlyphChart3dValidationRuleId = typeof GLYPH_CHART_3D_VALIDATION_RULES[number];
 export interface GlyphChart3dValidationError extends Error {
@@ -60,6 +70,9 @@ export const GLYPH_CHART_3D_VALIDATION_REPAIR_HINTS: Readonly<Record<GlyphChart3
   "bars-bad-channel": "Check the x/y/z channels resolve to finite numbers.",
   "line3d-too-short": "A 3D line needs at least 2 points per series.",
   "line3d-empty": "Line data must be a non-empty array of points, or an array of named series each with 2+ points.",
+  "bad-tick-format": "Use a known tick format preset name, { preset, ...params }, or (TS/JS only) a callback function — see the 2D axes.{x,y}.format vocabulary.",
+  "bad-axis-color": "Use a canonical lowercase #rrggbb string for axes.color and axes.{x,y,z}.color.",
+  "bad-axis-domain": "axes.{x,y,z}.domain must be two finite numbers [min, max] with min < max.",
 };
 
 export function glyphChart3dRepairHint(id: string): string | undefined {

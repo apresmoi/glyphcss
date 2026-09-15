@@ -7,7 +7,7 @@
 import { chart3dError } from "./validate";
 import { resolveGlyphChart3dColorscaleAnchors } from "./colorscale";
 import { ledgerSurfaceDecimated } from "./ledger";
-import { resolveAspect, resolveAxis, resolveBands, resolveCorner, resolveGuides } from "./axisTriadShared";
+import { resolveAspect, resolveAxesColor, resolveAxis, resolveBands, resolveCorner, resolveGuides } from "./axisTriadShared";
 import type {
   GlyphChart3dBuildReport,
   GlyphChart3dChannelValue,
@@ -211,6 +211,7 @@ export function glyphChartSurface(
     axes,
     corner,
     guides,
+    axesColor: resolveAxesColor(axesOptions?.color),
     report,
   };
 }

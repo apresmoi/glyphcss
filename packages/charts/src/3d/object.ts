@@ -325,12 +325,19 @@ function subsampleTicksForGrid(ticks: readonly number[], max: number): readonly 
  * own full extent along the remaining axis. A WALL plane (`fixedAxis` 0 or
  * 1) sweeps ONLY its own z-tick direction (matplotlib's own wall-pane
  * convention); the FLOOR plane (`fixedAxis` 2, opt-in) sweeps both.
+ *
+ * Each returned line carries its own `sweepAxis` (C7) — the axis whose TICK
+ * value positions it — so a caller can gate it against THAT axis's own
+ * `grid` override rather than only the plane's flat `guides.grid`/
+ * `floorGrid` default: a wall plane's lines are always z's, a floor plane's
+ * are x's and y's, so this is what lets `axes.z.grid` toggle the walls and
+ * `axes.x.grid`/`axes.y.grid` toggle the floor independently.
  */
-function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axes: readonly [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis]): readonly (readonly [Vec3, Vec3])[] {
+function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axes: readonly [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis]): readonly (readonly [Vec3, Vec3, 0 | 1 | 2])[] {
   const inPlane = ([0, 1, 2] as const).filter((a) => a !== fixedAxis) as [0 | 1 | 2, 0 | 1 | 2];
   const sweepAxes: readonly (0 | 1 | 2)[] = fixedAxis === 2 ? inPlane : inPlane.filter((a) => a === 2);
   const fixedVal = corner[fixedAxis] ? ext[fixedAxis] : 0;
-  const lines: (readonly [Vec3, Vec3])[] = [];
+  const lines: (readonly [Vec3, Vec3, 0 | 1 | 2])[] = [];
   for (const sweepAxis of sweepAxes) {
     const alongAxis = inPlane[0] === sweepAxis ? inPlane[1] : inPlane[0];
     const axisData = axes[sweepAxis];
@@ -343,7 +350,7 @@ function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [num
       p0[sweepAxis] = p1[sweepAxis] = t * ext[sweepAxis];
       p0[alongAxis] = 0;
       p1[alongAxis] = ext[alongAxis];
-      lines.push([p0, p1]);
+      lines.push([p0, p1, sweepAxis]);
     }
   }
   return lines;
@@ -352,6 +359,19 @@ function planeGridLines(fixedAxis: 0 | 1 | 2, corner: Corner, ext: readonly [num
 const AXIS_BOX_COLOR = "#7a7f8a";
 const AXIS_GRID_COLOR = "#4b5058";
 const AXIS_NAMES = ["x", "y", "z"] as const;
+
+/** C7 (AGENTS.md's "Charts 3D" "C7"): the resolved axis for `axisIndex` — the one indexing point every per-axis helper below shares. */
+function axisAt(mark: GlyphChart3dAxisTriadSpec, axisIndex: 0 | 1 | 2): GlyphChart3dResolvedAxis {
+  return axisIndex === 0 ? mark.axes.x : axisIndex === 1 ? mark.axes.y : mark.axes.z;
+}
+/** This axis's own `color` override, else the mark's shared `axesColor`, else the library default — the SAME precedence 2D's `axes.{x,y}.color`/`axes.color` follow. */
+function axisRenderColor(axis: GlyphChart3dResolvedAxis, mark: GlyphChart3dAxisTriadSpec): string {
+  return axis.color ?? mark.axesColor ?? AXIS_BOX_COLOR;
+}
+/** An axis's own boolean override, falling back to the matching global `guides` default when it names none. */
+function axisVisible(override: boolean | undefined, fallback: boolean): boolean {
+  return override === undefined ? fallback : override;
+}
 
 /**
  * The axis TRIAD's own ribbon-mesh half-width, as a fraction of the SHORTER
@@ -408,14 +428,21 @@ const AXIS_LINE_SHADING_NORMAL: Vec3 = (() => {
  * ORDINARY per-cell depth test, exactly like any other mesh. Built ONCE,
  * with no camera dependency at all: `corner` is fixed (`resolveOriginCorner`),
  * so the 3 segments' own endpoints never move.
+ *
+ * C7: `colorForAxis`/`visibleForAxis` read each axis's own `color`/`line`
+ * override (`axisRenderColor`/`axisVisible`) — an axis whose own line is
+ * hidden contributes NO segment at all, never a segment painted then
+ * discarded, so `guides.axisLines: false` for one axis alone is exactly as
+ * cheap as it is for all three.
  */
-function axisTriadLinePolygons(corner: Corner, ext: readonly [number, number, number], color: string): Polygon[] {
+function axisTriadLinePolygons(corner: Corner, ext: readonly [number, number, number], colorForAxis: (axis: 0 | 1 | 2) => string, visibleForAxis: (axis: 0 | 1 | 2) => boolean): Polygon[] {
   const halfWidth = Math.min(ext[0], ext[1]) * AXIS_LINE_HALF_WIDTH_FRACTION;
   const from = cornerPoint(corner, ext);
   const polygons: Polygon[] = [];
   for (const axis of [0, 1, 2] as const) {
+    if (!visibleForAxis(axis)) continue;
     const to = cornerPoint(flipCorner(corner, axis), ext);
-    const segment = orientedRibbonPolygons(from, to, halfWidth, color);
+    const segment = orientedRibbonPolygons(from, to, halfWidth, colorForAxis(axis));
     for (const p of segment) p.shadingNormal = AXIS_LINE_SHADING_NORMAL;
     polygons.push(...segment);
   }
@@ -436,7 +463,7 @@ function axisTriadLinePolygons(corner: Corner, ext: readonly [number, number, nu
  * geometry, meant to sit behind the data. The axis TRIAD's own ticks/
  * labels/titles read `resolveOriginCorner`'s fixed corner instead.
  */
-function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number, number, number], color: string, charset: GlyphChartCharset): GlyphSceneOverlay {
+function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number, number, number], charset: GlyphChartCharset): GlyphSceneOverlay {
   const guides = mark.guides;
   const corner = resolveOriginCorner(mark.corner);
   return {
@@ -449,14 +476,18 @@ function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number
         for (const [a, b] of edges) {
           const from = projectObjectPoint(frame, cornerPoint(a, ext));
           const to = projectObjectPoint(frame, cornerPoint(b, ext));
-          stampGlyphOverlayLine(grid, from, to, edgeGlyph(from, to), color);
+          stampGlyphOverlayLine(grid, from, to, edgeGlyph(from, to), AXIS_BOX_COLOR);
         }
       };
-      if (guides.grid || guides.floorGrid) {
+      // C7: each grid line carries its own sweep axis (`planeGridLines`'s
+      // own doc) — gated against THAT axis's own `grid` override, falling
+      // back to the plane's own `guides.grid`/`floorGrid` default.
+      {
         const axesTriple: [GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis, GlyphChart3dResolvedAxis] = [mark.axes.x, mark.axes.y, mark.axes.z];
         for (const fixedAxis of [0, 1, 2] as const) {
-          if (fixedAxis === 2 ? !guides.floorGrid : !guides.grid) continue;
-          for (const [p0, p1] of planeGridLines(fixedAxis, wallCorner, ext, axesTriple)) {
+          const planeDefault = fixedAxis === 2 ? guides.floorGrid : guides.grid;
+          for (const [p0, p1, sweepAxis] of planeGridLines(fixedAxis, wallCorner, ext, axesTriple)) {
+            if (!axisVisible(axesTriple[sweepAxis].gridVisible, planeDefault)) continue;
             const from = projectObjectPoint(frame, p0);
             const to = projectObjectPoint(frame, p1);
             stampGlyphOverlayLine(grid, from, to, gridEdgeGlyph(from, to, charset), AXIS_GRID_COLOR);
@@ -470,17 +501,20 @@ function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number
       for (let axisIndex = 0 as 0 | 1 | 2; axisIndex < 3; axisIndex++) {
         const name = AXIS_NAMES[axisIndex];
         const axis = mark.axes[name];
+        const color = axisRenderColor(axis, mark);
+        const showTicks = axisVisible(axis.tickMarksVisible, guides.ticks);
+        const showLabels = axisVisible(axis.tickLabelsVisible, guides.tickLabels);
         const [lo, hi] = axis.domain;
         const span = hi - lo;
         for (let i = 0; i < axis.ticks.length; i++) {
           const value = axis.ticks[i]!;
           const t = span === 0 ? 0 : (value - lo) / span;
-          if (guides.ticks) {
+          if (showTicks) {
             const onEdge = outwardPoint(axisIndex, corner, t, ext, 0);
             const tickProjected = projectObjectPoint(frame, onEdge);
             stampGlyphOverlayCell(grid, { col: tickProjected.col, row: tickProjected.row, char: "+", color, depth: tickProjected.depth });
           }
-          if (!guides.tickLabels) continue;
+          if (!showLabels) continue;
           const label = outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN);
           const labelProjected = projectObjectPoint(frame, label);
           const priority = i === 0 || i === axis.ticks.length - 1
@@ -557,10 +591,11 @@ export function glyphChart3dLabelAnchors(mark: GlyphChart3dAxisTriadSpec): reado
     const [lo, hi] = axis.domain;
     const span = hi - lo || 1;
     // A caller (a camera FIT) must never reserve margin for a label the
-    // overlay itself won't draw — `guides.tickLabels`/`titles` off means
-    // `axisTriadOverlay`'s own `stamp()` skips these `place()` calls
-    // entirely, so the fit's own anchor set has to match.
-    if (guides.tickLabels) {
+    // overlay itself won't draw — `guides.tickLabels`/`titles` (and, C7, an
+    // axis's own `tickLabels` override) off means `axisTriadOverlay`'s own
+    // `stamp()` skips these `place()` calls entirely, so the fit's own
+    // anchor set has to match EXACTLY the same axis-by-axis resolution.
+    if (axisVisible(axis.tickLabelsVisible, guides.tickLabels)) {
       for (let i = 0; i < axis.ticks.length; i++) {
         const value = axis.ticks[i]!;
         const t = (value - lo) / span;
@@ -589,9 +624,14 @@ function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark, objectId: string): Poly
   const ySpan = yHi - yLo || 1;
   const zSpan = zHi - zLo || 1;
 
-  const normalizedX = grid.x.map((v) => ((v - xLo) / xSpan) * aspect[0]);
-  const normalizedY = grid.y.map((v) => ((v - yLo) / ySpan) * aspect[1]);
-  const normalizedZ = grid.z.map((row) => row.map((v) => ((v - zLo) / zSpan) * aspect[2]));
+  // C7: `mapAxisValue`'s own clamp (below) — a value outside an EXPLICIT
+  // `axes.{x,y,z}.domain` maps to the nearest box edge rather than past it,
+  // so the surface never draws outside its own `aspect` box. A no-op under
+  // the default (data-derived, always-containing) domain.
+  const clampFraction = (t: number) => Math.max(0, Math.min(1, t));
+  const normalizedX = grid.x.map((v) => clampFraction((v - xLo) / xSpan) * aspect[0]);
+  const normalizedY = grid.y.map((v) => clampFraction((v - yLo) / ySpan) * aspect[1]);
+  const normalizedZ = grid.z.map((row) => row.map((v) => clampFraction((v - zLo) / zSpan) * aspect[2]));
 
   const flatZ = new Float64Array(rows * cols);
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) flatZ[r * cols + c] = grid.z[r]![c]!;
@@ -618,11 +658,22 @@ function buildSurfaceMesh(mark: GlyphChart3dSurfaceMark, objectId: string): Poly
   return polygons;
 }
 
-/** Maps a raw data value through an axis's own resolved (nice) domain into `[0, extent]` — the ONE affine function every mark type's own object-space mapping goes through (contract 8, "Scene objects"). */
+/**
+ * Maps a raw data value through an axis's own resolved (nice or explicit)
+ * domain into `[0, extent]` — the ONE affine function every mark type's own
+ * object-space mapping goes through (contract 8, "Scene objects"). C7:
+ * CLAMPED to `[0, extent]` — a value outside an explicit `axes.*.domain`
+ * (or, for `bars3d`'s z-floor, a domain that happens to exclude 0) maps to
+ * the nearest box edge rather than past it, so a mark's own geometry never
+ * draws outside its `aspect` box. A no-op whenever the domain already
+ * contains every mapped value, which the default (data-derived) domain
+ * always does.
+ */
 function mapAxisValue(value: number, axis: GlyphChart3dResolvedAxis, extent: number): number {
   const [lo, hi] = axis.domain;
   const span = hi - lo || 1;
-  return ((value - lo) / span) * extent;
+  const t = Math.max(0, Math.min(1, (value - lo) / span));
+  return t * extent;
 }
 
 /** A colour-legend band colour for `value` under `legend`'s own domain/bands, or `defaultColor` when there's no legend at all (`color: "none"`, or the mark carries no continuous channel). */
@@ -732,7 +783,7 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
   // object directly with no `renderGlyphChart3d` charset resolution step of
   // its own — `charset` defaults to `"box"` (the richest line-art tier).
   const charset = options.charset ?? "box";
-  const overlays: GlyphSceneOverlay[] = [axisTriadOverlay(mark, ext, AXIS_BOX_COLOR, charset)];
+  const overlays: GlyphSceneOverlay[] = [axisTriadOverlay(mark, ext, charset)];
   const meshes: GlyphSceneObjectMesh[] = [];
   let textureSamplers: Map<string, TextureSampler> | undefined;
 
@@ -764,11 +815,19 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
 
   // C2 fix round 7: the axis LINES are their own mesh, real ribbon
   // geometry, built once (the origin corner never moves) — omitted
-  // entirely when `guides.axisLines` is off, mirroring every other guide
-  // toggle's own "the thing simply isn't drawn" contract.
-  if (mark.guides.axisLines) {
+  // entirely when NO axis's own line resolves visible, mirroring every
+  // other guide toggle's own "the thing simply isn't drawn" contract; C7
+  // resolves that PER AXIS (`axisVisible`/`axisRenderColor`) rather than as
+  // one flat `guides.axisLines` gate, so `axes.z.line: false` alone omits
+  // just the z segment while x/y still mount theirs.
+  {
     const corner = resolveOriginCorner(mark.corner);
-    meshes.push({ name: "axis-lines", polygons: axisTriadLinePolygons(corner, ext, AXIS_BOX_COLOR) });
+    const linePolygons = axisTriadLinePolygons(
+      corner, ext,
+      (axis) => axisRenderColor(axisAt(mark, axis), mark),
+      (axis) => axisVisible(axisAt(mark, axis).lineVisible, mark.guides.axisLines),
+    );
+    if (linePolygons.length > 0) meshes.push({ name: "axis-lines", polygons: linePolygons });
   }
   return {
     id,

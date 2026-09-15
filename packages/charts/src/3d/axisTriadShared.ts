@@ -9,6 +9,7 @@
 import { scaleLinear } from "d3-scale";
 import { format as d3format } from "d3-format";
 import { chart3dError } from "./validate";
+import { resolveGlyphChartTickFormat } from "../tickFormat";
 import type {
   GlyphChart3dAxisOptions,
   GlyphChart3dCornerOption,
@@ -92,28 +93,97 @@ const PLAIN_FORMAT = d3format("~r");
  * DIFFERENT, wrong-looking number. 3D labels are ASCII throughout, matching
  * the 2D chart's own "ASCII is 7-bit throughout" rule (AGENTS.md's
  * "Labels") — never a font-gap workaround, a genuine formatting bug this
- * package alone can fix cheaply since it owns the format call.
+ * package alone can fix cheaply since it owns the format call. Applied to
+ * EVERY tick label, `axes.*.format`'s own custom preset/callback output
+ * included (C7) — a preset built on `d3-format` (`number`, `currency`, ...)
+ * emits the SAME Unicode minus sign, and a raw callback's output is opaque
+ * text this package cannot otherwise sanitize, so the fold is unconditional
+ * rather than gated on which path produced the string.
  */
 function asciiMinus(formatted: string): string {
   return formatted.replace(/−/g, "-");
 }
 
+// Mirrors `validate.ts`'s own `CANONICAL_HEX_COLOR` / `colorscale.ts`'s own
+// copy exactly — canonical lowercase `#rrggbb`, the same "many independent
+// copies of one regex" convention every other canonical-hex check in this
+// codebase already follows (schema.ts, validate.ts, colorscale.ts, the cell
+// canvas) rather than a cross-module import for one six-line check.
+const CANONICAL_HEX_COLOR = /^#[0-9a-f]{6}$/;
+function isCanonicalHexColor(v: unknown): v is string {
+  return typeof v === "string" && CANONICAL_HEX_COLOR.test(v);
+}
+function resolveAxisColorOption(color: string | undefined, context: string): string | undefined {
+  if (color === undefined) return undefined;
+  if (!isCanonicalHexColor(color)) {
+    chart3dError("bad-axis-color", `${context} must be a canonical lowercase #rrggbb string, got ${JSON.stringify(color)}.`);
+  }
+  return color;
+}
+
+/** C7: the mark-wide shared `axes.color` (2D's `axes.color` pattern) — validated once per mark constructor, read by every axis that carries no `color` of its own (`object.ts`'s `axisRenderColor`). */
+export function resolveAxesColor(color: string | undefined): string | undefined {
+  return resolveAxisColorOption(color, "axes.color");
+}
+
+function resolveOptionalBoolean(value: boolean | undefined, field: string): boolean | undefined {
+  if (value !== undefined && typeof value !== "boolean") chart3dError("bad-options", `axes.${field} must be a boolean, got ${JSON.stringify(value)}.`);
+  return value;
+}
+
+/**
+ * C7's own `axes.{x,y,z}.domain` — an explicit `[min, max]` override for the
+ * data-derived NICE domain. Used VERBATIM, never `.nice()`d (mirroring
+ * `scales.ts`'s own `buildContinuous`, whose explicit `opts.domain` skips
+ * `nice()` unless the caller separately asks for it — an explicit bound is
+ * the caller's OWN exact number, not a hint to round outward from).
+ */
+function resolveExplicitDomain(domain: readonly [number, number] | undefined): readonly [number, number] | undefined {
+  if (domain === undefined) return undefined;
+  if (
+    !Array.isArray(domain) || domain.length !== 2
+    || domain.some((v) => typeof v !== "number" || !Number.isFinite(v))
+    || domain[0]! >= domain[1]!
+  ) {
+    chart3dError("bad-axis-domain", `axes domain must be [min, max] with two finite numbers and min < max, got ${JSON.stringify(domain)}.`);
+  }
+  return domain;
+}
+
 /** One nice-domain/tick/format pipeline for every axis of every 3D mark type. */
 export function resolveAxis(values: readonly number[], defaultTitle: string, options: GlyphChart3dAxisOptions | undefined): GlyphChart3dResolvedAxis {
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const domain: [number, number] = min === max ? [min - 1, max + 1] : [min, max];
-  const scale = scaleLinear().domain(domain).nice();
+  const explicitDomain = resolveExplicitDomain(options?.domain);
+  let domain: [number, number];
+  let scale;
+  if (explicitDomain !== undefined) {
+    domain = [explicitDomain[0], explicitDomain[1]];
+    scale = scaleLinear().domain(domain);
+  } else {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    domain = min === max ? [min - 1, max + 1] : [min, max];
+    scale = scaleLinear().domain(domain).nice();
+  }
   const requested = options?.ticks;
   if (requested !== undefined && (!Number.isInteger(requested) || requested < 1)) {
     chart3dError("bad-options", `axes ticks must be a positive integer, got ${JSON.stringify(requested)}.`);
   }
   const ticks = scale.ticks(requested ?? 5);
   const title = options?.title !== undefined ? options.title : defaultTitle;
+  // `resolveGlyphChartTickFormat` throws its own tagged `bad-tick-format`
+  // error (`tickFormat.ts`) — the SAME code this file's `AXIS_OPTION_RULES`
+  // reuses, so a 3D caller never sees two different codes for the identical
+  // failure a 2D caller would hit through `axes.{x,y}.format`.
+  const format = resolveGlyphChartTickFormat(options?.format);
   return {
     title,
     domain: scale.domain() as [number, number],
     ticks,
-    tickLabels: ticks.map((t) => asciiMinus(PLAIN_FORMAT(t))),
+    tickLabels: ticks.map((t, i) => asciiMinus(format ? format.apply(t, i, ticks) : PLAIN_FORMAT(t))),
+    color: resolveAxisColorOption(options?.color, "axes color"),
+    lineVisible: resolveOptionalBoolean(options?.line, "line"),
+    tickMarksVisible: resolveOptionalBoolean(options?.tickMarks, "tickMarks"),
+    tickLabelsVisible: resolveOptionalBoolean(options?.tickLabels, "tickLabels"),
+    gridVisible: resolveOptionalBoolean(options?.grid, "grid"),
   };
 }

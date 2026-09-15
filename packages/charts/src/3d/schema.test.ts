@@ -31,6 +31,16 @@ const goodFixtures: Fixture[] = [
   { data: { z: [[0, 1], [2, 3]] }, options: { aspect: [1, 1, 0.6], bands: 9, colorscale: "viridis", shading: "value", color: "none", maxQuadsX: 4, maxQuadsY: 4 } },
   { data: { z: [[0, 1], [2, 3]] }, options: { colorscale: ["#000000", "#ffffff"] } },
   { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { title: "east", ticks: 4 }, z: { title: "" } } } },
+  {
+    data: { z: [[0, 1], [2, 3]] },
+    options: {
+      axes: {
+        color: "#123456",
+        x: { format: "si", color: "#ff0000", line: false, tickMarks: false, tickLabels: true, grid: true, domain: [-1, 5] },
+        y: { format: { preset: "currency", symbol: "$" } },
+      },
+    },
+  },
 ];
 
 const badFixtures: readonly { readonly id: (typeof GLYPH_CHART_3D_VALIDATION_RULES)[number]; readonly fixture: Fixture }[] = [
@@ -41,6 +51,11 @@ const badFixtures: readonly { readonly id: (typeof GLYPH_CHART_3D_VALIDATION_RUL
   { id: "bad-options", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { bands: 0 } } },
   { id: "surface-axis-unsorted", fixture: { data: { z: [[0, 1, 2], [3, 4, 5]] }, channels: { x: [0, 10, 5] } } },
   { id: "colorscale-not-monotone", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { colorscale: ["#ffffff", "#000000", "#ffffff"] } } },
+  // C7 (AGENTS.md's "Charts 3D" C7): `format`/`color` are the 2D rule codes
+  // reused verbatim, `domain` is 3D-only.
+  { id: "bad-tick-format", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { format: "not-a-real-preset" } } } } },
+  { id: "bad-axis-color", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { color: "red" } } } } },
+  { id: "bad-axis-domain", fixture: { data: { z: [[0, 1], [2, 3]] }, options: { axes: { x: { domain: [5, 1] } } } } },
 ];
 
 describe("glyphChart3dSurfaceJsonSchema — schema and runtime agree (P1-5)", () => {
@@ -61,7 +76,12 @@ describe("glyphChart3dSurfaceJsonSchema — schema and runtime agree (P1-5)", ()
     // are cross-value / numeric invariants no JSON Schema keyword expresses
     // (mirroring the root schema's own `mixed-x-scale`/`sankey-cycle`
     // runtime-only rules), so Ajv legitimately still accepts those two.
-    if (id === "surface-axis-unsorted" || id === "colorscale-not-monotone") {
+    // `bad-axis-domain`'s OWN fixture here is an INVERTED domain (min >
+    // max) — two structurally valid numbers, so it joins the same
+    // runtime-only exception list; `bad-tick-format`/`bad-axis-color` are
+    // both genuinely schema-describable (an unknown preset name, a
+    // non-canonical colour string) and stay outside it.
+    if (id === "surface-axis-unsorted" || id === "colorscale-not-monotone" || id === "bad-axis-domain") {
       expect(validate(JSON.parse(JSON.stringify(fixture)))).toBe(true);
     } else {
       expect(validate(JSON.parse(JSON.stringify(fixture))), JSON.stringify(validate.errors)).toBe(false);
