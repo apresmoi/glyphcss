@@ -427,7 +427,19 @@ function Charts3dAxisDomainRow({ label, override, resolved, dispatch, axis }: {
     value={value} format={(n) => chartsDomainNumberDisplay(n, step)}
     onChange={(next) => dispatch({
       type: "set-3d-axis", axis,
-      patch: { domain: !next || next[0] === null || next[1] === null ? undefined : [next[0], next[1]] },
+      // `RangeSlider` commits ONE end per gesture (each end independently
+      // nullable, `ScaleDomainControl`'s own contract), while the library's
+      // `GlyphChart3dAxisOptions.domain` is one atomic `[min, max]` tuple.
+      // Dragging a single thumb therefore used to arrive as `[n, null]` and
+      // resolve to `undefined` — the domain silently never applied (reported:
+      // "the domains of the 3d axes cannot be modified"). Fill the untouched
+      // end from the axis's own resolved domain instead; BOTH ends cleared
+      // still reverts to auto.
+      patch: {
+        domain: !next || (next[0] === null && next[1] === null)
+          ? undefined
+          : [next[0] ?? override?.[0] ?? dataMin, next[1] ?? override?.[1] ?? dataMax],
+      },
     })} />;
 }
 
