@@ -536,6 +536,38 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
    `gallery-workbench.css`'s real `.controller.boolean`/`.controller.number`
    theme exactly, with no classes of their own to maintain here. */
 
+/* Axes section headers (user feedback, verbatim: "the axes section in the
+   sidebar, I dont want them to be collapsable... have some basic props by
+   axis, and then have a 'more v' or advanced that shows you more configs
+   for that axis") — each per-axis subgroup ("X axis", "X axis (3D)", …)
+   is forced open and kept open by `ChartsDock.tsx`'s own
+   `useAxisSectionFolder` (a capture-phase click listener that intercepts
+   a `.title` click before lil-gui's own toggle listener ever runs). This
+   half strips the now-dead collapsible AFFORDANCE so the title reads as a
+   plain section HEADING rather than a control: no caret, no pointer
+   cursor, no hover feedback — the underlying "section-rule" look (small
+   caps + trailing rule) is `gallery-workbench.css`'s own
+   `.dn-floating-controls .lil-gui .lil-gui > .title` rule, kept as-is.
+   `!important` plus the extra `.charts-axis-section` class (5 classes vs.
+   that rule's 4) is the same specificity-bump idiom
+   `instrument-workbench.css`'s own `.dock-folder-title-reset` uses to beat
+   that same file's `!important` rail-and-caret rule. The folder-title-bar
+   `[reset]` button (`useFolderTitleReset`) is a DOM SIBLING of `.title`,
+   never touched by any of this — nor is the nested "More" subfolder inside
+   each section, which stays an ordinary collapsible folder with no classes
+   of its own (ordinary lil-gui + `gallery-workbench.css` styling). */
+.dn-floating-controls .lil-gui .lil-gui.charts-axis-section > .title {
+  cursor: default !important;
+}
+.dn-floating-controls .lil-gui .lil-gui.charts-axis-section > .title::before { content: none !important; }
+.dn-floating-controls .lil-gui .lil-gui.charts-axis-section > .title:hover {
+  background: transparent !important;
+  color: rgba(255, 232, 184, 0.70) !important;
+}
+.dn-floating-controls .lil-gui .lil-gui.charts-axis-section > .title:hover::after {
+  color: rgba(255, 232, 184, 0.22) !important;
+}
+
 /* 3D (packet C3, AGENTS.md's "Charts 3D"). The live viewport takes the
    FULL `.charts-preview` box rather than the 2D `<pre>`'s own content-sized
    box — `.charts-preview`'s `min-height: 100%` already gives it a definite

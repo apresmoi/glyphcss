@@ -572,6 +572,77 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(yTitleInput.value).toBe("Units");
   });
 
+  // Axes sidebar (user feedback, verbatim: "the axes section in the sidebar,
+  // I dont want them to be collapsable... have some basic props by axis,
+  // and then have a 'more v' or advanced that shows you more configs for
+  // that axis"): each per-axis section is forced open and stays open no
+  // matter how many times its own title is clicked (never merely "starts
+  // open" — mirrors the folder-title-bar reset test's own idiom of spying
+  // on lil-gui's real `open`/`close`/`openAnimated` methods, the only
+  // synchronous signal for its ANIMATED open/close), while its title/ticks
+  // rows stay directly inside it and tick marks/grid/title-at move into a
+  // collapsed "More" subfolder.
+  it("the X axis section can't be collapsed by clicking its own title, and its advanced rows live inside a collapsed 'More' subfolder", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    const folderTitle = (root: Element, text: string) => Array.from(root.querySelectorAll(".title")).find((el) => el.textContent === text);
+    const xTitle = folderTitle(container, "X axis") as HTMLButtonElement;
+    const xFolder = xTitle.closest(".lil-gui")!;
+    expect(xFolder.classList.contains("closed")).toBe(false);
+
+    const openAnimatedSpy = vi.spyOn(GUI.prototype, "openAnimated");
+    const openSpy = vi.spyOn(GUI.prototype, "open");
+    const closeSpy = vi.spyOn(GUI.prototype, "close");
+    act(() => xTitle.click());
+    expect(openAnimatedSpy).not.toHaveBeenCalled();
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(closeSpy).not.toHaveBeenCalled();
+    expect(xFolder.classList.contains("closed")).toBe(false);
+    openAnimatedSpy.mockRestore();
+    openSpy.mockRestore();
+    closeSpy.mockRestore();
+
+    // "More" is a real, ordinary, collapsed subfolder of "X axis" — Title
+    // stays in the always-open section, tick marks/grid move inside it.
+    const moreTitle = folderTitle(xFolder, "More") as HTMLButtonElement;
+    expect(moreTitle).toBeDefined();
+    const moreFolder = moreTitle.closest(".lil-gui")!;
+    expect(moreFolder).not.toBe(xFolder);
+    expect(moreFolder.classList.contains("closed")).toBe(true);
+    expect(moreFolder.contains(controller("X tick marks"))).toBe(true);
+    expect(moreFolder.contains(controller("X grid"))).toBe(true);
+    expect(xFolder.contains(controller("X title"))).toBe(true);
+    expect(moreFolder.contains(controller("X title"))).toBe(false);
+  });
+
+  // User report, verbatim: "also the X domain is weird, why do we have one
+  // in scales and another X domain in the axis?" — the Scales folder (and
+  // its own "X domain"/"Y domain" rows, inert on the 3D path) hides whole
+  // while a 3D type is active, leaving only the real "X axis (3D)"/"Y axis
+  // (3D)" domain row on screen.
+  it("the Scales folder (and its duplicate X/Y domain rows) hides entirely once a 3D mark type is selected", () => {
+    const folderTitle = (text: string) => Array.from(container.querySelectorAll(".title")).find((el) => el.textContent === text);
+    const scalesFolder = folderTitle("Scales")!.closest(".lil-gui") as HTMLElement;
+    expect(scalesFolder.style.display).not.toBe("none");
+
+    // Same Random-pool arithmetic the "can land on a 3D surface dataset"
+    // test above uses — the 3D pool sits at the END of Random's combined
+    // pool (`chartsRandomDataset.ts`'s own doc), so this lands on the
+    // first 3D dataset with no network involved.
+    const RANDOM_VALUE_FOR_FIRST_3D_PICK = (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length + 0.5)
+      / (CHARTS_DATASETS.length + CHARTS_REMOTE_DATASET_INDEX.length + CHARTS_3D_DATASETS.length + CHARTS_3D_REMOTE_DATASET_INDEX.length);
+    vi.spyOn(Math, "random").mockReturnValue(RANDOM_VALUE_FOR_FIRST_3D_PICK);
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Load random dataset"]')!.click());
+    expect(chartsActiveDatasetTitle(container)).toBe(CHARTS_3D_DATASETS[0]!.title);
+
+    expect(scalesFolder.style.display).toBe("none");
+    // No inert `ScaleDomainControl` left mounted underneath the hidden
+    // folder's own (still-present, now empty) slot divs — only the REAL
+    // "X axis (3D)"/"Y axis (3D)" domain rows carry rendered content.
+    for (const slot of scalesFolder.querySelectorAll(".charts-scale-domain-slot")) expect(slot.childElementCount).toBe(0);
+    const liveDomainSlots = Array.from(container.querySelectorAll(".charts-scale-domain-slot")).filter((slot) => !scalesFolder.contains(slot));
+    expect(liveDomainSlots.some((slot) => slot.childElementCount > 0)).toBe(true);
+  });
+
   // Mutation: target onChange updates an unused state or omits applying target defaults.
   it("applies terminal defaults through the actual target selector", () => {
     pickToggle("Target", "terminal");
