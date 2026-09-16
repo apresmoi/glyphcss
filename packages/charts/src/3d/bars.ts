@@ -126,8 +126,11 @@ export function glyphChartBars3d(
   // dataset whose domain excluded 0 would draw every bar floating.
   const zValues = [0, ...bars.map((b) => b.z)];
   const axes = {
-    x: resolveAxis(bars.map((b) => b.x), axesOptions?.x?.title !== undefined ? axesOptions.x.title : xTitle, axesOptions?.x),
-    y: resolveAxis(bars.map((b) => b.y), axesOptions?.y?.title !== undefined ? axesOptions.y.title : yTitle, axesOptions?.y),
+    // Padded by the bar's own half-footprint so the outermost bar sits
+    // INSIDE the box rather than half outside it — see `resolveAxis`'s own
+    // `pad` doc for the user report and the rejected alternative.
+    x: resolveAxis(bars.map((b) => b.x), axesOptions?.x?.title !== undefined ? axesOptions.x.title : xTitle, axesOptions?.x, barHalfWidth[0]),
+    y: resolveAxis(bars.map((b) => b.y), axesOptions?.y?.title !== undefined ? axesOptions.y.title : yTitle, axesOptions?.y, barHalfWidth[1]),
     z: resolveAxis(zValues, axesOptions?.z?.title !== undefined ? axesOptions.z.title : zTitle, axesOptions?.z),
   };
 

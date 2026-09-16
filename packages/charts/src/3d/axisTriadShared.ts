@@ -168,8 +168,25 @@ function resolveExplicitDomain(domain: readonly [number, number] | undefined): r
   return domain;
 }
 
-/** One nice-domain/tick/format pipeline for every axis of every 3D mark type. */
-export function resolveAxis(values: readonly number[], defaultTitle: string, options: GlyphChart3dAxisOptions | undefined): GlyphChart3dResolvedAxis {
+/**
+ * One nice-domain/tick/format pipeline for every axis of every 3D mark type.
+ *
+ * `pad` (DATA units, default `0`) widens the FINAL domain by that much at
+ * each end, AFTER the ticks are derived — so a mark whose glyph has real
+ * extent around its own data position (a `bars3d` bar's footprint, half
+ * `barHalfWidth` either side of its `x`/`y`) gets a box that CONTAINS it
+ * without moving a single tick. User report, verbatim: "the 2024 olympics
+ * chart is showing blocks on top of the axes" — the outermost bar sat
+ * exactly on the domain edge, so half its footprint mapped past `ext` and
+ * painted over the triad's own axis lines. Padding the values BEFORE
+ * `.nice()` instead was rejected: on an index-like axis it pushes the nice
+ * domain out a whole tick step (`[0, 9]` -> `[-2, 10]`) and invents ticks
+ * at positions no bar stands on. Applied to an EXPLICIT domain too — half a
+ * bar width neither uncrops a deliberately narrow frame nor lets a bar
+ * paint outside it, and a reader sliding a domain must not reintroduce the
+ * defect.
+ */
+export function resolveAxis(values: readonly number[], defaultTitle: string, options: GlyphChart3dAxisOptions | undefined, pad = 0): GlyphChart3dResolvedAxis {
   const explicitDomain = resolveExplicitDomain(options?.domain);
   let domain: [number, number];
   let scale;
@@ -193,9 +210,10 @@ export function resolveAxis(values: readonly number[], defaultTitle: string, opt
   // reuses, so a 3D caller never sees two different codes for the identical
   // failure a 2D caller would hit through `axes.{x,y}.format`.
   const format = resolveGlyphChartTickFormat(options?.format);
+  const resolvedDomain = scale.domain() as [number, number];
   return {
     title,
-    domain: scale.domain() as [number, number],
+    domain: pad > 0 ? [resolvedDomain[0] - pad, resolvedDomain[1] + pad] : resolvedDomain,
     ticks,
     tickLabels: ticks.map((t, i) => asciiMinus(format ? format.apply(t, i, ticks) : PLAIN_FORMAT(t))),
     color: resolveAxisColorOption(options?.color, "axes color"),
