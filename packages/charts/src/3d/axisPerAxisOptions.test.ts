@@ -253,15 +253,17 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
   // (`object.ts`'s `axisTitlePoint`) rather than sitting exactly at
   // `t = 0`/`t = 1`) — reverting either default (`axisTitlePoint`'s own
   // `axis.titleAt ?? "end"`, or `AXIS_TITLE_TIP_OFFSET`) turns these red.
-  it("MUTATION: default titleAt is 'end' — byte-identical object-space anchor to an explicit 'end'", () => {
+  it("MUTATION: default titleAt is 'center' — the title sits at its own line's MIDPOINT, not off past the tip", () => {
+    // USER FEEDBACK, verbatim: "the axis title is like in the middle
+    // between the axis and the labels but not centered on the axis lines".
     const withDefault = titleAnchor(undefined);
-    const withExplicitEnd = titleAnchor("end");
-    expect(withDefault).toEqual(withExplicitEnd);
-    // z's edge runs from object-space 0 to aspect[2] — the default now
-    // pushes PAST the far end (aspect[2]), never sits at the midpoint.
+    expect(withDefault).toEqual(titleAnchor("center"));
+    expect(withDefault).not.toEqual(titleAnchor("end"));
+    // z's edge runs from object-space 0 to aspect[2]; centred means exactly
+    // halfway ALONG it, never past the far end the old default reached for.
     const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
-    expect(withDefault[2]).toBeGreaterThan(mark.aspect[2]);
-    expect(withDefault[2]).not.toBeCloseTo(mark.aspect[2] / 2, 3);
+    expect(withDefault[2]).toBeCloseTo(mark.aspect[2] / 2, 3);
+    expect(withDefault[2]).toBeLessThan(mark.aspect[2]);
   });
 
   it("MUTATION: titleAt 'start'/'center'/'end' each put the title at a measurably different anchor point", () => {

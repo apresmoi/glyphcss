@@ -476,7 +476,14 @@ function axisVisible(override: boolean | undefined, fallback: boolean): boolean 
  * either).
  */
 function axisTitlePoint(axisIndex: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axis: GlyphChart3dResolvedAxis): Vec3 {
-  const titleAt = axis.titleAt ?? "end";
+  // USER FEEDBACK, verbatim: "the axis title is like in the middle between
+  // the axis and the labels but not centered on the axis lines". `"end"`
+  // parked the title off the axis TIP, beside the last tick's own label
+  // rather than on the line it names; `"center"` puts it at the line's own
+  // midpoint — the placement a 2D axis title already uses — and its
+  // `AXIS_TITLE_LEGACY_MARGIN` push clears the tick labels outright instead
+  // of landing among them.
+  const titleAt = axis.titleAt ?? "center";
   if (titleAt !== "end") {
     return outwardPoint(axisIndex, corner, titleAt === "start" ? 0 : 0.5, ext, axis.titleOffset ?? AXIS_TITLE_LEGACY_MARGIN);
   }
