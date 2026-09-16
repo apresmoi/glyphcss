@@ -20,7 +20,7 @@ import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject,
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
 import type { GlyphChartCharset } from "@glyphcss/charts";
 import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
-import { charts3dObjectCharset, charts3dZoomRange, type Charts3dCamera, type Charts3dOrbitMode, type Charts3dSceneOptions } from "./chartsWorkbench3d";
+import { charts3dAxisRender, charts3dObjectCharset, charts3dZoomRange, type Charts3dCamera, type Charts3dOrbitMode, type Charts3dSceneOptions } from "./chartsWorkbench3d";
 
 function objectBoundsCenter(bounds: { readonly min: Vec3; readonly max: Vec3 }): Vec3 {
   return [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
@@ -248,7 +248,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
     // `chart3dResolvedLive` resolve failure.
     let object: GlyphSceneObject;
     try {
-      object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+      object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset), axisRender: charts3dAxisRender(sceneOptions.mode) });
     } catch (error) {
       scene.destroy();
       setMountBuildError(chart3dBuildErrorMessage(error));
@@ -429,7 +429,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
       // previous mount is left exactly as it was.
       let object: GlyphSceneObject;
       try {
-        object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+        object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset), axisRender: charts3dAxisRender(sceneOptions.mode) });
       } catch (error) {
         console.error("glyphcss: failed to build the 3D chart object", error);
         return;

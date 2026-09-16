@@ -94,6 +94,8 @@ export interface GlyphChart3dRenderOptions {
   readonly camera?: GlyphChart3dCameraOptions;
   /** See `GlyphChart3dStyle`'s own doc. Omitted: auto by charset. */
   readonly style?: GlyphChart3dStyle;
+  /** Forwarded verbatim to `glyphChartObject` — see `GlyphChart3dObjectOptions.axisRender`. Omitted = `"geometry"`, byte-identical to before the option existed. */
+  readonly axisRender?: "geometry" | "stamped" | "thin";
 }
 
 export interface GlyphChart3dResolved {
@@ -643,6 +645,19 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
     chart3dError("bad-render-options", `style must be one of solid, wireframe, ink, got ${JSON.stringify(options.style)}.`);
   }
   const style = resolveGlyphChart3dStyle(charset, options.style);
+  if (options.axisRender !== undefined && !["geometry", "stamped", "thin"].includes(options.axisRender)) {
+    chart3dError("bad-render-options", `axisRender must be one of geometry, stamped, thin, got ${JSON.stringify(options.axisRender)}.`);
+  }
+  // `"thin"` draws each axis as a DEGENERATE face — one line traced at the
+  // wireframe encoder's own sub-cell resolution, as fine as the surface
+  // beside it. A degenerate face has no AREA, so a solid mode paints
+  // nothing from it at all; there the ribbon is the only thing that can
+  // draw an axis, so `"thin"` resolves back to `"geometry"` rather than
+  // silently rendering a chart with no axes.
+  // USER DECISION, verbatim: "those are the axes we should be using" —
+  // `"thin"` is the DEFAULT. See `GlyphChart3dObjectOptions.axisRender`.
+  const axisRenderRequest = options.axisRender ?? "thin";
+  const axisRender = axisRenderRequest === "thin" && style !== "wireframe" ? "geometry" : axisRenderRequest;
 
   const ledger: GlyphChart3dLedgerEntry[] = [...mark.report.ledger];
   resolveCharsetDegrade3d(charset, ledger);
@@ -715,11 +730,12 @@ export function renderGlyphChart3d(mark: GlyphChart3dMark, options: GlyphChart3d
   if (mark.type === "surface") {
     const meshMark = style === "wireframe" ? wireframeDecimatedMark(mark) : mark;
     object = meshMark.shading === surfaceShading
-      ? glyphChartObject(meshMark, { charset: objectCharset })
-      : glyphChartObject({ ...meshMark, shading: surfaceShading }, { charset: objectCharset });
+      ? glyphChartObject(meshMark, { charset: objectCharset, ...(axisRender ? { axisRender } : {}) })
+      : glyphChartObject({ ...meshMark, shading: surfaceShading }, { charset: objectCharset, ...(axisRender ? { axisRender } : {}) });
   } else {
     object = glyphChartObject(mark, {
       charset: objectCharset,
+      ...(axisRender ? { axisRender } : {}),
       ...(mark.type === "scatter3d" ? { monochrome: !colorEnabled } : {}),
     });
   }

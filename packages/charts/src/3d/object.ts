@@ -211,6 +211,37 @@ function gridEdgeGlyph(from: Projected, to: Projected, charset: GlyphChartCharse
 }
 
 /**
+ * `axisRender: "stamped"`'s own axis-line glyph — slope-aware, ONE CELL
+ * wide, and in the SAME family the rest of that charset's picture is drawn
+ * in, so on `braille` the axis reads as a thin dotted rule rather than the
+ * ribbon mesh's two traced edges (`GlyphChart3dObjectOptions.axisRender`'s
+ * own doc has the user report). `box`/`ascii` reuse `edgeGlyph`'s own solid
+ * line-drawing set — a ribbon was never the problem there.
+ */
+function axisLineGlyph(from: Projected, to: Projected, charset: GlyphChartCharset): string {
+  if (charset !== "braille") return edgeGlyph(from, to);
+  const dc = to.col - from.col, dr = to.row - from.row;
+  if (dc === 0 && dr === 0) return "⠄";
+  if (Math.abs(dr) * 2 <= Math.abs(dc)) return "⠒"; // a middle-row horizontal rule
+  if (Math.abs(dc) * 2 <= Math.abs(dr)) return "⡇"; // a left-column vertical rule
+  return (dc > 0) === (dr > 0) ? "⠢" : "⠔";
+}
+
+/** `axisRender: "stamped"`'s own tick-mark glyph — never an ASCII `+` in a field of braille dots. */
+function axisTickGlyph(charset: GlyphChartCharset): string {
+  return charset === "braille" ? "⠿" : charset === "ascii" ? "+" : "┼";
+}
+
+/**
+ * How far, IN CELLS, a stamped tick label sits from its own axis line —
+ * a SCREEN distance, so it reads the same at every zoom and rotation,
+ * unlike `TICK_LABEL_MARGIN`'s fraction of the box's world extent.
+ */
+const AXIS_STAMPED_LABEL_CELLS = 2;
+/** The stamped tick mark's own stub length, in cells, perpendicular to its axis. */
+const AXIS_STAMPED_TICK_CELLS = 1;
+
+/**
  * The single shared corner the BACKDROP (`guides.walls`/`box`/`grid`/
  * `floorGrid`) resolves per camera — UNCHANGED by C2 fix round 7 (the axis
  * TRIAD itself no longer reads this at all, see `resolveOriginCorner`
@@ -523,13 +554,33 @@ const AXIS_LINE_SHADING_NORMAL: Vec3 = (() => {
  * discarded, so `guides.axisLines: false` for one axis alone is exactly as
  * cheap as it is for all three.
  */
-function axisTriadLinePolygons(corner: Corner, ext: readonly [number, number, number], colorForAxis: (axis: 0 | 1 | 2) => string, visibleForAxis: (axis: 0 | 1 | 2) => boolean): Polygon[] {
+function axisTriadLinePolygons(
+  corner: Corner,
+  ext: readonly [number, number, number],
+  colorForAxis: (axis: 0 | 1 | 2) => string,
+  visibleForAxis: (axis: 0 | 1 | 2) => boolean,
+  thin = false,
+): Polygon[] {
   const halfWidth = Math.min(ext[0], ext[1]) * AXIS_LINE_HALF_WIDTH_FRACTION;
   const from = cornerPoint(corner, ext);
   const polygons: Polygon[] = [];
   for (const axis of [0, 1, 2] as const) {
     if (!visibleForAxis(axis)) continue;
     const to = cornerPoint(flipCorner(corner, axis), ext);
+    if (thin) {
+      // ONE degenerate face whose four vertices lie ON the segment — a
+      // wireframe charMode traces its edges (`a -> b`, `b -> a`) and gets
+      // exactly one line, at the SAME sub-cell resolution the surface's own
+      // geometry is traced at. `orientedRibbonPolygons` sweeps a full
+      // six-face BOX, so braille traces that box's whole outline — four
+      // near-parallel long edges at the axis's own scale, which is the
+      // reported "this braille makes the axis a lot thicker than they
+      // should". A degenerate face has no area, so it paints NOTHING in a
+      // solid mode — this branch is wireframe-only by construction, and the
+      // caller keeps the ribbon everywhere else.
+      polygons.push({ vertices: [from, to, to, from], color: colorForAxis(axis), shadingNormal: AXIS_LINE_SHADING_NORMAL });
+      continue;
+    }
     const segment = orientedRibbonPolygons(from, to, halfWidth, colorForAxis(axis));
     for (const p of segment) p.shadingNormal = AXIS_LINE_SHADING_NORMAL;
     polygons.push(...segment);
@@ -551,7 +602,12 @@ function axisTriadLinePolygons(corner: Corner, ext: readonly [number, number, nu
  * geometry, meant to sit behind the data. The axis TRIAD's own ticks/
  * labels/titles read `resolveOriginCorner`'s fixed corner instead.
  */
-function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number, number, number], charset: GlyphChartCharset): GlyphSceneOverlay {
+function axisTriadOverlay(
+  mark: GlyphChart3dAxisTriadSpec,
+  ext: readonly [number, number, number],
+  charset: GlyphChartCharset,
+  axisRender: "geometry" | "stamped" | "thin" = "geometry",
+): GlyphSceneOverlay {
   const guides = mark.guides;
   const corner = resolveOriginCorner(mark.corner);
   return {
@@ -586,6 +642,31 @@ function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number
       if (guides.walls) drawEdges(wallOutline);
       if (guides.box) drawEdges(boxOnly);
 
+      // `axisRender: "stamped"` — the axis lines are drawn HERE instead of
+      // being mounted as the `"axis-lines"` ribbon mesh, one cell wide.
+      if (axisRender === "stamped") {
+        for (const axisIndex of [0, 1, 2] as const) {
+          const axis = axisAt(mark, axisIndex);
+          if (!axisVisible(axis.lineVisible, guides.axisLines)) continue;
+          const from = projectObjectPoint(frame, outwardPoint(axisIndex, corner, 0, ext, 0));
+          const to = projectObjectPoint(frame, outwardPoint(axisIndex, corner, 1, ext, 0));
+          stampGlyphOverlayLine(grid, from, to, axisLineGlyph(from, to, charset), axisRenderColor(axis, mark));
+        }
+      }
+
+      // The box's own projected centre — the "outward" reference a stamped
+      // tick mark and its label push AWAY from, in SCREEN space. Object
+      // space has no single outward direction that survives projection at
+      // every camera, which is exactly why the world-space push reads as a
+      // different distance depending on where the camera is.
+      const boxCentre = projectObjectPoint(frame, [ext[0] / 2, ext[1] / 2, ext[2] / 2]);
+      const outwardCells = (at: Projected, cells: number): { col: number; row: number } => {
+        const dc = at.col - boxCentre.col, dr = at.row - boxCentre.row;
+        const len = Math.hypot(dc, dr);
+        if (len < 1e-6) return { col: at.col, row: at.row };
+        return { col: Math.round(at.col + (dc / len) * cells), row: Math.round(at.row + (dr / len) * cells) };
+      };
+
       for (let axisIndex = 0 as 0 | 1 | 2; axisIndex < 3; axisIndex++) {
         const name = AXIS_NAMES[axisIndex];
         const axis = mark.axes[name];
@@ -597,14 +678,21 @@ function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number
         for (let i = 0; i < axis.ticks.length; i++) {
           const value = axis.ticks[i]!;
           const t = span === 0 ? 0 : (value - lo) / span;
+          const onEdgeProjected = projectObjectPoint(frame, outwardPoint(axisIndex, corner, t, ext, 0));
           if (showTicks) {
-            const onEdge = outwardPoint(axisIndex, corner, t, ext, 0);
-            const tickProjected = projectObjectPoint(frame, onEdge);
-            stampGlyphOverlayCell(grid, { col: tickProjected.col, row: tickProjected.row, char: "+", color, depth: tickProjected.depth });
+            if (axisRender === "stamped") {
+              // A real STUB pushed outward from the line, in the charset's
+              // own glyph family — not a lone `+` sitting on the line.
+              const tip = outwardCells(onEdgeProjected, AXIS_STAMPED_TICK_CELLS);
+              stampGlyphOverlayCell(grid, { col: tip.col, row: tip.row, char: axisTickGlyph(charset), color, depth: onEdgeProjected.depth });
+            } else {
+              stampGlyphOverlayCell(grid, { col: onEdgeProjected.col, row: onEdgeProjected.row, char: "+", color, depth: onEdgeProjected.depth });
+            }
           }
           if (!showLabels) continue;
-          const label = outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN);
-          const labelProjected = projectObjectPoint(frame, label);
+          const labelProjected = axisRender === "stamped"
+            ? { ...outwardCells(onEdgeProjected, AXIS_STAMPED_LABEL_CELLS + AXIS_STAMPED_TICK_CELLS), depth: onEdgeProjected.depth }
+            : projectObjectPoint(frame, outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN));
           const priority = i === 0 || i === axis.ticks.length - 1
             ? PRIORITY_TICK_EXTREME
             : value === 0
@@ -871,7 +959,8 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
   // object directly with no `renderGlyphChart3d` charset resolution step of
   // its own — `charset` defaults to `"box"` (the richest line-art tier).
   const charset = options.charset ?? "box";
-  const overlays: GlyphSceneOverlay[] = [axisTriadOverlay(mark, ext, charset)];
+  const axisRender = options.axisRender ?? "geometry";
+  const overlays: GlyphSceneOverlay[] = [axisTriadOverlay(mark, ext, charset, axisRender)];
   const meshes: GlyphSceneObjectMesh[] = [];
   let textureSamplers: Map<string, TextureSampler> | undefined;
 
@@ -908,12 +997,13 @@ export function glyphChartObject(mark: GlyphChart3dMark, options: GlyphChart3dOb
   // resolves that PER AXIS (`axisVisible`/`axisRenderColor`) rather than as
   // one flat `guides.axisLines` gate, so `axes.z.line: false` alone omits
   // just the z segment while x/y still mount theirs.
-  {
+  if (axisRender !== "stamped") {
     const corner = resolveOriginCorner(mark.corner);
     const linePolygons = axisTriadLinePolygons(
       corner, ext,
       (axis) => axisRenderColor(axisAt(mark, axis), mark),
       (axis) => axisVisible(axisAt(mark, axis).lineVisible, mark.guides.axisLines),
+      axisRender === "thin",
     );
     if (linePolygons.length > 0) meshes.push({ name: "axis-lines", polygons: linePolygons });
   }

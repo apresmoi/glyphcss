@@ -53,6 +53,21 @@ export function resolveCharts3dStyle(charset: GlyphChartCharset, styleOption: Ch
   return charset === "braille" ? "wireframe" : "solid";
 }
 
+/**
+ * Which axis-line geometry the LIVE viewport mounts, mirroring
+ * `renderGlyphChart3d`'s own resolution so the orbit view and Copy/terminal
+ * draw the same axis for the same state.
+ *
+ * USER DECISION, verbatim: "those are the axes we should be using" —
+ * `"thin"` (one degenerate face traced as a single sub-cell line, as fine
+ * as the data beside it) wherever the scene can trace lines at all, and the
+ * ribbon everywhere else, since a degenerate face has no AREA and a solid
+ * mode would paint no axis from it at all.
+ */
+export function charts3dAxisRender(mode: string): "thin" | "geometry" {
+  return mode === "wireframe" ? "thin" : "geometry";
+}
+
 /** Mirrors `render.ts`'s own `chromeTier` exactly: `blocks` degrades to
  *  `ascii` for the object's own always-mounted grid/tick overlay glyphs —
  *  the geometry can never actually render in halfblock either

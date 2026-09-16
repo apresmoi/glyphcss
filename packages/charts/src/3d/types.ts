@@ -420,6 +420,26 @@ export interface GlyphChart3dObjectOptions {
    */
   readonly charset?: GlyphChartCharset;
   /**
+   * How the axis TRIAD's own three lines are drawn — `"geometry"` (the
+   * default, byte-identical to before this option existed) mounts them as
+   * the `"axis-lines"` ribbon mesh C2 fix round 7 introduced; `"stamped"`
+   * draws them in the overlay instead, one glyph per cell.
+   *
+   * USER FEEDBACK, verbatim: "I find it weird that the only way that we
+   * have to do the axes is with this braille that makes the axis a lot
+   * thicker than they should, also I cannot properly see the tickmarks, and
+   * also the number labels are too far from the axis". A ribbon is a thin
+   * BOX, so under `braille` (a wireframe charMode) the renderer traces both
+   * of its long edges and the axis reads as a double line at exactly the
+   * data's own weight. `"stamped"` is one cell wide by construction, draws
+   * its tick marks as a short perpendicular stub in the SAME glyph family
+   * rather than an ASCII `+` sitting in a field of braille dots, and offsets
+   * each tick label a fixed number of CELLS from the line's own projected
+   * position instead of a fraction of the box's WORLD extent (whose screen
+   * distance drifts with zoom and rotation — the "too far" report).
+   */
+  readonly axisRender?: "geometry" | "stamped" | "thin";
+  /**
    * `scatter3d` only: render every point through its SERIES SHAPE (cube,
    * octahedron, tetrahedron, icosahedron) instead of relying on colour to
    * separate series — the marker-shape half of `renderGlyphChart3d`'s own
