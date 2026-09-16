@@ -90,7 +90,7 @@ function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly
 
 /** How far outward (as a fraction of that axis's own box extent) a tick label / axis title is pushed past the box edge. */
 const TICK_LABEL_MARGIN = 0.15;
-/** See `docs/design/charts3d.md`'s "C2 fix round 3" for the measured sweep that settled this margin. */
+/** See. */
 const AXIS_TITLE_MARGIN = 0.6;
 /** Priorities: endpoints outrank the title, which outranks an interior tick. */
 const PRIORITY_TICK_EXTREME = 900;
@@ -395,7 +395,7 @@ function axisTitleOffset(axis: GlyphChart3dResolvedAxis): number {
  * of the box's own x/y extents (never the z one, which the default aspect
  * already compresses to 0.6 — sizing off it would make the line's own
  * thickness swing with a caller's own `aspect[2]` for no reason connected
- * to legibility). Tuned by direct rendering (`docs/design/charts3d.md`'s
+ * to legibility). Tuned by direct rendering
  * "C2 fix round 7"): thin enough that the wireframe/braille encoder still
  * traces it as a single clean line rather than a visibly double-walled
  * ribbon, thick enough that the solid/ascii/box encoder's own Lambert
@@ -422,7 +422,7 @@ const AXIS_LINE_HALF_WIDTH_FRACTION = 0.01;
  * (~0.4) regardless of the ribbon's own real orientation or the camera's:
  * a light, even glyph that reads as a LINE at every rotation, never a
  * darkness that happens to track whichever axis is briefly facing the
- * light. Verified by direct rendering (`docs/design/charts3d.md`'s "C2 fix
+ * light. Verified by direct rendering
  * round 8"): `@`/`#`/`%` no longer appear in a `box`/`ascii` axis-triad
  * render at the default camera.
  */

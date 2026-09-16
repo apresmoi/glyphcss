@@ -618,7 +618,7 @@ describe("renderGlyphChart3d — auto-fit makes the plot the DOMINANT element, a
         // rotation/size in this sweep; the occasional third is a genuine,
         // accepted geometric trade-off (a long title pushed toward a tall
         // peak at a steep, oblique pitch), documented in
-        // `docs/design/charts3d.md`'s "C2 fix round 3" — never a case where
+        //
         // the missing title prints through the surface instead.
         const titles = ["x (m)", "y (m)", "height"];
         const present = titles.filter((title) => result.text.includes(title)).length;

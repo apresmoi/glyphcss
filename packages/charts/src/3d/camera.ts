@@ -219,7 +219,7 @@ export function glyphChart3dFitCamera(options: GlyphChart3dFitCameraOptions): Gl
  * their length. Strict left-corner placement and real axis-line
  * visibility are therefore NOT jointly reachable for this symmetric
  * `[1.3, 1.3, 0.6]` aspect box, at any pitch tested — a measured geometric
- * fact, not a search failure (`docs/design/charts3d.md`'s "C2 fix round 8"
+ * fact, not a search failure
  * has the full swept tables).
  *
  * **`rotY: 235` is the best point on that real trade-off**, found by

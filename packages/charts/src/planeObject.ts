@@ -1,7 +1,7 @@
 /**
  * `glyphChartPlaneObject` — a rendered 2D chart as a textured quad
  * `GlyphSceneObject` (CHARTS-RESEARCH `PLAN-3d.md` §3.1/§7, packet F4b —
- * `docs/design/charts3d.md`'s own "deliberately NOT in this packet" note
+ *
  * for F4 names this as the follow-up). Mounts through `scene.addObject()`
  * into any `createGlyphScene`: the chart reads as texture on ordinary 3D
  * geometry, through the exact per-cell texture path every other textured

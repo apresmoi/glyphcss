@@ -54,7 +54,7 @@
  * This is genuinely necessary, not belt-and-suspenders: this module's own
  * FIXED camera does not project every world axis onto a "moves away from
  * the box on screen" direction (measured on the shipped chain fixtures —
- * `docs/design/charts3d.md`'s own "D2 round 8" section has the numbers),
+ *),
  * so a single fixed direction per node is not enough on its own. The SAME
  * round widened `layout3d.ts`'s own ring spacing to leave room for a
  * sibling's own label text (`layout3d.ts`'s own "D2 round 8" doc).
@@ -337,7 +337,7 @@ export interface GlyphDiagram3dLabelPick { readonly placement: GlyphDiagram3dLab
  * (`glyphDiagram3dLabelSideCandidates`'s own doc). The shared arbiter
  * still caught every such collision at render time (`render3d.ts`'s own
  * `verifyLabelsLanded`) and dropped one — correctly, but SILENTLY and by
- * the dozen on a real chain fixture (`docs/design/charts3d.md`'s own "D2
+ * the dozen on a real chain fixture
  * round 8" section has the swept counts before this fix). Reserving
  * cells here closes that gap for the vast majority of real graphs; a
  * genuine residual remains — the arbiter's own tie-break (a FOREIGN
@@ -430,7 +430,7 @@ const GLYPH_DIAGRAM_3D_GROUP_OUTLINE_HALF_WIDTH = 0.3;
  * start colliding with EACH OTHER instead. `1.25` sits in the middle of
  * the swept range that clears every label on every one of this round's
  * own 5 fixtures at all 3 required sizes with zero drops
- * (`docs/design/charts3d.md`'s "D2 round 8" has the full sweep). `_MIN` is
+ *). `_MIN` is
  * the floor for a near-zero half-extent (a degenerate box).
  */
 const GLYPH_DIAGRAM_3D_LABEL_GAP_FRACTION = 1.25;
@@ -583,7 +583,7 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
         // arbiter goes on to accept or refuse the label text itself at
         // this exact cell (a documented, rare residual: this module's own
         // pre-check already keeps that mismatch at zero across every one
-        // of this round's own fixtures, `docs/design/charts3d.md`'s "D2
+        // of this round's own fixtures,
         // round 8").
         if (placement.isSide && placement.leaderFrom) {
           const from = project(frame, placement.leaderFrom);

@@ -90,7 +90,7 @@ export function glyphChartLine3d(data: GlyphChart3dLineInput, options: GlyphChar
   };
 }
 
-/** A Lorenz attractor trajectory, integrated with a fixed-step Euler method — a computed, labelled EXAMPLE (`docs/design/charts3d.md`'s "C5"), not vendored data. Classic parameters `sigma=10, rho=28, beta=8/3`. */
+/** A Lorenz attractor trajectory, integrated with a fixed-step Euler method — a computed, labelled EXAMPLE), not vendored data. Classic parameters `sigma=10, rho=28, beta=8/3`. */
 export function glyphChart3dLorenzAttractor(steps = 4000, dt = 0.008): readonly GlyphChart3dPoint3[] {
   const sigma = 10, rho = 28, beta = 8 / 3;
   let x = 0.1, y = 0, z = 0;

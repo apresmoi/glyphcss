@@ -469,7 +469,7 @@ function fitDiagramCamera(object: GlyphSceneObject, nodes: readonly GlyphDiagram
   // that fitted the zoom and the real-camera pass that rendered it,
   // occasionally pushing that one label's own text past the frame edge —
   // measured on the real LeNet-5 fixture (`"input 32x32x1"` at 96x32,
-  // `docs/design/charts3d.md`'s "D2 round 8"). Re-solving against the
+  //). Re-solving against the
   // EXACT camera's own picks removes the estimate entirely.
   let solved = solve(resolveAll(undefined).kept);
   let resolved = resolveAll(solved.zoom);

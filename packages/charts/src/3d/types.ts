@@ -181,7 +181,7 @@ export interface GlyphChart3dAxisTriadSpec {
  * library's own default oblique camera projects it as a diamond) the eye
  * locks onto ahead of the surface, a visual-WEIGHT defect the ink metric
  * alone never measured. Decided by LOOKING, per the coordinator's own
- * explicit instruction — `docs/design/charts3d.md`'s "C2 fix round 5" has
+ * explicit instruction —
  * the side-by-side frames: with the grid off, the SAME fixtures read as a
  * clean oblique surface with axis structure only, closer to matplotlib's
  * own default (no pane gridlines unless the reader asks). A caller who

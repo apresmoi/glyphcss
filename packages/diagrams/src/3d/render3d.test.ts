@@ -538,7 +538,7 @@ describe("renderGlyphDiagram3d — D2 round 8 (separation and side labels)", () 
   // fixtures produced GENUINE AABB overlaps (both colGap AND rowGap
   // negative) on multiple pairs — e.g. "researcher" vs "reviewer" on
   // agent-supervisor, "b" vs "c" on fan-join-split — not merely a thin
-  // gap (`docs/design/charts3d.md`'s "D2 round 8" has the full sweep).
+  // gap).
   // The bound here (col >= 2 OR row >= 1 — a pair reading as separated in
   // EITHER screen direction, matching how the ring itself only ever
   // separates siblings along one dominant axis at a time) is comfortably

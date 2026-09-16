@@ -61,8 +61,7 @@ function chartBuildFromCanvas(canvas: GlyphCanvas): GlyphChartBuild {
  * a plane object built with `width: canvas.cols` renders with `output row
  * == canvas row * k .. canvas row * k + k - 1` (and the same for columns)
  * — i.e. a `k`-cell block of OUTPUT cells per canvas cell — for ANY
- * `canvas.cellAspect`, not just `1`. Derived once, in `docs/design/
- * charts3d.md`'s "F4b fix round 1": with `width = cols`, `height` resolves
+ * `canvas.cellAspect`, not just `1`. With `width = cols`, `height` resolves
  * to `rows / cellAspect` (`planeObject.ts`'s own formula); solving both
  * axes' screen-spacing-per-world-unit to `k` gives `zoom = BASE_TILE * k *
  * cellAspect` and `sceneCellAspect = 1 / cellAspect` (independent of `k`).

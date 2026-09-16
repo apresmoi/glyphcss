@@ -56,7 +56,7 @@ export function resolveGuides(options: GlyphChart3dGuideOptions | undefined): Gl
     // FALSE (opt-in) — a low-density crosshatch across a full guide plane
     // reads as a cage/diamond shape ahead of the data at this library's own
     // oblique default camera, a visual-WEIGHT defect no ink-share metric
-    // alone measures (`docs/design/charts3d.md`'s "C2 fix round 5").
+    // alone measures).
     grid: g.grid ?? false,
     floorGrid: g.floorGrid ?? false,
     walls: g.walls ?? false,
