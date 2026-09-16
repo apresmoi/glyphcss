@@ -663,7 +663,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
 
     act(() => folderResetButton("Reset the X axis (3D)").click());
     expect(titleInput.value).toBe("");
-    expect(activeToggleLabel("X title at (3D)")).toBe("center");
+    expect(activeToggleLabel("X title at (3D)")).toBe("end");
     // The Y axis subgroup is a DIFFERENT axis's own override — untouched.
     expect(yTitleInput.value).toBe("Custom Latitude Title");
   });

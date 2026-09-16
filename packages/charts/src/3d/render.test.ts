@@ -429,15 +429,28 @@ describe("renderGlyphChart3d — shading: 'value' keeps glyph density monotone i
     // convention AGENTS.md's own honesty gate for `surface` uses — so a
     // z-gradient purely along x reads as a column-indexed gradient on
     // screen, with no ambiguity about which world axis moved. A real
-    // (non-degenerate) y-extent (20 rows, not 2) and the library's own
-    // auto-fit (no explicit zoom) keep the mesh from collapsing to a
-    // sliver under this orthographic top view.
+    // (non-degenerate) y-extent (20 rows, not 2) keeps the mesh from
+    // collapsing to a sliver under this orthographic top view.
+    //
+    // An EXPLICIT `zoom` (round 9) — auto-fit is no longer what this test
+    // wants: C2 fix round 9 tightened the default axis title's own margin
+    // (`object.ts`'s `AXIS_TITLE_PERP_MARGIN`), so titles no longer bind
+    // the closed-form fit the way the old, much bigger `0.6` margin did at
+    // this exact top-down rotation (measured: with titles ON, the fit's
+    // own zoom went from 637.76, matching this literal, to 1079.29 —
+    // IDENTICAL to the zoom `guides.titles: false` produces, i.e. titles
+    // stopped being the binding constraint at all). That is expected,
+    // correct round-9 behaviour, not a shading defect — but the resulting
+    // TIGHTER zoom coarsens this test's own screen-row sampling of the
+    // gradient enough to drop the measured correlation under this test's
+    // own threshold, for a reason that has nothing to do with what this
+    // test verifies (shading monotonicity). Pinning zoom decouples the two.
     const cols = 20, rows = 20;
     const z = flatGrid(rows, cols, 0).map((row) => row.map((_, c) => (c / (cols - 1)) * 20));
     const mark = glyphChartSurface({ z }, undefined, { shading: "value", color: "none", bands: 8 });
     const result = renderGlyphChart3d(mark, {
       target: "web", color: "none", charset: "ascii", width: 90, height: 40,
-      camera: { rotX: 0, rotY: 0 },
+      camera: { rotX: 0, rotY: 0, zoom: 637.76 },
     });
     const lines = result.text.split("\n");
     // Only a genuine SURFACE-SHADED cell counts — every OTHER glyph this

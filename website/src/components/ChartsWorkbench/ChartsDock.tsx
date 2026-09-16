@@ -107,10 +107,12 @@ const AXIS_Y_TITLE_AT_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as s
 const CHARTS_3D_AXIS_TITLE_AT_TOGGLE = (["start", "center", "end"] as const).map((v) => ({
   value: v as string, icon: <span className="gx-toggle-text">{AXIS_X_TITLE_AT_SYMBOL[v]}</span>, label: v, desc: `Title placement: ${v}`,
 }));
-/** The library's own `object.ts` default (`AXIS_TITLE_MARGIN`, AGENTS.md's
- *  "Axis title position") — the titleOffset slider's own seed when the
- *  reader has set no override, never a page-side guess. */
-const AXIS_TITLE_OFFSET_DEFAULT = 0.6;
+/** The library's own `object.ts` default for `"end"` (`AXIS_TITLE_TIP_OFFSET`,
+ *  the page's own default `titleAt`) — the titleOffset slider's own seed
+ *  when the reader has set no override. `"start"`/`"center"` keep their own
+ *  larger `0.6` (`AXIS_TITLE_LEGACY_MARGIN`) in the library; the slider seed
+ *  is not re-derived per `titleAt` selection here, a known simplification. */
+const AXIS_TITLE_OFFSET_DEFAULT = 0.15;
 
 // Ticks row (owner packet item 1) — an "X ticks: auto" boolean plus an
 // "X ticks" number slider, built with the SAME `useToggle`/`useSlider`
@@ -844,7 +846,7 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     {is3d && x3dTitleAtSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">X title at (3D)</span>
-        <IconToggle groupTitle="X axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.x.titleAt ?? "center"}
+        <IconToggle groupTitle="X axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.x.titleAt ?? "end"}
           onChange={(value) => dispatch({ type: "set-3d-axis", axis: "x", patch: { titleAt: value as Charts3dAxisOverride["titleAt"] } })} />
       </div>,
       x3dTitleAtSlot,
@@ -852,7 +854,7 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     {is3d && y3dTitleAtSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Y title at (3D)</span>
-        <IconToggle groupTitle="Y axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.y.titleAt ?? "center"}
+        <IconToggle groupTitle="Y axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.y.titleAt ?? "end"}
           onChange={(value) => dispatch({ type: "set-3d-axis", axis: "y", patch: { titleAt: value as Charts3dAxisOverride["titleAt"] } })} />
       </div>,
       y3dTitleAtSlot,
@@ -860,7 +862,7 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     {is3d && z3dTitleAtSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">Z title at (3D)</span>
-        <IconToggle groupTitle="Z axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.z.titleAt ?? "center"}
+        <IconToggle groupTitle="Z axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.z.titleAt ?? "end"}
           onChange={(value) => dispatch({ type: "set-3d-axis", axis: "z", patch: { titleAt: value as Charts3dAxisOverride["titleAt"] } })} />
       </div>,
       z3dTitleAtSlot,

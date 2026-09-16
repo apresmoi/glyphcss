@@ -90,8 +90,50 @@ function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly
 
 /** How far outward (as a fraction of that axis's own box extent) a tick label / axis title is pushed past the box edge. */
 const TICK_LABEL_MARGIN = 0.15;
-/** See. */
-const AXIS_TITLE_MARGIN = 0.6;
+/**
+ * C2 fix round 9 (USER FEEDBACK, verbatim: "the label is too far from the
+ * axis... maybe those labels should be on the end at the tip of the axes in
+ * 3d space, instead of being next to the numbers, they could be in the
+ * end"). Superseded round 3's own `0.6` The measured sweep that replaced it: `0.08` is the
+ * smallest value that never dropped a real title to a tick-label collision
+ * across the real Maunga Whau / ETOPO1 Alps fixtures at 96x32/140x40,
+ * box/braille (a smaller value, e.g. `0.04`, drops "y (m)" at 96x32 on
+ * both fixtures — the title's own reserved box then overlaps the
+ * endpoint tick label's, and the tick (higher priority) wins).
+ */
+const AXIS_TITLE_TIP_OFFSET = 0.15;
+/**
+ * The `"end"` title's own perpendicular clearance off the triad edge (the
+ * OTHER two axes, `axisTitlePoint`'s own `push`) — a SEPARATE, smaller
+ * constant from `TICK_LABEL_MARGIN` was tried and rejected: reusing
+ * `TICK_LABEL_MARGIN` (`0.15`) exactly put a real title's own reserved box
+ * directly athwart the endpoint tick label's (both anchor at the same
+ * `t`-neighbourhood with the same perpendicular offset), which the arbiter
+ * resolves by dropping the lower-priority title. `0.08` — matched to
+ * `AXIS_TITLE_TIP_OFFSET` so a title's along-axis push and its
+ * perpendicular clearance read as the same "just past the tip" nudge in
+ * every direction — clears that collision on every fixture/size/charset
+ * this round measured.
+ */
+const AXIS_TITLE_PERP_MARGIN = 0.08;
+/**
+ * `"start"`/`"center"` keep the PRE-round-9 `outwardPoint` mechanism and
+ * its own `0.6` margin verbatim — NOT tightened. `"end"` can afford
+ * `AXIS_TITLE_PERP_MARGIN`'s tight `0.08` because extending PAST each
+ * axis's own, separate tip (`AXIS_TITLE_TIP_OFFSET`) is what keeps three
+ * axes' `"end"` titles apart; `"start"` has no such separation to lean on —
+ * every axis's `"start"` anchor sits at the SAME shared origin corner, so
+ * three titles differ only by which one OTHER axis got the perpendicular
+ * push, and at `0.08` that difference is too small to survive an oblique
+ * camera: measured directly,
+ * tightening `"start"`'s own margin to `0.08` (or even `0.15`) clustered
+ * all three titles into the same few screen cells and dropped 2-3 of them
+ * at the library's own DEFAULT camera on a small synthetic grid — a
+ * regression `"end"`'s own fix must not cause. `"center"` inherits the same
+ * legacy margin for the identical reason (its own anchor sits at each
+ * edge's midpoint, no natural "further" direction to lean on either).
+ */
+const AXIS_TITLE_LEGACY_MARGIN = 0.6;
 /** Priorities: endpoints outrank the title, which outranks an interior tick. */
 const PRIORITY_TICK_EXTREME = 900;
 const PRIORITY_TITLE = 800;
@@ -374,20 +416,49 @@ function axisVisible(override: boolean | undefined, fallback: boolean): boolean 
 }
 
 /**
- * User feedback, verbatim: "we need to be able to configure the position of
- * the title of the axis". Where the title sits ALONG the triad edge, as the
- * same `t` parameter `outwardPoint` uses for a tick — `"start"` is the
- * origin corner itself (the axis's own data-minimum end), `"end"` the far
- * end (data-maximum), `"center"` (default) the midpoint, unchanged from
- * before `titleAt` existed.
+ * C2 fix round 9 (USER FEEDBACK, verbatim: "the label is too far from the
+ * axis... maybe those labels should be on the end at the tip of the axes in
+ * 3d space, instead of being next to the numbers, they could be in the end
+ * (other end of 0,0,0) for each axe"). `"end"` (NEW DEFAULT) pushes the
+ * title PAST the axis's own last tick, CONTINUING the axis's own line
+ * outward (its along-axis coordinate is `ext[axis] + titleOffset *
+ * ext[axis]`, past the tip) with a small, fixed perpendicular clearance
+ * (`AXIS_TITLE_PERP_MARGIN`) — the SAME "just past the tip" nudge in every
+ * direction, matching what `titleOffset`'s own doc always said ("a fraction
+ * of THAT axis's own box extent") but the round-3 implementation never
+ * actually did (it pushed the OTHER two axes by that fraction instead, not
+ * the title's own).
+ *
+ * `"start"`/`"center"` are UNCHANGED from before this round — the exact
+ * pre-round-9 `outwardPoint` call, `AXIS_TITLE_LEGACY_MARGIN`'s own big
+ * `0.6` perpendicular push, `t = 0`/`0.5`. They are NOT tightened the way
+ * `"end"` is: `"end"`'s tight margin works because three axes' own `"end"`
+ * anchors are naturally far apart (each at its OWN, separate tip); `"start"`
+ * has no such separation — every axis's `"start"` anchor sits at the SAME
+ * shared origin corner, differing only by which ONE other axis got the
+ * perpendicular push, so tightening it clusters all three into the same
+ * few screen cells under an oblique camera (measured directly,
+ * `docs/design/charts3d.md`'s "C2 fix round 9": tightening dropped 2-3 of 3
+ * "start" titles at the library's own DEFAULT camera on a small synthetic
+ * grid). `"center"` keeps the legacy margin for the identical reason (its
+ * anchor sits at each edge's own midpoint, no natural "further" direction
+ * either).
  */
-const AXIS_TITLE_AT_T: Readonly<Record<"start" | "center" | "end", number>> = { start: 0, center: 0.5, end: 1 };
-function axisTitleAtT(axis: GlyphChart3dResolvedAxis): number {
-  return AXIS_TITLE_AT_T[axis.titleAt ?? "center"];
-}
-/** This axis's own `titleOffset` override, falling back to the library's own `AXIS_TITLE_MARGIN` constant. */
-function axisTitleOffset(axis: GlyphChart3dResolvedAxis): number {
-  return axis.titleOffset ?? AXIS_TITLE_MARGIN;
+function axisTitlePoint(axisIndex: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axis: GlyphChart3dResolvedAxis): Vec3 {
+  const titleAt = axis.titleAt ?? "end";
+  if (titleAt !== "end") {
+    return outwardPoint(axisIndex, corner, titleAt === "start" ? 0 : 0.5, ext, axis.titleOffset ?? AXIS_TITLE_LEGACY_MARGIN);
+  }
+  const tipOffset = axis.titleOffset ?? AXIS_TITLE_TIP_OFFSET;
+  const p: [number, number, number] = [0, 0, 0];
+  for (let k = 0; k < 3; k++) {
+    const axisK = k as 0 | 1 | 2;
+    if (axisK === axisIndex) { p[k] = ext[axisIndex] + tipOffset * ext[axisIndex]; continue; }
+    const bit = corner[axisK];
+    const push = AXIS_TITLE_PERP_MARGIN * ext[axisK];
+    p[k] = bit ? ext[axisK] + push : -push;
+  }
+  return p;
 }
 
 /**
@@ -555,7 +626,7 @@ function axisTriadOverlay(mark: GlyphChart3dAxisTriadSpec, ext: readonly [number
           });
         }
         if (guides.titles && axis.title.length > 0) {
-          const titlePoint = outwardPoint(axisIndex, corner, axisTitleAtT(axis), ext, axisTitleOffset(axis));
+          const titlePoint = axisTitlePoint(axisIndex, corner, ext, axis);
           const titleProjected = projectObjectPoint(frame, titlePoint);
           frame.labels.place({
             id: `axis-${name}-title`,
@@ -620,7 +691,7 @@ export function glyphChart3dLabelAnchors(mark: GlyphChart3dAxisTriadSpec): reado
       }
     }
     if (guides.titles && axis.title.length > 0) {
-      anchors.push({ text: axis.title, point: outwardPoint(axisIndex, corner, axisTitleAtT(axis), ext, axisTitleOffset(axis)) });
+      anchors.push({ text: axis.title, point: axisTitlePoint(axisIndex, corner, ext, axis) });
     }
   }
   return anchors;

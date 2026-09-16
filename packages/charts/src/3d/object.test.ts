@@ -10,6 +10,25 @@ function flatGrid(rows: number, cols: number, value = 0): number[][] {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => value));
 }
 
+/**
+ * C2 fix round 9 changed the DEFAULT `titleAt` to `"end"`, which pushes a
+ * title PAST its own axis's tip rather than to the edge's midpoint. Several
+ * tests below mount at a hand-tuned FIXED camera + off-centre `position`/
+ * `scale` (`zoom: 24, rotX: 60, rotY: 30`, `position: [-0.5, -0.5, 0], scale:
+ * 20`) that was never auto-fit to begin with — it was tuned, by hand, around
+ * the pre-round-9 `"center"` geometry, and round 9's own tighter/further
+ * `"end"` anchors land outside the room that tuning happens to leave. These
+ * tests are about OVERLAP/mechanism (guides toggles, literal text stamping,
+ * `mat`/`useMat` honouring) — not about validating the `"end"` DEFAULT
+ * itself, which is already gated thoroughly elsewhere (`axisOriginCorner.
+ * test.ts`'s real-fixture visibility gates, `axisPerAxisOptions.test.ts`'s
+ * own `titleAt` suite, `render.test.ts`'s rotation sweep) — so they pin
+ * `titleAt: "center"` explicitly, which round 9 left BYTE-IDENTICAL to
+ * pre-round-9 behaviour, rather than re-tuning this hand camera to a
+ * default that keeps moving as `titleAt`'s own tuning does.
+ */
+const CENTERED_TITLE: { readonly titleAt: "center" } = { titleAt: "center" };
+
 function surfaceMesh(mark: ReturnType<typeof glyphChartSurface>): Polygon[] {
   return glyphChartObject(mark).meshes[0]!.polygons;
 }
@@ -186,7 +205,7 @@ describe("glyphChartObject — mounted in a real scene", () => {
         z[r]![c] = Math.max(0, 20 - (dr * dr + dc * dc));
       }
     }
-    const mark = glyphChartSurface({ z }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } });
+    const mark = glyphChartSurface({ z }, undefined, { axes: { x: { title: "x", ...CENTERED_TITLE }, y: { title: "y", ...CENTERED_TITLE }, z: { title: "z", ...CENTERED_TITLE } } });
     const object = glyphChartObject(mark);
     scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
 
@@ -283,7 +302,7 @@ describe("glyphChartObject — mounted in a real scene", () => {
     const mat = [cy, 0, sy, 0, 1, 0, -sy, 0, cy];
     const camera = createGlyphOrthographicCamera({ zoom: 24, mat, useMat: true });
     const scene = createGlyphScene(host, { cols, rows, cellAspect: sceneCellAspect, useColors: false, camera });
-    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } });
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "x", ...CENTERED_TITLE }, y: { title: "y", ...CENTERED_TITLE }, z: { title: "z", ...CENTERED_TITLE } } });
     const object = glyphChartObject(mark);
     scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
     await Promise.resolve();
@@ -298,7 +317,7 @@ describe("glyphChartObject — mounted in a real scene", () => {
     document.body.appendChild(host);
     const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 30 });
     const scene = createGlyphScene(host, { cols: 100, rows: 40, useColors: false, camera });
-    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "east" }, y: { title: "" }, z: { title: "" } } });
+    const mark = glyphChartSurface({ z: flatGrid(4, 4, 0) }, undefined, { axes: { x: { title: "east", ...CENTERED_TITLE }, y: { title: "" }, z: { title: "" } } });
     const object = glyphChartObject(mark);
     scene.addObject(object, { position: [-0.5, -0.5, 0], scale: 20 });
     await Promise.resolve();
@@ -327,7 +346,7 @@ describe("glyphChartObject — guides toggles (fix round 2, message 3B)", () => 
     const camera = createGlyphOrthographicCamera({ zoom: 24, rotX: 60, rotY: 30 });
     const scene = createGlyphScene(host, { cols: 100, rows: 40, useColors: false, camera });
     const mark = glyphChartSurface({ z: bumpGrid() }, undefined, {
-      axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } },
+      axes: { x: { title: "x", ...CENTERED_TITLE }, y: { title: "y", ...CENTERED_TITLE }, z: { title: "z", ...CENTERED_TITLE } },
       ...(guides ? { guides } : {}),
     });
     const object = glyphChartObject(mark);
