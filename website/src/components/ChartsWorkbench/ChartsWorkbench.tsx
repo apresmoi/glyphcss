@@ -158,7 +158,30 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
   const chartsViewportRef = useRef<HTMLDivElement | null>(null);
   const measuredViewportPx = useElementSize(chartsViewportRef);
   const viewportPx = measuredViewportPx ?? undefined;
-  const rendered = useMemo(() => renderChartsWorkbenchState(state, viewportPx), [state, viewportPx]);
+  // `renderChartsWorkbenchState` only ever reads `state.marks`/`.scales`/
+  // `.axes`/`.chart`/`.style`/`.controls`/`.terminal` (grepped through
+  // `chartsWorkbenchRender.ts` and `chartsWorkbenchState.ts`'s own
+  // `buildChartsWorkbenchSpec`/`chartsWorkbenchChartStyle`/
+  // `chartsWorkbenchRenderOptions`/`chartsWorkbenchNothingDrawn`) — never
+  // `.chart3d`/`.dimension`/`.effect3d`. Depending on the whole `state`
+  // object ran a FULL 2D chart build (a build with nothing 3D reads) on
+  // EVERY tick of a dragged 3D axis-domain slider: a native
+  // `<input type="range">`'s `onChange` fires per pixel of travel and each
+  // one dispatches `set-3d-axis` (`{ ...state, chart3d: {...} }`, a fresh
+  // top-level `state` reference every time even though every OTHER
+  // top-level field keeps its own identity) — user report, verbatim: "the
+  // domain works like shit... I'm trying to slide and it really doesn't
+  // perform well". Narrowing to the fields this function actually reads
+  // means a chart3d-only dispatch changes none of them, so the memo
+  // genuinely skips recomputing rather than merely hiding the call behind
+  // an `is3d` check (which would also have to special-case every consumer
+  // below that still reads `rendered`/`isViewportStale` while `is3d` is
+  // true — the rail's render-error line, the Dock's tick-count seeds, the
+  // non-web 3D export bar's Download-SVG `disabled` state).
+  const rendered = useMemo(
+    () => renderChartsWorkbenchState(state, viewportPx),
+    [state.marks, state.scales, state.axes, state.chart, state.style, state.controls, state.terminal, viewportPx],
+  );
   // The viewport's own content: the CURRENT render when it's valid, else
   // whatever last rendered OK — so a config error (Dock controls, a bad
   // legacy link) dims the frame instead of collapsing it. Mutated during
@@ -231,14 +254,19 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     : null, [is3d, isWeb3d, state.chart3d, resolvedControls.target, resolvedControls.charset, resolvedControls.color, resolvedControls.width, resolvedControls.height, state.terminal.NO_COLOR, state.terminal.FORCE_COLOR]);
   // Copy ASCII/Copy ANSI in 3D mode read a SEPARATE render at each colour
   // mode (there is no `textScale`/density concern for a 3D static frame,
-  // unlike 2D's `logicalRendered`) — same idea, simpler: one plain-text
-  // render and, when the current colour mode is ANSI, one more at that mode.
-  const chart3dCopyAscii = useMemo(() => is3d
-    ? renderCharts3dStatic({ view: state.chart3d, target: resolvedControls.target, charset: resolvedControls.charset, color: "none", width: resolvedControls.width, height: resolvedControls.height })
-    : null, [is3d, state.chart3d, resolvedControls.target, resolvedControls.charset, resolvedControls.width, resolvedControls.height]);
-  const chart3dCopyAnsi = useMemo(() => is3d && resolvedControls.color !== "none" && resolvedControls.color !== "css"
-    ? renderCharts3dStatic({ view: state.chart3d, target: resolvedControls.target, charset: resolvedControls.charset, color: resolvedControls.color, width: resolvedControls.width, height: resolvedControls.height, env: { NO_COLOR: state.terminal.NO_COLOR ? "1" : undefined, FORCE_COLOR: state.terminal.FORCE_COLOR ? "1" : undefined } })
-    : null, [is3d, resolvedControls.target, resolvedControls.charset, resolvedControls.color, resolvedControls.width, resolvedControls.height, state.chart3d, state.terminal.NO_COLOR, state.terminal.FORCE_COLOR]);
+  // unlike 2D's `logicalRendered`) — one plain-text render and, when the
+  // current colour mode is ANSI, one more at that mode. Built LAZILY inside
+  // `copy()` itself (below), at click time, rather than via `useMemo` here:
+  // a full offscreen 3D rasterization (`renderCharts3dStatic`, measured
+  // ~2.7 ms at 96x32 and considerably more at larger logical sizes) was
+  // recomputed TWICE on every render while `is3d` — including every tick of
+  // a dragged 3D axis-domain slider — for a value nothing reads until an
+  // actual Copy click (this file's own `rendered` doc, above, has the same
+  // root cause). The `disabled`/visibility checks below use the cheap
+  // `chart3dResolvedLive.ok` + colour-mode predicate the render would have
+  // been built from instead of forcing the rasterization just to gate a
+  // button; a genuine build failure at click time still surfaces through
+  // the existing `copyAsciiState`/`copyAnsiState` "error" flash.
   // Same `isHtml`/`display`/`ansi` shape `chartsWorkbenchRender.ts`'s own
   // `renderSpec` derives for the 2D exit, so `TargetPreview` (fed this on
   // `chat`/`terminal`, or as the whole viewport off `web`) behaves
@@ -586,16 +614,28 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     // `web`, the same static frame the viewport already shows) — never the
     // live scene's own text (there isn't one; the `<pre>` a live scene
     // writes has no stable "current frame" a clipboard read could target
-    // mid-orbit).
+    // mid-orbit). Rasterized HERE, at click time — never in a `useMemo` on
+    // every render, see the removed `chart3dCopyAscii`/`chart3dCopyAnsi`
+    // memos' own doc above (root cause of the reported domain-slider jank).
     let value: string | undefined;
     if (is3d) {
-      const result = encoding === "ascii" ? chart3dCopyAscii : chart3dCopyAnsi;
-      value = result?.ok ? result.text : undefined;
+      const result = renderCharts3dStatic({
+        view: state.chart3d, target: resolvedControls.target, charset: resolvedControls.charset,
+        color: encoding === "ascii" ? "none" : resolvedControls.color,
+        width: resolvedControls.width, height: resolvedControls.height,
+        ...(encoding === "ansi" ? { env: { NO_COLOR: state.terminal.NO_COLOR ? "1" : undefined, FORCE_COLOR: state.terminal.FORCE_COLOR ? "1" : undefined } } : {}),
+      });
+      value = result.ok ? result.text : undefined;
     } else if (logicalRendered.ok) {
       value = encoding === "ascii" ? logicalRendered.text : logicalRendered.ansi;
     }
-    if (value === undefined) return;
     const setState = encoding === "ascii" ? setCopyAsciiState : setCopyAnsiState;
+    // The `disabled`/visibility predicates below are cheap (no rasterize),
+    // so they can occasionally admit a click whose real build then fails
+    // (e.g. a mark that validates but throws deeper inside
+    // `renderGlyphChart3d`) — surfaced through the SAME error flash a
+    // clipboard-write failure already gets, rather than a silent no-op.
+    if (value === undefined) { flashButtonState(setState, "idle", "error"); return; }
     try { await navigator.clipboard.writeText(value); flashButtonState(setState, "idle", "copied"); }
     catch { flashButtonState(setState, "idle", "error"); }
   };
@@ -634,7 +674,12 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
   const exportActions = <>
-    <button type="button" className="gw-code-panel__action" disabled={is3d ? !chart3dCopyAscii?.ok : !logicalRendered.ok} onClick={() => void copy("ascii")}>
+    {/* `chart3dResolvedLive.ok` is the same cheap (no-rasterize) check the
+     *  live viewport itself gates its own mount on (this file's own JSX,
+     *  below) — good enough to decide whether Copy CAN plausibly build
+     *  something, without paying for the build just to draw a button;
+     *  `copy()`'s own doc above covers the rare click that still fails. */}
+    <button type="button" className="gw-code-panel__action" disabled={is3d ? !chart3dResolvedLive.ok : !logicalRendered.ok} onClick={() => void copy("ascii")}>
       {copyAsciiState === "copied" ? "Copied" : copyAsciiState === "error" ? "Copy failed" : "Copy ASCII"}
     </button>
     {/* Hidden on `chat` (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C3):
@@ -644,9 +689,9 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
      *  there. Gated on `logicalRendered` (not `rendered`) since that is
      *  what `copy("ansi")` actually reads — colour mode, not density,
      *  decides whether ANSI text exists, so the two agree in practice.
-     *  3D reads `chart3dCopyAnsi`, `null` off ANSI colour modes exactly
-     *  like 2D's own `logicalRendered.ansi === undefined` gate. */}
-    {(is3d ? chart3dCopyAnsi?.ok : logicalRendered.ok && logicalRendered.ansi !== undefined) && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
+     *  3D mirrors the same colour-mode condition the removed
+     *  `chart3dCopyAnsi` memo used to gate its own build on. */}
+    {(is3d ? chart3dResolvedLive.ok && resolvedControls.color !== "none" && resolvedControls.color !== "css" : logicalRendered.ok && logicalRendered.ansi !== undefined) && state.controls.target !== "chat" && <button type="button" className="gw-code-panel__action" onClick={() => void copy("ansi")}>
       {copyAnsiState === "copied" ? "Copied" : copyAnsiState === "error" ? "Copy failed" : "Copy ANSI"}
     </button>}
     <button type="button" className="gw-code-panel__action" onClick={() => void copyLink()}>

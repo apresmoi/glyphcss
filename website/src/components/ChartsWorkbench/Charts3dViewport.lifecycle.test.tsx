@@ -206,6 +206,18 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     act(() => { host.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })); });
     await act(async () => { await new Promise((resolve) => setTimeout(resolve, WHEEL_IDLE_MS + 50)); });
   }
+  // `Charts3dViewport.tsx`'s mark-rebuild effect (a new mark, or a charset
+  // change) is coalesced to ONE `requestAnimationFrame` per burst of
+  // dispatches — the fix for a native `<input type="range">` (a 3D
+  // axis-domain slider) dispatching once per pixel of drag travel and
+  // rebuilding the live scene's object on every one of them. A real
+  // animation frame must elapse before `objectUpdate`/`addObject`/
+  // `objectRemove`/`effectLayerDispose`/the rendered `<pre>` reflect a
+  // dispatch that only touches the mark — same "wait out the real
+  // mechanism" idiom as `wheelHost`'s own `WHEEL_IDLE_MS` wait, above.
+  async function flushMarkRebuild(): Promise<void> {
+    await act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+  }
   function copyAsciiButton(): HTMLButtonElement {
     return Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Copy ASCII" || b.textContent === "Copied")!;
   }
@@ -363,6 +375,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     // never a remount.
     const objectUpdatesBeforeCharset = sceneSpies.objectUpdate.mock.calls.length;
     pickToggle("Charset", "ascii");
+    await flushMarkRebuild(); // charset is a mark-rebuild-effect dep too — see that effect's own doc
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
     expect(sceneSpies.objectUpdate.mock.calls.length).toBeGreaterThan(objectUpdatesBeforeCharset);
     expect(sceneSpies.setOptions).toHaveBeenCalledWith({ mode: "solid", charMode: undefined, hiddenLines: undefined, useColors: true });
@@ -379,12 +392,14 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     // Shading: a new mark (different `glyphChartSurface` build) — applied
     // via the scene-object handle's `update()`, never a remount.
     pickToggle("Shading", "Value");
+    await flushMarkRebuild();
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
     expect(sceneSpies.objectUpdate).toHaveBeenCalled();
 
     // Colorscale: same mechanism as shading — one more `update()`, still no remount.
     const colorscaleUpdatesBefore = sceneSpies.objectUpdate.mock.calls.length;
     pickToggle("Colorscale", "magma");
+    await flushMarkRebuild();
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
     expect(sceneSpies.objectUpdate.mock.calls.length).toBeGreaterThan(colorscaleUpdatesBefore);
 
@@ -568,6 +583,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     // always adds real geometry to the mesh's own overlay, so the render
     // genuinely changes.
     act(() => guideCheckbox("Wall outline").click());
+    await flushMarkRebuild();
 
     expect(sceneSpies.createGlyphSceneCalls, "no remount on a guides edit").toBe(1);
     expect(sceneSpies.objectUpdate.mock.calls.length, "the scene-object handle's update() must run").toBeGreaterThan(updatesBefore);
@@ -621,6 +637,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     sceneSpies.objectUpdate.mockClear();
     const titleInput = controller("X title (3D)").querySelector<HTMLInputElement>('input[type="text"]')!;
     setTextInput(titleInput, "Custom Longitude Title");
+    await flushMarkRebuild();
     expect(sceneSpies.objectUpdate, "the mesh handle must update in place").toHaveBeenCalled();
     expect(sceneSpies.createGlyphSceneCalls, "never a scene remount for an axis edit").toBe(1);
     const after = await copiedAscii();
@@ -802,7 +819,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     expect(sceneSpies.createGlyphSceneCalls, "sphere preset — still no scene remount").toBe(1);
   });
 
-  it("switching between two presets of the SAME mark type still uses update() in place (never remove+addObject)", () => {
+  it("switching between two presets of the SAME mark type still uses update() in place (never remove+addObject)", async () => {
     enter3d(); // "Maunga Whau (volcano)" — surface
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
     const addObjectCallsAtMount = sceneSpies.addObject.mock.calls.length;
@@ -810,6 +827,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     const alps = CHARTS_3D_DATASETS.find((d) => d.markType === "surface" && d.id !== CHARTS_3D_DATASETS[0]!.id)!;
 
     selectDataset(alps.title);
+    await flushMarkRebuild();
 
     expect(sceneSpies.createGlyphSceneCalls, "no scene remount for a same-type swap").toBe(1);
     expect(sceneSpies.objectUpdate.mock.calls.length, "update() must run").toBeGreaterThan(updatesBefore);
@@ -817,20 +835,21 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     expect(sceneSpies.objectRemove).not.toHaveBeenCalled();
   });
 
-  it("a genuine type swap removes the old object and mounts a fresh one, never a scene remount", () => {
+  it("a genuine type swap removes the old object and mounts a fresh one, never a scene remount", async () => {
     enter3d(); // "Maunga Whau (volcano)" — surface
     expect(sceneSpies.createGlyphSceneCalls).toBe(1);
     const addObjectCallsAtMount = sceneSpies.addObject.mock.calls.length;
     const bars3d = CHARTS_3D_DATASETS.find((d) => d.markType === "bars3d")!;
 
     selectDataset(bars3d.title);
+    await flushMarkRebuild();
 
     expect(sceneSpies.createGlyphSceneCalls, "no scene remount for a type swap").toBe(1);
     expect(sceneSpies.objectRemove, "the old (surface) object must be removed").toHaveBeenCalledTimes(1);
     expect(sceneSpies.addObject.mock.calls.length, "a fresh object must be mounted on the SAME scene").toBe(addObjectCallsAtMount + 1);
   });
 
-  it("a mounted effect still targets the right mesh after a type swap", () => {
+  it("a mounted effect still targets the right mesh after a type swap", async () => {
     const bars3d = CHARTS_3D_DATASETS.find((d) => d.markType === "bars3d")!;
     enter3d(); // "Maunga Whau (volcano)" — surface
     selectDropdown("Effect", "scan");
@@ -840,6 +859,7 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     const disposalsBeforeSwap = sceneSpies.effectLayerDispose.mock.calls.length;
 
     selectDataset(bars3d.title);
+    await flushMarkRebuild();
 
     // A genuine type swap disposes and remounts the effect layer against
     // the NEW mesh handle (`applyEffect`'s own doc: a currently-mounted

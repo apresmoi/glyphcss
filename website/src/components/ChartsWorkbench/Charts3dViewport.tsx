@@ -114,6 +114,9 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
   // a genuine type swap (different id, remove + `addObject` fresh — never a
   // scene remount, camera/controls/effect layer all kept and re-pointed).
   const mountedObjectIdRef = useRef<string>("");
+  // Coalesces the mark-rebuild effect (below) to ONE `glyphChartObject`
+  // build + scene rerender per animation frame — see that effect's own doc.
+  const markRebuildRafRef = useRef<number | null>(null);
   const effectRef = useRef<{ id: string; targetId: string; layer: EffectLayerHandleLike; raf: number; t: number; last: number } | null>(null);
   // Set only on a MOUNT-time object-build failure (permanent for this
   // component instance — the mount effect runs exactly once) so the
@@ -342,6 +345,11 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
     }
     return () => {
       resizeObserver?.disconnect();
+      // A rebuild scheduled by the mark-rebuild effect below, still
+      // pending at unmount (or at a target switch away from `web` — the
+      // caller unmounts this component then), must not fire against a
+      // scene this teardown is about to destroy.
+      if (markRebuildRafRef.current !== null) { cancelAnimationFrame(markRebuildRafRef.current); markRebuildRafRef.current = null; }
       disposeEffect();
       orbitControls.removeEventListener("end", onEnd);
       orbitControls.destroy();
@@ -391,66 +399,87 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
   const isFirstMarkEffect = useRef(true);
   useEffect(() => {
     if (isFirstMarkEffect.current) { isFirstMarkEffect.current = false; return; }
-    const scene = sceneRef.current;
-    const handle = objectHandleRef.current;
-    if (!scene || !handle) return; // the mount itself never succeeded — nothing to update
+    // Coalesced to ONE rebuild per animation frame, not one per dispatch —
+    // `glyphChartObject` (measured ~3.4 ms on a Maunga-Whau-sized grid) plus
+    // the `scene.rerender()` below used to run on EVERY effect re-run, and
+    // a native `<input type="range">`'s `onChange` (a 3D axis-domain
+    // slider, `ChartsDock.tsx`'s `Charts3dAxisDomainRow`) fires once per
+    // PIXEL of drag travel, each dispatching `set-3d-axis` and producing a
+    // fresh `mark` — user report, verbatim: "the domain works like shit...
+    // I'm trying to slide and it really doesn't perform well". Cancelling
+    // any already-scheduled rebuild and scheduling a fresh one means every
+    // dispatch landing inside one frame collapses into exactly ONE rebuild,
+    // reading whichever `mark`/`charset` this effect closed over LAST
+    // before the frame's own `requestAnimationFrame` callback actually
+    // runs — never a stale one, since a newer effect run always cancels
+    // the older callback before scheduling its own.
+    if (markRebuildRafRef.current !== null) cancelAnimationFrame(markRebuildRafRef.current);
+    markRebuildRafRef.current = requestAnimationFrame(() => {
+      markRebuildRafRef.current = null;
+      const scene = sceneRef.current;
+      const handle = objectHandleRef.current;
+      if (!scene || !handle) return; // the mount itself never succeeded — nothing to update
 
-    // Guarded exactly like the mount effect's own build (see
-    // `mountBuildError`'s doc): a build failure here must not crash the
-    // component. Unlike a mount-time failure there IS a last-good frame
-    // worth keeping — hiding the host div would orphan the scene's own
-    // detached DOM node, since the mount effect captures `hostRef.current`
-    // only once — so this is swallowed with a console error and the
-    // previous mount is left exactly as it was.
-    let object: GlyphSceneObject;
-    try {
-      object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
-    } catch (error) {
-      console.error("glyphcss: failed to build the 3D chart object", error);
-      return;
-    }
-    objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
-
-    if (object.id === mountedObjectIdRef.current) {
-      handle.update(object);
-    } else {
-      handle.remove();
-      objectHandleRef.current = scene.addObject(object);
-      mountedObjectIdRef.current = object.id;
-      const cam = cameraObjRef.current;
-      if (cam) {
-        if (camera.zoom !== undefined) {
-          cam.target = objectBoundsCenter(object.bounds);
-        } else {
-          const o = scene.getOptions();
-          const fit = glyphChart3dFitCamera({
-            bounds: object.bounds, rotX: cam.rotX, rotY: cam.rotY,
-            ...(cam.useMat && cam.mat ? { mat: [...cam.mat], useMat: true } : {}),
-            cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
-          });
-          cam.target = fit.target;
-          cam.zoom = fit.zoom;
-        }
-        // A type swap re-fits `cam.zoom` to a wholly different object's own
-        // bounds (a sphere and a bar chart have very different extents) —
-        // re-derive the wheel/pinch clamp range around it too, or a mount
-        // that started small and swapped to something huge would keep the
-        // OLD, now much-too-narrow range.
-        orbitControlsRef.current?.update({ zoomRange: charts3dZoomRange(cam.zoom) });
+      // Guarded exactly like the mount effect's own build (see
+      // `mountBuildError`'s doc): a build failure here must not crash the
+      // component. Unlike a mount-time failure there IS a last-good frame
+      // worth keeping — hiding the host div would orphan the scene's own
+      // detached DOM node, since the mount effect captures `hostRef.current`
+      // only once — so this is swallowed with a console error and the
+      // previous mount is left exactly as it was.
+      let object: GlyphSceneObject;
+      try {
+        object = glyphChartObject(mark, { charset: charts3dObjectCharset(charset) });
+      } catch (error) {
+        console.error("glyphcss: failed to build the 3D chart object", error);
+        return;
       }
-    }
-    // Both branches leave the object's own mesh handles fresh (`update()`
-    // disposes and re-adds every member mesh — fresh `GlyphMeshHandle`s,
-    // fresh ids, though the SAME live `entry.meshHandles` map — and a type
-    // swap mounts a wholly new handle) — a currently-mounted effect
-    // layer's mesh-set TARGET is immutable after mount (AGENTS.md's
-    // "Per-object targeting"), so retargeting the OLD layer would throw;
-    // dispose and remount fresh against the CURRENT handle instead,
-    // mirroring `Diagrams3DViewport.tsx`'s own `[charset]` object-rebuild
-    // effect.
-    disposeEffect();
-    applyEffect();
-    scene.rerender();
+      objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
+
+      if (object.id === mountedObjectIdRef.current) {
+        handle.update(object);
+      } else {
+        handle.remove();
+        objectHandleRef.current = scene.addObject(object);
+        mountedObjectIdRef.current = object.id;
+        const cam = cameraObjRef.current;
+        if (cam) {
+          if (camera.zoom !== undefined) {
+            cam.target = objectBoundsCenter(object.bounds);
+          } else {
+            const o = scene.getOptions();
+            const fit = glyphChart3dFitCamera({
+              bounds: object.bounds, rotX: cam.rotX, rotY: cam.rotY,
+              ...(cam.useMat && cam.mat ? { mat: [...cam.mat], useMat: true } : {}),
+              cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
+            });
+            cam.target = fit.target;
+            cam.zoom = fit.zoom;
+          }
+          // A type swap re-fits `cam.zoom` to a wholly different object's own
+          // bounds (a sphere and a bar chart have very different extents) —
+          // re-derive the wheel/pinch clamp range around it too, or a mount
+          // that started small and swapped to something huge would keep the
+          // OLD, now much-too-narrow range.
+          orbitControlsRef.current?.update({ zoomRange: charts3dZoomRange(cam.zoom) });
+        }
+      }
+      // Both branches leave the object's own mesh handles fresh (`update()`
+      // disposes and re-adds every member mesh — fresh `GlyphMeshHandle`s,
+      // fresh ids, though the SAME live `entry.meshHandles` map — and a type
+      // swap mounts a wholly new handle) — a currently-mounted effect
+      // layer's mesh-set TARGET is immutable after mount (AGENTS.md's
+      // "Per-object targeting"), so retargeting the OLD layer would throw;
+      // dispose and remount fresh against the CURRENT handle instead,
+      // mirroring `Diagrams3DViewport.tsx`'s own `[charset]` object-rebuild
+      // effect.
+      disposeEffect();
+      applyEffect();
+      scene.rerender();
+    });
+    return () => {
+      if (markRebuildRafRef.current !== null) { cancelAnimationFrame(markRebuildRafRef.current); markRebuildRafRef.current = null; }
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mark, charset]);
 
