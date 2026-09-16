@@ -460,6 +460,29 @@ export interface GlyphDiagramObjectOptions extends GlyphDiagram3dLayoutOptions {
    * rather than direction.
    */
   readonly arrowheads?: boolean;
+  /**
+   * How an edge's own segments are drawn — `"ribbon"` (a swept six-face
+   * box) or `"thin"` (ONE degenerate face per segment, traced as a single
+   * line at the wireframe encoder's own sub-cell resolution).
+   *
+   * USER FEEDBACK, verbatim: "the lines between the nodes is unnnecesarely
+   * also a rectangle, it should just be a simple line like we did with the
+   * axis in the charts". A wireframe charMode traces a ribbon's WHOLE
+   * outline — four near-parallel long edges at an edge's own scale — so it
+   * reads as a thick smear rather than a line. A degenerate face has no
+   * AREA, so it paints nothing in a solid mode; `render3d.ts` resolves this
+   * from the render's own mode and keeps the ribbon for `blocks`.
+   */
+  readonly edgeRender?: "ribbon" | "thin";
+  /**
+   * Draw each group's own wireframe box. Default `false` — USER FEEDBACK,
+   * verbatim: "can we remove the box around the nodes? thats annoying
+   * between the coder reviewer researcher final answer there is a box,
+   * remove that one". Group membership already reads from the layout (a
+   * group's nodes share a rank plane / cluster), so the box was frame
+   * around the data rather than information; `true` brings it back.
+   */
+  readonly groupOutlines?: boolean;
   /** `"inside"` | `"side"` | `"auto"` (default) — see `resolveGlyphDiagram3dLabelPlacement`'s own doc. */
   readonly labels?: GlyphDiagram3dLabelMode;
 }
@@ -523,10 +546,18 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
     meshes.push({ name: `node:${node.id}`, polygons: nodePolygons(node, color), options: { castShadow: true, receiveShadow: true } });
   }
 
+  const thinEdges = (options.edgeRender ?? "ribbon") === "thin";
   layout.edges.forEach((edge, i) => {
     const polygons: Polygon[] = [];
     for (let s = 0; s < edge.points.length - 1; s++) {
-      polygons.push(...orientedRibbonPolygons(edge.points[s]!, edge.points[s + 1]!, GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH, edgeColor));
+      const a = edge.points[s]!, b = edge.points[s + 1]!;
+      if (thinEdges) {
+        // One degenerate face — the wireframe traces `a -> b`, `b -> a` and
+        // gets exactly one line (see `edgeRender`'s own doc).
+        polygons.push({ vertices: [a, b, b, a], color: edgeColor });
+        continue;
+      }
+      polygons.push(...orientedRibbonPolygons(a, b, GLYPH_DIAGRAM_3D_EDGE_RIBBON_HALF_WIDTH, edgeColor));
     }
     if (arrowheads && edge.points.length >= 2) {
       const tip = edge.points[edge.points.length - 1]!;
@@ -536,8 +567,10 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
     meshes.push({ name: `edge:${edge.id}:${i}`, polygons });
   });
 
-  for (const group of layout.groups) {
-    meshes.push({ name: `group:${group.id}`, polygons: groupOutlinePolygons(group.min, group.max, GLYPH_DIAGRAM_3D_GROUP_OUTLINE_HALF_WIDTH, groupColor) });
+  if (options.groupOutlines ?? false) {
+    for (const group of layout.groups) {
+      meshes.push({ name: `group:${group.id}`, polygons: groupOutlinePolygons(group.min, group.max, GLYPH_DIAGRAM_3D_GROUP_OUTLINE_HALF_WIDTH, groupColor) });
+    }
   }
 
   const overlay: GlyphSceneOverlay = {

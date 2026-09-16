@@ -66,11 +66,15 @@ function fakeFrame(overrides: Partial<GlyphOverlayFrame> & { cols: number; rows:
 
 describe("glyphDiagramObject", () => {
   it("returns one node:<id> mesh per node, one edge mesh per edge, one group mesh per group — and no member declares a compileScene-unrepresentable option (mutation: drop a mesh kind from the list) → red", async () => {
-    const object = await glyphDiagramObject(architectureGraph);
+    const object = await glyphDiagramObject(architectureGraph, { groupOutlines: true });
     const names = object.meshes.map((m) => m.name);
     for (const id of ["orchestrator", "planner", "coder", "reviewer"]) expect(names).toContain(`node:${id}`);
     expect(names.filter((n) => n.startsWith("edge:")).length).toBe(architectureGraph.edges.length);
     expect(names.filter((n) => n.startsWith("group:"))).toEqual(["group:agents"]);
+    // The box is OPT-IN (user report: "can we remove the box around the
+    // nodes? thats annoying") — the default draws no group mesh at all.
+    const noOutlines = await glyphDiagramObject(architectureGraph);
+    expect(noOutlines.meshes.filter((m) => m.name.startsWith("group:"))).toEqual([]);
     for (const mesh of object.meshes) {
       const opts = mesh.options as Record<string, unknown> | undefined;
       expect(opts?.density).toBeUndefined();
@@ -97,7 +101,7 @@ describe("glyphDiagramObject", () => {
 
   it("a group's boundary is a real 12-edge ribbon OUTLINE mesh (12 * 6 = 72 faces) bounding every one of its own members (mutation: skip the group-outline mesh) → red", async () => {
     for (const layout of ["layered", "force"] as const) {
-      const object = await glyphDiagramObject(architectureGraph, { layout });
+      const object = await glyphDiagramObject(architectureGraph, { layout, groupOutlines: true });
       const groupMesh = object.meshes.find((m) => m.name === "group:agents")!;
       expect(groupMesh).toBeDefined();
       expect(groupMesh.polygons.length).toBe(72);

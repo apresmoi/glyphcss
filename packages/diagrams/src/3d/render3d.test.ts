@@ -312,7 +312,7 @@ describe("renderGlyphDiagram3d", () => {
   });
 
   it("the static braille frame equals the live createGlyphScene frame for the same camera and object (mutation: skip overlay stamping in the static path) → red", async () => {
-    const object = await glyphDiagramObject(agentGraph);
+    const object = await glyphDiagramObject(agentGraph, { edgeRender: "thin" });
     const centroid: Vec3 = [
       (object.bounds.min[0] + object.bounds.max[0]) / 2,
       (object.bounds.min[1] + object.bounds.max[1]) / 2,
@@ -370,7 +370,7 @@ describe("renderGlyphDiagram3d", () => {
 
   it("the static frame equals the live frame for a GROUPED graph too, in both layouts (mutation: reintroduce a compileScene-unrepresentable groups mesh) → red", async () => {
     for (const layout of ["layered", "force"] as const) {
-      const object = await glyphDiagramObject(groupedAgentGraph, { layout });
+      const object = await glyphDiagramObject(groupedAgentGraph, { layout, edgeRender: "thin" });
       const centroid: Vec3 = [
         (object.bounds.min[0] + object.bounds.max[0]) / 2,
         (object.bounds.min[1] + object.bounds.max[1]) / 2,

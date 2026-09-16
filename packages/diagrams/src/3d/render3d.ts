@@ -623,7 +623,13 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   // `resolvedOptions` — the SAME resolved `layout` kind the adaptive
   // policy above just decided, never each re-deriving it independently.
   const [object, layout] = await Promise.all([
-    glyphDiagramObject(graph, { ...resolvedOptions, labelNodeIds, arrowheads: resolvedArrowheads }),
+    // `edgeRender` follows the RESOLVED mode: a wireframe traces lines, so
+    // one degenerate face per segment is a real line there; a solid mode
+    // has no area to shade from one and keeps the ribbon.
+    glyphDiagramObject(graph, {
+      ...resolvedOptions, labelNodeIds, arrowheads: resolvedArrowheads,
+      edgeRender: mode === "wireframe" ? "thin" : "ribbon",
+    }),
     layout3d(graph, resolvedOptions),
   ]);
   // D2 round 7 — every edge is now a straight 3D segment (no more 2D A*
