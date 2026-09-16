@@ -20,7 +20,7 @@ import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject,
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
 import type { GlyphChartCharset } from "@glyphcss/charts";
 import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
-import { charts3dObjectCharset, type Charts3dCamera, type Charts3dOrbitMode, type Charts3dSceneOptions } from "./chartsWorkbench3d";
+import { charts3dObjectCharset, charts3dZoomRange, type Charts3dCamera, type Charts3dOrbitMode, type Charts3dSceneOptions } from "./chartsWorkbench3d";
 
 function objectBoundsCenter(bounds: { readonly min: Vec3; readonly max: Vec3 }): Vec3 {
   return [(bounds.min[0] + bounds.max[0]) / 2, (bounds.min[1] + bounds.max[1]) / 2, (bounds.min[2] + bounds.max[2]) / 2];
@@ -258,7 +258,13 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
       ...(camera.useMat && camera.mat ? { mat: [...camera.mat], useMat: true } : {}),
       cols: opts.cols ?? SCENE_DEFAULT_COLS, rows: opts.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: opts.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
     });
-    cam.target = camera.zoom !== undefined ? objectBoundsCenter(object.bounds) : fit.target;
+    // `camera.pan` (a reader's own middle/right/Shift-drag or two-finger
+    // pan, persisted into `?c=`) wins over the fitted/bounds-centre target
+    // whenever present — "Reset camera" clears it by reporting a `Charts3dCamera`
+    // with no `pan` key at all (`resetCamera`, below), which the reducer's
+    // own full-replace `set-3d-camera` case turns into a genuinely absent
+    // field, never a stale leftover.
+    cam.target = camera.pan ? [camera.pan[0], camera.pan[1], camera.pan[2]] : (camera.zoom !== undefined ? objectBoundsCenter(object.bounds) : fit.target);
     cam.zoom = camera.zoom ?? fit.zoom;
     cameraObjRef.current = cam;
     sceneRef.current = scene;
@@ -274,6 +280,22 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
       // path's own up-vector-locked guarantee).
       pitchRange: null,
       mode: orbitMode,
+      // User report, verbatim: "we also need to be able to zoom in the
+      // chart... like the zoom has limits" — a fitted 3D-chart camera
+      // routinely sits at 500+ CSS px/world-unit, well past the library's
+      // own pre-`zoomRange` hard-coded `[0.1, 500]` clamp, so the very
+      // first wheel notch snapped a fitted view back down to 500. Passed
+      // EXPLICITLY (`charts3dZoomRange`, `chartsWorkbench3d.ts`) rather
+      // than relying on the library's own mount-time auto-derive, so a
+      // later mark-TYPE swap (which re-fits `cam.zoom` to a wholly
+      // different object's bounds, below) can re-derive it too via
+      // `orbitControls.update()`.
+      zoomRange: charts3dZoomRange(cam.zoom),
+      // Pan (middle/right/Shift-drag, two-finger touch) is the library's
+      // own default; explicit here so the intent — and this viewport's own
+      // persistence of it into `?c=`/Copy, below — is never silently
+      // undone by a future library default change.
+      pan: true,
     });
     orbitControlsRef.current = orbitControls;
     // Trackball orbit composes into `cam.mat`/`cam.useMat` (the real
@@ -284,6 +306,13 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
     const onEnd = () => onCameraChangeRef.current({
       rotX: cam.rotX, rotY: cam.rotY, zoom: cam.zoom,
       ...(cam.useMat && cam.mat ? { mat: [...cam.mat], useMat: true } : {}),
+      // The orbit controls' own pan target — `cam.target` is exactly what
+      // `panCamera` mutates (`createGlyphOrbitControls.ts`'s own doc), so
+      // reading it here needs no separate `getTarget()` call. Reported
+      // unconditionally (even an untouched camera's own fitted centre),
+      // which is what makes a shared `?c=` link restore the exact view a
+      // reader was looking at, pan included.
+      pan: [cam.target[0], cam.target[1], cam.target[2]],
     });
     orbitControls.addEventListener("end", onEnd);
     let resizeObserver: ResizeObserver | null = null;
@@ -306,6 +335,7 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
         const o = scene.getOptions();
         const refit = glyphChart3dFitCamera({ bounds, rotX: cam.rotX, rotY: cam.rotY, cols: o.cols ?? SCENE_DEFAULT_COLS, rows: o.rows ?? SCENE_DEFAULT_ROWS, sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT });
         cam.target = refit.target; cam.zoom = refit.zoom;
+        orbitControls.update({ zoomRange: charts3dZoomRange(cam.zoom) });
         scene.rerender();
       });
       resizeObserver.observe(host);
@@ -401,6 +431,12 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
           cam.target = fit.target;
           cam.zoom = fit.zoom;
         }
+        // A type swap re-fits `cam.zoom` to a wholly different object's own
+        // bounds (a sphere and a bar chart have very different extents) —
+        // re-derive the wheel/pinch clamp range around it too, or a mount
+        // that started small and swapped to something huge would keep the
+        // OLD, now much-too-narrow range.
+        orbitControlsRef.current?.update({ zoomRange: charts3dZoomRange(cam.zoom) });
       }
     }
     // Both branches leave the object's own mesh handles fresh (`update()`
@@ -461,7 +497,14 @@ export function Charts3dViewport({ mark, camera, orbitMode, charset, sceneOption
         // `useMat` cleared too, so a reset out of a trackball orientation
         // doesn't leave the live camera still reading its stale matrix
         // while `rotX`/`rotY` silently go unused underneath it.
+        // "Reset camera" clears rotation, zoom AND pan: `cam.target = fit.target`
+        // is the pan clear (pan IS `camera.target`, `panCamera`'s own doc),
+        // and the dispatched camera below carries no `pan` key at all — the
+        // reducer's own full-REPLACE `set-3d-camera` case (never a merge)
+        // is what makes an omitted key a genuine clear rather than a stale
+        // leftover surviving into `?c=`.
         cam.useMat = false; cam.rotX = rotX; cam.rotY = rotY; cam.target = fit.target; cam.zoom = fit.zoom;
+        orbitControlsRef.current?.update({ zoomRange: charts3dZoomRange(cam.zoom) });
         scene.rerender();
         onCameraChangeRef.current({ rotX, rotY, zoom: undefined });
       },

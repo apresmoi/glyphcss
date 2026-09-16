@@ -15,7 +15,7 @@ vi.hoisted(async () => {
       throw error;
     }
   };
-  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "PointerEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "PointerEvent", "WheelEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
   }
 });
@@ -267,6 +267,84 @@ describe("DiagramsWorkbench — 3D view switch (packet D3)", () => {
     expect(decoded!.camera3d?.mat).toBeDefined();
     expect(decoded!.camera3d?.rotX).toBeUndefined();
     expect(decoded!.camera3d?.rotY).toBeUndefined();
+  }, 15_000);
+
+  /** Mirrors this test's own "trackball mode reports..." idiom, generalised
+   *  into a reusable helper for the zoom/pan tests below — matches EITHER
+   *  "Copy link" or "Copied" (`copyAsTextButton`'s own doc: a Copy button's
+   *  label flips to "Copied" for 1200ms after a click, real timers
+   *  un-advanced here, and this helper is deliberately called twice per
+   *  interaction test), since only "Copy link" itself transitions between
+   *  the two across these tests, which never click "Copy as text" too. */
+  async function copiedLinkCamera3d() {
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    const linkButton = Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Copy link" || b.textContent === "Copied")!;
+    act(() => linkButton.click());
+    await act(async () => { await vi.waitFor(() => expect(writeText).toHaveBeenCalled()); });
+    const link = writeText.mock.calls.at(-1)![0] as string;
+    writeText.mockRestore();
+    const param = new URLSearchParams(link.split("?")[1] ?? "").get("d");
+    const decoded = await decodeDiagramsUrlState(param);
+    expect(decoded).not.toBeNull();
+    return decoded!.camera3d;
+  }
+  // Middle-button drag — one of the three gestures `createGlyphOrbitControls`'s
+  // own `pan: true` option claims; a plain left-button drag (`dragHost`,
+  // above) still orbits, never pans.
+  async function panHost(host: Element, dx: number, dy: number) {
+    await act(async () => {
+      host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+      host.dispatchEvent(new PointerEvent("pointermove", { clientX: 100 + dx / 2, clientY: 100 + dy / 2, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+      host.dispatchEvent(new PointerEvent("pointermove", { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+      host.dispatchEvent(new PointerEvent("pointerup", { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+    });
+    await settlePreview();
+  }
+  // `createGlyphOrbitControls`'s own wheel "end" is debounced 150 ms after
+  // the last notch (`Charts3dViewport.lifecycle.test.tsx`'s own `wheelHost`
+  // doc carries the full rationale) — waited out for real here too, then
+  // `settlePreview()` lets the async static-frame re-render finish.
+  const WHEEL_IDLE_MS = 150;
+  async function wheelHost(host: Element, deltaY: number): Promise<void> {
+    act(() => { host.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, WHEEL_IDLE_MS + 50)); });
+    await settlePreview();
+  }
+
+  // User report, verbatim: "we also need to be able to zoom in the chart...
+  // like the zoom has limits" — same fix as `/charts`' own 3D viewport,
+  // applied here too (`diagrams3dZoomRange`). Mutation: drop the explicit
+  // `zoomRange`/`pan` options from `Diagrams3DViewport.tsx`'s
+  // `createGlyphOrbitControls` call.
+  it("a real wheel event over the 3D viewport changes the rendered frame in both directions", async () => {
+    await select("View", "3d");
+    const host = await waitForLiveScene();
+    const baseline = await copiedText();
+    await wheelHost(host, -240);
+    const zoomedIn = await copiedText();
+    expect(zoomedIn).not.toBe(baseline);
+    await wheelHost(host, 720);
+    const zoomedOut = await copiedText();
+    expect(zoomedOut).not.toBe(baseline);
+    expect(zoomedOut).not.toBe(zoomedIn);
+  }, 15_000);
+
+  // A middle-button drag pans `camera.target`, leaving `rotX`/`rotY`
+  // unchanged — mirrors `Charts3dViewport.lifecycle.test.tsx`'s own pan
+  // test. Mutation: drop `pan: true` from `Diagrams3DViewport.tsx`'s
+  // `createGlyphOrbitControls` call.
+  it("a middle-button drag pans the camera, leaving rotX/rotY unchanged", async () => {
+    await select("View", "3d");
+    const host = await waitForLiveScene();
+    await dragHost(host, 40, 20); // establish a real rotX/rotY first (an auto-fit camera reports none until an "end" fires)
+    const before = await copiedLinkCamera3d();
+    expect(before?.rotX).toBeDefined();
+    await panHost(host, 40, -25);
+    const after = await copiedLinkCamera3d();
+    expect(after?.target).toBeDefined();
+    expect(after?.target).toHaveLength(3);
+    expect(after?.rotX).toBe(before?.rotX);
+    expect(after?.rotY).toBe(before?.rotY);
   }, 15_000);
 
   // P2-3 — disposal. `scene.destroy()`/`controls.destroy()` must run on a
@@ -610,6 +688,18 @@ describe("Copy at the current camera (packet D3)", () => {
 
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-camera3d", camera: { rotX: 12, rotY: -40, zoom: 6.5 } });
     expect(glyphDiagramsWorkbenchRenderOptions3d(state).camera).toEqual({ rotX: 12, rotY: -40, zoom: 6.5 });
+  });
+
+  // The orbit controls' own pan target (mirrors `Charts3dCamera.pan`) rides
+  // through the SAME plain spread `glyphDiagramsWorkbenchRenderOptions3d`
+  // already uses for `rotX`/`rotY`/`zoom`/`mat` — no separate forwarding
+  // code needed, but pinned here so a future reshape of that spread can't
+  // silently drop it.
+  it("forwards `state.camera3d.target` (a persisted pan offset) into the render options", () => {
+    let state = createGlyphDiagramsWorkbenchState();
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-camera3d", camera: { rotX: 12, rotY: -40, zoom: 6.5, target: [0.2, -0.4, 1.1] } });
+    expect(glyphDiagramsWorkbenchRenderOptions3d(state).camera).toEqual({ rotX: 12, rotY: -40, zoom: 6.5, target: [0.2, -0.4, 1.1] });
   });
 
   it("a layout/seed/controlsMode edit resets `camera3d` (a different layout needs its own fit)", () => {

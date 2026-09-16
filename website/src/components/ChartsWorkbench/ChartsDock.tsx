@@ -99,6 +99,18 @@ export function chartsRegionFillToggle(status: ChartsWorkbenchRegionFillStatus |
 const AXIS_X_TITLE_AT_SYMBOL: Record<string, string> = { start: "⇤", center: "⇔", end: "⇥" };
 const AXIS_X_TITLE_AT_TOGGLE = CHART_X_AXIS_TITLE_ATS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{AXIS_X_TITLE_AT_SYMBOL[v]}</span>, label: v, desc: `X title placement: ${v}` }));
 const AXIS_Y_TITLE_AT_TOGGLE = CHART_TITLE_POSITIONS.map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v === "top" ? "⇧" : "⇩"}</span>, label: v, desc: `Y title placement: ${v}` }));
+// A 3D axis's own title placement (AGENTS.md's "Axis title position") shares
+// ONE start/center/end vocabulary across every axis (x, y AND z) — unlike
+// 2D's x/y split, a 3D title always pushes outward from the same fixed
+// origin corner regardless of which axis it belongs to — so this reuses the
+// 2D X row's own symbol table rather than a duplicate one.
+const CHARTS_3D_AXIS_TITLE_AT_TOGGLE = (["start", "center", "end"] as const).map((v) => ({
+  value: v as string, icon: <span className="gx-toggle-text">{AXIS_X_TITLE_AT_SYMBOL[v]}</span>, label: v, desc: `Title placement: ${v}`,
+}));
+/** The library's own `object.ts` default (`AXIS_TITLE_MARGIN`, AGENTS.md's
+ *  "Axis title position") — the titleOffset slider's own seed when the
+ *  reader has set no override, never a page-side guess. */
+const AXIS_TITLE_OFFSET_DEFAULT = 0.6;
 
 // Ticks row (owner packet item 1) — an "X ticks: auto" boolean plus an
 // "X ticks" number slider, built with the SAME `useToggle`/`useSlider`
@@ -132,8 +144,13 @@ function useTicksControl(folder: GUI | null, axis: "x" | "y", ticks: number, act
   const sliderCtrl = useSlider(folder, `${AXIS} ticks`, { min: CHART_TICKS_MIN, max: CHART_TICKS_MAX, step: 1 }, shown,
     (value) => dispatch({ type: "set-axis", axis, patch: { ticks: value } }));
   useEffect(() => { sliderCtrl?.setEnabled(!auto); }, [sliderCtrl, auto]);
-  // Packet C6 — the whole 2D Axes folder content hides while a 3D type is
-  // active (this file's own new 3D axis rows take over the SAME folder).
+  // The X/Y axis subgroup's own folder is hidden/shown as a whole
+  // (`ChartsDock`'s own per-axis `useFolder`/`.hide()`/`.show()` call) —
+  // this per-control toggle stays too, redundant with the ancestor's own
+  // `display: none` but load-bearing for jsdom, which has no layout engine
+  // and so never reflects ancestor-hidden state on a DESCENDANT's own
+  // `getComputedStyle().display` (`Charts3dViewport.lifecycle.test.tsx`'s
+  // own visibility assertions read each control's OWN computed style).
   useEffect(() => { autoCtrl?.setVisible(visible); sliderCtrl?.setVisible(visible); }, [autoCtrl, sliderCtrl, visible]);
   // Clearing the number field goes back to auto — never `Number("") === 0`
   // (AGENTS.md's own rule for this page's other number fields). lil-gui's
@@ -219,9 +236,19 @@ function use3dAxisControls(
     colorCtrl?.raw.domElement.setAttribute("title", colorDisabled ? (colorDisabledReason ?? "") : "");
   }, [colorCtrl, colorDisabled, colorDisabledReason]);
 
+  // Axis title placement (user feedback, verbatim: "we need to be able to
+  // configure the position of the title of the axis") — `titleOffset` is a
+  // plain number slider seeded from the library's own default (`0.6`,
+  // `AXIS_TITLE_OFFSET_DEFAULT`) when unset; `titleAt` is an IconToggle
+  // rendered by the caller (`${axisLabel}3dTitleAtSlot`, mirroring
+  // `x3dDomainSlot`'s own external-slot idiom) since every 3D axis shares
+  // ONE start/center/end vocabulary, unlike 2D's x/y split.
+  const titleOffsetCtrl = useSlider(folder, `${axisLabel} title offset (3D)`, { min: 0, max: 2, step: 0.05 },
+    override.titleOffset ?? AXIS_TITLE_OFFSET_DEFAULT, (value) => patch({ titleOffset: value }));
+
   useEffect(() => {
-    for (const ctrl of [titleCtrl, ticksAutoCtrl, ticksCtrl, formatCtrl, lineCtrl, tickMarksCtrl, tickLabelsCtrl, gridCtrl, colorCtrl]) ctrl?.setVisible(visible);
-  }, [titleCtrl, ticksAutoCtrl, ticksCtrl, formatCtrl, lineCtrl, tickMarksCtrl, tickLabelsCtrl, gridCtrl, colorCtrl, visible]);
+    for (const ctrl of [titleCtrl, ticksAutoCtrl, ticksCtrl, formatCtrl, lineCtrl, tickMarksCtrl, tickLabelsCtrl, gridCtrl, colorCtrl, titleOffsetCtrl]) ctrl?.setVisible(visible);
+  }, [titleCtrl, ticksAutoCtrl, ticksCtrl, formatCtrl, lineCtrl, tickMarksCtrl, tickLabelsCtrl, gridCtrl, colorCtrl, titleOffsetCtrl, visible]);
 }
 
 /**
@@ -593,6 +620,16 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     return fit.fits ? undefined : fit;
   };
 
+  // Axes folder (user feedback, verbatim: "this section is a mess man, can
+  // we somehow do a subgrouping by axis? like all the config for this axe,
+  // all this config for this other axis"): a per-axis SUBFOLDER (nested
+  // `useFolder`, collapsed by default) replaces the old flat wall of X/Y
+  // (and, in 3D, X/Y/Z) rows, each with its own header reset clearing only
+  // that axis (`useFolderTitleReset`). What's genuinely SHARED stays at
+  // this outer "Axes" level, above every subgroup: the axis-colour mode
+  // toggle (2D's `axisColorSlot`, which switches shared vs. per-axis
+  // swatches — not one axis's own setting) and the shared 3D `axes.color`
+  // swatch every per-axis colour overrides.
   const axes = useFolder(gui, "Axes", { open: false });
   // Axis colour (packet item 1; dock-fix bundle item 7) — MOVED here from
   // the Chart folder: this IS "the ticks/title rows" folder for an axis,
@@ -602,31 +639,48 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
   // (its tooltip already named "axis colour" before this moved, and still
   // does) — only the ROW moved, not which reset owns it.
   const axisColorSlot = useDockSlot(axes, { position: "top", className: "charts-axis-color-slot" });
-  const xTickMarksCtrl = useToggle(axes, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
-  const xGridCtrl = useToggle(axes, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
-  const xTitleCtrl = useText(axes, "X title", state.axes.x.title, (title) => dispatch({ type: "set-axis", axis: "x", patch: { title } }));
-  useTicksControl(axes, "x", state.axes.x.ticks, actualXTicks, dispatch, !is3d);
+
+  // 2D per-axis subgroups — both exist unconditionally (mirroring the 3D
+  // subgroups below) and are hidden/shown as a WHOLE via the subfolder's
+  // own `.hide()/.show()` while a 3D type is active; the per-control
+  // `setVisible` calls inside `useTicksControl` stay too (jsdom has no
+  // layout engine, so a descendant's own `getComputedStyle().display`
+  // never reflects an ancestor folder's hidden state — see that hook's
+  // own doc).
+  const xAxisFolder = useFolder(axes, "X axis", { open: false });
+  useFolderTitleReset(xAxisFolder, "Reset the X axis to its defaults", () => dispatch({ type: "reset-axis", axis: "x" }));
+  const xTickMarksCtrl = useToggle(xAxisFolder, "X tick marks", state.axes.x.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "x", patch: { tickMarks } }));
+  const xGridCtrl = useToggle(xAxisFolder, "X grid", state.axes.x.grid, (grid) => dispatch({ type: "set-axis", axis: "x", patch: { grid } }));
+  const xTitleCtrl = useText(xAxisFolder, "X title", state.axes.x.title, (title) => dispatch({ type: "set-axis", axis: "x", patch: { title } }));
+  useTicksControl(xAxisFolder, "x", state.axes.x.ticks, actualXTicks, dispatch, !is3d);
   // Axis title placement (Dock item "Axis Title + Title at") — the same
   // pair (text + placement toggle) the chart's own title row has, added
   // right after each axis's existing Title text field.
-  const xTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
-  const yTickMarksCtrl = useToggle(axes, "Y tick marks", state.axes.y.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "y", patch: { tickMarks } }));
-  const yGridCtrl = useToggle(axes, "Y grid", state.axes.y.grid, (grid) => dispatch({ type: "set-axis", axis: "y", patch: { grid } }));
-  const yTitleCtrl = useText(axes, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
-  useTicksControl(axes, "y", state.axes.y.ticks, actualYTicks, dispatch, !is3d);
-  const yTitleAtSlot = useDockSlot(axes, { position: "bottom", className: "dock-toggle-row-slot" });
-  // Packet C6 — the whole 2D Axes folder content hides while a 3D type is
-  // active; the new 3D axis rows below take over the SAME folder instead
+  const xTitleAtSlot = useDockSlot(xAxisFolder, { position: "bottom", className: "dock-toggle-row-slot" });
+
+  const yAxisFolder = useFolder(axes, "Y axis", { open: false });
+  useFolderTitleReset(yAxisFolder, "Reset the Y axis to its defaults", () => dispatch({ type: "reset-axis", axis: "y" }));
+  const yTickMarksCtrl = useToggle(yAxisFolder, "Y tick marks", state.axes.y.tickMarks, (tickMarks) => dispatch({ type: "set-axis", axis: "y", patch: { tickMarks } }));
+  const yGridCtrl = useToggle(yAxisFolder, "Y grid", state.axes.y.grid, (grid) => dispatch({ type: "set-axis", axis: "y", patch: { grid } }));
+  const yTitleCtrl = useText(yAxisFolder, "Y title", state.axes.y.title, (title) => dispatch({ type: "set-axis", axis: "y", patch: { title } }));
+  useTicksControl(yAxisFolder, "y", state.axes.y.ticks, actualYTicks, dispatch, !is3d);
+  const yTitleAtSlot = useDockSlot(yAxisFolder, { position: "bottom", className: "dock-toggle-row-slot" });
+  // Packet C6 — the whole 2D Axes subgroups hide while a 3D type is active;
+  // the 3D subgroups below take over the SAME outer "Axes" folder instead
   // of a second one, per the coordinator's own instruction.
   useEffect(() => {
     for (const ctrl of [xTickMarksCtrl, xGridCtrl, xTitleCtrl, yTickMarksCtrl, yGridCtrl, yTitleCtrl]) ctrl?.setVisible(!is3d);
   }, [xTickMarksCtrl, xGridCtrl, xTitleCtrl, yTickMarksCtrl, yGridCtrl, yTitleCtrl, is3d]);
+  useEffect(() => { if (xAxisFolder) is3d ? xAxisFolder.hide() : xAxisFolder.show(); }, [xAxisFolder, is3d]);
+  useEffect(() => { if (yAxisFolder) is3d ? yAxisFolder.hide() : yAxisFolder.show(); }, [yAxisFolder, is3d]);
 
-  // The 3D Axes rows (packet C6, coordinator addendum) — x, y AND z, live
-  // in the SAME "Axes" folder as the 2D rows above, `.setVisible(is3d)`
-  // together with the 2D content flipped the other way. Colour dims (with
-  // the SAME reason the 2D axis-colour swatches already use) under
-  // `Color: none`, since a 3D axis colour paints nothing there either.
+  // The 3D Axes subgroups (packet C6, coordinator addendum, widened to a
+  // real per-axis SUBFOLDER by the "Axes folder subgrouping" packet) — x, y
+  // AND z, each its own collapsed folder in the SAME outer "Axes" folder as
+  // the 2D subgroups above, hidden/shown as a whole together with the 2D
+  // ones flipped the other way. Colour dims (with the SAME reason the 2D
+  // axis-colour swatches already use) under `Color: none`, since a 3D axis
+  // colour paints nothing there either.
   const resolved3dAxes = chart3dResolved?.ok ? chart3dResolved.resolved.mark.axes : undefined;
   const axes3dColorCtrl = useColor(axes, "Axes colour (3D)", state.chart3d.axes.color ?? "#7a7f8a", (color) => dispatch({ type: "set-3d-axes-color", color }));
   useEffect(() => {
@@ -634,12 +688,27 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     axes3dColorCtrl?.setEnabled(!colorDisabled);
     axes3dColorCtrl?.raw.domElement.setAttribute("title", colorDisabled ? (colorDisabledReason ?? "") : "");
   }, [axes3dColorCtrl, is3d, colorDisabled, colorDisabledReason]);
-  use3dAxisControls(axes, "X", "x", state.chart3d.axes.x, resolved3dAxes?.x, is3d, colorDisabled, colorDisabledReason, dispatch);
-  const x3dDomainSlot = useDockSlot(axes, { position: "bottom", className: "charts-scale-domain-slot" });
-  use3dAxisControls(axes, "Y", "y", state.chart3d.axes.y, resolved3dAxes?.y, is3d, colorDisabled, colorDisabledReason, dispatch);
-  const y3dDomainSlot = useDockSlot(axes, { position: "bottom", className: "charts-scale-domain-slot" });
-  use3dAxisControls(axes, "Z", "z", state.chart3d.axes.z, resolved3dAxes?.z, is3d, colorDisabled, colorDisabledReason, dispatch);
-  const z3dDomainSlot = useDockSlot(axes, { position: "bottom", className: "charts-scale-domain-slot" });
+
+  const x3dAxisFolder = useFolder(axes, "X axis (3D)", { open: false });
+  useFolderTitleReset(x3dAxisFolder, "Reset the X axis (3D) to its defaults", () => dispatch({ type: "reset-3d-axis", axis: "x" }));
+  use3dAxisControls(x3dAxisFolder, "X", "x", state.chart3d.axes.x, resolved3dAxes?.x, is3d, colorDisabled, colorDisabledReason, dispatch);
+  const x3dTitleAtSlot = useDockSlot(x3dAxisFolder, { position: "bottom", className: "dock-toggle-row-slot" });
+  const x3dDomainSlot = useDockSlot(x3dAxisFolder, { position: "bottom", className: "charts-scale-domain-slot" });
+
+  const y3dAxisFolder = useFolder(axes, "Y axis (3D)", { open: false });
+  useFolderTitleReset(y3dAxisFolder, "Reset the Y axis (3D) to its defaults", () => dispatch({ type: "reset-3d-axis", axis: "y" }));
+  use3dAxisControls(y3dAxisFolder, "Y", "y", state.chart3d.axes.y, resolved3dAxes?.y, is3d, colorDisabled, colorDisabledReason, dispatch);
+  const y3dTitleAtSlot = useDockSlot(y3dAxisFolder, { position: "bottom", className: "dock-toggle-row-slot" });
+  const y3dDomainSlot = useDockSlot(y3dAxisFolder, { position: "bottom", className: "charts-scale-domain-slot" });
+
+  const z3dAxisFolder = useFolder(axes, "Z axis (3D)", { open: false });
+  useFolderTitleReset(z3dAxisFolder, "Reset the Z axis (3D) to its defaults", () => dispatch({ type: "reset-3d-axis", axis: "z" }));
+  use3dAxisControls(z3dAxisFolder, "Z", "z", state.chart3d.axes.z, resolved3dAxes?.z, is3d, colorDisabled, colorDisabledReason, dispatch);
+  const z3dTitleAtSlot = useDockSlot(z3dAxisFolder, { position: "bottom", className: "dock-toggle-row-slot" });
+  const z3dDomainSlot = useDockSlot(z3dAxisFolder, { position: "bottom", className: "charts-scale-domain-slot" });
+  useEffect(() => { if (x3dAxisFolder) is3d ? x3dAxisFolder.show() : x3dAxisFolder.hide(); }, [x3dAxisFolder, is3d]);
+  useEffect(() => { if (y3dAxisFolder) is3d ? y3dAxisFolder.show() : y3dAxisFolder.hide(); }, [y3dAxisFolder, is3d]);
+  useEffect(() => { if (z3dAxisFolder) is3d ? z3dAxisFolder.show() : z3dAxisFolder.hide(); }, [z3dAxisFolder, is3d]);
 
   // View folder (3D only, packet C3) — hidden entirely in 2D mode, the same
   // `.hide()`/`.show()` idiom the Terminal folder below already uses for
@@ -771,6 +840,30 @@ export function ChartsDock({ state, dispatch, rendered, chart3dViewportHandleRef
     {is3d && z3dDomainSlot && createPortal(
       <Charts3dAxisDomainRow label="Z" axis="z" override={state.chart3d.axes.z.domain} resolved={resolved3dAxes?.z} dispatch={dispatch} />,
       z3dDomainSlot,
+    )}
+    {is3d && x3dTitleAtSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">X title at (3D)</span>
+        <IconToggle groupTitle="X axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.x.titleAt ?? "center"}
+          onChange={(value) => dispatch({ type: "set-3d-axis", axis: "x", patch: { titleAt: value as Charts3dAxisOverride["titleAt"] } })} />
+      </div>,
+      x3dTitleAtSlot,
+    )}
+    {is3d && y3dTitleAtSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Y title at (3D)</span>
+        <IconToggle groupTitle="Y axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.y.titleAt ?? "center"}
+          onChange={(value) => dispatch({ type: "set-3d-axis", axis: "y", patch: { titleAt: value as Charts3dAxisOverride["titleAt"] } })} />
+      </div>,
+      y3dTitleAtSlot,
+    )}
+    {is3d && z3dTitleAtSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Z title at (3D)</span>
+        <IconToggle groupTitle="Z axis title placement (3D)" options={CHARTS_3D_AXIS_TITLE_AT_TOGGLE} value={state.chart3d.axes.z.titleAt ?? "center"}
+          onChange={(value) => dispatch({ type: "set-3d-axis", axis: "z", patch: { titleAt: value as Charts3dAxisOverride["titleAt"] } })} />
+      </div>,
+      z3dTitleAtSlot,
     )}
     {!is3d && xTitleAtSlot && createPortal(
       <div className="dock-toggle-row">

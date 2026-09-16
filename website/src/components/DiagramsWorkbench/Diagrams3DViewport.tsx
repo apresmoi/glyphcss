@@ -10,7 +10,7 @@ import {
 import { defaultGlyphEffectParams, getGlyphEffect } from "@glyphcss/effects";
 import type { GlyphGraph, GlyphGraphDirection } from "@glyphcss/diagrams";
 import type { GlyphDiagramsWorkbenchCamera3d } from "./diagramsWorkbenchState";
-import { resolveDiagrams3dSceneOptions } from "./diagrams3dSceneOptions";
+import { diagrams3dZoomRange, resolveDiagrams3dSceneOptions } from "./diagrams3dSceneOptions";
 import { INSTRUMENT_3D_EFFECT_ALL_TARGET, INSTRUMENT_3D_EFFECT_NONE } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 
 /**
@@ -220,7 +220,11 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
       const camera = fit.camera.mat
         ? createGlyphOrthographicCamera({ mat: [...fit.camera.mat], useMat: true, zoom: fit.camera.zoom })
         : createGlyphOrthographicCamera({ rotX: fit.camera.rotX, rotY: fit.camera.rotY, zoom: fit.camera.zoom });
-      camera.target = centroidOf(fit.object.bounds);
+      // `initial.target` (a reader's own persisted pan offset, e.g. from a
+      // shared `?d=` link) wins over the mesh's own fitted centre when
+      // present — mirrors `Charts3dViewport.tsx`'s own `camera.pan` rule.
+      const initialTarget = latest.current.initialCamera?.target;
+      camera.target = initialTarget ? [initialTarget[0], initialTarget[1], initialTarget[2]] : centroidOf(fit.object.bounds);
 
       const resolved = resolveDiagrams3dSceneOptions(latest.current.charset, latest.current.color, "web");
       scene = createGlyphScene(hostRef.current, {
@@ -232,12 +236,21 @@ export function Diagrams3DViewport(props: Diagrams3DViewportProps) {
       // `pitchRange: null` (AGENTS.md numeric conventions) — the user's
       // "rotates in any direction" requirement for turntable mode too;
       // `controlsMode` picks turntable vs. trackball, both reachable from
-      // the Dock.
-      controls = createGlyphOrbitControls(scene, { pitchRange: null, mode: controlsMode });
+      // the Dock. `zoomRange`/`pan` mirror `Charts3dViewport.tsx`'s own fix
+      // for the identical report — a fitted diagram camera routinely sits
+      // well outside the library's pre-`zoomRange` hard-coded `[0.1, 500]`
+      // clamp, so the first wheel notch used to snap it back down.
+      controls = createGlyphOrbitControls(scene, {
+        pitchRange: null, mode: controlsMode, zoomRange: diagrams3dZoomRange(camera.zoom), pan: true,
+      });
       const reportCamera = () => {
         const cam = scene!.camera;
+        // `cam.target` — the orbit controls' own pan target, always
+        // reported (even an untouched fitted centre) so a shared `?d=`
+        // link restores the exact view, pan included.
+        const target: readonly [number, number, number] = [cam.target[0], cam.target[1], cam.target[2]];
         latest.current.onCameraSettled(
-          cam.useMat && cam.mat ? { zoom: cam.zoom, mat: [...cam.mat] } : { zoom: cam.zoom, rotX: cam.rotX, rotY: cam.rotY },
+          cam.useMat && cam.mat ? { zoom: cam.zoom, mat: [...cam.mat], target } : { zoom: cam.zoom, rotX: cam.rotX, rotY: cam.rotY, target },
         );
       };
       controls.addEventListener("end", reportCamera);

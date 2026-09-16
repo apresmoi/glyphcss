@@ -537,6 +537,41 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(container.querySelector("pre.glyph-output")!.textContent).toContain("Month");
   });
 
+  // Axes folder subgrouping (user feedback, verbatim: "can we somehow do a
+  // subgrouping by axis? like all the config for this axe, all this config
+  // for this other axis"): each axis's own title/ticks/grid/tick-marks/
+  // title-at rows live inside a NESTED "X axis"/"Y axis" folder with its own
+  // reset — `folderResetButton` (this file's own idiom for the Output/Chart
+  // folder resets) finds it by its unique tooltip.
+  it("the Axes folder groups X and Y rows into their own subfolder, each with a reset scoped to that axis alone", () => {
+    act(() => container.querySelector<HTMLButtonElement>('[aria-label="Apply Line"]')!.click());
+    // Both subgroup headers exist as real nested lil-gui folders — "X axis"/
+    // "Y axis" own titles, distinct from the flat "X title"/"Y title" row
+    // labels inside them.
+    const folderTitle = (text: string) => Array.from(container.querySelectorAll(".title")).find((el) => el.textContent === text);
+    expect(folderTitle("X axis")).toBeDefined();
+    expect(folderTitle("Y axis")).toBeDefined();
+
+    const xTitleInput = controller("X title").querySelector<HTMLInputElement>("input")!;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    act(() => { setter.call(xTitleInput, "Revenue"); xTitleInput.dispatchEvent(new Event("input", { bubbles: true })); });
+    pickToggle("X title at", "end");
+    act(() => (controller("X grid").querySelector('input[type="checkbox"]') as HTMLInputElement).click());
+    const yTitleInput = controller("Y title").querySelector<HTMLInputElement>("input")!;
+    act(() => { setter.call(yTitleInput, "Units"); yTitleInput.dispatchEvent(new Event("input", { bubbles: true })); });
+
+    // The full string (never the bare "Reset the X axis" prefix): the 3D
+    // "X axis (3D)" subgroup's own reset button exists in the DOM too
+    // (unconditionally mounted, hidden only via its folder's `.hide()`),
+    // and its tooltip shares that same short prefix.
+    act(() => folderResetButton("Reset the X axis to its defaults").click());
+    expect(xTitleInput.value).toBe("");
+    expect(activeToggleLabel("X title at")).toBe("center");
+    expect((controller("X grid").querySelector('input[type="checkbox"]') as HTMLInputElement).checked).toBe(false);
+    // The Y axis subgroup is untouched by the X reset.
+    expect(yTitleInput.value).toBe("Units");
+  });
+
   // Mutation: target onChange updates an unused state or omits applying target defaults.
   it("applies terminal defaults through the actual target selector", () => {
     pickToggle("Target", "terminal");
@@ -624,8 +659,11 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(swatch.value).toBe("#ff0000");
     act(() => resetOutputButton().click());
     expect(swatch.value).toBe("#ff0000");
+    // Output + Chart + the Axes folder's own per-axis subgroup resets (X,
+    // Y, and the 3D X/Y/Z ones — always mounted, hidden only via their
+    // folder's own `.hide()`) = 7 total.
     const chartResetButtons = Array.from(container.querySelectorAll<HTMLButtonElement>(".dock-folder-title-reset-button"));
-    expect(chartResetButtons).toHaveLength(2);
+    expect(chartResetButtons).toHaveLength(7);
     const chartReset = folderResetButton("Reset axis colour");
     act(() => chartReset.click());
     expect(swatch.value).not.toBe("#ff0000");

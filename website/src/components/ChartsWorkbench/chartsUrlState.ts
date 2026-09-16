@@ -417,6 +417,17 @@ function validateCharts3dCameraMat(value: unknown): readonly number[] | null {
   return value.every((n) => typeof n === "number" && Number.isFinite(n)) ? (value as number[]) : null;
 }
 
+/** `pan` is `Charts3dCamera.pan`'s own 3-element world-space target
+ *  (`createGlyphOrbitControls`'s `getTarget()`/`setTarget()`) — append-only,
+ *  a malformed value degrades to ABSENT (the fitted centre) rather than
+ *  rejecting the whole camera, mirroring `validateCharts3dCameraMat`'s own
+ *  "a bad field is just absent" rule. */
+const CHARTS_3D_CAMERA_PAN_LENGTH = 3;
+function validateCharts3dCameraPan(value: unknown): readonly [number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== CHARTS_3D_CAMERA_PAN_LENGTH) return null;
+  return value.every((n) => typeof n === "number" && Number.isFinite(n)) ? (value as [number, number, number]) : null;
+}
+
 /**
  * P1-1 fix round 1 (codex review): `mat`/`useMat` are append-only optional
  * fields, round-tripped alongside `rotX`/`rotY` — a TRACKBALL orbit's real
@@ -436,10 +447,12 @@ function validateCharts3dCamera(value: unknown): Charts3dCamera | null {
   if (zoom !== undefined && (typeof zoom !== "number" || !Number.isFinite(zoom) || zoom <= 0)) return null;
   const cleanMat = mat !== undefined ? validateCharts3dCameraMat(mat) : null;
   const cleanUseMat = cleanMat !== null && useMat === true;
+  const pan = value.pan !== undefined ? validateCharts3dCameraPan(value.pan) : null;
   return {
     rotX, rotY,
     ...(zoom !== undefined ? { zoom } : {}),
     ...(cleanMat !== null ? { mat: cleanMat, useMat: cleanUseMat } : {}),
+    ...(pan !== null ? { pan } : {}),
   };
 }
 
@@ -533,6 +546,7 @@ function validateCharts3dGuides(value: unknown): Charts3dGuideOptions {
  *  `CHARTS_3D_AXIS_FORMAT_NAMES` (this Dock's own safe subset) — never an
  *  arbitrary string, which could name a preset requiring a param this row
  *  has no field for, or no preset at all. */
+const CHARTS_3D_AXIS_TITLE_ATS = ["start", "center", "end"] as const;
 function validateCharts3dAxisOverride(value: unknown): Charts3dAxisOverride {
   if (!isRecord(value)) return {};
   const title = typeof value.title === "string" ? value.title : undefined;
@@ -547,10 +561,15 @@ function validateCharts3dAxisOverride(value: unknown): Charts3dAxisOverride {
     && typeof value.domain[0] === "number" && Number.isFinite(value.domain[0])
     && typeof value.domain[1] === "number" && Number.isFinite(value.domain[1]) && value.domain[0] < value.domain[1]
     ? (value.domain as [number, number]) : undefined;
+  // Axis title position — append-only, mirroring every other field's own
+  // "a bad value degrades to absent" rule rather than rejecting the axis.
+  const titleAt = oneOf(value.titleAt, CHARTS_3D_AXIS_TITLE_ATS) ? value.titleAt : undefined;
+  const titleOffset = typeof value.titleOffset === "number" && Number.isFinite(value.titleOffset) ? value.titleOffset : undefined;
   return {
     ...(title !== undefined ? { title } : {}), ...(ticks !== undefined ? { ticks } : {}), ...(format !== undefined ? { format } : {}),
     ...(line !== undefined ? { line } : {}), ...(tickMarks !== undefined ? { tickMarks } : {}), ...(tickLabels !== undefined ? { tickLabels } : {}),
     ...(grid !== undefined ? { grid } : {}), ...(color !== undefined ? { color } : {}), ...(domain !== undefined ? { domain } : {}),
+    ...(titleAt !== undefined ? { titleAt } : {}), ...(titleOffset !== undefined ? { titleOffset } : {}),
   };
 }
 function validateCharts3dAxes(value: unknown): Charts3dAxesOverride {

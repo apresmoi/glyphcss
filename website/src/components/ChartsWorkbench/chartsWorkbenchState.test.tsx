@@ -486,6 +486,38 @@ describe("ChartsWorkbench colour controls — state", () => {
     state = reduceChartsWorkbenchState(state, { type: "set-axis-title-at", axis: "y", value: "bottom" });
     expect(state.style.axisTitlePlacement).toEqual({ x: "end", y: "bottom" });
   });
+
+  // The Axes folder's own per-axis subgroup reset (ChartsDock.tsx's own
+  // "X axis"/"Y axis" folders) — clears ONLY the addressed axis's own
+  // ticks/tickMarks/title/grid/title-placement/colour, leaving the sibling
+  // axis and the Scales-folder domain (a separate reset, `RangeSlider`'s
+  // own row-level `[reset]`) untouched.
+  it("reset-axis clears only the addressed axis, leaving the sibling and the scale domain untouched", () => {
+    let dirty = reduceChartsWorkbenchState(initial(), { type: "set-axis", axis: "x", patch: { ticks: 12, grid: true, tickMarks: false, title: "Revenue" } });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis", axis: "y", patch: { ticks: 8, grid: true } });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis-title-at", axis: "x", value: "end" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis-color-mode", mode: "per-axis" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-axis-color", which: "x", color: "#ff0000" });
+    dirty = reduceChartsWorkbenchState(dirty, { type: "set-scale", axis: "x", patch: { min: "1", max: "9" } });
+
+    const reset = reduceChartsWorkbenchState(dirty, { type: "reset-axis", axis: "x" });
+    expect(reset.axes.x).toEqual({ ticks: 0, tickMarks: true, title: "", grid: false });
+    expect(reset.style.axisTitlePlacement.x).toBe("center");
+    expect(reset.style.axisColor.x).toBe(CHARTS_AXIS_DEFAULT_COLOR);
+    // Sibling axis and the mode toggle survive untouched.
+    expect(reset.axes.y).toEqual(dirty.axes.y);
+    expect(reset.style.axisColor.mode).toBe("per-axis");
+    // The Scales-folder domain is a DIFFERENT folder's own reset — never
+    // silently cleared by the Axes-folder subgroup's own header button.
+    expect(reset.scales.x).toEqual(dirty.scales.x);
+  });
+
+  it("reset-axis is a no-op reference when that axis was never customised", () => {
+    const clean = initial();
+    const untouched = reduceChartsWorkbenchState(clean, { type: "reset-axis", axis: "y" });
+    expect(untouched.axes).toBe(clean.axes);
+    expect(untouched.style).toBe(clean.style);
+  });
 });
 
 describe("chartsWorkbenchInferredDomains / scale bound conversion", () => {

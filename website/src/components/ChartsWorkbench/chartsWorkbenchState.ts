@@ -376,6 +376,16 @@ export type ChartsWorkbenchAction =
   | { type: "reset-chart-style" }
   | { type: "set-scale"; axis: "x" | "y"; patch: Partial<ChartsWorkbenchScale> }
   | { type: "set-axis"; axis: "x" | "y"; patch: Partial<ChartsWorkbenchAxis> }
+  // The Axes folder's own per-axis subgroup reset (user feedback, verbatim:
+  // "can we somehow do a subgrouping by axis... all the config for this
+  // axe... etc"): clears ONLY that axis's own ticks/tickMarks/title/grid
+  // (`state.axes[axis]`), its own title placement, and its own colour
+  // swatch (harmless when `axisColor.mode === "shared"`, since only the
+  // shared swatch paints there) — never the Scales-folder domain, which
+  // keeps its own row-level `[reset]` (`RangeSlider`'s own doc) since it
+  // lives in a different folder entirely, same scoping rule
+  // `reset-chart-style`'s own tooltip already states.
+  | { type: "reset-axis"; axis: "x" | "y" }
   | { type: "set-chart"; patch: Partial<ChartsWorkbenchState["chart"]> }
   | { type: "set-terminal"; flag: "NO_COLOR" | "FORCE_COLOR"; value: boolean }
   // Data folder (AGENTS.md's "Charts" — "Data layer"): `set-data-source`/
@@ -441,6 +451,13 @@ export type ChartsWorkbenchAction =
   // `color` overrides (C7) — `undefined` clears it back to the library's
   // own default (never `""`, since this is a real hex value, not text).
   | { type: "set-3d-axis"; axis: "x" | "y" | "z"; patch: Partial<Charts3dAxisOverride> }
+  // The 3D Axes subgroup's own reset — a full REPLACE of that axis's
+  // override back to `{}` (never a merge like `set-3d-axis`'s own patch
+  // semantics), so every field the reader touched (title/ticks/format/
+  // visibility/colour/domain/titleAt/titleOffset) clears at once, mirroring
+  // `Charts3dAxesOverride`'s own "empty means every field follows the
+  // library/dataset default" contract.
+  | { type: "reset-3d-axis"; axis: "x" | "y" | "z" }
   | { type: "set-3d-axes-color"; color: string | undefined }
   // Packet C4, item 3 — the shared Effects folder's own patch shape.
   | { type: "set-effect3d"; patch: Partial<Instrument3DEffectsState> };
@@ -610,6 +627,25 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     }
     case "set-scale": return { ...state, scales: { ...state.scales, [action.axis]: { ...state.scales[action.axis], ...action.patch } } };
     case "set-axis": return { ...state, axes: { ...state.axes, [action.axis]: { ...state.axes[action.axis], ...action.patch } } };
+    case "reset-axis": {
+      const axis = action.axis;
+      const titlePlacementDefault = defaultAxisTitlePlacement()[axis];
+      const a = state.axes[axis];
+      // A no-op stays the same object/array reference when nothing was
+      // customised — same discipline `reset-chart-style` already follows.
+      const isDefault = a.ticks === 0 && a.tickMarks === true && a.title === "" && !a.grid
+        && state.style.axisTitlePlacement[axis] === titlePlacementDefault && state.style.axisColor[axis] === CHARTS_AXIS_DEFAULT_COLOR;
+      if (isDefault) return state;
+      return {
+        ...state,
+        axes: { ...state.axes, [axis]: autoAxis() },
+        style: {
+          ...state.style,
+          axisTitlePlacement: { ...state.style.axisTitlePlacement, [axis]: titlePlacementDefault },
+          axisColor: { ...state.style.axisColor, [axis]: CHARTS_AXIS_DEFAULT_COLOR },
+        },
+      };
+    }
     case "set-chart": return { ...state, chart: { ...state.chart, ...action.patch } };
     case "set-terminal": return { ...state, terminal: { ...state.terminal, [action.flag]: action.value } };
     case "set-data-source": {
@@ -703,6 +739,12 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
     case "set-3d-guides": return { ...state, chart3d: { ...state.chart3d, guides: { ...state.chart3d.guides, ...action.patch } } };
     case "set-3d-axis":
       return { ...state, chart3d: { ...state.chart3d, axes: { ...state.chart3d.axes, [action.axis]: { ...state.chart3d.axes[action.axis], ...action.patch } } } };
+    case "reset-3d-axis": {
+      // A no-op stays the same object reference when nothing was
+      // customised — same discipline `reset-axis` (2D) already follows.
+      if (Object.keys(state.chart3d.axes[action.axis]).length === 0) return state;
+      return { ...state, chart3d: { ...state.chart3d, axes: { ...state.chart3d.axes, [action.axis]: {} } } };
+    }
     case "set-3d-axes-color": {
       const { color: _color, ...rest } = state.chart3d.axes;
       return { ...state, chart3d: { ...state.chart3d, axes: { ...rest, ...(action.color !== undefined ? { color: action.color } : {}) } } };

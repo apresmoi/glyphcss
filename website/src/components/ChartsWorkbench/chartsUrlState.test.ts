@@ -1014,6 +1014,65 @@ describe("chartsUrlState — 3D (dimension/chart3d)", () => {
     expect(decoded).not.toBeNull();
     expect(decoded!.chart3d.axes.x).toEqual({ title: "X" }); // format dropped
   });
+
+  // Axis title position (user feedback, verbatim: "we need to be able to
+  // configure the position of the title of the axis") — round-trips exactly,
+  // append-only; a bad `titleAt` value degrades to absent for that field
+  // alone, mirroring `format`'s own posture just above.
+  it("round-trips titleAt/titleOffset per axis", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-axis", axis: "x", patch: { titleAt: "start", titleOffset: 1.4 } });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-axis", axis: "z", patch: { titleAt: "end" } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.axes.x).toEqual({ titleAt: "start", titleOffset: 1.4 });
+    expect(decoded!.chart3d.axes.z).toEqual({ titleAt: "end" });
+  });
+  it("a bad titleAt value degrades to absent, keeping every other axis field", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const payload = { ...base, chart3d: { ...base.chart3d, axes: { x: { title: "X", titleAt: "sideways", titleOffset: 0.9 }, y: {}, z: {} } } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.chart3d.axes.x).toEqual({ title: "X", titleOffset: 0.9 }); // titleAt dropped, titleOffset survives
+  });
+  it("an old link with no titleAt/titleOffset keys at all decodes to neither present", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const payload = { ...base, chart3d: { ...base.chart3d, axes: { x: { title: "X" }, y: {}, z: {} } } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.chart3d.axes.x).toEqual({ title: "X" });
+  });
+
+  // Zoom/pan (user report, verbatim: "we also need to be able to zoom in
+  // the chart... you cannot zoom/pan it properly") — the pan offset
+  // (`Charts3dViewport.tsx`'s own `onEnd` report) round-trips through
+  // `chart3d.camera.pan` exactly, append-only.
+  it("round-trips the camera's own pan offset", async () => {
+    let state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    state = reduceChartsWorkbenchState(state, { type: "set-3d-camera", camera: { rotX: 12, rotY: -34, zoom: 5.5, pan: [0.2, -0.4, 1.1] } });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).toEqual(state);
+    expect(decoded!.chart3d.camera.pan).toEqual([0.2, -0.4, 1.1]);
+  });
+  it("a malformed pan (wrong length, non-finite entry) is treated as absent, never rejecting the whole camera", async () => {
+    const base = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const payload = { ...base, chart3d: { ...base.chart3d, camera: { rotX: 1, rotY: 2, zoom: 3, pan: [1, 2] } } };
+    const raw = `v1j.${Buffer.from(JSON.stringify(payload)).toString("base64url")}`;
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded).not.toBeNull();
+    expect(decoded!.chart3d.camera.pan).toBeUndefined();
+    expect(decoded!.chart3d.camera.rotX).toBe(1);
+  });
+  it("an old link with no pan key at all decodes to pan absent (the fitted centre)", async () => {
+    const state = reduceChartsWorkbenchState(createChartsWorkbenchState(), { type: "select-3d-dataset", id: CHARTS_3D_DATASETS[0]!.id });
+    const raw = await encodeChartsUrlState(state);
+    const decoded = await decodeChartsUrlState(raw);
+    expect(decoded!.chart3d.camera.pan).toBeUndefined();
+  });
 });
 
 describe("chartsUrlState — param name", () => {

@@ -135,19 +135,29 @@ function validateView3d(value: unknown): GlyphDiagramsWorkbenchView3d | null {
   if (typeof seed !== "number" || !Number.isFinite(seed)) return null;
   return { layout, seed, controlsMode };
 }
+/** `target` is `GlyphDiagramsWorkbenchCamera3d.target`'s own 3-element pan
+ *  offset — append-only, mirroring `chartsUrlState.ts`'s own
+ *  `validateCharts3dCameraPan`: a malformed value degrades to ABSENT (the
+ *  fitted centre) rather than rejecting the whole camera. */
+const CAMERA3D_TARGET_LENGTH = 3;
+function validateCamera3dTarget(value: unknown): readonly [number, number, number] | null {
+  if (!Array.isArray(value) || value.length !== CAMERA3D_TARGET_LENGTH) return null;
+  return value.every((n) => typeof n === "number" && Number.isFinite(n)) ? (value as [number, number, number]) : null;
+}
 /** Packet D3 — `rotX`/`rotY` XOR `mat`, mirroring `GlyphDiagram3dCamera`'s own shape (`render3d.ts`). */
 function validateCamera3d(value: unknown): GlyphDiagramsWorkbenchCamera3d | null {
   if (!isRecord(value)) return null;
   const { rotX, rotY, zoom, mat } = value;
   if (typeof zoom !== "number" || !Number.isFinite(zoom)) return null;
+  const target = value.target !== undefined ? validateCamera3dTarget(value.target) : null;
   if (mat !== undefined) {
     if (!Array.isArray(mat) || !mat.every((n) => typeof n === "number" && Number.isFinite(n))) return null;
     if (rotX !== undefined || rotY !== undefined) return null;
-    return { zoom, mat };
+    return { zoom, mat, ...(target !== null ? { target } : {}) };
   }
   if (rotX !== undefined && (typeof rotX !== "number" || !Number.isFinite(rotX))) return null;
   if (rotY !== undefined && (typeof rotY !== "number" || !Number.isFinite(rotY))) return null;
-  return { zoom, ...(rotX !== undefined ? { rotX } : {}), ...(rotY !== undefined ? { rotY } : {}) };
+  return { zoom, ...(rotX !== undefined ? { rotX } : {}), ...(rotY !== undefined ? { rotY } : {}), ...(target !== null ? { target } : {}) };
 }
 
 /**

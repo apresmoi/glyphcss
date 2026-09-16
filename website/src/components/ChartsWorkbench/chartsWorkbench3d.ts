@@ -111,6 +111,33 @@ export interface Charts3dCamera {
    *  a trackball pose exactly. */
   readonly mat?: readonly number[];
   readonly useMat?: boolean;
+  /** The orbit controls' own pan target (`GlyphOrbitControlsHandle.getTarget()`
+   *  — `createGlyphOrbitControls`'s "Numeric conventions" doc) — a middle/
+   *  right/Shift-drag or two-finger pan moves `camera.target` off the mark's
+   *  own fitted centre, and this is what lets that offset survive an orbit-
+   *  drag release into `?c=`/Copy/a later mount, append-only. `undefined`
+   *  (the default, and what "Reset camera" always returns to) means the
+   *  fitted centre — `Charts3dViewport.tsx`'s own mount effect, which never
+   *  reads this key at all for an untouched camera. */
+  readonly pan?: readonly [number, number, number];
+}
+
+/**
+ * `createGlyphOrbitControls`'s own `zoomRange` auto-derive factor
+ * (`AUTO_ZOOM_RANGE_FACTOR`, `packages/glyphcss/src/api/createGlyphOrbitControls.ts`),
+ * mirrored here so `Charts3dViewport.tsx` can compute an EXPLICIT range
+ * around the mounted camera's own fitted zoom — a fitted 3D-chart camera
+ * routinely sits at 500+, well outside the library's pre-`zoomRange` hard-
+ * coded `[0.1, 500]` clamp, which is what made the very first wheel notch
+ * snap a fitted view back down to 500 ("the zoom has limits", user report).
+ * Passing it explicitly (rather than relying on the library's own mount-time
+ * auto-derive) keeps the range deterministic and re-derivable after a mark-
+ * type swap re-fits the camera to a wholly different object's bounds.
+ */
+export const CHARTS_3D_ZOOM_RANGE_FACTOR = 64;
+export function charts3dZoomRange(zoom: number): [number, number] {
+  const z = Math.abs(zoom) || 1;
+  return [z / CHARTS_3D_ZOOM_RANGE_FACTOR, z * CHARTS_3D_ZOOM_RANGE_FACTOR];
 }
 
 /** Every mark type `@glyphcss/charts/3d` exposes — the mark card's Type
@@ -165,6 +192,16 @@ export interface Charts3dAxisOverride {
   readonly grid?: boolean;
   readonly color?: string;
   readonly domain?: readonly [number, number];
+  /** Axis title placement (user feedback, verbatim: "we need to be able to
+   *  configure the position of the title of the axis") — mirrors the
+   *  library's own `GlyphChart3dAxisOptions.titleAt`/`titleOffset`
+   *  (AGENTS.md's "Axis title position"): `titleAt` is the origin corner's
+   *  own start/centre/end of that axis's triad edge, `titleOffset` is how
+   *  far outward (in the library's own fraction units, default `0.6`) the
+   *  title pushes past the box. Both `undefined` (no override) follow the
+   *  library's own default — `object.ts`'s `axisTitleAtT`/`axisTitleOffset`. */
+  readonly titleAt?: "start" | "center" | "end";
+  readonly titleOffset?: number;
 }
 export interface Charts3dAxesOverride {
   readonly x: Charts3dAxisOverride;
@@ -253,11 +290,14 @@ function mergedAxisOption(datasetAxis: GlyphChart3dAxisOptions | undefined, over
   const grid = override?.grid ?? datasetAxis?.grid;
   const color = override?.color ?? datasetAxis?.color;
   const domain = override?.domain ?? datasetAxis?.domain;
-  if ([title, ticks, format, line, tickMarks, tickLabels, grid, color, domain].every((v) => v === undefined)) return undefined;
+  const titleAt = override?.titleAt ?? datasetAxis?.titleAt;
+  const titleOffset = override?.titleOffset ?? datasetAxis?.titleOffset;
+  if ([title, ticks, format, line, tickMarks, tickLabels, grid, color, domain, titleAt, titleOffset].every((v) => v === undefined)) return undefined;
   return {
     ...(title !== undefined ? { title } : {}), ...(ticks !== undefined ? { ticks } : {}), ...(format !== undefined ? { format } : {}),
     ...(line !== undefined ? { line } : {}), ...(tickMarks !== undefined ? { tickMarks } : {}), ...(tickLabels !== undefined ? { tickLabels } : {}),
     ...(grid !== undefined ? { grid } : {}), ...(color !== undefined ? { color } : {}), ...(domain !== undefined ? { domain } : {}),
+    ...(titleAt !== undefined ? { titleAt } : {}), ...(titleOffset !== undefined ? { titleOffset } : {}),
   };
 }
 /** The shared `axes` option every one of the five 3D constructors accepts

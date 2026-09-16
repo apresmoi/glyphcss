@@ -100,3 +100,19 @@ export function resolveDiagrams3dSceneOptions(charset: GlyphDiagram3dCharset, co
     useColors: color !== "none", ...(notes.length > 0 ? { note: notes.join(" ") } : {}),
   };
 }
+
+/**
+ * `createGlyphOrbitControls`'s own `zoomRange` auto-derive factor
+ * (mirrors `chartsWorkbench3d.ts`'s `charts3dZoomRange`/
+ * `CHARTS_3D_ZOOM_RANGE_FACTOR`) — an EXPLICIT range around the mounted
+ * camera's own fitted zoom, so `Diagrams3DViewport.tsx` need not rely on
+ * the library's mount-time auto-derive alone (which special-cases the
+ * library's own `0.65` default zoom to keep the historical `[0.1, 500]`
+ * clamp, a value a fitted diagram's own camera can legitimately land on
+ * too — an EXPLICIT range is deterministic regardless).
+ */
+const DIAGRAMS_3D_ZOOM_RANGE_FACTOR = 64;
+export function diagrams3dZoomRange(zoom: number): [number, number] {
+  const z = Math.abs(zoom) || 1;
+  return [z / DIAGRAMS_3D_ZOOM_RANGE_FACTOR, z * DIAGRAMS_3D_ZOOM_RANGE_FACTOR];
+}

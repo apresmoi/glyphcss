@@ -23,7 +23,7 @@ vi.hoisted(async () => {
       throw error;
     }
   };
-  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "PointerEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
+  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "PointerEvent", "WheelEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
     Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
   }
 });
@@ -98,7 +98,7 @@ vi.mock("glyphcss", async (importOriginal) => {
     },
   };
 });
-import { renderGlyphChart3d } from "@glyphcss/charts/3d";
+import { GLYPH_CHART_3D_DEFAULT_CAMERA, renderGlyphChart3d } from "@glyphcss/charts/3d";
 import ChartsWorkbench from "./ChartsWorkbench";
 import { CHART_CHARSETS, createChartsWorkbenchState, reduceChartsWorkbenchState, resolveCharts3dView, resolveGlyphChartsWorkbenchControls } from "./chartsWorkbenchState";
 import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
@@ -145,6 +145,14 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     const btn = Array.from(toggleRow(rowLabel).querySelectorAll<HTMLButtonElement>("button")).find((b) => optionOf(b.getAttribute("aria-label") ?? "") === optionLabel)!;
     act(() => btn.click());
   }
+  function activeToggleLabel(rowLabel: string): string {
+    return optionOf(toggleRow(rowLabel).querySelector<HTMLButtonElement>(".gx-toggle-btn.is-active")!.getAttribute("aria-label")!);
+  }
+  // Mirrors `ChartsWorkbench.test.tsx`'s own idiom for the Output/Chart
+  // folder-title-bar resets, extended here to the per-axis subgroup ones.
+  function folderResetButton(titleStartsWith: string): HTMLButtonElement {
+    return Array.from(container.querySelectorAll<HTMLButtonElement>(".dock-folder-title-reset-button")).find((btn) => btn.title.startsWith(titleStartsWith))!;
+  }
   function enter3d(): HTMLElement {
     const tile = container.querySelector<HTMLButtonElement>(`[aria-label="View ${CHARTS_3D_DATASETS[0]!.title} in 3D"]`)!;
     act(() => tile.click());
@@ -173,6 +181,30 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
       dispatchPointer(host, "pointermove", 100 + dx, 100 + dy);
       dispatchPointer(host, "pointerup", 100 + dx, 100 + dy);
     });
+  }
+  // Middle-button drag — one of the three gestures `createGlyphOrbitControls`'s
+  // own `pan: true` option claims (middle-button, right-button, Shift+left,
+  // two-finger touch); a plain left-button drag (`dragHost`, above) still
+  // orbits, never pans, exactly as before `pan` existed.
+  function panHost(host: Element, dx: number, dy: number) {
+    act(() => {
+      host.dispatchEvent(new PointerEvent("pointerdown", { clientX: 100, clientY: 100, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+      host.dispatchEvent(new PointerEvent("pointermove", { clientX: 100 + dx / 2, clientY: 100 + dy / 2, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+      host.dispatchEvent(new PointerEvent("pointermove", { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+      host.dispatchEvent(new PointerEvent("pointerup", { clientX: 100 + dx, clientY: 100 + dy, pointerId: 1, isPrimary: true, bubbles: true, button: 1 }));
+    });
+  }
+  // `createGlyphOrbitControls`'s own wheel "end" (what reaches
+  // `onCameraChange`/React state/Copy) is debounced `WHEEL_IDLE_MS` (150 ms)
+  // after the LAST notch, not synchronous with the wheel event itself — the
+  // real quantity under test here (the wheel gesture's own idle timeout,
+  // AGENTS.md's own "setTimeout... legitimate only when N is the quantity
+  // UNDER test" rule), so this waits it out for real rather than reading
+  // Copy immediately after dispatching.
+  const WHEEL_IDLE_MS = 150;
+  async function wheelHost(host: Element, deltaY: number): Promise<void> {
+    act(() => { host.dispatchEvent(new WheelEvent("wheel", { deltaY, bubbles: true, cancelable: true })); });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, WHEEL_IDLE_MS + 50)); });
   }
   function copyAsciiButton(): HTMLButtonElement {
     return Array.from(container.querySelectorAll<HTMLButtonElement>(".gw-code-panel__action")).find((b) => b.textContent === "Copy ASCII" || b.textContent === "Copied")!;
@@ -211,6 +243,88 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     dragHost(host, 260, 90);
     const after = await copiedAscii();
     expect(after).not.toBe(before);
+  }, 15_000);
+
+  // User report, verbatim: "we also need to be able to zoom in the chart,
+  // for some reason you cannot zoom/pan it properly", "like the zoom has
+  // limits" — a fitted 3D-chart camera routinely sits at 500+ CSS px/world-
+  // unit, past the library's own pre-`zoomRange` hard-coded `[0.1, 500]`
+  // clamp, so the first wheel notch used to snap it straight back down to
+  // 500 and every further notch was a no-op. Mutation: drop the explicit
+  // `zoomRange: charts3dZoomRange(cam.zoom)` from `Charts3dViewport.tsx`'s
+  // `createGlyphOrbitControls` call and the library's own auto-derive still
+  // covers the COMMON case (this test alone would not catch it) — the real
+  // regression this guards is `Charts3dViewport.tsx`'s own explicit,
+  // deterministic range surviving a mark-TYPE swap (a later test, below).
+  it("a real wheel event over the 3D viewport changes the rendered frame in both directions", async () => {
+    const host = enter3d();
+    const baseline = await copiedAscii();
+    await wheelHost(host, -240); // zoom IN
+    const zoomedIn = await copiedAscii();
+    expect(zoomedIn).not.toBe(baseline);
+    await wheelHost(host, 720); // undo the zoom-in, then zoom OUT past the baseline
+    const zoomedOut = await copiedAscii();
+    expect(zoomedOut).not.toBe(baseline);
+    expect(zoomedOut).not.toBe(zoomedIn);
+  }, 15_000);
+
+  // A mark-TYPE swap re-fits `cam.zoom` to a wholly different object's own
+  // bounds (a sphere and a bar chart have very different extents) — this
+  // pins that the zoom clamp is RE-DERIVED around the new fit rather than
+  // staying pinned to whatever range the FIRST mount happened to compute.
+  // Mutation: drop the `orbitControlsRef.current?.update({ zoomRange })`
+  // call from the mark-rebuild effect's type-swap branch -> wheel zoom
+  // after a type swap can silently stop changing the frame once the STALE
+  // range's own ceiling/floor is reached.
+  it("wheel zoom still moves the frame in both directions after a mark-type swap re-fits the camera", async () => {
+    const host = enter3d();
+    selectDataset(CHARTS_3D_DATASETS.find((d) => d.markType !== CHARTS_3D_DATASETS[0]!.markType)!.title);
+    const baseline = await copiedAscii();
+    await wheelHost(host, -240);
+    const zoomedIn = await copiedAscii();
+    expect(zoomedIn).not.toBe(baseline);
+    await wheelHost(host, 720);
+    const zoomedOut = await copiedAscii();
+    expect(zoomedOut).not.toBe(baseline);
+    expect(zoomedOut).not.toBe(zoomedIn);
+  }, 15_000);
+
+  // A middle-button drag PANS `camera.target` — leaving `rotX`/`rotY`
+  // exactly as they were (never an orbit) — and the offset reaches the
+  // shared link exactly like a rotation/zoom does. Mutation: drop `pan:
+  // true` from `Charts3dViewport.tsx`'s `createGlyphOrbitControls` call ->
+  // the middle-drag falls through to nothing (no button-1 orbit branch
+  // exists), so `after.pan` stays undefined and this reddens.
+  it("a middle-button drag pans the camera, leaving rotX/rotY unchanged, and the pan offset reaches the copied link", async () => {
+    const host = enter3d();
+    const before = await copiedLinkChart3dCamera();
+    expect(before.pan).toBeUndefined();
+    panHost(host, 40, -25);
+    const after = await copiedLinkChart3dCamera();
+    expect(after.pan).toBeDefined();
+    expect(after.pan).toHaveLength(3);
+    expect(after.pan).not.toEqual([0, 0, 0]);
+    expect(after.rotX).toBe(before.rotX);
+    expect(after.rotY).toBe(before.rotY);
+  }, 15_000);
+
+  // "Reset camera" clears rotation, zoom AND pan — restoring the library's
+  // own default Euler pose and dropping the `pan` key entirely (never a
+  // stale `[0,0,0]` leftover), verified through the SAME real Copy-link
+  // round trip the trackball test above uses.
+  it("Reset camera restores the fitted default pose and clears the pan offset", async () => {
+    const host = enter3d();
+    dragHost(host, 260, 90);
+    panHost(host, 40, -25);
+    const dirty = await copiedLinkChart3dCamera();
+    expect(dirty.pan).toBeDefined();
+    expect(dirty.rotX).not.toBe(GLYPH_CHART_3D_DEFAULT_CAMERA.rotX);
+    act(() => container.querySelector<HTMLButtonElement>(".charts-3d-reset-camera")!.click());
+    const reset = await copiedLinkChart3dCamera();
+    expect(reset.pan).toBeUndefined();
+    expect(reset.zoom).toBeUndefined();
+    expect(reset.rotX).toBe(GLYPH_CHART_3D_DEFAULT_CAMERA.rotX);
+    expect(reset.rotY).toBe(GLYPH_CHART_3D_DEFAULT_CAMERA.rotY);
   }, 15_000);
 
   // Rotate: trackball — a single-pointer drag composes into `camera.mat`/
@@ -520,6 +634,50 @@ describe("ChartsWorkbench — live 3D viewport lifecycle (packet C3, fix round 1
     enter3d();
     expect(getComputedStyle(controller("X title (3D)")).display).not.toBe("none");
     expect(getComputedStyle(controller("X title")).display).toBe("none");
+  });
+
+  // Axes folder subgrouping (user feedback, verbatim: "can we somehow do a
+  // subgrouping by axis?") — each 3D axis gets its own nested "X axis (3D)"/
+  // "Y axis (3D)"/"Z axis (3D)" folder, hidden as a whole in 2D via the SAME
+  // `.hide()/.show()` the "View" folder already used, and its own reset
+  // clearing only that axis's own override (`reset-3d-axis`, a full replace
+  // to `{}`, never a merge — every field the reader touched clears at once).
+  it("the 3D Axes rows live in their own per-axis subfolder, hidden together in 2D", () => {
+    const folderTitle = (text: string) => Array.from(container.querySelectorAll(".title")).find((el) => el.textContent === text);
+    expect(getComputedStyle(folderTitle("X axis (3D)")!.closest(".lil-gui") as Element).display).toBe("none");
+    enter3d();
+    expect(folderTitle("X axis (3D)")).toBeDefined();
+    expect(folderTitle("Y axis (3D)")).toBeDefined();
+    expect(folderTitle("Z axis (3D)")).toBeDefined();
+  });
+
+  it("the X axis (3D) subgroup's own reset clears title/titleAt/titleOffset/colour, leaving Y and Z untouched", async () => {
+    enter3d();
+    const titleInput = controller("X title (3D)").querySelector<HTMLInputElement>('input[type="text"]')!;
+    setTextInput(titleInput, "Custom Longitude Title");
+    pickToggle("X title at (3D)", "start");
+    const yTitleInput = controller("Y title (3D)").querySelector<HTMLInputElement>('input[type="text"]')!;
+    setTextInput(yTitleInput, "Custom Latitude Title");
+
+    expect(titleInput.value).toBe("Custom Longitude Title");
+
+    act(() => folderResetButton("Reset the X axis (3D)").click());
+    expect(titleInput.value).toBe("");
+    expect(activeToggleLabel("X title at (3D)")).toBe("center");
+    // The Y axis subgroup is a DIFFERENT axis's own override — untouched.
+    expect(yTitleInput.value).toBe("Custom Latitude Title");
+  });
+
+  // Axis title position (user feedback, verbatim: "we need to be able to
+  // configure the position of the title of the axis") — the IconToggle
+  // reaches the built mark's own `axes.x.titleAt` and the static Copy exit,
+  // not merely Dock state.
+  it("the title-at toggle changes which side of the box the axis title renders on", async () => {
+    enter3d();
+    const before = await copiedAscii();
+    pickToggle("X title at (3D)", "start");
+    const after = await copiedAscii();
+    expect(after).not.toBe(before);
   });
 
   // Item 3/4 — dispose on: effect id change, view switch away from 3D, and

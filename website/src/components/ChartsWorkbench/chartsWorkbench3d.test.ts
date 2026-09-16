@@ -7,8 +7,8 @@ import { describe, expect, it } from "vitest";
 import { GLYPH_CHART_3D_DEFAULT_CAMERA } from "@glyphcss/charts/3d";
 import { CHART_CHARSETS, CHART_COLORS } from "./chartsWorkbenchState";
 import {
-  CHARTS_3D_DEFAULT_CAMERA, CHARTS_SURFACE_NEEDS, charts3dObjectCharset, chartsSurfaceFitFromRows, chartsWorkbench3dSceneOptions,
-  createCharts3dViewState, resolveCharts3dStyle, resolveCharts3dView,
+  CHARTS_3D_DEFAULT_CAMERA, CHARTS_3D_ZOOM_RANGE_FACTOR, CHARTS_SURFACE_NEEDS, charts3dObjectCharset, charts3dZoomRange, chartsSurfaceFitFromRows,
+  chartsWorkbench3dSceneOptions, createCharts3dViewState, resolveCharts3dStyle, resolveCharts3dView,
 } from "./chartsWorkbench3d";
 import { CHARTS_3D_DATASETS, findCharts3dDataset } from "./datasets/chart3d";
 import type { ChartsWorkbenchDataState, ChartsWorkbenchMark } from "./chartsWorkbenchState";
@@ -59,6 +59,48 @@ describe("resolveCharts3dView", () => {
     const auto = resolveCharts3dView(createCharts3dViewState());
     const relief = resolveCharts3dView({ ...createCharts3dViewState(), shading: "relief" });
     expect(auto.ok && relief.ok).toBe(true);
+  });
+
+  // Axis title position (user feedback, verbatim: "we need to be able to
+  // configure the position of the title of the axis") — `titleAt`/
+  // `titleOffset` reach the built mark's own resolved axis exactly like
+  // every other Axes-folder override, mutation: drop either field from
+  // `mergedAxisOption` and this reddens.
+  it("titleAt/titleOffset overrides reach the resolved mark's own axis", () => {
+    const view = { ...createCharts3dViewState(), axes: { x: { titleAt: "start" as const, titleOffset: 1.2 }, y: {}, z: {} } };
+    const result = resolveCharts3dView(view);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.resolved.mark.axes.x.titleAt).toBe("start");
+    expect(result.resolved.mark.axes.x.titleOffset).toBe(1.2);
+    // An untouched axis carries neither — the library's own default applies.
+    expect(result.resolved.mark.axes.y.titleAt).toBeUndefined();
+    expect(result.resolved.mark.axes.y.titleOffset).toBeUndefined();
+  });
+});
+
+// Zoom range (user report, verbatim: "we also need to be able to zoom in
+// the chart, for some reason you cannot zoom/pan it properly... like the
+// zoom has limits") — `charts3dZoomRange` is the explicit range
+// `Charts3dViewport.tsx` passes to `createGlyphOrbitControls` so wheel zoom
+// works across the useful range around a fitted 3D-chart camera (routinely
+// 500+, well outside the library's own pre-`zoomRange` `[0.1, 500]` clamp).
+describe("charts3dZoomRange", () => {
+  it("derives a wide range around the given zoom using the shared factor", () => {
+    expect(charts3dZoomRange(700)).toEqual([700 / CHARTS_3D_ZOOM_RANGE_FACTOR, 700 * CHARTS_3D_ZOOM_RANGE_FACTOR]);
+    // A fitted camera at 700 must be able to zoom OUT (smaller) and IN
+    // (larger) from its own starting point — both directions actually move.
+    const [min, max] = charts3dZoomRange(700);
+    expect(min).toBeLessThan(700);
+    expect(max).toBeGreaterThan(700);
+  });
+  it("never divides by zero or returns a non-finite bound for a zero/negative zoom", () => {
+    for (const zoom of [0, -5]) {
+      const [min, max] = charts3dZoomRange(zoom);
+      expect(Number.isFinite(min)).toBe(true);
+      expect(Number.isFinite(max)).toBe(true);
+      expect(min).toBeGreaterThan(0);
+    }
   });
 });
 

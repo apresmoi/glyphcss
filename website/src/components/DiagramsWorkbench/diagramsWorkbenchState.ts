@@ -157,7 +157,19 @@ export interface GlyphDiagramsWorkbenchView3d {
  * camera the reader is actually looking through — AGENTS.md's D3 packet
  * "what you copy is what you see".
  */
-export type GlyphDiagramsWorkbenchCamera3d = GlyphDiagram3dCamera & { readonly zoom: number };
+export type GlyphDiagramsWorkbenchCamera3d = GlyphDiagram3dCamera & {
+  readonly zoom: number;
+  /** The orbit controls' own pan target (`GlyphOrbitControlsHandle.getTarget()`
+   *  — mirrors `Charts3dCamera.pan`'s own doc, `chartsWorkbench3d.ts`): a
+   *  middle/right/Shift-drag or two-finger pan moves `camera.target` off the
+   *  mesh's own fitted centre, persisted here so it survives an orbit-drag
+   *  release into `?d=`/a later mount. `undefined` (the default) means the
+   *  fitted centre. `renderGlyphDiagram3d`'s own `GlyphDiagram3dCamera` has
+   *  no pan concept, so this key rides along unread on the initial probe
+   *  render and is applied only by `Diagrams3DViewport.tsx`'s own live
+   *  mount, which sets `camera.target` from it directly. */
+  readonly target?: readonly [number, number, number];
+};
 
 export const GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_VIEW3D: GlyphDiagramsWorkbenchView3d = { layout: "layered", seed: 1, controlsMode: "turntable" };
 
