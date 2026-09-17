@@ -1,6 +1,5 @@
 /**
- * Skip-level sankey bands and solid ribbons (DIAGNOSIS-sankey-column-jump.md,
- * Round 3; docs/design/charts.md, Round 26):
+ * Skip-level sankey bands and solid ribbons:
  *
  * - the corridor-aware node order: a node receiving a skip-level link sits
  *   where that band can arrive, kept only when the whole layout crosses less;
@@ -231,8 +230,9 @@ describe("no holes in a solid ribbon", () => {
   });
 
   it("the energy sankey, solid, braille/blocks: no notch anywhere", () => {
+    // `regionFill: "auto"` explicit — the library's own default is "texture" now.
     for (const charset of ["braille", "blocks"] as const) {
-      const html = renderGlyphChart(energy, { target: "web", width: 96, height: 32, charset, color: "css", legend: false }).html!;
+      const html = renderGlyphChart(energy, { target: "web", width: 96, height: 32, charset, color: "css", legend: false, regionFill: "auto" }).html!;
       expect(holes(htmlCells(html)), charset).toEqual([]);
     }
   });
@@ -245,9 +245,10 @@ describe("a solid full cell carries its own colour as its background", () => {
 
   it("every inked `█` under a solid fill has bg == fg, on every charset that paints `█`; a texture render writes none", () => {
     // Mutation: drop `paintSolidCellBackgrounds` (or give it the texture canvas) -> red.
+    // `regionFill: "auto"` explicit on the "solid" render — the library's own default is "texture" now.
     let full = 0;
     for (const [name, spec] of [["energy", energy], ["arc", arc], ["stacked bar", stackedBar], ["area", area]] as const) for (const charset of ["box", "blocks", "braille"] as const) {
-      const solid = htmlCells(renderGlyphChart(spec, { target: "web", width: 60, height: 24, charset, color: "css" }).html!).flat();
+      const solid = htmlCells(renderGlyphChart(spec, { target: "web", width: 60, height: 24, charset, color: "css", regionFill: "auto" }).html!).flat();
       for (const c of solid) if (c.ch === "█" && c.fg) {
         expect(c.bg, `${name} ${charset}`).toBe(c.fg);
         full++;

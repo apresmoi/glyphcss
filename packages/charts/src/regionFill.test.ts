@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
-import { glyphChartRegionFill, renderGlyphChart } from "./render";
+import { GLYPH_CHART_DEFAULT_REGION_FILL, glyphChartRegionFill, renderGlyphChart } from "./render";
 import { goodSpecs } from "./reviewFixtures";
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartSankey } from "./spec";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
@@ -67,48 +67,70 @@ function swatchBefore(rows: readonly string[], name: string): string | undefined
   return undefined;
 }
 
+describe("the library's own default is `\"texture\"`, faithful to glyphcss rendering (USER DECISION, verbatim: \"I think I don't want the region fill, I want to be faithful to glyphcss rendering, then we can have it in the future, but not now\")", () => {
+  it("a coloured web bar/area/pie chart with distinct series renders textured by DEFAULT; `regionFill: \"auto\"` explicitly still gives solid for the same input", () => {
+    // Mutation: revert `GLYPH_CHART_DEFAULT_REGION_FILL` to "auto" -> red (the bare/default call solidifies again).
+    expect(GLYPH_CHART_DEFAULT_REGION_FILL).toBe("texture");
+    for (const spec of [energy, stackedBar, pie, donut]) {
+      // No `regionFill` at all: the default, not "auto" spelled out.
+      expect(glyphChartRegionFill(spec, { target: "web", color: "css" })).toMatchObject({ fill: "texture", reason: "requested-texture" });
+      const byDefault = htmlRows(renderGlyphChart(spec, { charset: "box", color: "css" }).html!);
+      const textureCount = TEXTURE_GLYPHS.reduce((n, glyph) => n + count(byDefault, glyph), 0);
+      expect(textureCount, `some texture glyph by default in ${spec.marks[0]!.type}`).toBeGreaterThan(0);
+
+      // `regionFill: "auto"` explicit: these specs are exactly the ones auto still resolves solid for.
+      expect(glyphChartRegionFill(spec, { target: "web", color: "css", regionFill: "auto" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
+      const withAuto = htmlRows(renderGlyphChart(spec, { charset: "box", color: "css", regionFill: "auto" }).html!);
+      for (const glyph of TEXTURE_GLYPHS) expect(count(withAuto, glyph), `${glyph} under auto in ${spec.marks[0]!.type}`).toBe(0);
+      expect(count(withAuto, "█")).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("auto resolution — solid only where colour carries identity", () => {
   it("web + css + the default palette resolves solid for a stacked area, a stacked bar, a pie and a donut", () => {
     // Mutation: return texture from the final `colors-distinct` branch -> red.
     for (const spec of [energy, stackedBar, pie, donut]) {
-      expect(glyphChartRegionFill(spec, { target: "web", color: "css" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
+      expect(glyphChartRegionFill(spec, { target: "web", color: "css", regionFill: "auto" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
     }
-    expect(glyphChartRegionFill(energy)).toMatchObject({ fill: "solid" }); // the bare call is web/css
+    // The library's own default is `"texture"` (USER DECISION: faithful to glyphcss
+    // rendering by default; solid stays reachable via an explicit `regionFill: "auto"`/`"solid"`).
+    expect(glyphChartRegionFill(energy)).toMatchObject({ fill: "texture", reason: "requested-texture" });
   });
 
   it("terminal + truecolor keeps textures (a terminal copy or theme loses colour)", () => {
     // Mutation: drop the `target === "terminal"` clause -> red.
-    expect(glyphChartRegionFill(energy, { target: "terminal", color: "truecolor" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
-    expect(glyphChartRegionFill(pie, { target: "terminal" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
+    expect(glyphChartRegionFill(energy, { target: "terminal", color: "truecolor", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
+    expect(glyphChartRegionFill(pie, { target: "terminal", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
   });
 
   it("chat keeps textures even when handed a colour mode", () => {
-    expect(glyphChartRegionFill(energy, { target: "chat", color: "css" })).toMatchObject({ fill: "texture", reason: "target-chat" });
-    expect(glyphChartRegionFill(energy, { target: "chat" })).toMatchObject({ fill: "texture", reason: "color-off" });
+    expect(glyphChartRegionFill(energy, { target: "chat", color: "css", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "target-chat" });
+    expect(glyphChartRegionFill(energy, { target: "chat", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "color-off" });
   });
 
   it("web + css + ONE hex for every series keeps textures (single colour)", () => {
     // Mutation: skip the collision loop -> red.
     const single = { ...energy, marks: [{ ...energy.marks[0]!, options: { color: "#ff0000" } }] };
-    const res = glyphChartRegionFill(single, { color: "css" });
+    const res = glyphChartRegionFill(single, { color: "css", regionFill: "auto" });
     expect(res).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["Fossil fuels", "Nuclear"] });
     expect(res.message).toMatch(/same colour/);
   });
 
   it("web + ansi16 keeps textures when two palette entries quantise to one SGR colour, and ansi256 does not collide", () => {
     // Mutation: compare the raw hex instead of `nearestAnsiCanvasColor` -> red (blue #3b82f6 and green #22c55e both map to #008080).
-    expect(glyphChartRegionFill(energy, { color: "ansi16" })).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["Fossil fuels", "Renewables"] });
-    expect(glyphChartRegionFill(stackedBar, { color: "ansi16" })).toMatchObject({ fill: "texture", reason: "colors-collide" });
-    expect(glyphChartRegionFill(energy, { color: "ansi256" })).toMatchObject({ fill: "solid" });
+    expect(glyphChartRegionFill(energy, { color: "ansi16", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["Fossil fuels", "Renewables"] });
+    expect(glyphChartRegionFill(stackedBar, { color: "ansi16", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "colors-collide" });
+    expect(glyphChartRegionFill(energy, { color: "ansi256", regionFill: "auto" })).toMatchObject({ fill: "solid" });
     // Two series share no SGR colour on ansi16 (blue -> teal, orange -> olive): the threshold is 2.
     const twoSeries = { marks: [glyphChartArc([{ s: "A", v: 1 }, { s: "B", v: 2 }], { fill: "s", y: "v" })] };
-    expect(glyphChartRegionFill(twoSeries, { color: "ansi16" })).toMatchObject({ fill: "solid" });
+    expect(glyphChartRegionFill(twoSeries, { color: "ansi16", regionFill: "auto" })).toMatchObject({ fill: "solid" });
   });
 
   it("ansi256 collision protection: two hexes one SGR slot apart resolve texture under auto, naming both series", () => {
     // Mutation: drop the ansi256 branch of `displayColor` (compare raw hex at 256 colours) -> red.
-    expect(glyphChartRegionFill(nearReds, { color: "css" })).toMatchObject({ fill: "solid" });
-    const auto = glyphChartRegionFill(nearReds, { color: "ansi256" });
+    expect(glyphChartRegionFill(nearReds, { color: "css", regionFill: "auto" })).toMatchObject({ fill: "solid" });
+    const auto = glyphChartRegionFill(nearReds, { color: "ansi256", regionFill: "auto" });
     expect(auto).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["A", "B"] });
     expect(auto.message).toMatch(/"A" and "B" paint the same colour in ansi256/);
   });
@@ -127,7 +149,7 @@ describe("auto resolution — solid only where colour carries identity", () => {
       glyphChartBar([{ x: "a", y: 3 }, { x: "b", y: 4 }], { x: "x", y: "y" }, { name: "Revenue" }),
       glyphChartBar([{ x: "c", y: 2 }, { x: "d", y: 5 }], { x: "x", y: "y" }, { name: "Revenue" }),
     ] };
-    expect(glyphChartRegionFill(revenue, { color: "css" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
+    expect(glyphChartRegionFill(revenue, { color: "css", regionFill: "auto" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
   });
 
   it("the solid paint's ledger is discarded: a solid render reports exactly the textured render's ledger, never an entry twice", () => {
@@ -135,7 +157,7 @@ describe("auto resolution — solid only where colour carries identity", () => {
     const zeroSlice: GlyphChartSpec = { marks: [glyphChartArc([{ s: "A", v: 3 }, { s: "B", v: 0 }, { s: "C", v: 2 }], { fill: "s", y: "v" })] };
     const sankey: GlyphChartSpec = { marks: [glyphChartSankey(ENERGY_FLOW_SANKEY_DATA, { source: "from", target: "to", value: "amount" })] };
     for (const [spec, opts] of [[zeroSlice, {}], [sankey, { width: 40, height: 20 }], [energy, {}]] as const) {
-      const base: GlyphChartRenderOptions = { color: "css", ...opts };
+      const base: GlyphChartRenderOptions = { color: "css", regionFill: "auto", ...opts };
       expect(glyphChartRegionFill(spec, base).fill).toBe("solid");
       const solid = renderGlyphChart(spec, base).report.ledger;
       const texture = renderGlyphChart(spec, { ...base, regionFill: "texture" }).report.ledger;
@@ -148,17 +170,18 @@ describe("auto resolution — solid only where colour carries identity", () => {
 
   it("the default palette separates 8 pie slices; a 9th repeats blue and falls back to textures", () => {
     const slices = (n: number) => ({ marks: [glyphChartArc(Array.from({ length: n }, (_, i) => ({ s: `S${i}`, v: 1 })), { fill: "s", y: "v" })] });
-    expect(glyphChartRegionFill(slices(8), { color: "css" }).fill).toBe("solid");
-    expect(glyphChartRegionFill(slices(9), { color: "css" })).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["S0", "S8"] });
+    expect(glyphChartRegionFill(slices(8), { color: "css", regionFill: "auto" }).fill).toBe("solid");
+    expect(glyphChartRegionFill(slices(9), { color: "css", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["S0", "S8"] });
   });
 
   it("colour off, NO_COLOR and a chart with no region mark resolve texture; a flow mark no longer forces it", () => {
-    expect(glyphChartRegionFill(energy, { color: "none" }).reason).toBe("color-off");
-    expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1" } }).reason).toBe("color-off");
-    expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1", FORCE_COLOR: "1" } }).fill).toBe("solid");
+    expect(glyphChartRegionFill(energy, { color: "none", regionFill: "auto" }).reason).toBe("color-off");
+    expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1" }, regionFill: "auto" }).reason).toBe("color-off");
+    expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1", FORCE_COLOR: "1" }, regionFill: "auto" }).fill).toBe("solid");
     const withSankey = { marks: [...stackedBar.marks, glyphChartSankey([{ a: "X", b: "Y", v: 1 }], { source: "a", target: "b", value: "v" })] };
     // Sankey ribbons follow the rule like every other region mark (solidSubcell.test.ts).
-    expect(glyphChartRegionFill(withSankey, { color: "css" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
+    expect(glyphChartRegionFill(withSankey, { color: "css", regionFill: "auto" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
+    // `no-region-mark` short-circuits ahead of the `requested` check, so this one is unaffected by the default.
     expect(glyphChartRegionFill({ marks: [goodSpecs[0]!.marks[0]!] }, { color: "css" }).reason).toBe("no-region-mark");
   });
 
@@ -169,7 +192,7 @@ describe("auto resolution — solid only where colour carries identity", () => {
     expect(refused.report.ledger).toContainEqual(expect.objectContaining({ code: "region-fill-solid-refused", detail: { reason: "color-off" } }));
     const collide = renderGlyphChart(energy, { color: "ansi16", regionFill: "solid" });
     expect(collide.report.ledger).toContainEqual(expect.objectContaining({ code: "region-fill-solid-refused", detail: { reason: "colors-collide", colliding: ["Fossil fuels", "Renewables"] } }));
-    // `auto` never logs — a texture it chose is not a refusal.
+    // Neither `auto` nor the bare (default) call ever logs — a texture chosen, not requested and refused, is not a refusal.
     expect(renderGlyphChart(energy, { color: "none" }).report.ledger.map((e) => e.code)).not.toContain("region-fill-solid-refused");
   });
 
@@ -179,18 +202,23 @@ describe("auto resolution — solid only where colour carries identity", () => {
   });
 });
 
+// Every render below needs `regionFill: "auto"` explicit: the library's own
+// default is now "texture" (USER DECISION — faithful to glyphcss rendering by
+// default; solid stays reachable via an explicit `regionFill: "auto"`/`"solid"`),
+// but this whole describe block exercises SOLID painting for specs `auto` still
+// resolves solid for.
 describe("the solid paint", () => {
   it("box: a coloured stacked area, stacked bar, pie and donut paint only `█` where textures were, legend swatches included", () => {
     // Mutation: make `regionFillGlyph` ignore `fill` -> red (every texture glyph survives).
     for (const spec of [energy, stackedBar, pie, donut]) {
-      const rows = htmlRows(renderGlyphChart(spec, { charset: "box", color: "css" }).html!);
+      const rows = htmlRows(renderGlyphChart(spec, { charset: "box", color: "css", regionFill: "auto" }).html!);
       for (const glyph of TEXTURE_GLYPHS) expect(count(rows, glyph), `${glyph} in ${JSON.stringify(spec.marks[0]!.type)}`).toBe(0);
       expect(count(rows, "█")).toBeGreaterThan(0);
     }
   });
 
   it("braille: the stacked area's bands are solid, their boundaries in quadrant blocks (the half-cell rule is solidSubcell.test.ts')", () => {
-    const colour = renderGlyphChart(energy, { color: "css" });
+    const colour = renderGlyphChart(energy, { color: "css", regionFill: "auto" });
     const solid = htmlRows(colour.html!);
     const texture = gridRows(colour);
     for (const glyph of PURE_TEXTURE_GLYPHS) expect(count(solid, glyph)).toBe(0);
@@ -211,7 +239,7 @@ describe("the solid paint", () => {
   });
 
   it("ascii solid is `#`, 7-bit", () => {
-    const rows = htmlRows(renderGlyphChart(stackedBar, { charset: "ascii", color: "css" }).html!);
+    const rows = htmlRows(renderGlyphChart(stackedBar, { charset: "ascii", color: "css", regionFill: "auto" }).html!);
     for (const glyph of [".", "@"]) expect(rows.slice(0, -2).join("").includes(glyph)).toBe(false);
     expect([...rows.join("")].every((c) => c.charCodeAt(0) < 128)).toBe(true);
   });
@@ -220,13 +248,13 @@ describe("the solid paint", () => {
     // Mutation: leave either legend branch on `seriesShade` -> red.
     for (const legend of [true, { placement: "top-left" as const }]) {
       const spec = { ...energy, legend };
-      const solid = renderGlyphChart(spec, { charset: "box", color: "css" });
+      const solid = renderGlyphChart(spec, { charset: "box", color: "css", regionFill: "auto" });
       const solidRows = htmlRows(solid.html!);
       const textureRows = gridRows(solid);
       for (const name of SOURCES) expect(swatchBefore(solidRows, name), `${name} solid swatch`).toBe("█");
       expect(SOURCES.map((name) => swatchBefore(textureRows, name))).toEqual(["█", "░", "▚", "╱"]);
     }
-    const pieRows = htmlRows(renderGlyphChart(pie, { charset: "box", color: "css" }).html!);
+    const pieRows = htmlRows(renderGlyphChart(pie, { charset: "box", color: "css", regionFill: "auto" }).html!);
     for (const { s } of shares) expect(swatchBefore(pieRows, s), `${s} pie swatch`).toBe("█");
     // Callouts are untouched by the fill.
     expect(pieRows.join("\n")).toMatch(/Coal · 39%/);
@@ -234,10 +262,10 @@ describe("the solid paint", () => {
   });
 
   it("Copy ANSI (`text` under an ANSI mode on the web) carries solid colour; the ANSI html at textScale 2 does too", () => {
-    const ansi = renderGlyphChart(energy, { color: "ansi256" });
+    const ansi = renderGlyphChart(energy, { color: "ansi256", regionFill: "auto" });
     const stripped = ansi.text.replace(/\x1b\[[0-9;]*m/g, "").split("\n");
     for (const glyph of PURE_TEXTURE_GLYPHS) expect(count(stripped, glyph)).toBe(0);
-    const dense = renderGlyphChart(energy, { color: "ansi256", width: 192, height: 64, textScale: 2 });
+    const dense = renderGlyphChart(energy, { color: "ansi256", width: 192, height: 64, textScale: 2, regionFill: "auto" });
     for (const glyph of PURE_TEXTURE_GLYPHS) expect(count(htmlRows(dense.html!), glyph)).toBe(0);
   });
 });
@@ -288,8 +316,10 @@ describe("byte-identity against the commit before regionFill existed (reviewFixt
       for (const [color, exit] of exits) {
         const key = `${i}:${charset}:${color}:${exit}`;
         expect(hash(renderGlyphChart(spec, { ...base, color, regionFill: "texture" })[exit]!), `${key} texture`).toBe(parent[key]);
-        const auto = renderGlyphChart(spec, { ...base, color })[exit]!;
-        if (glyphChartRegionFill(spec, { ...base, color }).fill === "texture") expect(hash(auto), `${key} auto`).toBe(parent[key]);
+        // `regionFill: "auto"` explicit — the library's own default is "texture", which would make this
+        // branch's own `fill === "texture"` check vacuously true and never exercise the solid resolver.
+        const auto = renderGlyphChart(spec, { ...base, color, regionFill: "auto" })[exit]!;
+        if (glyphChartRegionFill(spec, { ...base, color, regionFill: "auto" }).fill === "texture") expect(hash(auto), `${key} auto`).toBe(parent[key]);
       }
     }
   });
@@ -297,6 +327,8 @@ describe("byte-identity against the commit before regionFill existed (reviewFixt
   it("a multi-series coloured chart really does change (the exception is not vacuous)", () => {
     const i = goodSpecs.findIndex((s) => s.marks[0]!.type === "arc" && s.marks[0]!.data.length === 3 && typeof s.marks[0]!.channels.fill === "string");
     expect(i).toBeGreaterThanOrEqual(0);
-    expect(hash(renderGlyphChart(goodSpecs[i]!, { width: 60, height: 24, charset: "box", color: "css" }).html!)).not.toBe(parent[`${i}:box:css:html`]);
+    // `regionFill: "auto"` explicit — the library's own default is "texture", which is byte-identical
+    // to the pre-regionFill parent by construction and would make this exception check vacuous.
+    expect(hash(renderGlyphChart(goodSpecs[i]!, { width: 60, height: 24, charset: "box", color: "css", regionFill: "auto" }).html!)).not.toBe(parent[`${i}:box:css:html`]);
   });
 });

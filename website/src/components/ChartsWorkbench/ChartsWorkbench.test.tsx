@@ -2121,16 +2121,16 @@ describe("ChartsWorkbench — Textures row", () => {
     vi.restoreAllMocks();
   });
 
-  it("defaults to solid bands on web + css; toggling Textures on paints every texture with colour still on", () => {
-    // Mutation: drop `regionFill` from `chartsWorkbenchRenderOptions` -> the "on" half goes red.
+  it("defaults to textured bands on web + css (USER DECISION: faithful to glyphcss rendering, not auto's nuanced solid resolution); toggling Textures off forces solid with colour still on", () => {
+    // Mutation: force `regionFill` into `chartsWorkbenchRenderOptions`'s own default (or drop it from the "off" click) -> either half goes red.
     mount(energy());
-    for (const glyph of TEXTURES) expect(output().includes(glyph), `default has ${glyph}`).toBe(false);
+    for (const glyph of TEXTURES) expect(output().includes(glyph), `default has ${glyph}`).toBe(true);
     expect(option("auto").getAttribute("aria-pressed")).toBe("true");
-    expect(row().getAttribute("title")).toMatch(/solid now/);
-    act(() => option("on").click());
-    for (const glyph of TEXTURES) expect(output().includes(glyph), `textures on has ${glyph}`).toBe(true);
+    expect(row().getAttribute("title")).toMatch(/textures now/);
+    act(() => option("off").click());
+    for (const glyph of TEXTURES) expect(output().includes(glyph), `textures off has ${glyph}`).toBe(false);
     expect(container.querySelector("pre.glyph-output span[style*='color']")).not.toBeNull();
-    expect(option("on").getAttribute("aria-pressed")).toBe("true");
+    expect(option("off").getAttribute("aria-pressed")).toBe("true");
   });
 
   it("Copy ASCII of the coloured, solid chart still carries every series' texture", async () => {
@@ -2160,7 +2160,13 @@ describe("ChartsWorkbench — Textures row", () => {
     }
     mount(reduceChartsWorkbenchState(energy(), { type: "set-control", control: { type: "target", value: "terminal" } }));
     expect(option("off").disabled).toBe(false);
-    expect(row().getAttribute("title")).toMatch(/textures now — A terminal copy can lose its colour/);
+    // The row's own "auto" preview now asks what OMITTING `regionFill`
+    // actually renders (USER DECISION: faithful to glyphcss rendering) —
+    // that request short-circuits ahead of any target-based reasoning, so
+    // every context reads the same "requested-texture" message here, never
+    // the old target-terminal-specific one (which `option("off")`'s own
+    // `solidUnavailable` reason, checked above, still carries per case).
+    expect(row().getAttribute("title")).toMatch(/textures now — Textures were requested\./);
   });
 
   it("the Chart folder reset clears the row back to auto, and choosing auto stores nothing", () => {

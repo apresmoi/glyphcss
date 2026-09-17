@@ -135,13 +135,28 @@ function ansiColorMode(mode: GlyphChartColorMode): "16" | "256" | "truecolor" {
  * Reads only the options that decide it (`target`, `color`, `env`,
  * `regionFill`); throws the same tagged errors the render would.
  */
+/**
+ * `regionFill`'s own default. USER DECISION, verbatim: "I think I don't
+ * want the region fill, I want to be faithful to glyphcss rendering, then
+ * we can have it in the future, but not now".
+ *
+ * `"auto"` resolved to a SOLID fill on essentially every coloured web chart
+ * ("colors-distinct"), and `paintSolidCellBackgrounds` then gave each `#`
+ * cell a matching `background-color` to hide sub-pixel seams — so a bar
+ * chart rendered as real filled rectangles and stopped reading as glyph
+ * output at all. `"texture"` keeps every region mark on its own shade-family
+ * glyph, which is what the plain-text exit has always shown. `"auto"` and
+ * `"solid"` both remain reachable explicitly.
+ */
+export const GLYPH_CHART_DEFAULT_REGION_FILL = "texture" as const;
+
 export function glyphChartRegionFill(input: GlyphChartInput, options: GlyphChartRenderOptions = {}): GlyphChartRegionFillResolution {
   const spec = validateGlyphChartSpec(normalizeGlyphChartInput(input));
   validateGlyphChartRegionFill(options.regionFill);
   const target: GlyphChartTarget = options.target ?? "web";
   const color: GlyphChartColorMode = options.color ?? GLYPH_CHART_TARGET_DEFAULTS[target].color;
   return resolveGlyphChartRegionFill(resolveGlyphChartSpec(spec), {
-    requested: options.regionFill ?? "auto", color, colorEnabled: glyphChartColorEnabled(color, options.env), target,
+    requested: options.regionFill ?? GLYPH_CHART_DEFAULT_REGION_FILL, color, colorEnabled: glyphChartColorEnabled(color, options.env), target,
   });
 }
 
@@ -184,12 +199,13 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   // The ANSI encoder's non-empty env flags also determine whether colour
   // can carry series identity; suppressed colour needs monochrome styles.
   const colorEnabled = glyphChartColorEnabled(color, options.env);
-  const regionFill = resolveGlyphChartRegionFill(marks, { requested: options.regionFill ?? "auto", color, colorEnabled, target });
+  const regionFill = resolveGlyphChartRegionFill(marks, { requested: options.regionFill ?? GLYPH_CHART_DEFAULT_REGION_FILL, color, colorEnabled, target });
   // `canvas` is ALWAYS the textured paint: it feeds every colour-free exit
   // (and a chart-as-texture, F2), so a coloured chart's plain text still
   // tells its series apart. A solid resolution paints a second canvas that
   // only the colour-carrying exits read; its ledger is the same paint's and
-  // is discarded (`DIAGNOSIS-solid-colour-fills.md` §4).
+  // is discarded. A repaint, not a post-paint glyph swap: swapping needs a
+  // per-cell record of which region painted each cell and what overwrote it.
   paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale }, ledger);
   let colorCanvas = canvas;
   if (regionFill.fill === "solid") {

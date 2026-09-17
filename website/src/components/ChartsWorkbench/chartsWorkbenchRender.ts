@@ -355,12 +355,22 @@ export const CHARTS_CHAT_TEXTURE_REASON = "Chat never shows colour, so textures 
  * `renderGlyphChart` calls) with the SAME styled spec and options the render
  * uses, so the row's reason can never disagree with the picture. `null` when
  * the spec does not validate (the render is failing anyway).
+ *
+ * The "auto" preview clears `regionFill` back to `undefined` rather than
+ * forcing the literal `"auto"` string: that IS what clicking the Dock's own
+ * "auto" option sends (`set-region-fill`'s reducer clears the field, never
+ * writes `"auto"` — `chartsUrlState.ts` normalizes a decoded `"auto"` the
+ * same way), and it is what the untouched/default state already carries.
+ * The library's own default is `"texture"` (USER DECISION: faithful to
+ * glyphcss rendering, not auto's nuanced colour-collision resolution) — so
+ * forcing the literal string here would preview a DIFFERENT render than the
+ * one selecting "auto" (or doing nothing) actually produces.
  */
 export function chartsWorkbenchRegionFillStatus(state: ChartsWorkbenchState): ChartsWorkbenchRegionFillStatus | null {
   try {
     const spec = buildStyledChartsWorkbenchSpec(state);
     const options = chartsWorkbenchRenderOptions(state);
-    const auto = glyphChartRegionFill(spec, { ...options, regionFill: "auto" });
+    const auto = glyphChartRegionFill(spec, { ...options, regionFill: undefined });
     if (auto.reason === "no-region-mark") return { auto, inapplicable: auto.message };
     // `TargetPreview` strips colour on chat whatever the render carries, so a
     // solid fill could never reach the reader there.

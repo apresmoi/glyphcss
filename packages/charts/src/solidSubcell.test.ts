@@ -1,5 +1,5 @@
 /**
- * `regionFill` follow-ups (docs/design/charts.md "Round 25"):
+ * `regionFill` follow-ups:
  *
  * - A: sankey ribbons, node-adjacent routes and funnel bars follow the
  *   whole-chart `regionFill` decision like every other region mark, without
@@ -55,7 +55,11 @@ const fan: GlyphChartSpec = { marks: [glyphChartSankey([
   { a: "In A", b: "Hub", v: 30 }, { a: "In B", b: "Hub", v: 20 }, { a: "In C", b: "Hub", v: 10 },
   { a: "Hub", b: "Out X", v: 25 }, { a: "Hub", b: "Out Y", v: 25 }, { a: "In A", b: "Out Y", v: 5 },
 ], { source: "a", target: "b", value: "v" })] };
-const WEB: GlyphChartRenderOptions = { target: "web", width: 96, height: 32, charset: "braille", color: "css" };
+// `regionFill: "auto"` explicit: the library's own default is now "texture"
+// (glyphcss AGENTS.md/render.ts's `GLYPH_CHART_DEFAULT_REGION_FILL`), but
+// every test in this file is exercising the SOLID sub-cell painter, which
+// auto still resolves to for these colour-distinct fixtures.
+const WEB: GlyphChartRenderOptions = { target: "web", width: 96, height: 32, charset: "braille", color: "css", regionFill: "auto" };
 
 interface Cell { readonly ch: string; readonly fg: string | null; readonly bg: string | null }
 
@@ -134,7 +138,7 @@ describe("A: sankey and funnel follow regionFill", () => {
     // Mutation: put sankey/funnel back behind the flow-mark clause (or drop them from SOLID_CAPABLE_MARK_TYPES) -> red.
     for (const spec of [energySankey, funnel, fan]) {
       expect(glyphChartRegionFill(spec, WEB)).toMatchObject({ fill: "solid", reason: "colors-distinct" });
-      expect(glyphChartRegionFill(spec, { target: "terminal" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
+      expect(glyphChartRegionFill(spec, { target: "terminal", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
       expect(glyphChartRegionFill(spec, { ...WEB, color: "none" })).toMatchObject({ fill: "texture", reason: "color-off" });
       const oneHex = { marks: [{ ...spec.marks[0]!, options: { ...spec.marks[0]!.options, color: "#ff0000" } }] };
       expect(glyphChartRegionFill(oneHex, WEB)).toMatchObject({ fill: "texture", reason: "colors-collide" });
@@ -393,7 +397,8 @@ describe("B: sub-cell boundaries between solid bands", () => {
     const specs = [...goodSpecs, energyArea, stackedBar].filter((s) => s.marks.every((m) => m.type !== "cell" && m.type !== "sankey" && m.type !== "funnel"));
     let changed = 0;
     for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) for (const [w, h] of [[60, 24], [96, 32]] as const) {
-      const opts: GlyphChartRenderOptions = { width: w, height: h, charset, color: "css" };
+      // `regionFill: "auto"` explicit — this test wants the specs auto still resolves solid for; the library's own default is "texture".
+      const opts: GlyphChartRenderOptions = { width: w, height: h, charset, color: "css", regionFill: "auto" };
       if (glyphChartRegionFill(spec, opts).fill !== "solid") continue;
       const solid = htmlCells(renderGlyphChart(spec, opts).html!);
       const whole = htmlCells(renderGlyphChart(spec, { ...opts, regionFill: "texture" }).html!)
@@ -446,7 +451,8 @@ describe("Round 27: under solid, a write owns its whole cell, and a half-cell ed
     const specs = [...goodSpecs, energyArea, stackedBar, energySankey, funnel, ...(["top-left", "top-right", "bottom-left", "bottom-right"] as const).map(thinUnderLegend), ...overlays];
     let twoColour = 0, blocks = 0;
     for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) for (const [w, h, s] of [[60, 24, 1], [96, 32, 1], [120, 48, 2]] as const) {
-      if (glyphChartRegionFill(spec, { width: w, height: h, charset, color: "css" }).fill !== "solid") continue;
+      // `regionFill: "auto"` explicit — only specs auto still resolves solid for; the library's own default is "texture".
+      if (glyphChartRegionFill(spec, { width: w, height: h, charset, color: "css", regionFill: "auto" }).fill !== "solid") continue;
       const canvas = solidCanvas(spec, charset, w, h, s);
       const { char, color } = canvas.grid;
       for (let idx = 0; idx < char.length; idx++) {
