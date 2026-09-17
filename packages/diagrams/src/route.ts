@@ -1,9 +1,25 @@
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramError } from "./validate";
-import { GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
+import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRect, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import { ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 
-export const GLYPH_DIAGRAM_ROUTE_COSTS = Object.freeze({ bend: 4, crossing: 12 });
+export const GLYPH_DIAGRAM_ROUTE_COSTS = Object.freeze({ bend: 4, crossing: 12, groupClearance: 4 });
+/**
+ * How many cells outside a group's rendered dot ring a route pays extra to
+ * cross through — never a hard block, since an edge legitimately entering
+ * or leaving the group must still be free to do so at whatever cost the
+ * rest of the graph demands. USER FEEDBACK, verbatim: "some of the lines
+ * that are dotted are hard to understand on what is the direction...
+ * probably if we have a block that is dotted we need some padding around
+ * them". A cell strictly inside or on the group's own rect (`inside(p, r,
+ * 0)`) is NOT penalised — that is where a crossing edge legitimately walks
+ * — only the ring immediately outside it is, which is exactly where a
+ * route running parallel to the boundary used to sit flush against its own
+ * dots. `paint.ts`'s boundary loop still yields at a genuine crossing; this
+ * is what gives it real gaps to yield INTO for a long parallel run instead
+ * of the ring being the only free lane available.
+ */
+export const GLYPH_DIAGRAM_GROUP_CLEARANCE_RING = 1;
 export interface GlyphDiagramRoute { readonly edge: GlyphDiagramEdge; readonly cells: readonly GlyphCanvasPoint[] }
 export interface GlyphDiagramRoutingOptions { readonly width?: number; readonly height?: number; readonly bendCost?: number; readonly crossingCost?: number; readonly obstacles?: readonly GlyphDiagramRect[] }
 export interface GlyphDiagramRoutingResult { readonly routes: readonly GlyphDiagramRoute[]; readonly unroutable: readonly string[]; readonly ledger: readonly GlyphDiagramLedgerEntry[] }
@@ -25,6 +41,14 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   if ([options.bendCost, options.crossingCost].some((v) => v !== undefined && (!Number.isFinite(v) || v < 0))) glyphDiagramError("bad-options", "Routing costs must be finite nonnegative numbers.");
   const used = new Map<string, { axis: number; point: GlyphCanvasPoint }>();
   const routes: GlyphDiagramRoute[] = [], unroutable: string[] = [], ledger: GlyphDiagramLedgerEntry[] = [];
+  // Mirrors `paint.ts`'s own group-rect computation exactly (same helper),
+  // so the ring this pays extra to cross is the same rectangle the painter
+  // rings with dots.
+  const groupRects = layout.groups
+    .map((group) => glyphDiagramGroupRect(layout.nodes.filter((n) => group.members.includes(n.id)), { cols, rows }))
+    .filter((r): r is GlyphDiagramRect => r !== undefined);
+  const groupClearanceCost = (p: GlyphCanvasPoint): number =>
+    groupRects.some((r) => inside(p, r, GLYPH_DIAGRAM_GROUP_CLEARANCE_RING) && !inside(p, r)) ? GLYPH_DIAGRAM_ROUTE_COSTS.groupClearance : 0;
   const ports = new Map(layout.edges.map((e) => [e.id, layout.ports.filter((p) => p.edgeId === e.id)]));
   const ordered = [...layout.edges].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   for (const edge of ordered) {
@@ -71,7 +95,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
         const p = { x: current.x + steps[dir]!.x, y: current.y + steps[dir]!.y };
         if (same(p, goal) && dir !== endDir) continue;
         if (!isFree(p, dir, current)) continue;
-        const cost = current.cost + 1 + (dir === current.dir ? 0 : options.bendCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.bend) + (used.has(key(p)) ? options.crossingCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.crossing : 0);
+        const cost = current.cost + 1 + (dir === current.dir ? 0 : options.bendCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.bend) + (used.has(key(p)) ? options.crossingCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.crossing : 0) + groupClearanceCost(p);
         const stateKey = `${key(p)},${dir}`;
         if (cost >= (best.get(stateKey) ?? Infinity)) continue;
         best.set(stateKey, cost);

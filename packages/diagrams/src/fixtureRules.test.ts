@@ -6,7 +6,7 @@ import { renderGlyphDiagram } from "./render";
 import { glyphGraphFromMermaid } from "./mermaid";
 import { glyphDiagramRectsOverlap } from "./labels";
 import { paintGlyphDiagram } from "./paint";
-import { layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, canonicalizeGlyphGraph } from "./pipeline";
+import { layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, canonicalizeGlyphGraph, glyphDiagramGroupRect } from "./pipeline";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/${name}.mmd`), "utf8");
 const inside = (p: { x: number; y: number }, n: { x0: number; y0: number; x1: number; y1: number }) => p.x >= n.x0 && p.x <= n.x1 && p.y >= n.y0 && p.y <= n.y1;
@@ -64,6 +64,45 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     }
   });
 }
+
+// USER FEEDBACK, verbatim: "some of the lines that are dotted are hard to
+// understand on what is the direction — I think that because we have kind
+// of blocks that are dotted and also arrows that are dotted — probably if
+// we have a block that is dotted we need some padding around them to show
+// it properly, with some spacing around". A regression here means the
+// group ring and some other element's route are back to touching, the
+// exact ambiguity the padding/clearance change exists to remove.
+it.each(["agent-guardrail", "agent-supervisor", "event-queue", "rag-pipeline", "subgraph", "transformer-block"])(
+  "%s: a painted group boundary cell never sits orthogonally adjacent to another element's route cell",
+  async (name) => {
+    const r = await renderGlyphDiagram(fixture(name), { target: "web" });
+    expect(r.pages).toHaveLength(1);
+    expect(r.layout.groups.length).toBeGreaterThan(0);
+    const dot = GLYPH_CANVAS_TIERS[r.canvas.tier].dot;
+    const routeCells = new Set(r.routes.flatMap((route) => route.cells.map((p) => `${p.x},${p.y}`)));
+    let boundaryCellsSeen = 0;
+    for (const group of r.layout.groups) {
+      const nodes = r.layout.nodes.filter((n) => group.members.includes(n.id));
+      const rect = glyphDiagramGroupRect(nodes, { cols: r.canvas.cols, rows: r.canvas.rows });
+      if (!rect) continue;
+      for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
+        if (x !== rect.x0 && x !== rect.x1 && y !== rect.y0 && y !== rect.y1) continue;
+        // Only a cell the painter actually rang with its own dot glyph is a
+        // real boundary cell — one it left blank (a crossing, or a label)
+        // claims no ring at all, so there is nothing here for a route to be
+        // "adjacent to".
+        if (r.canvas.grid.char[y * r.canvas.cols + x] !== dot) continue;
+        boundaryCellsSeen++;
+        for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
+          expect(routeCells.has(`${nx},${ny}`), `${group.id} boundary (${x},${y}) touches a route at (${nx},${ny})`).toBe(false);
+        }
+      }
+    }
+    // Mutation guard: the fixture must actually paint a real ring, or the
+    // loop above would pass vacuously.
+    expect(boundaryCellsSeen).toBeGreaterThan(0);
+  },
+);
 
 it.each(["TB", "BT", "LR", "RL"] as const)("real dagre %s respects measured cell extents and rank separation", async (direction) => {
   const r = await layoutGlyphGraph(glyphGraphFromMermaid(`graph ${direction}; A[short] --> B[longer label]`), { ranksep: 7, nodesep: 5, margin: 2 });

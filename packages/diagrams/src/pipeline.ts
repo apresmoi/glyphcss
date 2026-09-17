@@ -6,6 +6,17 @@ import { ledgerGroupMemberList, ledgerLabelFolded, type GlyphDiagramLedgerEntry 
 
 export const GLYPH_DIAGRAM_NODE_PAD = Object.freeze({ x: 1, y: 0 });
 export interface GlyphDiagramRect { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number }
+/** A group's own member-node bbox padded on every side, clamped to the canvas — the exact rectangle the painter rings with dots. Shared with `route.ts`'s clearance cost so "where the router keeps clear" and "where the boundary is drawn" can never drift apart. */
+export const GLYPH_DIAGRAM_GROUP_PAD = 2;
+export function glyphDiagramGroupRect(memberNodes: readonly GlyphDiagramRect[], bounds: { readonly cols: number; readonly rows: number }): GlyphDiagramRect | undefined {
+  if (!memberNodes.length) return undefined;
+  return {
+    x0: Math.max(0, Math.min(...memberNodes.map((n) => n.x0)) - GLYPH_DIAGRAM_GROUP_PAD),
+    y0: Math.max(0, Math.min(...memberNodes.map((n) => n.y0)) - GLYPH_DIAGRAM_GROUP_PAD),
+    x1: Math.min(bounds.cols - 1, Math.max(...memberNodes.map((n) => n.x1)) + GLYPH_DIAGRAM_GROUP_PAD),
+    y1: Math.min(bounds.rows - 1, Math.max(...memberNodes.map((n) => n.y1)) + GLYPH_DIAGRAM_GROUP_PAD),
+  };
+}
 export interface GlyphDiagramMeasuredNode extends GlyphGraphNode { readonly width: number; readonly height: number; readonly lines: readonly string[] }
 export interface GlyphDiagramEdge extends GlyphGraphEdge { readonly id: string }
 export interface GlyphDiagramMeasuredGraph {

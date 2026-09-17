@@ -1,7 +1,7 @@
 import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection } from "glyphcss";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
 import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
-import type { GlyphDiagramLayout, GlyphDiagramRect } from "./pipeline";
+import { glyphDiagramGroupRect, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
 
@@ -11,8 +11,8 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   const tier = GLYPH_CANVAS_TIERS[charset], colored = options.color !== "none";
   const color = colored ? "#94a3b8" : null, accent = colored ? "#38bdf8" : null;
   const ledger: GlyphDiagramLedgerEntry[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
-  const count = new Map<string, number>();
-  for (const route of routing.routes) for (const p of route.cells) { const k = `${p.x},${p.y}`; count.set(k, (count.get(k) ?? 0) + 1); obstacles.push({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); }
+  const count = new Map<string, number>(), routeCells = new Set<string>();
+  for (const route of routing.routes) for (const p of route.cells) { const k = `${p.x},${p.y}`; count.set(k, (count.get(k) ?? 0) + 1); routeCells.add(k); obstacles.push({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); }
   for (const route of routing.routes) { canvas.edge(route.edge.id, route.edge); canvas.route(route.edge.id, route.cells); }
   canvas.resolveJunctions();
   // Style only exclusive straight cells, preserving the resolver's corner and crossing verdicts.
@@ -39,7 +39,15 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
         : next ? (next.x === p.x ? "v" : "h")
         : undefined;
       let glyph = canvas.grid.char[p.y * canvas.cols + p.x]!;
-      if (axis && route.edge.style === "dotted") { glyph = dotPhase % 2 ? " " : tier.dot; dotPhase++; }
+      // A dotted EDGE uses the axis-oriented `hop` glyph (`╌`/`╎`), never the
+      // isotropic `dot` a group boundary rings itself with — USER FEEDBACK,
+      // verbatim: "some of the lines that are dotted are hard to understand
+      // on what is the direction... because we have kind of blocks that are
+      // dotted and also arrows that are dotted". `hop` already reads as "a
+      // broken rule" (tiers.ts's own doc, reused here rather than invented)
+      // and, unlike a round dot, tells a horizontal run from a vertical one
+      // on sight — the direction cue the isotropic dot could never give.
+      if (axis && route.edge.style === "dotted") { glyph = dotPhase % 2 ? " " : tier.hop[axis]; dotPhase++; }
       if (axis && route.edge.style === "thick") glyph = tier.double[axis];
       canvas.text(p.x, p.y, [glyph], { color });
     });
@@ -48,7 +56,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   for (const group of layout.groups) {
     const nodes = layout.nodes.filter((n) => group.members.includes(n.id));
     if (!nodes.length) continue;
-    const rect = { x0: Math.max(0, Math.min(...nodes.map((n) => n.x0)) - 2), y0: Math.max(0, Math.min(...nodes.map((n) => n.y0)) - 2), x1: Math.min(canvas.cols - 1, Math.max(...nodes.map((n) => n.x1)) + 2), y1: Math.min(canvas.rows - 1, Math.max(...nodes.map((n) => n.y1)) + 2) };
+    const rect = glyphDiagramGroupRect(nodes, { cols: canvas.cols, rows: canvas.rows })!;
     const unrelatedInside = layout.nodes.some((node) => !group.members.includes(node.id) && glyphDiagramRectsOverlap(node, rect));
     const partialOverlap = layout.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id)) && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
     if (unrelatedInside || partialOverlap) {
@@ -57,10 +65,25 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       continue;
     }
     // Group boundaries are annotation, never opaque routing obstacles; gaps preserve any route crossing the enclosure.
+    // USER FEEDBACK, verbatim: "some of the lines that are dotted are hard
+    // to understand on what is the direction — I think that because we
+    // have kind of blocks that are dotted and also arrows that are dotted
+    // — probably if we have a block that is dotted we need some padding
+    // around them to show it properly, with some spacing around". A
+    // boundary cell strictly ON a route cell already yields (the overlap
+    // check above); a boundary cell merely TOUCHING one — a route running
+    // flush alongside the enclosure, or the single cell either side of a
+    // genuine crossing — still read as the same dot family bleeding into
+    // whatever crosses it. `routeGlyphGraphEdges` now keeps a route's own
+    // path a ring away from a group's rendered rect wherever the layout can
+    // afford it (`GROUP_CLEARANCE_RING` in `route.ts`), so this is a real
+    // gap in the common case and a one-cell notch at an unavoidable
+    // crossing, never a blanked-out wall.
     for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
       if (x !== rect.x0 && x !== rect.x1 && y !== rect.y0 && y !== rect.y1) continue;
       const cell = { x0: x, y0: y, x1: x, y1: y };
       if (obstacles.some((o) => glyphDiagramRectsOverlap(o, cell))) continue;
+      if (([[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const).some(([nx, ny]) => routeCells.has(`${nx},${ny}`))) continue;
       canvas.text(x, y, [tier.dot], { color });
     }
     if (group.label) candidates.push({ id: `group:${group.id}`, text: group.label, x: Math.floor((rect.x0 + rect.x1) / 2), y: rect.y0, priority: 1, maxWidth: rect.x1 - rect.x0 - 1 });
