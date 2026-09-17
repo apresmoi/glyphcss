@@ -52,8 +52,18 @@ const NODE_SHAPE_GLYPHS_BOX_LIKE: Readonly<Partial<Record<GlyphGraphNodeShape, G
   stadium: { corners: ["◜", "◝", "◟", "◞"] },
   cylinder: { corners: ["◜", "◝", "◟", "◞"] },
   circle: { corners: ["◜", "◝", "◟", "◞"], topRule: "◠", bottomRule: "◡" },
-  diamond: { corners: ["╭", "╮", "╰", "╯"], sideLeft: "◀", sideRight: "▶" },
-  asymmetric: { corners: ["┌", "╲", "└", "╱"], sideRight: "▶" },
+  // USER FEEDBACK, verbatim: "those arrow heads in nodes should only appear
+  // when there are arrows, otherwise they shouldn't". A side glyph is painted
+  // on EVERY interior row, so `◀`/`▶` sprouted arrowheads down both sides of
+  // any node taller than one row - and where an edge did attach, the router
+  // draws its own arrowhead at the border, so the two doubled up. A node
+  // border must never paint a glyph that reads as a connector.
+  //
+  // `diamond` keeps its rounded corners and a `◆` marker on the label instead
+  // (the "marker only - filled" entry the user approved), which distinguishes
+  // it from `rounded` with no connector-shaped glyph anywhere.
+  diamond: { corners: ["╭", "╮", "╰", "╯"] },
+  asymmetric: { corners: ["┌", "╲", "└", "╱"] },
 };
 const NODE_SHAPE_GLYPHS: Readonly<Record<GlyphCanvasTierName, Readonly<Partial<Record<GlyphGraphNodeShape, GlyphDiagramShapeGlyphs>>>>> = {
   ascii: {

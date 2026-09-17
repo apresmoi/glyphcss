@@ -25,8 +25,8 @@ const SHAPE_OUTLINES: Readonly<Record<GlyphGraphNodeShape, {
   stadium: { corners: ["◜", "◝", "◟", "◞"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   cylinder: { corners: ["◜", "◝", "◟", "◞"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   circle: { corners: ["◜", "◝", "◟", "◞"], topRule: "◠", bottomRule: "◡", sideLeft: "│", sideRight: "│" },
-  diamond: { corners: ["╭", "╮", "╰", "╯"], topRule: "─", bottomRule: "─", sideLeft: "◀", sideRight: "▶" },
-  asymmetric: { corners: ["┌", "╲", "└", "╱"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "▶" },
+  diamond: { corners: ["╭", "╮", "╰", "╯"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
+  asymmetric: { corners: ["┌", "╲", "└", "╱"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   subroutine: { corners: ["┌", "┐", "└", "┘"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
 };
 
