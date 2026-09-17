@@ -1,8 +1,7 @@
 node_modules/
 dist/
-# Legacy site output dir; docs/design/ holds the agent-guide design notes.
-/docs/*
-!/docs/design/
+# Legacy site output dir.
+/docs/
 /scripts/
 coverage/
 .DS_Store
@@ -73,3 +72,5 @@ convo.md
 CHARTS-RESEARCH.md
 CHARTS-RESEARCH/
 AXIS-COMPARE.html
+
+NODE-SHAPES.html
