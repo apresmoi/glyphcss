@@ -104,6 +104,74 @@ it.each(["agent-guardrail", "agent-supervisor", "event-queue", "rag-pipeline", "
   },
 );
 
+// USER FEEDBACK, verbatim: "maybe a rule that for example the label of
+// retry shouldn't be near workers, it should be from the other side of the
+// workers box, otherwise its confusing" — an edge label placed next to a
+// group NEITHER of its own endpoints belongs to reads as annotating that
+// group. `guard -.->|retry| supervisor` touches neither member of
+// `agent-guardrail.mmd`'s "Workers" group (researcher, coder), so its
+// label must land clear of that group's own rect. Mutation: comment out
+// the `nearForeignGroup` sort key in `glyphDiagramLabelLayout` (revert to
+// plain distance order) and this goes red, because "retry"'s nearest cell
+// by pure distance sits flush against the Workers ring.
+it("agent-guardrail: the retry label lands clear of the Workers group it doesn't belong to", async () => {
+  const r = await renderGlyphDiagram(fixture("agent-guardrail"), { target: "web" });
+  expect(r.pages).toHaveLength(1);
+  const workers = r.layout.groups.find((g) => g.id === "team")!;
+  expect(workers).toBeDefined();
+  const memberNodes = r.layout.nodes.filter((n) => workers.members.includes(n.id));
+  const rect = glyphDiagramGroupRect(memberNodes, { cols: r.canvas.cols, rows: r.canvas.rows })!;
+  const grown = { x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 };
+  const retryRoute = r.routes.find((route) => route.edge.label === "retry")!;
+  expect(retryRoute).toBeDefined();
+  const label = r.labels.find((l) => l.id === `edge:${retryRoute.edge.id}`)!;
+  expect(label, "retry label was dropped").toBeDefined();
+  expect(glyphDiagramRectsOverlap(label, grown), `retry label (${label.x0},${label.y0})-(${label.x1},${label.y1}) is inside or adjacent to Workers (${rect.x0},${rect.y0})-(${rect.x1},${rect.y1})`).toBe(false);
+});
+
+// "ALSO CHECK" — what actually drives a group ring's glyph, verified
+// against a GENUINELY nested `subgraph`-in-`subgraph` graph (no shipped
+// fixture nests two groups): every level paints `tier.dot`, never
+// `tier.hop` (the dotted-EDGE family). Mutation: swap `paint.ts`'s ring
+// loop to `tier.hop[...]` for the inner group and this goes red.
+it("a nested group's boundary uses the same round-dot family at every level, never the dotted-edge hop family", async () => {
+  // Unlabelled subgraphs (`subgraph outer` / `subgraph inner`, no
+  // `[Caption]`) so the group's own CAPTION text — a separate, pre-existing
+  // label-vs-ring overlap this task doesn't touch — never lands on a
+  // perimeter cell and muddies what this test checks: the RING glyph
+  // itself, at both nesting levels.
+  const graph = glyphGraphFromMermaid(`flowchart TB
+    subgraph outer
+      A[Start]
+      subgraph inner
+        B(Work) --> C[Done]
+      end
+      A --> B
+    end
+    C --> D[Outside]
+  `);
+  const r = await renderGlyphDiagram(graph, { target: "web" });
+  expect(r.pages).toHaveLength(1);
+  expect(r.layout.groups.map((g) => g.id).sort()).toEqual(["inner", "outer"]);
+  const dot = GLYPH_CANVAS_TIERS[r.canvas.tier].dot;
+  const hop = GLYPH_CANVAS_TIERS[r.canvas.tier].hop;
+  let dotCellsSeen = 0;
+  for (const group of r.layout.groups) {
+    const nodes = r.layout.nodes.filter((n) => group.members.includes(n.id));
+    const rect = glyphDiagramGroupRect(nodes, { cols: r.canvas.cols, rows: r.canvas.rows });
+    if (!rect) continue;
+    for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
+      if (x !== rect.x0 && x !== rect.x1 && y !== rect.y0 && y !== rect.y1) continue;
+      const glyph = r.canvas.grid.char[y * r.canvas.cols + x]!;
+      if (glyph === dot) dotCellsSeen++;
+      expect([hop.h, hop.v], `${group.id} boundary (${x},${y}) painted the dotted-edge hop glyph "${glyph}"`).not.toContain(glyph);
+    }
+  }
+  // Mutation guard: both levels must actually paint a real dot ring, or the
+  // hop-absence check above would pass vacuously.
+  expect(dotCellsSeen).toBeGreaterThan(0);
+});
+
 it.each(["TB", "BT", "LR", "RL"] as const)("real dagre %s respects measured cell extents and rank separation", async (direction) => {
   const r = await layoutGlyphGraph(glyphGraphFromMermaid(`graph ${direction}; A[short] --> B[longer label]`), { ranksep: 7, nodesep: 5, margin: 2 });
   const a = r.nodes.find((n) => n.id === "A")!, b = r.nodes.find((n) => n.id === "B")!;

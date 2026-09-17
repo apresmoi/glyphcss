@@ -1,9 +1,53 @@
-import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection } from "glyphcss";
+import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection, type GlyphCanvasTierName } from "glyphcss";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
 import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphDiagramGroupRect, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
+
+/**
+ * Node-SHAPE corner glyphs — a diagram-local vocabulary (mirrors
+ * `@glyphcss/charts`' own local turn-glyph table in `flowMarks.ts`'s
+ * sankey painter), not `glyphcss`'s shared `GLYPH_CANVAS_TIERS`: these are
+ * specific to how THIS package draws a flowchart node's four corners, not
+ * a general canvas primitive every consumer needs. Keyed by charset so
+ * switching charsets is a data lookup, never a branch on the charset's
+ * name — `ascii` (no box-drawing repertoire) keeps the plain
+ * parenthesis/slash fallback every charset used before this table existed.
+ * Every glyph here is confirmed present in the website's own Glyph Mono
+ * subset (`website/src/components/TargetPreview/glyphMonoCmap.json`).
+ *
+ * USER FEEDBACK, verbatim: "these nodes with (───────)▶ Lin 1 │(───────)
+ * are a bit weird, could we use other chars? maybe curved corners?" and
+ * "also these ones are a bit weird, /───────────\\ // could we try to
+ * improve them?" — `rounded`/`diamond` used to share the exact two glyphs
+ * `circle`/`stadium` and `asymmetric` used respectively, on every charset
+ * including `box`, so neither corner ever met the box tier's own `─`/`│`
+ * rule at a matching stroke weight.
+ *
+ * Three distinct weights on `box`/`blocks`/`braille` (all three share the
+ * box-drawing repertoire `tier.junction` already draws a plain `rect`'s
+ * SHARP corners from — untouched): `rounded` now gets real box-drawing
+ * ROUND corners (`╭╮╰╯`), a subtler curve than a parenthesis and a match
+ * for Mermaid's own "gently rounded rectangle" reading of `(text)`;
+ * `circle`/`stadium` KEEP the parenthesis pair — a full parenthesis curve
+ * reads rounder than `╭╮╰╯` even at a glance, which is the right direction
+ * for Mermaid's own fuller ellipse (`((text))`) and pill (`([text])`)
+ * shapes, and gives three genuinely distinct weights (sharp < rounded <
+ * fully round) instead of `rounded` collapsing into `circle`/`stadium`'s
+ * own look. `diamond` gets real box-drawing DIAGONALS (`╱╲`, the same
+ * stroke weight and cell-edge meeting point as `─`/`│`) in place of the
+ * plain ASCII `/`/`\\`, which sat at a visibly different weight and never
+ * quite touched the horizontal rule; `asymmetric`'s `>`/`]` pair is
+ * untouched (Mermaid's own flag shape has no natural box-drawing corner).
+ */
+type GlyphDiagramShapeCornerFamily = "rounded" | "round" | "diamond";
+const NODE_SHAPE_CORNERS: Readonly<Record<GlyphCanvasTierName, Readonly<Record<GlyphDiagramShapeCornerFamily, readonly [string, string, string, string]>>>> = {
+  ascii: { rounded: ["(", ")", "(", ")"], round: ["(", ")", "(", ")"], diamond: ["/", "\\", "\\", "/"] },
+  box: { rounded: ["╭", "╮", "╰", "╯"], round: ["(", ")", "(", ")"], diamond: ["╱", "╲", "╲", "╱"] },
+  blocks: { rounded: ["╭", "╮", "╰", "╯"], round: ["(", ")", "(", ")"], diamond: ["╱", "╲", "╲", "╱"] },
+  braille: { rounded: ["╭", "╮", "╰", "╯"], round: ["(", ")", "(", ")"], diamond: ["╱", "╲", "╲", "╱"] },
+};
 
 /** Always paints into fresh storage: re-registering a route cannot erase its old canvas glyphs. */
 export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number }): GlyphDiagramPage & { ledger: GlyphDiagramLedgerEntry[]; unsupportedGlyphs: string[] } {
@@ -53,6 +97,10 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     });
   }
   const candidates: GlyphDiagramLabelCandidate[] = [];
+  // Populated only for a group that actually gets a drawn dotted ring below
+  // (never a group that degraded to a plain member-list caption) — an edge
+  // label has nothing to stay clear of where there is no boundary painted.
+  const drawnGroupRects = new Map<string, GlyphDiagramRect>();
   for (const group of layout.groups) {
     const nodes = layout.nodes.filter((n) => group.members.includes(n.id));
     if (!nodes.length) continue;
@@ -64,6 +112,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "unrelated-nodes" }));
       continue;
     }
+    drawnGroupRects.set(group.id, rect);
     // Group boundaries are annotation, never opaque routing obstacles; gaps preserve any route crossing the enclosure.
     // USER FEEDBACK, verbatim: "some of the lines that are dotted are hard
     // to understand on what is the direction — I think that because we
@@ -79,6 +128,16 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     // afford it (`GROUP_CLEARANCE_RING` in `route.ts`), so this is a real
     // gap in the common case and a one-cell notch at an unavoidable
     // crossing, never a blanked-out wall.
+    // `tier.dot` (an isotropic round dot) is EVERY group's own ring glyph,
+    // at every nesting depth — never `tier.hop` (the axis-oriented dash a
+    // DOTTED EDGE uses, see the route-cell loop above). A wide back-edge
+    // route (agent-guardrail's own "retry", `guard -.-> supervisor`) can
+    // sweep in a near-rectangle around most of the diagram and read, at a
+    // glance, like a second/outer group ring; keeping the two glyph
+    // families disjoint at every level is what still lets a reader tell
+    // "this rectangle is a group" from "this rectangle is one dotted
+    // edge's own route" on sight. Verified against a genuinely nested
+    // `subgraph`-in-`subgraph` fixture: both levels paint this exact glyph.
     for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
       if (x !== rect.x0 && x !== rect.x1 && y !== rect.y0 && y !== rect.y1) continue;
       const cell = { x0: x, y0: y, x1: x, y1: y };
@@ -105,7 +164,10 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     canvas.line({ x: x0 + 1, y: y1 }, { x: x1 - 1, y: y1 }, { color: accent, subcell: false });
     // A one-cell side has no line direction; use the vertical tier glyph explicitly.
     for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [tier.straight.v], { color: accent }); canvas.text(x1, y, [tier.straight.v], { color: accent }); }
-    const shaped = node.shape === "diamond" ? ["/", "\\", "\\", "/"] : node.shape === "asymmetric" ? [">", "]", ">", "]"] : ["rounded", "circle", "stadium"].includes(node.shape ?? "") ? ["(", ")", "(", ")"] : [tier.junction[6]!, tier.junction[12]!, tier.junction[3]!, tier.junction[9]!];
+    const corners = NODE_SHAPE_CORNERS[charset];
+    const shaped = node.shape === "diamond" ? corners.diamond : node.shape === "asymmetric" ? [">", "]", ">", "]"]
+      : node.shape === "rounded" ? corners.rounded : ["circle", "stadium"].includes(node.shape ?? "") ? corners.round
+      : [tier.junction[6]!, tier.junction[12]!, tier.junction[3]!, tier.junction[9]!];
     [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].forEach(([x, y], i) => canvas.text(x!, y!, [shaped[i]!], { color: accent }));
     if (node.shape === "subroutine") for (let y = y0 + 1; y < y1; y++) { canvas.text(x0 + 1, y, [tier.straight.v], { color: accent }); canvas.text(x1 - 1, y, [tier.straight.v], { color: accent }); }
   }
@@ -119,7 +181,17 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   }
   for (const route of routing.routes) if (route.edge.label) {
     const mid = route.cells[Math.floor(route.cells.length / 2)]!;
-    candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: mid.x, y: mid.y, route: route.cells, maxWidth: Math.min(24, canvas.cols), priority: route.edge.priority });
+    // USER FEEDBACK, verbatim: "the label of retry shouldn't be near
+    // workers, it should be from the other side of the workers box,
+    // otherwise its confusing" — an edge label landing next to a group
+    // NEITHER of its own endpoints belongs to reads as annotating that
+    // group. Only a group this edge doesn't touch at all counts as
+    // foreign; a group the edge enters or leaves is legitimately close to
+    // its own label.
+    const avoid = layout.groups
+      .filter((group) => drawnGroupRects.has(group.id) && !group.members.includes(route.edge.from) && !group.members.includes(route.edge.to))
+      .map((group) => ({ groupId: group.id, rect: drawnGroupRects.get(group.id)! }));
+    candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: mid.x, y: mid.y, route: route.cells, maxWidth: Math.min(24, canvas.cols), priority: route.edge.priority, avoid });
   }
   if (options.title) candidates.push({ id: "title", text: options.title, x: Math.floor(canvas.cols / 2), y: 0, priority: Infinity });
   // REVIEW-diagrams-fanout-opus.md P3-1: `glyphDiagramLabelLayout` only

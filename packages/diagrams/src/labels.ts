@@ -1,6 +1,6 @@
 import { createGlyphCanvas, type GlyphCanvasTierName, type GlyphCanvasPoint } from "glyphcss";
 import type { GlyphDiagramRect } from "./pipeline";
-import { ledgerLabelAbbreviated, ledgerLabelDropped, type GlyphDiagramLedgerEntry } from "./ledger";
+import { ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLabelNearForeignGroup, type GlyphDiagramLedgerEntry } from "./ledger";
 
 /** Ledger phrasing only — never placement/measurement. Mirrors `paint.ts`'s own id prefixes. */
 function labelRole(id: string): string {
@@ -15,6 +15,23 @@ export interface GlyphDiagramLabelCandidate {
   readonly priority?: number; readonly maxWidth?: number;
   /** Edge labels must touch their own route's neighbourhood, or be dropped. */
   readonly route?: readonly GlyphCanvasPoint[];
+  /**
+   * Groups this label PREFERS not to touch — a candidate cell whose own
+   * text span overlaps or is orthogonally adjacent to one of these rects
+   * (checked as overlap against the rect grown by one cell on every side,
+   * which covers both "inside" and "orthogonally adjacent" in one test) is
+   * tried only after every candidate that avoids them entirely. USER
+   * FEEDBACK, verbatim: "the label of retry shouldn't be near workers, it
+   * should be from the other side of the workers box, otherwise its
+   * confusing" — an edge label landing next to a group neither of its
+   * endpoints belongs to reads as annotating that group. This is a
+   * PREFERENCE, not a hard obstacle: with no candidate anywhere on the
+   * label's own route clear of every `avoid` rect, the nearest
+   * otherwise-valid position is still used (a `label-near-foreign-group`
+   * ledger entry names which group) rather than dropping a label the
+   * existing route-adjacency contract already guarantees room for.
+   */
+  readonly avoid?: readonly { readonly rect: GlyphDiagramRect; readonly groupId: string }[];
 }
 export interface GlyphDiagramLabelLayoutOptions {
   readonly charset?: GlyphCanvasTierName;
@@ -53,16 +70,26 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
     if (abbreviated) ledger.push(ledgerLabelAbbreviated({ role, before: label.text, after: text }));
     if (!text) { dropped.push(label.id); ledger.push(ledgerLabelDropped({ role, reason: "there was no room for any text" })); continue; }
     // Distance order keeps an edge label near its route instead of opportunistically jumping to an unrelated row.
-    const positions: { x: number; y: number; distance: number }[] = [];
+    // `avoid` rects (a foreign group's own boundary, grown by one cell so
+    // "inside" and "orthogonally adjacent" are the same overlap test) are a
+    // PREFERENCE ranked ahead of distance: every candidate clear of them is
+    // tried before any candidate that touches one, so the search only ever
+    // lands on a foreign group's doorstep when nothing else on the route
+    // is free.
+    const avoid = (label.avoid ?? []).map(({ rect, groupId }) => ({ groupId, rect: { x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 } }));
+    const touchedGroups = (rect: GlyphDiagramRect) => avoid.filter((a) => glyphDiagramRectsOverlap(a.rect, rect)).map((a) => a.groupId);
+    const positions: { x: number; y: number; distance: number; nearForeignGroup: boolean }[] = [];
     for (let y = 0; y < rows; y++) for (let x = 0; x + text.length <= cols; x++) {
       if (label.route && !label.route.some((p) => Math.max(x - p.x, 0, p.x - (x + text.length - 1)) + Math.abs(y - p.y) === 1)) continue;
-      positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y) });
+      const rect = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
+      positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y), nearForeignGroup: touchedGroups(rect).length > 0 });
     }
-    positions.sort((a, b) => a.distance - b.distance || a.y - b.y || a.x - b.x);
+    positions.sort((a, b) => (a.nearForeignGroup === b.nearForeignGroup ? 0 : a.nearForeignGroup ? 1 : -1) || a.distance - b.distance || a.y - b.y || a.x - b.x);
     const position = positions.find(({ x, y }) => !occupied.some((rect) => glyphDiagramRectsOverlap(rect, { x0: x, y0: y, x1: x + text.length - 1, y1: y })));
     if (!position) { dropped.push(label.id); ledger.push(ledgerLabelDropped({ role, text, reason: "there was no free space near its target" })); continue; }
     const { x, y } = position;
     const result = { id: label.id, x, y, text, abbreviated, x0: x, y0: y, x1: x + text.length - 1, y1: y };
+    for (const groupId of touchedGroups(result)) ledger.push(ledgerLabelNearForeignGroup({ role, text, groupId }));
     placed.push(result); occupied.push(result);
   }
   return { placed, dropped, ledger };

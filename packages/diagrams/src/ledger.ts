@@ -45,6 +45,20 @@ export function ledgerLabelFolded(opts: { readonly nodeId: string; readonly befo
   return entry("label-folded", `Replaced unsupported characters in the "${opts.nodeId}" label — it now reads "${opts.after}".`, { ...opts });
 }
 
+/**
+ * USER FEEDBACK, verbatim: "the label of retry shouldn't be near workers,
+ * it should be from the other side of the workers box, otherwise its
+ * confusing". `glyphDiagramLabelLayout`'s `avoid` preference (`labels.ts`)
+ * tries every candidate clear of a foreign group's rect before ever using
+ * one that isn't; this entry fires only in the rare case where the whole
+ * route offers no such candidate, so the label still lands (least-bad,
+ * never dropped for this reason alone) but a reader — or a future layout
+ * change — can see exactly which label and which group it couldn't clear.
+ */
+export function ledgerLabelNearForeignGroup(opts: { readonly role: string; readonly text: string; readonly groupId: string }): GlyphDiagramLedgerEntry {
+  return entry("label-near-foreign-group", `The ${opts.role} "${opts.text}" has no room clear of group "${opts.groupId}" and was placed next to it anyway.`, { ...opts });
+}
+
 export function ledgerRouteConflict(opts: { readonly kind: "parallel" | "corner" | "multi"; readonly col: number; readonly row: number; readonly edgeIds: readonly string[] }): GlyphDiagramLedgerEntry {
   const ids = opts.edgeIds.join(", ");
   const phrase = opts.kind === "parallel" ? `Connections ${ids} run in parallel through the same cell`
