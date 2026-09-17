@@ -457,7 +457,14 @@ export function reduceGlyphDiagramsWorkbenchState(state: GlyphDiagramsWorkbenchS
 export function glyphDiagramsWorkbenchRenderOptions(state: GlyphDiagramsWorkbenchState, viewportPx?: GlyphPixelBox): GlyphDiagramRenderOptions {
   const resolved = resolveGlyphDiagramsWorkbenchControls(state.controls);
   const size = state.controls.target === "web" ? glyphDiagramsWorkbenchWebGridSize(viewportPx) : { width: resolved.width, height: resolved.height };
-  return { ...resolved, width: size.width, height: size.height, ...state.layout, ...state.diagram,
+  // `state.diagram` is spread WITHOUT its `title` — USER FEEDBACK, verbatim:
+  // "why do we have the titles of the diagrams in the rendering areas? we
+  // should only have the diagrams, not titles". The viewport holds the
+  // render and nothing else, the same rule the ledger readout already
+  // follows; the title still names the diagram in the rail, the aria-label,
+  // the exported snippet and the `?d=` link.
+  const { title: _title, ...diagram } = state.diagram;
+  return { ...resolved, width: size.width, height: size.height, ...state.layout, ...diagram,
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}) };
 }
 /**
@@ -475,7 +482,13 @@ export function glyphDiagramsWorkbenchRenderOptions3d(state: GlyphDiagramsWorkbe
     ...(state.layout.direction ? { direction: state.layout.direction } : {}),
     nodesep: state.layout.nodesep, ranksep: state.layout.ranksep,
     target: controls.target, charset: controls.charset, color: controls.color,
-    width: controls.width, height: controls.height, title: state.diagram.title,
+    // No `title` — USER FEEDBACK, verbatim: "why do we have the titles of
+    // the diagrams in the rendering areas? we should only have the diagrams,
+    // not titles". The library option stays for a CLI/API caller; the page's
+    // own viewport holds the render and nothing else, the same rule the
+    // ledger readout already follows. `state.diagram.title` still names the
+    // diagram for the rail, the aria-label and the `?d=` link.
+    width: controls.width, height: controls.height,
     ...(state.camera3d ? { camera: state.camera3d } : {}),
     ...(state.controls.target === "terminal" ? { env: { ...(state.terminal.NO_COLOR ? { NO_COLOR: "1" } : {}), ...(state.terminal.FORCE_COLOR ? { FORCE_COLOR: "1" } : {}) } } : {}),
   };

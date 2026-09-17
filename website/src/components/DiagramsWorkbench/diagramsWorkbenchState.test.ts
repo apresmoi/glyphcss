@@ -138,7 +138,12 @@ describe("diagram workbench state and exports", () => {
     // honour the dialed-in 60x20 override.
     const expectedWidth = target === "web" ? 96 : 60;
     const expectedHeight = target === "web" ? 32 : 20;
-    expect(capturedOptions).toMatchObject({ target, width: expectedWidth, height: expectedHeight, direction: "LR", nodesep: 5, ranksep: 5, title: "My agent", detail: "faithful" });
+    expect(capturedOptions).toMatchObject({ target, width: expectedWidth, height: expectedHeight, direction: "LR", nodesep: 5, ranksep: 5, detail: "faithful" });
+    // No `title` reaches the render — USER FEEDBACK, verbatim: "why do we
+    // have the titles of the diagrams in the rendering areas? we should only
+    // have the diagrams, not titles". The snippet must reproduce exactly
+    // what the page shows, so it must not carry one either.
+    expect(capturedOptions).not.toHaveProperty("title");
     const live = await renderGlyphDiagramsWorkbenchState(state);
     expect(live.ok).toBe(true);
     if (!live.ok) return;
@@ -239,7 +244,7 @@ describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", (
       expect(state.view).toBe("2d");
     });
 
-    it("defaults a molecule dataset to the 3D layered view (measured: layered reads cleanly, force does not — see docs/design/diagrams.md's D5 section)", () => {
+    it("defaults a molecule dataset to the 3D layered view (measured: layered reads cleanly, force does not)", () => {
       const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: true });
       expect(state.view).toBe("3d");
       expect(state.view3d.layout).toBe("layered");

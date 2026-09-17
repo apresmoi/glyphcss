@@ -67,7 +67,13 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   }
   for (const node of layout.nodes) {
     const { x0, y0, x1, y1 } = node;
-    canvas.fillRect(x0, y0, x1, y1, { fill: { shade: 0 }, bg: colored ? "#0f172a" : null });
+    // No background rectangle — USER FEEDBACK, verbatim: "I want to be
+    // faithful to glyphcss rendering". A per-node `bg` painted a real filled
+    // panel behind every box (14 `background-color` spans on the supervisor
+    // fixture alone), which reads as a UI card rather than as glyph output;
+    // the border glyphs carry the box on their own. `shade: 0` still CLAIMS
+    // the footprint, which is what keeps routes out of a node's interior.
+    canvas.fillRect(x0, y0, x1, y1, { fill: { shade: 0 }, bg: null });
     // Diagram boxes are always whole-cell box-drawing, never a sub-cell
     // (braille/blocks) stroke: `line()`'s tier-native `subcell` default
     // would otherwise paint a dotted/blocky top and bottom edge instead of
