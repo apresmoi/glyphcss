@@ -4,49 +4,68 @@ import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRoute
 import { glyphDiagramGroupRect, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
+import type { GlyphGraphNodeShape } from "./types";
 
 /**
- * Node-SHAPE corner glyphs — a diagram-local vocabulary (mirrors
+ * Node-SHAPE outline glyphs — a diagram-local vocabulary (mirrors
  * `@glyphcss/charts`' own local turn-glyph table in `flowMarks.ts`'s
  * sankey painter), not `glyphcss`'s shared `GLYPH_CANVAS_TIERS`: these are
- * specific to how THIS package draws a flowchart node's four corners, not
- * a general canvas primitive every consumer needs. Keyed by charset so
- * switching charsets is a data lookup, never a branch on the charset's
- * name — `ascii` (no box-drawing repertoire) keeps the plain
- * parenthesis/slash fallback every charset used before this table existed.
- * Every glyph here is confirmed present in the website's own Glyph Mono
- * subset (`website/src/components/TargetPreview/glyphMonoCmap.json`).
+ * specific to how THIS package draws a flowchart node's outline, not a
+ * general canvas primitive every consumer needs. Keyed by charset (a data
+ * lookup, never a branch on the charset's name) and then by SHAPE NAME
+ * directly — not a shared corner "family" — because two shapes can share
+ * every `box`/`blocks`/`braille` glyph while needing genuinely different
+ * `ascii` fallbacks (`cylinder`'s ascii stays the plain `+` corner every
+ * unlisted shape falls back to, while its box/blocks/braille corners move
+ * onto the same round-cap glyphs as `stadium`/`circle`); folding both into
+ * one shared family entry would have forced them to agree on ascii too.
+ * A shape absent from a charset's row (`rect`, `subroutine`, `cylinder` on
+ * `ascii`) falls back to the plain default below: `tier.junction`'s
+ * quadrant corners, `tier.straight.h` rules, `tier.straight.v` sides —
+ * exactly what every shape drew before this table existed. Every glyph
+ * here is confirmed present in the website's own Glyph Mono subset
+ * (`website/src/components/TargetPreview/glyphMonoCmap.json`).
  *
- * USER FEEDBACK, verbatim: "these nodes with (───────)▶ Lin 1 │(───────)
- * are a bit weird, could we use other chars? maybe curved corners?" and
- * "also these ones are a bit weird, /───────────\\ // could we try to
- * improve them?" — `rounded`/`diamond` used to share the exact two glyphs
- * `circle`/`stadium` and `asymmetric` used respectively, on every charset
- * including `box`, so neither corner ever met the box tier's own `─`/`│`
- * rule at a matching stroke weight.
- *
- * Three distinct weights on `box`/`blocks`/`braille` (all three share the
- * box-drawing repertoire `tier.junction` already draws a plain `rect`'s
- * SHARP corners from — untouched): `rounded` now gets real box-drawing
- * ROUND corners (`╭╮╰╯`), a subtler curve than a parenthesis and a match
- * for Mermaid's own "gently rounded rectangle" reading of `(text)`;
- * `circle`/`stadium` KEEP the parenthesis pair — a full parenthesis curve
- * reads rounder than `╭╮╰╯` even at a glance, which is the right direction
- * for Mermaid's own fuller ellipse (`((text))`) and pill (`([text])`)
- * shapes, and gives three genuinely distinct weights (sharp < rounded <
- * fully round) instead of `rounded` collapsing into `circle`/`stadium`'s
- * own look. `diamond` gets real box-drawing DIAGONALS (`╱╲`, the same
- * stroke weight and cell-edge meeting point as `─`/`│`) in place of the
- * plain ASCII `/`/`\\`, which sat at a visibly different weight and never
- * quite touched the horizontal rule; `asymmetric`'s `>`/`]` pair is
- * untouched (Mermaid's own flag shape has no natural box-drawing corner).
+ * Approved against a rendered catalogue of candidate node shapes (user
+ * review, ~90 candidates). Four families, by weight/outline: SHARP
+ * (`rect`/`subroutine`, `tier.junction`'s own `┌┐└┘`, untouched) < ROUNDED
+ * (`rounded`, real box-drawing round corners `╭╮╰╯`) < ARC-CAPPED
+ * (`stadium`/`cylinder`/`circle`, quarter-arc corners `◜◝◟◞` — `circle`
+ * additionally swaps its top/bottom RULE for `◠`/`◡` so the whole outline
+ * reads as an ellipse, not just its corners) < PINCHED (`diamond`, round
+ * corners `╭╮╰╯` plus `◀`/`▶` SIDE glyphs on every interior row, so the
+ * box's own left/right edge reads as the diamond's pointed vertices
+ * instead of a plain rule cutting across them) and CHEVRON (`asymmetric`,
+ * sharp corners on the LEFT, `╲`/`╱` diagonal corners on the right plus a
+ * `▶` right side, so the whole right edge reads as one flag point).
  */
-type GlyphDiagramShapeCornerFamily = "rounded" | "round" | "diamond";
-const NODE_SHAPE_CORNERS: Readonly<Record<GlyphCanvasTierName, Readonly<Record<GlyphDiagramShapeCornerFamily, readonly [string, string, string, string]>>>> = {
-  ascii: { rounded: ["(", ")", "(", ")"], round: ["(", ")", "(", ")"], diamond: ["/", "\\", "\\", "/"] },
-  box: { rounded: ["╭", "╮", "╰", "╯"], round: ["(", ")", "(", ")"], diamond: ["╱", "╲", "╲", "╱"] },
-  blocks: { rounded: ["╭", "╮", "╰", "╯"], round: ["(", ")", "(", ")"], diamond: ["╱", "╲", "╲", "╱"] },
-  braille: { rounded: ["╭", "╮", "╰", "╯"], round: ["(", ")", "(", ")"], diamond: ["╱", "╲", "╲", "╱"] },
+interface GlyphDiagramShapeGlyphs {
+  /** [top-left, top-right, bottom-left, bottom-right]. */
+  readonly corners: readonly [string, string, string, string];
+  readonly topRule?: string;
+  readonly bottomRule?: string;
+  readonly sideLeft?: string;
+  readonly sideRight?: string;
+}
+const NODE_SHAPE_GLYPHS_BOX_LIKE: Readonly<Partial<Record<GlyphGraphNodeShape, GlyphDiagramShapeGlyphs>>> = {
+  rounded: { corners: ["╭", "╮", "╰", "╯"] },
+  stadium: { corners: ["◜", "◝", "◟", "◞"] },
+  cylinder: { corners: ["◜", "◝", "◟", "◞"] },
+  circle: { corners: ["◜", "◝", "◟", "◞"], topRule: "◠", bottomRule: "◡" },
+  diamond: { corners: ["╭", "╮", "╰", "╯"], sideLeft: "◀", sideRight: "▶" },
+  asymmetric: { corners: ["┌", "╲", "└", "╱"], sideRight: "▶" },
+};
+const NODE_SHAPE_GLYPHS: Readonly<Record<GlyphCanvasTierName, Readonly<Partial<Record<GlyphGraphNodeShape, GlyphDiagramShapeGlyphs>>>>> = {
+  ascii: {
+    rounded: { corners: ["(", ")", "(", ")"] },
+    stadium: { corners: ["(", ")", "(", ")"] },
+    circle: { corners: ["(", ")", "(", ")"] },
+    diamond: { corners: ["/", "\\", "\\", "/"] },
+    asymmetric: { corners: [">", "]", ">", "]"] },
+  },
+  box: NODE_SHAPE_GLYPHS_BOX_LIKE,
+  blocks: NODE_SHAPE_GLYPHS_BOX_LIKE,
+  braille: NODE_SHAPE_GLYPHS_BOX_LIKE,
 };
 
 /** Always paints into fresh storage: re-registering a route cannot erase its old canvas glyphs. */
@@ -156,19 +175,20 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     // the border glyphs carry the box on their own. `shade: 0` still CLAIMS
     // the footprint, which is what keeps routes out of a node's interior.
     canvas.fillRect(x0, y0, x1, y1, { fill: { shade: 0 }, bg: null });
-    // Diagram boxes are always whole-cell box-drawing, never a sub-cell
-    // (braille/blocks) stroke: `line()`'s tier-native `subcell` default
-    // would otherwise paint a dotted/blocky top and bottom edge instead of
-    // the flat rule every other side of the box uses.
-    canvas.line({ x: x0 + 1, y: y0 }, { x: x1 - 1, y: y0 }, { color: accent, subcell: false });
-    canvas.line({ x: x0 + 1, y: y1 }, { x: x1 - 1, y: y1 }, { color: accent, subcell: false });
-    // A one-cell side has no line direction; use the vertical tier glyph explicitly.
-    for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [tier.straight.v], { color: accent }); canvas.text(x1, y, [tier.straight.v], { color: accent }); }
-    const corners = NODE_SHAPE_CORNERS[charset];
-    const shaped = node.shape === "diamond" ? corners.diamond : node.shape === "asymmetric" ? [">", "]", ">", "]"]
-      : node.shape === "rounded" ? corners.rounded : ["circle", "stadium"].includes(node.shape ?? "") ? corners.round
-      : [tier.junction[6]!, tier.junction[12]!, tier.junction[3]!, tier.junction[9]!];
-    [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].forEach(([x, y], i) => canvas.text(x!, y!, [shaped[i]!], { color: accent }));
+    // Every edge and corner is painted cell-by-cell through `canvas.text`
+    // rather than `canvas.line()` — a per-shape RULE glyph (`circle`'s
+    // `◠`/`◡`) has no `canvas.line()` equivalent, and going per-cell
+    // uniformly means the same code path handles every shape's default
+    // (plain `─`/`│`) and override alike, with no separate "one-cell side
+    // has no line direction" special case left to maintain.
+    const shape: GlyphGraphNodeShape = node.shape ?? "rect";
+    const glyphs = NODE_SHAPE_GLYPHS[charset][shape];
+    const corners = glyphs?.corners ?? [tier.junction[6]!, tier.junction[12]!, tier.junction[3]!, tier.junction[9]!];
+    const topRule = glyphs?.topRule ?? tier.straight.h, bottomRule = glyphs?.bottomRule ?? tier.straight.h;
+    const sideLeft = glyphs?.sideLeft ?? tier.straight.v, sideRight = glyphs?.sideRight ?? tier.straight.v;
+    for (let x = x0 + 1; x < x1; x++) { canvas.text(x, y0, [topRule], { color: accent }); canvas.text(x, y1, [bottomRule], { color: accent }); }
+    for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [sideLeft], { color: accent }); canvas.text(x1, y, [sideRight], { color: accent }); }
+    ([[x0, y0], [x1, y0], [x0, y1], [x1, y1]] as const).forEach(([x, y], i) => canvas.text(x, y, [corners[i]!], { color: accent }));
     if (node.shape === "subroutine") for (let y = y0 + 1; y < y1; y++) { canvas.text(x0 + 1, y, [tier.straight.v], { color: accent }); canvas.text(x1 - 1, y, [tier.straight.v], { color: accent }); }
   }
   // Borders own the node footprint; tips replace their reserved target cell
