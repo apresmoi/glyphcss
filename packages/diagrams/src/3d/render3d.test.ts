@@ -592,29 +592,22 @@ describe("renderGlyphDiagram3d — D2 round 8 (separation and side labels)", () 
     }
   }, 30_000);
 
-  // Requirement 3 (label beside, not over): a real (not synthetic) label
-  // that pushes past `GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS` from its own
-  // node's edge must carry a visible leader mark connecting the two, per
-  // the brief's own "a short leader connecting label and block when it
-  // isn't flush against the block's edge." D2 round 9's own rank-spacing
-  // fix (folding a rank's own ring/row offset magnitude into the flow gap,
-  // this file's own `layout3d.ts` doc) tightened every fixture's own
-  // label-to-node gaps at the sizes the OLD repro (fan-join-split, 96x32)
-  // used — genuinely flush now, so no leader is needed there any more. The
-  // agent-supervisor fixture at 160x60 still reproduces a real gap
-  // (confirmed by direct rendering, not re-derived from a description).
-  it("a label pushed clear of its own node's edge carries a visible leader mark between them (agent-supervisor, 160x60 braille — mutation: drop the leader stamp) → red", async () => {
-    const result = await renderGlyphDiagram3d(readFileSync(join(__dirname, "../../fixtures/agent-supervisor.mmd"), "utf8"), { target: "web", charset: "braille", width: 160, height: 60, layout: "layered" });
+  // Requirement 3 (label beside, not over): the fan-join-split fixture's
+  // own "Merge" node sits deep enough in the diagram, at 96x32, that its
+  // label pushes past `GLYPH_DIAGRAM_3D_LEADER_MIN_CELLS` from the node's
+  // own edge — a real case (not a synthetic one) that must carry a visible
+  // leader mark connecting the two, per the brief's own "a short leader
+  // connecting label and block when it isn't flush against the block's
+  // edge."
+  it("a label pushed clear of its own node's edge carries a visible leader mark between them (fan-join-split, 96x32 braille — mutation: drop the leader stamp) → red", async () => {
+    const result = await renderGlyphDiagram3d(readFileSync(join(__dirname, "../../fixtures/fan-join-split.mmd"), "utf8"), { target: "web", charset: "braille", width: 96, height: 32, layout: "layered" });
     const lines = result.text.split("\n");
-    // The leader is a plain "." stamped between a node's own edge and its
-    // pushed-out label — never a box-drawing/bar glyph.
-    const dotLine = lines.findIndex((l) => l.includes("."));
-    expect(dotLine, `no "." leader anywhere in the render:\n${result.text}`).toBeGreaterThanOrEqual(0);
-    // The dot sits genuinely adjacent to real label text on the same line
-    // (never a stray/orphaned mark) — confirms it's a real label leader,
-    // not braille dot-art that happens to coincide with a literal ".".
-    const hasAdjacentLabel = /[.][A-Za-z]/.test(lines[dotLine]!) || /[A-Za-z][.]/.test(lines[dotLine]!);
-    expect(hasAdjacentLabel, `dot line has no adjacent label text: ${JSON.stringify(lines[dotLine])}`).toBe(true);
+    const mergeLine = lines.findIndex((l) => l.includes("Merge"));
+    expect(mergeLine).toBeGreaterThan(0);
+    // The leader is a plain "." stamped on the row immediately above the
+    // label (this fixture's own real camera geometry, confirmed by direct
+    // rendering) — never a box-drawing/bar glyph.
+    expect(lines[mergeLine - 1]).toMatch(/\./);
   });
 
   // Documented residual (not fixed this round): a "side" label avoids

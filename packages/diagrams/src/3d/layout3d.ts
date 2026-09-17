@@ -92,7 +92,7 @@
  * **D2 round 8** (user, verbatim: "can we make them a bit more clear in
  * the separation between the same height/depth nodes? because its
  * difficult to see them separate"). The ring's own radius (`GLYPH_
- * DIAGRAM_3D_RING_GAP`/`inPlaneOffsets`) is now sized off the SAME
+ * DIAGRAM_3D_RING_GAP`/`triangulatedOffsets`) is now sized off the SAME
  * camera-aware conservative bound rank spacing already used
  * (`screenSafeFlowHalf`, both cross-axis AND depth) rather than a single
  * raw in-plane axis, plus extra room for this rank's own longest SIDE
@@ -100,44 +100,12 @@
  * node by default (`glyphDiagramObject.ts`'s own round-8 doc), radially
  * OUTWARD from the ring's own centre, so the ring must leave room for that
  * text or it reaches into the next sibling's own arc.
- *
- * **D2 round 9 ("clear levels" — USER FEEDBACK, verbatim: "in a vertical
- * tree structure with multiple branches but with clear levels").** The ring
- * spreads siblings at DIFFERENT apparent screen depths (every point sits at
- * a different angle around the circle), so under this module's own fixed
- * oblique camera a viewer can't tell "these four boxes are the same rank"
- * at a glance — the whole point of a level. `rankArrangement: "row"` (the
- * new DEFAULT; `"ring"` stays reachable) instead lines same-rank siblings
- * up along ONE in-plane axis, centred on the rank, evenly spaced by the
- * SAME clearance unit the ring already computed (`need`: both neighbours'
- * own half-extent plus `GLYPH_DIAGRAM_3D_RING_GAP` plus side-label room).
- * Which axis: `GLYPH_DIAGRAM_3D_ROW_AXIS` is resolved ONCE, by literally
- * probing the module's own fixed default camera (never hand-derived) for
- * which in-plane axis contributes more to screen COLUMN — at
- * rotX=62/rotY=36 that is `b` (world Y, "depth") for BOTH direction
- * regimes: TB/BT's own in-plane pair is X/Y, and Y's column coefficient
- * (~1.618) exceeds X's (~1.176); LR/RL's own pair is Z/Y, and Z projects
- * with ZERO column contribution at all (purely vertical) while Y again
- * contributes. So a "row" always spreads along world Y, regardless of
- * direction — reading as a horizontal line of boxes on screen, the org-
- * chart shape the brief asked for.
- *
- * Lining siblings up on one axis means a rank's own screen footprint can
- * now extend well past any single member's own half-extent — the OLD
- * rank-to-rank flow spacing (`screenSafeFlowHalf`, a per-NODE bound) never
- * accounted for how far the ring/row itself pushes a sibling out, so a
- * wide fan could bleed its own row/column band into the next rank's. The
- * flow-spacing loop now adds each member's own in-plane OFFSET MAGNITUDE
- * (scaled by `GLYPH_DIAGRAM_3D_OFFSET_SAFETY`, this file's own doc) to its
- * `screenSafeFlowHalf` before taking the rank's max — the identical "same
- * order of magnitude, safely over-space" reasoning `screenSafeFlowHalf`
- * itself already uses, extended to cover the ring/row's own spread.
  */
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNode, GlyphGraphNodeShape } from "../types";
 import { measureGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayoutOptions, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode } from "../pipeline";
 import { glyphDiagramError } from "../validate";
 import type { GlyphDiagramLedgerEntry } from "../ledger";
-import { createGlyphOrthographicCamera, type Vec3 } from "glyphcss";
+import type { Vec3 } from "glyphcss";
 
 /**
  * The default "architecture view" camera for the layered layout — a 3/4
@@ -197,7 +165,7 @@ export const GLYPH_DIAGRAM_3D_GROUP_PAD = 2;
  * raised from `3` (round 7) after rendering the real fixtures: `3` gave
  * adjacent siblings a screen gap of 0-1 cells at 96x32, which the reader
  * cannot distinguish from a shared edge. Reused directly by
- * `inPlaneOffsets` below.
+ * `triangulatedOffsets` below.
  */
 const GLYPH_DIAGRAM_3D_RING_GAP = 7;
 /**
@@ -220,20 +188,6 @@ const GLYPH_DIAGRAM_3D_RING_BASE_ANGLE = 135;
 const GLYPH_DIAGRAM_3D_RING_ROTATE_DEG = 53;
 /** Extra clearance (world units), beyond an intervening node's own cross-axis half-extent, that a residual/skip edge's own apex bows out by — tuned by direct rendering so the bow clears a typical intervening box's silhouette rather than skimming its edge. */
 const GLYPH_DIAGRAM_3D_SKIP_EDGE_BOW = 6;
-
-/**
- * D2 round 9 — scales a rank member's own in-plane OFFSET MAGNITUDE
- * (`hypot(a, b)`, how far the ring/row pushed it from the rank centre)
- * before it's added to `screenSafeFlowHalf` for rank-to-rank spacing (this
- * file's own top-of-file doc). `1` (raw magnitude) under-covers LR/RL: the
- * offset axis (world Y) has a STEEPER screen-column coefficient (~1.618,
- * measured at the module's own fixed camera) than the flow axis itself
- * (world X, ~1.176), so a world-unit of offset "costs" more screen columns
- * than a world-unit of flow-half does. `1.5` clears that ratio (~1.376)
- * with margin, matching `screenSafeFlowHalf`'s own "safely over-space"
- * discipline rather than threading exact per-axis coefficients through.
- */
-const GLYPH_DIAGRAM_3D_OFFSET_SAFETY = 1.5;
 
 /**
  * D2 round 4, requirement 4 ("size scaling blows up... scale explicit
@@ -262,8 +216,6 @@ function compressExplicitSizes(nodes: readonly GlyphGraphNode[]): ReadonlyMap<st
 }
 
 export type GlyphDiagram3dLayoutKind = "layered" | "force";
-/** `"row"` (default) lines same-rank siblings up along one in-plane axis so a level reads as a level; `"ring"` keeps the original regular-ring placement for a wide fan that wants it. Layered only — `force` has no rank/ring concept. */
-export type GlyphDiagram3dRankArrangement = "row" | "ring";
 
 export interface GlyphDiagram3dNode {
   readonly id: string;
@@ -312,8 +264,6 @@ export interface GlyphDiagram3dLayoutOptions extends Pick<GlyphDiagramLayoutOpti
   readonly ranksep?: number;
   /** `"inside" | "side" | "auto"` — layered only, read here ONLY to decide whether a node's front face may ever be smaller than its own label box (never, for `"inside"`/`"auto"`) — the actual placement lives in `glyphDiagramObject.ts`'s `resolveGlyphDiagram3dLabelPlacement`, which reads the SAME option again. */
   readonly labels?: "inside" | "side" | "auto";
-  /** Layered only. `"row"` (default) or `"ring"` — this file's own "D2 round 9" doc. */
-  readonly rankArrangement?: GlyphDiagram3dRankArrangement;
   /** Force only. A fixed 32-bit seed — the SAME seed always produces the SAME layout. Default `1`. */
   readonly seed?: number;
   /** Force only. Fixed tick count — never a convergence check against a clock. Default `300`. */
@@ -405,52 +355,21 @@ function clusterRanks(values: readonly number[], tolerance: number, ascending: b
 }
 
 /**
- * D2 round 9 — which in-plane axis ("a" or "b") reads as more HORIZONTAL
- * on screen under this module's own FIXED default camera, resolved by
- * literally probing the real camera (never hand-derived) so a future
- * change to `GLYPH_DIAGRAM_3D_CAMERA_ROT_X`/`_ROT_Y` self-corrects. "a" is
- * X for TB/BT and Z for LR/RL; "b" is always Y. Whichever axis has the
- * larger `|dcol|` per world unit wins — this file's own top-of-file doc
- * has the measured numbers (`b` wins both regimes at the shipped camera).
+ * Triangulated in-plane offsets for `count` ring-placed siblings, in the
+ * SAME order they're handed in (dagre's own within-rank order) — see this
+ * file's own top-of-file doc for why one ring formula covers every count
+ * the brief enumerated. `spanA`/`spanB` are the rank's own largest
+ * cross-axis-1/depth half-extents (for radius sizing); `baseAngleDeg`
+ * rotates the whole ring for this rank. **D2 round 8**: `spanA`/`spanB` are
+ * now the CAMERA-AWARE conservative bound (`screenSafeFlowHalf`, this
+ * file's own doc) rather than a single raw world axis, and `labelRoom`
+ * (world units, this rank's own longest side label) is added to the
+ * required chord so a label pointing radially outward from one sibling
+ * never reaches into its neighbour's own arc.
  */
-function resolveRowAxis(): "a" | "b" {
-  const camera = createGlyphOrthographicCamera({ rotX: GLYPH_DIAGRAM_3D_CAMERA_ROT_X, rotY: GLYPH_DIAGRAM_3D_CAMERA_ROT_Y, zoom: 50 });
-  const base = camera.project([0, 0, 0], 200, 200, 2);
-  const dCol = (v: Vec3) => Math.abs(camera.project(v, 200, 200, 2)[0] - base[0]);
-  const dColA = Math.max(dCol([10, 0, 0]), dCol([0, 0, 10])); // worst of TB/BT's X and LR/RL's Z
-  const dColB = dCol([0, 10, 0]); // world Y, shared by both regimes
-  return dColB >= dColA ? "b" : "a";
-}
-const GLYPH_DIAGRAM_3D_ROW_AXIS = resolveRowAxis();
-
-/**
- * In-plane offsets for `count` same-rank siblings, in the SAME order
- * they're handed in (dagre's own within-rank order) — see this file's own
- * top-of-file doc for both `kind`s' rationale. `spanA`/`spanB` are the
- * rank's own largest cross-axis-1/depth half-extents (the CAMERA-AWARE
- * conservative bound, `screenSafeFlowHalf`, D2 round 8); `baseAngleDeg`
- * rotates a `"ring"` (unused by `"row"`); `labelRoom` (world units, this
- * rank's own longest side label) is added to the required clearance so a
- * label pointing outward from one sibling never reaches into its
- * neighbour's own space, ring or row alike.
- *
- * `"row"` (D2 round 9, the default): every sibling sits on
- * `GLYPH_DIAGRAM_3D_ROW_AXIS` alone (`0` on the other in-plane axis),
- * evenly spaced by the SAME clearance unit (`need`) the ring already
- * computed, centred on the rank so the row's own midpoint stays on the
- * flow axis. `"ring"`: unchanged D2 round 7/8 regular-ring placement.
- */
-function inPlaneOffsets(kind: GlyphDiagram3dRankArrangement, count: number, spanA: number, spanB: number, baseAngleDeg: number, labelRoom = 0): { readonly a: number; readonly b: number }[] {
+function triangulatedOffsets(count: number, spanA: number, spanB: number, baseAngleDeg: number, labelRoom = 0): { readonly a: number; readonly b: number }[] {
   if (count <= 1) return [{ a: 0, b: 0 }];
   const need = Math.max(spanA, spanB) * 2 + GLYPH_DIAGRAM_3D_RING_GAP + labelRoom;
-  if (kind === "row") {
-    const out: { a: number; b: number }[] = [];
-    for (let i = 0; i < count; i++) {
-      const offset = (i - (count - 1) / 2) * need;
-      out.push(GLYPH_DIAGRAM_3D_ROW_AXIS === "b" ? { a: 0, b: offset } : { a: offset, b: 0 });
-    }
-    return out;
-  }
   const radius = need / (2 * Math.sin(Math.PI / count));
   const base = (baseAngleDeg * Math.PI) / 180;
   const out: { a: number; b: number }[] = [];
@@ -562,61 +481,38 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   // all three, rather than scaling by the camera's own per-axis
   // coefficients, is simple and safely over-spaces rather than under).
   const screenSafeFlowHalf = (n: GlyphDiagramPositionedNode) => flowHalfOf(n) + crossHalfOf(n) + depthHalfOf(n);
+  let frontier = 0;
+  const rankFlowCoord: number[] = [];
+  for (const idxs of clusters) {
+    const maxFlowHalf = Math.max(...idxs.map((i) => screenSafeFlowHalf(laid.nodes[i]!)));
+    const center = frontier + maxFlowHalf;
+    rankFlowCoord.push(center);
+    frontier = center + maxFlowHalf + GLYPH_DIAGRAM_3D_RANK_GAP;
+  }
 
   // D2 round 8 — a rank's own longest side-label text, in CHARACTERS
   // (`n2d.lines[0]` is the same folded first line `glyphDiagramObject.ts`'s
-  // overlay places), fed into `inPlaneOffsets`' own `labelRoom` so the
-  // ring/row leaves room for a label reaching past its own node's edge.
+  // overlay places), fed into `triangulatedOffsets`' own `labelRoom` so the
+  // ring leaves room for a label reaching past its own node's edge.
   const labelLenOf = (n: GlyphDiagramPositionedNode) => n.lines[0]?.length ?? 0;
-  const arrangement = options.rankArrangement ?? "row";
 
-  // D2 round 9 — every rank's own within-rank ORDER and in-plane OFFSETS
-  // are computed FIRST, independent of the flow coordinate (neither depends
-  // on it), so the flow-spacing pass below can fold each member's own
-  // offset MAGNITUDE into the rank-to-rank gap before any position is
-  // final — this file's own top-of-file doc on why that fold matters.
-  interface RankPlacement { readonly ordered: readonly number[]; readonly offsets: readonly { readonly a: number; readonly b: number }[]; }
-  const rankPlacements: RankPlacement[] = clusters.map((idxs, rank) => {
+  const positions: Vec3[] = new Array(laid.nodes.length);
+  clusters.forEach((idxs, rank) => {
     const ordered = [...idxs].sort((ia, ib) => crossAxisValue(laid.nodes[ia]!) - crossAxisValue(laid.nodes[ib]!));
-    // D2 round 8 — the ring/row's own span unit is the SAME camera-aware
+    // D2 round 8 — the ring's own radius is sized off the SAME camera-aware
     // conservative bound `screenSafeFlowHalf` already uses for rank
     // spacing (this function's own doc above), not a single raw in-plane
     // axis: under this file's oblique fixed camera every one of a box's
     // three axes contributes to its projected SCREEN silhouette, so
     // spacing siblings by only their cross/depth half-extents left them
     // reading as one fused block at 96x32 even though their WORLD-space
-    // positions were already distinct (the reported "difficult to see them
-    // separate").
+    // ring positions were already distinct (the reported "difficult to
+    // see them separate").
     const spanSafe = Math.max(...ordered.map((i) => screenSafeFlowHalf(laid.nodes[i]!)));
     const maxLabelLen = Math.max(0, ...ordered.map((i) => labelLenOf(laid.nodes[i]!)));
     const labelRoom = maxLabelLen > 0 ? maxLabelLen * GLYPH_DIAGRAM_3D_RING_LABEL_UNIT + GLYPH_DIAGRAM_3D_RING_GAP : 0;
     const baseAngle = GLYPH_DIAGRAM_3D_RING_BASE_ANGLE + rank * GLYPH_DIAGRAM_3D_RING_ROTATE_DEG;
-    const offsets = inPlaneOffsets(arrangement, ordered.length, spanSafe, spanSafe, baseAngle, labelRoom);
-    return { ordered, offsets };
-  });
-
-  let frontier = 0;
-  const rankFlowCoord: number[] = [];
-  clusters.forEach((idxs, rank) => {
-    const { ordered, offsets } = rankPlacements[rank]!;
-    // D2 round 9 — each member's own in-plane offset MAGNITUDE (how far
-    // the ring/row pushed it from the rank centre) folds into the SAME
-    // conservative bound `screenSafeFlowHalf` already is, scaled by
-    // `GLYPH_DIAGRAM_3D_OFFSET_SAFETY` (this file's own doc) — a wide fan
-    // or a long row otherwise bleeds its own screen band into the next
-    // rank's, which is exactly the "clear levels" defect this round fixes.
-    const maxFlowHalf = Math.max(...ordered.map((i, orderIdx) => {
-      const { a, b } = offsets[orderIdx]!;
-      return screenSafeFlowHalf(laid.nodes[i]!) + Math.hypot(a, b) * GLYPH_DIAGRAM_3D_OFFSET_SAFETY;
-    }));
-    const center = frontier + maxFlowHalf;
-    rankFlowCoord.push(center);
-    frontier = center + maxFlowHalf + GLYPH_DIAGRAM_3D_RANK_GAP;
-  });
-
-  const positions: Vec3[] = new Array(laid.nodes.length);
-  clusters.forEach((idxs, rank) => {
-    const { ordered, offsets } = rankPlacements[rank]!;
+    const offsets = triangulatedOffsets(ordered.length, spanSafe, spanSafe, baseAngle, labelRoom);
     const flowCoord = flowSign * rankFlowCoord[rank]!;
     ordered.forEach((i, orderIdx) => {
       const { a, b } = offsets[orderIdx]!;

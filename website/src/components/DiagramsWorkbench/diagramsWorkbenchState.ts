@@ -20,8 +20,6 @@ import fanJoinSplit from "../../../../packages/diagrams/fixtures/fan-join-split.
 import lenet5Cnn from "../../../../packages/diagrams/fixtures/lenet5-cnn.json?raw";
 import transformerEncoder from "../../../../packages/diagrams/fixtures/transformer-encoder.json?raw";
 import ciPipelineDag from "../../../../packages/diagrams/fixtures/ci-pipeline-dag.json?raw";
-import multiAgentTree from "../../../../packages/diagrams/fixtures/multi-agent-tree.json?raw";
-import vggCnn from "../../../../packages/diagrams/fixtures/vgg-cnn.json?raw";
 
 // Shapes distinguish ROLE, not just position (the task's own "better
 // diagrams" brief): a circle marks entry/exit, a diamond the
@@ -96,34 +94,6 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   // publish/deploy target, asymmetric for the notify fan-in.
   {
     id: "ci-pipeline-3d", label: "CI pipeline DAG (3D, example)", source: ciPipelineDag, sourceKind: "json" as const,
-    dimension: "3d" as const, view3d: { layout: "layered" as const },
-  },
-  // "clear levels" round (user, verbatim: "can we render a multiagent
-  // system but with more pieces? in a vertical tree structure with
-  // multiple branches but with clear levels"). A genuinely branching
-  // 20-node/31-edge DAG, TB, 5 ranks: request -> orchestrator -> 3
-  // supervisors -> 12 specialist workers -> 3 shared tool/memory/output
-  // nodes (several workers cross-link into more than one shared node, so
-  // it's a DAG, not a pure tree). Role is shape-coded: circle for the
-  // entry point, diamond for the routing orchestrator, rounded for a
-  // supervisor, subroutine for a worker, cylinder for a shared
-  // tool/memory store, stadium for the terminal output.
-  {
-    id: "multi-agent-tree-3d", label: "Multi-agent tree (3D, example)", source: multiAgentTree, sourceKind: "json" as const,
-    dimension: "3d" as const, view3d: { layout: "layered" as const },
-  },
-  // "clear levels" round, part (b) (user, verbatim: "maybe we could also
-  // do a convolutional NN? with many layers and different sizes and
-  // etc"). A VGG-style CNN, LR, 20 nodes: input -> 5x [conv, conv, pool]
-  // blocks -> flatten -> 2 fc -> softmax, every layer's own `size`
-  // encoding its real tensor shape (spatial dims shrinking, channel depth
-  // growing) — the classic "tall thin slabs becoming short fat ones"
-  // silhouette. Role is shape-coded: circle for input, rounded for a
-  // conv layer, stadium for a pool layer, diamond for the flatten
-  // reshape, a plain box for an fc layer, asymmetric (a single
-  // distinguished apex) for the softmax output.
-  {
-    id: "vgg-cnn-3d", label: "VGG-style CNN (3D, example)", source: vggCnn, sourceKind: "json" as const,
     dimension: "3d" as const, view3d: { layout: "layered" as const },
   },
 ] as const;
