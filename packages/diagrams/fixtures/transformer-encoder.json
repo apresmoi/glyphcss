@@ -3,16 +3,18 @@
   "nodes": [
     { "id": "embed", "label": "Input Embedding", "shape": "cylinder" },
     { "id": "posenc", "label": "Positional Encoding", "shape": "rect" },
-    { "id": "attn", "label": "Multi-Head Attention", "shape": "rect", "size": [7, 3, 2] },
+    { "id": "attn", "label": "Multi-Head Attention", "shape": "rounded", "size": [7, 3, 2] },
     { "id": "norm1", "label": "Add & Norm", "shape": "rect", "size": [7, 1, 2] },
-    { "id": "ffn", "label": "Feed Forward", "shape": "rect", "size": [7, 3, 2] },
+    { "id": "ffn", "label": "Feed Forward", "shape": "subroutine", "size": [7, 3, 2] },
     { "id": "norm2", "label": "Add & Norm", "shape": "rect", "size": [7, 1, 2] }
   ],
   "edges": [
     { "from": "embed", "to": "posenc" },
     { "from": "posenc", "to": "attn" },
     { "from": "attn", "to": "norm1" },
+    { "from": "posenc", "to": "norm1", "label": "residual", "style": "dotted" },
     { "from": "norm1", "to": "ffn" },
-    { "from": "ffn", "to": "norm2" }
+    { "from": "ffn", "to": "norm2" },
+    { "from": "norm1", "to": "norm2", "label": "residual", "style": "dotted" }
   ]
 }

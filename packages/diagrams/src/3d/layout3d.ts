@@ -127,13 +127,34 @@ export const GLYPH_DIAGRAM_3D_CAMERA_ROT_Y = 36;
 const GLYPH_DIAGRAM_3D_DEPTH_FACTOR = 0.6;
 const GLYPH_DIAGRAM_3D_MIN_DEPTH = 4;
 /**
- * A node's front-face HEIGHT floor (world units, the box's own Z-extent),
- * applied UNCONDITIONALLY — to a plain measured 2D height AND to a
- * `size`-compressed one alike. Unchanged rationale from D2 round 6: the 2D
- * layout's own measured `height` is a floor on READABILITY, not a target
- * for how tall a 3D box should stand.
+ * A node's front-face HEIGHT floor (world units, the box's own Z-extent)
+ * for a node with NO explicit `size` — the 2D layout's own measured
+ * `height` is a floor on READABILITY there, not a target for how tall a 3D
+ * box should stand.
+ *
+ * USER FEEDBACK, verbatim: "the lenet5 the transformer ... suck" / "we need
+ * better diagrams". This floor used to apply UNCONDITIONALLY, including to
+ * an explicitly `size`d node — the shipped LeNet-5 fixture's own tensor
+ * volumes (channel counts as low as 1, deliberately THIN) all floored to
+ * this SAME 12, so every layer rendered at an identical height regardless
+ * of its own authored shrink/grow story ("a chain of identical boxes" was
+ * literally true on this axis). The rationale for the floor at all —
+ * keeping a label legible INSIDE its own box — is also largely moot for a
+ * sized node now: D2 round 8 made `"side"` (never `"inside"`) the label
+ * default, so a tensor slab's own label sits beside it, not painted on its
+ * front face. `GLYPH_DIAGRAM_3D_MIN_DEPTH_EXPLICIT` below is the analogous
+ * fix for the depth (Y) axis's own two floors.
  */
 const GLYPH_DIAGRAM_3D_MIN_HEIGHT = 12;
+/**
+ * The height/depth floor for a node that DID author an explicit `size` —
+ * far below `GLYPH_DIAGRAM_3D_MIN_HEIGHT`/`GLYPH_DIAGRAM_3D_MIN_DEPTH`,
+ * just enough to keep a literal `0` from degenerating into a zero-volume
+ * slab. A real value (LeNet-5's channel-count-1 input layer) passes
+ * through this floor untouched.
+ */
+const GLYPH_DIAGRAM_3D_MIN_HEIGHT_EXPLICIT = 1;
+const GLYPH_DIAGRAM_3D_MIN_DEPTH_EXPLICIT = 1;
 /** Padding (world units) around a group's member footprint before it becomes a bounding outline. */
 export const GLYPH_DIAGRAM_3D_GROUP_PAD = 2;
 /**
@@ -165,6 +186,8 @@ const GLYPH_DIAGRAM_3D_RANK_GAP = 5;
 const GLYPH_DIAGRAM_3D_RING_BASE_ANGLE = 135;
 /** Per-rank ring rotation increment (degrees) — has no small common period against 360, so consecutive fans never realign to the identical pattern ("alternate orientation rank to rank so consecutive fans interleave"). */
 const GLYPH_DIAGRAM_3D_RING_ROTATE_DEG = 53;
+/** Extra clearance (world units), beyond an intervening node's own cross-axis half-extent, that a residual/skip edge's own apex bows out by — tuned by direct rendering so the bow clears a typical intervening box's silhouette rather than skimming its edge. */
+const GLYPH_DIAGRAM_3D_SKIP_EDGE_BOW = 6;
 
 /**
  * D2 round 4, requirement 4 ("size scaling blows up... scale explicit
@@ -377,7 +400,23 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   // values, dagre only ever repositions, never resizes.
   const widenedNodes: GlyphDiagramMeasuredNode[] = measured.nodes.map((node) => {
     const compressed = compressedSizes.get(node.id);
-    if (compressed) return { ...node, width: Math.max(node.width, Math.ceil(compressed[0])), height: Math.max(node.height, Math.ceil(compressed[1]), GLYPH_DIAGRAM_3D_MIN_HEIGHT) };
+    // A node with an explicit `size` gets the SMALL explicit floor
+    // (`GLYPH_DIAGRAM_3D_MIN_HEIGHT_EXPLICIT`) rather than the label-
+    // readability one — the whole point of an authored `size[1]` (a CNN
+    // layer's own shrinking/growing tensor volume) is to be genuinely
+    // small on this axis sometimes, and the 12-unit floor used to erase
+    // that for every node whose intended height fell under it (this
+    // file's own `GLYPH_DIAGRAM_3D_MIN_HEIGHT` doc).
+    // Width, too: `node.width` (the 2D-MEASURED label width, in characters)
+    // used to be an unconditional floor even for a sized node — harmless
+    // for a short label, but a real one ("pool 14x14x6", 12+ characters)
+    // dominated every genuinely narrow tensor slab's own intended width,
+    // flattening exactly the X-axis shrink the size data was authored to
+    // show. Safe to drop now that a label defaults to `"side"` placement
+    // (never painted ON the node's own face, so the box no longer needs to
+    // be wide enough to hold it) — only `GLYPH_DIAGRAM_3D_MIN_HEIGHT_EXPLICIT`
+    // (a tiny floor against literal zero) remains.
+    if (compressed) return { ...node, width: Math.max(GLYPH_DIAGRAM_3D_MIN_HEIGHT_EXPLICIT, Math.ceil(compressed[0])), height: Math.max(node.height, Math.ceil(compressed[1]), GLYPH_DIAGRAM_3D_MIN_HEIGHT_EXPLICIT) };
     return { ...node, height: Math.max(node.height, GLYPH_DIAGRAM_3D_MIN_HEIGHT) };
   });
 
@@ -411,7 +450,14 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   const crossHalfOf = (n: GlyphDiagramPositionedNode) => (horizontalFlow ? n.height : n.width) / 2;
   const depthHalfOf = (n: GlyphDiagramPositionedNode) => {
     const compressedDepth = compressedSizes.get(n.id)?.[2];
-    return Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, GLYPH_DIAGRAM_3D_DEPTH_FACTOR * Math.min(n.width, n.height), compressedDepth ?? 0) / 2;
+    // Same fix as the height floor above, for the depth (Y) axis: an
+    // explicit `size[2]` is trusted against only a tiny floor
+    // (`GLYPH_DIAGRAM_3D_MIN_DEPTH_EXPLICIT`), never against
+    // `GLYPH_DIAGRAM_3D_MIN_DEPTH`/the label-derived heuristic — both of
+    // which used to swamp a genuinely thin authored depth (a CNN's own
+    // channel-count-1 input layer) the same way the height floor did.
+    if (compressedDepth !== undefined) return Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH_EXPLICIT, compressedDepth) / 2;
+    return Math.max(GLYPH_DIAGRAM_3D_MIN_DEPTH, GLYPH_DIAGRAM_3D_DEPTH_FACTOR * Math.min(n.width, n.height)) / 2;
   };
 
   // Rank-to-rank spacing along the flow axis: each rank's own CENTRE sits
@@ -483,13 +529,43 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   const byId = new Map(nodes.map((nd) => [nd.id, nd]));
 
   const flowAxis: Axis3 = horizontalFlow ? "x" : "z";
+  // The OTHER in-plane axis (never Y, always depth) — this file's own
+  // top-of-file doc: LR/RL's cross-section plane is Z/Y, TB/BT's is X/Y.
+  // Used only to BOW a residual/skip edge out of the flow-axis line it
+  // would otherwise draw straight through an intervening rank's own box.
+  const crossAxis: Axis3 = horizontalFlow ? "z" : "x";
+  // Rank INDEX per node (0-based, topological order) — distinct from the
+  // continuous flow COORDINATE: a skip/residual edge is one whose two
+  // ranks are 2+ apart (it bypasses at least one real node's own rank),
+  // never a raw world-distance threshold, which a `size`-driven layout's
+  // own uneven rank spacing would make unreliable.
+  const rankIndexOf = new Map<string, number>();
+  clusters.forEach((idxs, rank) => { for (const i of idxs) rankIndexOf.set(laid.nodes[i]!.id, rank); });
+
+  /**
+   * USER FEEDBACK (task brief, verbatim): "make the RESIDUAL/skip
+   * connections visible as edges arcing over the stack; that is the one
+   * thing 3D does better than 2D here." A skip edge (its two ranks 2+
+   * apart) gets a 3RD point — a midpoint pushed OUT along the plane's own
+   * cross axis, past whichever intervening node's own half-extent is
+   * larger — so `glyphDiagramObject.ts`'s existing per-segment edge loop
+   * (already built for a self-loop's own 3-point path) draws it as two
+   * segments bowing around the stack instead of one straight line punched
+   * through the bypassed node's box.
+   */
+  function skipEdgeApex(from: GlyphDiagram3dNode, to: GlyphDiagram3dNode): Vec3 {
+    const mid: Vec3 = [(from.center[0] + to.center[0]) / 2, (from.center[1] + to.center[1]) / 2, (from.center[2] + to.center[2]) / 2];
+    const bowClear = Math.max(axisOf(from.half, crossAxis), axisOf(to.half, crossAxis)) + GLYPH_DIAGRAM_3D_SKIP_EDGE_BOW;
+    return withAxis(mid, crossAxis, axisOf(mid, crossAxis) + bowClear);
+  }
+
   const edges: GlyphDiagram3dEdge[] = laid.edges.map((edge) => {
     const from = byId.get(edge.from)!, to = byId.get(edge.to)!;
     if (edge.from === edge.to) {
       return { id: edge.id, from: edge.from, to: edge.to, label: edge.label, style: edge.style ?? "solid", priority: edge.priority ?? 0, points: selfLoopPoints(from.center, from.half, from.shape === "circle") };
     }
     const flowDelta = axisOf(to.center, flowAxis) - axisOf(from.center, flowAxis);
-    let p0: Vec3, p1: Vec3;
+    let points: Vec3[];
     if (Math.abs(flowDelta) > 1e-6) {
       // The edge genuinely spans ranks — leave the source's OWN
       // flow-facing side toward the target (a forward edge exits +flow,
@@ -500,15 +576,18 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
       const dir = Math.sign(flowDelta) as 1 | -1;
       const fromHalf = horizontalFlow ? from.half[0] : from.half[2];
       const toHalf = horizontalFlow ? to.half[0] : to.half[2];
-      p0 = addAxis(from.center, flowAxis, dir * fromHalf);
-      p1 = addAxis(to.center, flowAxis, -dir * toHalf);
+      const p0 = addAxis(from.center, flowAxis, dir * fromHalf);
+      const p1 = addAxis(to.center, flowAxis, -dir * toHalf);
+      const rankSpan = Math.abs((rankIndexOf.get(edge.to) ?? 0) - (rankIndexOf.get(edge.from) ?? 0));
+      points = rankSpan >= 2 ? [p0, skipEdgeApex(from, to), p1] : [p0, p1];
     } else {
       // Same-rank (or degenerate) edge — no flow-axis face to leave from;
       // fall back to the generic nearest-surface anchor.
-      p0 = nodeSurfaceAnchor(from.center, from.half, from.shape === "circle", to.center);
-      p1 = nodeSurfaceAnchor(to.center, to.half, to.shape === "circle", from.center);
+      const p0 = nodeSurfaceAnchor(from.center, from.half, from.shape === "circle", to.center);
+      const p1 = nodeSurfaceAnchor(to.center, to.half, to.shape === "circle", from.center);
+      points = [p0, p1];
     }
-    return { id: edge.id, from: edge.from, to: edge.to, label: edge.label, style: edge.style ?? "solid", priority: edge.priority ?? 0, points: [p0, p1] };
+    return { id: edge.id, from: edge.from, to: edge.to, label: edge.label, style: edge.style ?? "solid", priority: edge.priority ?? 0, points };
   });
 
   const groups: GlyphDiagram3dGroup[] = laid.groups.map((g) => {

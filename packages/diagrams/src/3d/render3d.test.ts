@@ -500,13 +500,13 @@ describe("renderGlyphDiagram3d", () => {
  */
 describe("renderGlyphDiagram3d — D2 round 8 (separation and side labels)", () => {
   const crewSource = `flowchart LR
-  request[Request] --> manager[Manager]
+  request((Request)) --> manager{Manager}
   subgraph crew[Crew]
-    researcher[Researcher] --> writer[Writer]
+    researcher[[Researcher]] --> writer[[Writer]]
   end
   manager --> researcher
   writer --> review{Review}
-  review -->|approved| result[Result]
+  review -->|approved| result([Result])
   review -.->|revise| writer
 `;
 

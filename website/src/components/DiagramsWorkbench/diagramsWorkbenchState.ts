@@ -19,15 +19,20 @@ import agentSupervisor from "../../../../packages/diagrams/fixtures/agent-superv
 import fanJoinSplit from "../../../../packages/diagrams/fixtures/fan-join-split.mmd?raw";
 import lenet5Cnn from "../../../../packages/diagrams/fixtures/lenet5-cnn.json?raw";
 import transformerEncoder from "../../../../packages/diagrams/fixtures/transformer-encoder.json?raw";
+import ciPipelineDag from "../../../../packages/diagrams/fixtures/ci-pipeline-dag.json?raw";
 
+// Shapes distinguish ROLE, not just position (the task's own "better
+// diagrams" brief): a circle marks entry/exit, a diamond the
+// routing/decision node, subroutine boxes the worker tasks, a stadium the
+// terminal deliverable.
 const crewSource = `flowchart LR
-  request[Request] --> manager[Manager]
+  request((Request)) --> manager{Manager}
   subgraph crew[Crew]
-    researcher[Researcher] --> writer[Writer]
+    researcher[[Researcher]] --> writer[[Writer]]
   end
   manager --> researcher
   writer --> review{Review}
-  review -->|approved| result[Result]
+  review -->|approved| result([Result])
   review -.->|revise| writer
 `;
 
@@ -76,6 +81,19 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   // `Merge`/`Side` split feeding one `Output`).
   {
     id: "fan-join-split-3d", label: "Fan-out / join / split (3D, example)", source: fanJoinSplit,
+    dimension: "3d" as const, view3d: { layout: "layered" as const },
+  },
+  // "better diagrams" round (user, verbatim: "we don't have any really
+  // good complex diagram, I want some really interesting diagrams") — a
+  // genuinely complex, realistic-shaped DAG (19 nodes / 31 edges, wide
+  // fan-out from checkout then fan-in through security-scan/publish/
+  // notify) that the earlier, mostly-linear presets never exercised. Role
+  // is shape-coded throughout: circle for entry/exit, rounded for quality
+  // checks, a plain box for builds, stadium for test stages, diamond for
+  // the security gate, subroutine for packaging, cylinder for a
+  // publish/deploy target, asymmetric for the notify fan-in.
+  {
+    id: "ci-pipeline-3d", label: "CI pipeline DAG (3D, example)", source: ciPipelineDag, sourceKind: "json" as const,
     dimension: "3d" as const, view3d: { layout: "layered" as const },
   },
 ] as const;

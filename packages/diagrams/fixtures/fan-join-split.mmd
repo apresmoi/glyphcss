@@ -1,15 +1,15 @@
 flowchart LR
-  input[Input] --> a[Branch A]
+  input((Input)) --> a[Branch A]
   input --> b[Branch B]
   input --> c[Branch C]
-  a --> join[Join]
+  a --> join{Join}
   b --> join
   c --> join
   join --> s1[Split 1]
   join --> s2[Split 2]
   join --> s3[Split 3]
-  s1 --> merge[Merge]
+  s1 --> merge{Merge}
   s2 --> merge
-  s3 --> side[Side]
-  merge --> output[Output]
+  s3 --> side>Side]
+  merge --> output((Output))
   side --> output

@@ -61,60 +61,200 @@
  */
 import type { GlyphGraph, GlyphGraphDirection } from "../types";
 import type { GlyphCamera, GlyphOverlayFrame, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay, Polygon, Vec3 } from "glyphcss";
-import { boxPolygons, spherePolygons, cylinderPolygons, orientedRibbonPolygons, orientedPyramidPolygons, stampGlyphOverlayLine } from "glyphcss";
+import {
+  boxPolygons, spherePolygons, cylinderPolygons, conePolygons, prismPolygons, octahedronPolygons, rhombicuboctahedronPolygons,
+  orientedRibbonPolygons, orientedPyramidPolygons, stampGlyphOverlayLine,
+} from "glyphcss";
 import { layout3d, type GlyphDiagram3dGroup, type GlyphDiagram3dLayout, type GlyphDiagram3dLayoutKind, type GlyphDiagram3dLayoutOptions, type GlyphDiagram3dNode } from "./layout3d";
 
 /**
- * Shape-aware node geometry, checked against core FIRST: `cylinderPolygons`
- * already exists (`@glyphcss/core`) but is Y-AXIS-ALIGNED (height runs
- * along Y), while glyphcss's world is Z-up throughout (AGENTS.md's
- * "Numeric conventions"). This wraps it with the axis remap
- * `toZUp(v) = [v[0], -v[2], v[1]]` — a proper (determinant +1) rotation —
- * converting the INPUT center via the inverse `fromZUp(w) = [w[0], w[2], -w[1]]` first.
+ * USER FEEDBACK, verbatim: "the lenet5 the transformer and the multi agent
+ * and the fan out suck, can we actually have better diagrams there please?"
+ * / "those look like shit, we need better diagrams man, maybe other
+ * shapes, not only blocks or cylinders". Before this round `nodePolygons`
+ * mapped every `GlyphGraphNodeShape` but `circle`/`cylinder`/`diamond` onto
+ * a plain box, so `rect`/`rounded`/`stadium`/`subroutine`/`asymmetric` all
+ * rendered identically — a Mermaid graph's own shape vocabulary (5 of its 8
+ * values) was silently discarded. Every shape now gets its own solid,
+ * chosen for what it reads as at this node scale, never for novelty:
+ *
+ * - `rect` -> box (unchanged — the plain default).
+ * - `rounded` -> a rhombicuboctahedron (softened box: 18 square + 8
+ *   triangular faces read as a box with its corners eased, closer to
+ *   Mermaid's own rounded-rectangle intent than a fully round solid).
+ * - `stadium` -> a capsule (`unitCapsuleZUp` below — no core export builds
+ *   one) — a cylindrical shaft with two hemispherical domes, the genuine
+ *   3D analogue of Mermaid's pill/stadium outline.
+ * - `circle` -> sphere (unchanged, now a true per-axis ELLIPSOID — see
+ *   `stretchPolygons` below — instead of an isotropic ball sized off
+ *   `max(hx,hy,hz)`, so a wide circle node actually renders wide).
+ * - `diamond` -> octahedron — a true bipyramid, replacing the old rotated
+ *   BOX ("decision object"): two 4-sided pyramids glued base-to-base reads
+ *   unambiguously as a diamond from any angle, where a 45-degree-rotated
+ *   box only ever read as a diamond face-on.
+ * - `cylinder` -> cylinder (unchanged).
+ * - `subroutine` -> a hexagonal prism — sits visually between a box (4
+ *   sides) and a cylinder (round): a paneled, segmented silhouette that
+ *   reads as "a boxed unit with internal structure," Mermaid's own
+ *   double-walled subroutine glyph translated to a distinct 3D solid.
+ * - `asymmetric` -> a cone — a single apex (pointing world +Z) makes
+ *   direction legible where the bipyramid (diamond) is deliberately
+ *   symmetric; Mermaid's own asymmetric/flag shape is a directional marker,
+ *   and a cone is the simplest solid with exactly one distinguished end.
+ *
+ * Every shape but `rect` is now built as a UNIT primitive confined to the
+ * `[-1,1]` cube on every axis, then `stretchPolygons` scales it by the
+ * node's own `half` — a single mechanism that makes every solid respect
+ * all three of a node's own half-extents exactly (never merely the
+ * largest, never merely two of three), the same way `boxPolygons` already
+ * did by taking `width`/`depth`/`height` directly.
  */
-function fromZUp(w: Vec3): Vec3 { return [w[0], w[2], -w[1]]; }
+
+/**
+ * `cylinderPolygons`/`conePolygons`/`prismPolygons` (`@glyphcss/core`) are
+ * Y-AXIS-ALIGNED (height runs along Y, radius in the XZ plane), while
+ * glyphcss's world is Z-up throughout (AGENTS.md's "Numeric conventions").
+ * This remaps every vertex with `toZUp(v) = [v[0], -v[2], v[1]]` — a proper
+ * (determinant +1) rotation, so winding survives untouched — applied to a
+ * shape already built at `center: [0, 0, 0]` (every call site here), so no
+ * inverse remap of the center is needed.
+ */
 function toZUp(v: Vec3): Vec3 { return [v[0], -v[2], v[1]]; }
-
-/** 8 is the fewest cylinder sides that still reads unambiguously as round rather than a hexagon/octagon in line art, while roughly halving the crease count a 16-sided default would trace. */
-const GLYPH_DIAGRAM_3D_CYLINDER_SIDES = 8;
-
-function zUpCylinderPolygons(opts: { readonly center: Vec3; readonly radius: number; readonly height: number; readonly color: string }): Polygon[] {
-  const raw = cylinderPolygons({ center: fromZUp(opts.center), radius: opts.radius, height: opts.height, sides: GLYPH_DIAGRAM_3D_CYLINDER_SIDES, color: opts.color });
-  return raw.map((poly) => ({ ...poly, vertices: poly.vertices.map(toZUp) }));
+function yAxisToZUp(polys: readonly Polygon[]): Polygon[] {
+  return polys.map((poly) => ({ ...poly, vertices: poly.vertices.map(toZUp) }));
 }
 
-/** Rotate a point 45 degrees about `center`'s own Z axis — operates on LOCAL (pre-placement) coordinates for a node's own shape. */
-function rotateZ45(p: Vec3, center: Vec3): Vec3 {
-  const dx = p[0] - center[0], dy = p[1] - center[1];
-  const c = Math.SQRT1_2; // cos(45deg) === sin(45deg)
-  return [center[0] + dx * c - dy * c, center[1] + dx * c + dy * c, p[2]];
+/** Scale every vertex of `polys` componentwise by `half` — the one place a UNIT (`[-1,1]`-cube) local shape becomes a node's own real half-extents. Positive-only scale factors (a node's own half-extents), so winding is never flipped. */
+function stretchPolygons(polys: readonly Polygon[], half: Vec3): Polygon[] {
+  return polys.map((poly) => ({ ...poly, vertices: poly.vertices.map((v): Vec3 => [v[0] * half[0], v[1] * half[1], v[2] * half[2]]) }));
 }
 
-/** The "decision object" for a `diamond`/rhombus Mermaid node — a rotated box rather than an octahedron. Built and rotated in LOCAL coordinates (`opts.center` is `[0, 0, 0]` at every call site). */
-function decisionPolygons(opts: { readonly center: Vec3; readonly width: number; readonly depth: number; readonly height: number; readonly color: string }): Polygon[] {
-  const box = boxPolygons({ center: opts.center, width: opts.width, depth: opts.depth, height: opts.height, color: opts.color });
-  return box.map((poly) => ({ ...poly, vertices: poly.vertices.map((v) => rotateZ45(v, opts.center)) }));
+/** 8 is the fewest circumference sides that still reads unambiguously as round rather than a hexagon/octagon in line art, while roughly halving the crease count a 16-sided default would trace. Shared by the cylinder and the capsule's own shaft/domes. */
+const GLYPH_DIAGRAM_3D_ROUND_SIDES = 8;
+/** Hexagonal cross-section for `subroutine` — between a box's 4 sides and a cylinder's round silhouette. */
+const GLYPH_DIAGRAM_3D_PRISM_SIDES = 6;
+/** A cone base fine enough to read as round (not a hexagon) at node scale, still far under a full 16-sided default. */
+const GLYPH_DIAGRAM_3D_CONE_SIDES = 12;
+
+/** A UNIT cylinder (radius 1, total height 2), Z-up. */
+function unitCylinderZUp(color: string): Polygon[] {
+  return yAxisToZUp(cylinderPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: GLYPH_DIAGRAM_3D_ROUND_SIDES, color }));
+}
+/** A UNIT cone (base radius 1, total height 2, apex toward world +Z after the Z-up remap), Z-up. */
+function unitConeZUp(color: string): Polygon[] {
+  return yAxisToZUp(conePolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: GLYPH_DIAGRAM_3D_CONE_SIDES, color }));
+}
+/** A UNIT hexagonal prism (circumradius 1, total height 2), Z-up. */
+function unitPrismZUp(color: string): Polygon[] {
+  return yAxisToZUp(prismPolygons({ center: [0, 0, 0], radius: 1, height: 2, sides: GLYPH_DIAGRAM_3D_PRISM_SIDES, color }));
 }
 
 /**
- * Shape follows Mermaid node shape: box/rect (and every other box-ish shape)
- * -> box; `cylinder` (Mermaid `[( )]`, a datastore) -> the Z-up cylinder
- * wrapper above; `circle` -> sphere; `diamond` -> the rotated-box decision
- * object above. Built LOCALLY (`center: [0,0,0]`) then simply translated by
- * `node.center` — no basis to map through any more (D2 round 7's own doc).
+ * A convex local shape is star-shaped about its own centroid, so a face's
+ * winding is CCW-from-outside exactly when its own normal (from the first
+ * three vertices) points AWAY from `center` — this decides that once,
+ * generically, rather than hand-reasoning each of a capsule's shaft/dome
+ * bands (which direction is "outward" flips between the two domes and is
+ * easy to get backwards by inspection alone).
+ */
+function ensureOutwardFacing(vertices: readonly Vec3[], center: Vec3): Vec3[] {
+  const [a, b, c] = vertices;
+  const u: Vec3 = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+  const v: Vec3 = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+  const n: Vec3 = [u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0]];
+  const toA: Vec3 = [a[0] - center[0], a[1] - center[1], a[2] - center[2]];
+  const dot = n[0] * toA[0] + n[1] * toA[1] + n[2] * toA[2];
+  return dot >= 0 ? [...vertices] : [...vertices].reverse();
+}
+
+/** Dome occupies this fraction of the capsule's own unit half-height; the remaining `1 - fraction` is the flat cylindrical shaft — `0.6` reads as a visibly rounded pill (neither a near-cylinder nor a near-sphere) at typical node scale, tuned by direct rendering. */
+const GLYPH_DIAGRAM_3D_CAPSULE_DOME_FRACTION = 0.6;
+/** Latitude bands per hemisphere dome — `2` is enough to read as curved (not faceted like the shaft's own straight run) without materially growing the mesh. */
+const GLYPH_DIAGRAM_3D_CAPSULE_CAP_RINGS = 2;
+
+/**
+ * A UNIT "stadium" capsule (footprint radius 1, total half-height 1, so the
+ * whole shape sits inside the `[-1,1]` cube exactly like every other unit
+ * primitive here) — a cylindrical shaft with two hemispherical domes. No
+ * core export builds a capsule, so this is a plain lat/lon dome generator;
+ * `ensureOutwardFacing` corrects each face's winding against the shape's
+ * own center rather than tracking it by hand per band.
+ */
+function unitCapsuleZUp(color: string): Polygon[] {
+  const domeR = GLYPH_DIAGRAM_3D_CAPSULE_DOME_FRACTION;
+  const shaftHalf = 1 - domeR;
+  const sides = GLYPH_DIAGRAM_3D_ROUND_SIDES;
+  const capRings = GLYPH_DIAGRAM_3D_CAPSULE_CAP_RINGS;
+  const center: Vec3 = [0, 0, 0];
+  const polygons: Polygon[] = [];
+  const ring = (z: number, r: number): Vec3[] => {
+    const out: Vec3[] = [];
+    for (let i = 0; i < sides; i++) {
+      const theta = (2 * Math.PI * i) / sides;
+      out.push([r * Math.cos(theta), r * Math.sin(theta), z]);
+    }
+    return out;
+  };
+  const push = (vertices: Vec3[]): void => { polygons.push({ vertices: ensureOutwardFacing(vertices, center), color }); };
+
+  const top = ring(shaftHalf, domeR);
+  const bottom = ring(-shaftHalf, domeR);
+  for (let i = 0; i < sides; i++) {
+    const n = (i + 1) % sides;
+    push([top[i]!, top[n]!, bottom[n]!, bottom[i]!]);
+  }
+
+  for (const sign of [1, -1] as const) {
+    let prev = sign === 1 ? top : bottom;
+    for (let k = 1; k <= capRings; k++) {
+      const lat = (k / capRings) * (Math.PI / 2);
+      const z = sign * (shaftHalf + domeR * Math.sin(lat));
+      const r = domeR * Math.cos(lat);
+      if (k === capRings) {
+        const apex: Vec3 = [0, 0, z];
+        for (let i = 0; i < sides; i++) {
+          const n = (i + 1) % sides;
+          push([apex, prev[i]!, prev[n]!]);
+        }
+        break;
+      }
+      const next = ring(z, r);
+      for (let i = 0; i < sides; i++) {
+        const n = (i + 1) % sides;
+        push([prev[i]!, prev[n]!, next[n]!, next[i]!]);
+      }
+      prev = next;
+    }
+  }
+  return polygons;
+}
+
+/**
+ * Shape follows Mermaid node shape (this file's own top-of-section doc has
+ * the full mapping and its rationale). Built LOCALLY (`center: [0,0,0]`)
+ * then simply translated by `node.center` — no basis to map through any
+ * more (D2 round 7's own doc).
  */
 function nodePolygons(node: GlyphDiagram3dNode, color: string): Polygon[] {
-  const [hx, hy, hz] = node.half;
+  const half = node.half;
   const local: Polygon[] = (() => {
     switch (node.shape) {
       case "circle":
-        return spherePolygons({ center: [0, 0, 0], size: Math.max(hx, hy, hz), color });
+        return stretchPolygons(spherePolygons({ center: [0, 0, 0], size: 1, color }), half);
       case "cylinder":
-        return zUpCylinderPolygons({ center: [0, 0, 0], radius: Math.max(hx, hy), height: hz * 2, color });
+        return stretchPolygons(unitCylinderZUp(color), half);
       case "diamond":
-        return decisionPolygons({ center: [0, 0, 0], width: hx * 2, depth: hy * 2, height: hz * 2, color });
+        return stretchPolygons(octahedronPolygons({ center: [0, 0, 0], size: 1, color }), half);
+      case "rounded":
+        return stretchPolygons(rhombicuboctahedronPolygons({ center: [0, 0, 0], size: 1, color }), half);
+      case "stadium":
+        return stretchPolygons(unitCapsuleZUp(color), half);
+      case "subroutine":
+        return stretchPolygons(unitPrismZUp(color), half);
+      case "asymmetric":
+        return stretchPolygons(unitConeZUp(color), half);
       default:
-        return boxPolygons({ center: [0, 0, 0], width: hx * 2, depth: hy * 2, height: hz * 2, color });
+        return boxPolygons({ center: [0, 0, 0], width: half[0] * 2, depth: half[1] * 2, height: half[2] * 2, color });
     }
   })();
   const [cx, cy, cz] = node.center;
@@ -506,16 +646,23 @@ function groupOutlinePolygons(min: Vec3, max: Vec3, halfWidth: number, color: st
   return GROUP_OUTLINE_EDGE_PAIRS.flatMap(([ia, ib]) => orientedRibbonPolygons(corners[ia]!, corners[ib]!, halfWidth, color));
 }
 
-/** A node's own 8 WORLD corners — used only for this object's own `bounds` (the auto-fit's AABB), never for drawing (no more hand-drawn box outline). */
+/**
+ * A node's own 8 WORLD corners — used only for this object's own `bounds`
+ * (the auto-fit's AABB), never for drawing (no more hand-drawn box
+ * outline). Every one of `nodePolygons`' own shapes now fits EXACTLY inside
+ * the `±half` box on every axis (each is a UNIT primitive confined to
+ * `[-1,1]` then `stretchPolygons`-scaled by `half` — this file's own
+ * top-of-section doc), so no shape (the old rotated-box `diamond` included)
+ * needs a special case here any more.
+ */
 function boxCorners(node: GlyphDiagram3dNode): readonly Vec3[] {
   const [hx, hy, hz] = node.half;
   const local: Vec3[] = [
     [-hx, -hy, -hz], [hx, -hy, -hz], [hx, hy, -hz], [-hx, hy, -hz],
     [-hx, -hy, hz], [hx, -hy, hz], [hx, hy, hz], [-hx, hy, hz],
   ];
-  const rotated = node.shape === "diamond" ? local.map((p) => rotateZ45(p, [0, 0, 0])) : local;
   const [cx, cy, cz] = node.center;
-  return rotated.map((p): Vec3 => [p[0] + cx, p[1] + cy, p[2] + cz]);
+  return local.map((p): Vec3 => [p[0] + cx, p[1] + cy, p[2] + cz]);
 }
 
 interface ProjectedPoint { readonly col: number; readonly row: number; readonly depth: number; }

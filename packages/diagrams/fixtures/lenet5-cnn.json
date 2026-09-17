@@ -1,14 +1,14 @@
 {
   "direction": "LR",
   "nodes": [
-    { "id": "input", "label": "input 32x32x1", "shape": "rect", "size": [8, 1, 8] },
-    { "id": "conv1", "label": "conv 28x28x6", "shape": "rect", "size": [7, 3, 7] },
-    { "id": "pool1", "label": "pool 14x14x6", "shape": "rect", "size": [4, 3, 4] },
-    { "id": "conv2", "label": "conv 10x10x16", "shape": "rect", "size": [3, 8, 3] },
-    { "id": "pool2", "label": "pool 5x5x16", "shape": "rect", "size": [2, 8, 2] },
-    { "id": "fc1", "label": "fc 120", "shape": "rect", "size": [1, 12, 1] },
-    { "id": "fc2", "label": "fc 84", "shape": "rect", "size": [1, 8, 1] },
-    { "id": "out", "label": "out 10", "shape": "rect", "size": [1, 2, 1] }
+    { "id": "input", "label": "input 32x32x1", "shape": "rect", "size": [8, 8, 1] },
+    { "id": "conv1", "label": "conv 28x28x6", "shape": "rounded", "size": [7, 7, 3] },
+    { "id": "pool1", "label": "pool 14x14x6", "shape": "stadium", "size": [4, 4, 3] },
+    { "id": "conv2", "label": "conv 10x10x16", "shape": "rounded", "size": [3, 3, 6] },
+    { "id": "pool2", "label": "pool 5x5x16", "shape": "stadium", "size": [2, 2, 6] },
+    { "id": "fc1", "label": "fc 120", "shape": "rect", "size": [1, 1, 10] },
+    { "id": "fc2", "label": "fc 84", "shape": "rect", "size": [1, 1, 7] },
+    { "id": "out", "label": "out 10", "shape": "diamond", "size": [1, 1, 2] }
   ],
   "edges": [
     { "from": "input", "to": "conv1" },

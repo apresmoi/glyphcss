@@ -207,7 +207,7 @@ describe("glyphDiagramObject", () => {
     expect(grid.char.every((c) => c === " ")).toBe(true);
   });
 
-  it("shape follows node shape: cylinder gets a real cylinder mesh (not a 6-face box), diamond gets a box rotated 45° about its own center (mutation: always use boxPolygons) → red", async () => {
+  it("shape follows node shape: cylinder gets a real cylinder mesh (not a 6-face box), diamond gets a true octahedron — 8 triangular faces, never a rotated box (mutation: always use boxPolygons) → red", async () => {
     const shapeGraph: GlyphGraph = {
       direction: "TB",
       nodes: [
@@ -224,10 +224,95 @@ describe("glyphDiagramObject", () => {
     expect(boxMesh.polygons.length).toBe(6);
     expect(cylMesh.polygons.length).toBeGreaterThan(6);
 
+    // Diamond is a true octahedron now (8 triangular faces — a box's own 6
+    // faces are quads) rather than the old 45-degree-rotated BOX, and its
+    // own X-span sits EXACTLY at half[0]*2 (a pole vertex on each axis,
+    // never past the node's own half-extent — the old rotated box
+    // overshot it by its own diagonal). Reverting to `boxPolygons` fails
+    // both the face count/shape check and, since a rotated box's diagonal
+    // exceeds `half[0]*2`, would also fail a `toBeCloseTo` here.
+    expect(diaMesh.polygons.length).toBe(8);
+    expect(diaMesh.polygons.every((p) => p.vertices.length === 3)).toBe(true);
     const diaLayout = (await layout3d(shapeGraph, {})).nodes.find((n) => n.id === "dia")!;
     const xs = diaMesh.polygons.flatMap((p) => p.vertices.map((v) => v[0]));
     const diaXSpan = Math.max(...xs) - Math.min(...xs);
-    expect(diaXSpan).not.toBeCloseTo(diaLayout.half[0] * 2, 5);
+    expect(diaXSpan).toBeCloseTo(diaLayout.half[0] * 2, 5);
+  });
+
+  // Phase 1 of the "better diagrams" round — `rounded`/`stadium`/
+  // `subroutine`/`asymmetric` used to fall through `nodePolygons`' default
+  // branch (a plain 6-face box, indistinguishable from `rect`); each now
+  // gets its own distinct solid.
+  it("rounded/stadium/subroutine/asymmetric each get their OWN distinct solid, none of them the plain 6-quad box (mutation: fall through every case to boxPolygons) → red", async () => {
+    const shapeGraph: GlyphGraph = {
+      direction: "TB",
+      nodes: [
+        { id: "rounded", label: "Rounded", shape: "rounded" },
+        { id: "stadium", label: "Stadium", shape: "stadium" },
+        { id: "subroutine", label: "Subroutine", shape: "subroutine" },
+        { id: "asymmetric", label: "Asymmetric", shape: "asymmetric" },
+      ],
+      edges: [],
+    };
+    const object = await glyphDiagramObject(shapeGraph, {});
+    const meshByName = new Map(object.meshes.map((m) => [m.name, m]));
+    // A plain box is exactly 6 quad (4-vertex) faces — every one of these
+    // four shapes must differ from that on at least one of face count or
+    // vertex-per-face shape, and no two of them may collapse onto the
+    // SAME polygon count (each is a genuinely different solid).
+    const isBox = (polys: { vertices: unknown[] }[]) => polys.length === 6 && polys.every((p) => p.vertices.length === 4);
+    const counts = new Map<string, number>();
+    for (const id of ["rounded", "stadium", "subroutine", "asymmetric"]) {
+      const mesh = meshByName.get(`node:${id}`)!;
+      expect(isBox(mesh.polygons)).toBe(false);
+      counts.set(id, mesh.polygons.length);
+    }
+    expect(new Set(counts.values()).size).toBe(counts.size);
+  });
+
+  // Acceptance criterion (the task's own "must respect the node's own half
+  // extents ... a wide node must render wide"): every shape's own drawn
+  // mesh must (a) never exceed its node's own `±half` box on any axis and
+  // (b) actually grow wider in X when the node's own `half[0]` grows —
+  // `size[0]` maps straight onto `half[0]`/world X unambiguously (`layout3d
+  // .ts`'s own `compressedSizes.get(id)[0] -> width -> half[0]`), so
+  // comparing a wide-`size` graph against a narrow one isolates exactly the
+  // property this criterion names, for every one of the new solids.
+  it("every new solid's own drawn span never exceeds its node's ±half box, and a node with a larger half[0] actually renders wider in X, for every shape (mutation: use an isotropic size instead of per-axis stretch) → red", async () => {
+    const shapes = ["rect", "rounded", "stadium", "circle", "diamond", "cylinder", "subroutine", "asymmetric"] as const;
+    // Single-letter labels — a longer label (e.g. `"subroutine"`) would
+    // widen the 2D-measured node width past the explicit narrow `size[0]`
+    // (`layout3d.ts`'s own `Math.max(node.width, ceil(compressed[0]))`
+    // readability floor, unrelated to this test), masking the very ratio
+    // this test exists to prove.
+    const wideGraph: GlyphGraph = { direction: "TB", nodes: shapes.map((shape) => ({ id: `${shape}-wide`, label: "n", shape, size: [20, 4, 4] as const })), edges: [] };
+    const narrowGraph: GlyphGraph = { direction: "TB", nodes: shapes.map((shape) => ({ id: `${shape}-narrow`, label: "n", shape, size: [2, 4, 4] as const })), edges: [] };
+    const wideObj = await glyphDiagramObject(wideGraph, {});
+    const narrowObj = await glyphDiagramObject(narrowGraph, {});
+    const wideLaid = await layout3d(wideGraph, {});
+    const narrowLaid = await layout3d(narrowGraph, {});
+
+    const meshSpan = (mesh: { polygons: { vertices: readonly (readonly number[])[] }[] }, center: readonly number[], axis: 0 | 1 | 2) => {
+      const vals = mesh.polygons.flatMap((p) => p.vertices.map((v) => v[axis]! - center[axis]!));
+      return Math.max(...vals) - Math.min(...vals);
+    };
+
+    for (const shape of shapes) {
+      const wideMesh = wideObj.meshes.find((m) => m.name === `node:${shape}-wide`)!;
+      const wideNode = wideLaid.nodes.find((n) => n.id === `${shape}-wide`)!;
+      const narrowMesh = narrowObj.meshes.find((m) => m.name === `node:${shape}-narrow`)!;
+      const narrowNode = narrowLaid.nodes.find((n) => n.id === `${shape}-narrow`)!;
+
+      for (const [mesh, node] of [[wideMesh, wideNode], [narrowMesh, narrowNode]] as const) {
+        for (const axis of [0, 1, 2] as const) {
+          expect(meshSpan(mesh, node.center, axis)).toBeLessThanOrEqual(node.half[axis] * 2 + 1e-6);
+        }
+      }
+      expect(wideNode.half[0]).toBeGreaterThan(narrowNode.half[0]); // sanity: the layout actually gave the wide graph a bigger half[0]
+      const wideSpanX = meshSpan(wideMesh, wideNode.center, 0);
+      const narrowSpanX = meshSpan(narrowMesh, narrowNode.center, 0);
+      expect(wideSpanX).toBeGreaterThan(narrowSpanX * 2);
+    }
   });
 
   it("an inside label is CLIPPED to its own face, never spilling past it (mutation: drop the clip) → red", () => {
