@@ -1,0 +1,32 @@
+%% Hand-authored EXAMPLE architecture (not real training telemetry) — one
+%% transformer encoder block's INSIDE, unlike the existing
+%% `transformer-encoder.json` fixture (3D-only, a flat 6-box chain with no
+%% internal attention structure): multi-head attention split into its Q/K/V
+%% projections, the heads' own scaled dot-product + concat/project step,
+%% an Add & Norm (residual + layernorm) after attention, and the feed
+%% forward network's two linear projections followed by a second
+%% Add & Norm. Architecture per A. Vaswani et al., "Attention Is All You
+%% Need," NeurIPS, 2017 — see the LICENSES.md next to this file. The
+%% per-head attention path and the concat+project step are folded into one
+%% "Concat+proj" box (rather than drawn as separate boxes) to fit the 2D
+%% pipeline's 9-node/12-edge compaction budget in one panel at the page's
+%% default web size; splitting them further only shatters the render into
+%% one panel per edge.
+flowchart LR
+  subgraph attn[Attention]
+    q(Q)
+    k(K)
+    v(V)
+    sdpa[[Concat+proj]]
+    q --> sdpa
+    k --> sdpa
+    v --> sdpa
+  end
+  sdpa --> norm1[Add & Norm]
+  subgraph ffn[Feed Forward]
+    lin1(Lin 1)
+    lin2[Lin 2]
+    lin1 --> lin2
+  end
+  norm1 --> lin1
+  lin2 --> norm2[Add & Norm]

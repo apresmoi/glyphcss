@@ -20,6 +20,10 @@ import fanJoinSplit from "../../../../packages/diagrams/fixtures/fan-join-split.
 import lenet5Cnn from "../../../../packages/diagrams/fixtures/lenet5-cnn.json?raw";
 import transformerEncoder from "../../../../packages/diagrams/fixtures/transformer-encoder.json?raw";
 import ciPipelineDag from "../../../../packages/diagrams/fixtures/ci-pipeline-dag.json?raw";
+import agentGuardrail from "../../../../packages/diagrams/fixtures/agent-guardrail.mmd?raw";
+import transformerBlock from "../../../../packages/diagrams/fixtures/transformer-block.mmd?raw";
+import ragPipeline from "../../../../packages/diagrams/fixtures/rag-pipeline.mmd?raw";
+import eventQueue from "../../../../packages/diagrams/fixtures/event-queue.mmd?raw";
 
 // Shapes distinguish ROLE, not just position (the task's own "better
 // diagrams" brief): a circle marks entry/exit, a diamond the
@@ -52,6 +56,19 @@ export const GLYPH_DIAGRAM_WORKBENCH_PRESETS = [
   { id: "subgraph", label: "Subgraph", source: subgraph },
   { id: "langgraph", label: "LangGraph agent", source: langgraph },
   { id: "crew", label: "CrewAI-style crew", source: crewSource },
+  // "more complex 2D diagram presets" round (user, verbatim: "put a
+  // subagent to create more complex 2d ascii charts... I want to add more
+  // complex agentic architectures, maybe even a complex transformer with
+  // inner pieces etc") — four genuinely complex, real-shaped 2D examples
+  // the earlier chain/diamond/fan-out/cycle/subgraph/langgraph/crew
+  // presets never exercised: real subgraph nesting, a feedback cycle, a
+  // two-source convergence, and a fan-out/shared-dead-letter topology.
+  // Every one of these renders in exactly one panel with no dropped
+  // labels at the page's default web size (`complexPresets2d.test.ts`).
+  { id: "agent-guardrail", label: "Agent + guardrail loop", source: agentGuardrail },
+  { id: "transformer-block", label: "Transformer block (inner)", source: transformerBlock },
+  { id: "rag-pipeline", label: "RAG pipeline", source: ragPipeline },
+  { id: "event-queue", label: "Event queue + DLQ", source: eventQueue },
   // D2 round 6 — the 3D tray order is LeNet-5, Transformer, Agent
   // supervisor, Multi-agent crew. The first two are JSON-sourced
   // (`sourceKind: "json"`, `apply-preset`'s own branch below): Mermaid has

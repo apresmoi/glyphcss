@@ -1,0 +1,20 @@
+%% Hand-authored EXAMPLE architecture (not telemetry from any running
+%% system) — a retrieval-augmented generation pipeline: an Ingest branch
+%% (documents chunked and embedded into an index) and a Query branch
+%% (the user's own question embedded) converge at Retrieve, then flow
+%% through Rerank before Generate produces the final answer. Added for the
+%% "more complex 2D diagram presets" round (user, verbatim: "I want to add
+%% more complex agentic architectures") to exercise a genuine two-source
+%% convergence shape the earlier presets don't.
+flowchart LR
+  subgraph ingest[Ingest]
+    docs([Docs]) --> prep[Chunk + embed]
+    prep --> index[(Index)]
+  end
+  subgraph ask[Query]
+    query([Query]) --> qembed(Embed)
+  end
+  index --> retrieve[[Retrieve]]
+  qembed --> retrieve
+  retrieve --> rerank{Rerank}
+  rerank --> generate([Generate])
