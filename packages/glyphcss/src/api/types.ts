@@ -23,14 +23,17 @@ export interface GlyphShadowOptions {
   /** Shadow darkness 0..1 — how much the shadowed color darkens toward `color`. Default 0.25. */
   opacity?: number;
   /**
-   * Depth bias added to the interpolated surface depth before comparing against
-   * the shadow map. Eliminates self-shadow acne on flat lit surfaces. Default 0.05.
+   * EXTRA absolute world-length depth bias, on top of the internal slope-scaled
+   * acne guard (`SHADOW_SLOPE_BIAS_TEXELS`), which already closes self-shadow
+   * acne on its own. `0` is valid and often correct: the `0.05` default is a
+   * room-scale assumption, and a nonzero lift erases every caster standing less
+   * than about `lift / sin(light altitude)` above its receiver. Default 0.05.
    */
   lift?: number;
   /**
-   * Maximum world-space extent for the shadow-map ortho projection.
-   * Kept for API parity with polycss. Used as the half-extent of the light-space
-   * projection volume when larger than the computed scene bounds. Default 2000.
+   * Declared but NEVER READ: the light-space volume is fitted to the casters'
+   * own bounding box (`buildShadowMap`), so this has no effect on any render.
+   * Kept only because removing it is a public break. Default 2000.
    */
   maxExtend?: number;
 }

@@ -1,6 +1,6 @@
 /**
- * The cell canvas — see `docs/design/canvas.md` for the full rationale and
- * AGENTS.md's "Cell canvas" section for the contract. Pure, no browser
+ * The cell canvas — see `packages/glyphcss/AGENTS.md` for the contract; the
+ * rationale lives in comments beside each painter and encoder. Pure, no browser
  * globals, not imported by (and not importing anything private from) the
  * existing render path.
  */

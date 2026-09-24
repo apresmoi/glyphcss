@@ -75,8 +75,7 @@ describe("cell canvas: text() never rasterises", () => {
     // unit cluster on length alone, and only THEN does the NFD-strip branch
     // run. A code-point splitter (Array.from) would have already separated
     // the accent before the fold ever saw it, which is why the "é" fixture
-    // this test replaces never actually exercised this path — see
-    // docs/design/canvas.md.
+    // this test replaces never actually exercised this path.
     const decomposedE = "éx";
     canvas.text(0, 0, [decomposedE], {});
     const row0 = canvas.grid.char.slice(0, 10).join("");

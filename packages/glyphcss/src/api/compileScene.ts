@@ -45,13 +45,13 @@ export interface CompileSceneOptions {
   glyphPalette?: string;
   /**
    * Character encoding for rasterized output. `"ascii"` (default) is the
-   * original ramp/rule-glyph encoding; `"braille"`/`"halfblock"` match the
-   * runtime scene option — see {@link RasterizeContextOptions.charMode}.
+   * original ramp/rule-glyph encoding; `"braille"`/`"quadrant"`/`"halfblock"`
+   * match the runtime scene option — see {@link RasterizeContextOptions.charMode}.
    */
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
-   * Hidden-line removal for the wireframe path (wireframe + `charMode:
-   * "braille"`); `"show"` default matches the runtime scene option — see
+   * Hidden-line removal for the wireframe path (wireframe with any
+   * `charMode`); `"show"` default matches the runtime scene option — see
    * {@link RasterizeContextOptions.hiddenLines}. Exposed here (unlike
    * `wireframeJunctions`, which is runtime-only) because it is a pure
    * function of geometry + camera, exactly like `charMode`, and fixes a

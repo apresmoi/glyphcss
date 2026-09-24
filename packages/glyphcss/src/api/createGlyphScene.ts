@@ -80,19 +80,24 @@ export interface GlyphSceneOptions {
   glyphPalette?: string;
   /**
    * Character encoding for rasterized output. `"ascii"` (default) is the
-   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
-   * using Unicode Braille Patterns (U+2800..U+28FF) for smoother diagonal
-   * and curved edges. Documented no-op in `solid`/`voxel`/`ink` modes — braille
-   * dot coverage is binary and cannot carry a Lambert shade ramp or voxel
-   * face glyph, so those modes always render ASCII regardless of this option.
-   * `"halfblock"` is solid-mode-only: it packs two independently colored
-   * subcells (top/bottom) into one `▀`/`▄`/`█` cell for 2× vertical color
-   * resolution, at coarser shape. `"quadrant"` generalizes it to a full 2×2
-   * subcell split (16 possible `▘▝▖▗▀▄▌▐▚▞█` + three-quadrant glyphs),
-   * buying shape resolution AND, on a fully-covered cell, a two-color split
-   * — twice halfblock's shape resolution at the same two-colors-per-cell
-   * cost. Both are documented no-ops outside `solid` mode and when combined
-   * with a `transformCells` hook or active `temporalBlend` reprojection. See
+   * original ramp/rule-glyph encoding.
+   *
+   * `"braille"`, `"quadrant"`, and `"halfblock"` each have a WIREFRAME-MODE
+   * encoding: edges rasterize directly at a fixed sub-cell resolution for
+   * smoother diagonal/curved lines — `"braille"` a 2×4 dot grid into Unicode
+   * Braille Patterns (U+2800..U+28FF); `"quadrant"` a 2×2 coverage mask into
+   * one of 16 quadrant/half/full-block glyphs (`▘▝▖▗▀▄▌▐▚▞█▛▜▙▟`);
+   * `"halfblock"` a 1×2 (top/bottom) split into `▀`/`▄`/`█`. Single colour
+   * per cell (a stroke is binary coverage, not shading), so `transformCells`/
+   * `hiddenLines: "hide"` both work normally. Documented no-op in `solid`'s
+   * ramp path, `voxel`, and `ink`.
+   *
+   * `"halfblock"`/`"quadrant"` ALSO have an unrelated solid-mode-only
+   * encoding: two independently colored subcells packed into one glyph —
+   * `"halfblock"` top/bottom into `▀`/`▄`/`█`; `"quadrant"` the same 2×2
+   * split as above, adding a two-color split on a fully-covered cell. Both
+   * are documented no-ops outside `solid` mode and during active
+   * `temporalBlend` reprojection. See
    * {@link RasterizeContextOptions.charMode}.
    */
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
@@ -106,15 +111,16 @@ export interface GlyphSceneOptions {
    */
   wireframeJunctions?: boolean;
   /**
-   * Hidden-line removal for the wireframe path (wireframe + `charMode:
-   * "braille"`) and for `mode: "ink"`. `"show"` (default) is today's
-   * behavior: edges/strokes draw with no depth reference. `"hide"`
-   * depth-tests every stroke against a solid surface prepass so a back edge
-   * (another mesh's or the same mesh's far side) doesn't paint through a
-   * nearer one — wireframe with a slope-scaled margin, `ink` by exempting
-   * each edge's own local vertex neighborhood so a mesh never self-occludes
-   * its own silhouette. Documented no-op in `solid` (already depth-buffered
-   * per cell). See {@link RasterizeContextOptions.hiddenLines}.
+   * Hidden-line removal for the wireframe path (wireframe with any
+   * `charMode`, including every sub-cell encoding above) and for `mode:
+   * "ink"`. `"show"` (default) is today's behavior: edges/strokes draw with
+   * no depth reference. `"hide"` depth-tests every stroke against a solid
+   * surface prepass so a back edge (another mesh's or the same mesh's far
+   * side) doesn't paint through a nearer one — wireframe with a slope-scaled
+   * margin, `ink` by exempting each edge's own local vertex neighborhood so
+   * a mesh never self-occludes its own silhouette. Documented no-op in
+   * `solid` (already depth-buffered per cell). See
+   * {@link RasterizeContextOptions.hiddenLines}.
    */
   hiddenLines?: "show" | "hide";
   /**
@@ -159,9 +165,11 @@ export interface GlyphSceneOptions {
    * back. It falls back to `"spans"` for a frame whose glyphs aren't covered
    * by the atlas, or whose cells carry no usable colour (see
    * `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene decision,
-   * never a per-cell mix. Documented no-op under `charMode:
-   * "halfblock"`/`"quadrant"`, an active `solidWeightRamp` selection,
-   * `glyphOutput: "semantic"`, and `useColors: false`. The atlas's
+   * never a per-cell mix. Documented no-op under `mode: "solid"` with
+   * `charMode: "halfblock"`/`"quadrant"` (two colours per cell there —
+   * wireframe's own single-colour sub-cell encoding is unaffected), an
+   * active `solidWeightRamp` selection, `glyphOutput: "semantic"`, and
+   * `useColors: false`. The atlas's
    * `@font-face`/`@font-palette-values` CSS and the `<pre>`'s
    * `font-family`/`font-palette` are wired automatically.
    * See {@link RasterizeContextOptions.colorEncoding}.

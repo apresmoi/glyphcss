@@ -158,39 +158,37 @@ export interface RasterizeContextOptions {
   glyphPalette?: string;
   /**
    * Character encoding for rasterized output. `"ascii"` (default) is the
-   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
-   * using Unicode Braille Patterns (U+2800..U+28FF), packing a 2×4 subcell
-   * dot grid into each output cell for visibly smoother diagonal/curved
-   * edges than a single ASCII rule glyph per cell. `"braille"` is a
-   * documented no-op in `solid`/`voxel`/`ink` modes — braille dot coverage is
-   * binary and cannot carry a Lambert shade ramp, voxel face glyph, or ink's
-   * oriented direction glyph, so those modes always render ASCII regardless
-   * of this option.
+   * original ramp/rule-glyph encoding.
    *
-   * `"halfblock"` is the mirror trade-off, solid-mode-only: instead of
-   * picking one glyph from a shade ramp per cell, it packs TWO independently
-   * colored subcells (top + bottom) into `▀`/`▄`/`█`, buying 2× vertical
-   * COLOR resolution at the cost of coarse (block) shape — exactly where
-   * braille's binary coverage cannot carry a Lambert shade ramp. It borrows
-   * the supersample subcell buffers (forcing an even supersample of at least
-   * 2 internally when needed) and is a documented no-op outside `solid` mode,
-   * when a `transformCells` hook is supplied, or during active temporal
-   * reprojection (`temporalBlend > 0` with retained history) — those paths
-   * all expect/produce the existing one-color-per-cell {@link CellGrid}.
+   * `"braille"`, `"quadrant"`, and `"halfblock"` all have a WIREFRAME-MODE
+   * encoding: each rasterizes wireframe edges directly at a fixed sub-cell
+   * resolution (never by folding a finer mask down — see `rasterize.ts`'s
+   * `WIREFRAME_SUBCELL_CONFIGS`) instead of the default one-glyph-per-cell
+   * stamp, for visibly smoother diagonal/curved edges. `"braille"` packs a
+   * 2×4 dot grid per cell into Unicode Braille Patterns (U+2800..U+28FF, up
+   * to 8 "pixels" per glyph); `"quadrant"` packs a 2×2 coverage mask into one
+   * of the 16 quadrant/half/full-block glyphs (space, `▘▝▖▗▀▄▌▐▚▞█`, `▛▜▙▟`);
+   * `"halfblock"` packs a 1×2 (top/bottom) split into `▀`/`▄`/`█`. All three
+   * are single-color-per-cell in wireframe mode (a stroke is binary
+   * coverage, not a shaded region to average), so `transformCells` and
+   * `hiddenLines: "hide"` both work exactly as they do for the default
+   * wireframe path. This encoding is a documented no-op in `solid`'s ramp
+   * path, `voxel` (no sub-cell face-normal glyph mapping exists), and `ink`.
    *
-   * `"quadrant"` generalizes `"halfblock"` from a 1×2 (top/bottom) subcell
-   * split to a full 2×2 split, packing a 4-region coverage mask into one of
-   * 16 Unicode quadrant/half/full-block glyphs (space, `▘▝▖▗▀▄▌▐▚▞█`, and the
-   * four three-quadrant glyphs `▛▜▙▟`) — twice halfblock's shape resolution
-   * at the same two-colors-per-cell markup cost (`▀`/`▄` are two of these 16
-   * masks). A partially-covered cell picks the exact coverage-mask glyph with
-   * one collapsed average color (no `background-color` — that would have to
-   * paint an uncovered region); a fully-covered cell either collapses to a
-   * single-color `█` or splits into a genuine two-tone glyph via a
-   * mean-luminance threshold over the 4 regions. Same eligibility rule as
-   * `"halfblock"`: solid-mode-only, forces the same even supersample ≥2, and
-   * is a documented no-op with a `transformCells` hook or active
-   * `temporalBlend` reprojection.
+   * `"halfblock"`/`"quadrant"` ALSO have an unrelated, solid-mode-only
+   * encoding (braille has none there — binary dot coverage cannot carry a
+   * Lambert shade ramp): instead of picking one glyph from a shade ramp per
+   * cell, they pack TWO independently colored subcells into one glyph —
+   * `"halfblock"` a top/bottom split into `▀`/`▄`/`█`; `"quadrant"` the same
+   * 2×2/16-glyph split as above, buying twice halfblock's shape resolution
+   * at the same two-colors-per-cell cost. Both borrow the supersample
+   * subcell buffers (forcing an even supersample of at least 2 internally
+   * when needed) and are a documented no-op outside `solid` mode or during
+   * active temporal reprojection (`temporalBlend > 0` with retained
+   * history) — reprojection blends a single ramp index/RGB history with no
+   * two-subcell equivalent. Unlike wireframe's encoding, a `transformCells`
+   * hook does not disable this path (it overrides only the cells it
+   * touches, whole-cell, as a post-decision layer).
    */
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
@@ -216,13 +214,15 @@ export interface RasterizeContextOptions {
    */
   wireframeJunctions?: boolean;
   /**
-   * Hidden-line removal for the wireframe path (wireframe + `charMode:
-   * "braille"`; documented no-op in `solid`, which is already depth-buffered
-   * per cell, and in `ink` — a flat-bias spike regressed every convex mesh
-   * there, see `research/contour-first-text/decisions.md`, and is not wired
-   * into this option). Default `"show"` (today's behavior: edges draw in
-   * mesh order with no depth reference, so a farther edge can paint over a
-   * nearer one — byte-identical output).
+   * Hidden-line removal for the wireframe path (wireframe with any
+   * `charMode` — `"ascii"`/absent and every sub-cell encoding, `"braille"`/
+   * `"quadrant"`/`"halfblock"`, all wire it in; documented no-op in `solid`,
+   * which is already depth-buffered per cell, and in `ink` — a flat-bias
+   * spike regressed every convex mesh there, see
+   * `research/contour-first-text/decisions.md`, and is not wired into this
+   * option). Default `"show"` (today's behavior: edges draw in mesh order
+   * with no depth reference, so a farther edge can paint over a nearer one —
+   * byte-identical output).
    *
    * `"hide"` depth-tests every wireframe stroke sample against a solid
    * surface prepass (the same triangle-depth rasterizer
@@ -276,10 +276,12 @@ export interface RasterizeContextOptions {
    * `0` like any other negative value.
    *
    * Applies to every colored render path THAT ENCODES THROUGH `rasterize()`
-   * itself — wireframe and voxel (both plain and `"braille"` `charMode` —
-   * voxel falls through to the wireframe branch and is covered), `ink`, and
-   * `solid` (including `charMode: "halfblock"`/`"quadrant"`, where a run must
-   * hold for both independent color channels). NOT gated behind `temporalBlend`:
+   * itself — wireframe and voxel (plain, and every sub-cell `charMode`:
+   * `"braille"`/`"quadrant"`/`"halfblock"` — voxel falls through to the
+   * wireframe branch and is covered), `ink`, and `solid` (including
+   * `charMode: "halfblock"`/`"quadrant"`'s own DIFFERENT solid-mode encoding,
+   * where a run must hold for both independent color channels). NOT gated
+   * behind `temporalBlend`:
    * measured with a control arm, tolerance pays off MOST under active TAA
    * reprojection (span reduction up to 4.5x on the measured fixture) — see
    * COLOR-TOLERANCE.md's Interactions section.
@@ -317,8 +319,11 @@ export interface RasterizeContextOptions {
    *
    * Documented no-op (`"spans"` behavior regardless of this option) in every
    * case a `<span>`-per-cell representation is structurally required:
-   * `charMode: "halfblock"`/`"quadrant"` (two colours per cell — the atlas
-   * only encodes one), `solidWeightRamp` actually selecting a `font-weight`
+   * `mode: "solid"` with `charMode: "halfblock"`/`"quadrant"` (two colours
+   * per cell there — the atlas only encodes one; wireframe's OWN, unrelated
+   * `"halfblock"`/`"quadrant"`/`"braille"` sub-cell encoding is single-colour
+   * per cell and reaches the atlas exactly like plain wireframe does),
+   * `solidWeightRamp` actually selecting a `font-weight`
    * override (COLR/CPAL carries colour, not weight), `glyphOutput:
    * "semantic"` (already documented to ignore every presentation option,
    * `colorTolerance` included), and `useColors: false` (nothing to encode a
@@ -539,17 +544,20 @@ export interface RasterizeContextOptions {
   /**
    * Independent, mutation-free OBSERVER of the final per-render `CellGrid` —
    * `compileScene`'s own single-pass `grid` capture (AGENTS.md "Compilation"
-   * contract 3). Unlike `transformCells` it never gates `charMode:
-   * "halfblock"`/`"quadrant"`'s own no-op rule, never forces the "safe"
-   * (hook-present) string encoder, and never mutates cells — it observes
-   * whatever grid the render actually produced (post-`transformCells`, when
-   * one is also set) and is called AT MOST ONCE per `rasterize()` call, from
-   * inside the SAME pass that builds the returned string, never a second
-   * traversal. With neither `transformCells` nor `captureCells` set, output
-   * is byte-identical to before this option existed. `charMode: "halfblock"`/
-   * `"quadrant"` never invoke it — a `CellGrid` cannot represent that
-   * encoder's two colours per cell — so a caller reads that skip as "no
-   * durable grid for this render" (see {@link CompileSceneResult.grid}).
+   * contract 3). Unlike `transformCells` it never gates `mode: "solid"`
+   * `charMode: "halfblock"`/`"quadrant"`'s own no-op rule, never forces the
+   * "safe" (hook-present) string encoder, and never mutates cells — it
+   * observes whatever grid the render actually produced (post-`transformCells`,
+   * when one is also set) and is called AT MOST ONCE per `rasterize()` call,
+   * from inside the SAME pass that builds the returned string, never a
+   * second traversal. With neither `transformCells` nor `captureCells` set,
+   * output is byte-identical to before this option existed. `mode: "solid"`
+   * with `charMode: "halfblock"`/`"quadrant"` never invokes it — a
+   * `CellGrid` cannot represent that encoder's two colours per cell — so a
+   * caller reads that skip as "no durable grid for this render" (see
+   * {@link CompileSceneResult.grid}). Wireframe's own, unrelated single-
+   * colour `"halfblock"`/`"quadrant"`/`"braille"` sub-cell encoding DOES
+   * invoke it, exactly like plain wireframe.
    */
   captureCells?: (grid: CellGrid) => void;
 }

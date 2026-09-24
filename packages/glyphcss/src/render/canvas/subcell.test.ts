@@ -1,6 +1,6 @@
 /**
  * Sub-cell `line()` in `braille`/`blocks` — the gates this feature is built
- * against (see AGENTS.md's "Cell canvas" and `docs/design/canvas.md`).
+ * against (see `packages/glyphcss/AGENTS.md`).
  * `ascii`/`box` are unaffected (`line()` never enters `paintSubcellLine` for
  * those two tiers, a claim `tiers.test.ts`'s own exact-fixture test also
  * pins); this file is specifically about the two tiers whose `line()`

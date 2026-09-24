@@ -118,8 +118,7 @@ export interface GlyphCanvasTier {
    * curve — and reusing `blocks`' own table (not a parallel one) is what
    * keeps a braille chart's bars/areas pixel-identical to a `blocks` chart's,
    * while `line()`'s actual curves stay genuine braille dots so a line chart
-   * still reads at braille's real sub-cell resolution. See "Braille-tier
-   * fills" in `docs/design/charts.md`.
+   * still reads at braille's real sub-cell resolution.
    */
   readonly fillSubGlyph?: (mask: number) => string;
 }

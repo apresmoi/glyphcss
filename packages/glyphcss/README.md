@@ -83,7 +83,7 @@ Units match three.js / voxcss:
 | Mode | Cells filled by |
 |---|---|
 | `solid` *(default)* | Lambert-shaded intensity picked from a glyph ramp |
-| `wireframe` | polygon edges rasterized as ASCII rules |
+| `wireframe` | polygon edges rasterized as ASCII rules; glyph weight scales with edge prominence |
 | `voxel` | cube-aligned geometry; face normals drive glyph selection |
 | `ink` | silhouette + crease outlines only; oriented glyph (`_ - ‾ ▔ / \| \ ▏ ▕ ·`) traces the smoothed contour tangent, interior stays empty |
 
@@ -178,8 +178,6 @@ console.log(encodeGlyphCanvasAnsi(canvas, { colors: "truecolor" }));
 - **Tiers**: `GLYPH_CANVAS_TIERS.ascii | box | blocks | braille` — parallel glyph tables with identical keys (including a `subcell` flag + `subGlyph` function, so a sub-cell-derived fill is picked by data, never by branching on the tier's name), so switching charset is a data swap, not a rewrite.
 - **Junctions**: `canvas.edge(edgeId, { from, to, priority? })` registers an edge's graph endpoints; `canvas.route(edgeId, cells)` records its ordered cell polyline (4-adjacent consecutive cells only, `RangeError` otherwise; throws if the edge wasn't registered first) — every N/E/S/W mask is derived from the polyline's own neighbours. `resolveJunctions()` joins two edges at a cell only when they share a graph node AND their walk back to it is the identical cell sequence for both (route COINCIDENCE, not merely a matching node id) — a real hub, a merging trunk, or a fan-out split, never a false join between edges that only reference the same node somewhere else. Two perpendicular straight transits crossing is the routine, unlogged case (the higher-priority edge keeps its own glyph, dashed on its own axis); every other overlap is logged to `canvas.report.routeConflicts` (`{ edgeIds, col, row, kind }`, `kind: "parallel" | "corner" | "multi"`).
 - **Encoders**: `encodeGlyphCanvasText` (raw), `encodeGlyphCanvasHtml` (self-escaping spans, `color` + `background-color` per run — read unconditionally, so a `bg` behind a blank cell still renders), `encodeGlyphCanvasAnsi` (`colors: "16" | "256" | "truecolor"`, `NO_COLOR`/`FORCE_COLOR` read only from an explicit `env` option, any non-empty value counts).
-
-Design rationale: `docs/design/canvas.md` in the monorepo root.
 
 ## Documentation
 

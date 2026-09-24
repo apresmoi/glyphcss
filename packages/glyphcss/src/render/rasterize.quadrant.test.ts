@@ -29,15 +29,41 @@ describe("rasterize — quadrant solid (charMode)", () => {
     expect(withNoCharMode).toBe(before);
   });
 
-  it("is a documented no-op outside solid mode: wireframe output is unaffected by charMode quadrant", () => {
+  // `charMode: "quadrant"` used to be a documented no-op in wireframe mode
+  // (the scene rendered exactly as ASCII wireframe would). It now rasterizes
+  // each wireframe edge directly at a 2×2 subcell resolution, mirroring
+  // `charMode: "braille"`'s own wireframe mechanism — see `rasterize.ts`'s
+  // `WIREFRAME_SUBCELL_CONFIGS`. This test replaces the old "falls back to
+  // ASCII" pin with the new contract; `rasterize.braille.test.ts` covers the
+  // real no-op that remains (`solid`/`voxel`/`ink` modes).
+  it("wireframe mode now renders real quadrant glyphs, no longer a no-op", () => {
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
+    const grid = { cols: 30, rows: 15, cellAspect: 2.0 };
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
+    const ascii = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false }));
+    const quadrant = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false, charMode: "quadrant" }));
+    expect(quadrant).not.toBe(ascii);
+    const nonSpace = quadrant.replace(/\s/g, "");
+    expect(nonSpace.length).toBeGreaterThan(0);
+    const QUADRANT_SET = ["▘", "▝", "▖", "▗", "▀", "▄", "▌", "▐", "▚", "▞", "▛", "▜", "▙", "▟", "█"];
+    for (const ch of nonSpace) {
+      expect(QUADRANT_SET).toContain(ch);
+    }
+  });
+
+  it("is still a documented no-op in solid mode's own no-op paths (ink, voxel): charMode quadrant never touches them", () => {
+    const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
+    const grid = { cols: 20, rows: 10, cellAspect: 2.0 };
+    const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
+    const inkAscii = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "ink", useColors: false }));
+    const inkQuadrant = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "ink", useColors: false, charMode: "quadrant" }));
+    expect(inkQuadrant).toBe(inkAscii);
+
     const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
     try {
-      const camera = createGlyphPerspectiveCamera({ rotX: 20, rotY: 35, zoom: 250, distance: 20 });
-      const grid = { cols: 30, rows: 15, cellAspect: 2.0 };
-      const polygons = cubePolygons({ center: [0, 0, 0], size: 2 });
-      const ctxAscii = buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false });
-      const ctxQuadrant = buildRasterizeContext({ camera, grid, polygons, mode: "wireframe", useColors: false, charMode: "quadrant" });
-      expect(rasterize(ctxQuadrant)).toBe(rasterize(ctxAscii));
+      const voxelAscii = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "voxel", useColors: false }));
+      const voxelQuadrant = rasterize(buildRasterizeContext({ camera, grid, polygons, mode: "voxel", useColors: false, charMode: "quadrant" }));
+      expect(voxelQuadrant).toBe(voxelAscii);
     } finally {
       randomSpy.mockRestore();
     }

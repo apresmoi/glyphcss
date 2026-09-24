@@ -14,7 +14,7 @@ describe("encodeGlyphCanvasHtml: escapes itself, spans only (Phase 0)", () => {
   it("emits &lt; for a literal < with no bg set (mutation: stop escaping -> red)", () => {
     // Phase 0 removed the atlas-delegation optimization entirely (it
     // returned colour-less PUA text for the common box-drawing/ASCII case,
-    // see docs/design/canvas.md) — the HTML exit is spans, unconditionally,
+    // with no palette to decode it) — the HTML exit is spans, unconditionally,
     // so this needs no bg trick to reach the escaping code, unlike before.
     const canvas = createGlyphCanvas({ cols: 3, rows: 1, tier: "box" });
     canvas.text(0, 0, ["<&>"], { color: "#ff0000" });

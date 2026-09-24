@@ -34,12 +34,15 @@ export interface GlyphSceneProps {
   glyphPalette?: string;
   /**
    * Character encoding for rasterized output. `"ascii"` (default) is the
-   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
-   * using Unicode Braille Patterns (U+2800..U+28FF) for smoother diagonal
-   * and curved edges. Documented no-op in `solid`/`voxel`/`ink` modes.
-   * `"halfblock"` is the solid-mode mirror: two independently colored
-   * subcells (top/bottom) packed into one `▀`/`▄`/`█` cell for 2× vertical
-   * color resolution. Documented no-op outside `solid` mode.
+   * original ramp/rule-glyph encoding. `"braille"`, `"quadrant"`, and
+   * `"halfblock"` each have a wireframe-mode encoding: edges rasterize
+   * directly at a fixed sub-cell resolution (2×4 braille dots, 2×2 quadrant
+   * coverage, 1×2 halfblock top/bottom) for smoother diagonal/curved lines,
+   * single colour per cell. Documented no-op in `solid`'s ramp path, `voxel`,
+   * and `ink`. `"halfblock"`/`"quadrant"` ALSO have an unrelated solid-mode
+   * encoding: two independently colored subcells packed into one glyph for
+   * 2× (halfblock) or 4× (quadrant) shape/color resolution — documented
+   * no-op outside `solid` mode. See `glyphcss`'s `RasterizeContextOptions.charMode`.
    */
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
   /**
@@ -51,8 +54,8 @@ export interface GlyphSceneProps {
    */
   wireframeJunctions?: boolean;
   /**
-   * Hidden-line removal for the wireframe path (wireframe + `charMode:
-   * "braille"`). `"show"` (default) is today's behavior. `"hide"`
+   * Hidden-line removal for the wireframe path (wireframe with any
+   * `charMode`). `"show"` (default) is today's behavior. `"hide"`
    * depth-tests every stroke against a solid surface prepass so a back edge
    * doesn't paint through a nearer one. Documented no-op in `solid` and `ink`.
    */

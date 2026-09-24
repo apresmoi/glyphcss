@@ -732,11 +732,12 @@ function fillDepthTri(
  * Projects each polygon at the CELL grid's resolution (same call
  * `camera.project` already gets for wireframe edges), then scales the
  * resulting screen x/y by `(sx, sy)` before filling — this matches how
- * `rasterizeWireframeBraille` derives subcell coordinates by scaling a
- * cell-space projection (`a[0] * 2`, `a[1] * 4`), so `sx=2, sy=4` builds a
- * depth buffer at SUBCELL resolution with no second projection pass, and
- * `sx=1, sy=1` (the ASCII path, and braille's coarser per-cell option)
- * builds it at cell resolution directly.
+ * `rasterizeWireframeSubcell` derives subcell coordinates by scaling a
+ * cell-space projection (`a[0] * subX`, `a[1] * subY`), so `sx=2, sy=4`
+ * builds a depth buffer at braille's SUBCELL resolution with no second
+ * projection pass, and `sx=1, sy=1` (the ASCII path, and every subcell
+ * charMode's coarser cell-resolution HLR prepass) builds it at cell
+ * resolution directly.
  *
  * Exported for `createGlyphScene.ts`'s meshless viewport overlay (a
  * `line`/`contour` stroke layer's own independent-density output grid):
@@ -1108,13 +1109,18 @@ export function rasterize(scene: RasterizeContext): string {
 
   // wireframe (and voxel falls through to wireframe for now)
 
-  // `charMode: "braille"` only encodes wireframe mode — voxel falls through to
-  // this same branch but keeps the ASCII path (braille coverage is binary and
-  // has no voxel-face-normal glyph mapping). Default/absent `charMode` and
-  // `"ascii"` both take the untouched path below, so default output stays
+  // `charMode: "braille"/"quadrant"/"halfblock"` all encode wireframe mode
+  // ONLY by rasterizing directly at a sub-cell resolution — see
+  // `WIREFRAME_SUBCELL_CONFIGS`'s own doc for why this is one data table, not
+  // three branches on the charMode name. `mode === "wireframe"` strictly
+  // (never `mode === "voxel"`, which falls through to this same `if` check
+  // and keeps the ASCII path — none of the three sub-cell encodings has a
+  // voxel-face-normal glyph mapping). Default/absent `charMode` and
+  // `"ascii"` both skip this lookup entirely, so default output stays
   // byte-identical.
-  if (scene.charMode === "braille" && mode === "wireframe") {
-    return rasterizeWireframeBraille(scene, cols, rows, cellAspect, metrics);
+  const subcellConfig = mode === "wireframe" ? WIREFRAME_SUBCELL_CONFIGS[scene.charMode] : undefined;
+  if (subcellConfig) {
+    return rasterizeWireframeSubcell(scene, cols, rows, cellAspect, metrics, subcellConfig);
   }
 
   const glyphs = getWireframeGlyphs(scene.glyphPalette);
@@ -2415,7 +2421,7 @@ function rasterizeSolid(
   // `string` spans from the end of the triangle loop to the return, so it
   // contains the downsample, the temporal reprojection, `applyCellHook` AND
   // the encoder — which is how a consumer's own cell hook was once read as an
-  // encoder cost (`docs/design/performance.md`). `hook` is the hook's own
+  // encoder cost. `hook` is the hook's own
   // share of that window, so the two can never be confused again.
   const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[]; hook?: number[] } }).__glyphPerfDetail;
   const __tLoop = __detail ? performance.now() : 0;
@@ -5158,27 +5164,94 @@ function drawLineToStampDepthTested(
 }
 
 /**
- * Braille-encoded wireframe (`charMode: "braille"`). Rasterizes each edge
- * ONCE, directly into a 2-wide × 4-tall subcell grid per output cell, to
- * build a dot-coverage bitmask; color is attributed from that SAME subcell
- * pass (same coordinates, same rounding) rather than from an independent
- * cell-resolution line pass, so a cell's color and its lit dots can never
- * disagree about which edge (or whether any edge) covers it. Each covered
- * output cell becomes `U+2800 + mask` (Unicode Braille Patterns block),
- * giving up to 8 independent sub-cell "pixels" per glyph — visibly smoother
- * diagonal/curved edges than the single ASCII rule glyph the default path
- * picks per cell. Runs entirely after camera projection and before
+ * Data (not branches) for every wireframe charMode that rasterizes directly
+ * at a sub-cell resolution, keyed by `RasterizeContext.charMode`: `subX`/
+ * `subY` are sub-cell columns/rows per output cell, `shiftX`/`shiftY` are
+ * their base-2 logs (used to map a subcell coordinate back to its owning
+ * cell via `>>`, so they must stay powers of two), `bitTable` is the
+ * row-major (`r * subX + c`) coverage-bit each subcell contributes to a
+ * cell's mask, and `glyphForMask` resolves the finished mask to a glyph.
+ * `"ascii"`/`undefined` have no entry, so `rasterize()`'s lookup misses and
+ * falls through to the untouched default wireframe path — the ONE gate that
+ * keeps every other charMode byte-identical, per AGENTS.md's "tiers are data
+ * tables, never branches on tier name".
+ *
+ * `"braille"` (2×4, giving up to 8 sub-cell "pixels" per glyph via Unicode
+ * Braille Patterns, U+2800+mask) is the original, hand-rolled implementation
+ * this table generalizes. `"quadrant"` (2×2) and `"halfblock"` (1×2) reuse
+ * the SAME `QUADRANT_GLYPHS`/`QUAD_TL..BR` bit convention solid mode's
+ * `encodeQuadrantSolid` already defines — half-block's glyph set is a strict
+ * subset of quadrant's (`TL|TR` → `▀`, `BL|BR` → `▄`) — but unlike THAT solid
+ * path, a wireframe stroke is binary coverage with no shaded region to
+ * average, so there is no dual-tone `background-color` split here: one
+ * glyph, one color per cell, the same contract `"braille"` already has (and
+ * the reason `rasterizeWireframeSubcell` below can share braille's exact
+ * color-attribution/HLR/hook machinery unmodified).
+ */
+interface WireframeSubcellConfig {
+  readonly subX: number;
+  readonly subY: number;
+  readonly shiftX: number;
+  readonly shiftY: number;
+  readonly bitTable: readonly number[];
+  readonly glyphForMask: (mask: number) => string;
+}
+
+// Braille Patterns dot-bit layout (NOT raster order), row-major r*2+c: col0
+// rows 0..3 → 0x01,0x02,0x04,0x40; col1 rows 0..3 → 0x08,0x10,0x20,0x80.
+const BRAILLE_SUBCELL_BITS = [0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80];
+// One glyph per (top, bottom) coverage combination — the wireframe mirror of
+// `▀`/`▄`/`█` in `QUADRANT_GLYPHS`, but this table stays independent of it: a
+// wireframe half-block cell is a strict 1×2 split, not a masked-down 2×2 one.
+const WIREFRAME_HALFBLOCK_GLYPHS: Record<number, string> = { 0: " ", 1: "▀", 2: "▄", 3: "█" };
+
+const WIREFRAME_SUBCELL_CONFIGS: Partial<Record<RasterizeContext["charMode"], WireframeSubcellConfig>> = {
+  braille: {
+    subX: 2, subY: 4, shiftX: 1, shiftY: 2,
+    bitTable: BRAILLE_SUBCELL_BITS,
+    glyphForMask: (mask) => String.fromCharCode(0x2800 + mask),
+  },
+  quadrant: {
+    subX: 2, subY: 2, shiftX: 1, shiftY: 1,
+    bitTable: [QUAD_TL, QUAD_TR, QUAD_BL, QUAD_BR],
+    glyphForMask: (mask) => QUADRANT_GLYPHS[mask]!,
+  },
+  halfblock: {
+    subX: 1, subY: 2, shiftX: 0, shiftY: 1,
+    bitTable: [1, 2],
+    glyphForMask: (mask) => WIREFRAME_HALFBLOCK_GLYPHS[mask]!,
+  },
+};
+
+/**
+ * Sub-cell-resolution wireframe encoding for `charMode: "braille"` /
+ * `"quadrant"` / `"halfblock"` (config from {@link WIREFRAME_SUBCELL_CONFIGS}).
+ * Rasterizes each edge ONCE, directly into a `subX`-wide × `subY`-tall
+ * subcell grid per output cell, to build a coverage bitmask; color is
+ * attributed from that SAME subcell pass (same coordinates, same rounding)
+ * rather than from an independent cell-resolution line pass, so a cell's
+ * color and its lit subcells can never disagree about which edge (or
+ * whether any edge) covers it. Each covered output cell folds to
+ * `config.glyphForMask(mask)` — braille's 2×4 split gives up to 8
+ * independent sub-cell "pixels" per glyph; quadrant's 2×2 and halfblock's
+ * 1×2 splits give coarser but still genuinely sub-cell shape, all visibly
+ * smoother than the single ASCII rule glyph the default path picks per
+ * cell. This is a DIRECT rasterization at the target resolution, never a
+ * finer mask folded down: folding, e.g., braille's 2×4 coverage into
+ * quadrant's 2×2 would over-ink a half lit by only one of its two folded
+ * braille rows. Runs entirely after camera projection and before
  * string-building; still exactly one string produced per call. Like the
  * ASCII wireframe path, the post-rasterize `transformCells` hook (when
  * supplied) runs on the folded per-cell char/color buffers before the final
  * string is built.
  */
-function rasterizeWireframeBraille(
+function rasterizeWireframeSubcell(
   scene: RasterizeContext,
   cols: number,
   rows: number,
   cellAspect: number,
   metrics: GlyphProjectionMetrics,
+  config: WireframeSubcellConfig,
 ): string {
   const { camera, wireframe } = scene;
   const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
@@ -5186,16 +5259,18 @@ function rasterizeWireframeBraille(
   // light dots — the only tie-break input for overlapping edges' colors.
   const colorWeight: Uint8Array | null = colorBuf ? new Uint8Array(cols * rows) : null;
 
-  const subCols = cols * 2;
-  const subRows = rows * 4;
+  const { subX, subY, shiftX, shiftY } = config;
+  const subCols = cols * subX;
+  const subRows = rows * subY;
   const subStamp = new Uint8Array(subCols * subRows);
 
-  // `hiddenLines: "hide"` for braille — see the ASCII path in `rasterize()`.
-  // The surface prepass is built at CELL resolution, not braille's finer 2×4
-  // subcell resolution: measured 777 vs 786 inked cells (1.2% difference)
-  // for 25% more cost (0.916ms vs 0.733ms subcell-resolution depth) — braille
-  // strokes are already ~1 subcell wide, so a whole glyph can share one
-  // occlusion decision (`research/contour-first-text/decisions.md`, subpath 05).
+  // `hiddenLines: "hide"` — see the ASCII path in `rasterize()`. The surface
+  // prepass is built at CELL resolution, not this path's finer subcell
+  // resolution: measured (for braille's 2×4) 777 vs 786 inked cells (1.2%
+  // difference) for 25% more cost (0.916ms vs 0.733ms subcell-resolution
+  // depth) — a wireframe stroke is already ~1 subcell wide, so a whole glyph
+  // can share one occlusion decision
+  // (`research/contour-first-text/decisions.md`, subpath 05).
   const hlr = scene.hiddenLines === "hide";
   const surfaceDepth = hlr
     ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics)
@@ -5217,23 +5292,25 @@ function rasterizeWireframeBraille(
     if (surfaceDepth) {
       drawSubcellLineDepthTested(
         subStamp, colorWeight, colorBuf,
-        Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+        Math.floor(a[0] * subX), Math.floor(a[1] * subY), Math.floor(b[0] * subX), Math.floor(b[1] * subY),
         a[2]!, b[2]!,
         subCols, subRows, cols,
         e.weight ?? 2, e.color ?? null,
         surfaceDepth, HLR_BIAS, HLR_SLOPE_SCALE,
+        shiftX, shiftY,
       );
     } else {
       drawSubcellLine(
         subStamp, colorWeight, colorBuf,
-        Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+        Math.floor(a[0] * subX), Math.floor(a[1] * subY), Math.floor(b[0] * subX), Math.floor(b[1] * subY),
         subCols, subRows, cols,
         e.weight ?? 2, e.color ?? null,
+        shiftX, shiftY,
       );
     }
   }
 
-  const { char: cChar, color: cColor } = foldBrailleSubStampToCells(subStamp, colorBuf, cols, rows, subCols);
+  const { char: cChar, color: cColor } = foldSubStampToCells(subStamp, colorBuf, cols, rows, subCols, config);
 
   if (scene.transformCells || scene.captureCells) {
     const applied = applyCellHook(
@@ -5288,11 +5365,18 @@ function rasterizeWireframeBraille(
  * step/termination guarantee, are unchanged); this is NOT an aspect-weighted
  * variant.
  *
- * Exported (in addition to its use from `rasterizeWireframeBraille`) so the
+ * Exported (in addition to its use from `rasterizeWireframeSubcell`) so the
  * order-independence / mirror-symmetry / 4-connectivity regression tests in
  * `rasterize.braille.test.ts` can exercise this exact walk directly at
  * integer subcell coordinates, instead of through camera projection's own
  * (unrelated) floor-rounding.
+ *
+ * `shiftX`/`shiftY` (default `1`/`2`, braille's own 2×4 split — every
+ * existing caller, including the exported test helper above, omits them and
+ * gets byte-identical behavior) map a subcell coordinate back to its owning
+ * cell via `>>`: `cellIdx = (cy >> shiftY) * cellCols + (cx >> shiftX)`.
+ * They must be `Math.log2(subcellsPerCellOnThatAxis)` — quadrant's 2×2 split
+ * passes `1, 1`; halfblock's 1×2 split passes `0, 1`.
  */
 export function drawSubcellLine(
   stamp: Uint8Array,
@@ -5305,6 +5389,8 @@ export function drawSubcellLine(
   cellCols: number,
   val: number,
   color: string | null,
+  shiftX = 1,
+  shiftY = 2,
 ): void {
   if (y0 > y1 || (y0 === y1 && x0 > x1)) {
     const tx = x0; x0 = x1; x1 = tx;
@@ -5318,7 +5404,7 @@ export function drawSubcellLine(
     if (cx >= 0 && cx < subCols && cy >= 0 && cy < subRows) {
       stamp[cy * subCols + cx] = 1;
       if (colorBuf) {
-        const cellIdx = (cy >> 2) * cellCols + (cx >> 1);
+        const cellIdx = (cy >> shiftY) * cellCols + (cx >> shiftX);
         if (colorWeight![cellIdx] < val) {
           colorWeight![cellIdx] = val;
           colorBuf[cellIdx] = color;
@@ -5337,7 +5423,7 @@ export function drawSubcellLine(
       if (cx >= 0 && cx < subCols && ny >= 0 && ny < subRows) {
         stamp[ny * subCols + cx] = 1;
         if (colorBuf) {
-          const cellIdx = (ny >> 2) * cellCols + (cx >> 1);
+          const cellIdx = (ny >> shiftY) * cellCols + (cx >> shiftX);
           if (colorWeight![cellIdx] < val) {
             colorWeight![cellIdx] = val;
             colorBuf[cellIdx] = color;
@@ -5350,15 +5436,16 @@ export function drawSubcellLine(
 }
 
 /**
- * Depth-tested sibling of `drawSubcellLine` for
- * `hiddenLines: "hide"` in braille mode. Same canonicalized 4-connected
- * walk (endpoint depths `z0`/`z1` are swapped together with `x0,y0`/`x1,y1` so
- * the depth interpolation stays consistent with whichever endpoint the walk
- * now starts from), but each dot (including the 4-connectivity intermediate
- * dot) is depth-tested via `wireframeVisibleAtCell` before being lit.
- * `surfaceDepth` is always CELL resolution (index by the owning cell,
- * `cx>>1, cy>>2`) — see `rasterizeWireframeBraille`'s doc comment for why
- * subcell-resolution depth was measured and not shipped.
+ * Depth-tested sibling of `drawSubcellLine` for `hiddenLines: "hide"`. Same
+ * canonicalized 4-connected walk (endpoint depths `z0`/`z1` are swapped
+ * together with `x0,y0`/`x1,y1` so the depth interpolation stays consistent
+ * with whichever endpoint the walk now starts from), but each dot (including
+ * the 4-connectivity intermediate dot) is depth-tested via
+ * `wireframeVisibleAtCell` before being lit. `surfaceDepth` is always CELL
+ * resolution (index by the owning cell, `cx>>shiftX, cy>>shiftY`) — see
+ * `rasterizeWireframeSubcell`'s doc comment for why subcell-resolution depth
+ * was measured and not shipped. `shiftX`/`shiftY` default to `1`/`2`
+ * (braille's own split), same convention as `drawSubcellLine`.
  */
 function drawSubcellLineDepthTested(
   stamp: Uint8Array,
@@ -5375,6 +5462,8 @@ function drawSubcellLineDepthTested(
   surfaceDepth: Float64Array,
   bias: number,
   slopeScale: number,
+  shiftX = 1,
+  shiftY = 2,
 ): void {
   if (y0 > y1 || (y0 === y1 && x0 > x1)) {
     const tx = x0; x0 = x1; x1 = tx;
@@ -5388,10 +5477,10 @@ function drawSubcellLineDepthTested(
   const totalSteps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
   let step = 0;
   const depthCols = cellCols;
-  const depthRows = subRows >> 2;
+  const depthRows = subRows >> shiftY;
   const visible = (px: number, py: number): boolean => {
-    const dcx = px >> 1;
-    const dcy = py >> 2;
+    const dcx = px >> shiftX;
+    const dcy = py >> shiftY;
     const t = step / totalSteps;
     const z = z0 + (z1 - z0) * t;
     return wireframeVisibleAtCell(surfaceDepth, depthCols, depthRows, dcx, dcy, z, bias, slopeScale);
@@ -5400,7 +5489,7 @@ function drawSubcellLineDepthTested(
     if (cx >= 0 && cx < subCols && cy >= 0 && cy < subRows && visible(cx, cy)) {
       stamp[cy * subCols + cx] = 1;
       if (colorBuf) {
-        const cellIdx = (cy >> 2) * cellCols + (cx >> 1);
+        const cellIdx = (cy >> shiftY) * cellCols + (cx >> shiftX);
         if (colorWeight![cellIdx] < val) {
           colorWeight![cellIdx] = val;
           colorBuf[cellIdx] = color;
@@ -5417,7 +5506,7 @@ function drawSubcellLineDepthTested(
       if (cx >= 0 && cx < subCols && ny >= 0 && ny < subRows && visible(cx, ny)) {
         stamp[ny * subCols + cx] = 1;
         if (colorBuf) {
-          const cellIdx = (ny >> 2) * cellCols + (cx >> 1);
+          const cellIdx = (ny >> shiftY) * cellCols + (cx >> shiftX);
           if (colorWeight![cellIdx] < val) {
             colorWeight![cellIdx] = val;
             colorBuf[cellIdx] = color;
@@ -5430,46 +5519,49 @@ function drawSubcellLineDepthTested(
   }
 }
 
-// Braille Patterns dot-bit layout (NOT raster order): col0 rows 0..3 →
-// 0x01,0x02,0x04,0x40; col1 rows 0..3 → 0x08,0x10,0x20,0x80.
-const BRAILLE_BITS_COL0 = [0x01, 0x02, 0x04, 0x40];
-const BRAILLE_BITS_COL1 = [0x08, 0x10, 0x20, 0x80];
-
 /**
- * Fold a 2×4 subcell coverage grid down to one braille glyph per output
- * cell. `colorBuf`, when supplied, is already cell-resolution — it was
- * populated by `drawSubcellLine` from the SAME subcell coordinates being
- * folded here, so it needs no re-derivation; this just clears any stray
- * entry on a cell that ends up uncovered. Returns plain arrays (not a
- * string) so the caller can run the `transformCells` hook on them before
- * stringifying, exactly like the ASCII wireframe path does with its stamp
- * buffer.
+ * Fold a `config.subX`×`config.subY` subcell coverage grid down to one glyph
+ * per output cell, via `config.bitTable`/`config.glyphForMask` — the shared
+ * fold every {@link WIREFRAME_SUBCELL_CONFIGS} entry uses, braille included
+ * (its original hand-written 2×4 fold produced byte-identical output to this
+ * generalized loop: same row-major `r*subX+c` bit lookup order, same
+ * `mask === 0 → " "` empty case). `colorBuf`, when supplied, is already
+ * cell-resolution — it was populated by `drawSubcellLine` from the SAME
+ * subcell coordinates being folded here, so it needs no re-derivation; this
+ * just clears any stray entry on a cell that ends up uncovered. Returns
+ * plain arrays (not a string) so the caller can run the `transformCells`
+ * hook on them before stringifying, exactly like the ASCII wireframe path
+ * does with its stamp buffer.
  */
-function foldBrailleSubStampToCells(
+function foldSubStampToCells(
   subStamp: Uint8Array,
   colorBuf: (string | null)[] | null,
   cols: number,
   rows: number,
   subCols: number,
+  config: WireframeSubcellConfig,
 ): { char: string[]; color: (string | null)[] | null } {
+  const { subX, subY, bitTable, glyphForMask } = config;
   const n = cols * rows;
   const char: string[] = new Array(n);
   for (let y = 0; y < rows; y++) {
-    const baseSubY = y * 4;
+    const baseSubY = y * subY;
     for (let x = 0; x < cols; x++) {
-      const baseSubX = x * 2;
+      const baseSubX = x * subX;
       let mask = 0;
-      for (let r = 0; r < 4; r++) {
+      for (let r = 0; r < subY; r++) {
         const rowBase = (baseSubY + r) * subCols;
-        if (subStamp[rowBase + baseSubX]) mask |= BRAILLE_BITS_COL0[r]!;
-        if (subStamp[rowBase + baseSubX + 1]) mask |= BRAILLE_BITS_COL1[r]!;
+        const bitRowBase = r * subX;
+        for (let c = 0; c < subX; c++) {
+          if (subStamp[rowBase + baseSubX + c]) mask |= bitTable[bitRowBase + c]!;
+        }
       }
       const idx = y * cols + x;
       if (mask === 0) {
         char[idx] = " ";
         if (colorBuf) colorBuf[idx] = null;
       } else {
-        char[idx] = String.fromCharCode(0x2800 + mask);
+        char[idx] = glyphForMask(mask);
       }
     }
   }
