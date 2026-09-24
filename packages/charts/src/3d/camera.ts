@@ -54,8 +54,8 @@ export interface GlyphChart3dFitCameraOptions {
   /**
    * Extra outward allowance, as a fraction of each axis's own extent, for
    * what the box's own overlay pushes OUTSIDE its geometric bounds — tick
-   * marks, tick labels and axis titles (`object.ts`'s own `TICK_LABEL_MARGIN`/
-   * `AXIS_TITLE_MARGIN` push-out, plus slack for the label TEXT's own
+   * marks, tick labels and axis titles (`object.ts`'s own
+   * `AXIS_TICK_LABEL_CELLS`/`AXIS_TITLE_MARGIN` push-out, plus slack for the label TEXT's own
    * width/height, which this function has no glyph metrics to measure
    * exactly). Default `0.65` (C2 fix round 8: raised from `0.45`, which sat
    * BELOW `object.ts`'s own real `AXIS_TITLE_MARGIN` of `0.6` — at some

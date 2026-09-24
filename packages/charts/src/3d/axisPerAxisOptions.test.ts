@@ -246,6 +246,13 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
     if (!anchor) throw new Error("title anchor not found");
     return anchor.point;
   }
+  /** An `"end"` title's own along-axis push now rides in CELLS (`padCells`), not in the object-space point — see `AXIS_TITLE_TIP_CELLS`. */
+  function titlePad(titleAt: "start" | "center" | "end" | undefined, titleOffset?: number): number {
+    const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] }, undefined, {
+      axes: { z: { title: "height", titleAt, titleOffset } },
+    });
+    return glyphChart3dLabelAnchors(mark).find((a) => a.text === "height")!.padCells ?? 0;
+  }
 
   // C2 fix round 9 (USER FEEDBACK: "the label is too far from the axis...
   // they could be in the end"): the default flipped from 'center' to 'end',
@@ -253,17 +260,27 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
   // (`object.ts`'s `axisTitlePoint`) rather than sitting exactly at
   // `t = 0`/`t = 1`) — reverting either default (`axisTitlePoint`'s own
   // `axis.titleAt ?? "end"`, or `AXIS_TITLE_TIP_OFFSET`) turns these red.
-  it("MUTATION: default titleAt is 'center' — the title sits at its own line's MIDPOINT, not off past the tip", () => {
-    // USER FEEDBACK, verbatim: "the axis title is like in the middle
-    // between the axis and the labels but not centered on the axis lines".
+  it("MUTATION: default titleAt is 'end' — the title continues its own axis VECTOR past the tip, with zero push on the other two axes", () => {
+    // USER FEEDBACK, verbatim: "imagine the line that goes from 0,0,0 to
+    // maxX,0,0 ot 0,0,0 to 0,maxY,0 I want the labels to be on maxY+delta
+    // or maxX+delta :) centered in the same vector direction of those
+    // directions". Collinear — any perpendicular component at all reads as
+    // the title floating beside the line instead of running along it.
     const withDefault = titleAnchor(undefined);
-    expect(withDefault).toEqual(titleAnchor("center"));
-    expect(withDefault).not.toEqual(titleAnchor("end"));
-    // z's edge runs from object-space 0 to aspect[2]; centred means exactly
-    // halfway ALONG it, never past the far end the old default reached for.
+    expect(withDefault).toEqual(titleAnchor("end"));
     const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
-    expect(withDefault[2]).toBeCloseTo(mark.aspect[2] / 2, 3);
-    expect(withDefault[2]).toBeLessThan(mark.aspect[2]);
+    // The anchor is the axis TIP itself; the push past it is a SCREEN
+    // distance now (`padCells`), so all three axes read the same gap
+    // whatever their own extent or foreshortening.
+    expect(withDefault[2]).toBeCloseTo(mark.aspect[2], 9);
+    expect(titlePad(undefined)).toBeGreaterThan(0);
+    // ...and the OTHER two are exactly the origin corner's own, never
+    // nudged off the line (this is the clause that reddens if any
+    // perpendicular margin comes back).
+    // `toBeCloseTo`, not `toBe`: `outwardPoint`'s own `-push` yields `-0`
+    // for a zero margin, and `Object.is(-0, 0)` is false.
+    expect(withDefault[0]).toBeCloseTo(0, 9);
+    expect(withDefault[1]).toBeCloseTo(0, 9);
   });
 
   it("MUTATION: titleAt 'start'/'center'/'end' each put the title at a measurably different anchor point", () => {
@@ -280,22 +297,19 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
     // midpoint of the box's own z extent.
     const mark = glyphChartSurface({ z: [[0, 1], [2, 3]] });
     expect(start[2]).toBeCloseTo(0, 6);
-    expect(end[2]).toBeGreaterThan(mark.aspect[2]);
+    expect(end[2]).toBeCloseTo(mark.aspect[2], 9);
     expect(center[2]).toBeCloseTo(mark.aspect[2] / 2, 6);
   });
 
-  it("MUTATION: titleOffset moves the 'end' title ALONG its own axis, past the tip — never perpendicular", () => {
-    const close = titleAnchor("end", 0.02);
-    const far = titleAnchor("end", 0.5);
-    const withDefault = titleAnchor("end");
-    expect(close).not.toEqual(far);
-    expect(close).not.toEqual(withDefault);
-    // The z coordinate (position ALONG the edge, past the tip) is what
-    // `titleOffset` moves for 'end' — the OTHER two axes (the fixed
-    // perpendicular clearance, `AXIS_TITLE_PERP_MARGIN`) stay put.
-    expect(close[2]).not.toBeCloseTo(far[2], 3);
-    expect(close[0]).toBeCloseTo(far[0], 9);
-    expect(close[1]).toBeCloseTo(far[1], 9);
+  it("MUTATION: titleOffset moves the 'end' title further along its own axis, in CELLS — the anchor stays on the tip", () => {
+    // The unit changed with the collinear round: a fraction of each axis's
+    // OWN extent made z's gap half of x's and y's (aspect [1.3, 1.3, 0.6]),
+    // which is the reported "x axis is kindof further away than y label
+    // than [z] label". Cells are the same distance on every axis.
+    expect(titlePad("end", 0.02)).toBeLessThan(titlePad("end", 4));
+    expect(titlePad("end", 0)).toBeLessThan(titlePad("end", 4));
+    // The object-space anchor is the tip regardless — the offset is not in it.
+    expect(titleAnchor("end", 0.02)).toEqual(titleAnchor("end", 4));
   });
 
   it("titleOffset still moves 'center'/'start' the LEGACY (pre-round-9) way — perpendicular to their own axis, unchanged from before 'end' was tightened", () => {
@@ -326,7 +340,7 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
     // t=0 boundary); y's own edge coordinate (axis 1) sits PAST aspect[1]
     // ('end', round 9's own tip extension).
     expect(xPoint[0]).toBeCloseTo(0, 6);
-    expect(yPoint[1]).toBeGreaterThan(mark.aspect[1]);
+    expect(yPoint[1]).toBeCloseTo(mark.aspect[1], 9);
   });
 
   it("titleAt applies to the STAMPED overlay too, not only the fit's own anchor set — moving titleAt changes the rendered title's cell", () => {

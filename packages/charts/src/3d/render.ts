@@ -511,14 +511,14 @@ function fitStaticCamera(
   const centerCol = cols / 2, centerRow = rows / 2;
   const reference = makeCamera(1, [0.5, 0.5]);
 
-  interface ColPoint { readonly col1: number; readonly widthRight: number; }
-  interface RowPoint { readonly row1: number; }
+  interface ColPoint { readonly col1: number; readonly widthRight: number; readonly widthLeft: number; }
+  interface RowPoint { readonly row1: number; readonly pad: number; }
   const colPoints: ColPoint[] = [], rowPoints: RowPoint[] = [];
   const { min, max } = object.bounds;
   for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
     const [col1, row1] = reference.project([x, y, z], cols, rows, sceneCellAspect);
-    colPoints.push({ col1, widthRight: 0 });
-    rowPoints.push({ row1 });
+    colPoints.push({ col1, widthRight: 0, widthLeft: 0 });
+    rowPoints.push({ row1, pad: 0 });
   }
 
   const availCols = Math.max(1, cols - 2 * FIT_MARGIN_COLS);
@@ -533,8 +533,12 @@ function fitStaticCamera(
     // + i, ...})` for `i` in `[0, text.length)`) — never centred — so its
     // own screen span is `[col1, col1 + text.length - 1]`, and only the
     // RIGHT edge needs its own extra bound.
-    colPoints.push({ col1, widthRight: text.length - 1 });
-    rowPoints.push({ row1 });
+    // A constant screen displacement (`padCells`) does not scale with zoom,
+    // so it is reserved as extra MARGIN around the point — never folded
+    // into the point, which would break the solve's linearity in `zoom`.
+    const pad = anchor.padCells ?? 0;
+    colPoints.push({ col1, widthRight: text.length - 1 + pad, widthLeft: pad });
+    rowPoints.push({ row1, pad });
   }
 
   let zUpper = Infinity;
@@ -542,12 +546,12 @@ function fitStaticCamera(
   for (const p of colPoints) {
     const offset = p.col1 - centerCol;
     if (offset > EPS) zUpper = Math.min(zUpper, (cols - FIT_MARGIN_COLS - p.widthRight - centerCol) / offset);
-    else if (offset < -EPS) zUpper = Math.min(zUpper, (FIT_MARGIN_COLS - centerCol) / offset);
+    else if (offset < -EPS) zUpper = Math.min(zUpper, (FIT_MARGIN_COLS + p.widthLeft - centerCol) / offset);
   }
   for (const p of rowPoints) {
     const offset = p.row1 - centerRow;
-    if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - centerRow) / offset);
-    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop - centerRow) / offset);
+    if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - p.pad - centerRow) / offset);
+    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop + p.pad - centerRow) / offset);
   }
   if (!Number.isFinite(zUpper) || zUpper <= 0) zUpper = 1;
   const finalZoom = zUpper * FIT_ZOOM_SAFETY;
@@ -555,13 +559,13 @@ function fitStaticCamera(
   let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
   for (const p of colPoints) {
     const c = centerCol + (p.col1 - centerCol) * finalZoom;
-    if (c < minCol) minCol = c;
+    if (c - p.widthLeft < minCol) minCol = c - p.widthLeft;
     if (c + p.widthRight > maxCol) maxCol = c + p.widthRight;
   }
   for (const p of rowPoints) {
     const r = centerRow + (p.row1 - centerRow) * finalZoom;
-    if (r < minRow) minRow = r;
-    if (r > maxRow) maxRow = r;
+    if (r - p.pad < minRow) minRow = r - p.pad;
+    if (r + p.pad > maxRow) maxRow = r + p.pad;
   }
   const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
 

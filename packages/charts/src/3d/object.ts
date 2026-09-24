@@ -88,8 +88,6 @@ function applyValueShadingTexture(polygons: readonly Polygon[], aspect: readonly
   }
 }
 
-/** How far outward (as a fraction of that axis's own box extent) a tick label / axis title is pushed past the box edge. */
-const TICK_LABEL_MARGIN = 0.15;
 /**
  * C2 fix round 9 (USER FEEDBACK, verbatim: "the label is too far from the
  * axis... maybe those labels should be on the end at the tip of the axes in
@@ -103,19 +101,20 @@ const TICK_LABEL_MARGIN = 0.15;
  */
 const AXIS_TITLE_TIP_OFFSET = 0.15;
 /**
- * The `"end"` title's own perpendicular clearance off the triad edge (the
- * OTHER two axes, `axisTitlePoint`'s own `push`) — a SEPARATE, smaller
- * constant from `TICK_LABEL_MARGIN` was tried and rejected: reusing
- * `TICK_LABEL_MARGIN` (`0.15`) exactly put a real title's own reserved box
- * directly athwart the endpoint tick label's (both anchor at the same
- * `t`-neighbourhood with the same perpendicular offset), which the arbiter
- * resolves by dropping the lower-priority title. `0.08` — matched to
- * `AXIS_TITLE_TIP_OFFSET` so a title's along-axis push and its
- * perpendicular clearance read as the same "just past the tip" nudge in
- * every direction — clears that collision on every fixture/size/charset
- * this round measured.
+ * How far past its own axis TIP a collinear title sits, IN CELLS along that
+ * axis's PROJECTED direction.
+ *
+ * USER FEEDBACK, verbatim: "you need to check the anchors because x axis is
+ * kindof further away than y label than [z] label". The offset used to be a
+ * fraction of each axis's OWN extent, and `aspect` is `[1.3, 1.3, 0.6]`, so
+ * z was pushed 0.09 world units against x/y's 0.195 — and projection then
+ * separated x from y again, since two axes at different angles to the
+ * camera foreshorten differently. A cell count is the one unit in which all
+ * three read as the same distance on screen, whatever the camera does.
  */
-const AXIS_TITLE_PERP_MARGIN = 0.08;
+const AXIS_TITLE_TIP_CELLS = 3;
+/** How far a tick label sits from its own axis line, PERPENDICULAR to that line's projected direction, in cells. */
+const AXIS_TICK_LABEL_CELLS = 4;
 /**
  * `"start"`/`"center"` keep the PRE-round-9 `outwardPoint` mechanism and
  * its own `0.6` margin verbatim — NOT tightened. `"end"` can afford
@@ -234,8 +233,7 @@ function axisTickGlyph(charset: GlyphChartCharset): string {
 
 /**
  * How far, IN CELLS, a stamped tick label sits from its own axis line —
- * a SCREEN distance, so it reads the same at every zoom and rotation,
- * unlike `TICK_LABEL_MARGIN`'s fraction of the box's world extent.
+ * a SCREEN distance, so it reads the same at every zoom and rotation.
  */
 const AXIS_STAMPED_LABEL_CELLS = 2;
 /** The stamped tick mark's own stub length, in cells, perpendicular to its axis. */
@@ -468,33 +466,37 @@ function axisVisible(override: boolean | undefined, fallback: boolean): boolean 
  * has no such separation — every axis's `"start"` anchor sits at the SAME
  * shared origin corner, differing only by which ONE other axis got the
  * perpendicular push, so tightening it clusters all three into the same
- * few screen cells under an oblique camera (measured directly,
- * `docs/design/charts3d.md`'s "C2 fix round 9": tightening dropped 2-3 of 3
- * "start" titles at the library's own DEFAULT camera on a small synthetic
- * grid). `"center"` keeps the legacy margin for the identical reason (its
+ * few screen cells under an oblique camera (measured: tightening dropped
+ * 2-3 of 3 "start" titles at the library's own DEFAULT camera on a small
+ * synthetic grid). `"center"` keeps the legacy margin for the identical reason (its
  * anchor sits at each edge's own midpoint, no natural "further" direction
  * either).
  */
 function axisTitlePoint(axisIndex: 0 | 1 | 2, corner: Corner, ext: readonly [number, number, number], axis: GlyphChart3dResolvedAxis): Vec3 {
-  // USER FEEDBACK, verbatim: "the axis title is like in the middle between
-  // the axis and the labels but not centered on the axis lines". `"end"`
-  // parked the title off the axis TIP, beside the last tick's own label
-  // rather than on the line it names; `"center"` puts it at the line's own
-  // midpoint — the placement a 2D axis title already uses — and its
-  // `AXIS_TITLE_LEGACY_MARGIN` push clears the tick labels outright instead
-  // of landing among them.
-  const titleAt = axis.titleAt ?? "center";
+  const titleAt = axis.titleAt ?? "end";
   if (titleAt !== "end") {
     return outwardPoint(axisIndex, corner, titleAt === "start" ? 0 : 0.5, ext, axis.titleOffset ?? AXIS_TITLE_LEGACY_MARGIN);
   }
+  // COLLINEAR with the axis it names — USER FEEDBACK, verbatim: "imagine
+  // the line that goes from 0,0,0 to maxX,0,0 ot 0,0,0 to 0,maxY,0 I want
+  // the labels to be on maxY+delta or maxX+delta :) centered in the same
+  // vector direction of those directions". So the title continues the
+  // axis's OWN vector past its tip and takes ZERO push on the other two
+  // axes: the x title sits at `(maxX + delta, 0, 0)`, the y at
+  // `(0, maxY + delta, 0)`, the z at `(0, 0, maxZ + delta)`.
+  //
+  // Any perpendicular component at all is what made the title read as
+  // floating beside the line rather than running along it, and it is a
+  // WORLD offset, so how far off the line it landed changed with every
+  // zoom and rotation. Three "end" titles stay apart because each extends
+  // past its OWN separate tip, not because they are pushed sideways.
   const tipOffset = axis.titleOffset ?? AXIS_TITLE_TIP_OFFSET;
   const p: [number, number, number] = [0, 0, 0];
   for (let k = 0; k < 3; k++) {
     const axisK = k as 0 | 1 | 2;
-    if (axisK === axisIndex) { p[k] = ext[axisIndex] + tipOffset * ext[axisIndex]; continue; }
-    const bit = corner[axisK];
-    const push = AXIS_TITLE_PERP_MARGIN * ext[axisK];
-    p[k] = bit ? ext[axisK] + push : -push;
+    p[k] = axisK === axisIndex
+      ? ext[axisIndex] + tipOffset * ext[axisIndex]
+      : (corner[axisK] ? ext[axisK] : 0);
   }
   return p;
 }
@@ -697,9 +699,17 @@ function axisTriadOverlay(
             }
           }
           if (!showLabels) continue;
+          // The camera FIT reserves each tick label at its ON-LINE point plus
+          // `AXIS_TICK_LABEL_CELLS` of screen margin
+          // (`glyphChart3dLabelAnchors`), so the draw has to displace by the
+          // same screen distance from the same point — a world-space push
+          // here instead put the label somewhere the fit never reserved, and
+          // the label's own occlusion depth was then read at a point it does
+          // not occupy (the `ink` gate in `render.test.ts` caught exactly
+          // that: digits landing inside the surface outline).
           const labelProjected = axisRender === "stamped"
             ? { ...outwardCells(onEdgeProjected, AXIS_STAMPED_LABEL_CELLS + AXIS_STAMPED_TICK_CELLS), depth: onEdgeProjected.depth }
-            : projectObjectPoint(frame, outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN));
+            : axisTickLabelScreenAnchor(frame, axisIndex, corner, ext, t, AXIS_TICK_LABEL_CELLS, axis.tickLabels[i]!.length, boxCentre);
           const priority = i === 0 || i === axis.ticks.length - 1
             ? PRIORITY_TICK_EXTREME
             : value === 0
@@ -721,8 +731,12 @@ function axisTriadOverlay(
           });
         }
         if (guides.titles && axis.title.length > 0) {
-          const titlePoint = axisTitlePoint(axisIndex, corner, ext, axis);
-          const titleProjected = projectObjectPoint(frame, titlePoint);
+          // A collinear ("end") title is placed in SCREEN space so all three
+          // sit the same distance past their own tips; `start`/`center` keep
+          // their own object-space placement.
+          const titleProjected = (axis.titleAt ?? "end") === "end"
+            ? axisTitleScreenAnchor(frame, axisIndex, corner, ext, AXIS_TITLE_TIP_CELLS + (axis.titleOffset ?? 0), axis.title.length)
+            : projectObjectPoint(frame, axisTitlePoint(axisIndex, corner, ext, axis));
           frame.labels.place({
             id: `axis-${name}-title`,
             priority: PRIORITY_TITLE,
@@ -742,6 +756,96 @@ function axisTriadOverlay(
 export interface GlyphChart3dLabelAnchor {
   readonly text: string;
   readonly point: Vec3;
+  /**
+   * Extra SCREEN margin, in cells, a camera fit reserves around this anchor
+   * beyond its own text width — the overlay displaces a title along its
+   * axis's PROJECTED direction, which a fit solving FOR the camera cannot
+   * know the direction of. Omitted/`0` reserves nothing extra.
+   */
+  readonly padCells?: number;
+}
+
+/**
+ * Displace `at` by `cells` along the grid direction `(dc, dr)`, measuring
+ * that distance in SCREEN geometry rather than in grid steps.
+ *
+ * USER FEEDBACK, verbatim: "labels from the z direction on the X axis are
+ * ok in distance, but from the Y direction on the X axis is like they are
+ * super far". A character cell is not square — `frame.cellAspect` is its
+ * height over its width (~1.71 for Glyph Mono) — so N grid steps downward
+ * is ~1.7x the physical distance of N steps sideways, and the same
+ * requested offset read as a different gap depending on which way the
+ * axis happened to project. The direction is normalized with the row
+ * component scaled into width units, the displacement taken there, and only
+ * then converted back to rows.
+ */
+function offsetByScreenCells(at: Projected, dc: number, dr: number, cells: number, cellAspect: number, textLength: number): Projected {
+  const px = dc, py = dr * cellAspect;
+  const len = Math.hypot(px, py);
+  if (len < 1e-6) return at;
+  const ux = px / len, uy = py / len;
+  const distance = cells * cellAspect; // one "cell" of gap means one ROW height, the taller axis
+  const col = at.col + ux * distance;
+  const row = at.row + (uy * distance) / cellAspect;
+  return {
+    col: Math.round(ux < 0 ? col - (textLength - 1) : col),
+    row: Math.round(row),
+    depth: at.depth,
+  };
+}
+
+/**
+ * A tick label's own screen anchor: ON its axis's projected line at
+ * parameter `t`, displaced `cells` PERPENDICULAR to that line, on whichever
+ * side faces away from the box's own projected centre.
+ *
+ * USER FEEDBACK, verbatim: "the labels of the axes (not titles) the actual
+ * numerical values are like too far from the axis". The superseded push was
+ * a world-space 0.15 of the box extent along BOTH perpendicular
+ * axes — a DIAGONAL displacement off the corner, so the row of numbers
+ * never ran parallel to the line it belonged to, and how far off it landed
+ * changed with every zoom and rotation. Perpendicular to the PROJECTED
+ * direction is what "beside this line" means on a character grid.
+ */
+function axisTickLabelScreenAnchor(
+  frame: Projector,
+  axisIndex: 0 | 1 | 2,
+  corner: Corner,
+  ext: readonly [number, number, number],
+  t: number,
+  cells: number,
+  textLength: number,
+  boxCentre: Projected,
+): Projected {
+  const at = projectObjectPoint(frame, outwardPoint(axisIndex, corner, t, ext, 0));
+  const a = projectObjectPoint(frame, outwardPoint(axisIndex, corner, 0, ext, 0));
+  const b = projectObjectPoint(frame, outwardPoint(axisIndex, corner, 1, ext, 0));
+  let pc = -(b.row - a.row), pr = b.col - a.col;
+  if (Math.hypot(pc, pr) < 1e-6) { pc = 0; pr = 1; }
+  if (pc * (at.col - boxCentre.col) + pr * (at.row - boxCentre.row) < 0) { pc = -pc; pr = -pr; }
+  return offsetByScreenCells(at, pc, pr, cells, frame.cellAspect, textLength);
+}
+
+/**
+ * A collinear title's own screen anchor: on its axis's PROJECTED line,
+ * `cells` past the tip, continuing the axis's own direction (the vector the
+ * user asked for — `axisTitlePoint`'s doc). A label paints LEFT-ALIGNED
+ * from its anchor, so a direction pointing LEFT subtracts the text width or
+ * the title grows back over the axis it just cleared.
+ */
+function axisTitleScreenAnchor(
+  frame: Projector,
+  axisIndex: 0 | 1 | 2,
+  corner: Corner,
+  ext: readonly [number, number, number],
+  cells: number,
+  textLength: number,
+): Projected {
+  const from = projectObjectPoint(frame, outwardPoint(axisIndex, corner, 0, ext, 0));
+  const tip = projectObjectPoint(frame, outwardPoint(axisIndex, corner, 1, ext, 0));
+  let dc = tip.col - from.col, dr = tip.row - from.row;
+  if (Math.hypot(dc, dr) < 1e-6) { dc = 0; dr = -1; }
+  return offsetByScreenCells(tip, dc, dr, cells, frame.cellAspect, textLength);
 }
 
 /**
@@ -782,11 +886,13 @@ export function glyphChart3dLabelAnchors(mark: GlyphChart3dAxisTriadSpec): reado
       for (let i = 0; i < axis.ticks.length; i++) {
         const value = axis.ticks[i]!;
         const t = (value - lo) / span;
-        anchors.push({ text: axis.tickLabels[i]!, point: outwardPoint(axisIndex, corner, t, ext, TICK_LABEL_MARGIN) });
+        anchors.push({ text: axis.tickLabels[i]!, point: outwardPoint(axisIndex, corner, t, ext, 0), padCells: AXIS_TICK_LABEL_CELLS });
       }
     }
     if (guides.titles && axis.title.length > 0) {
-      anchors.push({ text: axis.title, point: axisTitlePoint(axisIndex, corner, ext, axis) });
+      anchors.push((axis.titleAt ?? "end") === "end"
+        ? { text: axis.title, point: outwardPoint(axisIndex, corner, 1, ext, 0), padCells: AXIS_TITLE_TIP_CELLS + (axis.titleOffset ?? 0) }
+        : { text: axis.title, point: axisTitlePoint(axisIndex, corner, ext, axis) });
     }
   }
   return anchors;
@@ -891,7 +997,7 @@ function buildScatterMesh(mark: GlyphChart3dScatterMark, monochrome: boolean): P
   return polygons;
 }
 
-/** `parametric3d` — a UV-grid mesh (`parametricSurfacePolygons`, `@glyphcss/core`) mapped through each axis's own resolved domain, coloured per quad by its own `value` (or `z`) grid's NW-corner sample banded through the mark's colour legend. */
+/** `parametric3d` — a UV-grid mesh (`parametricSurfacePolygons`, `@glyphcss/core`; its winding is never oriented outward, so it relies on the scene's default `doubleSided: true`; a single-sided scene would hide any quad whose parametrization runs the other way) mapped through each axis's own resolved domain, coloured per quad by its own `value` (or `z`) grid's NW-corner sample banded through the mark's colour legend. */
 function buildParametricMesh(mark: GlyphChart3dParametricMark): Polygon[] {
   const ext = mark.aspect;
   const { x, y, z, value, wrapU, wrapV } = mark.grid;
