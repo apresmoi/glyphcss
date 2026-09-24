@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, type Dispatch } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { glyphGraphFromJson, glyphGraphFromMermaid, renderGlyphDiagram, type GlyphGraph } from "@glyphcss/diagrams";
 import { renderGlyphDiagram3d } from "@glyphcss/diagrams/3d";
 import { Dock } from "../Dock/Dock";
@@ -8,19 +8,26 @@ import { useElementSize, type ElementPixelSize } from "../InstrumentWorkbench/us
 import { downloadGlyphSvg } from "../../lib/glyphSvgExport";
 import { readUrlParam, writeUrlParam } from "../../lib/urlState";
 import { TargetPreview } from "../TargetPreview/TargetPreview";
+import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
+import { glyphLaneDagFromGitLog, renderGlyphLaneDag, validateGlyphLaneDag } from "@glyphcss/diagrams/lanes";
 import { GlyphDiagramsDock } from "./DiagramsDock";
 import { Diagrams3DViewport } from "./Diagrams3DViewport";
 import {
-  GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
-  type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchState,
+  GLYPH_DIAGRAM_WORKBENCH_PRESETS, GLYPH_DIAGRAMS_FORMS, GLYPH_DIAGRAMS_TRAY, GLYPH_LANES_WORKBENCH_PRESETS, GLYPH_SEQUENCE_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, buildGlyphDiagramsWorkbenchLanes, buildGlyphDiagramsWorkbenchSequence, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
+  type GlyphDiagramsWorkbenchState,
 } from "./diagramsWorkbenchState";
 import { DIAGRAMS_URL_PARAM, createDiagramsUrlWriter, decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
 import {
-  glyphDiagramsWorkbenchDisplayResult, renderGlyphDiagramsWorkbenchState, renderGlyphDiagramsWorkbenchState3d,
+  glyphDiagramsWorkbenchDisplayResult, renderGlyphDiagramsWorkbenchLanesState, renderGlyphDiagramsWorkbenchSequenceState, renderGlyphDiagramsWorkbenchState, renderGlyphDiagramsWorkbenchState3d,
   type GlyphDiagramsWorkbenchRender, type GlyphDiagramsWorkbenchRender3d,
 } from "./diagramsWorkbenchRender";
 import { DiagramsDataOverlay } from "./DiagramsDataOverlay";
 import { DiagramsGraphSourceCard } from "./DiagramsGraphSourceCard";
+import { DiagramsSourceEditor, type DiagramsSourceEditorHandle } from "./DiagramsSourceEditor";
+import { DIAGRAMS_SHAPE_CATALOGUE, diagramsSourceSnippets, type DiagramsSourceCompletion } from "./diagramsSourceAid";
+import type { DiagramsSourceDialect } from "./diagramsSourceTokens";
+import { DiagramsHotspotLayer } from "./DiagramsHotspotLayer";
+import type { DiagramsSourceItem } from "./diagramsSourceSelection";
 import { diagramsGraphSourceKey, randomDiagramsGraphPick } from "./diagramsRandomGraph";
 import { DIAGRAMS_MOLECULE_GRAPH_REFS, DIAGRAMS_REMOTE_GRAPH_INDEX } from "./datasets/remoteGraphIndex";
 import { isAbort as isGraphAbort, loadGraphDatasetRow, loadRandomGraphDatasetRow, type GraphDatasetLoadResult } from "../../lib/graphDatasetLoad";
@@ -28,7 +35,15 @@ import "../GalleryWorkbench/gallery-workbench.css";
 import "./diagrams-workbench.css";
 
 type MobilePanel = "source" | "controls" | "presets" | "export";
-const EXPORT_TABS = [{ id: "typescript", label: "TS" }, { id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const;
+// The SAME tab labels `/charts` uses for the same formats ("TypeScript",
+// "JSON") — one export vocabulary across the instrument pages.
+const EXPORT_TABS = [{ id: "typescript", label: "TypeScript" }, { id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const;
+// The lane-DAG form has no Mermaid concept at all (`packages/diagrams/AGENTS.md`'s
+// "Lane DAGs" — its own textual syntax is git-log, not Mermaid), so its own
+// export tabs swap that slot for "Git log" rather than mislabeling git-log
+// text as Mermaid. `generateGlyphDiagramsWorkbenchSnippets` returns a
+// `gitlog` key (not `mermaid`) for this form, matching these ids exactly.
+const EXPORT_TABS_LANES = [{ id: "typescript", label: "TypeScript" }, { id: "gitlog", label: "Git log" }, { id: "json", label: "JSON" }] as const;
 
 /**
  * A copy/export confirmation lives on the CLICKED BUTTON's own label
@@ -39,47 +54,6 @@ const EXPORT_TABS = [{ id: "typescript", label: "TS" }, { id: "mermaid", label: 
 function flashButtonState<T extends string>(setState: (value: T) => void, idle: T, value: T, ms = 1200): void {
   setState(value);
   window.setTimeout(() => setState(idle), ms);
-}
-
-/**
- * Table editor (packet item 7) — a nodes table (id, label, kind) and an
- * edges table (from, to, label), beside the Mermaid/JSON tabs. Every
- * `<input>` dispatches straight to the reducer's own `setNode`/`addNode`/
- * `removeNode`/`setEdge`/`addEdge`/`removeEdge` actions
- * (`diagramsWorkbenchState.ts`), so this is one more VIEW of the same
- * `state.nodes`/`state.edges`, not a parallel copy.
- */
-function DiagramsGraphTable({ state, dispatch }: { state: GlyphDiagramsWorkbenchState; dispatch: Dispatch<GlyphDiagramsWorkbenchAction> }) {
-  return <div className="diagrams-table-group">
-    <div className="diagrams-table-wrap">
-      <table className="diagrams-table" aria-label="Nodes">
-        <thead><tr><th>id</th><th>label</th><th>kind</th><th /></tr></thead>
-        <tbody>
-          {state.nodes.map((node, i) => <tr key={i}>
-            <td><input value={node.id} aria-label={`Node ${i + 1} id`} onChange={(event) => dispatch({ type: "set-node", index: i, patch: { id: event.target.value } })} /></td>
-            <td><input value={node.label} aria-label={`Node ${i + 1} label`} onChange={(event) => dispatch({ type: "set-node", index: i, patch: { label: event.target.value } })} /></td>
-            <td><input value={node.kind ?? ""} aria-label={`Node ${i + 1} kind`} onChange={(event) => dispatch({ type: "set-node", index: i, patch: { kind: event.target.value || undefined } })} /></td>
-            <td><button type="button" className="diagrams-table-remove" title={`Remove node ${i + 1}`} aria-label={`Remove node ${i + 1}`} onClick={() => dispatch({ type: "remove-node", index: i })}>×</button></td>
-          </tr>)}
-        </tbody>
-      </table>
-      <button type="button" className="gw-code-panel__action" onClick={() => dispatch({ type: "add-node" })}>+ node</button>
-    </div>
-    <div className="diagrams-table-wrap">
-      <table className="diagrams-table" aria-label="Edges">
-        <thead><tr><th>from</th><th>to</th><th>label</th><th /></tr></thead>
-        <tbody>
-          {state.edges.map((edge, i) => <tr key={i}>
-            <td><input value={edge.from} aria-label={`Edge ${i + 1} from`} onChange={(event) => dispatch({ type: "set-edge", index: i, patch: { from: event.target.value } })} /></td>
-            <td><input value={edge.to} aria-label={`Edge ${i + 1} to`} onChange={(event) => dispatch({ type: "set-edge", index: i, patch: { to: event.target.value } })} /></td>
-            <td><input value={edge.label ?? ""} aria-label={`Edge ${i + 1} label`} onChange={(event) => dispatch({ type: "set-edge", index: i, patch: { label: event.target.value || undefined } })} /></td>
-            <td><button type="button" className="diagrams-table-remove" title={`Remove edge ${i + 1}`} aria-label={`Remove edge ${i + 1}`} onClick={() => dispatch({ type: "remove-edge", index: i })}>×</button></td>
-          </tr>)}
-        </tbody>
-      </table>
-      <button type="button" className="gw-code-panel__action" onClick={() => dispatch({ type: "add-edge" })}>+ edge</button>
-    </div>
-  </div>;
 }
 
 /**
@@ -126,11 +100,19 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
   // Fix round 1, P1-1 — the resolved (default-applied) target/charset/colour,
   // shared by the 3D thumbnail/render options above and the live viewport's
   // own scene options below.
-  const resolvedControls = resolveGlyphDiagramsWorkbenchControls(state.controls);
+  const resolvedControls = resolveGlyphDiagramsWorkbenchControls(state.controls, state.form);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel | null>(null);
   const [codeOpen, setCodeOpen] = useState(false);
-  const [completed, setCompleted] = useState<{ state: GlyphDiagramsWorkbenchState; viewportPx: ElementPixelSize | undefined; result: GlyphDiagramsWorkbenchRender } | null>(null);
-  const [thumbnails, setThumbnails] = useState<readonly string[]>([]);
+  // Two independent render slots, one per pipeline (`completedGraph` was
+  // simply `completed` before the sequence form existed) — each effect below
+  // only computes for its OWN form, so an edit to the inactive form's source
+  // never triggers a wasted `renderGlyphDiagram`/`renderGlyphSequence` call,
+  // and switching form back and forth reads whichever slot last completed
+  // for the state now on screen rather than recomputing from scratch.
+  const [completedGraph, setCompletedGraph] = useState<{ state: GlyphDiagramsWorkbenchState; viewportPx: ElementPixelSize | undefined; result: GlyphDiagramsWorkbenchRender } | null>(null);
+  const [completedSequence, setCompletedSequence] = useState<{ state: GlyphDiagramsWorkbenchState; viewportPx: ElementPixelSize | undefined; result: GlyphDiagramsWorkbenchRender } | null>(null);
+  const [completedLanes, setCompletedLanes] = useState<{ state: GlyphDiagramsWorkbenchState; viewportPx: ElementPixelSize | undefined; result: GlyphDiagramsWorkbenchRender } | null>(null);
+  const [thumbnails, setThumbnails] = useState<Readonly<Record<string, string>>>({});
   const preRef = useRef<HTMLPreElement | null>(null);
   // `web` fills the measured viewport instead of a fixed logical grid
   // (AGENTS.md's "Diagrams" "Targets and page" — mirrors `/charts`'
@@ -151,6 +133,14 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
   // viewport-stale) result from becoming copyable during a new layout —
   // `useElementSize` keeps the SAME object across a no-op remeasurement, so
   // this comparison never restarts a layout pass that isn't actually stale.
+  // `rendered` is FORM-polymorphic (the task's own "the Form axis is a data
+  // entry, not a refactor" brief carried down to this variable): every
+  // downstream reader below (`lastGoodResultRef`, `displayResult`, the error
+  // banner, the viewport, Copy ASCII/ANSI, the export snippets) reads it
+  // exactly as before this feature existed and needs no per-form branch of
+  // its own, because `GlyphDiagramsWorkbenchRender` is the SAME shape for
+  // both pipelines (`diagramsWorkbenchRender.ts`'s own doc on that type).
+  const completed = state.form === "graph" ? completedGraph : state.form === "sequence" ? completedSequence : completedLanes;
   const rendered = completed?.state === state && completed.viewportPx === viewportPx ? completed.result : null;
   // The viewport's own content: while a layout is in flight for the
   // CURRENT state (`rendered === null`) or the current one errored, this
@@ -189,8 +179,21 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
   useEffect(() => { urlWriter(state); }, [state, urlWriter]);
 
   useEffect(() => {
+    if (state.form !== "graph") return;
     let current = true;
-    void renderGlyphDiagramsWorkbenchState(state, viewportPx).then((result) => { if (current) setCompleted({ state, viewportPx, result }); });
+    void renderGlyphDiagramsWorkbenchState(state, viewportPx).then((result) => { if (current) setCompletedGraph({ state, viewportPx, result }); });
+    return () => { current = false; };
+  }, [state, viewportPx]);
+  useEffect(() => {
+    if (state.form !== "sequence") return;
+    let current = true;
+    void renderGlyphDiagramsWorkbenchSequenceState(state, viewportPx).then((result) => { if (current) setCompletedSequence({ state, viewportPx, result }); });
+    return () => { current = false; };
+  }, [state, viewportPx]);
+  useEffect(() => {
+    if (state.form !== "lanes") return;
+    let current = true;
+    void renderGlyphDiagramsWorkbenchLanesState(state, viewportPx).then((result) => { if (current) setCompletedLanes({ state, viewportPx, result }); });
     return () => { current = false; };
   }, [state, viewportPx]);
   useEffect(() => {
@@ -199,33 +202,133 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
     void renderGlyphDiagramsWorkbenchState3d(state).then((result) => { if (current) setCompleted3d({ state, result }); });
     return () => { current = false; };
   }, [state]);
-  // The 3D-mounted LIVE viewport (`web` target only — terminal/chat mount
-  // the static frame above through the same `TargetPreview` the 2D path
-  // uses). `graph3d` depends only on the fields that change what gets
-  // MOUNTED — target/charset/color/terminal edits must not tear down and
-  // re-fit an orbiting scene the reader is mid-drag on.
-  const graph3d = useMemo<GlyphGraph | null>(() => {
+  // The CURRENT graph, parsed from whichever source is authoritative —
+  // `null` while the draft doesn't parse. Feeds the 3D-mounted LIVE
+  // viewport (`web` target only — terminal/chat mount the static frame
+  // above through the same `TargetPreview` the 2D path uses) and the graph
+  // source card's own node/edge counts. Depends only on the fields that
+  // change what gets MOUNTED — target/charset/color/terminal edits must not
+  // tear down and re-fit an orbiting scene the reader is mid-drag on.
+  const parsedGraph = useMemo<GlyphGraph | null>(() => {
     try { return buildGlyphDiagramsWorkbenchGraph(state); }
     catch { return null; }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.sourceKind, state.mermaid, state.json, state.nodes, state.edges, state.tableGraph, state.layout.direction]);
+  }, [state.sourceKind, state.mermaid, state.json, state.layout.direction]);
+  // The ids the active form's editor completes (`diagramsSourceAid.ts`):
+  // graph nodes, sequence participants, lane nodes — whatever the live
+  // parse last produced, so a draft mid-edit keeps offering the ids that
+  // parsed before it broke (the same "don't disable the controls needed to
+  // repair it" rule the Dock's own Direction read follows).
+  const lastIdsRef = useRef<readonly DiagramsSourceCompletion[]>([]);
+  const editorIds = useMemo<readonly DiagramsSourceCompletion[]>(() => {
+    try {
+      if (state.form === "graph") return (parsedGraph ?? buildGlyphDiagramsWorkbenchGraph(state)).nodes.map((node) => ({ id: node.id, label: node.label }));
+      if (state.form === "sequence") return buildGlyphDiagramsWorkbenchSequence(state).participants.map((p) => ({ id: p.id, label: p.label }));
+      return buildGlyphDiagramsWorkbenchLanes(state).nodes.map((node) => ({ id: node.id, label: node.label }));
+    } catch { return lastIdsRef.current; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.form, parsedGraph, state.sequence.sourceKind, state.sequence.mermaid, state.sequence.json, state.lanes.sourceKind, state.lanes.gitlog, state.lanes.json]);
+  lastIdsRef.current = editorIds;
+  // The shape legend's LIVE previews — every shape the renderer supports,
+  // drawn by the real library at the Dock's current charset, so the menu
+  // doubles as documentation that cannot drift from what renders.
+  const [shapePreviews, setShapePreviews] = useState<Readonly<Partial<Record<string, string>>>>({});
+  useEffect(() => {
+    if (state.form !== "graph") return;
+    let current = true;
+    void Promise.all(DIAGRAMS_SHAPE_CATALOGUE.map(async ({ shape }) => {
+      try {
+        const result = await renderGlyphDiagram({ nodes: [{ id: "n", label: "Label", shape }], edges: [], direction: "TB" }, { target: "web", charset: resolvedControls.charset, color: "none", width: 16, height: 7 });
+        const lines = result.pages[0]!.text.split("\n").filter((line) => line.trim().length > 0);
+        const indent = Math.min(...lines.map((line) => line.length - line.trimStart().length));
+        return [shape, lines.map((line) => line.slice(indent).trimEnd()).join("\n")] as const;
+      } catch { return [shape, ""] as const; }
+    })).then((pairs) => { if (current) setShapePreviews(Object.fromEntries(pairs)); });
+    return () => { current = false; };
+  }, [state.form, resolvedControls.charset]);
+  // The active form's source rail — ONE editor mount, parameterised by the
+  // form's own tabs/dialect/slice; the per-form differences are data here,
+  // not three copies of the rail.
+  const rail = state.form === "graph"
+    ? {
+        tablist: "Graph source format", idPrefix: "diagrams", editor: state.editor as DiagramsSourceDialect,
+        tabs: [{ id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const,
+        label: state.editor === "mermaid" ? "Mermaid source" : "Nodes and edges JSON", value: state[state.editor],
+        setEditor: (editor: string) => dispatch({ type: "set-editor", editor: editor as "mermaid" | "json" }),
+        onChange: (value: string) => dispatch({ type: "edit-source", value }),
+        note: state.editor === "mermaid" ? "Mermaid flowcharts and graphs. Styling and click directives are ignored." : "Nodes, edges, groups and direction. TypeScript and JSON exports preserve every graph field.",
+      }
+    : state.form === "sequence"
+      ? {
+          tablist: "Sequence source format", idPrefix: "diagrams-sequence", editor: state.sequence.editor as DiagramsSourceDialect,
+          tabs: [{ id: "mermaid", label: "Mermaid" }, { id: "json", label: "JSON" }] as const,
+          label: state.sequence.editor === "mermaid" ? "Sequence Mermaid source" : "Sequence JSON", value: state.sequence[state.sequence.editor],
+          setEditor: (editor: string) => dispatch({ type: "set-sequence-editor", editor: editor as "mermaid" | "json" }),
+          onChange: (value: string) => dispatch({ type: "edit-sequence-source", value }),
+        }
+      : {
+          tablist: "Lane DAG source format", idPrefix: "diagrams-lanes", editor: state.lanes.editor as DiagramsSourceDialect,
+          tabs: [{ id: "gitlog", label: "Git log" }, { id: "json", label: "JSON" }] as const,
+          label: state.lanes.editor === "gitlog" ? "Lane DAG git log source" : "Lane DAG nodes JSON", value: state.lanes[state.lanes.editor],
+          setEditor: (editor: string) => dispatch({ type: "set-lanes-editor", editor: editor as "gitlog" | "json" }),
+          onChange: (value: string) => dispatch({ type: "edit-lanes-source", value }),
+        };
+  const editorRef = useRef<DiagramsSourceEditorHandle | null>(null);
+  // Selection is ONE thing, owned by the editor's caret: the node or edge
+  // whose field the caret is in (`diagramsSourceSelection.ts`). The render's
+  // hotspot layer marks it, and a hotspot click only asks the editor to
+  // select that item's field — the marked hotspot then follows from the
+  // caret like any other caret move, so the two can never disagree.
+  const [selection, setSelection] = useState<DiagramsSourceItem | null>(null);
+  // Hover is the OTHER direction and a separate thing from selection: the
+  // pointer resting on a hotspot lights that item's fields in the rail
+  // without disturbing the caret, so "which node is this" is answered where
+  // it can be acted on. The render itself draws nothing (USER: "the chart
+  // should remain pure").
+  const [hovered, setHovered] = useState<DiagramsSourceItem | null>(null);
+  // The `<pre>` as a VALUE too (the hotspot layer measures it and must
+  // re-measure when the element itself is swapped, e.g. a target change).
+  const [preEl, setPreEl] = useState<HTMLPreElement | null>(null);
+  const attachPre = useCallback((el: HTMLPreElement | null) => { preRef.current = el; setPreEl(el); }, []);
+  const hotspotResult = state.view === "2d" && rendered?.ok && rendered.hotspots && rendered.grid ? rendered : null;
+  // The rail header names what is loaded (the `/charts` rail's own idiom:
+  // the dataset title, never a generic label above a card that repeats it).
+  const formLabel = GLYPH_DIAGRAMS_FORMS.find((f) => f.id === state.form)?.label ?? state.form;
+  const loadedLabel = state.form === "graph"
+    ? (state.graphSource?.kind === "remote" ? state.graphSource.title : GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId)?.label)
+    : state.form === "sequence" ? GLYPH_SEQUENCE_WORKBENCH_PRESETS.find((p) => p.id === state.sequence.presetId)?.label
+    : GLYPH_LANES_WORKBENCH_PRESETS.find((p) => p.id === state.lanes.presetId)?.label;
+  const railTitle = loadedLabel ? `${formLabel} · ${loadedLabel}` : formLabel;
   useEffect(() => {
     let current = true;
-    void Promise.all(GLYPH_DIAGRAM_WORKBENCH_PRESETS.map(async (preset) => {
+    // The tray carries EVERY form's presets at once, keyed per preset rather
+    // than by index into one form's list. Gating the list on the ACTIVE form
+    // was circular: the form defaults to `graph`, so a sequence preset could
+    // only be reached by finding the Dock's Form toggle FIRST — which is
+    // exactly the "there is no preset of sequence" report. Picking a tile is
+    // what switches the form (`apply-sequence-preset` sets `form`).
+    void Promise.all(GLYPH_DIAGRAMS_TRAY.map(async (entry) => {
+      const key = `${entry.kind}:${entry.preset.id}`;
       try {
+        if (entry.kind === "sequence") {
+          return [key, (await renderGlyphSequence(entry.preset.source, { target: state.controls.target, width: 60, height: 24 })).text] as const;
+        }
+        if (entry.kind === "lanes") {
+          const dag = entry.preset.sourceKind === "gitlog" ? glyphLaneDagFromGitLog(entry.preset.source) : validateGlyphLaneDag(JSON.parse(entry.preset.source));
+          return [key, (await renderGlyphLaneDag(dag, { target: state.controls.target, width: 60, height: 24 })).text] as const;
+        }
+        const preset = entry.preset;
         if ("dimension" in preset && preset.dimension === "3d") {
           // D2 round 6 — a JSON-sourced 3D preset (LeNet-5, Transformer:
           // explicit per-node `size`, no Mermaid vocabulary for it) parses
-          // through `glyphGraphFromJson`, never `glyphGraphFromMermaid`
-          // (which would either throw on the JSON text or, worse, silently
-          // parse SOME of it as garbage Mermaid).
+          // through `glyphGraphFromJson`, never `glyphGraphFromMermaid`.
           const graph = "sourceKind" in preset && preset.sourceKind === "json"
             ? glyphGraphFromJson(JSON.parse(preset.source)) : glyphGraphFromMermaid(preset.source);
-          return (await renderGlyphDiagram3d(graph, { ...preset.view3d, target: "web", width: 60, height: 24 })).text;
+          return [key, (await renderGlyphDiagram3d(graph, { ...preset.view3d, target: "web", width: 60, height: 24 })).text] as const;
         }
-        return (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text;
-      } catch { return "Preview unavailable"; }
-    })).then((previews) => { if (current) setThumbnails(previews); });
+        return [key, (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text] as const;
+      } catch { return [key, "Preview unavailable"] as const; }
+    })).then((pairs) => { if (current) setThumbnails(Object.fromEntries(pairs)); });
     return () => { current = false; };
   }, [state.controls.target]);
   useEffect(() => {
@@ -375,6 +478,10 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
     flashButtonState(setDownloadState, "idle", ok ? "downloaded" : "error");
   };
   const currentRendered = state.view === "3d" ? rendered3d : rendered;
+  // The active form's own render failure, handed to the editor to place on
+  // its line (`DiagramsSourceEditor`) — never over the render, which keeps
+  // showing the last diagram that actually laid out (the viewport below).
+  const sourceError = currentRendered && !currentRendered.ok ? currentRendered : null;
   const exportActions = <>
     <button type="button" className="gw-code-panel__action" disabled={!currentRendered?.ok} onClick={() => void copy("text")}>
       {copyTextState === "copied" ? "Copied" : copyTextState === "error" ? "Copy failed" : "Copy as text"}
@@ -401,57 +508,49 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
 
   return <InstrumentShell kind="synth" className="diagrams-shell">
     <InstrumentBody>
-      <InstrumentRail id="diagrams-source-panel" title="Graph" open={mobilePanel === "source"}>
-        {/* The graph source card — the rail's own FIRST thing (packet D5,
-         *  mirrors `ChartsWorkbench.tsx`'s own dataset card): title/
-         *  description/credit/label for whatever is currently loaded, a
-         *  tray preset or a Hugging Face graph row alike. */}
-        <DiagramsGraphSourceCard
-          graphSource={state.graphSource}
-          presetLabel={GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId)?.label}
-          loadingTitle={remoteGraphLoadingTitle}
-          notice={graphNotice}
-          nodeCount={state.nodes.length}
-          edgeCount={state.edges.length}
-        />
-        <div className="voice-card diagrams-source-card">
-          <div className="voice-controls">
-            {/* A render error (invalid Mermaid/JSON) names itself here, in
-             *  the rail — never over the render, which keeps showing the
-             *  last diagram that actually laid out (see the viewport
-             *  below). */}
-            {state.view === "2d" && rendered && !rendered.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered.error}</p>}
-            {state.view === "3d" && rendered3d && !rendered3d.ok && <p className="diagrams-readout diagrams-error" role="alert">{rendered3d.error}</p>}
-            {/* The Mermaid/JSON/Table editors move BELOW the graph source
-             *  card, in a collapsed "Edit source ▸" disclosure (packet D5)
-             *  — /diagrams stays editable, unlike /charts' read-only data,
-             *  so this is a DISCLOSURE (closed by default, same idiom as
-             *  the charts dataset card's own "View data ▸"), never removed. */}
-            <details className="diagrams-source-details">
-              <summary className="diagrams-source-summary">Edit source <span className="diagrams-source-marker" aria-hidden="true">▸</span></summary>
-              <div className="gx-toggle" role="tablist" aria-label="Graph source format">
-                {(["mermaid", "json", "table"] as const).map((editor) => <button type="button" key={editor} id={`diagrams-${editor}-tab`} role="tab" aria-selected={state.editor === editor} aria-controls={`diagrams-${editor}-editor`} className={`gx-toggle-btn gx-toggle-text${state.editor === editor ? " is-active" : ""}`} onClick={() => dispatch({ type: "set-editor", editor })}>{editor === "mermaid" ? "Mermaid" : editor === "json" ? "nodes/edges JSON" : "Table"}</button>)}
-              </div>
-              <div role="tabpanel" id={`diagrams-${state.editor}-editor`} aria-labelledby={`diagrams-${state.editor}-tab`}>
-                {state.editor === "table"
-                  ? <DiagramsGraphTable state={state} dispatch={dispatch} />
-                  : <textarea className="diagrams-source" aria-label={state.editor === "mermaid" ? "Mermaid source" : "Nodes and edges JSON"} value={state[state.editor]} onChange={(event) => dispatch({ type: "edit-source", value: event.target.value })} spellCheck={false} />}
-              </div>
-              <p className="diagrams-readout">{state.editor === "mermaid" ? "Mermaid flowcharts and graphs. Styling and click directives are ignored." : state.editor === "json" ? "Edit nodes, edges, groups and direction. TS and JSON exports preserve every graph field." : "Edit nodes and edges directly. Group/shape/style/priority fields carry over untouched from whichever source was authoritative before."}</p>
-            </details>
-          </div>
+      <InstrumentRail id="diagrams-source-panel" title={railTitle} open={mobilePanel === "source"}
+        action={<div className="gx-toggle diagrams-source-tabs" role="tablist" aria-label={rail.tablist}>
+          {rail.tabs.map((tab) => <button type="button" key={tab.id} id={`${rail.idPrefix}-${tab.id}-tab`} role="tab" aria-selected={rail.editor === tab.id} aria-controls={`${rail.idPrefix}-${tab.id}-editor`}
+            className={`gx-toggle-btn gx-toggle-text${rail.editor === tab.id ? " is-active" : ""}`} onClick={() => rail.setEditor(tab.id)}>{tab.label}</button>)}
+        </div>}>
+        {/* The rail IS the editor (user feedback: "too much borders and
+         *  boxes... that mermaid editor can basically fill the whole
+         *  sidebar"): no card, no disclosure — the dialect tabs share the
+         *  header row with the title ("mermaid/json could be next to
+         *  graph"), then the insert toolbar, the editor filling the
+         *  remaining height, and its own error strip. The only thing above
+         *  it is the remote graph's provenance (title, credit, licence,
+         *  node cap), which a Hugging Face pick genuinely owes its source;
+         *  a tray preset names itself in the rail header instead. A render
+         *  error names itself INSIDE the editor, on its line — never over
+         *  the render, which keeps showing the last diagram that actually
+         *  laid out. No syntax note under the editor: what a dialect
+         *  accepts is what the error strip says when it does not. */}
+        {state.form === "graph" && <DiagramsGraphSourceCard
+          graphSource={state.graphSource} loadingTitle={remoteGraphLoadingTitle} notice={graphNotice}
+          nodeCount={parsedGraph?.nodes.length} edgeCount={parsedGraph?.edges.length}
+        />}
+        <div role="tabpanel" id={`${rail.idPrefix}-${rail.editor}-editor`} aria-labelledby={`${rail.idPrefix}-${rail.editor}-tab`} className="diagrams-source-panel">
+          <DiagramsSourceEditor
+            ref={editorRef} id={`${rail.idPrefix}-${rail.editor}-source`} form={state.form} dialect={rail.editor}
+            label={rail.label} value={rail.value} onChange={rail.onChange} error={sourceError}
+            ids={editorIds} snippets={diagramsSourceSnippets(state.form, rail.editor)} previews={state.form === "graph" ? shapePreviews : undefined}
+            onSelectionChange={setSelection} highlight={hovered}
+          />
         </div>
       </InstrumentRail>
       <InstrumentMain>
         {/* Search + Random, floating over the viewport — the SAME overlay
          *  shape `ChartsWorkbench.tsx`'s own `<ChartsDataOverlay>` uses,
-         *  a sibling of `<InstrumentViewport>` (packet D5). */}
-        <DiagramsDataOverlay
+         *  a sibling of `<InstrumentViewport>` (packet D5). Graph-only —
+         *  sequence has no remote search/random today (this file's own rail
+         *  doc above). */}
+        {state.form === "graph" && <DiagramsDataOverlay
           loadedTitle={state.graphSource?.kind === "remote" ? state.graphSource.title : (GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId)?.label ?? "")}
           onSelectBuiltIn={(id) => dispatch({ type: "apply-preset", id })}
           onSelectRemote={(hit) => void loadRemoteGraph(hit.ref, "random", { title: hit.title, description: hit.description, licence: hit.licence })}
           onRandom={handleRandomGraph}
-        />
+        />}
         <InstrumentViewport className="diagrams-viewport" elementRef={diagramsViewportRef}>
           <div className="diagrams-preview" aria-busy={isPending}>
             {/* The viewport holds only the render; feedback lives on the
@@ -465,7 +564,7 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
               // entirely. Remounts only when the GRAPH or layout/seed/
               // rotation genuinely changes (see `Diagrams3DViewport.tsx`'s
               // own doc); target/charset/color edits leave it alone.
-              ? (graph3d && <div className="diagrams-3d-frame">
+              ? (parsedGraph && <div className="diagrams-3d-frame">
                   {/* Fix round 4 — "why do we have this in the rendering
                    *  area?" (user feedback on /charts 3D, applying here too).
                    *  The viewport holds only the scene: a charset/colour
@@ -474,7 +573,7 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
                    *  `DiagramsDock.tsx`'s Charset/Color rows), never as
                    *  chrome floating over the render. */}
                   <Diagrams3DViewport
-                    graph={graph3d} layout={state.view3d.layout} seed={state.view3d.seed}
+                    graph={parsedGraph} layout={state.view3d.layout} seed={state.view3d.seed}
                     direction={state.layout.direction} nodesep={state.layout.nodesep} ranksep={state.layout.ranksep}
                     controlsMode={state.view3d.controlsMode} initialCamera={state.camera3d}
                     charset={resolvedControls.charset} color={resolvedControls.color}
@@ -483,14 +582,16 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
                     onError={() => {/* surfaced via `rendered3d` above — its own effect independently renders the same graph/options */}}
                   />
                 </div>)
-              : <div className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}`}>
-                  <TargetPreview ref={preRef} target={state.controls.target} commandTitle="glyphcss diagram …"
+              : <div className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}${rendered?.ok && rendered.hotspots?.length ? " has-hotspots" : ""}`}>
+                  <TargetPreview ref={attachPre} target={state.controls.target} commandTitle="glyphcss diagram …"
                     isHtml={Boolean(state.view === "2d" ? displayResult?.isHtml : displayResult3d?.html !== undefined)}
                     text={(state.view === "2d" ? displayResult?.text : displayResult3d?.text) ?? ""}
                     html={state.view === "2d" ? (displayResult?.isHtml ? displayResult.display : undefined) : displayResult3d?.html}
                     ansi={(state.view === "2d" ? displayResult?.ansi : displayResult3d?.ansi)}
                     charsetDowngraded={(state.view === "2d" ? displayResult?.charsetDowngraded : displayResult3d?.charsetDowngraded)}
                     ariaLabel={state.diagram.title || "Diagram preview"} ariaDescription={state.view === "2d" ? displayResult?.meta.description ?? undefined : undefined} />
+                  {hotspotResult && <DiagramsHotspotLayer pre={preEl} hotspots={hotspotResult.hotspots!} grid={hotspotResult.grid!} selected={selection}
+                    onSelect={(item) => { editorRef.current?.selectItem(item); }} onHover={setHovered} />}
                 </div>}
           </div>
         </InstrumentViewport>
@@ -498,22 +599,36 @@ function GlyphDiagramsWorkbenchInner({ initialState, initialRemoteGraph }: {
           <button type="button" className={`gw-code-panel__action${codeOpen ? " is-active" : ""}`} aria-controls="diagrams-export-panel" aria-expanded={codeOpen} onClick={() => { setMobilePanel(null); setCodeOpen((current) => !current); }}>Export</button>
         </div>
         {(codeOpen || mobilePanel === "export") && <CodePanel id="diagrams-export-panel" className={`synth-code-panel${mobilePanel === "export" ? " is-mobile-open" : ""}`}
-          override={{ snippets: snippets ?? { typescript: "Fix the graph errors to export.", mermaid: "Fix the graph errors to export.", json: "Fix the graph errors to export." }, tabs: EXPORT_TABS }} actions={exportActions} />}
+          override={{
+            // A single object shape (both `mermaid` and `gitlog` keys always
+            // present) rather than a form-conditional union — `tabs` below
+            // decides which key is ever actually shown, so an unused key
+            // here is harmless, and this keeps the type a plain
+            // `Record<string, string>` instead of a union CodePanel's own
+            // `Readonly<Record<string, string>>` prop can't accept.
+            snippets: snippets ?? {
+              typescript: state.form === "lanes" ? "Fix the lane DAG errors to export." : "Fix the graph errors to export.",
+              mermaid: "Fix the graph errors to export.", gitlog: "Fix the lane DAG errors to export.",
+              json: state.form === "lanes" ? "Fix the lane DAG errors to export." : "Fix the graph errors to export.",
+            },
+            tabs: state.form === "lanes" ? EXPORT_TABS_LANES : EXPORT_TABS,
+          }} actions={exportActions} />}
       </InstrumentMain>
       <Dock id="diagrams-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}><GlyphDiagramsDock state={state} dispatch={dispatch} /></Dock>
     </InstrumentBody>
     <InstrumentTray id="diagrams-presets-panel" label="Diagram presets" open={mobilePanel === "presets"}>
-      {GLYPH_DIAGRAM_WORKBENCH_PRESETS.map((preset, index) => {
-        // Packet D3 — a labelled divider before the FIRST 3D preset (never
-        // interleaved: a 3D tile changes what the viewport IS, not merely
-        // what it shows — AGENTS.md's D3 row).
-        const is3d = "dimension" in preset && preset.dimension === "3d";
-        const previous = GLYPH_DIAGRAM_WORKBENCH_PRESETS[index - 1];
-        const startsSection = is3d && (index === 0 || !("dimension" in previous! && previous.dimension === "3d"));
+      {GLYPH_DIAGRAMS_TRAY.map((entry, index) => {
+        const key = `${entry.kind}:${entry.preset.id}`;
+        const previous = GLYPH_DIAGRAMS_TRAY[index - 1];
+        // A labelled divider before the FIRST tile of each section (never
+        // interleaved: a 3D tile changes what the viewport IS, and a
+        // sequence tile changes which pipeline renders it).
+        const divider = entry.section && entry.section !== previous?.section ? entry.section : null;
         return [
-          startsSection && <span key={`${preset.id}-divider`} className="diagrams-tray-divider" role="separator" aria-label="3D presets">3D</span>,
-          <button type="button" className="synth-tile" key={preset.id} title={`Apply “${preset.label}”`} aria-label={`Apply ${preset.label}`} onClick={() => dispatch({ type: "apply-preset", id: preset.id })}>
-            <span className="synth-tile-scene diagrams-tile-preview" aria-hidden="true"><pre>{thumbnails[index] ?? ""}</pre></span><span className="synth-tile-label">{preset.label}</span>
+          divider && <span key={`${key}-divider`} className="diagrams-tray-divider" role="separator" aria-label={`${divider} presets`}>{divider}</span>,
+          <button type="button" className="synth-tile" key={key} title={`Apply “${entry.preset.label}”`} aria-label={`Apply ${entry.preset.label}`}
+            onClick={() => dispatch(entry.kind === "sequence" ? { type: "apply-sequence-preset", id: entry.preset.id } : entry.kind === "lanes" ? { type: "apply-lanes-preset", id: entry.preset.id } : { type: "apply-preset", id: entry.preset.id })}>
+            <span className="synth-tile-scene diagrams-tile-preview" aria-hidden="true"><pre>{thumbnails[key] ?? ""}</pre></span><span className="synth-tile-label">{entry.preset.label}</span>
           </button>,
         ];
       })}

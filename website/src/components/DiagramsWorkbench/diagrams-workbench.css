@@ -1,22 +1,262 @@
 /* Rail, Dock, tray, mobile drawers and export panel use the instrument shell. */
-.diagrams-source-card.voice-card { grid-template-columns: minmax(0, 1fr); }
-.diagrams-source-card .gx-toggle { width: 100%; }
-.diagrams-source {
+/* The rail is this page's primary editing surface (user feedback: "the
+   sidebar could be a bit bigger... so we have more room for the editing"),
+   so it takes a wider basis than the shared 340px — per page, through the
+   shell's own variable (`instrument-workbench.css`), never by widening
+   every instrument page. Only above the shared 62rem breakpoint: below it
+   the rail's 300px narrow basis stays, or the render would have no room. */
+.diagrams-shell { --synth-rail-basis: 460px; }
+/* The rail's content is a flex column that hands the editor every spare
+   pixel: tabs, toolbar and error strip take their own height, the text
+   area fills the rest (`.synth-voices-list` is already a flex column with
+   `overflow-y: auto`, so on a short viewport the editor keeps its own
+   160px floor and the rail scrolls). */
+/* The dialect tabs share the rail's header row with the title ("mermaid/
+   json could be next to graph ... so we save one row"): the title ellipsises,
+   the tabs keep their width and drop the header's uppercase tracking. */
+.diagrams-shell .synth-voices-head { gap: 8px; }
+.diagrams-shell .synth-voices-head > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.diagrams-source-tabs { flex: 0 0 auto; text-transform: none; letter-spacing: normal; }
+.diagrams-source-tabs .gx-toggle-btn { flex: 0 0 auto; padding: 3px 8px; font-size: 10px; }
+.diagrams-source-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+/* Source editor (`DiagramsSourceEditor.tsx`) — an overlay editor: the real
+   `<textarea>` (transparent ink, visible caret) sits over an aria-hidden
+   highlight layer and a line-number gutter that translate with its scroll
+   offset. Every layer MUST share the same font, size, line height, padding
+   and tab size, and none may soft-wrap, or line N of the gutter stops being
+   line N of the text — `--diagrams-editor-line` is the ONE line height,
+   pinned to `DIAGRAMS_EDITOR_LINE_PX` in the component (the error stripe is
+   positioned from it in JS). The wrapper grows to whatever height the rail
+   gives it (no fixed height, no resize handle); the textarea fills it. */
+.diagrams-editor-wrap { display: flex; flex-direction: column; gap: 4px; flex: 1 1 auto; min-height: 0; }
+.diagrams-editor {
+  /* MUST equal `DIAGRAMS_EDITOR_LINE_PX` in DiagramsSourceEditor.tsx — the JS
+     positions every field box, hotspot anchor and error stripe at
+     `line * DIAGRAMS_EDITOR_LINE_PX`, so a disagreement makes the overlay
+     drift further from the text on every line down. */
+  --diagrams-editor-line: 20px;
+  --diagrams-editor-pad: 6px;
+  --diagrams-editor-gutter: 4ch;
+  position: relative;
   box-sizing: border-box;
   width: 100%;
-  height: 360px;
-  min-height: 180px;
-  resize: vertical;
-  padding: 6px;
-  font: inherit;
-  font-size: 11px;
-  line-height: 1.5;
+  flex: 1 1 auto;
+  min-height: 160px;
+  overflow: hidden;
   background: #0d1118;
-  color: inherit;
   border: 1px solid rgba(255, 232, 184, 0.22);
-  border-radius: 0;
 }
-.diagrams-source:focus-visible { outline: 1px solid #38bdf8; }
+/* Invisible ruler the completion list measures the cell width off — the
+   same font as the text, out of flow, never painted. */
+.diagrams-editor-measure { position: absolute; top: 0; left: 0; visibility: hidden; pointer-events: none; white-space: pre; font: inherit; font-size: 11px; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; }
+/* The insert toolbar above the text: ONE slim row of flat text items ("a
+   toolbar above the editor instead of being buttons"), the grouped node
+   shapes behind one menu. Never wraps — on a narrow rail it scrolls. */
+.diagrams-editor-tools { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; flex: 0 0 auto; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid rgba(255, 232, 184, 0.1); }
+.diagrams-editor-tools-label { font-size: 9px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 232, 184, 0.35); padding-right: 4px; flex: 0 0 auto; }
+.diagrams-editor-menu { position: relative; flex: 0 0 auto; }
+.diagrams-editor-tool {
+  font: inherit; font-size: 10px; line-height: 1; letter-spacing: 0.02em; white-space: nowrap; flex: 0 0 auto;
+  padding: 4px 5px; cursor: pointer; border-radius: 0;
+  color: rgba(255, 232, 184, 0.7); background: transparent; border: 0; border-bottom: 1px solid transparent;
+}
+.diagrams-editor-tool:hover { color: rgba(56, 189, 248, 0.95); }
+.diagrams-editor-tool.is-active { color: rgba(56, 189, 248, 1); border-bottom-color: rgba(56, 189, 248, 0.85); }
+.diagrams-editor-tool:focus-visible { outline: 1px solid #38bdf8; }
+/* The tile widget: one tile per choice, with the LIVE glyph preview the
+   page rendered through the library when the choice is a shape, the name
+   and the exact syntax. It is the toolbar's node menu AND every choice
+   field's list (`.diagrams-editor-choices`) — the same widget, so a shape
+   looks the same wherever it is offered. */
+.diagrams-editor-shapes {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 30;
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px;
+  width: min(420px, calc(100vw - 48px)); padding: 6px;
+  background: rgba(5, 7, 12, 0.98); border: 1px solid rgba(255, 232, 184, 0.28); box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.diagrams-editor-shape {
+  display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-rows: auto auto; column-gap: 8px; align-items: center;
+  text-align: left; cursor: pointer; border-radius: 0; padding: 4px 6px;
+  color: rgba(255, 232, 184, 0.85); background: #0d1118; border: 1px solid rgba(255, 232, 184, 0.14);
+}
+.diagrams-editor-shape:hover, .diagrams-editor-shape:focus-visible, .diagrams-editor-shape.is-active { border-color: rgba(56, 189, 248, 0.6); outline: none; }
+.diagrams-editor-shape.is-current { background: rgba(249, 115, 22, 0.14); border-color: rgba(249, 115, 22, 0.7); }
+.diagrams-editor-shape.is-current .diagrams-editor-shape-label::after { content: " ✓"; color: #f97316; }
+.diagrams-editor-shape-preview { grid-row: 1 / 3; margin: 0; padding: 0; font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 7px; line-height: 1; white-space: pre; color: rgba(255, 232, 184, 0.92); min-width: 10ch; }
+.diagrams-editor-shape-label { font-size: 10px; font-weight: 700; }
+.diagrams-editor-shape-syntax { font: inherit; font-size: 10px; color: rgba(56, 189, 248, 0.85); }
+/* A choice field's list, inside the editor box (positioned by the editor
+   from the field's own cell, below or above it), scrolling when the box is
+   short; the ▾ trigger floats after the field's last character. */
+.diagrams-editor-choices { top: auto; z-index: 6; width: calc(100% - 12px); margin: 0 6px; overflow-y: auto; }
+.diagrams-editor-choices-trigger {
+  position: absolute; z-index: 4; box-sizing: border-box;
+  height: var(--diagrams-editor-line); width: calc(1ch + 3px); padding: 0; text-align: center;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace; font-size: 11px; line-height: calc(var(--diagrams-editor-line) - 2px); cursor: pointer; border-radius: 0;
+  color: #f97316; background: rgba(13, 17, 24, 0.96); border: 1px solid rgba(249, 115, 22, 0.7);
+}
+.diagrams-editor-choices-trigger:hover, .diagrams-editor-choices-trigger.is-active { background: rgba(249, 115, 22, 0.25); }
+.diagrams-editor-choices-trigger:focus-visible { outline: 1px solid #38bdf8; }
+/* Id completion under the caret: a listbox the keyboard drives (arrows,
+   Enter/Tab, Escape); positioned by the editor from the caret's own cell. */
+.diagrams-editor-completions {
+  position: absolute; z-index: 5; margin: 0; padding: 2px 0; list-style: none;
+  min-width: 12ch; max-width: calc(100% - 12px); max-height: 8.5em; overflow: auto;
+  background: rgba(5, 7, 12, 0.98); border: 1px solid rgba(56, 189, 248, 0.55); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+  font-size: 11px; line-height: 1.5;
+}
+.diagrams-editor-completion { display: flex; gap: 8px; align-items: baseline; padding: 1px 8px; cursor: pointer; white-space: nowrap; color: rgba(255, 232, 184, 0.85); }
+.diagrams-editor-completion.is-active { background: rgba(56, 189, 248, 0.2); color: rgba(56, 189, 248, 1); }
+.diagrams-editor-completion-label { font-size: 10px; color: rgba(255, 232, 184, 0.5); overflow: hidden; text-overflow: ellipsis; }
+/* Guided editing (`diagramsSourceSlots.ts`): every editable field is drawn
+   as a field — a tinted box with a bottom rule — so where one can type is
+   visible before the first click; the field under the caret is brighter
+   and named in the status line; a choice (arrow, shape, direction, enum)
+   is orange and dashed; a repair line (the one line that does not parse)
+   is pink. A refused keystroke flashes the active field and prints its
+   reason under the editor for 1.5 s — a cue, never a modal. */
+.diagrams-editor-slot {
+  position: absolute; height: var(--diagrams-editor-line);
+  margin-top: var(--diagrams-editor-pad);
+  box-sizing: border-box;
+  background: rgba(56, 189, 248, 0.07);
+  border-bottom: 1px solid rgba(56, 189, 248, 0.45);
+}
+.diagrams-editor-slot.is-cycle { background: rgba(249, 115, 22, 0.08); border-bottom: 1px dashed rgba(249, 115, 22, 0.7); }
+.diagrams-editor-slot.is-repair { background: rgba(253, 164, 175, 0.08); border-bottom: 1px dashed rgba(253, 164, 175, 0.7); }
+.diagrams-editor-slot.is-active { background: rgba(56, 189, 248, 0.2); border-bottom: 2px solid rgba(56, 189, 248, 0.95); }
+.diagrams-editor-slot.is-active.is-cycle { background: rgba(249, 115, 22, 0.2); border-bottom-color: #f97316; }
+.diagrams-editor-slot.is-active.is-repair { background: rgba(253, 164, 175, 0.16); border-bottom-color: #fda4af; }
+/* The render's pointer, answered in the rail: the hovered node's own fields
+   glow without touching the caret's own `is-active` mark, so the two reads —
+   "what am I editing" and "what am I pointing at" — never look the same. */
+.diagrams-editor-slot.is-highlight { background: rgba(163, 230, 53, 0.22); border-bottom: 2px solid rgba(163, 230, 53, 0.9); }
+.diagrams-editor-slot.is-refused { animation: diagrams-slot-refuse 1.5s ease-out; }
+@keyframes diagrams-slot-refuse { 0% { background: rgba(253, 164, 175, 0.5); box-shadow: 0 0 0 2px rgba(253, 164, 175, 0.85); } 100% { background: rgba(56, 189, 248, 0.2); box-shadow: none; } }
+.diagrams-editor-refusal { color: #fda4af; }
+.diagrams-editor-repair-note { color: #fda4af; }
+.diagrams-editor-field { color: rgba(56, 189, 248, 0.95); font-weight: 700; }
+/* The render's hotspots (`DiagramsHotspotLayer.tsx`): one real element per
+   node box and per straight run of an edge, over the `<pre>`. Three
+   designed states — idle is a faint dashed outline (discoverable, never
+   invisible), hover a solid cyan one, selected the cyan of the editor's
+   active field with a glow, so the marked node and the marked field read
+   as the same thing. The layer takes no pointer; only the elements do. */
+.diagrams-grid-scroll { position: relative; }
+.diagrams-hotspot-layer { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+/* The render stays PURE — a hotspot draws NOTHING at rest. USER, verbatim:
+   "the hitboxes being bordered around is shitty af, remove that, they
+   shouldn't render anything around the nodes, the chart should remain pure
+   and then when we hover it on the rendering area we should see it in the
+   left sidebar highlighting". So the diagram reads as the diagram, and the
+   feedback for "which node is this" lives in the EDITOR, where the answer
+   is actionable. Hover and selection tint the cells only faintly, enough to
+   confirm the pointer is on something without drawing furniture over it. */
+.diagrams-hotspot {
+  position: absolute; box-sizing: border-box; pointer-events: all; cursor: pointer;
+  margin: 0; padding: 0; border: 0; border-radius: 2px; background: transparent;
+  user-select: none; -webkit-user-select: none;
+  transition: background 0.12s ease;
+}
+.diagrams-hotspot:hover, .diagrams-hotspot.is-hover, .diagrams-hotspot:focus-visible { background: rgba(56, 189, 248, 0.10); outline: none; }
+.diagrams-hotspot.is-selected { background: rgba(56, 189, 248, 0.14); }
+.diagrams-grid-scroll.is-stale .diagrams-hotspot-layer { opacity: 0.4; }
+.diagrams-editor:focus-within { border-color: rgba(56, 189, 248, 0.55); }
+.diagrams-editor-gutter,
+.diagrams-editor-highlight,
+.diagrams-editor-input {
+  margin: 0;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+  line-height: var(--diagrams-editor-line);
+  tab-size: 2;
+  letter-spacing: normal;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.diagrams-editor-gutter {
+  position: absolute; top: 0; left: 0; bottom: auto; z-index: 3;
+  display: flex; flex-direction: column;
+  box-sizing: border-box;
+  width: var(--diagrams-editor-gutter);
+  min-height: 100%;
+  padding: var(--diagrams-editor-pad) 0;
+  background: #0a0e14;
+  border-right: 1px solid rgba(255, 232, 184, 0.12);
+  color: rgba(255, 232, 184, 0.35);
+  text-align: right;
+  pointer-events: none;
+  user-select: none;
+  will-change: transform;
+}
+.diagrams-editor-gutter span { display: block; height: var(--diagrams-editor-line); padding-right: 1ch; }
+.diagrams-editor-gutter span.is-error { color: #fda4af; font-weight: 700; }
+.diagrams-editor-gutter span.is-error::before { content: "●"; float: left; padding-left: 0.5ch; font-size: 8px; }
+/* Carries the text font too: the slot boxes inside it are placed in `ch`
+   units, which only match the text's cells when this layer's own font is
+   the text's font (the page body sets a larger Glyph Mono). */
+.diagrams-editor-layer {
+  position: absolute; top: 0; left: 0; z-index: 1;
+  min-width: 100%; min-height: 100%;
+  pointer-events: none;
+  will-change: transform;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+.diagrams-editor-highlight {
+  position: relative;
+  padding: var(--diagrams-editor-pad) var(--diagrams-editor-pad) var(--diagrams-editor-pad) calc(var(--diagrams-editor-gutter) + var(--diagrams-editor-pad));
+  color: rgba(255, 232, 184, 0.85);
+}
+.diagrams-editor-errline {
+  position: absolute; left: 0; right: 0;
+  margin-top: var(--diagrams-editor-pad);
+  height: var(--diagrams-editor-line);
+  background: rgba(253, 164, 175, 0.12);
+  box-shadow: inset 2px 0 0 #fda4af;
+}
+.diagrams-editor-input {
+  position: absolute; inset: 0; z-index: 2;
+  box-sizing: border-box;
+  width: 100%; height: 100%;
+  padding: var(--diagrams-editor-pad) var(--diagrams-editor-pad) var(--diagrams-editor-pad) calc(var(--diagrams-editor-gutter) + var(--diagrams-editor-pad));
+  background: transparent;
+  color: transparent;
+  caret-color: rgba(255, 232, 184, 0.94);
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+/* Semi-transparent so the highlighted glyphs beneath stay readable through a selection. */
+.diagrams-editor-input::selection { background: rgba(56, 189, 248, 0.28); color: transparent; }
+.diagrams-tok-keyword { color: #f97316; }
+.diagrams-tok-arrow { color: #38bdf8; }
+.diagrams-tok-id { color: rgba(255, 232, 184, 0.92); }
+.diagrams-tok-key { color: rgba(56, 189, 248, 0.9); }
+.diagrams-tok-string, .diagrams-tok-label { color: rgba(255, 232, 184, 0.95); }
+.diagrams-tok-number, .diagrams-tok-literal { color: #f97316; }
+.diagrams-tok-punct { color: rgba(255, 232, 184, 0.45); }
+.diagrams-tok-comment { color: rgba(255, 232, 184, 0.35); font-style: italic; }
+.diagrams-tok-text { color: rgba(255, 232, 184, 0.7); }
+/* The error strip under the editor: "Line N" (a button that moves the
+   caret there), the rule code, the library's message, then its own repair
+   hint — never one opaque banner. */
+.diagrams-editor-status { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.diagrams-editor-jump {
+  font: inherit; font-size: 10px; line-height: 1.4; font-weight: 700;
+  padding: 0 4px; cursor: pointer; border-radius: 0;
+  color: #fda4af; background: rgba(253, 164, 175, 0.12); border: 1px solid rgba(253, 164, 175, 0.5);
+}
+.diagrams-editor-jump:hover:not(:disabled) { background: rgba(253, 164, 175, 0.24); }
+.diagrams-editor-jump:disabled { cursor: default; opacity: 0.6; }
+.diagrams-editor-jump:focus-visible { outline: 1px solid #38bdf8; }
+.diagrams-editor-code { font: inherit; font-size: 10px; color: rgba(253, 164, 175, 0.8); }
+.diagrams-editor-message { flex: 1 1 100%; }
+.diagrams-editor-hint { flex: 1 1 100%; color: rgba(255, 232, 184, 0.65); }
+.diagrams-editor-help { color: rgba(255, 232, 184, 0.4); }
 
 /* Graph source card (packet D5, mirrors `charts-workbench.css`'s own
    `.charts-data-info`/`.charts-data-title`/`.charts-readout`) — the rail's
@@ -34,35 +274,6 @@
    regression pin matches the FIRST such block in the file and asserts it
    covers the viewport pulse; a second, earlier block would shadow it. */
 
-/* "Edit source ▸" disclosure (packet D5) — /diagrams stays editable, so
-   this wraps the SAME Mermaid/JSON/Table editor that used to sit directly
-   in the rail, closed by default (same `<details>` idiom as
-   `charts-workbench.css`'s own `.charts-mark-data-details`). */
-.diagrams-source-details { margin-top: 4px; }
-.diagrams-source-summary {
-  list-style: none; cursor: pointer; font-size: 11px; color: rgba(255, 232, 184, 0.65); padding: 2px 0;
-}
-.diagrams-source-summary::-webkit-details-marker { display: none; }
-.diagrams-source-summary:hover { color: rgba(255, 232, 184, 0.9); }
-.diagrams-source-marker { display: inline-block; transition: transform 0.1s ease; }
-details[open] > .diagrams-source-summary .diagrams-source-marker { transform: rotate(90deg); }
-
-/* Table editor (packet item 7): a nodes table + an edges table, beside Mermaid/JSON. */
-.diagrams-table-group { display: flex; flex-direction: column; gap: 12px; max-height: 360px; overflow: auto; }
-.diagrams-table-wrap { border: 1px solid rgba(255, 232, 184, 0.22); }
-.diagrams-table { border-collapse: collapse; width: 100%; font-size: 11px; }
-.diagrams-table th, .diagrams-table td { border: 1px solid rgba(255, 232, 184, 0.14); padding: 2px; white-space: nowrap; }
-.diagrams-table th { background: #0d1118; text-align: left; }
-.diagrams-table input {
-  width: 100%; min-width: 60px; box-sizing: border-box; background: transparent; color: inherit;
-  border: none; font: inherit; padding: 2px 4px;
-}
-.diagrams-table input:focus-visible { outline: 1px solid #38bdf8; }
-.diagrams-table-remove {
-  background: transparent; color: rgba(255, 232, 184, 0.65); border: 1px solid rgba(255, 232, 184, 0.22);
-  cursor: pointer; line-height: 1; padding: 1px 5px; border-radius: 0;
-}
-.diagrams-table-remove:hover { color: #fda4af; border-color: #fda4af; }
 
 /* Data overlay — ONE search field (`DiagramsDatasetSearchBox.tsx`: built-in
    presets + Hugging Face `graphs-datasets` browse behind a chevron) plus
@@ -243,6 +454,8 @@ details[open] > .diagrams-source-summary .diagrams-source-marker { transform: ro
 @media (prefers-reduced-motion: reduce) {
   .diagrams-grid-scroll.is-loading { animation: none; }
   .diagrams-data-loading-spinner { animation: none; }
+  .diagrams-editor-slot.is-refused { animation: none; background: rgba(253, 164, 175, 0.35); }
+  .diagrams-hotspot { transition: none; }
 }
 /* Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
    the same A4/A5 cascade defect this file's `.diagrams-grid-scroll >
@@ -352,5 +565,24 @@ details[open] > .diagrams-source-summary .diagrams-source-marker { transform: ro
 
 @media (max-width: 760px) {
   .diagrams-viewport.synth-viewport { padding: 96px 12px var(--mobile-panel-bottom); }
-  .diagrams-source { height: 240px; }
+  .diagrams-editor { min-height: 120px; }
 }
+
+/* A choice field's native `<select>`: sized and positioned ON the field it
+   edits, transparent so the highlighted field shows through, and carrying the
+   platform's own menu. `font: inherit` keeps it on the editor's grid — see
+   `--diagrams-editor-line`'s own note about the JS/CSS pairing. */
+.diagrams-editor-choice-select {
+  position: absolute; z-index: 3; margin: 0; padding: 0 0 0 1px;
+  height: var(--diagrams-editor-line);
+  font: inherit; font-size: 11px; line-height: var(--diagrams-editor-line);
+  color: transparent; background: transparent; border: 0; border-radius: 2px;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+  /* No `min-width`: the inline width is the field's own measured span, and a
+     floor would widen a one-character field (`[`, `(`) over the label that
+     follows it — the text under a wider control cannot be clicked at all. */
+}
+.diagrams-editor-choice-select.is-adjacent { width: 2ch; color: rgba(56, 189, 248, 0.9); background: rgba(56, 189, 248, 0.12); }
+.diagrams-editor-choice-select:hover { background: rgba(56, 189, 248, 0.16); }
+.diagrams-editor-choice-select:focus-visible { outline: 1px solid rgba(56, 189, 248, 0.9); color: rgba(255, 232, 184, 0.95); background: #0d1117; }
+.diagrams-editor-choice-select option { color: #d7dce3; background: #0d1117; font-family: "Glyph Mono", ui-monospace, monospace; }

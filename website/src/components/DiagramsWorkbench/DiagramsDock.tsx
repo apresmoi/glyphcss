@@ -6,8 +6,8 @@ import { IconToggle } from "../SynthWorkbench/synthKit";
 import { useFolderTitleReset } from "../InstrumentWorkbench/useFolderTitleReset";
 import { Instrument3DEffectsFolder } from "../InstrumentWorkbench/Instrument3DEffectsFolder";
 import {
-  buildGlyphDiagramsWorkbenchGraph, diagramsWorkbenchSizeLocked, glyphDiagramsWorkbenchEffectTargets, resolveGlyphDiagramsWorkbenchControls,
-  type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState,
+  buildGlyphDiagramsWorkbenchGraph, diagramsWorkbenchSizeLocked, GLYPH_DIAGRAMS_FORMS, glyphDiagramsWorkbenchEffectTargets, resolveGlyphDiagramsWorkbenchControls,
+  type GlyphDiagramsFormId, type GlyphDiagramsWorkbenchAction, type GlyphDiagramsWorkbenchControlAction, type GlyphDiagramsWorkbenchState,
 } from "./diagramsWorkbenchState";
 import { diagrams3dCharsetDockReason, diagrams3dColorDockReason } from "./diagrams3dSceneOptions";
 
@@ -68,12 +68,27 @@ function colorToggleOptions(view: "2d" | "3d") {
 // Packet D3 — the 2D/3D view switch, right beside Output so it reads as
 // scene-wide (AGENTS.md's D3 row). Web-only fields (turntable/trackball
 // live geometry) dim in every other view/target combination via
-// `disabled`/`disabledReason`, the `mapDirectionLocked` idiom.
-const VIEW_TOGGLE = (["2d", "3d"] as const).map((v) => ({ value: v as string, icon: <span className="gx-toggle-text">{v}</span>, label: v, desc: `View: ${v}` }));
+// `disabled`/`disabledReason`, the `mapDirectionLocked` idiom. Now also
+// FORM-aware: a form whose own descriptor says `supports3d: false` (today,
+// `sequence` — it has no layout problem at all, `packages/diagrams/AGENTS.md`'s
+// own "no dagre, no A*, no ranks", let alone a 3D one) dims the 3D option
+// with its reason rather than hiding it — the page's own "locked/unavailable
+// control" invariant (`website/AGENTS.md`).
+function viewToggleOptions(form: GlyphDiagramsFormId) {
+  const supports3d = GLYPH_DIAGRAMS_FORMS.find((f) => f.id === form)?.supports3d ?? true;
+  return (["2d", "3d"] as const).map((v) => {
+    const reason = v === "3d" && !supports3d ? "3D is available for the graph form only." : undefined;
+    return { value: v as string, icon: <span className="gx-toggle-text">{v}</span>, label: v, desc: reason ?? `View: ${v}`, disabled: reason !== undefined, disabledReason: reason };
+  });
+}
+// The form axis (this task) — one row per `GLYPH_DIAGRAMS_FORMS` entry, so a
+// future form ships by appending to that table, never by touching this
+// function's own body.
+const FORM_TOGGLE = GLYPH_DIAGRAMS_FORMS.map((f) => ({ value: f.id as string, icon: <span className="gx-toggle-text">{f.label}</span>, label: f.label, desc: `Form: ${f.label}` }));
 
 export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWorkbenchState; dispatch: Dispatch<GlyphDiagramsWorkbenchAction> }) {
   const gui = useDockGui();
-  const controls = resolveGlyphDiagramsWorkbenchControls(state.controls);
+  const controls = resolveGlyphDiagramsWorkbenchControls(state.controls, state.form);
   const setControl = (control: GlyphDiagramsWorkbenchControlAction) => dispatch({ type: "set-control", control });
   const output = useFolder(gui, "Output", { open: true });
   // Folder-title-bar reset (REVIEW-dock-addenda-opus.md P3-5) — the SAME
@@ -83,6 +98,13 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   // this page used to carry independently.
   useFolderTitleReset(output, "Reset target, charset, color, width, and height to this target's defaults", () => setControl({ type: "reset" }));
   const viewSlot = useDockSlot(output, { position: "top", className: "dock-toggle-row-slot" });
+  // Requested AFTER `viewSlot` (both "top") so it lands ABOVE it — a "top"
+  // slot's own `insertBefore(firstChild)` mechanics mean the LATER-requested
+  // one ends up first (`Dock/primitives.tsx`'s `useDockSlot` doc). Form
+  // reads as the top-level choice — which pipeline is even running — so it
+  // sits above View (which view of THAT pipeline) and Target/Charset/Color
+  // (how that view is drawn).
+  const formSlot = useDockSlot(output, { position: "top", className: "dock-toggle-row-slot" });
   const targetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const charsetSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
   const colorSlot = useDockSlot(output, { position: "bottom", className: "dock-toggle-row-slot" });
@@ -108,11 +130,24 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
   useOption(layout, "Engine", options(["dagre"] as const), state.layout.engine, (engine) => dispatch({ type: "set-layout", patch: { engine } }));
   useSlider(layout, "nodesep", { min: 3, max: 24, step: 1 }, state.layout.nodesep, (nodesep) => dispatch({ type: "set-layout", patch: { nodesep } }));
   useSlider(layout, "ranksep", { min: 3, max: 24, step: 1 }, state.layout.ranksep, (ranksep) => dispatch({ type: "set-layout", patch: { ranksep } }));
+  // The sequence pipeline has NO layout problem at all (`packages/diagrams/AGENTS.md`'s
+  // own "Sequence diagrams" section: "no dagre, no A*, no ranks") — this
+  // whole folder hides for that form, the same granularity the 3D folder
+  // and the Terminal folder already hide at below, never a dimmed-but-visible
+  // row set with nothing behind it.
+  useEffect(() => { if (layout) state.form === "graph" ? layout.show() : layout.hide(); }, [layout, state.form]);
 
   const diagram = useFolder(gui, "Diagram", { open: true });
   useText(diagram, "Title", state.diagram.title, (title) => dispatch({ type: "set-diagram", patch: { title } }));
-  useOption(diagram, "Detail", options(["auto", "faithful", "balanced", "simplified"] as const), state.diagram.detail, (detail) => dispatch({ type: "set-diagram", patch: { detail } }));
+  const detailCtrl = useOption(diagram, "Detail", options(["auto", "faithful", "balanced", "simplified"] as const), state.diagram.detail, (detail) => dispatch({ type: "set-diagram", patch: { detail } }));
   useEffect(() => { if (diagram) state.view === "2d" ? diagram.show() : diagram.hide(); }, [diagram, state.view]);
+  // `Detail` is the 2D graph compaction ladder's own control — meaningless
+  // for the sequence pipeline (its own degrade ladder, `packages/diagrams/AGENTS.md`'s
+  // "Degrade" bullet, takes no `detail` option at all). `Title` above stays
+  // visible for both forms (both pipelines read it), so only this ONE row
+  // hides, not the whole folder — `website/AGENTS.md`'s "locked/unavailable
+  // control" granularity.
+  useEffect(() => { if (detailCtrl) detailCtrl.setVisible(state.form === "graph"); }, [detailCtrl, state.form]);
   const terminal = useFolder(gui, "Terminal", { open: true });
   useToggle(terminal, "NO_COLOR", state.terminal.NO_COLOR, (value) => dispatch({ type: "set-terminal", flag: "NO_COLOR", value }));
   useToggle(terminal, "FORCE_COLOR", state.terminal.FORCE_COLOR, (value) => dispatch({ type: "set-terminal", flag: "FORCE_COLOR", value }));
@@ -149,10 +184,17 @@ export function GlyphDiagramsDock({ state, dispatch }: { state: GlyphDiagramsWor
       onChange={(patch) => dispatch({ type: "set-effect3d", patch })}
       visible={state.view === "3d"}
     />
+    {formSlot && createPortal(
+      <div className="dock-toggle-row">
+        <span className="dock-toggle-row-label">Form</span>
+        <IconToggle groupTitle="Diagram form" options={FORM_TOGGLE} value={state.form} onChange={(v) => dispatch({ type: "set-form", form: v as GlyphDiagramsFormId })} />
+      </div>,
+      formSlot,
+    )}
     {viewSlot && createPortal(
       <div className="dock-toggle-row">
         <span className="dock-toggle-row-label">View</span>
-        <IconToggle groupTitle="Diagram dimension" options={VIEW_TOGGLE} value={state.view} onChange={(v) => dispatch({ type: "set-view", view: v as "2d" | "3d" })} />
+        <IconToggle groupTitle="Diagram dimension" options={viewToggleOptions(state.form)} value={state.view} onChange={(v) => dispatch({ type: "set-view", view: v as "2d" | "3d" })} />
       </div>,
       viewSlot,
     )}

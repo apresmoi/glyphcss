@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { glyphGraphFromMermaid } from "@glyphcss/diagrams";
+import langgraphExport from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
 import {
   GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState,
   type GlyphDiagramsWorkbenchState,
@@ -22,14 +24,67 @@ describe("diagramsUrlState — round trip", () => {
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
   });
 
-  it("round-trips the table editor with edited nodes/edges (kind/group/shape/style/priority included)", async () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "add-node" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: state.nodes.length - 1, patch: { id: "extra", label: "Extra node", kind: "agent" } });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "add-edge" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-edge", index: state.edges.length - 1, patch: { from: state.nodes[0]!.id, to: "extra", label: "routes to" } });
+  it("round-trips a JSON edit carrying every graph field (kind/group/shape/style/priority included)", async () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
+    const graph = JSON.parse(state.json) as { nodes: Record<string, unknown>[]; edges: Record<string, unknown>[] };
+    graph.nodes.push({ id: "extra", label: "Extra node", kind: "agent", shape: "diamond" });
+    graph.edges.push({ from: graph.nodes[0]!.id, to: "extra", label: "routes to", style: "dotted", priority: 3 });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify(graph, null, 2) });
     const raw = await encodeDiagramsUrlState(state);
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
+  });
+
+  // The Table tab is gone (every form edits text through the source editor),
+  // but a link saved while it existed names `"table"` as its editor/source
+  // and carries the parsed `nodes`/`edges`/`tableGraph` the tab was editing
+  // — with NO up-to-date JSON text, because the text tabs only refreshed on
+  // a tab switch. Append-only: that link still decodes, with the arrays
+  // folded back into the JSON text so the reader's edits are what renders.
+  // Mutation: drop the `sourceKind === "table"` branch of
+  // `validateDiagramsWorkbenchState` -> `json` stays the link's stale text
+  // and the `groups`/`LR` assertions go red.
+  describe("a legacy link from the retired Table tab", () => {
+    const legacyLink = () => {
+      const state = presetState("subgraph"); // has groups and a non-TB direction, the two things the table's own `tableGraph` carried
+      const graph = JSON.parse(state.json) as { nodes: { id: string; label: string }[]; edges: unknown[]; groups?: unknown[]; direction: string };
+      const nodes = graph.nodes.map((node, i) => (i === 0 ? { ...node, label: "Edited in the table" } : node));
+      return {
+        state,
+        graph,
+        legacy: { ...state, editor: "table", sourceKind: "table", nodes, edges: graph.edges, tableGraph: { groups: graph.groups, direction: graph.direction }, json: "[]" } as unknown as GlyphDiagramsWorkbenchState,
+      };
+    };
+
+    it("decodes with editor/source `json` and the table's arrays folded into the JSON text, groups and direction included", async () => {
+      const { graph, legacy } = legacyLink();
+      const decoded = await decodeDiagramsUrlState(await encodeDiagramsUrlState(legacy));
+      expect(decoded?.editor).toBe("json");
+      expect(decoded?.sourceKind).toBe("json");
+      const rebuilt = JSON.parse(decoded!.json);
+      expect(rebuilt.nodes[0].label).toBe("Edited in the table");
+      expect(rebuilt.groups).toEqual(graph.groups);
+      expect(rebuilt.direction).toBe(graph.direction);
+      expect(decoded).not.toHaveProperty("nodes");
+      expect(decoded).not.toHaveProperty("edges");
+      expect(decoded).not.toHaveProperty("tableGraph");
+    });
+
+    it("a legacy `editor: \"table\"` on a Mermaid-authoritative link shows the Mermaid tab, never a stale JSON one", async () => {
+      const { state } = legacyLink();
+      const legacy = { ...state, editor: "table", sourceKind: "mermaid" } as unknown as GlyphDiagramsWorkbenchState;
+      const decoded = await decodeDiagramsUrlState(await encodeDiagramsUrlState(legacy));
+      expect(decoded?.editor).toBe("mermaid");
+      expect(decoded?.sourceKind).toBe("mermaid");
+      expect(decoded?.json).toBe(state.json);
+    });
+
+    it("malformed legacy arrays degrade to the link's own JSON text rather than rejecting the link", async () => {
+      const { state, legacy } = legacyLink();
+      const broken = { ...legacy, json: state.json, edges: [{ from: "a", to: "b", style: "not-a-real-style" }] } as unknown as GlyphDiagramsWorkbenchState;
+      const decoded = await decodeDiagramsUrlState(await encodeDiagramsUrlState(broken));
+      expect(decoded?.sourceKind).toBe("json");
+      expect(decoded?.json).toBe(state.json);
+    });
   });
 
   // Packet D5 — a remote graph never stores the graph itself in `?d=`.
@@ -51,30 +106,32 @@ describe("diagramsUrlState — round trip", () => {
       expect(decoded?.graphSource).toMatchObject({ originalNodeCount: 17, logicalEdgeCount: 19, edgeDirection: "undirected" });
     });
 
-    it("an un-edited remote graph omits nodes/edges/mermaid/json from the encoded state, and decodes with graphSource.omitted", async () => {
+    it("an un-edited remote graph omits mermaid/json from the encoded state, and decodes with graphSource.omitted", async () => {
       const state = remoteState();
       const forEncode = diagramsUrlStateForEncode(state);
-      expect(forEncode.nodes).toEqual([]);
-      expect(forEncode.edges).toEqual([]);
+      expect(forEncode.mermaid).toBe("");
+      expect(forEncode.json).toBe("[]");
       expect(forEncode.graphSource).toMatchObject({ kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, omitted: true });
       const raw = await encodeDiagramsUrlState(state);
       const decoded = await decodeDiagramsUrlState(raw);
       // The whole point: the graph itself never round-trips for an
       // un-edited remote pick — only the ref/rowIdx/title snapshot does.
-      expect(decoded?.nodes).toEqual([]);
-      expect(decoded?.edges).toEqual([]);
+      expect(decoded?.mermaid).toBe("");
+      expect(decoded?.json).toBe("[]");
       expect(decoded?.graphSource).toMatchObject({ kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188, title: "MUTAG", omitted: true });
     });
 
     it("a remote graph the reader has edited rides in the link in full — never silently discarded", async () => {
       let state = remoteState();
-      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
-      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Edited by hand" } });
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
+      const graph = JSON.parse(state.json) as { nodes: { label: string }[] };
+      graph.nodes[0]!.label = "Edited by hand";
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify(graph, null, 2) });
       expect(state.graphEdited).toBe(true);
       const raw = await encodeDiagramsUrlState(state);
       const decoded = await decodeDiagramsUrlState(raw);
       expect(decoded).toEqual(state);
-      expect(decoded?.nodes[0]?.label).toBe("Edited by hand");
+      expect(JSON.parse(decoded!.json).nodes[0].label).toBe("Edited by hand");
       expect(decoded?.graphSource).toEqual(state.graphSource); // no `omitted` stamped on it
     });
 
@@ -138,12 +195,8 @@ describe("diagramsUrlState — round trip", () => {
   });
 
   it("round-trips an empty graph (no nodes, no edges)", async () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    for (const edge of [...state.edges].keys()) void edge; // no-op placeholder for symmetry with node removal below
-    while (state.edges.length > 0) state = reduceGlyphDiagramsWorkbenchState(state, { type: "remove-edge", index: 0 });
-    while (state.nodes.length > 0) state = reduceGlyphDiagramsWorkbenchState(state, { type: "remove-node", index: 0 });
-    expect(state.nodes).toHaveLength(0);
-    expect(state.edges).toHaveLength(0);
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify({ nodes: [], edges: [], direction: "TB" }) });
     const raw = await encodeDiagramsUrlState(state);
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
   });
@@ -210,11 +263,17 @@ describe("diagramsUrlState — round trip", () => {
     expect(await decodeDiagramsUrlState("v1.not-valid-base64url-or-deflate")).toBeNull();
   });
 
-  it("rejects a payload whose shape is valid JSON but not a GlyphDiagramsWorkbenchState (e.g. an unknown edge style)", async () => {
+  it("rejects a payload whose shape is valid JSON but not a GlyphDiagramsWorkbenchState (e.g. an unknown detail level)", async () => {
+    const state = createGlyphDiagramsWorkbenchState();
     const raw = await encodeDiagramsUrlState({
-      ...createGlyphDiagramsWorkbenchState(),
-      edges: [{ from: "a", to: "b", style: "not-a-real-style" }],
+      ...state,
+      diagram: { ...state.diagram, detail: "not-a-real-detail" },
     } as unknown as GlyphDiagramsWorkbenchState);
+    expect(await decodeDiagramsUrlState(raw)).toBeNull();
+  });
+
+  it("rejects an editor kind it has never written (not even the retired Table tab's own)", async () => {
+    const raw = await encodeDiagramsUrlState({ ...createGlyphDiagramsWorkbenchState(), editor: "yaml" } as unknown as GlyphDiagramsWorkbenchState);
     expect(await decodeDiagramsUrlState(raw)).toBeNull();
   });
 
@@ -239,7 +298,14 @@ describe("diagramsUrlState — fixed historical link (regression pin)", () => {
     // own doc), not backfilled to today's default `{ kind: "builtin", ... }`
     // — every OTHER field still pins exactly, so a regression to any of
     // them still reddens this test.
-    expect(decoded).toEqual({ ...createGlyphDiagramsWorkbenchState(), graphSource: undefined, graphEdited: undefined });
+    // The link carries the default source AS IT WAS when captured — the
+    // raw LangGraph export, `<p>` tags and all. The page's own default has
+    // since been cleaned of that markup (`cleanPresetMermaid`,
+    // `diagramsWorkbenchState.ts`), so the two text fields are pinned to
+    // the historical text here; every other field still pins to today's
+    // default, and the LINK itself is untouched.
+    const historicalDefault = { ...createGlyphDiagramsWorkbenchState(), mermaid: langgraphExport, json: JSON.stringify(glyphGraphFromMermaid(langgraphExport), null, 2) };
+    expect(decoded).toEqual({ ...historicalDefault, graphSource: undefined, graphEdited: undefined });
   });
 
   it("mutation: changing the version prefix on the SAME historical link breaks the decode (proves the pin actually discriminates)", async () => {

@@ -1,28 +1,34 @@
 import { describe, expect, it } from "vitest";
 import { glyphGraphFromMermaid, renderGlyphDiagram, type GlyphDiagramRenderOptions } from "@glyphcss/diagrams";
-import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, glyphDiagramsWorkbenchMermaid, reduceGlyphDiagramsWorkbenchControls, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls } from "./diagramsWorkbenchState";
+import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchGraph, cleanPresetMermaid, createGlyphDiagramsWorkbenchState, generateGlyphDiagramsWorkbenchSnippets, glyphDiagramsWorkbenchMermaid, reduceGlyphDiagramsWorkbenchControls, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls } from "./diagramsWorkbenchState";
+import langgraphExport from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
 import { renderGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchRender";
 
 describe("diagram workbench state and exports", () => {
-  it.each(["subgraph", "crew"])("final-gate-2 (both P1 #4/#2): applying the '%s' preset, switching to Table, and editing one node keeps rendering — groups and direction survive the table edit", async (id) => {
-    // Mutation: drop `groups`/`direction` back out of `tableGraph` in
-    // `buildGlyphDiagramsWorkbenchGraph`'s table branch (the pre-fix
-    // `{ nodes: state.nodes, edges: state.edges, direction: state.layout
-    // .direction ?? "TB" }`) -> a node whose `group` names a real group the
-    // rebuilt graph no longer declares -> `renderGlyphDiagramsWorkbenchState`
-    // returns `{ ok: false, code: "unknown-group" }` -> red. LR also silently
-    // resets to TB, which the direction assertion below catches too.
+  it.each(["subgraph", "crew"])("applying the '%s' preset, switching to JSON, and editing one node keeps rendering — groups and direction survive the round trip", async (id) => {
     const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => p.id === id)!;
     const sourceGraph = glyphGraphFromMermaid(preset.source);
     expect(sourceGraph.groups?.length ?? 0).toBeGreaterThan(0); // sanity: the fixture actually has a group.
     let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-preset", id });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: `${state.nodes[0]!.label} (edited)` } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
+    const edited = JSON.parse(state.json) as { nodes: { label: string }[] };
+    edited.nodes[0]!.label = `${edited.nodes[0]!.label} (edited)`;
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify(edited, null, 2) });
     const graph = buildGlyphDiagramsWorkbenchGraph(state);
     expect(graph.groups).toEqual(sourceGraph.groups);
     expect(graph.direction).toBe(sourceGraph.direction);
     const rendered = await renderGlyphDiagramsWorkbenchState(state);
     expect(rendered.ok).toBe(true);
+  });
+
+  it("a malformed JSON draft fails with the library's own tagged GLYPH_DIAGRAM_BAD_JSON, never a bare SyntaxError", async () => {
+    // Mutation: put `JSON.parse` back in `buildGlyphDiagramsWorkbenchGraph`
+    // -> `code` is undefined and the editor's error strip loses both its
+    // rule code and its repair hint.
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: "{" });
+    const rendered = await renderGlyphDiagramsWorkbenchState(state);
+    expect(rendered).toMatchObject({ ok: false, code: "GLYPH_DIAGRAM_BAD_JSON" });
   });
 
 
@@ -152,69 +158,68 @@ describe("diagram workbench state and exports", () => {
     expect(JSON.parse(snippets.json)).toEqual(buildGlyphDiagramsWorkbenchGraph(state));
     expect(glyphGraphFromMermaid(snippets.mermaid).direction).toBe("LR");
   });
+
+  // The export snippet is the reader's OWN source, readable as such — a
+  // template literal carrying the real line breaks, never a one-line
+  // `"sequenceDiagram\n  participant…"` string that reads as hardcoded.
+  it("the TypeScript snippet carries the current Mermaid source verbatim in a template literal and the options the page actually rendered with", async () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-preset", id: "chain" });
+    const source = "flowchart LR\n  a[Alpha] --> b[`tick` and ${not} a template]\n";
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: source });
+    // chat + an explicit braille override: the page renders `box` (a chat
+    // font has no braille), so the snippet must print `box` too. Mutation:
+    // drop `glyphDiagramsWorkbenchChatCharset` from the snippet path -> the
+    // printed charset is `braille` -> red.
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-control", control: { type: "target", value: "chat" } });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-control", control: { type: "charset", value: "braille" } });
+    const snippets = generateGlyphDiagramsWorkbenchSnippets(state);
+    expect(snippets.typescript).toContain("const source = `flowchart LR\n  a[Alpha] --> b[\\`tick\\` and \\${not} a template]\n`;");
+    expect(snippets.typescript).not.toContain("\\n  a[Alpha]");
+    let captured: GlyphDiagramRenderOptions | undefined;
+    const execute = new Function("renderGlyphDiagram", `return (async () => {${snippets.typescript.replace(/^import[^\n]+\n/, "")} return diagram;})();`);
+    const result = await execute(async (input: string, options: GlyphDiagramRenderOptions) => { captured = options; return renderGlyphDiagram(input, options); });
+    expect(captured).toMatchObject({ target: "chat", charset: "box" });
+    expect(glyphGraphFromMermaid(source).nodes[1]!.label).toBe("`tick` and ${not} a template");
+    const live = await renderGlyphDiagramsWorkbenchState(state);
+    expect(live.ok && result.text === live.text).toBe(true);
+  });
 });
 
-describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", () => {
-  it("switching to the table tab derives nodes/edges from whichever source was authoritative", () => {
-    const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    const graph = buildGlyphDiagramsWorkbenchGraph(reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" }));
-    expect(state.nodes).toEqual(graph.nodes);
-    expect(state.edges).toEqual(graph.edges);
+describe("cleanPresetMermaid — the page's LangGraph copy carries no HTML and renders exactly like the fixture", () => {
+  it("strips <p> wrappers (and turns <br> into a space) without changing the parsed graph", async () => {
+    // Mutation: return `source` unchanged -> `<p>` survives -> red.
+    const cleaned = cleanPresetMermaid(langgraphExport);
+    expect(cleaned).not.toMatch(/<\/?p>/);
+    expect(langgraphExport).toMatch(/<p>__start__<\/p>/); // the fixture itself stays the real export
+    expect(glyphGraphFromMermaid(cleaned)).toEqual(glyphGraphFromMermaid(langgraphExport));
+    expect(cleanPresetMermaid("flowchart TB\n  a[<b>Bold</b><br/>two]")).toBe("flowchart TB\n  a[Bold two]");
+    const preset = GLYPH_DIAGRAM_WORKBENCH_PRESETS.find((p) => p.id === "langgraph")!;
+    expect(preset.source).toBe(cleaned);
+    expect(createGlyphDiagramsWorkbenchState().mermaid).toBe(cleaned);
+    const fixture = await renderGlyphDiagram(langgraphExport, { target: "web", width: 96, height: 32, color: "none" });
+    const page = await renderGlyphDiagram(cleaned, { target: "web", width: 96, height: 32, color: "none" });
+    expect(page.text).toBe(fixture.text);
   });
+});
 
-  it("setNode edits id/label/kind and takes over authority (sourceKind: table)", () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Renamed", kind: "agent" } });
-    expect(state.sourceKind).toBe("table");
-    expect(state.nodes[0]).toMatchObject({ label: "Renamed", kind: "agent" });
-    expect(buildGlyphDiagramsWorkbenchGraph(state).nodes[0]).toMatchObject({ label: "Renamed", kind: "agent" });
-  });
-
-  it("setNode preserves the shape field it doesn't expose", () => {
+describe("source editing (Mermaid and JSON tabs over the one source editor)", () => {
+  it("a JSON edit round-trips through Mermaid and back to JSON, keeping the edit", () => {
     let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify({ direction: "TB", nodes: [{ id: "a", label: "A", shape: "diamond" }], edges: [] }) });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "B" } });
-    expect(state.nodes[0]).toMatchObject({ id: "a", label: "B", shape: "diamond" });
-  });
-
-  it("addNode appends a node with a fresh, non-colliding id", () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    const before = state.nodes.length;
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "add-node" });
-    expect(state.nodes).toHaveLength(before + 1);
-    expect(new Set(state.nodes.map((n) => n.id)).size).toBe(state.nodes.length);
-  });
-
-  it("removeNode drops exactly the targeted node", () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    const target = state.nodes[0]!.id;
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "remove-node", index: 0 });
-    expect(state.nodes.some((n) => n.id === target)).toBe(false);
-  });
-
-  it("setEdge edits from/to/label", () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-edge", index: 0, patch: { label: "then" } });
-    expect(state.edges[0]!.label).toBe("then");
-  });
-
-  it("addEdge/removeEdge add and remove one edge", () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    const before = state.edges.length;
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "add-edge" });
-    expect(state.edges).toHaveLength(before + 1);
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "remove-edge", index: before });
-    expect(state.edges).toHaveLength(before);
-  });
-
-  it("a table edit round-trips through Mermaid and back to JSON, keeping the edit", () => {
-    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "table" });
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Edited label" } });
+    const edited = JSON.parse(state.json) as { nodes: { label: string }[] };
+    edited.nodes[0]!.label = "Edited label";
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify(edited) });
+    expect(state.sourceKind).toBe("json");
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "mermaid" });
     expect(state.mermaid).toContain("Edited label");
     state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
     expect(JSON.parse(state.json).nodes[0].label).toBe("Edited label");
+  });
+
+  it("switching tabs off an unparseable draft moves authority to the shown tab rather than throwing", () => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "edit-source", value: "flowchart LR\n  a[Broken" });
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
+    expect(state.editor).toBe("json");
+    expect(state.sourceKind).toBe("json");
   });
 
   // Packet D5 — graph dataset search.
@@ -228,11 +233,11 @@ describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", (
       originalNodeCount: 17, logicalEdgeCount: 19, edgeDirection: "undirected" as const,
     };
 
-    it("loads the graph into nodes/edges/mermaid/json and records graphSource, including the P3 count/direction readout", () => {
+    it("loads the graph into mermaid/json and records graphSource, including the P3 count/direction readout", () => {
       const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: false });
-      expect(state.nodes).toEqual(remoteGraph.nodes);
-      expect(state.edges).toEqual(remoteGraph.edges);
+      expect(state.sourceKind).toBe("json");
       expect(JSON.parse(state.json).nodes).toEqual(remoteGraph.nodes);
+      expect(JSON.parse(state.json).edges).toEqual(remoteGraph.edges);
       expect(state.mermaid).toContain("C");
       expect(state.graphSource).toEqual({
         kind: "remote", ref: "graphs-datasets/MUTAG", rowIdx: 3, totalRows: 188,
@@ -250,11 +255,11 @@ describe("table editor (packet item 7 — nodes/edges tables beside Mermaid)", (
       expect(state.view3d.layout).toBe("layered");
     });
 
-    it("a subsequent table edit marks the graph edited, and edited state survives a further edit", () => {
+    it("a subsequent source edit marks the graph edited, and edited state survives a further edit", () => {
       let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { ...basePayload, preferred3d: false });
       expect(state.graphEdited).toBe(false);
-      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "table" });
-      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-node", index: 0, patch: { label: "Edited" } });
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-editor", editor: "json" });
+      state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: state.json.replace('"C"', '"Edited"') });
       expect(state.graphEdited).toBe(true);
       expect(state.graphSource?.kind).toBe("remote"); // provenance stays visible even once edited
     });

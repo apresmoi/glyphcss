@@ -24,7 +24,9 @@ import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, red
 import { decodeDiagramsUrlState } from "./diagramsUrlState";
 import * as renderModule from "./diagramsWorkbenchRender";
 import * as urlStateModule from "../../lib/urlState";
-import langgraph from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
+import langgraphExport from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
+import { cleanPresetMermaid } from "./diagramsWorkbenchState";
+const langgraph = cleanPresetMermaid(langgraphExport);
 
 // Standalone Vitest lacks Astro's alias; only unused palette calibration needs a stub.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
@@ -93,11 +95,16 @@ describe("DiagramsWorkbench mounted integration", () => {
   function resetOutputButton(): HTMLButtonElement {
     return container.querySelector<HTMLButtonElement>(".dock-folder-title-reset-button")!;
   }
+  // The source editor debounces its commits (`DiagramsSourceEditor.tsx`)
+  // and flushes on blur — so an edit here types, then leaves the field,
+  // exactly the reader's own "type, then look at the render" sequence. The
+  // debounce itself is under test in `DiagramsSourceEditor.test.tsx`.
   async function edit(value: string, settle = true) {
     await act(async () => {
       const textarea = container.querySelector("textarea")!;
       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, value);
       textarea.dispatchEvent(new Event("input", { bubbles: true }));
+      textarea.dispatchEvent(new Event("focusout", { bubbles: true }));
     });
     if (settle) await settlePreview();
   }
@@ -238,7 +245,7 @@ describe("DiagramsWorkbench mounted integration", () => {
     // rule), so even there the exact BYTES can legitimately reformat (key
     // order, `direction` placement) — compare PARSED content instead.
     if ("sourceKind" in preset && preset.sourceKind === "json") {
-      await act(async () => button("nodes/edges JSON").click());
+      await act(async () => button("JSON").click());
       await settlePreview();
       expect(JSON.parse(container.querySelector("textarea")!.value)).toEqual(JSON.parse(preset.source));
     } else {
@@ -298,7 +305,7 @@ describe("DiagramsWorkbench mounted integration", () => {
   it("edits both formats, keeps invalid drafts visible and recovers from a preset", async () => {
     await edit("flowchart LR\nA[Alpha] --> B[Beta]");
     expect(preview().textContent).toContain("Alpha");
-    await act(async () => button("nodes/edges JSON").click());
+    await act(async () => button("JSON").click());
     await settlePreview();
     const graph = JSON.parse(container.querySelector("textarea")!.value);
     graph.nodes[0].label = "Updated";
@@ -325,40 +332,96 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(container.querySelector("[role='alert']")).toBeNull();
     expect(preview().textContent).toMatch(/\S/);
     expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("is-stale")).toBe(false);
-    await act(async () => button("nodes/edges JSON").click());
+    await act(async () => button("JSON").click());
     await edit("{");
     expect(container.querySelector("textarea")!.value).toBe("{");
     expect(container.querySelector("[role='alert']")!.textContent).toMatch(/JSON/);
   });
 
-  // Packet item 7 — a nodes table (id, label, kind) and an edges table
-  // (from, to, label), beside the Mermaid/JSON tabs.
-  it("the Table tab shows nodes/edges tables and an edit reaches the live render and the other tabs", async () => {
-    await act(async () => button("Table").click());
-    await settlePreview();
-    expect(container.querySelector('table[aria-label="Nodes"]')).not.toBeNull();
-    expect(container.querySelector('table[aria-label="Edges"]')).not.toBeNull();
-    const firstLabelInput = container.querySelector<HTMLInputElement>('table[aria-label="Nodes"] tbody tr:first-child input[aria-label$="label"]')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!.call(firstLabelInput, "Renamed node");
-      firstLabelInput.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await settlePreview();
-    expect(preview().textContent).toContain("Renamed node");
-    await act(async () => button("Mermaid").click());
-    await settlePreview();
-    expect(container.querySelector("textarea")!.value).toContain("Renamed node");
+  // The source editor (`DiagramsSourceEditor.tsx`) — the ONE editor every
+  // form's tabs mount: a line-number gutter, a highlight layer, and a
+  // render failure placed on its line with the library's own rule code and
+  // repair hint. Mutation: drop `locateDiagramsSourceError`'s fragment
+  // search -> the strip reads "Line unknown" and the gutter has no
+  // `.is-error` -> red.
+  it("the source editor shows line numbers, highlights the source, and places a Mermaid syntax error on its line with the rule's repair hint", async () => {
+    const gutter = container.querySelector(".diagrams-editor-gutter")!;
+    expect(gutter.querySelectorAll("span").length).toBe(langgraph.split("\n").length);
+    expect(container.querySelector(".diagrams-editor-highlight .diagrams-tok-keyword")!.textContent).toMatch(/^(?:flowchart|graph)$/);
+    expect(container.querySelector(".diagrams-editor-highlight .diagrams-tok-arrow")).not.toBeNull();
+    await edit("flowchart LR\n  a[Alpha] --> b[Beta]\n  b --> c[Broken\n  c --> a");
+    const strip = container.querySelector("#diagrams-source-panel [role='alert']")!;
+    expect(strip.textContent).toContain("GLYPH_MERMAID_SYNTAX");
+    expect(strip.querySelector(".diagrams-editor-jump")!.textContent).toBe("Line 3");
+    expect(strip.querySelector(".diagrams-editor-hint")!.textContent).toContain("close every shape and subgraph");
+    expect(Array.from(gutter.querySelectorAll("span")).findIndex((span) => span.classList.contains("is-error"))).toBe(2);
+    expect(container.querySelector("textarea")!.getAttribute("aria-invalid")).toBe("true");
+    // Clicking the line button moves the caret to that line's start.
+    await act(async () => strip.querySelector<HTMLButtonElement>(".diagrams-editor-jump")!.click());
+    expect(container.querySelector("textarea")!.selectionStart).toBe("flowchart LR\n  a[Alpha] --> b[Beta]\n".length);
   });
 
-  it("Table tab: + node / + edge grow both tables live", async () => {
-    await act(async () => button("Table").click());
+  // The rail IS the editor (user feedback: "too much borders and boxes...
+  // without edit source button"): no disclosure, no card, the toolbar and
+  // editor directly under the dialect tabs, the loaded preset named in the
+  // rail header instead of a card of its own.
+  it("the rail carries the editor directly — no disclosure, no card — with the toolbar, and names the loaded preset in its header", async () => {
+    const rail = container.querySelector("#diagrams-source-panel")!;
+    expect(rail.querySelector("details")).toBeNull();
+    expect(rail.querySelector(".voice-card")).toBeNull();
+    expect(rail.querySelector(".synth-voices-head > span")!.textContent).toBe("Graph · LangGraph agent");
+    expect(rail.querySelector("[role='toolbar']")).not.toBeNull();
+    expect(rail.querySelector("[aria-haspopup='menu']")!.textContent).toBe("+ Node ▾");
+    expect(Array.from(rail.querySelectorAll("[role='tab']")).map((t) => t.textContent)).toEqual(["Mermaid", "JSON"]);
+    expect(container.querySelector(".diagrams-grid-scroll")!.classList.contains("has-hotspots")).toBe(true);
+    await act(async () => container.querySelector<HTMLButtonElement>("[aria-label='Apply Chain']")!.click());
     await settlePreview();
-    const nodeRowsBefore = container.querySelectorAll('table[aria-label="Nodes"] tbody tr').length;
-    await act(async () => button("+ node").click());
-    expect(container.querySelectorAll('table[aria-label="Nodes"] tbody tr').length).toBe(nodeRowsBefore + 1);
-    const edgeRowsBefore = container.querySelectorAll('table[aria-label="Edges"] tbody tr').length;
-    await act(async () => button("+ edge").click());
-    expect(container.querySelectorAll('table[aria-label="Edges"] tbody tr').length).toBe(edgeRowsBefore + 1);
+    expect(rail.querySelector(".synth-voices-head > span")!.textContent).toBe("Graph · Chain");
+  });
+
+  it("selection is two-way: a hotspot click selects that node's label in the editor, ready to type over; Tab-walking the fields moves the marked hotspot", async () => {
+    // Mutation: make the hotspot click `jumpToLine` instead of selecting the
+    // field -> the selected text is "" -> red. Mutation: drop
+    // `onSelectionChange` wiring -> no `.is-selected` -> red.
+    const layer = container.querySelector(".diagrams-hotspot-layer")!;
+    expect(layer.querySelectorAll(".diagrams-hotspot.is-node").length).toBe(4);
+    expect(layer.querySelectorAll(".diagrams-hotspot.is-edge").length).toBeGreaterThan(0);
+    expect(layer.querySelector(".is-selected")).toBeNull();
+    const end = layer.querySelector<HTMLButtonElement>("[data-item='node:__end__']")!;
+    expect(end.getAttribute("aria-label")).toBe("Edit node __end__");
+    await act(async () => end.click());
+    const textarea = container.querySelector("textarea")!;
+    expect(textarea.value.slice(textarea.selectionStart, textarea.selectionEnd)).toBe("__end__");
+    expect(textarea.value.slice(textarea.selectionStart - 2, textarea.selectionStart)).toBe("([");
+    expect(Array.from(layer.querySelectorAll(".is-selected")).map((el) => el.getAttribute("data-item"))).toEqual(["node:__end__"]);
+    expect(end.getAttribute("aria-pressed")).toBe("true");
+    // Tab walks on; the mark follows the caret's field to the next node it belongs to.
+    for (let i = 0; i < 3 && layer.querySelector(".is-selected")?.getAttribute("data-item") !== "node:__start__"; i++) {
+      await act(async () => { textarea.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Tab" })); });
+    }
+    expect(Array.from(layer.querySelectorAll(".is-selected")).map((el) => el.getAttribute("data-item"))).toEqual(["node:__start__"]);
+  });
+
+  it("completion in the mounted rail offers the live graph's own node ids", async () => {
+    await edit("flowchart LR\n  alpha[Alpha] --> beta[Beta]\n  beta --> gamma[Gamma]");
+    await act(async () => {
+      const textarea = container.querySelector("textarea")!;
+      const typed = "flowchart LR\n  alpha[Alpha] --> beta[Beta]\n  beta --> gamma[Gamma]\n  gamma --> al";
+      Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(textarea, typed);
+      textarea.setSelectionRange(typed.length, typed.length);
+      textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(Array.from(container.querySelectorAll("[role='option']")).map((o) => o.textContent)).toEqual(["alphaAlpha"]);
+  });
+
+  it("a JSON syntax error lands on the line the parser's character offset names", async () => {
+    await act(async () => button("JSON").click());
+    await settlePreview();
+    await edit('{\n  "nodes": [\n    { "id": "a", "label": "A" }\n    { "id": "b", "label": "B" }\n  ],\n  "edges": [],\n  "direction": "TB"\n}');
+    const strip = container.querySelector("#diagrams-source-panel [role='alert']")!;
+    expect(strip.textContent).toContain("GLYPH_DIAGRAM_BAD_JSON");
+    expect(strip.querySelector(".diagrams-editor-jump")!.textContent).toBe("Line 4");
+    expect(container.querySelector(".diagrams-editor-highlight .diagrams-tok-key")!.textContent).toBe('"nodes"');
   });
 
   it("uses real Layout and Diagram controls in the current TS/Mermaid/JSON exports", async () => {
@@ -368,7 +431,7 @@ describe("DiagramsWorkbench mounted integration", () => {
     await act(async () => button("Export").click());
     const panel = container.querySelector("#diagrams-export-panel")!;
     const tabs = Array.from(panel.querySelectorAll<HTMLButtonElement>(".gw-code-panel__tab"));
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["TS", "Mermaid", "JSON"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["TypeScript", "Mermaid", "JSON"]);
     expect(panel.querySelector("code")!.textContent).toContain('"direction": "RL"');
     expect(panel.querySelector("code")!.textContent).toContain('"detail": "faithful"');
     for (const tab of tabs) {

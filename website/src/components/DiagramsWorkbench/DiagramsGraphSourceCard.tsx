@@ -1,11 +1,11 @@
 /**
- * The graph source card — the rail's own FIRST thing, above the "Edit
- * source ▸" disclosure (packet D5, AGENTS.md's "Diagrams" — mirrors
- * "Charts" "Data layer" / `ChartsWorkbench/ChartsDataFolder.tsx`): the
- * currently loaded graph's title, description, source credit, and — for a
- * Hugging Face pick — its own graph label (`y`) and a note when the node
- * cap simplified it. A tray preset shows only its own label (presets carry
- * no external credit/licence of their own; `datasets3d/LICENSES.md` covers
+ * The remote graph's provenance — the rail's own FIRST thing, above the
+ * editor (packet D5, AGENTS.md's "Diagrams" — mirrors "Charts" "Data
+ * layer" / `ChartsWorkbench/ChartsDataFolder.tsx`): a Hugging Face pick's
+ * title, description, source credit and licence, its own graph label (`y`)
+ * and a note when the node cap simplified it. A tray preset renders
+ * NOTHING here — it names itself in the rail header, and presets carry no
+ * external credit/licence of their own (`datasets3d/LICENSES.md` covers
  * the 3D examples' own provenance already). `loadingTitle`/`notice` mirror
  * the charts card's own feedback-lives-in-the-rail rule (the user's own
  * words there: "it shouldn't be in the rendering area — it moves the
@@ -13,40 +13,35 @@
  */
 import type { GlyphDiagramsGraphSource } from "./diagramsWorkbenchState";
 
-export function DiagramsGraphSourceCard({ graphSource, presetLabel, loadingTitle, notice, nodeCount, edgeCount }: {
+export function DiagramsGraphSourceCard({ graphSource, loadingTitle, notice, nodeCount, edgeCount }: {
   readonly graphSource: GlyphDiagramsGraphSource | undefined;
-  /** The tray preset's own label, when `graphSource.kind === "builtin"` —
-   *  `diagramsWorkbenchState.ts`'s preset list, not re-imported here so
-   *  this component stays a pure display of whatever the caller resolved. */
-  readonly presetLabel?: string;
   readonly loadingTitle?: string;
   readonly notice?: string;
-  /** P3 fix round — the CURRENTLY loaded graph's own `nodes`/`edges`
-   *  lengths (`state.nodes.length`/`state.edges.length`), i.e. the "N"/"K"
-   *  halves of "N of M nodes, K of L edges shown" — read off live state
+  /** P3 fix round — the CURRENTLY parsed graph's own `nodes`/`edges`
+   *  lengths (`DiagramsWorkbench.tsx`'s `parsedGraph`), i.e. the "N"/"K"
+   *  halves of "N of M nodes, K of L edges shown" — read off the live parse
    *  rather than duplicated on `graphSource`, since they're already exactly
    *  `graph.nodes.length`/`graph.edges.length` for a remote pick and this
    *  card would otherwise be the one place they could drift from it (an
-   *  edit changes them; `graphSource`'s own snapshot fields don't). */
+   *  edit changes them; `graphSource`'s own snapshot fields don't).
+   *  `undefined` while the draft doesn't parse. */
   readonly nodeCount?: number;
   readonly edgeCount?: number;
 }) {
   const remote = graphSource?.kind === "remote" ? graphSource : undefined;
   // Only meaningful while the loaded graph still matches the remote
   // snapshot's own counts (an un-edited pick) — `nodeCount`/`edgeCount`
-  // read live state, so a table edit that adds/removes nodes stops this
-  // line from claiming a truncation the edit itself may have already
+  // read the live parse, so a source edit that adds/removes nodes stops
+  // this line from claiming a truncation the edit itself may have already
   // changed the shape of.
   const showCounts = remote && typeof nodeCount === "number" && typeof remote.originalNodeCount === "number" && typeof edgeCount === "number" && typeof remote.logicalEdgeCount === "number";
 
+  if (!notice && !loadingTitle && !remote) return null;
   return <div className="diagrams-graph-source">
     {notice && <p className="diagrams-readout" role="status">{notice}</p>}
     {loadingTitle && <p className="diagrams-readout diagrams-data-loading" role="status">
       {loadingTitle} <span className="diagrams-data-loading-spinner" aria-hidden="true">⟳</span>
     </p>}
-    {!loadingTitle && graphSource?.kind === "builtin" && presetLabel && <div className="diagrams-graph-info">
-      <p className="diagrams-graph-title">{presetLabel}</p>
-    </div>}
     {!loadingTitle && remote && <div className="diagrams-graph-info">
       <p className="diagrams-graph-title">{remote.title}</p>
       {remote.description && <p className="diagrams-readout">{remote.description}</p>}

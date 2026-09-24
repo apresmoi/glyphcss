@@ -59,8 +59,14 @@
 }
 
 /* ── Left rail: voices ─────────────────────────────────────────────────── */
+/* `--synth-rail-basis` is the ONE knob a page may turn: the default keeps
+   every existing page's rail exactly as wide as before; a page whose rail
+   is its primary editing surface (`/diagrams`, `.diagrams-shell` in
+   diagrams-workbench.css) sets a wider value on its own shell class. The
+   narrow-viewport basis (62rem, below) stays shared — the render viewport
+   has no width to give there. */
 .synth-voices {
-  flex: 0 0 340px;
+  flex: 0 0 var(--synth-rail-basis, 340px);
   display: flex;
   flex-direction: column;
   border-right: 1px solid rgba(255, 232, 184, 0.14);
