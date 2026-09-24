@@ -334,3 +334,59 @@ describe("P1-1/P2-1/P2-2: compaction keeps content, and its floor scales with th
     expect(result.report.ledger.some((entry) => entry.code === "budget-compaction")).toBe(true);
   });
 });
+
+describe("colour surface: nodeColor / edgeColor", () => {
+  const TWO_NODE = "graph LR; A --> B";
+  const LABELED_EDGE = "graph LR; A -->|go| B";
+
+  it("color: none stays byte-identical whether or not nodeColor/edgeColor are set (colour is additive only)", async () => {
+    const plain = await renderGlyphDiagram(LABELED_EDGE, { color: "none", width: 60, height: 20 });
+    const withOverrides = await renderGlyphDiagram(LABELED_EDGE, {
+      color: "none", width: 60, height: 20,
+      nodeColor: (node) => (node.id === "A" ? "#111111" : "#222222"),
+      edgeColor: "#333333",
+    });
+    // Mutation: read `nodeColor`/`edgeColor` before checking `colored`, or
+    // pass a resolved colour to `canvas.text` even under color:"none" ->
+    // this stays green only because every resolved value here is thrown
+    // away in favour of `null` — a broken guard would still often produce
+    // the SAME text (colour never reaches the text encoder), so the
+    // stronger proof is the grid.color assertion in the next test.
+    expect(withOverrides.text).toBe(plain.text);
+    expect(withOverrides.canvas.grid.color.every((c) => c === null)).toBe(true);
+  });
+
+  it("nodeColor as a plain string paints every node's own corner/border cell with that colour (its prior flat default is fully replaced, not merely joined)", async () => {
+    const result = await renderGlyphDiagram(TWO_NODE, { color: "css", width: 40, height: 12, nodeColor: "#112233" });
+    const cols = result.canvas.grid.cols;
+    for (const node of result.layout.nodes) {
+      expect(result.canvas.grid.color[node.y0 * cols + node.x0]).toBe("#112233");
+      expect(result.canvas.grid.color[node.y1 * cols + node.x1]).toBe("#112233");
+    }
+  });
+
+  it("nodeColor as a function is called per node — two nodes get two DIFFERENT colours (mutation: memoize/ignore the argument and this collapses to one colour)", async () => {
+    const result = await renderGlyphDiagram(TWO_NODE, {
+      color: "css", width: 40, height: 12,
+      nodeColor: (node) => (node.id === "A" ? "#101010" : "#202020"),
+    });
+    const used = new Set(result.canvas.grid.color.filter((c): c is string => c !== null));
+    expect(used.has("#101010")).toBe(true);
+    expect(used.has("#202020")).toBe(true);
+  });
+
+  it("edgeColor covers the route AND its target arrowhead AND its own label", async () => {
+    const result = await renderGlyphDiagram(LABELED_EDGE, { color: "css", width: 40, height: 12, edgeColor: "#445566" });
+    const label = result.labels.find((l) => l.id.startsWith("edge:"))!;
+    expect(label).toBeDefined();
+    expect(result.canvas.grid.color[label.y * result.canvas.grid.cols + label.x]).toBe("#445566");
+    const arrowPort = result.layout.ports.find((p) => p.end === "to")!;
+    expect(result.canvas.grid.color[arrowPort.anchor.y * result.canvas.grid.cols + arrowPort.anchor.x]).toBe("#445566");
+  });
+
+  it("rejects a nodeColor/edgeColor that isn't canonical lowercase #rrggbb with the package's own tagged bad-color rule, not a bare canvas TypeError", async () => {
+    await expect(renderGlyphDiagram(TWO_NODE, { color: "css", nodeColor: "red" })).rejects.toMatchObject({ code: "bad-color" });
+    await expect(renderGlyphDiagram(TWO_NODE, { color: "css", edgeColor: "#ABCDEF" })).rejects.toMatchObject({ code: "bad-color" });
+    await expect(renderGlyphDiagram(TWO_NODE, { color: "css", nodeColor: () => "#abc" })).rejects.toMatchObject({ code: "bad-color" });
+  });
+});

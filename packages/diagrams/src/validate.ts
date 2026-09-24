@@ -3,7 +3,7 @@ import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNo
 export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
   "unknown-node", "bad-group", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
-  "bad-size", "bad-options", "GLYPH_MERMAID_SYNTAX", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
   "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
@@ -125,6 +125,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-direction": `Use direction ${GLYPH_GRAPH_DIRECTIONS.join(" / ")}; the Mermaid adapter also accepts TD.`,
   "bad-size": "Pass positive integer width and height, or omit them.",
   "bad-options": "Use the documented target, charset, color, detail, and dagre layout options.",
+  "bad-color": "nodeColor/edgeColor must be a canonical lowercase #rrggbb string, or a function returning one.",
   "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph.",
   "GLYPH_DIAGRAM_UNROUTABLE": "Increase the viewport or node/rank separation, or simplify the graph so every edge has a legal lane.",
   "GLYPH_DIAGRAM_ELK_NOT_INSTALLED": "Use engine: dagre; the ELK adapter is reserved for phase 4.",

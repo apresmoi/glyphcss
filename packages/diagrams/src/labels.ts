@@ -54,6 +54,20 @@ export function glyphDiagramText(value: string, charset: GlyphCanvasTierName = "
 export function glyphDiagramRectsOverlap(a: GlyphDiagramRect, b: GlyphDiagramRect): boolean {
   return a.x0 <= b.x1 && a.x1 >= b.x0 && a.y0 <= b.y1 && a.y1 >= b.y0;
 }
+/**
+ * Fold+truncate one label to at most `maxWidth` cells, ellipsis included —
+ * the same rule `glyphDiagramLabelLayout` already applies inline to a
+ * dropped-for-space candidate, factored out so a form with no label-arbiter
+ * pass of its own (the sequence form's participant/message labels, and every
+ * later form sharing this scaffolding) can reuse it directly instead of
+ * re-deriving the ellipsis-fit arithmetic.
+ */
+export function glyphDiagramTruncateLabel(text: string, maxWidth: number, charset: GlyphCanvasTierName = "box"): string {
+  const value = glyphDiagramText(text, charset);
+  if (value.length <= Math.max(0, maxWidth)) return value;
+  const ellipsis = charset === "ascii" ? "..." : "…";
+  return maxWidth > ellipsis.length ? value.slice(0, maxWidth - ellipsis.length) + ellipsis : value.slice(0, Math.max(0, maxWidth));
+}
 export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCandidate[], options: GlyphDiagramLabelLayoutOptions): GlyphDiagramLabelLayoutResult {
   const placed: GlyphDiagramPlacedLabel[] = [], dropped: string[] = [], ledger: GlyphDiagramLedgerEntry[] = [];
   const occupied = [...options.obstacles];

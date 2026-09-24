@@ -69,17 +69,47 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
 // understand on what is the direction — I think that because we have kind
 // of blocks that are dotted and also arrows that are dotted — probably if
 // we have a block that is dotted we need some padding around them to show
-// it properly, with some spacing around". A regression here means the
-// group ring and some other element's route are back to touching, the
-// exact ambiguity the padding/clearance change exists to remove.
+// it properly, with some spacing around" — followed up, once a route could
+// still take that padding as its own free lane and run the ring's own
+// length: "we need something else... or have explicit ways to not overlap
+// them EVER". `route.ts`'s `ringParallelCost` makes that collinear run cost
+// so much that no reachable detour is ever cheaper — but a genuinely
+// cramped fixture (`agent-guardrail`'s `supervisor -> researcher`, no other
+// corridor exists at all once `supervisor -> coder`'s own route claims the
+// one nearby column) can still be forced to pay it as a last resort, so
+// neither this test nor `paint.ts`'s own yield rule can assume the router
+// alone keeps every route off the ring. What both instead guarantee is the
+// VISUAL claim: a route may still touch a group's boundary with a BEND (no
+// single straight axis — a corner brushing past, not a line continuing),
+// but never with a straight run in the SAME axis the boundary's own edge
+// there runs in. `routeCellAxis` mirrors `paint.ts`'s own derivation
+// exactly (a route cell's axis is defined only when it runs straight
+// through, from its own neighbours in the route).
+function routeCellAxis(routes: readonly { cells: readonly { x: number; y: number }[] }[]): Map<string, "h" | "v"> {
+  const map = new Map<string, "h" | "v">();
+  for (const route of routes) route.cells.forEach((p, i) => {
+    const prev = route.cells[i - 1], next = route.cells[i + 1];
+    const axis = prev && next ? (prev.x === next.x ? "v" : prev.y === next.y ? "h" : undefined)
+      : prev ? (prev.x === p.x ? "v" : "h")
+      : next ? (next.x === p.x ? "v" : "h")
+      : undefined;
+    if (axis) map.set(`${p.x},${p.y}`, axis);
+  });
+  return map;
+}
+/** The axis (or both, at a corner) a group rect's own boundary runs in at `(x, y)`, its own perimeter only. */
+function boundaryTangent(x: number, y: number, rect: { x0: number; y0: number; x1: number; y1: number }): readonly ("h" | "v")[] {
+  const corner = (x === rect.x0 || x === rect.x1) && (y === rect.y0 || y === rect.y1);
+  return corner ? ["h", "v"] : x === rect.x0 || x === rect.x1 ? ["v"] : ["h"];
+}
 it.each(["agent-guardrail", "agent-supervisor", "event-queue", "rag-pipeline", "subgraph", "transformer-block"])(
-  "%s: a painted group boundary cell never sits orthogonally adjacent to another element's route cell",
+  "%s: a painted group boundary cell never sits orthogonally adjacent to a route cell running collinear with it",
   async (name) => {
     const r = await renderGlyphDiagram(fixture(name), { target: "web" });
     expect(r.pages).toHaveLength(1);
     expect(r.layout.groups.length).toBeGreaterThan(0);
     const dot = GLYPH_CANVAS_TIERS[r.canvas.tier].dot;
-    const routeCells = new Set(r.routes.flatMap((route) => route.cells.map((p) => `${p.x},${p.y}`)));
+    const axisOf = routeCellAxis(r.routes);
     let boundaryCellsSeen = 0;
     for (const group of r.layout.groups) {
       const nodes = r.layout.nodes.filter((n) => group.members.includes(n.id));
@@ -93,14 +123,109 @@ it.each(["agent-guardrail", "agent-supervisor", "event-queue", "rag-pipeline", "
         // "adjacent to".
         if (r.canvas.grid.char[y * r.canvas.cols + x] !== dot) continue;
         boundaryCellsSeen++;
+        const tangent = boundaryTangent(x, y, rect);
         for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
-          expect(routeCells.has(`${nx},${ny}`), `${group.id} boundary (${x},${y}) touches a route at (${nx},${ny})`).toBe(false);
+          const axis = axisOf.get(`${nx},${ny}`);
+          if (axis === undefined) continue;
+          expect(tangent.includes(axis), `${group.id} boundary (${x},${y}) is collinear-adjacent to a straight route cell at (${nx},${ny}) (axis ${axis})`).toBe(false);
         }
       }
     }
     // Mutation guard: the fixture must actually paint a real ring, or the
     // loop above would pass vacuously.
     expect(boundaryCellsSeen).toBeGreaterThan(0);
+  },
+);
+
+// The stronger, ROUTE-level form of the same guarantee: every group
+// boundary cell, painted or not (an unpainted one is where the painter's
+// own yield already caught a crossing or a collinear run; the assertion
+// must hold there too, or the guarantee is only ever tested where it
+// already held) — including the CrewAI-style preset (`website`'s own
+// `crewSource`, reproduced here so this package's tests never import from
+// `website`) whose "revise" back-edge into `Writer` is the render the user
+// pointed at directly: "check the crewai-style crew ... we are mixing boxes
+// with dotted arrows... we need... explicit ways to not overlap them
+// EVER". Mutation: reverting `route.ts`'s `ringParallelCost` to the old
+// zero-cost-when-`inside(p,r,0)` rule reddens this on `crew` (the "revise"
+// route runs the length of the Crew group's own bottom edge); reverting
+// `paint.ts`'s collinear check to "yield only at the exact overlap"
+// reddens it on every fixture in the list above.
+const crewSource = `flowchart LR
+  request((Request)) --> manager{Manager}
+  subgraph crew[Crew]
+    researcher[[Researcher]] --> writer[[Writer]]
+  end
+  manager --> researcher
+  writer --> review{Review}
+  review -->|approved| result([Result])
+  review -.->|revise| writer
+`;
+function collinearViolations(r: Awaited<ReturnType<typeof renderGlyphDiagram>>) {
+  const axisOf = routeCellAxis(r.routes);
+  const violations: { x: number; y: number; nx: number; ny: number; axis: "h" | "v" }[] = [];
+  let boundaryCellsChecked = 0;
+  for (const group of r.layout.groups) {
+    const nodes = r.layout.nodes.filter((n) => group.members.includes(n.id));
+    const rect = glyphDiagramGroupRect(nodes, { cols: r.canvas.cols, rows: r.canvas.rows });
+    if (!rect) continue;
+    for (let y = rect.y0; y <= rect.y1; y++) for (let x = rect.x0; x <= rect.x1; x++) {
+      if (x !== rect.x0 && x !== rect.x1 && y !== rect.y0 && y !== rect.y1) continue;
+      boundaryCellsChecked++;
+      const tangent = boundaryTangent(x, y, rect);
+      for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]] as const) {
+        const axis = axisOf.get(`${nx},${ny}`);
+        if (axis === undefined || !tangent.includes(axis)) continue;
+        violations.push({ x, y, nx, ny, axis });
+      }
+    }
+  }
+  return { violations, boundaryCellsChecked };
+}
+it.each(["agent-guardrail", "rag-pipeline", "subgraph", "transformer-block", "crew"])(
+  "%s: no route cell runs collinear-and-adjacent with a group boundary cell",
+  async (name) => {
+    const r = await renderGlyphDiagram(name === "crew" ? crewSource : fixture(name), { target: "web" });
+    expect(r.pages).toHaveLength(1);
+    expect(r.layout.groups.length).toBeGreaterThan(0);
+    const { violations, boundaryCellsChecked } = collinearViolations(r);
+    expect(violations, violations.map((v) => `${v.axis} run touches (${v.x},${v.y})~(${v.nx},${v.ny})`).join("; ")).toEqual([]);
+    expect(boundaryCellsChecked).toBeGreaterThan(0);
+  },
+);
+// `agent-supervisor` and `event-queue` are the two shipped fixtures where
+// this is PROVEN structurally unavoidable, not merely untried: every
+// alternative route for the one offending edge in each (`supervisor ->
+// coder` / `queue -> orders`, both SOLID, never dotted) was searched with
+// `ringParallelCost` swept from the library default up to 1e9 — a
+// detour-vs-ring-cell trade so lopsided that any existing detour would have
+// won outright — and the route never changed shape, which is only possible
+// if no alternative connects the two ports at all given the fixture's
+// other already-committed routes and their own port clearances (a
+// pre-existing, sequential-greedy limitation of this router, not something
+// this feature introduced or could close alone). `paint.ts`'s own yield
+// still keeps the RENDER clean (no dot is ever painted next to these
+// cells, gated by the test above), and because the touching edge is always
+// solid, the render never shows the SPECIFIC ambiguity reported (a dotted
+// edge merging with the ring's own dots) — a `█`-style straight run would
+// be a different, worse defect this same assertion would also catch. This
+// pins the known count so a future change can only ever REDUCE it, never
+// silently grow it, and requires every violation to be a non-dotted edge.
+it.each(["agent-supervisor", "event-queue"])(
+  "%s: the one proven-unavoidable ring touch is bounded and never a dotted edge",
+  async (name) => {
+    const r = await renderGlyphDiagram(fixture(name), { target: "web" });
+    expect(r.pages).toHaveLength(1);
+    const { violations, boundaryCellsChecked } = collinearViolations(r);
+    expect(boundaryCellsChecked).toBeGreaterThan(0);
+    expect(violations.length).toBeGreaterThan(0); // still true today; update this test first if a routing change ever clears it
+    expect(violations.length).toBeLessThanOrEqual(name === "agent-supervisor" ? 18 : 2);
+    const routeCells = new Map<string, { edgeId: string; style: string }>();
+    for (const route of r.routes) for (const p of route.cells) routeCells.set(`${p.x},${p.y}`, { edgeId: route.edge.id, style: route.edge.style ?? "solid" });
+    for (const v of violations) {
+      const owner = routeCells.get(`${v.nx},${v.ny}`);
+      expect(owner?.style, `(${v.nx},${v.ny}) belongs to ${owner?.edgeId}`).not.toBe("dotted");
+    }
   },
 );
 

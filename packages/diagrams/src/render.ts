@@ -5,6 +5,7 @@ import { canonicalizeGlyphGraph, layoutGlyphGraph, type GlyphDiagramLayout, type
 import { routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import { paintGlyphDiagram } from "./paint";
 import { glyphDiagramWithinBudget, glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph, glyphDiagramCompactionFloor } from "./degrade";
+import { glyphDiagramCenterOffset } from "./center";
 import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
@@ -37,8 +38,7 @@ function resolvedOptions(options: GlyphDiagramRenderOptions) {
   return result;
 }
 function centered(layout: GlyphDiagramLayout, width: number, height: number): GlyphDiagramLayout {
-  const dx = Math.max(0, Math.floor((width - layout.width) / 2));
-  const dy = Math.max(0, Math.floor((height - layout.height) / 2));
+  const { dx, dy } = glyphDiagramCenterOffset(layout, { width, height });
   return { ...layout, nodes: layout.nodes.map((n) => ({ ...n, x0: n.x0 + dx, x1: n.x1 + dx, y0: n.y0 + dy, y1: n.y1 + dy })),
     ports: layout.ports.map((p) => ({ ...p, anchor: { x: p.anchor.x + dx, y: p.anchor.y + dy }, escape: { x: p.escape.x + dx, y: p.escape.y + dy } })) };
 }
@@ -111,6 +111,8 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
     // about a diagram it had just finished rendering whole.
     ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
     if (opts.detail !== "faithful") {
+      // Gated on `!current.okay`: running decoration unconditionally threw
+      // away labels and shapes on diagrams compaction had already rescued.
       if (opts.detail === "simplified" || !current.okay) {
         ledger.push(ledgerBudgetStage("decoration"));
         graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);

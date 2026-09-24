@@ -14,6 +14,22 @@ export interface GlyphDiagramRenderOptions extends GlyphDiagramLayoutOptions {
   readonly color?: GlyphDiagramColorMode; readonly width?: number; readonly height?: number;
   readonly detail?: GlyphDiagramDetail; readonly title?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
+  /**
+   * Per-node override — the SAME `string | ((node) => string)` shape
+   * `./3d`'s own `nodeColor` already uses, so the two paths stop diverging.
+   * Colours a node's own border/corners and its interior label text.
+   * Additive only: with `color: "none"` (or omitted, `colored === false`)
+   * this has no effect and the output stays byte-identical to before this
+   * option existed. Shape, position and text already carry every node's
+   * identity, so this never becomes the only way to tell two nodes apart.
+   */
+  readonly nodeColor?: string | ((node: GlyphDiagramLayout["nodes"][number]) => string);
+  /**
+   * Per-edge override, same shape, covering an edge's own route cells, its
+   * target arrowhead, and its own label. Never affects group boundaries or
+   * the title, and never affects `color: "none"` output.
+   */
+  readonly edgeColor?: string | ((edge: GlyphDiagramLayout["edges"][number]) => string);
 }
 export interface GlyphDiagramMeta { readonly nodes: GlyphGraph["nodes"]; readonly edges: GlyphGraph["edges"]; readonly groups: NonNullable<GlyphGraph["groups"]>; readonly description: string }
 export interface GlyphDiagramReport { readonly ledger: readonly GlyphDiagramLedgerEntry[]; readonly unsupportedGlyphs: readonly string[]; readonly unroutable: readonly string[] }
