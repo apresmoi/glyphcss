@@ -53,7 +53,7 @@ export interface GlyphChartSeriesPreviewOptions {
  * special-case the single-series case or re-derive series grouping itself
  * — which used to diverge from the real render on a numeric `fill` channel
  * and under `group`/`normalize` transforms (AGENTS.md's "Charts" —
- * "Colours"; see also `docs/design/charts.md`).
+ * "Colours").
  *
  * Throws only a TAGGED error (`normalizeGlyphChartInput`'s `bad-chart-input`
  * for a malformed shape, or a `GLYPH_CHART_VALIDATION_RULES` id from

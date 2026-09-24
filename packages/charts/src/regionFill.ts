@@ -2,8 +2,8 @@
  * The ONE decision on how a region mark (bar/rect/area/arc) carries series
  * identity in its fill: a TEXTURE glyph per series (`seriesShade`), or a
  * SOLID block in each series' own colour. AGENTS.md's "Charts" "Series and
- * shading"; rationale and measurements in `docs/design/charts.md`'s "Solid
- * coloured fills".
+ * shading". Textures stay the default wherever colour cannot carry series
+ * identity (colour off, a paste target, two series quantising to one colour).
  *
  * Whole-chart, never per mark: a legend lists every mark's swatches side by
  * side, so a per-mark answer could show one solid swatch beside a textured

@@ -1,6 +1,6 @@
 // @glyphcss/charts — a declarative, Observable-Plot-flavoured chart spec
-// rendered as glyphcss ASCII/box/braille output. See AGENTS.md's "Charts"
-// section for the contract and docs/design/charts.md for the rationale.
+// rendered as glyphcss ASCII/box/braille output. Contract and rejected
+// alternatives: packages/charts/AGENTS.md; public usage: README.md.
 
 export {
   glyphChartLine,

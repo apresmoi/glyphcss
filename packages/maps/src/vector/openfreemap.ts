@@ -42,6 +42,12 @@
  * at a country view (z5), <= 24 at a city view (z14), and never more than
  * 100 anywhere on the ladder at any latitude.
  *
+ * That 256 is CELLS, while a slippy-map tile's 256 is pixels, so a schema
+ * `minzoom` (buildings at z13) engages ~3.4 levels later than a pixel map
+ * would. Don't lower `tileResolution` to fix it: that costs 20-40x the
+ * fetches and breaks the ~100-tile sweep budget. A per-layer LOD floor from
+ * the TileJSON `minzoom` is the cheaper shape.
+ *
  * ## Failure
  *
  * A tile that 404s, times out or arrives undecodable resolves to an EMPTY

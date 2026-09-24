@@ -1,7 +1,7 @@
 /**
  * `@glyphcss/charts`' public spec shape (CHARTS-RESEARCH Phase 1) — an
  * Observable-Plot-flavoured mark/spec grammar, not a `type: "line"` enum
- * (see `docs/design/charts.md` "Why Plot's model"). A mark constructor
+ * (marks compose and share scales, as in Plot). A mark constructor
  * (`glyphChartLine`, …) returns a plain `GlyphChartMark`; `glyphChartPlot`
  * composes marks into a `GlyphChartSpec`; `renderGlyphChart` accepts either
  * (or a bare array/mark), normalising through `normalizeGlyphChartInput`.
@@ -353,7 +353,7 @@ export interface GlyphChartReport {
    * "Charts" sankey clause discusses), forwarded UNCHANGED — a sankey band's
    * ribbon claim can still coincide with another band's at a single cell
    * along its own axis (never a whole run), and this is how a caller
-   * verifies that count directly rather than taking the design doc's word
+   * verifies that count directly rather than taking the prose's word
    * for it (fable review, batch 3, finding e). Empty for every spec with no
    * sankey mark, byte-identical to before this field existed.
    */

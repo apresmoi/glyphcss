@@ -1,7 +1,6 @@
 // Ground-truth and mutation-check coverage for the information-ranked
-// candidate enumeration (AGENTS.md's "Charts" — "Data layer";
-// `docs/design/charts.md`'s "Chart candidate ranking" has the full
-// formula/weights and this file's own ground-truth table). `dataProfile.test.ts`
+// candidate enumeration (AGENTS.md's "Charts" — "Data layer"; the
+// formula/weights live in `chartCandidates.ts`). `dataProfile.test.ts`
 // covers the individual business rules (id exclusion, fill caps, the
 // wide-year pivot, the multi-measure melt) through `recommendChart`'s
 // public surface; this file covers `chartCandidates.ts` directly — the
@@ -126,8 +125,8 @@ describe("mutation checks", () => {
 // still supplies), only the mark/channel SHAPE.
 interface GroundTruthCase {
   readonly dataset: ChartsDataset;
-  /** Present for the 15 datasets the STATED criterion covers (`docs/design/
-   *  charts.md`'s "Ground truth" — "15 of 16 rank in the top 3"): the
+  /** Present for the 15 datasets the STATED criterion covers ("15 of 16
+   *  rank in the top 3"): the
    *  curated mapping must land at or above this 0-indexed rank. */
   readonly maxRank?: number;
   /**
@@ -174,7 +173,7 @@ const GROUND_TRUTH: readonly GroundTruthCase[] = [
   // Curation is deliberately narrow here for editorial reasons (a single
   // clean bar for the front page); the scorer is not wrong to prefer
   // showing all three medals. Rank 5 (was 4 before the `isIdLikeColumn`
-  // fix, `docs/design/charts.md`'s "isIdLikeColumn" section — `bronze`'s
+  // fix — `bronze`'s
   // ten all-distinct values are a real measure, not an identifier, and
   // correctly counting it only strengthens this same disagreement).
   { dataset: olympics2024MedalsDataset, exactRank: 5 },
@@ -182,8 +181,8 @@ const GROUND_TRUTH: readonly GroundTruthCase[] = [
   // (r ~ 0.96) than the curated sepal_length x petal_length (r ~ 0.87), so
   // the curated dot sits under that pair and its mirror. It used to be
   // 4th, behind a melted species bar too — which drew 50 overlapping bars
-  // per (species, measure) sub-band and showed only each group's maximum
-  // (`docs/design/charts.md`'s "Mark-type fit"), and is no longer offered.
+  // per (species, measure) sub-band and showed only each group's maximum,
+  // and is no longer offered.
   { dataset: irisFlowersDataset, maxRank: 2 },
   { dataset: energyFlowSankeyDataset, maxRank: 0 },
   { dataset: ecommerceConversionFunnelDataset, maxRank: 0 },
@@ -214,8 +213,8 @@ describe("ground truth: curated recommendation vs. the general enumeration", () 
     expect(top1).toBeGreaterThanOrEqual(10);
   });
 
-  // codex P2-10 / fable F-P3-2: the STATED criterion (`docs/design/
-  // charts.md`'s "Ground truth" — "15 of 16 rank in the top 3") is a
+  // codex P2-10 / fable F-P3-2: the STATED criterion ("15 of 16 rank in
+  // the top 3") is a
   // real, checkable claim, not prose — this is what verifies it directly
   // rather than trusting the per-dataset cases above to add up to it.
   it("15 of the 16 curated mappings rank in the top 3 — the other is the named exception above", () => {
@@ -344,7 +343,8 @@ describe("review cases", () => {
   // numeric column IS an identifier, so `effectiveNumbers` must stay
   // empty rather than falling back to the excluded list. No candidate may
   // chart `id` as a measure; the enumerator's own last-resort tail must
-  // be what fires (`docs/design/charts.md`'s "isIdLikeColumn" section).
+  // be what fires: distinctness is not identity, only an id-like NAME or
+  // an exact 0..n-1/1..n row sequence is.
   it("a table whose only numeric column is an id produces zero measure-based candidates (P1-8)", () => {
     const rows: TabularRow[] = [{ id: 1, name: "A" }, { id: 2, name: "B" }, { id: 3, name: "C" }, { id: 4, name: "D" }];
     const candidates = buildChartCandidates(profileRows(rows));
@@ -421,7 +421,7 @@ describe("review cases", () => {
     // a defect) — the claim under test is that year-as-x now EXISTS as a
     // real candidate, not that it wins.
     // An ordered integer NAMED like time is a time axis only, never a
-    // measure (`docs/design/charts.md`'s "Mark-type fit"), so it no longer
+    // measure, so it no longer
     // pairs into a year-vs-gdp scatter. The claim under test is narrower:
     // at least one real line/area over year exists.
     const lineOverYear = candidates.filter((c) => c.channels.x === "year" && (c.mark === "line" || c.mark === "area"));
@@ -437,7 +437,7 @@ describe("review cases", () => {
 
 // ── Mark-type fit: candidates that drew a wrong or empty chart ────────────
 //
-// `docs/design/charts.md`'s "Mark-type fit": the mark-type toggle enables a
+// The mark-type toggle enables a
 // type iff this enumeration offers one and binds its top candidate, so a
 // candidate that renders a misleading picture is a toggle that lies.
 describe("mark-type fit: misfires the diagnosis measured", () => {

@@ -1129,7 +1129,7 @@ describe("sankey band thickness is comparable across columns, not per-column nor
     expect(h(natGasToInd)).toBeGreaterThanOrEqual(h(egToInd));
   });
 
-  // Sankey round-3 review, finding i: AGENTS.md/charts.md claimed the N6
+  // Sankey round-3 review, finding i: the docs claimed the N6
   // bound is absolute ("just never two or more" / "never more than 1
   // greater") — false. `ensureMinimumHeights`'s reclaim loop
   // (`while (total > capacity)`) can decrement the SAME tall entry
@@ -1651,8 +1651,7 @@ describe("chat-target renders (visual reference)", () => {
     ];
     const r = renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
     // Re-derived here after the "Sankey ribbon rendering" packet and again
-    // after the "visual air" packet (AGENTS.md's "Charts" sankey clause,
-    // `docs/design/charts.md`): a band's own straight run is the SERIES
+    // after the "visual air" packet (packages/charts/AGENTS.md): a band's own straight run is the SERIES
     // glyph one step lighter (`█` -> `▓`, never a silent gap —
     // `SANKEY_LIGHTER_STRAIGHT_GLYPH`) and a turn is a rounded corner
     // (`╭ ╯`) instead of a flat, undifferentiated block — and a blank ROW

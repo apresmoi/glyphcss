@@ -55,7 +55,7 @@
  *
  *  3. **A CPU profile pass** (`--profile`), through CDP `Profiler`, over the
  *     same motion. Self-time per function is what decomposes `base-raster`
- *     from the outside — `docs/design/performance.md` did it by
+ *     from the outside — the alternative is
  *     short-circuiting the rasterizer at three points and rebuilding, which
  *     cannot be done without editing shipped render code. Run it against a
  *     DEV server (`pnpm dev:website`), where Vite serves unminified sources

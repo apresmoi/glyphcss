@@ -3,8 +3,7 @@
 // `tabularParse.ts`/`dataPipeline.ts` produce and answers two questions:
 // what IS each column (`profileRows`), and what chart does this data ask
 // for (`recommendChart`, now a thin wrapper over `chartCandidates.ts`'s
-// information-ranked enumeration — see that file and
-// `docs/design/charts.md`'s "Chart candidate ranking").
+// information-ranked enumeration — see that file).
 
 import { buildChartCandidates, CHART_CANDIDATE_SAMPLE_CAP, type ChartCandidateChannels, type ChartCandidateMark, type ChartCandidateTransform } from "./chartCandidates";
 import type { PipelineStep } from "./dataPipeline";
@@ -174,8 +173,8 @@ export function profileRows(rows: readonly TabularRow[]): DataProfile {
 // `buildChartCandidates` — the FULL information-ranked enumeration (every
 // mark the profiled table can honestly support, scored on entropy/
 // structure/coverage/legibility/name-prior, sorted best first;
-// `docs/design/charts.md`'s "Chart candidate ranking" has the formula,
-// weights, and the ground-truth table over all 16 vendored datasets). This
+// `CHART_CANDIDATE_WEIGHTS` holds the weights, and `chartCandidates.test.ts`
+// re-derives the ground-truth ranks over all 16 vendored datasets). This
 // module keeps the OLD, narrower `ChartRecommendation` shape (no `terms`)
 // for callers that only ever wanted the ranked list; a caller that wants
 // the full `ChartCandidate` (including `terms`, for a "why this chart"

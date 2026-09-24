@@ -9,7 +9,7 @@
  * painting — `arc`'s own geometry lives in `paint.ts` because it needs no
  * extra state; these two need a graph/row layout pass first, so they get
  * their own file rather than growing `paint.ts` past its "dumb painters"
- * discipline (`docs/design/canvas.md`).
+ * discipline.
  */
 
 import { sankey as d3Sankey } from "d3-sankey";
@@ -365,8 +365,8 @@ const GLYPH_CHART_SANKEY_FOLD_STUB_MAX = 3;
 /**
  * Visual AIR, reserved at the LAYOUT layer (AGENTS.md's "Charts" sankey
  * clause) — never in the painter, which has no way to tell a planned gap
- * from a genuinely lost cell (`docs/design/charts.md`'s "Sankey ribbon
- * rendering", the superseded painter-level attempt). `NODE_PADDING_ROWS`
+ * from a genuinely lost cell (a painter-level gap was tried and reverted:
+ * the zero-silent-overwrite gate read every skipped cell as a loss). `NODE_PADDING_ROWS`
  * separates stacked node boxes within one column; `LINK_GAP_ROWS` separates
  * consecutive bands leaving (or entering) one node. Both are DESIRED
  * values, degraded per column/node by `sankeyAirGap` when the rows can't
@@ -484,7 +484,8 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // band thickness) is never scaled here — it already rides the
   // density-scaled plot. At `textScale === 1` every expression below is
   // its own bare, pre-scaling value, byte-identical to before this scaling
-  // existed (`docs/design/charts.md`'s "Density" — geometry constants).
+  // existed. Unscaled, a node column shrank to a third of its plot share at
+  // density 3 while the column gap ballooned.
   const minNodeWidth = GLYPH_CHART_SANKEY_MIN_NODE_WIDTH * textScale;
   const nodeWidthCap = GLYPH_CHART_SANKEY_NODE_WIDTH_CAP * textScale;
   const minGap = GLYPH_CHART_SANKEY_MIN_GAP * textScale;
@@ -588,7 +589,7 @@ export function layoutSankeyGraph(groups: readonly ChartSeries[], plot: GlyphCha
   // only when it loses no more cells on either family and fewer on one. A
   // weighted crossing count stood in for this and was wrong in both
   // directions: over the seeded layered sweep it kept 10 of 48 re-placements
-  // that lost more cells on box (docs/design/charts.md, Round 27). A graph
+  // that lost more cells on box. A graph
   // with no skip-level link never builds the second candidate and runs no
   // simulation, so its layout is byte-identical.
   //
@@ -695,9 +696,8 @@ function placeSankeyGraph(input: SankeyPlacementInput, reorder: boolean, ledger:
     // column's own height can afford (0 when even one row of air would
     // starve a node) — a PLANNED absence: a padding row is never part of
     // any node's own box, so nothing downstream can mistake it for a lost
-    // cell (AGENTS.md's "Charts" sankey clause, replacing the superseded
-    // painter-level attempt in `docs/design/charts.md`'s "Sankey ribbon
-    // rendering").
+    // cell (replacing a superseded painter-level attempt; see
+    // `sankeyAirGap`'s doc).
     const padGap = n > 1 ? sankeyAirGap(nodePaddingRows, n, plotHeight) : 0;
     if (n > 1 && padGap === 0) ledger.push(ledgerSankeyAirDropped({ where: "node padding", id: `column ${col}`, requestedRows: nodePaddingRows }));
     const capacity = Math.max(0, plotHeight - padGap * (n - 1));
@@ -2192,8 +2192,7 @@ export function paintSankeyRoutedRows(canvas: GlyphCanvas, layout: GlyphChartSan
  * overlapping) bands was tried and reverted: it left a band's own
  * uncontested cell unpainted with no OTHER band's route claiming it, which
  * is indistinguishable, to this module's own zero-silent-overwrite gate,
- * from a genuine loss — see `docs/design/charts.md`'s "Sankey ribbon
- * rendering" for the measurement.
+ * from a genuine loss.
  */
 const SANKEY_LIGHTER_STRAIGHT_GLYPH: Readonly<Record<string, string>> = { "█": "▓", "#": "+" };
 function paintSankeyRoutedRowsFallback(

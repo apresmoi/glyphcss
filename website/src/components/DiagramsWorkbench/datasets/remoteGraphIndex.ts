@@ -22,8 +22,8 @@ import type { DatasetHit } from "../../../lib/datasetSearch";
 
 /** Datasets whose graphs read as chemical structures — `DiagramsWorkbench.tsx`
  *  reads this to decide whether a picked remote graph should default to the
- *  3D view (this file's own "View default" note below; see
- *  `docs/design/diagrams.md`'s "D5" section for the rendered comparison). */
+ *  3D layered view: rendered, a molecule splits into one-edge fragments in
+ *  2D and tangles its near-linear chains under force layout. */
 export const DIAGRAMS_MOLECULE_GRAPH_REFS: ReadonlySet<string> = new Set([
   "graphs-datasets/MUTAG", "graphs-datasets/ZINC", "graphs-datasets/AIDS",
 ]);

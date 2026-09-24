@@ -30,8 +30,8 @@ export interface SurfaceMedianScratch {
 
 /**
  * The MINIMUM number of strips a block's surface is read at across the
- * `v` (row) direction — see the original derivation in
- * `@glyphcss/maps`' `docs/design/maps.md` "Relief mesh". The statistic is
+ * `v` (row) direction, as used by `@glyphcss/maps`' relief colour
+ * (`packages/maps/AGENTS.md`). The statistic is
  * exact along a row (the bilinear surface is linear in `u`) and
  * discretized only across rows, by a midpoint rule.
  */

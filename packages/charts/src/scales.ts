@@ -123,7 +123,7 @@ function detectMixedScaleTypes(values: readonly unknown[]): boolean {
  * another mark's channel name). This mirrors the `empty-total` ledger
  * entry's own precedent — a genuine, TAGGED (`.code`) runtime signal that
  * documents its own boundary instead of forcing an unfalsifiable schema
- * clause into existence. See `docs/design/charts.md` for the same note.
+ * clause into existence.
  */
 function mixedXScaleError(): never {
   throw Object.assign(

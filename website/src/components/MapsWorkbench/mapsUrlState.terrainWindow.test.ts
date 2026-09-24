@@ -59,7 +59,7 @@ describe("mapsUrlState — terrain elevation window", () => {
 
   /**
    * A REAL link, shared before these tokens existed: the Aegean framing from
-   * `docs/design/maps.md`'s ocean-drape record (`685dcd3`), with the terrain
+   * the ocean-drape report (`685dcd3`), with the terrain
    * raster and the OSM `omt-water` row both on. It must decode exactly as it
    * did — every field it carries unchanged, and no window.
    */

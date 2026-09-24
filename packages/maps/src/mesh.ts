@@ -80,6 +80,15 @@ export interface GlyphMapPolygonsOptions {
    * two bracket (72.6%), and it is what a gridded height field means, so it
    * is what the statistic reads.
    *
+   * ## Below-datum dry land stays band 0, on purpose
+   *
+   * Polders and lake beds read as sea because the DEM really is below 0 m
+   * there, and no per-quad statistic can tell a polder from a lake bed at
+   * ~13 km per sample. Don't recolour terrain from OSM water (a cross-layer
+   * coupling that only works while that layer is on), and don't add a
+   * shallow below-datum LAND band: it repaints every shallow sea and estuary
+   * (the Rio de la Plata at -1 m) as land.
+   *
    * `"corner-mean"` exists for a caller that needs the DRAWN surface's own
    * centre height rather than the terrain's: `widget.ts`'s `heatmap` layer
    * keys a `Map` on this exact value to recover the per-quad density behind

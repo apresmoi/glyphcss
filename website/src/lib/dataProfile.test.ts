@@ -159,7 +159,7 @@ describe("recommendChart", () => {
   // …but only for a category with ONE row per value. Fisher's iris shape
   // repeats every species, so a melted species bar has several bars per
   // (species, measure) sub-band drawn on top of each other and shows only
-  // each group's maximum (`docs/design/charts.md`'s "Mark-type fit") — it
+  // each group's maximum — it
   // is not offered at all, and neither is a pie of one measure.
   it("a REPEATED category with several numeric measurements never melts into overlapping bars, nor a pie of one measurement (Fisher's iris shape)", () => {
     const rows: TabularRow[] = Array.from({ length: 12 }, (_, i) => ({
@@ -203,7 +203,7 @@ describe("recommendChart", () => {
   // silently degrading to an unreadable chart with no explanation.
   // Beyond 8 categories there is no fill; and because every year repeats
   // twelve times, an UNFILLED line would zig-zag vertically through all
-  // twelve countries per year (`docs/design/charts.md`'s "Mark-type fit"),
+  // twelve countries per year,
   // so it is not offered either — a time scatter is the honest view.
   it("caps the date+numeric+category fill rule at 8 categories, and never offers an unfilled line over a repeated date", () => {
     const rows: TabularRow[] = [];

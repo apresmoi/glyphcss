@@ -1,7 +1,8 @@
 /**
  * Mark constructors and `glyphChartPlot` — see `types.ts` for the shapes and
- * `docs/design/charts.md` for why this grammar (marks-as-values, composed by
- * `plot({ marks: [...] })`) rather than a `type: "line"` config object.
+ * Observable Plot's grammar (marks-as-values, composed by
+ * `plot({ marks: [...] })`) rather than a `type: "line"` config object: marks
+ * compose and share scales, and a spec stays plain JSON-shaped data.
  */
 
 import type {

@@ -9,8 +9,8 @@
  * why painting them after marks was tried and reverted), so that ONE
  * touching column may carry sub-cell ink over the whole-cell axis glyph.
  * Every mark type gets its own small painter function; `paintGlyphChart`
- * is the only place that decides ORDER, matching `docs/design/canvas.md`'s
- * own "tiers are tables, painters are dumb" discipline one level up.
+ * is the only place that decides ORDER, matching the cell canvas's own
+ * "tiers are tables, painters are dumb" discipline one level up.
  */
 
 import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle, type GlyphCanvasPoint } from "glyphcss";
@@ -780,9 +780,10 @@ interface ArcRadii {
  * `colRadius = rowRadius / cellAspect`. The diameter (in ROW units, before
  * that split) is `min(plotRows, availableCols * cellAspect) *
  * GLYPH_CHART_ARC_FILL` — the largest row-diameter whose matching
- * col-diameter (`/ cellAspect`) still clears `availableCols` too (see
- * `docs/design/charts.md`'s "Arc shape and callouts" for why this is
- * `* cellAspect` and not `/ cellAspect`). `availableCols` drops a
+ * col-diameter (`/ cellAspect`) still clears `availableCols` too. It is
+ * `* cellAspect`, not `/ cellAspect`: at plotCols=10, plotRows=200,
+ * cellAspect=0.5 the `/` form gives a 40-column disc in a 10-column plot.
+ * `availableCols` drops a
  * `GLYPH_CHART_ARC_CALLOUT_GUTTER_COLS`-wide strip on each side when
  * callouts are wanted and the plot is wide enough to spare it; the centre
  * (`cx`/`cy`) is unchanged either way since the gutters are symmetric.
@@ -969,8 +970,8 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
   const total = values.reduce((a, b) => a + b, 0);
   if (total === 0) { ledger.push(ledgerEmptyTotal("pie")); return; }
   // `chartSeries` already dropped every nonpositive/zero-or-less arc row
-  // before `series` ever reached this painter (`docs/design/charts.md`'s
-  // documented rule: "Negative pie values contribute zero"), so the drop
+  // before `series` ever reached this painter (the documented rule:
+  // "Negative pie values contribute zero"), so the drop
   // itself is intended — but it happened silently, with no record a reader
   // of `report.ledger` could see (review's P2 #11). The comparison is
   // against `resolvedRowCount` (the mark's own resolved row count BEFORE

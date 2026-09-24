@@ -19,10 +19,9 @@ modules); `@glyphcss/maps/node` re-exports all of it and adds
 filesystem-backed source readers, and is never imported by the root.
 
 This file is the package reference. The reader-shaped version is at
-[glyphcss.com/maps/overview](https://glyphcss.com/maps/overview); the design
-record — every measurement, fixed defect and rejected alternative — is in
-`docs/design/maps.md`, and the contract summary is `AGENTS.md`'s "Maps"
-section.
+[glyphcss.com/maps/overview](https://glyphcss.com/maps/overview); the agent
+contract, invariants and rejected alternatives are in `AGENTS.md` beside this
+file.
 
 ## Bake a region
 
@@ -1660,7 +1659,6 @@ never the road beside it. Cost is a flat +2.5 to +3.0 ms per render on `bench/ma
 at 140x63 with buildings mounted (the casters receiving as well is inside that
 measurement's noise), and shadows stay solid down to roughly 10 degrees of sun
 altitude — below that the shadow map's finite resolution dithers the edge.
-`docs/design/maps.md` has the measurements.
 
 ## Scope
 

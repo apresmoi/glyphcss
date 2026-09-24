@@ -9,9 +9,8 @@
  * reader is looking at was attributed the lon/lat of the SEA-LEVEL point
  * under the view ray rather than of the terrain point actually drawn there.
  * The line therefore landed where sea level would be: the mirror image of the
- * parallax `781486f` closed for `line` layers by draping them, recorded in
- * `docs/design/maps.md` as "identified and unfixed" and as needing a terrain
- * ray-march.
+ * parallax `781486f` closed for `line` layers by draping them, once thought
+ * to need a terrain ray-march.
  *
  * WHAT REPLACED IT is not a ray-march but the removal of the question.
  * Marching squares (`contourGeometry.ts`) cuts each level's isoline in the

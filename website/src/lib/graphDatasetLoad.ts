@@ -69,8 +69,7 @@ import type { GlyphGraph, GlyphGraphEdge, GlyphGraphNode } from "@glyphcss/diagr
 const HF_SPLITS_ENDPOINT = "https://datasets-server.huggingface.co/splits";
 const HF_ROWS_ENDPOINT = "https://datasets-server.huggingface.co/rows";
 
-/** Sized off what was actually measured (`docs/design/diagrams.md`'s "D5"
- *  section): the 2D engine's own 9-node/12-edge budget before it reaches
+/** Sized off a real render: the 2D engine's own 9-node/12-edge budget before it reaches
  *  for compaction, and past it a `split` fallback that renders as a wall of
  *  one-edge-per-page fragments rather than one legible picture — verified
  *  by rendering real MUTAG rows through `renderGlyphDiagram` at 13 nodes.

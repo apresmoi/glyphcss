@@ -5,7 +5,7 @@
  * number array, a field-name string, or an accessor function.
  *
  * A 1-D numeric array infers `x = index, y = identity` for each axis the mark leaves unspecified — the same shorthand Observable Plot's own
- * `Plot.lineY([3,5,2,8])` uses (see `docs/design/charts.md`).
+ * `Plot.lineY([3,5,2,8])` uses.
  */
 
 import type { GlyphChartChannelValue, GlyphChartDatum, GlyphChartMark, GlyphChartMarkRow } from "./types";

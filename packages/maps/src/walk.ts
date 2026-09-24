@@ -147,8 +147,7 @@ export const GLYPH_MAP_WALK_NEAR_M = 0.5;
  * With both fixed the curve is real and steep. Measured through
  * `bench/maps-render --scenario walk`, headed Chromium on `astro preview`,
  * 1440x900, grid 140x63, Zurich with the OpenStreetMap card's water / roads
- * / boundaries / buildings rows on — the same scene `docs/design/maps.md`'s
- * walk budget section uses:
+ * / boundaries / buildings rows on:
  *
  * | far | base polygons | base-raster p50 | frame gap p50 / p95 | fps |
  * |---|---|---|---|---|

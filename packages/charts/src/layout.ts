@@ -552,6 +552,8 @@ export function layoutGlyphChart(
   // `legend: true` (spec or render option) still lists the stages.
   const funnelOnly = marks.length > 0 && marks.every(({ mark }) => mark.type === "funnel");
   const showLegend = legendOption.show && !(!legendOption.explicit && funnelOnly);
+  // ONE named series shows the legend (`> 0`, not `> 1`): a single named
+  // mark otherwise built a `meta.series` entry the row never painted.
   if (showLegend && names.length > 0 && detail !== "simplified") {
     if (legendOption.placement === "bottom") {
       if (!reserveBottomLegend()) ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));

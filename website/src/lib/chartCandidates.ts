@@ -1,6 +1,6 @@
 // Information-ranked chart-candidate enumeration for `/charts`' data layer
-// (AGENTS.md's "Charts" — "Data layer"; formula/weights/ground-truth table
-// in `docs/design/charts.md`'s "Chart candidate ranking"). Replaces the old
+// (AGENTS.md's "Charts" — "Data layer"; weights in
+// `CHART_CANDIDATE_WEIGHTS`, ground truth in `chartCandidates.test.ts`). Replaces the old
 // single-pick recommender's implicit priority list with an EXPLICIT,
 // SCORED enumeration: every mark a profiled table can honestly support,
 // each mapping scored on how much information it actually shows, sorted
@@ -168,7 +168,8 @@ export interface ChartCandidate {
   readonly rowOrder?: true;
 }
 
-/** Composite weights — documented in `docs/design/charts.md`. `prior` is
+/** Composite weights. Entropy and structure tie for largest (does the view
+ *  show information, is it a real relationship). `prior` is
  *  deliberately the smallest: a name-lexicon match is a tie-breaker, never
  *  the reason a candidate wins. */
 export const CHART_CANDIDATE_WEIGHTS: ChartCandidateTerms = {
@@ -240,8 +241,8 @@ function sampleConfidence(n: number): number {
  *  related — it's one slice of a wider multicollinear measure set (every
  *  measure moving together, e.g. several dimensions of the same physical
  *  object). Shared by `scoreDot` and a monotonic-numeric-x `scoreLineArea`.
- *  Threshold and per-measure discount are documented in
- *  `docs/design/charts.md`. */
+ *  A broader mark showing every measure (the melt bar, `cell`) captures
+ *  the whole cluster instead of one arbitrary pair of it. */
 const COLLINEARITY_CORR_THRESHOLD = 0.8;
 const COLLINEARITY_DISCOUNT_PER_MEASURE = 0.3;
 const COLLINEARITY_DISCOUNT_MAX = 0.85;
@@ -334,7 +335,7 @@ function normalizedEntropy(counts: readonly number[], totalBins: number): number
 /** Legibility-shaped cardinality curve: a category axis with 2-12 distinct
  *  values reads best; a single value (no discrimination) or a wall of 40+
  *  values (label soup) reads worst. Entropy of a category axis is capped by
- *  this curve, per the design doc's own wording. */
+ *  this curve. */
 function categoryLegibilityBell(n: number): number {
   if (n <= 1) return 0;
   if (n <= 12) return 1;
@@ -431,8 +432,7 @@ function priorFor(names: { readonly measure?: string; readonly x?: string }, opt
   // and can't carry a time word, so averaging a 0 in for it halved every
   // category mark's prior against a `cell` or `arc` that names no x at all
   // — the whole 0.05 by which a heatmap out-ranked the identical stacked
-  // bar on `olympics-2024-medals-by-type` (`docs/design/charts.md`'s
-  // "Mark-type fit").
+  // bar on `olympics-2024-medals-by-type`.
   if (names.x && X_NAME_LEXICON_RE.test(names.x)) signals.push(1);
   if (opts?.shareLike !== undefined) signals.push(opts.shareLike ? 1 : 0);
   if (signals.length === 0) return 0.3;
@@ -492,7 +492,7 @@ function seriesGroups(rows: readonly TabularRow[], xCol: string, yCol: string, f
 
 /** `AREA_LEGIBILITY_DISCOUNT`: an unfilled area reads no more informative
  *  than the same line, at heavier ink — a small, constant legibility cost
- *  documented in `docs/design/charts.md`, not a hidden mark preference. */
+ *  stated here, not a hidden mark preference. */
 const AREA_LEGIBILITY_DISCOUNT = 0.04;
 /** See `scoreLineArea`'s own comment: connecting two independent MEASURES
  *  with a line implies an adjacency the data doesn't carry. */
@@ -853,8 +853,7 @@ function orderedAxisBuckets(sample: readonly TabularRow[], col: string, groupCol
 /** A NUMERIC column is an ordered x axis (within `groupCol`, or across the
  *  whole table) only when its values STRICTLY increase in row order in
  *  every bucket, at least two per bucket. The profiler's own `monotonic`
- *  flag, used before, fails twice (`docs/design/charts.md`'s "Mark-type
- *  fit"): it also accepts a DEcreasing or tied column — a table pre-sorted
+ *  flag, used before, fails twice: it also accepts a DEcreasing or tied column — a table pre-sorted
  *  by rank (`olympics-2024-medals`' `gold`: 40, 40, 20, ...), a ranking and
  *  not an axis, so "a line of bronze over gold" was a candidate — and it
  *  is taken over the WHOLE column, so a long-format integer year repeated
@@ -1103,7 +1102,7 @@ export function buildChartCandidates(profile: DataProfile): readonly ChartCandid
       // (category, measure) sub-band, drawn on top of one another — only the
       // tallest shows. The page can't bind the MEAN that would honestly
       // collapse them (`chartsCandidateBindable`), so only a category with
-      // one row per value melts (`docs/design/charts.md`'s "Mark-type fit").
+      // one row per value melts.
       if (cat.distinctCount < rowCount - cat.nullCount) continue;
       const { terms, score } = scoreBarMelt(cat.name, effectiveNumbers.map((m) => m.name), { ...input, pipeline });
       out.push({

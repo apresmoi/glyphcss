@@ -1,6 +1,6 @@
 /**
- * The skip-level sankey gates judge by cells LOST (docs/design/charts.md,
- * Round 27): the corridor-aware node order is kept only where it loses no
+ * The skip-level sankey gates judge by cells LOST, never a weighted
+ * crossing-count proxy (it kept re-placements that lost more cells): the corridor-aware node order is kept only where it loses no
  * more cells on either tier family, and a skip-level band paints as a smooth
  * ribbon only where that loses no more cells than its staircase route.
  *

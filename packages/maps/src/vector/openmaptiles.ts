@@ -261,7 +261,7 @@ export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   readonly minAdminLevel?: number;
   /** Keep only boundaries at or below this administrative importance (`admin_level <= max`); `2` is "international borders only". */
   readonly maxAdminLevel?: number;
-  /** Drop features whose {@link glyphMapOpenMapTilesBrunnel} is one of these. `["tunnel"]` takes a subway line off the surface and leaves the bridge over it drawn. */
+  /** Drop features whose {@link glyphMapOpenMapTilesBrunnel} is one of these. `["tunnel"]` takes a subway line off the surface and leaves the bridge over it drawn. Hidden rather than dimmed: dimming, road hierarchy by `class` and `transportation.layer` ordering all need a per-feature line colour or draw order the widget does not have. */
   readonly excludeBrunnel?: readonly string[];
   /** Drop features whose `service` is one of these — `driveway`/`parking_aisle` is car-park hatching rather than street network. */
   readonly excludeService?: readonly string[];
