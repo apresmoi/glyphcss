@@ -918,10 +918,13 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // enabled one re-binds the chart (`chartsMarkTypeFit.ts`).
   it("Type toggle: a type the dataset can't draw is disabled with its reason and a click does nothing; an enabled one re-binds the chart", () => {
     selectChartsDataset(container, "global-temperature");
-    const typeButton = (type: string) => container.querySelector<HTMLButtonElement>(`[aria-label^="Chart type: ${type}"]`)!;
-    const enabled = CHART_MARK_TYPES.filter((type) => !typeButton(type).disabled);
+    // `rect`/`text`/`rule` never fit any data and render no tile at all
+    // unless they are the CURRENT type (`ChartsMarkTypePicker.tsx`'s own
+    // doc) — `typeButton` is nullable for exactly those three here.
+    const typeButton = (type: string) => container.querySelector<HTMLButtonElement>(`[aria-label^="Chart type: ${type}"]`);
+    const enabled = CHART_MARK_TYPES.filter((type) => typeButton(type) && !typeButton(type)!.disabled);
     expect(enabled).toEqual(["line", "area", "dot"]);
-    const bar = typeButton("bar");
+    const bar = typeButton("bar")!;
     expect(bar.title).toBe(CHARTS_MARK_TYPE_RULES.bar.needs);
     expect(bar.getAttribute("aria-label")).toBe(`Chart type: bar — ${CHARTS_MARK_TYPE_RULES.bar.needs}`);
     const before = container.querySelector(".synth-viewport pre")!.textContent;
@@ -929,11 +932,11 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(activeMarkType()).toBe("line");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toBe(before);
 
-    act(() => typeButton("dot").click());
+    act(() => typeButton("dot")!.click());
     expect(activeMarkType()).toBe("dot");
     expect(container.querySelector(".charts-error")).toBeNull();
     // The line it came from is still enabled (never stranded).
-    expect(typeButton("line").disabled).toBe(false);
+    expect(typeButton("line")!.disabled).toBe(false);
   });
 
   it("Type toggle: the CURRENT type stays enabled even when the data can't fit it (a tray rule mark over bare numbers)", () => {

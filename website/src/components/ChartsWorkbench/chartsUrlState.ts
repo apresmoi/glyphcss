@@ -1,6 +1,5 @@
 // /charts' whole workbench configuration in one shareable `?c=` query param
-// — see docs/design/charts.md's "URL state" and website/src/lib/
-// jsonUrlState.ts's file header for why this is a JSON envelope rather than
+// — see website/src/lib/jsonUrlState.ts's file header for why this is a JSON envelope rather than
 // urlState.ts's flat packed-field schema: a chart's marks are an
 // open-ended array, each with its own data/channels/options, not a
 // statically-known field set.
@@ -698,9 +697,8 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
 
 const chartsUrlEnvelope = createJsonUrlEnvelope<ChartsWorkbenchState>(VERSION, validateChartsWorkbenchState);
 
-// ── Stock/remote-dataset mark data omission (docs/design/charts.md's "URL
-// state": the mark's data is never in the link for a stock OR remote
-// dataset) ─────────────────────────────────────────────────────────────
+// ── Stock/remote-dataset mark data omission (the mark's data is never in
+// the link for a stock OR remote dataset) ──────────────────────────────
 //
 // `select-dataset` (`chartsWorkbenchState.ts`) builds a mark's `dataText`
 // straight from the vendored dataset's own rows, so writing it into `?c=`

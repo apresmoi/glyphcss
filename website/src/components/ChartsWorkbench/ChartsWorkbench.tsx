@@ -18,7 +18,7 @@ import { pushRecentRemoteDataset } from "./ChartsDatasetSearchBox";
 import { ChartsDock } from "./ChartsDock";
 import { ChartsMarkCard } from "./ChartsMarkCard";
 import { Charts3dViewport, type Charts3dViewportHandle } from "./Charts3dViewport";
-import { chartsMarkOmittedRows, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsOmittedRowsNote } from "./chartsMarkTypeFit";
+import { chartsMarkOmittedRows, chartsMarkTypeBase, chartsMarkTypeFitTable, chartsMarkTypeThumbnails, chartsOmittedRowsNote } from "./chartsMarkTypeFit";
 import {
   CHART_PRESETS, CHARTS_DENSITY_BASE_FONT_PX, chartsWorkbenchEffectiveDensity, createChartsWorkbenchState,
   dataSourceKey, findChartsDataset, generateChartsWorkbenchSnippets, randomChartsDatasetId, randomChartsDatasetPick,
@@ -326,8 +326,22 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
     catch { return []; }
   }, [state, colorDisabled]);
   // Memoised per base inside the fit module; the note says which of the
-  // reader's rows the chart leaves out for its CURRENT channels.
-  const markTypeFits = state.marks.map((mark) => chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark)));
+  // reader's rows the chart leaves out for its CURRENT channels. Wrapped in
+  // `useMemo`, keyed on `state.data`/`state.marks` (stable across a dispatch
+  // that touches neither — the same selective-dep discipline `rendered`
+  // above follows): a plain `.map()` here would hand the type picker's own
+  // thumbnail memo below a FRESH array every render, defeating it.
+  const markTypeBases = useMemo(() => state.marks.map((mark) => chartsMarkTypeBase(state.data, mark)), [state.data, state.marks]);
+  const markTypeFits = useMemo(() => markTypeBases.map((base) => chartsMarkTypeFitTable(base)), [markTypeBases]);
+  // The type picker's own live thumbnails (`ChartsMarkTypePicker.tsx`) — one
+  // real render per fitting type, so worth memoising on the same identity
+  // `markTypeBases`/`markTypeFits` now carry (stable across an unrelated
+  // dispatch) rather than re-rasterising on every keystroke of an unrelated
+  // Dock slider.
+  const markTypeThumbnails = useMemo(
+    () => markTypeBases.map((base, i) => chartsMarkTypeThumbnails(base, markTypeFits[i]!, resolvedControls.target)),
+    [markTypeBases, markTypeFits, resolvedControls.target],
+  );
   // The mark card's 3D Type row (packet C3's "Surface", widened to every
   // mark type by C6) — only the first card offers it (3D mounts one
   // object). Real memoisation would need its own per-rows cache (mirroring
@@ -786,7 +800,7 @@ function ChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef }:
           dimension={state.dimension} chart3d={chart3dResolved.ok ? { title: chart3dResolved.resolved.title, description: chart3dResolved.resolved.description, source: chart3dResolved.resolved.source } : null}
           loadingTitle={remoteLoadingTitle} notice={datasetNotice} renderError={!rendered.ok ? rendered.error : undefined} />
         <div className="charts-marks-section">
-          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length} typeFits={markTypeFits[index]!} series={seriesPreview} colorDisabled={colorDisabled}
+          {state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length} typeFits={markTypeFits[index]!} typeThumbnails={markTypeThumbnails[index]} series={seriesPreview} colorDisabled={colorDisabled}
             dimension={index === 0 ? state.dimension : undefined} chart3dMarkType={index === 0 ? chart3dMarkType : undefined}
             chart3dFits={index === 0 ? chart3dFits : undefined} dispatch={dispatch} />)}
         </div>

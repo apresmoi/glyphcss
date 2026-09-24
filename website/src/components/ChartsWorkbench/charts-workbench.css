@@ -3,47 +3,52 @@
    no card box, no header — under the rail's own section divider
    (`.charts-marks-section`). A tray preset with a second mark separates it
    with that SAME divider rather than a box. */
+/* The rail is this page's own authoring surface too now (the owner's own
+   words: "we want more authorship" — the type picker's tiles and the
+   channel rows' type badges both need real width) — mirrors
+   `diagrams-workbench.css`'s identical `--synth-rail-basis` override and
+   its own doc on why this is the one per-page knob to turn, never the
+   shared default. */
+.charts-shell { --synth-rail-basis: 420px; }
 .charts-mark-card + .charts-mark-card { padding-top: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12); }
 .charts-mark-row { align-items: center; font-size: 11px; }
 .charts-mark-row > span:first-child { flex: 0 0 70px; }
 .charts-mark-row > .gx-toggle { flex: 1; }
-/* The mark-type row has no text label: the chart icons ARE the row and span
-   the card's full width (the group keeps its accessible name via
-   `groupTitle`). Icons render a touch larger than the shared 15px so each
-   chart shape reads at a glance.
-   Two rows, not one, laid out as a fixed 11-COLUMN GRID rather than a
-   width-driven `flex-wrap` (user feedback: "the one row is a bit difficult
-   to see" once C6 appended 3D types onto the same single row). A grid,
-   never a natural wrap, because the split must be STABLE at every rail
-   width — a `flex-wrap` regroups ragged-ly as the rail narrows, which is
-   exactly what was rejected in favour of this. `CHART_MARK_TYPE_TOGGLE`
-   always carries exactly 11 entries (`chartsWorkbenchState.ts`'s
-   `CHART_MARK_TYPES`), so 11 columns fills row 1 with the WHOLE 2D set on
-   its own and spills any 3D entries (`CHARTS_3D_MARK_TYPES` — first mark
-   card only, up to 5: Surface through Parametric) onto row 2 automatically,
-   with no JS split logic and no row-count branching in `ChartsMarkCard.tsx`
-   — the two candidate splits the request offered ("a fixed grid of N per
-   row" and "2D row 1, 3D row 2") collapse into the SAME rule here, since
-   the 2D set's own count already equals a natural column count. Row 1's own
-   button width is therefore BYTE-IDENTICAL to the single-row layout that
-   shipped before 3D types existed (11 buttons across the same rail), so
-   this reverts the crowding C6 introduced rather than inventing a new
-   density; a plain 2D-only card (index > 0, no 3D options) still renders
-   exactly one row — 11 items in an 11-column grid never wraps. */
-.charts-mark-row[data-row="type"] > .gx-toggle {
-  flex: 1 1 100%;
-  display: grid;
-  grid-template-columns: repeat(11, 1fr);
+/* The type picker (`ChartsMarkTypePicker.tsx`) — a real "authorship" picker,
+   not the old bare icon row: grouped tiles (Trend / Compare / Distribution /
+   Flow, plus a "3D" group on the first card), each with a LIVE thumbnail of
+   the mark picking it would install, its label, and — when the loaded data
+   can't draw it — its `needs` reason printed ON the tile (visible without a
+   hover), not only on `title`/`aria-label`. `.charts-mark-row > span:first-child`
+   above targets a plain label span; this row has none (`.charts-type-row`
+   opts out via its own selector, never touched), so it carries the picker
+   full width instead. */
+.charts-mark-row.charts-type-row { align-items: flex-start; flex-direction: column; gap: 0; }
+.charts-type-picker { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.charts-type-group { display: flex; flex-direction: column; gap: 4px; }
+.charts-type-group-label {
+  margin: 0; font-size: 9px; letter-spacing: 0.08em; text-transform: uppercase;
+  color: rgba(255, 232, 184, 0.45);
 }
-.charts-mark-row[data-row="type"] .gx-toggle-btn { padding: 6px 0; }
-.charts-mark-row[data-row="type"] .gx-toggle-btn svg { width: 19px; height: 19px; }
-/* The shared-border strip (`.gx-toggle-btn` drops its own `border-left` and
-   relies on the previous button's right edge, `border-left-width: 0` except
-   `:first-child`) breaks at a grid row start: row 2's first button (the
-   12th child overall) is not `:first-child`, so it kept the "mid-row
-   neighbour" rule and lost its own left edge. Restore it at every row
-   start — child 1, 12, 23, ... — for the fixed 11-column grid above. */
-.charts-mark-row[data-row="type"] .gx-toggle-btn:nth-child(11n + 1) { border-left-width: 1px; }
+.charts-type-group-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+.charts-type-tile {
+  flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  text-align: left; gap: 3px; padding: 5px 6px; min-height: 62px;
+  border-left-width: 1px; /* every tile keeps its own full border — a grid of discrete cards, not a shared-edge strip */
+}
+.charts-type-tile-thumb {
+  margin: 0; width: 100%; height: 20px; overflow: hidden;
+  font-family: "Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+  font-size: 3.6px; line-height: 1; white-space: pre; color: currentColor;
+}
+.charts-type-tile-icon { display: block; height: 20px; }
+.charts-type-tile-icon svg { width: 18px; height: 18px; }
+.charts-type-tile-label { font-size: 10px; font-weight: 700; }
+/* The reason a disabled tile can't be picked — the SAME sentence `title`/
+   `aria-label` already carry, printed where a reader looking at the grid
+   sees it without hovering (the task's own ask). */
+.charts-type-tile-reason { font-size: 9px; line-height: 1.3; color: #fda4af; white-space: normal; }
+.charts-type-tile:disabled .charts-type-tile-label { color: rgba(255, 232, 184, 0.4); }
 .charts-mark-data {
   box-sizing: border-box;
   width: 100%;
@@ -443,6 +448,17 @@ details[open] > .charts-mark-data-summary .charts-mark-data-marker { transform: 
    from the tray below can still leave more than one; either way there is
    no add/remove control here any more). */
 .charts-marks-section { display: flex; flex-direction: column; gap: 9px; padding-top: 9px; border-top: 1px solid rgba(255, 232, 184, 0.12); }
+
+/* Channel rows (`ChartsMarkCard.tsx`) name which column feeds each channel
+   AND its type (`chartsMarkFieldTypes`) — direct, legible mapping, not just
+   a bare field name. `.charts-channel-type` is the badge beside the select
+   showing the CURRENT binding's type; each `<option>` already carries its
+   own type inline, so the choice ahead of a pick is informed too. */
+.charts-channel-row .gx-select { flex: 1 1 auto; }
+.charts-channel-type {
+  flex: 0 0 auto; min-width: 34px; padding-left: 4px; text-align: right;
+  font-size: 9px; letter-spacing: 0.03em; text-transform: uppercase; color: rgba(56, 189, 248, 0.75);
+}
 
 /* Data folder — dataset picker + read-only info card. Plain flow inside
    the rail body. */

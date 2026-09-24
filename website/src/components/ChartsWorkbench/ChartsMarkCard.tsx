@@ -5,7 +5,8 @@ import {
   chartRelevantChannels,
   type Charts3dFitTable, type Charts3dMarkTypeId, type ChartsWorkbenchAction, type ChartsWorkbenchMark,
 } from "./chartsWorkbenchState";
-import type { ChartsMarkTypeFitTable } from "./chartsMarkTypeFit";
+import { chartsMarkFieldTypes, type ChartsMarkTypeFitTable } from "./chartsMarkTypeFit";
+import { ChartsMarkTypePicker, type ChartsMarkTypeGroup, type ChartsMarkTypeTileOption } from "./ChartsMarkTypePicker";
 import { ColorSwatch } from "../InstrumentWorkbench/ColorSwatch";
 import { EditableReadout, IconToggle, ToggleIcon } from "../SynthWorkbench/synthKit";
 
@@ -68,6 +69,15 @@ const CHART_MARK_TYPE_DESCRIPTIONS: Record<(typeof CHART_MARK_TYPES)[number], st
 export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
   value: type as string, icon: CHART_MARK_TYPE_ICONS[type], label: type, desc: CHART_MARK_TYPE_DESCRIPTIONS[type],
 }));
+/** The type picker's own grouping (`ChartsMarkTypePicker.tsx`) — `rect`/
+ *  `text`/`rule` never fit any data on this page and are left out of every
+ *  group by design (that component's own doc has the full rationale). */
+export const CHARTS_MARK_TYPE_GROUPS: readonly ChartsMarkTypeGroup[] = [
+  { label: "Trend", values: ["line", "area"] },
+  { label: "Compare", values: ["bar", "dot"] },
+  { label: "Distribution", values: ["arc", "cell"] },
+  { label: "Flow", values: ["sankey", "funnel"] },
+];
 
 // 3D types (packet C3's "Surface", widened to every `@glyphcss/charts/3d`
 // mark type by packet C6) — offered only on the first mark card (3D mounts
@@ -226,8 +236,13 @@ function ChartsMarkColorControls({ mark, index, series, colorDisabled, dispatch 
  * gets a "Mark N" heading per mark and "Mark N" accessible names; a lone
  * mark's names read "Chart type: line", "Chart x", …
  */
-export function ChartsMarkCard({ mark, index, markCount, typeFits, series, colorDisabled, dimension, chart3dMarkType, chart3dFits, dispatch }: {
+export function ChartsMarkCard({ mark, index, markCount, typeFits, typeThumbnails, series, colorDisabled, dimension, chart3dMarkType, chart3dFits, dispatch }: {
   mark: ChartsWorkbenchMark; index: number; markCount: number; typeFits: ChartsMarkTypeFitTable; series: readonly GlyphChartSeriesPreviewEntry[]; colorDisabled: boolean;
+  /** Live renders of each FITTING type's own built mark
+   *  (`chartsMarkTypeThumbnails`) — the type picker's own thumbnails; an
+   *  unfit type falls back to its vector icon (it has no built mark to
+   *  render one of). */
+  typeThumbnails?: Readonly<Partial<Record<GlyphChartMarkType, string>>>;
   /** `state.dimension` — only `index === 0`'s card offers a 3D type at all, and only that card's Type row reads this to show one as the active option. */
   dimension?: "2d" | "3d";
   /** The CURRENTLY resolved 3D mark's own type (`index === 0` only) — kept
@@ -242,19 +257,26 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
 }) {
   const name = markCount > 1 ? `Mark ${index + 1}` : "Chart";
   const fields = chartMarkFields(mark);
+  const fieldTypes = chartsMarkFieldTypes(mark);
   const update = (patch: Partial<Omit<ChartsWorkbenchMark, "id">>) => dispatch({ type: "update-mark", id: mark.id, patch });
   // A type the data can't draw is disabled with its reason
   // (`chartsMarkTypeFit.ts`, the `mapDirectionLocked` idiom). The CURRENT
   // type always stays enabled, even when the table calls it unfit (a tray
   // sample, a hand-built link), so a card is never stranded on a disabled
-  // button.
-  const typeOptions: typeof CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPE_TOGGLE.map((option) => {
-    const fit = typeFits[option.value as GlyphChartMarkType];
-    return fit.fits || option.value === mark.type ? option : { ...option, disabled: true, disabledReason: fit.reason };
+  // button. A fitting type also carries a LIVE thumbnail of the mark it
+  // would install (`ChartsMarkTypePicker.tsx`'s own doc).
+  const typeOptions: readonly ChartsMarkTypeTileOption[] = CHART_MARK_TYPE_TOGGLE.map((option) => {
+    const type = option.value as GlyphChartMarkType;
+    const fit = typeFits[type];
+    const thumbnail = typeThumbnails?.[type];
+    return {
+      ...option, thumbnail,
+      ...(fit.fits || option.value === mark.type ? {} : { disabled: true, disabledReason: fit.reason }),
+    };
   });
   const showChart3d = index === 0 && chart3dFits !== undefined;
   const in3d = dimension === "3d" && index === 0;
-  const type3dOptions = showChart3d
+  const type3dOptions: readonly ChartsMarkTypeTileOption[] = showChart3d
     ? CHARTS_3D_MARK_TYPES.map((markType) => {
         const fit = chart3dFits![markType];
         const active = markType === chart3dMarkType;
@@ -265,6 +287,9 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
       })
     : [];
   const allTypeOptions = showChart3d ? [...typeOptions, ...type3dOptions] : typeOptions;
+  const typeGroups: readonly ChartsMarkTypeGroup[] = showChart3d
+    ? [...CHARTS_MARK_TYPE_GROUPS, { label: "3D", values: CHARTS_3D_MARK_TYPES as readonly string[] }]
+    : CHARTS_MARK_TYPE_GROUPS;
   const activeType = in3d ? (chart3dMarkType ?? "surface") : mark.type;
   const onTypeChange = (value: string) => {
     if ((CHARTS_3D_MARK_TYPES as readonly string[]).includes(value)) dispatch({ type: "select-3d-table", markType: value as Charts3dMarkTypeId });
@@ -275,8 +300,8 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
       {markCount > 1 && <div className="voice-head">
         <span className="voice-title">{name}</span>
       </div>}
-      <div className="voice-row charts-mark-row" data-row="type">
-        <IconToggle groupTitle={`${name} type`} options={allTypeOptions} value={activeType} onChange={onTypeChange} />
+      <div className="charts-mark-row charts-type-row" data-row="type">
+        <ChartsMarkTypePicker name={name} options={allTypeOptions} groups={typeGroups} value={activeType} onChange={onTypeChange} />
       </div>
       {in3d && <p className="charts-mark-3d-note">Showing a 3D chart. Pick a 2D type above, or open the preset tray for a real 3D dataset.</p>}
       {/* The rest of the card describes a 2D mark's own colour/stroke/channel
@@ -300,13 +325,23 @@ export function ChartsMarkCard({ mark, index, markCount, typeFits, series, color
             format={(v) => String(v)} onCommit={setStrokeWidth} />
         </label>;
       })()}
-      {!in3d && chartRelevantChannels(mark.type).map((channel) => <label className="voice-row charts-mark-row" key={channel}>
-        <span>{channel}</span><span className="gx-select"><select aria-label={`${name} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={mark.channels[channel] ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
-          <option value="">auto</option>
-          {mark.channels[channel] && !fields.includes(mark.channels[channel]!) && <option value={mark.channels[channel]}>{mark.channels[channel]} (missing)</option>}
-          {fields.map((field) => <option key={field}>{field}</option>)}
-        </select></span>
-      </label>)}
+      {/* Channel rows name what column feeds each channel AND its type
+       *  (`chartsMarkFieldTypes`) — both in the option list (so picking one
+       *  is an informed choice) and as a small badge beside the select (so
+       *  the CURRENT binding's type reads at a glance, no click needed). */}
+      {!in3d && chartRelevantChannels(mark.type).map((channel) => {
+        const bound = mark.channels[channel];
+        const boundType = bound ? fieldTypes.get(bound) : undefined;
+        return <label className="voice-row charts-mark-row charts-channel-row" key={channel}>
+          <span>{channel}</span>
+          <span className="gx-select"><select aria-label={`${name} ${channel}`} disabled={mark.type === "rule"} title={mark.type === "rule" ? "Rules use the numeric data as axis positions." : `${channel} channel`} value={bound ?? ""} onChange={(event) => update({ channels: { ...mark.channels, [channel]: event.target.value } })}>
+            <option value="">auto</option>
+            {bound && !fields.includes(bound) && <option value={bound}>{bound} (missing)</option>}
+            {fields.map((field) => { const type = fieldTypes.get(field); return <option key={field} value={field}>{type ? `${field} · ${type}` : field}</option>; })}
+          </select></span>
+          <span className="charts-channel-type" aria-hidden="true">{boundType ?? ""}</span>
+        </label>;
+      })}
       {!in3d && <label className="voice-row charts-mark-row">
         <span>Transform</span><span className="gx-select"><select aria-label={`${name} transform`} value={mark.transform} disabled={mark.type === "rule" || mark.type === "sankey" || mark.type === "funnel"} title={mark.type === "sankey" || mark.type === "funnel" ? "Sankey and funnel have no x/y scale to bin/stack/group against." : undefined} onChange={(event) => update({ transform: event.target.value as ChartsWorkbenchMark["transform"] })}>
           {CHART_TRANSFORMS.map((transform) => <option key={transform}>{transform}</option>)}

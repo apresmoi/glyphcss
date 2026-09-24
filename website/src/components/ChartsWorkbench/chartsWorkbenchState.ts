@@ -70,7 +70,12 @@ export const CHART_TITLE_POSITIONS = ["top", "bottom"] as const;
  *  above (`GlyphChartYAxisTitleAt` and `GlyphChartTitlePosition` are the
  *  same `"top" | "bottom"` union), so it has no separate constant here. */
 export const CHART_X_AXIS_TITLE_ATS = ["start", "center", "end"] as const;
-export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"] as const;
+// Grouped for the rail's own type picker (`ChartsMarkTypePicker.tsx`) —
+// trend, compare, distribution, flow, then the three types this page never
+// offers as a real pick (`CHARTS_MARK_TYPE_RULES.ranked: false` — rect/text/
+// rule) last. Mirrors `CHARTS_MARK_TYPE_RULES`'s own key order exactly
+// (`chartsMarkTypeFit.ts`), so the two never drift apart.
+export const CHART_MARK_TYPES = ["line", "area", "bar", "dot", "arc", "cell", "sankey", "funnel", "rect", "text", "rule"] as const;
 export const CHART_TRANSFORMS = ["none", "stack", "group", "normalize", "bin", "window"] as const;
 export const CHART_SCALE_TYPES = ["auto", "linear", "log", "sqrt", "time", "band"] as const;
 export const CHART_AXIS_COLOR_MODES = ["shared", "per-axis"] as const;
@@ -708,9 +713,8 @@ export function reduceChartsWorkbenchState(state: ChartsWorkbenchState, action: 
       // best candidate the fit table proved renders — for the search box,
       // a `?c=` re-fetch and Random alike. Random used to sample within
       // 85% of the top score; the pool was mostly mirror images of the top
-      // pick (x/y swapped, a sankey reversed) or visibly weaker views
-      // (`docs/design/charts.md`'s "Mark-type fit"), and Random already
-      // varies by picking a different dataset every press.
+      // pick (x/y swapped, a sankey reversed) or visibly weaker views, and
+      // Random already varies by picking a different dataset every press.
       const best = chartsBestFit(chartsMarkTypeFitTable({ rows: action.rows }));
       const built = best && chartsBuildBoundMark(state.nextMarkId, best.type, action.rows, best.binding);
       if (!built) return state;
@@ -1254,6 +1258,9 @@ export function chartsWorkbenchRenderOptions(state: ChartsWorkbenchState, viewpo
   // Width/Height sliders own nothing there).
   const { density: _density, ...resolved } = resolveGlyphChartsWorkbenchControls(state.controls);
   const density = chartsWorkbenchEffectiveDensity(state.controls);
+  // Integer only: the library lays text out in whole cells and rejects a
+  // fractional `textScale`; `chartsWorkbenchHtmlColor.ts` corrects the
+  // painted size (and its `width` reservation) to the fractional density.
   const textScale = Math.round(density);
   // `size` OVERRIDES `resolved.width`/`.height` below regardless of which
   // branch runs (object-spread order) — computed separately only so the

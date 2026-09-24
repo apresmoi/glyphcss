@@ -23,7 +23,7 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 import { ChartsMarkCard } from "./ChartsMarkCard";
-import { chartsMarkTypeBase, chartsMarkTypeFitTable } from "./chartsMarkTypeFit";
+import { chartsMarkTypeBase, chartsMarkTypeFitTable, chartsMarkTypeThumbnails } from "./chartsMarkTypeFit";
 import {
   chartsFitTableFromRows, createChartsWorkbenchState, reduceChartsWorkbenchState,
   type ChartsWorkbenchAction, type ChartsWorkbenchState,
@@ -50,8 +50,12 @@ function mountMarks(state: ChartsWorkbenchState): HTMLElement {
   document.body.appendChild(container);
   root = createRoot(container);
   act(() => {
-    root!.render(<>{state.marks.map((mark, index) => <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length}
-      typeFits={chartsMarkTypeFitTable(chartsMarkTypeBase(state.data, mark))} series={[]} colorDisabled={false} dispatch={() => {}} />)}</>);
+    root!.render(<>{state.marks.map((mark, index) => {
+      const base = chartsMarkTypeBase(state.data, mark);
+      const typeFits = chartsMarkTypeFitTable(base);
+      return <ChartsMarkCard key={mark.id} mark={mark} index={index} markCount={state.marks.length}
+        typeFits={typeFits} typeThumbnails={chartsMarkTypeThumbnails(base, typeFits, "web")} series={[]} colorDisabled={false} dispatch={() => {}} />;
+    })}</>);
   });
   return container;
 }
@@ -198,38 +202,61 @@ describe("ChartsMarkCard — 3D Type row (packet C6)", () => {
     expect(container.querySelector('[aria-label$=": Surface"]')).toBeNull();
   });
 
-  // User feedback, verbatim: "could we make the chart selection on the left
-  // maybe two rows? currently the one row is a bit difficult to see" — the
-  // Type toggle is a fixed 11-column GRID (charts-workbench.css's own doc
-  // above the rule), so the 11 2D entries always fill row 1 on their own and
-  // any 3D entries (up to 5, this card only) spill onto row 2. happy-dom
-  // resolves the cascade with no layout engine (this file's own top-of-file
-  // doc), so `display`/`grid-template-columns` read back the AUTHORED
-  // values — real enough to pin the rule without a browser.
-  it("lays the 16-button Type toggle out as a fixed 11-column grid — two rows, not a ragged wrap", () => {
+  // Owner feedback, verbatim: "we want more authorship" / "nicer selectors
+  // for the types of charts" — the Type row is now `ChartsMarkTypePicker`'s
+  // own grouped tile grid (Trend/Compare/Distribution/Flow, plus a "3D"
+  // section on the first card), not a flat icon strip. happy-dom resolves
+  // the cascade with no layout engine (this file's own top-of-file doc), so
+  // `display`/`grid-template-columns` read back the AUTHORED values — real
+  // enough to pin the rule without a browser.
+  it("groups the type picker into named sections, with a 3D section appended on the first card", () => {
     const host = mount3d(createChartsWorkbenchState());
-    const toggle = host.querySelector<HTMLElement>('[data-row="type"] > .gx-toggle')!;
-    const cs = getComputedStyle(toggle);
-    expect(cs.display).toBe("grid");
-    expect(cs.gridTemplateColumns.replace(/\s+/g, "")).toContain("repeat(11,1fr)");
-
-    const buttons = host.querySelectorAll<HTMLButtonElement>('[data-row="type"] .gx-toggle-btn');
-    expect(buttons.length).toBe(16); // 11 2D + 5 3D
-    // The 12th button (index 11, "Surface" — the first 3D entry) starts row
-    // 2 in an 11-column grid, so the row-start border fix must apply there;
-    // a mid-row button (index 1) keeps sharing its neighbour's border.
-    // Mutation check: reverting the grid rule to plain `flex: 1 1 100%`
-    // turns `display` back to "flex" and drops `grid-template-columns`
-    // entirely, redding the two assertions above.
-    expect(getComputedStyle(buttons[11]!).borderLeftWidth).toBe("1px");
-    expect(getComputedStyle(buttons[1]!).borderLeftWidth).toBe("0px");
+    const labels = Array.from(host.querySelectorAll(".charts-type-group-label"), (el) => el.textContent);
+    expect(labels).toEqual(["Trend", "Compare", "Distribution", "Flow", "3D"]);
+    const tiles = host.querySelectorAll<HTMLButtonElement>('[data-row="type"] .charts-type-tile');
+    expect(tiles.length).toBe(13); // 8 ranked 2D types + 5 3D types (rect/text/rule never fit any data — left out unless current)
+    // Each tile is its own bordered card (a grid of discrete tiles, not a
+    // shared-edge toggle strip) — mutation check: reverting
+    // `.charts-type-tile`'s own `border-left-width: 1px` back to the base
+    // `.gx-toggle-btn` default (`0` on every button but `:first-child`)
+    // reds this for any non-first tile.
+    expect(getComputedStyle(tiles[3]!).borderLeftWidth).toBe("1px");
+    const tileGrid = host.querySelector<HTMLElement>(".charts-type-group-tiles")!;
+    expect(getComputedStyle(tileGrid).display).toBe("grid");
   });
 
-  it("a plain 2D-only card (no 3D options) still fills exactly one row — 11 items never wrap an 11-column grid", () => {
+  it("a plain 2D-only card (no 3D options) shows only the four 2D sections — no '3D' group, 8 tiles", () => {
     const host = mountMarks(createChartsWorkbenchState());
-    const buttons = host.querySelectorAll<HTMLButtonElement>('[data-row="type"] .gx-toggle-btn');
-    expect(buttons.length).toBe(11);
-    const toggle = host.querySelector<HTMLElement>('[data-row="type"] > .gx-toggle')!;
-    expect(getComputedStyle(toggle).display).toBe("grid");
+    const labels = Array.from(host.querySelectorAll(".charts-type-group-label"), (el) => el.textContent);
+    expect(labels).toEqual(["Trend", "Compare", "Distribution", "Flow"]);
+    const tiles = host.querySelectorAll<HTMLButtonElement>('[data-row="type"] .charts-type-tile');
+    expect(tiles.length).toBe(8);
+  });
+
+  // The single highest-value change (task's own framing): a fitting type's
+  // tile carries a LIVE render of the mark picking it would install, not a
+  // static icon — the diagrams shape-menu trick, applied to chart types.
+  it("a fitting type's tile carries a live thumbnail rendered by the real library off the loaded data", () => {
+    const host = mountMarks(createChartsWorkbenchState()); // built-in "Line" preset: line/area/bar/dot all fit
+    const lineTile = host.querySelector<HTMLButtonElement>('[aria-label^="Chart type: line"]')!;
+    const thumb = lineTile.querySelector<HTMLDivElement>(".charts-type-tile-thumb");
+    expect(thumb).not.toBeNull();
+    // Mutation check: dropping `typeThumbnails` (not passing the prop at
+    // all, as `mountMarks` does further below) leaves the tile on its
+    // vector icon fallback instead — a real, non-empty glyph render here is
+    // what proves the live path actually ran, not just that a `<pre>` exists.
+    expect(thumb!.textContent!.trim().length).toBeGreaterThan(0);
+  });
+
+  // "say why, visibly" (task's own words) — a disabled tile's reason is
+  // printed ON the tile, not only reachable via `title`/hover.
+  it("a type the loaded data can't draw prints its reason ON the tile, not only on title/aria-label", () => {
+    const host = mountMarks(createChartsWorkbenchState()); // "Line" sample has no category/flow columns — sankey/funnel can't fit
+    const sankeyTile = host.querySelector<HTMLButtonElement>('[aria-label^="Chart type: sankey"]')!;
+    expect(sankeyTile.disabled).toBe(true);
+    const reason = sankeyTile.querySelector(".charts-type-tile-reason");
+    expect(reason).not.toBeNull();
+    expect(reason!.textContent).toBe(sankeyTile.title);
+    expect(reason!.textContent!.length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,5 @@
 // @vitest-environment node
-// The mark card's Type toggle (`chartsMarkTypeFit.ts`; `docs/design/
-// charts.md`'s "Mark-type fit"). The matrix is checked against the FROZEN
+// The mark card's Type toggle (`chartsMarkTypeFit.ts`). The matrix is checked against the FROZEN
 // diagnosis of what each pick did before the fit table existed
 // (`fixtures/markTypeFitDiagnosis.json`, CHARTS-RESEARCH
 // `DIAGNOSIS-mark-type-fit.md`), never against a rule re-derived here.

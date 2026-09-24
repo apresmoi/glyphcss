@@ -1,7 +1,7 @@
 // AGENTS.md's "Charts" ("Data layer") — item 4: every date-bearing dataset,
 // rendered through the REAL `renderGlyphChart`, at a spread of widths, with
 // a real d3 multi-scale time axis (never a raw ISO/epoch string truncated
-// to fit). See the finding recorded in AGENTS.md/docs/design/charts.md: a
+// to fit). The finding behind it: a
 // date COLUMN is a plain ISO STRING (JSON has no `Date`), and
 // `inferGlyphChartScaleType` used to infer a bare string as `band`
 // regardless of its content, so `chartsWorkbenchState.ts`'s dataset-apply

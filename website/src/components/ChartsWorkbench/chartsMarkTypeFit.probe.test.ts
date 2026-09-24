@@ -1,6 +1,6 @@
 // @vitest-environment node
-// The fit probe on its own (`chartsMarkTypeFit.ts`' `chartsBuiltMarkRenders`,
-// `docs/design/charts.md`'s round 2). Everything the ranker offers today
+// The fit probe on its own (`chartsMarkTypeFit.ts`' `chartsBuiltMarkRenders`).
+// Everything the ranker offers today
 // also passes the build's own checks, so a candidate that validates and
 // still draws nothing is injected here: without the probe it would be
 // enabled.

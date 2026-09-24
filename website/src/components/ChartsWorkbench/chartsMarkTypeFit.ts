@@ -1,8 +1,8 @@
 // Which mark types the CURRENT data can honestly draw, and what each one
 // binds when a reader picks it — the one source of truth behind the mark
 // card's Type toggle and a remote dataset's first chart (AGENTS.md's
-// "Charts" "Data layer"; rationale and the 16-dataset matrix in
-// `docs/design/charts.md`'s "Mark-type fit").
+// "Charts" "Data layer"; the 16-dataset matrix is frozen in
+// `fixtures/markTypeFitDiagnosis.json`).
 //
 // A type FITS iff some candidate of it — the dataset's curated mapping, or
 // one the information ranker (`lib/chartCandidates.ts`) offers, in rank
@@ -12,7 +12,7 @@
 // built mark, so an enabled button can neither throw nor draw a blank
 // chart. The table below is the only per-type data: nothing else in the
 // page branches on a type's name to decide fit.
-import { renderGlyphChart, type GlyphChartMarkType, type GlyphChartRenderOptions } from "@glyphcss/charts";
+import { renderGlyphChart, type GlyphChartMarkType, type GlyphChartRenderOptions, type GlyphChartTarget } from "@glyphcss/charts";
 import { buildChartCandidates, type ChartCandidate } from "../../lib/chartCandidates";
 import { normaliseDateColumn, runPipeline, type PipelineStep } from "../../lib/dataPipeline";
 import { profiledCellUsable, profileRows, type ColumnProfile } from "../../lib/dataProfile";
@@ -327,6 +327,19 @@ function paintsProbeColor(html: string): boolean {
   return html.includes(`color:${PROBE_COLOR}`);
 }
 
+/** The one-mark state a fitting type's OWN built mark renders as — shared by
+ *  the draw probe below (painted in `PROBE_COLOR`) and the type picker's own
+ *  live thumbnail (`chartsMarkTypeThumbnailSpec`, painted in the mark's real
+ *  style): both need the SAME built mark mounted alone, with no title/legend
+ *  of its own, on a scale that matches whether its x channel is a date. */
+function chartsMarkTypeProbeState(built: Pick<ChartsBuiltMark, "mark" | "isDate">): ChartsWorkbenchState {
+  probeBase ??= (() => { const base = createChartsWorkbenchState(); return { ...base, chart: { ...base.chart, title: "", legend: false } }; })();
+  return {
+    ...probeBase, marks: [built.mark],
+    scales: { x: built.isDate ? { type: "time", min: "", max: "" } : probeBase.scales.x, y: probeBase.scales.y },
+  };
+}
+
 export type ChartsDrawVerdict = "draws" | "blank" | "refused";
 
 /**
@@ -335,17 +348,14 @@ export type ChartsDrawVerdict = "draws" | "blank" | "refused";
  * renderer itself decides, for every type, so no rule here restates when
  * a line, an area or a heatmap has something to draw. `refused` when the
  * library throws (a missing channel, a bad time domain, a sankey cycle).
- * Cost is one small paint (`docs/design/charts.md`'s mark-type fit, round
- * 3): 0.4 to 8 ms over 180 rows, an area the slowest.
+ * Cost is one small paint: 0.4 to 8 ms over 180 rows, an area the slowest.
+ * Restating the library's rules instead (two points per line series, a
+ * nonzero bar) was rejected: `fill` splitting, `group`/`stack`/`bin` and the
+ * heatmap's zero anchor make that a deep mirror that drifts.
  */
 export function chartsBuiltMarkProbe(built: Pick<ChartsBuiltMark, "mark" | "isDate">): ChartsDrawVerdict {
-  probeBase ??= (() => { const base = createChartsWorkbenchState(); return { ...base, chart: { ...base.chart, title: "", legend: false } }; })();
-  const state: ChartsWorkbenchState = {
-    ...probeBase, marks: [built.mark],
-    scales: { x: built.isDate ? { type: "time", min: "", max: "" } : probeBase.scales.x, y: probeBase.scales.y },
-  };
   try {
-    const spec = buildChartsWorkbenchSpec(state);
+    const spec = buildChartsWorkbenchSpec(chartsMarkTypeProbeState(built));
     const probe = { ...spec, marks: spec.marks.map((mark) => ({ ...mark, options: { ...mark.options, color: PROBE_COLOR } })) };
     return paintsProbeColor(renderGlyphChart(probe, PROBE_OPTIONS).html ?? "") ? "draws" : "blank";
   } catch { return "refused"; }
@@ -353,6 +363,34 @@ export function chartsBuiltMarkProbe(built: Pick<ChartsBuiltMark, "mark" | "isDa
 
 export function chartsBuiltMarkRenders(built: Pick<ChartsBuiltMark, "mark" | "isDate">): boolean {
   return chartsBuiltMarkProbe(built) === "draws";
+}
+
+/**
+ * The type picker's own live thumbnail (`ChartsMarkTypePicker.tsx`) — the
+ * SAME built mark the fit table already proved draws, rendered through the
+ * real library at a small size, so a tile can never promise a shape picking
+ * it won't actually produce (the diagrams shape menu's own trick, applied
+ * here to chart types). One text render per FITTING type only — an unfit
+ * type has no built mark to draw a thumbnail of; its tile shows the reason
+ * instead (`chartsMarkTypeFitTable`'s own `needs` sentence). `null` rows (no
+ * table loaded yet) thumbnail nothing.
+ */
+export function chartsMarkTypeThumbnails(
+  base: ChartsMarkTypeBase, table: ChartsMarkTypeFitTable, target: GlyphChartTarget,
+): Readonly<Partial<Record<GlyphChartMarkType, string>>> {
+  if (base.rows === null || base.rows.length === 0) return {};
+  const out: Partial<Record<GlyphChartMarkType, string>> = {};
+  for (const type of MARK_TYPES) {
+    const fit = table[type];
+    if (!fit.fits) continue;
+    const built = chartsBuildBoundMark(0, type, base.rows, fit.binding);
+    if (!built) continue;
+    try {
+      const spec = buildChartsWorkbenchSpec(chartsMarkTypeProbeState(built));
+      out[type] = renderGlyphChart(spec, { target, width: 22, height: 6 }).text;
+    } catch { /* the tile falls back to its own icon */ }
+  }
+  return out;
 }
 
 // ── The table ───────────────────────────────────────────────────────────
@@ -420,7 +458,7 @@ function computeFitTable(base: ChartsMarkTypeBase): ChartsMarkTypeFitTable {
 
 // Profiling, enumeration and one small probe paint per fitting type cost
 // 0.7 to 9 ms warm on the vendored datasets and 8 ms on 200 rows, the most
-// a remote load brings (`docs/design/charts.md`'s mark-type fit, round 3),
+// a remote load brings,
 // and the card asks on every render; the answer only changes with the rows.
 // A stable array (a vendored or remote dataset's own rows) is memoised by
 // identity AND its curated mapping, since the same rows with and without
@@ -490,6 +528,24 @@ function reshapedColumnsOf(rows: readonly TabularRow[], pipeline: readonly Pipel
     byPipeline.set(pipeline, reshaped.ok ? columnsOf(reshaped.rows) : null);
   }
   return byPipeline.get(pipeline)!;
+}
+
+/**
+ * The column TYPE behind each of the current mark's own fields
+ * (`chartMarkFields`, `chartsWorkbenchState.ts`) — the rail's own channel
+ * rows annotate a field option with this (`ChartsMarkCard.tsx`), so a reader
+ * sees what kind of column they are binding, not just its name. Profiled off
+ * the mark's OWN data (`mark.dataText` — post-reshape, whatever the chart
+ * currently draws), the same rows `chartMarkFields` itself reads. Empty for
+ * a bare number series (there are no named columns to type) or data that
+ * doesn't parse as tabular rows (an in-progress edit).
+ */
+export function chartsMarkFieldTypes(mark: Pick<ChartsWorkbenchMark, "dataText">): ReadonlyMap<string, ColumnProfile["type"]> {
+  try {
+    const data: unknown = JSON.parse(mark.dataText);
+    if (!Array.isArray(data) || data.length === 0 || data.some((row) => typeof row !== "object" || row === null || Array.isArray(row))) return new Map();
+    return new Map(profileRows(data as TabularRow[]).columns.map((c) => [c.name, c.type]));
+  } catch { return new Map(); }
 }
 
 /**
