@@ -183,11 +183,18 @@ describe("layout3d — force (unchanged by D2 round 7)", () => {
     const graph = groupedGraph();
     const a = await layout3d(graph, { layout: "force", seed: 42, iterations: 60 });
     const digest = a.nodes.map((nd) => nd.center.map((v) => Math.round(v * 1e6) / 1e6));
+    // Re-pinned when the force layout's ideal distance moved from
+    // `avgFootprint * 1.5` to `GLYPH_DIAGRAM_3D_FORCE_SPACING` (2.6) and
+    // began deriving that footprint from the size a node is actually DRAWN
+    // at. Every coordinate here is the previous golden times exactly
+    // 2.6/1.5 — a pure uniform scale, so the LAYOUT this pins is unchanged
+    // and only its spacing grew; the determinism clauses below are what the
+    // test exists for and were never affected.
     expect(digest).toEqual([
-      [0.979073, -4.44891, 9.906014],
-      [6.179078, 1.760646, -8.943187],
-      [-3.920407, 12.655014, -0.308775],
-      [0.794924, -18.734378, 27.71514],
+      [1.69706, -7.711444, 17.170425],
+      [10.710401, 3.051786, -15.501525],
+      [-6.795372, 21.935358, -0.53521],
+      [1.377869, -32.472922, 48.039576],
     ]);
     const b = await layout3d(graph, { layout: "force", seed: 42, iterations: 60 });
     expect(a.nodes.map((nd) => nd.center)).toEqual(b.nodes.map((nd) => nd.center));
@@ -293,6 +300,82 @@ describe("layout3d — size compression (D2 round 4, unaffected by D2 round 7's 
     const ratio = depth / Math.min(width, height);
     expect(ratio).toBeGreaterThan(0.5);
     expect(ratio).toBeLessThanOrEqual(0.6 + 1e-9);
+  });
+});
+
+describe("layout3d — sized-slab rank spacing (CNN layers unreadable in 3D)", () => {
+  // Same `size` on both nodes and every axis holds `compressExplicitSizes`
+  // at a no-op (raw === max on every axis, so compression's `(raw/max)^0.5`
+  // is exactly 1 and no 4x-ratio floor kicks in) — half-extents below are
+  // computed directly from `size`, not re-derived from the module's own
+  // formula, so this test can't pass by tautology.
+  //   size = [2, 10, 6] -> half = [1 (flow, LR), 3 (depth, Y), 5 (cross, Z)]
+  //   conservative (screenSafeFlowHalf) = 1 + 5 + 3 = 9 per node
+  //   tight (flow + depth only)          = 1 + 3     = 4 per node
+  const sizedPairNode = (id: string, label: string): GlyphGraph["nodes"][number] => ({ id, label, size: [2, 10, 6] });
+
+  it("LR: a rank gap where BOTH ranks carry an explicit `size` is spaced by flow+depth half-extents only, dropping cross (mutation: keep summing cross too) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "LR",
+      nodes: [sizedPairNode("a", "A"), sizedPairNode("b", "B")],
+      edges: [{ from: "a", to: "b" }],
+    };
+    const laid = await layout3d(graph, {});
+    const a = laid.nodes.find((n) => n.id === "a")!, b = laid.nodes.find((n) => n.id === "b")!;
+    // tight: (1+3) + GAP + (1+3) — GAP is small (module-internal, not
+    // exported); assert well under the conservative alternative (9+GAP+9)
+    // rather than pin the exact constant, so this test survives a GAP retune.
+    const gap = b.center[0] - a.center[0];
+    expect(gap).toBeCloseTo(8 + 5, 6); // matches GLYPH_DIAGRAM_3D_RANK_GAP_SIZED = 5 at time of writing
+    expect(gap).toBeLessThan(9 + 9 + 1); // well clear of the conservative bound (9+GAP+9 >= 23)
+  });
+
+  it("LR: a rank gap touching an UNSIZED neighbour stays on the full conservative bound, even when the other rank is sized (mutation: tighten per-node instead of per-gap) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "LR",
+      nodes: [sizedPairNode("a", "A"), sizedPairNode("b", "B"), { id: "c", label: "Plain, no size at all so it forces the conservative bound" }],
+      edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
+    };
+    const laid = await layout3d(graph, {});
+    const a = laid.nodes.find((n) => n.id === "a")!, b = laid.nodes.find((n) => n.id === "b")!, c = laid.nodes.find((n) => n.id === "c")!;
+    const sizedGap = b.center[0] - a.center[0];
+    const mixedGap = c.center[0] - b.center[0];
+    // b's OWN half-extent contribution must differ by gap: tight (4) into
+    // "a", conservative (9) into "c" — a per-node (not per-gap) tightening
+    // would make both gaps equal.
+    expect(mixedGap).toBeGreaterThan(sizedGap + 4); // conservative adds >= 5 more from b's side alone (9 vs 4)
+  });
+
+  it("TB: an all-sized rank pair still uses the FULL conservative bound — the LR/RL-only proof does not extend to a vertical flow (mutation: tighten TB/BT too) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "TB",
+      nodes: [sizedPairNode("a", "A"), sizedPairNode("b", "B")],
+      edges: [{ from: "a", to: "b" }],
+    };
+    const laid = await layout3d(graph, {});
+    const a = laid.nodes.find((n) => n.id === "a")!, b = laid.nodes.find((n) => n.id === "b")!;
+    // TB flow axis is Z; flowHalf = height/2 = 5, depthHalf = 3, crossHalf (X) = 1.
+    // Conservative: (5+1+3) + GAP + (5+1+3) = 9 + GAP + 9. TB's own flow
+    // direction is negative Z, so compare magnitudes.
+    const gap = Math.abs(a.center[2] - b.center[2]);
+    expect(gap).toBeCloseTo(9 + 5 + 9, 6);
+  });
+
+  it("an UNSIZED graph's layout is untouched byte-for-byte by the sized-pair spacing branch (mutation: let the tight branch fire without every node in BOTH ranks actually having a `size`) → red", async () => {
+    const graph: GlyphGraph = {
+      direction: "LR",
+      nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }, { id: "c", label: "C" }],
+      edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }],
+    };
+    const laid = await layout3d(graph, {});
+    const digest = laid.nodes.map((n) => ({ id: n.id, center: n.center.map((v) => Math.round(v * 1e6) / 1e6) }));
+    // Pinned against the pre-existing (pre-this-round) `screenSafeFlowHalf`-only
+    // formula — a label-derived chain with default `nodesep`/`ranksep`.
+    expect(digest).toEqual([
+      { id: "a", center: [10.5, 0, 0] },
+      { id: "b", center: [36.5, 0, 0] },
+      { id: "c", center: [62.5, 0, 0] },
+    ]);
   });
 });
 

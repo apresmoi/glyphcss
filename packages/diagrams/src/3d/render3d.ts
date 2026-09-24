@@ -625,10 +625,12 @@ export async function renderGlyphDiagram3d(input: GlyphGraph | string, options: 
   const [object, layout] = await Promise.all([
     // `edgeRender` follows the RESOLVED mode: a wireframe traces lines, so
     // one degenerate face per segment is a real line there; a solid mode
-    // has no area to shade from one and keeps the ribbon.
+    // has no area to shade from one and keeps the ribbon. An EXPLICIT
+    // caller value wins — `"none"` (a conv-net slab stack, which has no
+    // connectors at all) has no mode-derived equivalent to fall back to.
     glyphDiagramObject(graph, {
       ...resolvedOptions, labelNodeIds, arrowheads: resolvedArrowheads,
-      edgeRender: mode === "wireframe" ? "thin" : "ribbon",
+      edgeRender: resolvedOptions.edgeRender ?? (mode === "wireframe" ? "thin" : "ribbon"),
     }),
     layout3d(graph, resolvedOptions),
   ]);

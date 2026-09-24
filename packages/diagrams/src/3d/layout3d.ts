@@ -182,6 +182,19 @@ const GLYPH_DIAGRAM_3D_RING_GAP = 7;
 const GLYPH_DIAGRAM_3D_RING_LABEL_UNIT = 1;
 /** Clearance (world units), beyond both ranks' own along-flow half-extents, between consecutive rank planes. */
 const GLYPH_DIAGRAM_3D_RANK_GAP = 5;
+/**
+ * Clearance (world units) between two consecutive rank planes that are
+ * BOTH made entirely of explicitly-`size`d nodes — used INSTEAD of
+ * `screenSafeFlowHalf`/`GLYPH_DIAGRAM_3D_RANK_GAP` for that one pair (the
+ * "sized-slab" spacing fix; this file's own `sizedRankFlowHalf` doc has the
+ * full rationale). Left at `GLYPH_DIAGRAM_3D_RANK_GAP`'s own value — the
+ * defect this fixes was never the GAP constant, only `screenSafeFlowHalf`
+ * folding in two axes (cross, depth) that a sized slab's own authored
+ * spatial face makes huge for no along-flow reason; once spacing is keyed
+ * to the flow axis alone, the existing gap already reads as comfortable
+ * clearance (measured directly on the LeNet-5 fixture below).
+ */
+const GLYPH_DIAGRAM_3D_RANK_GAP_SIZED = 5;
 /** First rank's own ring base angle (degrees) — chosen so the FIRST sibling (dagre order 0) lands front-left (negative cross-axis, positive depth) rather than on an axis. */
 const GLYPH_DIAGRAM_3D_RING_BASE_ANGLE = 135;
 /** Per-rank ring rotation increment (degrees) — has no small common period against 360, so consecutive fans never realign to the identical pattern ("alternate orientation rank to rank so consecutive fans interleave"). */
@@ -481,13 +494,67 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   // all three, rather than scaling by the camera's own per-axis
   // coefficients, is simple and safely over-spaces rather than under).
   const screenSafeFlowHalf = (n: GlyphDiagramPositionedNode) => flowHalfOf(n) + crossHalfOf(n) + depthHalfOf(n);
-  let frontier = 0;
-  const rankFlowCoord: number[] = [];
-  for (const idxs of clusters) {
-    const maxFlowHalf = Math.max(...idxs.map((i) => screenSafeFlowHalf(laid.nodes[i]!)));
-    const center = frontier + maxFlowHalf;
-    rankFlowCoord.push(center);
-    frontier = center + maxFlowHalf + GLYPH_DIAGRAM_3D_RANK_GAP;
+
+  /**
+   * Sized-slab rank spacing (task: "CNN layers unreadable in 3D"). A node
+   * with an explicit `size` authors its OWN cross/depth extent as real
+   * data (a tensor's own spatial face) — for a thin, wide activation map
+   * (`size: [1, 32, 32]`, channels tiny, face huge) `screenSafeFlowHalf`
+   * folds that huge face into the ALONG-FLOW spacing twice per rank gap
+   * (once from each neighbour), pushing centres roughly 3x the node's own
+   * thickness apart even though the face's OWN axes never need to double
+   * up along flow. The conservative bound stays exactly in force for a
+   * label-derived (unsized) node, where cross/depth are a GUESS
+   * (`GLYPH_DIAGRAM_3D_DEPTH_FACTOR`/label width, not authored data) and
+   * still need the safety margin the bound's own doc above measured.
+   *
+   * The tight bound below is not a looser heuristic — it drops exactly the
+   * ONE term `screenSafeFlowHalf` sums that a horizontal flow's (LR/RL)
+   * camera projection can PROVE never reaches the screen column, for any
+   * `rotX`/`rotY`: `rotateVec3Voxcss` (glyphcss's camera; see its own
+   * comments) computes yaw (`rotY`) FIRST, entirely from world X/Y, and
+   * only THEN applies pitch (`rotX`) to produce row — so the projected
+   * COLUMN is a function of world X/Y alone; world Z (this module's own
+   * CROSS axis for a horizontal flow, `crossHalfOf`) has a column
+   * derivative of EXACTLY ZERO, structurally, not just at the module's own
+   * tuned default camera. Dropping `crossHalfOf` from the along-flow bound
+   * for a horizontal flow therefore keeps the SAME "no projected column
+   * overlap" guarantee `screenSafeFlowHalf` was built for, just without
+   * the one term that provably never contributes to it.
+   *
+   * No axis has that same zero-derivative property for ROW (a TB/BT flow's
+   * own relevant screen axis) — pitch mixes X, Y AND Z into row, for every
+   * `rotX`/`rotY` — so a TB/BT sized pair keeps the FULL conservative
+   * `screenSafeFlowHalf` bound; this tightening is LR/RL only, a real
+   * scope limit (not an oversight): a TB/BT sized-slab diagram is
+   * unverified and untested here, so it stays exactly as conservative as
+   * before rather than trading an unmeasured guess for the CNN fix.
+   *
+   * The gap decision is per-GAP (`rankAllSized`/`sizedGapBetween` below),
+   * not per-node, so a graph mixing sized and unsized ranks keeps the
+   * conservative bound at every gap touching an unsized rank.
+   */
+  const rankAllSized = (idxs: readonly number[]) => idxs.every((i) => compressedSizes.has(laid.nodes[i]!.id));
+  const clusterSized = clusters.map(rankAllSized);
+  const sizedTightFlowHalf = (n: GlyphDiagramPositionedNode) => horizontalFlow ? flowHalfOf(n) + depthHalfOf(n) : screenSafeFlowHalf(n);
+  const conservativeHalfOfRank = clusters.map((idxs) => Math.max(...idxs.map((i) => screenSafeFlowHalf(laid.nodes[i]!))));
+  const tightHalfOfRank = clusters.map((idxs) => Math.max(...idxs.map((i) => sizedTightFlowHalf(laid.nodes[i]!))));
+
+  const rankFlowCoord: number[] = clusters.length === 0 ? [] : [conservativeHalfOfRank[0]!];
+  for (let rank = 1; rank < clusters.length; rank++) {
+    // `horizontalFlow` is part of the gate, not just `sizedTightFlowHalf`'s
+    // own fallback: for TB/BT `tightHalfOfRank` already EQUALS
+    // `conservativeHalfOfRank` (the LR/RL-only proof above doesn't apply),
+    // but without this check here too, a TB/BT sized pair would still pick
+    // `GLYPH_DIAGRAM_3D_RANK_GAP_SIZED` for its GAP constant — harmless
+    // only because that constant is currently tuned equal to
+    // `GLYPH_DIAGRAM_3D_RANK_GAP`, a coincidence a future retune of either
+    // constant would silently break.
+    const sizedGapBetween = horizontalFlow && clusterSized[rank - 1] && clusterSized[rank];
+    const prevHalf = sizedGapBetween ? tightHalfOfRank[rank - 1]! : conservativeHalfOfRank[rank - 1]!;
+    const curHalf = sizedGapBetween ? tightHalfOfRank[rank]! : conservativeHalfOfRank[rank]!;
+    const gap = sizedGapBetween ? GLYPH_DIAGRAM_3D_RANK_GAP_SIZED : GLYPH_DIAGRAM_3D_RANK_GAP;
+    rankFlowCoord.push(rankFlowCoord[rank - 1]! + prevHalf + gap + curHalf);
   }
 
   // D2 round 8 — a rank's own longest side-label text, in CHARACTERS
@@ -601,6 +668,17 @@ async function layoutLayered(graph: GlyphGraph, options: GlyphDiagram3dLayoutOpt
   return { nodes, edges, groups, ledger };
 }
 
+/**
+ * Ideal-distance multiplier for the force simulation. Swept against the
+ * measured count of OVERLAPPING projected node boxes on a 10-node mesh at
+ * 2x node sizes: 1.5 -> 4 overlapping pairs (45% of the frame covered by
+ * nodes), 2.0 -> 2, 2.6 -> 1 at 13%, 3.2 -> 0 but the nodes fall to 13% of
+ * the frame because the auto-fit zooms out to hold the wider layout. 2.6 is
+ * the knee: the one remaining overlap is a 13% clip of the smaller box,
+ * against nodes still covering 18% of the frame.
+ */
+const GLYPH_DIAGRAM_3D_FORCE_SPACING = 2.6;
+
 async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptions): Promise<GlyphDiagram3dLayout> {
   const seed = options.seed ?? 1;
   const iterations = options.iterations ?? 300;
@@ -616,8 +694,18 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
     degree.set(edge.to, (degree.get(edge.to) ?? 0) + 1);
   }
 
-  const avgFootprint = measured.nodes.reduce((s, m) => s + Math.max(m.width, m.height), 0) / Math.max(1, count);
-  const k = Math.max(4, avgFootprint * 1.5);
+  // The simulation's ideal distance must be derived from the size the node
+  // is actually DRAWN at. It used to read only the label-measured 2D
+  // footprint while the node below is built from `compressExplicitSizes`,
+  // so a graph with explicit `size` was positioned as if small and then
+  // rendered large: measured on a 10-node mesh at 2x sizes, 19 of 45 node
+  // pairs overlapped on screen and the nodes covered 101% of the frame.
+  const forceCompressedSizes = compressExplicitSizes(graph.nodes);
+  const avgFootprint = measured.nodes.reduce((s, m) => {
+    const c = forceCompressedSizes.get(m.id);
+    return s + (c ? Math.max(c[0], c[1], c[2]) : Math.max(m.width, m.height));
+  }, 0) / Math.max(1, count);
+  const k = Math.max(4, avgFootprint * GLYPH_DIAGRAM_3D_FORCE_SPACING);
   const spread = k * Math.cbrt(count + 1);
 
   const pos: Vec3[] = measured.nodes.map(() => [
@@ -671,7 +759,6 @@ async function layoutForce(graph: GlyphGraph, options: GlyphDiagram3dLayoutOptio
     temperature *= cooling;
   }
 
-  const forceCompressedSizes = compressExplicitSizes(graph.nodes);
   const nodes: GlyphDiagram3dNode[] = measured.nodes.map((m, i) => {
     const compressed = forceCompressedSizes.get(m.id);
     const [width, height, depth] = compressed ?? [Math.max(m.width, 12), 7, 2.4];

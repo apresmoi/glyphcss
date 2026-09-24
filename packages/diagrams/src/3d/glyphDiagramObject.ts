@@ -320,10 +320,12 @@ export function resolveGlyphDiagram3dLabelPlacement(
     const faceWidthCells = screenWidthCols !== undefined
       ? Math.max(1, Math.floor(screenWidthCols) - 2)
       : Math.max(1, Math.floor(node.half[0] * 2));
+    // The front face's own CENTRE, not its top edge: a label anchored at the
+    // top sits ON the silhouette rather than over the solid, which reads as
+    // a caption floating above the node instead of a name written on it.
     const front: Vec3 = [node.center[0], node.center[1] - node.half[1], node.center[2]];
-    const top: Vec3 = [front[0], front[1], node.center[2] + node.half[2]];
     const text = rawText.length > faceWidthCells ? rawText.slice(0, faceWidthCells) : rawText;
-    return { anchor: top, text, isSide: false };
+    return { anchor: front, text, isSide: false };
   }
   if (sideDirection === "below") {
     const bottom: Vec3 = [node.center[0], node.center[1], node.center[2] - node.half[2]];
@@ -613,7 +615,15 @@ export interface GlyphDiagramObjectOptions extends GlyphDiagram3dLayoutOptions {
    * AREA, so it paints nothing in a solid mode; `render3d.ts` resolves this
    * from the render's own mode and keeps the ribbon for `blocks`.
    */
-  readonly edgeRender?: "ribbon" | "thin";
+  /**
+   * `"none"` draws NO edge geometry and no arrowheads at all — the edges
+   * still drive dagre's rank order, they simply paint nothing. USER
+   * FEEDBACK, verbatim: "convolutional nets do not have links, they are
+   * just slabs some parallel some placed one after the other". A layer
+   * stack reads from the slabs' own succession, so a connector between two
+   * abutting slabs is frame around the data, exactly like `groupOutlines`.
+   */
+  readonly edgeRender?: "ribbon" | "thin" | "none";
   /**
    * Draw each group's own wireframe box. Default `false` — USER FEEDBACK,
    * verbatim: "can we remove the box around the nodes? thats annoying
@@ -693,8 +703,9 @@ export async function glyphDiagramObject(graph: GlyphGraph, options: GlyphDiagra
     meshes.push({ name: `node:${node.id}`, polygons: nodePolygons(node, color), options: { castShadow: true, receiveShadow: true } });
   }
 
-  const thinEdges = (options.edgeRender ?? "ribbon") === "thin";
-  layout.edges.forEach((edge, i) => {
+  const edgeRender = options.edgeRender ?? "ribbon";
+  const thinEdges = edgeRender === "thin";
+  if (edgeRender !== "none") layout.edges.forEach((edge, i) => {
     const polygons: Polygon[] = [];
     for (let s = 0; s < edge.points.length - 1; s++) {
       const a = edge.points[s]!, b = edge.points[s + 1]!;

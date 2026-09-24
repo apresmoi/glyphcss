@@ -324,6 +324,17 @@ describe("glyphDiagramObject", () => {
     expect(placement.text).toBe("conv 28x2"); // 6 cells wide, clipped verbatim, no ellipsis
   });
 
+  it("an inside label is CENTRED on the node, not perched on its top edge (mutation: anchor at center[2] + half[2]) → red", () => {
+    const node = { id: "n", label: "Ingest", shape: "rect" as const,
+      center: [3, 4, 5] as const, half: [4, 1, 2] as const, kind: undefined, group: undefined, degree: 0 };
+    const placement = resolveGlyphDiagram3dLabelPlacement(node as any, "Ingest", "inside");
+    expect(placement.isSide).toBe(false);
+    // the front face's own centre: x and z are the node's own centre, y the near face
+    expect(placement.anchor[0]).toBe(node.center[0]);
+    expect(placement.anchor[2]).toBe(node.center[2]);          // NOT center[2] + half[2]
+    expect(placement.anchor[1]).toBe(node.center[1] - node.half[1]);
+  });
+
   it("a side label's leader touches its own object — leaderFrom sits exactly on the node's own edge (mutation: drop the + half[0] offset) → red", () => {
     const node = { id: "n", label: "n", shape: "rect" as const,
       center: [5, 2, 1] as const, half: [1, 1, 0.5] as const, kind: undefined, group: undefined, degree: 0 };
@@ -353,5 +364,20 @@ describe("glyphDiagramObject", () => {
   it("a solo node with no edges/groups still renders a real node mesh and nothing else (isolation sanity check)", async () => {
     const object = await glyphDiagramObject(soloGraph, {});
     expect(object.meshes.map((m) => m.name)).toEqual(["node:solo"]);
+  });
+});
+
+describe("edgeRender: none", () => {
+  it("draws no edge or arrowhead mesh at all, while the nodes are untouched (mutation: drop the none guard) → red", async () => {
+    const graph = { direction: "LR" as const,
+      nodes: [{ id: "a", label: "A", shape: "rect" as const }, { id: "b", label: "B", shape: "rect" as const }],
+      edges: [{ from: "a", to: "b" }] };
+    const withEdges = await glyphDiagramObject(graph, { edgeRender: "thin" });
+    const without = await glyphDiagramObject(graph, { edgeRender: "none" });
+    expect(withEdges.meshes.some((m) => m.name.startsWith("edge:"))).toBe(true);
+    expect(without.meshes.some((m) => m.name.startsWith("edge:"))).toBe(false);
+    // the nodes themselves are identical either way
+    const nodeNames = (o: typeof without) => o.meshes.filter((m) => m.name.startsWith("node:")).map((m) => m.name).sort();
+    expect(nodeNames(without)).toEqual(nodeNames(withEdges));
   });
 });
