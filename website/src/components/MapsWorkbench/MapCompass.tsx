@@ -23,7 +23,7 @@
  * same corner for one camera is how a map ends up with chrome nobody reads.
  * It shows whichever angles are actually off home, and resets both.
  */
-import { mapBearingIsNorth, mapOrientIsHome, mapTiltIsLevel } from "./mapsView";
+import { mapBearingIsNorth, mapOrientIsHome, mapTiltIsLevel } from "../../features/maps/model/mapsView";
 
 export interface MapCompassProps {
   /** The pitch the camera actually has, degrees (the widget's `getTilt()`, not the page's request). */
@@ -41,7 +41,24 @@ export interface MapCompassProps {
  * carry honestly — the number beside it is the precise value, so this only
  * has to say roughly where you are pointing.
  */
-const COMPASS_POINTS = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"] as const;
+const COMPASS_POINTS = [
+  "N",
+  "NNE",
+  "NE",
+  "ENE",
+  "E",
+  "ESE",
+  "SE",
+  "SSE",
+  "S",
+  "SSW",
+  "SW",
+  "WSW",
+  "W",
+  "WNW",
+  "NW",
+  "NNW",
+] as const;
 
 export function mapCompassPoint(bearing: number): string {
   const norm = ((bearing % 360) + 360) % 360;
@@ -84,8 +101,12 @@ export function MapCompass({ tilt, bearing, isOrbitProjection, onReset }: MapCom
           <path d="M8 1 L11 12 L8 9.6 L5 12 Z" fill="currentColor" />
         </svg>
       </span>
-      <span className="maps-compass__angles" aria-hidden="true">{parts.join(" · ")}</span>
-      <span className="maps-compass__label" aria-hidden="true">Reset</span>
+      <span className="maps-compass__angles" aria-hidden="true">
+        {parts.join(" · ")}
+      </span>
+      <span className="maps-compass__label" aria-hidden="true">
+        Reset
+      </span>
     </button>
   );
 }

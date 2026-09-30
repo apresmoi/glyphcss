@@ -30,16 +30,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  LayersPanel,
-  MAP_SCENE_GLYPH_PALETTE,
-  MAP_SCENE_RENDER_MODE,
-  type DatasetsLayerInputs,
-  type ExtraLayerInputs,
-  type LayersFolderInputs,
-} from "./mapsKit";
-import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "./mapsOsm";
-import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS, mapDatasetRowTooltip } from "./mapsDatasets";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { type DatasetsLayerInputs, type ExtraLayerInputs, type LayersFolderInputs } from "./LayersPanel/types";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "../../features/maps/model/mapsOsm";
+import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS, mapDatasetRowTooltip } from "../../features/maps/model/mapsDatasets";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;

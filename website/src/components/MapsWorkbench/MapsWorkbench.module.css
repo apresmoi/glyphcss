@@ -1,0 +1,712 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+
+.root :global(.maps-viewport) {
+  touch-action: none;
+}
+.root :global(.maps-viewport) :global(.glyph-output) {
+  color: var(--gc-text);
+  cursor: grab;
+  touch-action: none;
+}
+.root :global(.maps-viewport) :global(.glyph-output):active {
+  cursor: grabbing;
+}
+
+/* Above `.maps-search` (z-index 20), which shares the top edge: when terrain
+   fails to load, the banner explaining why must not be painted over by the
+   search box. */
+.root :global(.maps-error) {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 12px;
+  z-index: 22;
+  padding: 10px 14px;
+  background: rgba(var(--gc-surface-rgb), 0.9);
+  border: 1px solid rgba(var(--gc-warning-rgb), 0.4);
+  color: var(--gc-text);
+  font-size: 12px;
+}
+.root :global(.maps-attribution) {
+  position: absolute;
+  right: var(--overlay-right, 12px);
+  bottom: 12px;
+  z-index: 17;
+  --maps-credit-names: 3;
+  max-width: calc(100% - 24px);
+  display: flex;
+  justify-content: flex-end;
+}
+/* The collapsed line. One row by construction — `white-space: nowrap` plus an
+   ellipsis, so a provider with a long name can shorten the line but can never
+   wrap it into a second row and take a row of terrain with it. */
+.root :global(.maps-attribution__toggle) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  margin: 0;
+  padding: 3px var(--gc-space-2);
+  font: inherit;
+  font-family: var(--gc-font-ui);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--gc-text-muted);
+  background: rgba(var(--gc-surface-rgb), 0.72);
+  border: 1px solid var(--gc-rule);
+  border-radius: 3px;
+  cursor: pointer;
+  text-align: left;
+}
+.root :global(.maps-attribution__toggle):hover,
+.root :global(.maps-attribution__toggle):focus-visible {
+  color: var(--gc-text);
+  border-color: rgba(var(--gc-accent-rgb), 0.5);
+}
+.root :global(.maps-attribution__notice) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The count of what is behind the affordance — the part that makes the
+   collapse honest rather than a truncation the reader can't see. */
+.root :global(.maps-attribution__more) {
+  flex: 0 0 auto;
+  color: var(--gc-accent);
+  font-variant-numeric: tabular-nums;
+}
+/* Open, the notice is a popover and outranks the corner controls it grows
+   past — `.maps-walk` sits directly above it at z-index 20 and otherwise
+   punches a hole in the panel's own corner. */
+.root :global(.maps-attribution):global(.is-open) {
+  z-index: 24;
+}
+.root :global(.maps-attribution):global(.is-open) :global(.maps-attribution__toggle) {
+  color: var(--gc-text);
+  border-color: rgba(var(--gc-accent-rgb), 0.5);
+}
+/* The full notice, opened upward so it never covers the line that opened it.
+   `AttributionCredit` renders its clusters inline; one source per ROW here,
+   because the wall of wrapped clusters with orphaned separators is exactly
+   what this replaces. */
+.root :global(.maps-attribution__detail) {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 1;
+  width: max-content;
+  max-width: min(420px, calc(100vw - 24px));
+  background: rgba(var(--gc-surface-rgb), 0.96);
+  border: 1px solid var(--gc-rule);
+  border-radius: 3px;
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.5);
+}
+.root :global(.maps-attribution__detail) :global(.model-credit) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 0;
+  padding: 6px 9px;
+  border-top: none;
+}
+.root :global(.maps-attribution__detail) :global(.model-credit__source) {
+  display: block;
+}
+/* The between-source space `AttributionCredit` emits inline; a column layout
+   already separates them, and a stray blank row reads as a missing entry. */
+.root :global(.maps-attribution__detail) :global(.model-credit__sep--source) {
+  display: none;
+}
+.root :global(.maps-layers-list) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-2);
+  padding-bottom: 9px;
+  margin-bottom: 9px;
+  border-bottom: 1px solid var(--gc-rule);
+}
+.root :global(.maps-layer-check) {
+  flex: 1;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+}
+/* The collapse/expand caret button sits at the head row's trailing edge —
+   `.layer-group-head` is a plain flex row with no `justify-content`
+   assumption of its own, so this is the one rule needed to push it there. */
+.root :global(.maps-layer-background-row) {
+  padding-block: var(--gc-space-2);
+}
+/* Card-header weight for the one row that IS a card in the stack's rhythm,
+   while its geometry stays the shared Dock row below. */
+.root :global(.maps-layer-background-row) :global(.maps-layer-color-row) > span:first-child {
+  font-size: 12px;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) {
+  gap: 5px;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.voice-slider),
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-select-row),
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-color-row),
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-info-row),
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-bool-row),
+.root :global(.maps-layer-background-row) :global(.maps-layer-color-row) {
+  display: grid;
+  grid-template-columns: 45% minmax(0, 1fr) 60px;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  font-size: 11px;
+}
+/* The name column — the Dock's `.controller .name`: 11px, 0.70 amber,
+   `white-space: pre` (never wraps; a long one is clipped, and every row
+   carries its own `title`). */
+.root :global(.maps-layer-card) :global(.maps-layer-body) > label > span:first-child,
+.root :global(.maps-layer-card) :global(.maps-layer-body) > div > span:first-child,
+.root :global(.maps-layer-background-row) :global(.maps-layer-color-row) > span:first-child {
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A widget with no value column of its own fills columns 2-3, mirroring
+   `.controller.option`/`.controller.disabled`, whose `.widget` takes all of
+   the row after `.name`. */
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-select-row) :global(.gx-select),
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-info-value),
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-bool-check) {
+  grid-column: 2 / 4;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-layer-bool-check) {
+  gap: 0;
+  cursor: default;
+}
+/* The value input. The shared base already gives it the Dock's colour,
+   weight, right alignment and dotted underline; what is left is the 5px
+   gutter the base cancels with `margin-left: -7px` (it hugs the `]` on
+   /synth) — the Dock instead separates value from slider by `--spacing`,
+   which this grid's own `gap` supplies. */
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.voice-slider-readout) {
+  margin-left: 0;
+}
+
+/* Colour — the Dock's `.controller.color`: the swatch is a 10px bracketed
+   bar filling the widget (its own `[ ]` come from `.voice-slider-track`,
+   shared with the sliders so both read as one control family), with the
+   real `<input type="color">` as the bar itself, plus an editable hex
+   field in the value column. Replaces an 18px square swatch that had no
+   counterpart in the Dock and no way to type a colour. */
+.root :global(.maps-layer-swatch) input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--gc-text-faint);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(var(--gc-accent-rgb), 0.25);
+}
+.root :global(.maps-layer-swatch) input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.root :global(.maps-layer-swatch) input[type="color"]::-webkit-color-swatch {
+  border: none;
+}
+.root :global(.maps-layer-swatch) input[type="color"]::-moz-color-swatch {
+  border: none;
+}
+/* The hex field — the Dock's `.controller.color input[type="text"]`: the
+   value readout's chrome, at the Dock's dimmer amber rather than the
+   number rows' cyan. */
+.root :global(.maps-layer-hex) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: right;
+  padding: 1px 0;
+  color: var(--gc-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted var(--gc-rule);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.root :global(.maps-layer-hex):hover {
+  border-bottom-color: var(--gc-text-faint);
+}
+.root :global(.maps-layer-hex):focus-visible {
+  border-bottom-color: rgba(var(--gc-accent-rgb), 0.8);
+}
+/* Read-only provenance — the Dock's own read-only row (`useReadonlyText`
+   calls `setEnabled(false, { dim: false })`, so the row is NOT dimmed and
+   only its input is disabled): a plain right-aligned cyan number at the
+   same 11px, no bar and no border. */
+.root :global(.maps-layer-info-value) {
+  color: var(--gc-accent);
+  font-size: 11px;
+  text-align: right;
+}
+/* A tile that did not arrive is a THINNER frame, not an error — amber (the
+   page's own text colour), never red. */
+.root :global(.maps-layer-info-warn) {
+  color: var(--gc-text-muted);
+}
+.root :global(.maps-layer-slider--off) {
+  opacity: 0.5;
+}
+.root :global(.maps-layer-slider--off) > span:first-child {
+  color: var(--gc-text-faint);
+}
+.root :global(.maps-layer-slider--off) input[type="range"] {
+  cursor: not-allowed;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.voice-slider-readout):disabled {
+  opacity: 1;
+  border-bottom-color: transparent;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-osm-row-widget) {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.root
+  :global(.maps-layer-card)
+  :global(.maps-layer-body)
+  :global(.maps-osm-row-widget)
+  :global(.maps-layer-bool-check) {
+  flex: none;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-osm-row-widget) :global(.voice-slider-track) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-row) {
+  grid-template-columns: 38% auto minmax(0, 1fr);
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-row) :global(.maps-osm-row-widget) {
+  flex: none;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-row) :global(.maps-layer-info-value) {
+  grid-column: 3;
+}
+/* The reason line under a failed row. The arrow is a CONTINUATION MARK, not a
+   name, so it takes only its own width and the message takes the rest —
+   otherwise 45% of the row is spent on one glyph and the sentence wraps
+   inside a third of the card. */
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-note) {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-note) :global(.maps-layer-info-value) {
+  grid-column: 2;
+  white-space: normal;
+}
+.root
+  :global(.maps-layer-card)
+  :global(.maps-layer-body)
+  :global(.maps-osm-row--labelled)
+  :global(.maps-osm-row-widget) {
+  grid-column: 2 / 4;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-osm-anchor) {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The rail's own segmented control at ROW scale. `.gx-toggle-btn`'s base
+   padding is `4px 0`, sized for /synth's full-width voice rows; inside a
+   24px card row that makes the row grow. Trimmed to the row's own height
+   here and nowhere else — a descendant selector, never a redeclaration of
+   the shared class (see this file's header). */
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-osm-anchor) :global(.gx-toggle) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-osm-anchor) :global(.gx-toggle-btn) {
+  padding: 1px 0;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-osm-anchor) svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* A row whose DENSITY is gated: the row is switched off, so its control has
+   nothing to act on until it comes back. Same treatment as
+   `.maps-layer-slider--off` (0.5 opacity, `not-allowed`, tooltip left
+   reachable) but scoped to the density control, because the TOGGLE on this
+   row is live and dimming the name beside it would say otherwise.
+
+   The `symbol`/`circle` rows used to take this class too. They no longer
+   carry a density control at all, so there is nothing left to dim. */
+.root :global(.maps-osm-row--density-off) :global(.voice-slider-track),
+.root :global(.maps-osm-row--density-off) :global(.voice-slider-readout) {
+  opacity: 0.5;
+}
+.root :global(.maps-osm-row--density-off) input[type="range"] {
+  cursor: not-allowed;
+}
+.root :global(.glyph-scene) :global(.glyph-map-symbol),
+.root :global(.glyph-scene) :global(.glyph-map-circle) {
+  pointer-events: none;
+  cursor: default;
+}
+.root :global(.glyph-scene) :global(.glyph-map-symbol) {
+  font: 500 10px/1 var(--gc-font-ui);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  /* An outline rather than a filled plate: a box would blank the glyph grid
+     under it, which is the whole picture on this page. */
+  text-shadow:
+    0 0 2px rgba(var(--gc-surface-rgb), 0.95),
+    0 1px 0 rgba(var(--gc-surface-rgb), 0.95),
+    0 -1px 0 rgba(var(--gc-surface-rgb), 0.95),
+    1px 0 0 rgba(var(--gc-surface-rgb), 0.95),
+    -1px 0 0 rgba(var(--gc-surface-rgb), 0.95);
+  transition: opacity 120ms linear;
+}
+.root :global(.glyph-scene) :global(.glyph-map-circle) {
+  border: 1px solid rgba(var(--gc-surface-rgb), 0.85);
+  box-sizing: border-box;
+  opacity: 0.75;
+}
+.root :global(.maps-search) {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.maps-search-metric--place) {
+  color: var(--gc-accent);
+}
+.root :global(.maps-search-metric--country) {
+  color: var(--gc-text-muted);
+}
+/* An OSM row's metric is a WORD (`tower`, `street`), not a number, so it does
+   not take the readout cyan the population column has — that colour means
+   "measured value" everywhere else on this page. */
+.root :global(.maps-search-metric--osm) {
+  color: var(--gc-text-muted);
+  font-style: italic;
+}
+
+@media (max-width: 1100px) {
+  /* Clear of the mobile tab bar's own chrome; still centred, still an
+     overlay. */
+  .root :global(.maps-search) {
+    width: calc(100% - 24px);
+  }
+  .root :global(.maps-search) :global(.instrument-search-list) {
+    max-height: min(38vh, 240px);
+  }
+}
+.root :global(.maps-compass) {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  right: 12px;
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--gc-text);
+  background: rgba(var(--gc-surface-rgb), 0.9);
+  border: 1px solid var(--gc-text-faint);
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.4);
+  cursor: pointer;
+}
+.root :global(.maps-compass):hover,
+.root :global(.maps-compass):focus-visible {
+  border-color: rgba(var(--gc-accent-rgb), 0.55);
+}
+/* The angle carries the same orange the Dock uses for a live value, so the
+   readout reads as state and the word next to it reads as the action. */
+.root :global(.maps-compass__angles) {
+  color: var(--gc-orange);
+  font-variant-numeric: tabular-nums;
+}
+/* The needle points where north is, so it has to sit on the text baseline's
+   optical centre rather than on the baseline itself. */
+.root :global(.maps-compass__needle) {
+  display: inline-flex;
+  align-self: center;
+  color: rgba(var(--gc-text-rgb), 0.8);
+}
+.root :global(.maps-compass__label) {
+  color: var(--gc-text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+/* The Shadows row's "nothing mounted casts" note (`mapShadowCasterReason`).
+   Same register as `.maps-search-note` — a quiet line UNDER the control it
+   qualifies, not a badge on it — because the toggle stays live on purpose: a
+   reader about to mount a buildings layer must still be able to arm it. Only
+   rendered while shadows are ON; a caveat under an off switch is noise. */
+.root :global(.dn-floating-controls) :global(.lil-gui) :global(.maps-shadow-note) {
+  margin: 2px 0 var(--gc-space-1);
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--gc-text-muted);
+}
+
+/* The on-map WALK control — the third of this page's map overlays, matching
+   `.maps-compass` (top right) and `.maps-search` (top centre) in register and
+   in stacking, and taking the bottom-right corner, which is the one corner
+   nothing else claims (`.synth-export-bar` is bottom left, `.maps-attribution`
+   bottom centre). See `MapWalkButton.tsx` for why walk is chrome ON the map
+   rather than a Dock row. */
+.root :global(.maps-walk) {
+  position: absolute;
+  right: 12px;
+  /* Above the credit line, which owns the bottom-right corner (Google Maps
+     stacks its pegman over its own credit strip for the same reason). */
+  bottom: calc(12px + var(--maps-credit-row, 0px));
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.root :global(.maps-walk__toggle) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--gc-text);
+  background: rgba(var(--gc-surface-rgb), 0.9);
+  border: 1px solid var(--gc-text-faint);
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.4);
+  cursor: pointer;
+}
+.root :global(.maps-walk__toggle):hover:not(:disabled),
+.root :global(.maps-walk__toggle):focus-visible {
+  border-color: rgba(var(--gc-accent-rgb), 0.55);
+}
+/* Greyed, never hidden — the reader is one zoom (or one projection) away, and
+   the reason is on the control's own `title`. Google's pegman greys in exactly
+   the same situation and for exactly the same reason. */
+.root :global(.maps-walk__toggle):disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* Live: the same orange the Dock uses for a value that is in force, so the
+   control reads as state rather than as a button that was pressed once. */
+.root :global(.maps-walk__toggle):global(.is-walking) {
+  color: var(--gc-orange);
+  border-color: rgba(var(--gc-orange-rgb), 0.55);
+}
+.root :global(.maps-walk__label) {
+  text-transform: uppercase;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+/* The keys, shown only while walking: pointer lock hides the cursor, so
+   nothing else on screen hints at them. */
+.root :global(.maps-walk__legend) {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--gc-space-1) 10px;
+  margin: 0;
+  max-width: min(320px, calc(100vw - 40px));
+  padding: 5px 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  background: rgba(var(--gc-surface-rgb), 0.9);
+  border: 1px solid var(--gc-rule);
+}
+.root :global(.maps-walk__legend) kbd {
+  font: inherit;
+  padding: 0 var(--gc-space-1);
+  color: var(--gc-text);
+  border: 1px solid var(--gc-text-faint);
+}
+.root :global(.maps-walk__budget) {
+  color: var(--gc-orange);
+  font-variant-numeric: tabular-nums;
+}
+.root :global(.maps-minimap) {
+  position: absolute;
+  left: var(--overlay-left, 12px);
+  bottom: calc(12px + 34px);
+  z-index: 16;
+  pointer-events: none;
+  border: 1px solid var(--gc-text-faint);
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.4);
+  background: rgba(var(--gc-surface-rgb), 0.9);
+}
+/* Shrink-to-fit around the `<pre>`, so the cone's percentage width is a
+   percentage of the RENDERED grid rather than of some box the grid happens to
+   sit inside. `.glyph-scene` is `display: block` and the `<pre>` inside it is
+   `inline-block`, so an inline-block frame takes the grid's own width. */
+.root :global(.maps-minimap__frame) {
+  position: relative;
+  display: inline-block;
+  vertical-align: bottom;
+}
+/* 48x26 cells at a 7px cell is a ~202x182 px inset — `line-height: 1` comes
+   from glyphcss's own base styles, so the cell is one advance by one
+   font-size and this is the only number that sets the inset's size. */
+.root :global(.maps-minimap__host) {
+  font-size: 7px;
+}
+.root :global(.maps-minimap__host) :global(.glyph-output) {
+  color: var(--gc-text);
+  cursor: default;
+}
+/* The view cone: the walker's own field of view and their own horizon, so its
+   width is `2 * far / span` of the inset and its half-angle is the walk
+   camera's FOV. It points straight UP and never rotates — the inset is
+   heading-up, so up IS where the reader is facing. */
+.root :global(.maps-minimap__cone) {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  overflow: visible;
+  fill: rgba(var(--gc-accent-rgb), 0.18);
+  stroke: rgba(var(--gc-accent-rgb), 0.5);
+  stroke-width: 2;
+}
+/* The reader. The same orange the Dock uses for a value that is in force,
+   because that is what this is: a position, not a control. */
+.root :global(.maps-minimap__here) {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%;
+  background: var(--gc-orange);
+  box-shadow: 0 0 0 1px rgba(var(--gc-surface-rgb), 0.85);
+}
+
+/* Under the mobile breakpoint the drawers own the bottom edge and the map
+   surface is a fraction of its desktop size, where a fixed 202px inset is a
+   quarter of the picture rather than a corner of it. Dropped entirely, which
+   also destroys the widget behind it (`MapMinimap.tsx` mounts on `visible`)
+   — the same trade `.synth-export-bar` makes two breakpoint blocks up. */
+@media (max-width: 1100px) {
+  .root :global(.maps-minimap) {
+    display: none;
+  }
+}
+.root :global(.dn-floating-controls) :global(.lil-gui) :global(.controller) > :global(.name):global(.maps-view-name) {
+  max-width: var(--name-width);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+:global(.dn-root):local(.root) {
+  --maps-credit-row: 26px;
+}
+
+@media (max-width: 1100px) {
+  /* The top row: the search field gives up the compass's lane instead of
+     spanning the full width and being covered by it. Left-anchored, because
+     a centred box of ANY width still runs under a right-anchored compass. */
+  .root :global(.maps-search) {
+    left: var(--overlay-left, 12px);
+    right: calc(var(--overlay-right, 12px) + 113px);
+    width: auto;
+    max-width: none;
+    transform: none;
+  }
+
+  /* The bottom edge belongs to the tab bar (`--mobile-panel-bottom` already
+     clears it, and is what every mobile drawer on this shell is measured
+     from). Both overlays sit above it in the same stack order as desktop. */
+  .root :global(.maps-attribution) {
+    bottom: var(--mobile-panel-bottom);
+    /* One name plus `+N`: a 390px phone has ~55 monospace characters on this
+       line, and "© OpenStreetMap contributors" is 29 of them. The rest are
+       one tap away, which is what OSM's own constrained-display guidance
+       asks for (`mapsCredits.ts`). */
+    --maps-credit-names: 1;
+  }
+  .root :global(.maps-walk) {
+    bottom: calc(var(--mobile-panel-bottom) + var(--maps-credit-row));
+  }
+}
+
+/* A finger is not a mouse pointer: the desktop toggle is a 74x29 box, under
+   the 44px minimum every touch guideline sets. Keyed on the POINTER, not a
+   width, so a narrow desktop window keeps the compact control and a tablet
+   gets the bigger one. The compass and the credit toggle are readouts you
+   tap at most once; this one is the page's mode entrance. */
+@media (pointer: coarse) {
+  .root :global(.maps-walk__toggle) {
+    min-height: 44px;
+    padding: 6px 14px;
+  }
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-row--windowed) {
+  /* 28%, and the widget gap below, are both measured against the two strings
+     that actually bind on a 302px row: the longest row NAME ("Launch sites",
+     82.1px) and the longest READOUT the month window can produce ("644 quakes
+     · 12s", ~106px). At 27% the name lost its last character to an ellipsis
+     and at 29% the readout wrapped, so the two together are the fit — which
+     is why the gap has to give up two pixels as well. */
+  grid-template-columns: 28% auto minmax(0, 1fr);
+}
+.root
+  :global(.maps-layer-card)
+  :global(.maps-layer-body)
+  :global(.maps-live-row--windowed)
+  :global(.maps-osm-row-widget) {
+  gap: 3px;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-window) {
+  display: flex;
+  flex: none;
+  min-width: 0;
+}
+/* Row scale, exactly as `.maps-osm-anchor` trims it: `.gx-toggle-btn`'s base
+   `4px 0` is sized for /synth's full-width voice rows and would grow a 24px
+   card row. A descendant selector, never a redeclaration of the shared class
+   (see this file's header). */
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-window) :global(.gx-toggle-btn) {
+  /* `1px 2px`, measured rather than picked: at `1px 4px` the four buttons are
+     93px of a 302px row and the readout column is left at 92px, which is one
+     pixel short of "644 quakes · 12s" — so the widened month window wrapped
+     its own readout to a second line and made that row 6px taller than its
+     neighbours. Two pixels of horizontal padding each gives the readout the
+     16px it was missing and keeps every live row one line high. */
+  padding: 1px 2px;
+}
+.root :global(.maps-layer-card) :global(.maps-layer-body) :global(.maps-live-window-label) {
+  display: block;
+  font-size: 9px;
+  line-height: 13px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}

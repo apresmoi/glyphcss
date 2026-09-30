@@ -11,17 +11,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  LayersPanel,
-  MAP_SCENE_GLYPH_PALETTE,
-  MAP_SCENE_RENDER_MODE,
-  type ExtraLayerInputs,
-  type LayersFolderInputs,
-  type LiveFeedInputs,
-  type LiveLayerInputs,
-} from "./mapsKit";
-import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "./mapsOsm";
-import { MAP_LIVE_FEEDS, MAP_LIVE_FEED_BY_ID } from "./mapsLive";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { type ExtraLayerInputs, type LayersFolderInputs, type LiveFeedInputs, type LiveLayerInputs } from "./LayersPanel/types";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "../../features/maps/model/mapsOsm";
+import { MAP_LIVE_FEEDS, MAP_LIVE_FEED_BY_ID } from "../../features/maps/services/mapsLive";
 
 /**
  * The Live card's TIME WINDOW control.

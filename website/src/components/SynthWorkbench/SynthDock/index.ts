@@ -1,0 +1,1 @@
+export { SynthDock } from "./SynthDock";

@@ -16,7 +16,7 @@
 // final describe block pins the FIXED behaviour rather than the old defect.
 import { describe, expect, it } from "vitest";
 import { glyphChartArea, glyphChartLine, glyphChartPlot, renderGlyphChart, type GlyphChartSpec } from "@glyphcss/charts";
-import { findChartsDataset } from "./datasets";
+import { findChartsDataset } from "../../features/charts/data/index";
 
 const WIDTHS = [40, 72, 96, 140] as const;
 

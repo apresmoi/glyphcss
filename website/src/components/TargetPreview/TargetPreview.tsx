@@ -1,5 +1,6 @@
 import { forwardRef, useMemo, type CSSProperties } from "react";
 import { ansiSpansToHtml, parseAnsiToSpans } from "./ansiToSpans";
+import styles from "./TargetPreview.module.css";
 
 /**
  * `TargetPreview` — one component, shared by `/charts` and `/diagrams`
@@ -83,9 +84,10 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
   // `web`'s class stays the literal "glyph-output" — nothing else — so the
   // web-target render (including its exact serialized markup) is byte-
   // identical to before this component existed.
-  const preClassName = target === "web"
-    ? ["glyph-output", className].filter(Boolean).join(" ")
-    : ["glyph-output", "target-preview__pre", `target-preview__pre--${target}`, className].filter(Boolean).join(" ");
+  const preClassName =
+    target === "web"
+      ? ["glyph-output", className].filter(Boolean).join(" ")
+      : ["glyph-output", "target-preview__pre", `target-preview__pre--${target}`, className].filter(Boolean).join(" ");
 
   // `chat` never shows colour (see this file's own doc, "C3") — checked
   // ahead of everything else so neither branch below has to re-derive it.
@@ -108,11 +110,30 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
 
   const terminalHtml = useMemo(() => (useAnsi ? ansiSpansToHtml(parseAnsiToSpans(ansi!)) : undefined), [useAnsi, ansi]);
 
-  const pre = terminalHtml !== undefined
-    ? <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: terminalHtml }} />
-    : useHtml
-      ? <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription} dangerouslySetInnerHTML={{ __html: html ?? text }} />
-      : <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription}>{text}</pre>;
+  const pre =
+    terminalHtml !== undefined ? (
+      <pre
+        ref={ref}
+        className={preClassName}
+        style={style}
+        aria-label={ariaLabel}
+        aria-description={ariaDescription}
+        dangerouslySetInnerHTML={{ __html: terminalHtml }}
+      />
+    ) : useHtml ? (
+      <pre
+        ref={ref}
+        className={preClassName}
+        style={style}
+        aria-label={ariaLabel}
+        aria-description={ariaDescription}
+        dangerouslySetInnerHTML={{ __html: html ?? text }}
+      />
+    ) : (
+      <pre ref={ref} className={preClassName} style={style} aria-label={ariaLabel} aria-description={ariaDescription}>
+        {text}
+      </pre>
+    );
 
   // Chrome notes — never in the render area itself (the viewport holds
   // only the render, AGENTS.md's "Charts"/"Diagrams" — "feedback lives on
@@ -122,26 +143,35 @@ export const TargetPreview = forwardRef<HTMLPreElement, TargetPreviewProps>(func
   const notes: string[] = [];
   if (colorForChat) notes.push("Chat clients drop colour — this is what a paste shows.");
   if (target === "chat" && charsetDowngraded) notes.push("Chat fonts lack braille glyphs — showing the box tier.");
-  if (terminalCssNote) notes.push("A real terminal gets ANSI, not CSS — pick an ANSI colour mode for a working Copy ANSI export.");
+  if (terminalCssNote)
+    notes.push("A real terminal gets ANSI, not CSS — pick an ANSI colour mode for a working Copy ANSI export.");
   const note = notes.length > 0 ? <div className="target-preview__note">{notes.join(" ")}</div> : null;
 
   if (target === "terminal") {
-    return <div className="target-preview target-preview--terminal">
-      <div className="target-preview__titlebar">
-        <span className="target-preview__dots" aria-hidden="true"><span /><span /><span /></span>
-        <span className="target-preview__title">{commandTitle}</span>
+    return (
+      <div className={`${styles.root} target-preview target-preview--terminal`}>
+        <div className="target-preview__titlebar">
+          <span className="target-preview__dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          <span className="target-preview__title">{commandTitle}</span>
+        </div>
+        {note}
+        <div className="target-preview__terminal-body">{pre}</div>
       </div>
-      {note}
-      <div className="target-preview__terminal-body">{pre}</div>
-    </div>;
+    );
   }
   if (target === "chat") {
-    return <div className="target-preview target-preview--chat">
-      <div className="target-preview__bubble">
-        {note}
-        <div className="target-preview__fence">{pre}</div>
+    return (
+      <div className={`${styles.root} target-preview target-preview--chat`}>
+        <div className="target-preview__bubble">
+          {note}
+          <div className="target-preview__fence">{pre}</div>
+        </div>
       </div>
-    </div>;
+    );
   }
   // `web` stays exactly what both pages already rendered — no chrome, no
   // extra wrapper — so the existing `.charts-grid-scroll > .glyph-output` /

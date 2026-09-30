@@ -25,7 +25,8 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   };
 });
 
-import { synthDefaults, useSynthPreview } from "./synthKit";
+import { synthDefaults } from "../../features/synth/model/parameters";
+import { useSynthPreview } from "../../features/synth/hooks/useSynthPreview";
 
 // A minimal host component: mounts the preview into a plain `<div>` and
 // reports every `onTick` call (the same callback VoiceCard's own trendline

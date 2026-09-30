@@ -1,0 +1,27 @@
+.editor {
+  border-block: 1px solid var(--gc-rule);
+  color: var(--gc-text);
+  font: var(--gc-text-base) / 1.6 var(--gc-font-ui);
+}
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gc-space-3);
+  padding: var(--gc-space-3);
+  color: var(--gc-text-muted);
+  border-bottom: 1px solid var(--gc-rule);
+}
+.editor pre {
+  margin: 0;
+  padding: var(--gc-space-4);
+  overflow: auto;
+  background: transparent;
+  font: inherit;
+}
+.editor pre[hidden] {
+  display: none;
+}
+.editor code {
+  background: transparent;
+}

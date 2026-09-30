@@ -24,11 +24,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { ScaleDomainControl } from "./ChartsDock";
-import {
-  CHARTS_NO_SCALE_REASON, CHARTS_TIME_UNIT_MS, chartsWorkbenchHasCartesianMark, createChartsWorkbenchState, reduceChartsWorkbenchState,
-  type ChartsTimePrecision, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain, type ChartsWorkbenchScale,
-} from "./chartsWorkbenchState";
+import { ScaleDomainControl } from "./ChartsDock/ScaleDomainControl";
+import { CHARTS_NO_SCALE_REASON, CHARTS_TIME_UNIT_MS, chartsWorkbenchHasCartesianMark, reduceChartsWorkbenchState, type ChartsTimePrecision, type ChartsWorkbenchAction, type ChartsWorkbenchAxisDomain } from "../../features/charts/model/chartsWorkbenchState";
+import { createChartsWorkbenchState, type ChartsWorkbenchScale } from "../../features/charts/model/chartsSpec";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -161,7 +159,7 @@ describe("ScaleDomainControl — band axis (item 5)", () => {
     expect(name).toBe("X domain");
     expect(row.children[0]!.classList.contains("name")).toBe(true);
     expect(row.children[1]!.classList.contains("widget")).toBe(true);
-    const selects = row.querySelectorAll<HTMLSelectElement>(".widget > select");
+    const selects = row.querySelectorAll<HTMLSelectElement>(".widget > .gx-select > select");
     expect(selects).toHaveLength(2);
     expect(host.querySelectorAll("input")).toHaveLength(0);
     // Every option is a real category, in DATA order — no blank "auto"

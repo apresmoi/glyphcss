@@ -1,0 +1,438 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+
+/* GlyphDemo — interactive ASCII scene viewer with code panel + tuning bench.
+ * Ported from poly-demo.css; glyph-specific additions preserved for the
+ * flipbook viewport/strip/hit-layer/hotspot layer that doesn't exist in glyphcss. */
+
+:local(.root) {
+  margin: 1.5rem 0;
+  border: 1px solid var(--sl-color-gray-5, rgba(var(--gc-text-rgb), 0.08));
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--gc-surface);
+  /* The <pre class="glyph-demo__strip"> has white-space: pre, giving it an
+     intrinsic min-content equal to its widest rasterized frame. Without min-width:0
+     here (and on the grid item chain below), the demo refuses to shrink below
+     ~400-500px on narrow viewports, leaving it visually offset inside its container. */
+  min-width: 0;
+}
+
+/* ── Viewer (canvas + controls side by side) ────────────────────────────── */
+
+.root :global(.glyph-demo__viewer) {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-height: 320px;
+  min-width: 0;
+}
+.root :global(.glyph-demo__viewer)[data-layout="canvas-only"] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.root :global(.glyph-demo__canvas) {
+  position: relative;
+  min-height: 320px;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--gc-surface);
+}
+
+/* ── Scene host (contains the public glyph-scene + hotspot layer) ───────── */
+
+.root :global(.glyph-demo__scene-host) {
+  width: 100%;
+  height: 100%;
+  min-height: 320px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ── Public scene integration — make the managed scene fill its host ──────
+ * createGlyphScene injects a .glyph-scene div; we need it to fill the
+ * .glyph-demo__scene-host so autoSize:true can measure the full viewport. */
+
+.root :global(.glyph-demo__scene-host) :global(.glyph-scene) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Amber terminal color + monospace font matching the gallery aesthetic. */
+.root :global(.glyph-demo__scene-host) :global(.glyph-output) {
+  font-family: var(--gc-font-render);
+  color: var(--gc-text);
+  touch-action: none;
+  overscroll-behavior: contain;
+  cursor: grab;
+}
+
+.root :global(.glyph-demo__scene-host) :global(.glyph-scene):active :global(.glyph-output),
+.root :global(.glyph-demo__scene-host) :global(.glyph-output):active {
+  cursor: grabbing;
+}
+
+/* Decorative landing demo — no pointer affordance, no event capture. */
+:local(.root)[data-interactive="0"] :global(.glyph-output),
+:local(.root)[data-interactive="0"] :global(.glyph-output):active {
+  cursor: default;
+  touch-action: auto;
+  pointer-events: none;
+}
+
+/* ── Flipbook viewport — glyph-specific; no glyphcss equivalent ─────────
+ * Clipped to exactly one frame's height; centered vertically.
+ * `overscroll-behavior: contain` stops wheel zoom from leaking to the page
+ * scroll container where preventDefault() would be silently no-op'd. */
+
+.root :global(.glyph-demo__viewport) {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: calc(var(--rows, 1) * var(--cell-h, 12px));
+  transform: translateY(-50%);
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+.root :global(.glyph-demo__viewport):global(.dragging) {
+  cursor: grabbing;
+}
+
+/* ── Flipbook strip — glyph-specific; CSS-animated <pre> ───────────────
+ * Runs a steps() scroll driven by ad-rotate. During drag the runtime
+ * freezes the animation and directly sets a translate3d via style. */
+
+.root :global(.glyph-demo__strip) {
+  margin: 0;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  font-size: var(--cell-fs, 10px);
+  line-height: var(--cell-h, 12px);
+  /* Amber fallback — overridden per-cell by <span style="color:#xyz"> for colored meshes. */
+  color: var(--gc-text);
+  white-space: pre;
+  will-change: transform;
+  animation: ad-rotate var(--dur, 6s) steps(60, end) infinite;
+}
+/* Inline span colors (from source-model materials) override the amber fallback via
+ * inline style specificity — no additional CSS rule needed. */
+.root :global(.glyph-demo__viewport):global(.dragging) :global(.glyph-demo__strip) {
+  animation: none !important;
+  transform: translate3d(0, 0, 0) !important;
+}
+@keyframes ad-rotate {
+  from {
+    transform: translate3d(0, 0, 0);
+  }
+  to {
+    transform: translate3d(0, calc(-60 * var(--rows, 1) * var(--cell-h, 12px)), 0);
+  }
+}
+
+/* Auto-rotate toggle — pauses (not clears) the strip + hotspot animations so
+   the mesh freezes at whatever frame is currently shown. Drag still works. */
+:local(.root):global(.no-autorotate) :global(.glyph-demo__strip),
+:local(.root):global(.no-autorotate) :global(.glyph-demo__hotspot) {
+  animation-play-state: paused;
+}
+
+/* ── Hit layer — glyph-specific; sparse DOM hotspots over the <pre> ────
+ * Mirrors .glyph-demo__viewport geometry exactly but is pointer-enabled.
+ * Each .glyph-demo__hotspot inside runs its own ad-hit-* keyframe (emitted
+ * by the runtime) to stay locked to the same steps() cycle as the strip. */
+
+.root :global(.glyph-demo__hit-layer) {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: calc(var(--rows, 1) * var(--cell-h, 12px));
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.root :global(.glyph-demo__hotspot) {
+  position: absolute;
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  border: 1px dashed rgba(var(--gc-warning-rgb), 0);
+  border-radius: 4px;
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+  will-change: transform;
+  animation-duration: var(--dur, 6s);
+  animation-timing-function: steps(60, end);
+  animation-iteration-count: infinite;
+}
+.root :global(.glyph-demo__viewport):global(.dragging) ~ :global(.glyph-demo__hit-layer) :global(.glyph-demo__hotspot) {
+  animation: none !important;
+}
+.root :global(.glyph-demo__hotspot):hover,
+.root :global(.glyph-demo__hotspot):focus-visible {
+  background: rgba(var(--gc-orange-rgb), 0.18);
+  border-color: rgba(var(--gc-warning-rgb), 0.6);
+}
+.root :global(.glyph-demo__hotspot) :global(.badge) {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  white-space: nowrap;
+  padding: 2px 6px;
+  background: rgba(var(--gc-surface-rgb), 0.92);
+  border: 1px solid rgba(var(--gc-text-rgb), 0.06);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--gc-text);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(2px);
+  transition:
+    opacity 120ms ease,
+    transform 120ms ease;
+}
+.root :global(.glyph-demo__hotspot):hover :global(.badge),
+.root :global(.glyph-demo__hotspot):focus-visible :global(.badge) {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ── Loading overlay ─────────────────────────────────────────────────────── */
+
+.root :global(.glyph-demo__loading) {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gc-success);
+  font-family: var(--gc-font-ui);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* ── Stats overlay ───────────────────────────────────────────────────────── */
+
+.root :global(.glyph-demo__stats) {
+  display: none;
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 10;
+  background: rgba(var(--gc-surface-rgb), 0.75);
+  border: 1px solid rgba(var(--gc-text-rgb), 0.1);
+  border-radius: 8px;
+  padding: var(--gc-space-2) var(--gc-space-3);
+  font-family: var(--gc-font-ui);
+  font-size: 12px;
+  color: var(--gc-text);
+  line-height: 1.6;
+  pointer-events: none;
+}
+.root :global(.glyph-demo__stats):global(.active) {
+  display: block;
+}
+.root :global(.glyph-demo__stats) :global(.stat-value) {
+  color: var(--gc-accent);
+  font-weight: 700;
+}
+
+/* ── Controls panel ──────────────────────────────────────────────────────── */
+
+.root :global(.glyph-demo__controls) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* lil-gui (240px) carries its own chrome; keep padding small and size the
+     column to contain the panel without clipping (240 + 2×10 = 260). */
+  padding: 10px;
+  background: var(--gc-surface);
+  border-left: 1px solid rgba(var(--gc-text-rgb), 0.06);
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  min-width: 260px;
+  max-width: 260px;
+  font-family: var(--gc-font-ui);
+  font-size: 13px;
+  overflow-y: auto;
+  max-height: 460px;
+}
+.root :global(.glyph-demo__controls) :global(.lil-gui) {
+  width: 100%;
+}
+.root :global(.glyph-demo__controls) label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--gc-text);
+}
+.root :global(.glyph-demo__controls) :global(.range-heading) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--gc-text);
+}
+.root :global(.glyph-demo__controls) :global(.range-value) {
+  color: var(--gc-text);
+  font-weight: 600;
+}
+.root :global(.glyph-demo__controls) input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-surface);
+  padding: 0;
+  outline: none;
+}
+.root :global(.glyph-demo__controls) input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gc-text);
+  border: 1px solid var(--gc-text);
+  cursor: pointer;
+}
+.root :global(.glyph-demo__controls) input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--gc-text);
+  border: 1px solid var(--gc-text);
+  cursor: pointer;
+}
+.root :global(.glyph-demo__controls) :global(.switch) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: var(--gc-text);
+  font-size: 13px;
+}
+.root :global(.glyph-demo__controls) :global(.switch) input:not(:checked) + span {
+  color: var(--gc-success);
+}
+
+/* lil-gui panel — themed to match the glyphcss range-control palette */
+.root :global(.glyph-demo__controls) :global(.lil-gui) {
+  --background-color: var(--gc-surface);
+  --text-color: var(--gc-text);
+  --title-background-color: var(--gc-surface);
+  --title-text-color: var(--gc-text);
+  --widget-color: var(--gc-surface);
+  --hover-color: var(--gc-surface);
+  --focus-color: rgba(var(--gc-accent-rgb), 0.4);
+  --number-color: var(--gc-accent);
+  --string-color: var(--gc-text);
+  --font-size: 13px;
+  --input-font-size: 13px;
+  --font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
+  --folder-indent: 8px;
+  border-radius: 8px;
+  border: 1px solid rgba(var(--gc-text-rgb), 0.06);
+  overflow: hidden;
+}
+
+/* ── Code panel ──────────────────────────────────────────────────────────── */
+
+.root :global(.glyph-demo__code) {
+  border-top: 1px solid rgba(var(--gc-text-rgb), 0.06);
+  max-height: 300px;
+  overflow: auto;
+}
+
+.root :global(.glyph-demo__tabs) {
+  display: flex;
+  border-bottom: 1px solid rgba(var(--gc-text-rgb), 0.06);
+  background: var(--gc-surface);
+}
+
+.root :global(.glyph-demo__tab) {
+  background: none;
+  border: none;
+  color: var(--gc-success);
+  padding: var(--gc-space-2) var(--gc-space-4);
+  font-size: 13px;
+  font-family: var(--gc-font-ui);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.root :global(.glyph-demo__tab):hover {
+  color: var(--gc-text);
+}
+.root :global(.glyph-demo__tab):global(.active) {
+  color: var(--gc-text);
+  border-bottom-color: var(--gc-accent);
+}
+
+.root :global(.glyph-demo__snippet) {
+  margin: 0 !important;
+  padding: 14px var(--gc-space-4) !important;
+  background: var(--gc-surface) !important;
+  border-radius: 0 !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+}
+.root :global(.glyph-demo__snippet--hidden) {
+  display: none;
+}
+.root :global(.glyph-demo__snippet) code {
+  font-family: var(--gc-font-ui) !important;
+  color: var(--gc-text) !important;
+  white-space: pre !important;
+  background: none !important;
+  padding: 0 !important;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .root :global(.glyph-demo__viewer) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .root :global(.glyph-demo__controls) {
+    max-width: none;
+    border-left: none;
+    border-top: 1px solid rgba(var(--gc-text-rgb), 0.06);
+    max-height: none;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .root :global(.glyph-demo__controls) label {
+    flex: 1 1 45%;
+  }
+}
+
+.root.embedded {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.embedded :global(.glyph-demo__viewer),
+.embedded :global(.glyph-demo__canvas),
+.embedded :global(.glyph-demo__scene-host) {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background: transparent;
+}

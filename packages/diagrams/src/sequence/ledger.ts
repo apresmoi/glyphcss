@@ -1,12 +1,4 @@
-/**
- * `report.ledger` entries specific to the sequence form — mirrors the root
- * `ledger.ts` (see its doc comment). Kept in its own file, the same way
- * `3d/ledger3d.ts` sits beside the graph pipeline's own `ledger.ts`: a
- * sequence-shaped entry (participants, messages, panels-by-time) is never
- * folded into the graph pipeline's node/edge vocabulary, and a future form
- * (lane DAG, interval timeline, relation matrix) gets the same treatment
- * rather than every form's vocabulary piling into one shared file.
- */
+/** Sequence ledger entries describe participants and time panels, independent of graph layout. */
 import type { GlyphDiagramLedgerEntry } from "../ledger";
 
 function entry(code: string, message: string, detail?: Record<string, unknown>): GlyphDiagramLedgerEntry {

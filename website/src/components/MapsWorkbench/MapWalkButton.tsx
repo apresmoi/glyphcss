@@ -52,9 +52,9 @@ export interface MapWalkButtonProps {
 }
 
 const ENTER_TITLE =
-  "Walk — stand on the ground at eye height (1.7 m) under a real perspective camera. "
-  + "Click the map to look around, WASD or the arrow keys to walk, Shift to run, G to walk through walls, Esc to release the mouse. "
-  + "Buildings are solid; everything else is not. Leaving puts the view back exactly where it was.";
+  "Walk — stand on the ground at eye height (1.7 m) under a real perspective camera. " +
+  "Click the map to look around, WASD or the arrow keys to walk, Shift to run, G to walk through walls, Esc to release the mouse. " +
+  "Buildings are solid; everything else is not. Leaving puts the view back exactly where it was.";
 
 /**
  * The walker. A pegman in the page's own register: two strokes for the legs
@@ -92,15 +92,25 @@ export function MapWalkButton({ walking, reason, budget, onToggle }: MapWalkButt
           in its sidebar, and for the same reason. */}
       {walking && (
         <p className="maps-walk__legend">
-          <span><kbd>WASD</kbd> walk</span>
-          <span><kbd>Shift</kbd> run</span>
+          <span>
+            <kbd>WASD</kbd> walk
+          </span>
+          <span>
+            <kbd>Shift</kbd> run
+          </span>
           {/* Buildings are solid while walking, and a reader who ends up
               somewhere they cannot get out of needs a way out that is not
               "leave the mode". Held rather than toggled, like Shift, so the
               legend can state it without the page having to mirror a state. */}
-          <span><kbd>G</kbd> ghost</span>
-          <span><kbd>click</kbd> look</span>
-          <span><kbd>Esc</kbd> release</span>
+          <span>
+            <kbd>G</kbd> ghost
+          </span>
+          <span>
+            <kbd>click</kbd> look
+          </span>
+          <span>
+            <kbd>Esc</kbd> release
+          </span>
           {/* The horizon and its tile cost stay on screen, where they were in
               the Dock: it is the one number that says what this mode is
               spending, and it is the reason the horizon is capped well
@@ -114,15 +124,19 @@ export function MapWalkButton({ walking, reason, budget, onToggle }: MapWalkButt
         disabled={gated}
         aria-pressed={walking}
         title={title}
-        aria-label={walking
-          ? "Leave walk mode and go back to the map"
-          : gated
-            ? `Walk mode is unavailable: ${reason}`
-            : "Walk — stand on the ground at eye height"}
+        aria-label={
+          walking
+            ? "Leave walk mode and go back to the map"
+            : gated
+              ? `Walk mode is unavailable: ${reason}`
+              : "Walk — stand on the ground at eye height"
+        }
         onClick={() => onToggle(!walking)}
       >
         <WalkerIcon />
-        <span className="maps-walk__label" aria-hidden="true">{walking ? "Exit" : "Walk"}</span>
+        <span className="maps-walk__label" aria-hidden="true">
+          {walking ? "Exit" : "Walk"}
+        </span>
       </button>
     </div>
   );

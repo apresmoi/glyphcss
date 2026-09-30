@@ -22,9 +22,9 @@ vi.hoisted(async () => {
 import { describe, expect, it, vi } from "vitest";
 import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
 import { GLYPH_CHART_3D_DEFAULT_CAMERA, glyphChart3dFitCamera, glyphChartObject } from "@glyphcss/charts/3d";
-import { createCharts3dViewState, resolveCharts3dView } from "./chartsWorkbench3d";
-import { renderCharts3dStatic } from "./chartsWorkbench3dRender";
-import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
+import { createCharts3dViewState, resolveCharts3dView } from "../../features/charts/model/chartsWorkbench3d";
+import { renderCharts3dStatic } from "../../features/charts/render/chartsWorkbench3dRender";
+import { CHARTS_3D_DATASETS } from "../../features/charts/data/chart3d/index";
 
 const COLS = 60, ROWS = 24, CELL_ASPECT = 2.0;
 

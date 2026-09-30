@@ -1,0 +1,80 @@
+.root {
+  position: absolute;
+  inset: 0 0 0 auto;
+  z-index: 10;
+  box-sizing: border-box;
+  width: var(--gc-dock-width);
+  padding: var(--gc-space-3);
+  background: var(--gc-surface);
+  border: 0;
+  border-left: 1px solid var(--gc-rule);
+  color: var(--gc-text);
+  font: var(--gc-text-sm) / 1.35 var(--gc-font-ui);
+  overflow-y: auto;
+}
+.stage {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.stage.stage > [data-render-host] {
+  position: absolute;
+  inset: 0 var(--gc-dock-width) 0 0;
+  overflow: hidden;
+}
+.stage.stage > [data-render-host],
+.stage.stage > [data-render-host] * {
+  scrollbar-width: none;
+}
+.stage.stage > [data-render-host]::-webkit-scrollbar,
+.stage.stage > [data-render-host] *::-webkit-scrollbar {
+  display: none;
+}
+.root :global(.iso-ctl),
+.root :global(.city-ctl) {
+  margin-block: var(--gc-space-3);
+}
+.root :global(.iso-ctl-row),
+.root :global(.city-ctl-row) {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gc-space-2);
+  margin-bottom: var(--gc-space-1);
+}
+.root :global(.val),
+.root :global(.city-val) {
+  color: var(--gc-accent);
+}
+.root :global(.city-play),
+.root :global(.iso-reset) {
+  width: 100%;
+  padding: var(--gc-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--gc-text);
+  font: inherit;
+}
+.root :global(.city-play):hover,
+.root :global(.iso-reset):hover {
+  background: transparent;
+  color: var(--gc-accent);
+}
+@media (max-width: 50rem), (max-height: 34rem) {
+  .stage.stage > [data-render-host] {
+    inset-inline-end: 0;
+  }
+  .root {
+    inset: auto 0 44px;
+    width: auto;
+    max-height: 55vh;
+    border: 0;
+    border-top: 1px solid var(--gc-rule);
+    display: none;
+    z-index: 30;
+  }
+  .root:global(.is-open) {
+    display: block;
+  }
+}

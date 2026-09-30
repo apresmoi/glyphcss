@@ -25,8 +25,8 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { POINT_DATASET_DEFAULTS } from "./mapsKit";
-import { COUNTRY_TILE_LAYERS } from "../../lib/countryTilesProvider";
+import { POINT_DATASET_DEFAULTS } from "../../features/maps/model/config";
+import { COUNTRY_TILE_LAYERS } from "../../features/maps/providers/countryTilesProvider";
 
 const DATA = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../public/data/country-tiles");
 

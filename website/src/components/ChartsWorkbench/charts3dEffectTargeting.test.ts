@@ -31,7 +31,7 @@ import { expect, it, vi } from "vitest";
 import { createGlyphOrthographicCamera, createGlyphScene, type GlyphCamera, type GlyphSceneObject } from "glyphcss";
 import { glyphChartObject, glyphChart3dFitCamera, GLYPH_CHART_3D_DEFAULT_CAMERA } from "@glyphcss/charts/3d";
 import { getGlyphEffect, defaultGlyphEffectParams } from "@glyphcss/effects";
-import { createCharts3dViewState, resolveCharts3dView } from "./chartsWorkbench3d";
+import { createCharts3dViewState, resolveCharts3dView } from "../../features/charts/model/chartsWorkbench3d";
 
 const COLS = 96, ROWS = 40, CELL_ASPECT = 2.0;
 

@@ -1,3 +1,4 @@
+import { ActionButton } from "../ActionButton";
 /**
  * `/charts`' data overlay — ONE search field (built-in + Hugging Face
  * browse, `ChartsDatasetSearchBox.tsx`) plus "Random", floating over the
@@ -22,11 +23,21 @@
  * directly.
  */
 import { useEffect, useState, type Dispatch } from "react";
-import type { DatasetHit } from "../../lib/datasetSearch";
+import {
+  CHARTS_DATASETS,
+  findChartsDataset,
+  type ChartsWorkbenchAction,
+} from "../../features/charts/model/chartsWorkbenchState";
+import type { DatasetHit } from "../../services/datasets/datasetSearch";
 import { ChartsDatasetSearchBox } from "./ChartsDatasetSearchBox";
-import { CHARTS_DATASETS, findChartsDataset, type ChartsWorkbenchAction } from "./chartsWorkbenchState";
 
-export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, onRandom, remoteSuggestions }: {
+export function ChartsDataOverlay({
+  activeDatasetId,
+  dispatch,
+  onSelectRemote,
+  onRandom,
+  remoteSuggestions,
+}: {
   readonly activeDatasetId: string | undefined;
   readonly dispatch: Dispatch<ChartsWorkbenchAction>;
   readonly onSelectRemote: (hit: DatasetHit) => void;
@@ -46,7 +57,9 @@ export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, o
   // moment a vendored id reappears (a Random click or a browse-list pick
   // both flow through `activeDatasetId`, whichever dispatched them).
   const [remoteTitle, setRemoteTitle] = useState<string | null>(null);
-  useEffect(() => { if (activeDatasetId) setRemoteTitle(null); }, [activeDatasetId]);
+  useEffect(() => {
+    if (activeDatasetId) setRemoteTitle(null);
+  }, [activeDatasetId]);
   const loadedTitle = remoteTitle ?? (activeDatasetId ? findChartsDataset(activeDatasetId)?.title : undefined) ?? "";
 
   return (
@@ -55,9 +68,20 @@ export function ChartsDataOverlay({ activeDatasetId, dispatch, onSelectRemote, o
         builtIn={CHARTS_DATASETS}
         loadedTitle={loadedTitle}
         onSelectBuiltIn={(id) => dispatch({ type: "select-dataset", id })}
-        onSelectRemote={(hit) => { setRemoteTitle(hit.title); onSelectRemote(hit); }}
+        onSelectRemote={(hit) => {
+          setRemoteTitle(hit.title);
+          onSelectRemote(hit);
+        }}
       />
-      <button type="button" className="control-btn control-btn--primary charts-random-btn" title="Load a random dataset" aria-label="Load random dataset" onClick={onRandom}>Random</button>
+      <ActionButton
+        type="button"
+        className="control-btn control-btn--primary charts-random-btn"
+        title="Load a random dataset"
+        aria-label="Load random dataset"
+        onClick={onRandom}
+      >
+        Random
+      </ActionButton>
     </div>
   );
 }

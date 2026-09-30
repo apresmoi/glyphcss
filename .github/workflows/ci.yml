@@ -61,5 +61,8 @@ jobs:
       - name: Type-check against built declarations
         run: pnpm -r --if-present run test:types
 
+      - name: Check website architecture and styling
+        run: pnpm --filter @glyphcss/website check && pnpm --filter @glyphcss/website test:architecture
+
       - name: Build website
         run: pnpm build:website

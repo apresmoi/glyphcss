@@ -1,3 +1,4 @@
+import { IconToggle } from "../IconToggle/IconToggle";
 // @vitest-environment happy-dom
 //
 // This file's default `node` environment (see vitest.config.ts) has no
@@ -35,48 +36,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 
 import { GlyphFieldSynthEffect as fieldSynth } from "@glyphcss/effects";
 import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
-import {
-  FIELD_DESCRIPTIONS,
-  FIELD_ICONS,
-  FIELD_TOGGLE_COLOR,
-  FIELD_TOGGLE_COLOR_3D,
-  FIELDS,
-  FIELDS_3D,
-  FIELDS_NORMAL,
-  IconToggle,
-  MAX_COLOR_VOICES,
-  NORMAL_DERIVED_SYNTH_FIELDS,
-  PYRAMID_STAGE_SIZE,
-  RENDER_MODES,
-  SHAPES,
-  STAGE_CAMERA_ROT_X,
-  STAGE_CAMERA_ROT_Y,
-  STAGE_CAMERA_ZOOM,
-  STAGE_HINTS,
-  SUBCELL_RES,
-  VOICE_FIELD_MAP_BASE_ANGLE,
-  WAVES,
-  buildWavePathD,
-  computeSynthTickPlan,
-  fieldHasPlacement,
-  frameObject,
-  isSdfField,
-  isSdfIterField,
-  isTimeInvariantPatch,
-  nextFreeVoiceSlot,
-  resolveColorStackVisibility,
-  resolveInkControlVisibility,
-  resolveRenderChange,
-  resolveSpaceChange,
-  shapePolys,
-  shapeTransform,
-  soloColorParams,
-  soloParams,
-  stagePreviewShape,
-  synthDefaults,
-  voiceFieldMapKind,
-  wrapDrivenTime,
-} from "./synthKit";
+import { FIELD_DESCRIPTIONS, FIELDS, FIELDS_3D, FIELDS_NORMAL, MAX_COLOR_VOICES, NORMAL_DERIVED_SYNTH_FIELDS, PYRAMID_STAGE_SIZE, RENDER_MODES, SHAPES, STAGE_CAMERA_ROT_X, STAGE_CAMERA_ROT_Y, STAGE_CAMERA_ZOOM, SUBCELL_RES, VOICE_FIELD_MAP_BASE_ANGLE, WAVES, fieldHasPlacement, isSdfField, isSdfIterField, nextFreeVoiceSlot, resolveColorStackVisibility, resolveInkControlVisibility, resolveRenderChange, resolveSpaceChange, soloColorParams, synthDefaults, voiceFieldMapKind } from "../../features/synth/model/parameters";
+import { FIELD_ICONS, FIELD_TOGGLE_COLOR, FIELD_TOGGLE_COLOR_3D } from "../VoiceCard/voiceOptions";
+import { STAGE_HINTS, stagePreviewShape } from "../../features/synth/model/presets";
+import { buildWavePathD, computeSynthTickPlan, isTimeInvariantPatch, wrapDrivenTime } from "../../features/synth/model/waves";
+import { frameObject, shapePolys, shapeTransform, soloParams } from "../../features/synth/model/geometry";
 
 // P1-1 — solo previews used to lie for layered patches: soloParams() forced
 // the previewed voice onto default layer 1 and default (unshaped) layer
@@ -384,7 +348,7 @@ describe("STAGE_HINTS (VOLUMETRIC-2.md §3, object-keyed stage hints)", () => {
     const original = renamedPreset.name;
     renamedPreset.name = "Renamed gyroid (module init)";
     try {
-      const freshSynthKit = await import("./synthKit");
+      const freshSynthKit = await import("../../features/synth/model/presets");
       const hint = freshSynthKit.STAGE_HINTS.get(renamedPreset as never);
       expect(hint).toBeDefined();
       expect(hint?.shape).toBe("cube");

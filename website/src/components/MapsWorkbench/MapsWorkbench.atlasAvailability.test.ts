@@ -27,9 +27,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import { createGlyphMap, GlyphMapClassifiers, type GlyphMapGeoTile, type GlyphMapVectorFeature } from "@glyphcss/maps";
-import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
-import { buildMapProjection, MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "./mapsKit";
-import { MAPS_URL_DEFAULTS } from "./mapsUrlState";
+import { computeGlyphAtlasAvailability } from "../../services/rendering/glyphAtlasAvailability";
+import { buildMapProjection, MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
 
 function makeTerrainTile(): GlyphMapGeoTile {
   const cols = 8;

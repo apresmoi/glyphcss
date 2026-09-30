@@ -8,8 +8,8 @@ import { glyphLaneDagFromGitLog, validateGlyphLaneDag } from "@glyphcss/diagrams
 import {
   GLYPH_LANES_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchLanes, createGlyphDiagramsWorkbenchState,
   glyphDiagramsWorkbenchLanesGitLog, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
-} from "./diagramsWorkbenchState";
-import { decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
+} from "../../features/diagrams/model/diagramsWorkbenchState";
+import { decodeDiagramsUrlState, encodeDiagramsUrlState } from "../../features/diagrams/services/diagramsUrlState";
 
 const applyPreset = (id: string) => reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-lanes-preset", id });
 
@@ -21,26 +21,12 @@ describe("diagramsWorkbenchState — presets are not all git (domain-agnostic IR
 });
 
 describe("diagramsWorkbenchState — apply-lanes-preset", () => {
-  it.each(GLYPH_LANES_WORKBENCH_PRESETS)("applying '$label' switches the form to lanes, resets view to 2d, and parses a real DAG with at least one node", (preset) => {
+  it.each(GLYPH_LANES_WORKBENCH_PRESETS)("applying '$label' switches the form to lanes, and parses a real DAG with at least one node", (preset) => {
     const state = applyPreset(preset.id);
     expect(state.form).toBe("lanes");
-    expect(state.view).toBe("2d");
     expect(state.lanes.presetId).toBe(preset.id);
     const dag = buildGlyphDiagramsWorkbenchLanes(state);
     expect(dag.nodes.length).toBeGreaterThan(0);
-  });
-
-  // Mutation-check #1 — if `set-form`'s `supports3d` gate were removed (or
-  // the lanes row's own `supports3d: false` flipped), a reader stranded in
-  // 3D before switching form would stay there on a form that can't render
-  // it; this must always land on "2d".
-  it("mutation: switching form to lanes while the view is 3d forces it back to 2d and clears camera3d", () => {
-    let state = createGlyphDiagramsWorkbenchState();
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
-    expect(state.view).toBe("3d");
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-form", form: "lanes" });
-    expect(state.view).toBe("2d");
-    expect(state.camera3d).toBeUndefined();
   });
 
   it("does not touch the graph or sequence fields — switching to lanes and back finds them exactly as left", () => {

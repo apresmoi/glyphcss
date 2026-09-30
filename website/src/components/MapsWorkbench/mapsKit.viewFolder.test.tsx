@@ -27,8 +27,8 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { useViewFolder, type ViewFolderInputs } from "./mapsKit";
-import { MAP_BEARING_SLIDER_RANGE } from "./mapsView";
+import { useViewFolder, type ViewFolderInputs } from "./hooks/useViewFolder";
+import { MAP_BEARING_SLIDER_RANGE } from "../../features/maps/model/mapsView";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;

@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
-import {
-  EXTRUSION_HEIGHT_BOUNDS_M as EXTRUSION_HEIGHT_BOUNDS,
-  HEATMAP_RELIEF_HEIGHT_BOUNDS_M as HEATMAP_RELIEF_BOUNDS,
-  formatHeightMeters,
-  logHeightSliderSpec,
-} from "./mapsKit";
+import { EXTRUSION_HEIGHT_BOUNDS_M as EXTRUSION_HEIGHT_BOUNDS, HEATMAP_RELIEF_HEIGHT_BOUNDS_M as HEATMAP_RELIEF_BOUNDS, formatHeightMeters } from "../../features/maps/model/terrain";
+import { logHeightSliderSpec } from "./LayersPanel/heightSlider";
 
 /**
  * `logHeightSliderSpec` backs both `MapsWorkbench.tsx`'s `fill-extrusion`

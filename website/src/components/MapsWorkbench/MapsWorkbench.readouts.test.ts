@@ -22,7 +22,7 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { formatKm, formatPeople, parseKm, parsePeople, parsePriority } from "./mapsKit";
+import { formatKm, formatPeople, parseKm, parsePeople, parsePriority } from "../../features/maps/model/inputs";
 
 // The bounds each row actually declares (MapsWorkbench.tsx's LAYER_SLIDERS).
 const MODEL_HEIGHT = { min: 20_000, max: 600_000 } as const;

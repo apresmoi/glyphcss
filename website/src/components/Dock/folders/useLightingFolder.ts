@@ -3,8 +3,8 @@
  * color) and ambient (intensity / color).
  */
 import type { GUI } from "lil-gui";
-import type { SceneOptionsState } from "../../GalleryWorkbench/types";
 import { useEffect } from "react";
+import type { SceneOptionsState } from "../../../features/gallery/model/types";
 import { useColor, useFolder, useSlider } from "../primitives";
 
 export interface LightingFolderInputs {
@@ -25,26 +25,19 @@ export interface LightingFolderInputs {
   directionLocked?: boolean;
   /** Tooltip explaining WHY the direction rows are locked. Ignored unless `directionLocked`. */
   directionLockedReason?: string;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState,
-    | "lightAzimuth"
-    | "lightElevation"
-    | "lightIntensity"
-    | "lightColor"
-    | "ambientIntensity"
-    | "ambientColor"
-  >>) => void;
+  onUpdateScene: (
+    partial: Partial<
+      Pick<
+        SceneOptionsState,
+        "lightAzimuth" | "lightElevation" | "lightIntensity" | "lightColor" | "ambientIntensity" | "ambientColor"
+      >
+    >,
+  ) => void;
 }
 
 export function useLightingFolder(parent: GUI | null, inputs: LightingFolderInputs): GUI | null {
-  const {
-    lightAzimuth,
-    lightElevation,
-    lightIntensity,
-    lightColor,
-    ambientIntensity,
-    ambientColor,
-    onUpdateScene,
-  } = inputs;
+  const { lightAzimuth, lightElevation, lightIntensity, lightColor, ambientIntensity, ambientColor, onUpdateScene } =
+    inputs;
 
   const folder = useFolder(parent, "Lighting", { open: true });
 

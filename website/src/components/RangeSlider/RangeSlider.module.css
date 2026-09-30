@@ -1,0 +1,202 @@
+:local(.root) {
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+  margin: 5px 0;
+}
+.root :global(.range-slider-label) {
+  min-width: 45%;
+  flex-shrink: 0;
+  padding-right: 5px;
+  font-size: 11px;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+  line-height: 24px;
+}
+.root :global(.range-slider-widget) {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+}
+.root :global(.range-slider-label) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-number) {
+  box-sizing: border-box;
+  flex: 0 1 auto;
+  width: calc(var(--range-slider-number-ch, 4) * 1ch + 8px);
+  min-width: 3ch;
+  height: auto;
+  font: inherit;
+  font-size: 11px;
+  font-family: var(--gc-font-ui);
+  color: var(--gc-accent);
+  text-align: right;
+  padding: 1px 2px;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted var(--gc-rule);
+  border-radius: 0;
+  -webkit-appearance: none;
+  appearance: none;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-number):hover:not(:disabled) {
+  border-bottom-color: var(--gc-text-faint);
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-number):focus-visible {
+  border-bottom-color: rgba(var(--gc-accent-rgb), 0.8);
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-number):disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-track) {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 44px;
+  height: 10px;
+  margin-inline: var(--gc-space-2);
+  border: 1px solid var(--gc-text-faint);
+  background: rgba(var(--gc-text-rgb), 0.04);
+  border-radius: 0;
+  cursor: ew-resize;
+  overflow: visible;
+  padding-right: 0;
+}
+.root :global(.range-slider-track)::before,
+.root :global(.range-slider-track)::after {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+}
+.root :global(.range-slider-track)::before {
+  content: "[";
+  left: -8px;
+}
+.root :global(.range-slider-track)::after {
+  content: "]";
+  right: -8px;
+}
+.root :global(.range-slider-fill) {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(to right, rgba(var(--gc-accent-rgb), 0.55), var(--gc-accent));
+  border-left: 2px solid var(--gc-accent);
+  border-right: 2px solid var(--gc-accent);
+  box-shadow:
+    -2px 0 4px rgba(var(--gc-accent-rgb), 0.6),
+    2px 0 4px rgba(var(--gc-accent-rgb), 0.6);
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-range) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  z-index: 1;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-range--hi) {
+  z-index: 2;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider)
+  :global(.range-slider-range):global(.is-front) {
+  z-index: 3;
+}
+.root :global(.range-slider-range)::-webkit-slider-runnable-track {
+  background: transparent;
+  height: 10px;
+}
+.root :global(.range-slider-range)::-moz-range-track {
+  background: transparent;
+  height: 10px;
+}
+.root :global(.range-slider-range)::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  pointer-events: auto;
+  width: 14px;
+  height: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: ew-resize;
+}
+.root :global(.range-slider-range)::-moz-range-thumb {
+  pointer-events: auto;
+  width: 14px;
+  height: 10px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  cursor: ew-resize;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider):global(.is-disabled)
+  :global(.range-slider-fill) {
+  background: rgba(var(--gc-accent-rgb), 0.4);
+  border-color: rgba(var(--gc-accent-rgb), 0.4);
+  box-shadow: none;
+}
+:global(.lil-gui)
+  .root:global(.controller):global(.number):global(.hasSlider):global(.range-slider):global(.is-disabled)
+  :global(.range-slider-track) {
+  cursor: not-allowed;
+}
+.root :global(.range-slider-error) {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--gc-text);
+}
+.root :global(.range-select-widget),
+.root :global(.range-unavailable-widget) {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-1);
+  width: 100%;
+  min-width: 0;
+  min-height: 24px;
+}
+.root :global(.range-select-dash) {
+  flex: 0 0 auto;
+  font-size: 11px;
+  color: var(--gc-text-muted);
+}
+.root :global(.range-unavailable-reason) {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  color: var(--gc-text-muted);
+}

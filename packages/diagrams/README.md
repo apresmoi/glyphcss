@@ -1,6 +1,6 @@
 # @glyphcss/diagrams
 
-Mermaid flowcharts and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
+2D Mermaid flowcharts and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
 
 > Layout and the examples below use the installed `@dagrejs/dagre@3.1.1`. `fixtures/langgraph-export.mmd` is the real, unmodified `draw_mermaid()` export byte-for-byte (including its `&nbsp;`-padded conditional edge text); `fixtures/langgraph.mmd` is a variant that makes agent→tools solid and keeps a labelled dotted edge to `__end__`.
 
@@ -15,6 +15,8 @@ console.log(diagram.report.ledger);
 ```
 
 `renderGlyphDiagram` accepts Mermaid source or a `GlyphGraph`. `glyphGraphFromJson` accepts an object with `nodes` and `edges`, defaulting `direction` to `TB`. `renderGlyphDiagramJson` accepts JSON text and returns a Promise of JSON text: `{ text, html?, meta, report }` on success or `{ error, code, hint }` on failure.
+
+React and Vue can call the diagram renderer from their own effect/mount hooks and display the result in a monospace `<pre>`. These 2D outputs do not need the scene components from `@glyphcss/react` or `@glyphcss/vue`. The website's `/diagrams` export window generates HTML, TypeScript, React, and Vue examples for Graph, Sequence, and Lanes; its framework examples ignore asynchronous results after unmounting and encode cell colors as browser HTML.
 
 ```ts
 import { glyphGraphFromJson, renderGlyphDiagramJson } from "@glyphcss/diagrams";
@@ -138,7 +140,9 @@ Lane assignment is the one new algorithm: a node gets a lane on first appearance
 
 ## CLI and workbench
 
-`glyphcss diagram graph.mmd --target chat --charset ascii --width 80 --height 24` and `glyphcss diagram graph.json` use the same renderer. ANSI is the terminal default; piped output is plain unless explicitly overridden. Fidelity notes (`report.ledger`'s `code`/`message` pairs) go to stderr. `/diagrams` uses the shared instrument shell with three source tabs — Mermaid, nodes/edges JSON, and a Table (a nodes table: id, label, kind; an edges table: from, to, label — a node's `shape`/`group` and an edge's `id`/`style`/`priority` ride through untouched even though the table doesn't expose them) — plus output/layout/diagram controls, seven presets, copy/SVG export, and TS/Mermaid/JSON examples — no ledger readout on the page; `report` is for the CLI and agents.
+`glyphcss diagram graph.mmd --target chat --charset ascii --width 80 --height 24` and `glyphcss diagram graph.json` use the same 2D renderer. ANSI is the terminal default; piped output is plain unless explicitly overridden. Fidelity notes (`report.ledger`'s `code`/`message` pairs) go to stderr.
+
+The `/diagrams` workbench offers Graph, Sequence, and Lanes forms. Each has a text editor and JSON view, presets, output controls, text/SVG export, and source examples. Graph direction is selected with TB/LR/BT/RL buttons. Diagrams are 2D-only throughout the package, CLI, and workbench; there is no `./3d` entry, scene-object API, or diagram camera configuration.
 
 ## Rendered examples
 

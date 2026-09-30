@@ -1,9 +1,6 @@
 %% Hand-authored EXAMPLE architecture (not real training telemetry) — one
-%% transformer encoder block's INSIDE, unlike the existing
-%% `transformer-encoder.json` fixture (3D-only, a flat 6-box chain with no
-%% internal attention structure): multi-head attention split into its Q/K/V
-%% projections, the heads' own scaled dot-product + concat/project step,
-%% an Add & Norm (residual + layernorm) after attention, and the feed
+%% transformer encoder block's internal structure, including
+%% Add & Norm (residual + layernorm) after attention, and the feed
 %% forward network's two linear projections followed by a second
 %% Add & Norm. Architecture per A. Vaswani et al., "Attention Is All You
 %% Need," NeurIPS, 2017 — see the LICENSES.md next to this file. The

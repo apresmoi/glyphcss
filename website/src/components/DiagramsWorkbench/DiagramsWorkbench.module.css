@@ -1,0 +1,800 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+/* Rail, Dock, tray, mobile drawers and export panel use the instrument shell. */
+/* The rail's content is a flex column that hands the editor every spare
+   pixel: tabs, toolbar and error strip take their own height, the text
+   area fills the rest (`.synth-voices-list` is already a flex column with
+   `overflow-y: auto`, so on a short viewport the editor keeps its own
+   160px floor and the rail scrolls). */
+/* The dialect tabs share the rail's header row with the title ("mermaid/
+   json could be next to graph ... so we save one row"): the title ellipsises,
+   the tabs keep their width and drop the header's uppercase tracking. */
+.root :global(.diagrams-source-tabs) {
+  flex: 0 0 auto;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.root :global(.diagrams-source-tabs) :global(.gx-toggle-btn) {
+  flex: 0 0 auto;
+  padding: 3px var(--gc-space-2);
+  font-size: 10px;
+}
+.root :global(.diagrams-source-panel) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.diagrams-editor-wrap) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-1);
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.root :global(.diagrams-editor) {
+  /* MUST equal `DIAGRAMS_EDITOR_LINE_PX` in DiagramsSourceEditor.tsx — the JS
+     positions every field box, hotspot anchor and error stripe at
+     `line * DIAGRAMS_EDITOR_LINE_PX`, so a disagreement makes the overlay
+     drift further from the text on every line down. */
+  --diagrams-editor-line: 20px;
+  --diagrams-editor-pad: 6px;
+  --diagrams-editor-gutter: 4ch;
+  position: relative;
+  box-sizing: border-box;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 160px;
+  overflow: hidden;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+}
+/* Invisible ruler the completion list measures the cell width off — the
+   same font as the text, out of flow, never painted. */
+.root :global(.diagrams-editor-measure) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: pre;
+  font: inherit;
+  font-size: 11px;
+  font-family: var(--gc-font-render);
+}
+/* The insert toolbar above the text: ONE slim row of flat text items ("a
+   toolbar above the editor instead of being buttons"), the grouped node
+   shapes behind one menu. Never wraps — on a narrow rail it scrolls. */
+.root :global(.diagrams-editor-tools) {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid rgba(var(--gc-text-rgb), 0.1);
+}
+.root :global(.diagrams-editor-tools-label) {
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gc-text-faint);
+  padding-right: var(--gc-space-1);
+  flex: 0 0 auto;
+}
+.root :global(.diagrams-editor-menu) {
+  position: relative;
+  flex: 0 0 auto;
+}
+.root :global(.diagrams-editor-tool) {
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  flex: 0 0 auto;
+  padding: var(--gc-space-1) 5px;
+  cursor: pointer;
+  border-radius: 0;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid transparent;
+}
+.root :global(.diagrams-editor-tool):hover {
+  color: rgba(var(--gc-accent-rgb), 0.95);
+}
+.root :global(.diagrams-editor-tool):global(.is-active) {
+  color: var(--gc-accent);
+  border-bottom-color: rgba(var(--gc-accent-rgb), 0.85);
+}
+/* The tile widget: one tile per choice, with the LIVE glyph preview the
+   page rendered through the library when the choice is a shape, the name
+   and the exact syntax. It is the toolbar's node menu AND every choice
+   field's list (`.diagrams-editor-choices`) — the same widget, so a shape
+   looks the same wherever it is offered. */
+.root :global(.diagrams-editor-shapes) {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 30;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gc-space-1);
+  width: min(420px, calc(100vw - 48px));
+  padding: 6px;
+  background: rgba(var(--gc-surface-rgb), 0.98);
+  border: 1px solid var(--gc-text-faint);
+  box-shadow: 0 8px 24px rgba(var(--gc-surface-rgb), 0.5);
+}
+.root :global(.diagrams-editor-shape) {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  column-gap: var(--gc-space-2);
+  align-items: center;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 0;
+  padding: var(--gc-space-1) 6px;
+  color: var(--gc-text);
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+}
+.root :global(.diagrams-editor-shape):hover,
+.root :global(.diagrams-editor-shape):focus-visible,
+.root :global(.diagrams-editor-shape):global(.is-active) {
+  border-color: rgba(var(--gc-accent-rgb), 0.6);
+}
+.root :global(.diagrams-editor-shape):global(.is-current) {
+  background: rgba(var(--gc-orange-rgb), 0.14);
+  border-color: rgba(var(--gc-orange-rgb), 0.7);
+}
+.root :global(.diagrams-editor-shape):global(.is-current) :global(.diagrams-editor-shape-label)::after {
+  content: " ✓";
+  color: var(--gc-orange);
+}
+.root :global(.diagrams-editor-shape-preview) {
+  grid-row: 1 / 3;
+  margin: 0;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  font-size: 7px;
+  line-height: 1;
+  white-space: pre;
+  color: var(--gc-text);
+  min-width: 10ch;
+}
+.root :global(.diagrams-editor-shape-label) {
+  font-size: 10px;
+  font-weight: 700;
+}
+.root :global(.diagrams-editor-shape-syntax) {
+  font: inherit;
+  font-size: 10px;
+  color: rgba(var(--gc-accent-rgb), 0.85);
+}
+/* A choice field's list, inside the editor box (positioned by the editor
+   from the field's own cell, below or above it), scrolling when the box is
+   short; the ▾ trigger floats after the field's last character. */
+.root :global(.diagrams-editor-choices) {
+  top: auto;
+  z-index: 6;
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  overflow-y: auto;
+}
+.root :global(.diagrams-editor-choices-trigger) {
+  position: absolute;
+  z-index: 4;
+  box-sizing: border-box;
+  height: var(--diagrams-editor-line);
+  width: calc(1ch + 3px);
+  padding: 0;
+  text-align: center;
+  font-family: var(--gc-font-render);
+  font-size: 11px;
+  line-height: calc(var(--diagrams-editor-line) - 2px);
+  cursor: pointer;
+  border-radius: 0;
+  color: var(--gc-orange);
+  background: rgba(var(--gc-surface-rgb), 0.96);
+  border: 1px solid rgba(var(--gc-orange-rgb), 0.7);
+}
+.root :global(.diagrams-editor-choices-trigger):hover,
+.root :global(.diagrams-editor-choices-trigger):global(.is-active) {
+  background: rgba(var(--gc-orange-rgb), 0.25);
+}
+/* Id completion under the caret: a listbox the keyboard drives (arrows,
+   Enter/Tab, Escape); positioned by the editor from the caret's own cell. */
+.root :global(.diagrams-editor-completions) {
+  position: absolute;
+  z-index: 5;
+  margin: 0;
+  padding: 2px 0;
+  list-style: none;
+  min-width: 12ch;
+  max-width: calc(100% - 12px);
+  max-height: 8.5em;
+  overflow: auto;
+  background: rgba(var(--gc-surface-rgb), 0.98);
+  border: 1px solid rgba(var(--gc-accent-rgb), 0.55);
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.5);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.root :global(.diagrams-editor-completion) {
+  display: flex;
+  gap: var(--gc-space-2);
+  align-items: baseline;
+  padding: 1px var(--gc-space-2);
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--gc-text);
+}
+.root :global(.diagrams-editor-completion):global(.is-active) {
+  background: rgba(var(--gc-accent-rgb), 0.2);
+  color: var(--gc-accent);
+}
+.root :global(.diagrams-editor-completion-label) {
+  font-size: 10px;
+  color: var(--gc-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.root :global(.diagrams-editor-slot) {
+  position: absolute;
+  height: var(--diagrams-editor-line);
+  margin-top: var(--diagrams-editor-pad);
+  box-sizing: border-box;
+  background: rgba(var(--gc-accent-rgb), 0.07);
+  border-bottom: 1px solid rgba(var(--gc-accent-rgb), 0.45);
+}
+.root :global(.diagrams-editor-slot):global(.is-cycle) {
+  background: rgba(var(--gc-orange-rgb), 0.08);
+  border-bottom: 1px dashed rgba(var(--gc-orange-rgb), 0.7);
+}
+.root :global(.diagrams-editor-slot):global(.is-repair) {
+  background: rgba(var(--gc-text-rgb), 0.08);
+  border-bottom: 1px dashed rgba(var(--gc-text-rgb), 0.7);
+}
+.root :global(.diagrams-editor-slot):global(.is-active) {
+  background: rgba(var(--gc-accent-rgb), 0.2);
+  border-bottom: 2px solid rgba(var(--gc-accent-rgb), 0.95);
+}
+.root :global(.diagrams-editor-slot):global(.is-active):global(.is-cycle) {
+  background: rgba(var(--gc-orange-rgb), 0.2);
+  border-bottom-color: var(--gc-orange);
+}
+.root :global(.diagrams-editor-slot):global(.is-active):global(.is-repair) {
+  background: var(--gc-rule);
+  border-bottom-color: var(--gc-text);
+}
+/* The render's pointer, answered in the rail: the hovered node's own fields
+   glow without touching the caret's own `is-active` mark, so the two reads —
+   "what am I editing" and "what am I pointing at" — never look the same. */
+.root :global(.diagrams-editor-slot):global(.is-highlight) {
+  background: rgba(var(--gc-warning-rgb), 0.22);
+  border-bottom: 2px solid rgba(var(--gc-warning-rgb), 0.9);
+}
+.root :global(.diagrams-editor-slot):global(.is-refused) {
+  animation: diagrams-slot-refuse 1.5s ease-out;
+}
+@keyframes diagrams-slot-refuse {
+  0% {
+    background: var(--gc-text-muted);
+    box-shadow: 0 0 0 2px var(--gc-text);
+  }
+  100% {
+    background: rgba(var(--gc-accent-rgb), 0.2);
+    box-shadow: none;
+  }
+}
+.root :global(.diagrams-editor-refusal) {
+  color: var(--gc-text);
+}
+.root :global(.diagrams-editor-repair-note) {
+  color: var(--gc-text);
+}
+.root :global(.diagrams-editor-field) {
+  color: rgba(var(--gc-accent-rgb), 0.95);
+  font-weight: 700;
+}
+/* The render's hotspots (`DiagramsHotspotLayer.tsx`): one real element per
+   node box and per straight run of an edge, over the `<pre>`. Three
+   designed states — idle is a faint dashed outline (discoverable, never
+   invisible), hover a solid cyan one, selected the cyan of the editor's
+   active field with a glow, so the marked node and the marked field read
+   as the same thing. The layer takes no pointer; only the elements do. */
+.root :global(.diagrams-grid-scroll) {
+  position: relative;
+}
+.root :global(.diagrams-hotspot-layer) {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+.root :global(.diagrams-hotspot) {
+  position: absolute;
+  box-sizing: border-box;
+  pointer-events: all;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.12s ease;
+}
+.root :global(.diagrams-hotspot):hover,
+.root :global(.diagrams-hotspot):global(.is-hover),
+.root :global(.diagrams-hotspot):focus-visible {
+  background: rgba(var(--gc-accent-rgb), 0.1);
+}
+.root :global(.diagrams-hotspot):global(.is-selected) {
+  background: rgba(var(--gc-accent-rgb), 0.14);
+}
+.root :global(.diagrams-grid-scroll):global(.is-stale) :global(.diagrams-hotspot-layer) {
+  opacity: 0.4;
+}
+.root :global(.diagrams-editor):focus-within {
+  border-color: rgba(var(--gc-accent-rgb), 0.55);
+}
+.root :global(.diagrams-editor-gutter),
+.root :global(.diagrams-editor-highlight),
+.root :global(.diagrams-editor-input) {
+  margin: 0;
+  font-family: var(--gc-font-render);
+  font-size: 11px;
+  line-height: var(--diagrams-editor-line);
+  tab-size: 2;
+  letter-spacing: normal;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+.root :global(.diagrams-editor-gutter) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: auto;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: var(--diagrams-editor-gutter);
+  min-height: 100%;
+  padding: var(--diagrams-editor-pad) 0;
+  background: var(--gc-surface);
+  border-right: 1px solid var(--gc-rule);
+  color: var(--gc-text-faint);
+  text-align: right;
+  pointer-events: none;
+  user-select: none;
+  will-change: transform;
+}
+.root :global(.diagrams-editor-gutter) span {
+  display: block;
+  height: var(--diagrams-editor-line);
+  padding-right: 1ch;
+}
+.root :global(.diagrams-editor-gutter) span:global(.is-error) {
+  color: var(--gc-text);
+  font-weight: 700;
+}
+.root :global(.diagrams-editor-gutter) span:global(.is-error)::before {
+  content: "●";
+  float: left;
+  padding-left: 0.5ch;
+  font-size: 8px;
+}
+/* Carries the text font too: the slot boxes inside it are placed in `ch`
+   units, which only match the text's cells when this layer's own font is
+   the text's font (the page body sets a larger Glyph Mono). */
+.root :global(.diagrams-editor-layer) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  min-width: 100%;
+  min-height: 100%;
+  pointer-events: none;
+  will-change: transform;
+  font-family: var(--gc-font-render);
+  font-size: 11px;
+}
+.root :global(.diagrams-editor-highlight) {
+  position: relative;
+  padding: var(--diagrams-editor-pad) var(--diagrams-editor-pad) var(--diagrams-editor-pad)
+    calc(var(--diagrams-editor-gutter) + var(--diagrams-editor-pad));
+  color: var(--gc-text);
+}
+.root :global(.diagrams-editor-errline) {
+  position: absolute;
+  left: 0;
+  right: 0;
+  margin-top: var(--diagrams-editor-pad);
+  height: var(--diagrams-editor-line);
+  background: var(--gc-rule);
+  box-shadow: inset 2px 0 0 var(--gc-text);
+}
+.root :global(.diagrams-editor-input) {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: var(--diagrams-editor-pad) var(--diagrams-editor-pad) var(--diagrams-editor-pad)
+    calc(var(--diagrams-editor-gutter) + var(--diagrams-editor-pad));
+  background: transparent;
+  color: transparent;
+  caret-color: var(--gc-text);
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  resize: none;
+  overflow: auto;
+}
+/* Semi-transparent so the highlighted glyphs beneath stay readable through a selection. */
+.root :global(.diagrams-editor-input)::selection {
+  background: rgba(var(--gc-accent-rgb), 0.28);
+  color: transparent;
+}
+.root :global(.diagrams-tok-keyword) {
+  color: var(--gc-orange);
+}
+.root :global(.diagrams-tok-arrow) {
+  color: var(--gc-accent);
+}
+.root :global(.diagrams-tok-id) {
+  color: var(--gc-text);
+}
+.root :global(.diagrams-tok-key) {
+  color: rgba(var(--gc-accent-rgb), 0.9);
+}
+.root :global(.diagrams-tok-string),
+.root :global(.diagrams-tok-label) {
+  color: var(--gc-text);
+}
+.root :global(.diagrams-tok-number),
+.root :global(.diagrams-tok-literal) {
+  color: var(--gc-orange);
+}
+.root :global(.diagrams-tok-punct) {
+  color: var(--gc-text-muted);
+}
+.root :global(.diagrams-tok-comment) {
+  color: var(--gc-text-faint);
+  font-style: italic;
+}
+.root :global(.diagrams-tok-text) {
+  color: rgba(var(--gc-text-rgb), 0.7);
+}
+/* The error strip under the editor: "Line N" (a button that moves the
+   caret there), the rule code, the library's message, then its own repair
+   hint — never one opaque banner. */
+.root :global(.diagrams-editor-status) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--gc-space-1) 6px;
+}
+.root :global(.diagrams-editor-jump) {
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.4;
+  font-weight: 700;
+  padding: 0 var(--gc-space-1);
+  cursor: pointer;
+  border-radius: 0;
+  color: var(--gc-text);
+  background: var(--gc-rule);
+  border: 1px solid var(--gc-text-muted);
+}
+.root :global(.diagrams-editor-jump):hover:not(:disabled) {
+  background: var(--gc-rule-strong);
+}
+.root :global(.diagrams-editor-jump):disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+.root :global(.diagrams-editor-code) {
+  font: inherit;
+  font-size: 10px;
+  color: rgba(var(--gc-text-rgb), 0.8);
+}
+.root :global(.diagrams-editor-message) {
+  flex: 1 1 100%;
+}
+.root :global(.diagrams-editor-hint) {
+  flex: 1 1 100%;
+  color: var(--gc-text-muted);
+}
+.root :global(.diagrams-editor-help) {
+  color: var(--gc-text-faint);
+}
+.root :global(.diagrams-graph-source) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-bottom: var(--gc-space-1);
+}
+.root :global(.diagrams-graph-info) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.root :global(.diagrams-graph-title) {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--gc-text);
+}
+.root :global(.diagrams-graph-info) a {
+  color: var(--gc-accent);
+}
+.root :global(.diagrams-data-loading) {
+  font-style: italic;
+}
+.root :global(.diagrams-data-loading-spinner) {
+  display: inline-block;
+  animation: diagrams-spin 0.9s linear infinite;
+}
+@keyframes diagrams-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* Reduced-motion opt-out lives in the SAME `@media (prefers-reduced-motion:
+   reduce)` block as `.diagrams-grid-scroll.is-loading`, further down this
+   file, rather than a second one here — `DiagramsWorkbench.test.tsx`'s own
+   regression pin matches the FIRST such block in the file and asserts it
+   covers the viewport pulse; a second, earlier block would shadow it. */
+.root :global(.diagrams-dataset-search) {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+}
+.root :global(.diagrams-data-overlay) {
+  --diagrams-overlay-control-h: 30px;
+}
+.root :global(.diagrams-dataset-search) :global(.instrument-search-field),
+.root :global(.diagrams-random-btn) {
+  box-sizing: border-box;
+  height: var(--diagrams-overlay-control-h);
+}
+.root :global(.diagrams-random-btn) {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: calc(50% + 170px + 6px);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+@media (max-width: 1100px) {
+  .root :global(.diagrams-data-overlay) {
+    position: absolute;
+    top: var(--overlay-top, 12px);
+    left: 12px;
+    right: 12px;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .root :global(.diagrams-dataset-search) {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  .root :global(.diagrams-random-btn) {
+    position: static;
+    flex: 0 0 auto;
+  }
+}
+.root :global(.diagrams-search-chevron) {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+  color: var(--gc-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.root :global(.diagrams-search-chevron):hover,
+.root :global(.diagrams-search-chevron)[aria-expanded="true"] {
+  color: var(--gc-text);
+}
+.root :global(.diagrams-dataset-search) :global(.instrument-search-list) {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  z-index: 20;
+}
+
+/* Fixed cell budgets scroll as text while keeping the floating Dock lane
+   free. Top padding grew from 24px to 64px (matching `charts-workbench.css`'s
+   own `.charts-viewport.synth-viewport`) to clear the data overlay above —
+   one row of controls at this width, so the render never starts under it. */
+.root :global(.diagrams-preview) {
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+.root :global(.diagrams-grid-scroll) {
+  overflow: auto;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+/* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
+   as a direct-child selector so nothing about its byte-identical render
+   changes; `terminal`/`chat` reach their own `.glyph-output` through the
+   dedicated rules below instead of this one. */
+.root :global(.diagrams-grid-scroll) > :global(.glyph-output) {
+  display: block;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  font-size: 13px;
+  line-height: 1;
+  white-space: pre;
+  user-select: text;
+}
+.root :global(.diagrams-readout),
+.root :global(.diagrams-error) {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.root :global(.diagrams-readout) {
+  color: var(--gc-text-muted);
+}
+.root :global(.diagrams-error) {
+  color: var(--gc-text);
+}
+
+.root :global(.diagrams-tray-divider) {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--gc-space-1);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gc-text-muted);
+  white-space: nowrap;
+}
+
+/* The viewport holds only the render — no readout ever lives beside it.
+   While the graph errors or a layout is still in flight, this wrapper
+   instead keeps showing whatever last laid out OK, dimmed so the frame
+   reads as "not current" without collapsing or shifting; `is-loading`
+   additionally pulses it — only while a layout is actually in flight — as
+   the page's own animation, never the render's (mirrors
+   charts-workbench.css's own `.charts-grid-scroll` rules). */
+.root :global(.diagrams-grid-scroll):global(.is-stale) {
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+.root :global(.diagrams-grid-scroll):global(.is-loading) {
+  animation: diagrams-viewport-pulse 1.6s ease-in-out infinite;
+}
+@keyframes diagrams-viewport-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .root :global(.diagrams-grid-scroll):global(.is-loading) {
+    animation: none;
+  }
+  .root :global(.diagrams-data-loading-spinner) {
+    animation: none;
+  }
+  .root :global(.diagrams-editor-slot):global(.is-refused) {
+    animation: none;
+    background: var(--gc-text-faint);
+  }
+  .root :global(.diagrams-hotspot) {
+    transition: none;
+  }
+}
+/* Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
+   the same A4/A5 cascade defect this file's `.diagrams-grid-scroll >
+   .glyph-output` rule above already documents: `inherit` here took
+   `.dn-root`'s own fallback stack with no "Glyph Mono" in it, measuring
+   every braille cell ~13.5% wider than every other glyph in this tile). */
+.root :global(.diagrams-tile-preview):global(.synth-tile-scene) {
+  display: grid;
+  place-items: center;
+}
+.root :global(.diagrams-tile-preview) pre {
+  margin: 0;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  font-size: 2.7px;
+  line-height: 1;
+  white-space: pre;
+}
+.root :global(.diagrams-grid-scroll) :global(.target-preview--terminal),
+.root :global(.diagrams-grid-scroll) :global(.target-preview--chat) {
+  margin: 0 auto;
+  text-align: left;
+}
+
+@media (max-width: 1100px) {
+  .root :global(.diagrams-editor) {
+    min-height: 120px;
+  }
+}
+
+/* A choice field's native `<select>`: sized and positioned ON the field it
+   edits, transparent so the highlighted field shows through, and carrying the
+   platform's own menu. `font: inherit` keeps it on the editor's grid — see
+   `--diagrams-editor-line`'s own note about the JS/CSS pairing. */
+.root :global(.diagrams-editor-choice-select) {
+  position: absolute;
+  z-index: 3;
+  margin: 0;
+  padding: 0 0 0 1px;
+  height: var(--diagrams-editor-line);
+  font: inherit;
+  font-size: 11px;
+  line-height: var(--diagrams-editor-line);
+  color: transparent;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* No `min-width`: the inline width is the field's own measured span, and a
+     floor would widen a one-character field (`[`, `(`) over the label that
+     follows it — the text under a wider control cannot be clicked at all. */
+}
+.root :global(.diagrams-editor-choice-select):global(.is-adjacent) {
+  width: 2ch;
+  color: rgba(var(--gc-accent-rgb), 0.9);
+  background: rgba(var(--gc-accent-rgb), 0.12);
+}
+.root :global(.diagrams-editor-choice-select):hover {
+  background: rgba(var(--gc-accent-rgb), 0.16);
+}
+.root :global(.diagrams-editor-choice-select):focus-visible {
+  color: var(--gc-text);
+  background: var(--gc-surface);
+}
+.root :global(.diagrams-editor-choice-select) option {
+  color: var(--gc-text);
+  background: var(--gc-surface);
+  font-family: var(--gc-font-render);
+}

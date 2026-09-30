@@ -1,0 +1,23 @@
+.art {
+  font-family: var(--gc-font-render);
+  line-height: 1;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: inherit;
+  white-space: pre;
+  overflow: hidden;
+  width: 100%;
+  display: block;
+  box-sizing: border-box;
+}
+
+.probe {
+  position: absolute;
+  visibility: hidden;
+  display: inline-block;
+  white-space: pre;
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+}

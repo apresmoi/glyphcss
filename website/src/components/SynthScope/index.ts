@@ -1,0 +1,1 @@
+export { SynthScope } from "./SynthScope";

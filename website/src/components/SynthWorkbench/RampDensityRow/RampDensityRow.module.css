@@ -1,0 +1,76 @@
+.root:global(.dock-ramp-density) {
+  display: flex;
+  gap: var(--gc-space-1);
+  overflow-x: auto;
+  padding-top: 2px;
+}
+.root :global(.dock-ramp-density-item) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: 0 0 auto;
+  width: 40px;
+  padding: 3px 2px var(--gc-space-1);
+  background-color: rgba(var(--gc-surface-rgb), 0.85);
+  border-block: 0;
+  border-inline: 1px solid var(--gc-rule);
+  --gx-bracket: var(--gc-rule);
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+.root :global(.dock-ramp-density-item):hover {
+  border-color: var(--gc-text-faint);
+  --gx-bracket: var(--gc-text-faint);
+}
+.root :global(.dock-ramp-density-item):global(.is-active) {
+  border-color: var(--gc-accent);
+  background-color: rgba(var(--gc-accent-rgb), 0.12);
+  --gx-bracket: var(--gc-accent);
+}
+.root :global(.dock-ramp-density-bars) {
+  display: flex;
+  align-items: flex-end;
+  gap: 1px;
+  width: 100%;
+  height: 20px;
+}
+.root :global(.dock-ramp-density-bar) {
+  flex: 1 1 auto;
+  min-width: 1px;
+  background: var(--gc-accent);
+  opacity: 0.85;
+}
+.root :global(.dock-ramp-density-item):global(.is-active) :global(.dock-ramp-density-bar) {
+  background: var(--gc-text);
+  opacity: 0.95;
+}
+.root :global(.dock-ramp-density-pending) {
+  width: 100%;
+  text-align: center;
+  font-size: 9px;
+  color: var(--gc-text-faint);
+  align-self: center;
+}
+.root :global(.dock-ramp-density-label) {
+  font-size: 8px;
+  letter-spacing: 0.04em;
+  color: var(--gc-text-muted);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root :global(.dock-ramp-density-item):global(.is-active) :global(.dock-ramp-density-label) {
+  color: var(--gc-text);
+}
+.root :global(.dock-ramp-density-reason) {
+  margin: 2px 0 0;
+  padding: 6px var(--gc-space-2);
+  font-size: 10px;
+  line-height: 1.4;
+  color: rgba(var(--gc-text-rgb), 0.75);
+  background: rgba(var(--gc-surface-rgb), 0.85);
+  border: 1px solid var(--gc-rule);
+}

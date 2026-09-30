@@ -1,0 +1,53 @@
+.root {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  width: fit-content;
+  flex: 0 1 auto;
+  justify-self: start;
+  align-self: center;
+  font: var(--gc-text-sm) / 1.4 var(--gc-font-ui);
+  color: var(--gc-text);
+}
+.root::before,
+.root::after {
+  position: absolute;
+  pointer-events: none;
+  color: var(--gc-accent);
+}
+.root::before {
+  content: "[";
+  left: 0;
+}
+.root::after {
+  content: "▾ ]";
+  right: 0;
+  white-space: pre;
+}
+.root select {
+  field-sizing: content;
+  width: auto;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: var(--gc-control-height);
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  padding: 2px 4ch 2px 2ch;
+  font: inherit;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.root select:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.root select option {
+  color: var(--gc-text);
+  background: var(--gc-surface);
+}

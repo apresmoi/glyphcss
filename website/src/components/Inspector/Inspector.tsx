@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
 import type { TextureTriangle } from "@glyphcss/core";
+import { useEffect, useRef, useState } from "react";
+import styles from "./Inspector.module.css";
 
 export interface InspectorColorGroup {
   /** Hex when `editable`; group label (e.g. "textured") when not. */
@@ -20,15 +21,11 @@ export function Inspector({
   onColorChange,
 }: {
   meshes: InspectorMesh[];
-  onColorChange: (
-    mesh: InspectorMesh,
-    group: InspectorColorGroup,
-    next: string,
-  ) => void;
+  onColorChange: (mesh: InspectorMesh, group: InspectorColorGroup, next: string) => void;
 }) {
   if (meshes.length === 0) return null;
   return (
-    <aside className="dn-inspector" aria-label="Inspector">
+    <aside className={`${styles.root} dn-inspector`} aria-label="Inspector">
       <header className="dn-inspector__title">Inspector</header>
       <div className="dn-inspector__body dark-scrollbar">
         {meshes.map((mesh) => (
@@ -39,27 +36,17 @@ export function Inspector({
   );
 }
 
-export const InspectorPanel = Inspector;
-
 function MeshNode({
   mesh,
   onColorChange,
 }: {
   mesh: InspectorMesh;
-  onColorChange: (
-    mesh: InspectorMesh,
-    group: InspectorColorGroup,
-    next: string,
-  ) => void;
+  onColorChange: (mesh: InspectorMesh, group: InspectorColorGroup, next: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   return (
     <div className="dn-mesh-node">
-      <button
-        type="button"
-        className={`dn-mesh-header${open ? " is-open" : ""}`}
-        onClick={() => setOpen(!open)}
-      >
+      <button type="button" className={`dn-mesh-header${open ? " is-open" : ""}`} onClick={() => setOpen(!open)}>
         <span className="dn-mesh-chevron" aria-hidden="true">
           {open ? "▾" : "▸"}
         </span>
@@ -72,11 +59,7 @@ function MeshNode({
       {open && (
         <ul className="dn-mesh-groups">
           {mesh.groups.map((g, i) => (
-            <GroupRow
-              key={`${g.color}:${i}`}
-              group={g}
-              onChange={(next) => onColorChange(mesh, g, next)}
-            />
+            <GroupRow key={`${g.color}:${i}`} group={g} onChange={(next) => onColorChange(mesh, g, next)} />
           ))}
         </ul>
       )}
@@ -84,13 +67,7 @@ function MeshNode({
   );
 }
 
-function GroupRow({
-  group,
-  onChange,
-}: {
-  group: InspectorColorGroup;
-  onChange: (next: string) => void;
-}) {
+function GroupRow({ group, onChange }: { group: InspectorColorGroup; onChange: (next: string) => void }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [currentColor, setCurrentColor] = useState(group.color);
   useEffect(() => {

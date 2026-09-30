@@ -64,7 +64,7 @@ import {
   MAP_MINIMAP_ROWS,
   MAP_MINIMAP_SPAN_DEG,
   MAP_MINIMAP_TURN_DEG,
-} from "./mapsMinimap";
+} from "../../features/maps/model/mapsMinimap";
 
 const METRES_PER_DEGREE = (Math.PI / 180) * 6_371_000;
 const SOURCE = { id: "osm" } as unknown as GlyphMapVectorProvider;

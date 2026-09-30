@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { MapCompass, mapCompassPoint } from "./MapCompass";
-import { MAP_BEARING_RESET_EPSILON, MAP_TILT_SHEET_HOME, mapBearingIsNorth, mapOrientIsHome, mapTiltIsLevel, mapTiltResetValue } from "./mapsView";
+import { MAP_BEARING_RESET_EPSILON, MAP_TILT_SHEET_HOME, mapBearingIsNorth, mapOrientIsHome, mapTiltIsLevel, mapTiltResetValue } from "../../features/maps/model/mapsView";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;

@@ -9,42 +9,28 @@ import {
   GLYPH_DIAGRAMS_FORMS, GLYPH_SEQUENCE_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchSequence,
   createGlyphDiagramsWorkbenchState, glyphDiagramsWorkbenchSequenceMermaid, reduceGlyphDiagramsWorkbenchState,
   resolveGlyphDiagramsWorkbenchControls,
-} from "./diagramsWorkbenchState";
-import { decodeDiagramsUrlState, encodeDiagramsUrlState } from "./diagramsUrlState";
+} from "../../features/diagrams/model/diagramsWorkbenchState";
+import { decodeDiagramsUrlState, encodeDiagramsUrlState } from "../../features/diagrams/services/diagramsUrlState";
 
 const applyPreset = (id: string) => reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-sequence-preset", id });
 
-describe("diagramsWorkbenchState — form descriptor table", () => {
-  it("is a table (data), not a chain of conditionals: `graph` supports 3D, `sequence` does not", () => {
-    expect(GLYPH_DIAGRAMS_FORMS).toEqual([
-      { id: "graph", label: "Graph", supports3d: true },
-      { id: "sequence", label: "Sequence", supports3d: false },
-      { id: "lanes", label: "Lanes", supports3d: false },
-    ]);
-  });
+it("offers only the three 2D diagram forms", () => {
+  expect(GLYPH_DIAGRAMS_FORMS).toEqual([
+    { id: "graph", label: "Graph" },
+    { id: "sequence", label: "Sequence" },
+    { id: "lanes", label: "Lanes" },
+  ]);
 });
 
+
 describe("diagramsWorkbenchState — apply-sequence-preset", () => {
-  it.each(GLYPH_SEQUENCE_WORKBENCH_PRESETS)("applying '$label' switches the form to sequence, resets view to 2d, and parses a real sequence with at least one message", (preset) => {
+  it.each(GLYPH_SEQUENCE_WORKBENCH_PRESETS)("applying '$label' switches the form to sequence, and parses a real sequence with at least one message", (preset) => {
     const state = applyPreset(preset.id);
     expect(state.form).toBe("sequence");
-    expect(state.view).toBe("2d");
     expect(state.sequence.presetId).toBe(preset.id);
     const sequence = buildGlyphDiagramsWorkbenchSequence(state);
     expect(sequence.participants.length).toBeGreaterThan(0);
     expect(sequence.messages.length).toBeGreaterThan(0);
-  });
-
-  // Mutation-check #1 — if `set-form`'s `supports3d` gate were removed (or
-  // inverted), a reader stranded in 3D before switching form would stay
-  // there on a form that can't render it; this must always land on "2d".
-  it("mutation: switching form to sequence while the view is 3d forces it back to 2d and clears camera3d", () => {
-    let state = createGlyphDiagramsWorkbenchState();
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-view", view: "3d" });
-    expect(state.view).toBe("3d");
-    state = reduceGlyphDiagramsWorkbenchState(state, { type: "set-form", form: "sequence" });
-    expect(state.view).toBe("2d");
-    expect(state.camera3d).toBeUndefined();
   });
 
   it("does not touch the graph fields — switching to sequence and back finds the graph exactly as it was left", () => {

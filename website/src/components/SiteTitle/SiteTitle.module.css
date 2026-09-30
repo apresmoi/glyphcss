@@ -1,0 +1,15 @@
+.title {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  color: var(--gc-accent);
+  font: 700 var(--gc-text-lg) / 1 var(--gc-font-ui);
+  white-space: nowrap;
+  text-decoration: none;
+}
+.name {
+  background: linear-gradient(90deg, var(--gc-orange) 0 53%, var(--gc-accent) 53% 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}

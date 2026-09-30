@@ -1,55 +1,40 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { readCss } from '../test/styles';
+const read = (file: string) => readFileSync(path.resolve(__dirname, file), 'utf8');
 
-// Gate: the shipped "Glyph Mono" web font (packet item 2 — a Cascadia Mono
-// subset with full box-drawing/braille coverage, renamed with fontTools so
-// the OFL reserved-name clause is respected) must actually be declared and
-// wired in front of the charts/diagrams pages' rendered font stack. A
-// mutation that drops the @font-face or reorders the stack goes red here.
-const cssPath = fileURLToPath(new URL("./glyph-demo.css", import.meta.url));
-const css = readFileSync(cssPath, "utf8");
-
-describe("Glyph Mono web font", () => {
-  it("glyph-demo.css declares the @font-face for both weights", () => {
-    expect(css).toContain('@font-face');
-    expect(css).toMatch(/font-family:\s*"Glyph Mono"/);
+describe('Glyph Mono web font', () => {
+  it('declares both font weights with blocking font display', () => {
+    const css = read('./fonts.css');
+    expect(css.match(/@font-face/g)).toHaveLength(2);
+    expect(css.match(/font-family:\s*"Glyph Mono"/g)).toHaveLength(2);
     expect(css).toContain('src: url("/fonts/glyph-mono.woff2") format("woff2")');
     expect(css).toContain('src: url("/fonts/glyph-mono-bold.woff2") format("woff2")');
     expect(css).toMatch(/font-weight:\s*400/);
     expect(css).toMatch(/font-weight:\s*700/);
-    expect(css).toMatch(/font-display:\s*block/);
+    expect(css.match(/font-display:\s*block/g)).toHaveLength(2);
   });
-
-  it("glyph-demo.css's own .glyph-output font stacks put Glyph Mono first", () => {
-    const stacks = [...css.matchAll(/font-family:\s*([^;]+);/g)].map((m) => m[1]);
-    const glyphOutputStacks = stacks.filter((s) => s.includes("ui-monospace"));
-    expect(glyphOutputStacks.length).toBeGreaterThan(0);
-    for (const stack of glyphOutputStacks) expect(stack.trim().startsWith('"Glyph Mono"')).toBe(true);
+  it('puts Glyph Mono first in the centralized render stack', () => {
+    expect(read('./tokens.css')).toMatch(/--gc-font-render:\s*"Glyph Mono",\s*ui-monospace/);
+    const css = readCss(path.resolve(__dirname, '../components/GlyphDemo/GlyphDemo.module.css'));
+    const outputRule = css.match(/\.glyph-output[^{}]*\{([^}]+)\}/);
+    expect(outputRule).not.toBeNull();
+    expect(outputRule![1]).toMatch(/font-family:\s*"Glyph Mono",\s*ui-monospace/);
   });
-
-  it.each(["charts", "diagrams", "synth"])("the %s page's rendered font stack starts with Glyph Mono", (page) => {
-    const astroPath = fileURLToPath(new URL(`../pages/${page}.astro`, import.meta.url));
-    const source = readFileSync(astroPath, "utf8");
-    expect(source).toContain("import '../styles/glyph-demo.css';");
-    const match = source.match(/font-family:\s*([^;]+);/);
-    expect(match).not.toBeNull();
-    expect(match![1]!.trim().startsWith('"Glyph Mono"')).toBe(true);
+  it.each(['charts', 'diagrams', 'synth'])('loads the render font through the shared %s page layout', page => {
+    expect(read(`../pages/${page}.astro`)).toContain('WorkbenchLayout');
+    expect(read('../layouts/WorkbenchLayout.astro')).toContain('SiteLayout');
+    expect(read('../layouts/SiteLayout.astro')).toMatch(/import ['"]\.\.\/styles\/global\.css['"]/);
+    expect(read('./global.css')).toContain('@import "./fonts.css"');
+    expect(read('./global.css')).toContain('@import "./tokens.css"');
+    const base = readCss(path.resolve(__dirname, './base.css'));
+    expect(base).toMatch(/font-family:\s*"Glyph Mono"/);
+    expect(base).toMatch(/line-height:\s*1\s*[;}]/);
   });
-
-  // Final-gate-2 review (Opus finding 7): `/maps` never renders text through
-  // this cascade at all — its own `<pre>` pins a family inline, per the
-  // colour font-atlas path, at render time — so importing this stylesheet
-  // bought it nothing but a render-blocking fetch of the THIRD-PARTY
-  // `github-dark.min.css` this file's own first line pulls in. Reverted so
-  // `/maps` is byte-identical to `main`; unlike `/synth` (which already
-  // carried this import before this feature branch existed and is out of
-  // this fix's scope), `/maps`'s import was new on this branch.
-  // Mutation: reintroduce `import '../styles/glyph-demo.css';` in
-  // maps.astro -> red.
-  it("the maps page does NOT import glyph-demo.css (its <pre> never uses this cascade)", () => {
-    const astroPath = fileURLToPath(new URL("../pages/maps.astro", import.meta.url));
-    const source = readFileSync(astroPath, "utf8");
-    expect(source).not.toContain("glyph-demo.css");
+  it('loads maps without a remote highlighting stylesheet', () => {
+    expect(read('../pages/maps.astro')).toContain('WorkbenchLayout');
+    expect(read('./global.css') + read('../layouts/SiteLayout.astro')).not.toContain('glyph-demo.css');
+    expect(read('../components/GlyphDemo/GlyphDemo.module.css')).not.toMatch(/@import\s+url\("https:/);
   });
 });

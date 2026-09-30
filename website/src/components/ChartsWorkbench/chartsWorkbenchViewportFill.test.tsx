@@ -1,3 +1,5 @@
+import { readCss } from "../../test/styles";
+import path from "node:path";
 // @vitest-environment node
 //
 // Web viewport fill (AGENTS.md's "Charts" "Targets and page"): on `web` the
@@ -32,7 +34,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
-vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
+vi.mock("../../services/rendering/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 // A controllable stand-in for the real `ResizeObserver` — happy-dom has no
@@ -54,7 +56,7 @@ class MockResizeObserver {
 }
 
 import ChartsWorkbench from "./ChartsWorkbench";
-import { createChartsWorkbenchState } from "./chartsWorkbenchState";
+import { createChartsWorkbenchState } from "../../features/charts/model/chartsSpec";
 
 describe("ChartsWorkbench — web viewport fill (live DOM)", () => {
   let container: HTMLDivElement;
@@ -187,7 +189,7 @@ describe("ChartsWorkbench — web viewport fill (live DOM)", () => {
   // touching the mocked-resize tests above, which never exercise real
   // layout and so cannot catch it themselves.
   it("(CSS invariant, agy review) .charts-preview has a DEFINITE height, never merely a min-height floor a stale render could inflate", () => {
-    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./ChartsWorkbench.module.css"));
     const rule = css.match(/\.charts-preview \{[^}]*\}/)![0];
     expect(rule).toMatch(/(?<!min-)height:\s*100%/);
     expect(rule).not.toMatch(/min-height:\s*100%/);

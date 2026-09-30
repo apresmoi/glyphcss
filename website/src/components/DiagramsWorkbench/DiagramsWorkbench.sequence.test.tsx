@@ -1,7 +1,6 @@
 // @vitest-environment node
 // Sequence form — page-behaviour tests: the Form selector, the five
 // sequence presets actually rendering real content through the live page,
-// 3D staying graph-only (dimmed with a reason, `mapDirectionLocked` idiom),
 // and the source card's Mermaid/JSON tabs. Mirrors `DiagramsWorkbench.test.tsx`'s
 // own mount harness.
 vi.hoisted(async () => {
@@ -23,10 +22,10 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
-import { GLYPH_SEQUENCE_WORKBENCH_PRESETS } from "./diagramsWorkbenchState";
+import { GLYPH_SEQUENCE_WORKBENCH_PRESETS } from "../../features/diagrams/model/diagramsWorkbenchState";
 
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
-vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
+vi.mock("../../services/rendering/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DiagramsWorkbench — sequence form", () => {
@@ -85,21 +84,6 @@ describe("DiagramsWorkbench — sequence form", () => {
       expect(text).not.toContain("GLYPH_SEQUENCE");
       expect(container.querySelector(".diagrams-error")).toBeNull();
     });
-  });
-
-  it("the 3D View option is dimmed with a reason while the Sequence form is active, and never opens the 3D frame", async () => {
-    await selectToggle("Form", "Sequence");
-    // A DISABLED option's own aria-label appends " — <reason>" after the
-    // label (`synthKit.tsx`'s `IconToggle`), so this matches by prefix
-    // rather than the exact-label `toggleOption` helper the enabled rows use.
-    const view3dBtn = Array.from(toggleRow("View").querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").includes(": 3d"))!;
-    expect(view3dBtn.disabled).toBe(true);
-    expect(view3dBtn.title || view3dBtn.getAttribute("aria-label")).toBeTruthy();
-    await act(async () => { view3dBtn.click(); });
-    await settlePreview();
-    // Still the 2D grid-scroll frame, never the 3D live-scene host.
-    expect(container.querySelector(".diagrams-3d-frame")).toBeNull();
-    expect(container.querySelector(".diagrams-grid-scroll")).not.toBeNull();
   });
 
   it("switching the sequence source's Mermaid/JSON tabs refreshes rather than stealing authority, and the JSON tab is valid parsed IR", async () => {

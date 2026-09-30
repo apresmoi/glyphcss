@@ -1,11 +1,5 @@
-// @vitest-environment node
-vi.hoisted(async () => {
-  const { Window } = await import("happy-dom");
-  const window = new Window();
-  for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Event"] as const) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
-  }
-});
+// @vitest-environment happy-dom
+
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";

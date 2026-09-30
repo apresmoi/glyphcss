@@ -1,0 +1,50 @@
+html {
+  background: var(--gc-surface);
+}
+body {
+  margin: 0;
+  color: var(--gc-text);
+  font-family: var(--gc-font-ui);
+}
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+:focus-visible {
+  outline: none;
+  color: var(--gc-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+::selection {
+  background: var(--gc-rule-strong);
+  color: var(--gc-text);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gc-rule-strong) transparent;
+}
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--gc-rule-strong);
+}
+
+pre.glyph-output {
+  font-family: var(--gc-font-render);
+  line-height: 1;
+}

@@ -1,16 +1,15 @@
 # @glyphcss/diagrams — agent guide
 
-Graphs (Mermaid `flowchart`/`graph` or JSON) rendered as cell text, plus other 2D forms over the same cell canvas (sequence diagrams and lane DAGs today). Root rules in `../../AGENTS.md` still apply.
+2D diagrams only; no scene-object or camera API. Graphs (Mermaid `flowchart`/`graph` or JSON) rendered as cell text, plus other 2D forms over the same cell canvas (sequence diagrams and lane DAGs today). Root rules in `../../AGENTS.md` still apply.
 
 ## Pipeline
 
 Adapters → `GlyphGraph` → `measureGlyphGraph` → `reserveGlyphGraphPorts` → `layoutGlyphGraph` (dagre) → `routeGlyphGraphEdges` → paint on a fresh canvas. `renderGlyphDiagram` composes them; bare call defaults to `target: "web"`.
 
-## Root vs `./3d` vs `./sequence` vs `./lanes`
+## 2D entry points
 
 - Root: camera-free 2D text. Never imports glyphcss's scene/rasterizer or elkjs (`./elk` is a stub).
-- `./3d`: same IR and adapters → `glyphDiagramObject`; `renderGlyphDiagram3d` is the static frame; live orbit view is web-only.
-- `./sequence` and `./lanes`: own IR/pipeline (`GlyphSequence`/`GlyphLaneDag`, never `GlyphGraph`), isolated from each other, root and `./3d` — `color.ts` (below) is the one shared exception.
+- `./sequence` and `./lanes`: own IR/pipeline (`GlyphSequence`/`GlyphLaneDag`, never `GlyphGraph`), isolated from each other and root — `color.ts` (below) is the one shared exception.
 
 ## Sequence diagrams (`./sequence`)
 
@@ -41,7 +40,7 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 
 ## Colour
 
-`nodeColor`/`edgeColor` (root), `laneColor` (`./lanes`), `participantColor` (`./sequence`): `string | ((item) => string)`, mirroring `./3d`'s own `nodeColor`. Resolved once per item, validated against `bad-color` before the canvas ever sees it. `color.ts`'s `GLYPH_DIAGRAM_PALETTE`/`resolveGlyphDiagramColor(Option)` is the ONE shared implementation. Root keeps its flat default (edgeColor's arrowhead/label stay node-blue when unset); lane/participant default from the palette, cycled by index. `color: "none"` stays byte-identical either way — colour is additive, never the only way to tell two things apart.
+`nodeColor`/`edgeColor` (root), `laneColor` (`./lanes`), `participantColor` (`./sequence`): `string | ((item) => string)`. Resolved once per item, validated against `bad-color` before the canvas ever sees it. `color.ts`'s `GLYPH_DIAGRAM_PALETTE`/`resolveGlyphDiagramColor(Option)` is the ONE shared implementation. Root keeps its flat default (edgeColor's arrowhead/label stay node-blue when unset); lane/participant default from the palette, cycled by index. `color: "none"` stays byte-identical either way — colour is additive, never the only way to tell two things apart.
 
 ## Invariants
 
@@ -50,18 +49,15 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 - Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert, never executed.
 - Budget 9 nodes / 12 edges. Ladder: compaction → decoration → duplicates → leaf clusters → split; compaction is non-semantic, runs in every detail mode — never `layout-overflow` before it ran, never decoration once it already fits.
 - Paint order: routes → junctions → node fills → target-border arrowheads → labels; an edge label touches its own route or is dropped. Text/HTML/ANSI are separate exits, each page carrying its `canvas`.
-- 3D renders only `braille`/`blocks` (`ascii`/`box` degrade with `3d-charset-degraded`); edges are mesh geometry, only labels stamped; the static frame is byte-identical to the live scene at the same camera.
 
 ## Don't
 
 - Don't reuse a canvas across renders/panels — re-registering a route can't erase its old glyphs. Don't hide an unroutable edge under a later box fill; log `unroutable`, paint no transit.
 - Don't assign reserved port slots in lexical order — dagre reorders siblings; use the laid-out transverse order. Don't use a flat compaction floor — it's per graph (`max(3, widest fan + 1)`), stepped down from caller spacing.
 - Don't split Mermaid statements on `;` inside quotes, `-. text .->`/`|label|` spans, or decode entities/escapes in two passes.
-- Don't place or route 3D with dagre x/y or the 2D A*; only rank and within-rank order carry over. Don't pick 3D label placements at a reference zoom; cell rounding isn't affine-invariant, so run at the final camera.
-- Don't space 3D ranks/rings/label gaps by flat world lengths — use screen-silhouette/half-extent bounds. Exception: an explicit-`size` rank gap (CNN slab) spaces by flow+depth half-extents, LR/RL only (`layout3d.ts`'s proof) — don't extend that or drop depth for TB/BT.
 
 ## Gate tests
 
-- `src/fixtureRules.test.ts`, `src/render.test.ts`, `src/rules.test.ts`/`schema.test.ts`/`validate.test.ts`, `src/mermaid.test.ts`, `src/ledger.test.ts`, `src/bundle.test.ts`; `src/3d/*.test.ts`; `packages/compile/src/diagramCli.test.ts`; `sequence/{validate,schema,mermaid,render,ledger}.test.ts`; `lanes/{validate,schema,layout,render,ledger,git}.test.ts`.
+- `src/fixtureRules.test.ts`, `src/render.test.ts`, `src/rules.test.ts`/`schema.test.ts`/`validate.test.ts`, `src/mermaid.test.ts`, `src/ledger.test.ts`, `src/bundle.test.ts`; `packages/compile/src/diagramCli.test.ts`; `sequence/{validate,schema,mermaid,render,ledger}.test.ts`; `lanes/{validate,schema,layout,render,ledger,git}.test.ts`.
 
 Run `pnpm --filter @glyphcss/diagrams test`/`build`. API and usage: `README.md`.

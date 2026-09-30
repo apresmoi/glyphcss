@@ -23,7 +23,7 @@ export const GLYPH_GRAPH_DIRECTIONS: readonly GlyphGraphDirection[] = ["TB", "LR
 export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder"];
 export const GLYPH_GRAPH_EDGE_STYLES: readonly GlyphGraphEdgeStyle[] = ["solid", "dotted", "thick", "undirected"];
 export const GLYPH_GRAPH_KEYS = ["nodes", "edges", "groups", "direction"];
-export const GLYPH_GRAPH_NODE_KEYS = ["id", "label", "kind", "group", "shape", "size"];
+export const GLYPH_GRAPH_NODE_KEYS = ["id", "label", "kind", "group", "shape"];
 export const GLYPH_GRAPH_EDGE_KEYS = ["id", "from", "to", "label", "style", "priority"];
 export const GLYPH_GRAPH_GROUP_KEYS = ["id", "label", "members"];
 
@@ -35,10 +35,6 @@ function keys(value: Record<string, unknown>, allowed: readonly string[]): boole
 function optional(value: Record<string, unknown>, key: string, predicate: (value: unknown) => boolean): boolean { return value[key] === undefined || predicate(value[key]); }
 function string(value: unknown): value is string { return typeof value === "string"; }
 function member(value: unknown, allowed: readonly string[]): boolean { return string(value) && allowed.includes(value); }
-/** D2 round 3 — architecture objects: `node.size` is exactly `[width, height, depth]`, all positive finite numbers (a zero or negative extent has no box to draw). */
-function size3(value: unknown): boolean {
-  return Array.isArray(value) && value.length === 3 && value.every((v) => typeof v === "number" && Number.isFinite(v) && v > 0);
-}
 
 interface GlyphGraphIntegrityFailure { readonly code: GlyphDiagramValidationRuleId; readonly message: string }
 
@@ -80,8 +76,7 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
   if (!member(input.direction, GLYPH_GRAPH_DIRECTIONS)) glyphDiagramError("bad-direction", "direction must be TB, LR, BT, or RL.");
   for (const [index, node] of input.nodes.entries()) {
     if (!object(node) || !keys(node, GLYPH_GRAPH_NODE_KEYS) || !identifier(node.id) || !string(node.label)
-      || !optional(node, "kind", string) || !optional(node, "group", identifier) || !optional(node, "shape", (value) => member(value, GLYPH_GRAPH_NODE_SHAPES))
-      || !optional(node, "size", size3)) {
+      || !optional(node, "kind", string) || !optional(node, "group", identifier) || !optional(node, "shape", (value) => member(value, GLYPH_GRAPH_NODE_SHAPES))) {
       glyphDiagramError("bad-node", `node[${index}] requires a non-empty id, a string label, and supported optional fields.`);
     }
   }
@@ -113,7 +108,7 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
 const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-graph": "Pass { nodes, edges, groups?, direction }; remove unsupported graph fields.",
   "empty-nodes": "Add at least one node with an id and label.",
-  "bad-node": `Use a non-empty id, a string label, and shape ${GLYPH_GRAPH_NODE_SHAPES.join(" / ")}; kind and group are optional strings; size (JSON only) is [width, height, depth] as three positive numbers.`,
+  "bad-node": `Use a non-empty id, a string label, and shape ${GLYPH_GRAPH_NODE_SHAPES.join(" / ")}; kind and group are optional strings.`,
   "duplicate-node-id": "Give every node a unique id; use labels for repeated display text.",
   "bad-edge": `Use from/to ids, an optional label/id, finite priority, and style ${GLYPH_GRAPH_EDGE_STYLES.join(" / ")}.`,
   "duplicate-edge-id": "Give explicit edge ids unique values, or omit them for deterministic generated ids.",

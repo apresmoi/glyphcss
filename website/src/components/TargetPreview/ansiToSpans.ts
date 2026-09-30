@@ -30,8 +30,8 @@
 // and these are the well-known, standard xterm RGB values, not something
 // this package invented.
 const ANSI_16_RGB: readonly number[] = [
-  0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xc0c0c0,
-  0x808080, 0xff0000, 0x00ff00, 0xffff00, 0x0000ff, 0xff00ff, 0x00ffff, 0xffffff,
+  0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xc0c0c0, 0x808080, 0xff0000, 0x00ff00,
+  0xffff00, 0x0000ff, 0xff00ff, 0x00ffff, 0xffffff,
 ];
 
 const ANSI_256_RGB: readonly number[] = (() => {
@@ -101,12 +101,16 @@ export function parseAnsiToSpans(input: string): AnsiSpan[] {
         const mode = codes[i + 1];
         if (mode === 5) {
           const hex = hexOf(ANSI_256_RGB[codes[i + 2]!] ?? 0);
-          if (isBg) bg = hex; else fg = hex;
+          if (isBg) bg = hex;
+          else fg = hex;
           i += 2;
         } else if (mode === 2) {
-          const r = codes[i + 2]!, g = codes[i + 3]!, b = codes[i + 4]!;
+          const r = codes[i + 2]!,
+            g = codes[i + 3]!,
+            b = codes[i + 4]!;
           const hex = hexOf((r << 16) | (g << 8) | b);
-          if (isBg) bg = hex; else fg = hex;
+          if (isBg) bg = hex;
+          else fg = hex;
           i += 4;
         }
       }
@@ -123,14 +127,19 @@ function escapeHtml(text: string): string {
 
 /** Render parsed spans as `innerHTML` — top-level `<span>`s only, matching `encodeGlyphCanvasHtml`. */
 export function ansiSpansToHtml(spans: readonly AnsiSpan[]): string {
-  return spans.map((span) => {
-    const escaped = escapeHtml(span.text);
-    if (span.fg === undefined && span.bg === undefined) return escaped;
-    const style = span.fg !== undefined && span.bg !== undefined
-      ? `color:${span.fg};background-color:${span.bg}`
-      : span.fg !== undefined ? `color:${span.fg}` : `background-color:${span.bg}`;
-    return `<span style="${style}">${escaped}</span>`;
-  }).join("");
+  return spans
+    .map((span) => {
+      const escaped = escapeHtml(span.text);
+      if (span.fg === undefined && span.bg === undefined) return escaped;
+      const style =
+        span.fg !== undefined && span.bg !== undefined
+          ? `color:${span.fg};background-color:${span.bg}`
+          : span.fg !== undefined
+            ? `color:${span.fg}`
+            : `background-color:${span.bg}`;
+      return `<span style="${style}">${escaped}</span>`;
+    })
+    .join("");
 }
 
 /** Convenience: SGR-escaped string straight to `innerHTML`. */

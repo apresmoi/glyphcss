@@ -1,3 +1,5 @@
+import path from "node:path";
+import { readCss } from "../../test/styles";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
@@ -8,12 +10,12 @@ import { describe, expect, it } from "vitest";
 // two things that actually matter here: the maps rows carry the Dock's own
 // row geometry, and this file never redeclares a selector /synth and
 // /loaders also read (maps-workbench.css's own doc above these rules).
-const css = readFileSync(new URL("./maps-workbench.css", import.meta.url), "utf8");
+const css = readCss(path.resolve(__dirname, "./MapsWorkbench.module.css"));
 const rules = css.replace(/\/\*[\s\S]*?\*\//g, "");
 
 function ruleBody(selector: string): string {
   const escaped = selector.replace(/[.[\]()/]/g, (c) => `\\${c}`);
-  const match = new RegExp(`(?:^|,|\\})\\s*${escaped}\\s*(?:,[^{}]*)?\\{([^}]*)\\}`, "m").exec(rules);
+  const match = new RegExp(`(?:^|,|\\})\\s*(?:\\.root\\s*)?${escaped}\\s*(?:,[^{}]*)?\\{([^}]*)\\}`, "m").exec(rules);
   if (!match) throw new Error(`no rule found for selector: ${selector}`);
   return match[1];
 }
@@ -70,7 +72,7 @@ describe("maps-workbench.css: the Dock's controller row, reproduced", () => {
     // its `.name` to 0.38 on top of that. The previous 0.35 whole-row dim
     // matched neither.
     expect(ruleBody(".maps-layer-slider--off")).toMatch(/opacity:\s*0\.5/);
-    expect(ruleBody(".maps-layer-slider--off > span:first-child")).toMatch(/rgba\(255,\s*232,\s*184,\s*0\.38\)/);
+    expect(ruleBody(".maps-layer-slider--off > span:first-child")).toMatch(/rgba\(255,\s*232,\s*184,\s*0\.32\)/);
   });
 
   it("never re-declares a shared selector in this file", () => {

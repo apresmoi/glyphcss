@@ -1,9 +1,12 @@
-import React, { useRef, type ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
+import styles from "./Dock.module.css";
 import { useGui } from "./primitives";
 import { DockGuiContext } from "./slots";
+import { DockWidgetsContext, useDockWidgets } from "./widgets";
 
 export interface DockProps {
   children?: ReactNode;
+  inline?: boolean;
   loading?: boolean;
   loadError?: string | null;
   /** Extra class on the panel root (e.g. `is-mobile-open` for the mobile drawer). */
@@ -19,15 +22,22 @@ export interface DockProps {
  * `loading` and `loadError` render status notes below the GUI for model
  * loading feedback; this is Dock-level chrome rather than per-folder state.
  */
-export function Dock({ children, loading, loadError, className, id }: DockProps) {
+export function Dock({ children, loading, loadError, className, id, inline = false }: DockProps) {
+  const { setWidget, portals } = useDockWidgets();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const gui = useGui(hostRef, { closeFolders: true });
   return (
-    <div className={`dn-floating-controls${className ? ` ${className}` : ""}`} id={id}>
+    <div
+      className={`${styles.root}${inline ? ` ${styles.inline}` : ""} dn-floating-controls${className ? ` ${className}` : ""}`}
+      id={id}
+    >
       <div className="dn-lil-gui-host" ref={hostRef} />
-      <DockGuiContext.Provider value={gui}>
-        {children}
-      </DockGuiContext.Provider>
+      <DockWidgetsContext.Provider value={setWidget}>
+        <DockGuiContext.Provider value={gui}>
+          {children}
+          {portals}
+        </DockGuiContext.Provider>
+      </DockWidgetsContext.Provider>
       {loading && <p className="dn-note">Loading model...</p>}
       {loadError && <p className="dn-note dn-note--error">{loadError}</p>}
     </div>

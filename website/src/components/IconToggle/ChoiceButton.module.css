@@ -1,0 +1,63 @@
+/* Stay above lil-gui's late-injected controller button rules in Dock portals. */
+.button.button.button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: max-content;
+  min-height: 24px;
+  gap: 0.25ch;
+  padding: 2px 3px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--gc-text-muted);
+  font: inherit;
+  font-size: var(--gc-text-sm);
+  cursor: pointer;
+}
+.button.button.button:hover,
+.button.button.button:is([aria-pressed="true"], [aria-selected="true"], :global(.active)) {
+  background: transparent;
+  color: var(--gc-accent);
+}
+.button.button.button::before,
+.button.button.button::after {
+  flex: 0 0 auto;
+  pointer-events: none;
+}
+.button.button.button:is([aria-pressed="true"], [aria-selected="true"], :global(.active))::before {
+  content: "[";
+}
+.button.button.button:is([aria-pressed="true"], [aria-selected="true"], :global(.active))::after {
+  content: "]";
+}
+.button.button.button:disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+
+/* List choices reserve their brackets so selected and unselected labels line up. */
+.button.button.button[data-align="start"] {
+  justify-content: flex-start;
+  min-width: 0;
+  text-align: left;
+}
+.button.button.button[data-align="start"]::before {
+  content: "[";
+  visibility: hidden;
+}
+.button.button.button[data-align="start"]::after {
+  content: "]";
+  visibility: hidden;
+}
+.button.button.button[data-align="start"]:is([aria-pressed="true"], [aria-selected="true"], :global(.active))::before,
+.button.button.button[data-align="start"]:is([aria-pressed="true"], [aria-selected="true"], :global(.active))::after {
+  visibility: visible;
+}
+
+.button.button.button:focus,
+.button.button.button:active {
+  background: transparent;
+  box-shadow: none;
+}

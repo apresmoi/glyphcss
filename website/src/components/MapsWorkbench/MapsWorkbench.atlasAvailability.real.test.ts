@@ -25,11 +25,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import { createGlyphMap, GlyphMapClassifiers } from "@glyphcss/maps";
-import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
-import { buildMapProjection, MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "./mapsKit";
-import { MAPS_URL_DEFAULTS } from "./mapsUrlState";
-import { createGeoTilesProvider } from "../../lib/geoTilesProvider";
-import { createVectorTilesProvider } from "../../lib/vectorTilesProvider";
+import { computeGlyphAtlasAvailability } from "../../services/rendering/glyphAtlasAvailability";
+import { buildMapProjection, MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
+import { createGeoTilesProvider } from "../../features/maps/providers/geoTilesProvider";
+import { createVectorTilesProvider } from "../../features/maps/providers/vectorTilesProvider";
 
 // `vitest` (via `pnpm --filter @glyphcss/website test`) runs with cwd =
 // `website/`, so this resolves to `website/public/data` regardless of where

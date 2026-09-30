@@ -1,0 +1,7 @@
+.link {
+  color: inherit;
+  text-decoration: none;
+}
+.link:hover {
+  color: var(--gc-accent);
+}

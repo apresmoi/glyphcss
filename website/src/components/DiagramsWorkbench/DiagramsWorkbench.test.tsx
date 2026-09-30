@@ -1,36 +1,25 @@
-// @vitest-environment node
-vi.hoisted(async () => {
-  const { Window } = await import("happy-dom");
-  const window = new Window();
-  const removeChild = window.Node.prototype.removeChild;
-  window.Node.prototype.removeChild = function(child) {
-    try { return removeChild.call(this, child); }
-    catch (error) {
-      if (error instanceof window.DOMException && error.message.includes("removeChild")) throw new window.DOMException(error.message, "NotFoundError");
-      throw error;
-    }
-  };
-  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
-  }
-});
+import "../../test/dom";
+import { readCss } from "../../test/styles";
+import path from "node:path";
+// @vitest-environment happy-dom
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
-import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
-import { decodeDiagramsUrlState } from "./diagramsUrlState";
-import * as renderModule from "./diagramsWorkbenchRender";
-import * as urlStateModule from "../../lib/urlState";
+import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "../../features/diagrams/model/diagramsWorkbenchState";
+import { decodeDiagramsUrlState } from "../../features/diagrams/services/diagramsUrlState";
+import * as renderModule from "../../features/diagrams/render/diagramsWorkbenchRender";
+import * as urlStateModule from "../../services/url-state/history";
 import langgraphExport from "../../../../packages/diagrams/fixtures/langgraph.mmd?raw";
-import { cleanPresetMermaid } from "./diagramsWorkbenchState";
+import { cleanPresetMermaid } from "../../features/diagrams/model/diagramsWorkbenchState";
 const langgraph = cleanPresetMermaid(langgraphExport);
 
 // Standalone Vitest lacks Astro's alias; only unused palette calibration needs a stub.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
-vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
+vi.mock("../../services/rendering/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DiagramsWorkbench mounted integration", () => {
@@ -61,9 +50,9 @@ describe("DiagramsWorkbench mounted integration", () => {
   }
   // Target/Charset/Color are icon-button toggle rows (owner packet item 3:
   // "buttons with symbols not dropdowns"), like ChartsDock.tsx's own —
-  // Direction/Engine/Detail stay plain `<select>`s, so `select()` still
+  // Engine/Detail stay plain `<select>`s, so `select()` still
   // handles those.
-  const TOGGLE_ROWS = ["Target", "Charset", "Color", "View"];
+  const TOGGLE_ROWS = ["Target", "Charset", "Color"];
   function toggleRow(label: string): Element {
     return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;
   }
@@ -78,6 +67,10 @@ describe("DiagramsWorkbench mounted integration", () => {
     if (TOGGLE_ROWS.includes(name)) {
       await act(async () => {
         Array.from(toggleRow(name).querySelectorAll<HTMLButtonElement>("button")).find((b) => toggleOption(b) === value)!.click();
+      });
+    } else if (name === "Direction") {
+      await act(async () => {
+        container.querySelector<HTMLButtonElement>(`[aria-label="Direction: ${value}"]`)!.click();
       });
     } else {
       await act(async () => {
@@ -118,12 +111,12 @@ describe("DiagramsWorkbench mounted integration", () => {
     // diagrams-workbench.css to font-family: inherit -> red.
     const pre = container.querySelector(".diagrams-grid-scroll > pre.glyph-output");
     expect(pre).not.toBeNull();
-    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./DiagramsWorkbench.module.css"));
     const mainRule = css.match(/\.diagrams-grid-scroll > \.glyph-output \{[^}]*\}/)![0];
     expect(mainRule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(mainRule).not.toContain("font-family: inherit");
     expect(mainRule).toMatch(/line-height:\s*1\s*;/);
-    const terminalRule = css.match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
+    const terminalRule = readCss(path.resolve(__dirname, "../TargetPreview/TargetPreview.module.css")).match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
     expect(terminalRule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(terminalRule).not.toContain("font-family: inherit");
     expect(terminalRule).toMatch(/line-height:\s*1\s*;/);
@@ -131,65 +124,6 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(tileRule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(tileRule).not.toContain("font-family: inherit");
     expect(tileRule).toMatch(/line-height:\s*1\s*;/);
-  });
-
-  // The live 3D viewport is a DIFFERENT `<pre>` from the 2D one above — its
-  // own font rule used to not exist at all (`/charts`) or tie glyphcss's
-  // own runtime-injected `.glyph-scene .glyph-output` rule on specificity
-  // (`/diagrams`), which a same-specificity tie resolves by SOURCE ORDER:
-  // that injected `<style>` is appended from the live scene's own mount
-  // EFFECT, strictly after this page's bundled CSS, so it silently won —
-  // the live `<pre>` rendered in a fallback monospace face with no braille
-  // glyphs, whose cell measures ~13.5% wider than every other glyph
-  // (AGENTS.md's "Targets and page" A4/A5), which is exactly the reported
-  // "the braille fills different sizes of spaces... [it] moves around" as
-  // the camera orbits. The fix is a HIGHER-specificity selector, so it
-  // wins independent of injection order — this proves that property
-  // directly rather than trusting cascade order (which happy-dom can't
-  // even compute, this file's own A4 test doc above).
-  it("the live 3D host's font rule outranks glyphcss's own runtime-injected .glyph-scene .glyph-output rule by SPECIFICITY, never by load order (braille-stability fix)", () => {
-    const classSpecificity = (selector: string) => (selector.match(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g) ?? []).length;
-    const injectedSrc = readFileSync(fileURLToPath(new URL("../../../../packages/glyphcss/src/styles/styles.ts", import.meta.url)), "utf8");
-    const injectedRule = injectedSrc.match(/\.glyph-scene \.glyph-output \{[^}]*\}/)![0];
-    expect(injectedRule).toMatch(/font-family:\s*monospace/); // the premise: glyphcss's own default has no braille
-    const injectedSpecificity = classSpecificity(injectedRule.split("{")[0]!);
-    expect(injectedSpecificity).toBe(2); // (0,2,0) — pins the number this test's ">" check is really comparing against
-
-    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
-    const hostRule = css.match(/\.diagrams-3d-frame \.diagrams-3d-host \.glyph-output \{[^}]*\}/)![0];
-    expect(hostRule).toMatch(/font-family:\s*"Glyph Mono"/);
-    expect(hostRule).not.toContain("font-family: inherit");
-    // Mutation: reverting the selector to the old `.diagrams-3d-host
-    // .glyph-output` (2 classes) makes this `2 > 2` — false.
-    expect(classSpecificity(hostRule.split("{")[0]!)).toBeGreaterThan(injectedSpecificity);
-
-    // DOM shape: the selector's own ancestor chain must match what actually
-    // mounts — `.diagrams-3d-frame` wraps `<Diagrams3DViewport>`
-    // (`DiagramsWorkbench.tsx`), whose own root IS `.diagrams-3d-host`
-    // (`Diagrams3DViewport.tsx`), which is where glyphcss writes its
-    // `.glyph-output` `<pre>`. Mutation: renaming either class breaks this
-    // structural pin even though the CSS-source assertions above stay green.
-    const workbenchSrc = readFileSync(fileURLToPath(new URL("./DiagramsWorkbench.tsx", import.meta.url)), "utf8");
-    const frameAt = workbenchSrc.indexOf('className="diagrams-3d-frame"');
-    const viewportAt = workbenchSrc.indexOf("<Diagrams3DViewport");
-    expect(frameAt).toBeGreaterThan(-1);
-    expect(viewportAt).toBeGreaterThan(frameAt);
-    const viewportSrc = readFileSync(fileURLToPath(new URL("./Diagrams3DViewport.tsx", import.meta.url)), "utf8");
-    expect(viewportSrc).toMatch(/className="diagrams-3d-host"/);
-  });
-
-  // The web viewport-fill fix (AGENTS.md's "Diagrams" "Targets and page") —
-  // mirrors `ChartsWorkbench.test.tsx`'s own identical test/doc:
-  // `.diagrams-3d-frame` used to declare `height: 100%`, but its flex-
-  // column parent (`.diagrams-preview`) has no EXPLICIT height of its own,
-  // so it measured live at only `.diagrams-3d-host`'s `min-height` floor
-  // (420px) instead of the real available height — verified in a real
-  // Chromium via Playwright.
-  it("the live 3D viewport fills its flex-column parent via flex-grow, never a plain height:100% (web viewport-fill fix)", () => {
-    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
-    const rule = css.match(/\.diagrams-3d-frame \{[^}]*\}/)![0];
-    expect(rule).toMatch(/flex:\s*1\s+1\s+auto/);
-    expect(rule).not.toMatch(/height:\s*100%/);
   });
 
   it("preloads the vendored LangGraph bytes and mounts the shared instrument shell", () => {
@@ -203,7 +137,7 @@ describe("DiagramsWorkbench mounted integration", () => {
 
   // Mutation: disconnect a preset button or use a placeholder preview instead of rendering its source.
   // 2D presets: byte-exact against the 2D render module, unchanged.
-  const PRESETS_2D = GLYPH_DIAGRAM_WORKBENCH_PRESETS.filter((preset) => !("dimension" in preset) || preset.dimension !== "3d");
+  const PRESETS_2D = GLYPH_DIAGRAM_WORKBENCH_PRESETS;
   it.each(PRESETS_2D)("renders $label through its real preset button in 7-bit ASCII", async (preset) => {
     await select("Charset", "ascii");
     await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Apply ${preset.label}"]`)!.click());
@@ -219,42 +153,6 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(preview().textContent).toMatch(/^[\x00-\x7f]+$/);
     expect(preview().textContent).toBe(expected.text);
   });
-
-  // 3D presets (packet D3): applying one switches the view AND lands on a
-  // static frame (the default target is "web", but the live orbit viewport
-  // has no `<pre>` byte string to compare against — that codepath is
-  // covered by DiagramsWorkbench.3d.test.tsx instead). Switching to
-  // "terminal" here exercises the SAME static `TargetPreview` path 3D uses
-  // on terminal/chat. Deliberately NOT byte-exact — `@glyphcss/diagrams/3d`'s
-  // own frame content is being actively reworked upstream (D2 fix-round);
-  // this only pins PAGE behaviour: the preset applies, the view switches,
-  // the source shown is the preset's, and something real (not an error, not
-  // blank) renders.
-  const PRESETS_3D = GLYPH_DIAGRAM_WORKBENCH_PRESETS.filter((preset) => "dimension" in preset && preset.dimension === "3d");
-  it.each(PRESETS_3D)("applies the 3D preset $label, switches to the 3D view, and renders something real", async (preset) => {
-    await select("Target", "terminal");
-    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Apply ${preset.label}"]`)!.click());
-    await settlePreview();
-    expect(container.querySelector("[role='alert']")).toBeNull();
-    // D2 round 6 — a JSON-sourced preset (LeNet-5, Transformer: explicit
-    // per-node `size`, no Mermaid vocabulary for it) applies through the
-    // JSON path, so the SOURCE tab shown by default (Mermaid, still the
-    // editor's own default) displays a DERIVED (size-less) rendering, not
-    // `preset.source` verbatim. Switching to the JSON tab re-derives ITS OWN
-    // text from the graph too (`set-editor`'s own refresh-from-authoritative
-    // rule), so even there the exact BYTES can legitimately reformat (key
-    // order, `direction` placement) — compare PARSED content instead.
-    if ("sourceKind" in preset && preset.sourceKind === "json") {
-      await act(async () => button("JSON").click());
-      await settlePreview();
-      expect(JSON.parse(container.querySelector("textarea")!.value)).toEqual(JSON.parse(preset.source));
-    } else {
-      expect(container.querySelector("textarea")!.value).toBe(preset.source);
-    }
-    const activeView = Array.from(toggleRow("View").querySelectorAll<HTMLButtonElement>("button")).find((b) => b.classList.contains("is-active"));
-    expect(activeView && toggleOption(activeView)).toBe("3d");
-    expect(preview().textContent).toMatch(/\S/);
-  }, 15_000);
 
   it("updates untouched target defaults and resets every explicit override", async () => {
     await select("Target", "terminal");
@@ -424,24 +322,27 @@ describe("DiagramsWorkbench mounted integration", () => {
     expect(container.querySelector(".diagrams-editor-highlight .diagrams-tok-key")!.textContent).toBe('"nodes"');
   });
 
-  it("uses real Layout and Diagram controls in the current TS/Mermaid/JSON exports", async () => {
+  it("exports only framework integrations and keeps Mermaid/JSON in the source editor", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     await select("Direction", "RL");
     await select("Detail", "faithful");
     await act(async () => button("Export").click());
     const panel = container.querySelector("#diagrams-export-panel")!;
-    const tabs = Array.from(panel.querySelectorAll<HTMLButtonElement>(".gw-code-panel__tab"));
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["TypeScript", "Mermaid", "JSON"]);
+    const selectFormat = panel.querySelector<HTMLSelectElement>('[aria-label="Export format"]')!;
+    const tabs = Array.from(selectFormat.options);
+    const pickFormat = (value: string) => { selectFormat.value = value; selectFormat.dispatchEvent(new Event("change", {bubbles:true})); };
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["HTML", "TypeScript", "React", "Vue"]);
     expect(panel.querySelector("code")!.textContent).toContain('"direction": "RL"');
     expect(panel.querySelector("code")!.textContent).toContain('"detail": "faithful"');
     for (const tab of tabs) {
-      await act(async () => tab.click());
+      await act(async () => pickFormat(tab.value));
       await act(async () => panel.querySelector<HTMLButtonElement>("[title='Copy current snippet']")!.click());
       expect(writeText).toHaveBeenLastCalledWith(panel.querySelector("code")!.textContent);
     }
-    expect(JSON.parse(panel.querySelector("code")!.textContent!).direction).toBe("RL");
-    await act(async () => tabs[1]!.click());
-    expect(panel.querySelector("code")!.textContent).toMatch(/^flowchart RL/);
+    await act(async () => button("JSON").click());
+    expect(JSON.parse(container.querySelector("textarea")!.value).direction).toBe("RL");
+    await act(async () => button("Mermaid").click());
+    expect(container.querySelector("textarea")!.value).toMatch(/^flowchart RL/);
   });
 
   it("opens only one mobile drawer and closes it with Escape", async () => {
@@ -524,7 +425,7 @@ describe("DiagramsWorkbench mounted integration", () => {
 // is a CSS-source assertion, mirroring ChartsWorkbench.test.tsx's own.
 describe("DiagramsWorkbench — reduced motion disables the viewport pulse", () => {
   it("the loading pulse keyframes are disabled under prefers-reduced-motion: reduce", () => {
-    const css = readFileSync(fileURLToPath(new URL("./diagrams-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./DiagramsWorkbench.module.css"));
     const reducedMotionBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{[^]*?\n\}/)![0];
     expect(reducedMotionBlock).toContain(".diagrams-grid-scroll.is-loading");
     expect(reducedMotionBlock).toMatch(/animation:\s*none/);
@@ -589,3 +490,5 @@ describe("DiagramsWorkbench — copy/export button confirmations", () => {
     expect(button("Download SVG")).toBeDefined();
   }, 10_000);
 });
+
+beforeEach(() => { window.history.replaceState(null, "", "/"); });

@@ -1,0 +1,6 @@
+---
+import SiteLayout, { type Props } from "./SiteLayout.astro";
+const page = Astro.props;
+---
+
+<SiteLayout {...page} mode="workbench"><div class="workbench-frame"><slot /></div></SiteLayout>

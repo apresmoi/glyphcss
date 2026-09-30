@@ -1,0 +1,28 @@
+.surface {
+  min-width: 0;
+  min-height: 0;
+}
+.inset {
+  box-sizing: border-box;
+  padding: var(--gc-viewport-top) var(--gc-space-6) var(--gc-viewport-bottom);
+  overflow: auto;
+}
+@media (max-width: 1100px) {
+  .inset {
+    padding-inline: var(--gc-space-3);
+    padding-bottom: calc(var(--mobile-panel-bottom) + var(--mobile-export-clearance));
+  }
+}
+/* Only narrow phones need room for the search controls to wrap. Reserving
+   two rows in landscape left too few diagram rows to draw its nodes. */
+@media (max-width: 600px) {
+  .inset {
+    padding-top: var(--gc-viewport-top-wrapped);
+  }
+}
+
+@media (max-width: 1100px) {
+  :global(.synth-main):has(:global(.synth-export-bar)) > .surface:not(.inset) {
+    bottom: calc(var(--mobile-panel-bottom) + var(--mobile-export-clearance));
+  }
+}

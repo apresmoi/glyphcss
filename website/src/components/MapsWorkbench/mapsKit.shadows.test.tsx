@@ -29,7 +29,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { MapsShadowControls, MapsSunControls, mapShadowCasterReason } from "./mapsKit";
+import { MapsShadowControls } from "./MapsShadowControls/MapsShadowControls";
+import { MapsSunControls } from "./MapsSunControls/MapsSunControls";
+import { mapShadowCasterReason } from "../../features/maps/model/lighting";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;

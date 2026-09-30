@@ -1,3 +1,7 @@
+import selectStyles from "../BracketSelect/BracketSelect.module.css";
+import rangeStyles from "../RangeSlider/RangeSlider.module.css";
+import dockStyles from "../Dock/Dock.module.css";
+import { readCss } from "../../test/styles";
 // @vitest-environment happy-dom
 //
 // Dock-fix bundle items 1, 2 and 8 (DIAGNOSIS-scale-domain.md) — every one
@@ -32,21 +36,21 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 import GUI from "lil-gui";
-import { RangeCategorySelect, RangeSlider } from "./RangeSlider";
-import { useFolderTitleReset } from "./useFolderTitleReset";
+import { RangeCategorySelect, RangeSlider } from "../RangeSlider/RangeSlider";
+import { useFolderTitleReset } from "../Dock/hooks/useFolderTitleReset";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const LIL_GUI_CSS = readFileSync(path.join(path.dirname(require.resolve("lil-gui")), "lil-gui.css"), "utf8");
-const INSTRUMENT_CSS = readFileSync(path.resolve(__dirname, "instrument-workbench.css"), "utf8");
+const LIL_GUI_CSS = readCss(path.join(path.dirname(require.resolve("lil-gui")), "lil-gui.css"));
+const INSTRUMENT_CSS = readCss(path.resolve(__dirname, "../BracketSelect/BracketSelect.module.css"), selectStyles) + "\n" + readCss(path.resolve(__dirname, "../RangeSlider/RangeSlider.module.css"), rangeStyles) + "\n" + readCss(path.resolve(__dirname, "../Dock/Dock.module.css"), dockStyles);
 
 /** The exact scoping prefix every contested `.range-slider-*` rule in
  *  `instrument-workbench.css` carries. Stripping it (leaving the bare
  *  `.range-slider-*` selector) is the MUTATION this file checks against —
  *  the P1/P2 fix is precisely that prefix existing at all. */
-const RANGE_SLIDER_SCOPE = ".lil-gui .controller.number.hasSlider.range-slider ";
+const RANGE_SLIDER_SCOPE = `.lil-gui .${rangeStyles.root}.controller.number.hasSlider.range-slider `;
 /** Same idea for the folder-title-bar reset button (item 8). */
-const RESET_BUTTON_SCOPE = ".lil-gui ";
+const RESET_BUTTON_SCOPE = `.${dockStyles.root} .lil-gui `;
 
 function stripScope(css: string, scope: string, selectorPrefix: string): string {
   // Only the rules THIS bundle scoped are touched (selectorPrefix), so an
@@ -86,6 +90,7 @@ afterEach(() => {
 describe("RangeSlider inside a real .lil-gui panel (P1/P2)", () => {
   function mountRangeSlider(): HTMLElement {
     guiHost = document.createElement("div");
+    guiHost.className = dockStyles.root;
     document.body.appendChild(guiHost);
     gui = new GUI({ container: guiHost });
     const folder = gui.addFolder("Scales");
@@ -157,6 +162,7 @@ describe("RangeSlider inside a real .lil-gui panel (P1/P2)", () => {
 describe("Folder-title-bar reset button inside a real .lil-gui panel (item 8)", () => {
   function mountReset(): { folderEl: HTMLElement; button: HTMLElement } {
     guiHost = document.createElement("div");
+    guiHost.className = dockStyles.root;
     document.body.appendChild(guiHost);
     gui = new GUI({ container: guiHost });
     const folder = gui.addFolder("Output");
@@ -211,6 +217,7 @@ describe("Folder-title-bar reset button inside a real .lil-gui panel (item 8)", 
 describe("RangeCategorySelect inside a real .lil-gui panel", () => {
   function mountSelect(): HTMLElement {
     guiHost = document.createElement("div");
+    guiHost.className = dockStyles.root;
     document.body.appendChild(guiHost);
     gui = new GUI({ container: guiHost });
     const folder = gui.addFolder("Scales");
@@ -224,7 +231,7 @@ describe("RangeCategorySelect inside a real .lil-gui panel", () => {
     return container;
   }
 
-  it("is one .name + .widget row whose two selects split the widget and may shrink below their text", () => {
+  it("is one .name + .widget row whose two dropdowns hug their labels and may shrink below their text", () => {
     loadCss(LIL_GUI_CSS, INSTRUMENT_CSS);
     const host = mountSelect();
     const rows = host.querySelectorAll(".controller");
@@ -237,12 +244,12 @@ describe("RangeCategorySelect inside a real .lil-gui panel", () => {
     const selects = widget!.querySelectorAll("select");
     expect(selects).toHaveLength(2);
     for (const select of selects) {
-      const cs = getComputedStyle(select);
-      expect(cs.flexGrow).toBe("1");
+      const cs = getComputedStyle(select.parentElement!);
+      expect(cs.flexGrow).toBe("0");
       expect(cs.flexShrink).toBe("1");
-      expect(parseFloat(cs.flexBasis)).toBe(0);
+      expect(cs.flexBasis).toBe("auto");
       expect(parseFloat(cs.minWidth)).toBe(0);
-      expect(cs.width).toBe("auto");
+      expect(cs.width).toBe("fit-content");
     }
   });
 });

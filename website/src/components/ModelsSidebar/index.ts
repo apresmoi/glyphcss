@@ -1,2 +1,2 @@
 export { ModelsSidebar } from "./ModelsSidebar";
-export type { ModelsSidebarProps, ModelCategory, ModelAttribution, PresetModel } from "./ModelsSidebar";
+export type { ModelAttribution, ModelCategory, ModelsSidebarProps, PresetModel } from "./ModelsSidebar";

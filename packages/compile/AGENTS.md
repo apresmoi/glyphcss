@@ -8,7 +8,7 @@ Node-only (uses fs) build-time adapters over glyphcss's pure `compileScene`: `lo
 - Static compile takes a flat polygon list and cannot represent detail layers.
 - `writeGlyphControlMaps` defaults to the frozen `glyph-control-export/v1` contract. Only `appearanceRgb: "albedo-and-target"` writes `v2`, and default exports never change shape.
 - `compilePolygons` with `autoFit` crops `grid` to the same bounding box as the cropped `inner`, including every optional buffer and `occluded`. A `null` grid stays `null`.
-- CLI subcommands (`chart`, `diagram`, `--3d`) keep the library's tagged rule codes, print each ledger entry as `glyphcss: <code>: <message>` on stderr, and exit 1 on failure. A 3D-only flag without `--3d` is rejected. Details: `packages/charts/AGENTS.md`, `packages/diagrams/AGENTS.md`.
+- CLI subcommands (`chart`, `diagram`) keep the library's tagged rule codes, print each ledger entry as `glyphcss: <code>: <message>` on stderr, and exit 1 on failure. Only `chart` supports `--3d`; its 3D-only flags require it. `diagram` is 2D-only and rejects removed 3D flags as unknown options. Details: `packages/charts/AGENTS.md`, `packages/diagrams/AGENTS.md`.
 
 ## Don't
 

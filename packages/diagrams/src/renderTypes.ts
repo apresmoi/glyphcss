@@ -15,9 +15,7 @@ export interface GlyphDiagramRenderOptions extends GlyphDiagramLayoutOptions {
   readonly detail?: GlyphDiagramDetail; readonly title?: string;
   readonly env?: Readonly<Record<string, string | undefined>>;
   /**
-   * Per-node override — the SAME `string | ((node) => string)` shape
-   * `./3d`'s own `nodeColor` already uses, so the two paths stop diverging.
-   * Colours a node's own border/corners and its interior label text.
+   * Per-node override. Colours a node's own border/corners and its interior label text.
    * Additive only: with `color: "none"` (or omitted, `colored === false`)
    * this has no effect and the output stays byte-identical to before this
    * option existed. Shape, position and text already carry every node's

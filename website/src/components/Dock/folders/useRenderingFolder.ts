@@ -3,14 +3,10 @@
  * line-height multiplier, and colors toggle.
  */
 import type { GUI } from "lil-gui";
-import type { SceneOptionsState } from "../../GalleryWorkbench/types";
 import { useEffect } from "react";
+import type { SceneOptionsState } from "../../../features/gallery/model/types";
+import { CALIBRATED_PALETTE_NAME, ensureCalibratedPalette } from "../../../services/rendering/calibratedPalette";
 import { useFolder, useOption, useSlider, useToggle } from "../primitives";
-import { CALIBRATED_PALETTE_NAME, ensureCalibratedPalette } from "../../GalleryWorkbench/calibratedPalette";
-
-// Registered once, at module load — before this folder's "Calibrated" option
-// is ever selectable, and before any route can preselect it.
-ensureCalibratedPalette();
 
 export type GalleryRenderPresentation = SceneOptionsState["renderMode"] | "semantic";
 
@@ -95,9 +91,26 @@ export interface RenderingFolderInputs {
    */
   showCreaseAngle?: boolean;
   onRenderModeChange: (mode: GalleryRenderPresentation) => void;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState, "featureEdges" | "glyphPalette" | "charMode" | "wireframeJunctions" | "hiddenLines" | "solidWeightRamp" | "colorEncoding" | "density" | "dragDensity" | "useColors" | "smoothShading" | "creaseAngle">>) => void;
+  onUpdateScene: (
+    partial: Partial<
+      Pick<
+        SceneOptionsState,
+        | "featureEdges"
+        | "glyphPalette"
+        | "charMode"
+        | "wireframeJunctions"
+        | "hiddenLines"
+        | "solidWeightRamp"
+        | "colorEncoding"
+        | "density"
+        | "dragDensity"
+        | "useColors"
+        | "smoothShading"
+        | "creaseAngle"
+      >
+    >,
+  ) => void;
 }
-
 
 const RENDER_MODE_OPTIONS: Record<string, GalleryRenderPresentation> = {
   Wireframe: "wireframe",
@@ -137,13 +150,48 @@ const COLOR_ENCODING_OPTIONS: Record<string, SceneOptionsState["colorEncoding"]>
 };
 
 export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderInputs): GUI | null {
-  const { renderMode, semanticAvailable, featureEdges, glyphPalette, charMode, charModeReason = null, charModeOptions = CHAR_MODE_OPTIONS, wireframeJunctions, hiddenLines, solidWeightRamp, colorEncoding, atlasReason, density, dragDensity, showDensity = true, showRenderMode = true, showGlyphPalette = true, showFeatureEdges = true, showCreaseAngle = true, useColors, smoothShading, creaseAngle, onRenderModeChange, onUpdateScene } = inputs;
+  useEffect(() => {
+    ensureCalibratedPalette();
+  }, []);
+  const {
+    renderMode,
+    semanticAvailable,
+    featureEdges,
+    glyphPalette,
+    charMode,
+    charModeReason = null,
+    charModeOptions = CHAR_MODE_OPTIONS,
+    wireframeJunctions,
+    hiddenLines,
+    solidWeightRamp,
+    colorEncoding,
+    atlasReason,
+    density,
+    dragDensity,
+    showDensity = true,
+    showRenderMode = true,
+    showGlyphPalette = true,
+    showFeatureEdges = true,
+    showCreaseAngle = true,
+    useColors,
+    smoothShading,
+    creaseAngle,
+    onRenderModeChange,
+    onUpdateScene,
+  } = inputs;
   const folder = useFolder(parent, "Rendering", { open: true });
 
-  const renderModeControl = useOption<GalleryRenderPresentation>(folder, "Render mode", RENDER_MODE_OPTIONS, renderMode, onRenderModeChange);
+  const renderModeControl = useOption<GalleryRenderPresentation>(
+    folder,
+    "Render mode",
+    RENDER_MODE_OPTIONS,
+    renderMode,
+    onRenderModeChange,
+  );
   useEffect(() => {
-    const semanticOption = Array.from(renderModeControl?.raw.domElement.querySelectorAll<HTMLOptionElement>("option") ?? [])
-      .find((option) => option.textContent === "Semantic");
+    const semanticOption = Array.from(
+      renderModeControl?.raw.domElement.querySelectorAll<HTMLOptionElement>("option") ?? [],
+    ).find((option) => option.textContent === "Semantic");
     if (semanticOption) semanticOption.disabled = !semanticAvailable;
   }, [renderModeControl, semanticAvailable]);
   useEffect(() => {
@@ -161,14 +209,22 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   useEffect(() => {
     renderModeControl?.setVisible(showRenderMode);
   }, [renderModeControl, showRenderMode]);
-  const featureEdgesControl = useSlider(folder, "Feature edges °", { min: 0, max: 90, step: 1 }, featureEdges, (value) =>
-    onUpdateScene({ featureEdges: value }),
+  const featureEdgesControl = useSlider(
+    folder,
+    "Feature edges °",
+    { min: 0, max: 90, step: 1 },
+    featureEdges,
+    (value) => onUpdateScene({ featureEdges: value }),
   );
   useEffect(() => {
     featureEdgesControl?.setVisible(showFeatureEdges);
   }, [featureEdgesControl, showFeatureEdges]);
-  const glyphPaletteControl = useOption<GlyphPaletteId>(folder, "Glyph palette", GLYPH_PALETTE_OPTIONS, glyphPalette as GlyphPaletteId, (value) =>
-    onUpdateScene({ glyphPalette: value }),
+  const glyphPaletteControl = useOption<GlyphPaletteId>(
+    folder,
+    "Glyph palette",
+    GLYPH_PALETTE_OPTIONS,
+    glyphPalette as GlyphPaletteId,
+    (value) => onUpdateScene({ glyphPalette: value }),
   );
   useEffect(() => {
     glyphPaletteControl?.setVisible(showGlyphPalette);
@@ -201,9 +257,8 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     if (!charModeControl) return;
     const modeApplies = renderMode === "wireframe" || renderMode === "solid";
     charModeControl.setEnabled(modeApplies && charModeReason === null, { dim: true });
-    charModeControl.raw.$name.title = charModeReason !== null
-      ? `Character mode — "${charMode}" isn't doing anything right now: ${charModeReason}`
-      : "";
+    charModeControl.raw.$name.title =
+      charModeReason !== null ? `Character mode — "${charMode}" isn't doing anything right now: ${charModeReason}` : "";
   }, [charModeControl, renderMode, charMode, charModeReason]);
   const junctionsControl = useToggle(folder, "Box junctions (wireframe)", wireframeJunctions, (value) =>
     onUpdateScene({ wireframeJunctions: value }),
@@ -236,10 +291,9 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
     // a no-op under charMode "halfblock"/"quadrant" — both two-color-per-cell
     // encodings have no font-weight span either — so dim there too, same
     // treatment `charMode`'s own no-op combinations get above.
-    weightRampControl?.setEnabled(
-      renderMode === "solid" && charMode !== "halfblock" && charMode !== "quadrant",
-      { dim: true },
-    );
+    weightRampControl?.setEnabled(renderMode === "solid" && charMode !== "halfblock" && charMode !== "quadrant", {
+      dim: true,
+    });
   }, [weightRampControl, renderMode, charMode]);
   // `colorEncoding: "atlas"` — zero-`<span>` colour-font output. Disabled
   // (with the REAL reason from `computeGlyphAtlasAvailability`, not a
@@ -249,21 +303,23 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   // `raw.$name.title` sets the native tooltip — same mechanism `/synth` and
   // `/wordart` use; lil-gui's `DockController` has no built-in tooltip prop.
   const colorEncodingControl = useOption<SceneOptionsState["colorEncoding"]>(
-    folder, "Color encoding", COLOR_ENCODING_OPTIONS, colorEncoding, (value) => onUpdateScene({ colorEncoding: value }),
+    folder,
+    "Color encoding",
+    COLOR_ENCODING_OPTIONS,
+    colorEncoding,
+    (value) => onUpdateScene({ colorEncoding: value }),
+    "choices",
   );
   useEffect(() => {
     if (!colorEncodingControl) return;
     colorEncodingControl.setEnabled(atlasReason === null, { dim: true });
-    colorEncodingControl.raw.$name.title = atlasReason === null
-      ? "Color encoding — \"Atlas\" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas's palette/glyph budget."
-      : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
+    colorEncodingControl.raw.$name.title =
+      atlasReason === null
+        ? 'Color encoding — "Atlas" encodes glyph+colour as a single colour-font PUA text node (zero <span>s) instead of HTML spans, when the current render fits the atlas\'s palette/glyph budget.'
+        : `Color encoding — "Atlas" isn't available right now: ${atlasReason}`;
   }, [colorEncodingControl, atlasReason]);
-  useToggle(folder, "Colors", useColors, (value) =>
-    onUpdateScene({ useColors: value }),
-  );
-  useToggle(folder, "Smooth shading", smoothShading, (value) =>
-    onUpdateScene({ smoothShading: value }),
-  );
+  useToggle(folder, "Colors", useColors, (value) => onUpdateScene({ useColors: value }));
+  useToggle(folder, "Smooth shading", smoothShading, (value) => onUpdateScene({ smoothShading: value }));
   const creaseAngleControl = useSlider(folder, "Crease angle °", { min: 0, max: 180, step: 1 }, creaseAngle, (value) =>
     onUpdateScene({ creaseAngle: value }),
   );
@@ -286,17 +342,23 @@ export function useRenderingFolder(parent: GUI | null, inputs: RenderingFolderIn
   );
   useEffect(() => {
     if (!densityControl) return;
-    densityControl.raw.$name.title = "Density — the scene's base render resolution, as a multiplier of the default cell size. 1× is the default; higher is sharper (more cells, more render cost).";
+    densityControl.raw.$name.title =
+      "Density — the scene's base render resolution, as a multiplier of the default cell size. 1× is the default; higher is sharper (more cells, more render cost).";
   }, [densityControl]);
   useEffect(() => {
     densityControl?.setVisible(showDensity);
   }, [densityControl, showDensity]);
-  const dragDensityControl = useSlider(folder, "Drag density ×", { min: 0.5, max: 1, step: 0.05 }, dragDensity, (value) =>
-    onUpdateScene({ dragDensity: value }),
+  const dragDensityControl = useSlider(
+    folder,
+    "Drag density ×",
+    { min: 0.5, max: 1, step: 0.05 },
+    dragDensity,
+    (value) => onUpdateScene({ dragDensity: value }),
   );
   useEffect(() => {
     if (!dragDensityControl) return;
-    dragDensityControl.raw.$name.title = "Drag density — resolution used WHILE actively dragging, as a fraction of Density. 1× keeps full Density during a drag (no reduction); lower renders coarser while dragging and restores full detail on release. Always ≤ Density — dragging can only match or coarsen the base resolution, never sharpen past it.";
+    dragDensityControl.raw.$name.title =
+      "Drag density — resolution used WHILE actively dragging, as a fraction of Density. 1× keeps full Density during a drag (no reduction); lower renders coarser while dragging and restores full detail on release. Always ≤ Density — dragging can only match or coarsen the base resolution, never sharpen past it.";
   }, [dragDensityControl]);
   return folder;
 }

@@ -10,9 +10,9 @@ import {
   CHARTS_BARS3D_NEEDS, CHARTS_LINE3D_NEEDS, CHARTS_PARAMETRIC3D_NEEDS, CHARTS_SCATTER3D_NEEDS, CHARTS_SURFACE_NEEDS,
   chartsBars3dFitFromRows, chartsBest3dFitFromRows, chartsFitTableFromRows, chartsLine3dFitFromRows,
   chartsRankColumnsForScatter3d, chartsScatter3dFitFromRows,
-} from "./chartsWorkbench3d";
-import type { ChartsWorkbenchDataState, ChartsWorkbenchMark } from "./chartsWorkbenchState";
-import type { TabularRow } from "../../lib/tabularParse";
+} from "../../features/charts/model/chartsWorkbench3d";
+import type { ChartsWorkbenchDataState, ChartsWorkbenchMark } from "../../features/charts/model/chartsSpec";
+import type { TabularRow } from "../../features/charts/tabular/tabularParse";
 
 function markWithRows(id: number, dataText: string): ChartsWorkbenchMark {
   return { id, type: "dot", dataText, channels: {}, transform: "none", options: {} };

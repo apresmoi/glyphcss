@@ -19,6 +19,7 @@ const bad: { rule: string; graph: unknown }[] = [
   { rule: "bad-node", graph: { ...base, nodes: [{ id: " ", label: "A" }] } },
   { rule: "bad-node", graph: { ...base, nodes: [{ id: "a", label: "A", shape: "triangle" }] } },
   { rule: "bad-node", graph: { ...base, nodes: [{ id: "a", label: "A", extra: true }] } },
+  { rule: "bad-node", graph: { ...base, nodes: [{ id: "a", label: "A", size: [2, 3, 4] }] } },
   { rule: "duplicate-node-id", graph: { ...base, nodes: [...base.nodes, { id: "a", label: "A again" }] } },
   { rule: "bad-edge", graph: { ...base, edges: [{ from: "a", to: "b", style: "wavy" }] } },
   { rule: "bad-edge", graph: { ...base, edges: [{ from: "a", to: "b", priority: Infinity }] } },

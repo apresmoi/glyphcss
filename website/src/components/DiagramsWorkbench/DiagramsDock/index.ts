@@ -1,0 +1,1 @@
+export { GlyphDiagramsDock } from "./DiagramsDock";

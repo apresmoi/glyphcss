@@ -34,7 +34,7 @@ import { chromium } from "playwright";
 import { glyphGraphFromMermaid } from "@glyphcss/diagrams";
 
 const PORT = 4399;
-const PAGE = `http://localhost:${PORT}/diagrams`;
+const PAGE = `${process.env.GLYPHCSS_BASE_URL ?? `http://localhost:${PORT}`}/diagrams`;
 
 const fail = [];
 const check = (ok, message) => { if (!ok) fail.push(message); return ok; };
@@ -57,12 +57,12 @@ function skeleton(source) {
   });
 }
 
-const server = spawn("pnpm", ["exec", "astro", "dev", "--port", String(PORT)], { cwd: fileURLToPath(new URL("..", import.meta.url)), stdio: "ignore" });
-process.on("exit", () => server.kill());
+const server = process.env.GLYPHCSS_BASE_URL ? null : spawn("pnpm", ["exec", "astro", "dev", "--port", String(PORT)], { cwd: fileURLToPath(new URL("..", import.meta.url)), stdio: "ignore" });
+process.on("exit", () => server?.kill());
 
 if (!(await waitForServer())) {
   console.error("dev server did not come up");
-  server.kill();
+  server?.kill();
   process.exit(1);
 }
 
@@ -70,7 +70,10 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1600, height: 1000 } });
 const pageErrors = [];
 page.on("pageerror", (error) => pageErrors.push(String(error)));
-await page.goto(PAGE, { waitUntil: "networkidle" });
+await page.goto(PAGE, { waitUntil: "domcontentloaded" });
+await page.waitForFunction(() => !document.querySelector('astro-island[ssr]'), {}, { timeout: 45000 });
+await page.getByRole("button", { name: "Apply LangGraph agent", exact: true }).click();
+await page.getByRole("tab", { name: /Mermaid/ }).click();
 await page.waitForSelector("select.diagrams-editor-choice-select");
 
 const textarea = page.locator("textarea").first();
@@ -125,7 +128,7 @@ for (let index = 0; index < total; index++) {
 
 check(pageErrors.length === 0, `page errors: ${pageErrors.join(" | ")}`);
 await browser.close();
-server.kill();
+server?.kill();
 
 if (fail.length) {
   console.error(`\n${fail.length} failure(s):`);

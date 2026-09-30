@@ -3,31 +3,21 @@
  * `DockGuiContext` and delegates to its corresponding folder hook. Pages
  * compose the Dock by listing the slots they want as children of `<Dock>`.
  */
+import type { GUI } from "lil-gui";
 import { createContext, useContext, useEffect } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { GUI } from "lil-gui";
 
-import { useModelFolder, type ModelFolderInputs } from "./folders/useModelFolder";
-import { useRenderingFolder, type RenderingFolderInputs } from "./folders/useRenderingFolder";
 import { useAnimationFolder, type AnimationFolderInputs } from "./folders/useAnimationFolder";
 import { useCameraFolder, type CameraFolderInputs } from "./folders/useCameraFolder";
+import { EffectParameterControls, useEffectsFolder, type EffectsFolderInputs } from "./folders/useEffectsFolder";
 import { useLightingFolder, type LightingFolderInputs } from "./folders/useLightingFolder";
+import { useRenderingFolder, type RenderingFolderInputs } from "./folders/useRenderingFolder";
 import { useShadowFolder, type ShadowFolderInputs } from "./folders/useShadowFolder";
-import {
-  EffectParameterControls,
-  useEffectsFolder,
-  type EffectsFolderInputs,
-} from "./folders/useEffectsFolder";
 
 export const DockGuiContext = createContext<GUI | null>(null);
 
 export function useDockGui(): GUI | null {
   return useContext(DockGuiContext);
-}
-
-export function DockModel(inputs: ModelFolderInputs): null {
-  useModelFolder(useDockGui(), inputs);
-  return null;
 }
 
 export function DockRendering(inputs: RenderingFolderInputs & { semanticDetails?: React.ReactNode }) {

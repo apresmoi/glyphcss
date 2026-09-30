@@ -1,9 +1,14 @@
+import { charts3dTable } from "../../features/charts/model/charts3dFields";
+import type { Charts3dSource } from "../../features/charts/model/chartsWorkbench3d";
 import { useMemo, useState } from "react";
+import { chartsRemoteRows } from "../../features/charts/model/chartsMarkData";
 import {
-  findChartsDataset, parseChartMarkData,
-  type ChartsDataset, type ChartsWorkbenchDataState, type ChartsWorkbenchMark,
-} from "./chartsWorkbenchState";
-import { chartsRemoteRows } from "./chartsMarkTypeFit";
+  parseChartMarkData,
+  type ChartsWorkbenchDataState,
+  type ChartsWorkbenchMark,
+} from "../../features/charts/model/chartsSpec";
+import { findChartsDataset, type ChartsDataset } from "../../features/charts/model/chartsWorkbenchState";
+import { ChoiceButton, ChoiceGroup } from "../IconToggle";
 
 // Custom paste/upload (a "Custom…" dataset option, a pipeline step editor,
 // and a profiler-ranked recommendation + Apply button) lived here before
@@ -16,34 +21,89 @@ import { chartsRemoteRows } from "./chartsMarkTypeFit";
 // comment with no real consumer — a future custom-upload feature would
 // build its own editor fresh against those same pure libraries.
 
-const DATASET_DATA_VIEWS = [{ id: "table", label: "Table" }, { id: "json", label: "JSON" }] as const;
+const DATASET_DATA_VIEWS = [
+  { id: "table", label: "Table" },
+  { id: "json", label: "JSON" },
+] as const;
 
 /** A generic read-only table/JSON pair over plain rows — shared by the
  *  vendored-dataset view (`ChartsDatasetDataView`, below) and the remote
  *  one (`ChartsRemoteDatasetDataView`), which has no static `ChartsDataset`
  *  object to read rows/columns off. */
-function ChartsDataTable({ title, columns, rows }: { readonly title: string; readonly columns: readonly string[]; readonly rows: readonly Readonly<Record<string, unknown>>[] }) {
-  const [view, setView] = useState<typeof DATASET_DATA_VIEWS[number]["id"]>("table");
+function ChartsDataTable({
+  title,
+  columns,
+  rows,
+}: {
+  readonly title: string;
+  readonly columns: readonly string[];
+  readonly rows: readonly Readonly<Record<string, unknown>>[];
+}) {
+  const [view, setView] = useState<(typeof DATASET_DATA_VIEWS)[number]["id"]>("table");
   const gridStyle = { gridTemplateColumns: `repeat(${Math.max(1, columns.length)}, minmax(6ch, 1fr))` };
-  return <details className="charts-mark-data-details">
-    <summary className="charts-mark-data-summary">View data <span className="charts-mark-data-marker" aria-hidden="true">▸</span></summary>
-    <div className="gx-toggle charts-data-tabs" role="tablist" aria-label={`${title} data view`}>
-      {DATASET_DATA_VIEWS.map((v) => <button type="button" key={v.id} role="tab" aria-selected={view === v.id}
-        className={`gx-toggle-btn gx-toggle-text${view === v.id ? " is-active" : ""}`} onClick={() => setView(v.id)}>{v.label}</button>)}
-    </div>
-    {view === "table"
-      ? <div className="charts-grid-wrap">
-          <div className="charts-grid charts-grid--readonly" role="table" aria-label={`${title} data`} style={gridStyle}>
-            <div className="charts-grid-row" role="row" style={{ display: "contents" }}>
-              {columns.map((column) => <div className="charts-grid-header" role="columnheader" key={column}>{column}</div>)}
+  return (
+    <details className="charts-mark-data-details">
+      <summary className="charts-mark-data-summary">
+        View data{" "}
+        <span className="charts-mark-data-marker" aria-hidden="true">
+          ▸
+        </span>
+      </summary>
+      <ChoiceGroup className="gx-toggle charts-data-tabs" role="tablist" aria-label={`${title} data view`}>
+        {DATASET_DATA_VIEWS.map((v) => (
+          <ChoiceButton
+            type="button"
+            key={v.id}
+            role="tab"
+            aria-selected={view === v.id}
+            className={`gx-toggle-btn gx-toggle-text${view === v.id ? " is-active" : ""}`}
+            onClick={() => setView(v.id)}
+          >
+            {v.label}
+          </ChoiceButton>
+        ))}
+      </ChoiceGroup>
+      {view === "table" ? (
+        <div className="charts-grid-wrap">
+          <div
+            className="charts-grid charts-grid--readonly"
+            role="table"
+            aria-label={`${title} data`}
+            style={gridStyle}
+          >
+            <div className="charts-grid-row charts-data-row" role="row">
+              {columns.map((column) => (
+                <div className="charts-grid-header" role="columnheader" key={column}>
+                  {column}
+                </div>
+              ))}
             </div>
-            {rows.map((row, r) => <div className="charts-grid-row" role="row" style={{ display: "contents" }} key={r}>
-              {columns.map((column) => <div className={`charts-grid-cell${typeof row[column] === "number" ? " is-numeric" : ""}`} role="cell" key={column}>{String(row[column] ?? "")}</div>)}
-            </div>)}
+            {rows.map((row, r) => (
+              <div className="charts-grid-row charts-data-row" role="row" key={r}>
+                {columns.map((column) => (
+                  <div
+                    className={`charts-grid-cell${typeof row[column] === "number" ? " is-numeric" : ""}`}
+                    role="cell"
+                    key={column}
+                  >
+                    {String(row[column] ?? "")}
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
-      : <textarea className="charts-mark-data" aria-label={`${title} data JSON`} value={JSON.stringify(rows, null, 2)} readOnly spellCheck={false} />}
-  </details>;
+      ) : (
+        <textarea
+          className="charts-mark-data"
+          aria-label={`${title} data JSON`}
+          value={JSON.stringify(rows, null, 2)}
+          readOnly
+          spellCheck={false}
+        />
+      )}
+    </details>
+  );
 }
 
 /** Read-only table/JSON views of a STOCK dataset's own rows — the "View
@@ -62,7 +122,15 @@ function ChartsDatasetDataView({ dataset }: { readonly dataset: ChartsDataset })
  *  read rows/columns off. The rows as loaded (`chartsRemoteRows`) when this
  *  session loaded them; otherwise the chart's own mark, which may be a
  *  reshaped or cleaned copy. */
-function ChartsRemoteDatasetDataView({ title, sourceRef, marks }: { readonly title: string; readonly sourceRef: string; readonly marks: readonly ChartsWorkbenchMark[] }) {
+function ChartsRemoteDatasetDataView({
+  title,
+  sourceRef,
+  marks,
+}: {
+  readonly title: string;
+  readonly sourceRef: string;
+  readonly marks: readonly ChartsWorkbenchMark[];
+}) {
   const { columns, rows } = useMemo(() => {
     const loaded = chartsRemoteRows(sourceRef);
     if (loaded) return { columns: [...new Set(loaded.flatMap((row) => Object.keys(row)))], rows: loaded };
@@ -70,10 +138,13 @@ function ChartsRemoteDatasetDataView({ title, sourceRef, marks }: { readonly tit
     if (!mark) return { columns: [], rows: [] };
     try {
       const data = parseChartMarkData(mark);
-      if (data.every((row) => typeof row === "number")) return { columns: ["value"], rows: data.map((value) => ({ value })) };
+      if (data.every((row) => typeof row === "number"))
+        return { columns: ["value"], rows: data.map((value) => ({ value })) };
       const objectRows = data.filter((row): row is Record<string, unknown> => typeof row === "object" && row !== null);
       return { columns: [...new Set(objectRows.flatMap((row) => Object.keys(row)))], rows: objectRows };
-    } catch { return { columns: [], rows: [] }; }
+    } catch {
+      return { columns: [], rows: [] };
+    }
   }, [sourceRef, marks]);
   if (rows.length === 0) return null;
   return <ChartsDataTable title={title} columns={columns} rows={rows} />;
@@ -85,11 +156,10 @@ function ChartsRemoteDatasetDataView({ title, sourceRef, marks }: { readonly tit
  * picking a dataset from `ChartsDataOverlay.tsx`'s own `<select>` (or its
  * search box) IMMEDIATELY replaces the chart with a curated/recommended
  * mapping (`select-dataset`/`select-remote-dataset`,
- * `chartsWorkbenchState.ts`), no intermediate "Apply" step. The card shows
- * the dataset's title, description, source credit, and a closed "View
- * data ▸" disclosure over its own rows — `ChartsWorkbench.tsx` reads this
- * same title for the rail's OWN header (`InstrumentRail`'s `title` prop),
- * so nothing here repeats it.
+ * `chartsWorkbenchState.ts`), no intermediate "Apply" step. The rail header
+ * owns the title. This component shows row/field counts and a closed
+ * "View data" disclosure; descriptions and full source credits remain
+ * available through tooltips and accessible labels.
  *
  * This card is also where feedback that used to float over the render
  * area now lives (the user's own words: "it shouldn't be in the rendering
@@ -103,19 +173,29 @@ function ChartsRemoteDatasetDataView({ title, sourceRef, marks }: { readonly tit
  * clears the instant the config is valid again rather than fading on a
  * timer.
  */
-/** The 3D viewport's own resolved dataset info (packet C3) — title,
- *  description, and a credited source when one exists (a vendored
- *  `datasets/chart3d/` entry; `null` for an inline surface built from the
- *  reader's own table, which has no separate source of its own). */
+/** Metadata follows the displayed 3D dataset, including tables converted from 2D. */
 export interface ChartsData3dInfo {
   readonly title: string;
   readonly description: string;
-  readonly source: { readonly name: string; readonly url: string; readonly licence: string } | null;
+  readonly source: { readonly name: string; readonly url: string; readonly licence?: string } | null;
 }
 
-export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderError, omittedNote, dimension, chart3d }: {
+export function ChartsDataFolder({
+  data,
+  marks,
+  loadingTitle,
+  notice,
+  renderError,
+  omittedNote,
+  dimension,
+  chart3d,
+  chart3dSource,
+}: {
   readonly data: ChartsWorkbenchDataState;
-  readonly marks?: readonly ChartsWorkbenchMark[]; readonly loadingTitle?: string; readonly notice?: string; readonly renderError?: string;
+  readonly marks?: readonly ChartsWorkbenchMark[];
+  readonly loadingTitle?: string;
+  readonly notice?: string;
+  readonly renderError?: string;
   /** Rows the current chart leaves out (`chartsMarkTypeFit.ts`'s
    *  `chartsOmittedRowsNote`) — shown for as long as the chart does. */
   readonly omittedNote?: string;
@@ -126,38 +206,81 @@ export function ChartsDataFolder({ data, marks, loadingTitle, notice, renderErro
    *  `data.source` outright. */
   readonly dimension?: "2d" | "3d";
   readonly chart3d?: ChartsData3dInfo | null;
+  readonly chart3dSource?: Charts3dSource;
 }) {
   const activeDataset = data.source?.kind === "dataset" ? findChartsDataset(data.source.id) : undefined;
   const remote = data.source?.kind === "remote" ? data.source : undefined;
   const is3d = dimension === "3d";
+  const info = is3d ? chart3d : (activeDataset ?? remote);
+  const table3d = is3d && chart3dSource ? charts3dTable(chart3dSource) : null;
+  const rows = is3d ? table3d?.rows : (activeDataset?.rows ?? (remote ? chartsRemoteRows(remote.ref) : undefined));
+  const columns = is3d ? (rows?.[0] ? Object.keys(rows[0]).length : undefined) : activeDataset?.columns.length;
+  const credit = info?.source ? [info.source.name, info.source.licence].filter(Boolean).join(" — ") : undefined;
 
-  return <div className="charts-data-folder">
-    {renderError && <p className="charts-readout charts-error" role="alert">{renderError}</p>}
-    {notice && <p className="charts-readout" role="status">{notice}</p>}
-    {omittedNote && !is3d && <p className="charts-readout" data-note="omitted-rows">{omittedNote}</p>}
+  if (!renderError && !notice && !(omittedNote && !is3d) && !loadingTitle && !info) return null;
 
-    {loadingTitle && <p className="charts-readout charts-data-loading" role="status">
-      {loadingTitle} <span className="charts-data-loading-spinner" aria-hidden="true">⟳</span>
-    </p>}
+  return (
+    <div className="charts-data-folder">
+      {renderError && (
+        <p className="charts-readout charts-error" role="alert" title={renderError}>
+          {renderError}
+        </p>
+      )}
+      {notice && (
+        <p className="charts-readout" role="status" title={notice}>
+          {notice}
+        </p>
+      )}
+      {omittedNote && !is3d && (
+        <p className="charts-readout" data-note="omitted-rows" title={omittedNote}>
+          {omittedNote}
+        </p>
+      )}
 
-    {is3d && chart3d && <div className="charts-data-info">
-      <p className="charts-data-title">{chart3d.title}</p>
-      <p className="charts-readout">{chart3d.description}</p>
-      {chart3d.source && <p className="charts-readout"><a href={chart3d.source.url} target="_blank" rel="noreferrer">{chart3d.source.name}</a> — {chart3d.source.licence}</p>}
-    </div>}
+      {loadingTitle && (
+        <p className="charts-readout charts-data-loading" role="status" title={loadingTitle}>
+          {loadingTitle}{" "}
+          <span className="charts-data-loading-spinner" aria-hidden="true">
+            ⟳
+          </span>
+        </p>
+      )}
 
-    {!is3d && activeDataset && <div className="charts-data-info">
-      <p className="charts-data-title">{activeDataset.title}</p>
-      <p className="charts-readout">{activeDataset.description}</p>
-      <p className="charts-readout"><a href={activeDataset.source.url} target="_blank" rel="noreferrer">{activeDataset.source.name}</a> — {activeDataset.source.licence}</p>
-      <ChartsDatasetDataView dataset={activeDataset} />
-    </div>}
-
-    {!is3d && remote && !loadingTitle && <div className="charts-data-info">
-      <p className="charts-data-title">{remote.title}</p>
-      <p className="charts-readout">{remote.description}</p>
-      <p className="charts-readout"><a href={remote.source.url} target="_blank" rel="noreferrer">{remote.source.name}</a>{remote.source.licence ? ` — ${remote.source.licence}` : ""}</p>
-      <ChartsRemoteDatasetDataView title={remote.title} sourceRef={remote.ref} marks={marks ?? []} />
-    </div>}
-  </div>;
+      {info && !loadingTitle && (
+        <div className="charts-data-info">
+          <div className="charts-data-meta">
+            {rows && <span>{rows.length.toLocaleString("en-US")} rows</span>}
+            {columns !== undefined && <span>{columns} fields</span>}
+            {info.description && (
+              <span className="charts-data-about" tabIndex={0} title={info.description} aria-label={info.description}>
+                About
+              </span>
+            )}
+            {info.source && (
+              <a
+                href={info.source.url}
+                target="_blank"
+                rel="noreferrer"
+                title={credit}
+                aria-label={`Source: ${credit}`}
+              >
+                Source ↗
+              </a>
+            )}
+          </div>
+          {is3d && table3d && (
+            <ChartsDataTable
+              title={info.title}
+              columns={[...new Set(table3d.rows.flatMap((row) => Object.keys(row)))]}
+              rows={table3d.rows}
+            />
+          )}
+          {!is3d && activeDataset && <ChartsDatasetDataView dataset={activeDataset} />}
+          {!is3d && remote && (
+            <ChartsRemoteDatasetDataView title={remote.title} sourceRef={remote.ref} marks={marks ?? []} />
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

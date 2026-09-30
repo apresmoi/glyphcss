@@ -1,0 +1,96 @@
+.root:global(.color-stack) {
+  border: 1px solid rgba(var(--gc-danger-rgb), 0.28);
+  background: var(--gc-surface);
+}
+.root :global(.color-stack-head) {
+  /* No `width: 100%` — same overflow mistake and same fix as
+     `.layer-group-head` above (see its doc comment). */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+}
+.root :global(.color-stack-check) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  cursor: pointer;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(var(--gc-danger-rgb), 0.95);
+}
+.root :global(.color-stack-check) input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  /* 20px + `margin: 0`, same fix and same rationale as
+     `.layer-group-check input[type="checkbox"]` above — this is the
+     checkbox whose old 32px box + untracked UA margin pushed the whole
+     header (checkbox, "COLOUR" label, and both selects) out of alignment
+     with `.layer-group-head` directly above it. */
+  width: 20px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+.root :global(.color-stack-check) input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gc-font-ui);
+  font-size: 10px;
+  color: rgba(var(--gc-danger-rgb), 0.5);
+  pointer-events: none;
+  line-height: 1;
+}
+.root :global(.color-stack-check) input[type="checkbox"]:hover::before {
+  color: rgba(var(--gc-danger-rgb), 0.85);
+}
+.root :global(.color-stack-check) input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: var(--gc-danger);
+}
+.root :global(.color-stack-check) input[type="checkbox"]:checked:hover::before {
+  color: var(--gc-text);
+}
+.root :global(.color-stack-body) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-2);
+  padding: 9px;
+  border-top: 1px solid rgba(var(--gc-danger-rgb), 0.2);
+}
+.root :global(.color-stack-voices) {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.root :global(.color-stack-voices-actions) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.root :global(.color-stack-palette) {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.root :global(.color-stack-swatches) {
+  display: flex;
+  gap: 14px;
+}
+.root :global(.color-stack-swatch) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+}

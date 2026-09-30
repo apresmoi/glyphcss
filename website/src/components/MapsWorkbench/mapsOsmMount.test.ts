@@ -28,7 +28,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap, glyphMapEquirectangular, type GlyphMapHandle } from "@glyphcss/maps";
-import { MAP_OSM_DEFAULT_ON, createOsmSource, mapOsmLayers } from "./mapsOsm";
+import { MAP_OSM_DEFAULT_ON, createOsmSource, mapOsmLayers } from "../../features/maps/model/mapsOsm";
 
 const FIXTURES = path.resolve(__dirname, "../../../../packages/maps/fixtures/openfreemap");
 const bytes = (name: string) => {

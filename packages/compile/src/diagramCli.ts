@@ -3,26 +3,8 @@ import {
   glyphGraphFromJson, parseGlyphDiagramJson, renderGlyphDiagram,
   type GlyphDiagramRenderOptions, type GlyphGraph,
 } from "@glyphcss/diagrams";
-import {
-  renderGlyphDiagram3d,
-  type GlyphDiagram3dCamera, type GlyphDiagram3dRenderOptions,
-} from "@glyphcss/diagrams/3d";
 
-/**
- * `--3d` (packet D2, PLAN-3d.md §11) dispatches to `renderGlyphDiagram3d`
- * instead of the 2D pipeline — a STATIC FRAME at the resolved (or
- * auto-fit) camera, the export boundary the user approved: no live orbit,
- * no turntable, no effects, here or anywhere else outside `/diagrams`'
- * own web page (D3). `layout3d`/`camera3d` are 3D-only and rejected on the
- * 2D path by `parseGlyphDiagramArgs` never setting them there; every other
- * option (`target`/`charset`/`color`/`width`/`height`/`direction`/`title`)
- * is shared verbatim between both pipelines.
- */
-export type GlyphDiagramCliOptions = Omit<GlyphDiagramRenderOptions, "env"> & {
-  is3d?: boolean;
-  layout3d?: "layered" | "force";
-  camera3d?: GlyphDiagram3dCamera;
-};
+export type GlyphDiagramCliOptions = Omit<GlyphDiagramRenderOptions, "env">;
 
 export const GLYPH_DIAGRAM_CLI_HELP = `glyphcss diagram <file.mmd|graph.json> [options]
 
@@ -33,16 +15,10 @@ export const GLYPH_DIAGRAM_CLI_HELP = `glyphcss diagram <file.mmd|graph.json> [o
   --direction TB|LR|BT|RL
   --engine dagre  --nodesep N  --ranksep N
   --title TEXT  --detail auto|faithful|balanced|simplified
-  --3d  --layout layered|force  --camera rotX,rotY[,zoom]
   -o, --out FILE
 
   Output: ANSI when stdout is a TTY, plain text when piped, unless --color
   overrides it. CSS colour emits HTML. Fidelity ledger entries go to stderr.
-
-  --3d renders a STATIC FRAME of the same graph in 3D (a live orbit view and
-  turntable export stay web-only, on the /diagrams page) — --layout picks
-  the 3D layout (default layered) and --camera pins rotX,rotY and,
-  optionally, zoom (omitted zoom auto-fits every node label on screen).
 `;
 
 function argumentError(message: string): never {
@@ -77,15 +53,6 @@ export function parseGlyphDiagramArgs(argv: readonly string[]): { file?: string;
       case "--ranksep": opts.ranksep = Number(next()); break;
       case "--title": opts.title = next(); break;
       case "--detail": opts.detail = choice(["auto", "faithful", "balanced", "simplified"]); break;
-      case "--3d": opts.is3d = true; break;
-      case "--layout": opts.layout3d = choice(["layered", "force"]); break;
-      case "--camera": {
-        const raw = next();
-        const parts = raw.split(",").map((s) => Number(s.trim()));
-        if (parts.length < 2 || parts.length > 3 || parts.some((n) => !Number.isFinite(n))) argumentError("--camera must be rotX,rotY[,zoom] (numbers).");
-        opts.camera3d = { rotX: parts[0], rotY: parts[1], ...(parts.length === 3 ? { zoom: parts[2] } : {}) };
-        break;
-      }
       case "-o": case "--out": out = next(); break;
       case "-h": case "--help": return { file: undefined, out, opts };
       default:
@@ -94,14 +61,6 @@ export function parseGlyphDiagramArgs(argv: readonly string[]): { file?: string;
         file = argument;
     }
   }
-  // D2 fix round 1, P2-4 (codex): `--layout`/`--camera` without `--3d` used
-  // to be silently ignored (the 2D `renderGlyphDiagram` path never reads
-  // `layout3d`/`camera3d`) — a caller who typo'd `--3d` got a normal 2D
-  // render with no signal that their camera/layout request went nowhere.
-  // Reject explicitly, same `bad-options` code and exit-1 path every other
-  // CLI validation failure takes.
-  if (!opts.is3d && opts.layout3d !== undefined) argumentError("--layout requires --3d.");
-  if (!opts.is3d && opts.camera3d !== undefined) argumentError("--camera requires --3d.");
   return { file, out, opts };
 }
 
@@ -110,14 +69,6 @@ interface GlyphDiagramCliResult { readonly text: string; readonly html?: string;
 function renderCli(input: string | GlyphGraph, options: GlyphDiagramCliOptions, output: { readonly isTTY: boolean; readonly vars?: Readonly<Record<string, string | undefined>> }): Promise<GlyphDiagramCliResult> {
   const target = options.target ?? "terminal";
   const color = options.color ?? (output.isTTY ? undefined : "none");
-  if (options.is3d) {
-    const opts3d: GlyphDiagram3dRenderOptions = {
-      target, charset: options.charset, color, width: options.width, height: options.height,
-      direction: options.direction, title: options.title, env: output.vars,
-      layout: options.layout3d, camera: options.camera3d,
-    };
-    return renderGlyphDiagram3d(input, opts3d);
-  }
   return renderGlyphDiagram(input, { ...options, target, color, env: output.vars });
 }
 

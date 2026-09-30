@@ -18,7 +18,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import { Dock, DockLighting } from "../Dock";
-import { DEFAULT_MAP_LIGHTING, MapsSunControls, type MapSunMode } from "./mapsKit";
+import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
+import { MapsSunControls } from "./MapsSunControls/MapsSunControls";
+import { type MapSunMode } from "../../features/maps/model/config";
 
 /**
  * The sun controls live INSIDE the shared Dock Lighting folder, through

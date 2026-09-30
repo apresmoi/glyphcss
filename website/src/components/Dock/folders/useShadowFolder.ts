@@ -2,7 +2,7 @@
  * Shadow folder — enable toggle + opacity, lift/bias, color, cast/receive.
  */
 import type { GUI } from "lil-gui";
-import type { SceneOptionsState } from "../../GalleryWorkbench/types";
+import type { SceneOptionsState } from "../../../features/gallery/model/types";
 import { useColor, useFolder, useSlider, useToggle } from "../primitives";
 
 export interface ShadowFolderInputs {
@@ -13,15 +13,20 @@ export interface ShadowFolderInputs {
   shadowCast: boolean;
   shadowReceive: boolean;
   shadowFloor: boolean;
-  onUpdateScene: (partial: Partial<Pick<SceneOptionsState,
-    | "shadowEnabled"
-    | "shadowOpacity"
-    | "shadowLift"
-    | "shadowColor"
-    | "shadowCast"
-    | "shadowReceive"
-    | "shadowFloor"
-  >>) => void;
+  onUpdateScene: (
+    partial: Partial<
+      Pick<
+        SceneOptionsState,
+        | "shadowEnabled"
+        | "shadowOpacity"
+        | "shadowLift"
+        | "shadowColor"
+        | "shadowCast"
+        | "shadowReceive"
+        | "shadowFloor"
+      >
+    >,
+  ) => void;
 }
 
 export function useShadowFolder(parent: GUI | null, inputs: ShadowFolderInputs): void {
@@ -38,9 +43,7 @@ export function useShadowFolder(parent: GUI | null, inputs: ShadowFolderInputs):
 
   const folder = useFolder(parent, "Shadow", { open: false });
 
-  useToggle(folder, "Enable", shadowEnabled, (value) =>
-    onUpdateScene({ shadowEnabled: value }),
-  );
+  useToggle(folder, "Enable", shadowEnabled, (value) => onUpdateScene({ shadowEnabled: value }));
   useSlider(folder, "Opacity", { min: 0, max: 1, step: 0.01 }, shadowOpacity, (value) =>
     onUpdateScene({ shadowOpacity: value }),
   );
@@ -48,13 +51,7 @@ export function useShadowFolder(parent: GUI | null, inputs: ShadowFolderInputs):
     onUpdateScene({ shadowLift: value }),
   );
   useColor(folder, "Color", shadowColor, (value) => onUpdateScene({ shadowColor: value }));
-  useToggle(folder, "Cast", shadowCast, (value) =>
-    onUpdateScene({ shadowCast: value }),
-  );
-  useToggle(folder, "Receive", shadowReceive, (value) =>
-    onUpdateScene({ shadowReceive: value }),
-  );
-  useToggle(folder, "Floor", shadowFloor, (value) =>
-    onUpdateScene({ shadowFloor: value }),
-  );
+  useToggle(folder, "Cast", shadowCast, (value) => onUpdateScene({ shadowCast: value }));
+  useToggle(folder, "Receive", shadowReceive, (value) => onUpdateScene({ shadowReceive: value }));
+  useToggle(folder, "Floor", shadowFloor, (value) => onUpdateScene({ shadowFloor: value }));
 }

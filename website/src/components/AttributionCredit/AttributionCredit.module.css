@@ -1,0 +1,27 @@
+:local(.root) {
+  flex: 0 0 auto;
+  margin-top: auto;
+  padding: var(--gc-space-1) 6px 2px;
+  font-size: 11px;
+  font-family: var(--gc-font-ui);
+  line-height: 1.4;
+  color: var(--gc-text-muted);
+  border-top: 1px solid rgba(var(--gc-text-rgb), 0.1);
+}
+:local(.root) a {
+  color: var(--gc-accent);
+  text-decoration: none;
+}
+:local(.root) a:hover {
+  color: rgba(var(--gc-accent-rgb), 0.85);
+}
+.root :global(.model-credit__seg) {
+  color: var(--gc-text-muted);
+}
+.root :global(.model-credit__sep) {
+  color: var(--gc-rule);
+  margin: 0 2px;
+}
+.root :global(.model-credit__tris) {
+  color: var(--gc-accent);
+}

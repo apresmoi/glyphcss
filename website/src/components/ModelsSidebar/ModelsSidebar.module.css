@@ -1,0 +1,52 @@
+.root {
+  min-width: 0;
+}
+.root :global(.models-sidebar__header) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gc-space-2);
+}
+.root :global(.model-search) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: var(--gc-space-2);
+  border: 0;
+  border-bottom: 1px solid var(--gc-rule);
+  background: transparent;
+  color: var(--gc-text);
+  font: inherit;
+}
+.root :global(.model-search)::placeholder {
+  color: var(--gc-text-faint);
+}
+.root :global(.model-file-input) {
+  display: none;
+}
+.root :global(.model-tree) {
+  min-width: 0;
+}
+.root :global(.model-button-list) {
+  display: grid;
+  gap: 2px;
+}
+.root :global(.model-name) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root :global(.model-credit) {
+  margin: 0;
+  font-size: var(--gc-text-xs);
+  color: var(--gc-text-muted);
+  overflow-wrap: anywhere;
+}
+.root :global(.model-credit) a {
+  color: var(--gc-accent);
+  text-decoration: none;
+}
+.root :global(.model-empty) {
+  font-size: var(--gc-text-sm);
+  color: var(--gc-text-muted);
+}

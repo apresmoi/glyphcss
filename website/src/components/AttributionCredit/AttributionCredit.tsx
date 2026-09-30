@@ -1,3 +1,4 @@
+import styles from "./AttributionCredit.module.css";
 export interface ModelAttribution {
   creator: string;
   license?: string;
@@ -8,10 +9,7 @@ export interface ModelAttribution {
 }
 
 function AttributionSegments({ attribution }: { attribution: ModelAttribution }) {
-  const trisText =
-    typeof attribution.tris === "number"
-      ? attribution.tris.toLocaleString() + " tris"
-      : null;
+  const trisText = typeof attribution.tris === "number" ? attribution.tris.toLocaleString() + " tris" : null;
 
   const creatorNode = attribution.sourceUrl ? (
     <a href={attribution.sourceUrl} target="_blank" rel="noreferrer">
@@ -66,14 +64,14 @@ export function AttributionCredit({
 
   if (all.length === 0) {
     return (
-      <p className="model-credit">
+      <p className={`${styles.root} model-credit`}>
         <span className="model-credit__seg">[ source: Unknown ]</span>
       </p>
     );
   }
 
   return (
-    <p className="model-credit">
+    <p className={`${styles.root} model-credit`}>
       {all.map((a, i) => (
         <span key={`${a.creator}-${i}`} className="model-credit__source">
           {i > 0 && <span className="model-credit__sep model-credit__sep--source"> </span>}

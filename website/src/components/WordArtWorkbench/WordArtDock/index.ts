@@ -1,0 +1,1 @@
+export { WordArtDock } from "./WordArtDock";

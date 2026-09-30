@@ -16,14 +16,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  GLYPH_PALETTE_OPTIONS,
-  LayersPanel,
-  MAP_SCENE_GLYPH_PALETTE,
-  type ExtraLayerInputs,
-  type LayersFolderInputs,
-  type MapLayerGlyphPalette,
-} from "./mapsKit";
+import { GLYPH_PALETTE_OPTIONS, MAP_SCENE_GLYPH_PALETTE, type MapLayerGlyphPalette } from "../../features/maps/model/config";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { type ExtraLayerInputs, type LayersFolderInputs } from "./LayersPanel/types";
 
 /**
  * The glyph palette (the CHARACTER ramp) moved out of the Dock's scene-wide

@@ -1,29 +1,10 @@
-// @vitest-environment node
+import "../../test/dom";
+import { readCss } from "../../test/styles";
+import path from "node:path";
+// @vitest-environment happy-dom
 // Node module resolution matches the pure suite; happy-dom supplies only the
 // mounted UI surface. No chart renderer, reducer, Dock or CodePanel is mocked.
-vi.hoisted(async () => {
-  const { Window } = await import("happy-dom");
-  // A real origin/URL (not happy-dom's default "about:blank") — the
-  // showcase-mount describe block below drives `window.history.replaceState`
-  // with a relative `/charts?c=…` path (mirroring `lib/urlState.ts`'s own
-  // `commitUrlParam`), which happy-dom silently no-ops against an opaque
-  // "about:blank" origin (verified: `window.location.href` stays
-  // "about:blank" afterward) and throws a SecurityError against an absolute
-  // URL there instead.
-  const window = new Window({ url: "http://localhost/charts" });
-  // Browsers name this exception NotFoundError; happy-dom leaves the name generic.
-  const removeChild = window.Node.prototype.removeChild;
-  window.Node.prototype.removeChild = function(child) {
-    try { return removeChild.call(this, child); }
-    catch (error) {
-      if (error instanceof window.DOMException && error.message.includes("removeChild")) throw new window.DOMException(error.message, "NotFoundError");
-      throw error;
-    }
-  };
-  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
-  }
-});
+
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { act } from "react";
@@ -31,38 +12,31 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { GUI } from "lil-gui";
 import ChartsWorkbench from "./ChartsWorkbench";
-import { CHART_MARK_TYPE_TOGGLE } from "./ChartsMarkCard";
-import { CHARTS_MARK_TYPE_RULES, chartsCandidateBindable } from "./chartsMarkTypeFit";
-import { buildChartCandidates } from "../../lib/chartCandidates";
-import { profileRows } from "../../lib/dataProfile";
+import { CHART_MARK_TYPE_TOGGLE } from "./ChartsMarkCard/ChartsMarkCard";
+import { CHARTS_MARK_TYPE_RULES, chartsCandidateBindable } from "../../features/charts/model/chartsMarkTypeFit";
+import { buildChartCandidates } from "../../features/charts/tabular/chartCandidates";
+import { profileRows } from "../../features/charts/tabular/dataProfile";
 // Standalone Vitest lacks Astro's core alias; use the real module behind it.
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
-import {
-  CHART_MARK_TYPES,
-  CHARTS_DATASETS,
-  createChartsWorkbenchState,
-  reduceChartsWorkbenchState,
-  reduceGlyphChartsWorkbenchControls,
-  resolveGlyphChartsWorkbenchControls,
-  type GlyphChartsWorkbenchControls,
-} from "./chartsWorkbenchState";
+import { CHART_MARK_TYPES, CHARTS_DATASETS, reduceChartsWorkbenchState, reduceGlyphChartsWorkbenchControls, resolveGlyphChartsWorkbenchControls } from "../../features/charts/model/chartsWorkbenchState";
+import { createChartsWorkbenchState, type GlyphChartsWorkbenchControls } from "../../features/charts/model/chartsSpec";
 import {
   chartsWorkbenchDisplayRender, renderChartsWorkbenchSpec, renderChartsWorkbenchState, type ChartsWorkbenchRender,
-} from "./chartsWorkbenchRender";
-import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "./chartsUrlState";
-import { CHARTS_REMOTE_DATASET_INDEX } from "./datasets/remoteIndex";
-import { CHARTS_3D_DATASETS } from "./datasets/chart3d";
-import { CHARTS_3D_REMOTE_DATASET_INDEX } from "./datasets/chart3dRemoteIndex";
-import { readRecentRemoteDatasets } from "./ChartsDatasetSearchBox";
-import * as urlStateModule from "../../lib/urlState";
-import { CHART_SCALE_TYPES as SCALE_TYPE_ORDER } from "./chartsWorkbenchState";
+} from "../../features/charts/render/chartsWorkbenchRender";
+import { CHARTS_URL_PARAM, decodeChartsUrlState, encodeChartsUrlState } from "../../features/charts/services/chartsUrlState";
+import { CHARTS_REMOTE_DATASET_INDEX } from "../../features/charts/data/remoteIndex";
+import { CHARTS_3D_DATASETS } from "../../features/charts/data/chart3d/index";
+import { CHARTS_3D_REMOTE_DATASET_INDEX } from "../../features/charts/data/chart3dRemoteIndex";
+import { readRecentRemoteDatasets } from "./ChartsDatasetSearchBox/ChartsDatasetSearchBox";
+import * as urlStateModule from "../../services/url-state/history";
+import { CHART_SCALE_TYPES as SCALE_TYPE_ORDER } from "../../features/charts/model/chartsSpec";
 
 // ── Data overlay test helpers (AGENTS.md's "Charts" — "Data layer") — the
 // old `<select>` these tests used to drive directly is gone
 // (`ChartsDataOverlay.tsx`/`ChartsDatasetSearchBox.tsx`'s own doc): a
 // vendored pick now goes through the chevron's browse list, and "what's
-// currently loaded" is read off the rail's own dataset-card title
-// (`.charts-data-title`, `ChartsDataFolder.tsx`) rather than a `<select>`'s
+// currently loaded" is read off the rail's header once its data has arrived,
+// rather than a `<select>`'s
 // `.value` — both are shared across every describe block below that used
 // to reach into the select directly.
 function selectChartsDataset(container: ParentNode, id: string): void {
@@ -72,11 +46,12 @@ function selectChartsDataset(container: ParentNode, id: string): void {
   act(() => option.click());
 }
 function chartsActiveDatasetTitle(container: ParentNode): string {
+  if (!container.querySelector(".charts-data-info")) return "";
   return container.querySelector(".charts-data-title")?.textContent ?? "";
 }
 
 // happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
-vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
+vi.mock("../../services/rendering/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -295,12 +270,12 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     // assertion here doesn't change, but the CSS-source assertion goes red.
     const pre = container.querySelector(".charts-grid-scroll > pre.glyph-output");
     expect(pre).not.toBeNull();
-    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./ChartsWorkbench.module.css"));
     const rule = css.match(/\.charts-grid-scroll > \.glyph-output \{[^}]*\}/)![0];
     expect(rule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(rule).not.toContain("font-family: inherit");
     expect(rule).toMatch(/line-height:\s*1\s*;/);
-    const terminalRule = css.match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
+    const terminalRule = readCss(path.resolve(__dirname, "../TargetPreview/TargetPreview.module.css")).match(/\.target-preview__terminal-body \.glyph-output \{[^}]*\}/)![0];
     expect(terminalRule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(terminalRule).toMatch(/line-height:\s*1\s*;/);
     // Final-gate-2 review (Opus finding 4): the tray THUMBNAIL `<pre>` had
@@ -325,13 +300,13 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // order, is what has to win here.
   it("the live 3D host's font rule outranks glyphcss's own runtime-injected .glyph-scene .glyph-output rule by SPECIFICITY, never by load order (braille-stability fix)", () => {
     const classSpecificity = (selector: string) => (selector.match(/\.[a-zA-Z_-][a-zA-Z0-9_-]*/g) ?? []).length;
-    const injectedSrc = readFileSync(fileURLToPath(new URL("../../../../packages/glyphcss/src/styles/styles.ts", import.meta.url)), "utf8");
+    const injectedSrc = readFileSync(path.resolve(__dirname, "../../../../packages/glyphcss/src/styles/styles.ts"), "utf8");
     const injectedRule = injectedSrc.match(/\.glyph-scene \.glyph-output \{[^}]*\}/)![0];
     expect(injectedRule).toMatch(/font-family:\s*monospace/); // the premise: glyphcss's own default has no braille
     const injectedSpecificity = classSpecificity(injectedRule.split("{")[0]!);
     expect(injectedSpecificity).toBe(2); // (0,2,0) — pins the number this test's ">" check is really comparing against
 
-    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./ChartsWorkbench.module.css"));
     const hostRule = css.match(/\.charts-3d-viewport \.charts-3d-viewport-host \.glyph-output \{[^}]*\}/)![0];
     expect(hostRule).toMatch(/font-family:\s*"Glyph Mono"/);
     expect(hostRule).not.toContain("font-family: inherit");
@@ -344,7 +319,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     // `.charts-3d-viewport-host` (where glyphcss writes its `.glyph-output`
     // `<pre>`) directly inside `.charts-3d-viewport` — the exact chain the
     // selector above targets.
-    const viewportSrc = readFileSync(fileURLToPath(new URL("./Charts3dViewport.tsx", import.meta.url)), "utf8");
+    const viewportSrc = readFileSync(path.resolve(__dirname, "./Charts3dViewport/Charts3dViewport.tsx"), "utf8");
     expect(viewportSrc).toMatch(/className="charts-3d-viewport"[\s\S]{0,200}className="charts-3d-viewport-host"/);
   });
 
@@ -359,7 +334,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // `flex: 1 1 auto` fills the flex column's main axis unconditionally,
   // independent of whether the parent's own height counts as "definite".
   it("the live 3D viewport fills its flex-column parent via flex-grow, never a plain height:100% (web viewport-fill fix)", () => {
-    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./ChartsWorkbench.module.css"));
     const rule = css.match(/\.charts-3d-viewport \{[^}]*\}/)![0];
     // Mutation: reverting to `height: 100%` (no `flex: 1 1 auto`) reddens
     // this — the rule still parses/matches, it just no longer contains the
@@ -369,17 +344,19 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(rule).toMatch(/min-height:\s*320px/); // the floor survives — a real lower bound, never removed
   });
 
-  it("shows exactly TypeScript and JSON tabs and copies each current snippet", async () => {
+  it("shows supported framework and data tabs and copies each current snippet", async () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
     act(() => button("Export").click());
     const panel = container.querySelector("#charts-export-panel")!;
-    const tabs = Array.from(panel.querySelectorAll<HTMLButtonElement>(".gw-code-panel__tab"));
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["TypeScript", "JSON"]);
+    const selectFormat = panel.querySelector<HTMLSelectElement>('[aria-label="Export format"]')!;
+    const tabs = Array.from(selectFormat.options);
+    const pickFormat = (value: string) => { selectFormat.value = value; selectFormat.dispatchEvent(new Event("change", {bubbles:true})); };
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["HTML", "TypeScript", "React", "Vue", "JSON"]);
     const copy = panel.querySelector<HTMLButtonElement>('[title="Copy current snippet"]')!;
     expect(panel.querySelector("code")!.textContent).toContain("renderGlyphChart(glyphChartPlot(");
     await act(async () => copy.click());
     expect(writeText).toHaveBeenLastCalledWith(panel.querySelector("code")!.textContent);
-    act(() => tabs[1]!.click());
+    act(() => pickFormat("json"));
     expect(JSON.parse(panel.querySelector("code")!.textContent!)).toHaveProperty("marks");
     await act(async () => copy.click());
     expect(writeText).toHaveBeenLastCalledWith(panel.querySelector("code")!.textContent);
@@ -854,7 +831,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // on its own) — no separate "Apply" step exists any more (item 1).
   it("Data folder: choosing a dataset immediately replaces the chart with its recommended mapping and a real time x-scale", () => {
     selectChartsDataset(container, "global-temperature");
-    expect(container.querySelector(".charts-data-info")!.textContent).toContain("NASA GISS");
+    expect(container.querySelector(".charts-data-info a")!.getAttribute("title")).toContain("NASA GISS");
     expect(container.querySelectorAll(".charts-mark-card")).toHaveLength(1);
     expect(activeMarkType()).toBe("line");
     expect(container.querySelector<HTMLSelectElement>('[aria-label="Chart x"]')!.value).toBe("year");
@@ -987,7 +964,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     const rows = xSlot.querySelectorAll(".controller");
     expect(rows).toHaveLength(1);
     expect(rows[0]!.querySelector(".name")!.firstChild!.textContent).toBe("X domain");
-    const selects = rows[0]!.querySelectorAll<HTMLSelectElement>(".widget > select");
+    const selects = rows[0]!.querySelectorAll<HTMLSelectElement>(".widget > .gx-select > select");
     expect(selects).toHaveLength(2);
     expect(Array.from(selects, (s) => s.selectedOptions[0]!.textContent)).toEqual(["1980", "2024"]);
     expect(xSlot.querySelectorAll("input")).toHaveLength(0);
@@ -1051,10 +1028,10 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(overlay.querySelector('[aria-label="Browse datasets"]')).not.toBeNull();
     expect(overlay.querySelector('[aria-label="Load random dataset"]')).not.toBeNull();
     // The rail's own header carries none of the overlay's controls.
-    const railHead = rail.querySelector(".synth-voices-head")!;
-    expect(railHead.querySelector('[aria-label="Load random dataset"]')).toBeNull();
-    expect(railHead.querySelector('input[role="combobox"]')).toBeNull();
-    expect(rail.querySelector(".charts-data-folder")).not.toBeNull();
+    expect(rail.querySelector(".synth-voices-head")).toBeNull();
+    expect(rail.querySelector('[aria-label="Load random dataset"]')).toBeNull();
+    expect(rail.querySelector('input[role="combobox"]')).toBeNull();
+    expect(rail.querySelector(".charts-data-folder")).toBeNull();
     // The Dock (`#charts-controls-panel`) still owns no "Data" folder —
     // `ChartsDock.tsx` still owns "Output"/"Chart"/"Scales"/"Axes"/"Terminal".
     const dockFolderTitles = Array.from(container.querySelectorAll("#charts-controls-panel .lil-gui > .title")).map((n) => n.textContent);
@@ -1071,8 +1048,8 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // translateX(-50%)` pair is what "centered" (equal margins) MEANS for an
   // element whose own width is fixed independent of viewport width.
   it("the search field is centered exactly the way /maps' own search field is (same left/transform/width/top)", () => {
-    const chartsCss = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
-    const mapsCss = readFileSync(fileURLToPath(new URL("../MapsWorkbench/maps-workbench.css", import.meta.url)), "utf8");
+    const chartsCss = readCss(path.resolve(__dirname, "./ChartsWorkbench.module.css"));
+    const mapsCss = readCss(path.resolve(__dirname, "../MapsWorkbench/MapsWorkbench.module.css"));
     const fieldRule = chartsCss.match(/\.charts-dataset-search \{[^}]*\}/)![0];
     const mapsRule = mapsCss.match(/\.maps-search \{[^}]*\}/)![0];
     for (const rule of [fieldRule, mapsRule]) {
@@ -1461,7 +1438,7 @@ describe("ChartsWorkbench — render errors stay out of the viewport", () => {
 // (A4) already uses for a rule happy-dom can't compute the cascade for.
 describe("ChartsWorkbench — reduced motion disables the viewport pulse", () => {
   it("the loading pulse keyframes are disabled under prefers-reduced-motion: reduce", () => {
-    const css = readFileSync(fileURLToPath(new URL("./charts-workbench.css", import.meta.url)), "utf8");
+    const css = readCss(path.resolve(__dirname, "./ChartsWorkbench.module.css"));
     const reducedMotionBlock = css.match(/@media \(prefers-reduced-motion: reduce\) \{[^]*?\n\}/)![0];
     expect(reducedMotionBlock).toContain(".charts-grid-scroll.is-loading");
     expect(reducedMotionBlock).toMatch(/animation:\s*none/);
@@ -1604,18 +1581,15 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
       setter.call(input, "demo");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    await act(async () => { await settleDebounce(); });
-    const option = container.querySelector<HTMLButtonElement>(".instrument-search-option");
-    expect(option).not.toBeNull();
-    expect(option!.textContent).toContain("Stub Demo");
+    await vi.waitFor(() => {
+      expect(container.querySelector(".instrument-search-option")?.textContent).toContain("Stub Demo");
+    }, { timeout: 5_000 });
     input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
-    const start = Date.now();
-    while (!container.querySelector(".charts-data-info")) {
-      if (Date.now() - start > 3000) throw new Error("timed out waiting for the remote dataset to load");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await vi.waitFor(() => {
+      expect(chartsActiveDatasetTitle(container)).toBe("Stub Demo");
+    }, { timeout: 5_000 });
     act(() => {});
-    expect(container.querySelector(".charts-data-info")!.textContent).toContain("Stub Demo");
+    expect(container.querySelector(".charts-data-title")!.textContent).toBe("Stub Demo");
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     expect(container.querySelector(".charts-error")).toBeNull();
   }, 10_000);
@@ -1720,11 +1694,9 @@ describe("ChartsWorkbench — dataset search (remote)", () => {
     // never the stale "Stub Demo" pretty-name the link carried) only
     // becomes true once `select-remote-dataset` has actually dispatched,
     // which is the one signal this test is actually trying to wait for.
-    const start = Date.now();
-    while (container.querySelector(".charts-data-title")?.textContent !== STUB_ID) {
-      if (Date.now() - start > 3000) throw new Error("timed out waiting for the remote re-fetch to land");
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
+    await vi.waitFor(() => {
+      expect(chartsActiveDatasetTitle(container)).toBe(STUB_ID);
+    }, { timeout: 5_000 });
     act(() => {});
     expect(container.querySelector(".synth-viewport pre")!.textContent).toMatch(/\S/);
     expect(container.querySelector(".charts-error")).toBeNull();
@@ -2180,3 +2152,5 @@ describe("ChartsWorkbench — Textures row", () => {
     expect("regionFill" in reduceChartsWorkbenchState(energy(), { type: "set-region-fill", value: "auto" }).style).toBe(false);
   });
 });
+
+beforeEach(() => { window.history.replaceState(null, "", "/"); });

@@ -1,10 +1,4 @@
-/**
- * `@glyphcss/diagrams/lanes` — the lane-DAG subpath. Its own entry point,
- * never imported by the diagrams ROOT (`src/index.ts`), `./3d`, or
- * `./sequence`: a caller who only wants one of the other forms pays nothing
- * for this one, and vice versa — mirrors the existing `./sequence` split
- * (`packages/diagrams/AGENTS.md`'s "Root vs ./3d vs ./sequence vs ./lanes").
- */
+/** Lane DAGs have their own IR and pipeline, isolated from graph and sequence diagrams. */
 export type * from "./types";
 export * from "./validate";
 export * from "./schema";

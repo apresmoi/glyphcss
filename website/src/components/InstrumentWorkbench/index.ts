@@ -1,0 +1,10 @@
+export { InstrumentBody } from "./InstrumentBody";
+export { InstrumentExportBar } from "./InstrumentExportBar";
+export { InstrumentMain } from "./InstrumentMain";
+export { InstrumentMobileTabs } from "./InstrumentMobileTabs";
+export type { InstrumentMobileTab } from "./InstrumentMobileTabs";
+export { InstrumentRail } from "./InstrumentRail";
+export { InstrumentSectionHeading } from "./InstrumentSectionHeading";
+export { InstrumentViewport } from "./InstrumentViewport";
+export { InstrumentWorkbench } from "./InstrumentWorkbench";
+export { PresetTray } from "./PresetTray";

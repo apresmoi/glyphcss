@@ -4,9 +4,18 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "tsup";
 import { describe, expect, it } from "vitest";
+import * as diagramApi from "./index";
 import { layoutGlyphGraphElk } from "./elk";
 import { layoutGlyphGraph } from "./pipeline";
 import { glyphGraphFromMermaid } from "./mermaid";
+
+it("publishes only the 2D diagram entry points", () => {
+  const manifest = JSON.parse(readFileSync(resolve(__dirname, "../package.json"), "utf8"));
+  expect(Object.keys(manifest.exports)).toEqual([".", "./elk", "./sequence", "./lanes"]);
+  expect(manifest.typesVersions["*"]).not.toHaveProperty("3d");
+  expect(diagramApi).not.toHaveProperty("glyphDiagramPlaneObject");
+  expect(diagramApi).not.toHaveProperty("glyphDiagramObject");
+});
 
 describe("optional ELK boundary", () => {
   it("reserves the opt-in subpath with a tagged stub", async () => {

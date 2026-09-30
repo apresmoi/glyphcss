@@ -1,0 +1,21 @@
+.root :global(.charts-color-swatch) {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 10px;
+  margin-inline: var(--gc-space-2);
+}
+.root :global(.charts-color-swatch)::before,
+.root :global(.charts-color-swatch)::after {
+  position: absolute;
+  color: var(--gc-text-faint);
+}
+.root :global(.charts-color-swatch)::before {
+  content: "[";
+  left: -8px;
+}
+.root :global(.charts-color-swatch)::after {
+  content: "]";
+  right: -8px;
+}

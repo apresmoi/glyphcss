@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchState";
-import { glyphDiagramsWorkbenchHotspots, renderGlyphDiagramsWorkbenchState } from "./diagramsWorkbenchRender";
-import { diagramsSourceLineOfId } from "./diagramsSourceAid";
+import { GLYPH_DIAGRAM_WORKBENCH_PRESETS, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "../../features/diagrams/model/diagramsWorkbenchState";
+import { glyphDiagramsWorkbenchHotspots, renderGlyphDiagramsWorkbenchState } from "../../features/diagrams/render/diagramsWorkbenchRender";
+import { diagramsSourceLineOfId } from "../../features/diagrams/model/diagramsSourceAid";
 
 // The hotspot anchors: the graph render carries every node's cell box and
 // every edge's route runs in the JOINED text's row space — what
@@ -27,7 +27,7 @@ describe("glyphDiagramsWorkbenchHotspots", () => {
       { kind: "edge", from: "a", to: "b", x0: 4, y0: 7, x1: 4, y1: 7 },
     ]);
   });
-  it.each(GLYPH_DIAGRAM_WORKBENCH_PRESETS.filter((p) => !("dimension" in p)))("the '$label' render carries a hotspot inside the grid for every node, and every id resolves to a source line", async (preset) => {
+  it.each(GLYPH_DIAGRAM_WORKBENCH_PRESETS)("the '$label' render carries a hotspot inside the grid for every node, and every id resolves to a source line", async (preset) => {
     const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-preset", id: preset.id });
     const rendered = await renderGlyphDiagramsWorkbenchState(state, { width: 900, height: 600 });
     expect(rendered.ok).toBe(true);

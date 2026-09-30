@@ -48,8 +48,6 @@ export function glyphDiagramJsonSchema(): GlyphDiagramJsonSchema {
           type: "object", required: ["id", "label"], additionalProperties: false,
           properties: {
             id: ID_SCHEMA, label: { type: "string" }, kind: { type: "string" }, group: ID_SCHEMA, shape: { enum: GLYPH_GRAPH_NODE_SHAPES },
-            // D2 round 3 — [width, height, depth], world units, JSON-only (see GlyphGraphNode.size's own doc).
-            size: { type: "array", items: { type: "number", exclusiveMinimum: 0 }, minItems: 3, maxItems: 3 },
           },
         },
       },

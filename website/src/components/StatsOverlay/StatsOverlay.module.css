@@ -1,0 +1,41 @@
+.root {
+  position: fixed;
+  right: var(--gc-space-3);
+  bottom: var(--gc-space-3);
+  z-index: 30;
+  display: flex;
+  align-items: flex-end;
+  gap: var(--gc-space-1);
+  font-family: var(--gc-font-ui);
+}
+.root.contained {
+  position: absolute;
+}
+.root.topLeft {
+  inset: var(--gc-space-3) auto auto var(--gc-space-3);
+  align-items: flex-start;
+}
+/* stats-js owns inline panel styles; keep this adapter more specific. */
+.root > div {
+  position: static !important;
+  pointer-events: none;
+  border: 1px solid var(--gc-rule) !important;
+  background: var(--gc-surface-panel) !important;
+  border-radius: 0 !important;
+  overflow: hidden !important;
+}
+/* The vendor hides inactive canvases; overriding display would duplicate each panel. */
+.root canvas {
+  filter: hue-rotate(180deg) saturate(0.6) brightness(0.75);
+}
+.root > div > div:first-child {
+  background: var(--gc-surface-panel) !important;
+  color: var(--gc-text) !important;
+  font: var(--gc-text-xs) / 1 var(--gc-font-ui) !important;
+  letter-spacing: 0.06em;
+}
+@media (max-width: 1100px) {
+  .root {
+    display: none !important;
+  }
+}

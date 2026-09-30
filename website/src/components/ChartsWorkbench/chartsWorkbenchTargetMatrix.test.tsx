@@ -28,10 +28,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
 import ChartsWorkbench from "./ChartsWorkbench";
-import { createChartsWorkbenchState, CHART_TARGETS, CHART_CHARSETS, CHART_COLORS } from "./chartsWorkbenchState";
+import { createChartsWorkbenchState } from "../../features/charts/model/chartsSpec";
+import { CHART_TARGETS, CHART_CHARSETS, CHART_COLORS } from "../../features/charts/model/chartsWorkbenchState";
 
 // happy-dom has no canvas; this unused gallery palette calibrates at Dock import time.
-vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
+vi.mock("../../services/rendering/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const BRAILLE_RANGE = /[⠀-⣿]/;

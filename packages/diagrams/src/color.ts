@@ -57,8 +57,7 @@ export function resolveGlyphDiagramColorOption<T>(option: string | ((item: T) =>
 
 /**
  * `resolveGlyphDiagramColorOption` plus a fallback applied when the option
- * is unset — the SAME signature shape `./3d/glyphDiagramObject.ts`'s own
- * `resolveNodeColor` already uses for the 3D path's `nodeColor`, mirrored
+ * is unset, shared
  * here so every 2D form shares one resolution rule instead of near-identical
  * copies.
  */

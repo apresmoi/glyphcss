@@ -1,3 +1,4 @@
+import { analyticsHead } from './src/config/analytics.mjs';
 // @ts-check
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
@@ -63,26 +64,22 @@ export default defineConfig({
       title: 'glyphcss',
       description: 'Render 3D models (OBJ, glTF, GLB, STL, .vox) as ASCII art — in the browser, React/Vue, or your terminal. A three.js-style API with no WebGL.',
       head: [
-        // Google Analytics (gtag.js) — covers all Starlight docs pages; custom
-        // pages render the same tag via src/components/Analytics.astro.
-        ...(process.env.NODE_ENV === 'production' ? [
-          { tag: 'script', attrs: { async: true, src: 'https://www.googletagmanager.com/gtag/js?id=G-PHHY1R5B58' } },
-          { tag: 'script', content: "window.dataLayer = window.dataLayer || [];\nfunction gtag(){dataLayer.push(arguments);}\ngtag('js', new Date());\ngtag('config', 'G-PHHY1R5B58');" },
-        ] : []),
+        ...(process.env.NODE_ENV === 'production' ? analyticsHead : []),
         // Social preview image for docs pages (Starlight emits og:title/description/url itself).
         { tag: 'meta', attrs: { property: 'og:image', content: 'https://glyphcss.com/og.png' } },
         { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://glyphcss.com/og.png' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
       ],
       components: {
-        Header: './src/components/DocsHeader.astro',
-        ThemeSelect: './src/components/EmptyThemeSelect.astro',
-        SiteTitle: './src/components/SiteTitle.astro',
+        Header: './src/integrations/starlight/Header.astro',
+        ThemeSelect: './src/integrations/starlight/ThemeSelect.astro',
+        ThemeProvider: './src/integrations/starlight/ThemeProvider.astro',
+        SiteTitle: './src/integrations/starlight/SiteTitle.astro',
       },
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/apresmoi/glyphcss' },
       ],
-      customCss: ['./src/styles/custom.css'],
+      customCss: ['./src/integrations/starlight/starlight.css'],
       sidebar: [
         {
           label: 'Getting Started',

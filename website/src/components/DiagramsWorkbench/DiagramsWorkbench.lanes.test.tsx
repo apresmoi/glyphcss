@@ -1,35 +1,16 @@
-// @vitest-environment node
-// Lane-DAG form — page-behaviour tests: the Form selector, the FOOTER TRAY
-// carrying the lanes presets (the exact thing the coordinator reported
-// missing for sequence — "there is no preset of sequence" — reachable only
-// from the Dock toggle is invisible), the three lanes presets actually
-// rendering real content through the live page, 3D staying graph-only
-// (dimmed with a reason, `mapDirectionLocked` idiom), and the source card's
-// git-log/JSON tabs. Mirrors `DiagramsWorkbench.sequence.test.tsx`'s
-// own mount harness.
-vi.hoisted(async () => {
-  const { Window } = await import("happy-dom");
-  const window = new Window();
-  const removeChild = window.Node.prototype.removeChild;
-  window.Node.prototype.removeChild = function(child) {
-    try { return removeChild.call(this, child); }
-    catch (error) {
-      if (error instanceof window.DOMException && error.message.includes("removeChild")) throw new window.DOMException(error.message, "NotFoundError");
-      throw error;
-    }
-  };
-  for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLInputElement", "Element", "Event", "MouseEvent", "KeyboardEvent", "DOMException", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame"] as const) {
-    Object.defineProperty(globalThis, key, { configurable: true, writable: true, value: key === "window" ? window : window[key] });
-  }
-});
+import "../../test/dom";
+// @vitest-environment happy-dom
+// Lane-DAG form: presets, form selection and git-log/JSON editing through
+// the mounted workbench. Mirrors the sequence form's mount harness.
+
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
-import { GLYPH_LANES_WORKBENCH_PRESETS } from "./diagramsWorkbenchState";
+import { GLYPH_LANES_WORKBENCH_PRESETS } from "../../features/diagrams/model/diagramsWorkbenchState";
 
 vi.mock("@glyphcss/core", () => import("../../../../packages/core/src/index"));
-vi.mock("../GalleryWorkbench/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
+vi.mock("../../services/rendering/calibratedPalette", () => ({ CALIBRATED_PALETTE_NAME: "calibrated", ensureCalibratedPalette: () => {} }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe("DiagramsWorkbench — lanes form", () => {
@@ -97,18 +78,6 @@ describe("DiagramsWorkbench — lanes form", () => {
     });
   });
 
-  it("the 3D View option is dimmed with a reason while the Lanes form is active, and never opens the 3D frame", async () => {
-    await act(async () => { trayButton("CI matrix").click(); });
-    await settlePreview();
-    const view3dBtn = Array.from(toggleRow("View").querySelectorAll<HTMLButtonElement>("button")).find((b) => (b.getAttribute("aria-label") ?? "").includes(": 3d"))!;
-    expect(view3dBtn.disabled).toBe(true);
-    expect(view3dBtn.title || view3dBtn.getAttribute("aria-label")).toBeTruthy();
-    await act(async () => { view3dBtn.click(); });
-    await settlePreview();
-    expect(container.querySelector(".diagrams-3d-frame")).toBeNull();
-    expect(container.querySelector(".diagrams-grid-scroll")).not.toBeNull();
-  });
-
   it("switching the lanes source's git-log/JSON tabs refreshes rather than stealing authority, and the JSON tab is valid parsed IR", async () => {
     await act(async () => { trayButton("Release train (git)").click(); });
     await settlePreview();
@@ -159,3 +128,5 @@ describe("DiagramsWorkbench — lanes form", () => {
     expect(copied).toBe(preview().textContent);
   });
 });
+
+beforeEach(() => { window.history.replaceState(null, "", "/diagrams"); });

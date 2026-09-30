@@ -1,0 +1,711 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+/* Shell, Dock, tray and export drawers come from the shared instrument.
+   The chart's own controls (`ChartsMarkCard.tsx`) sit straight in the rail —
+   no card box, no header — under the rail's own section divider
+   (`.charts-marks-section`). A tray preset with a second mark separates it
+   with that SAME divider rather than a box. */
+:local(.root) :global(.synth-voices-head) :global(.charts-data-title) {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: inherit;
+  color: inherit;
+}
+.root :global(.charts-mark-card) + :global(.charts-mark-card) {
+  margin-top: var(--gc-space-2);
+}
+.root :global(.charts-mark-card) :global(.voice-controls) {
+  gap: var(--gc-space-1);
+}
+.root :global(.charts-mark-row) {
+  align-items: center;
+  font-size: 11px;
+}
+.root :global(.charts-mark-row) > span:first-child {
+  flex: 0 0 70px;
+}
+.root :global(.charts-mark-row) > :global(.gx-toggle) {
+  flex: 1;
+}
+/* Compact choices leave the field mappings and appearance controls in view.
+   Detailed requirements belong to each choice's tooltip/accessibility label. */
+.root :global(.charts-mark-row):global(.charts-type-row) {
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0;
+  padding-block: 6px;
+  border-block: 0;
+}
+.root :global(.charts-type-picker) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-1);
+  width: 100%;
+}
+.root :global(.charts-type-group) {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  align-items: start;
+  gap: 6px;
+}
+.root :global(.charts-type-group-label) {
+  margin: 0;
+  padding-top: var(--gc-space-2);
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--gc-text-muted);
+}
+.root :global(.charts-type-group-tiles) {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  min-width: 0;
+}
+.root :global(.gx-toggle-btn):global(.charts-type-tile) {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 28px;
+  text-align: left;
+  gap: 5px;
+  padding: var(--gc-space-1);
+  border-left-width: 0;
+}
+.root :global(.charts-type-tile-thumb) {
+  margin: 0;
+  flex: 0 0 44px;
+  height: 20px;
+  overflow: hidden;
+  font-family: var(--gc-font-render);
+  font-size: 3.2px;
+  line-height: 1;
+  white-space: pre;
+  color: currentColor;
+}
+.root :global(.charts-type-tile-icon) {
+  display: flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+}
+.root :global(.charts-type-tile-icon) svg {
+  width: 15px;
+  height: 15px;
+}
+.root :global(.charts-type-tile-label) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.root :global(.charts-type-tile):disabled :global(.charts-type-tile-label) {
+  color: var(--gc-text-faint);
+}
+.root :global(.charts-type-group):not(:has(:global(.charts-type-group-label))) :global(.charts-type-group-tiles) {
+  grid-column: 2;
+}
+@media (max-width: 62rem) {
+  .root :global(.charts-type-group) {
+    grid-template-columns: 62px minmax(0, 1fr);
+  }
+  .root :global(.charts-type-group-label) {
+    font-size: 8px;
+    letter-spacing: 0;
+  }
+  .root :global(.charts-type-tile-thumb) {
+    flex-basis: 32px;
+    font-size: 2.4px;
+    height: 15px;
+  }
+}
+.root :global(.charts-mark-data) {
+  box-sizing: border-box;
+  width: 100%;
+  height: 116px;
+  min-height: 60px;
+  resize: vertical;
+  padding: 6px;
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.4;
+  background: var(--gc-surface);
+  color: inherit;
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+}
+
+/* Dataset card's read-only "View data" disclosure (`ChartsDataFolder.tsx`)
+   — a showcase, not a builder: no inputs, no add/remove, just the vendored
+   dataset's own rows as a scrollable CSS-GRID table or a `readOnly` JSON
+   textarea. Closed by default (native `<details>` — no state, nothing
+   persisted to the URL); `list-style: none` + the marker-hiding rules below
+   replace the browser's own twisty, since the summary already spells out
+   "▸" in its own text. */
+.root :global(.charts-mark-data-details) {
+  margin-top: var(--gc-space-1);
+}
+.root :global(.charts-mark-data-summary) {
+  list-style: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--gc-text-muted);
+  padding: 2px 0;
+}
+.root :global(.charts-mark-data-summary)::-webkit-details-marker {
+  display: none;
+}
+.root :global(.charts-mark-data-summary):hover {
+  color: var(--gc-text);
+}
+/* The "▸" is real text (`.charts-mark-data-marker`), not a generated
+   marker, so it never turns to reflect open/closed state on its own —
+   rotate it a quarter turn once the `<details>` is open. */
+.root :global(.charts-mark-data-marker) {
+  display: inline-block;
+  transition: transform 0.1s ease;
+}
+.root details[open] > :global(.charts-mark-data-summary) :global(.charts-mark-data-marker) {
+  transform: rotate(90deg);
+}
+.root :global(.charts-data-tabs) {
+  margin: var(--gc-space-1) 0;
+}
+.root :global(.charts-grid-wrap) {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--gc-rule);
+}
+.root :global(.charts-grid) {
+  display: grid;
+  font-size: 11px;
+}
+.root :global(.charts-grid-header),
+.root :global(.charts-grid-cell) {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--gc-rule);
+  padding: 2px var(--gc-space-1);
+  min-width: 0;
+}
+.root :global(.charts-grid-header) {
+  background: var(--gc-surface);
+  font-weight: 700;
+}
+/* Numeric cells right-align. */
+.root :global(.charts-grid-cell):global(.is-numeric) {
+  justify-content: flex-end;
+  text-align: right;
+}
+.root :global(.charts-grid--readonly) :global(.charts-grid-cell) {
+  cursor: default;
+}
+
+/* A chart has a fixed cell budget, so scroll its text instead of clipping it.
+   Leave the floating Dock's lane free; the shared shell still positions it.
+   Top padding clears `.charts-data-overlay` (12px inset + a ~32px control
+   row + a 12px gap) so the render never starts under the bar — one row of
+   controls at this width, so the same top inset as the mobile one below
+   would leave the bar's own bottom edge inside the render. */
+.root :global(.charts-preview) {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  height: 100%;
+  gap: 10px;
+}
+.root :global(.charts-grid-scroll) {
+  overflow: auto;
+  flex: 0 0 auto;
+}
+/* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
+   as a direct-child selector so nothing about its byte-identical render
+   changes; `terminal`/`chat` reach their own `.glyph-output` through the
+   dedicated rules below instead of this one. */
+.root :global(.charts-grid-scroll) > :global(.glyph-output) {
+  display: block;
+  width: max-content;
+  margin: 0 auto;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  font-size: 13px;
+  line-height: 1;
+  white-space: pre;
+  user-select: text;
+}
+.root :global(.glyph-text) {
+  vertical-align: top;
+}
+.root :global(.charts-readout),
+.root :global(.charts-error) {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.4;
+}
+.root :global(.charts-readout) {
+  color: var(--gc-text-muted);
+}
+.root :global(.charts-error) {
+  color: var(--gc-text);
+}
+
+/* The viewport holds only the render — no readout ever lives beside it
+   (rule: "it shouldn't be in the rendering area — it moves the chart").
+   While the CURRENT config errors or a remote dataset is loading, this
+   wrapper instead keeps showing whatever last rendered OK, dimmed so the
+   frame reads as "not current" without collapsing or shifting; `is-loading`
+   additionally pulses it — only while something is actually in flight — as
+   the page's own animation, never the render's. */
+.root :global(.charts-grid-scroll):global(.is-stale) {
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+}
+.root :global(.charts-grid-scroll):global(.is-loading) {
+  animation: charts-viewport-pulse 1.6s ease-in-out infinite;
+}
+@keyframes charts-viewport-pulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .root :global(.charts-grid-scroll):global(.is-loading) {
+    animation: none;
+  }
+}
+/* The rail's own loading indicator (AGENTS.md's "Charts" — "Data layer"):
+   the dataset TITLE with a small spinning glyph beside it, no "Loading…"
+   word. */
+.root :global(.charts-data-loading-spinner) {
+  display: inline-block;
+  animation: charts-spin 0.9s linear infinite;
+}
+@keyframes charts-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .root :global(.charts-data-loading-spinner) {
+    animation: none;
+  }
+}
+.root :global(.charts-grid-scroll) :global(.target-preview--terminal),
+.root :global(.charts-grid-scroll) :global(.target-preview--chat) {
+  margin: 0 auto;
+  text-align: left;
+}
+
+/* Static 24x8 character previews occupy the same square as PresetTile scenes.
+   Explicit family + `line-height: 1` (final-gate-2 review, Opus finding 4 —
+   the same A4/A5 cascade defect this file's `.charts-grid-scroll >
+   .glyph-output` rule already documents: `inherit` here took `.dn-root`'s
+   own fallback stack with no "Glyph Mono" in it, measuring every braille
+   cell ~13.6% wider than a box-drawing/ASCII one in this exact tile). */
+.root :global(.charts-tile-preview):global(.synth-tile-scene) {
+  display: grid;
+  place-items: center;
+}
+.root :global(.charts-tile-preview) pre {
+  margin: 0;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  font-size: 6px;
+  line-height: 1;
+  white-space: pre;
+}
+.root :global(.charts-dataset-search) {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(340px, calc(100% - 24px));
+  pointer-events: auto;
+}
+/* The field and "Random" share ONE height token: each used to size itself
+   (the field from its own padding + input line box, 30.19px; the button
+   from `.control-btn`'s own padding, 26px), so the row read as two
+   mismatched controls. `box-sizing: border-box` makes the token the outer
+   height for both, borders included. */
+.root :global(.charts-data-overlay) {
+  --charts-overlay-control-h: 30px;
+}
+.root :global(.charts-dataset-search) :global(.instrument-search-field),
+.root :global(.charts-random-btn) {
+  box-sizing: border-box;
+  height: var(--charts-overlay-control-h);
+}
+.root :global(.charts-random-btn) {
+  position: absolute;
+  top: var(--overlay-top, 12px);
+  left: calc(50% + 170px + 6px);
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+@media (max-width: 1100px) {
+  .root :global(.charts-data-overlay) {
+    position: absolute;
+    top: var(--overlay-top, 12px);
+    left: 12px;
+    right: 12px;
+    z-index: 20;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .root :global(.charts-dataset-search) {
+    position: relative;
+    top: auto;
+    left: auto;
+    transform: none;
+    width: auto;
+    flex: 1 1 auto;
+    min-width: 200px;
+  }
+  .root :global(.charts-random-btn) {
+    position: static;
+    flex: 0 0 auto;
+  }
+}
+
+.root :global(.charts-data-loading) {
+  font-style: italic;
+}
+.root :global(.charts-search-chevron) {
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 0 2px;
+  color: var(--gc-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.root :global(.charts-search-chevron):hover,
+.root :global(.charts-search-chevron)[aria-expanded="true"] {
+  color: var(--gc-text);
+}
+.root :global(.charts-dataset-search) :global(.instrument-search-list) {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 2px;
+  z-index: 20;
+}
+
+/* Marks section — the rail's SECOND section, below the dataset card: a
+   showcase renders exactly the ONE mark `select-dataset` built (a preset
+   from the tray below can still leave more than one; either way there is
+   no add/remove control here any more). */
+.root :global(.charts-marks-section) {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Channel rows (`ChartsMarkCard.tsx`) name which column feeds each channel
+   AND its type (`chartsMarkFieldTypes`) — direct, legible mapping, not just
+   a bare field name. `.charts-channel-type` is the badge beside the select
+   showing the CURRENT binding's type; each `<option>` already carries its
+   own type inline, so the choice ahead of a pick is informed too. */
+.root :global(.charts-channel-type) {
+  flex: 0 0 auto;
+  min-width: 34px;
+  padding-left: var(--gc-space-1);
+  text-align: right;
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(var(--gc-accent-rgb), 0.75);
+}
+
+/* Data folder — dataset picker + read-only info card. Plain flow inside
+   the rail body. */
+.root :global(.charts-data-folder) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--gc-space-1) 0;
+}
+.root :global(.charts-data-info) {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.root :global(.charts-data-meta) {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px var(--gc-space-3);
+  font-size: 10px;
+  color: var(--gc-text-muted);
+}
+.root :global(.charts-data-about) {
+  cursor: help;
+}
+.root :global(.charts-data-folder) :global(.charts-readout) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root :global(.charts-data-info) a {
+  color: var(--gc-accent);
+}
+.root :global(.charts-pipeline-input) {
+  font: inherit;
+  font-size: 11px;
+  background: var(--gc-surface);
+  color: inherit;
+  border: 1px solid var(--gc-rule);
+  padding: 2px var(--gc-space-1);
+  flex: 1 1 8ch;
+  min-width: 8ch;
+}
+
+/* Colour swatches (axis colour in the Chart folder, per-series colour on
+   each mark card) — `ChartsColorSwatch.tsx`. Same bracketed
+   `.voice-slider-track` bar `@glyphcss/maps`' own `ColorRow` uses for its
+   layer colours, so this reads as one control family across both pages. */
+.root :global(.charts-color-row) {
+  display: grid;
+  grid-template-columns: 45% minmax(0, 1fr) 60px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.root :global(.charts-color-row) > span:first-child {
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.root :global(.charts-color-swatch) input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--gc-text-faint);
+  border-radius: 0;
+  background: none;
+  cursor: pointer;
+  box-shadow: 0 0 4px rgba(var(--gc-accent-rgb), 0.25);
+}
+.root :global(.charts-color-swatch) input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.root :global(.charts-color-swatch) input[type="color"]::-webkit-color-swatch {
+  border: none;
+}
+.root :global(.charts-color-swatch) input[type="color"]::-moz-color-swatch {
+  border: none;
+}
+.root :global(.charts-color-hex) {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 11px;
+  text-align: right;
+  padding: 1px 0;
+  color: var(--gc-text-muted);
+  background: transparent;
+  border: none;
+  border-bottom: 1px dotted var(--gc-rule);
+  -webkit-appearance: none;
+  appearance: none;
+}
+.root :global(.charts-color-hex):hover {
+  border-bottom-color: var(--gc-text-faint);
+}
+.root :global(.charts-color-hex):focus-visible {
+  border-bottom-color: rgba(var(--gc-accent-rgb), 0.8);
+}
+.root :global(.charts-color-row):global(.is-disabled) {
+  opacity: 0.45;
+}
+.root :global(.charts-color-row):global(.is-disabled) :global(.charts-color-hex),
+.root :global(.charts-color-row):global(.is-disabled) input[type="color"] {
+  cursor: not-allowed;
+}
+.root :global(.charts-axis-color) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-1);
+  padding: 2px var(--padding, 6px) var(--gc-space-1);
+}
+.root :global(.charts-axis-color-mode) {
+  flex: 0 1 auto;
+  width: auto;
+}
+.root :global(.charts-mark-colors) {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 2px;
+}
+.root :global(.voice-slider):global(.is-disabled) {
+  opacity: 0.45;
+}
+/* The Stroke row's label column matches the channel rows' 70px one below
+   it (`.charts-mark-row > span:first-child`), so "Stroke" no longer runs
+   into the track's `[` bracket in `.voice-slider`'s 34px default column. */
+.root :global(.voice-slider):global(.charts-mark-row) {
+  grid-template-columns: 70px 1fr 34px;
+}
+.root :global(.voice-slider):global(.is-disabled) input[type="range"] {
+  cursor: not-allowed;
+}
+.root
+  :global(.dn-floating-controls)
+  :global(.lil-gui)
+  :global(.lil-gui):global(.charts-axis-section)
+  > :global(.title) {
+  cursor: default !important;
+}
+.root
+  :global(.dn-floating-controls)
+  :global(.lil-gui)
+  :global(.lil-gui):global(.charts-axis-section)
+  > :global(.title)::before {
+  content: none !important;
+}
+.root
+  :global(.dn-floating-controls)
+  :global(.lil-gui)
+  :global(.lil-gui):global(.charts-axis-section)
+  > :global(.title):hover {
+  background: transparent !important;
+  color: rgba(var(--gc-text-rgb), 0.7) !important;
+}
+.root
+  :global(.dn-floating-controls)
+  :global(.lil-gui)
+  :global(.lil-gui):global(.charts-axis-section)
+  > :global(.title):hover::after {
+  color: var(--gc-rule) !important;
+}
+.root :global(.charts-3d-viewport) {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.charts-3d-viewport-host) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.root :global(.charts-3d-viewport) :global(.charts-3d-viewport-host) :global(.glyph-output) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  font-family: var(--gc-font-render);
+  line-height: 1;
+  white-space: pre;
+  user-select: none;
+}
+.root :global(.charts-3d-error) {
+  padding: var(--gc-space-6);
+  font-size: 13px;
+  opacity: 0.7;
+}
+/* The mark card's own note while showing the 3D viewport (`ChartsMarkCard.tsx`) — the rest of that card describes a 2D mark that isn't mounted. */
+.root :global(.charts-mark-3d-note) {
+  margin: 6px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  opacity: 0.7;
+}
+.root :global(.charts-tray-3d-divider) {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 104px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.55;
+  border-left: 1px solid var(--gc-rule);
+  margin-left: var(--gc-space-1);
+  padding-left: 6px;
+}
+/* The View folder's "Reset camera" button (`ChartsDock.tsx`) reuses
+   `.gx-toggle-btn`'s own chrome; this just widens it past an icon glyph's
+   own square footprint to fit the word. */
+.root :global(.charts-3d-reset-camera) {
+  width: auto;
+  padding: 0 10px;
+}
+
+.root :global(.charts-type-tile) {
+  border: 0;
+  background: transparent;
+  padding-inline: 10px;
+}
+.root :global(.charts-type-tile)[aria-pressed="true"] {
+  color: var(--gc-accent);
+  background: transparent;
+}
+.root :global(.charts-type-tile-label) {
+  font-size: var(--gc-text-sm);
+}
+.root :global(.charts-mark-row) {
+  font-size: var(--gc-text-sm);
+}
+
+.root :global(.charts-data-row) {
+  display: contents;
+}
+
+.root :global(.voice-controls) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.root :global(.voice-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.root :global(.voice-row) {
+  display: flex;
+  gap: 6px;
+}
+.root :global(.charts-data-folder) + :global(.charts-marks-section) {
+  padding-top: var(--gc-space-2);
+}
