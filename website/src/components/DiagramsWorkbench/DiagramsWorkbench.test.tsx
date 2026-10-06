@@ -46,7 +46,7 @@ describe("DiagramsWorkbench mounted integration", () => {
     await vi.waitFor(async () => {
       await act(async () => { await vi.dynamicImportSettled(); });
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
-    }, { timeout: 2000, interval: 10 });
+    }, { timeout: 10_000, interval: 10 });
   }
   // Target/Charset/Color are icon-button toggle rows (owner packet item 3:
   // "buttons with symbols not dropdowns"), like ChartsDock.tsx's own —

@@ -99,6 +99,10 @@ export function ledgerLayoutOverflow(opts: { readonly stage: "degrade" | "split"
   return entry("layout-overflow", message, { ...opts });
 }
 
+export function ledgerLayoutExpanded(opts: { readonly requestedWidth: number; readonly requestedHeight: number; readonly canvasWidth: number; readonly canvasHeight: number }): GlyphDiagramLedgerEntry {
+  return entry("layout-expanded", `Expanded the canvas from ${opts.requestedWidth}x${opts.requestedHeight} to ${opts.canvasWidth}x${opts.canvasHeight} to keep the diagram connected.`, { ...opts });
+}
+
 // `GlyphDiagramDegradeStage` derives from `degrade.ts`'s own
 // `GLYPH_DIAGRAM_DEGRADE_STAGES` (the ladder's real order — see
 // render.ts) rather than repeating the literal union here, so the two
@@ -107,7 +111,7 @@ export function ledgerLayoutOverflow(opts: { readonly stage: "degrade" | "split"
 import type { GLYPH_DIAGRAM_DEGRADE_STAGES } from "./degrade";
 export type GlyphDiagramDegradeStage = (typeof GLYPH_DIAGRAM_DEGRADE_STAGES)[number];
 const BUDGET_STAGE_MESSAGE: Readonly<Record<GlyphDiagramDegradeStage, string>> = {
-  compaction: "Tightened the layout's margins and spacing to fit the diagram's size limit, before changing anything it draws.",
+  compaction: "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram.",
   decoration: "Dropped optional shapes, group captions, edge labels and line styling to fit the diagram's size limit; the originals are kept in the diagram's metadata.",
   duplicates: "Merged duplicate parallel connections to fit the diagram's size limit.",
   "leaf-clusters": "Collapsed sibling leaf nodes to fit the diagram's size limit.",

@@ -45,8 +45,8 @@ describe("DiagramsWorkbench — sequence form", () => {
   });
   const preview = () => container.querySelector<HTMLPreElement>(".diagrams-viewport pre.glyph-output")!;
   async function settlePreview() {
-    await vi.waitFor(async () => {
-      await act(async () => { await vi.dynamicImportSettled(); });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    await vi.waitFor(() => {
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
     }, { timeout: 2000, interval: 10 });
   }

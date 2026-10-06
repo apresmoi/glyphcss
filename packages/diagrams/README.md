@@ -49,8 +49,12 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 | `width`, `height` | Positive integer cells, per panel |
 | `detail` | `auto`, `faithful`, `balanced`, `simplified` |
 | `direction` | Optional graph direction override |
+| `autoDirection` | `false` by default; allow the perpendicular direction when fitting |
+| `overflow` | `paginate` (default) for fixed-size pages; `expand` permits a larger connected canvas |
 | `engine` | `dagre` only |
-| `nodesep`, `ranksep` | Integer cells ≥ 3, default 4 / 4 |
+| `nodesep`, `ranksep` | Preferred separation in integer cells ≥ 3, default 4 / 4; fitting may adjust it |
+| `labelWidth` | Optional maximum label wrap width in cells; fitting may wrap more narrowly |
+| `margin` | Preferred surrounding cells, default 1; fitting may reduce it |
 | `title` | Optional label placed against the same obstacles as edge labels |
 | `env` | Explicit `NO_COLOR` / `FORCE_COLOR` values; process environment is never read implicitly |
 
@@ -60,7 +64,11 @@ Target defaults match charts: chat = 72×24 box / no color; terminal = 80×24 br
 
 ## Cell budgets and fidelity
 
-More than 9 nodes or 12 edges, an oversized layout, or an unroutable edge invokes the ordered ladder: compact spacing (spacing only, every detail mode), drop decoration, merge duplicate connections, collapse sibling leaves, then split into edge-induced panels. Each change names what it did in the ledger; original nodes/edges/groups remain in `meta`. Boundary nodes repeat across panels so connections remain inspectable. `faithful` retains decoration, duplicates, and leaf identities; only compaction and splitting apply. `simplified` drops decoration immediately; `auto` and `balanced` use the same Phase 2 budget.
+`renderGlyphDiagram` fits the graph to the requested cells in every detail mode. It measures label wrapping, adjusts margins and the two spacing axes, centers the candidate, and checks its actual routes before painting. Return edges can need wider gaps even when the node boxes already fit. `autoDirection: true` also permits a perpendicular orientation; otherwise the supplied or authored direction is preserved. Node and edge counts alone never trigger simplification.
+
+For resizable displays, call the same renderer with the new cell dimensions. `overflow: "expand"` allows a larger canvas when the complete graph cannot fit; its dimensions are in `result.canvas.grid` and the ledger records `layout-expanded`. A host can pan that canvas at a fixed font size. Expansion is opt-in for every target, including web. There is no font scaling or browser-specific layout path.
+
+With the default `overflow: "paginate"`, every panel keeps the exact requested dimensions. If fitting fails, the ordered ladder drops decoration, merges duplicate connections, collapses sibling leaves, then splits into edge-induced panels. Each change is reported; originals remain in `meta`, and boundary nodes repeat across panels. `faithful` preserves decoration, duplicates, and leaf identities; only geometric fitting and splitting apply. `simplified` drops decoration immediately; `auto` and `balanced` share the same behavior.
 
 A panel that cannot fit even its endpoint boxes stays blank, reports the affected ids, and draws no clipped node or transit. `report.unroutable` describes final output only. Failed intermediate attempts are identified separately in the ledger. Edge labels can be abbreviated or dropped when no disjoint text rectangle fits.
 
@@ -142,7 +150,7 @@ Lane assignment is the one new algorithm: a node gets a lane on first appearance
 
 `glyphcss diagram graph.mmd --target chat --charset ascii --width 80 --height 24` and `glyphcss diagram graph.json` use the same 2D renderer. ANSI is the terminal default; piped output is plain unless explicitly overridden. Fidelity notes (`report.ledger`'s `code`/`message` pairs) go to stderr.
 
-The `/diagrams` workbench offers Graph, Sequence, and Lanes forms. Each has a text editor and JSON view, presets, output controls, text/SVG export, and source examples. Graph direction is selected with TB/LR/BT/RL buttons. Diagrams are 2D-only throughout the package, CLI, and workbench; there is no `./3d` entry, scene-object API, or diagram camera configuration.
+The `/diagrams` workbench offers Graph, Sequence, and Lanes forms. Each has a text editor and JSON view, presets, output controls, text/SVG export, and source examples. Graph direction uses Auto/TB/LR/BT/RL buttons. The workbench passes measured cell dimensions to the library; web output opts into expansion, while chat and terminal keep fixed budgets. Density changes only through its control. Code exports pass the same native options as the preview. Diagrams are 2D-only throughout the package, CLI, and workbench; there is no `./3d` entry, scene-object API, or diagram camera configuration.
 
 ## Rendered examples
 

@@ -9,9 +9,9 @@ export function InstrumentExportBar({ children }: { readonly children: ReactNode
   useLayoutEffect(() => {
     const shell = ref.current?.closest<HTMLElement>(".synth-shell");
     if (!shell || !size) return;
-    shell.style.setProperty("--mobile-export-height", `${size.height}px`);
+    shell.style.setProperty("--instrument-export-height", `${size.height}px`);
     return () => {
-      shell.style.removeProperty("--mobile-export-height");
+      shell.style.removeProperty("--instrument-export-height");
     };
   }, [size]);
   return (

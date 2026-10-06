@@ -96,22 +96,44 @@ describe("diagram routing rules", () => {
 });
 
 describe("diagram fidelity ladder", () => {
-  it("over nine nodes triggers ordered ladder stages and a real split retaining all edges", async () => {
+  it("a chain taller than its viewport triggers ordered ladder stages and a real split retaining all edges", async () => {
     const nodes = Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, label: `N${i}` }));
     const edges = nodes.slice(1).map((n, i) => ({ id: `e${i}`, from: nodes[i]!.id, to: n.id }));
-    const result = await renderGlyphDiagram({ nodes, edges, direction: "TB" }, { width: 100, height: 100 });
+    const result = await renderGlyphDiagram({ nodes, edges, direction: "TB" }, { width: 100, height: 20 });
     const stages = result.report.ledger.filter((entry) => entry.code.startsWith("budget-")).map((entry) => entry.code.replace(/^budget-/, ""));
     expect(stages).toEqual(["decoration", "duplicates", "leaf-clusters", "split"]);
     expect(result.pages.length).toBeGreaterThan(1);
     expect(new Set(result.pages.flatMap((p) => p.routes.map((r) => r.edge.id)))).toEqual(new Set(edges.map((e) => e.id)));
     expect(result.meta.nodes).toHaveLength(10);
   });
-  it("over twelve edges triggers duplicate merging without losing lineage", async () => {
+  it("parallel routes wider than their viewport trigger duplicate merging without losing lineage", async () => {
     const graph: GlyphGraph = { direction: "TB", nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }], edges: Array.from({ length: 13 }, (_, i) => ({ id: `e${i}`, from: "a", to: "b" })) };
-    const result = await renderGlyphDiagram(graph, { width: 80, height: 40 });
+    const result = await renderGlyphDiagram(graph, { width: 20, height: 40 });
     expect(result.report.ledger.some((entry) => entry.code === "duplicate-edge-merged")).toBe(true);
     expect(result.meta.edges).toHaveLength(13); expect(result.routes).toHaveLength(1);
     expect(glyphDiagramMergeDuplicates(graph).graph.edges).toHaveLength(1);
+  });
+  it("retains more than nine nodes when the complete geometry fits", async () => {
+    const nodes = Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, label: `N${i}` }));
+    const edges = nodes.slice(1).map((node, i) => ({ id: `e${i}`, from: nodes[i]!.id, to: node.id }));
+    const result = await renderGlyphDiagram({ nodes, edges, direction: "TB" }, { width: 100, height: 100 });
+    expect(result.pages).toHaveLength(1);
+    expect(result.layout.nodes.map(({ id }) => id).sort()).toEqual(nodes.map(({ id }) => id).sort());
+    expect(result.routes.map(({ edge }) => edge.id).sort()).toEqual(edges.map(({ id }) => id).sort());
+    expect(result.report.unroutable).toEqual([]);
+    expect(result.report.ledger.filter(({ code }) => code.startsWith("budget-"))).toEqual([]);
+  });
+  it("retains more than twelve edges when all parallel routes fit", async () => {
+    const graph: GlyphGraph = {
+      direction: "TB", nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }],
+      edges: Array.from({ length: 13 }, (_, i) => ({ id: `e${i}`, from: "a", to: "b" })),
+    };
+    const result = await renderGlyphDiagram(graph, { width: 80, height: 40 });
+    expect(result.pages).toHaveLength(1);
+    expect(result.routes.map(({ edge }) => edge.id).sort()).toEqual(graph.edges.map(({ id }) => id).sort());
+    expect(result.meta.edges).toHaveLength(13);
+    expect(result.report.unroutable).toEqual([]);
+    expect(result.report.ledger.filter(({ code }) => code.startsWith("budget-") || code === "duplicate-edge-merged")).toEqual([]);
   });
   it("collapses sibling leaves and lists exactly which ids were summarized", () => {
     const graph = glyphGraphFromMermaid(fixture("six-port"));

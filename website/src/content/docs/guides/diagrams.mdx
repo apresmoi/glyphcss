@@ -1,0 +1,26 @@
+---
+title: Responsive diagrams
+description: Fit diagrams to a cell budget while keeping the font size stable.
+---
+
+`@glyphcss/diagrams` lays out Mermaid flowcharts and JSON graphs in character cells. The library measures labels, reserves connection ports, adjusts spacing, and checks the routed connections before painting.
+
+```ts
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
+
+const result = await renderGlyphDiagram("graph LR; Input --> Process --> Output", {
+  width: 64,
+  height: 24,
+  autoDirection: true,
+  overflow: "expand",
+  color: "css",
+});
+```
+
+For a resizable host, measure its available columns and rows at the chosen font size and call the renderer again with those dimensions. Resizing changes layout, not font size or density. `autoDirection` permits a perpendicular direction; omit it to preserve the authored direction, or provide `direction: "TB"`, `"LR"`, `"BT"`, or `"RL"` explicitly.
+
+`overflow: "expand"` lets the library return a larger connected canvas when it needs more cells. Use `result.canvas.grid.cols` and `.rows` for its actual dimensions and let the host pan the output. The report records expansion. This is the web workbench's behavior.
+
+For fixed terminal or chat output, omit `overflow` or use `"paginate"`. Every panel keeps exactly the requested dimensions. If geometric fitting fails, the renderer can simplify and split the graph; `detail: "faithful"` preserves node identities and decoration and allows splitting. The original graph remains in `result.meta`, and `result.report.ledger` explains changes. No finite grid can show arbitrarily many legible nodes at a fixed character size.
+
+React and Vue can call `renderGlyphDiagram` from their effect or mount lifecycle and display its text or escaped HTML in a monospace `pre`. They use the same library fitting as the [diagrams workbench](/diagrams), whose export panel generates examples for both frameworks.

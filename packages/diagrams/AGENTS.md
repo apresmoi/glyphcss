@@ -4,7 +4,7 @@
 
 ## Pipeline
 
-Adapters → `GlyphGraph` → `measureGlyphGraph` → `reserveGlyphGraphPorts` → `layoutGlyphGraph` (dagre) → `routeGlyphGraphEdges` → paint on a fresh canvas. `renderGlyphDiagram` composes them; bare call defaults to `target: "web"`.
+Adapters → `GlyphGraph` → measure → reserve ports → layout (dagre) → center → route → paint on a fresh canvas. `renderGlyphDiagram` owns cell-budget fitting and reuses its accepted layout/routes for paint; bare call defaults to `target: "web"`.
 
 ## 2D entry points
 
@@ -47,13 +47,15 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 - `GLYPH_DIAGRAM_VALIDATION_RULES` backs runtime/schema, every rule with its own repair hint. `report.ledger` is `GlyphDiagramLedgerEntry[]` `{ code, message, detail? }`.
 - `unroutable` describes final output only; a layout that doesn't fit is `layout-overflow`, never `routing-attempt`. Malformed JSON is `GLYPH_DIAGRAM_BAD_JSON`; `engine: "elk"` is `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
 - Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert, never executed.
-- Budget 9 nodes / 12 edges. Ladder: compaction → decoration → duplicates → leaf clusters → split; compaction is non-semantic, runs in every detail mode — never `layout-overflow` before it ran, never decoration once it already fits.
+- Fit uses measured labels, ports and routes, not node/edge-count cutoffs or viewport presets. Search distinct wrap dimensions and independent gaps; return edges can require widening. `autoDirection` permits the perpendicular direction, otherwise preserve direction. All modes fit before semantic degradation.
+- `overflow: "paginate"` (default) keeps exact requested canvas dimensions. `"expand"` explicitly permits a connected canvas beyond those dimensions, with `layout-expanded` diagnostics. Ladder after fitting fails: decoration → duplicates → leaf clusters → split; never decoration once it fits, except explicit `simplified`.
 - Paint order: routes → junctions → node fills → target-border arrowheads → labels; an edge label touches its own route or is dropped. Text/HTML/ANSI are separate exits, each page carrying its `canvas`.
 
 ## Don't
 
 - Don't reuse a canvas across renders/panels — re-registering a route can't erase its old glyphs. Don't hide an unroutable edge under a later box fill; log `unroutable`, paint no transit.
 - Don't assign reserved port slots in lexical order — dagre reorders siblings; use the laid-out transverse order. Don't use a flat compaction floor — it's per graph (`max(3, widest fan + 1)`), stepped down from caller spacing.
+- Don't move fitting into consumers, use font scaling, or accept a node bounding box without testing centered routes. Deduplicate candidates before layout; reject immovable port collisions before searching for outer routing space.
 - Don't split Mermaid statements on `;` inside quotes, `-. text .->`/`|label|` spans, or decode entities/escapes in two passes.
 
 ## Gate tests

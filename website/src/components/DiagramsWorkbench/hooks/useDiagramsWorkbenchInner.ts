@@ -15,6 +15,8 @@ import {
   buildGlyphDiagramsWorkbenchGraph,
   buildGlyphDiagramsWorkbenchLanes,
   buildGlyphDiagramsWorkbenchSequence,
+  DIAGRAMS_WEB_BASE_FONT_PX,
+  glyphDiagramsWorkbenchEffectiveDensity,
   generateGlyphDiagramsWorkbenchSnippets,
   GLYPH_DIAGRAM_WORKBENCH_PRESETS,
   GLYPH_DIAGRAMS_FORMS,
@@ -45,6 +47,7 @@ import {
 import { type ElementPixelSize, useElementSize } from "../../../hooks/useElementSize";
 import { downloadGlyphSvg } from "../../../services/export/glyphSvgExport";
 import { writeUrlParam } from "../../../services/url-state/history";
+import { useViewportPan } from "../../../hooks/useViewportPan";
 import { flashButtonState } from "../controllerHelpers";
 import { type DiagramsSourceEditorHandle } from "../DiagramsSourceEditor";
 import { type MobilePanel } from "../types";
@@ -115,6 +118,9 @@ export function useDiagramsWorkbenchInner({
   const measuredViewportPx = useElementSize(diagramsViewportRef);
 
   const viewportPx = measuredViewportPx ?? undefined;
+  const panViewportRef = useRef<HTMLDivElement | null>(null);
+  const panContentRef = useRef<HTMLDivElement | null>(null);
+  const { canPan, isPanning, resetView } = useViewportPan(panViewportRef, panContentRef, state);
 
   // State AND viewportPx identity together prevent an old (or now
   // viewport-stale) result from becoming copyable during a new layout —
@@ -143,6 +149,12 @@ export function useDiagramsWorkbenchInner({
   if (rendered?.ok) lastGoodResultRef.current = rendered;
 
   const displayResult = glyphDiagramsWorkbenchDisplayResult(rendered, lastGoodResultRef.current);
+
+  const density = glyphDiagramsWorkbenchEffectiveDensity(state.controls);
+  const previewStyle = useMemo(
+    () => (state.controls.target === "web" ? { fontSize: DIAGRAMS_WEB_BASE_FONT_PX / density } : undefined),
+    [state.controls.target, density],
+  );
 
   const isPending = rendered === null;
   const hasError = rendered !== null && !rendered.ok;
@@ -659,12 +671,19 @@ export function useDiagramsWorkbenchInner({
     loadRemoteGraph,
     handleRandomGraph,
     diagramsViewportRef,
+    panViewportRef,
+    panContentRef,
+    canPan,
+    isPanning,
+    resetView,
     isPending,
     resolvedControls,
     isViewportStale,
     rendered,
+    renderedViewportPx: completed?.viewportPx,
     attachPre,
     displayResult,
+    previewStyle,
     hotspotResult,
     preEl,
     selection,

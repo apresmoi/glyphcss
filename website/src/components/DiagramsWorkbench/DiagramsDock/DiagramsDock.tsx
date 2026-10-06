@@ -4,6 +4,10 @@ import { useDockGui, useDockSlot, useFolder, useOption, useSlider, useText, useT
 import { IconToggle } from "../../IconToggle/index";
 
 import {
+  DIAGRAMS_DENSITY_MIN,
+  DIAGRAMS_DENSITY_MAX,
+  DIAGRAMS_DENSITY_STEP,
+  glyphDiagramsWorkbenchDensity,
   buildGlyphDiagramsWorkbenchGraph,
   diagramsWorkbenchSizeLocked,
   GLYPH_DIAGRAMS_FORMS,
@@ -88,6 +92,19 @@ export function GlyphDiagramsDock({
   const heightCtrl = useSlider(output, "Height", { min: 6, max: 120, step: 1 }, controls.height, (value) =>
     setControl({ type: "height", value }),
   );
+  const densityCtrl = useSlider(
+    output,
+    "Density",
+    { min: DIAGRAMS_DENSITY_MIN, max: DIAGRAMS_DENSITY_MAX, step: DIAGRAMS_DENSITY_STEP },
+    glyphDiagramsWorkbenchDensity(state.controls),
+    (value) => setControl({ type: "density", value }),
+  );
+  const densityLocked = controls.target !== "web";
+  useEffect(() => {
+    if (!densityCtrl) return;
+    densityCtrl.setEnabled(!densityLocked);
+    densityCtrl.raw.domElement.title = densityLocked ? "Density changes cell size only on web." : "";
+  }, [densityCtrl, densityLocked]);
   // `web` fills the measured viewport instead of a fixed logical grid
   // (AGENTS.md's "Diagrams" "Targets and page") — mirrors `ChartsDock.tsx`'s
   // own identical lock exactly (`diagramsWorkbenchSizeLocked`'s own doc).
@@ -111,9 +128,13 @@ export function GlyphDiagramsDock({
   useOption(
     layout,
     "Direction",
-    options(["TB", "LR", "BT", "RL"] as const),
-    direction,
-    (value) => dispatch({ type: "set-layout", patch: { direction: value } }),
+    options(["Auto", "TB", "LR", "BT", "RL"] as const),
+    state.layout.autoDirection ? "Auto" : direction,
+    (value) =>
+      dispatch({
+        type: "set-layout",
+        patch: value === "Auto" ? { autoDirection: true } : { direction: value, autoDirection: false },
+      }),
     "choices",
   );
   useOption(layout, "Engine", options(["dagre"] as const), state.layout.engine, (engine) =>

@@ -396,7 +396,7 @@
 @media (max-width: 1100px) {
   .root {
     --mobile-tabs-height: 52px;
-    --mobile-export-clearance: calc(var(--mobile-export-height, var(--gc-control-height)) + var(--gc-space-2));
+    --mobile-export-clearance: calc(var(--instrument-export-height, var(--gc-control-height)) + var(--gc-space-2));
     --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
   }
 
@@ -499,7 +499,7 @@
   .root:has(:global(.synth-export-bar)) {
     --mobile-export-clearance: max(
       0px,
-      calc(var(--mobile-export-height, var(--mobile-tabs-height)) - var(--mobile-tabs-height))
+      calc(var(--instrument-export-height, var(--mobile-tabs-height)) - var(--mobile-tabs-height))
     );
     --mobile-tabs-left: 50%;
   }

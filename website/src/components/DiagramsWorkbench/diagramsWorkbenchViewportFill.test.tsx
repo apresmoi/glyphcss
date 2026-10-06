@@ -47,7 +47,8 @@ class MockResizeObserver {
 }
 
 import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
-import { createGlyphDiagramsWorkbenchState } from "../../features/diagrams/model/diagramsWorkbenchState";
+import { buildGlyphDiagramsWorkbenchGraph, createGlyphDiagramsWorkbenchState, reduceGlyphDiagramsWorkbenchState } from "../../features/diagrams/model/diagramsWorkbenchState";
+import { renderGlyphDiagramsWorkbenchState } from "../../features/diagrams/render/diagramsWorkbenchRender";
 
 describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
   let container: HTMLDivElement;
@@ -73,8 +74,8 @@ describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
 
   const preview = () => container.querySelector<HTMLPreElement>(".diagrams-viewport pre.glyph-output")!;
   async function settlePreview() {
-    await vi.waitFor(async () => {
-      await act(async () => { await vi.dynamicImportSettled(); });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    await vi.waitFor(() => {
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
     }, { timeout: 2000, interval: 10 });
   }
@@ -110,11 +111,8 @@ describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
     expect(preview().textContent!.split("\n")[0]).toHaveLength(96); // the target's own default width, pre-measurement
 
     // 13px cells: cellW = 13 * 0.5859375 = 7.6171875px, cellH = 13px. A
-    // page's own FIRST row width (not the total row count — a small grid
-    // this diagram doesn't fit in whole splits into several stacked pages,
-    // AGENTS.md's "Diagrams" split rung, joined by a blank separator row;
-    // that's orthogonal to this feature) is the direct signature of the
-    // computed grid width actually reaching the render.
+    // The first row width proves that larger viewports still expand the
+    // logical grid. Font size remains controlled only by Density.
     await resize(761.71875, 130);
     const afterFirst = preview().textContent!;
     expect(afterFirst.split("\n")[0]).toHaveLength(100);
@@ -123,6 +121,65 @@ describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
     const afterSecond = preview().textContent!;
     expect(afterSecond.split("\n")[0]).toHaveLength(200);
     expect(afterSecond).not.toBe(afterFirst); // genuinely re-rendered at the new size, not a frozen first measurement
+  }, 15_000);
+
+  it("keeps the complete RAG graph at a stable cell size through shrinking and growing viewports", async () => {
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Apply RAG pipeline"]')!.click());
+    await settlePreview();
+    const state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "apply-preset", id: "rag-pipeline" });
+    const graph = buildGlyphDiagramsWorkbenchGraph(state);
+    for (const [width, height] of [[1092, 742], [612, 562], [372, 462], [366, 550], [296, 130], [1092, 742]]) {
+      await resize(width!, height!);
+      const pre = preview();
+      const lines = pre.textContent!.split("\n");
+      const fontSize = Number.parseFloat(pre.style.fontSize);
+      expect(fontSize).toBe(13);
+      expect(lines[0]!.length * fontSize * 0.5859375).toBeLessThanOrEqual(width!);
+      // Overflow remains at native cell size in the pannable surface;
+      // real drag-to-reach coverage lives in the browser resize test.
+      expect(container.querySelector('[aria-label="Diagram viewport"]')).not.toBeNull();
+      expect(pre.getAttribute("aria-description")).toContain("1 panel.");
+      // Happy DOM has no text geometry. Use the layout's cell boxes to
+      // reconstruct wrapped labels from the actual DOM output instead.
+      const layout = await renderGlyphDiagramsWorkbenchState(state, { width: width!, height: height! });
+      if (!layout.ok) throw new Error(layout.error);
+      for (const hotspot of layout.hotspots ?? []) {
+        if (hotspot.kind !== "node") continue;
+        const label = lines.slice(hotspot.y0 + 1, hotspot.y1).map(line => line.slice(hotspot.x0 + 1, hotspot.x1)).join("").replace(/[^\p{L}\p{N}]/gu, "");
+        expect(label).toBe(graph.nodes.find(node => node.id === hotspot.id)!.label.replace(/[^\p{L}\p{N}]/gu, ""));
+      }
+      if (width === 612 || width === 366) {
+        expect(fontSize).toBe(13);
+        expect(pre.getAttribute("aria-description")).toContain("TB; 1 panel.");
+      }
+      expect(Array.from(container.querySelectorAll('.diagrams-hotspot.is-node'), node => node.getAttribute('aria-label')).sort()).toEqual(
+        ["docs", "prep", "index", "query", "qembed", "retrieve", "rerank", "generate"].map(id => `Edit node ${id}`).sort(),
+      );
+    }
+    expect(Number.parseFloat(preview().style.fontSize)).toBe(13);
+    await pickToggle("Target", "terminal");
+    expect(preview().style.fontSize).toBe("");
+  }, 15_000);
+
+  it.each(["Login round trip", "Release train (git)"])("reflows %s at fixed density instead of shrinking fonts", async (preset) => {
+    await act(async () => container.querySelector<HTMLButtonElement>(`[aria-label="Apply ${preset}"]`)!.click());
+    await settlePreview();
+    for (const [width, height, columns] of [[1092, 742, 143], [366, 550, 48], [296, 130, 38], [1092, 742, 143]]) {
+      await resize(width!, height!);
+      expect(Number.parseFloat(preview().style.fontSize)).toBe(13);
+      expect(preview().textContent!.split("\n")[0]).toHaveLength(columns!);
+    }
+    const input = controller("Density").querySelector<HTMLInputElement>("input")!;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+      setter.call(input, "2");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await settlePreview();
+    for (const [width, height] of [[366, 550], [296, 130], [1092, 742]]) {
+      await resize(width!, height!);
+      expect(Number.parseFloat(preview().style.fontSize)).toBe(6.5);
+    }
   }, 15_000);
 
   it("terminal and chat still use the Width/Height sliders, unaffected by a viewport resize", async () => {

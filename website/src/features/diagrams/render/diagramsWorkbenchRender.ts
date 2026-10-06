@@ -157,10 +157,11 @@ export async function renderGlyphDiagramsWorkbenchState(
   viewportPx?: GlyphPixelBox,
 ): Promise<GlyphDiagramsWorkbenchRender> {
   try {
+    const graph = buildGlyphDiagramsWorkbenchGraph(state);
     const options = glyphDiagramsWorkbenchRenderOptions(state, viewportPx);
     const downgraded = chatCharsetDowngrade(options);
     const charsetDowngraded = downgraded !== options;
-    const result = await renderGlyphDiagram(buildGlyphDiagramsWorkbenchGraph(state), downgraded);
+    const result = await renderGlyphDiagram(graph, downgraded);
     const text = canvasPagesToText(result.pages);
     const isHtml = result.html !== undefined;
     return {

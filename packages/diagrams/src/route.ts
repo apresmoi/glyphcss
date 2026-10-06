@@ -3,6 +3,11 @@ import { glyphDiagramError } from "./validate";
 import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRect, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import { ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 
+const PORT_LANE_LENGTH = 2;
+const PORT_LANE_CLEARANCE = 1;
+const NODE_CLEARANCE = 1;
+// Two opposing protected lanes leave one free corridor cell between them.
+export const GLYPH_DIAGRAM_ROUTE_SEPARATION = 2 * (PORT_LANE_LENGTH + PORT_LANE_CLEARANCE) + 1;
 export const GLYPH_DIAGRAM_ROUTE_COSTS = Object.freeze({ bend: 4, crossing: 12, ringParallel: 4000 });
 /**
  * Width, in cells, of the band around a group's rendered dot ring where a
@@ -66,6 +71,36 @@ const steps = [GLYPH_DIAGRAM_DIRECTIONS.n, GLYPH_DIAGRAM_DIRECTIONS.e, GLYPH_DIA
 const key = (p: GlyphCanvasPoint) => `${p.x},${p.y}`;
 const same = (a: GlyphCanvasPoint, b: GlyphCanvasPoint) => a.x === b.x && a.y === b.y;
 const inside = (p: GlyphCanvasPoint, r: GlyphDiagramRect, ring = 0) => p.x >= r.x0 - ring && p.x <= r.x1 + ring && p.y >= r.y0 - ring && p.y <= r.y1 + ring;
+function otherPortLanes(layout: GlyphDiagramLayout, edgeId: string): GlyphCanvasPoint[] {
+  return layout.ports.filter(port => port.edgeId !== edgeId).flatMap(port => {
+    const delta = GLYPH_DIAGRAM_DIRECTIONS[port.side];
+    return Array.from({ length: PORT_LANE_LENGTH }, (_, offset) => ({ x: port.escape.x + offset * delta.x, y: port.escape.y + offset * delta.y }));
+  });
+}
+function blockedByNodes(p: GlyphCanvasPoint, layout: GlyphDiagramLayout, start: GlyphCanvasPoint, goal: GlyphCanvasPoint): boolean {
+  return layout.nodes.some(node => inside(p, node))
+    || (!same(p, start) && !same(p, goal) && layout.nodes.some(node => inside(p, node, NODE_CLEARANCE)));
+}
+function blockedByPortLanes(p: GlyphCanvasPoint, lanes: readonly GlyphCanvasPoint[]): boolean {
+  return lanes.some(lane => Math.abs(p.x - lane.x) + Math.abs(p.y - lane.y) <= PORT_LANE_CLEARANCE);
+}
+/** Reject blocked mandatory port steps; a passing layout can still need route search. */
+export function glyphDiagramHasRoutingClearance(layout: GlyphDiagramLayout): boolean {
+  for (const edge of layout.edges) {
+    const ports = layout.ports.filter(port => port.edgeId === edge.id);
+    const from = ports.find(port => port.end === "from")!;
+    const to = ports.find(port => port.end === "to")!;
+    const lanes = otherPortLanes(layout, edge.id);
+    for (const port of [from, to]) {
+      const delta = GLYPH_DIAGRAM_DIRECTIONS[port.side];
+      for (let offset = 0; offset < (same(from.escape, to.escape) ? 1 : PORT_LANE_LENGTH); offset++) {
+        const point = { x: port.escape.x + offset * delta.x, y: port.escape.y + offset * delta.y };
+        if (blockedByNodes(point, layout, from.escape, to.escape) || blockedByPortLanes(point, lanes)) return false;
+      }
+    }
+  }
+  return true;
+}
 interface State { x: number; y: number; dir: number; cost: number; estimate: number; order: number; parent?: State }
 class Queue {
   private items: State[] = [];
@@ -102,29 +137,32 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     const outward = GLYPH_DIAGRAM_DIRECTIONS[from.side], inward = GLYPH_DIAGRAM_DIRECTIONS[to.side];
     const startDir = steps.findIndex((s) => same(s, outward));
     const endDir = steps.findIndex((s) => s.x === -inward.x && s.y === -inward.y);
-    const otherLanes = layout.ports.filter((p) => p.edgeId !== edge.id).flatMap((port) => {
-      const delta = GLYPH_DIAGRAM_DIRECTIONS[port.side];
-      return [port.escape, { x: port.escape.x + delta.x, y: port.escape.y + delta.y }];
-    });
+    const otherLanes = otherPortLanes(layout, edge.id);
+    // Obstacles and earlier routes stay fixed throughout this edge's A*.
+    // Cache their cell/axis checks; only turning depends on the prior state.
+    const freeCells = new Map<number, number>();
     const isFree = (p: GlyphCanvasPoint, dir: number, previous?: State): boolean => {
       if (p.x < 0 || p.y < 0 || p.x >= cols || p.y >= rows) return false;
-      // Node rectangles are the owning obstacle; no downstream painter may conceal a transit through one.
-      if (layout.nodes.some((n) => inside(p, n))) return false;
-      if ((options.obstacles ?? []).some((r) => inside(p, r))) return false;
-      if (!same(p, start) && !same(p, goal) && layout.nodes.some((n) => inside(p, n, 1))) return false;
-      // Every port keeps its outward lane, including a perpendicular cell of clearance from its neighbour.
-      if (otherLanes.some((lane) => Math.abs(p.x - lane.x) + Math.abs(p.y - lane.y) <= 1)) return false;
       const axis = dir % 2;
-      const crossing = used.get(key(p));
-      if (crossing && (crossing.axis === axis || crossing.axis === 2 || (previous && previous.dir !== dir))) return false;
-      if (previous && used.has(key(previous)) && previous.dir !== dir) return false;
-      for (const step of steps) {
-        const neighbour = used.get(key({ x: p.x + step.x, y: p.y + step.y }));
-        if (!neighbour) continue;
-        // Perpendicular transits may cross; coincident or adjacent parallel runs may never merge visually.
-        if (neighbour.axis === 2 || neighbour.axis === axis) return false;
+      const cellKey = key(p);
+      const crossing = used.get(cellKey);
+      if (previous && previous.dir !== dir && (crossing || used.has(key(previous)))) return false;
+      const cacheKey = p.y * cols + p.x;
+      const cached = freeCells.get(cacheKey);
+      if (cached !== undefined) return (cached & (1 << axis)) !== 0;
+      let freeAxes = 0;
+      if (!blockedByNodes(p, layout, start, goal)
+        && !(options.obstacles ?? []).some(r => inside(p, r))
+        && !blockedByPortLanes(p, otherLanes)) {
+        freeAxes = 3;
+        if (crossing) freeAxes &= crossing.axis === 2 ? 0 : ~(1 << crossing.axis);
+        for (const step of steps) {
+          const neighbour = used.get(key({ x: p.x + step.x, y: p.y + step.y }));
+          if (neighbour) freeAxes &= neighbour.axis === 2 ? 0 : ~(1 << neighbour.axis);
+        }
       }
-      return true;
+      freeCells.set(cacheKey, freeAxes);
+      return (freeAxes & (1 << axis)) !== 0;
     };
     const queue = new Queue(), best = new Map<string, number>();
     let order = 0, found: State | undefined;

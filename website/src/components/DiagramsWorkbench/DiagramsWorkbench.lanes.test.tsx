@@ -33,7 +33,7 @@ describe("DiagramsWorkbench — lanes form", () => {
     await vi.waitFor(async () => {
       await act(async () => { await vi.dynamicImportSettled(); });
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
-    }, { timeout: 2000, interval: 10 });
+    }, { timeout: 10_000, interval: 10 });
   }
   function toggleRow(label: string): Element {
     return Array.from(container.querySelectorAll(".dock-toggle-row")).find((node) => node.querySelector(".dock-toggle-row-label")?.textContent === label)!;

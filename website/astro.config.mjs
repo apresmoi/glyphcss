@@ -108,6 +108,7 @@ export default defineConfig({
             { label: 'Color Encoding', slug: 'guides/color-encoding' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
             { label: 'Density & Detail', slug: 'guides/density' },
+            { label: 'Responsive Diagrams', slug: 'guides/diagrams' },
             { label: 'Glyph Effects', slug: 'guides/effects' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
             { label: 'Coding agents', slug: 'guides/coding-agents' },

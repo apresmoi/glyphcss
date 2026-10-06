@@ -52,8 +52,8 @@ describe("DiagramsWorkbench — target × charset × colour matrix (CHARTS-RESEA
   });
 
   async function settlePreview() {
-    await vi.waitFor(async () => {
-      await act(async () => { await vi.dynamicImportSettled(); });
+    await act(async () => { await vi.dynamicImportSettled(); });
+    await vi.waitFor(() => {
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
     }, { timeout: 2000, interval: 10 });
   }

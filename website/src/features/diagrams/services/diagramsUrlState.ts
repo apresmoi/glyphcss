@@ -22,6 +22,8 @@ import type { GlyphLaneNode } from "@glyphcss/diagrams/lanes";
 import { createDebouncedJsonUrlWriter } from "../../../services/url-state/jsonWriter";
 import { createJsonUrlEnvelope } from "../../../utils/url-state/jsonEnvelope";
 import {
+  DIAGRAMS_DENSITY_MIN,
+  DIAGRAMS_DENSITY_MAX,
   GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_LANES,
   GLYPH_DIAGRAMS_WORKBENCH_DEFAULT_SEQUENCE,
   type GlyphDiagramsFormId,
@@ -142,6 +144,14 @@ function validateControls(value: unknown): GlyphDiagramsWorkbenchControls | null
   if (overrides.height !== undefined) {
     if (typeof overrides.height !== "number" || !Number.isFinite(overrides.height)) return null;
     clean.height = overrides.height;
+  }
+  if (
+    typeof overrides.density === "number" &&
+    Number.isFinite(overrides.density) &&
+    overrides.density >= DIAGRAMS_DENSITY_MIN &&
+    overrides.density <= DIAGRAMS_DENSITY_MAX
+  ) {
+    clean.density = overrides.density;
   }
   return { target, overrides: clean };
 }
@@ -366,7 +376,7 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
   if (!cleanControls) return null;
 
   if (!isRecord(layout)) return null;
-  const { direction, engine, nodesep, ranksep } = layout;
+  const { direction, autoDirection, engine, nodesep, ranksep } = layout;
   if (direction !== undefined && !oneOf(direction, GRAPH_DIRECTIONS)) return null;
   if (engine !== "dagre") return null;
   if (typeof nodesep !== "number" || !Number.isFinite(nodesep)) return null;
@@ -414,7 +424,13 @@ function validateDiagramsWorkbenchState(value: unknown): GlyphDiagramsWorkbenchS
     mermaid,
     json: cleanJson,
     controls: cleanControls,
-    layout: { engine: "dagre", nodesep, ranksep, ...(direction !== undefined ? { direction } : {}) },
+    layout: {
+      engine: "dagre",
+      nodesep,
+      ranksep,
+      ...(direction !== undefined ? { direction } : {}),
+      ...(typeof autoDirection === "boolean" ? { autoDirection } : {}),
+    },
     diagram: { title: diagram.title, detail: diagram.detail },
     terminal: { NO_COLOR: terminal.NO_COLOR, FORCE_COLOR: terminal.FORCE_COLOR },
     ...(cleanGraphSource ? { graphSource: cleanGraphSource } : {}),

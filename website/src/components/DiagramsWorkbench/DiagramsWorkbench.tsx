@@ -78,11 +78,18 @@ function GlyphDiagramsWorkbenchInner({
     loadRemoteGraph,
     handleRandomGraph,
     diagramsViewportRef,
+    panViewportRef,
+    panContentRef,
+    canPan,
+    isPanning,
+    resetView,
     isPending,
     isViewportStale,
     rendered,
+    renderedViewportPx,
     attachPre,
     displayResult,
+    previewStyle,
     hotspotResult,
     preEl,
     selection,
@@ -221,17 +228,31 @@ function GlyphDiagramsWorkbenchInner({
             />
           )}
           <InstrumentViewport inset className="diagrams-viewport" elementRef={diagramsViewportRef}>
-            <div className="diagrams-preview" aria-busy={isPending}>
+            <div
+              className="diagrams-preview"
+              ref={panViewportRef}
+              role="region"
+              aria-label="Diagram viewport"
+              aria-description={canPan ? "Drag to pan, or use arrow keys and Page Up or Page Down." : undefined}
+              tabIndex={canPan ? 0 : undefined}
+              data-pannable={canPan}
+              data-panning={isPanning}
+              aria-busy={isPending}
+              data-viewport-width={renderedViewportPx?.width}
+              data-viewport-height={renderedViewportPx?.height}
+            >
               {/* The viewport holds only the render; feedback lives on the
                *  buttons and in the rail. `is-stale` (a config error or a
                *  layout still in flight) dims the LAST GOOD diagram instead
                *  of collapsing the frame; `is-loading` (in flight only) also
                *  pulses it — the page's own animation, never the render's. */}
               <div
+                ref={panContentRef}
                 className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}${rendered?.ok && rendered.hotspots?.length ? " has-hotspots" : ""}`}
               >
                 <TargetPreview
                   ref={attachPre}
+                  style={previewStyle}
                   target={state.controls.target}
                   commandTitle="glyphcss diagram …"
                   isHtml={Boolean(displayResult?.isHtml)}
@@ -258,6 +279,9 @@ function GlyphDiagramsWorkbenchInner({
             </div>
           </InstrumentViewport>
           <InstrumentExportBar>
+            <ActionButton onClick={resetView} disabled={!canPan}>
+              Reset view
+            </ActionButton>
             {exportActions}
             <ActionButton
               data-export-trigger
@@ -280,7 +304,13 @@ function GlyphDiagramsWorkbenchInner({
               snippets={snippets ?? {}}
               formats={EXPORT_FORMATS}
               defaultFormat="typescript"
-              unavailableReason={!snippets ? "Fix the diagram errors to export code." : undefined}
+              unavailableReason={
+                !snippets
+                  ? isPending
+                    ? "Updating diagram layout…"
+                    : "Fix the diagram errors to export code."
+                  : undefined
+              }
               onClose={() => {
                 setCodeOpen(false);
                 setMobilePanel(null);

@@ -5,6 +5,11 @@
 .inset {
   box-sizing: border-box;
   padding: var(--gc-viewport-top) var(--gc-space-6) var(--gc-viewport-bottom);
+  /* Export controls can wrap even while the desktop sidebars remain open. */
+  padding-bottom: max(
+    var(--gc-viewport-bottom),
+    calc(var(--instrument-export-height, var(--gc-control-height)) + var(--gc-space-3) + var(--gc-space-2))
+  );
   overflow: auto;
 }
 @media (max-width: 1100px) {

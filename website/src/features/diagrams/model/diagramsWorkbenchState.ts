@@ -294,13 +294,14 @@ export interface GlyphDiagramsWorkbenchControls {
     readonly color?: GlyphDiagramColorMode;
     readonly width?: number;
     readonly height?: number;
+    readonly density?: number;
   };
 }
 export type GlyphDiagramsWorkbenchControlAction =
   | { type: "target"; value: GlyphDiagramTarget }
   | { type: "charset"; value: GlyphDiagramCharset }
   | { type: "color"; value: GlyphDiagramColorMode }
-  | { type: "width" | "height"; value: number }
+  | { type: "width" | "height" | "density"; value: number }
   | { type: "reset" };
 
 export function reduceGlyphDiagramsWorkbenchControls(
@@ -331,34 +332,35 @@ export function resolveGlyphDiagramsWorkbenchControls(
   return { target: state.target, ...CONTROLS_TARGET_DEFAULTS[form][state.target], ...state.overrides };
 }
 
-// ── Web viewport fill (mirrors `@glyphcss/charts`' own workbench — this
-// file's `GlyphDiagramsWorkbenchControls` has no `density` concept, so this
-// is the simpler half of that page's same feature) ───────────────────────
-/** The web `<pre>`'s fixed base `font-size` (`.diagrams-grid-scroll >
- *  .glyph-output`, `diagrams-workbench.css`) — the SAME 13px `/charts`
- *  uses (both pages share the identical Glyph Mono stack at `line-height:
- *  1`), kept as a page-local constant since diagrams has no per-target
- *  Density slider to derive it from. */
 export const DIAGRAMS_WEB_BASE_FONT_PX = 13;
-/** `true` when the Width/Height sliders have no effect at this target —
- *  `web` fills the measured viewport instead (this file's own
- *  `glyphDiagramsWorkbenchWebGridSize`), mirroring `@glyphcss/charts`'
- *  own workbench's `chartsWorkbenchSizeLocked` exactly. */
+export const DIAGRAMS_DEFAULT_DENSITY = 1;
+export const DIAGRAMS_DENSITY_MIN = 1;
+export const DIAGRAMS_DENSITY_MAX = 3.25;
+export const DIAGRAMS_DENSITY_STEP = 0.25;
+
+export function glyphDiagramsWorkbenchDensity(controls: GlyphDiagramsWorkbenchControls): number {
+  const value = controls.overrides.density;
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(DIAGRAMS_DENSITY_MIN, Math.min(DIAGRAMS_DENSITY_MAX, value))
+    : DIAGRAMS_DEFAULT_DENSITY;
+}
+
+export function glyphDiagramsWorkbenchEffectiveDensity(controls: GlyphDiagramsWorkbenchControls): number {
+  return controls.target === "web" ? glyphDiagramsWorkbenchDensity(controls) : DIAGRAMS_DEFAULT_DENSITY;
+}
+
 export function diagramsWorkbenchSizeLocked(target: GlyphDiagramTarget): boolean {
   return target === "web";
 }
-/** The grid a `web` render fills to — `viewportPx` (measured live,
- *  `InstrumentWorkbench/useElementSize.ts`) when available, else the
- *  target's own default grid (`GLYPH_DIAGRAM_TARGET_DEFAULTS.web`) for a
- *  caller with no viewport to measure (SSR, a headless test, the CLI). The
- *  Width/Height overrides are never read here — see `diagramsWorkbenchSizeLocked`. */
-export function glyphDiagramsWorkbenchWebGridSize(viewportPx: GlyphPixelBox | undefined): {
-  width: number;
-  height: number;
-} {
-  if (viewportPx) return glyphMonoWebGridSize(viewportPx, DIAGRAMS_WEB_BASE_FONT_PX, 1);
+
+/** Density is an explicit cell budget choice; resizing never changes its value. */
+export function glyphDiagramsWorkbenchWebGridSize(
+  viewportPx: GlyphPixelBox | undefined,
+  density: number = DIAGRAMS_DEFAULT_DENSITY,
+): { width: number; height: number } {
+  if (viewportPx) return glyphMonoWebGridSize(viewportPx, DIAGRAMS_WEB_BASE_FONT_PX, density);
   const defaults = GLYPH_DIAGRAM_TARGET_DEFAULTS.web;
-  return { width: defaults.width, height: defaults.height };
+  return { width: Math.round(defaults.width * density), height: Math.round(defaults.height * density) };
 }
 
 /**
@@ -474,6 +476,7 @@ export interface GlyphDiagramsWorkbenchState {
   readonly json: string;
   readonly controls: GlyphDiagramsWorkbenchControls;
   readonly layout: {
+    readonly autoDirection?: boolean;
     readonly direction?: GlyphGraph["direction"];
     readonly engine: "dagre";
     readonly nodesep: number;
@@ -587,7 +590,7 @@ export function createGlyphDiagramsWorkbenchState(): GlyphDiagramsWorkbenchState
     mermaid: langgraph,
     json: JSON.stringify(glyphGraphFromMermaid(langgraph), null, 2),
     controls: { target: "web", overrides: {} },
-    layout: { engine: "dagre", nodesep: 4, ranksep: 4 },
+    layout: { autoDirection: true, engine: "dagre", nodesep: 4, ranksep: 4 },
     diagram: { title: "LangGraph agent", detail: "auto" },
     terminal: { NO_COLOR: false, FORCE_COLOR: false },
     graphSource: { kind: "builtin", presetId: "langgraph" },
@@ -662,7 +665,16 @@ export function reduceGlyphDiagramsWorkbenchState(
     case "set-control":
       return { ...state, controls: reduceGlyphDiagramsWorkbenchControls(state.controls, action.control) };
     case "set-layout":
-      return { ...state, layout: { ...state.layout, ...action.patch } };
+      return {
+        ...state,
+        layout: {
+          ...state.layout,
+          ...(Object.hasOwn(action.patch, "direction") && !Object.hasOwn(action.patch, "autoDirection")
+            ? { autoDirection: false }
+            : {}),
+          ...action.patch,
+        },
+      };
     case "set-diagram":
       return { ...state, diagram: { ...state.diagram, ...action.patch } };
     case "set-terminal":
@@ -801,10 +813,10 @@ export function glyphDiagramsWorkbenchRenderOptions(
   state: GlyphDiagramsWorkbenchState,
   viewportPx?: GlyphPixelBox,
 ): GlyphDiagramRenderOptions {
-  const resolved = resolveGlyphDiagramsWorkbenchControls(state.controls);
+  const { density: _density, ...resolved } = resolveGlyphDiagramsWorkbenchControls(state.controls);
   const size =
     state.controls.target === "web"
-      ? glyphDiagramsWorkbenchWebGridSize(viewportPx)
+      ? glyphDiagramsWorkbenchWebGridSize(viewportPx, glyphDiagramsWorkbenchEffectiveDensity(state.controls))
       : { width: resolved.width, height: resolved.height };
   // `state.diagram` is spread WITHOUT its `title` — USER FEEDBACK, verbatim:
   // "why do we have the titles of the diagrams in the rendering areas? we
@@ -813,11 +825,14 @@ export function glyphDiagramsWorkbenchRenderOptions(
   // follows; the title still names the diagram in the rail, the aria-label,
   // the exported snippet and the `?d=` link.
   const { title: _title, ...diagram } = state.diagram;
+  const { autoDirection: _autoDirection, ...layout } = state.layout;
   return {
     ...resolved,
     width: size.width,
     height: size.height,
-    ...state.layout,
+    ...layout,
+    autoDirection: state.layout.autoDirection === true,
+    overflow: state.controls.target === "web" ? "expand" : "paginate",
     ...diagram,
     ...(state.controls.target === "terminal"
       ? {
@@ -838,10 +853,10 @@ export function glyphDiagramsWorkbenchSequenceRenderOptions(
   state: GlyphDiagramsWorkbenchState,
   viewportPx?: GlyphPixelBox,
 ) {
-  const resolved = resolveGlyphDiagramsWorkbenchControls(state.controls, "sequence");
+  const { density: _density, ...resolved } = resolveGlyphDiagramsWorkbenchControls(state.controls, "sequence");
   const size =
     state.controls.target === "web"
-      ? glyphDiagramsWorkbenchWebGridSize(viewportPx)
+      ? glyphDiagramsWorkbenchWebGridSize(viewportPx, glyphDiagramsWorkbenchEffectiveDensity(state.controls))
       : { width: resolved.width, height: resolved.height };
   return {
     ...resolved,
@@ -864,10 +879,10 @@ export function glyphDiagramsWorkbenchLanesRenderOptions(
   state: GlyphDiagramsWorkbenchState,
   viewportPx?: GlyphPixelBox,
 ) {
-  const resolved = resolveGlyphDiagramsWorkbenchControls(state.controls, "lanes");
+  const { density: _density, ...resolved } = resolveGlyphDiagramsWorkbenchControls(state.controls, "lanes");
   const size =
     state.controls.target === "web"
-      ? glyphDiagramsWorkbenchWebGridSize(viewportPx)
+      ? glyphDiagramsWorkbenchWebGridSize(viewportPx, glyphDiagramsWorkbenchEffectiveDensity(state.controls))
       : { width: resolved.width, height: resolved.height };
   return {
     ...resolved,
@@ -994,9 +1009,6 @@ export function generateGlyphDiagramsWorkbenchSnippets(
   const mermaid =
     state.sourceKind === "mermaid" && !state.layout.direction ? state.mermaid : glyphDiagramsWorkbenchMermaid(graph);
   const options = glyphDiagramsWorkbenchChatCharset(glyphDiagramsWorkbenchRenderOptions(state, viewportPx));
-  // A Mermaid source with a Dock direction override renders through the
-  // derived Mermaid (which carries that direction), never the raw text with
-  // an option the library's own Mermaid path would ignore.
   return {
     json,
     mermaid,

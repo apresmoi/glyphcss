@@ -14,7 +14,8 @@
     "check": "node scripts/checks/architecture.mjs && node scripts/checks/format.mjs",
     "format": "node scripts/checks/format.mjs --write",
     "test:architecture": "node --test scripts/checks/architecture.test.mjs",
-    "test:e2e:layout": "node e2e/workbench-layout.mjs"
+    "test:e2e:layout": "node e2e/workbench-layout.mjs",
+    "test:e2e:diagrams-resize": "node e2e/diagrams-resize.mjs"
   },
   "devDependencies": {
     "@astrojs/compiler": "3.0.1",

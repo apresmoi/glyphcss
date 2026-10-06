@@ -557,17 +557,26 @@
    file, rather than a second one here — `DiagramsWorkbench.test.tsx`'s own
    regression pin matches the FIRST such block in the file and asserts it
    covers the viewport pulse; a second, earlier block would shadow it. */
-.root :global(.diagrams-dataset-search) {
+/* Bound the whole row to the center pane, whose desktop width can be
+   narrower than a drawer viewport just above the sidebar breakpoint. */
+.root :global(.diagrams-data-overlay) {
+  --diagrams-overlay-control-h: 30px;
   position: absolute;
   top: var(--overlay-top, 12px);
   left: 50%;
   transform: translateX(-50%);
+  width: min(440px, calc(100% - 24px));
+  min-width: 0;
   z-index: 20;
-  width: min(340px, calc(100% - 24px));
-  pointer-events: auto;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
 }
-.root :global(.diagrams-data-overlay) {
-  --diagrams-overlay-control-h: 30px;
+.root :global(.diagrams-dataset-search) {
+  position: relative;
+  flex: 1 1 340px;
+  min-width: 0;
+  pointer-events: auto;
 }
 .root :global(.diagrams-dataset-search) :global(.instrument-search-field),
 .root :global(.diagrams-random-btn) {
@@ -575,41 +584,11 @@
   height: var(--diagrams-overlay-control-h);
 }
 .root :global(.diagrams-random-btn) {
-  position: absolute;
-  top: var(--overlay-top, 12px);
-  left: calc(50% + 170px + 6px);
-  z-index: 20;
+  flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   white-space: nowrap;
   pointer-events: auto;
-}
-@media (max-width: 1100px) {
-  .root :global(.diagrams-data-overlay) {
-    position: absolute;
-    top: var(--overlay-top, 12px);
-    left: 12px;
-    right: 12px;
-    z-index: 20;
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    align-items: flex-start;
-    gap: 6px;
-  }
-  .root :global(.diagrams-dataset-search) {
-    position: relative;
-    top: auto;
-    left: auto;
-    transform: none;
-    width: auto;
-    flex: 1 1 auto;
-    min-width: 200px;
-  }
-  .root :global(.diagrams-random-btn) {
-    position: static;
-    flex: 0 0 auto;
-  }
 }
 .root :global(.diagrams-search-chevron) {
   font: inherit;
@@ -634,22 +613,32 @@
   z-index: 20;
 }
 
-/* Fixed cell budgets scroll as text while keeping the floating Dock lane
-   free. Top padding grew from 24px to 64px (matching `charts-workbench.css`'s
-   own `.charts-viewport.synth-viewport`) to clear the data overlay above —
-   one row of controls at this width, so the render never starts under it. */
+/* Keep the measured box independent of rendered text: a stale, larger
+   diagram must not inflate the next measurement while the window shrinks. */
 .root :global(.diagrams-preview) {
   min-width: 0;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 10px;
+  overflow: hidden;
+}
+.root :global(.diagrams-preview[data-pannable="true"]) {
+  cursor: grab;
+  touch-action: none;
+}
+.root :global(.diagrams-preview[data-panning="true"]) {
+  cursor: grabbing;
+  user-select: none;
+}
+.root :global(.diagrams-preview[data-panning="true"]) :global(.glyph-output) {
+  user-select: none;
 }
 .root :global(.diagrams-grid-scroll) {
-  overflow: auto;
-  flex: 0 1 auto;
-  min-height: 0;
+  overflow: visible;
+  width: max-content;
+  min-width: 100%;
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 /* `web` (no `.target-preview*` wrapper — see TargetPreview.tsx) keeps this
    as a direct-child selector so nothing about its byte-identical render

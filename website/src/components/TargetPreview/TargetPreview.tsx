@@ -68,12 +68,8 @@ export interface TargetPreviewProps {
   readonly ariaLabel?: string;
   readonly ariaDescription?: string;
   readonly className?: string;
-  /** Inline style for the `<pre>` itself — `/charts`' own density control
-   *  is the only consumer today (a `font-size` that shrinks the web `<pre>`
-   *  back down after it renders MORE cells for the same on-screen box, an
-   *  inline style beating `charts-workbench.css`'s own fixed `13px` rule on
-   *  specificity with no cascade change needed there). Omitted = byte-
-   *  identical to before this prop existed. */
+  /** Font size set by the chart/diagram Density control, independent of
+   *  window resizing. Does not transform the rendered or copied cells. */
   readonly style?: CSSProperties;
 }
 

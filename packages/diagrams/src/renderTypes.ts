@@ -10,6 +10,10 @@ export type GlyphDiagramCharset = "ascii" | "box" | "blocks" | "braille";
 export type GlyphDiagramColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
 export type GlyphDiagramDetail = "auto" | "faithful" | "balanced" | "simplified";
 export interface GlyphDiagramRenderOptions extends GlyphDiagramLayoutOptions {
+  /** Allow a perpendicular orientation when the authored direction cannot fit. */
+  readonly autoDirection?: boolean;
+  /** Fixed-size pages by default; expand preserves a connected canvas for panning. */
+  readonly overflow?: "paginate" | "expand";
   readonly target?: GlyphDiagramTarget; readonly charset?: GlyphDiagramCharset;
   readonly color?: GlyphDiagramColorMode; readonly width?: number; readonly height?: number;
   readonly detail?: GlyphDiagramDetail; readonly title?: string;
