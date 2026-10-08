@@ -1,3 +1,4 @@
+import { readCss } from "../../test/styles";
 // @vitest-environment happy-dom
 /**
  * The View folder's two inline `[reset]` controls.
@@ -50,8 +51,8 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { useViewFolder, type ViewFolderInputs } from "./mapsKit";
-import { MAP_BEARING_HOME, MAP_TILT_SHEET_HOME } from "./mapsView";
+import { useViewFolder, type ViewFolderInputs } from "./hooks/useViewFolder";
+import { MAP_BEARING_HOME, MAP_TILT_SHEET_HOME } from "../../features/maps/model/mapsView";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
@@ -189,7 +190,7 @@ describe("View folder — where the reset lives", () => {
     // caps it at that same `--name-width`, which is what makes "the track is
     // unchanged" a property of the stylesheet rather than of how long the
     // labels happen to be. Nothing in the block may size the widget side.
-    const css = readFileSync(path.resolve(__dirname, "maps-workbench.css"), "utf8")
+    const css = readCss(path.resolve(__dirname, "MapsWorkbench.module.css"))
       .replace(/\/\*[\s\S]*?\*\//g, "");
     const nameRule = /\.controller\s*>\s*\.name\.maps-view-name\s*\{([^}]*)\}/.exec(css);
     expect(nameRule).not.toBeNull();

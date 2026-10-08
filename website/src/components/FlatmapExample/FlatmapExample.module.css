@@ -1,0 +1,163 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+/* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+:local(.root) {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.map-head) {
+  padding: 20px 28px 10px;
+  border-bottom: 1px solid var(--gc-rule);
+}
+.root :global(.map-head) h1 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--gc-text);
+  letter-spacing: 0.04em;
+}
+.root :global(.map-head) p {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--gc-text-muted);
+}
+.root :global(.map-stage) {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+/* touch-action:none on the HOST (a template element the scoped rule can
+       reach) — the .glyph-output <pre> is created by the runtime and lacks the
+       Astro scope class, so a rule on it never matches. As an ancestor this
+       makes the whole map drag-to-pan instead of scrolling the page on touch. */
+.root :global(.iso-host) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.root :global(.iso-host) :global(.glyph-output) {
+  color: var(--gc-text);
+  text-shadow: 0 0 5px rgba(var(--gc-warning-rgb), 0.3);
+  cursor: grab;
+  touch-action: none;
+}
+.root :global(.iso-host) :global(.glyph-output):active {
+  cursor: grabbing;
+}
+.root :global(.map-foot) {
+  padding: var(--gc-space-3) 28px;
+  border-top: 1px solid var(--gc-rule);
+  font-size: 11px;
+  color: var(--gc-text-muted);
+  display: flex;
+  gap: var(--gc-space-4);
+  flex-wrap: wrap;
+}
+.root :global(.loading) {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gc-text-faint);
+  font-size: 13px;
+}
+
+/* Country labels (glyphcss hotspot <div>s). The scene positions the
+       hotspot; we style the text. transition makes zoom-based show/hide fade. */
+.root :global(.iso-host) :global(.glyph-hotspot) {
+  pointer-events: none;
+}
+.root :global(.iso-host) :global(.glyph-label) {
+  transform: translate(-50%, -50%);
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gc-text);
+  text-shadow:
+    0 0 3px var(--gc-surface),
+    0 0 6px var(--gc-surface),
+    0 1px 2px var(--gc-surface);
+  opacity: 0;
+  transition: opacity 180ms ease;
+}
+.root :global(.iso-host) :global(.glyph-label):global(.show) {
+  opacity: 0.92;
+}
+
+/* Top-right control dock */
+/* Desktop: the toggle button is mobile-only chrome. */
+.root :global(.iso-ctl-toggle) {
+  display: none;
+}
+/* Mobile: collapse the controls into a bottom drawer (collapsed by default),
+       opened via a [ Controls ] button — mirrors the gallery's mobile panels. */
+@media (max-width: 50rem) {
+  .root :global(.iso-ctl-toggle) {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 31;
+    min-height: 44px;
+    padding: 0 var(--gc-space-3);
+    background: rgba(var(--gc-surface-rgb), 0.94);
+    color: var(--gc-text);
+    border: none;
+    border-top: 1px solid var(--gc-rule);
+    font: 600 13px/1 var(--gc-font-ui);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+}
+.root :global(.iso-ctl) {
+  margin-bottom: 11px;
+}
+.root :global(.iso-ctl):last-child {
+  margin-bottom: 0;
+}
+.root :global(.iso-ctl-row) {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+.root :global(.iso-ctl-row) :global(.val) {
+  color: var(--gc-text);
+}
+.root :global(.iso-seg) {
+  display: flex;
+  gap: var(--gc-space-1);
+}
+.root :global(.iso-check) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+.root :global(.iso-check) input {
+  accent-color: var(--gc-accent);
+  cursor: pointer;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+@media (max-width: 50rem), (max-height: 34rem) {
+  .root :global(.map-head) {
+    display: none;
+  }
+}

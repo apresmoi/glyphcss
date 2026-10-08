@@ -1,0 +1,31 @@
+.root {
+  border: 0;
+  padding: var(--gc-space-1) 0;
+  background: transparent;
+  color: var(--gc-text);
+  font: inherit;
+  cursor: pointer;
+}
+.root::before {
+  content: "[ ";
+  white-space: pre;
+}
+.root::after {
+  content: " ]";
+  white-space: pre;
+}
+.root:hover,
+.root:global(.is-active) {
+  color: var(--gc-accent);
+}
+.root:disabled {
+  color: var(--gc-text-faint);
+  cursor: default;
+}
+
+.compact::before {
+  content: "[";
+}
+.compact::after {
+  content: "]";
+}

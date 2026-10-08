@@ -78,11 +78,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import { createGlyphMap, GlyphMapClassifiers, glyphMapEquirectangular, type GlyphMapHandle, type GlyphMapProvider, type GlyphMapVectorProvider } from "@glyphcss/maps";
-import { computeGlyphAtlasAvailability } from "../../lib/glyphAtlasAvailability";
-import { MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "./mapsKit";
-import { MAPS_URL_DEFAULTS } from "./mapsUrlState";
-import { createGeoTilesProvider } from "../../lib/geoTilesProvider";
-import { createVectorTilesProvider } from "../../lib/vectorTilesProvider";
+import { computeGlyphAtlasAvailability } from "../../services/rendering/glyphAtlasAvailability";
+import { MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
+import { createGeoTilesProvider } from "../../features/maps/providers/geoTilesProvider";
+import { createVectorTilesProvider } from "../../features/maps/providers/vectorTilesProvider";
 
 const PUBLIC_DATA_DIR = resolve(process.cwd(), "public/data");
 

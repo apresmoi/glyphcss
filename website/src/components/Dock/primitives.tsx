@@ -10,8 +10,10 @@
  * Ported from glyphcss primitives.tsx — glyph-specific metric labels and
  * ranges are the only divergence.
  */
-import { useEffect, useRef, useState } from "react";
 import { GUI, type Controller } from "lil-gui";
+import { useEffect, useRef, useState } from "react";
+import { SelectController } from "./SelectController";
+import { useDockWidget } from "./widgets";
 
 /** Handle returned by every primitive hook. Stable identity for the lifetime
  *  of the underlying lil-gui controller. */
@@ -58,11 +60,7 @@ export function useGui(
 }
 
 /** Add a child folder to `parent` and remove it on unmount. */
-export function useFolder(
-  parent: GUI | null,
-  title: string,
-  options?: { open?: boolean },
-): GUI | null {
+export function useFolder(parent: GUI | null, title: string, options?: { open?: boolean }): GUI | null {
   const [folder, setFolder] = useState<GUI | null>(null);
   const optsRef = useRef(options);
   optsRef.current = options;
@@ -196,7 +194,9 @@ export function useOption<T extends string | number>(
   options: Record<string, T>,
   value: T,
   onChange: (next: T) => void,
+  presentation: "select" | "choices" = "select",
 ): DockOptionController<T> | null {
+  const renderWidget = useDockWidget();
   const [ctrl, setCtrl] = useState<DockOptionController<T> | null>(null);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
@@ -206,13 +206,15 @@ export function useOption<T extends string | number>(
   useEffect(() => {
     if (!parent) return;
     const proxy = { value };
-    const raw = parent.add(proxy, "value", initialOptionsRef.current).name(label);
+    const raw = new SelectController(parent, proxy, initialOptionsRef.current, renderWidget, presentation, label).name(
+      label,
+    );
     raw.onChange((v: T) => onChangeRef.current(v));
     const base = makeDockController<T>(raw, proxy);
     const wrapper: DockOptionController<T> = {
       ...base,
       setOptions(next) {
-        const replaced = (raw as unknown as { options: (o: Record<string, T>) => Controller }).options(next);
+        const replaced = raw.options(next);
         replaced.onChange((v: T) => onChangeRef.current(v));
       },
     };
@@ -222,7 +224,7 @@ export function useOption<T extends string | number>(
       setCtrl(null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parent, label]);
+  }, [parent, label, presentation]);
 
   useEffect(() => {
     if (ctrl) ctrl.setValue(value);
@@ -266,11 +268,7 @@ export function useText(
   });
 }
 
-export function useButton(
-  parent: GUI | null,
-  label: string,
-  onClick: () => void,
-): DockController<never> | null {
+export function useButton(parent: GUI | null, label: string, onClick: () => void): DockController<never> | null {
   const [ctrl, setCtrl] = useState<DockController<never> | null>(null);
   const onClickRef = useRef(onClick);
   onClickRef.current = onClick;
@@ -285,36 +283,6 @@ export function useButton(
       setCtrl(null);
     };
   }, [parent, label]);
-
-  return ctrl;
-}
-
-/** Always-disabled numeric display. Renders without the "disabled" CSS class
- *  so it reads as a normal row rather than a grayed-out one. */
-export function useReadonlyNumber(
-  parent: GUI | null,
-  label: string,
-  value: number,
-): DockController<number> | null {
-  const [ctrl, setCtrl] = useState<DockController<number> | null>(null);
-
-  useEffect(() => {
-    if (!parent) return;
-    const proxy = { value };
-    const raw = parent.add(proxy, "value").name(label);
-    const wrapper = makeDockController<number>(raw, proxy);
-    wrapper.setEnabled(false, { dim: false });
-    setCtrl(wrapper);
-    return () => {
-      destroyController(raw);
-      setCtrl(null);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [parent, label]);
-
-  useEffect(() => {
-    if (ctrl) ctrl.setValue(value);
-  }, [ctrl, value]);
 
   return ctrl;
 }
@@ -357,7 +325,6 @@ export function useDockSlot(
   return host;
 }
 
-/** Always-disabled text display with the same visual treatment as readonly numbers. */
 export function useReadonlyText(parent: GUI | null, label: string, value: string): DockController<string> | null {
   const [ctrl, setCtrl] = useState<DockController<string> | null>(null);
 

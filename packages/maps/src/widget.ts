@@ -235,6 +235,10 @@ export const GLYPH_MAP_SHADOW_RECEIVERS: ReadonlySet<GlyphMapLayer["type"]> = ne
  * is how every other per-layer appearance change on this widget already
  * works — there is no live setter for one).
  *
+ * No `occlusionContourPx` is set for a `density > 1` extrusion's one-cell
+ * dark rim: measured, `occlusionContourPx: 0` makes that rim several times
+ * worse, and any value forces the fine id-map raster for every group.
+ *
  * `line`/`contour` layers never reach this: they own no mesh, are stamped
  * post-raster, and already emit oriented stroke glyphs by construction —
  * `glyphPalette` is a documented no-op for that path (AGENTS.md).
@@ -724,8 +728,9 @@ export const GLYPH_MAP_FILL_DRAPES: readonly GlyphMapFillDrape[] = ["surface", "
  * a mess... a ton of black lines... weird shapes": a face at 90 degrees is
  * edge-on to the camera and draws as one dark line.
  *
- * It is NOT the "flat lake level" estimator this package already rejected
- * (`docs/design/maps.md`), and the difference is in the DATA rather than in
+ * It is NOT a "flat lake level" estimator (min/median/mean over a ring —
+ * rejected because each buries or floats a lake the DEM smoothed into its
+ * valley), and the difference is in the DATA rather than in
  * the renderer: where a DEM resolves a lake it stores the lake's own SURFACE,
  * so the per-vertex drape is already flat there and needs no statistic.
  * Measured across every vendored OpenFreeMap tile, `lake`/`pond`/`river`/
@@ -929,6 +934,11 @@ export interface GlyphMapSymbolLayer {
    * beside their dot, region names sit on their centroid — and a per-feature
    * answer is what {@link GlyphMapFeatureFilter} plus a second layer already
    * expresses.
+   *
+   * MapLibre's `text-variable-anchor` is not a one-line extension: the
+   * arbiter would have to report the chosen anchor per candidate (a
+   * per-record transform write) and needs an anti-flip rule, or labels jump
+   * anchors frame to frame while panning.
    */
   readonly textAnchor?: GlyphMapLabelAnchor;
   /**
@@ -1008,7 +1018,9 @@ export interface GlyphMapCircleLayer {
  * - **`altitudeProperty` is TRUE METRES above the ground**, exempt from the
  *   terrain's `exaggeration` exactly as a `fill-extrusion`'s height is (see
  *   {@link glyphMapTrueScaleElevation}); the GROUND it is measured from is
- *   the exaggerated relief, like everything else in the scene.
+ *   the exaggerated relief, like everything else in the scene. A NEGATIVE
+ *   altitude is buried under the visible surface and draws nothing, so an
+ *   earthquake's depth stays a property, never an altitude.
  * - **A label is stamped too**, arbitrated by the same
  *   {@link glyphMapDeclutterLabels} a `symbol` uses, and drawn only for a
  *   feature whose own mark survived the depth test.
@@ -1863,6 +1875,11 @@ export interface GlyphMapOptions {
  * sun / headlight / the consumer's own slider already own (AGENTS.md's
  * "Camera-following key light"). One vector lights the scene and casts its
  * shadows, so the two can never disagree.
+ *
+ * So `keyLight: "headlight"` shows NO shadows, exactly: an orthographic
+ * shadow cast along the view axis lands in its caster's own cells. A
+ * consumer offering both must hand the direction back to a fixed light
+ * while shadows are on (`/maps`' `mapKeyLightForSunMode` does).
  */
 export interface GlyphMapShadowOptions {
   /** Shadow tint. Omitted = glyphcss's own `"#000000"`. */
@@ -2743,6 +2760,10 @@ function reliefResolution(cols: number, rows: number, fraction: ReliefFraction):
  * open a T-junction crack along the whole shared edge, which at the map's
  * relief exaggeration is a visible tear, not a hairline.
  *
+ * Don't reach for `@glyphcss/core`'s `decimatePolygons` here: it needs the
+ * full mesh built first, dedupes away per-quad colour, and snaps each tile
+ * to its own lattice, which reopens exactly that crack.
+ *
  * `coarsen` scales the requirement (a tier that may render coarser than one
  * quad per cell passes > 1).
  */
@@ -3412,6 +3433,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * At bearing 0 it clears the override rather than installing an identity-
    * equivalent matrix: `useMat: false` keeps glyphcss on its memoized Euler
    * path, so the default widget pays nothing and renders the same bytes.
+   *
+   * glyphcss's `temporalBlend` history camera is rebuilt from `rotX`/`rotY`
+   * and drops `mat`/`useMat`, so a maps scene that opts into TAA smears at
+   * any nonzero bearing. The fix belongs in glyphcss's `rasterize.ts`.
    */
   function syncCameraBearing(): void {
     const up = bearing === 0 ? null : bearingUpAxis();
@@ -4186,6 +4211,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * a CAPABILITY question (`isOrbit`), never `proj.id`. A degenerate measure
    * (zero radius, a non-finite zoom before the first sync) degrades to the
    * same cap rather than throwing or pinning the camera head-on.
+   *
+   * Two exact-looking alternatives are wrong for this job. "The top ray of the
+   * parallel bundle still hits the sphere" (`sin t <= 1 - h/R`) returns 0
+   * whenever the globe already fits the frame, forbidding the zoomed-out
+   * limb swing. "The disc stays framed" (`sin t <= |1 - h/R|`) allows ~53
+   * degrees at a world view, shoving the globe to the bottom with most of the
+   * frame empty.
+   *
+   * Known gap: an orbit `tilt` ADDS to `cameraForCenter`'s own `90 - lat`
+   * pitch, and this ceiling ignores that base, so at city spans high tilts
+   * can blank the grid while this still answers the 85 cap.
    */
   function maxTiltFor(proj: GlyphMapProjection, v: GlyphMapView, zoom: number, grid: ProjectionGrid): number {
     if (!isOrbit(proj)) return GLYPH_MAP_MAX_TILT;
@@ -4666,6 +4702,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // The PIVOT: the surface point under the view centre, not the globe's
       // centre — `setTilt`'s doc for the model. At `pitch: 0` this is on the
       // view axis, so it moves depth by a constant and col/row by nothing.
+      // Known gap: the pivot is the DATUM, not the drawn ground, so at city
+      // spans exaggerated terrain projects off the grid under a pitch.
+      // Targeting the ground moves every pinned pose and `centerForCamera`'s
+      // inversion, so it is an architectural change, not a tweak.
       camera.target = projection.project(lon, lat, 0);
     } else {
       // A sheet's `camera.rotX` IS its pitch and is written by `setTilt`/
@@ -5450,6 +5490,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         }
 
         const missingFine = [...desired].filter((key) => !tileCache.has(key));
+        // Known gap: unlike the contour and vector sweeps, a single rejected
+        // `loadTile` here rejects the whole update and can leave the layer
+        // blank. A raster provider must resolve, never reject; the fix is the
+        // contour runtime's per-tile isolation.
         if (missingFine.length > 0) {
           await Promise.all(missingFine.map(async (key) => {
             const [zStr, xy] = key.split("/");

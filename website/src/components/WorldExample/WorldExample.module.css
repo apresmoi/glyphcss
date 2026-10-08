@@ -1,0 +1,88 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+/* Sit the examples shell below the fixed site header so the top nav stays
+       reachable (Home / Gallery / WordArt / …). */
+:local(.root) {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.map-shell) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.map-head) {
+  padding: var(--gc-space-6) 32px var(--gc-space-3);
+  border-bottom: 1px solid var(--gc-rule);
+}
+.root :global(.map-head) h1 {
+  margin: 0;
+  font-size: 22px;
+  color: var(--gc-text);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.root :global(.map-head) p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gc-text-muted);
+}
+.root :global(.map-stage) {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+/* touch-action:none on the HOST (a template element the scoped rule can
+       reach) — the .glyph-output <pre> is created by the runtime and lacks the
+       Astro scope class, so a rule on it never matches. As an ancestor this
+       makes the whole map drag-to-orbit instead of scrolling the page on touch. */
+.root :global(.globe-host) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.root :global(.globe-host) :global(.glyph-output) {
+  color: var(--gc-text);
+  text-shadow: 0 0 6px rgba(var(--gc-warning-rgb), 0.35);
+  cursor: grab;
+  touch-action: none;
+}
+.root :global(.globe-host) :global(.glyph-output):active {
+  cursor: grabbing;
+}
+.root :global(.map-foot) {
+  padding: 14px 32px;
+  border-top: 1px solid var(--gc-rule);
+  font-size: 11px;
+  color: var(--gc-text-muted);
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+.root :global(.loading) {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gc-text-faint);
+  font-size: 13px;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+@media (max-width: 50rem), (max-height: 34rem) {
+  .root :global(.map-head) {
+    display: none;
+  }
+}

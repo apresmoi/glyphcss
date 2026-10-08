@@ -2,7 +2,8 @@
  * GlyphOrbitControls — Vue 3 orbit controls for GlyphScene.
  */
 import { defineComponent, inject, onBeforeUnmount, watch, shallowRef, watchEffect } from "vue";
-import type { GlyphOrbitControlsHandle, GlyphOrbitControlsOptions } from "glyphcss";
+import type { PropType } from "vue";
+import type { GlyphOrbitControlsHandle, GlyphOrbitControlsMode, GlyphOrbitControlsOptions } from "glyphcss";
 import { createGlyphOrbitControls } from "glyphcss";
 import { GlyphSceneContextKey } from "../scene/context";
 
@@ -11,11 +12,29 @@ export interface GlyphOrbitControlsProps {
   wheel?: boolean;
   invert?: boolean | number;
   /**
-   * Clamp vertical drag to ±π/2. Default true. Set false for globe-style
-   * unrestricted tumbling past the poles.
+   * Turntable-mode pitch clamp, `[min, max]` degrees, or `null` for
+   * unrestricted tumbling (views from below the equator included; the
+   * up-vector never rolls). Default `[-90, 90]`. No-op in `"trackball"` mode.
    */
-  clampPitch?: boolean;
+  pitchRange?: [number, number] | null;
+  /**
+   * `"turntable"` (default) — Euler orbit, up-vector locked. `"trackball"` —
+   * free rotation about the screen axis perpendicular to the drag, reaching
+   * any orientation including roll; a two-finger twist rolls.
+   */
+  mode?: GlyphOrbitControlsMode;
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Wheel/pinch zoom clamp, `[min, max]`, or `null` to disable clamping.
+   * Omitted (default): resolved once at mount from the camera's own
+   * starting `zoom` — see `createGlyphOrbitControls`'s own doc.
+   */
+  zoomRange?: [number, number] | null;
+  /**
+   * Middle/right-button drag, Shift+left drag, or a two-finger touch drag
+   * pans `camera.target` in the screen plane. Default true.
+   */
+  pan?: boolean;
 }
 
 export const GlyphOrbitControls = defineComponent({
@@ -24,8 +43,11 @@ export const GlyphOrbitControls = defineComponent({
     drag: { type: Boolean, default: true },
     wheel: { type: Boolean, default: true },
     invert: { type: [Boolean, Number] as unknown as () => boolean | number, default: false },
-    clampPitch: { type: Boolean, default: true },
+    pitchRange: { type: null as unknown as PropType<[number, number] | null>, default: () => [-90, 90] },
+    mode: { type: String as unknown as () => GlyphOrbitControlsMode, default: "turntable" },
     animate: { type: [Boolean, Object] as unknown as () => false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean }, default: false },
+    zoomRange: { type: null as unknown as PropType<[number, number] | null | undefined>, default: undefined },
+    pan: { type: Boolean, default: true },
   },
   setup(props) {
     const sceneCtx = inject(GlyphSceneContextKey);
@@ -44,8 +66,11 @@ export const GlyphOrbitControls = defineComponent({
         drag: props.drag,
         wheel: props.wheel,
         invert: props.invert,
-        clampPitch: props.clampPitch,
+        pitchRange: props.pitchRange,
+        mode: props.mode,
         animate: props.animate === false ? false : props.animate,
+        zoomRange: props.zoomRange,
+        pan: props.pan,
       };
       controlsRef.value = createGlyphOrbitControls(scene, opts);
     });
@@ -57,14 +82,17 @@ export const GlyphOrbitControls = defineComponent({
     });
 
     watch(
-      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, clampPitch: props.clampPitch, animate: props.animate }),
+      () => ({ drag: props.drag, wheel: props.wheel, invert: props.invert, pitchRange: props.pitchRange, mode: props.mode, animate: props.animate, zoomRange: props.zoomRange, pan: props.pan }),
       (next) => {
         controlsRef.value?.update({
           drag: next.drag,
           wheel: next.wheel,
           invert: next.invert,
-          clampPitch: next.clampPitch,
+          pitchRange: next.pitchRange,
+          mode: next.mode,
           animate: next.animate === false ? false : next.animate,
+          zoomRange: next.zoomRange,
+          pan: next.pan,
         });
       },
     );

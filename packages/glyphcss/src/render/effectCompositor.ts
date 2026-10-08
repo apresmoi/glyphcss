@@ -11,6 +11,7 @@ import {
   type GlyphEffectFrameView,
   type GlyphEffectImageView,
   type GlyphEffectLayerHandle,
+  type GlyphEffectLayerOptions,
   type GlyphEffectOutput,
   type GlyphEffectParamSchema,
   type GlyphEffectParamShape,
@@ -55,9 +56,36 @@ const EMPTY_SCRATCH: GlyphEffectScratchView = {
   samples: [],
 };
 
+/**
+ * `GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE` — the tagged code carried by
+ * {@link GlyphEffectRequirementUnavailableError}, thrown when a mounted
+ * program's hard `requirements` name a buffer the grid actually being
+ * composed cannot supply (§8's "a hard requirement is rejected ... with
+ * `GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE`"). A scene render always supplies
+ * every buffer a solid-mode program can require (that's what
+ * `assertEffectMode`/`retainShade` etc. already guarantee at mount), so this
+ * only ever fires there for the class of bug the guard exists to catch; it
+ * fires routinely for {@link composeGlyphEffects} on a camera-less grid,
+ * where `depth`/`normal`/`worldPosition`/`objectPosition`/`objectExit` are
+ * genuinely unavailable by construction — never a silent degrade for a HARD
+ * requirement, which is the point: `optionalRequirements`/
+ * `dynamicRequirements` degrade instead, exactly as they already do outside
+ * solid mode.
+ */
+export const GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE = "GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE" as const;
+
+export class GlyphEffectRequirementUnavailableError extends Error {
+  readonly code = GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE;
+  readonly requirement: GlyphEffectRequirement;
+  constructor(requirement: GlyphEffectRequirement, message: string) {
+    super(message);
+    this.name = "GlyphEffectRequirementUnavailableError";
+    this.requirement = requirement;
+  }
+}
+
 export interface GlyphEffectOutputMetadata {
   readonly id: string;
-  readonly pre: HTMLPreElement;
   readonly isBase: boolean;
   readonly cellToSceneGrid: readonly [number, number, number, number, number, number];
   readonly sceneGridSize: readonly [number, number];
@@ -621,6 +649,57 @@ function cellGridShapeMatches(a: CellGrid, b: CellGrid): boolean {
 }
 
 /**
+ * `retainGlyphEffectOutput`'s per-call inputs the compositor itself cannot
+ * derive (contract 4, AGENTS.md "Retained Glyph Effects"): a CAMERA-LESS
+ * `CellGrid` (a chart's cell canvas, a hand-built grid) has no notion of
+ * "the depth-winning surface is here" on its own, so "coverage is finite
+ * depth" is no longer baked into the compositor — the caller states it.
+ */
+export interface GlyphEffectRetainOptions {
+  /**
+   * Per-cell `0..1` "this cell is on a surface" signal — what a
+   * `"surfaces"`-targeted layer's `targetCoverage` reads, and what
+   * `base.coverage` reports to every program. Length `grid.cols*grid.rows`.
+   * A scene render's own meaning ("finite `CellGrid.depth`") is computed by
+   * `glyphEffectDepthCoverage` and passed in explicitly by
+   * `createGlyphScene.ts`; `composeGlyphEffects` defaults this to
+   * fully-covered (every cell `1`) when the caller supplies none, since a
+   * bare grid with no camera has no other honest default.
+   */
+  readonly coverage: ArrayLike<number>;
+  /**
+   * Whether `grid.depth` is a real, camera-projected surface depth a
+   * `depth`-requiring program may read. `CellGrid.depth` is a REQUIRED field
+   * (never `undefined`), so without this flag a program hard-requiring
+   * `depth` would silently read whatever garbage a depth-less grid happens
+   * to carry instead of being told the buffer doesn't exist. Default `true`
+   * — every existing scene render has real depth, so omitting this keeps
+   * `createGlyphScene.ts` byte-identical with no call-site change beyond
+   * `coverage`. `composeGlyphEffects` defaults it to `false`: "no camera"
+   * means no depth semantics unless the caller explicitly says otherwise.
+   */
+  readonly hasDepth?: boolean;
+  /**
+   * Fix round 6, P1-1: whether `grid.winnerMesh`, if present, may actually
+   * be used for per-object EFFECT targeting (`targetCoverageForCell`).
+   * Default `true` (byte-identical to before this option existed —
+   * `composeGlyphEffects`' own bare-`CellGrid` callers have no scene "mode"
+   * concept at all, so they keep trusting the grid's own field presence).
+   * `createGlyphScene.ts` passes `false` outside `mode: "solid"` explicitly:
+   * `CellGrid.winnerMesh` used to be populated ONLY in solid mode, so
+   * effect targeting's own "no winner data outside solid mode, degrade to
+   * inactive" contract (this file's own `targetCoverageForCell` doc) held
+   * for free. Now that a mounted OBJECT OVERLAY can populate `winnerMesh`
+   * in `wireframe`/`ink` too (`rasterize.ts`'s `buildSurfaceOcclusionMap`,
+   * gated on a SEPARATE `retainOverlayOcclusion` flag — AGENTS.md's "Scene
+   * objects" Occlusion clause), effect targeting needs its own explicit
+   * gate to keep its documented solid-only contract independent of whether
+   * some unrelated object's overlay happens to be mounted in the same scene.
+   */
+  readonly retainWinnerMesh?: boolean;
+}
+
+/**
  * `previous` (optional): the output this same `metadata.id` retained on the
  * LAST full geometry render, when one exists at the matching resolution —
  * under camera orbit, a full render (and so a fresh `retainGlyphEffectOutput`
@@ -647,17 +726,28 @@ function cellGridShapeMatches(a: CellGrid, b: CellGrid): boolean {
 export function retainGlyphEffectOutput(
   grid: CellGrid,
   metadata: GlyphEffectOutputMetadata,
+  options: GlyphEffectRetainOptions,
   previous?: RetainedGlyphEffectOutput,
 ): RetainedGlyphEffectOutput {
   const baseGrid = cloneCellGrid(grid);
+  // Fix round 6, P1-1: stripped from the CLONE itself (not merely the `base`
+  // view below), because `composeRetainedGlyphEffectOutput`'s own
+  // `targetCoverageForCell` call reads `retained.baseGrid.winnerMesh`
+  // DIRECTLY — gating only `base`'s own field would leave that read
+  // unaffected. See `GlyphEffectRetainOptions.retainWinnerMesh`'s own doc.
+  if (!(options.retainWinnerMesh ?? true)) delete baseGrid.winnerMesh;
   const n = baseGrid.cols * baseGrid.rows;
+  if (options.coverage.length !== n) {
+    throw new RangeError("glyphcss: effect retain coverage length must equal cols*rows.");
+  }
+  const hasDepth = options.hasDepth ?? true;
   const baseColor = new Uint32Array(n);
   const baseCoverage = new Float32Array(n);
   const colorPackCache = new Map<string, number>();
   for (let i = 0; i < n; i++) {
     const color = baseGrid.color[i];
     baseColor[i] = color == null ? GlyphEffectNoColor : packCellColorCached(colorPackCache, color);
-    baseCoverage[i] = Number.isFinite(baseGrid.depth[i]!) ? 1 : 0;
+    baseCoverage[i] = clamp01(options.coverage[i]!);
   }
   let uv0 = baseGrid.surfaceUv;
   if (!uv0) {
@@ -671,7 +761,7 @@ export function retainGlyphEffectOutput(
     glyph: baseGrid.char,
     coverage: baseCoverage,
     color: baseColor,
-    depth: baseGrid.depth,
+    ...(hasDepth ? { depth: baseGrid.depth } : {}),
     uv0,
     ...(baseGrid.shade ? { shade: baseGrid.shade } : {}),
     ...(baseGrid.worldPosition ? { worldPosition: baseGrid.worldPosition } : {}),
@@ -881,23 +971,26 @@ export function composeRetainedGlyphEffectOutput(
     // requirement in solid mode is handled separately by `needsInputRaster`
     // (createGlyphScene.ts's `addEffectLayer`), so this guard doesn't need
     // to duplicate that as a hard failure here.
+    if (layer.program.requirements?.includes("depth") && !base.depth) {
+      throw new GlyphEffectRequirementUnavailableError("depth", "glyphcss: retained cell depth is unavailable for an effect that requires depth.");
+    }
     if (layer.program.requirements?.includes("baseShade") && !base.shade) {
-      throw new Error("glyphcss: retained base shading is unavailable for an effect that requires baseShade.");
+      throw new GlyphEffectRequirementUnavailableError("baseShade", "glyphcss: retained base shading is unavailable for an effect that requires baseShade.");
     }
     if (layer.program.requirements?.includes("worldPosition") && !base.worldPosition) {
-      throw new Error("glyphcss: retained world positions are unavailable for an effect that requires worldPosition.");
+      throw new GlyphEffectRequirementUnavailableError("worldPosition", "glyphcss: retained world positions are unavailable for an effect that requires worldPosition.");
     }
     if (layer.program.requirements?.includes("objectPosition") && !base.objectPosition) {
-      throw new Error("glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
+      throw new GlyphEffectRequirementUnavailableError("objectPosition", "glyphcss: retained object positions are unavailable for an effect that requires objectPosition.");
     }
     if (layer.program.requirements?.includes("objectExit") && !base.objectExit) {
-      throw new Error("glyphcss: retained object exit positions are unavailable for an effect that requires objectExit.");
+      throw new GlyphEffectRequirementUnavailableError("objectExit", "glyphcss: retained object exit positions are unavailable for an effect that requires objectExit.");
     }
     if (layer.program.requirements?.includes("normal") && !base.normal) {
-      throw new Error("glyphcss: retained face normals are unavailable for an effect that requires normal.");
+      throw new GlyphEffectRequirementUnavailableError("normal", "glyphcss: retained face normals are unavailable for an effect that requires normal.");
     }
     if (layer.program.requirements?.includes("objectNormal") && !base.objectNormal) {
-      throw new Error("glyphcss: retained object-space face normals are unavailable for an effect that requires objectNormal.");
+      throw new GlyphEffectRequirementUnavailableError("objectNormal", "glyphcss: retained object-space face normals are unavailable for an effect that requires objectNormal.");
     }
     for (let i = 0; i < n; i++) {
       targetCoverage[i] = targetCoverageForCell(layer.target, metadata.isBase, baseCoverage[i]!, winnerMesh, i);
@@ -961,4 +1054,143 @@ export function composeRetainedGlyphEffectOutput(
     }
   }
   return workingGrid;
+}
+
+/** `metadata.cellToSceneGrid`'s identity value — a compose call with no enclosing scene has nothing else to place it against, so its own grid IS the scene grid. */
+const IDENTITY_CELL_TO_SCENE_GRID: readonly [number, number, number, number, number, number] = [1, 0, 0, 1, 0, 0];
+
+/**
+ * `createGlyphScene.ts`'s own `GlyphEffectRetainOptions.coverage` — "finite
+ * `CellGrid.depth`" is exactly what a scene render has always meant by "this
+ * cell is on a surface" (`targetCoverageForCell`'s pre-contract-4 rule).
+ * Exported so the scene supplies it explicitly rather than the compositor
+ * baking the rule in — contract 4 (AGENTS.md "Retained Glyph Effects"):
+ * "the caller supplies coverage explicitly."
+ */
+export function glyphEffectDepthCoverage(grid: CellGrid): Float32Array {
+  const n = grid.cols * grid.rows;
+  const coverage = new Float32Array(n);
+  for (let i = 0; i < n; i++) coverage[i] = Number.isFinite(grid.depth[i]!) ? 1 : 0;
+  return coverage;
+}
+
+/**
+ * Per-call context for {@link composeGlyphEffects} — everything a mounted
+ * scene otherwise supplies implicitly (AGENTS.md "Retained Glyph Effects",
+ * contract 4). Every field is optional: the common case — a bare grid with
+ * no meaningful coordinate mapping beyond its own cells — needs none of
+ * them.
+ */
+export interface GlyphEffectComposeContext {
+  /** Identifies this call's own retained-output slot for diagnostics. Default `"compose"`. */
+  readonly id?: string;
+  /**
+   * Per-cell `0..1` "this cell is on a surface" signal
+   * (`GlyphEffectRetainOptions.coverage`). Default: every cell fully
+   * covered (`1`) — a grid with no camera has no other honest default for a
+   * `"surfaces"`-targeted layer.
+   */
+  readonly coverage?: ArrayLike<number>;
+  /**
+   * Whether `grid.depth` is real, camera-projected depth a `depth`
+   * requirement may read. Default `false` — "no camera" means no depth
+   * semantics unless the caller says otherwise.
+   */
+  readonly hasDepth?: boolean;
+  readonly cellToSceneGrid?: readonly [number, number, number, number, number, number];
+  readonly sceneGridSize?: readonly [number, number];
+  readonly localCellFootprint?: readonly [number, number];
+  readonly worldToSceneScale?: number;
+}
+
+// The seven `GlyphEffectFrameView` buffers a camera can supply and a
+// camera-less grid genuinely cannot (`baseColor`/`uv0`/`surfaceKey`/
+// `uv0Footprint` are always present or unchecked here, matching
+// `composeRetainedGlyphEffectOutput`'s own static-requirements guard).
+function frameViewHasRequirement(base: GlyphEffectFrameView, requirement: GlyphEffectRequirement): boolean {
+  switch (requirement) {
+    case "depth": return !!base.depth;
+    case "baseShade": return !!base.shade;
+    case "worldPosition": return !!base.worldPosition;
+    case "objectPosition": return !!base.objectPosition;
+    case "objectExit": return !!base.objectExit;
+    case "normal": return !!base.normal;
+    case "objectNormal": return !!base.objectNormal;
+    default: return true;
+  }
+}
+
+/**
+ * The DOM-free, camera-free Glyph Effects compositor (AGENTS.md "Retained
+ * Glyph Effects", contract 4) — runs the SAME requirement/blend/opacity/
+ * target math a mounted scene layer does, over any bare `CellGrid`: a
+ * chart's cell canvas (`@glyphcss/charts`'s `composeGlyphChartEffects`), a
+ * diagram's, or a hand-built one. `layers` takes exactly the shape
+ * `scene.addEffectLayer(effect, options)` does — a definition or raw
+ * program plus its layer options — because it mounts through the SAME path
+ * (`createRuntimeGlyphEffectLayer`), just with no live handle returned:
+ * this is a ONE-SHOT render, so `params`/`target`/etc. are fixed for the
+ * call and nothing here is mutable afterward.
+ *
+ * Composing the same `grid`/`layers`/`ctx` twice produces byte-identical
+ * output: no hidden state survives between calls — a fresh
+ * `RuntimeGlyphEffectLayer` (and, for a program declaring one, a fresh
+ * `program.createState()`) is built every call, and `retainGlyphEffectOutput`
+ * is handed no `previous` to pool a working buffer against.
+ *
+ * A hard `requirements` entry the grid cannot supply throws
+ * {@link GlyphEffectRequirementUnavailableError} (`GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE`)
+ * rather than silently degrading — `optionalRequirements`/
+ * `dynamicRequirements` degrade instead, exactly as outside solid mode,
+ * WITH ONE EXCEPTION: a program's own `hardDynamicRequirements(params)`
+ * (PLAN-3d.md §8) names the subset of its dynamic requirements it has no
+ * fallback for — field-synth's `render: "carve"`/`"xray"`, which march
+ * `objectPosition` → `objectExit` with no 2D substitute (unlike plain
+ * `space: "object"` paint's designed wireframe/voxel fallback, which stays
+ * a silent degrade here too). Checked ONLY here, never by a mounted scene
+ * layer (`composeRetainedGlyphEffectOutput`'s own guard stays static-only)
+ * — a scene's dynamic degrade is a genuine, deliberate render-MODE choice;
+ * a camera-less grid has no render mode to fall back by, so committing to a
+ * volumetric-only code path here is a real incompatibility, not a mode.
+ */
+export function composeGlyphEffects(
+  grid: CellGrid,
+  layers: readonly GlyphEffectLayerOptions[],
+  ctx: GlyphEffectComposeContext = {},
+): CellGrid {
+  const n = grid.cols * grid.rows;
+  const coverage = ctx.coverage ?? new Float32Array(n).fill(1);
+  const cellToSceneGrid = ctx.cellToSceneGrid ?? IDENTITY_CELL_TO_SCENE_GRID;
+  const sceneGridSize: readonly [number, number] = ctx.sceneGridSize ?? [grid.cols, grid.rows];
+  const metadata: GlyphEffectOutputMetadata = {
+    id: ctx.id ?? "compose",
+    isBase: true,
+    cellToSceneGrid,
+    sceneGridSize,
+    localCellFootprint: ctx.localCellFootprint ?? [1, 1],
+    // No scene owns this output, so no `transformCells` hook ever reads
+    // this tag — it exists only because `GlyphEffectOutputMetadata` is
+    // shared with the scene's own mount path, which does read it.
+    transformCellsLayer: { detail: false, cellToSceneGrid },
+    ...(ctx.worldToSceneScale !== undefined ? { worldToSceneScale: ctx.worldToSceneScale } : {}),
+  };
+  const runtimeLayers: RuntimeGlyphEffectLayer[] = layers.map((layerOptions, index) =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    createRuntimeGlyphEffectLayer(layerOptions as any, index, () => {}, () => {}));
+  const prepared = prepareRuntimeGlyphEffectLayers(runtimeLayers, sceneGridSize);
+  const retained = retainGlyphEffectOutput(grid, metadata, { coverage, hasDepth: ctx.hasDepth ?? false });
+  for (const { layer, params } of prepared) {
+    const hard = layer.program.hardDynamicRequirements?.(params);
+    if (!hard) continue;
+    for (const requirement of hard) {
+      if (!frameViewHasRequirement(retained.base, requirement)) {
+        throw new GlyphEffectRequirementUnavailableError(
+          requirement,
+          `glyphcss: a camera-less grid cannot supply "${requirement}" for an effect whose params commit it to a `
+          + "volumetric-only code path with no 2D fallback.",
+        );
+      }
+    }
+  }
+  return composeRetainedGlyphEffectOutput(retained, prepared);
 }

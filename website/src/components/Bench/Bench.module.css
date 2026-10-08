@@ -1,0 +1,92 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+
+:local(.root) {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.bar) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+  font-size: 12px;
+}
+.root :global(.bar) label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--gc-text-muted);
+}
+.root :global(.bar) input[type="range"] {
+  width: 110px;
+}
+.root :global(.bar) :global(.val) {
+  color: rgba(var(--gc-accent-rgb), 0.95);
+  min-width: 34px;
+}
+
+.root :global(.bar) input[type="number"] {
+  background: var(--gc-surface);
+  color: var(--gc-text);
+  border: 1px solid var(--gc-rule-strong);
+  border-radius: 0;
+  padding: 3px 6px;
+  font: inherit;
+}
+.root :global(.stage) {
+  flex: 1;
+  position: relative;
+  min-height: 0;
+}
+.root :global(.host) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+}
+.root :global(.host) :global(.glyph-output) {
+  color: var(--gc-text);
+  text-shadow: 0 0 4px rgba(var(--gc-warning-rgb), 0.3);
+  margin: 0;
+}
+.root :global(.hud) {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 5;
+  background: rgba(var(--gc-surface-rgb), 0.86);
+  border: 1px solid var(--gc-rule);
+  padding: 10px var(--gc-space-3);
+  font-size: 11px;
+  line-height: 1.55;
+  min-width: 200px;
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  white-space: pre;
+}
+.root :global(.hud) b {
+  color: rgba(var(--gc-accent-rgb), 0.95);
+  font-weight: 600;
+}
+.root :global(.hud) :global(.hl) {
+  color: var(--gc-orange);
+}
+.root :global(.loading) {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--gc-text-muted);
+}
+.root :global(.code.is-collapsed .gw-code-panel__body) {
+  display: none;
+}

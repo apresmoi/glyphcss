@@ -1,0 +1,25 @@
+{
+  "_source": "CHARTS-RESEARCH/DIAGNOSIS-pie-contrast.md, \"## 2. Ink coverage per glyph\"",
+  "_method": "Coverage = rasterised alpha sum / (advance x 1 em) at 14px. Two independent measurements per glyph, both listed (a pair is flagged only if under 0.15 in the CHAT stack): (a) PIL/FreeType rasterisation directly from the font files (menloFt, sfMonoFt, glyphMonoFt columns) — Menlo.ttc, /System/Library/Fonts/SFNSMono.ttf, and Glyph Mono converted from website/public/fonts/glyph-mono.woff2; (b) Chromium canvas rasterisation of the real chat font stack resolved on the live /charts page with the chat target selected (chatBrowserMenlo — Chrome/Firefox resolve `ui-monospace` to Menlo at 0.602em advance) and of Glyph Mono directly (glyphMonoBrowser). Chromium's numbers run higher than FreeType's (gamma/hinting); both are kept rather than reconciled.",
+  "glyphs": {
+    "█": { "name": "FULL BLOCK (solid)", "chatBrowserMenlo": 1.03, "menloFt": 0.84, "sfMonoFt": 0.78, "glyphMonoBrowser": 1.17, "glyphMonoFt": 0.99 },
+    "▓": { "name": "DARK SHADE", "chatBrowserMenlo": 0.87, "menloFt": 0.69, "sfMonoFt": 0.57, "glyphMonoBrowser": 0.96, "glyphMonoFt": 0.40 },
+    "▒": { "name": "MEDIUM SHADE", "chatBrowserMenlo": 0.53, "menloFt": 0.42, "sfMonoFt": 0.20, "glyphMonoBrowser": 0.48, "glyphMonoFt": 0.20 },
+    "░": { "name": "LIGHT SHADE", "chatBrowserMenlo": 0.23, "menloFt": 0.15, "sfMonoFt": 0.10, "glyphMonoBrowser": 0.24, "glyphMonoFt": 0.10 },
+    "▚": { "name": "SQUARE WITH DIAGONAL CROSSHATCH FILL (stipple)", "chatBrowserMenlo": 0.53, "menloFt": 0.43, "sfMonoFt": 0.39, "glyphMonoBrowser": 0.60, "glyphMonoFt": 0.50 },
+    "╱": { "name": "BOX DRAWINGS LIGHT DIAGONAL UPPER RIGHT TO LOWER LEFT", "chatBrowserMenlo": 0.20, "menloFt": 0.14, "sfMonoFt": 0.10, "glyphMonoBrowser": 0.22, "glyphMonoFt": 0.19 },
+    "▌": { "name": "LEFT HALF BLOCK", "chatBrowserMenlo": 0.52, "menloFt": 0.42, "sfMonoFt": 0.39, "glyphMonoBrowser": 0.59, "glyphMonoFt": 0.50 },
+    "═": { "name": "BOX DRAWINGS DOUBLE HORIZONTAL", "chatBrowserMenlo": 0.19, "menloFt": 0.18, "sfMonoFt": 0.13, "glyphMonoBrowser": 0.22, "glyphMonoFt": 0.20 },
+    "║": { "name": "BOX DRAWINGS DOUBLE VERTICAL", "chatBrowserMenlo": 0.38, "menloFt": 0.26, "sfMonoFt": 0.21, "glyphMonoBrowser": 0.45, "glyphMonoFt": 0.34 },
+    "#": { "name": "NUMBER SIGN", "chatBrowserMenlo": 0.32, "menloFt": 0.27, "sfMonoFt": 0.19, "glyphMonoBrowser": 0.33, "glyphMonoFt": 0.29 },
+    "%": { "name": "PERCENT SIGN", "chatBrowserMenlo": 0.27, "menloFt": 0.23, "sfMonoFt": 0.24, "glyphMonoBrowser": 0.33, "glyphMonoFt": 0.28 },
+    "+": { "name": "PLUS SIGN", "chatBrowserMenlo": 0.15, "menloFt": 0.13, "sfMonoFt": 0.10, "glyphMonoBrowser": 0.17, "glyphMonoFt": 0.15 },
+    ".": { "name": "FULL STOP", "chatBrowserMenlo": 0.06, "menloFt": 0.06, "sfMonoFt": 0.03, "glyphMonoBrowser": 0.03, "glyphMonoFt": 0.03 },
+    "=": { "name": "EQUALS SIGN", "chatBrowserMenlo": 0.16, "menloFt": 0.15, "sfMonoFt": 0.10, "glyphMonoBrowser": 0.17, "glyphMonoFt": 0.15 },
+    "/": { "name": "SOLIDUS", "chatBrowserMenlo": 0.15, "menloFt": 0.12, "sfMonoFt": 0.07, "glyphMonoBrowser": 0.18, "glyphMonoFt": 0.15 },
+    "@": { "name": "COMMERCIAL AT", "chatBrowserMenlo": 0.38, "menloFt": 0.28, "sfMonoFt": 0.20, "glyphMonoBrowser": 0.41, "glyphMonoFt": 0.34 },
+    ":": { "name": "COLON", "chatBrowserMenlo": 0.10, "menloFt": 0.09, "sfMonoFt": 0.06, "glyphMonoBrowser": 0.07, "glyphMonoFt": 0.06 },
+    "|": { "name": "VERTICAL LINE", "chatBrowserMenlo": 0.15, "menloFt": 0.12, "sfMonoFt": 0.08, "glyphMonoBrowser": 0.19, "glyphMonoFt": 0.16 },
+    "-": { "name": "HYPHEN-MINUS", "chatBrowserMenlo": 0.08, "menloFt": 0.08, "sfMonoFt": 0.05, "glyphMonoBrowser": 0.09, "glyphMonoFt": 0.08 }
+  }
+}

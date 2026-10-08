@@ -18,12 +18,10 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 
 import { Dock, DockLighting } from "../Dock";
 import { useDockGui } from "../Dock/slots";
-import {
-  DEFAULT_MAP_LIGHTING,
-  MapsProjectionControls,
-  MapsSunControls,
-  type MapProjectionId,
-} from "./mapsKit";
+import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
+import { MapsProjectionControls } from "./MapsProjectionControls/MapsProjectionControls";
+import { MapsSunControls } from "./MapsSunControls/MapsSunControls";
+import { type MapProjectionId } from "../../features/maps/model/config";
 
 /**
  * The projection picker was moved out of the left rail (a plain, un-portaled

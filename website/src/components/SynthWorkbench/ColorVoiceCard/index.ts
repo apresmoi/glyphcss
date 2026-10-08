@@ -1,0 +1,1 @@
+export { ColorVoiceCard } from "./ColorVoiceCard";

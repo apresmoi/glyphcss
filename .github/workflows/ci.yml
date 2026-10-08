@@ -51,8 +51,8 @@ jobs:
       # across package boundaries, so no `maxWorkers`/`pool` setting can fix
       # it. The env var rather than a flag: the flag would have to live inside
       # the root `test` script and would serialize a developer's machine too.
-      # Full record, including why not a separate `maps` job:
-      # docs/design/maps.md, "`map.idle()`".
+      # Not a separate `maps` job: tests need `build:packages` first, so a
+      # second job duplicates checkout, install and build for a small saving.
       - name: Run tests
         run: pnpm test
         env:
@@ -60,6 +60,9 @@ jobs:
 
       - name: Type-check against built declarations
         run: pnpm -r --if-present run test:types
+
+      - name: Check website architecture and styling
+        run: pnpm --filter @glyphcss/website check && pnpm --filter @glyphcss/website test:architecture
 
       - name: Build website
         run: pnpm build:website

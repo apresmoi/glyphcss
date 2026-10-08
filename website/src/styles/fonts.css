@@ -1,0 +1,14 @@
+@font-face {
+  font-family: "Glyph Mono";
+  src: url("/fonts/glyph-mono.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Glyph Mono";
+  src: url("/fonts/glyph-mono-bold.woff2") format("woff2");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}

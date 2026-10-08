@@ -193,8 +193,7 @@ are simply a new way to reach it.
 and `createGlyphScene.ts`): the probe costs **+9.54 ms/frame before and
 +6.67 after**, 31.0 -> 35.0 fps with it mounted. `base-raster` is 15.2 ms on
 both, so the whole difference is outside it. The id-map still rasters the
-whole scene — it now rejects the runs it can before projecting them. See
-`docs/design/performance.md`.
+whole scene — it now rejects the runs it can before projecting them.
 
 The consequence for `/maps`: every mode its UI offers is either the scene's own
 (`solid`, no separation) or an outline mode (`wireframe`/`ink`, transparent, no

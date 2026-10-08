@@ -42,16 +42,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  LayersPanel,
-  MAP_SCENE_GLYPH_PALETTE,
-  MAP_SCENE_RENDER_MODE,
-  type ExtraLayerInputs,
-  type LayersFolderInputs,
-  type OsmLayerInputs,
-} from "./mapsKit";
-import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "./mapsOsm";
-import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS } from "./mapsDatasets";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { type ExtraLayerInputs, type LayersFolderInputs, type OsmLayerInputs } from "./LayersPanel/types";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS } from "../../features/maps/model/mapsOsm";
+import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS } from "../../features/maps/model/mapsDatasets";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;
@@ -211,7 +206,7 @@ describe("every OSM row carries its own density, on its own line", () => {
     expect(slider(r).min).toBe("1");
     expect(slider(r).max).toBe("4");
     expect(slider(r).step).toBe("0.1");
-    expect(readout(r).className).toBe("voice-slider-readout");
+    expect(readout(r).classList.contains("voice-slider-readout")).toBe(true);
   });
 
   it("shows each row's own value", () => {

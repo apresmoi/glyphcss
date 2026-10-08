@@ -1,7 +1,7 @@
 /**
  * `<glyph-orbit-controls>` — declarative orbit controls.
  */
-import { createGlyphOrbitControls, type GlyphOrbitControlsHandle } from "../api/createGlyphOrbitControls";
+import { createGlyphOrbitControls, type GlyphOrbitControlsHandle, type GlyphOrbitControlsOptions } from "../api/createGlyphOrbitControls";
 import type { GlyphSceneElement } from "./GlyphSceneElement";
 
 const ELEMENT_BASE: typeof HTMLElement =
@@ -27,9 +27,31 @@ function findScene(el: HTMLElement): GlyphSceneElement | null {
   return found ?? null;
 }
 
+function parsePitchRange(value: string | null): [number, number] | null | undefined {
+  if (value === null) return undefined;
+  if (value === "none") return null;
+  const parts = value.split(",").map((s) => parseFloat(s.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) return undefined;
+  return [parts[0], parts[1]];
+}
+
+function parseZoomRange(value: string | null): [number, number] | null | undefined {
+  if (value === null) return undefined;
+  if (value === "none") return null;
+  const parts = value.split(",").map((s) => parseFloat(s.trim()));
+  if (parts.length !== 2 || !parts.every(Number.isFinite)) return undefined;
+  return [parts[0], parts[1]];
+}
+
+function parseMode(value: string | null): "turntable" | "trackball" | undefined {
+  if (value === "trackball") return "trackball";
+  if (value === "turntable") return "turntable";
+  return undefined;
+}
+
 export class GlyphOrbitControlsElement extends ELEMENT_BASE {
   static get observedAttributes(): string[] {
-    return ["drag", "wheel", "invert", "clamp-pitch", "animate-speed", "animate-axis"];
+    return ["drag", "wheel", "invert", "pitch-range", "mode", "animate-speed", "animate-axis", "zoom-range", "pan"];
   }
 
   private _controls: GlyphOrbitControlsHandle | null = null;
@@ -45,19 +67,38 @@ export class GlyphOrbitControlsElement extends ELEMENT_BASE {
     this._controls?.update(this._readOptions());
   }
 
-  private _readOptions() {
+  private _readOptions(): GlyphOrbitControlsOptions {
     const drag = parseBool(this.getAttribute("drag"));
     const wheel = parseBool(this.getAttribute("wheel"));
     const invert = parseBool(this.getAttribute("invert"));
-    const clampPitch = parseBool(this.getAttribute("clamp-pitch"));
+    const pitchRange = parsePitchRange(this.getAttribute("pitch-range"));
+    const mode = parseMode(this.getAttribute("mode"));
     const speed = parseNumber(this.getAttribute("animate-speed"));
     const axis: "x" | "y" = this.getAttribute("animate-axis") === "x" ? "x" : "y";
+    const defaultPitchRange: [number, number] = [-90, 90];
+    // `zoom-range` has no single static "library default" to substitute on
+    // removal the way `pitch-range` does (its default is a computed
+    // AUTO-DERIVE from the camera's own starting zoom, resolved once at
+    // mount) — so, like `drag`/`wheel`/`invert`, it is included only when
+    // the attribute is present ("none" for explicit no-clamp), leaving a
+    // prior explicit override in place until the attribute is set again
+    // rather than un-derivable "back to auto".
+    const zoomRange = parseZoomRange(this.getAttribute("zoom-range"));
+    const pan = parseBool(this.getAttribute("pan"));
     return {
       ...(drag !== undefined ? { drag } : {}),
       ...(wheel !== undefined ? { wheel } : {}),
       ...(invert !== undefined ? { invert } : {}),
-      ...(clampPitch !== undefined ? { clampPitch } : {}),
+      // pitch-range/mode are ALWAYS included (defaulting when absent or
+      // unparseable) so REMOVING the attribute restores the library
+      // default instead of leaving the previous value stuck (P2-a) —
+      // createGlyphOrbitControls's `update()` only resets a field when the
+      // key is present in its `opts` argument.
+      pitchRange: pitchRange !== undefined ? pitchRange : defaultPitchRange,
+      mode: mode !== undefined ? mode : "turntable",
       ...(speed !== undefined ? { animate: { speed, axis } } : {}),
+      ...(zoomRange !== undefined ? { zoomRange } : {}),
+      ...(pan !== undefined ? { pan } : {}),
     };
   }
 

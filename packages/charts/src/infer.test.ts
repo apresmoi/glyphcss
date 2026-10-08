@@ -1,0 +1,55 @@
+import { describe, expect, it } from "vitest";
+import { inferGlyphChartScaleType } from "./infer";
+
+describe("inferGlyphChartScaleType", () => {
+  it("infers time for Date values", () => {
+    expect(inferGlyphChartScaleType([new Date(), new Date()])).toBe("time");
+  });
+  it("infers band for string values", () => {
+    expect(inferGlyphChartScaleType(["a", "b"])).toBe("band");
+  });
+  it("infers linear for number values", () => {
+    expect(inferGlyphChartScaleType([1, 2, 3])).toBe("linear");
+  });
+  it("skips leading null/undefined to find the first real value", () => {
+    expect(inferGlyphChartScaleType([null, undefined, "x"])).toBe("band");
+  });
+  it("falls back to linear for an all-nullish channel", () => {
+    expect(inferGlyphChartScaleType([null, undefined])).toBe("linear");
+  });
+
+  it("infers time for a column of plain calendar-valid ISO date strings (the CLI/JSON path, no explicit scales.x.type needed)", () => {
+    expect(inferGlyphChartScaleType(["2011-01-01", "2012-01-01", "2013-01-01"])).toBe("time");
+  });
+
+  it("infers time for ISO strings carrying a time-of-day/offset component too", () => {
+    expect(inferGlyphChartScaleType(["2026-01-01T00:00:00Z", "2026-01-01T02:00:00+01:00"])).toBe("time");
+  });
+
+  it("a mixed column (some ISO dates, some plain strings) stays band — only a homogeneous column has one honest type", () => {
+    expect(inferGlyphChartScaleType(["2011-01-01", "not-a-date", "2013-01-01"])).toBe("band");
+  });
+
+  it("plain non-date strings still infer band, unaffected", () => {
+    expect(inferGlyphChartScaleType(["Chrome", "Safari", "Firefox"])).toBe("band");
+  });
+
+  it("a column mixing an ISO date string with a plain number never infers linear from the date's own short-circuit (round 2 N10/N12)", () => {
+    // The old code read the date string, kept scanning (a valid date
+    // string never short-circuits on its own), then hit the number and
+    // returned "linear" — `Number("2024-01-01")` is NaN, so the column
+    // silently got the wrong scale. A number seen AFTER a run of date
+    // strings can no longer slip through that gap; `numericValuesUnplaceableOnBand`
+    // (`scales.ts`) still needs a NUMBER's own short-circuit preserved when
+    // it's the type seen FIRST (its own cross-mark "which type came first"
+    // heuristic — unrelated to dates, out of this fix's scope), so that
+    // order is untouched.
+    expect(inferGlyphChartScaleType(["2024-01-01", 5])).toBe("band");
+    expect(inferGlyphChartScaleType([5, "2024-01-01"])).toBe("linear");
+  });
+
+  it("allowDateStrings: false keeps an all-ISO column band regardless of shape — `scales.ts`'s escape hatch for a band-only mark (bar/rect/cell) sharing the axis", () => {
+    expect(inferGlyphChartScaleType(["2011-01-01", "2012-01-01", "2013-01-01"], { allowDateStrings: false })).toBe("band");
+    expect(inferGlyphChartScaleType(["2011-01-01", "2012-01-01"], { allowDateStrings: true })).toBe("time");
+  });
+});

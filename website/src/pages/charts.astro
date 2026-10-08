@@ -1,0 +1,11 @@
+---
+import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
+import { ChartsWorkbench } from "../components/ChartsWorkbench";
+const title = "Charts — ASCII data viz | glyphcss";
+const description =
+  "A declarative, Observable-Plot-flavoured chart spec rendered as ASCII/box/braille output for chat, terminal and web, built on glyphcss.";
+---
+
+<WorkbenchLayout title={title} description={description} path="/charts/">
+  <ChartsWorkbench client:only="react" />
+</WorkbenchLayout>

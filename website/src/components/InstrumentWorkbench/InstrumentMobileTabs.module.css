@@ -1,0 +1,27 @@
+.root {
+  display: none;
+}
+@media (max-width: 1100px) {
+  .root {
+    position: absolute;
+    right: var(--overlay-right);
+    bottom: var(--overlay-bottom);
+    left: var(--mobile-tabs-left, var(--overlay-left));
+    z-index: 30;
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    justify-content: space-between;
+    gap: var(--gc-space-1);
+    background: var(--gc-surface);
+  }
+  .root :global(.dn-mobile-tabs__button) {
+    min-width: 0;
+    min-height: 44px;
+    white-space: nowrap;
+    font-size: var(--gc-text-sm);
+  }
+  .root :global(.dn-mobile-tabs__button):global(.is-active) {
+    color: var(--gc-accent);
+  }
+}

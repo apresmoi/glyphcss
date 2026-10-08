@@ -13,13 +13,10 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  buildContourLayerMountOptions,
-  LayersPanel,
-  MAP_SCENE_GLYPH_PALETTE,
-  type ExtraLayerInputs,
-  type LayersFolderInputs,
-} from "./mapsKit";
+import { buildContourLayerMountOptions } from "../../features/maps/model/terrain";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE } from "../../features/maps/model/config";
+import { type ExtraLayerInputs, type LayersFolderInputs } from "./LayersPanel/types";
 
 /**
  * The Contour card's `labels` control — `GlyphMapContourLayer.labels`

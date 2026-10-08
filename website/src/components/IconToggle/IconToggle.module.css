@@ -1,0 +1,11 @@
+.root {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 2px;
+  min-width: 0;
+}
+.root > button {
+  flex: 1 1 0;
+  width: auto;
+}

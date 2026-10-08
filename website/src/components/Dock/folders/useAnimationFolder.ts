@@ -6,10 +6,10 @@
  * `selectedAnimation` that no longer exists in the new list triggers
  * `onSelectAnimationClear` so the parent can reset cleanly.
  */
-import { useEffect, useRef } from "react";
 import type { GUI } from "lil-gui";
+import { useEffect, useRef } from "react";
+import type { SceneOptionsState } from "../../../features/gallery/model/types";
 import { useFolder, useOption, useSlider, useToggle } from "../primitives";
-import type { SceneOptionsState } from "../../GalleryWorkbench/types";
 
 export interface AnimationFolderInputs {
   selectedAnimation: string;
@@ -36,19 +36,12 @@ export function useAnimationFolder(parent: GUI | null, inputs: AnimationFolderIn
 
   const folder = useFolder(parent, "Animation", { open: true });
 
-  const sequenceController = useOption<string>(
-    folder,
-    "Sequence",
-    animationOptions,
-    selectedAnimation,
-    (value) => onAnimationChange(value),
+  const sequenceController = useOption<string>(folder, "Sequence", animationOptions, selectedAnimation, (value) =>
+    onAnimationChange(value),
   );
 
-  const pausedController = useToggle(
-    folder,
-    "Paused",
-    animationPaused,
-    (value) => onUpdateScene({ animationPaused: value }),
+  const pausedController = useToggle(folder, "Paused", animationPaused, (value) =>
+    onUpdateScene({ animationPaused: value }),
   );
 
   const speedController = useSlider(

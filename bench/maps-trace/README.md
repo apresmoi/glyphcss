@@ -108,7 +108,7 @@ even while shadows are off:
 
 `--profile` takes a CDP sampling profile over a second run of the same motion
 and reports self time per function. That is what decomposes `base-raster` from
-the outside: `docs/design/performance.md` did it by short-circuiting the solid
+the outside: the alternative is short-circuiting the solid
 rasterizer at three points and rebuilding, which cannot be done without editing
 shipped render code.
 

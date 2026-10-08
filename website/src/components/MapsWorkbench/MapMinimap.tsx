@@ -44,10 +44,15 @@
  * this component adds NO second loop and no second listener, only a gate on
  * what that one loop already publishes.
  */
-import { useEffect, useRef } from "react";
 import { createGlyphMap, type GlyphMapHandle, type GlyphMapVectorSource } from "@glyphcss/maps";
 import { injectGlyphBaseStyles } from "glyphcss";
-import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE, buildMapProjection, type MapProjectionId } from "./mapsKit";
+import { useEffect, useRef } from "react";
+import {
+  MAP_SCENE_GLYPH_PALETTE,
+  MAP_SCENE_RENDER_MODE,
+  buildMapProjection,
+  type MapProjectionId,
+} from "../../features/maps/model/config";
 import {
   MAP_MINIMAP_COLS,
   MAP_MINIMAP_ROWS,
@@ -59,7 +64,7 @@ import {
   mapMinimapLayers,
   mapMinimapPoseStep,
   type MapMinimapPose,
-} from "./mapsMinimap";
+} from "../../features/maps/model/mapsMinimap";
 
 export interface MapMinimapProps {
   /** `mapsMinimap.ts`' {@link mapMinimapVisible} — the page decides, so the rule stays pure and testable. */
@@ -99,7 +104,12 @@ export function MapMinimap({ visible, walking, source, projectionId, centerLon, 
     injectGlyphBaseStyles(host.ownerDocument ?? undefined);
     const pose = latestRef.current;
     const map = createGlyphMap(host, {
-      view: { center: [pose.lon, pose.lat], span: MAP_MINIMAP_SPAN_DEG, cols: MAP_MINIMAP_COLS, rows: MAP_MINIMAP_ROWS },
+      view: {
+        center: [pose.lon, pose.lat],
+        span: MAP_MINIMAP_SPAN_DEG,
+        cols: MAP_MINIMAP_COLS,
+        rows: MAP_MINIMAP_ROWS,
+      },
       // Exaggeration is deliberately `1` and not the page's: nothing mounted
       // here has a height (a `fill` sits on the datum), so the only thing the
       // page's value could do is rebuild this widget every time the reader

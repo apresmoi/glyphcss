@@ -1,0 +1,169 @@
+.root:global(.voice-card) {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: var(--gc-space-2) 10px;
+  border: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+  padding: 9px;
+}
+.root :global(.voice-left) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.root :global(.voice-trend) {
+  /* Grow to absorb the left column's slack (the grid stretches this column to the
+     controls' height) so no empty row sits below the fixed-square glyph. */
+  display: block;
+  width: 120px;
+  flex: 1 1 auto;
+  min-height: 24px;
+  background: var(--gc-surface);
+  border: 1px solid rgba(var(--gc-text-rgb), 0.1);
+}
+.root :global(.voice-trend-mid) {
+  stroke: var(--gc-rule);
+  stroke-width: 1;
+}
+.root :global(.voice-trend-line) {
+  stroke-width: 1.4;
+  opacity: 0.95;
+}
+.root :global(.voice-preview) {
+  display: block;
+  width: 120px;
+  height: 120px;
+  flex: 0 0 120px;
+  overflow: hidden;
+  background: var(--gc-surface);
+  border: 1px solid rgba(var(--gc-text-rgb), 0.1);
+}
+.root :global(.voice-preview) :global(.glyph-output) {
+  color: var(--gc-text);
+}
+.root :global(.voice-preview-none) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  padding: var(--gc-space-1);
+  color: var(--gc-text-faint);
+}
+.root :global(.voice-controls) {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.root :global(.voice-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.root :global(.voice-head-right) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.root :global(.voice-title) {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(var(--gc-text-rgb), 0.7);
+}
+.root :global(.voice-color) {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--gc-rule-strong);
+  background: none;
+  cursor: pointer;
+  border-radius: 0;
+}
+.root :global(.voice-color)::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.root :global(.voice-color)::-webkit-color-swatch {
+  border: none;
+}
+.root :global(.voice-row) {
+  display: flex;
+  gap: 6px;
+}
+.root :global(.voice-placement-toggle) {
+  margin-top: var(--gc-space-1);
+  padding: 1px var(--gc-space-1);
+  align-self: flex-start;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--gc-text-muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.root :global(.voice-placement-toggle):hover,
+.root :global(.voice-placement-toggle):global(.is-open) {
+  color: rgba(var(--gc-text-rgb), 0.8);
+}
+.root :global(.voice-placement) {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+  margin-top: 2px;
+}
+.root :global(.voice-placement-rows) {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-1);
+}
+.root :global(.voice-fieldmap) {
+  display: block;
+  flex: 0 0 auto;
+  width: 46px;
+  align-self: stretch;
+  height: auto;
+  background: var(--gc-surface);
+  border: 1px solid rgba(var(--gc-text-rgb), 0.1);
+}
+.root :global(.voice-fieldmap-axis) {
+  stroke: var(--gc-rule);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.root :global(.voice-layer-row) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  margin-top: 2px;
+}
+.root :global(.voice-layer-label) {
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+  flex: 0 0 34px;
+}
+.root :global(.voice-layer-row) :global(.gx-toggle) {
+  flex: 1 1 auto;
+}
+.root:global(.voice-card) {
+  border: 0;
+  border-bottom: 1px solid var(--gc-rule);
+  padding: var(--gc-space-2) 0;
+  grid-template-columns: minmax(0, 90px) minmax(0, 1fr);
+}
+.root :global(.voice-preview),
+.root :global(.voice-trend) {
+  width: 90px;
+}
+.root :global(.voice-preview) {
+  height: 90px;
+  flex-basis: 90px;
+}

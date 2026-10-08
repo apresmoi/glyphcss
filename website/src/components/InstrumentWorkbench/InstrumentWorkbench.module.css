@@ -1,0 +1,634 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+:local(.root):global(.dn-root) {
+  position: fixed;
+  inset: var(--sl-nav-height, 72px) 0 0 0;
+  /* height:auto (not .dn-root's height:100%) — with position:fixed + top:72px,
+     100% would make the shell 100vh tall starting below the nav, pushing the
+     footer off-screen. inset already resolves the height from nav to viewport bottom. */
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--gc-surface);
+  color: var(--gc-text);
+  /* The Dock positions itself and sizes its scroll area from these (unset on this page). */
+  --overlay-top: 12px;
+  --overlay-right: 12px;
+  --overlay-bottom: 12px;
+  --overlay-left: 12px;
+  /* `.synth-presets`' own natural single-row height (104px square tile +
+     ~21px label row + 10px top/bottom padding + 1px border-top) — pinned
+     here as the one source of truth `.synth-presets` itself is sized from
+     below, instead of a bare number duplicated at each use site. */
+}
+/* Top region: voices rail + viewport (+ floating Dock). The footer sits below. */
+.root :global(.synth-body) {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  position: relative;
+}
+
+/* ── Left rail: voices ─────────────────────────────────────────────────── */
+.root :global(.synth-voices) {
+  flex: 0 0 var(--gc-rail-width);
+  /* Long titles and single-line feedback must not override the rail's basis. */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+  min-height: 0;
+  box-sizing: border-box;
+}
+.root :global(.synth-voices-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 9px var(--gc-space-3);
+  border-bottom: 1px solid var(--gc-rule);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(var(--gc-accent-rgb), 0.95);
+}
+/* Wraps the sidebar header's global Basic/Advanced toggle + "+ Add", so both
+   sit as one group on the header's right side (`.synth-voices-head`'s own
+   `justify-content: space-between` against the "VOICES" title). */
+.root :global(.synth-voices-head-actions) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.root :global(.synth-voices-list) {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.root :global(.synth-empty) {
+  color: var(--gc-text-faint);
+  font-size: 12px;
+  text-align: center;
+  margin-top: var(--gc-space-6);
+}
+/* Header ROW: the collapse/expand toggle (caret + title) plus the
+   combine/blend selects, as flex siblings — NOT one <button> spanning the
+   whole row (see the doc comment above `LayerGroup` for why a <select>
+   can't live inside that button). */
+/* Combine/blend: compact selects sharing the header's remaining width evenly. */
+/* Same "[x]"/"[ ]" pseudo-checkbox technique as `.layer-group-check` — one
+   control idiom across the whole sidebar — recolored to this section's own
+   accent instead of sharing the cyan class directly. */
+/* Combine/mode: compact selects sharing the header's remaining width evenly
+   — same technique as `.layer-group-head-select`, recolored isn't needed
+   since `.gx-select` is already accent-neutral. */
+/* Left column: a fixed-120px flex stack so the square preview below stays exactly
+   square regardless of the grid track's stretch behavior — both children pin
+   their own width/height instead of inheriting it from the grid item. */
+/* The voice's own waveform: freq = cycles across the width, mix = vertical
+   amplitude, wave toggle = shape — a direct visual read of the sliders below it.
+   Confined to the 120px left column now (was full-card-width) and roughly
+   aligns with the "Voice N" title row on the right. */
+.root :global(.voice-mode-toggle) :global(.gx-toggle) {
+  flex: 0 0 auto;
+}
+.root :global(.voice-mode-toggle) :global(.gx-toggle-btn) {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+}
+.root :global(.voice-mode-toggle) :global(.gx-toggle-text) {
+  font-weight: 600;
+}
+/* Wrapper reserves the 8px on each side the `[ … ]` bracket pseudos sit in —
+   mirrors the Dock's `.controller.number .widget { padding-inline: 8px }`. */
+
+/* ── Center: viewport ──────────────────────────────────────────────────── */
+.root :global(.synth-main) {
+  flex: 1;
+  position: relative;
+  min-width: 0;
+}
+.root :global(.synth-viewport) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+/* Fixed-size terminal/chat previews can still scroll, but neither the
+   viewport nor nested render frames may show scrollbar chrome. */
+.root :global(.synth-viewport),
+.root :global(.synth-viewport) * {
+  scrollbar-width: none;
+}
+.root :global(.synth-viewport)::-webkit-scrollbar,
+.root :global(.synth-viewport) *::-webkit-scrollbar {
+  display: none;
+}
+.root :global(.synth-viewport) :global(.glyph-output) {
+  color: var(--gc-text);
+}
+.root :global(.instrument-search-field) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px var(--gc-space-2);
+  background: rgba(var(--gc-surface-rgb), 0.9);
+  border: 1px solid var(--gc-text-faint);
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.4);
+}
+.root :global(.instrument-search-field):focus-within {
+  border-color: rgba(var(--gc-accent-rgb), 0.55);
+}
+/* The Dock's own orange marker (`.gx-select::after`'s caret colour), used
+   here as the prompt character — a magnifier glyph has no counterpart
+   anywhere else on either page, and the surface is a terminal. */
+.root :global(.instrument-search-glyph) {
+  color: var(--gc-orange);
+  font-size: 11px;
+  line-height: 1;
+}
+.root :global(.instrument-search-input) {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--gc-text);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 1px 0;
+}
+.root :global(.instrument-search-input)::placeholder {
+  color: var(--gc-text-faint);
+}
+.root :global(.instrument-search-clear) {
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0 2px;
+  color: var(--gc-text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.root :global(.instrument-search-clear):hover {
+  color: var(--gc-text);
+}
+.root :global(.instrument-search-list) {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  max-height: min(46vh, 320px);
+  overflow-y: auto;
+  background: rgba(var(--gc-surface-rgb), 0.94);
+  border: 1px solid var(--gc-rule);
+  box-shadow: 0 6px 18px rgba(var(--gc-surface-rgb), 0.4);
+}
+.root :global(.instrument-search-option) {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 52px;
+  align-items: baseline;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-1) var(--gc-space-2);
+  font-size: 11px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(var(--gc-text-rgb), 0.07);
+  /* `/charts` renders each option as a real `<button>` (keyboard/paste
+     idiom carried over from before this shared block existed) rather than
+     `/maps`' `<li>` — reset the button chrome so it matches either way. */
+  width: 100%;
+  background: transparent;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.root :global(.instrument-search-option):last-child {
+  border-bottom: none;
+}
+.root :global(.instrument-search-option):global(.is-active) {
+  background: transparent;
+  color: var(--gc-accent);
+}
+.root :global(.instrument-search-name),
+.root :global(.instrument-search-context),
+.root :global(.instrument-search-metric) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root :global(.instrument-search-name) {
+  color: var(--gc-text);
+  letter-spacing: 0.02em;
+}
+.root :global(.instrument-search-context) {
+  color: var(--gc-text-muted);
+}
+.root :global(.instrument-search-metric) {
+  text-align: right;
+  font-size: 10px;
+}
+.root :global(.instrument-search-group) {
+  padding: var(--gc-space-1) var(--gc-space-2) 2px;
+  border-top: 1px solid var(--gc-rule);
+  font-size: 9px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--gc-text-muted);
+}
+.root :global(.instrument-search-group):first-child {
+  border-top: none;
+}
+/* The egress disclosure and network credit, in one line under the field.
+   Rendered from focus, before a single keystroke has left the machine,
+   which is the only time saying so is worth anything. Quieter than
+   `.instrument-search-note` — it is standing text, not a status. */
+.root :global(.instrument-search-egress) {
+  margin: 2px 0 0;
+  padding: var(--gc-space-1) var(--gc-space-2);
+  font-size: 10px;
+  line-height: 1.45;
+  color: rgba(var(--gc-text-rgb), 0.42);
+  background: rgba(var(--gc-surface-rgb), 0.94);
+  border: 1px solid var(--gc-rule);
+}
+.root :global(.instrument-search-egress) a {
+  color: rgba(var(--gc-text-rgb), 0.68);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.root :global(.instrument-search-egress) a:hover {
+  color: var(--gc-accent);
+}
+.root :global(.instrument-search-note) {
+  margin: 2px 0 0;
+  padding: var(--gc-space-1) var(--gc-space-2);
+  font-size: 11px;
+  color: var(--gc-text-muted);
+  background: rgba(var(--gc-surface-rgb), 0.94);
+  border: 1px solid var(--gc-rule);
+}
+
+.root :global(.instrument-tray) {
+  flex: 0 0 var(--gc-presets-height);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--gc-surface);
+  padding-inline: var(--gc-space-3);
+  box-sizing: border-box;
+}
+.root :global(.instrument-tray) > :global(.instrument-section-heading) {
+  flex: 0 0 24px;
+}
+.root :global(.instrument-tray) :global(.synth-presets) {
+  flex: 1;
+  min-height: 0;
+  padding: var(--gc-space-2) 0;
+  border: 0;
+  background: transparent;
+}
+.root :global(.instrument-tray) :global(.synth-tile) {
+  width: 100px;
+  background: transparent;
+  border: 0;
+  border-right: 1px solid var(--gc-rule);
+}
+.root :global(.instrument-tray) :global(.synth-tile-scene) {
+  height: 78px;
+  aspect-ratio: auto;
+  background: transparent;
+}
+.root :global(.instrument-tray) :global(.synth-tile):hover {
+  transform: none;
+}
+.root :global(.instrument-tray) :global(.synth-tile):global(.is-active) {
+  color: var(--gc-accent);
+  background: transparent;
+}
+.root :global(.instrument-tray) :global(.synth-tile):global(.is-active) :global(.synth-tile-label)::before {
+  content: "[ ";
+}
+.root :global(.instrument-tray) :global(.synth-tile):global(.is-active) :global(.synth-tile-label)::after {
+  content: " ]";
+}
+
+/* Angle/u/v get their own diagram, exactly as freq/speed/mix have the waveform
+   above: origin dot, travel direction, and a wavefront tick. Same 92px column
+   width so the card reads as one stack of related views. */
+/* Placement group: folded away by default (most patches never touch it), with
+   the field diagram to the LEFT of its own three sliders — the same pairing the
+   waveform has with freq/speed/mix. */
+
+/* ── Footer: full-width preset gallery ─────────────────────────────────── */
+.root :global(.synth-presets) {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 10px;
+  padding: 10px var(--gc-space-3);
+  overflow-x: auto;
+  border-top: 1px solid var(--gc-rule);
+  background: rgba(var(--gc-surface-rgb), 0.92);
+}
+.root :global(.synth-tile) {
+  flex: 0 0 auto;
+  width: 104px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-block: 0;
+  border-inline: 1px solid var(--gc-rule);
+  --gx-bracket: var(--gc-rule);
+  background-color: var(--gc-surface);
+  color: rgba(var(--gc-text-rgb), 0.7);
+  cursor: pointer;
+  overflow: hidden;
+  font: inherit;
+  transition:
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+.root :global(.synth-tile):hover {
+  border-color: rgba(var(--gc-accent-rgb), 0.9);
+  transform: translateY(-2px);
+  --gx-bracket: rgba(var(--gc-accent-rgb), 0.9);
+}
+/* The preview is decorative — let every click (glyph or gap) fall through to the tile button. */
+.root :global(.synth-tile-scene) {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: var(--gc-surface);
+  pointer-events: none;
+}
+.root :global(.synth-tile-scene) :global(.glyph-output) {
+  color: var(--gc-text);
+}
+.root :global(.synth-tile-label) {
+  padding: 3px 6px 5px;
+  font-size: 10px;
+  text-align: center;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 62rem) {
+  .root :global(.synth-voices) {
+    flex-basis: 300px;
+    box-sizing: border-box;
+  }
+}
+@media (max-width: 1100px) {
+  .root {
+    --mobile-tabs-height: 52px;
+    --mobile-export-clearance: calc(var(--instrument-export-height, var(--gc-control-height)) + var(--gc-space-2));
+    --mobile-panel-bottom: calc(var(--overlay-bottom) + var(--mobile-tabs-height) + 8px);
+  }
+
+  /* Voices rail: out of the flex flow so `.synth-main` fills the full width,
+     shown as a bottom drawer like the gallery's `.models-sidebar`. */
+  .root :global(.synth-voices) {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    flex-basis: auto;
+    width: auto;
+    height: min(60vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+    z-index: 25;
+    border: 1px solid var(--gc-rule);
+    box-sizing: border-box;
+  }
+  .root :global(.synth-voices):global(.is-mobile-open) {
+    display: flex;
+  }
+  .root :global(.synth-body) > :global(.dn-floating-controls) {
+    position: absolute;
+    display: none;
+    top: auto;
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    left: var(--overlay-left);
+    width: auto;
+    max-width: none;
+    height: min(66vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    max-height: none;
+    padding: var(--gc-space-3);
+    box-sizing: border-box;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 25;
+  }
+  .root :global(.synth-body) > :global(.dn-floating-controls):global(.is-mobile-open) {
+    display: flex;
+  }
+  /* The desktop legend straddles the panel's top border via `top: 0; transform:
+     translateY(-50%)`, poking half its height above the box — clipped now that
+     this element itself scrolls. Pull it fully inside the padding reserved above. */
+  .root :global(.synth-body) > :global(.dn-floating-controls)::before {
+    top: 7px;
+    transform: none;
+  }
+  .root :global(.synth-body) > :global(.dn-floating-controls) :global(.dn-lil-gui-host),
+  .root
+    :global(.synth-body)
+    > :global(.dn-floating-controls)
+    :global(.dn-lil-gui-host)
+    > :global(.lil-gui):global(.root) {
+    width: 100% !important;
+    max-width: 100%;
+  }
+  .root :global(.synth-body) > :global(.dn-floating-controls) :global(.dn-lil-gui-host) {
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  .root
+    :global(.synth-body)
+    > :global(.dn-floating-controls)
+    :global(.dn-lil-gui-host)
+    > :global(.lil-gui):global(.root) {
+    box-sizing: border-box;
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
+  /* Presets: out of the footer flow (so `.synth-body` fills the freed height)
+     until opened, then a wrapping-grid bottom drawer — more browsable than
+     the desktop's single scrolling strip once it has real vertical room. */
+  .root :global(.instrument-tray) {
+    display: none;
+    position: absolute;
+    top: auto;
+    left: var(--overlay-left);
+    right: var(--overlay-right);
+    bottom: var(--mobile-panel-bottom);
+    width: auto;
+    height: min(50vh, calc(100% - var(--overlay-top) - var(--mobile-panel-bottom) - 8px));
+    flex-wrap: wrap;
+    align-content: flex-start;
+    overflow-x: hidden;
+    overflow-y: auto;
+    z-index: 25;
+    border: 1px solid var(--gc-rule);
+    border-radius: 0;
+  }
+  .root :global(.instrument-tray):global(.is-mobile-open) {
+    display: flex;
+  }
+}
+@media (min-width: 601px) and (max-width: 1100px) and (max-height: 500px) {
+  .root:has(:global(.synth-export-bar)) {
+    --mobile-export-clearance: max(
+      0px,
+      calc(var(--instrument-export-height, var(--mobile-tabs-height)) - var(--mobile-tabs-height))
+    );
+    --mobile-tabs-left: 50%;
+  }
+}
+@media (max-width: 1100px) {
+  .root :global(.instrument-tray) :global(.synth-presets) {
+    flex-wrap: wrap;
+    overflow-y: auto;
+    align-content: start;
+  }
+  .root :global(.instrument-tray) {
+    flex-wrap: nowrap !important;
+    background: var(--gc-surface);
+  }
+}
+
+.root:global(.dn-root) select option {
+  background: var(--gc-surface);
+  color: var(--gc-text);
+}
+.root:global(.dn-root) :global(.instrument-search-field) {
+  position: relative;
+  border: 0;
+  background: var(--gc-surface);
+  box-shadow: none;
+  padding-inline: 2ch;
+}
+.root:global(.dn-root) :global(.instrument-search-field)::before,
+.root:global(.dn-root) :global(.instrument-search-field)::after {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--gc-text);
+}
+.root:global(.dn-root) :global(.instrument-search-field)::before {
+  content: "[";
+  left: 0;
+}
+.root:global(.dn-root) :global(.instrument-search-field)::after {
+  content: "]";
+  right: 0;
+}
+.root:global(.dn-root) :global(.instrument-search-option):global(.is-active) {
+  background: transparent;
+  color: var(--gc-accent);
+}
+.root:global(.dn-root) :global(.instrument-search-option):global(.is-active) :global(.instrument-search-name) {
+  color: var(--gc-accent);
+}
+.root:global(.dn-root) :global(.instrument-search-option):global(.is-active) :global(.instrument-search-name)::before {
+  content: "[ ";
+}
+.root:global(.dn-root) :global(.instrument-search-option):global(.is-active) :global(.instrument-search-name)::after {
+  content: " ]";
+}
+.root {
+  font: var(--gc-text-base) / 1.35 var(--gc-font-ui);
+  background: var(--gc-surface);
+  color: var(--gc-text);
+}
+.root :global(.synth-voices) {
+  background: var(--gc-surface);
+  box-sizing: border-box;
+}
+.root :global(.synth-voices-head) {
+  border-bottom: 0;
+  color: var(--gc-accent);
+}
+.root :global(.synth-voices-list) {
+  padding: var(--gc-space-3);
+}
+.root :global(.synth-voices-list)[data-inset="inline"] {
+  padding-block: 0;
+}
+
+.root.embedded {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+}
+
+@media (min-width: 1101px) {
+  .root :global(.synth-body) > :global(.dn-floating-controls) {
+    position: relative;
+    inset: auto;
+    flex: 0 0 var(--gc-dock-width);
+    width: var(--gc-dock-width);
+    height: 100%;
+    max-width: var(--gc-dock-width);
+    max-height: 100%;
+    border-left: 1px solid var(--gc-rule);
+    padding: var(--gc-space-3);
+    box-sizing: border-box;
+  }
+  .root :global(.synth-body) > :global(.dn-floating-controls) > :global(.dn-lil-gui-host) {
+    height: 100%;
+    min-height: 0;
+  }
+  .root :global(.synth-body) > :global(.dn-floating-controls) :global(.lil-gui):global(.root) {
+    width: 100% !important;
+    height: 100%;
+    max-height: 100%;
+  }
+}
+
+.root :global(.instrument-rail-toolbar),
+.root :global(.instrument-rail-footer) {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: var(--gc-space-3);
+}
+.root :global(.instrument-rail-footer) {
+  border-top: 1px solid var(--gc-rule);
+}
+.root :global(.synth-voices-head) {
+  min-width: 0;
+  gap: var(--gc-space-2);
+}
+.root :global(.synth-voices-head) > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root :global(.synth-main) {
+  min-height: 0;
+}
+.root :global(.synth-voices)[data-size="editor"] {
+  flex-basis: var(--gc-editor-rail-width);
+}

@@ -1,0 +1,61 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`rasterize — byte-identity guard: every pre-existing (mode, charMode) combination is unaffected by the wireframe sub-cell generalization > ascii wireframe (charMode absent) is byte-identical 1`] = `
+"      ╋  ╋    ╋╋╋╋      
+     ╋   ╋╋       ╋╋╋   
+   ╋╋  ╋╋  ╋╋╋       ╋╋╋
+  ╋   ╋       ╋╋╋       
+╋╋  ╋╋           ╋╋╋╋  ╋
+╋  ╋                 ╋╋╋
+ ╋╋╋                ╋╋  
+╋╋  ╋╋╋           ╋╋   ╋
+╋      ╋╋╋       ╋    ╋ 
+ ╋╋       ╋╋╋  ╋╋    ╋  
+   ╋╋╋       ╋╋    ╋╋   
+      ╋╋      ╋   ╋     "
+`;
+
+exports[`rasterize — byte-identity guard: every pre-existing (mode, charMode) combination is unaffected by the wireframe sub-cell generalization > braille wireframe is byte-identical 1`] = `
+"    ⢀⡴⠃  ⢸      ⠉⠳⢤⡀    
+   ⣠⠞   ⢀⡞⠲⣄⡀      ⠉⠳⣄⡀ 
+ ⢀⡴⠃   ⣰⠋   ⠙⠦⣄       ⠙⠲
+⣠⠞   ⢀⡞⠁      ⠈⠙⠦⣄      
+⠃   ⣰⠋           ⠈⠙⠦⣄  ⣰
+  ⢀⡞⠁               ⠈⢓⣾⣁
+⠙⣶⣋                 ⣰⠋ ⠈
+⡞⠁⠈⠓⢦⣀            ⢀⡞⠁  ⢀
+     ⠈⠓⢦⣀        ⣰⠋   ⣠⠏
+⢤⡀      ⠈⠳⢤⡀   ⢀⡞⠁  ⢀⡼⠁ 
+ ⠉⠳⢤⡀      ⠉⠳⢤⣰⠋   ⣰⠋   
+    ⠉⠳⢤⣀      ⡇  ⢀⡞⠁    "
+`;
+
+exports[`rasterize — byte-identity guard: every pre-existing (mode, charMode) combination is unaffected by the wireframe sub-cell generalization > solid halfblock is byte-identical 1`] = `
+"     <span style="color:#e6e6e6">▄███████████▄</span>      
+    <span style="color:#e6e6e6">▄███████████████▄</span>   
+  <span style="color:#e6e6e6">▄████████████████████▄</span>
+ <span style="color:#e6e6e6">▄██████████████████████</span>
+<span style="color:#e6e6e6">████████████████████████</span>
+<span style="color:#e6e6e6">██████████████████████</span><span style="color:#e6e6e6;background-color:#f2f2f2">▀</span><span style="color:#f2f2f2;background-color:#ffffff">▀</span>
+<span style="color:#e6e6e6">█████████████████████</span><span style="color:#e6e6e6;background-color:#ffffff">▀</span><span style="color:#ffffff">██</span>
+<span style="color:#e6e6e6">███████████████████</span><span style="color:#e6e6e6;background-color:#f2f2f2">▀</span><span style="color:#f2f2f2;background-color:#ffffff">▀</span><span style="color:#ffffff">███</span>
+<span style="color:#e6e6e6">██████████████████</span><span style="color:#e6e6e6;background-color:#ffffff">▀</span><span style="color:#ffffff">█████</span>
+<span style="color:#e6e6e6">████████████████</span><span style="color:#e6e6e6;background-color:#f2f2f2">▀</span><span style="color:#f2f2f2;background-color:#ffffff">▀</span><span style="color:#ffffff">████▀</span> 
+  <span style="color:#e6e6e6">▀████████████</span><span style="color:#e6e6e6;background-color:#ffffff">▀</span><span style="color:#ffffff">█████</span>   
+     <span style="color:#e6e6e6">▀████████</span><span style="color:#f2f2f2">█</span><span style="color:#ffffff">████▀</span>    "
+`;
+
+exports[`rasterize — byte-identity guard: every pre-existing (mode, charMode) combination is unaffected by the wireframe sub-cell generalization > solid quadrant is byte-identical 1`] = `
+"     <span style="color:#e6e6e6">▗▟█████████▙▄</span>      
+    <span style="color:#e6e6e6">▄██████████████▙▄</span>   
+  <span style="color:#e6e6e6">▗▟██████████████████▙▄</span>
+ <span style="color:#e6e6e6">▄██████████████████████</span>
+<span style="color:#e6e6e6">▟███████████████████████</span>
+<span style="color:#e6e6e6">██████████████████████</span><span style="color:#ffffff;background-color:#e6e6e6">▗▟</span>
+<span style="color:#e6e6e6">█████████████████████</span><span style="color:#ffffff;background-color:#e6e6e6">▄</span><span style="color:#ffffff">██</span>
+<span style="color:#e6e6e6">███████████████████</span><span style="color:#ffffff;background-color:#e6e6e6">▗▟</span><span style="color:#ffffff">███</span>
+<span style="color:#e6e6e6">██████████████████</span><span style="color:#ffffff;background-color:#e6e6e6">▄</span><span style="color:#ffffff">████▛</span>
+<span style="color:#e6e6e6">▜███████████████</span><span style="color:#ffffff;background-color:#e6e6e6">▗▟</span><span style="color:#ffffff">████▘</span> 
+  <span style="color:#e6e6e6">▀▜███████████</span><span style="color:#ffffff;background-color:#e6e6e6">▄</span><span style="color:#ffffff">████▛</span>   
+     <span style="color:#e6e6e6">▀▜███████</span><span style="color:#ffffff;background-color:#e6e6e6">▐</span><span style="color:#ffffff">████▘</span>    "
+`;

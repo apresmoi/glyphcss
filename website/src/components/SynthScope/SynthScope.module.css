@@ -1,0 +1,32 @@
+.root:global(.dock-scope) {
+  width: 100%;
+  min-width: 0;
+}
+.root :global(.dock-scope-label) {
+  display: block;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--gc-text-muted);
+  margin-bottom: var(--gc-space-1);
+}
+.root :global(.dock-scope-plot) {
+  display: block;
+  width: 100%;
+  height: 52px;
+  background: rgba(var(--gc-surface-rgb), 0.85);
+  border: 1px solid var(--gc-rule);
+}
+.root :global(.dock-scope-mid) {
+  stroke: var(--gc-rule);
+  stroke-width: 1;
+}
+.root :global(.dock-scope-voice) {
+  stroke-width: 1;
+  opacity: 0.4;
+}
+.root :global(.dock-scope-mix) {
+  stroke: var(--gc-text);
+  stroke-width: 1.6;
+  opacity: 0.95;
+}

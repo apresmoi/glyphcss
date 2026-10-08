@@ -51,9 +51,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import { createGlyphMap, type GlyphMapHandle } from "@glyphcss/maps";
-import { buildMapProjection, MAP_SCENE_RENDER_MODE } from "./mapsKit";
-import { MAPS_URL_DEFAULTS, mapsCodec, type MapsUrlState } from "./mapsUrlState";
-import { mapWalkLinkEntry, mapWalkReason } from "./mapsWalk";
+import { buildMapProjection, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { MAPS_URL_DEFAULTS, mapsCodec, type MapsUrlState } from "../../features/maps/services/mapsUrlState";
+import { mapWalkLinkEntry, mapWalkReason } from "../../features/maps/services/mapsWalk";
 
 const COLS = 140, ROWS = 63, CELL_W = 8, CELL_H = 16, PROBE_FONT_PX = 16;
 

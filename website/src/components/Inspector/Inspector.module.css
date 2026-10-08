@@ -1,0 +1,171 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+:local(.root) {
+  position: absolute;
+  left: var(--overlay-left);
+  bottom: var(--overlay-bottom);
+  width: clamp(260px, 22vw, 340px);
+  max-height: calc(100% - var(--overlay-top) - var(--overlay-bottom) - 55vh - 12px);
+  z-index: 15;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+  box-shadow: 0 8px 32px rgba(var(--gc-surface-rgb), 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: var(--gc-font-ui);
+  /* faint scanline */
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(var(--gc-text-rgb), 0.012) 2px,
+    rgba(var(--gc-text-rgb), 0.012) 4px
+  );
+}
+.root :global(.dn-inspector__title) {
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--gc-text-muted);
+  border-bottom: 1px solid var(--gc-rule);
+  background: rgba(var(--gc-text-rgb), 0.03);
+  font-family: inherit;
+}
+.root :global(.dn-inspector__title)::before {
+  content: "┌─ ";
+  color: var(--gc-text-faint);
+}
+.root :global(.dn-inspector__title)::after {
+  content: " ─┐";
+  color: var(--gc-text-faint);
+}
+.root :global(.dn-inspector__body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--gc-space-1) 0 6px;
+}
+.root :global(.dn-mesh-header) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 10px;
+  background: none;
+  border: 0;
+  color: var(--gc-text);
+  font-size: 12px;
+  font-family: var(--gc-font-ui);
+  cursor: pointer;
+  text-align: left;
+}
+.root :global(.dn-mesh-header):hover {
+  background: rgba(var(--gc-text-rgb), 0.04);
+}
+.root :global(.dn-mesh-chevron) {
+  font-size: 9px;
+  color: var(--gc-text-faint);
+  width: 10px;
+  flex: 0 0 auto;
+}
+.root :global(.dn-mesh-icon) {
+  color: var(--gc-accent);
+  font-size: 11px;
+  flex: 0 0 auto;
+}
+.root :global(.dn-mesh-label) {
+  flex: 1 1 auto;
+  font-weight: 400;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gc-text);
+}
+.root :global(.dn-mesh-meta) {
+  flex: 0 0 auto;
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-accent);
+  padding: 1px var(--gc-space-1);
+  border-radius: 0;
+  background: rgba(var(--gc-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--gc-accent-rgb), 0.2);
+}
+.root :global(.dn-mesh-groups) {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--gc-space-1) 0;
+}
+.root :global(.dn-group-row) {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  padding: 3px 10px 3px var(--gc-space-6);
+  position: relative;
+  font-size: 11px;
+  font-family: var(--gc-font-ui);
+}
+.root :global(.dn-group-row)::before {
+  content: "> ";
+  position: absolute;
+  left: 10px;
+  color: var(--gc-accent);
+  font-size: 11px;
+}
+.root :global(.dn-group-row):hover {
+  background: rgba(var(--gc-text-rgb), 0.03);
+}
+.root :global(.dn-swatch) {
+  width: 12px;
+  height: 12px;
+  border-radius: 0;
+  border: 1px solid var(--gc-text-faint);
+  cursor: pointer;
+  padding: 0;
+  flex: 0 0 auto;
+  box-shadow: none;
+}
+.root :global(.dn-swatch):hover {
+  border-color: var(--gc-text-muted);
+}
+.root :global(.dn-swatch--readonly) {
+  cursor: not-allowed;
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(var(--gc-text-rgb), 0.08) 0,
+    rgba(var(--gc-text-rgb), 0.08) 2px,
+    transparent 2px,
+    transparent 4px
+  );
+}
+.root :global(.dn-color-input) {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+.root :global(.dn-group-label) {
+  flex: 1 1 auto;
+  font: 11px/1.2 var(--gc-font-ui);
+  color: var(--gc-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.root :global(.dn-group-row):global(.is-readonly) :global(.dn-group-label) {
+  color: var(--gc-text-faint);
+  font-style: normal;
+}
+.root :global(.dn-group-count) {
+  flex: 0 0 auto;
+  font: 11px/1 var(--gc-font-ui);
+  color: var(--gc-accent);
+}

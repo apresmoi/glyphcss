@@ -39,7 +39,8 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   };
 });
 
-import { LAYER_COMBINE_VALUES, LayerGroup, synthDefaults, type Params, type ParamValue } from "./synthKit";
+import { LAYER_COMBINE_VALUES, synthDefaults, type Params, type ParamValue } from "../../features/synth/model/parameters";
+import { LayerGroup } from "./LayerGroup/LayerGroup";
 
 function renderLayerGroup(params: Params, onParam: (key: string, value: ParamValue) => void): { container: HTMLElement; root: Root } {
   const container = document.createElement("div");

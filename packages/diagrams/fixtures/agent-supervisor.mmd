@@ -1,0 +1,33 @@
+%% Hand-authored EXAMPLE architecture (not real telemetry from any running
+%% system) illustrating a LangGraph-style supervisor pattern: one supervisor
+%% node routes work out to specialist worker nodes, and every worker's own
+%% report joins a SHARED return path (`reports`) back to the supervisor —
+%% D2 round 6's own fix for 3 separate back-edges converging on the
+%% supervisor's own north side (a genuine, unresolvable A* routing conflict
+%% at this graph's own node/edge density, confirmed against pure 2D's own
+%% compaction/retry machinery too): a single shared "join" node before
+%% control returns to the supervisor is itself an honest, common
+%% orchestration pattern (LangGraph's own "fan-in" node), not a rewrite that
+%% changes what the example illustrates.
+flowchart TB
+  supervisor{Supervisor}
+  researcher(Researcher)
+  coder(Coder)
+  reviewer(Reviewer)
+  reports[[Reports]]
+  user([User request])
+  answer([Final answer])
+  subgraph workers[Workers]
+    researcher
+    coder
+    reviewer
+  end
+  user --> supervisor
+  supervisor -->|research| researcher
+  supervisor -->|code| coder
+  supervisor -->|review| reviewer
+  researcher --> reports
+  coder --> reports
+  reviewer --> reports
+  reports --> supervisor
+  supervisor -->|done| answer

@@ -26,9 +26,27 @@ export type {
   GlyphHotspotHandle,
   GlyphShadowOptions,
   GlyphOcclusionCoverage,
+  GlyphSceneObject,
+  GlyphSceneObjectMesh,
+  GlyphSceneObjectHotspot,
+  GlyphSceneOverlay,
+  GlyphSceneObjectHandle,
+  GlyphSceneObjectTransform,
+  GlyphOverlayFrame,
 } from "./api/createGlyphScene";
 // Cross-scene occlusion sentinel (see `GlyphSceneHandle.setForeignOcclusion`).
 export { GLYPH_FOREIGN_OCCLUDER_ID } from "./render/rasterize";
+// Namespaced texture-sampler key an object's own `textureSamplers` entry
+// resolves under once mounted (see "Scene objects" — "Object texture
+// samplers") — a plane-object producer (`glyphChartPlaneObject`,
+// `glyphDiagramPlaneObject`) needs this to point a mesh's `Polygon.texture`
+// at its own sampler ahead of mount, since `scene.addObject` never rewrites
+// a mesh's authored `texture` field.
+export { encodeGlyphSceneObjectSamplerKey } from "./api/createGlyphScene";
+
+// ── Scene object overlays (label arbiter + generic stamp, see `sceneObject.ts`) ──
+export { stampGlyphOverlayCell, stampGlyphOverlayLine, createGlyphLabelArbiter, foldGlyphOverlayLabelToAscii } from "./render/overlay";
+export type { GlyphOverlayCellWrite, GlyphOverlayLinePoint, GlyphLabelArbiter, GlyphLabelCandidate } from "./render/overlay";
 
 // Effect-program protocol + scene-root compositor layers.
 export * from "./api/effects";
@@ -42,8 +60,21 @@ export * from "./api/effects";
 export { retainGlyphEffectOutput } from "./render/effectCompositor";
 export type {
   GlyphEffectOutputMetadata,
+  GlyphEffectRetainOptions,
   RetainedGlyphEffectOutput,
 } from "./render/effectCompositor";
+
+// DOM-free, camera-free compositor entry (AGENTS.md "Retained Glyph
+// Effects", contract 4) — runs Glyph Effects over any bare `CellGrid` with
+// no scene and no camera. `@glyphcss/charts`'s `composeGlyphChartEffects` is
+// the reference consumer.
+export {
+  composeGlyphEffects,
+  glyphEffectDepthCoverage,
+  GLYPH_EFFECT_REQUIREMENT_UNAVAILABLE,
+  GlyphEffectRequirementUnavailableError,
+} from "./render/effectCompositor";
+export type { GlyphEffectComposeContext } from "./render/effectCompositor";
 
 // Static compile — render a scene to its `<pre>` without a DOM (build-time / SSR).
 export { compileScene } from "./api/compileScene";
@@ -147,6 +178,7 @@ export { createGlyphOrbitControls } from "./api/createGlyphOrbitControls";
 export type {
   GlyphOrbitControlsOptions,
   GlyphOrbitControlsHandle,
+  GlyphOrbitControlsMode,
 } from "./api/createGlyphOrbitControls";
 
 export { createGlyphMapControls } from "./api/createGlyphMapControls";
@@ -250,6 +282,46 @@ export {
 } from "./render/ramps";
 export type { WireframeGlyphTiers } from "./render/ramps";
 
+// ── Cell canvas (2D authoring layer for @glyphcss/charts + @glyphcss/diagrams) ──
+export { createGlyphCanvas, GLYPH_CANVAS_TIERS, GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_QUADRANT_GLYPHS } from "./render/canvas";
+export {
+  encodeGlyphCanvasText,
+  encodeGlyphCanvasAnsi,
+  encodeGlyphCanvasHtml,
+  nearestAnsiCanvasColor,
+} from "./render/canvas";
+export { glyphCanvasTextureSampler, resolveGlyphCanvasTextureSamplerRect, glyphInkMask, glyphInkDensity } from "./render/canvas";
+export type {
+  GlyphCanvas,
+  GlyphCanvasOptions,
+  GlyphCanvasFill,
+  GlyphCanvasFillOptions,
+  GlyphCanvasPoint,
+  GlyphCanvasLineStyle,
+  GlyphCanvasLineOptions,
+  GlyphCanvasTextAlign,
+  GlyphCanvasTextOptions,
+  GlyphCanvasArrowheadOptions,
+  GlyphCanvasDirection,
+  GlyphCanvasSurfaceUvRect,
+  GlyphCanvasEdgeOptions,
+  GlyphCanvasReport,
+  GlyphCanvasFoldedGlyph,
+  GlyphCanvasRouteConflict,
+  GlyphCanvasRouteConflictKind,
+  GlyphCanvasTier,
+  GlyphCanvasTierName,
+  GlyphCanvasStraightGlyphs,
+  GlyphCanvasArrowGlyphs,
+  GlyphCanvasDiagonalGlyphs,
+  GlyphCanvasDiagonalKey,
+  GlyphCanvasAnsiColorMode,
+  GlyphCanvasAnsiOptions,
+  GlyphCanvasHtmlOptions,
+  GlyphCanvasTextureSamplerOptions,
+  GlyphCanvasTextureSamplerRect,
+} from "./render/canvas";
+
 // ── RasterizeContext ──────────────────────────────────────────────
 export {
   buildRasterizeContext,
@@ -276,6 +348,7 @@ export { GlyphOrbitControlsElement } from "./elements/GlyphOrbitControlsElement"
 export { GlyphMapControlsElement } from "./elements/GlyphMapControlsElement";
 export { GlyphEffectLayerElement } from "./elements/GlyphEffectLayerElement";
 export type { GlyphEffectLayerElementConfig } from "./elements/GlyphEffectLayerElement";
+export { GlyphObjectElement } from "./elements/GlyphObjectElement";
 
 // ── Re-exports from @glyphcss/core ───────────────────────────────
 export * from "@glyphcss/core";

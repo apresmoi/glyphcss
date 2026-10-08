@@ -55,6 +55,7 @@ import type {
 import {
   composeRetainedGlyphEffectOutput,
   createRuntimeGlyphEffectLayer,
+  glyphEffectDepthCoverage,
   prepareRuntimeGlyphEffectLayers,
   retainGlyphEffectOutput,
   type GlyphEffectOutputMetadata,
@@ -68,6 +69,9 @@ import { createGlyphAtlasPaletteQuantizer, type GlyphAtlasPaletteInput, type Gly
 import { projectHotspots } from "./projectHotspots";
 import type { GlyphDirectionalLight, GlyphAmbientLight, GlyphMeshTransform, GlyphShadowCasters, GlyphShadowMapCache, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
 export type { GlyphMeshTransform, GlyphShadowOptions, GlyphSolidWeightRampStep } from "./types";
+import type { GlyphSceneObject, GlyphSceneObjectHandle, GlyphSceneObjectMesh, GlyphSceneObjectTransform, GlyphOverlayFrame } from "./sceneObject";
+export type { GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneObjectHotspot, GlyphSceneOverlay, GlyphSceneObjectHandle, GlyphSceneObjectTransform, GlyphOverlayFrame } from "./sceneObject";
+import { createGlyphLabelArbiter } from "../render/overlay/labelArbiter";
 
 export interface GlyphSceneOptions {
   /** Render mode: "wireframe" | "solid". Default "solid". */
@@ -76,19 +80,24 @@ export interface GlyphSceneOptions {
   glyphPalette?: string;
   /**
    * Character encoding for rasterized output. `"ascii"` (default) is the
-   * original ramp/rule-glyph encoding. `"braille"` renders wireframe mode
-   * using Unicode Braille Patterns (U+2800..U+28FF) for smoother diagonal
-   * and curved edges. Documented no-op in `solid`/`voxel`/`ink` modes — braille
-   * dot coverage is binary and cannot carry a Lambert shade ramp or voxel
-   * face glyph, so those modes always render ASCII regardless of this option.
-   * `"halfblock"` is solid-mode-only: it packs two independently colored
-   * subcells (top/bottom) into one `▀`/`▄`/`█` cell for 2× vertical color
-   * resolution, at coarser shape. `"quadrant"` generalizes it to a full 2×2
-   * subcell split (16 possible `▘▝▖▗▀▄▌▐▚▞█` + three-quadrant glyphs),
-   * buying shape resolution AND, on a fully-covered cell, a two-color split
-   * — twice halfblock's shape resolution at the same two-colors-per-cell
-   * cost. Both are documented no-ops outside `solid` mode and when combined
-   * with a `transformCells` hook or active `temporalBlend` reprojection. See
+   * original ramp/rule-glyph encoding.
+   *
+   * `"braille"`, `"quadrant"`, and `"halfblock"` each have a WIREFRAME-MODE
+   * encoding: edges rasterize directly at a fixed sub-cell resolution for
+   * smoother diagonal/curved lines — `"braille"` a 2×4 dot grid into Unicode
+   * Braille Patterns (U+2800..U+28FF); `"quadrant"` a 2×2 coverage mask into
+   * one of 16 quadrant/half/full-block glyphs (`▘▝▖▗▀▄▌▐▚▞█▛▜▙▟`);
+   * `"halfblock"` a 1×2 (top/bottom) split into `▀`/`▄`/`█`. Single colour
+   * per cell (a stroke is binary coverage, not shading), so `transformCells`/
+   * `hiddenLines: "hide"` both work normally. Documented no-op in `solid`'s
+   * ramp path, `voxel`, and `ink`.
+   *
+   * `"halfblock"`/`"quadrant"` ALSO have an unrelated solid-mode-only
+   * encoding: two independently colored subcells packed into one glyph —
+   * `"halfblock"` top/bottom into `▀`/`▄`/`█`; `"quadrant"` the same 2×2
+   * split as above, adding a two-color split on a fully-covered cell. Both
+   * are documented no-ops outside `solid` mode and during active
+   * `temporalBlend` reprojection. See
    * {@link RasterizeContextOptions.charMode}.
    */
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";
@@ -102,15 +111,16 @@ export interface GlyphSceneOptions {
    */
   wireframeJunctions?: boolean;
   /**
-   * Hidden-line removal for the wireframe path (wireframe + `charMode:
-   * "braille"`) and for `mode: "ink"`. `"show"` (default) is today's
-   * behavior: edges/strokes draw with no depth reference. `"hide"`
-   * depth-tests every stroke against a solid surface prepass so a back edge
-   * (another mesh's or the same mesh's far side) doesn't paint through a
-   * nearer one — wireframe with a slope-scaled margin, `ink` by exempting
-   * each edge's own local vertex neighborhood so a mesh never self-occludes
-   * its own silhouette. Documented no-op in `solid` (already depth-buffered
-   * per cell). See {@link RasterizeContextOptions.hiddenLines}.
+   * Hidden-line removal for the wireframe path (wireframe with any
+   * `charMode`, including every sub-cell encoding above) and for `mode:
+   * "ink"`. `"show"` (default) is today's behavior: edges/strokes draw with
+   * no depth reference. `"hide"` depth-tests every stroke against a solid
+   * surface prepass so a back edge (another mesh's or the same mesh's far
+   * side) doesn't paint through a nearer one — wireframe with a slope-scaled
+   * margin, `ink` by exempting each edge's own local vertex neighborhood so
+   * a mesh never self-occludes its own silhouette. Documented no-op in
+   * `solid` (already depth-buffered per cell). See
+   * {@link RasterizeContextOptions.hiddenLines}.
    */
   hiddenLines?: "show" | "hide";
   /**
@@ -155,9 +165,11 @@ export interface GlyphSceneOptions {
    * back. It falls back to `"spans"` for a frame whose glyphs aren't covered
    * by the atlas, or whose cells carry no usable colour (see
    * `isGlyphAtlasEncodable`, `render/cells.ts`) — a whole-scene decision,
-   * never a per-cell mix. Documented no-op under `charMode:
-   * "halfblock"`/`"quadrant"`, an active `solidWeightRamp` selection,
-   * `glyphOutput: "semantic"`, and `useColors: false`. The atlas's
+   * never a per-cell mix. Documented no-op under `mode: "solid"` with
+   * `charMode: "halfblock"`/`"quadrant"` (two colours per cell there —
+   * wireframe's own single-colour sub-cell encoding is unaffected), an
+   * active `solidWeightRamp` selection, `glyphOutput: "semantic"`, and
+   * `useColors: false`. The atlas's
    * `@font-face`/`@font-palette-values` CSS and the `<pre>`'s
    * `font-family`/`font-palette` are wired automatically.
    * See {@link RasterizeContextOptions.colorEncoding}.
@@ -359,6 +371,14 @@ export interface GlyphSceneHandle {
     options: GlyphEffectProgramLayerOptions<P, State>,
   ): GlyphEffectLayerHandle<P>;
   addHotspot(opts: GlyphHotspotOptions, onClick?: () => void): GlyphHotspotHandle;
+  /**
+   * Mount a `GlyphSceneObject` — a bundle of named meshes, optional
+   * in-grid overlays, optional hotspots and optional texture samplers
+   * (PLAN-3d.md §3.1). `transform` applies to every member mesh uniformly
+   * (glyphcss has no nested groups). See AGENTS.md's "Scene objects"
+   * contract.
+   */
+  addObject(object: GlyphSceneObject, transform?: GlyphSceneObjectTransform): GlyphSceneObjectHandle;
   /** Force an immediate re-rasterize. Normally called automatically on add/remove/setOptions. */
   rerender(): void;
   setOptions(opts: Partial<GlyphSceneOptions>): void;
@@ -590,6 +610,20 @@ let nextAtlasStyleId = 1;
 // wrapper), so the CSS-frame swap/negate from voxcss PolyMesh.tsx
 // `buildTransform` (rotateY(-rx)…) is NOT applied here — that is a
 // CSS-frame artifact only.
+/**
+ * Namespaced texture-sampler key for an object's own `textureSamplers` entry
+ * (contract 9, AGENTS.md's "Scene objects" section). NAIVE concatenation
+ * (`glyph-object:${id}:${name}`) collides — `{id:"a:b",name:"c"}` and
+ * `{id:"a",name:"b:c"}` both produce `"glyph-object:a:b:c"` — so both parts
+ * are `encodeURIComponent`-escaped before joining: that encoder always turns
+ * a literal `:` into `%3A`, so a `:` in the JOINED string can only ever be
+ * one of the two delimiters this function itself placed, and two distinct
+ * (id, name) pairs can never produce the same key.
+ */
+export function encodeGlyphSceneObjectSamplerKey(objectId: string, name: string): string {
+  return `glyph-object:${encodeURIComponent(objectId)}:${encodeURIComponent(name)}`;
+}
+
 function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Polygon[] {
   const { position, scale, rotation } = transform;
   if (!position && !scale && !rotation) return polygons;
@@ -673,6 +707,40 @@ function applyTransform(polygons: Polygon[], transform: GlyphMeshTransform): Pol
     }
     return out;
   });
+}
+
+/**
+ * Object-space point → world space through one mount's own
+ * position/rotation/scale — the same composition `applyTransform` applies to
+ * a mesh's vertices, minus the per-polygon plumbing (`GlyphOverlayFrame.toWorld`,
+ * `sceneObject.ts`'s own doc). A member mesh has no transform of its own
+ * (glyphcss has no nested groups), so this single composition IS "object ∘
+ * member" for every overlay reading through it.
+ */
+function transformObjectPoint(p: Vec3, transform: GlyphSceneObjectTransform): Vec3 {
+  const [px, py, pz] = transform.position ?? [0, 0, 0];
+  let sx = 1, sy = 1, sz = 1;
+  if (transform.scale !== undefined) {
+    if (typeof transform.scale === "number") { sx = sy = sz = transform.scale; }
+    else { [sx, sy, sz] = transform.scale; }
+  }
+  const DEG2RAD = Math.PI / 180;
+  const [rxDeg, ryDeg, rzDeg] = transform.rotation ?? [0, 0, 0];
+  const rx = rxDeg * DEG2RAD, ry = ryDeg * DEG2RAD, rz = rzDeg * DEG2RAD;
+  const cosX = Math.cos(rx), sinX = Math.sin(rx);
+  const cosY = Math.cos(ry), sinY = Math.sin(ry);
+  const cosZ = Math.cos(rz), sinZ = Math.sin(rz);
+  let x = p[0] * sx, y = p[1] * sy, z = p[2] * sz;
+  let nx = cosZ * x - sinZ * y;
+  let ny = sinZ * x + cosZ * y;
+  let nz = z;
+  x = cosY * nx + sinY * nz;
+  y = ny;
+  z = -sinY * nx + cosY * nz;
+  nx = x;
+  ny = cosX * y - sinX * z;
+  nz = sinX * y + cosX * z;
+  return [nx + px, ny + py, nz + pz];
 }
 
 /**
@@ -775,6 +843,55 @@ export function createGlyphScene(
 
   const meshes = new Map<number, MeshEntry>();
   const hotspots: Array<{ hotspot: Hotspot; el: HTMLElement; onClick?: () => void }> = [];
+  // Scene objects (`addObject`, see `sceneObject.ts`) — a thin registry over
+  // the SAME `add`/`addHotspot` primitives every direct caller uses, plus an
+  // ordered overlay list consulted once per output grid. `mountSeq` is the
+  // registry's own tie-break for overlay ordering (PLAN-3d.md §3.1's "order,
+  // then mount order, then declaration order").
+  interface GlyphSceneObjectEntry {
+    id: string;
+    spec: readonly GlyphSceneObjectMesh[];
+    meshHandles: Map<string, GlyphMeshHandle>;
+    meshIds: Set<number>;
+    overlays: readonly import("./sceneObject").GlyphSceneOverlay[];
+    hotspotSpecs: readonly import("./sceneObject").GlyphSceneObjectHotspot[];
+    hotspotHandles: GlyphHotspotHandle[];
+    samplerKeys: string[];
+    transform: GlyphSceneObjectTransform;
+    mountSeq: number;
+  }
+  // Lazily allocated — a scene that never calls `addObject` must not pay for
+  // either map (P2-d, fix round 1). `objectEntriesMap()`/`objectSamplersMap()`
+  // are the mutating accessors `addObject` reaches for; every READ site below
+  // treats `null` as empty instead of allocating.
+  let objectEntries: Map<string, GlyphSceneObjectEntry> | null = null;
+  let nextObjectMountSeq = 0;
+  // Namespaced (`glyph-object:<id>:<name>`) texture samplers merged into
+  // `resolvedTextureSamplers()` — see contract 9. A plain `Map`, not derived
+  // per-render, so mounting/removing an object is the only write.
+  let objectSamplers: Map<string, TextureSampler> | null = null;
+  // Test-only allocation probe (fix round 2): mirrors the `__glyphPerf`/
+  // `__glyphRenderStage` idiom — an opt-in global hook, inert unless a test
+  // sets it, fired exactly once per map at the moment it is actually
+  // allocated — so "allocates lazily" is a seam a mutation (allocating
+  // eagerly) can redden, not just an output-equality proxy for it.
+  function reportObjectMapsAlloc(which: "entries" | "samplers"): void {
+    (globalThis as { __glyphSceneObjectMapsAlloc?: (which: "entries" | "samplers") => void }).__glyphSceneObjectMapsAlloc?.(which);
+  }
+  function objectEntriesMap(): Map<string, GlyphSceneObjectEntry> {
+    if (!objectEntries) {
+      objectEntries = new Map();
+      reportObjectMapsAlloc("entries");
+    }
+    return objectEntries;
+  }
+  function objectSamplersMap(): Map<string, TextureSampler> {
+    if (!objectSamplers) {
+      objectSamplers = new Map();
+      reportObjectMapsAlloc("samplers");
+    }
+    return objectSamplers;
+  }
   let pendingRender = false;
   let renderGeneration = 0;
   let pendingEffectRender = false;
@@ -951,7 +1068,8 @@ export function createGlyphScene(
    * mounts an effect layer (`createGlyphScene.effectLayerIdentity.test.ts`).
    */
   function runLegacyCellHook(grid: CellGrid, layer: GlyphTransformCellsLayer | undefined): CellGrid {
-    return options.transformCells?.(grid, layer) ?? grid;
+    const afterOverlays = applyGlyphSceneObjectOverlays(grid, layer);
+    return options.transformCells?.(afterOverlays, layer) ?? afterOverlays;
   }
 
   /**
@@ -959,10 +1077,72 @@ export function createGlyphScene(
    * runs once per layer (base, then each detail mesh) and this closure is what
    * tells it which grid it was handed. See {@link GlyphTransformCellsLayer}.
    * The effects pipeline's own cell hook does not thread layer identity.
+   *
+   * Also the byte-identity gate for scene objects (AGENTS.md contract 2):
+   * with no object mounted (or none carrying an overlay), this returns
+   * `undefined` EXACTLY as it always did when there is no user hook either —
+   * the rasterizer never even builds a `CellGrid` (see `rasterize.ts`'s
+   * `scene.transformCells` gates). An object WITH overlays forces the
+   * `CellGrid` path on even with no user `transformCells`, because overlays
+   * compose before it and need somewhere to stamp.
    */
   function withTransformCellsLayer(layer: GlyphTransformCellsLayer): TransformCells | undefined {
     const hook = options.transformCells;
-    return hook ? (grid) => hook(grid, layer) : undefined;
+    if (!hook && !objectHasAnyOverlay()) return undefined;
+    return (grid) => {
+      const afterOverlays = applyGlyphSceneObjectOverlays(grid, layer);
+      return hook ? (hook(afterOverlays, layer) ?? afterOverlays) : afterOverlays;
+    };
+  }
+
+  function objectHasAnyOverlay(): boolean {
+    if (!objectEntries || objectEntries.size === 0) return false;
+    for (const entry of objectEntries.values()) if (entry.overlays.length > 0) return true;
+    return false;
+  }
+
+  /**
+   * The overlay registry (AGENTS.md contract 2 / "Scene objects"): every
+   * mounted object's overlays compose into ONE ordered pass over this grid —
+   * sorted by `order` (default 0), then the object's own mount order, then
+   * declaration order within the object — sharing ONE label arbiter
+   * (`render/overlay/labelArbiter.ts`) so two objects in the same scene never
+   * overwrite each other's labels. Runs from inside `runLegacyCellHook`,
+   * which itself runs AFTER effect composition (PLAN-3d.md §3.3) and BEFORE
+   * the caller's own `transformCells` hook, which still runs last.
+   *
+   * A no-op, returning `grid` untouched, whenever no mounted object declares
+   * an overlay — the byte-identity gate this function exists to keep true.
+   */
+  function applyGlyphSceneObjectOverlays(grid: CellGrid, layer: GlyphTransformCellsLayer | undefined): CellGrid {
+    if (!objectEntries || objectEntries.size === 0) return grid;
+    const withOverlays: Array<{ entry: GlyphSceneObjectEntry; overlay: import("./sceneObject").GlyphSceneOverlay; overlayIndex: number }> = [];
+    for (const entry of objectEntries.values()) {
+      for (let i = 0; i < entry.overlays.length; i++) withOverlays.push({ entry, overlay: entry.overlays[i]!, overlayIndex: i });
+    }
+    if (withOverlays.length === 0) return grid;
+    withOverlays.sort((a, b) => {
+      const ao = a.overlay.order ?? 0, bo = b.overlay.order ?? 0;
+      if (ao !== bo) return ao - bo;
+      if (a.entry.mountSeq !== b.entry.mountSeq) return a.entry.mountSeq - b.entry.mountSeq;
+      return a.overlayIndex - b.overlayIndex;
+    });
+    const arbiter = createGlyphLabelArbiter();
+    for (const { entry, overlay } of withOverlays) {
+      const frame: GlyphOverlayFrame = {
+        camera: options.camera,
+        cols: grid.cols,
+        rows: grid.rows,
+        cellAspect: options.cellAspect,
+        layer,
+        toWorld: (p) => transformObjectPoint(p, entry.transform),
+        ownMeshIds: entry.meshIds,
+        labels: arbiter,
+      };
+      overlay.stamp(grid, frame);
+    }
+    arbiter.resolve(grid);
+    return grid;
   }
 
   const transformEffectCells: TransformCells = (grid) => {
@@ -979,7 +1159,27 @@ export function createGlyphScene(
     // right source: it is never mutated once a render commits, exactly the
     // "safe to hand out, never itself corrupted by a failed frame" contract
     // `retainGlyphEffectOutput` documents.
-    const retained = retainGlyphEffectOutput(grid, currentEffectOutputMetadata, retainedEffectOutputs.get(currentEffectOutputMetadata.id));
+    const retained = retainGlyphEffectOutput(
+      grid,
+      currentEffectOutputMetadata,
+      // Contract 4 (AGENTS.md "Retained Glyph Effects"): the compositor no
+      // longer derives "this cell is on a surface" from `grid.depth` on its
+      // own — a scene render's own meaning of that ("finite depth") is
+      // supplied here explicitly, and `hasDepth` defaults `true`, so this is
+      // byte-identical to the pre-contract-4 behavior.
+      {
+        coverage: glyphEffectDepthCoverage(grid),
+        // Fix round 6, P1-1: `CellGrid.winnerMesh` can now be populated
+        // under `wireframe`/`ink` too, for a mounted OBJECT'S OVERLAY
+        // (`retainOverlayOcclusion`, above) — but per-object EFFECT
+        // targeting keeps its own documented solid-mode-only contract
+        // (`effectCompositor.ts`'s own `targetCoverageForCell` doc)
+        // regardless of whether some unrelated overlay happens to be
+        // mounted in the same scene.
+        retainWinnerMesh: options.mode === "solid",
+      },
+      retainedEffectOutputs.get(currentEffectOutputMetadata.id),
+    );
     collectingEffectOutputs.set(currentEffectOutputMetadata.id, retained);
     return runLegacyCellHook(composeRetainedGlyphEffectOutput(retained, activePreparedEffects), currentEffectOutputMetadata.transformCellsLayer);
   };
@@ -987,6 +1187,24 @@ export function createGlyphScene(
   function writeOrStageFullOutput(outputPre: HTMLPreElement, encoded: string, atlas = false): void {
     if (!stagedFullEffectWrites) throw new Error("glyphcss: output write escaped its render transaction.");
     stagedFullEffectWrites.push({ pre: outputPre, encoded, atlas });
+  }
+
+  /**
+   * Resolves an effect output's `<pre>` by its `GlyphEffectOutputMetadata.id`
+   * (contract 4: metadata itself carries no DOM reference any more). The id
+   * space is exactly the two shapes the base/detail metadata construction
+   * sites below produce — `"base"` and `` `detail:${group.id}` `` — so this
+   * needs no side map of its own; `detailLayers` is already the persistent,
+   * self-cleaning source of truth every OTHER detail-layer write already
+   * reads (e.g. `details: { next: new Map(detailLayers), ... }` just below).
+   */
+  function effectOutputPreElement(id: string): HTMLPreElement {
+    if (id === "base") return pre;
+    if (id.startsWith("detail:")) {
+      const layer = detailLayers.get(Number(id.slice("detail:".length)));
+      if (layer) return layer.pre;
+    }
+    throw new Error(`glyphcss: no output element for effect output "${id}".`);
   }
 
   function renderRetainedEffects(): void {
@@ -1022,7 +1240,7 @@ export function createGlyphScene(
       endAtlasPaletteTransaction();
     }
     commitRender({
-      writes: staged.map(({ output, encoded, atlas }) => ({ pre: output.metadata.pre, encoded, atlas })),
+      writes: staged.map(({ output, encoded, atlas }) => ({ pre: effectOutputPreElement(output.metadata.id), encoded, atlas })),
       details: { next: new Map(detailLayers), removed: [] },
       overlays: { next: new Map(viewportOverlayLayers), removed: [] },
       hotspots: [],
@@ -1288,9 +1506,14 @@ export function createGlyphScene(
    * writes against a full grid raster.
    */
   function resolvedTextureSamplers(): ReadonlyMap<string, TextureSampler> | null {
-    if (suppliedSamplers === null || suppliedSamplers.size === 0) return textureSamplers;
+    const hasSupplied = suppliedSamplers !== null && suppliedSamplers.size > 0;
+    const hasObjectSamplers = objectSamplers !== null && objectSamplers.size > 0;
+    if (!hasSupplied && !hasObjectSamplers) return textureSamplers;
     const merged = new Map(textureSamplers ?? []);
-    for (const [url, sampler] of suppliedSamplers) merged.set(url, sampler);
+    // Object samplers first (contract 9) — `setTextureSamplers`' own entries
+    // still win a key collision, so they merge last.
+    if (hasObjectSamplers) for (const [key, sampler] of objectSamplers!) merged.set(key, sampler);
+    if (hasSupplied) for (const [url, sampler] of suppliedSamplers!) merged.set(url, sampler);
     return merged;
   }
   function setTextureSamplers(samplers: ReadonlyMap<string, TextureSampler> | null): void {
@@ -1689,7 +1912,23 @@ export function createGlyphScene(
     // target actually normalized to a mesh-id set — ORed with
     // `retainObjectExit`'s own (internal, never-exposed) need for the same
     // buffer at `polygonMeshIds`-supply time, below.
-    const retainWinnerMesh = effectsActive && hasMeshTargetedLayers();
+    // A scene object's own overlay uses `winnerMesh` for the "hides behind a
+    // foreign mesh" rule (AGENTS.md "Scene objects" / PLAN-3d.md §3.2
+    // "Occlusion") whenever some mounted object actually carries an overlay
+    // (checked once, not per-grid: the buffer is scene-wide, exactly like the
+    // effect-targeting OR-gate beside it).
+    const objectOverlayActive = objectHasAnyOverlay();
+    const retainWinnerMesh = (effectsActive && hasMeshTargetedLayers()) || objectOverlayActive;
+    // Fix round 6, P1-1: a SEPARATE flag — `retainWinnerMesh` above also
+    // gates per-object EFFECT targeting (`targetCoverage`), which
+    // `effectCompositor.ts`'s own doc keeps solid-mode-only by design. This
+    // one means "a mounted object's OVERLAY needs occlusion data," which
+    // `rasterize.ts`'s wireframe/ink paths now honour too
+    // (`buildSurfaceOcclusionMap`), so a tick/title/node-label occlusion
+    // test is sound in every render mode — without also reactivating
+    // mesh-targeted effects outside solid mode, which stay exactly as
+    // inactive there as before this fix.
+    const retainOverlayOcclusion = objectOverlayActive;
     let worldToSceneScale: number | undefined;
     if (retainWorldPosition) {
       const parts: readonly Polygon[][] = [
@@ -1769,6 +2008,7 @@ export function createGlyphScene(
       retainObjectExit,
       retainObjectNormal,
       retainWinnerMesh,
+      retainOverlayOcclusion,
       retainWinnerPolygon: options.glyphOutput === "semantic",
     });
     ctx.shadeCache = nextShadeCache;
@@ -1788,7 +2028,6 @@ export function createGlyphScene(
     const baseTransformCellsLayer: GlyphTransformCellsLayer = { detail: false, cellToSceneGrid: baseCellToSceneGrid };
     currentEffectOutputMetadata = effectsActive ? {
       id: "base",
-      pre,
       isBase: true,
       cellToSceneGrid: baseCellToSceneGrid,
       sceneGridSize: [options.cols, options.rows],
@@ -1845,6 +2084,7 @@ export function createGlyphScene(
       retainObjectExit,
       retainObjectNormal,
       retainWinnerMesh,
+      retainOverlayOcclusion,
       worldToSceneScale,
       semanticLineage,
       globalPolygonOffsets,
@@ -2455,6 +2695,10 @@ export function createGlyphScene(
     retainObjectExit: boolean,
     retainObjectNormal: boolean,
     retainWinnerMesh: boolean,
+    // Fix round 6, P1-1: see the base layer's own doc — kept separate from
+    // `retainWinnerMesh` so a mesh-targeted EFFECT layer's own solid-mode-only
+    // contract survives a detail grid rendering in wireframe/ink too.
+    retainOverlayOcclusion: boolean,
     worldToSceneScale: number | undefined,
     semanticLineage: readonly GlyphControlPolygonLineage[] | null,
     globalPolygonOffsets: ReadonlyMap<number, number>,
@@ -2753,6 +2997,7 @@ export function createGlyphScene(
           polygonMeshIds: (retainObjectExit || retainWinnerMesh) ? detailPolygonMeshIds(group, memberPolys) : undefined,
           retainObjectExit,
           retainWinnerMesh,
+          retainOverlayOcclusion,
           retainWinnerPolygon: options.glyphOutput === "semantic",
         });
         ctx.textureSamplers = resolvedTextureSamplers();
@@ -2769,7 +3014,6 @@ export function createGlyphScene(
         };
         currentEffectOutputMetadata = effectsActive ? {
           id: `detail:${group.id}`,
-          pre: dpre,
           isBase: false,
           cellToSceneGrid: detailCellToSceneGrid,
           sceneGridSize: [options.cols, options.rows],
@@ -3131,6 +3375,129 @@ export function createGlyphScene(
     };
   }
 
+  /**
+   * `GlyphSceneObjectMesh` -> `GlyphMeshTransform` for `add()`: the object's
+   * OWN mount transform (position/rotation/scale) applied uniformly, over
+   * the mesh's own options (everything else — glyphcss has no nested groups,
+   * so a member mesh never carries its own position/rotation/scale). `id` is
+   * always the mesh's declared `name`, last, so it can't be shadowed by a
+   * stray `options.id`.
+   */
+  function buildObjectMeshTransform(spec: GlyphSceneObjectMesh, transform: GlyphSceneObjectTransform): GlyphMeshTransform {
+    return { ...(spec.options ?? {}), position: transform.position, rotation: transform.rotation, scale: transform.scale, id: spec.name };
+  }
+
+  /**
+   * Every mesh name must be unique WITHIN one object — `entry.meshHandles`
+   * is keyed by name (it is the effect-targeting lookup, `handle.meshes.get
+   * (name)`), so a duplicate would silently leak the earlier handle: it stays
+   * registered in the scene's global mesh list and keeps rasterizing forever,
+   * disposed by neither `update()` nor `remove()`, since only the LAST
+   * same-named handle survives in the map `teardownGlyphSceneObject` walks
+   * (P2-b, fix round 1). Validated up front, before any mesh is mounted, so
+   * a rejected object leaves nothing partially registered.
+   */
+  function assertUniqueObjectMeshNames(object: GlyphSceneObject): void {
+    const seen = new Set<string>();
+    for (const spec of object.meshes) {
+      if (seen.has(spec.name)) {
+        throw new RangeError(`glyphcss: object "${object.id}" declares more than one mesh named "${spec.name}".`);
+      }
+      seen.add(spec.name);
+    }
+  }
+
+  function mountGlyphSceneObjectInto(object: GlyphSceneObject, transform: GlyphSceneObjectTransform, entry: GlyphSceneObjectEntry): void {
+    assertUniqueObjectMeshNames(object);
+    for (const spec of object.meshes) {
+      const handle = add(spec.polygons, buildObjectMeshTransform(spec, transform));
+      entry.meshHandles.set(spec.name, handle);
+      entry.meshIds.add(handle.id);
+    }
+    entry.hotspotSpecs = object.hotspots ?? [];
+    for (const h of entry.hotspotSpecs) {
+      entry.hotspotHandles.push(addHotspot({ id: h.id, at: transformObjectPoint(h.at, transform) }));
+    }
+    if (object.textureSamplers) {
+      for (const [name, sampler] of object.textureSamplers) {
+        const key = encodeGlyphSceneObjectSamplerKey(object.id, name);
+        objectSamplersMap().set(key, sampler);
+        entry.samplerKeys.push(key);
+      }
+    }
+  }
+
+  function teardownGlyphSceneObject(entry: GlyphSceneObjectEntry): void {
+    for (const handle of entry.meshHandles.values()) handle.dispose();
+    entry.meshHandles.clear();
+    entry.meshIds.clear();
+    for (const h of entry.hotspotHandles) h.remove();
+    entry.hotspotHandles.length = 0;
+    entry.hotspotSpecs = [];
+    if (objectSamplers) for (const key of entry.samplerKeys) objectSamplers.delete(key);
+    entry.samplerKeys.length = 0;
+  }
+
+  function addObject(object: GlyphSceneObject, transform: GlyphSceneObjectTransform = {}): GlyphSceneObjectHandle {
+    if (destroyed) throw new Error("glyphcss: cannot add an object to a destroyed scene.");
+    if (objectEntries?.has(object.id)) {
+      throw new RangeError(`glyphcss: an object with id "${object.id}" is already mounted.`);
+    }
+    const entry: GlyphSceneObjectEntry = {
+      id: object.id,
+      spec: object.meshes,
+      meshHandles: new Map(),
+      meshIds: new Set(),
+      overlays: object.overlays ?? [],
+      hotspotSpecs: [],
+      hotspotHandles: [],
+      samplerKeys: [],
+      transform: { ...transform },
+      mountSeq: nextObjectMountSeq++,
+    };
+    mountGlyphSceneObjectInto(object, entry.transform, entry);
+    objectEntriesMap().set(object.id, entry);
+    scheduleRender();
+
+    return {
+      // Live — `mountGlyphSceneObjectInto`/`teardownGlyphSceneObject` mutate
+      // this SAME map in place, so a `.meshes` reference captured at mount
+      // stays current across `update()`.
+      meshes: entry.meshHandles,
+      setTransform(next: GlyphSceneObjectTransform): void {
+        entry.transform = { ...next };
+        for (const spec of entry.spec) {
+          entry.meshHandles.get(spec.name)?.setTransform(buildObjectMeshTransform(spec, entry.transform));
+        }
+        // Re-plant every hotspot at its (possibly moved) world position
+        // instead of leaving it at the position it was mounted at (P1-a,
+        // fix round 1) — `setAt` moves the anchor without touching the
+        // element, so this never destroys/recreates a hotspot a consumer
+        // already wrote into.
+        for (let i = 0; i < entry.hotspotHandles.length; i++) {
+          entry.hotspotHandles[i]!.setAt(transformObjectPoint(entry.hotspotSpecs[i]!.at, entry.transform));
+        }
+        scheduleRender();
+      },
+      update(nextObject: GlyphSceneObject): void {
+        if (nextObject.id !== entry.id) {
+          throw new RangeError(`glyphcss: GlyphSceneObjectHandle.update() cannot change an object's id ("${entry.id}" -> "${nextObject.id}").`);
+        }
+        assertUniqueObjectMeshNames(nextObject);
+        teardownGlyphSceneObject(entry);
+        entry.spec = nextObject.meshes;
+        entry.overlays = nextObject.overlays ?? [];
+        mountGlyphSceneObjectInto(nextObject, entry.transform, entry);
+        scheduleRender();
+      },
+      remove(): void {
+        teardownGlyphSceneObject(entry);
+        objectEntries?.delete(entry.id);
+        scheduleRender();
+      },
+    };
+  }
+
   function rerender(): void {
     // A direct rerender supersedes a queued microtask. Without this, a caller
     // that handles a synchronous render failure can observe an unrelated second
@@ -3442,6 +3809,8 @@ export function createGlyphScene(
     effectLayers.length = 0;
     retainedEffectOutputs.clear();
     meshes.clear();
+    objectEntries?.clear();
+    objectSamplers?.clear();
     detailCellMeasureCache.clear();
     // This scene's own `@font-palette-values` block (never the shared,
     // document-global `@font-face` — that outlives every individual scene).
@@ -3460,6 +3829,7 @@ export function createGlyphScene(
     add,
     addEffectLayer,
     addHotspot,
+    addObject,
     rerender,
     setOptions,
     getOptions,

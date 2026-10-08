@@ -1,25 +1,18 @@
-import { useEffect, type ReactNode } from "react";
-import type { GUI } from "lil-gui";
 import type { GlyphEffectId } from "@glyphcss/effects";
+import type { GUI } from "lil-gui";
+import { useEffect, type ReactNode } from "react";
 import type {
   GalleryEffectDefinition,
   GalleryEffectNumberParamSpec,
   GalleryEffectParamSpec,
-} from "../../GalleryWorkbench/effects";
-import { galleryEffectParamsAreValid } from "../../GalleryWorkbench/effects";
+} from "../../../features/gallery/model/effects";
+import { galleryEffectParamsAreValid } from "../../../features/gallery/model/effects";
 import type {
   GalleryEffectBlend,
   GalleryEffectParamValue,
   GalleryEffectState,
-} from "../../GalleryWorkbench/types";
-import {
-  useColor,
-  useFolder,
-  useOption,
-  useSlider,
-  useText,
-  useToggle,
-} from "../primitives";
+} from "../../../features/gallery/model/types";
+import { useColor, useFolder, useOption, useSlider, useText, useToggle } from "../primitives";
 
 export interface EffectsFolderInputs {
   effectState: GalleryEffectState;
@@ -162,16 +155,52 @@ function EffectParamControl({
   const onUpdate = (next: GalleryEffectParamValue) => onUpdateParams({ [name]: next });
   const key = `${effectId}:${name}:${spec.kind}`;
   if (spec.kind === "number") {
-    return <NumberParamControl key={key} folder={folder} name={name} spec={spec} value={typeof value === "number" ? value : spec.default} onUpdate={onUpdate} />;
+    return (
+      <NumberParamControl
+        key={key}
+        folder={folder}
+        name={name}
+        spec={spec}
+        value={typeof value === "number" ? value : spec.default}
+        onUpdate={onUpdate}
+      />
+    );
   }
   if (spec.kind === "boolean") {
-    return <BooleanParamControl key={key} folder={folder} name={name} spec={spec} value={typeof value === "boolean" ? value : spec.default} onUpdate={onUpdate} />;
+    return (
+      <BooleanParamControl
+        key={key}
+        folder={folder}
+        name={name}
+        spec={spec}
+        value={typeof value === "boolean" ? value : spec.default}
+        onUpdate={onUpdate}
+      />
+    );
   }
   if (spec.kind === "color") {
-    return <ColorParamControl key={key} folder={folder} name={name} spec={spec} value={typeof value === "string" ? value : spec.default} onUpdate={onUpdate} />;
+    return (
+      <ColorParamControl
+        key={key}
+        folder={folder}
+        name={name}
+        spec={spec}
+        value={typeof value === "string" ? value : spec.default}
+        onUpdate={onUpdate}
+      />
+    );
   }
   if (spec.values?.length) {
-    return <EnumParamControl key={key} folder={folder} name={name} spec={spec} value={typeof value === "string" ? value : spec.default} onUpdate={onUpdate} />;
+    return (
+      <EnumParamControl
+        key={key}
+        folder={folder}
+        name={name}
+        spec={spec}
+        value={typeof value === "string" ? value : spec.default}
+        onUpdate={onUpdate}
+      />
+    );
   }
   return (
     <TextParamControl
@@ -187,29 +216,21 @@ function EffectParamControl({
 }
 
 export function useEffectsFolder(parent: GUI | null, inputs: EffectsFolderInputs): GUI | null {
-  const {
-    effectState,
-    effectOptions,
-    definition,
-    onEffectChange,
-    onUpdateSettings,
-  } = inputs;
+  const { effectState, effectOptions, definition, onEffectChange, onUpdateSettings } = inputs;
   const folder = useFolder(parent, "Effects", { open: true });
-  const effectController = useOption(
-    folder,
-    "Effect",
-    effectOptions,
-    effectState.effectId ?? "",
-    (value) => onEffectChange(value ? value as GlyphEffectId : null),
+  const effectController = useOption(folder, "Effect", effectOptions, effectState.effectId ?? "", (value) =>
+    onEffectChange(value ? (value as GlyphEffectId) : null),
   );
   const blendController = useOption(folder, "Composition", BLEND_OPTIONS, effectState.blend, (blend) =>
     onUpdateSettings({ blend }),
   );
-  const pausedController = useToggle(folder, "Paused", effectState.paused, (paused) =>
-    onUpdateSettings({ paused }),
-  );
-  const speedController = useSlider(folder, "Playback speed", { min: 0.05, max: 8, step: 0.05 }, effectState.timeScale, (timeScale) =>
-    onUpdateSettings({ timeScale }),
+  const pausedController = useToggle(folder, "Paused", effectState.paused, (paused) => onUpdateSettings({ paused }));
+  const speedController = useSlider(
+    folder,
+    "Playback speed",
+    { min: 0.05, max: 8, step: 0.05 },
+    effectState.timeScale,
+    (timeScale) => onUpdateSettings({ timeScale }),
   );
 
   useEffect(() => {
@@ -219,18 +240,9 @@ export function useEffectsFolder(parent: GUI | null, inputs: EffectsFolderInputs
     blendController?.setEnabled(active, { dim: true });
     pausedController?.setEnabled(hasTimeline, { dim: true });
     speedController?.setEnabled(hasTimeline, { dim: true });
-  }, [
-    effectController,
-    blendController,
-    pausedController,
-    speedController,
-    effectState.effectId,
-    definition,
-  ]);
+  }, [effectController, blendController, pausedController, speedController, effectState.effectId, definition]);
 
-  return effectController && blendController && pausedController && speedController
-    ? folder
-    : null;
+  return effectController && blendController && pausedController && speedController ? folder : null;
 }
 
 export function EffectParameterControls({

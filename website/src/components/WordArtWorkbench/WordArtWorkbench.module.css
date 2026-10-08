@@ -1,0 +1,297 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+.root :global(.wa-field) {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 13px;
+  color: var(--gc-text-muted);
+}
+.root :global(.wa-field) > span {
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10.5px;
+  color: var(--gc-text-muted);
+}
+
+.root :global(.wa-input),
+.root select:global(.wa-input) {
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  color: var(--gc-text);
+  border-radius: 0;
+  padding: 0 0.55rem;
+  height: 28px;
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.root :global(.wa-input):focus,
+.root select:global(.wa-input):focus {
+  border-color: rgba(var(--gc-accent-rgb), 0.7);
+}
+.root textarea:global(.wa-input) {
+  resize: vertical;
+  line-height: 1.4;
+  height: auto;
+  padding: 0.5rem 0.55rem;
+}
+/* The floating Dock's "[ CONTROLS ]" top-border legend only makes sense on a
+   free-floating panel — the rail already has its own "Text & Style" header
+   and each folder gets its own title rule, so drop it here. */
+
+/* ── Center: viewport ───────────────────────────────────────────────────── */
+.root :global(.wa-stage) {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 50% 38%, var(--gc-surface) 0%, var(--gc-surface) 72%);
+}
+/* Viewing-angle shortcuts ("Still · front face" / "Auto rotate") over the
+   `spin`/`turn`/`tilt` URL state — sits centered in the same bottom overlay
+   row as `.synth-export-bar` (left-aligned), so visually to its right. Replaces
+   the old `.wa-stage-foot` polygon-count/status readout. */
+.root :global(.wa-stage) :global(.glyph-output) {
+  color: var(--gc-text);
+  margin: 0;
+}
+/* glyphcss render chain must fill the stage so autoSize gets the full grid.
+   The camera + scene host are plain divs that otherwise collapse to content
+   height. */
+.root :global(.wa-stage) > div,
+.root :global(.wa-stage) :global(.glyph-host),
+.root :global(.wa-stage) :global(.glyph-scene) {
+  width: 100%;
+  height: 100%;
+}
+.root :global(.dn-floating-controls) :global(.lil-gui) :global(.wa-widget-slot) {
+  padding: 0 var(--padding, 6px) var(--spacing, 5px);
+}
+
+.root :global(.wa-seg-duo) {
+  display: grid;
+  gap: var(--gc-space-1);
+}
+
+.root :global(.wa-imgrow) {
+  padding-top: 2px;
+}
+
+.root :global(.wa-texrow) {
+  padding-top: 2px;
+}
+.root :global(.wa-texgrid) {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 3px;
+}
+.root :global(.wa-texgrid__sw) {
+  aspect-ratio: 1;
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  border: 1px solid var(--gc-rule);
+  background-color: var(--gc-surface);
+  background-size: cover;
+  background-position: center;
+  cursor: pointer;
+  image-rendering: pixelated;
+}
+.root :global(.wa-texgrid__sw):hover {
+  border-color: var(--gc-text-muted);
+}
+.root :global(.wa-texgrid__sw):global(.is-on) {
+  border-color: rgba(var(--gc-accent-rgb), 0.9);
+  box-shadow: 0 0 0 1px rgba(var(--gc-accent-rgb), 0.9);
+}
+
+.root :global(.wa-bezwrap) {
+  padding-top: 2px;
+}
+.root :global(.wa-bez) {
+  width: 100%;
+  height: auto;
+  touch-action: none;
+  display: block;
+}
+.root :global(.wa-bez__frame) {
+  fill: var(--gc-surface);
+  stroke: var(--gc-rule);
+  stroke-width: 1;
+}
+.root :global(.wa-bez__diag) {
+  stroke: var(--gc-rule);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.root :global(.wa-bez__leg) {
+  stroke: var(--gc-text-faint);
+  stroke-width: 1.5;
+}
+.root :global(.wa-bez__curve) {
+  fill: none;
+  stroke: var(--gc-accent);
+  stroke-width: 2.5;
+}
+.root :global(.wa-bez__h) {
+  fill: rgba(var(--gc-accent-rgb), 0.25);
+  stroke: var(--gc-accent);
+  stroke-width: 2;
+  cursor: grab;
+}
+.root :global(.wa-bez__h):active {
+  cursor: grabbing;
+  fill: var(--gc-accent);
+}
+
+/* ── Searchable font dropdown ───────────────────────────────────────────── */
+.root :global(.wa-fontpick) {
+  position: relative;
+}
+.root :global(.wa-fontpick__list) {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  margin: 0;
+  padding: var(--gc-space-1);
+  list-style: none;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  box-shadow: 0 14px 36px rgba(var(--gc-surface-rgb), 0.55);
+}
+.root :global(.wa-fontpick__list)::-webkit-scrollbar {
+  width: 8px;
+}
+.root :global(.wa-fontpick__list)::-webkit-scrollbar-thumb {
+  background: var(--gc-rule);
+}
+.root :global(.wa-fontpick__item) {
+  padding: 6px 9px;
+  font-size: 13px;
+  color: var(--gc-text);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.root :global(.wa-fontpick__item):hover {
+  background: transparent;
+}
+.root :global(.wa-fontpick__item):global(.is-active) {
+  background: transparent;
+  color: var(--gc-accent);
+}
+
+/* ── Footer: full-width preset row (mirrors /synth's .synth-presets) ─────── */
+.root :global(.wa-tile) {
+  flex: 0 0 auto;
+  width: 140px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  border-block: 0;
+  border-inline: 1px solid var(--gc-rule);
+  --gx-bracket: var(--gc-rule);
+  background-color: var(--gc-surface);
+  color: rgba(var(--gc-text-rgb), 0.7);
+  cursor: pointer;
+  overflow: hidden;
+  font: inherit;
+  transition:
+    border-color 0.12s ease,
+    transform 0.12s ease;
+}
+.root :global(.wa-tile):hover {
+  border-color: rgba(var(--gc-accent-rgb), 0.9);
+  transform: translateY(-2px);
+  --gx-bracket: rgba(var(--gc-accent-rgb), 0.9);
+}
+.root :global(.wa-tile):global(.is-active) {
+  border-color: var(--gc-accent);
+  box-shadow: inset 0 0 0 1px rgba(var(--gc-accent-rgb), 0.5);
+  --gx-bracket: var(--gc-accent);
+}
+/* Each tile's preview is a static glyphcss render of a single letter styled
+   with that preset (see `renderPresetTile` — `compileScene`, no rAF, no live
+   scene), not a CSS gradient swatch. `.glyph-output` is `display:inline-block`
+   (see the base stylesheet `injectGlyphBaseStyles` ships), so the flex box
+   centers it like an icon inside the fixed square tile. */
+.root :global(.wa-tile__thumb) {
+  /* The preview is real selectable text (a `<pre>` of glyphs), so a click that
+     drifts a pixel over it becomes a text-selection drag and the tile's
+     `click` never fires — the tile then only responded on its short label.
+     The thumb is decorative, so let pointer events fall through to the button. */
+  pointer-events: none;
+  user-select: none;
+  width: 100%;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--gc-surface);
+}
+/* Fewer, bigger cells (see TILE_COLS/TILE_ROWS in WordArtWorkbench.tsx) at a
+   font-size comfortably above the ~7px crispness floor for monospace glyphs,
+   so the "a" reads clearly instead of blurring into noise. */
+.root :global(.wa-tile__glyph) {
+  font-size: 12px;
+  line-height: 1;
+}
+.root :global(.wa-tile__glyph) :global(.glyph-output) {
+  color: var(--gc-text);
+}
+/* Live effect tiles put `.wa-tile__glyph` on the scene HOST, so the `<pre>`
+   inside keeps the base stylesheet's own explicit font-size instead of
+   inheriting the tile's 12px — which rendered those tiles ~1.5x too large and
+   spilling out of the thumb. Pin the size on the output itself so live and
+   static tiles match. */
+.root :global(.wa-tile__thumb) :global(.glyph-output) {
+  font-size: 12px !important;
+  line-height: 1 !important;
+}
+.root :global(.wa-tile__label) {
+  padding: 3px 6px 5px;
+  font-size: 10px;
+  text-align: center;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Right Dock: run to the bottom of the body like the left rail ──────────
+   The floating Dock defaults to a 12px bottom inset (`--overlay-bottom`),
+   which left it hovering above the preset footer while `.wa-rail` runs the
+   full height of `.wa-body` and the footer sits on top of it. Match the rail:
+   drop the inset so both sidebars end at the same line. */
+
+/* ── Stats readout: top-left of the render space ──────────────────────────
+   stats-js pins itself bottom-right, where it overlapped the preset tiles.
+   Anchor it to the viewport area instead, just right of the left rail. */
+.root:global(.dn-root--wordart) :global(.glyph-stats-host) {
+  position: absolute;
+  top: var(--overlay-top);
+  left: var(--overlay-left);
+  right: auto;
+  bottom: auto;
+  align-items: flex-start;
+}
+
+.root :global(.wa-stage) {
+  cursor: grab;
+  touch-action: none;
+}
+.root :global(.wa-scene) {
+  width: 100%;
+  height: 100%;
+}
+.root [hidden] {
+  display: none;
+}

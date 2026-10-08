@@ -1,5 +1,10 @@
 import React from "react";
-import "./ModelsSidebar.css";
+import { ActionButton } from "../ActionButton";
+import { CollapsibleSection } from "../ControlSection";
+import { useModelCategories } from "./hooks/useModelCategories";
+import { ChoiceButton } from "../IconToggle";
+import { InstrumentRail } from "../InstrumentWorkbench";
+import styles from "./ModelsSidebar.module.css";
 
 export interface ModelAttribution {
   creator: string;
@@ -28,9 +33,7 @@ export interface ModelsSidebarProps {
   onFileInputChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onRandomPreset: () => void;
   modelCategories: ModelCategory[];
-  isCategoryOpen: (id: string) => boolean;
-  onToggleCategory: (id: string) => void;
-  modelTreeId: string[];
+  activeCategoryId: string;
   presetId: string;
   onPresetClick: (id: string) => void;
   attribution?: ModelAttribution;
@@ -67,33 +70,38 @@ export function ModelsSidebar({
   onFileInputChange,
   onRandomPreset,
   modelCategories,
-  isCategoryOpen,
-  onToggleCategory,
-  modelTreeId,
+  activeCategoryId,
   presetId,
   onPresetClick,
   attribution,
   className,
   id,
 }: ModelsSidebarProps) {
+  const categories = useModelCategories(presetId, activeCategoryId, modelSearch);
   return (
-    <aside className={`models-sidebar${className ? ` ${className}` : ""}`} id={id} aria-label="Models">
-      <div className="models-sidebar__body dark-scrollbar">
+    <InstrumentRail
+      id={id ?? "gallery-models-panel"}
+      title="Models"
+      bodyInset="inline"
+      open={className?.includes("is-mobile-open")}
+      className={`${styles.root} models-sidebar`}
+      toolbar={
         <div className="models-sidebar__header">
           <input
             className="model-search models-sidebar__search"
+            aria-label="Search models"
             type="search"
             placeholder="Search models"
             value={modelSearch}
             onChange={(event) => onModelSearchChange(event.target.value)}
             autoComplete="off"
           />
-          <button type="button" className="control-btn" onClick={onImportClick}>
+          <ActionButton type="button" className="control-btn" onClick={onImportClick}>
             Import
-          </button>
-          <button type="button" className="control-btn control-btn--primary" onClick={onRandomPreset}>
+          </ActionButton>
+          <ActionButton type="button" className="control-btn control-btn--primary" onClick={onRandomPreset}>
             Load Random
-          </button>
+          </ActionButton>
           <input
             ref={fileInputRef}
             className="model-file-input"
@@ -103,49 +111,43 @@ export function ModelsSidebar({
             onChange={onFileInputChange}
           />
         </div>
-
-        {modelCategories.length === 0 ? (
-          <div className="model-empty">No matching models</div>
-        ) : (
-          <div className="model-tree dark-scrollbar" id="debug-model-tree">
-            {modelCategories.map((category, index) => {
-              const isOpen = isCategoryOpen(category.id);
-              const treeId = modelTreeId[index];
-              return (
-                <div key={category.id} className="tree-category" data-cat-id={category.id}>
-                  <button
+      }
+      footer={<AttributionCredit attribution={attribution} />}
+    >
+      {modelCategories.length === 0 ? (
+        <div className="model-empty">No matching models</div>
+      ) : (
+        <div className="model-tree">
+          {modelCategories.map((category) => (
+            <CollapsibleSection
+              key={category.id}
+              title={category.label}
+              label={category.label}
+              count={category.models.length}
+              open={categories.isOpen(category.id)}
+              onOpenChange={(open) => categories.setOpen(category.id, open)}
+              sticky
+            >
+              <div className="model-button-list">
+                {category.models.map((preset) => (
+                  <ChoiceButton
                     type="button"
-                    className="tree-heading"
-                    aria-expanded={isOpen}
-                    aria-controls={treeId}
-                    onClick={() => onToggleCategory(category.id)}
+                    key={preset.id}
+                    align="start"
+                    aria-label={preset.label}
+                    aria-pressed={preset.id === presetId}
+                    title={preset.label}
+                    className="sidebar-item"
+                    onClick={() => onPresetClick(preset.id)}
                   >
-                    <span className="tree-label">
-                      <span className={`tree-caret${isOpen ? " open" : ""}`}>▸</span>
-                      {category.label}
-                    </span>
-                    <span className="tree-count">{category.models.length}</span>
-                  </button>
-                  <div className="model-button-list dark-scrollbar" id={treeId} style={isOpen ? undefined : { display: "none" }}>
-                    {category.models.map((preset) => (
-                      <button
-                        type="button"
-                        key={preset.id}
-                        className={`sidebar-item${preset.id === presetId ? " active" : ""}`}
-                        onClick={() => onPresetClick(preset.id)}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <AttributionCredit attribution={attribution} />
-      </div>
-    </aside>
+                    <span className="model-name">{preset.label}</span>
+                  </ChoiceButton>
+                ))}
+              </div>
+            </CollapsibleSection>
+          ))}
+        </div>
+      )}
+    </InstrumentRail>
   );
 }

@@ -1,0 +1,18 @@
+---
+import SiteLayout from "./SiteLayout.astro";
+import { ExamplesSidebar, type ExampleId } from "../components/ExamplesSidebar";
+interface Props {
+  title: string;
+  description: string;
+  path: string;
+  image?: string;
+  active: ExampleId;
+}
+const { active, ...page } = Astro.props;
+---
+
+<SiteLayout {...page} mode="workbench"
+  ><div class="example-frame">
+    <ExamplesSidebar active={active} /><div class="example-content"><slot /></div>
+  </div></SiteLayout
+>

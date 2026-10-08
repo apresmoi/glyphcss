@@ -38,9 +38,12 @@ import { buildCellGrid } from "./cells";
 import { computeOcclusionIds, rasterizeToCells } from "./rasterize";
 import {
   composeRetainedGlyphEffectOutput,
+  glyphEffectDepthCoverage,
   retainGlyphEffectOutput,
   type GlyphEffectOutputMetadata,
+  type RetainedGlyphEffectOutput,
 } from "./effectCompositor";
+import type { CellGrid } from "./cells";
 
 const COLS = 32, ROWS = 24, ASPECT = 2;
 const LIGHT = { direction: [0, 0, 1] as [number, number, number], intensity: 0 };
@@ -238,19 +241,26 @@ describe("cell ownership survives the retained-effect compositor", () => {
    */
   const metadata = (cols: number, rows: number): GlyphEffectOutputMetadata => ({
     id: "base",
-    pre: document.createElement("pre"),
     isBase: true,
     cellToSceneGrid: [1, 0, 0, 1, 0, 0],
     sceneGridSize: [cols, rows],
     localCellFootprint: [1, 1],
+    transformCellsLayer: { detail: false, cellToSceneGrid: [1, 0, 0, 1, 0, 0] },
   });
+
+  // Contract 4 (AGENTS.md "Retained Glyph Effects"): the compositor no
+  // longer derives coverage from `grid.depth` on its own — a scene render's
+  // own meaning of it ("finite depth") is exactly what these fixtures'
+  // mixed `-Infinity`/`0` depth buffers relied on before the split.
+  const retain = (grid: CellGrid, meta: GlyphEffectOutputMetadata, previous?: RetainedGlyphEffectOutput): RetainedGlyphEffectOutput =>
+    retainGlyphEffectOutput(grid, meta, { coverage: glyphEffectDepthCoverage(grid) }, previous);
 
   it("reaches the far side of retain + compose, by value", () => {
     const chars = [" ", "#", " ", "#"];
     const grid = buildCellGrid(chars, [null, null, null, null], new Float64Array([-Infinity, 0, -Infinity, 0]), 4, 1);
     grid.occluded = new Uint8Array([1, 0, 1, 0]);
 
-    const composed = composeRetainedGlyphEffectOutput(retainGlyphEffectOutput(grid, metadata(4, 1)), []);
+    const composed = composeRetainedGlyphEffectOutput(retain(grid, metadata(4, 1)), []);
     expect(composed.occluded).toBeDefined();
     expect(Array.from(composed.occluded!)).toEqual([1, 0, 1, 0]);
   });
@@ -261,11 +271,11 @@ describe("cell ownership survives the retained-effect compositor", () => {
     const build = () => buildCellGrid([" ", "#"], [null, null], new Float64Array([-Infinity, 0]), 2, 1);
     const withOwnership = build();
     withOwnership.occluded = new Uint8Array([1, 0]);
-    const first = retainGlyphEffectOutput(withOwnership, metadata(2, 1));
+    const first = retain(withOwnership, metadata(2, 1));
     composeRetainedGlyphEffectOutput(first, []);
 
     const composed = composeRetainedGlyphEffectOutput(
-      retainGlyphEffectOutput(build(), metadata(2, 1), first),
+      retain(build(), metadata(2, 1), first),
       [],
     );
     expect(composed.occluded).toBeUndefined();

@@ -1,0 +1,919 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+
+.root * {
+  box-sizing: border-box;
+}
+
+/* ── Nav ─────────────────────────────────────────── */
+.root :global(.docs-shell) {
+  display: block;
+  min-height: 100vh;
+  background: var(--gc-surface);
+}
+
+/* Landing's header is in-flow (scrolls with content), unlike the docs/gallery
+     pages where DocsHeader is position:fixed. Override the fixed positioning. */
+.root :global(.docs-shell) > :global(.header) {
+  position: static;
+  inset-block-start: auto;
+  inset-inline-start: auto;
+  width: auto;
+  background-color: var(--gc-surface);
+}
+
+/* ── GitHub Social ──────────────────────────────── */
+.root :global(.github-social) {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 6px;
+  background: var(--gc-text);
+  border: 1px solid var(--gc-text);
+  color: var(--gc-surface);
+  text-decoration: none;
+  font-weight: 600;
+  user-select: none;
+  white-space: nowrap;
+}
+.root :global(.github-social):hover,
+.root :global(.github-social):focus-visible {
+  background: var(--gc-text);
+  border-color: var(--gc-text);
+  color: var(--gc-surface);
+}
+.root :global(.github-social__main) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  padding: var(--gc-space-2) var(--gc-space-3);
+  border-right: 1px solid var(--gc-text);
+  font-size: 14px;
+}
+.root :global(.github-social__icon) {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+.root :global(.github-social__count) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  padding: var(--gc-space-2) 10px;
+  background: var(--gc-text);
+  border-radius: 0 6px 6px 0;
+  color: var(--gc-surface);
+  font-size: 14px;
+}
+
+/* ── Content ────────────────────────────────────── */
+.root :global(.docs-content) {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+/* ── Home ───────────────────────────────────────── */
+:local(.root) {
+  width: 100%;
+  max-width: 1100px;
+  margin: 20px auto;
+  /* The hero scene strip is intrinsically ~1100px wide, so without
+       width: 100% + min-width: 0 the flexbox algorithm sizes .home to its
+       min-content (1100px) and the page overflows horizontally — pushing
+       section rules and code blocks past the viewport on narrow screens.
+       overflow-x: clip lets the strip get cropped instead of widening us. */
+  min-width: 0;
+  overflow-x: clip;
+  box-sizing: border-box;
+}
+
+/* ── Hero ───────────────────────────────────────── */
+.root :global(.hero) {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 20px;
+  align-items: center;
+  background: linear-gradient(135deg, var(--gc-surface), var(--gc-surface));
+  border-radius: 12px;
+  border: 1px solid rgba(var(--gc-accent-rgb), 0.25);
+  padding: 0px 40px;
+  position: relative;
+  /* Locked to glyphcss's hero-card height (~390px). */
+  height: 389.99px;
+  min-height: 389.99px;
+  box-sizing: border-box;
+}
+
+/* ── ASCII-art hero (meta: the visual IS a glyphcss scene) ──────── */
+/* Mobile-first: text stacked on top, scene below. Side-by-side kicks
+     in at ≥768px (see media query below). The scene used to sit behind
+     the text via position: absolute; that read as a background image
+     rather than a focal element, which isn't the framing we want. */
+.root :global(.hero--ascii) {
+  display: grid;
+  /* minmax(0, 1fr) — not bare 1fr — so the track shrinks below the demo's
+       min-content (the rasterized strip's intrinsic width with white-space:
+       pre). Bare 1fr resolves to minmax(auto, 1fr), and auto-min inflates the
+       track to fit the strip even when min-width:0 is set on every grid item
+       in the chain. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "overlay"
+    "scene";
+  /* Mobile-first: stack overlay + scene flush (no gap). The base .hero sets
+       gap: 20px for the side-by-side desktop layout; the ≥768px query below
+       restores it as a column-gap. */
+  gap: 0;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: radial-gradient(circle at 30% 20%, var(--gc-surface) 0%, var(--gc-surface) 60%, var(--gc-surface) 100%);
+  border-color: var(--gc-rule);
+  font-family: var(--gc-font-ui);
+}
+.root :global(.hero--ascii) :global(.hero-scene) {
+  grid-area: scene;
+  position: relative;
+  /* The globe auto-fits the grid, so the frame just needs enough vertical
+       room on narrow viewports for it to read as a sphere without making the
+       hero dominate the viewport. */
+  height: clamp(420px, 90vw, 560px);
+  overflow: hidden;
+  min-width: 0;
+}
+.root :global(.hero--ascii) :global(.hero-overlay) {
+  grid-area: overlay;
+  padding: clamp(28px, 6vw, 48px) clamp(20px, 5vw, 48px);
+  color: var(--gc-text);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+@media (min-width: 768px) {
+  .root :global(.hero--ascii) {
+    grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+    grid-template-areas: "overlay scene";
+    column-gap: 20px;
+    align-items: center;
+    min-height: clamp(420px, 56vh, 560px);
+  }
+  .root :global(.hero--ascii) :global(.hero-scene) {
+    height: clamp(420px, 56vh, 560px);
+    min-height: 0;
+  }
+}
+
+/* same minmax(0, ...) guard for the demo's inner grid — without it, the
+     strip's white-space: pre min-content leaks back through here too. */
+.root :global(.hero-wordmark) {
+  margin: 0 0 14px;
+  padding: 0;
+  font-family: var(--gc-font-ui);
+  font-size: clamp(48px, 7vw, 88px);
+  line-height: 1;
+  letter-spacing: -2px;
+  font-weight: 900;
+}
+.root :global(.hero-wordmark) :global(.wm-a) {
+  color: var(--gc-orange);
+  text-shadow:
+    0 0 18px rgba(var(--gc-orange-rgb), 0.6),
+    0 0 4px var(--gc-surface);
+}
+.root :global(.hero-wordmark) :global(.wm-b) {
+  color: var(--gc-accent);
+  text-shadow:
+    0 0 18px rgba(var(--gc-accent-rgb), 0.6),
+    0 0 4px var(--gc-surface);
+}
+.root :global(.hero-tag) {
+  margin: 6px 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--gc-text);
+}
+.root :global(.hero-prompt) {
+  color: rgba(var(--gc-accent-rgb), 0.9);
+  margin-right: var(--gc-space-2);
+}
+.root :global(.hero-tag) code {
+  font-family: var(--gc-font-ui);
+  background: rgba(var(--gc-accent-rgb), 0.08);
+  border: 1px solid rgba(var(--gc-accent-rgb), 0.25);
+  padding: 0 var(--gc-space-1);
+  border-radius: 2px;
+  color: var(--gc-accent);
+  font-size: 0.92em;
+}
+.root :global(.hero-rule) {
+  width: 100%;
+  margin: 14px 0 var(--gc-space-3);
+  color: var(--gc-text-faint);
+  font-family: var(--gc-font-ui);
+  font-size: 12px;
+  letter-spacing: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.root :global(.hero-actions) {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.root :global(.hero-btn) {
+  display: inline-block;
+  padding: 7px var(--gc-space-4);
+  font-family: var(--gc-font-ui);
+  font-size: 13px;
+  color: var(--gc-text);
+  background: rgba(var(--gc-surface-rgb), 0.55);
+  border: 1px solid var(--gc-text-faint);
+  text-decoration: none;
+  transition:
+    background 100ms,
+    border-color 100ms,
+    color 100ms;
+}
+.root :global(.hero-btn):hover {
+  background: rgba(var(--gc-accent-rgb), 0.15);
+  border-color: rgba(var(--gc-accent-rgb), 0.55);
+  color: var(--gc-text);
+}
+.root :global(.hero-btn):global(.ghost) {
+  border-style: dashed;
+}
+.root :global(.hero-runtimes) {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  font-family: var(--gc-font-ui);
+  font-size: 12px;
+  color: var(--gc-text-muted);
+}
+.root :global(.hero-chip) {
+  padding: 2px 10px;
+  border: 1px solid var(--gc-rule-strong);
+  color: var(--gc-text);
+}
+.root :global(.hero-canvas),
+.root :global(.hero-copy) {
+  padding: 30px 0px;
+}
+.root :global(.hero-copy) h1 {
+  font-size: 4.5rem;
+  line-height: 1;
+  margin: 5px 0 var(--gc-space-3);
+  font-family: var(--gc-font-ui);
+  font-weight: 900;
+  letter-spacing: -2px;
+}
+.root :global(.wm-a) {
+  color: var(--gc-orange);
+  text-shadow: 0 0 12px rgba(var(--gc-orange-rgb), 0.45);
+}
+.root :global(.wm-b) {
+  color: var(--gc-accent);
+  text-shadow: 0 0 12px rgba(var(--gc-accent-rgb), 0.45);
+}
+.root :global(.hero-copy) p {
+  color: var(--gc-text);
+  line-height: 1.6;
+  font-size: 18px;
+  margin: 0 0 var(--gc-space-4);
+  padding-right: 5px;
+}
+.root :global(.hero-copy) code {
+  font-family: var(--gc-font-ui);
+  background: rgba(var(--gc-accent-rgb), 0.12);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.92em;
+  color: var(--gc-accent);
+}
+.root :global(.hero-copy) hr {
+  border: 0;
+  border-top: 0px solid rgba(var(--gc-accent-rgb), 0.25);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.root :global(.cta) {
+  display: flex;
+  gap: var(--gc-space-3);
+  flex-wrap: wrap;
+}
+.root :global(.hero-canvas) {
+  /* Fills the hero card vertically (which is now locked to 389.99px). */
+  height: 100%;
+  position: relative;
+}
+/* Make the GlyphDemo inside the hero fill the canvas column. */
+.root :global(.hero-canvas) > :global(.glyph-demo) {
+  height: 100%;
+  margin: 0;
+  /* Remove the dark box — hero demo should be transparent */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+.root :global(.hero-canvas) :global(.glyph-demo__viewer),
+.root :global(.hero-canvas) :global(.glyph-demo__canvas),
+.root :global(.hero-canvas) :global(.glyph-demo__scene-host) {
+  height: 100%;
+  /* Fills the locked hero-canvas (parent .hero is height: 389.99px). */
+  min-height: 0;
+  background: transparent !important;
+}
+.root :global(.install-logos) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 20px;
+  align-items: center;
+  position: absolute;
+  top: 42px;
+  right: 20px;
+  flex-direction: column;
+}
+.root :global(.install-logo) {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  opacity: 0.5;
+}
+
+/* ── Buttons ────────────────────────────────────── */
+.root :global(.btn) {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--gc-space-2);
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 18px;
+  line-height: 1.2;
+  color: var(--gc-text);
+  text-decoration: none;
+  border: 1px solid rgba(var(--gc-text-rgb), 0);
+  background: rgba(var(--gc-text-rgb), 0.08);
+  box-sizing: border-box;
+  transition:
+    background 150ms ease,
+    color 150ms ease;
+  cursor: pointer;
+}
+.root :global(.btn):hover {
+  text-decoration: none;
+  background: var(--gc-surface);
+  color: var(--gc-text);
+}
+.root :global(.btn):global(.ghost) {
+  background: var(--gc-surface);
+  border-color: rgba(var(--gc-text-rgb), 0);
+  color: var(--gc-text);
+}
+.root :global(.btn):global(.ghost):hover {
+  background: var(--gc-surface);
+  color: var(--gc-text);
+}
+
+/* ── Terminal section shared ────────────────────── */
+.root :global(.term-section-rule) {
+  display: flex;
+  align-items: center;
+  font-family: var(--gc-font-ui);
+  font-size: 12px;
+  color: var(--gc-rule);
+  margin: 0 0 28px;
+  white-space: nowrap;
+  overflow: hidden;
+  line-height: 1;
+}
+.root :global(.term-section-rule)::before,
+.root :global(.term-section-rule)::after {
+  content: "════════════════════════════════════════════════════════════════════════════════════════════════════";
+  flex: 1 1 0;
+  overflow: hidden;
+  color: var(--gc-rule);
+}
+.root :global(.term-section-label) {
+  flex: 0 0 auto;
+  padding: 0 var(--gc-space-3);
+  color: rgba(var(--gc-accent-rgb), 0.9);
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 600;
+}
+.root :global(.term-dim) {
+  color: var(--gc-text-faint);
+}
+.root :global(.term-prompt-inline) {
+  color: var(--gc-accent);
+  margin-right: var(--gc-space-2);
+  font-family: var(--gc-font-ui);
+}
+.root :global(.term-link-btn) {
+  display: inline-block;
+  font-family: var(--gc-font-ui);
+  font-size: 13px;
+  color: var(--gc-text);
+  text-decoration: none;
+  border: 1px solid var(--gc-rule-strong);
+  padding: 6px 14px;
+  transition:
+    background 100ms,
+    border-color 100ms,
+    color 100ms;
+}
+.root :global(.term-link-btn):hover {
+  background: rgba(var(--gc-accent-rgb), 0.12);
+  border-color: rgba(var(--gc-accent-rgb), 0.55);
+  color: var(--gc-text);
+}
+/* Traffic-light terminal frame dots */
+.root :global(.term-dot) {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: var(--gc-space-1);
+  flex-shrink: 0;
+}
+.root :global(.term-dot):global(.r) {
+  background: rgba(var(--gc-orange-rgb), 0.55);
+}
+.root :global(.term-dot):global(.y) {
+  background: rgba(var(--gc-orange-rgb), 0.55);
+}
+.root :global(.term-dot):global(.g) {
+  background: rgba(var(--gc-success-rgb), 0.45);
+}
+
+/* ── Install ────────────────────────────────────── */
+.root :global(.install) {
+  margin-top: 30px;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+  padding: 28px;
+  padding-bottom: 20px;
+  font-family: var(--gc-font-ui);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(var(--gc-text-rgb), 0.008) 3px,
+    rgba(var(--gc-text-rgb), 0.008) 4px
+  );
+}
+.root :global(.install-list) {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.root :global(.install-row) {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.root :global(.install-row) + :global(.install-row) {
+  margin-top: 22px;
+}
+.root :global(.install-label) {
+  margin: 0;
+  font-family: var(--gc-font-ui);
+  font-size: 12px;
+  color: var(--gc-text-muted);
+  letter-spacing: 0.04em;
+}
+.root :global(.install-content) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px var(--gc-space-4);
+  align-items: stretch;
+  min-width: 0;
+}
+/* Terminal command frame */
+.root :global(.term-cmd-frame) {
+  flex: 1 1 260px;
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+  overflow: hidden;
+}
+.root :global(.term-cmd-bar) {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 5px 10px;
+  background: rgba(var(--gc-text-rgb), 0.04);
+  border-bottom: 1px solid rgba(var(--gc-text-rgb), 0.1);
+}
+.root :global(.term-cmd-title) {
+  font-family: var(--gc-font-ui);
+  font-size: 10px;
+  color: var(--gc-text-faint);
+  letter-spacing: 0.06em;
+  margin-left: 6px;
+}
+.root :global(.term-cmd-pre) {
+  margin: 0;
+  padding: 10px var(--gc-space-3);
+  background: transparent;
+  overflow: auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--gc-space-2);
+}
+/* Mobile: long single-line code (e.g. the CDN <script> tag) overflows
+     horizontally on narrow viewports. Let it wrap instead of scroll. */
+@media (max-width: 640px) {
+  .root :global(.term-cmd-pre) {
+    overflow: hidden;
+  }
+  .root :global(.term-cmd-pre) code {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    min-width: 0;
+  }
+}
+.root :global(.term-prompt) {
+  color: var(--gc-accent);
+  font-family: var(--gc-font-ui);
+  font-size: 13px;
+  flex-shrink: 0;
+  user-select: none;
+}
+.root :global(.term-cmd-pre) code {
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  font-size: 13px;
+  font-family: var(--gc-font-ui);
+}
+
+/* ── How It Works ───────────────────────────────── */
+.root :global(.stacking) {
+  margin-top: 30px;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+  padding: 28px;
+  font-family: var(--gc-font-ui);
+}
+.root :global(.stacking-diagram) {
+  margin: var(--gc-space-3) 0 32px;
+  width: 100%;
+}
+.root :global(.stacking-art) {
+  margin: 0;
+  font-family: var(--gc-font-ui);
+  font-size: 13px;
+  line-height: 1.55;
+  background: transparent;
+  padding: 0;
+  white-space: pre;
+}
+.root :global(.art-dim) {
+  color: var(--gc-rule-strong);
+}
+.root :global(.art-amber) {
+  color: var(--gc-text);
+}
+.root :global(.art-cyan) {
+  color: var(--gc-accent);
+}
+.root :global(.art-orange) {
+  color: var(--gc-orange);
+}
+.root :global(.stacking-copy) p {
+  font-family: var(--gc-font-ui);
+  color: rgba(var(--gc-text-rgb), 0.72);
+  line-height: 1.65;
+  font-size: 13px;
+  margin: 0 0 14px;
+}
+.root :global(.stacking-copy) code {
+  font-family: var(--gc-font-ui);
+  background: rgba(var(--gc-accent-rgb), 0.1);
+  border: 1px solid rgba(var(--gc-accent-rgb), 0.2);
+  color: var(--gc-accent);
+  padding: 1px 5px;
+  font-size: 0.95em;
+}
+
+/* ── Getting Started ────────────────────────────── */
+.root :global(.getting-started) {
+  margin-top: 30px;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+  padding: 28px;
+  font-family: var(--gc-font-ui);
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(var(--gc-text-rgb), 0.008) 3px,
+    rgba(var(--gc-text-rgb), 0.008) 4px
+  );
+}
+.root :global(.getting-lede) {
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.root :global(.getting-lede) p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.65;
+  color: rgba(var(--gc-text-rgb), 0.72);
+}
+.root :global(.getting-lede) code {
+  font-family: var(--gc-font-ui);
+  background: rgba(var(--gc-accent-rgb), 0.1);
+  border: 1px solid rgba(var(--gc-accent-rgb), 0.2);
+  color: var(--gc-accent);
+  padding: 1px 5px;
+  font-size: 0.95em;
+}
+.root :global(.getting-grid) {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.root :global(.getting-content) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-3);
+}
+.root :global(.getting-actions) {
+  margin: 0;
+}
+/* Terminal editor shell that wraps tabs + code panel */
+.root :global(.term-editor-shell) {
+  border: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+  overflow: hidden;
+}
+.root :global(.term-editor-bar) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: rgba(var(--gc-text-rgb), 0.04);
+  border-bottom: 1px solid rgba(var(--gc-text-rgb), 0.1);
+  flex-wrap: wrap;
+}
+.root :global(.term-editor-path) {
+  font-family: var(--gc-font-ui);
+  font-size: 10px;
+  color: var(--gc-text-faint);
+  letter-spacing: 0.05em;
+  margin-right: 6px;
+}
+.root :global(.getting-grid) pre {
+  margin: 0;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+.root :global(.getting-grid) code {
+  font-family: var(--gc-font-ui);
+}
+
+/* ── Framework Tabs ─────────────────────────────── */
+.root :global(.framework-tablist) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  flex: 1;
+}
+.root :global(.framework-tab) {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--gc-text-muted);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--gc-font-ui);
+  letter-spacing: 0.04em;
+  transition:
+    color 80ms,
+    border-color 80ms;
+}
+.root :global(.framework-tab)::before {
+  content: "[ ";
+  color: var(--gc-rule);
+}
+.root :global(.framework-tab)::after {
+  content: " ]";
+  color: var(--gc-rule);
+}
+.root :global(.framework-tab):hover {
+  color: rgba(var(--gc-text-rgb), 0.75);
+}
+.root :global(.framework-tab):global(.active) {
+  color: var(--gc-text);
+  border-color: rgba(var(--gc-orange-rgb), 0.5);
+  background: rgba(var(--gc-orange-rgb), 0.06);
+}
+.root :global(.framework-tab):global(.active)::before {
+  color: var(--gc-orange);
+}
+.root :global(.framework-tab):global(.active)::after {
+  color: var(--gc-orange);
+}
+.root :global(.framework-tabpanel) {
+  background: transparent;
+  padding: 0;
+}
+.root :global(.framework-tabpanel) code {
+  display: block;
+  background: transparent;
+  padding: var(--gc-space-4);
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.root :global(.framework-tabpanel):global(.hidden) {
+  display: none;
+}
+
+/* ── hljs overrides — cream-on-dark theme reconciliation ── */
+/* github-dark hljs has bright saturated colors that clash with
+     the cream/amber terminal palette; nudge the major token colors
+     toward warmer hues without fully desaturating them */
+.root :global(.term-cmd-pre) code:global(.hljs),
+.root :global(.framework-tabpanel) code:global(.hljs) {
+  background: transparent;
+  padding: 0;
+}
+.root :global(.term-cmd-pre) :global(.hljs-string),
+.root :global(.framework-tabpanel) :global(.hljs-string) {
+  color: var(--gc-warning);
+}
+.root :global(.term-cmd-pre) :global(.hljs-keyword),
+.root :global(.framework-tabpanel) :global(.hljs-keyword) {
+  color: var(--gc-accent);
+}
+.root :global(.term-cmd-pre) :global(.hljs-built_in),
+.root :global(.framework-tabpanel) :global(.hljs-built_in) {
+  color: var(--gc-violet);
+}
+.root :global(.term-cmd-pre) :global(.hljs-comment),
+.root :global(.framework-tabpanel) :global(.hljs-comment) {
+  color: var(--gc-text-faint);
+}
+.root :global(.term-cmd-pre) :global(.hljs-attr),
+.root :global(.framework-tabpanel) :global(.hljs-attr) {
+  color: var(--gc-orange);
+}
+.root :global(.term-cmd-pre) :global(.hljs-name),
+.root :global(.framework-tabpanel) :global(.hljs-name) {
+  color: var(--gc-accent);
+}
+
+/* ── Footer ──────────────────────────────────────── */
+.root :global(.term-footer) {
+  margin-top: 30px;
+  margin-bottom: 0;
+  font-family: var(--gc-font-ui);
+}
+.root :global(.term-footer-bar) {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+  padding: 14px 28px;
+  background: var(--gc-surface);
+  border: 1px solid var(--gc-rule);
+  border-bottom: none;
+  font-size: 11px;
+  letter-spacing: 0.05em;
+}
+.root :global(.term-footer-seg) {
+  color: var(--gc-text-muted);
+  white-space: nowrap;
+}
+.root :global(.term-footer-sep) {
+  color: var(--gc-rule);
+  padding: 0 2px;
+}
+.root :global(.term-footer-link) {
+  color: rgba(var(--gc-accent-rgb), 0.7);
+  text-decoration: none;
+  transition: color 100ms;
+}
+.root :global(.term-footer-link):hover {
+  color: var(--gc-accent);
+}
+
+/* ── Scrollbar ──────────────────────────────────── */
+.root :global(.dark-scrollbar) {
+  scrollbar-width: thin;
+  scrollbar-color: var(--gc-text-faint) transparent;
+}
+.root :global(.dark-scrollbar)::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.root :global(.dark-scrollbar)::-webkit-scrollbar-track {
+  background: rgba(var(--gc-surface-rgb), 0.5);
+  border-radius: 999px;
+}
+.root :global(.dark-scrollbar)::-webkit-scrollbar-thumb {
+  background: var(--gc-text-faint);
+  border-radius: 999px;
+}
+.root :global(.dark-scrollbar)::-webkit-scrollbar-thumb:hover {
+  background: var(--gc-text-muted);
+}
+
+/* ── Responsive ─────────────────────────────────── */
+@media (max-width: 1024px) {
+  .root :global(.docs-content) {
+    margin-left: 0;
+    padding: var(--gc-space-6);
+  }
+}
+
+@media (max-width: 960px) {
+  :local(.root) {
+    padding: 0;
+    margin-top: 0;
+  }
+  .root :global(.hero):not(:global(.hero--ascii)) {
+    grid-template-columns: 1fr;
+    padding: var(--gc-space-6);
+  }
+  .root :global(.hero-copy) h1 {
+    font-size: 2.75rem;
+  }
+  .root :global(.hero-copy) p {
+    font-size: 16px;
+    padding-right: 0;
+  }
+  .root :global(.cta) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .root :global(.install-row) {
+    flex-direction: column;
+  }
+  .root :global(.install-label) {
+    min-width: 0;
+  }
+  .root :global(.install),
+  .root :global(.stacking),
+  .root :global(.getting-started) {
+    padding: 20px;
+  }
+  .root :global(.install-content) {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .root :global(.hero):not(:global(.hero--ascii)) {
+    padding: 20px;
+  }
+  .root :global(.hero-copy) h1 {
+    font-size: 2.4rem;
+  }
+  .root :global(.install-content) {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .root :global(.term-cmd-frame) {
+    flex: none;
+    width: 100%;
+  }
+  .root :global(.framework-tabpanel) code {
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .root :global(.stacking-art) {
+    font-size: 10px;
+  }
+  .root :global(.term-footer-bar) {
+    flex-direction: column;
+    gap: var(--gc-space-1);
+    text-align: center;
+  }
+  .root :global(.term-footer-sep) {
+    display: none;
+  }
+}

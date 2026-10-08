@@ -8,9 +8,9 @@
  */
 import { defineComponent, h, computed } from "vue";
 import type { PropType } from "vue";
-import type { Polygon, RenderMode } from "@glyphcss/core";
+import type { Polygon, RenderMode, TextureSampler } from "@glyphcss/core";
 import { compileScene } from "glyphcss";
-import type { GlyphCamera, GlyphControlSceneManifest, GlyphFontAtlas, GlyphObjectDictionary, GlyphSolidWeightRampStep } from "glyphcss";
+import type { GlyphCamera, GlyphControlSceneManifest, GlyphFontAtlas, GlyphObjectDictionary, GlyphSceneObject, GlyphSolidWeightRampStep } from "glyphcss";
 
 export interface GlyphSceneStaticProps {
   polygons: Polygon[];
@@ -39,6 +39,10 @@ export interface GlyphSceneStaticProps {
   glyphOutput?: "visible" | "semantic";
   sceneManifest?: GlyphControlSceneManifest;
   dictionary?: GlyphObjectDictionary;
+  /** `GlyphSceneObject`s to mount — see `compileScene`'s own `objects` doc (contract 3). Mounted at the identity transform; there is no separate transform prop here. */
+  objects?: GlyphSceneObject[];
+  /** Procedural texture samplers — see `compileScene`'s own `textureSamplers` doc (contract 3/9). */
+  textureSamplers?: ReadonlyMap<string, TextureSampler> | null;
 }
 
 export const GlyphSceneStatic = defineComponent({
@@ -67,6 +71,8 @@ export const GlyphSceneStatic = defineComponent({
     glyphOutput: { type: String as PropType<"visible" | "semantic">, default: undefined },
     sceneManifest: { type: Object as PropType<GlyphControlSceneManifest>, default: undefined },
     dictionary: { type: Object as PropType<GlyphObjectDictionary>, default: undefined },
+    objects: { type: Array as PropType<GlyphSceneObject[]>, default: undefined },
+    textureSamplers: { type: Object as PropType<ReadonlyMap<string, TextureSampler> | null>, default: undefined },
   },
   setup(props) {
     const inner = computed(() => compileScene({
@@ -93,6 +99,8 @@ export const GlyphSceneStatic = defineComponent({
       glyphOutput: props.glyphOutput,
       sceneManifest: props.sceneManifest,
       dictionary: props.dictionary,
+      objects: props.objects,
+      textureSamplers: props.textureSamplers,
     }).inner);
     return () => h("pre", { class: "glyph-output", innerHTML: inner.value });
   },

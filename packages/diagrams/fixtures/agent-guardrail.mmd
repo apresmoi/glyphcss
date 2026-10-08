@@ -1,0 +1,22 @@
+%% Hand-authored EXAMPLE architecture (not telemetry from any running
+%% system) — a supervisor routes work to two specialist agents, each of
+%% which owns its own tool/memory access, and both report into a shared
+%% guardrail check before the answer ships; a failed check retries the
+%% supervisor's own routing decision. Added for the "more complex 2D
+%% diagram presets" round (user, verbatim: "I want to add more complex
+%% agentic architectures") to give the 2D preset tray a genuinely nested,
+%% cyclic agentic example with a tool/memory layer.
+flowchart LR
+  user([User]) --> supervisor{Supervisor}
+  subgraph team[Workers]
+    researcher(Researcher)
+    coder(Coder)
+  end
+  supervisor --> researcher
+  supervisor --> coder
+  researcher --> tools[[Tools]]
+  coder --> memory[(Memory)]
+  tools --> guard{Guardrail}
+  memory --> guard
+  guard -.->|retry| supervisor
+  guard -->|ok| answer([Answer])

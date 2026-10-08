@@ -732,11 +732,12 @@ function fillDepthTri(
  * Projects each polygon at the CELL grid's resolution (same call
  * `camera.project` already gets for wireframe edges), then scales the
  * resulting screen x/y by `(sx, sy)` before filling — this matches how
- * `rasterizeWireframeBraille` derives subcell coordinates by scaling a
- * cell-space projection (`a[0] * 2`, `a[1] * 4`), so `sx=2, sy=4` builds a
- * depth buffer at SUBCELL resolution with no second projection pass, and
- * `sx=1, sy=1` (the ASCII path, and braille's coarser per-cell option)
- * builds it at cell resolution directly.
+ * `rasterizeWireframeSubcell` derives subcell coordinates by scaling a
+ * cell-space projection (`a[0] * subX`, `a[1] * subY`), so `sx=2, sy=4`
+ * builds a depth buffer at braille's SUBCELL resolution with no second
+ * projection pass, and `sx=1, sy=1` (the ASCII path, and every subcell
+ * charMode's coarser cell-resolution HLR prepass) builds it at cell
+ * resolution directly.
  *
  * Exported for `createGlyphScene.ts`'s meshless viewport overlay (a
  * `line`/`contour` stroke layer's own independent-density output grid):
@@ -807,6 +808,73 @@ export function buildSurfaceDepth(
     }
   }
   return depth;
+}
+
+/**
+ * Fix round 6, P1-1: a mounted object's overlay (a chart's axis-triad tick/
+ * title, a diagram's node label) needs a REAL per-cell occlusion test under
+ * `mode: "wireframe"`/`"ink"`, not just `"solid"` — `CellGrid.winnerMesh` was
+ * previously populated ONLY for `mode === "solid"`
+ * (`compileScene.ts`/`createGlyphScene.ts`'s own `retainWinnerMesh` gate),
+ * which silently left every overlay's `ownMeshIds`/`occlusionDepth` check
+ * inert under wireframe/ink and let a label paint straight through real
+ * surface geometry between two sampled vertices — `@glyphcss/charts`' 3D
+ * axis overlay had to work around it with a hand-rolled, vertex-only
+ * approximation (`buildMeshScreenDepth`, `packages/charts/src/3d/object.ts`)
+ * that missed a triangle's own rasterized edges and interior.
+ *
+ * Rasterizes every polygon's own triangles (the same `fillDepthTri`
+ * primitive `buildSurfaceDepth`/`computeOcclusionIds` use) into a per-cell
+ * depth AND winner-mesh-id buffer, at CELL resolution — real geometry, never
+ * a vertex sample. `polygonMeshIds[i]` is the mesh id for `polygons[i]` (`0`
+ * = base/non-object geometry, `mergeCompileObjects`'/`createGlyphScene`'s
+ * own convention); omitted (`undefined`) reads every polygon as mesh `0`,
+ * matching solid mode's own `RasterizeContext.polygonMeshIds` "no ids
+ * supplied" fallback. The caller gates the call itself on
+ * `scene.retainOverlayOcclusion` (a mounted object's own OVERLAY, never
+ * `retainWinnerMesh`, which also serves per-object EFFECT targeting and
+ * stays solid-mode-only per that feature's own documented contract) — a
+ * scene with no mounted overlay allocates nothing extra here and renders
+ * byte-identically (the "Scene objects" contract).
+ *
+ * Uses `p[3] ?? p[2]` (`zBufferDepth: true`'s own convention on
+ * `buildSurfaceDepth`) because the consumer is exactly its documented `true`
+ * case: a `transformCells`-adjacent occlusion test reading `CellGrid.depth`,
+ * not a same-convention comparison against a wireframe stroke's own raw
+ * `[2]`. Deliberately a SEPARATE rasterization from the `hiddenLines: "hide"`
+ * HLR prepass (`buildSurfaceDepth`, `[2]`) rather than a shared one — the two
+ * need different depth conventions under a perspective camera, and reusing
+ * one buffer for both risks silently breaking whichever comparison wasn't
+ * under test.
+ */
+function buildSurfaceOcclusionMap(
+  polygons: Polygon[],
+  polygonMeshIds: readonly number[] | undefined,
+  camera: ProjectCamera,
+  cellCols: number, cellRows: number, cellAspect: number,
+  metrics: GlyphProjectionMetrics,
+): { depth: Float64Array; winnerMesh: Int32Array } {
+  const n = cellCols * cellRows;
+  const depth = new Float64Array(n).fill(-Infinity);
+  const winnerMesh = new Int32Array(n).fill(-1);
+  for (let i = 0; i < polygons.length; i++) {
+    const poly = polygons[i]!;
+    const vs = poly.vertices;
+    if (vs.length < 3 || poly.hidden) continue;
+    const meshId = polygonMeshIds?.[i] ?? 0;
+    const proj = (v: Vec3): [number, number, number, number?] => {
+      const p = camera.project(v, cellCols, cellRows, cellAspect, metrics);
+      return [p[0], p[1], p[3] ?? p[2], p[3]];
+    };
+    const p0 = proj(vs[0]! as Vec3);
+    let prev = proj(vs[1]! as Vec3);
+    for (let k = 2; k < vs.length; k++) {
+      const cur = proj(vs[k]! as Vec3);
+      fillDepthTri(p0, prev, cur, depth, winnerMesh, meshId, cellCols, cellRows);
+      prev = cur;
+    }
+  }
+  return { depth, winnerMesh };
 }
 
 /**
@@ -982,6 +1050,30 @@ function wantsQuadrantSolid(scene: RasterizeContext): boolean {
     && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
 }
 
+/**
+ * D2 round 7 (`@glyphcss/diagrams/3d`'s "blocks" charset — halfblock/
+ * quadrant plus a scene-object overlay, e.g. a diagram's node labels): the
+ * MIRROR of `wantsHalfblockSolid`/`wantsQuadrantSolid` — same charMode and
+ * temporal-blend gate, but requiring a `transformCells` hook to be PRESENT
+ * rather than absent. Used only to (a) still force an even supersample >= 2
+ * so the dual-colour decision loop below has real subcells to read even
+ * when an overlay is mounted, and (b) pick the post-hook merge branch in
+ * `rasterizeSolid` — never the fast early-return path, which stays gated on
+ * `wantsHalfblockSolid`/`wantsQuadrantSolid` exactly as before (so the
+ * no-overlay case is byte-identical, unchanged code, unchanged control
+ * flow).
+ */
+function wantsHalfblockSolidOverlay(scene: RasterizeContext): boolean {
+  return scene.charMode === "halfblock"
+    && !!scene.transformCells
+    && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
+}
+function wantsQuadrantSolidOverlay(scene: RasterizeContext): boolean {
+  return scene.charMode === "quadrant"
+    && !!scene.transformCells
+    && !(scene.temporalBlend > 0 && !!scene.temporalHistory);
+}
+
 export function rasterize(scene: RasterizeContext): string {
   // Output field, not input — see `RasterizeContext.atlasEncoded`. Cleared per
   // pass so a context reused across frames reports THIS one.
@@ -1004,7 +1096,7 @@ export function rasterize(scene: RasterizeContext): string {
     // (a clean 2×2 quadrant bisection instead of halfblock's top/bottom one),
     // so it forces the same minimum — see `wantsQuadrantSolid`.
     let ss = baseSS;
-    if (wantsHalfblockSolid(scene) || wantsQuadrantSolid(scene)) {
+    if (wantsHalfblockSolid(scene) || wantsQuadrantSolid(scene) || wantsHalfblockSolidOverlay(scene) || wantsQuadrantSolidOverlay(scene)) {
       ss = Math.max(2, baseSS);
       if (ss % 2 !== 0) ss++;
     }
@@ -1017,13 +1109,18 @@ export function rasterize(scene: RasterizeContext): string {
 
   // wireframe (and voxel falls through to wireframe for now)
 
-  // `charMode: "braille"` only encodes wireframe mode — voxel falls through to
-  // this same branch but keeps the ASCII path (braille coverage is binary and
-  // has no voxel-face-normal glyph mapping). Default/absent `charMode` and
-  // `"ascii"` both take the untouched path below, so default output stays
+  // `charMode: "braille"/"quadrant"/"halfblock"` all encode wireframe mode
+  // ONLY by rasterizing directly at a sub-cell resolution — see
+  // `WIREFRAME_SUBCELL_CONFIGS`'s own doc for why this is one data table, not
+  // three branches on the charMode name. `mode === "wireframe"` strictly
+  // (never `mode === "voxel"`, which falls through to this same `if` check
+  // and keeps the ASCII path — none of the three sub-cell encodings has a
+  // voxel-face-normal glyph mapping). Default/absent `charMode` and
+  // `"ascii"` both skip this lookup entirely, so default output stays
   // byte-identical.
-  if (scene.charMode === "braille" && mode === "wireframe") {
-    return rasterizeWireframeBraille(scene, cols, rows, cellAspect, metrics);
+  const subcellConfig = mode === "wireframe" ? WIREFRAME_SUBCELL_CONFIGS[scene.charMode] : undefined;
+  if (subcellConfig) {
+    return rasterizeWireframeSubcell(scene, cols, rows, cellAspect, metrics, subcellConfig);
   }
 
   const glyphs = getWireframeGlyphs(scene.glyphPalette);
@@ -1042,6 +1139,16 @@ export function rasterize(scene: RasterizeContext): string {
   // to before the option existed.
   const hlr = scene.hiddenLines === "hide";
   const surfaceDepth = hlr ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics) : null;
+  // Fix round 6, P1-1: real rasterized occlusion for a mounted object's own
+  // overlay (`buildSurfaceOcclusionMap`'s own doc) — a SEPARATE buffer from
+  // `surfaceDepth` above (different depth convention, different gate: this
+  // one is keyed on `retainOverlayOcclusion` — whether an OVERLAY wants it —
+  // never on `hiddenLines`, and deliberately NOT `retainWinnerMesh`, which
+  // also serves per-object EFFECT targeting and must stay solid-mode-only
+  // per `effectCompositor.ts`'s own documented contract).
+  const occlusionMap = scene.retainOverlayOcclusion
+    ? buildSurfaceOcclusionMap(scene.polygons, scene.polygonMeshIds, camera, cols, rows, cellAspect, metrics)
+    : null;
 
   for (const e of wireframe) {
     const a = camera.project(e.from, cols, rows, cellAspect, metrics);
@@ -1075,11 +1182,27 @@ export function rasterize(scene: RasterizeContext): string {
         if (cColor) cColor[i] = colorBuf ? (colorBuf[i] ?? null) : null;
       }
     }
-    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
+    const applied = applyCellHook(
+      scene.transformCells, cChar, cColor,
+      occlusionMap ? occlusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      occlusionMap ? occlusionMap.winnerMesh : null,
+      undefined, undefined,
+      scene.captureCells,
+    );
     return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
   }
 
-  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene);
+  // `captureCells`-only (no real hook) is handled INSIDE `stampToGlyphs`
+  // itself, from the exact same per-cell loop that builds the returned
+  // string — never a second, independently-reconstructed buffer. Rebuilding
+  // `cChar` a second time here (as an earlier cut of this fix did) called
+  // `wireframeGlyphForCell` AGAIN per cell, and that function's own random
+  // tier pick then diverged from the string's — the captured grid drew
+  // DIFFERENT glyphs than `inner` (caught by
+  // `compileScene.test.ts`'s own grid/inner identity gate).
+  return stampToGlyphs(stamp, colorBuf, cols, rows, glyphs, junctionMask, scene, occlusionMap);
 }
 
 /** N/E/S/W side bits for the box-drawing junction resolve pass. */
@@ -1625,6 +1748,17 @@ function rasterizeInk(
     ? buildInkOcclusionMap(tris, camera, cols, rows, cellAspect, metrics)
     : null;
 
+  // Fix round 6, P1-1: see `buildSurfaceOcclusionMap`'s own doc — a SEPARATE
+  // real-geometry occlusion buffer for a mounted object's overlay, gated on
+  // `scene.retainOverlayOcclusion` alone (independent of `inkOcclusion`'s
+  // own `hiddenLines` gate and per-triangle identity-exemption design,
+  // which serves a different consumer — this ink pass's own self-occlusion
+  // test — and independent of `retainWinnerMesh`, kept solid-mode-only for
+  // per-object EFFECT targeting).
+  const surfaceOcclusionMap = scene.retainOverlayOcclusion
+    ? buildSurfaceOcclusionMap(scene.polygons, scene.polygonMeshIds, camera, cols, rows, cellAspect, metrics)
+    : null;
+
   // Per-vertex camera-space depth (`p[2]`, same "larger = nearer" convention
   // as `fillDepthTri`'s `z > depth[idx]` test), cached alongside the screen
   // position from the SAME `camera.project` call — no second projection pass.
@@ -1771,9 +1905,22 @@ function rasterizeInk(
     }
   }
 
-  if (scene.transformCells) {
-    const applied = applyCellHook(scene.transformCells, charBuf, colorBuf, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
+  if (scene.transformCells || scene.captureCells) {
+    // Both branches share ONE stringifier (`solidBufToString`) below,
+    // differing only in `safe` (`!!scene.transformCells`, never
+    // `captureCells`) — so routing `captureCells`-only through the same
+    // `applyCellHook` call changes no rendered byte: with no real `hook`,
+    // `applyCellHook` returns `charBuf`/`colorBuf` unchanged.
+    const applied = applyCellHook(
+      scene.transformCells, charBuf, colorBuf,
+      surfaceOcclusionMap ? surfaceOcclusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      surfaceOcclusionMap ? surfaceOcclusionMap.winnerMesh : null,
+      undefined, undefined,
+      scene.captureCells,
+    );
+    return solidBufToString(applied.char, applied.color, cols, rows, !!scene.transformCells, scene);
   }
   return solidBufToString(charBuf, colorBuf, cols, rows, false, scene);
 }
@@ -2274,7 +2421,7 @@ function rasterizeSolid(
   // `string` spans from the end of the triangle loop to the return, so it
   // contains the downsample, the temporal reprojection, `applyCellHook` AND
   // the encoder — which is how a consumer's own cell hook was once read as an
-  // encoder cost (`docs/design/performance.md`). `hook` is the hook's own
+  // encoder cost. `hook` is the hook's own
   // share of that window, so the two can never be confused again.
   const __detail = (globalThis as { __glyphPerfDetail?: { loop?: number[]; string?: number[]; hook?: number[] } }).__glyphPerfDetail;
   const __tLoop = __detail ? performance.now() : 0;
@@ -3117,6 +3264,22 @@ function rasterizeSolid(
     finalWeight = ds.weight;
     finalWinnerMesh = ds.winnerMesh;
   }
+  // D2 round 7 — halfblock/quadrant WITH a mounted overlay (a diagram's node
+  // labels): unlike the fast dual-colour early-return above (which requires
+  // NO `transformCells` and terminates before any of this runs), this case
+  // needs the label arbiter's own occlusion (real `finalDepth`/
+  // `finalWinnerMesh`, already computed by `downsampleSolid` above) to
+  // decide which labels survive — so it falls through the ORDINARY
+  // single-colour downsample -> hook pipeline below UNCHANGED, and only
+  // diverges once that pipeline is done: snapshot the post-downsample,
+  // PRE-hook single-colour result here (before the hook mutates it), so the
+  // merge after the hook (below) can tell which cells the overlay actually
+  // touched — a diff against ORIGINAL geometry-only content, not a second,
+  // independently-decided "is this a label" test.
+  const halfblockOverlay = supersample > 1 && wantsHalfblockSolidOverlay(scene);
+  const quadrantOverlay = supersample > 1 && wantsQuadrantSolidOverlay(scene);
+  const preHookGlyph: string[] | null = (halfblockOverlay || quadrantOverlay) ? finalGlyph.slice() : null;
+  const preHookColor: (string | null)[] | null = (halfblockOverlay || quadrantOverlay) && finalColor ? finalColor.slice() : null;
   if (reproject) {
     applyReprojectionTAA(finalGlyph, finalColor, finalWorldPos!, outCols, outRows, cellAspect, metrics, ramp, scene.temporalBlend, scene.temporalHistory!, rawCamera);
     // `solidWeightRamp` is a documented no-op under active temporal-blend
@@ -3153,7 +3316,7 @@ function rasterizeSolid(
   // when scene.transformCells is absent (block skipped entirely). Output-res
   // depth/surface fields share one representative winner after downsampling.
   // Runs BEFORE the single string is built (<pre>-write-once).
-  if (scene.transformCells) {
+  if (scene.transformCells || scene.captureCells) {
     const __tHook = __detail ? performance.now() : 0;
     const applied = applyCellHook(
       scene.transformCells, finalGlyph, finalColor,
@@ -3168,11 +3331,41 @@ function rasterizeSolid(
       finalWinnerMesh,
       finalObjectNormal,
       occludedBuf,
+      scene.captureCells,
     );
     finalGlyph = applied.char;
     finalColor = applied.color;
     finalWeight = applied.weight;
     if (__detail) (__detail.hook ??= []).push(performance.now() - __tHook);
+  }
+  // D2 round 7 — halfblock/quadrant + overlay merge: the dual-colour
+  // decision (SAME table the fast early-return path above uses, via the
+  // shared `buildHalfblockSolidBuffers`/`buildQuadrantSolidBuffers`) reads
+  // the raw supersampled subcells directly, exactly like the no-overlay
+  // path — untouched cells get real `▀`/`▄`/quadrant two-tone glyphs. A
+  // cell the hook actually wrote to (detected by diffing the hook's own
+  // single-colour result against the `preHookGlyph`/`preHookColor`
+  // snapshot taken before it ran — never a second, independently-decided
+  // "is this a label" test) is overridden WHOLE: the hook's own glyph +
+  // foreground colour, with `bg` cleared, per the brief's own "override
+  // WHOLE cells (their glyph + fg, bg cleared)" instruction.
+  if (preHookGlyph) {
+    const dual = halfblockOverlay
+      ? buildHalfblockSolidBuffers(colorBuf, depthBuf, outCols, outRows, supersample, useColors)
+      : buildQuadrantSolidBuffers(colorBuf, depthBuf, outCols, outRows, supersample, useColors);
+    const n = outCols * outRows;
+    const char = dual.char.slice(), fg = dual.fg.slice(), bg = dual.bg.slice();
+    for (let i = 0; i < n; i++) {
+      const priorColor = preHookColor ? (preHookColor[i] ?? null) : null;
+      const nowColor = finalColor ? (finalColor[i] ?? null) : null;
+      if (finalGlyph[i] === preHookGlyph[i] && nowColor === priorColor) continue;
+      char[i] = finalGlyph[i]!;
+      fg[i] = nowColor;
+      bg[i] = null;
+    }
+    const out = encodeGlyphBuffersDual(char, fg, bg, outCols, outRows, useColors, scene.colorTolerance);
+    if (__detail) { (__detail.string ??= []).push(performance.now() - __tStr); }
+    return out;
   }
   // `finalWeight` is non-null only when `solidWeightRamp` is active (and
   // temporal reprojection didn't drop it) — the byte-identical default path
@@ -3480,15 +3673,23 @@ function downsampleSolid(
  * contract — the `transformCells` hook and the generic effect compositor
  * stay exactly as one-color-per-cell as they are today.
  */
-export function encodeHalfblockSolid(
+/**
+ * The per-cell decision loop `encodeHalfblockSolid` used to inline directly
+ * ahead of its own `encodeGlyphBuffersDual` call — split out (D2 round 7,
+ * byte-identical refactor) so `rasterizeSolid`'s new overlay branch can
+ * reuse the SAME decision table on the same raw supersampled buffers
+ * without a second, independently-maintained copy of it, and then merge in
+ * whatever a mounted scene-object overlay (a diagram's node labels) wrote
+ * over the post-downsample single-colour result before encoding.
+ */
+function buildHalfblockSolidBuffers(
   colorBuf: (string | null)[] | null,
   depthBuf: Float64Array,
   outCols: number,
   outRows: number,
   S: number,
   useColors: boolean,
-  colorTolerance = 0,
-): string {
+): { readonly char: string[]; readonly fg: (string | null)[]; readonly bg: (string | null)[] } {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
   const n = outCols * outRows;
@@ -3544,7 +3745,20 @@ export function encodeHalfblockSolid(
       }
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
+  return { char: charBuf, fg: fgBuf, bg: bgBuf };
+}
+
+export function encodeHalfblockSolid(
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  outCols: number,
+  outRows: number,
+  S: number,
+  useColors: boolean,
+  colorTolerance = 0,
+): string {
+  const b = buildHalfblockSolidBuffers(colorBuf, depthBuf, outCols, outRows, S, useColors);
+  return encodeGlyphBuffersDual(b.char, b.fg, b.bg, outCols, outRows, useColors, colorTolerance);
 }
 
 /** Quadrant bit ordering: TL/TR/BL/BR, matching the classic sixel/chafa quadrant convention. */
@@ -3634,15 +3848,15 @@ const QUADRANT_GLYPHS: Record<number, string> = {
  * `encodeGlyphBuffersDual`, so `CellGrid`/`transformCells`/the generic effect
  * compositor stay exactly one-color-per-cell, untouched by this path.
  */
-export function encodeQuadrantSolid(
+/** Split out for the same reason `buildHalfblockSolidBuffers` was (D2 round 7's own doc). */
+function buildQuadrantSolidBuffers(
   colorBuf: (string | null)[] | null,
   depthBuf: Float64Array,
   outCols: number,
   outRows: number,
   S: number,
   useColors: boolean,
-  colorTolerance = 0,
-): string {
+): { readonly char: string[]; readonly fg: (string | null)[]; readonly bg: (string | null)[] } {
   const inCols = outCols * S;
   const half = S / 2; // S is forced even by `rasterize()` whenever this path is taken.
   const n = outCols * outRows;
@@ -3722,7 +3936,20 @@ export function encodeQuadrantSolid(
       fgBuf[oi] = avgColor(15);
     }
   }
-  return encodeGlyphBuffersDual(charBuf, fgBuf, bgBuf, outCols, outRows, useColors, colorTolerance);
+  return { char: charBuf, fg: fgBuf, bg: bgBuf };
+}
+
+export function encodeQuadrantSolid(
+  colorBuf: (string | null)[] | null,
+  depthBuf: Float64Array,
+  outCols: number,
+  outRows: number,
+  S: number,
+  useColors: boolean,
+  colorTolerance = 0,
+): string {
+  const b = buildQuadrantSolidBuffers(colorBuf, depthBuf, outCols, outRows, S, useColors);
+  return encodeGlyphBuffersDual(b.char, b.fg, b.bg, outCols, outRows, useColors, colorTolerance);
 }
 
 /**
@@ -4937,27 +5164,94 @@ function drawLineToStampDepthTested(
 }
 
 /**
- * Braille-encoded wireframe (`charMode: "braille"`). Rasterizes each edge
- * ONCE, directly into a 2-wide × 4-tall subcell grid per output cell, to
- * build a dot-coverage bitmask; color is attributed from that SAME subcell
- * pass (same coordinates, same rounding) rather than from an independent
- * cell-resolution line pass, so a cell's color and its lit dots can never
- * disagree about which edge (or whether any edge) covers it. Each covered
- * output cell becomes `U+2800 + mask` (Unicode Braille Patterns block),
- * giving up to 8 independent sub-cell "pixels" per glyph — visibly smoother
- * diagonal/curved edges than the single ASCII rule glyph the default path
- * picks per cell. Runs entirely after camera projection and before
+ * Data (not branches) for every wireframe charMode that rasterizes directly
+ * at a sub-cell resolution, keyed by `RasterizeContext.charMode`: `subX`/
+ * `subY` are sub-cell columns/rows per output cell, `shiftX`/`shiftY` are
+ * their base-2 logs (used to map a subcell coordinate back to its owning
+ * cell via `>>`, so they must stay powers of two), `bitTable` is the
+ * row-major (`r * subX + c`) coverage-bit each subcell contributes to a
+ * cell's mask, and `glyphForMask` resolves the finished mask to a glyph.
+ * `"ascii"`/`undefined` have no entry, so `rasterize()`'s lookup misses and
+ * falls through to the untouched default wireframe path — the ONE gate that
+ * keeps every other charMode byte-identical, per AGENTS.md's "tiers are data
+ * tables, never branches on tier name".
+ *
+ * `"braille"` (2×4, giving up to 8 sub-cell "pixels" per glyph via Unicode
+ * Braille Patterns, U+2800+mask) is the original, hand-rolled implementation
+ * this table generalizes. `"quadrant"` (2×2) and `"halfblock"` (1×2) reuse
+ * the SAME `QUADRANT_GLYPHS`/`QUAD_TL..BR` bit convention solid mode's
+ * `encodeQuadrantSolid` already defines — half-block's glyph set is a strict
+ * subset of quadrant's (`TL|TR` → `▀`, `BL|BR` → `▄`) — but unlike THAT solid
+ * path, a wireframe stroke is binary coverage with no shaded region to
+ * average, so there is no dual-tone `background-color` split here: one
+ * glyph, one color per cell, the same contract `"braille"` already has (and
+ * the reason `rasterizeWireframeSubcell` below can share braille's exact
+ * color-attribution/HLR/hook machinery unmodified).
+ */
+interface WireframeSubcellConfig {
+  readonly subX: number;
+  readonly subY: number;
+  readonly shiftX: number;
+  readonly shiftY: number;
+  readonly bitTable: readonly number[];
+  readonly glyphForMask: (mask: number) => string;
+}
+
+// Braille Patterns dot-bit layout (NOT raster order), row-major r*2+c: col0
+// rows 0..3 → 0x01,0x02,0x04,0x40; col1 rows 0..3 → 0x08,0x10,0x20,0x80.
+const BRAILLE_SUBCELL_BITS = [0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80];
+// One glyph per (top, bottom) coverage combination — the wireframe mirror of
+// `▀`/`▄`/`█` in `QUADRANT_GLYPHS`, but this table stays independent of it: a
+// wireframe half-block cell is a strict 1×2 split, not a masked-down 2×2 one.
+const WIREFRAME_HALFBLOCK_GLYPHS: Record<number, string> = { 0: " ", 1: "▀", 2: "▄", 3: "█" };
+
+const WIREFRAME_SUBCELL_CONFIGS: Partial<Record<RasterizeContext["charMode"], WireframeSubcellConfig>> = {
+  braille: {
+    subX: 2, subY: 4, shiftX: 1, shiftY: 2,
+    bitTable: BRAILLE_SUBCELL_BITS,
+    glyphForMask: (mask) => String.fromCharCode(0x2800 + mask),
+  },
+  quadrant: {
+    subX: 2, subY: 2, shiftX: 1, shiftY: 1,
+    bitTable: [QUAD_TL, QUAD_TR, QUAD_BL, QUAD_BR],
+    glyphForMask: (mask) => QUADRANT_GLYPHS[mask]!,
+  },
+  halfblock: {
+    subX: 1, subY: 2, shiftX: 0, shiftY: 1,
+    bitTable: [1, 2],
+    glyphForMask: (mask) => WIREFRAME_HALFBLOCK_GLYPHS[mask]!,
+  },
+};
+
+/**
+ * Sub-cell-resolution wireframe encoding for `charMode: "braille"` /
+ * `"quadrant"` / `"halfblock"` (config from {@link WIREFRAME_SUBCELL_CONFIGS}).
+ * Rasterizes each edge ONCE, directly into a `subX`-wide × `subY`-tall
+ * subcell grid per output cell, to build a coverage bitmask; color is
+ * attributed from that SAME subcell pass (same coordinates, same rounding)
+ * rather than from an independent cell-resolution line pass, so a cell's
+ * color and its lit subcells can never disagree about which edge (or
+ * whether any edge) covers it. Each covered output cell folds to
+ * `config.glyphForMask(mask)` — braille's 2×4 split gives up to 8
+ * independent sub-cell "pixels" per glyph; quadrant's 2×2 and halfblock's
+ * 1×2 splits give coarser but still genuinely sub-cell shape, all visibly
+ * smoother than the single ASCII rule glyph the default path picks per
+ * cell. This is a DIRECT rasterization at the target resolution, never a
+ * finer mask folded down: folding, e.g., braille's 2×4 coverage into
+ * quadrant's 2×2 would over-ink a half lit by only one of its two folded
+ * braille rows. Runs entirely after camera projection and before
  * string-building; still exactly one string produced per call. Like the
  * ASCII wireframe path, the post-rasterize `transformCells` hook (when
  * supplied) runs on the folded per-cell char/color buffers before the final
  * string is built.
  */
-function rasterizeWireframeBraille(
+function rasterizeWireframeSubcell(
   scene: RasterizeContext,
   cols: number,
   rows: number,
   cellAspect: number,
   metrics: GlyphProjectionMetrics,
+  config: WireframeSubcellConfig,
 ): string {
   const { camera, wireframe } = scene;
   const colorBuf: (string | null)[] | null = scene.useColors ? new Array(cols * rows).fill(null) : null;
@@ -4965,19 +5259,29 @@ function rasterizeWireframeBraille(
   // light dots — the only tie-break input for overlapping edges' colors.
   const colorWeight: Uint8Array | null = colorBuf ? new Uint8Array(cols * rows) : null;
 
-  const subCols = cols * 2;
-  const subRows = rows * 4;
+  const { subX, subY, shiftX, shiftY } = config;
+  const subCols = cols * subX;
+  const subRows = rows * subY;
   const subStamp = new Uint8Array(subCols * subRows);
 
-  // `hiddenLines: "hide"` for braille — see the ASCII path in `rasterize()`.
-  // The surface prepass is built at CELL resolution, not braille's finer 2×4
-  // subcell resolution: measured 777 vs 786 inked cells (1.2% difference)
-  // for 25% more cost (0.916ms vs 0.733ms subcell-resolution depth) — braille
-  // strokes are already ~1 subcell wide, so a whole glyph can share one
-  // occlusion decision (`research/contour-first-text/decisions.md`, subpath 05).
+  // `hiddenLines: "hide"` — see the ASCII path in `rasterize()`. The surface
+  // prepass is built at CELL resolution, not this path's finer subcell
+  // resolution: measured (for braille's 2×4) 777 vs 786 inked cells (1.2%
+  // difference) for 25% more cost (0.916ms vs 0.733ms subcell-resolution
+  // depth) — a wireframe stroke is already ~1 subcell wide, so a whole glyph
+  // can share one occlusion decision
+  // (`research/contour-first-text/decisions.md`, subpath 05).
   const hlr = scene.hiddenLines === "hide";
   const surfaceDepth = hlr
     ? buildSurfaceDepth(scene.polygons, camera, cols, rows, cellAspect, metrics)
+    : null;
+  // Fix round 6, P1-1: see the ASCII wireframe path's own doc — a SEPARATE,
+  // real-geometry occlusion buffer for a mounted object's overlay, gated on
+  // `scene.retainOverlayOcclusion` alone (never on `hlr`, and never on
+  // `retainWinnerMesh`, kept solid-mode-only for per-object EFFECT
+  // targeting).
+  const occlusionMap = scene.retainOverlayOcclusion
+    ? buildSurfaceOcclusionMap(scene.polygons, scene.polygonMeshIds, camera, cols, rows, cellAspect, metrics)
     : null;
 
   for (const e of wireframe) {
@@ -4988,27 +5292,37 @@ function rasterizeWireframeBraille(
     if (surfaceDepth) {
       drawSubcellLineDepthTested(
         subStamp, colorWeight, colorBuf,
-        Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+        Math.floor(a[0] * subX), Math.floor(a[1] * subY), Math.floor(b[0] * subX), Math.floor(b[1] * subY),
         a[2]!, b[2]!,
         subCols, subRows, cols,
         e.weight ?? 2, e.color ?? null,
         surfaceDepth, HLR_BIAS, HLR_SLOPE_SCALE,
+        shiftX, shiftY,
       );
     } else {
       drawSubcellLine(
         subStamp, colorWeight, colorBuf,
-        Math.floor(a[0] * 2), Math.floor(a[1] * 4), Math.floor(b[0] * 2), Math.floor(b[1] * 4),
+        Math.floor(a[0] * subX), Math.floor(a[1] * subY), Math.floor(b[0] * subX), Math.floor(b[1] * subY),
         subCols, subRows, cols,
         e.weight ?? 2, e.color ?? null,
+        shiftX, shiftY,
       );
     }
   }
 
-  const { char: cChar, color: cColor } = foldBrailleSubStampToCells(subStamp, colorBuf, cols, rows, subCols);
+  const { char: cChar, color: cColor } = foldSubStampToCells(subStamp, colorBuf, cols, rows, subCols, config);
 
-  if (scene.transformCells) {
-    const applied = applyCellHook(scene.transformCells, cChar, cColor, null, cols, rows);
-    return solidBufToString(applied.char, applied.color, cols, rows, true, scene);
+  if (scene.transformCells || scene.captureCells) {
+    const applied = applyCellHook(
+      scene.transformCells, cChar, cColor,
+      occlusionMap ? occlusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      occlusionMap ? occlusionMap.winnerMesh : null,
+      undefined, undefined,
+      scene.captureCells,
+    );
+    return solidBufToString(applied.char, applied.color, cols, rows, !!scene.transformCells, scene);
   }
 
   return solidBufToString(cChar, cColor, cols, rows, false, scene);
@@ -5051,11 +5365,18 @@ function rasterizeWireframeBraille(
  * step/termination guarantee, are unchanged); this is NOT an aspect-weighted
  * variant.
  *
- * Exported (in addition to its use from `rasterizeWireframeBraille`) so the
+ * Exported (in addition to its use from `rasterizeWireframeSubcell`) so the
  * order-independence / mirror-symmetry / 4-connectivity regression tests in
  * `rasterize.braille.test.ts` can exercise this exact walk directly at
  * integer subcell coordinates, instead of through camera projection's own
  * (unrelated) floor-rounding.
+ *
+ * `shiftX`/`shiftY` (default `1`/`2`, braille's own 2×4 split — every
+ * existing caller, including the exported test helper above, omits them and
+ * gets byte-identical behavior) map a subcell coordinate back to its owning
+ * cell via `>>`: `cellIdx = (cy >> shiftY) * cellCols + (cx >> shiftX)`.
+ * They must be `Math.log2(subcellsPerCellOnThatAxis)` — quadrant's 2×2 split
+ * passes `1, 1`; halfblock's 1×2 split passes `0, 1`.
  */
 export function drawSubcellLine(
   stamp: Uint8Array,
@@ -5068,6 +5389,8 @@ export function drawSubcellLine(
   cellCols: number,
   val: number,
   color: string | null,
+  shiftX = 1,
+  shiftY = 2,
 ): void {
   if (y0 > y1 || (y0 === y1 && x0 > x1)) {
     const tx = x0; x0 = x1; x1 = tx;
@@ -5081,7 +5404,7 @@ export function drawSubcellLine(
     if (cx >= 0 && cx < subCols && cy >= 0 && cy < subRows) {
       stamp[cy * subCols + cx] = 1;
       if (colorBuf) {
-        const cellIdx = (cy >> 2) * cellCols + (cx >> 1);
+        const cellIdx = (cy >> shiftY) * cellCols + (cx >> shiftX);
         if (colorWeight![cellIdx] < val) {
           colorWeight![cellIdx] = val;
           colorBuf[cellIdx] = color;
@@ -5100,7 +5423,7 @@ export function drawSubcellLine(
       if (cx >= 0 && cx < subCols && ny >= 0 && ny < subRows) {
         stamp[ny * subCols + cx] = 1;
         if (colorBuf) {
-          const cellIdx = (ny >> 2) * cellCols + (cx >> 1);
+          const cellIdx = (ny >> shiftY) * cellCols + (cx >> shiftX);
           if (colorWeight![cellIdx] < val) {
             colorWeight![cellIdx] = val;
             colorBuf[cellIdx] = color;
@@ -5113,15 +5436,16 @@ export function drawSubcellLine(
 }
 
 /**
- * Depth-tested sibling of `drawSubcellLine` for
- * `hiddenLines: "hide"` in braille mode. Same canonicalized 4-connected
- * walk (endpoint depths `z0`/`z1` are swapped together with `x0,y0`/`x1,y1` so
- * the depth interpolation stays consistent with whichever endpoint the walk
- * now starts from), but each dot (including the 4-connectivity intermediate
- * dot) is depth-tested via `wireframeVisibleAtCell` before being lit.
- * `surfaceDepth` is always CELL resolution (index by the owning cell,
- * `cx>>1, cy>>2`) — see `rasterizeWireframeBraille`'s doc comment for why
- * subcell-resolution depth was measured and not shipped.
+ * Depth-tested sibling of `drawSubcellLine` for `hiddenLines: "hide"`. Same
+ * canonicalized 4-connected walk (endpoint depths `z0`/`z1` are swapped
+ * together with `x0,y0`/`x1,y1` so the depth interpolation stays consistent
+ * with whichever endpoint the walk now starts from), but each dot (including
+ * the 4-connectivity intermediate dot) is depth-tested via
+ * `wireframeVisibleAtCell` before being lit. `surfaceDepth` is always CELL
+ * resolution (index by the owning cell, `cx>>shiftX, cy>>shiftY`) — see
+ * `rasterizeWireframeSubcell`'s doc comment for why subcell-resolution depth
+ * was measured and not shipped. `shiftX`/`shiftY` default to `1`/`2`
+ * (braille's own split), same convention as `drawSubcellLine`.
  */
 function drawSubcellLineDepthTested(
   stamp: Uint8Array,
@@ -5138,6 +5462,8 @@ function drawSubcellLineDepthTested(
   surfaceDepth: Float64Array,
   bias: number,
   slopeScale: number,
+  shiftX = 1,
+  shiftY = 2,
 ): void {
   if (y0 > y1 || (y0 === y1 && x0 > x1)) {
     const tx = x0; x0 = x1; x1 = tx;
@@ -5151,10 +5477,10 @@ function drawSubcellLineDepthTested(
   const totalSteps = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
   let step = 0;
   const depthCols = cellCols;
-  const depthRows = subRows >> 2;
+  const depthRows = subRows >> shiftY;
   const visible = (px: number, py: number): boolean => {
-    const dcx = px >> 1;
-    const dcy = py >> 2;
+    const dcx = px >> shiftX;
+    const dcy = py >> shiftY;
     const t = step / totalSteps;
     const z = z0 + (z1 - z0) * t;
     return wireframeVisibleAtCell(surfaceDepth, depthCols, depthRows, dcx, dcy, z, bias, slopeScale);
@@ -5163,7 +5489,7 @@ function drawSubcellLineDepthTested(
     if (cx >= 0 && cx < subCols && cy >= 0 && cy < subRows && visible(cx, cy)) {
       stamp[cy * subCols + cx] = 1;
       if (colorBuf) {
-        const cellIdx = (cy >> 2) * cellCols + (cx >> 1);
+        const cellIdx = (cy >> shiftY) * cellCols + (cx >> shiftX);
         if (colorWeight![cellIdx] < val) {
           colorWeight![cellIdx] = val;
           colorBuf[cellIdx] = color;
@@ -5180,7 +5506,7 @@ function drawSubcellLineDepthTested(
       if (cx >= 0 && cx < subCols && ny >= 0 && ny < subRows && visible(cx, ny)) {
         stamp[ny * subCols + cx] = 1;
         if (colorBuf) {
-          const cellIdx = (ny >> 2) * cellCols + (cx >> 1);
+          const cellIdx = (ny >> shiftY) * cellCols + (cx >> shiftX);
           if (colorWeight![cellIdx] < val) {
             colorWeight![cellIdx] = val;
             colorBuf[cellIdx] = color;
@@ -5193,46 +5519,49 @@ function drawSubcellLineDepthTested(
   }
 }
 
-// Braille Patterns dot-bit layout (NOT raster order): col0 rows 0..3 →
-// 0x01,0x02,0x04,0x40; col1 rows 0..3 → 0x08,0x10,0x20,0x80.
-const BRAILLE_BITS_COL0 = [0x01, 0x02, 0x04, 0x40];
-const BRAILLE_BITS_COL1 = [0x08, 0x10, 0x20, 0x80];
-
 /**
- * Fold a 2×4 subcell coverage grid down to one braille glyph per output
- * cell. `colorBuf`, when supplied, is already cell-resolution — it was
- * populated by `drawSubcellLine` from the SAME subcell coordinates being
- * folded here, so it needs no re-derivation; this just clears any stray
- * entry on a cell that ends up uncovered. Returns plain arrays (not a
- * string) so the caller can run the `transformCells` hook on them before
- * stringifying, exactly like the ASCII wireframe path does with its stamp
- * buffer.
+ * Fold a `config.subX`×`config.subY` subcell coverage grid down to one glyph
+ * per output cell, via `config.bitTable`/`config.glyphForMask` — the shared
+ * fold every {@link WIREFRAME_SUBCELL_CONFIGS} entry uses, braille included
+ * (its original hand-written 2×4 fold produced byte-identical output to this
+ * generalized loop: same row-major `r*subX+c` bit lookup order, same
+ * `mask === 0 → " "` empty case). `colorBuf`, when supplied, is already
+ * cell-resolution — it was populated by `drawSubcellLine` from the SAME
+ * subcell coordinates being folded here, so it needs no re-derivation; this
+ * just clears any stray entry on a cell that ends up uncovered. Returns
+ * plain arrays (not a string) so the caller can run the `transformCells`
+ * hook on them before stringifying, exactly like the ASCII wireframe path
+ * does with its stamp buffer.
  */
-function foldBrailleSubStampToCells(
+function foldSubStampToCells(
   subStamp: Uint8Array,
   colorBuf: (string | null)[] | null,
   cols: number,
   rows: number,
   subCols: number,
+  config: WireframeSubcellConfig,
 ): { char: string[]; color: (string | null)[] | null } {
+  const { subX, subY, bitTable, glyphForMask } = config;
   const n = cols * rows;
   const char: string[] = new Array(n);
   for (let y = 0; y < rows; y++) {
-    const baseSubY = y * 4;
+    const baseSubY = y * subY;
     for (let x = 0; x < cols; x++) {
-      const baseSubX = x * 2;
+      const baseSubX = x * subX;
       let mask = 0;
-      for (let r = 0; r < 4; r++) {
+      for (let r = 0; r < subY; r++) {
         const rowBase = (baseSubY + r) * subCols;
-        if (subStamp[rowBase + baseSubX]) mask |= BRAILLE_BITS_COL0[r]!;
-        if (subStamp[rowBase + baseSubX + 1]) mask |= BRAILLE_BITS_COL1[r]!;
+        const bitRowBase = r * subX;
+        for (let c = 0; c < subX; c++) {
+          if (subStamp[rowBase + baseSubX + c]) mask |= bitTable[bitRowBase + c]!;
+        }
       }
       const idx = y * cols + x;
       if (mask === 0) {
         char[idx] = " ";
         if (colorBuf) colorBuf[idx] = null;
       } else {
-        char[idx] = String.fromCharCode(0x2800 + mask);
+        char[idx] = glyphForMask(mask);
       }
     }
   }
@@ -5272,8 +5601,23 @@ function stampToGlyphs(
   glyphs: { thin: string[]; normal: string[]; core: string[] },
   junctionMask: Uint8Array | null,
   scene: RasterizeContext,
+  // Fix round 6, P1-1: forwarded into `applyCellHook` below only when a
+  // mounted object's overlay actually requested them
+  // (`scene.retainOverlayOcclusion` at the call site) — `null`/omitted is
+  // exactly the pre-fix behavior.
+  occlusionMap: { depth: Float64Array; winnerMesh: Int32Array } | null = null,
 ): string {
   const colorTolerance = scene.colorTolerance;
+  // `captureCells` (compileScene's own `grid` — AGENTS.md "Compilation"
+  // contract 3) must observe the EXACT glyphs this call returns, never a
+  // second, independently re-derived buffer: `wireframeGlyphForCell` picks
+  // randomly within a weight tier, so a second call over the same inputs can
+  // legitimately draw a DIFFERENT glyph. Both return paths below therefore
+  // capture from their OWN already-built `char`/`color` arrays — the same
+  // ones the returned string comes from — via `applyCellHook`'s own
+  // grid-construction (no real hook, so it only builds the grid and invokes
+  // `capture`, returning its inputs unchanged).
+  const capture = scene.captureCells;
   if (scene.colorEncoding === "atlas" && colorBuf && scene.atlasPalette) {
     // Gate on the palette's POTENTIAL glyph set BEFORE building a single
     // realized (random-drawn) buffer — see `isWireframePaletteAtlasEncodable`.
@@ -5308,6 +5652,17 @@ function stampToGlyphs(
         const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, atlasChar, atlasColor, n);
         if (palette && palette.length > 0 && palette.length <= scene.fontAtlas.maxPaletteSize) {
           scene.atlasEncoded = true;
+          if (capture) {
+            applyCellHook(
+              undefined, atlasChar, atlasColor,
+              occlusionMap ? occlusionMap.depth : null,
+              cols, rows,
+              undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+              occlusionMap ? occlusionMap.winnerMesh : null,
+              undefined, undefined,
+              capture,
+            );
+          }
           return encodeGlyphAtlas(atlasChar, atlasColor, cols, rows, palette, scene.fontAtlas);
         }
       }
@@ -5329,6 +5684,9 @@ function stampToGlyphs(
     }
     runText = "";
   };
+  const n2 = cols * rows;
+  const capChar: string[] | null = capture ? new Array(n2) : null;
+  const capColor: (string | null)[] | null = capture ? new Array(n2) : null;
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const idx = y * cols + x;
@@ -5342,6 +5700,7 @@ function stampToGlyphs(
         g = wireframeGlyphForCell(v, junctionMask ? junctionMask[idx]! : 0, glyphs);
         col = colorBuf ? (colorBuf[idx] ?? null) : null;
       }
+      if (capChar) { capChar[idx] = g; capColor![idx] = col; }
       if (!colorRunExtends(colorPackCache, tolerance2, runColor, col)) {
         flushRun();
         runColor = col;
@@ -5351,6 +5710,17 @@ function stampToGlyphs(
     flushRun();
     runColor = null;
     if (y < rows - 1) parts.push("\n");
+  }
+  if (capture && capChar) {
+    applyCellHook(
+      undefined, capChar, capColor,
+      occlusionMap ? occlusionMap.depth : null,
+      cols, rows,
+      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
+      occlusionMap ? occlusionMap.winnerMesh : null,
+      undefined, undefined,
+      capture,
+    );
   }
   return parts.join("");
 }

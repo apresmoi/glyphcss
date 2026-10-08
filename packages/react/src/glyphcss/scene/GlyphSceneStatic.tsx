@@ -42,6 +42,8 @@ export function GlyphSceneStatic({ className, style, ...compileOptions }: GlyphS
     compileOptions.glyphOutput,
     compileOptions.sceneManifest,
     compileOptions.dictionary,
+    compileOptions.objects,
+    compileOptions.textureSamplers,
   ]);
 
   const cls = className ? `glyph-output ${className}` : "glyph-output";

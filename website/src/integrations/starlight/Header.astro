@@ -1,0 +1,11 @@
+---
+import config from "virtual:starlight/user-config";
+import Search from "virtual:starlight/components/Search";
+import { SiteHeader } from "../../components/SiteHeader";
+import "../../styles/global.css";
+const shouldRenderSearch = config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
+---
+
+<SiteHeader pathname={Astro.url.pathname}>
+  {shouldRenderSearch && <Search slot="search" />}
+</SiteHeader>

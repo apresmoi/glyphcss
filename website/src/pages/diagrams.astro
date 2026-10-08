@@ -1,0 +1,11 @@
+---
+import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
+import { DiagramsWorkbench } from "../components/DiagramsWorkbench";
+const title = "Diagrams — ASCII graphs | glyphcss";
+const description =
+  "Render Mermaid flowcharts, LangGraph agents and JSON graphs as ASCII, box-drawing, block and braille diagrams for chat, terminal and web.";
+---
+
+<WorkbenchLayout title={title} description={description} path="/diagrams/">
+  <DiagramsWorkbench client:only="react" />
+</WorkbenchLayout>

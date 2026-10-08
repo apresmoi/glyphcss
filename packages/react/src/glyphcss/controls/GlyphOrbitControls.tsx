@@ -5,7 +5,7 @@
  * the glyphcss package. Must be placed inside a <GlyphScene>.
  */
 import { useEffect, useRef } from "react";
-import type { GlyphOrbitControlsHandle, GlyphOrbitControlsOptions } from "glyphcss";
+import type { GlyphOrbitControlsHandle, GlyphOrbitControlsMode, GlyphOrbitControlsOptions } from "glyphcss";
 import { createGlyphOrbitControls } from "glyphcss";
 import { useGlyphSceneContext } from "../scene/context";
 
@@ -17,26 +17,47 @@ export interface GlyphOrbitControlsProps {
   /** Drag-direction inversion. Default false. */
   invert?: boolean | number;
   /**
-   * Clamp vertical drag to ±π/2. Default true. Set false for globe-style
-   * unrestricted tumbling past the poles.
+   * Turntable-mode pitch clamp, `[min, max]` degrees, or `null` for
+   * unrestricted tumbling (views from below the equator included; the
+   * up-vector never rolls). Default `[-90, 90]`. No-op in `"trackball"` mode.
    */
-  clampPitch?: boolean;
+  pitchRange?: [number, number] | null;
+  /**
+   * `"turntable"` (default) — Euler orbit, up-vector locked. `"trackball"` —
+   * free rotation about the screen axis perpendicular to the drag, reaching
+   * any orientation including roll; a two-finger twist rolls.
+   */
+  mode?: GlyphOrbitControlsMode;
   /** Auto-rotate config. Default false. */
   animate?: false | { speed?: number; axis?: "x" | "y"; pauseOnInteraction?: boolean };
+  /**
+   * Wheel/pinch zoom clamp, `[min, max]`, or `null` to disable clamping.
+   * Omitted (default): resolved once at mount from the camera's own
+   * starting `zoom` — see `createGlyphOrbitControls`'s own doc.
+   */
+  zoomRange?: [number, number] | null;
+  /**
+   * Middle/right-button drag, Shift+left drag, or a two-finger touch drag
+   * pans `camera.target` in the screen plane. Default true.
+   */
+  pan?: boolean;
 }
 
 export function GlyphOrbitControls({
   drag = true,
   wheel = true,
   invert = false,
-  clampPitch = true,
+  pitchRange = [-90, 90],
+  mode = "turntable",
   animate = false,
+  zoomRange,
+  pan = true,
 }: GlyphOrbitControlsProps): null {
   const { sceneRef } = useGlyphSceneContext();
   const controlsRef = useRef<GlyphOrbitControlsHandle | null>(null);
 
-  const propsRef = useRef({ drag, wheel, invert, clampPitch, animate });
-  propsRef.current = { drag, wheel, invert, clampPitch, animate };
+  const propsRef = useRef({ drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan });
+  propsRef.current = { drag, wheel, invert, pitchRange, mode, animate, zoomRange, pan };
 
   useEffect(() => {
     const scene = sceneRef.current;
@@ -46,8 +67,11 @@ export function GlyphOrbitControls({
       drag: propsRef.current.drag,
       wheel: propsRef.current.wheel,
       invert: propsRef.current.invert,
-      clampPitch: propsRef.current.clampPitch,
+      pitchRange: propsRef.current.pitchRange,
+      mode: propsRef.current.mode,
       animate: propsRef.current.animate === false ? false : propsRef.current.animate,
+      zoomRange: propsRef.current.zoomRange,
+      pan: propsRef.current.pan,
     };
     const controls = createGlyphOrbitControls(scene, opts);
     controlsRef.current = controls;
@@ -62,7 +86,7 @@ export function GlyphOrbitControls({
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.update({ drag, wheel, invert, clampPitch, animate: animate === false ? false : animate });
+    controls.update({ drag, wheel, invert, pitchRange, mode, animate: animate === false ? false : animate, zoomRange, pan });
   });
 
   return null;

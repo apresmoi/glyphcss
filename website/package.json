@@ -9,16 +9,30 @@
     "dev": "node scripts/copy-skill.mjs && astro dev --port 4323",
     "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs",
     "preview": "astro preview --port 4323",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "test:e2e": "node e2e/diagrams-editor.mjs",
+    "check": "node scripts/checks/architecture.mjs && node scripts/checks/format.mjs",
+    "format": "node scripts/checks/format.mjs --write",
+    "test:architecture": "node --test scripts/checks/architecture.test.mjs",
+    "test:e2e:layout": "node e2e/workbench-layout.mjs",
+    "test:e2e:diagrams-resize": "node e2e/diagrams-resize.mjs"
   },
   "devDependencies": {
+    "@astrojs/compiler": "3.0.1",
     "happy-dom": "^20.7.0",
+    "postcss": "8.5.8",
+    "prettier": "3.6.2",
+    "prettier-plugin-astro": "0.14.1",
+    "typescript": "5.9.3",
     "vitest": "^3.1.1"
   },
   "dependencies": {
     "@astrojs/react": "^5.0.2",
     "@astrojs/sitemap": "^3.7.1",
     "@astrojs/starlight": "^0.38.2",
+    "@glyphcss/charts": "workspace:^",
+    "@glyphcss/core": "workspace:^",
+    "@glyphcss/diagrams": "workspace:^",
     "@glyphcss/effects": "workspace:^",
     "@glyphcss/fonts": "workspace:*",
     "@glyphcss/maps": "workspace:^",

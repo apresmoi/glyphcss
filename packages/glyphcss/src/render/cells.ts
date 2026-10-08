@@ -1083,6 +1083,16 @@ export function encodeCellGridOutput(
  * given — the no-op path that guarantees byte-identical output. With a hook, the
  * grid borrows final rasterizer buffers for this synchronous call; use
  * {@link buildCellGrid} or `rasterizeToCells` when a durable copy is needed.
+ *
+ * `capture`, when supplied, is an independent OBSERVER — it never gates
+ * `wantsHalfblockSolid`/`wantsQuadrantSolid` or a caller's own `safe` encoder
+ * choice (both key on `hook`/`transformCells` alone), and it never mutates
+ * the grid. It runs on the grid `hook` actually produced (so it sees the
+ * SAME cells the returned `char`/`color` are built from — never a second,
+ * independently-rasterized pass), or on the raw pre-hook grid when `hook` is
+ * absent. With NEITHER `hook` nor `capture` this still returns the exact same
+ * array references it was given, so `compileScene`'s own grid-capture path
+ * changes zero string-producing bytes (`glyphcss`'s "Compilation" contract 3).
  */
 export function applyCellHook(
   hook: TransformCells | undefined,
@@ -1104,8 +1114,9 @@ export function applyCellHook(
   winnerMeshSrc: Int32Array | null = null,
   objectNormalSrc: Float32Array | null = null,
   occludedSrc: Uint8Array | null = null,
+  capture?: (grid: CellGrid) => void,
 ): { char: string[]; color: (string | null)[] | null; weight: Uint16Array | null } {
-  if (!hook) return { char, color, weight: weightSrc };
+  if (!hook && !capture) return { char, color, weight: weightSrc };
   const n = cols * rows;
   const hookColor = color ?? new Array<string | null>(n).fill(null);
   let depth: Float64Array;
@@ -1138,11 +1149,15 @@ export function applyCellHook(
   if (targetRgbSrc !== null && targetRgbSrc.length >= n) grid.targetRgb = targetRgbSrc;
   if (weightSrc !== null && weightSrc.length >= n) grid.weight = weightSrc;
   if (occludedSrc !== null && occludedSrc.length >= n) grid.occluded = occludedSrc;
-  const result = hook(grid) ?? grid;
-  assertCellGridShape(result);
-  if (result.cols !== cols || result.rows !== rows) {
-    throw new RangeError("glyphcss: transformCells cannot change cell-grid dimensions.");
+  let result = grid;
+  if (hook) {
+    result = hook(grid) ?? grid;
+    assertCellGridShape(result);
+    if (result.cols !== cols || result.rows !== rows) {
+      throw new RangeError("glyphcss: transformCells cannot change cell-grid dimensions.");
+    }
   }
+  capture?.(result);
   // Write char back always; color only when the scene renders colored output.
   return { char: result.char, color: color ? result.color : color, weight: weightSrc !== null ? result.weight ?? null : null };
 }

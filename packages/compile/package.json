@@ -6,7 +6,17 @@
   "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "keywords": ["glyphcss", "ascii", "3d", "compile", "vite", "vite-plugin", "static", "ssg", "cli"],
+  "keywords": [
+    "glyphcss",
+    "ascii",
+    "3d",
+    "compile",
+    "vite",
+    "vite-plugin",
+    "static",
+    "ssg",
+    "cli"
+  ],
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -46,18 +56,20 @@
     "access": "public"
   },
   "dependencies": {
+    "@glyphcss/charts": "workspace:^",
     "@glyphcss/core": "workspace:^",
+    "@glyphcss/diagrams": "workspace:^",
     "glyphcss": "workspace:^",
-    "pngjs": "^7.0.0",
-    "jpeg-js": "^0.4.4"
+    "jpeg-js": "^0.4.4",
+    "pngjs": "^7.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/pngjs": "^6.0.5",
+    "@vitest/coverage-v8": "^3.1.1",
     "happy-dom": "^20.7.0",
     "tsup": "^8.0.1",
     "typescript": "^5.3.3",
-    "vitest": "^3.1.1",
-    "@vitest/coverage-v8": "^3.1.1"
+    "vitest": "^3.1.1"
   }
 }

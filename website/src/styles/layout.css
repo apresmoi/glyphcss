@@ -1,0 +1,35 @@
+.site-workbench {
+  height: 100dvh;
+  overflow: hidden;
+}
+.site-content {
+  min-height: 100dvh;
+}
+.site-content > main {
+  padding-top: var(--gc-header-height);
+}
+.workbench-frame {
+  position: fixed;
+  inset: var(--gc-header-height) 0 0;
+  min-width: 0;
+  min-height: 0;
+}
+.example-frame {
+  position: fixed;
+  inset: var(--gc-header-height) 0 0;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.example-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+@media (max-width: 50rem), (max-height: 34rem) {
+  .example-frame {
+    flex-direction: column;
+  }
+}

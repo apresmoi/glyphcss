@@ -1,0 +1,636 @@
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.root > :global(.dn-lil-gui-host) {
+  min-width: 0;
+  min-height: 0;
+}
+.root :global(.lil-gui):global(.root) {
+  box-sizing: border-box;
+  width: 100% !important;
+  max-width: 100%;
+}
+.root.inline {
+  position: static;
+  width: 100%;
+}
+.root.inline :global(.lil-gui):global(.root) {
+  max-height: none;
+  overflow: visible !important;
+}
+.root :global(.dock-folder-title-reset) {
+  position: relative;
+}
+:local(.root) :global(.lil-gui) :global(.lil-gui):global(.dock-folder-title-reset) > :global(.title) {
+  padding-right: 52px !important;
+}
+.root :global(.lil-gui) :global(.dock-folder-title-reset-button) {
+  position: absolute;
+  top: 0;
+  right: 6px;
+  height: var(--title-height, 24px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--gc-text-faint);
+  color: rgba(var(--gc-text-rgb), 0.75);
+  font-size: 10px;
+  letter-spacing: 0.22px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.root :global(.lil-gui) :global(.dock-folder-title-reset-button):hover {
+  color: var(--gc-accent);
+  border-color: rgba(var(--gc-accent-rgb), 0.6);
+}
+.root :global(.lil-gui) :global(.controller) :global(.instrument-row-reset) {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+  font: inherit;
+  font-family: var(--gc-font-ui);
+  font-size: 9px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  padding: 1px 2px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: var(--gc-text-muted);
+  cursor: pointer;
+}
+.root :global(.lil-gui) :global(.controller) :global(.instrument-row-reset):hover:not(:disabled),
+.root :global(.lil-gui) :global(.controller) :global(.instrument-row-reset):focus-visible {
+  color: var(--gc-accent);
+}
+.root :global(.lil-gui) :global(.controller) :global(.instrument-row-reset):disabled {
+  color: var(--gc-text-faint);
+  opacity: 0.5;
+  cursor: default;
+}
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+.root :global(.lil-gui) {
+  font-family: inherit;
+  font-size: 14px;
+}
+.root :global(.lil-gui) * {
+  font-family: inherit;
+}
+.root :global(.lil-gui) :global(.title),
+.root :global(.lil-gui) :global(.folder) > :global(.title),
+.root :global(.lil-gui) :global(.folder) :global(.title) {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+  min-height: 34px;
+  line-height: 1.15;
+  display: flex;
+  align-items: center;
+}
+.root :global(.lil-gui):global(.root) {
+  --background-color: var(--gc-surface);
+  --title-background-color: var(--gc-surface);
+  --title-text-color: var(--gc-text);
+  --text-color: var(--gc-text);
+  --widget-color: var(--gc-surface);
+  --hover-color: var(--gc-surface);
+  --focus-color: var(--gc-surface);
+  --number-color: var(--gc-accent);
+  --string-color: rgba(var(--gc-text-rgb), 0.72);
+  --font-size: 13px;
+  --input-font-size: 13px;
+  --padding: 8px;
+  --spacing: 7px;
+  --widget-height: 26px;
+  --widget-border-radius: 0;
+  --scrollbar-width: 6px;
+  --folder-indent: 10px;
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+  box-shadow: 0 18px 48px rgba(var(--gc-surface-rgb), 0.6);
+  backdrop-filter: blur(4px);
+  padding: 6px;
+  max-height: calc(100vh - var(--sl-nav-height, 72px) - var(--overlay-top, 12px) - var(--overlay-bottom, 12px) - 12px);
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+  /* Faint scanline texture matching landing page panels */
+  background-image: repeating-linear-gradient(
+    to bottom,
+    transparent 0px,
+    transparent 3px,
+    rgba(var(--gc-text-rgb), 0.006) 3px,
+    rgba(var(--gc-text-rgb), 0.006) 4px
+  );
+}
+.root :global(.lil-gui):global(.root)::-webkit-scrollbar {
+  width: 6px;
+}
+.root :global(.lil-gui):global(.root)::-webkit-scrollbar-track {
+  background: transparent;
+}
+.root :global(.lil-gui):global(.root)::-webkit-scrollbar-thumb {
+  background: var(--gc-rule);
+  border-radius: 0;
+}
+.root :global(.lil-gui):global(.root)::-webkit-scrollbar-thumb:hover {
+  background: var(--gc-text-faint);
+}
+.root :global(.lil-gui):global(.root) > :global(.title) {
+  display: none !important;
+}
+.root :global(.lil-gui):global(.root) > :global(.children) > :global(.lil-gui) > :global(.title) {
+  border: 0 solid var(--widget-color);
+  border-top-width: 1px;
+  border-top-color: rgba(var(--gc-text-rgb), 0.1);
+}
+.root :global(.lil-gui):global(.root) > :global(.children) > :global(.lil-gui):first-child > :global(.title) {
+  border-top-width: 0;
+}
+:local(.root) :global(.dn-note) {
+  margin: 6px 0 0;
+  color: var(--gc-text);
+  font-size: 11px;
+}
+:local(.root) :global(.dn-note--error) {
+  color: var(--gc-text);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui),
+:global(.dn-root) :local(.root) :global(.lil-gui) * {
+  font-family: var(--gc-font-ui) !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui):global(.root) {
+  --background-color: var(--gc-surface);
+  --title-background-color: transparent;
+  --title-text-color: var(--gc-text);
+  --text-color: var(--gc-text);
+  --widget-color: transparent;
+  --hover-color: transparent;
+  --focus-color: transparent;
+  --number-color: var(--gc-accent);
+  --string-color: var(--gc-text);
+  --font-size: 12px;
+  --input-font-size: 12px;
+  --padding: 0px;
+  --spacing: 6px;
+  --widget-height: 24px;
+  --title-height: 28px;
+  --name-width: 35%;
+  --widget-border-radius: 0;
+  --folder-indent: 8px;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+  padding: 0;
+  background: var(--gc-surface);
+}
+:global(.dn-root) :local(.root)::before {
+  content: none;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui):global(.root) > :global(.title) {
+  display: none !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui) > :global(.title) {
+  font-size: 11px !important;
+  font-weight: normal !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+  color: var(--gc-text) !important;
+  background: transparent !important;
+  border: 0 !important;
+  padding: 0 !important;
+  min-height: 28px !important;
+  line-height: 1.2 !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: var(--gc-space-2) !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui) > :global(.title)::before {
+  content: "[";
+  color: inherit;
+  font-size: inherit;
+  flex: 0 0 auto;
+  transform: none;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui) > :global(.title)[aria-expanded="true"]::before {
+  content: "[";
+  color: inherit;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui) > :global(.title)::after {
+  content: "]";
+  flex: 1 1 0;
+  text-align: left;
+  background: linear-gradient(var(--gc-rule), var(--gc-rule)) left 2ch center / calc(100% - 2ch) 1px no-repeat;
+  color: inherit;
+  pointer-events: none;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui) > :global(.title):hover {
+  background: transparent !important;
+  color: var(--gc-accent) !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui) > :global(.title):hover::after {
+  color: var(--gc-text-faint);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller) :global(.name) {
+  font-size: 11px !important;
+  color: rgba(var(--gc-text-rgb), 0.7) !important;
+  letter-spacing: 0.02em !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.disabled) :global(.name) {
+  color: var(--gc-text-faint) !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.disabled) input,
+:global(.dn-root) :local(.root) :global(.lil-gui) input:disabled,
+:global(.dn-root) :local(.root) :global(.lil-gui) input[disabled] {
+  color: var(--gc-accent) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: none !important;
+  outline: none !important;
+  -webkit-text-fill-color: var(--gc-accent) !important;
+  opacity: 1 !important;
+  padding: 0 !important;
+  text-align: right !important;
+  font-family: var(--gc-font-ui) !important;
+  font-size: 11px !important;
+  cursor: default !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller) {
+  --widget-color: transparent !important;
+  background: transparent !important;
+  align-items: center !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.widget) {
+  background: transparent !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) :global(.slider) {
+  height: 10px !important;
+  border: 1px solid var(--gc-text-faint) !important;
+  background: rgba(var(--gc-text-rgb), 0.04) !important;
+  border-radius: 0 !important;
+  position: relative !important;
+  overflow: visible !important;
+  cursor: ew-resize !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) :global(.slider)::before {
+  content: "[";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) :global(.slider)::after {
+  content: "]";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) :global(.slider) :global(.fill) {
+  background: linear-gradient(to right, rgba(var(--gc-accent-rgb), 0.55), var(--gc-accent)) !important;
+  height: 100% !important;
+  border-right: 2px solid var(--gc-accent) !important;
+  box-shadow: 2px 0 4px rgba(var(--gc-accent-rgb), 0.6);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) :global(.widget) {
+  padding-inline: var(--gc-space-2) !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) input[type="number"],
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) input:not([type]) {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px dotted var(--gc-rule) !important;
+  border-radius: 0 !important;
+  color: var(--gc-accent) !important;
+  font-family: var(--gc-font-ui) !important;
+  font-size: 11px !important;
+  padding: 1px 3px !important;
+  text-align: right !important;
+  pointer-events: auto !important;
+  max-width: 70px !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) input[type="number"]:focus,
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.number) input:not([type]):focus {
+  border-color: rgba(var(--gc-accent-rgb), 0.55) !important;
+  background: rgba(var(--gc-accent-rgb), 0.07) !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.boolean) input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 32px !important;
+  height: 16px !important;
+  cursor: pointer !important;
+  position: relative !important;
+  flex-shrink: 0 !important;
+  pointer-events: auto !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.boolean) input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gc-font-ui);
+  font-size: 10px;
+  color: var(--gc-text-muted);
+  pointer-events: none;
+  line-height: 1;
+}
+:global(.dn-root)
+  :local(.root)
+  :global(.lil-gui)
+  :global(.controller):global(.boolean)
+  input[type="checkbox"]:hover::before {
+  color: rgba(var(--gc-text-rgb), 0.75);
+}
+:global(.dn-root)
+  :local(.root)
+  :global(.lil-gui)
+  :global(.controller):global(.boolean)
+  input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: var(--gc-accent);
+}
+:global(.dn-root)
+  :local(.root)
+  :global(.lil-gui)
+  :global(.controller):global(.boolean)
+  input[type="checkbox"]:checked:hover::before {
+  color: var(--gc-accent);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.color) :global(.widget) {
+  padding-inline: var(--gc-space-2) !important;
+  position: relative !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.color) :global(.display) {
+  height: 10px !important;
+  border: 1px solid var(--gc-text-faint) !important;
+  border-radius: 0 !important;
+  position: relative !important;
+  overflow: visible !important;
+  box-shadow: 0 0 4px rgba(var(--gc-accent-rgb), 0.25);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.color) :global(.display)::before {
+  content: "[";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+  z-index: 2;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.color) :global(.display)::after {
+  content: "]";
+  position: absolute;
+  right: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+  z-index: 2;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.color) input[type="color"] {
+  position: absolute !important;
+  inset: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: none !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  opacity: 0 !important;
+  cursor: pointer !important;
+  pointer-events: auto !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.color) input[type="text"] {
+  background: transparent !important;
+  border: none !important;
+  border-bottom: 1px dotted var(--gc-rule) !important;
+  border-radius: 0 !important;
+  color: var(--gc-text-muted) !important;
+  font-family: var(--gc-font-ui) !important;
+  font-size: 11px !important;
+  padding: 1px 3px !important;
+  pointer-events: auto !important;
+  text-align: right !important;
+  max-width: 70px !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.function) button {
+  background: rgba(var(--gc-text-rgb), 0.04) !important;
+  border: 1px solid rgba(var(--gc-orange-rgb), 0.45) !important;
+  border-radius: 0 !important;
+  color: var(--gc-orange) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  padding: 3px 10px !important;
+  pointer-events: auto !important;
+  transition:
+    background 100ms,
+    border-color 100ms !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.function) button:hover {
+  background: rgba(var(--gc-orange-rgb), 0.1) !important;
+  border-color: var(--gc-orange) !important;
+}
+:global(.dn-root) :local(.root) :global(.dn-note) {
+  font-family: var(--gc-font-ui) !important;
+  font-size: 11px !important;
+  color: var(--gc-text-muted) !important;
+  border-top: 1px solid rgba(var(--gc-text-rgb), 0.1) !important;
+  padding: var(--gc-space-1) var(--gc-space-2) !important;
+  margin: 0 !important;
+  background: var(--gc-surface) !important;
+}
+:global(.dn-root) :local(.root) :global(.dn-note)::before {
+  content: "> ";
+  color: var(--gc-text-faint);
+}
+:global(.dn-root) :local(.root) :global(.dn-note--error) {
+  color: var(--gc-text) !important;
+}
+:global(.dn-root) :local(.root) :global(.dn-note--error)::before {
+  content: "! ";
+  color: var(--gc-text);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui):global(.root)::-webkit-scrollbar {
+  width: 4px !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui):global(.root)::-webkit-scrollbar-thumb {
+  background: var(--gc-rule) !important;
+  border-radius: 0 !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui):global(.root)::-webkit-scrollbar-thumb:hover {
+  background: var(--gc-text-faint) !important;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.string) :global(.widget) {
+  position: relative;
+  min-width: 0;
+  padding-inline: 2ch;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.string) :global(.widget)::before,
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.string) :global(.widget)::after {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.string) :global(.widget)::before {
+  content: "[";
+  left: 0;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.string) :global(.widget)::after {
+  content: "]";
+  right: 0;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller):global(.string) input {
+  background: transparent;
+  border: 0;
+  padding-inline: 0;
+  text-overflow: ellipsis;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller) :global(.name) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.widget) {
+  min-width: 0;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.controller) {
+  min-height: 24px;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) > :global(.children) > :global(.lil-gui) + :global(.lil-gui) {
+  margin-top: 10px;
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui):global(.closed) > :global(.title) {
+  color: var(--gc-text-muted) !important;
+}
+:global(.dn-root) :local(.root) :global(.dock-folder-title-reset-button) {
+  border: 0;
+  border-radius: 0;
+  color: var(--gc-text-muted);
+  background: var(--gc-surface);
+  padding-inline: 0;
+}
+:global(.dn-root) :local(.root) :global(.dock-folder-title-reset-button)::before {
+  content: "[ ";
+  white-space: pre;
+}
+:global(.dn-root) :local(.root) :global(.dock-folder-title-reset-button)::after {
+  content: " ]";
+  white-space: pre;
+}
+:global(.dn-root) :local(.root) :global(.dock-folder-title-reset-button):hover {
+  color: var(--gc-accent);
+}
+:global(.dn-root) :local(.root) :global(.lil-gui) :global(.lil-gui):global(.dock-folder-title-reset) > :global(.title) {
+  padding-right: 64px !important;
+}
+:global(.dn-root) .root:global(.dn-floating-controls) :global(.dock-folder-title-reset-button) {
+  border: 0;
+  background: var(--gc-surface);
+  color: var(--gc-text-muted);
+  border-radius: 0;
+}
+:global(.dn-root) .root:global(.dn-floating-controls) :global(.controller):global(.string) input {
+  color: var(--gc-text);
+}
+:global(.dn-root) .root:global(.dn-floating-controls) :global(.controller):global(.number) :global(.widget) {
+  min-width: 0;
+}
+:global(.dn-root) .root:global(.dn-floating-controls) :global(.controller):global(.number) input {
+  flex: 0 0 5ch;
+  max-width: 5ch;
+}
+/* lil-gui owns the native select; its visual display follows BracketSelect. */
+:global(.dn-root) .root :global(.controller.number .widget) {
+  gap: var(--gc-space-2);
+}
+
+.root :global(.dn-floating-controls) :global(.lil-gui) :global(.dock-scope-slot) {
+  padding: var(--spacing, 5px) var(--padding, 6px) 0;
+}
+.root :global(.dock-logrow-slot) {
+  display: contents;
+}
+.root :global(.dn-floating-controls) :global(.lil-gui) :global(.dock-subcell-slot) {
+  padding: 0 var(--padding, 6px);
+}
+.root :global(.dock-subcell) {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+}
+.root :global(.dock-subcell-label) {
+  flex: 0 0 var(--name-width, 45%);
+  font-size: 11px;
+  letter-spacing: 0.22px;
+  line-height: 20px;
+  text-transform: none;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  padding-right: var(--spacing, 5px);
+}
+.root :global(.dock-subcell) :global(.gx-toggle) {
+  flex: 1 1 auto;
+}
+.root :global(.dock-toggle-row) {
+  display: flex;
+  align-items: center;
+  min-height: 20px;
+  padding: 0 var(--padding, 6px);
+}
+.root :global(.dock-toggle-row-label) {
+  flex: 0 0 var(--name-width, 45%);
+  font-size: 11px;
+  letter-spacing: 0.22px;
+  line-height: 20px;
+  text-transform: none;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  padding-right: var(--spacing, 5px);
+}
+.root :global(.dock-toggle-row) :global(.gx-toggle) {
+  flex: 1 1 auto;
+  gap: 0;
+}
+.root :global(.dn-floating-controls) :global(.lil-gui) :global(.dock-ramp-density-slot) {
+  padding: 0 var(--padding, 6px) var(--spacing, 5px);
+}
+.root :global(.dock-toggle-row) {
+  min-width: 0;
+}
+.root :global(.dock-toggle-row) :global(.gx-toggle) {
+  min-width: 0;
+}
+.root :global(.dock-toggle-row) :global(.gx-toggle-btn) {
+  width: auto;
+}

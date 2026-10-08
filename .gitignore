@@ -1,8 +1,7 @@
 node_modules/
 dist/
-# Legacy site output dir; docs/design/ holds the agent-guide design notes.
-/docs/*
-!/docs/design/
+# Legacy site output dir.
+/docs/
 /scripts/
 coverage/
 .DS_Store
@@ -68,3 +67,25 @@ VOLUMETRIC*.md
 SHAPES.md
 COLOR-TOLERANCE.md
 convo.md
+
+# Scratch research notes — dropped from the repo, kept out of it
+CHARTS-RESEARCH.md
+CHARTS-RESEARCH/
+AXIS-COMPARE.html
+
+NODE-SHAPES.html
+NODE-SHAPES-3D.html
+
+# local terminal-resolution comparison (scratch)
+TERMINAL-COMPARE.txt
+NODE-LABELS-3D.html
+CNN-SHAPES.html
+CNN-VIEWER.html
+DIAGRAM-SHOWCASE-3D.html
+SHOWCASE-V2.html
+DIAGRAM-SHOWCASE-3D.html
+CNN-PIPELINES.html
+DIAGRAMS-ALL.html
+NO-LINK-3D.html
+DIAGRAM-FORMS.html
+SEQUENCE-EXAMPLES.html

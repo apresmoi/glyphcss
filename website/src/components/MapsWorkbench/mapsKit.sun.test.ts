@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { glyphMapGlobe, glyphMapSubsolarPoint, glyphMapSunDirection } from "@glyphcss/maps";
-import { buildMapLighting, DEFAULT_MAP_LIGHTING, isOrbitProjectionId, mapDirectionLocked, mapKeyLightForSunMode, mapSunManualFields, mapSunManualInstant, SUN_MODE_TOGGLE, type MapProjectionId, type MapSunMode } from "./mapsKit";
+import { buildMapLighting, DEFAULT_MAP_LIGHTING, mapDirectionLocked, mapKeyLightForSunMode, mapSunManualFields, mapSunManualInstant } from "../../features/maps/model/lighting";
+import { isOrbitProjectionId, type MapProjectionId, type MapSunMode } from "../../features/maps/model/config";
+import { SUN_MODE_TOGGLE } from "./mapsOptions";
 
 /**
  * The page's half of real-sun lighting: `buildMapLighting` is the ONE writer

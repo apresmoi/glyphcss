@@ -9,9 +9,9 @@
  * Ported from glyphcss useCameraFolder.ts; adapted for glyphcss types (rotX in
  * degrees 0–100, target range ±2, no auto-center axes or reset-model callback).
  */
-import { useEffect, useRef } from "react";
 import type { GUI } from "lil-gui";
-import type { SceneOptionsState, DragMode, PerspectiveMode } from "../../GalleryWorkbench/types";
+import { useEffect, useRef } from "react";
+import type { DragMode, PerspectiveMode, SceneOptionsState } from "../../../features/gallery/model/types";
 import { useButton, useFolder, useOption, useSlider, useToggle } from "../primitives";
 
 interface PresetModelMinimal {
@@ -123,25 +123,15 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
   useToggle(folder, "Auto center", autoCenter, (value) => onUpdateScene({ autoCenter: value }));
   useToggle(folder, "Auto rotate", autoRotate, (value) => onUpdateScene({ autoRotate: value }));
   useToggle(folder, "Interactive", interactive, (value) => onUpdateScene({ interactive: value }));
-  useOption<DragMode>(folder, "Drag mode", DRAG_MODE_OPTIONS, dragMode, (value) =>
-    onUpdateScene({ dragMode: value }),
-  );
+  useOption<DragMode>(folder, "Drag mode", DRAG_MODE_OPTIONS, dragMode, (value) => onUpdateScene({ dragMode: value }));
 
   // FPV sub-folder — nested under Camera. All controllers dimmed when not in FPV mode.
   const fpvFolder = useFolder(folder, "FPV", { open: false });
 
-  const fpvLookCtrl = useToggle(fpvFolder, "Look", fpvLook, (value) =>
-    onUpdateScene({ fpvLook: value }),
-  );
-  const fpvMoveCtrl = useToggle(fpvFolder, "Move", fpvMove, (value) =>
-    onUpdateScene({ fpvMove: value }),
-  );
-  const fpvJumpCtrl = useToggle(fpvFolder, "Jump", fpvJump, (value) =>
-    onUpdateScene({ fpvJump: value }),
-  );
-  const fpvCrouchCtrl = useToggle(fpvFolder, "Crouch", fpvCrouch, (value) =>
-    onUpdateScene({ fpvCrouch: value }),
-  );
+  const fpvLookCtrl = useToggle(fpvFolder, "Look", fpvLook, (value) => onUpdateScene({ fpvLook: value }));
+  const fpvMoveCtrl = useToggle(fpvFolder, "Move", fpvMove, (value) => onUpdateScene({ fpvMove: value }));
+  const fpvJumpCtrl = useToggle(fpvFolder, "Jump", fpvJump, (value) => onUpdateScene({ fpvJump: value }));
+  const fpvCrouchCtrl = useToggle(fpvFolder, "Crouch", fpvCrouch, (value) => onUpdateScene({ fpvCrouch: value }));
   const fpvMoveSpeedCtrl = useSlider(
     fpvFolder,
     "Move speed",
@@ -156,12 +146,8 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     fpvJumpVelocity,
     (value) => onUpdateScene({ fpvJumpVelocity: value }),
   );
-  const fpvGravityCtrl = useSlider(
-    fpvFolder,
-    "Gravity",
-    { min: 0.1, max: 50, step: 0.1 },
-    fpvGravity,
-    (value) => onUpdateScene({ fpvGravity: value }),
+  const fpvGravityCtrl = useSlider(fpvFolder, "Gravity", { min: 0.1, max: 50, step: 0.1 }, fpvGravity, (value) =>
+    onUpdateScene({ fpvGravity: value }),
   );
   const fpvEyeHeightCtrl = useSlider(
     fpvFolder,
@@ -184,19 +170,12 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     fpvLookSensitivity,
     (value) => onUpdateScene({ fpvLookSensitivity: value }),
   );
-  const fpvInvertYCtrl = useToggle(fpvFolder, "Invert Y", fpvInvertY, (value) =>
-    onUpdateScene({ fpvInvertY: value }),
-  );
+  const fpvInvertYCtrl = useToggle(fpvFolder, "Invert Y", fpvInvertY, (value) => onUpdateScene({ fpvInvertY: value }));
 
-  useOption<PerspectiveMode>(
-    folder,
-    "Projection",
-    PROJECTION_OPTIONS,
-    perspectiveMode,
-    (value) =>
-      onUpdateScene({
-        perspective: value === "perspective" ? perspectivePxRef.current : false,
-      }),
+  useOption<PerspectiveMode>(folder, "Projection", PROJECTION_OPTIONS, perspectiveMode, (value) =>
+    onUpdateScene({
+      perspective: value === "perspective" ? perspectivePxRef.current : false,
+    }),
   );
   const perspectivePxCtrl = useOption<number>(
     folder,
@@ -206,45 +185,21 @@ export function useCameraFolder(parent: GUI | null, inputs: CameraFolderInputs):
     (value) => onUpdateScene({ perspective: value }),
   );
 
-  useSlider(folder, "Zoom", { min: 0.05, max: 2.5, step: 0.01 }, zoom, (value) =>
-    onUpdateScene({ zoom: value }),
-  );
-  useSlider(folder, "Rot X", { min: 0, max: 180, step: 1 }, rotX, (value) =>
-    onUpdateScene({ rotX: value }),
-  );
-  useSlider(folder, "Rot Y", { min: 0, max: 360, step: 1 }, rotY, (value) =>
-    onUpdateScene({ rotY: value }),
-  );
-  useSlider(
-    folder,
-    "Target X",
-    { min: -2, max: 2, step: 0.01 },
-    target[0],
-    (value) => {
-      const t = targetRef.current;
-      onUpdateScene({ target: [value, t[1], t[2]] });
-    },
-  );
-  useSlider(
-    folder,
-    "Target Y",
-    { min: -2, max: 2, step: 0.01 },
-    target[1],
-    (value) => {
-      const t = targetRef.current;
-      onUpdateScene({ target: [t[0], value, t[2]] });
-    },
-  );
-  useSlider(
-    folder,
-    "Target Z",
-    { min: -2, max: 2, step: 0.01 },
-    target[2],
-    (value) => {
-      const t = targetRef.current;
-      onUpdateScene({ target: [t[0], t[1], value] });
-    },
-  );
+  useSlider(folder, "Zoom", { min: 0.05, max: 2.5, step: 0.01 }, zoom, (value) => onUpdateScene({ zoom: value }));
+  useSlider(folder, "Rot X", { min: 0, max: 180, step: 1 }, rotX, (value) => onUpdateScene({ rotX: value }));
+  useSlider(folder, "Rot Y", { min: 0, max: 360, step: 1 }, rotY, (value) => onUpdateScene({ rotY: value }));
+  useSlider(folder, "Target X", { min: -2, max: 2, step: 0.01 }, target[0], (value) => {
+    const t = targetRef.current;
+    onUpdateScene({ target: [value, t[1], t[2]] });
+  });
+  useSlider(folder, "Target Y", { min: -2, max: 2, step: 0.01 }, target[1], (value) => {
+    const t = targetRef.current;
+    onUpdateScene({ target: [t[0], value, t[2]] });
+  });
+  useSlider(folder, "Target Z", { min: -2, max: 2, step: 0.01 }, target[2], (value) => {
+    const t = targetRef.current;
+    onUpdateScene({ target: [t[0], t[1], value] });
+  });
 
   // Dim every FPV controller when drag mode is not "fpv".
   useEffect(() => {

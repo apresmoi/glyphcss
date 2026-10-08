@@ -13,16 +13,11 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  LayersPanel,
-  MAP_SCENE_GLYPH_PALETTE,
-  MAP_SCENE_RENDER_MODE,
-  type ExtraLayerInputs,
-  type LayersFolderInputs,
-  type OsmLayerInputs,
-} from "./mapsKit";
-import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS, mapOsmSublayerTooltip } from "./mapsOsm";
-import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS } from "./mapsDatasets";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { type ExtraLayerInputs, type LayersFolderInputs, type OsmLayerInputs } from "./LayersPanel/types";
+import { MAP_OSM_DEFAULT_ANCHOR, MAP_OSM_SUBLAYERS, mapOsmSublayerTooltip } from "../../features/maps/model/mapsOsm";
+import { MAP_DATASET_DEFAULT_ANCHOR, MAP_DATASET_ROWS } from "../../features/maps/model/mapsDatasets";
 
 /**
  * The OSM card's row tooltips, on the RENDERED card.

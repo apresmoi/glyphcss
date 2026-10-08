@@ -1,0 +1,12 @@
+---
+import { ANALYTICS_SRC, ANALYTICS_INIT } from "../../config/analytics.mjs";
+---
+
+{
+  import.meta.env.PROD && (
+    <Fragment>
+      <script async is:inline src={ANALYTICS_SRC} />
+      <script is:inline set:html={ANALYTICS_INIT} />
+    </Fragment>
+  )
+}

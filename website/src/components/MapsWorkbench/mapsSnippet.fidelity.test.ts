@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE, buildMapsSnippet, type MapsSnippetState } from "./mapsKit";
+import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { buildMapsSnippet, type MapsSnippetState } from "../../features/maps/export/snippets";
 
 /**
  * "The code should actually put everything we have selected there."

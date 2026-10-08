@@ -61,6 +61,28 @@ ansi**, `-o` file → html, piped → text. Omit `--cols`/`--rows` and it auto-f
 the grid + zoom to the model, cropped tight (give just one and the other adapts).
 The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile).
 
+### Diagrams
+
+`glyphcss diagram <file.mmd|graph.json>` renders Mermaid `flowchart`/`graph`
+source or `{ nodes, edges, direction?, groups? }` JSON. JSON direction defaults
+to `TB`. Every unsupported Mermaid kind rejects with its named rule id.
+
+```sh
+npm install -D @glyphcss/compile
+printf 'flowchart LR; input[Input] --> render[Render]\n' > graph.mmd
+npx glyphcss diagram graph.mmd --width 60 --height 20
+npx glyphcss diagram graph.mmd --charset ascii --color none -o graph.txt
+npx glyphcss diagram graph.mmd --direction TB --engine dagre --nodesep 3 --ranksep 3 --title Pipeline --detail balanced
+```
+
+The default target is `terminal`: stdout TTY selects ANSI, a pipe selects plain
+text, and `--color` overrides either. `NO_COLOR` and `FORCE_COLOR` follow the
+renderer’s environment rules. `--color css` emits escaped HTML. Fidelity ledger
+entries go to stderr, so redirected stdout contains only the diagram.
+`--target chat|terminal|web`, `--charset ascii|box|blocks|braille`, `--width`,
+`--height`, and `--detail auto|faithful|balanced|simplified` match the diagram API.
+Read and validation failures preserve their rule ids and exit with status 1.
+
 ## Node API
 
 ```ts

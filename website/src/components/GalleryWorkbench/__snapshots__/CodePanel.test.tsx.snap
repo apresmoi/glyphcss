@@ -1,0 +1,21 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CodePanel default framework tabs > preserves 'gallery' markup, ordered tabs, default selection and copy with the shared shell 1`] = `
+[
+  "720599e070b94060a09caeada05f94ef9d5ddf84c2dd96e7451c5565de4d76f6",
+  "067a58a1698d4bae42bc938acdefd58778b683b921d64523c362bf8bebb5f90b",
+  "c43d4a5913757316db6cf83188aa963e65c901543262cc59b5de11263f54bc4d",
+  "720599e070b94060a09caeada05f94ef9d5ddf84c2dd96e7451c5565de4d76f6",
+  "4092d21b1883128b5b5c0702ba33b2caa24f3f28df556154790cbcd51db10f36",
+]
+`;
+
+exports[`CodePanel default framework tabs > preserves 'shared' markup, ordered tabs, default selection and copy with the shared shell 1`] = `
+[
+  "4a8acb6e57554692c5978345f394942eb08c20efd1266b3d999879c935779088",
+  "ecfaa36f30efea6fe40e4762cb25b3d65deabfca10c64224b924677d649116db",
+  "bb2603fe474ea49a16d800144b9f53f7751985bfe98ccb5d676dc2452379ddd7",
+  "4a8acb6e57554692c5978345f394942eb08c20efd1266b3d999879c935779088",
+  "437d3de4211155be21ea1254bf438bd5ae28c928c03b3b41cbcf5a196090d3d4",
+]
+`;

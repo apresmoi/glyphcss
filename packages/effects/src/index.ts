@@ -10,6 +10,14 @@ export {
   glyphEffectHasColor,
   synthWave,
 } from "./stock";
+
+// `glyphGridDecalEffect` (AGENTS.md "Charts" §7 "Exact glyphs") — a
+// mesh-targeted effect that decals a bare `CellGrid` (a chart's own canvas
+// grid, typically) onto a surface's own `uv0` at nearest-cell resolution.
+// Deliberately NOT part of `GlyphEffects`/`GlyphEffectCatalog`: those are
+// the Dock's user-selectable, param-schema-driven picker, and the decal has
+// no params to pick — it is mounted with a `program` payload, structurally.
+export { glyphGridDecalEffect } from "./decal";
 // Rule ids for `GlyphFieldSynthEffect`'s `validateParams` throw sites
 // (VOLUMETRIC-2.md §4 P2 fix) — the website's URL hydration repair table
 // keys off `GLYPH_FIELD_SYNTH_VALIDATION_RULES` instead of hand-mirroring

@@ -161,7 +161,8 @@ target plane.
 | `drag` | flag — enable drag |
 | `wheel` | flag — enable wheel zoom |
 | `invert` | flag or number — invert axis multiplier |
-| `clamp-pitch` | flag — stop the orbit pitch from passing over the poles |
+| `pitch-range` | Orbit, turntable mode only: `"min,max"` degrees (default `-90,90`), or `"none"` for unrestricted tumbling past either pole |
+| `mode` | Orbit-only: `turntable` (default) \| `trackball` — trackball rotates about the screen axis perpendicular to the drag, reaching any orientation including roll |
 | `animate-speed` | Orbit-only: auto-rotation speed |
 | `animate-axis` | Orbit-only: `x` \| `y` |
 

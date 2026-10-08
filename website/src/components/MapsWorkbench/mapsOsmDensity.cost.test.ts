@@ -24,7 +24,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap, glyphMapEquirectangular, type GlyphMapHandle } from "@glyphcss/maps";
-import { createOsmSource, mapOsmDensityRecord, mapOsmLayers } from "./mapsOsm";
+import { createOsmSource, mapOsmDensityRecord, mapOsmLayers } from "../../features/maps/model/mapsOsm";
 
 const COLS = 80;
 const ROWS = 40;

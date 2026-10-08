@@ -13,11 +13,12 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import {
-  DensityRow, LayersPanel, MAP_SCENE_GLYPH_PALETTE, logHeightSliderSpec,
-  parseHeightMeters, parseMapsHex, parseMapsNumber,
-  type ExtraLayerInputs, type LayersFolderInputs,
-} from "./mapsKit";
+import { DensityRow } from "./LayersPanel/DensityRow";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE } from "../../features/maps/model/config";
+import { logHeightSliderSpec } from "./LayersPanel/heightSlider";
+import { parseHeightMeters, parseMapsHex, parseMapsNumber } from "../../features/maps/model/inputs";
+import { type ExtraLayerInputs, type LayersFolderInputs } from "./LayersPanel/types";
 
 /**
  * The left rail's layer cards render the DOCK's control rows, not a second

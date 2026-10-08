@@ -29,7 +29,8 @@ restores full detail on release.
 | `drag` | `boolean` | `true` | Enable click-and-drag rotation |
 | `wheel` | `boolean` | `true` | Enable scroll-to-zoom |
 | `invert` | `boolean \| number` | `false` | Invert drag direction |
-| `clampPitch` | `boolean` | `true` | Clamp vertical drag to ±90°. Set `false` for globe-style unrestricted tumbling |
+| `pitchRange` | `[number, number] \| null` | `[-90, 90]` | Turntable-mode pitch clamp in degrees. `null` for globe-style unrestricted tumbling (views past either pole; the up-vector never rolls) |
+| `mode` | `"turntable" \| "trackball"` | `"turntable"` | `"trackball"` rotates about the screen axis perpendicular to the drag, reaching any orientation including roll (two-finger twist rolls) |
 | `animate` | `false \| { speed?, axis?, pauseOnInteraction? }` | `false` | Auto-rotation config. `axis` is `"x"` or `"y"` |
 
 <Tabs syncKey="fw">

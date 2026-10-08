@@ -14,6 +14,8 @@ export { tetrahedronPolygons } from "./tetrahedronPolygons";
 export type { TetrahedronPolygonsOptions } from "./tetrahedronPolygons";
 export { cubePolygons } from "./cubePolygons";
 export type { CubePolygonsOptions } from "./cubePolygons";
+export { boxPolygons } from "./boxPolygons";
+export type { BoxPolygonsOptions } from "./boxPolygons";
 export { dodecahedronPolygons } from "./dodecahedronPolygons";
 export type { DodecahedronPolygonsOptions } from "./dodecahedronPolygons";
 export { icosahedronPolygons } from "./icosahedronPolygons";
@@ -98,3 +100,8 @@ export { pentagonalHexecontahedronPolygons } from "./pentagonalHexecontahedronPo
 export type { PentagonalHexecontahedronPolygonsOptions } from "./pentagonalHexecontahedronPolygons";
 export { resolveGeometry } from "./geometryRegistry";
 export type { GlyphGeometryName, GlyphGeometryOptions } from "./geometryRegistry";
+export { gridSurfacePolygons } from "./gridSurfacePolygons";
+export type { GridSurfaceField, GridSurfaceQuadBlock, GridSurfacePolygonsOptions, GridSurfaceDecimation, GridSurfacePolygonsResult } from "./gridSurfacePolygons";
+export { parametricSurfacePolygons } from "./parametricSurfacePolygons";
+export type { ParametricSurfaceField, ParametricSurfacePolygonsOptions } from "./parametricSurfacePolygons";
+export { frameFromForward, orientedRibbonPolygons, orientedPyramidPolygons } from "./orientedGeometry";

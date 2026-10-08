@@ -152,10 +152,12 @@ export {
   GlyphSceneStatic,
   GlyphMesh,
   GlyphEffectLayer,
+  GlyphObject,
   GlyphGround,
   GlyphHotspot,
   GlyphSceneContextKey,
   useGlyphMesh,
+  useGlyphObject,
   useGlyphSceneContext,
   findGlyphMeshHandle,
   pointInMeshElement,
@@ -180,6 +182,7 @@ export type {
   GlyphEffectLayerComponent,
   GlyphEffectLayerExposed,
   GlyphEffectLayerProps,
+  GlyphObjectProps,
   GlyphGroundProps,
   GlyphHotspotProps,
   GlyphSceneContextValue,
@@ -195,10 +198,23 @@ export type {
   UseGlyphAnimationResult,
   UseGlyphMeshOptions,
   UseGlyphMeshResult,
+  UseGlyphObjectOptions,
+  UseGlyphObjectResult,
 } from "./glyphcss";
 
 // ── Mesh handle type ──────────────────────────────────────────────────────────
 export type { GlyphMeshHandle } from "glyphcss";
+
+// ── Scene object types (see `<GlyphObject>` / `useGlyphObject`) ──────────────
+export type {
+  GlyphSceneObject,
+  GlyphSceneObjectMesh,
+  GlyphSceneObjectHotspot,
+  GlyphSceneOverlay,
+  GlyphSceneObjectHandle,
+  GlyphSceneObjectTransform,
+  GlyphOverlayFrame,
+} from "glyphcss";
 
 // ── Cell-effect layer types ──────────────────────────────────────────────────
 export type {

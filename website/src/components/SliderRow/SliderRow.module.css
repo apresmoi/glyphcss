@@ -1,0 +1,86 @@
+.root {
+  display: grid;
+  grid-template-columns: 34px 1fr 34px;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.root span:first-child {
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+}
+.track {
+  display: block;
+  min-width: 0;
+  position: relative;
+  padding-inline: var(--gc-space-2);
+}
+.track::before,
+.track::after {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font: 10px/1 var(--gc-font-ui);
+  color: var(--gc-text-muted);
+  pointer-events: none;
+}
+.track::before {
+  content: "[";
+  left: 0;
+}
+.track::after {
+  content: "]";
+  right: 0;
+}
+.track input[type="range"] {
+  overflow: hidden;
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
+  width: 100%;
+  height: 10px;
+  margin: 0;
+  background: transparent;
+  cursor: ew-resize;
+}
+.track input[type="range"]::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 0;
+  border: 1px solid var(--gc-text-faint);
+  background: linear-gradient(
+    90deg,
+    rgba(var(--gc-accent-rgb), 0.55) 0%,
+    var(--gc-accent) var(--fill, 0%),
+    rgba(var(--gc-text-rgb), 0.04) var(--fill, 0%)
+  );
+}
+.track input[type="range"]::-moz-range-track {
+  height: 10px;
+  border-radius: 0;
+  border: 1px solid var(--gc-text-faint);
+  background: rgba(var(--gc-text-rgb), 0.04);
+}
+.track input[type="range"]::-moz-range-progress {
+  height: 10px;
+  border-radius: 0;
+  background: linear-gradient(90deg, rgba(var(--gc-accent-rgb), 0.55), var(--gc-accent));
+}
+.track input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 2px;
+  height: 10px;
+  margin-top: 0;
+  background: var(--gc-accent);
+  border: none;
+  border-radius: 0;
+  box-shadow: -100vw 0 0 100vw rgba(var(--gc-accent-rgb), 0.55);
+}
+.track input[type="range"]::-moz-range-thumb {
+  width: 2px;
+  height: 10px;
+  background: var(--gc-accent);
+  border: none;
+  border-radius: 0;
+  box-shadow: -100vw 0 0 100vw rgba(var(--gc-accent-rgb), 0.55);
+}

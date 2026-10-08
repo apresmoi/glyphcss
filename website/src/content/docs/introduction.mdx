@@ -3,7 +3,7 @@ title: Introduction
 description: glyphcss renders 3D models as ASCII art — in the browser, React/Vue, or your terminal. The successor to polycss, with a three.js-style API and no WebGL.
 ---
 
-import GlyphDemo from "../../components/GlyphDemo.astro";
+import { GlyphDemo } from "../../components/GlyphDemo";
 
 **glyphcss** turns **3D models into ASCII art**. It rasterizes meshes (OBJ, glTF, GLB,
 STL, MagicaVoxel `.vox`) into a character grid rendered as plain text in a single
@@ -16,7 +16,7 @@ It's the successor to **[polycss](https://github.com/apresmoi/polycss)**, the
 CSS-transform polygon paint engine — same scene/camera API, but the paint backend
 emits ASCII text instead of a DOM node per polygon.
 
-<GlyphDemo id="intro-demo" mesh="/gallery/glb/apple.glb" defaults='{"renderMode":"solid"}' />
+<GlyphDemo client:load id="intro-demo" mesh="/gallery/glb/apple.glb" defaults='{"renderMode":"solid"}' />
 
 ## The mental model
 

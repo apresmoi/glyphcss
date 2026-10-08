@@ -1,0 +1,179 @@
+/**
+ * The shared label arbiter (PLAN-3d.md §3.2 "Labels, ticks and legends when
+ * the chart is one object among many").
+ *
+ * The scene owns ONE arbiter per output grid per frame (`createGlyphScene`
+ * builds a fresh one inside `applyGlyphSceneObjectOverlays`, before running
+ * any overlay's `stamp()` for that grid) so two charts sharing a scene never
+ * overwrite each other's labels — the whole reason this lives at the SCENE
+ * layer rather than inside each object's own overlay.
+ *
+ * Two-phase, like `@glyphcss/maps`' `glyphMapDeclutterLabels` (that
+ * function is the model this generalizes, not a dependency — glyphcss
+ * cannot import `@glyphcss/maps`): every overlay that wants a label calls
+ * `place()` during `stamp()`, which only REGISTERS a candidate; nothing
+ * paints until the scene calls `resolve(grid)` once every overlay for this
+ * grid has run. Two-phase is required, not a style choice — greedy
+ * PRIORITY-first resolution needs the whole candidate set up front, and
+ * overlays run in registry order, not priority order.
+ *
+ * Resolution order is `(priority desc, id asc)` — PLAN-3d.md §3.2's own
+ * words are "priority first, then stable id" — deliberately NOT candidate
+ * registration index, unlike `glyphMapDeclutterLabels`' own tie-break:
+ * registration index is a function of overlay MOUNT order, and two objects
+ * mounted in either order must resolve an equal-priority tie identically.
+ */
+import type { CellGrid } from "../cells";
+import { stampGlyphOverlayCell } from "./stamp";
+
+export interface GlyphLabelCandidate {
+  readonly id: string;
+  readonly priority: number;
+  readonly col: number;
+  readonly row: number;
+  readonly text: string;
+  readonly color?: string;
+  /**
+   * This label's own object's mesh ids — see AGENTS.md's "Occlusion" clause:
+   * the label hides WHOLE iff ANY of its own cells (not only the anchor) is
+   * won (`CellGrid.winnerMesh`) by a mesh NOT in this set, or is cross-layer
+   * `occluded` — never clipped to just the covered characters, since a label
+   * with missing letters misreads. Omitted, or `grid.winnerMesh` absent
+   * (non-solid mode, or nothing requested the buffer): the mesh check never
+   * applies (the `occluded` check still does, independent of mesh identity).
+   */
+  readonly ownMeshIds?: ReadonlySet<number>;
+  /**
+   * Optional depth test at the anchor, forwarded VERBATIM to the eventual
+   * `stampGlyphOverlayCell` write (same "larger = nearer" convention as
+   * `CellGrid.depth`) — so a LATER overlay stamp at the same cell
+   * depth-tests against it. Deliberately NEVER read for the occlusion
+   * decision below (`ownMeshIds`/`winnerMesh`) — fix round 2, P1-b: this
+   * same overlay's own earlier, non-arbitered writes (a box/wall/grid edge,
+   * `stampGlyphOverlayLine`) carry an INTERPOLATED depth along their own
+   * run, which is a real but visually thin/incidental value that must never
+   * out-compete a label's write — a title always wins over such geometry.
+   */
+  readonly depth?: number;
+  /**
+   * Fix round 3 (`@glyphcss/charts`' 3D axis titles, "never over the
+   * surface"): a SEPARATE depth used ONLY for the occlusion decision below,
+   * never forwarded to the write — genuinely depth-tests a foreign
+   * `winnerMesh` cell (the label hides only when the winning mesh's own
+   * rasterized `CellGrid.depth` at that cell is nearer than
+   * `occlusionDepth`) rather than treating any foreign winner as an
+   * unconditional cover. Kept apart from `depth` specifically because `depth`
+   * also gates the WRITE (previous paragraph) against non-arbitered overlay
+   * geometry (box/wall/grid edges) that a title must always overwrite
+   * regardless of this occlusion test's own outcome — reusing one field for
+   * both let a grid-edge's own interpolated depth silently block the WRITE
+   * even when the occlusion check itself correctly found no real cover.
+   */
+  readonly occlusionDepth?: number;
+}
+
+export interface GlyphLabelArbiter {
+  place(candidate: GlyphLabelCandidate): void;
+}
+
+interface PlacedBox { col: number; row: number; width: number; }
+
+interface GlyphLabelArbiterInternal extends GlyphLabelArbiter {
+  resolve(grid: CellGrid): void;
+}
+
+/**
+ * Fold to printable ASCII — following the atlas rule (AGENTS.md's font
+ * atlas: every solid-mode glyph a scene emits must be in whatever atlas is
+ * active, or the whole scene falls back to span encoding for that frame; an
+ * overlay label folds unconditionally rather than risk being the one glyph
+ * that flips an atlas-encoding scene back to spans). NFD + strip combining
+ * marks first (so an accented letter degrades to its base letter, not `?`),
+ * then any remaining non-printable-ASCII code point becomes `?`.
+ */
+export function foldGlyphOverlayLabelToAscii(text: string): string {
+  const stripped = text.normalize("NFD").replace(/[̀-ͯ]/g, "");
+  let out = "";
+  for (const ch of stripped) {
+    const cp = ch.codePointAt(0)!;
+    out += cp >= 0x20 && cp <= 0x7e ? ch : "?";
+  }
+  return out;
+}
+
+function boxesOverlap(a: PlacedBox, b: PlacedBox): boolean {
+  return !(a.col + a.width <= b.col || a.col >= b.col + b.width || a.row !== b.row);
+}
+
+export function createGlyphLabelArbiter(): GlyphLabelArbiterInternal {
+  const candidates: GlyphLabelCandidate[] = [];
+  return {
+    place(candidate: GlyphLabelCandidate): void {
+      candidates.push(candidate);
+    },
+    resolve(grid: CellGrid): void {
+      // Tie-break on the candidate's own STABLE id (PLAN-3d.md §3.2: "greedy:
+      // priority first, then stable id"), never on registration/mount order
+      // — two objects composed in either mount order must resolve identically
+      // (P2-c, fix round 1).
+      const ordered = [...candidates]
+        .sort((a, b) => b.priority - a.priority || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+      const placed: PlacedBox[] = [];
+      const winnerMesh = grid.winnerMesh;
+      const occluded = grid.occluded;
+      for (const c of ordered) {
+        const text = foldGlyphOverlayLabelToAscii(c.text);
+        if (text.length === 0) continue;
+        if (c.col < 0 || c.row < 0 || c.row >= grid.rows || c.col >= grid.cols) continue;
+        // Occlusion: a label hides ENTIRELY if ANY of its own cells — not
+        // just the anchor — is covered by a foreign mesh or cross-layer
+        // `occluded`. A per-cell check here (what shipped first) painted
+        // whatever characters landed on clear cells and silently dropped the
+        // rest via `stampGlyphOverlayCell`'s own bounds/occlusion no-op,
+        // stamping a label with holes through the very mesh meant to hide it
+        // — a codex review finding: a foreign winner under a MIDDLE character
+        // (never the anchor) let the whole label print straight through.
+        // Dropped whole, like a collision, because a label with missing
+        // letters misreads (AGENTS.md's "Scene objects" Occlusion clause). A
+        // column past the grid's own width is not a foreign-mesh cover — it
+        // is the SAME off-grid crop `stampGlyphOverlayCell` already applies
+        // per cell — so it never counts here either.
+        let coveredByForeign = false;
+        for (let i = 0; i < text.length && c.col + i < grid.cols; i++) {
+          const idx = c.row * grid.cols + (c.col + i);
+          if (occluded && occluded[idx] === 1) { coveredByForeign = true; break; }
+          if (c.ownMeshIds && winnerMesh) {
+            const winner = winnerMesh[idx];
+            if (winner !== undefined && winner !== -1 && !c.ownMeshIds.has(winner)) {
+              // Fix round 3: with an explicit `occlusionDepth`, a foreign
+              // winner only covers this cell when its OWN rasterized depth
+              // is nearer than the candidate's — a genuine occlusion test,
+              // not "this cell's silhouette belongs to some other mesh."
+              // Without `occlusionDepth` (the pre-round-3 rule, and
+              // diagrams-3D's own choice), any foreign winner covers
+              // unconditionally.
+              const winnerDepth = c.occlusionDepth !== undefined ? grid.depth?.[idx] : undefined;
+              if (c.occlusionDepth === undefined || winnerDepth === undefined || !Number.isFinite(winnerDepth) || winnerDepth > c.occlusionDepth) {
+                coveredByForeign = true;
+                break;
+              }
+            }
+          }
+        }
+        if (coveredByForeign) continue;
+        const box: PlacedBox = { col: c.col, row: c.row, width: text.length };
+        if (placed.some((p) => boxesOverlap(box, p))) continue;
+        placed.push(box);
+        for (let i = 0; i < text.length; i++) {
+          stampGlyphOverlayCell(grid, {
+            col: c.col + i,
+            row: c.row,
+            char: text[i]!,
+            ...(c.color !== undefined ? { color: c.color } : {}),
+            ...(c.depth !== undefined ? { depth: c.depth } : {}),
+          });
+        }
+      }
+    },
+  };
+}

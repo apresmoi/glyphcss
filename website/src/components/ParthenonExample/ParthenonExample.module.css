@@ -1,0 +1,294 @@
+.root {
+  min-width: 0;
+  min-height: 0;
+}
+:local(.root) {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.map-shell) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.root :global(.map-head) {
+  padding: var(--gc-space-6) 32px var(--gc-space-3);
+  border-bottom: 1px solid rgba(var(--gc-success-rgb), 0.14);
+}
+.root :global(.map-head) h1 {
+  margin: 0;
+  font-size: 22px;
+  color: var(--gc-text);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.root :global(.map-head) p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--gc-text-muted);
+}
+/* Landscape phone (very short viewport) → fullscreen game view: hide the
+       site nav (.header), the examples sidebar, and the page header so the
+       matrix fills the whole screen. Rotate back to portrait for chrome + nav. */
+@media (max-height: 34rem) {
+  .root :global(.ex-sidebar) {
+    display: none;
+  }
+  .root :global(.map-head) {
+    display: none;
+  }
+}
+.root :global(.map-stage) {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+/* touch-action:none on the HOST — the .glyph-output <pre> is created by the
+       runtime and lacks the Astro scope class, so a rule on it never matches.
+       As an ancestor this makes the temple drag-to-orbit instead of scrolling
+       the page on touch. */
+.root :global(.temple-host) {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  background: radial-gradient(circle at 50% 62%, rgba(var(--gc-surface-rgb), 0.22), transparent 55%), var(--gc-surface);
+}
+.root :global(.temple-host) :global(.glyph-output) {
+  touch-action: none;
+  text-shadow: 0 0 7px rgba(var(--gc-success-rgb), 0.22);
+  cursor: grab;
+}
+.root :global(.temple-host) :global(.glyph-output):active {
+  cursor: grabbing;
+}
+.root :global(.temple-host):global(.is-fpv) :global(.glyph-output) {
+  cursor: crosshair;
+}
+/* Marble style: neutral warm-dark backdrop instead of the green matrix haze. */
+.root :global(.temple-host):global(.is-fpv) :global(.glyph-output):active {
+  cursor: crosshair;
+}
+
+/* ── Floating-right control dock — copied from /examples/flatmap so every
+       example page shares the same chrome language (amber-on-dark, sky-blue
+       accent), independent of each page's own render palette. ── */
+.root :global(.iso-ctl-toggle) {
+  display: none;
+}
+@media (max-width: 50rem), (max-height: 34rem) {
+  .root :global(.iso-ctl-toggle) {
+    display: block;
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 31;
+    min-height: 44px;
+    padding: 0 var(--gc-space-3);
+    background: rgba(var(--gc-surface-rgb), 0.94);
+    color: var(--gc-text);
+    border: none;
+    border-top: 1px solid var(--gc-rule);
+    font: 600 13px/1 var(--gc-font-ui);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+  }
+}
+.root :global(.iso-ctl) {
+  margin-bottom: 11px;
+}
+.root :global(.iso-ctl):last-child {
+  margin-bottom: 0;
+}
+/* Marble style renders the plain solid temple — hide the matrix-only rows. */
+/* Environment toggles only apply to marble (sky/clouds/ground/hills). */
+.root :global(.env-seg) {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.root :global(.iso-ctl-row) {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+.root :global(.iso-ctl-row) :global(.val) {
+  color: var(--gc-text);
+}
+.root :global(.iso-seg) {
+  display: flex;
+  gap: var(--gc-space-1);
+}
+.root :global(.iso-check) {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+  user-select: none;
+}
+.root :global(.iso-check) input {
+  accent-color: var(--gc-accent);
+  cursor: pointer;
+}
+/* Color swatch input — same treatment as the city-lab example's mono-color
+       control, scoped under the .iso-ctl namespace here. */
+.root :global(.iso-color) {
+  display: block;
+  width: 100%;
+  height: 26px;
+  box-sizing: border-box;
+  padding: 2px;
+  border: 1px solid var(--gc-rule);
+  border-radius: 0;
+  background: rgba(var(--gc-surface-rgb), 0.76);
+  cursor: pointer;
+}
+.root :global(.iso-color)::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+.root :global(.iso-color)::-webkit-color-swatch {
+  border: 0;
+}
+.root :global(.iso-color)::-moz-color-swatch {
+  border: 0;
+}
+
+/* ── Keyboard hints — a monospace chip next to controls that have a
+       shortcut (M toggles style, C toggles camera), plus a WASD/ESC legend
+       that only shows while walking in FPV. ── */
+.root :global(.iso-ctl-row) :global(.keys) {
+  display: flex;
+  gap: 3px;
+}
+.root kbd:global(.key) {
+  display: inline-block;
+  min-width: 12px;
+  padding: 1px var(--gc-space-1);
+  font: 600 9px/1.4 var(--gc-font-ui);
+  text-align: center;
+  color: rgba(var(--gc-text-rgb), 0.82);
+  background: rgba(var(--gc-text-rgb), 0.06);
+  border: 1px solid var(--gc-rule);
+  border-radius: 3px;
+  box-shadow: 0 1px 0 rgba(var(--gc-surface-rgb), 0.4);
+}
+/* The FPV legend row is hidden until the camera enters first-person. */
+.root :global(.fpv-hint) {
+  display: none;
+}
+.root :global(.fpv-hint) :global(.legend) {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gc-space-1) 6px;
+  align-items: center;
+}
+.root :global(.fpv-hint) :global(.legend) span {
+  display: flex;
+  align-items: center;
+  gap: var(--gc-space-1);
+  color: var(--gc-text-muted);
+}
+/* ESC's meaning flips with pointer-lock: "release" mouselook while locked,
+       "exit" back to orbit otherwise. One row, two labels, toggled by body class. */
+.root :global(.fpv-hint) :global(.esc-locked),
+.root :global(.fpv-hint) :global(.esc-unlocked) {
+  display: none;
+}
+
+/* ── Mobile game pad — a touch controller drawn ON-CANVAS: the joystick
+       and the action buttons are all their own tiny glyph scenes (finer
+       density than the temple). Touch-only, gated by the `is-touch` class that
+       setupGamePad() sets from JS (maxTouchPoints / coarse pointer / mobile UA)
+       — CSS media queries alone proved unreliable, since many phones report
+       `hover: hover`. The joystick only appears in FPV. ── */
+.root :global(.game-pad) {
+  display: none;
+}
+/* Kept laid-out (not display:none) so its glyph scene can measure a real
+       size; hidden by opacity outside FPV, and only interactive while walking. */
+.root :global(.game-joy) {
+  position: absolute;
+  left: 20px;
+  bottom: 64px;
+  width: 132px;
+  height: 132px;
+  pointer-events: none;
+  touch-action: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.root :global(.game-joy) :global(.glyph-output) {
+  text-shadow: 0 0 6px rgba(var(--gc-success-rgb), 0.3);
+  user-select: none;
+}
+.root :global(.game-btns) {
+  position: absolute;
+  right: 20px;
+  bottom: 74px;
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-4);
+  pointer-events: auto;
+}
+/* Each action button is a glyph object (a spinning themed cube) with the
+       key letter overlaid on top. */
+.root :global(.game-btn) {
+  position: relative;
+  width: 66px;
+  height: 66px;
+  padding: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  background: rgba(var(--gc-surface-rgb), 0.7);
+  backdrop-filter: blur(4px);
+  border: 1px solid var(--gc-text-faint);
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 2px 14px rgba(var(--gc-surface-rgb), 0.4);
+}
+.root :global(.game-btn):active {
+  border-color: var(--gc-accent);
+  box-shadow: 0 0 16px rgba(var(--gc-accent-rgb), 0.35);
+}
+.root :global(.game-btn) :global(.gb-scene) {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.root :global(.game-btn) :global(.gb-label) {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 2;
+  font: 700 15px/1 var(--gc-font-ui);
+  letter-spacing: 0.05em;
+  color: var(--gc-text);
+  text-shadow:
+    0 0 8px rgba(var(--gc-surface-rgb), 0.85),
+    0 1px 2px rgba(var(--gc-surface-rgb), 0.9);
+}
+.root #btn-c :global(.gb-label) {
+  font-size: 12px;
+}
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+@media (max-width: 50rem), (max-height: 34rem) {
+  .root :global(.map-head) {
+    display: none;
+  }
+}

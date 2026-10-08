@@ -27,7 +27,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 import { MapWalkButton } from "./MapWalkButton";
-import { mapWalkBudgetLabel, mapWalkReason } from "./mapsWalk";
+import { mapWalkBudgetLabel, mapWalkReason } from "../../features/maps/services/mapsWalk";
 
 let root: Root | null = null;
 let container: HTMLElement | null = null;

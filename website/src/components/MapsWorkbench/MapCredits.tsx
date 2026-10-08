@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 
-import { AttributionCredit } from "../AttributionCredit/AttributionCredit";
-import { mapCreditNoticeText, mapCreditSummary, type MapCreditSource } from "./mapsCredits";
+import { mapCreditNoticeText, mapCreditSummary, type MapCreditSource } from "../../features/maps/model/mapsCredits";
+import { AttributionCredit } from "../AttributionCredit";
 
 /**
  * The map's credit, as every map product ships it: ONE line naming the
@@ -52,7 +52,9 @@ export function MapCredits({ sources }: { readonly sources: readonly MapCreditSo
   // is the same cost the wall of rows was.
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(false);
+    };
     const onDown = (e: PointerEvent) => {
       const root = rootRef.current;
       if (root && e.target instanceof Node && !root.contains(e.target)) setOpen(false);
@@ -71,7 +73,10 @@ export function MapCredits({ sources }: { readonly sources: readonly MapCreditSo
   return (
     <div
       className={`maps-attribution${open ? " is-open" : ""}`}
-      ref={(el) => { rootRef.current = el; setHost(el); }}
+      ref={(el) => {
+        rootRef.current = el;
+        setHost(el);
+      }}
     >
       {open && (
         <div className="maps-attribution__detail" id={panelId}>
@@ -93,16 +98,12 @@ export function MapCredits({ sources }: { readonly sources: readonly MapCreditSo
         // The affordance is what makes the compression compliant on a
         // constrained display, so it says what it leads to in words a screen
         // reader gets whether or not the `+N` is on screen.
-        aria-label={open
-          ? "Hide data source credits"
-          : `Show data source credits (${summary.sources.length} sources)`}
+        aria-label={open ? "Hide data source credits" : `Show data source credits (${summary.sources.length} sources)`}
         title="Data sources and licences"
         onClick={() => setOpen((v) => !v)}
       >
         <span className="maps-attribution__notice">{mapCreditNoticeText(summary)}</span>
-        {summary.hiddenCount > 0 && (
-          <span className="maps-attribution__more">+{summary.hiddenCount}</span>
-        )}
+        {summary.hiddenCount > 0 && <span className="maps-attribution__more">+{summary.hiddenCount}</span>}
       </button>
     </div>
   );

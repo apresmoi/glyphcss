@@ -1,0 +1,20 @@
+%% Hand-authored EXAMPLE architecture (not telemetry from any running
+%% system) — an event-driven microservice topology: a producer publishes
+%% onto a shared queue, which fan-outs to two independent services; each
+%% service's own success check either completes its own outcome or falls
+%% through to a SHARED dead-letter queue. Added for the "more complex 2D
+%% diagram presets" round (user, verbatim: "I want to add more complex
+%% agentic architectures") to exercise a queue/fan-out/dead-letter shape
+%% none of the other presets reach.
+flowchart LR
+  producer([Producer]) --> queue[[Queue]]
+  subgraph services[Services]
+    orders(Order svc) --> ok1{OK?}
+    payments(Payment svc) --> ok2{OK?}
+  end
+  queue --> orders
+  queue --> payments
+  ok1 -->|yes| doneA[(Shipped)]
+  ok2 -->|yes| doneB[(Charged)]
+  ok1 -->|no| dlq[(Dead letter)]
+  ok2 -->|no| dlq

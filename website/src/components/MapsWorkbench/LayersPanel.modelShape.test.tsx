@@ -16,8 +16,10 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
   return { ...actual, calibrateGlyphRamp: () => ({ ramp: " .:-=+*#%@", steps: [] }) };
 });
 
-import { LayersPanel, MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE, type ExtraLayerInputs, type LayersFolderInputs } from "./mapsKit";
-import { MAP_MODEL_SHAPE_DEFAULT, MAP_MODEL_SHAPE_OPTIONS } from "./mapPin";
+import { LayersPanel } from "./LayersPanel/LayersPanel";
+import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { type ExtraLayerInputs, type LayersFolderInputs } from "./LayersPanel/types";
+import { MAP_MODEL_SHAPE_DEFAULT, MAP_MODEL_SHAPE_OPTIONS } from "../../features/maps/model/mapPin";
 
 /**
  * The Model card's SHAPE row — the mirror image of the point cards' DATASET

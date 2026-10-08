@@ -74,9 +74,9 @@ vi.mock("@glyphcss/effects", async (importOriginal) => {
 });
 
 import { createGlyphMap, GlyphMapClassifiers, type GlyphMapHandle, type GlyphMapProvider } from "@glyphcss/maps";
-import { buildMapProjection, MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "./mapsKit";
-import { MAPS_URL_DEFAULTS } from "./mapsUrlState";
-import { createGeoTilesProvider } from "../../lib/geoTilesProvider";
+import { buildMapProjection, MAP_PALETTES, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
+import { MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
+import { createGeoTilesProvider } from "../../features/maps/providers/geoTilesProvider";
 
 const PUBLIC_DATA_DIR = resolve(process.cwd(), "public/data");
 

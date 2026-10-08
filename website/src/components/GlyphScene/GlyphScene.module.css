@@ -1,0 +1,40 @@
+:local(.root) {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+:local(.root) :global(.glyph-demo) {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+:local(.root) :global(.glyph-demo__viewer) {
+  height: 100%;
+  min-height: 0;
+}
+:local(.root) :global(.glyph-demo__canvas) {
+  height: 100%;
+  min-height: 0;
+}
+:local(.root) :global(.glyph-scene) {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+:local(.root) :global(.glyph-scene) :global(.glyph-output) {
+  font-family: var(--gc-font-render);
+  font-size: clamp(7px, 1vw, 11px);
+  color: var(--gc-text);
+  touch-action: none;
+  overscroll-behavior: contain;
+  cursor: grab;
+  line-height: 1;
+}

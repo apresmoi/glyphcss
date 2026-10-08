@@ -1,0 +1,182 @@
+.root:global(.layer-group) {
+  border: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+}
+.root :global(.layer-group-head) {
+  /* No `width: 100%` — a block-level flex container (no float/inline-block
+     context) already stretches to fill `.layer-group`'s content width, same
+     as `.layer-group-body` right below (identical padding, no width rule,
+     no overflow); adding `width: 100%` on top of `padding` with the default
+     content-box sizing made this rule 18px WIDER than its parent (found
+     live, both on this rule and `.color-stack-head`'s identical mistake). */
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  background: var(--gc-surface);
+}
+.root :global(.layer-group-head):hover {
+  background: var(--gc-surface);
+}
+.root :global(.layer-group-toggle) {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: rgba(var(--gc-accent-rgb), 0.95);
+}
+.root :global(.layer-group-caret) {
+  font-size: 9px;
+  color: var(--gc-text-muted);
+  width: 8px;
+}
+.root :global(.layer-group-title) {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.root :global(.layer-group-count) {
+  color: var(--gc-text-faint);
+  font-size: var(--gc-text-xs);
+  font-variant-numeric: tabular-nums;
+}
+.root :global(.layer-group-body) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-2);
+  padding: 9px;
+  border-top: 1px solid var(--gc-rule);
+}
+.root :global(.layer-group-controls) {
+  display: grid;
+  grid-template-columns: max-content max-content max-content 1fr 34px;
+  align-items: center;
+  row-gap: 5px;
+  column-gap: 7px;
+}
+.root :global(.layer-group-row) {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+}
+.root :global(.layer-group-row) span:first-child {
+  color: rgba(var(--gc-text-rgb), 0.7);
+  letter-spacing: 0.02em;
+}
+.root :global(.layer-group-row2) {
+  display: contents;
+}
+.root :global(.layer-group-row2) :global(.layer-group-check--compact) {
+  display: contents;
+}
+.root :global(.layer-group-row2) :global(.layer-group-check--compact) span {
+  grid-column: 1;
+  justify-self: end;
+}
+.root :global(.layer-group-row2) :global(.layer-group-check--compact) input[type="checkbox"] {
+  grid-column: 2;
+}
+.root :global(.layer-group-row2) :global(.layer-group-mix) {
+  grid-column: 3 / 6;
+  grid-template-columns: subgrid;
+}
+.root :global(.layer-group-row2) :global(.layer-group-threshold-slider) {
+  grid-column: 4 / 6;
+  grid-template-columns: subgrid;
+}
+.root :global(.layer-group-threshold-slider--off) {
+  opacity: 0.35;
+}
+.root :global(.layer-group-threshold-slider--off) input[type="range"] {
+  cursor: not-allowed;
+}
+.root :global(.layer-group-check) {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: rgba(var(--gc-text-rgb), 0.7);
+  cursor: pointer;
+}
+.root :global(.layer-group-check--compact) {
+  flex: 0 0 auto;
+  gap: var(--gc-space-1);
+  white-space: nowrap;
+}
+.root :global(.layer-group-check) input[type="checkbox"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  position: relative;
+  flex-shrink: 0;
+}
+.root :global(.layer-group-check) input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gc-font-ui);
+  font-size: 10px;
+  color: var(--gc-text-muted);
+  pointer-events: none;
+  line-height: 1;
+}
+.root :global(.layer-group-check) input[type="checkbox"]:hover::before {
+  color: rgba(var(--gc-text-rgb), 0.75);
+}
+.root :global(.layer-group-check) input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: var(--gc-accent);
+}
+.root :global(.layer-group-check) input[type="checkbox"]:checked:hover::before {
+  color: var(--gc-accent);
+}
+.root :global(.layer-group-voices) {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.root:global(.layer-group) {
+  border: 0;
+  border-top: 1px solid var(--gc-rule);
+  background: transparent;
+}
+.root :global(.layer-group-body) {
+  border: 0;
+  padding: var(--gc-space-2) 0;
+}
+.root :global(.layer-group-head) {
+  padding-inline: 0;
+  background: transparent;
+}
+.root:global(.layer-group--sticky) {
+  border-top: 0;
+}
+.root:global(.layer-group--sticky) > :global(.layer-group-head) {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  min-height: var(--gc-control-height);
+  padding-block: var(--gc-space-1);
+  border-top: 1px solid var(--gc-rule);
+  background: var(--gc-surface);
+}
+.root:global(.layer-group--sticky) > :global(.layer-group-head) :global(.layer-group-toggle) {
+  min-height: var(--gc-control-height);
+}
