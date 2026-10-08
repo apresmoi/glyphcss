@@ -54,3 +54,4 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Website: `chartsMarkTypeFit.test.ts`, `chartsUrlState.test.ts`, `chartsWorkbenchTargetMatrix.test.tsx`, `TargetPreview/glyphMonoCmap.test.ts`.
 
 Run targeted tests while iterating; `pnpm test && pnpm build` before a PR.
+Vitest pins `Europe/Berlin` before workers start because the parent-build fixtures capture local-calendar time scales in that zone; preserve those fixtures and the renderer's local-time behavior.

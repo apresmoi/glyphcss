@@ -41,7 +41,8 @@ Astro + Starlight documentation and interactive workbenches. Not published. The 
 
 ## Verification
 
-- `pnpm --filter @glyphcss/website check` checks ownership, imports, runtime cycles, inline presentation, tokens, and formatting. `format` applies formatting; `test:architecture` verifies the enforcement rules with invalid fixtures. No violation baseline or wildcard exemptions.
-- Run focused behavior/style checks while changing owners, then the root-required `pnpm test && pnpm build`. Preserve every assertion; update imports and stylesheet ownership when code moves.
-- Verify desktop and mobile rendering, keyboard controls, long content, URL restoration, copy/download exports, docs search, and renderer cleanup in a browser. Settle on component readiness/rendered content rather than fixed sleeps.
-- Astro dev and production builds must not share active caches. Stop the owned dev process before the final standard build and restart it afterward; do not kill unrelated processes.
+- `pnpm --filter @glyphcss/website check` audits ownership, imports, runtime cycles, inline presentation, tokens, and formatting. `format` formats; `test:architecture` tests rules with invalid fixtures. No violation baselines or wildcard exemptions.
+- During owner changes, run focused behavior/style checks, then `pnpm test && pnpm build`. Preserve every assertion; update moved imports and stylesheet ownership.
+- Vitest limits workers to two to prevent readiness starvation and pins `Europe/Berlin` before forks for local-calendar snapshots. Runtime uses the caller's timezone.
+- Browser-check desktop/mobile renders, keyboard controls, long content, URL restoration, copy/download exports, docs search, and renderer cleanup. Await readiness/rendered content, never fixed sleeps.
+- Astro dev/build must not share active caches. Stop only owned dev before the final standard build; restart afterward.

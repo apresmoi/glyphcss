@@ -14,8 +14,10 @@
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import * as glyph from "glyphcss";
 import { createGlyphOrthographicCamera, createGlyphScene } from "glyphcss";
+import type { CompileSceneOptions, Polygon } from "glyphcss";
 import { glyphChartSurface } from "./surface";
 import { glyphChartObject, glyphChart3dResolvedCorner } from "./object";
 import { renderGlyphChart3d } from "./render";
@@ -46,7 +48,7 @@ function cornerWorldPoint(corner: Corner, ext: readonly [number, number, number]
 interface AxisMeasurement {
   /** The origin corner's own column position among the box's 8 vertices — `0` = the strict box-column minimum, `0.5` = the box's own column midpoint, `1` = the strict maximum. Never `1 - fraction`; this is the round-8 "how far toward the side" metric (`camera.ts`'s own doc). */
   readonly leftFraction: number;
-  /** One visible-fraction per axis (x, y, z), measured against the SURFACE mesh's own winnerMesh id — real render, real depth test, never a geometric estimate. */
+  /** One visible-fraction per axis (x, y, z), counting its depth-tested braille dots before annotation overlays. */
   readonly visibleFraction: readonly [number, number, number];
   readonly text: string;
   readonly leftMargin: number;
@@ -54,39 +56,58 @@ interface AxisMeasurement {
   readonly cols: number;
 }
 
-const SAMPLE_COUNT = 39;
+function brailleMask(char: string): number {
+  const code = char.charCodeAt(0);
+  return code >= 0x2800 && code <= 0x28ff ? code - 0x2800 : 0;
+}
+
+function bitCount(value: number): number {
+  let count = 0;
+  for (; value; value &= value - 1) count++;
+  return count;
+}
 
 /**
  * Renders `mark` at `GLYPH_CHART_3D_DEFAULT_CAMERA` (via `renderGlyphChart3d`,
- * so the SAME auto-fit a real caller gets), then mounts the SAME resolved
- * camera/object pair into a live scene to read `CellGrid.winnerMesh`/`depth`
- * — the only way to ask "is this exact world point actually the front-most
- * thing on screen" honestly.
+ * so the SAME auto-fit, plot width, decimation and thin axes a caller gets).
+ * A whole-cell surface winner cannot say whether a sub-cell axis stroke is
+ * hidden. Ask the real wireframe rasterizer instead, retaining every surface
+ * for its depth test but tracing one axis at a time so coincident terrain
+ * edges cannot pass for axis ink. Annotations have a separate contract: tick
+ * marks deliberately replace line cells, so they are not terrain occlusion.
  */
-async function measureAxisTriad(mark: ReturnType<typeof glyphChartSurface>): Promise<AxisMeasurement> {
+async function measureAxisTriad(mark: ReturnType<typeof glyphChartSurface>, occluders: Polygon[] = []): Promise<AxisMeasurement> {
   const cols = 96, rows = 32;
-  const result = renderGlyphChart3d(mark, { target: "web", charset: "braille", color: "none", width: cols, height: rows });
-  const object = glyphChartObject(mark, { charset: "braille" });
-  const camera = createGlyphOrthographicCamera({
-    rotX: result.resolved.camera.rotX, rotY: result.resolved.camera.rotY,
-    zoom: result.resolved.camera.zoom, center: [...result.resolved.camera.center] as [number, number],
+  let compileOptions: CompileSceneOptions | undefined;
+  const compileScene = glyph.compileScene;
+  const spy = vi.spyOn(glyph, "compileScene").mockImplementation((options) => {
+    compileOptions = options;
+    return compileScene(options);
   });
-  camera.target = [
-    (object.bounds.min[0] + object.bounds.max[0]) / 2,
-    (object.bounds.min[1] + object.bounds.max[1]) / 2,
-    (object.bounds.min[2] + object.bounds.max[2]) / 2,
-  ];
-
-  const host = document.createElement("div");
-  document.body.appendChild(host);
-  const scene = createGlyphScene(host, { cols, rows, useColors: false, camera });
-  const handle = scene.addObject(object);
-  const surfaceMeshId = handle.meshes.get("surface")!.id;
-  let winnerMesh: Int32Array | undefined;
-  scene.setOptions({ transformCells: (grid: any) => { winnerMesh = grid.winnerMesh; } });
-  await Promise.resolve();
-  await Promise.resolve();
-  scene.destroy();
+  const result = (() => {
+    try {
+      const rendered = renderGlyphChart3d(mark, { target: "web", charset: "braille", color: "none", width: cols, height: rows });
+      expect(spy).toHaveBeenCalledTimes(1);
+      return rendered;
+    } finally {
+      spy.mockRestore();
+    }
+  })();
+  expect(compileOptions).toMatchObject({ mode: "wireframe", charMode: "braille", hiddenLines: "hide" });
+  const options = compileOptions!;
+  const camera = options.camera!;
+  const grid = { cols: options.cols!, rows: options.rows!, cellAspect: options.cellAspect! };
+  const object = result.object;
+  const polygons = [...options.polygons, ...object.meshes.flatMap((mesh) => mesh.polygons), ...occluders];
+  const rasterOptions = { ...options, camera, grid, polygons };
+  const unannotated = compileScene({
+    ...options,
+    polygons: [...options.polygons, ...occluders],
+    objects: [{ ...object, overlays: [] }],
+  }).grid!;
+  // Keep this focused raster probe tied to the actual compile pipeline;
+  // future render-option or object-composition drift must fail here.
+  expect(glyph.rasterize(glyph.buildRasterizeContext(rasterOptions)).replace(/\n/g, "")).toBe(unannotated.char.join(""));
 
   const corner = glyphChart3dResolvedCorner(mark);
   const ext = object.bounds.max;
@@ -94,29 +115,43 @@ async function measureAxisTriad(mark: ReturnType<typeof glyphChartSurface>): Pro
 
   let minCol = Infinity, maxCol = -Infinity, originCol = 0;
   for (const x of [0, ext[0]!]) for (const y of [0, ext[1]!]) for (const z of [0, ext[2]!]) {
-    const [col] = camera.project([x, y, z], cols, rows, 1 / 0.5859375);
+    const [col] = camera.project([x, y, z], grid.cols, grid.rows, grid.cellAspect);
     minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col);
     if (x === 0 && y === 0 && z === 0) originCol = col;
   }
   const leftFraction = maxCol > minCol ? (originCol - minCol) / (maxCol - minCol) : 0.5;
 
+  const axisMesh = object.meshes.find((mesh) => mesh.name === "axis-lines")!;
+  expect(axisMesh.polygons).toHaveLength(3);
   const visibleFraction = ([0, 1, 2] as const).map((axis) => {
     const toPoint = cornerWorldPoint(flipBit(corner, axis), ext);
-    let visible = 0, total = 0;
-    for (let i = 1; i < SAMPLE_COUNT; i++) {
-      const t = i / SAMPLE_COUNT;
-      const p: [number, number, number] = [
-        cornerPoint[0] + (toPoint[0] - cornerPoint[0]) * t,
-        cornerPoint[1] + (toPoint[1] - cornerPoint[1]) * t,
-        cornerPoint[2] + (toPoint[2] - cornerPoint[2]) * t,
-      ];
-      const [col, row] = camera.project(p, cols, rows, 1 / 0.5859375);
-      const c = Math.round(col), r = Math.round(row);
-      total++;
-      if (c < 0 || c >= cols || r < 0 || r >= rows) continue;
-      if (winnerMesh?.[r * cols + c] === surfaceMeshId) continue; // occluded by the surface
-      visible++;
+    const polygon = axisMesh.polygons[axis]!;
+    expect(polygon.vertices).toEqual([cornerPoint, toPoint, toPoint, cornerPoint]);
+    // Clipped reference strokes would shrink the denominator and disguise
+    // missing axis length; the complete segment must fit before counting.
+    for (const point of [cornerPoint, toPoint]) {
+      const [col, row] = camera.project(point, grid.cols, grid.rows, grid.cellAspect);
+      expect(col).toBeGreaterThanOrEqual(0);
+      expect(col).toBeLessThan(grid.cols - 1);
+      expect(row).toBeGreaterThanOrEqual(0);
+      expect(row).toBeLessThan(grid.rows - 1);
     }
+    const reference = compileScene({
+      ...options,
+      polygons: [],
+      objects: [{ ...object, meshes: [{ ...axisMesh, polygons: [polygon] }], overlays: [] }],
+    }).grid!;
+    const axisOnly = glyph.buildRasterizeContext({ ...rasterOptions, polygons: [polygon] });
+    expect(glyph.rasterize(axisOnly).replace(/\n/g, "")).toBe(reference.char.join(""));
+    const wireframe = axisOnly.wireframe;
+    const visibleChars = glyph.rasterize(glyph.buildRasterizeContext({ ...rasterOptions, wireframe })).replace(/\n/g, "");
+    let visible = 0, total = 0;
+    for (let i = 0; i < reference.char.length; i++) {
+      const mask = brailleMask(reference.char[i]!);
+      total += bitCount(mask);
+      visible += bitCount(mask & brailleMask(visibleChars[i]!));
+    }
+    expect(total, "sanity: the unoccluded axis must render dots").toBeGreaterThan(0);
     return visible / total;
   }) as [number, number, number];
 
@@ -144,6 +179,14 @@ describe("C2 fix round 7/8 — axis triad from one origin corner", () => {
       const mark = buildMark(fixture);
       expect(glyphChart3dResolvedCorner(mark)).toEqual([0, 0, 0]);
     }
+  });
+
+  it("the visibility probe detects real foreground occlusion of all three axes", async () => {
+    // Foreground faces hide the unchanged chart's axes; the cube's edges
+    // stay away from the reference strokes so they cannot count as axis ink.
+    const foreground = glyph.cubePolygons({ size: 10, center: [0, 0, 0] });
+    const { visibleFraction } = await measureAxisTriad(buildMark(FIXTURES[1]), foreground);
+    for (const fraction of visibleFraction) expect(fraction).toBe(0);
   });
 
   for (const fixture of FIXTURES) {
