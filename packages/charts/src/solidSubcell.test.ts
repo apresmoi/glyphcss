@@ -170,32 +170,36 @@ describe("A: sankey and funnel follow regionFill", () => {
     expect(texture.some((c) => c.ch === "▓")).toBe(true);
   });
 
-  it("solid claims exactly the texture paint's cells: same footprint, same ledger (borders, breaks, folds), same route conflicts", () => {
+  const sizes: readonly [number, number][] = [[40, 20], [72, 24], [96, 32], [140, 40]];
+  const outline = { marks: [{ ...energySankey.marks[0]!, options: { ribbon: "outline" as const } }] };
+  const footprintCases = [
+    { name: "energySankey", spec: energySankey },
+    { name: "fan", spec: fan },
+    { name: "funnel", spec: funnel },
+    { name: "outline", spec: outline },
+  ].flatMap(({ name, spec }) => CHARSETS.flatMap((charset) => sizes.map(([w, h]) => ({ name, spec, charset, w, h }))));
+
+  // Independent comparisons need independent time budgets on the shared CI runner.
+  it.each(footprintCases)("solid claims exactly the texture paint's cells: same footprint, same ledger (borders, breaks, folds), same route conflicts [$name/$charset/$w x $h]", ({ spec, charset, w, h }) => {
     // Mutation: skip a solid ribbon cell the texture paint writes (e.g. `if (solid && !isBorderCol && mask === 0xff) continue`) -> red.
-    const sizes: readonly [number, number][] = [[40, 20], [72, 24], [96, 32], [140, 40]];
-    const outline = { marks: [{ ...energySankey.marks[0]!, options: { ribbon: "outline" as const } }] };
-    for (const spec of [energySankey, fan, funnel, outline]) {
-      const valid = validateGlyphChartSpec(normalizeGlyphChartInput(spec));
-      const marks = resolveGlyphChartSpec(valid);
-      const scales = resolveGlyphChartScales(marks, valid.scales);
-      for (const charset of CHARSETS) for (const [w, h] of sizes) {
-        const layout = layoutGlyphChart(valid, marks, scales, w, h, "auto", [], charset, resolveGlyphChartLegendOption(valid.legend, undefined), 1);
-        const paint = (regionFill: "solid" | "texture") => {
-          const canvas = createGlyphCanvas({ cols: w, rows: h, tier: charset });
-          const ledger: GlyphChartLedgerEntry[] = [];
-          paintGlyphChart(canvas, valid, marks, scales, layout, { colorEnabled: true, regionFill }, ledger);
-          const footprint = canvas.grid.char.flatMap((c, i) => (c !== " " && c !== "⠀" ? [i] : []));
-          return { footprint, ledger, conflicts: canvas.report.routeConflicts, colors: canvas.grid.color };
-        };
-        const t = paint("texture"), s = paint("solid");
-        const key = `${spec === outline ? "outline" : spec.marks[0]!.type}:${charset}:${w}x${h}`;
-        expect(s.footprint, key).toEqual(t.footprint);
-        expect(s.ledger, key).toEqual(t.ledger);
-        expect(s.conflicts, key).toEqual(t.conflicts);
-        // Every painted cell keeps its owner: a band's colour never moves to another band's cell.
-        expect(s.colors, key).toEqual(t.colors);
-      }
-    }
+    const valid = validateGlyphChartSpec(normalizeGlyphChartInput(spec));
+    const marks = resolveGlyphChartSpec(valid);
+    const scales = resolveGlyphChartScales(marks, valid.scales);
+    const layout = layoutGlyphChart(valid, marks, scales, w, h, "auto", [], charset, resolveGlyphChartLegendOption(valid.legend, undefined), 1);
+    const paint = (regionFill: "solid" | "texture") => {
+      const canvas = createGlyphCanvas({ cols: w, rows: h, tier: charset });
+      const ledger: GlyphChartLedgerEntry[] = [];
+      paintGlyphChart(canvas, valid, marks, scales, layout, { colorEnabled: true, regionFill }, ledger);
+      const footprint = canvas.grid.char.flatMap((c, i) => (c !== " " && c !== "⠀" ? [i] : []));
+      return { footprint, ledger, conflicts: canvas.report.routeConflicts, colors: canvas.grid.color };
+    };
+    const t = paint("texture"), s = paint("solid");
+    const key = `${spec === outline ? "outline" : spec.marks[0]!.type}:${charset}:${w}x${h}`;
+    expect(s.footprint, key).toEqual(t.footprint);
+    expect(s.ledger, key).toEqual(t.ledger);
+    expect(s.conflicts, key).toEqual(t.conflicts);
+    // Every painted cell keeps its owner: a band's colour never moves to another band's cell.
+    expect(s.colors, key).toEqual(t.colors);
   });
 
   it("solid ribbons carry their source's own colour; the swatches are `█`", () => {
