@@ -23,6 +23,7 @@ import {
   GLYPH_DIAGRAMS_TRAY,
   GLYPH_LANES_WORKBENCH_PRESETS,
   GLYPH_SEQUENCE_WORKBENCH_PRESETS,
+  type GlyphDiagramsWorkbenchControls,
   reduceGlyphDiagramsWorkbenchState,
   resolveGlyphDiagramsWorkbenchControls,
 } from "../../../features/diagrams/model/diagramsWorkbenchState";
@@ -51,6 +52,50 @@ import { useViewportPan } from "../../../hooks/useViewportPan";
 import { flashButtonState } from "../controllerHelpers";
 import { type DiagramsSourceEditorHandle } from "../DiagramsSourceEditor";
 import { type MobilePanel } from "../types";
+
+type GlyphDiagramsTrayThumbnails = Readonly<Record<string, string>>;
+// Tray previews depend only on the target, yet the large presets each cost
+// hundreds of milliseconds of layout search at 60 x 24. Rendering them on
+// every mount blocked the main thread for seconds on slow machines.
+const trayThumbnailCache = new Map<GlyphDiagramsWorkbenchControls["target"], Promise<GlyphDiagramsTrayThumbnails>>();
+export function glyphDiagramsTrayThumbnails(
+  target: GlyphDiagramsWorkbenchControls["target"],
+): Promise<GlyphDiagramsTrayThumbnails> {
+  let thumbnails = trayThumbnailCache.get(target);
+  if (!thumbnails) {
+    thumbnails = renderGlyphDiagramsTrayThumbnails(target);
+    trayThumbnailCache.set(target, thumbnails);
+  }
+  return thumbnails;
+}
+function renderGlyphDiagramsTrayThumbnails(
+  target: GlyphDiagramsWorkbenchControls["target"],
+): Promise<GlyphDiagramsTrayThumbnails> {
+  return Promise.all(
+    GLYPH_DIAGRAMS_TRAY.map(async (entry) => {
+      const key = `${entry.kind}:${entry.preset.id}`;
+      try {
+        if (entry.kind === "sequence") {
+          return [
+            key,
+            (await renderGlyphSequence(entry.preset.source, { target, width: 60, height: 24 })).text,
+          ] as const;
+        }
+        if (entry.kind === "lanes") {
+          const dag =
+            entry.preset.sourceKind === "gitlog"
+              ? glyphLaneDagFromGitLog(entry.preset.source)
+              : validateGlyphLaneDag(JSON.parse(entry.preset.source));
+          return [key, (await renderGlyphLaneDag(dag, { target, width: 60, height: 24 })).text] as const;
+        }
+        const preset = entry.preset;
+        return [key, (await renderGlyphDiagram(preset.source, { target, width: 60, height: 24 })).text] as const;
+      } catch {
+        return [key, "Preview unavailable"] as const;
+      }
+    }),
+  ).then((pairs) => Object.fromEntries(pairs));
+}
 
 export function useDiagramsWorkbenchInner({
   initialState,
@@ -389,38 +434,8 @@ export function useDiagramsWorkbenchInner({
     // only be reached by finding the Dock's Form toggle FIRST — which is
     // exactly the "there is no preset of sequence" report. Picking a tile is
     // what switches the form (`apply-sequence-preset` sets `form`).
-    void Promise.all(
-      GLYPH_DIAGRAMS_TRAY.map(async (entry) => {
-        const key = `${entry.kind}:${entry.preset.id}`;
-        try {
-          if (entry.kind === "sequence") {
-            return [
-              key,
-              (await renderGlyphSequence(entry.preset.source, { target: state.controls.target, width: 60, height: 24 }))
-                .text,
-            ] as const;
-          }
-          if (entry.kind === "lanes") {
-            const dag =
-              entry.preset.sourceKind === "gitlog"
-                ? glyphLaneDagFromGitLog(entry.preset.source)
-                : validateGlyphLaneDag(JSON.parse(entry.preset.source));
-            return [
-              key,
-              (await renderGlyphLaneDag(dag, { target: state.controls.target, width: 60, height: 24 })).text,
-            ] as const;
-          }
-          const preset = entry.preset;
-          return [
-            key,
-            (await renderGlyphDiagram(preset.source, { target: state.controls.target, width: 60, height: 24 })).text,
-          ] as const;
-        } catch {
-          return [key, "Preview unavailable"] as const;
-        }
-      }),
-    ).then((pairs) => {
-      if (current) setThumbnails(Object.fromEntries(pairs));
+    void glyphDiagramsTrayThumbnails(state.controls.target).then((thumbnails) => {
+      if (current) setThumbnails(thumbnails);
     });
     return () => {
       current = false;
