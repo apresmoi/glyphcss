@@ -396,11 +396,11 @@ describe("B: sub-cell boundaries between solid bands", () => {
     expect(checked).toBeGreaterThan(100);
   });
 
-  it("only straddling cells change: every solid cell outside a boundary is the whole-cell paint's own cell (box/ascii untouched)", () => {
+  it.each([[60, 24], [96, 32]] as const)("only straddling cells change: every solid cell outside a boundary is the whole-cell paint's own cell (box/ascii untouched) [%i x %i]", (w, h) => {
     // Mutation: always write a `bg` (the upper neighbour's colour) on a whole cell -> red.
     const specs = [...goodSpecs, energyArea, stackedBar].filter((s) => s.marks.every((m) => m.type !== "cell" && m.type !== "sankey" && m.type !== "funnel"));
     let changed = 0;
-    for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) for (const [w, h] of [[60, 24], [96, 32]] as const) {
+    for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) {
       // `regionFill: "auto"` explicit — this test wants the specs auto still resolves solid for; the library's own default is "texture".
       const opts: GlyphChartRenderOptions = { width: w, height: h, charset, color: "css", regionFill: "auto" };
       if (glyphChartRegionFill(spec, opts).fill !== "solid") continue;

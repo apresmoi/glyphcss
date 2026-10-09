@@ -156,10 +156,10 @@ describe("skip-level bands: corridor-aware node order", () => {
     expect(lostCells(energy, "braille", (source) => source === "Electricity Generation")).toBe(0);
   });
 
-  it("a graph with no skip-level link lays out byte-identically to 149e7dfa (fixtures/sankeyOrderParentFixtures.json)", () => {
+  it.each(["box", "braille"] as const)("a graph with no skip-level link lays out byte-identically to 149e7dfa (fixtures/sankeyOrderParentFixtures.json) [%s]", (charset) => {
     // Mutation: re-place every node by its barycentre, not only a skip-level target -> red.
     const parent: Record<string, string> = JSON.parse(readFileSync(fixturePath("fixtures/sankeyOrderParentFixtures.json"), "utf8"));
-    for (let seed = 0; seed < 40; seed++) for (const charset of ["box", "braille"] as const) {
+    for (let seed = 0; seed < 40; seed++) {
       const html = renderGlyphChart(randomBipartite(seed), { target: "web", width: 96, height: 32, charset, color: "css", regionFill: "texture" }).html!;
       expect(hash(html), `bipartite ${seed} ${charset}`).toBe(parent[`bipartite:${seed}:${charset}`]);
     }
