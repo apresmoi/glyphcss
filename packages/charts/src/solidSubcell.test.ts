@@ -170,32 +170,36 @@ describe("A: sankey and funnel follow regionFill", () => {
     expect(texture.some((c) => c.ch === "▓")).toBe(true);
   });
 
-  it("solid claims exactly the texture paint's cells: same footprint, same ledger (borders, breaks, folds), same route conflicts", () => {
+  const sizes: readonly [number, number][] = [[40, 20], [72, 24], [96, 32], [140, 40]];
+  const outline = { marks: [{ ...energySankey.marks[0]!, options: { ribbon: "outline" as const } }] };
+  const footprintCases = [
+    { name: "energySankey", spec: energySankey },
+    { name: "fan", spec: fan },
+    { name: "funnel", spec: funnel },
+    { name: "outline", spec: outline },
+  ].flatMap(({ name, spec }) => CHARSETS.flatMap((charset) => sizes.map(([w, h]) => ({ name, spec, charset, w, h }))));
+
+  // Independent comparisons need independent time budgets on the shared CI runner.
+  it.each(footprintCases)("solid claims exactly the texture paint's cells: same footprint, same ledger (borders, breaks, folds), same route conflicts [$name/$charset/$w x $h]", ({ spec, charset, w, h }) => {
     // Mutation: skip a solid ribbon cell the texture paint writes (e.g. `if (solid && !isBorderCol && mask === 0xff) continue`) -> red.
-    const sizes: readonly [number, number][] = [[40, 20], [72, 24], [96, 32], [140, 40]];
-    const outline = { marks: [{ ...energySankey.marks[0]!, options: { ribbon: "outline" as const } }] };
-    for (const spec of [energySankey, fan, funnel, outline]) {
-      const valid = validateGlyphChartSpec(normalizeGlyphChartInput(spec));
-      const marks = resolveGlyphChartSpec(valid);
-      const scales = resolveGlyphChartScales(marks, valid.scales);
-      for (const charset of CHARSETS) for (const [w, h] of sizes) {
-        const layout = layoutGlyphChart(valid, marks, scales, w, h, "auto", [], charset, resolveGlyphChartLegendOption(valid.legend, undefined), 1);
-        const paint = (regionFill: "solid" | "texture") => {
-          const canvas = createGlyphCanvas({ cols: w, rows: h, tier: charset });
-          const ledger: GlyphChartLedgerEntry[] = [];
-          paintGlyphChart(canvas, valid, marks, scales, layout, { colorEnabled: true, regionFill }, ledger);
-          const footprint = canvas.grid.char.flatMap((c, i) => (c !== " " && c !== "⠀" ? [i] : []));
-          return { footprint, ledger, conflicts: canvas.report.routeConflicts, colors: canvas.grid.color };
-        };
-        const t = paint("texture"), s = paint("solid");
-        const key = `${spec === outline ? "outline" : spec.marks[0]!.type}:${charset}:${w}x${h}`;
-        expect(s.footprint, key).toEqual(t.footprint);
-        expect(s.ledger, key).toEqual(t.ledger);
-        expect(s.conflicts, key).toEqual(t.conflicts);
-        // Every painted cell keeps its owner: a band's colour never moves to another band's cell.
-        expect(s.colors, key).toEqual(t.colors);
-      }
-    }
+    const valid = validateGlyphChartSpec(normalizeGlyphChartInput(spec));
+    const marks = resolveGlyphChartSpec(valid);
+    const scales = resolveGlyphChartScales(marks, valid.scales);
+    const layout = layoutGlyphChart(valid, marks, scales, w, h, "auto", [], charset, resolveGlyphChartLegendOption(valid.legend, undefined), 1);
+    const paint = (regionFill: "solid" | "texture") => {
+      const canvas = createGlyphCanvas({ cols: w, rows: h, tier: charset });
+      const ledger: GlyphChartLedgerEntry[] = [];
+      paintGlyphChart(canvas, valid, marks, scales, layout, { colorEnabled: true, regionFill }, ledger);
+      const footprint = canvas.grid.char.flatMap((c, i) => (c !== " " && c !== "⠀" ? [i] : []));
+      return { footprint, ledger, conflicts: canvas.report.routeConflicts, colors: canvas.grid.color };
+    };
+    const t = paint("texture"), s = paint("solid");
+    const key = `${spec === outline ? "outline" : spec.marks[0]!.type}:${charset}:${w}x${h}`;
+    expect(s.footprint, key).toEqual(t.footprint);
+    expect(s.ledger, key).toEqual(t.ledger);
+    expect(s.conflicts, key).toEqual(t.conflicts);
+    // Every painted cell keeps its owner: a band's colour never moves to another band's cell.
+    expect(s.colors, key).toEqual(t.colors);
   });
 
   it("solid ribbons carry their source's own colour; the swatches are `█`", () => {
@@ -392,11 +396,11 @@ describe("B: sub-cell boundaries between solid bands", () => {
     expect(checked).toBeGreaterThan(100);
   });
 
-  it("only straddling cells change: every solid cell outside a boundary is the whole-cell paint's own cell (box/ascii untouched)", () => {
+  it.each([[60, 24], [96, 32]] as const)("only straddling cells change: every solid cell outside a boundary is the whole-cell paint's own cell (box/ascii untouched) [%i x %i]", (w, h) => {
     // Mutation: always write a `bg` (the upper neighbour's colour) on a whole cell -> red.
     const specs = [...goodSpecs, energyArea, stackedBar].filter((s) => s.marks.every((m) => m.type !== "cell" && m.type !== "sankey" && m.type !== "funnel"));
     let changed = 0;
-    for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) for (const [w, h] of [[60, 24], [96, 32]] as const) {
+    for (const spec of specs) for (const charset of ["box", "blocks", "braille"] as const) {
       // `regionFill: "auto"` explicit — this test wants the specs auto still resolves solid for; the library's own default is "texture".
       const opts: GlyphChartRenderOptions = { width: w, height: h, charset, color: "css", regionFill: "auto" };
       if (glyphChartRegionFill(spec, opts).fill !== "solid") continue;
