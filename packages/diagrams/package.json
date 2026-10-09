@@ -1,6 +1,6 @@
 {
   "name": "@glyphcss/diagrams",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Mermaid flowcharts and graph data rendered as glyphcss cell diagrams for chat, terminal and web.",
   "type": "module",
   "main": "dist/index.cjs",
