@@ -24,7 +24,12 @@ npm install @glyphcss/vue
 
 # Reusable surface/scene effects (optional)
 npm install @glyphcss/effects
+
+# Text charts and diagrams
+npm install @glyphcss/charts @glyphcss/diagrams
 ```
+
+For charts and diagrams directly in agent chats, install the [Glyphcss skills](https://github.com/apresmoi/glyphcss-diagrams#install) for Claude Code, Codex, and other agents.
 
 You can also load glyphcss directly from a CDN. Here is a minimal custom-element scene:
 
@@ -369,6 +374,8 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
 | `@glyphcss/effects` | `@glyphcss/effects` | Reusable spatial effect definitions; framework-agnostic and clock-free. |
 | `@glyphcss/fonts` | `@glyphcss/fonts` | Font/text to extruded polygon-mesh generation. |
 | `@glyphcss/compile` | `@glyphcss/compile` | Static compiler, CLI, Vite plugin, and Node API. |
+| [`@glyphcss/charts`](packages/charts) | `@glyphcss/charts` | Declarative charts rendered as ASCII, box characters, or braille. |
+| [`@glyphcss/diagrams`](packages/diagrams) | `@glyphcss/diagrams` | Mermaid and graph diagrams, sequences, and branching histories rendered as text. |
 | `@glyphcss/maps` | `@glyphcss/maps` | Geographic data → glyphcss: projections, elevation tiles, a relief mesh, and the interactive `createGlyphMap` widget with a MapLibre-shaped layer vocabulary. |
 
 ## License
