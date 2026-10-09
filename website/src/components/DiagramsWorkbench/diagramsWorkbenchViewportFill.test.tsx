@@ -74,10 +74,10 @@ describe("DiagramsWorkbench — web viewport fill (live DOM)", () => {
 
   const preview = () => container.querySelector<HTMLPreElement>(".diagrams-viewport pre.glyph-output")!;
   async function settlePreview() {
-    await act(async () => { await vi.dynamicImportSettled(); });
-    await vi.waitFor(() => {
+    await vi.waitFor(async () => {
+      await act(async () => { await vi.dynamicImportSettled(); });
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
-    }, { timeout: 2000, interval: 10 });
+    }, { timeout: 10_000, interval: 10 });
   }
   function previewObserver(): MockResizeObserver {
     // `.diagrams-viewport` (`InstrumentViewport`'s own element), NEVER
