@@ -16,7 +16,8 @@ concurrency:
 jobs:
   test-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Leave room for the full suite and final build checks on slower shared runners.
+    timeout-minutes: 20
     steps:
       - name: Check out
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
