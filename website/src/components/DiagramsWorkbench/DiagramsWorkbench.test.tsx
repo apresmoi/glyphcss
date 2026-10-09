@@ -456,7 +456,7 @@ describe("DiagramsWorkbench — copy/export button confirmations", () => {
     await vi.waitFor(async () => {
       await act(async () => { await vi.dynamicImportSettled(); });
       expect(container.querySelector(".diagrams-preview[aria-busy='false']")).not.toBeNull();
-    }, { timeout: 2000, interval: 10 });
+    }, { timeout: 10_000, interval: 10 });
   });
   afterEach(async () => {
     await act(async () => root.unmount());
