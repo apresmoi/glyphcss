@@ -109,6 +109,9 @@ function fillRegionShade(canvas: GlyphCanvas, x0: number, y0: number, x1: number
   for (let y = y0; y <= y1; y++) canvas.text(x0, y, [run], { color });
 }
 
+const FULL_BLOCK = "█";
+const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
+
 /**
  * A bar's cell span is `(baseline, value]` — NOT `[0, value]` clamped to
  * "above" — so a negative value (mixed-sign honesty gate) draws BELOW the
@@ -122,6 +125,12 @@ function fillRegionShade(canvas: GlyphCanvas, x0: number, y0: number, x1: number
  * B2, `DIAGNOSIS-solid-colour-fills.md`): its `seriesShade` texture, keyed
  * on the SAME cross-mark `styleIndex` that picks its colour, or a solid
  * block when this render's colour already tells the series apart.
+ *
+ * A positive, unstacked `█` bar measures its height in eighths of a row and
+ * caps its top with the matching lower eighth block (`▁`-`▇`), so values a
+ * whole-cell bar rounds onto the same row stay distinguishable. The shades
+ * (`░▒▓`), `ascii`'s `#`, negative bars (no lower-anchored glyph hangs from
+ * a cell's top) and stack segments keep whole cells.
  */
 function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
@@ -133,7 +142,8 @@ function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
     const bottomValue = stacked ? (row.y0 ?? 0) : 0;
     const rowTop = scaleToRow(scales.y, layout.plot, topValue);
     const rowBottom = stacked ? scaleToRow(scales.y, layout.plot, bottomValue) : baselineRow;
-    if (rowTop === rowBottom) continue;
+    const eighths = !stacked && glyph === FULL_BLOCK && topValue > 0 ? Math.round((baselineRow - scaleToRowExact(scales.y, layout.plot, topValue)) * 8) : undefined;
+    if (eighths === undefined ? rowTop === rowBottom : eighths <= 0) continue;
     const top = Math.max(layout.plot.y0, Math.min(rowTop, rowBottom) + (rowTop > rowBottom ? 1 : 0));
     // Cell boundaries are half-open: coincident endpoints paint nothing.
     const bottom = Math.min(layout.plot.y1, Math.max(rowTop, rowBottom) - (rowTop < rowBottom ? 1 : 0));
@@ -151,7 +161,14 @@ function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
     let [x0, x1] = range;
     x0 = Math.max(layout.plot.x0, x0);
     x1 = Math.min(layout.plot.x1, x1);
-    if (x0 > x1 || top > bottom) continue;
+    if (x0 > x1) continue;
+    if (eighths !== undefined) {
+      const fullTop = baselineRow - Math.floor(eighths / 8);
+      fillRegionShade(canvas, x0, Math.max(layout.plot.y0, fullTop), x1, bottom, glyph, color);
+      if (eighths % 8 > 0 && fullTop - 1 >= layout.plot.y0) fillRegionShade(canvas, x0, fullTop - 1, x1, fullTop - 1, LOWER_EIGHTHS[(eighths % 8) - 1]!, color);
+      continue;
+    }
+    if (top > bottom) continue;
     fillRegionShade(canvas, x0, top, x1, bottom, glyph, color);
   }
 }

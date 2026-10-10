@@ -415,7 +415,8 @@ describe("B: sub-cell boundaries between solid bands", () => {
         changed++;
         const key = `${spec.title ?? spec.marks[0]!.type}:${charset}:${w}x${h} (${x},${y}) ${a.ch}->${b.ch}`;
         expect(charset, key).not.toBe("box");
-        expect(b.bg !== null || (QUADRANTS.has(b.ch) && b.ch !== "█") || (QUADRANTS.has(a.ch) && a.ch !== "█"), key).toBe(true);
+        // A texture bar's eighth-block top is a partial cell too (reviewFixtures exception 11).
+        expect(b.bg !== null || (QUADRANTS.has(b.ch) && b.ch !== "█") || (QUADRANTS.has(a.ch) && a.ch !== "█") || "▁▂▃▅▆▇".includes(a.ch), key).toBe(true);
       }
     }
     expect(changed).toBeGreaterThan(100);

@@ -86,8 +86,18 @@
  *    keys must DIFFER. No older fixture file changed, since every one of them
  *    renders `color: "none"`.
  *
- * A NEW divergence found outside these ten is a real regression, not an
- * eleventh exception to wave through — add it here, with its own dedicated
+ * 11. (`paint.ts`'s `paintBar`, `eighthBars.test.ts`) A positive,
+ *    unstacked `█` bar measures its height in eighths of a row and caps its
+ *    top with the matching lower eighth block (`▁`-`▇`) instead of rounding
+ *    to whole cells. Shaded series, `ascii`, negative bars and stack segments
+ *    are unchanged. Affects the bar entries whose heights are not whole rows
+ *    (`goodSpecs[15]`, `[30]`-`[32]`) on `box`/`blocks`/`braille` ONLY; those
+ *    keys were re-derived from the current build in every fixture file, each
+ *    differing cell checked to be an eighth block where the parent had `█` or
+ *    a blank. Every other key is untouched.
+ *
+ * A NEW divergence found outside these eleven is a real regression, not a
+ * twelfth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";

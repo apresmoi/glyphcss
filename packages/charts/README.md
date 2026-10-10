@@ -82,7 +82,7 @@ renderGlyphChart(glyphChartArea([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
 
 ### `glyphChartBar`
 
-Bar cell heights are proportional to values within one cell, measured from the axis LINE — which sits on the y=0 row itself (an interior row for a mixed-sign domain, the plot's own bottom row otherwise), so a bar always touches it, never floating a row above a separately-drawn line. Zero paints nothing; both signs exclude the baseline. Bar, rect and area inferred y-domains include zero; an explicit domain excluding zero rejects with `bar-domain-excludes-zero`. Stacked bars/areas paint the transform’s `y0`→`y1` bounds.
+Bar heights are proportional to values, measured from the axis LINE — which sits on the y=0 row itself (an interior row for a mixed-sign domain, the plot's own bottom row otherwise), so a bar always touches it, never floating a row above a separately-drawn line. Zero paints nothing; both signs exclude the baseline. A positive, unstacked `█` bar ends in a lower eighth block (`▁`–`▇`) for its last fraction of a row, so values whole cells would round together stay distinct; shaded series, `ascii`, negative bars and stack segments keep whole cells. Bar, rect and area inferred y-domains include zero; an explicit domain excluding zero rejects with `bar-domain-excludes-zero`. Stacked bars/areas paint the transform’s `y0`→`y1` bounds.
 
 ```ts
 renderGlyphChart(glyphChartBar([3, -5, 2, 8]), { target: "chat", width: 40, height: 14 });
@@ -92,8 +92,8 @@ renderGlyphChart(glyphChartBar([3, -5, 2, 8]), { target: "chat", width: 40, heig
    │                                ████
    │                                ████
  5 ┤                                ████
-   │                                ████
-   │███                             ████
+   │▃▃▃                             ████
+   │███                 ▄▄▄▄▄▄      ████
    │███                 ██████      ████
  0 ├┬───────────┬──────────┬───────────┬
    │         ██████                     
