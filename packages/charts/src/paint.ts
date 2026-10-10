@@ -31,7 +31,7 @@ import { ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegend
 import { computeSankeyRoutedRows, layoutSankeyGraph, paintFunnelMark, paintSankeyRoutedRows, type GlyphChartSankeyLayout, type SankeyRoutedRow } from "./flowMarks";
 import { areaLayers, chartSeries, regionFillGlyph, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
-import type { GlyphChartResolvedScales } from "./scales";
+import type { GlyphChartResolvedScale, GlyphChartResolvedScales } from "./scales";
 import type { GlyphChartCharset, GlyphChartMarkRow, GlyphChartSpec } from "./types";
 
 /** See `shadeFor`'s own doc (the "orchestration" section below). */
@@ -109,6 +109,30 @@ function fillRegionShade(canvas: GlyphCanvas, x0: number, y0: number, x1: number
   for (let y = y0; y <= y1; y++) canvas.text(x0, y, [run], { color });
 }
 
+/**
+ * Widest a bar series may paint, in cells: a category band at chat sizes is
+ * many columns wide, and a bar filling it reads as a slab. Fixed cell-count
+ * geometry, so it multiplies by `textScale` like every other gap and width.
+ */
+const GLYPH_CHART_BAR_MAX_COLS = 3;
+
+/**
+ * The columns a band bar group paints for `value` (a bar on a continuous x
+ * scale caps its own fallback width the same way): its band narrowed to
+ * `seriesCount` bars of at most `GLYPH_CHART_BAR_MAX_COLS` cells, centred on
+ * the column `layoutGlyphChart` puts the band's tick on (`Math.round` of the
+ * band's own centre), so an odd width sits exactly over its tick. A band
+ * already that narrow is unchanged; `undefined` off a band scale.
+ */
+export function barBandColRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown, seriesCount: number, textScale = 1): readonly [number, number] | undefined {
+  const band = bandColRange(scale, plot, value);
+  if (!band) return undefined;
+  const maxCols = GLYPH_CHART_BAR_MAX_COLS * textScale * seriesCount;
+  if (band[1] - band[0] + 1 <= maxCols) return band;
+  const start = Math.round((band[0] + band[1]) / 2) - Math.floor((maxCols - 1) / 2);
+  return [start, start + maxCols - 1];
+}
+
 const FULL_BLOCK = "█";
 const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
 
@@ -132,7 +156,7 @@ const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
  * (`░▒▓`), `ascii`'s `#`, negative bars (no lower-anchored glyph hangs from
  * a cell's top) and stack segments keep whole cells.
  */
-function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
+function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>, textScale: number): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
   for (const row of rows) {
@@ -148,14 +172,15 @@ function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
     // Cell boundaries are half-open: coincident endpoints paint nothing.
     const bottom = Math.min(layout.plot.y1, Math.max(rowTop, rowBottom) - (rowTop < rowBottom ? 1 : 0));
 
-    const band = bandColRange(scales.x, layout.plot, row.x);
+    const band = barBandColRange(scales.x, layout.plot, row.x, stacked ? 1 : dodge.count, textScale);
     let range: readonly [number, number];
     if (band) {
       range = band;
     } else {
       const col = scaleToCol(scales.x, layout.plot, row.x);
-      const half = Math.floor(fallbackWidth / 2);
-      range = [col - half, col - half + fallbackWidth - 1];
+      const width = Math.min(fallbackWidth, GLYPH_CHART_BAR_MAX_COLS * textScale * (stacked ? 1 : dodge.count));
+      const half = Math.floor(width / 2);
+      range = [col - half, col - half + width - 1];
     }
     if (!stacked && dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
     let [x0, x1] = range;
@@ -572,7 +597,7 @@ function zeroRowSnap(scales: GlyphChartResolvedScales, plot: GlyphChartPlotRect)
  * segment is floored. A segment whose exact rows coincide is empty (a zero
  * bar paints nothing).
  */
-function solidBarLayers(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): SolidRegionLayer[] {
+function solidBarLayers(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>, textScale: number): SolidRegionLayer[] {
   const snap = zeroRowSnap(scales, layout.plot);
   const baseline = snap(scaleToRowExact(scales.y, layout.plot, 0));
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
@@ -584,14 +609,15 @@ function solidBarLayers(layout: GlyphChartLayout, scales: GlyphChartResolvedScal
     const top = snap(scaleToRowExact(scales.y, layout.plot, topValue));
     const base = stacked ? snap(scaleToRowExact(scales.y, layout.plot, row.y0 ?? 0)) : baseline;
     if (!Number.isFinite(top) || !Number.isFinite(base) || top === base) continue;
-    const band = bandColRange(scales.x, layout.plot, row.x);
+    const band = barBandColRange(scales.x, layout.plot, row.x, stacked ? 1 : dodge.count, textScale);
     let range: readonly [number, number];
     if (band) {
       range = band;
     } else {
       const col = scaleToCol(scales.x, layout.plot, row.x);
-      const half = Math.floor(fallbackWidth / 2);
-      range = [col - half, col - half + fallbackWidth - 1];
+      const width = Math.min(fallbackWidth, GLYPH_CHART_BAR_MAX_COLS * textScale * (stacked ? 1 : dodge.count));
+      const half = Math.floor(width / 2);
+      range = [col - half, col - half + width - 1];
     }
     if (!stacked && dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
     const x0 = Math.max(layout.plot.x0, range[0]), x1 = Math.min(layout.plot.x1, range[1]);
@@ -1586,8 +1612,8 @@ export function paintGlyphChart(
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
       const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill);
-      if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded));
-      else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
+      if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
+      else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
       if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check

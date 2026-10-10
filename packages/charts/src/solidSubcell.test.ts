@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { ECOMMERCE_FUNNEL_DATA, ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
 import { bandColRange, layoutGlyphChart, resolveGlyphChartLegendOption, scaleToCol, scaleToRowExact } from "./layout";
 import type { GlyphChartLedgerEntry } from "./ledger";
-import { paintGlyphChart } from "./paint";
+import { barBandColRange, paintGlyphChart } from "./paint";
 import { glyphChartRegionFill, renderGlyphChart } from "./render";
 import { resolveGlyphChartSpec } from "./resolve";
 import { goodSpecs } from "./reviewFixtures";
@@ -486,7 +486,7 @@ describe("Round 27: under solid, a write owns its whole cell, and a half-cell ed
       const zeroExact = scaleToRowExact(scales.y, layout.plot, 0);
       const base = Math.abs(zeroExact - Math.round(zeroExact)) < 1e-9 ? Math.round(zeroExact) : zeroExact;
       for (const v of ["a", "b", "c"]) {
-        const [c0, c1] = bandColRange(scales.x, layout.plot, v)!;
+        const [c0, c1] = barBandColRange(scales.x, layout.plot, v, 1)!;
         const tops = values.map((m) => scaleToRowExact(scales.y, layout.plot, m.get(v)!));
         for (let x = c0; x <= c1; x++) for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
           if (y === layout.xAxisLineRow) continue;

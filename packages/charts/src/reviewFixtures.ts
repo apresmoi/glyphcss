@@ -96,8 +96,16 @@
  *    differing cell checked to be an eighth block where the parent had `█` or
  *    a blank. Every other key is untouched.
  *
- * A NEW divergence found outside these eleven is a real regression, not a
- * twelfth exception to wave through — add it here, with its own dedicated
+ * 12. (`paint.ts`'s `barBandColRange`, `barWidth.test.ts`) A bar series
+ *    paints at most `GLYPH_CHART_BAR_MAX_COLS` (3) cells, times `textScale`,
+ *    centred on its tick, instead of filling its band (or 70% of its slot on
+ *    a continuous x). Affects every bar entry wider than that
+ *    (`goodSpecs[2]`, `[15]`, `[28]`-`[32]`) on every tier; those keys were
+ *    re-derived from the current build, each differing cell checked to be
+ *    bar ink in the parent that is now blank. Every other key is untouched.
+ *
+ * A NEW divergence found outside these twelve is a real regression, not a
+ * thirteenth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";

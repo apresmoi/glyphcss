@@ -7,7 +7,7 @@ import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChar
 import { bandColRange, bandRowRange, layoutGlyphChart, scaleToCol, scaleToRow } from "./layout";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
-import { paintGlyphChart } from "./paint";
+import { barBandColRange, paintGlyphChart } from "./paint";
 import { normalizeGlyphChartInput } from "./spec";
 import type { GlyphChartInput, GlyphChartCharset, GlyphChartLedgerEntry, GlyphChartSpec } from "./types";
 import { categoricalSeriesData, stackedArea, signedCells, longBands, hourlyLine, categoricalDots, markFactories } from "./reviewFixtures";
@@ -447,7 +447,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
       { m: "Feb", v: 3, r: "North" }, { m: "Feb", v: 8, r: "South" },
     ];
     const p = picture(glyphChartBar(data, { x: "m", y: "v", fill: "r" }), 34, 14);
-    const janNorth = bandColRange(p.scales.x, p.layout.plot, "Jan")!;
+    const janNorth = barBandColRange(p.scales.x, p.layout.plot, "Jan", 2)!;
     const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) !== " ") n++; return n; };
     const janCols = Array.from({ length: janNorth[1] - janNorth[0] + 1 }, (_, i) => janNorth[0] + i);
     const janHeights = janCols.map(countFilled);
@@ -461,7 +461,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const distinctHeights = new Set(janHeights);
     expect(distinctHeights.size).toBe(2);
     // Feb: North (3, short) then South (8, tall) — same shape, opposite order.
-    const febRange = bandColRange(p.scales.x, p.layout.plot, "Feb")!;
+    const febRange = barBandColRange(p.scales.x, p.layout.plot, "Feb", 2)!;
     const febCols = Array.from({ length: febRange[1] - febRange[0] + 1 }, (_, i) => febRange[0] + i);
     const febHeights = febCols.map(countFilled);
     expect(febHeights.at(-1)!).toBeGreaterThan(febHeights[0]!);

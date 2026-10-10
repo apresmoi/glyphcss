@@ -10,7 +10,7 @@
 import { createGlyphCanvas } from "glyphcss";
 import { describe, expect, it } from "vitest";
 import { bandColRange, layoutGlyphChart } from "./layout";
-import { paintGlyphChart } from "./paint";
+import { barBandColRange, paintGlyphChart } from "./paint";
 import { renderGlyphChart } from "./render";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
@@ -70,7 +70,7 @@ describe("item 2 (B1) — bars touch the axis, proportional from the axis line",
     // 4 1/8, 6 7/8, 2 6/8 and 11 rows.
     expect(heights).toEqual([5, 7, 3, 11]);
     const topGlyph = (month: string) => {
-      const [x0] = bandColRange(p.scales.x, p.layout.plot, month)!;
+      const [x0] = barBandColRange(p.scales.x, p.layout.plot, month, 1)!;
       return p.at(x0, p.layout.xAxisLineRow - heights[MONTHS.indexOf(month)]!);
     };
     expect(MONTHS.map(topGlyph)).toEqual(["▁", "▇", "▆", "█"]);
@@ -78,7 +78,7 @@ describe("item 2 (B1) — bars touch the axis, proportional from the axis line",
     // line, with no blank row between them (the diagnosis's own "the
     // columns grow not proportionally" / a floating blank `0` row).
     for (const month of MONTHS) {
-      const [x0] = bandColRange(p.scales.x, p.layout.plot, month)!;
+      const [x0] = barBandColRange(p.scales.x, p.layout.plot, month, 1)!;
       expect(FILL_GLYPHS.includes(p.at(x0, p.layout.xAxisLineRow - 1) ?? " ")).toBe(true);
     }
   });
