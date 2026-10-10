@@ -181,6 +181,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "bad-size", spec: spec(glyphChartLine([1, 2])), options: { width: 20.5, height: 6 } },
   { id: "bad-text-scale", spec: spec(glyphChartLine([1, 2])), options: { textScale: 1.5 } },
   { id: "bad-region-fill", spec: spec(glyphChartLine([1, 2])), options: { regionFill: "stripes" as never } },
+  { id: "bad-shades", spec: spec(glyphChartBar([1, 2])), options: { shades: ["##"] } },
   { id: "non-finite-data", spec: spec(glyphChartLine([NaN, Infinity])) },
   { id: "non-finite-data", spec: spec(glyphChartLine([{ x: 1, y: Infinity }], { x: "x", y: "y" })) },
   { id: "bad-channels", spec: spec(glyphChartDot([1, 2], { size: [1, 2] } as never)) },

@@ -49,6 +49,8 @@ export interface GlyphChartPaintOptions {
    * and funnel bars take it through `flowMarks.ts`.
    */
   readonly regionFill?: GlyphChartResolvedRegionFill;
+  /** The render's `shades` option: a texture fill palette that replaces the charset's own series glyphs. */
+  readonly shades?: readonly string[];
   /**
    * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
    * paragraph) — forwarded to `canvas.text({ scale })` for every chart-level
@@ -902,7 +904,12 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
   const candidates: ArcCalloutCandidate[] = [];
   for (let i = 0; i < slices.length; i++) {
     const sl = slices[i]!;
-    if (sl.e - sl.s < GLYPH_CHART_ARC_CALLOUT_MIN_ANGLE) continue;
+    if (sl.e - sl.s < GLYPH_CHART_ARC_CALLOUT_MIN_ANGLE) {
+      // Reported like every other dropped callout: with the legend off, this
+      // slice is otherwise anonymous.
+      ledger.push(ledgerLabelDropped({ role: "pie callout", text: `${sl.name} · ${Math.round((sl.value / total) * 100)}%`, reason: "the slice is too thin to point a leader at" }));
+      continue;
+    }
     const mid = (sl.s + sl.e) / 2;
     const side: "left" | "right" = Math.cos(mid) >= 0 ? "right" : "left";
     const anchorRow = Math.round(cy + ry * Math.sin(mid));
@@ -1008,7 +1015,7 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
  * blocks/braille retain the same full-cell shade vocabulary as the legend,
  * instead of substituting subcell occupancy for slice identity.
  */
-function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number, labels: "callout" | "legend-only", textScale: number, fill: GlyphChartResolvedRegionFill): void {
+function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonly ChartSeries[], innerRadius: number, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], resolvedRowCount: number, labels: "callout" | "legend-only", textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[]): void {
   const values = series.map((s) => s.rows.reduce((sum, r) => sum + numeric(r.y), 0));
   const total = values.reduce((a, b) => a + b, 0);
   if (total === 0) { ledger.push(ledgerEmptyTotal("pie")); return; }
@@ -1032,7 +1039,7 @@ function paintArc(canvas: GlyphCanvas, layout: GlyphChartLayout, series: readonl
     const s = start;
     start += angle;
     const entry = series[i]!;
-    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: regionFillGlyph(canvas.tier, entry.shadeIndex!, series.length, fill), name: entry.name ?? String(i), value: v };
+    return { s, e: start, color: resolveSeriesColor(entry, colorEnabled), glyph: regionFillGlyph(canvas.tier, entry.shadeIndex!, series.length, fill, shades), name: entry.name ?? String(i), value: v };
   });
   for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
     for (let x = layout.plot.x0; x <= layout.plot.x1; x++) {
@@ -1437,7 +1444,7 @@ function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
  * one at `textScale === 1` (`3*1 === 3`, `floor(plotHeight/1) === plotHeight`,
  * …), so this is byte-identical there.
  */
-function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill): void {
+function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[]): void {
   const { plot } = layout;
   const plotWidth = plot.x1 - plot.x0 + 1;
   const maxRow = layout.xAxisLineRow === plot.y1 ? plot.y1 - 1 : plot.y1;
@@ -1484,10 +1491,10 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     // the legend swatch always picks the same table (compact-vs-extended
     // ASCII) the plot itself painted with.
     const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
-    if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill)], { color, scale: textScale });
+    if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill)], { color, scale: textScale });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color, scale: textScale });
@@ -1511,8 +1518,9 @@ export function paintGlyphChart(
   // (canvas.text's own byte-identical default) when the caller never set it.
   const textScale = opts.textScale ?? 1;
   const fill = opts.regionFill ?? "texture";
+  const shades = opts.shades;
   if (fill === "solid") canvas = solidOwnedCanvas(canvas);
-  const series = chartSeries(marks, ledger);
+  const series = chartSeries(marks, ledger, shades?.length);
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
   const cellSigned = lo < 0 && hi > 0;
@@ -1576,7 +1584,7 @@ export function paintGlyphChart(
       const groups = series.filter((s) => s.mark === mark);
       const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
       if (!sankeyLayout) continue;
-      const routedRows = computeSankeyRoutedRows(guardedSankey, layout.plot, sankeyLayout, opts.colorEnabled, ledger, `sankey${i}:`, textScale);
+      const routedRows = computeSankeyRoutedRows(guardedSankey, layout.plot, sankeyLayout, opts.colorEnabled, ledger, `sankey${i}:`, textScale, shades);
       registered.push({ mark, layout: sankeyLayout, routedRows });
     }
     if (registered.length > 0) canvas.resolveJunctions();
@@ -1587,19 +1595,19 @@ export function paintGlyphChart(
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
-    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill);
+    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill, shades);
     else if (mark.type === "sankey") {
       const r = sankeyRouted.get(mark);
       if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy, mark.options?.ribbon ?? "filled", textScale, fill);
     }
-    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale, fill);
+    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale, fill, shades);
     else if (mark.type === "area") {
       // One call per mark, not per series: a stack's silhouette is the edge
       // of ALL its layers together. An unstacked area whose boundary LINE
       // is drawn below takes that line as its edge instead of a sub-cell
       // silhouette, so the edge is drawn once.
       const stacked = isStackedArea(resolvedRows);
-      paintAreaMark(guarded, layout, scales, groups.map((g) => ({ rows: g.rows, color: resolveSeriesColor(g, opts.colorEnabled), glyph: regionFillGlyph(canvas.tier, g.styleIndex, groups.length, fill) })), stacked, stacked || !areaBoundaryLines, fill);
+      paintAreaMark(guarded, layout, scales, groups.map((g) => ({ rows: g.rows, color: resolveSeriesColor(g, opts.colorEnabled), glyph: regionFillGlyph(canvas.tier, g.styleIndex, groups.length, fill, shades) })), stacked, stacked || !areaBoundaryLines, fill);
     }
     else {
     // A solid bar mark on `braille`/`blocks` goes through the sub-cell
@@ -1611,7 +1619,7 @@ export function paintGlyphChart(
       const group = groups[i]!;
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
-      const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill);
+      const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill, shades);
       if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
       else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
       if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
@@ -1769,7 +1777,7 @@ export function paintGlyphChart(
       const swatchX = Math.max(0, label.x - 3 * label.scale);
       // See `paintCornerLegend`'s own doc on `shadeTotal`.
       const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
-      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill)], { color, scale: label.scale });
+      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: label.scale });
       else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {
         // Under braille/blocks the plot itself paints a 2x2 dot cluster
         // (CHARTS-RESEARCH diagnosis B6b), never the whole-cell "● × + ◆"
@@ -1789,7 +1797,7 @@ export function paintGlyphChart(
       // it can paint. A bar/rect/area/sankey/funnel swatch follows the
       // render's resolved `fill` exactly as its plot fill does.
       else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
-        guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill)], { color, scale: label.scale });
+        guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: label.scale });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });
       // A line-style swatch (`canvas.line`) has no `textScale` analogue —
@@ -1801,7 +1809,7 @@ export function paintGlyphChart(
     } else guardedLabels.text(label.x, label.y, [label.text], { scale: label.scale });
   }
   if (layout.legend && layout.legend.row === undefined) {
-    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill);
+    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill, shades);
   }
   if (fill === "solid") paintSolidCellBackgrounds(canvas);
 }

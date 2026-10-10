@@ -55,7 +55,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { normalizeGlyphChartInput } from "./spec";
 import {
-  validateGlyphChartLegendOption, validateGlyphChartRegionFill, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
+  validateGlyphChartLegendOption, validateGlyphChartRegionFill, validateGlyphChartShades, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
 } from "./validate";
 import type {
   GlyphChartBuild,
@@ -187,6 +187,7 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   const textScale = options.textScale ?? 1;
   validateGlyphChartTextScale(textScale);
   validateGlyphChartRegionFill(options.regionFill);
+  validateGlyphChartShades(options.shades, charset);
 
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
@@ -206,11 +207,11 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   // only the colour-carrying exits read; its ledger is the same paint's and
   // is discarded. A repaint, not a post-paint glyph swap: swapping needs a
   // per-cell record of which region painted each cell and what overwrote it.
-  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale }, ledger);
+  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale, shades: options.shades }, ledger);
   let colorCanvas = canvas;
   if (regionFill.fill === "solid") {
     colorCanvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
-    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid" }, []);
+    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid", shades: options.shades }, []);
   } else if (options.regionFill === "solid" && regionFill.reason !== "no-region-mark") {
     ledger.push(ledgerRegionFillSolidRefused({ reason: regionFill.reason, explanation: regionFill.message, ...(regionFill.colliding ? { colliding: regionFill.colliding } : {}) }));
   }

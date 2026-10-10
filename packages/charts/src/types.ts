@@ -322,6 +322,13 @@ export interface GlyphChartRenderOptions {
    * refused with a `region-fill-solid-refused` ledger entry.
    */
   readonly regionFill?: GlyphChartRegionFill;
+  /**
+   * Replaces the charset's own series fill glyphs (bar, rect, area, arc,
+   * sankey and funnel textures, and their legend swatches) with this
+   * palette, in series order. Past its length the glyphs repeat, reported
+   * as `series-shade-repeat`. Solid colour fills and `cell` ramps ignore it.
+   */
+  readonly shades?: readonly string[];
 }
 
 /**

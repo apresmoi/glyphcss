@@ -1,5 +1,5 @@
 import { resolveGlyphChartTickFormat } from "./tickFormat";
-import type { GlyphChartLegendOption, GlyphChartMark, GlyphChartMarkType, GlyphChartSpec, GlyphChartTitleOption } from "./types";
+import type { GlyphChartCharset, GlyphChartLegendOption, GlyphChartMark, GlyphChartMarkType, GlyphChartSpec, GlyphChartTitleOption } from "./types";
 
 // Schema generation shares the vocabulary and repair rules; schema.test uses
 // an independent JSON Schema evaluator for the structural and domain clauses.
@@ -9,7 +9,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
-  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale", "bad-region-fill",
+  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale", "bad-region-fill", "bad-shades",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -266,6 +266,16 @@ export function validateGlyphChartRegionFill(regionFill: unknown): void {
   if (regionFill === undefined) return;
   if (!(REGION_FILLS as readonly unknown[]).includes(regionFill)) chartError("bad-region-fill", `regionFill must be one of ${REGION_FILLS.join(", ")}, got ${JSON.stringify(regionFill)}.`);
 }
+/**
+ * A fill palette replaces the charset's own series glyphs cell for cell, so
+ * each entry is one visible character; a space would read as no fill at all,
+ * and `ascii` stays 7-bit.
+ */
+export function validateGlyphChartShades(shades: unknown, charset: GlyphChartCharset): void {
+  if (shades === undefined) return;
+  const ok = Array.isArray(shades) && shades.length > 0 && shades.every((g) => typeof g === "string" && [...g].length === 1 && /^\S$/u.test(g) && (charset !== "ascii" || /^[\x21-\x7e]$/.test(g)));
+  if (!ok) chartError("bad-shades", `shades must be a non-empty array of single visible characters${charset === "ascii" ? " (7-bit ASCII for the ascii charset)" : ""}, got ${JSON.stringify(shades)}.`);
+}
 const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "empty-marks": "Add at least one mark to spec.marks, e.g. glyphChartLine([...]).",
   "unknown-mark-type": `Use one of: ${MARK_TYPES.join(", ")}.`,
@@ -296,6 +306,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-stroke-width": "Set options.strokeWidth to 1, 2, or 3.",
   "bad-tick-format": "Use a known preset name, { preset, ...params } with valid params, or (TS/JS only) a callback (value, index, ticks) => string.",
   "bad-text-scale": "Set textScale to a positive integer (1 or omitted is the default).",
+  "bad-shades": "Set shades to an array of single visible characters, e.g. [\"#\", \"=\", \"+\", \":\", \".\"], or omit it.",
   "bad-region-fill": `Set regionFill to one of ${REGION_FILLS.join("/")}, or omit it for auto.`,
 };
 
