@@ -1041,10 +1041,11 @@ function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
 }
 
 /**
- * Default ON (packet item 6): `┤`/`┴` tick marks where a tick actually
+ * Default ON (packet item 6): `┤`/`┬` tick marks where a tick actually
  * lands, `│`/`─` elsewhere, `└` at the corner — every one of those glyphs
  * is already the box tier's own JUNCTION table (`┤` = up+down+left,
- * `┴` = up+left+right, `└` = up+right), so this reuses that table exactly
+ * `┬` = down+left+right, `└` = up+right; both stems point outward at
+ * their labels, never into the plot), so this reuses that table exactly
  * rather than inventing a parallel one; `ascii`'s junction table already
  * collapses every multi-stem entry to `+`, which is what gives the ascii
  * tier its own tick glyph for free. `tickMarks: false` on either axis
@@ -1091,7 +1092,7 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
   if (layout.xTickMarks) {
     for (let x = layout.yAxisCol; x <= layout.plot.x1; x++) {
       const glyph = x === layout.yAxisCol ? tier.junction[AXIS_N | AXIS_E | (axisLineInterior ? AXIS_S : 0)]!
-        : xTickCols.has(x) ? tier.junction[AXIS_N | AXIS_E | AXIS_W]! : tier.junction[AXIS_E | AXIS_W]!;
+        : xTickCols.has(x) ? tier.junction[AXIS_S | AXIS_E | AXIS_W]! : tier.junction[AXIS_E | AXIS_W]!;
       canvas.text(x, layout.xAxisLineRow, [glyph], { color: xColor });
     }
   } else {

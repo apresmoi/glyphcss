@@ -44,8 +44,8 @@ describe("exact Phase 1 review regressions", () => {
     // zero-row cells here read as the axis's own tick glyph, never a bar
     // fill glyph and never blank.
     const p = picture(glyphChartBar([-1, 1]), 20, 8);
-    expect(p.atValue(0, 0)).toBe("┴");
-    expect(p.atValue(1, 0)).toBe("┴");
+    expect(p.atValue(0, 0)).toBe("┬");
+    expect(p.atValue(1, 0)).toBe("┬");
     expect(p.atValue(0, -1)).toBe("█");
     expect(p.atValue(1, 1)).toBe("█");
   });
@@ -772,7 +772,7 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const data = categories.map((k, i) => ({ k, v: i + 1 }));
     const p = picture(glyphChartCell(data, { x: "v", y: "k", fill: "v" }), 20, 8);
     const shadeGlyphs = new Set(["░", "▒", "▓", "█"]);
-    const axisGlyphs = new Set(["─", "│", "┤", "┴", "├", "└", "┼"]);
+    const axisGlyphs = new Set(["─", "│", "┤", "┬", "├", "└", "┼"]);
     for (const k of categories) {
       const [a, b] = bandRowRange(p.scales.y, p.layout.plot, k)!;
       expect(a).toBeLessThanOrEqual(b);

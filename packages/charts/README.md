@@ -30,7 +30,7 @@ console.log(text);
 4 ┤  -▔‾_-         \\\        //        
   │__-               \\\     //         
   │                    \\\\ //          
-2 └┴───────────┴──────────\//──────────┴
+2 └┬───────────┬──────────\//──────────┬
    0           1           2           3
 ```
 
@@ -56,7 +56,7 @@ renderGlyphChart(glyphChartLine([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
 4 ┤   /// \\     /                     \
   │ ///    \\\  //                      
   │//        \\//                       
-2 └┴──────────\/───────────┴───────────┴
+2 └┬──────────\/───────────┬───────────┬
    0           2           4           6
 ```
 
@@ -76,7 +76,7 @@ renderGlyphChart(glyphChartArea([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
   │████████████ ████████████████████████
 2 ┤█████████████████████████████████████
   │█████████████████████████████████████
-0 └┴───────────┴───────────┴───────────┴
+0 └┬───────────┬───────────┬───────────┬
    0           2           4           6
 ```
 
@@ -95,7 +95,7 @@ renderGlyphChart(glyphChartBar([3, -5, 2, 8]), { target: "chat", width: 40, heig
    │                                ████
    │███                             ████
    │███                 ██████      ████
- 0 ├┴───────────┴──────────┴───────────┴
+ 0 ├┬───────────┬──────────┬───────────┬
    │         ██████                     
    │         ██████                     
    │         ██████                     
@@ -120,7 +120,7 @@ renderGlyphChart(glyphChartDot([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 
 4 ┤                                    ●
   │                                     
   │●                                    
-2 └┴───────────●───────────┴───────────┴
+2 └┬───────────●───────────┬───────────┬
    0           2           4           6
 ```
 
@@ -177,7 +177,7 @@ renderGlyphChart(glyphChartCell(data, { x: "x", y: "y", fill: "v" }), { target: 
   │                                     
   │                                     
 0 ┤                                     
-  └────┴────────┴────────┴────────┴─────
+  └────┬────────┬────────┬────────┬─────
        0        1        2        3     
 ```
 
@@ -303,7 +303,7 @@ renderGlyphChart(spec, { target: "chat", width: 50, height: 16 });
 2 ┤                             -_●/              
   │                                               
   │                                               
-0 └┴──────────────┴───────────────┴──────────────┴
+0 └┬──────────────┬───────────────┬──────────────┬
    0              1               2              3
 ```
 
@@ -333,7 +333,7 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
   │     //  \ \\// /                      \ 
 2 ┤  //     \ \\/                          \
   │//         \  /                          
-0 └┴───────────\/─────────────┴────────────┴
+0 └┬───────────\/─────────────┬────────────┬
    0            2             4            6
      ───Revenue            ── Visits        
 ```
@@ -364,7 +364,7 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
 4 ┤ ///     \\    /                        \
   │//        \\  //                         
   │           \\//                          
-2 └┴───────────\/─────────────┴────────────┴
+2 └┬───────────\/─────────────┬────────────┬
    0            2             4            6
 ```
 
@@ -388,7 +388,7 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
 4 ┤    /// \\     //                       \
   │ ///     \\\  //                         
   │//         \\//                          
-2 └┴───────────\/─────────────┴────────────┴
+2 └┬───────────\/─────────────┬────────────┬
    0            2             4            6
                 ───Revenue                  
 Weekly revenue
@@ -396,7 +396,7 @@ Weekly revenue
 
 ## Axes
 
-`spec.axes?.{x,y}: { ticks?, tickMarks?, title?, grid? }`. Tick marks are on by default — `┤`/`┴` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
+`spec.axes?.{x,y}: { ticks?, tickMarks?, title?, grid? }`. Tick marks are on by default — `┤`/`┬` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
 
 ```ts
 renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", charset: "ascii", color: "none", width: 30, height: 10 }).text;
@@ -443,7 +443,7 @@ value
   │      //                 \\\    /                            
   │                           \\  //                            
   │                            \\//                             
-2 └──────┴───────────┴──────────\/───────────┴───────────┴──────
+2 └──────┬───────────┬──────────\/───────────┬───────────┬──────
         Jan         Feb         Mar         Apr         May     
                                month                            
                           ───Revenue                            
@@ -565,7 +565,7 @@ renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "box", width: 
 4 ┤  // \\   //               /      \\  // 
   │ //   \\  /                        \\//  
   │//     \\//                         //   
-2 └┴───────\/────────┴────────┴────────┴────
+2 └┬───────\/────────┬────────┬────────┬────
    0        2        4        6        8    
 ```
 ```ts
@@ -582,10 +582,10 @@ renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "braille", wid
 4 ┤   ⡔⠁⠑⡄   ⢀⠇               ⠱⠃     ⠘⡄   ⡔⠁
   │ ⢀⠎   ⠘⢄  ⢸                        ⠸⡀⢀⠎  
   │⠠⠃     ⠈⢢ ⡇                         ⠱⠃   
-2 └┴────────⠻────────┴────────┴────────┴────
+2 └┬────────⠻────────┬────────┬────────┬────
    0        2        4        6        8    
 ```
-Real, unedited output from both calls. `box` uses 12 distinct glyphs: the two slope glyphs `/`/`\`, five tick digits (`0`/`2`/`4`/`6`/`8`), and five whole-cell axis/junction glyphs `│`/`─`/`┤`/`┴`/`└`. `braille` uses 40 distinct glyphs total — the same five tick digits and five axis/junction glyphs, unchanged from `box`'s own, plus 30 distinct actual braille dot patterns for the data line, never `/`/`\`.
+Real, unedited output from both calls. `box` uses 12 distinct glyphs: the two slope glyphs `/`/`\`, five tick digits (`0`/`2`/`4`/`6`/`8`), and five whole-cell axis/junction glyphs `│`/`─`/`┤`/`┬`/`└`. `braille` uses 40 distinct glyphs total — the same five tick digits and five axis/junction glyphs, unchanged from `box`'s own, plus 30 distinct actual braille dot patterns for the data line, never `/`/`\`.
 
 The `/charts` page applies target defaults to untouched controls and preserves explicit overrides per control. **Reset to target defaults** clears them. Terminal previews decode ANSI into coloured spans; CSS output shows HTML on every target; the chat frame never shows colour and hides **Copy ANSI**. **Copy as text** always copies plain text. ANSI escapes are never inserted into the browser preview.
 

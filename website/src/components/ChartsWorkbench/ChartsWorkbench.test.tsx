@@ -677,7 +677,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // assertions in `chartsWorkbenchRender.style.test.ts`.
   it("an axis colour picked in the Dock reaches the HTML preview's own axis span colour", () => {
     pickToggle("Target", "web");
-    const axisSpan = () => Array.from(container.querySelectorAll<HTMLElement>("pre span")).find((s) => /[┤┴└│─]/.test(s.textContent ?? ""));
+    const axisSpan = () => Array.from(container.querySelectorAll<HTMLElement>("pre span")).find((s) => /[┤┬└│─]/.test(s.textContent ?? ""));
     expect(axisSpan()!.getAttribute("style")).not.toContain("#ff0000");
     const swatch = container.querySelector<HTMLInputElement>('.charts-axis-color input[type="color"]')!;
     expect(swatch).toBeTruthy();

@@ -158,7 +158,7 @@ describe("stroke width increases ink along a known line", () => {
 
 /** Leftmost painted (non-space) column contributed by the MARK itself —
  * every row of `p.layout.plot` EXCEPT `xAxisLineRow` (which legitimately
- * carries the axis's own tick-mark glyphs at every column, e.g. a `┴` at
+ * carries the axis's own tick-mark glyphs at every column, e.g. a `┬` at
  * `plot.x0` for the origin — furniture, not the mark). Used below to prove
  * `strokeClipPlot`'s inset is genuinely engaged, not merely present in the
  * source. */

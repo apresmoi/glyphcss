@@ -364,7 +364,7 @@ describe("final-gate-2 (Opus finding 1): the Heatmap tray preset paints every ca
       expect(line, `expected a tick-label row for "${label}" in:\n${rendered.text}`).toBeDefined();
       expect(line, `"${label}"'s own row carries no cell ink — only axis chrome:\n${rendered.text}`).toMatch(shadeGlyphs);
     }
-    // The axis LINE row itself (the corner "└"/tick-junction "┴" row) is
+    // The axis LINE row itself (the corner "└"/tick-junction "┬" row) is
     // chrome, not data — real ink never reaches it, and every plot-body
     // row strictly above it must carry ink (never bare axis characters).
     const axisRowIndex = lines.findIndex((l) => l.includes("└"));
