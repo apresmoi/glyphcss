@@ -29,6 +29,8 @@ import {
 import { abbreviateChartText, chartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
 import { ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { computeSankeyRoutedRows, layoutSankeyGraph, paintFunnelMark, paintSankeyRoutedRows, type GlyphChartSankeyLayout, type SankeyRoutedRow } from "./flowMarks";
+import { cellRange, cellRampLevel, heatmapRamp } from "./heatmap";
+import { formatLinearTick } from "./scales";
 import { areaLayers, chartSeries, regionFillGlyph, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartResolvedScale, GlyphChartResolvedScales } from "./scales";
@@ -51,6 +53,8 @@ export interface GlyphChartPaintOptions {
   readonly regionFill?: GlyphChartResolvedRegionFill;
   /** The render's `shades` option: a texture fill palette that replaces the charset's own series glyphs. */
   readonly shades?: readonly string[];
+  /** The render's `cellRamp` option: an unsigned heatmap's value ramp. */
+  readonly cellRamp?: readonly string[];
   /**
    * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
    * paragraph) — forwarded to `canvas.text({ scale })` for every chart-level
@@ -725,17 +729,15 @@ const GLYPH_CHART_CELL_LOSS_COLOR = "#ef4444";
  * one-element array) applies to both signs; two or more elements are
  * `[losses, gains]`; `undefined` keeps the existing gain/loss defaults.
  */
-function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number, signed: boolean, colorEnabled: boolean, colorOverride?: string | readonly string[]): void {
+function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, shadeFor: (v: number) => number, signed: boolean, colorEnabled: boolean, ramp: readonly string[], range: readonly [number, number], colorOverride?: string | readonly string[]): void {
   const overrideArr = colorOverride === undefined ? undefined : typeof colorOverride === "string" ? [colorOverride] : colorOverride;
   const lossColor = overrideArr?.[0] ?? GLYPH_CHART_CELL_LOSS_COLOR;
   const gainColor = overrideArr && overrideArr.length > 1 ? overrideArr[1]! : overrideArr?.[0] ?? GLYPH_CHART_CELL_GAIN_COLOR;
   const fallbackCols = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) * (scales.x.bandStep ?? 1 / Math.max(1, rows.length))));
   const fallbackRows = Math.max(1, Math.round((layout.plot.y1 - layout.plot.y0 + 1) * (scales.y.bandStep ?? 1 / Math.max(1, rows.length))));
-  const subcellTier = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
-  const cellRamp = GLYPH_CANVAS_TIERS.box.shadeRamp;
   for (const row of rows) {
     const colBand = bandColRange(scales.x, layout.plot, row.x);
-    const rowBand = bandRowRange(scales.y, layout.plot, row.y);
+    const rowBand = bandRowRange(scales.y, layout.plot, row.y, layout.xAxisLine);
     let x0: number, x1: number, y0: number, y1: number;
     if (colBand) [x0, x1] = colBand;
     else { const col = scaleToCol(scales.x, layout.plot, row.x); const half = Math.floor(fallbackCols / 2); x0 = col - half; x1 = col - half + fallbackCols - 1; }
@@ -745,20 +747,46 @@ function paintCell(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     y0 = Math.max(layout.plot.y0, y0); y1 = Math.min(layout.plot.y1, y1);
     if (x0 > x1 || y0 > y1) continue;
     const value = row.fill !== undefined ? numeric(row.fill) : NaN;
-    const shade = Number.isFinite(value) ? shadeFor(value) : 1;
     if (signed) {
+      const shade = Number.isFinite(value) ? shadeFor(value) : 1;
       const negative = value < 0;
       const ramp = negative ? GLYPH_CHART_CELL_LOSS_RAMP[canvas.tier] : GLYPH_CHART_CELL_GAIN_RAMP[canvas.tier];
       const cellColor = colorEnabled ? (negative ? lossColor : gainColor) : null;
       const level = Number.isFinite(shade) ? Math.round(shade * (ramp.length - 1)) : ramp.length - 1;
       fillRegionShade(canvas, x0, y0, x1, y1, ramp[level]!, cellColor);
-    } else if (subcellTier) {
-      const level = Number.isFinite(shade) ? Math.round(shade * (cellRamp.length - 1)) : cellRamp.length - 1;
-      fillRegionShade(canvas, x0, y0, x1, y1, cellRamp[level]!, color);
     } else {
-      canvas.fillRect(x0, y0, x1, y1, { fill: Number.isFinite(shade) ? { shade } : "solid", color });
+      // Painted as whole-cell glyphs on every tier: a sub-cell fill would
+      // pick quadrant SHAPES by coverage, and a value ramp must read as
+      // darkness, not as which corner is lit.
+      // A cell with no value is solid, as before ramps had no blank level.
+      const glyph = Number.isFinite(value) ? ramp[cellRampLevel(value, range[0], range[1], ramp.length)]! : canvas.tier === "ascii" ? "#" : "█";
+      fillRegionShade(canvas, x0, y0, x1, y1, glyph, color);
     }
   }
+}
+
+/**
+ * An unsigned heatmap's one-line key, `lo ░░▒▒▓▓██ hi`: the ramp in order
+ * between the two values it spans, each glyph doubled like a cell. A key too
+ * wide for the row falls back to single glyphs, then drops (`label-dropped`).
+ */
+function paintCellKey(canvas: GlyphCanvas, layout: GlyphChartLayout, ramp: readonly string[], range: readonly [number, number], color: string | null, ledger: GlyphChartLedgerEntry[], textScale: number): void {
+  const lo = formatLinearTick(range[0]), hi = formatLinearTick(range[1]);
+  const room = Math.floor((layout.cols - layout.plot.x0) / textScale);
+  const width = ramp.length > 0 ? Math.max(...ramp.map((g) => g.length)) : 1;
+  const per = [2, 1].find((n) => lo.length + hi.length + 2 + ramp.length * n * width <= room);
+  if (per === undefined) {
+    ledger.push(ledgerLabelDropped({ role: "heatmap key", text: `${lo} … ${hi}`, reason: "the row is too narrow for it" }));
+    return;
+  }
+  let x = layout.plot.x0;
+  canvas.text(x, layout.cellKeyRow, [lo], { scale: textScale });
+  x += (lo.length + 1) * textScale;
+  for (const glyph of ramp) {
+    canvas.text(x, layout.cellKeyRow, [glyph.repeat(per)], { color, scale: textScale });
+    x += per * textScale;
+  }
+  canvas.text(x + textScale, layout.cellKeyRow, [hi], { scale: textScale });
 }
 
 /**
@@ -1123,12 +1151,13 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
   // domain's zero row sits INTERIOR to the plot, with negative bars
   // painted below it) and the vertical rule must keep going past it into
   // that negative region, exactly as it already does above a positive one.
-  if (layout.yTickMarks) {
+  // `axes.y.line: false` keeps only the labels painted below.
+  if (layout.yAxisLine && layout.yTickMarks) {
     for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
       const glyph = yTickRows.has(y) ? tier.junction[AXIS_N | AXIS_S | AXIS_W]! : tier.junction[AXIS_N | AXIS_S]!;
       canvas.text(layout.yAxisCol, y, [glyph], { color: yColor });
     }
-  } else {
+  } else if (layout.yAxisLine) {
     canvas.line({ x: layout.yAxisCol, y: layout.plot.y0 }, { x: layout.yAxisCol, y: layout.plot.y1 }, { subcell: false, color: yColor });
   }
 
@@ -1139,13 +1168,13 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
   // — the y-axis genuinely continues past it, so a plain corner glyph
   // would read as the axis line stopping there.
   const axisLineInterior = layout.xAxisLineRow < layout.plot.y1;
-  if (layout.xTickMarks) {
+  if (layout.xAxisLine && layout.xTickMarks) {
     for (let x = layout.yAxisCol; x <= layout.plot.x1; x++) {
       const glyph = x === layout.yAxisCol ? tier.junction[AXIS_N | AXIS_E | (axisLineInterior ? AXIS_S : 0)]!
         : xTickCols.has(x) ? tier.junction[AXIS_S | AXIS_E | AXIS_W]! : tier.junction[AXIS_E | AXIS_W]!;
       canvas.text(x, layout.xAxisLineRow, [glyph], { color: xColor });
     }
-  } else {
+  } else if (layout.xAxisLine) {
     canvas.line({ x: layout.yAxisCol, y: layout.xAxisLineRow }, { x: layout.plot.x1, y: layout.xAxisLineRow }, { subcell: false, color: xColor });
   }
 
@@ -1524,6 +1553,8 @@ export function paintGlyphChart(
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
   const cellSigned = lo < 0 && hi > 0;
+  const cellRampGlyphs = heatmapRamp(canvas.tier, opts.cellRamp);
+  const cellValueRange = fillValues.length > 0 ? cellRange(fillValues) : ([0, 0] as const);
   const shadeFor = (v: number): number => {
     // Mixed signs: blank means "no signal" — reserved for exactly `v === 0`,
     // never for the domain's most extreme value. The old mapping anchored
@@ -1635,7 +1666,7 @@ export function paintGlyphChart(
           const usedSlots = cellSigned ? 2 : 1;
           if (arr.length > usedSlots) ledger.push(ledgerMarkColorUnused({ markType: "cell", provided: arr.length, used: usedSlots }));
         }
-        paintCell(guarded, layout, scales, rows, color, shadeFor, cellSigned, opts.colorEnabled, rawColor);
+        paintCell(guarded, layout, scales, rows, color, shadeFor, cellSigned, opts.colorEnabled, cellRampGlyphs, cellValueRange, rawColor);
       }
     }
     if (solidBars.length > 0) paintSolidRegions(guarded, layout, solidBars);
@@ -1810,6 +1841,10 @@ export function paintGlyphChart(
   }
   if (layout.legend && layout.legend.row === undefined) {
     paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill, shades);
+  }
+  if (layout.cellKeyRow >= 0) {
+    const cellColor = series.find((s) => s.mark.type === "cell");
+    paintCellKey(guardedLabels, layout, cellRampGlyphs, cellValueRange, cellColor ? resolveSeriesColor(cellColor, opts.colorEnabled) : null, ledger, textScale);
   }
   if (fill === "solid") paintSolidCellBackgrounds(canvas);
 }

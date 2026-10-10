@@ -104,8 +104,16 @@
  *    re-derived from the current build, each differing cell checked to be
  *    bar ink in the parent that is now blank. Every other key is untouched.
  *
- * A NEW divergence found outside these twelve is a real regression, not a
- * thirteenth exception to wave through — add it here, with its own dedicated
+ * 13. (`heatmap.ts`, `heatmap.test.ts`) A chart made only of `cell` marks
+ *    on two band scales tiles its cells flush, sizes each `2k` columns by `k`
+ *    rows for the largest `k` that fits, and shrinks the canvas to that grid.
+ *    Unsigned heatmaps also shade on a ramp with no blank level and get a
+ *    range key. Affects `goodSpecs[14]` (signed, so only its geometry) on
+ *    every tier; those keys were re-derived from the current build. Every
+ *    other key is untouched, `goodSpecs[5]` (cells on linear scales) included.
+ *
+ * A NEW divergence found outside these thirteen is a real regression, not a
+ * fourteenth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
@@ -182,6 +190,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "bad-text-scale", spec: spec(glyphChartLine([1, 2])), options: { textScale: 1.5 } },
   { id: "bad-region-fill", spec: spec(glyphChartLine([1, 2])), options: { regionFill: "stripes" as never } },
   { id: "bad-shades", spec: spec(glyphChartBar([1, 2])), options: { shades: ["##"] } },
+  { id: "bad-cell-ramp", spec: spec(glyphChartBar([1, 2])), options: { cellRamp: [] } },
   { id: "non-finite-data", spec: spec(glyphChartLine([NaN, Infinity])) },
   { id: "non-finite-data", spec: spec(glyphChartLine([{ x: 1, y: Infinity }], { x: "x", y: "y" })) },
   { id: "bad-channels", spec: spec(glyphChartDot([1, 2], { size: [1, 2] } as never)) },

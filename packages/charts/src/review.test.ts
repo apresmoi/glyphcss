@@ -278,12 +278,13 @@ describe("exact Phase 1 review regressions", () => {
     // Mutation: normalize each cell independently or take absolute values -> ordered shades differ.
     const mark = { ...signedCells, data: [a, b, c].map((v, i) => ({ x: String(i), y: "v", v })) };
     const p = picture(mark, 24, 6);
-    expect([0, 1, 2].map((x) => p.atValue(String(x), "v"))).toEqual([" ", "▒", "█"]);
+    // An unsigned heatmap bins its own min..max over `░ ▒ ▓ █`, no blank level.
+    expect([0, 1, 2].map((x) => p.atValue(String(x), "v"))).toEqual(["░", "▓", "█"]);
   });
   it("5: separate cell marks share one ramp", () => {
     // Mutation: compute shade domain per mark -> both positive values become maximum shade.
     const p = picture([ { ...signedCells, data: [{ x: "a", y: "v", v: 5 }] }, { ...signedCells, data: [{ x: "b", y: "v", v: 10 }] } ], 24, 6);
-    expect(p.atValue("a", "v")).toBe("▒"); expect(p.atValue("b", "v")).toBe("█");
+    expect(p.atValue("a", "v")).toBe("░"); expect(p.atValue("b", "v")).toBe("█");
   });
   it.each(markFactories.flatMap((factory) => [[20, 6], [40, 10], [80, 24]].map(([width, height]) => ({ factory, width: width!, height: height!, name: factory([-1, 1]).type }))))("6: ASCII $name at $width x $height with negative data and labels", ({ factory, width, height }) => {
     // Mutations: Unicode minus/ellipsis, ● ASCII dots, or bypass canvas text fold -> byte gate fails.
@@ -659,14 +660,14 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     expect(p.atValue("Mon", "AM")).toBe("░"); // the lowest INKED ramp level, not a mid-shade either.
   });
 
-  it("P1-6: an all-nonpositive cell domain keeps its existing (unchanged) direction — 0 stays full ink, the extreme negative stays blank", () => {
+  it("P1-6: an all-nonpositive cell domain keeps its direction — 0 is full ink, the extreme negative the lightest level", () => {
     // Companion to the P1-6 fix above: the same-sign formula is unchanged in
     // DIRECTION (only near-`lo` values get floored off blank), so this must
     // still match "5: same-sign values … use a shared sequential ramp"'s own
     // pinned expectation for the negative-only case.
     const mark = { ...signedCells, data: [-10, -5, 0].map((v, i) => ({ x: String(i), y: "v", v })) };
     const p = picture(mark, 24, 6);
-    expect(p.atValue("0", "v")).toBe(" "); // the domain minimum (-10) is still blank.
+    expect(p.atValue("0", "v")).toBe("░"); // the domain minimum (-10): lightest, never blank.
     expect(p.atValue("2", "v")).toBe("█"); // 0 (the domain maximum here) is still full ink.
   });
 

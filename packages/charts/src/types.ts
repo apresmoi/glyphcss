@@ -172,6 +172,8 @@ export type GlyphChartTickFormat = string | GlyphChartTickFormatPreset | GlyphCh
 export interface GlyphChartAxisOptions {
   readonly ticks?: number;
   readonly tickMarks?: boolean;
+  /** `false` hides this axis's line and tick marks; its tick labels and title stay. Default `true`. */
+  readonly line?: boolean;
   readonly title?: string;
   readonly grid?: boolean;
   /** Canonical `#rrggbb`; overrides `spec.axes.color` for this one axis (line, tick marks, tick labels, title, and grid). */
@@ -329,6 +331,13 @@ export interface GlyphChartRenderOptions {
    * as `series-shade-repeat`. Solid colour fills and `cell` ramps ignore it.
    */
   readonly shades?: readonly string[];
+  /**
+   * An unsigned heatmap's (`cell`) value ramp, lightest first, replacing the
+   * charset's own (`░ ▒ ▓ █`, ascii `. : + * % # @`). Values split into
+   * equal bins across their own min..max, one glyph each. A signed heatmap
+   * (values on both sides of zero) keeps its gain/loss ramps.
+   */
+  readonly cellRamp?: readonly string[];
 }
 
 /**

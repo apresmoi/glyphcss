@@ -157,7 +157,9 @@ Slices cycle a SHAPE-FAMILY glyph set, not a density ramp — `█ ░ ▚ ╱ �
 
 ### `glyphChartCell` (heatmap)
 
-Both axes band-scale string categories. Numeric `fill` uses one shared monotone shade ramp: sequential for same-sign data, diverging around zero for mixed signs. `[-10, 0, 10]` yields full ink, blank, full ink — blank means "no signal" (reserved for exactly zero on the diverging ramp), never the domain's most extreme value; each side ramps independently from zero out to its own extreme.
+Both axes band-scale string categories. A chart made only of `cell` marks on two band scales is a heatmap: its cells tile flush, each `2k` columns by `k` rows (about square on screen) for the largest `k` that fits, and the chart shrinks to that grid rather than stretching cells across the canvas. Every row and column keeps its label when they fit.
+
+Numeric `fill` uses one shared ramp across every cell mark. Same-sign data splits its own min..max into equal bins over `░ ▒ ▓ █` (ASCII `. : + * % # @`, ordered by measured ink), with no blank level, and a one-line range key under the grid reads `min ░░▒▒▓▓██ max`. The `cellRamp` render option replaces that ramp (lightest first, one visible character each, 7-bit on `ascii`), key included. Mixed-sign data keeps a diverging ramp around zero and no key: `[-10, 0, 10]` yields full ink, blank, full ink — blank means "no signal", reserved for exactly zero, and each side ramps independently out to its own extreme. A cell with no `fill` paints solid.
 
 ```ts
 const data = [];
@@ -165,20 +167,18 @@ for (let x = 0; x < 4; x++) for (let y = 0; y < 3; y++) data.push({ x: String(x)
 renderGlyphChart(glyphChartCell(data, { x: "x", y: "y", fill: "v" }), { target: "chat", width: 40, height: 14 });
 ```
 ```
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-2 ┤          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-1 ┤          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-  │                                     
-  │                                     
-0 ┤                                     
-  └────┬────────┬────────┬────────┬─────
-       0        1        2        3     
+  │░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓██████
+2 ┤░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓██████
+  │░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓██████
+  │░░░░░░░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓
+1 ┤░░░░░░░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓
+  │░░░░░░░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓
+  │░░░░░░░░░░░░░░░░░░░░░░░░
+0 ┤░░░░░░░░░░░░░░░░░░░░░░░░
+  │░░░░░░░░░░░░░░░░░░░░░░░░
+  └───┬─────┬─────┬─────┬──
+      0     1     2     3  
+   0 ░░▒▒▓▓██ 6            
 ```
 
 ### `glyphChartText`
@@ -396,7 +396,7 @@ Weekly revenue
 
 ## Axes
 
-`spec.axes?.{x,y}: { ticks?, tickMarks?, title?, grid? }`. Tick marks are on by default — `┤`/`┬` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
+`spec.axes?.{x,y}: { ticks?, tickMarks?, line?, title?, grid? }`. `line: false` hides that axis's line and tick marks and keeps its labels. Tick marks are on by default — `┤`/`┬` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
 
 ```ts
 renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", charset: "ascii", color: "none", width: 30, height: 10 }).text;

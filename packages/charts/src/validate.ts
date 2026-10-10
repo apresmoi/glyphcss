@@ -9,7 +9,7 @@ export const GLYPH_CHART_VALIDATION_RULES = [
   "bad-size", "non-finite-data", "bad-channels", "bad-options", "bad-scale",
   "log-domain", "bar-domain-excludes-zero", "bad-time-domain", "bad-title", "bad-legend",
   "sankey-bad-value", "bad-axes", "bad-axis-color", "bad-axis-title-at", "bad-mark-color", "funnel-bad-value",
-  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale", "bad-region-fill", "bad-shades",
+  "funnel-missing-value", "bad-stroke-width", "bad-tick-format", "bad-text-scale", "bad-region-fill", "bad-shades", "bad-cell-ramp",
 ] as const;
 export type GlyphChartValidationRuleId = typeof GLYPH_CHART_VALIDATION_RULES[number];
 export interface GlyphChartValidationError extends Error { readonly code: GlyphChartValidationRuleId }
@@ -267,14 +267,20 @@ export function validateGlyphChartRegionFill(regionFill: unknown): void {
   if (!(REGION_FILLS as readonly unknown[]).includes(regionFill)) chartError("bad-region-fill", `regionFill must be one of ${REGION_FILLS.join(", ")}, got ${JSON.stringify(regionFill)}.`);
 }
 /**
- * A fill palette replaces the charset's own series glyphs cell for cell, so
- * each entry is one visible character; a space would read as no fill at all,
- * and `ascii` stays 7-bit.
+ * A fill palette or heatmap ramp replaces the charset's own glyphs cell for
+ * cell, so each entry is one visible character; a space would read as no
+ * fill at all, and `ascii` stays 7-bit.
  */
+function validateGlyphList(name: "shades" | "cellRamp", code: "bad-shades" | "bad-cell-ramp", glyphs: unknown, charset: GlyphChartCharset): void {
+  if (glyphs === undefined) return;
+  const ok = Array.isArray(glyphs) && glyphs.length > 0 && glyphs.every((g) => typeof g === "string" && [...g].length === 1 && /^\S$/u.test(g) && (charset !== "ascii" || /^[\x21-\x7e]$/.test(g)));
+  if (!ok) chartError(code, `${name} must be a non-empty array of single visible characters${charset === "ascii" ? " (7-bit ASCII for the ascii charset)" : ""}, got ${JSON.stringify(glyphs)}.`);
+}
 export function validateGlyphChartShades(shades: unknown, charset: GlyphChartCharset): void {
-  if (shades === undefined) return;
-  const ok = Array.isArray(shades) && shades.length > 0 && shades.every((g) => typeof g === "string" && [...g].length === 1 && /^\S$/u.test(g) && (charset !== "ascii" || /^[\x21-\x7e]$/.test(g)));
-  if (!ok) chartError("bad-shades", `shades must be a non-empty array of single visible characters${charset === "ascii" ? " (7-bit ASCII for the ascii charset)" : ""}, got ${JSON.stringify(shades)}.`);
+  validateGlyphList("shades", "bad-shades", shades, charset);
+}
+export function validateGlyphChartCellRamp(cellRamp: unknown, charset: GlyphChartCharset): void {
+  validateGlyphList("cellRamp", "bad-cell-ramp", cellRamp, charset);
 }
 const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "empty-marks": "Add at least one mark to spec.marks, e.g. glyphChartLine([...]).",
@@ -306,6 +312,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-stroke-width": "Set options.strokeWidth to 1, 2, or 3.",
   "bad-tick-format": "Use a known preset name, { preset, ...params } with valid params, or (TS/JS only) a callback (value, index, ticks) => string.",
   "bad-text-scale": "Set textScale to a positive integer (1 or omitted is the default).",
+  "bad-cell-ramp": "Set cellRamp to an array of single visible characters, lightest first, e.g. [\"░\", \"▒\", \"▓\", \"█\"], or omit it.",
   "bad-shades": "Set shades to an array of single visible characters, e.g. [\"#\", \"=\", \"+\", \":\", \".\"], or omit it.",
   "bad-region-fill": `Set regionFill to one of ${REGION_FILLS.join("/")}, or omit it for auto.`,
 };

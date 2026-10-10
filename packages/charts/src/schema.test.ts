@@ -30,7 +30,8 @@ describe("schema and runtime enforce one contract (review 10/11)", () => {
     if (options) {
       // Shared shape for every render-OPTION-level rejection (never a spec
       // field): `bad-size` (width/height), `bad-text-scale` (textScale),
-      // `bad-region-fill` (regionFill) and `bad-shades` (shades) all reject through this same schema —
+      // `bad-region-fill` (regionFill), `bad-shades` (shades) and
+      // `bad-cell-ramp` (cellRamp) all reject through this same schema —
       // not `glyphChartJsonSchema()` itself, which describes
       // `GlyphChartSpec`, not `GlyphChartRenderOptions`.
       const optionsSchema = ajv.compile({
@@ -41,6 +42,7 @@ describe("schema and runtime enforce one contract (review 10/11)", () => {
           textScale: { type: "integer", minimum: 1 },
           regionFill: { enum: [...REGION_FILLS] },
           shades: { type: "array", minItems: 1, items: { type: "string", pattern: "^\\S$" } },
+          cellRamp: { type: "array", minItems: 1, items: { type: "string", pattern: "^\\S$" } },
         },
       });
       expect(optionsSchema(options)).toBe(false);

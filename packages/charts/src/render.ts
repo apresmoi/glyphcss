@@ -47,6 +47,7 @@
 import {
   createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor,
 } from "glyphcss";
+import { heatmapFit, isHeatmap } from "./heatmap";
 import { layoutGlyphChart, resolveGlyphChartLegendOption, seriesNames } from "./layout";
 import { chartLedgerEntryFromCanvasMessage, ledgerRegionFillSolidRefused } from "./ledger";
 import { paintGlyphChart } from "./paint";
@@ -55,7 +56,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
 import { normalizeGlyphChartInput } from "./spec";
 import {
-  validateGlyphChartLegendOption, validateGlyphChartRegionFill, validateGlyphChartShades, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
+  validateGlyphChartLegendOption, validateGlyphChartRegionFill, validateGlyphChartShades, validateGlyphChartCellRamp, validateGlyphChartRenderSize, validateGlyphChartSpec, validateGlyphChartTextScale,
 } from "./validate";
 import type {
   GlyphChartBuild,
@@ -188,15 +189,31 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   validateGlyphChartTextScale(textScale);
   validateGlyphChartRegionFill(options.regionFill);
   validateGlyphChartShades(options.shades, charset);
+  validateGlyphChartCellRamp(options.cellRamp, charset);
 
   const marks = resolveGlyphChartSpec(spec);
   const scales = resolveGlyphChartScales(marks, spec.scales);
 
   const ledger: GlyphChartLedgerEntry[] = [];
   const legendOption = resolveGlyphChartLegendOption(spec.legend, options.legend);
-  const layout = layoutGlyphChart(spec, marks, scales, width, height, detail, ledger, charset, legendOption, textScale);
+  // A heatmap lays out twice: once at the full budget to learn how much
+  // plot it gets, then shrunk to the grid its square cells need.
+  const heatmap = isHeatmap(marks) && scales.x.type === "band" && scales.y.type === "band";
+  let cols = width, rows = height;
+  let layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, heatmap ? [] : ledger, charset, legendOption, textScale);
+  if (heatmap) {
+    // Chrome rows and the y gutter can shift once the budget shrinks (an
+    // auto axis title needs 20 rows), so the fit repeats until it settles.
+    for (let pass = 0; pass < 3; pass++) {
+      const fit = heatmapFit(layout, scales);
+      if (!fit || (fit.cols === cols && fit.rows === rows)) break;
+      cols = fit.cols; rows = fit.rows;
+      layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, [], charset, legendOption, textScale);
+    }
+    layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, ledger, charset, legendOption, textScale);
+  }
 
-  const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
+  const canvas = createGlyphCanvas({ cols, rows, tier: charset, cellAspect });
   // The ANSI encoder's non-empty env flags also determine whether colour
   // can carry series identity; suppressed colour needs monochrome styles.
   const colorEnabled = glyphChartColorEnabled(color, options.env);
@@ -207,11 +224,11 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   // only the colour-carrying exits read; its ledger is the same paint's and
   // is discarded. A repaint, not a post-paint glyph swap: swapping needs a
   // per-cell record of which region painted each cell and what overwrote it.
-  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale, shades: options.shades }, ledger);
+  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale, shades: options.shades, cellRamp: options.cellRamp }, ledger);
   let colorCanvas = canvas;
   if (regionFill.fill === "solid") {
-    colorCanvas = createGlyphCanvas({ cols: width, rows: height, tier: charset, cellAspect });
-    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid", shades: options.shades }, []);
+    colorCanvas = createGlyphCanvas({ cols, rows, tier: charset, cellAspect });
+    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid", shades: options.shades, cellRamp: options.cellRamp }, []);
   } else if (options.regionFill === "solid" && regionFill.reason !== "no-region-mark") {
     ledger.push(ledgerRegionFillSolidRefused({ reason: regionFill.reason, explanation: regionFill.message, ...(regionFill.colliding ? { colliding: regionFill.colliding } : {}) }));
   }

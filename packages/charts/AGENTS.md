@@ -23,6 +23,7 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Effects (`composeGlyphChartEffects`, and 3D effect layers) are preview-only: Copy, CLI and JSON exits never see a composed build.
 - A bar, area or rect domain includes zero; explicit domains excluding it reject. Log domains keep one sign.
 - Sankey/funnel are non-cartesian like `arc`: no x/y scales, no transforms (`bad-options`).
+- A `cell`-only chart on two band scales is a heatmap: flush bands tiled by integer partition, `2k`×`k` cells, and the canvas shrinks to the grid (`heatmap.ts`). An unsigned heatmap's ramp has no blank level and a range key; a signed one keeps blank for exactly zero.
 - 3D: the axis-triad origin is the fixed data-min corner; axis lines are real mesh geometry (a fine sub-cell line), never stamped glyphs; `p.texture` uses the namespaced object sampler key; the static exit must round-trip `resolved.camera`.
 - Public API changes land in `README.md` in the same PR.
 
@@ -46,6 +47,7 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Don't narrow a `RangeSlider` thumb's native `min`/`max`; caps apply only on commit, or thumbs and fill disagree.
 - Don't prove byte-identity against this branch's defaults; pin fixtures rendered from the parent commit.
 - Don't assert a painted cell is merely non-blank; an axis glyph satisfies that. Assert the expected glyph.
+- Don't give an unsigned heatmap ramp a blank level; a blank cell reads as missing data.
 
 ## Key gates
 
