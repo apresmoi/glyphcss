@@ -43,10 +43,33 @@ describe("snake layout", () => {
     expect(drop[0]!.anchor.x).toBe(drop[1]!.anchor.x);
   });
 
+  it("slides a crowded hanging row left, keeps a branch's own chain after it, and fits a fan-out in chat", async () => {
+    // Mutation: hang each branch only straight under its anchor (no pull-back
+    // from the right edge), or re-anchor followers to the top anchor -> red.
+    const arch = `flowchart LR
+  client[Browser] --> gw[API gateway]
+  gw --> auth[Auth service]
+  auth -->|ok| orders[Orders]
+  auth -->|ok| pay[Payments]
+  auth -->|ok| inv[Inventory]
+  auth -->|denied| err[401 page]
+  orders --> db[(Postgres)]
+  pay --> db
+  inv --> db
+  pay --> stripe[Stripe API]`;
+    const r = await renderGlyphDiagram(arch, chat);
+    expect(r.pages).toHaveLength(1);
+    expect(r.report.ledger.map((e) => e.code)).toContain("layout-wrapped");
+    for (const word of ["Browser", "gateway", "service", "Payments", "Stripe", "Inventory", "Postgres", "denied"]) expect(r.text, word).toContain(word);
+    const at = (id: string) => r.layout.nodes.find((n) => n.id === id)!;
+    expect(at("stripe").y0).toBe(at("pay").y0);
+    expect(at("stripe").x0).toBeGreaterThan(at("pay").x1);
+  });
+
   it("declines graphs it cannot wrap: groups, or a main path under three nodes", () => {
     const grouped = measureGlyphGraph(glyphGraphFromMermaid("flowchart LR\n  subgraph g [G]\n    a --> b\n  end\n  b --> c --> d"), { direction: "LR" });
-    expect(glyphDiagramSnakeLayout(grouped, { width: 20, gap: 4, margin: 1 })).toBeUndefined();
+    expect(glyphDiagramSnakeLayout(grouped, { width: 20, gap: 4, margin: 1, branchGap: 3, rowGap: 3 })).toBeUndefined();
     const short = measureGlyphGraph(glyphGraphFromMermaid("flowchart LR\n  a --> b"), { direction: "LR" });
-    expect(glyphDiagramSnakeLayout(short, { width: 20, gap: 4, margin: 1 })).toBeUndefined();
+    expect(glyphDiagramSnakeLayout(short, { width: 20, gap: 4, margin: 1, branchGap: 3, rowGap: 3 })).toBeUndefined();
   });
 });

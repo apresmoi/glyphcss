@@ -117,8 +117,8 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
   if (directions.includes("LR")) {
     for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= Math.max(1, Math.min(longestWord, width - 4)); wrap--) {
       const lr = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: wrap });
-      for (const [, rs] of compact) {
-        const raw = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin });
+      for (const [, rs] of compact) for (let rowGap = 3; rowGap <= 3 + graph.edges.length; rowGap++) for (let branchGap = 3; branchGap <= rowGap; branchGap++) {
+        const raw = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap, rowGap });
         if (!raw || raw.width > width || raw.height > height || !glyphDiagramHasRoutingClearance(raw)) continue;
         const result = attempt({ raw, adjusted: true, nodesep, ranksep: rs, margin }, width, height);
         if (result.okay) return result;

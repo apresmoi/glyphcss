@@ -2,12 +2,13 @@ import type { GlyphCanvasDirection } from "glyphcss";
 import { GLYPH_DIAGRAM_DIRECTIONS, backEdgeIds, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort } from "./pipeline";
 import { ledgerLayoutWrapped } from "./ledger";
 
-/** Rows between a row band's bottom and the next row's top: the wrap line, then its drop. */
-const SNAKE_ROW_GAP = 3;
-/** Rows between a main-path row and the branches hanging under it, room for a labelled drop. */
-const SNAKE_BRANCH_GAP = 3;
-
-export interface GlyphDiagramSnakeOptions { readonly width: number; readonly gap: number; readonly margin: number }
+/**
+ * `gap`: columns between neighbours. `branchGap`: rows between a main-path
+ * row and the branches hanging under it. `rowGap`: rows between one row's
+ * lowest box and the next row. The fitter searches the two row gaps: each
+ * edge turning through a gap needs a row of its own.
+ */
+export interface GlyphDiagramSnakeOptions { readonly width: number; readonly gap: number; readonly margin: number; readonly branchGap: number; readonly rowGap: number }
 
 /**
  * A left-to-right graph too wide for its budget, laid out like text: the
@@ -20,7 +21,7 @@ export interface GlyphDiagramSnakeOptions { readonly width: number; readonly gap
  */
 export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, options: GlyphDiagramSnakeOptions): GlyphDiagramLayout | undefined {
   if (measured.direction !== "LR" || measured.groups.length > 0) return undefined;
-  const { width, gap, margin } = options;
+  const { width, gap, margin, branchGap, rowGap } = options;
   const order = new Map(measured.nodes.map((node, i) => [node.id, i]));
   const back = backEdgeIds(measured.nodes, measured.edges);
   const forward = measured.edges.filter((edge) => edge.from !== edge.to && !back.has(edge.id));
@@ -59,7 +60,7 @@ export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, opt
       const touching = [
         ...measured.edges.filter((e) => e.to === node.id).map((e) => e.from),
         ...measured.edges.filter((e) => e.from === node.id).map((e) => e.to),
-      ].map((id) => onSpine.has(id) ? id : anchor.get(id)).filter((id): id is string => id !== undefined);
+      ].filter((id) => onSpine.has(id) || anchor.has(id));
       if (touching.length > 0) { anchor.set(node.id, touching[0]!); changed = true; }
     }
   }
@@ -69,7 +70,7 @@ export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, opt
   const pitch = (from: string, to: string) => Math.max(gap, label(from, to) + 4);
   let sizes = new Map(measured.nodes.map((node) => [node.id, { width: node.width, height: node.height }]));
   for (let pass = 0; pass < 4; pass++) {
-    const placed = place(spine, anchor, measured.nodes, sizes, width, margin, gap, pitch);
+    const placed = place(spine, anchor, measured.nodes, sizes, { width, margin, gap, branchGap, rowGap }, pitch);
     if (!placed) return undefined;
     const sides = portSides(measured, placed.rects);
     const grown = growForPorts(sizes, sides);
@@ -91,7 +92,7 @@ type Rect = { x0: number; y0: number; x1: number; y1: number };
 type Size = { width: number; height: number };
 
 function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, nodes: readonly GlyphDiagramMeasuredNode[], sizes: ReadonlyMap<string, Size>,
-  width: number, margin: number, gap: number, pitch: (from: string, to: string) => number): { rects: Map<string, Rect>; rows: number } | undefined {
+  { width, margin, gap, branchGap, rowGap }: GlyphDiagramSnakeOptions, pitch: (from: string, to: string) => number): { rects: Map<string, Rect>; rows: number } | undefined {
   const right = width - margin;
   const rows: string[][] = [[]];
   let cursor = margin;
@@ -117,23 +118,36 @@ function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, no
     let bottom = top + rowHeight - 1;
     const branches = nodes.filter((node) => anchor.has(node.id) && row.includes(rootOf(node.id, anchor)));
     if (branches.length > 0) {
-      const bandTop = bottom + 1 + SNAKE_BRANCH_GAP;
+      const bandTop = bottom + 1 + branchGap;
       const bandHeight = Math.max(...branches.map((node) => sizes.get(node.id)!.height));
-      let bx = margin;
-      const sorted = [...branches].sort((a, b) => rects.get(rootOf(a.id, anchor))!.x0 - rects.get(rootOf(b.id, anchor))!.x0);
-      for (const node of sorted) {
-        const { width: w, height: h } = sizes.get(node.id)!;
-        const home = rects.get(rootOf(node.id, anchor))!;
-        // Its top port straight under its anchor's bottom port (both centred
-        // the way `assignPorts` centres a lone port), so the drop has no jog.
-        const x0 = Math.max(bx, home.x0 + Math.floor((home.x1 - home.x0) / 2) - Math.floor((w - 1) / 2));
-        if (x0 + w > right) return undefined;
-        rects.set(node.id, { x0, y0: bandTop, x1: x0 + w - 1, y1: bandTop + h - 1 });
-        bx = x0 + w + gap;
+      // Direct branches in their anchors' order, each followed by the nodes
+      // hanging off it, so a branch's own chain reads left to right.
+      const band: string[] = [];
+      const follow = (id: string) => { band.push(id); for (const child of branches) if (anchor.get(child.id) === id) follow(child.id); };
+      for (const node of [...branches].filter((n) => row.includes(anchor.get(n.id)!)).sort((a, b) => rects.get(anchor.get(a.id)!)!.x0 - rects.get(anchor.get(b.id)!)!.x0)) follow(node.id);
+      // Each direct branch wants its top port straight under its anchor's
+      // bottom port (both centred the way `assignPorts` centres a lone port);
+      // a follower wants to sit right after its parent. Pack left to right
+      // from those wishes, then pull back from the right edge, so a crowded
+      // band slides left rather than giving up.
+      const xs: number[] = [];
+      for (const [i, id] of band.entries()) {
+        const w = sizes.get(id)!.width, home = rects.get(anchor.get(id)!);
+        const wish = home ? home.x0 + Math.floor((home.x1 - home.x0) / 2) - Math.floor((w - 1) / 2) : margin;
+        xs.push(Math.max(i === 0 ? margin : xs[i - 1]! + sizes.get(band[i - 1]!)!.width + gap, wish));
+      }
+      for (let i = band.length - 1; i >= 0; i--) {
+        const limit = i === band.length - 1 ? right : xs[i + 1]! - gap;
+        xs[i] = Math.min(xs[i]!, limit - sizes.get(band[i]!)!.width);
+      }
+      if (xs[0]! < margin) return undefined;
+      for (const [i, id] of band.entries()) {
+        const { width: w, height: h } = sizes.get(id)!;
+        rects.set(id, { x0: xs[i]!, y0: bandTop, x1: xs[i]! + w - 1, y1: bandTop + h - 1 });
       }
       bottom = bandTop + bandHeight - 1;
     }
-    top = bottom + 1 + SNAKE_ROW_GAP;
+    top = bottom + 1 + rowGap;
   }
   return { rects, rows: rows.length };
 }
