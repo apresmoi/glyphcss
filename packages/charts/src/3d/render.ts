@@ -514,9 +514,11 @@ function fitStaticCamera(
   interface ColPoint { readonly col1: number; readonly widthRight: number; readonly widthLeft: number; }
   interface RowPoint { readonly row1: number; readonly pad: number; }
   const colPoints: ColPoint[] = [], rowPoints: RowPoint[] = [];
-  const { min, max } = object.bounds;
-  for (const x of [min[0], max[0]]) for (const y of [min[1], max[1]]) for (const z of [min[2], max[2]]) {
-    const [col1, row1] = reference.project([x, y, z], cols, rows, sceneCellAspect);
+  // Fit what is DRAWN, never the bounds box: a surface leaves most of its
+  // box's top corners empty, and fitting those corners left a blank band
+  // above the plot as tall as a third of the frame.
+  for (const mesh of object.meshes) for (const polygon of mesh.polygons) for (const vertex of polygon.vertices) {
+    const [col1, row1] = reference.project(vertex, cols, rows, sceneCellAspect);
     colPoints.push({ col1, widthRight: 0, widthLeft: 0 });
     rowPoints.push({ row1, pad: 0 });
   }
@@ -541,51 +543,49 @@ function fitStaticCamera(
     rowPoints.push({ row1, pad });
   }
 
-  let zUpper = Infinity;
-  const EPS = 1e-9;
-  for (const p of colPoints) {
-    const offset = p.col1 - centerCol;
-    if (offset > EPS) zUpper = Math.min(zUpper, (cols - FIT_MARGIN_COLS - p.widthRight - centerCol) / offset);
-    else if (offset < -EPS) zUpper = Math.min(zUpper, (FIT_MARGIN_COLS + p.widthLeft - centerCol) / offset);
-  }
-  for (const p of rowPoints) {
-    const offset = p.row1 - centerRow;
-    if (offset > EPS) zUpper = Math.min(zUpper, (rows - marginRowBottom - p.pad - centerRow) / offset);
-    else if (offset < -EPS) zUpper = Math.min(zUpper, (marginRowTop + p.pad - centerRow) / offset);
-  }
-  if (!Number.isFinite(zUpper) || zUpper <= 0) zUpper = 1;
-  const finalZoom = zUpper * FIT_ZOOM_SAFETY;
+  // Solve for the zoom at which the content's own SPAN fills the frame on
+  // the tighter axis, then centre that span. Pinning the centroid to the
+  // frame centre first let the longer side alone cap the zoom, and the
+  // re-centred picture left the other side's slack as empty rows.
+  const span = (points: readonly { readonly at: number; readonly lo: number; readonly hi: number }[], zoom: number) => {
+    let lo = Infinity, hi = -Infinity;
+    for (const p of points) { lo = Math.min(lo, p.at * zoom - p.lo); hi = Math.max(hi, p.at * zoom + p.hi); }
+    return { lo, hi };
+  };
+  const colSpan = colPoints.map((p) => ({ at: p.col1 - centerCol, lo: p.widthLeft, hi: p.widthRight }));
+  const rowSpan = rowPoints.map((p) => ({ at: p.row1 - centerRow, lo: p.pad, hi: p.pad }));
+  const availRows = Math.max(1, rows - marginRowTop - marginRowBottom);
+  const fits = (zoom: number) => {
+    const c = span(colSpan, zoom), r = span(rowSpan, zoom);
+    return c.hi - c.lo <= availCols - 1 && r.hi - r.lo <= availRows - 1;
+  };
+  let zLo = 0, zHi = 1;
+  while (fits(zHi) && zHi < 1e6) zHi *= 2;
+  for (let i = 0; i < 50; i++) { const mid = (zLo + zHi) / 2; if (fits(mid)) zLo = mid; else zHi = mid; }
+  const finalZoom = (zLo > 0 ? zLo : 1) * FIT_ZOOM_SAFETY;
 
-  let minCol = Infinity, maxCol = -Infinity, minRow = Infinity, maxRow = -Infinity;
-  for (const p of colPoints) {
-    const c = centerCol + (p.col1 - centerCol) * finalZoom;
-    if (c - p.widthLeft < minCol) minCol = c - p.widthLeft;
-    if (c + p.widthRight > maxCol) maxCol = c + p.widthRight;
-  }
-  for (const p of rowPoints) {
-    const r = centerRow + (p.row1 - centerRow) * finalZoom;
-    if (r - p.pad < minRow) minRow = r - p.pad;
-    if (r + p.pad > maxRow) maxRow = r + p.pad;
-  }
-  const dCol = (minCol + maxCol) / 2 - centerCol, dRow = (minRow + maxRow) / 2 - centerRow;
+  const c = span(colSpan, finalZoom), r = span(rowSpan, finalZoom);
+  const dCol = centerCol + (c.lo + c.hi) / 2 - (FIT_MARGIN_COLS + (cols - FIT_MARGIN_COLS)) / 2;
+  const dRow = centerRow + (r.lo + r.hi) / 2 - (marginRowTop + (rows - marginRowBottom)) / 2;
 
-  // C2 fix round 8 (coordinator review of round 7): round 7's own EXTRA
-  // column shift (`ORIGIN_COLUMN_TARGET_FRACTION`) is REMOVED. It treated
-  // "off-centre corner" as a FRAMING problem to solve by shoving the whole
-  // picture sideways — which left ~55% of the frame empty on one side
-  // (P1-B) and did nothing about WHICH box corner the camera even put
-  // there (the origin corner was still the NEAREST/front corner at
-  // `rotY: 228`, not a SIDE one — P1-A, `camera.ts`'s own updated doc).
-  // The actual fix is the YAW ITSELF (`GLYPH_CHART_3D_DEFAULT_CAMERA`):
-  // chosen so the origin corner is the box's own LEFTMOST silhouette
-  // vertex, at which point plain symmetric bbox-centering (below,
-  // unchanged since before round 7) already puts it near the frame's own
-  // left side — because the corner is no longer at the box's own
-  // symmetric middle, centering the WHOLE content naturally leaves it
-  // off-centre. No corner-specific shift is needed or applied any more.
   const center: [number, number] = [0.5 - dCol / cols, 0.5 - dRow / rows];
 
   return { camera: makeCamera(finalZoom, center), zoom: finalZoom, center, unfittable };
+}
+
+/**
+ * The static frame's own label-aware fit, for a LIVE scene mounting a chart
+ * object: the zoom at which the object and every tick and title label just
+ * fill a `cols` x `rows` viewport (`object` is that mark's own `glyphChartObject`), and the projection `center` that centres
+ * them. Set `camera.target` to `target`, `camera.zoom` and `camera.center`.
+ */
+export function glyphChart3dFitMarkCamera(
+  mark: GlyphChart3dAxisTriadSpec,
+  object: GlyphSceneObject,
+  options: { readonly rotX?: number; readonly rotY?: number; readonly mat?: readonly number[]; readonly cols: number; readonly rows: number; readonly sceneCellAspect: number },
+): { readonly target: Vec3; readonly zoom: number; readonly center: readonly [number, number] } {
+  const fit = fitStaticCamera(mark, object, { rotX: options.rotX, rotY: options.rotY, mat: options.mat }, options.cols, options.rows, options.sceneCellAspect, false);
+  return { target: objectBoundsCenter(object.bounds), zoom: fit.zoom, center: fit.center };
 }
 
 /**

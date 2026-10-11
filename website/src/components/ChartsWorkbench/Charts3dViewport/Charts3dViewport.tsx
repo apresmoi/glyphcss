@@ -14,7 +14,7 @@
 import type { GlyphChartCharset } from "@glyphcss/charts";
 import {
   GLYPH_CHART_3D_DEFAULT_CAMERA,
-  glyphChart3dFitCamera,
+  glyphChart3dFitMarkCamera,
   glyphChartObject,
   type GlyphChart3dMark,
 } from "@glyphcss/charts/3d";
@@ -129,6 +129,10 @@ export function Charts3dViewport({
 }) {
   const hostRef = viewportRef;
   const onCameraChangeRef = useRef(onCameraChange);
+  // The resize and reset handlers re-fit to the CURRENT mark's own labels.
+  const markRef = useRef(mark);
+  markRef.current = mark;
+  const mountedObjectRef = useRef<GlyphSceneObject | null>(null);
   onCameraChangeRef.current = onCameraChange;
   // Latest effect id/target, read inside `applyEffect` without being part of
   // any effect's own dependency array — mirrors `Diagrams3DViewport.tsx`'s
@@ -315,12 +319,12 @@ export function Charts3dViewport({
       return;
     }
     objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
+    mountedObjectRef.current = object;
     const opts = scene.getOptions();
-    const fit = glyphChart3dFitCamera({
-      bounds: object.bounds,
+    const fit = glyphChart3dFitMarkCamera(markRef.current, object, {
       rotX: camera.rotX,
       rotY: camera.rotY,
-      ...(camera.useMat && camera.mat ? { mat: [...camera.mat], useMat: true } : {}),
+      ...(camera.useMat && camera.mat ? { mat: camera.mat } : {}),
       cols: opts.cols ?? SCENE_DEFAULT_COLS,
       rows: opts.rows ?? SCENE_DEFAULT_ROWS,
       sceneCellAspect: opts.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
@@ -337,6 +341,7 @@ export function Charts3dViewport({
         ? objectBoundsCenter(object.bounds)
         : fit.target;
     cam.zoom = camera.zoom ?? fit.zoom;
+    cam.center = camera.zoom === undefined ? [fit.center[0], fit.center[1]] : [0.5, 0.5];
     cameraObjRef.current = cam;
     sceneRef.current = scene;
     objectHandleRef.current = scene.addObject(object);
@@ -414,8 +419,7 @@ export function Charts3dViewport({
           return;
         }
         const o = scene.getOptions();
-        const refit = glyphChart3dFitCamera({
-          bounds,
+        const refit = glyphChart3dFitMarkCamera(markRef.current, mountedObjectRef.current!, {
           rotX: cam.rotX,
           rotY: cam.rotY,
           cols: o.cols ?? SCENE_DEFAULT_COLS,
@@ -424,6 +428,7 @@ export function Charts3dViewport({
         });
         cam.target = refit.target;
         cam.zoom = refit.zoom;
+        cam.center = [refit.center[0], refit.center[1]];
         orbitControls.update({ zoomRange: charts3dZoomRange(cam.zoom) });
         scene.rerender();
       });
@@ -530,6 +535,7 @@ export function Charts3dViewport({
         return;
       }
       objectBoundsRef.current = object.bounds as { min: Vec3; max: Vec3 };
+      mountedObjectRef.current = object;
 
       if (object.id === mountedObjectIdRef.current) {
         handle.update(object);
@@ -541,19 +547,20 @@ export function Charts3dViewport({
         if (cam) {
           if (camera.zoom !== undefined) {
             cam.target = objectBoundsCenter(object.bounds);
+            cam.center = [0.5, 0.5];
           } else {
             const o = scene.getOptions();
-            const fit = glyphChart3dFitCamera({
-              bounds: object.bounds,
+            const fit = glyphChart3dFitMarkCamera(markRef.current, object, {
               rotX: cam.rotX,
               rotY: cam.rotY,
-              ...(cam.useMat && cam.mat ? { mat: [...cam.mat], useMat: true } : {}),
+              ...(cam.useMat && cam.mat ? { mat: cam.mat } : {}),
               cols: o.cols ?? SCENE_DEFAULT_COLS,
               rows: o.rows ?? SCENE_DEFAULT_ROWS,
               sceneCellAspect: o.cellAspect ?? SCENE_DEFAULT_CELL_ASPECT,
             });
             cam.target = fit.target;
             cam.zoom = fit.zoom;
+            cam.center = [fit.center[0], fit.center[1]];
           }
           // A type swap re-fits `cam.zoom` to a wholly different object's own
           // bounds (a sphere and a bar chart have very different extents) —
@@ -632,8 +639,7 @@ export function Charts3dViewport({
         if (!scene || !cam || !bounds) return;
         const o = scene.getOptions();
         const { rotX, rotY } = GLYPH_CHART_3D_DEFAULT_CAMERA;
-        const fit = glyphChart3dFitCamera({
-          bounds,
+        const fit = glyphChart3dFitMarkCamera(markRef.current, mountedObjectRef.current!, {
           rotX,
           rotY,
           cols: o.cols ?? SCENE_DEFAULT_COLS,
@@ -655,6 +661,7 @@ export function Charts3dViewport({
         cam.rotY = rotY;
         cam.target = fit.target;
         cam.zoom = fit.zoom;
+        cam.center = [fit.center[0], fit.center[1]];
         orbitControlsRef.current?.update({ zoomRange: charts3dZoomRange(cam.zoom) });
         scene.rerender();
         onCameraChangeRef.current({ rotX, rotY, zoom: undefined });

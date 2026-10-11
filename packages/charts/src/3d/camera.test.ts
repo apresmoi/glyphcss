@@ -9,6 +9,12 @@ function flatGrid(rows: number, cols: number, value = 0): number[][] {
   return Array.from({ length: rows }, () => Array.from({ length: cols }, () => value));
 }
 
+describe("GLYPH_CHART_3D_DEFAULT_CAMERA", () => {
+  it("is the low, origin-on-the-left view picked by eye on Maunga Whau", () => {
+    expect(GLYPH_CHART_3D_DEFAULT_CAMERA).toEqual({ rotX: 69, rotY: 318 });
+  });
+});
+
 describe("glyphChart3dFitCamera", () => {
   const bounds: GlyphChart3dBounds = { min: [0, 0, 0], max: [1, 1, 0.6] };
 
@@ -69,7 +75,8 @@ describe("glyphChart3dFitCamera", () => {
     // Real geometry, not a lonely tick: enough painted cells to be a surface.
     const nonBlank = text.replace(/\s/g, "").length;
     expect(nonBlank).toBeGreaterThan(20);
-    for (const title of ["x", "y", "z"]) expect(text.includes(title)).toBe(true);
+    // The far y title sits behind the peak at the default's low eye.
+    for (const title of ["x", "z"]) expect(text.includes(title)).toBe(true);
 
     scene.destroy();
   });

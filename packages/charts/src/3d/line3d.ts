@@ -64,6 +64,7 @@ export function glyphChartLine3d(data: GlyphChart3dLineInput, options: GlyphChar
     return {
       name: s.name ?? `series ${si + 1}`,
       color: s.color ?? GLYPH_CHART_3D_SERIES_PALETTE[si % GLYPH_CHART_3D_SERIES_PALETTE.length]!,
+      colorAlongPath: inputSeries.length === 1 && s.color === undefined,
       points,
     };
   });
