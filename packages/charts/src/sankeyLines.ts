@@ -36,6 +36,10 @@ const ASCII_DASHED: LineGlyphs = { h: ".", v: ":", leftDown: "+", leftUp: "+", u
 /** A flow at least this share of the largest flow draws heavy; under the lower share, dashed. */
 const HEAVY_SHARE = 0.55;
 const DASHED_BELOW_SHARE = 0.25;
+/** Columns a flow's own run needs between its merges: its value plus a bend. */
+const GLYPH_CHART_SANKEY_MIN_RUN = 8;
+/** A share's tree spans at most this fraction (1 / n) of its gap. */
+const GLYPH_CHART_SANKEY_TREE_GAP_SHARE = 4;
 
 function lineGlyphs(tier: GlyphCanvasTierName, value: number, max: number): LineGlyphs {
   const ascii = tier === "ascii";
@@ -131,6 +135,68 @@ export function paintSankeyLines(canvas: GlyphCanvas, plot: GlyphChartPlotRect, 
   const segmentsByGap = new Map<number, GapSegment[]>();
   const midRow = (r: readonly [number, number]) => Math.floor((r[0] + r[1]) / 2);
 
+  // How a share gathers into its line, chosen per gap between two columns:
+  // with room, a tree that folds the outer rows inward one stage at a time
+  // (2 columns a stage, else 1), no wider than a quarter of the gap, so a
+  // tall share folds several rows per stage; else a single bracket. Every
+  // flow touching the gap must fit its trees plus a run for its value.
+  const halfHeight = (r: readonly [number, number]) => Math.max(midRow(r) - r[0], r[1] - midRow(r));
+  const stageWidth = new Map<number, { readonly w: number; readonly stages: number }>();
+  const stagesFor = (merge: { readonly w: number; readonly stages: number }, d: number) => Math.min(d, merge.stages);
+  const treeWidth = (merge: { readonly w: number; readonly stages: number }, d: number) => merge.w === 0 ? 2 : d === 0 ? 1 : 1 + merge.w * stagesFor(merge, d) + 1;
+  for (let gap = 0; gap < last; gap++) {
+    const width = barX(gap + 1) - barX(gap) - 1;
+    const cap = Math.floor(width / GLYPH_CHART_SANKEY_TREE_GAP_SHARE);
+    const fits = (merge: { readonly w: number; readonly stages: number }) => merge.stages >= 1 && layout.bands.every((b) => {
+      const sc = columnOf.get(b.source), tc = b.targetRowRange && !b.folded ? columnOf.get(b.target) : undefined;
+      const fromHere = sc === gap, intoNext = tc === gap + 1;
+      if (!fromHere && !intoNext) return true;
+      const need = (fromHere ? treeWidth(merge, halfHeight(b.sourceRowRange)) : 0) + (intoNext ? treeWidth(merge, halfHeight(b.targetRowRange!)) : 0) + GLYPH_CHART_SANKEY_MIN_RUN;
+      return need <= width;
+    });
+    const options = [2, 1].map((w) => ({ w, stages: Math.floor((cap - 2) / w) }));
+    stageWidth.set(gap, options.find(fits) ?? { w: 0, stages: 0 });
+  }
+  // Cells a share's tree or bracket owns, so no other flow's line runs through them.
+  const mergeOwner = new Map<number, FlowPath>();
+  const own = (x: number, y: number, path: FlowPath, glyph: string) => { mergeOwner.set(y * canvas.cols + x, path); text(x, y, glyph, path.color); };
+  /**
+   * Draws a share's merge off `bar` (`dir` +1 to the right of a source, -1
+   * to the left of a target); returns the column its line leaves from. In a
+   * tree, rows at distance `d` from the share's middle row fold at stage
+   * `ceil(d * stages / dmax)`: each stage's rows drop into the next row in,
+   * outermost stage first, until the middle row carries them all.
+   */
+  const drawMerge = (bar: number, r: readonly [number, number], dir: 1 | -1, merge: { readonly w: number; readonly stages: number }, path: FlowPath): number => {
+    const [r0, r1] = r, m = midRow(r), side = dir > 0 ? "source" : "target";
+    const stub = ascii ? "-" : "─";
+    if (merge.w === 0) {
+      for (let y = r0; y <= r1; y++) { own(bar + dir, y, path, stub); own(bar + 2 * dir, y, path, bracketGlyph(ascii, side, y, r0, r1, m)); }
+      return bar + 2 * dir;
+    }
+    if (r0 === r1) { own(bar + dir, m, path, stub); return bar + dir; }
+    const dmax = halfHeight(r), stages = stagesFor(merge, dmax);
+    const stageOf = (d: number) => Math.ceil((d * stages) / dmax);
+    const col = (stage: number) => bar + dir * (1 + merge.w * (stages - stage + 1));
+    const exists = (y: number) => y >= r0 && y <= r1;
+    for (let y = r0; y <= r1; y++) {
+      const d = Math.abs(y - m), above = y < m, out = above ? -1 : 1;
+      if (d === 0) {
+        for (let x = bar + dir; x !== col(1); x += dir) own(x, y, path, stub);
+        own(col(1), y, path, ascii ? "+" : exists(m - 1) && exists(m + 1) ? "┼" : exists(m - 1) ? "┴" : "┬");
+        continue;
+      }
+      const stage = stageOf(d), end = col(stage);
+      // The next row out joins this one here when it belongs to a later stage.
+      const joinAt = exists(y + out) && stageOf(d + 1) > stage ? col(stageOf(d + 1)) : undefined;
+      for (let x = bar + dir; x !== end; x += dir) own(x, y, path, x === joinAt ? (ascii ? "+" : above ? "┴" : "┬") : stub);
+      // The outermost row of its stage turns in; the others carry its drop on to the next row in.
+      const outermost = !exists(y + out) || stageOf(d + 1) !== stage;
+      own(end, y, path, ascii ? (outermost ? "+" : "|") : outermost ? (above ? (dir > 0 ? "╮" : "╭") : (dir > 0 ? "╯" : "╰")) : dir > 0 ? "┤" : "├");
+    }
+    return col(1);
+  };
+
   for (const band of layout.bands) {
     const [s0, s1] = band.sourceRowRange;
     if (s0 > s1) continue;
@@ -138,31 +204,24 @@ export function paintSankeyLines(canvas: GlyphCanvas, plot: GlyphChartPlotRect, 
     if (sourceCol === undefined) continue;
     const xs = barX(sourceCol);
     const path: FlowPath = { band, glyphs: lineGlyphs(tier, band.value, maxValue), color: colorOf.get(band.source) ?? null, runs: [], bends: [] };
-    // Stubs and the source bracket.
     const sm = midRow(band.sourceRowRange);
-    for (let y = s0; y <= s1; y++) {
-      text(xs + 1, y, ascii ? "-" : "─", path.color);
-      text(xs + 2, y, bracketGlyph(ascii, "source", y, s0, s1, sm), path.color);
-    }
+    const sourceJoint = drawMerge(xs, band.sourceRowRange, 1, stageWidth.get(sourceCol) ?? { w: 0, stages: 0 }, path);
     if (band.folded || !band.targetRowRange) {
       // Flows too small to draw end in one short line, named "(other)".
-      const end = Math.min(plot.x1, xs + 5);
-      path.runs.push({ row: sm, x0: xs + 3, x1: end });
+      const end = Math.min(plot.x1, sourceJoint + 3);
+      path.runs.push({ row: sm, x0: sourceJoint + 1, x1: end });
       paths.push(path);
       text(end + 2, sm, chartText("(other)", tier), path.color);
       continue;
     }
     const targetCol = columnOf.get(band.target);
     if (targetCol === undefined || targetCol <= sourceCol) continue;
-    const [t0, t1] = band.targetRowRange;
+
     const xt = barX(targetCol), tm = midRow(band.targetRowRange);
-    for (let y = t0; y <= t1; y++) {
-      text(xt - 1, y, ascii ? "-" : "─", path.color);
-      text(xt - 2, y, bracketGlyph(ascii, "target", y, t0, t1, tm), path.color);
-    }
+    const targetJoint = drawMerge(xt, band.targetRowRange, -1, stageWidth.get(targetCol - 1) ?? { w: 0, stages: 0 }, path);
     // Posts the line threads: the source bracket, each intermediate bar on a
     // free row, the target bracket.
-    let row = sm, x = xs + 3;
+    let row = sm, x = sourceJoint + 1;
     for (let col = sourceCol + 1; col <= targetCol; col++) {
       const isTarget = col === targetCol;
       const towards = isTarget ? tm : sm + ((tm - sm) * (col - sourceCol)) / (targetCol - sourceCol);
@@ -176,7 +235,7 @@ export function paintSankeyLines(canvas: GlyphCanvas, plot: GlyphChartPlotRect, 
         used.add(next);
         passRowsUsed.set(col, used);
       }
-      const gapEnd = isTarget ? xt - 3 : barX(col) - 1;
+      const gapEnd = isTarget ? targetJoint - 1 : barX(col) - 1;
       const list = segmentsByGap.get(col - 1) ?? [];
       list.push({ path, rowIn: row, rowOut: next, x0: x, x1: gapEnd });
       segmentsByGap.set(col - 1, list);
@@ -190,33 +249,56 @@ export function paintSankeyLines(canvas: GlyphCanvas, plot: GlyphChartPlotRect, 
   // Bend columns, one gap at a time: a bend may not share a horizontal row
   // span or a vertical column span with another flow, so lines only ever
   // meet at right-angle crossings.
-  for (const [gap, segments] of segmentsByGap) {
-    const lo = barX(gap) + 3, hi = barX(gap + 1) - 3;
+  const clearOfMerges = (x0: number, x1: number, y0: number, y1: number, path: FlowPath) => {
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const owner = mergeOwner.get(y * canvas.cols + x); if (owner && owner !== path) return false; }
+    return true;
+  };
+  // Bends prefer to sit near the target, one cell short of its merge so the
+  // corner never touches it, which keeps the run leaving the source long
+  // enough to carry the flow's value. Greedy placement depends on the order
+  // flows are placed in, so a few orders are tried and the one leaving the
+  // fewest flows without a clean column wins.
+  type Placement = { readonly runs: readonly [FlowPath, Run][]; readonly bends: readonly [FlowPath, Bend][]; readonly merged: number };
+  const place = (segments: readonly GapSegment[], order: (a: GapSegment, b: GapSegment) => number, nearTarget: boolean): Placement => {
     const horizontal = new Map<number, [number, number, FlowPath][]>();
     const vertical = new Map<number, [number, number][]>();
+    const runs: [FlowPath, Run][] = [], bends: [FlowPath, Bend][] = [];
     const takeRun = (row: number, x0: number, x1: number, path: FlowPath) => {
       horizontal.set(row, [...(horizontal.get(row) ?? []), [x0, x1, path]]);
-      if (x0 <= x1) path.runs.push({ row, x0, x1 });
+      if (x0 <= x1) runs.push([path, { row, x0, x1 }]);
     };
-    const runFree = (row: number, x0: number, x1: number, path: FlowPath) => !(horizontal.get(row) ?? []).some(([a, b, p]) => p !== path && overlaps(a, b, x0, x1));
+    const runFree = (row: number, x0: number, x1: number, path: FlowPath) => !(horizontal.get(row) ?? []).some(([a, b, p]) => p !== path && overlaps(a, b, x0, x1)) && clearOfMerges(Math.min(x0, x1), Math.max(x0, x1), row, row, path);
     for (const s of segments) if (s.rowIn === s.rowOut) takeRun(s.rowIn, s.x0, s.x1, s.path);
-    const bending = segments.filter((s) => s.rowIn !== s.rowOut).sort((a, b) => Math.abs(a.rowOut - a.rowIn) - Math.abs(b.rowOut - b.rowIn));
-    // Bends sit near the target, one cell short of its bracket so the corner
-    // never touches it, which keeps the run leaving the source long enough
-    // to carry the flow's value.
-    const candidates = hi > lo ? [...Array.from({ length: hi - lo }, (_, i) => hi - 1 - i), hi] : [Math.max(lo, hi)];
     let merged = 0;
-    for (const s of bending) {
+    for (const s of segments.filter((x) => x.rowIn !== x.rowOut).sort(order)) {
       const top = Math.min(s.rowIn, s.rowOut), bottom = Math.max(s.rowIn, s.rowOut);
-      const fits = (c: number) => runFree(s.rowIn, s.x0, c, s.path) && runFree(s.rowOut, c, s.x1, s.path) && !(vertical.get(c) ?? []).some(([a, b]) => overlaps(a, b, top, bottom));
+      const fits = (c: number) => runFree(s.rowIn, s.x0, c, s.path) && runFree(s.rowOut, c, s.x1, s.path) && !(vertical.get(c) ?? []).some(([a, b]) => overlaps(a, b, top, bottom)) && clearOfMerges(c, c, top, bottom, s.path);
+      const inner = s.x1 - 1 > s.x0 ? Array.from({ length: s.x1 - 1 - s.x0 }, (_, i) => s.x1 - 1 - i) : [];
+      const candidates = inner.length === 0 ? [Math.max(s.x0, s.x1)] : nearTarget ? [...inner, s.x1] : [...inner.reverse(), s.x1];
       let col = candidates.find(fits);
       if (col === undefined) { col = candidates[0]!; merged++; }
       takeRun(s.rowIn, s.x0, col - 1, s.path);
       takeRun(s.rowOut, col + 1, s.x1, s.path);
       vertical.set(col, [...(vertical.get(col) ?? []), [top, bottom]]);
-      s.path.bends.push({ col, fromRow: s.rowIn, toRow: s.rowOut });
+      bends.push([s.path, { col, fromRow: s.rowIn, toRow: s.rowOut }]);
     }
-    if (merged > 0) ledger.push(ledgerSankeyCrossingsMerged({ gapX0: lo, gapX1: hi, crossing: bending.length, lanes: Math.max(0, hi - lo + 1), bands: merged }));
+    return { runs, bends, merged };
+  };
+  const span = (s: GapSegment) => Math.abs(s.rowOut - s.rowIn);
+  const orders: readonly ((a: GapSegment, b: GapSegment) => number)[] = [(a, b) => span(a) - span(b), (a, b) => span(b) - span(a), (a, b) => a.rowIn - b.rowIn, (a, b) => b.rowIn - a.rowIn];
+  for (const [gap, segments] of segmentsByGap) {
+    let best: Placement | undefined;
+    for (const nearTarget of [true, false]) for (const order of orders) {
+      const candidate = place(segments, order, nearTarget);
+      if (!best || candidate.merged < best.merged) best = candidate;
+      if (best.merged === 0) break;
+    }
+    for (const [path, run] of best!.runs) path.runs.push(run);
+    for (const [path, bend] of best!.bends) path.bends.push(bend);
+    if (best!.merged > 0) {
+      const lo = barX(gap) + 3, hi = barX(gap + 1) - 3;
+      ledger.push(ledgerSankeyCrossingsMerged({ gapX0: lo, gapX1: hi, crossing: segments.filter((x) => x.rowIn !== x.rowOut).length, lanes: Math.max(0, hi - lo + 1), bands: best!.merged }));
+    }
   }
 
   // Horizontal runs first, then bends: a vertical crossing another flow's

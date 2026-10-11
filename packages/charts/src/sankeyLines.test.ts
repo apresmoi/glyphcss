@@ -32,6 +32,27 @@ describe("sankey lines", () => {
     expect(coal.map((l) => l.slice(l.indexOf("█") + 1, l.indexOf("█") + 3))).toEqual(["─╮", "─┤", "─┼", "─┤", "─┤", "─╯"]);
   });
 
+  it("gathers a share in stages when the gap has room, folding the outer rows in first", () => {
+    // Mutation: always use the single bracket -> no stage junction.
+    const text = render(power, 96, 18).text;
+    expect(text).toMatch(/█─+┴─╮/u);
+    expect(text).toMatch(/█─+┬─╯/u);
+  });
+
+  it("keeps a tree within a quarter of its gap, however tall the share", () => {
+    // Mutation: let a tree take one stage per row (drop the quarter-gap cap) -> stubs run past it.
+    const r = renderGlyphChart(spec(power), { target: "web", width: 96, height: 32, charset: "box", color: "none" });
+    const lines = rows(r.text);
+    const bars = [...new Set(lines.flatMap((l) => [...l].flatMap((c, x) => (c === "█" ? [x] : []))))].sort((a, b) => a - b);
+    const columns = bars.filter((x, i) => i === 0 || x - bars[i - 1]! > 1);
+    const cap = Math.floor((columns[1]! - columns[0]! - 1) / 4);
+    for (const line of lines) {
+      for (const m of line.matchAll(/█(─+)/gu)) expect(m[1]!.length, line).toBeLessThanOrEqual(cap);
+      for (const m of line.matchAll(/(─+)█/gu)) expect(m[1]!.length, line).toBeLessThanOrEqual(cap);
+    }
+    expect(r.text).toMatch(/┴─╮/u);
+  });
+
   it("labels every node with its name and throughput, and every flow with its value", () => {
     // Mutation: skip the value labels, or drop the outer-column gutters -> red.
     const r = render(power);
