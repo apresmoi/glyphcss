@@ -564,7 +564,8 @@ export function layoutGlyphChart(
   // just repeats them below the chart, so the default is OFF for a spec
   // whose only named series come from a `funnel` mark. An EXPLICIT
   // `legend: true` (spec or render option) still lists the stages.
-  const funnelOnly = marks.length > 0 && marks.every(({ mark }) => mark.type === "funnel");
+  // A sankey's node labels name every source the same way.
+  const funnelOnly = marks.length > 0 && marks.every(({ mark }) => mark.type === "funnel" || mark.type === "sankey");
   const showLegend = legendOption.show && !(!legendOption.explicit && funnelOnly);
   // ONE named series shows the legend (`> 0`, not `> 1`): a single named
   // mark otherwise built a `meta.series` entry the row never painted.

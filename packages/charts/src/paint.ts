@@ -28,7 +28,8 @@ import {
 } from "./layout";
 import { abbreviateChartText, chartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
 import { ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
-import { computeSankeyRoutedRows, layoutSankeyGraph, paintFunnelMark, paintSankeyRoutedRows, type GlyphChartSankeyLayout, type SankeyRoutedRow } from "./flowMarks";
+import { layoutSankeyGraph, paintFunnelMark } from "./flowMarks";
+import { paintSankeyLines } from "./sankeyLines";
 import { cellRange, cellRampLevel, heatmapRamp } from "./heatmap";
 import { formatLinearTick } from "./scales";
 import { areaLayers, chartSeries, regionFillGlyph, resolveSeriesColor, SERIES_STYLES, seriesDot, seriesShade, type ChartSeries } from "./series";
@@ -1486,7 +1487,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color, scale: textScale });
@@ -1557,34 +1558,6 @@ export function paintGlyphChart(
   };
   paintGrid(canvas, layout, opts.colorEnabled);
   const dodgeDegraded = new Set<number>();
-  // Every sankey mark's routes are registered and junction-resolved in ONE
-  // batch, ahead of the per-mark paint loop below (`flowMarks.ts`'s own doc
-  // on `paintSankeyRoutedRows`, finding c): `canvas.resolveJunctions()`
-  // reads the canvas's SHARED, cross-mark edge bookkeeping, so calling it
-  // once per sankey mark re-derives (and can corrupt) an EARLIER mark's
-  // already-claimed cells, and two marks' own edge ids collide unless
-  // namespaced by index. The actual PAINT of each mark's own bands/boxes
-  // still happens at that mark's own turn in the loop below (through the
-  // shared `sankeyClaimedBy`), so a sankey's z-order relative to every
-  // OTHER mark type is unchanged — only the sankey-vs-sankey registration
-  // step is batched.
-  const sankeyMarks = marks.filter((m) => m.mark.type === "sankey");
-  const sankeyRouted = new Map<GlyphChartResolvedMark["mark"], { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[] }>();
-  if (sankeyMarks.length > 0) {
-    const guardedSankey = guardedCanvas(canvas, "sankey");
-    const registered: { readonly mark: GlyphChartResolvedMark["mark"]; readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[] }[] = [];
-    for (let i = 0; i < sankeyMarks.length; i++) {
-      const { mark } = sankeyMarks[i]!;
-      const groups = series.filter((s) => s.mark === mark);
-      const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
-      if (!sankeyLayout) continue;
-      const routedRows = computeSankeyRoutedRows(guardedSankey, layout.plot, sankeyLayout, opts.colorEnabled, ledger, `sankey${i}:`, textScale, shades);
-      registered.push({ mark, layout: sankeyLayout, routedRows });
-    }
-    if (registered.length > 0) canvas.resolveJunctions();
-    for (const r of registered) sankeyRouted.set(r.mark, { layout: r.layout, routedRows: r.routedRows });
-  }
-  const sankeyClaimedBy = new Set<number>();
   const areaBoundaryLines = !opts.colorEnabled && series.some((s) => s.name !== undefined);
   // Rules are reference lines: they paint first, so every data mark after
   // them (a bar crossing a target line included) stays whole on top.
@@ -1597,8 +1570,8 @@ export function paintGlyphChart(
     const guarded = guardedCanvas(canvas, mark.type);
     if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill, shades);
     else if (mark.type === "sankey") {
-      const r = sankeyRouted.get(mark);
-      if (r) paintSankeyRoutedRows(guarded, r.layout, r.routedRows, ledger, sankeyClaimedBy, mark.options?.ribbon ?? "filled", textScale, fill);
+      const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
+      if (sankeyLayout) paintSankeyLines(guarded, layout.plot, sankeyLayout, groups, opts.colorEnabled, ledger);
     }
     else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale, fill, shades);
     else if (mark.type === "area") {
@@ -1653,7 +1626,7 @@ export function paintGlyphChart(
   // paint first, so marks correctly sit on top of them either way.
   paintAxes(canvas, layout, opts.colorEnabled, textScale);
   for (const entry of series) {
-    const { mark, rows, ruleValues, styleIndex } = entry;
+    const { mark, rows, styleIndex } = entry;
     const color = resolveSeriesColor(entry, opts.colorEnabled);
     const style = opts.colorEnabled ? "solid" : SERIES_STYLES[styleIndex % SERIES_STYLES.length]!;
     const guarded = guardedCanvas(canvas, mark.type);
@@ -1817,7 +1790,7 @@ export function paintGlyphChart(
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
       // it can paint. A bar/area/sankey/funnel swatch follows the
       // render's resolved `fill` exactly as its plot fill does.
-      else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
+      else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "funnel") {
         guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: label.scale });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });

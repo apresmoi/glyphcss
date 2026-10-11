@@ -17,7 +17,7 @@ import { dirname, join } from "node:path";
 import { createGlyphCanvas } from "glyphcss";
 import { describe, expect, it } from "vitest";
 import { ECOMMERCE_FUNNEL_DATA, ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
-import { bandColRange, layoutGlyphChart, resolveGlyphChartLegendOption, scaleToCol, scaleToRowExact } from "./layout";
+import { layoutGlyphChart, resolveGlyphChartLegendOption, scaleToCol, scaleToRowExact } from "./layout";
 import type { GlyphChartLedgerEntry } from "./ledger";
 import { barBandColRange, paintGlyphChart } from "./paint";
 import { glyphChartRegionFill, renderGlyphChart } from "./render";
@@ -31,7 +31,6 @@ import { validateGlyphChartSpec } from "./validate";
 
 const CHARSETS: readonly GlyphChartCharset[] = ["ascii", "box", "blocks", "braille"];
 const QUADRANTS = new Set(["▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"]);
-const isBrailleDot = (ch: string): boolean => ch.codePointAt(0)! > 0x2800 && ch.codePointAt(0)! <= 0x28ff;
 
 const YEARS: Record<string, Record<string, number>> = {
   "1980": { "Fossil fuels": 70684.05, "Nuclear": 2157.35, "Renewables": 2011.78, "Traditional biomass": 10000 },
@@ -133,50 +132,35 @@ function fixturePath(relative: string): string {
 }
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
 
-describe("A: sankey and funnel follow regionFill", () => {
-  it("web + css resolves solid for a sankey and a funnel; terminal, colour off, one hex and ansi16 keep textures", () => {
-    // Mutation: put sankey/funnel back behind the flow-mark clause (or drop them from SOLID_CAPABLE_MARK_TYPES) -> red.
-    for (const spec of [energySankey, funnel, fan]) {
+describe("A: a funnel follows regionFill; a sankey's lines take no fill", () => {
+  it("web + css resolves solid for a funnel; terminal, colour off and one hex keep textures; a sankey alone has nothing to fill", () => {
+    // Mutation: drop funnel from SOLID_CAPABLE_MARK_TYPES, or put sankey back in it -> red.
+    for (const spec of [funnel]) {
       expect(glyphChartRegionFill(spec, WEB)).toMatchObject({ fill: "solid", reason: "colors-distinct" });
       expect(glyphChartRegionFill(spec, { target: "terminal", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
       expect(glyphChartRegionFill(spec, { ...WEB, color: "none" })).toMatchObject({ fill: "texture", reason: "color-off" });
       const oneHex = { marks: [{ ...spec.marks[0]!, options: { ...spec.marks[0]!.options, color: "#ff0000" } }] };
       expect(glyphChartRegionFill(oneHex, WEB)).toMatchObject({ fill: "texture", reason: "colors-collide" });
     }
-    // Five sankey sources: ansi16 maps the palette's blue and green to one teal.
-    expect(glyphChartRegionFill(energySankey, { ...WEB, color: "ansi16" })).toMatchObject({ fill: "texture", reason: "colors-collide", colliding: ["Coal", "Nuclear"] });
+    expect(glyphChartRegionFill(energySankey, WEB)).toMatchObject({ fill: "texture", reason: "no-region-mark" });
     // A stacked bar next to a sankey is now solid as a whole chart.
     expect(glyphChartRegionFill({ marks: [...stackedBar.marks, ...energySankey.marks] }, WEB).fill).toBe("solid");
   });
 
-  it("braille: a solid sankey paints its ribbons in quadrant blocks, never braille dots or textures, while the plain exits keep them", () => {
-    // Mutation: keep `subGlyph` (braille dots) for a solid smooth ribbon -> red.
-    const r = renderGlyphChart(energySankey, WEB);
-    const solid = htmlCells(r.html!).flat();
-    expect(solid.filter((c) => isBrailleDot(c.ch))).toEqual([]);
-    for (const g of ["░", "▒", "▓", "╱", "═"]) expect(solid.some((c) => c.ch === g), g).toBe(false);
-    expect(solid.filter((c) => c.ch === "█").length).toBeGreaterThan(400);
-    expect(r.build.canvas.grid.char.filter(isBrailleDot).length).toBeGreaterThan(400);
-  });
-
-  it("box: solid ribbons and funnel bars are `█` with square corners; the texture fallback's lighter run and rounded corners are gone", () => {
-    // Mutation: return the lighter straight glyph, or the rounded corner, under solid -> red.
-    for (const spec of [energySankey, fan, funnel]) {
+  it("box: solid funnel bars are `█`, with no texture left", () => {
+    // Mutation: keep the texture glyph under solid -> red.
+    for (const spec of [funnel]) {
       const rows = htmlCells(renderGlyphChart(spec, { ...WEB, charset: "box" }).html!).flat();
       for (const g of ["░", "▚", "╱", "▌", "═", "▓", "▒", "╭", "╮", "╰", "╯"]) expect(rows.some((c) => c.ch === g), `${g} in ${spec.marks[0]!.type}`).toBe(false);
       expect(rows.filter((c) => c.ch === "█").length).toBeGreaterThan(50);
     }
-    const texture = htmlCells(renderGlyphChart(energySankey, { ...WEB, charset: "box", regionFill: "texture" }).html!).flat();
-    expect(texture.some((c) => c.ch === "▓")).toBe(true);
   });
 
   const sizes: readonly [number, number][] = [[40, 20], [72, 24], [96, 32], [140, 40]];
-  const outline = { marks: [{ ...energySankey.marks[0]!, options: { ribbon: "outline" as const } }] };
   const footprintCases = [
     { name: "energySankey", spec: energySankey },
     { name: "fan", spec: fan },
     { name: "funnel", spec: funnel },
-    { name: "outline", spec: outline },
   ].flatMap(({ name, spec }) => CHARSETS.flatMap((charset) => sizes.map(([w, h]) => ({ name, spec, charset, w, h }))));
 
   // Independent comparisons need independent time budgets on the shared CI runner.
@@ -194,7 +178,7 @@ describe("A: sankey and funnel follow regionFill", () => {
       return { footprint, ledger, conflicts: canvas.report.routeConflicts, colors: canvas.grid.color };
     };
     const t = paint("texture"), s = paint("solid");
-    const key = `${spec === outline ? "outline" : spec.marks[0]!.type}:${charset}:${w}x${h}`;
+    const key = `${spec.marks[0]!.type}:${charset}:${w}x${h}`;
     expect(s.footprint, key).toEqual(t.footprint);
     expect(s.ledger, key).toEqual(t.ledger);
     expect(s.conflicts, key).toEqual(t.conflicts);
@@ -202,19 +186,10 @@ describe("A: sankey and funnel follow regionFill", () => {
     expect(s.colors, key).toEqual(t.colors);
   });
 
-  it("solid ribbons carry their source's own colour; the swatches are `█`", () => {
-    // Mutation: leave the sankey/funnel legend swatch on `seriesShade` -> red.
-    const cells = htmlCells(renderGlyphChart(energySankey, WEB).html!);
-    const valid = validateGlyphChartSpec(normalizeGlyphChartInput(energySankey));
-    const sourceColors = new Set(chartSeries(resolveGlyphChartSpec(valid)).map((s) => resolveSeriesColor(s, true)!));
-    const inked = cells.flat().filter((c) => QUADRANTS.has(c.ch));
-    expect(new Set(inked.map((c) => c.fg))).toEqual(sourceColors);
-    const legend = cells[cells.length - 1]!.map((c) => c.ch).join("");
-    expect(legend).toMatch(/█ {2}Coal +█ {2}Natural Gas +█ {2}Nuclear +█ {2}Renewables/);
+  it("a solid funnel's legend swatches are `█`", () => {
+    // Mutation: leave the funnel legend swatch on `seriesShade` -> red.
     const funnelLegend = renderGlyphChart(funnel, { ...WEB, legend: true }).html!;
     expect(htmlCells(funnelLegend).at(-1)!.map((c) => c.ch).join("")).not.toMatch(/[░▚╱▌═▓▒]/);
-    const terminalLegend = renderGlyphChart(energySankey, { target: "terminal" }).build.canvas.grid.char.slice(-80).join("");
-    expect(terminalLegend).toMatch(/░ {2}Natural Gas/);
   });
 });
 

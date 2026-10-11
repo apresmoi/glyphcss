@@ -10,7 +10,7 @@
  * one, and a caller (the `/charts` Dock) could no longer state ONE reason.
  *
  * Solid only when colour genuinely carries identity in THIS render: colour
- * on, and no two distinct region series (sankey sources and funnel stages
+ * on, and no two distinct region series (funnel stages
  * included) resolving to the same colour at the render's own depth — `ansi16` quantises the default palette's blue and green to the
  * same teal, so a third series already collides there. `auto` additionally
  * keeps textures for `terminal`/`chat`, where a copy/paste or a monochrome
@@ -26,7 +26,7 @@ import { chartSeries, resolveSeriesColor } from "./series";
 import type { GlyphChartColorMode, GlyphChartRegionFill, GlyphChartRegionFillResolution, GlyphChartTarget } from "./types";
 
 /** Mark types whose fill glyph `regionFillGlyph` picks. `cell` shades by VALUE, so it never takes a solid fill. */
-const SOLID_CAPABLE_MARK_TYPES = new Set(["bar", "area", "arc", "sankey", "funnel"]);
+const SOLID_CAPABLE_MARK_TYPES = new Set(["bar", "area", "arc", "funnel"]);
 
 /** Whether a render paints colour at all — shared by `renderGlyphChart` and `glyphChartRegionFill` so the two can never disagree. */
 export function glyphChartColorEnabled(color: GlyphChartColorMode, env: Readonly<Record<string, string | undefined>> | undefined): boolean {
@@ -54,7 +54,7 @@ export function resolveGlyphChartRegionFill(marks: readonly GlyphChartResolvedMa
     ({ requested, fill: "texture", reason, message, ...(colliding ? { colliding } : {}) });
   const series = chartSeries(marks);
   const region = series.filter((s) => SOLID_CAPABLE_MARK_TYPES.has(s.mark.type));
-  if (region.length === 0) return texture("no-region-mark", "No bar, area, pie, sankey or funnel mark has a fill to texture.");
+  if (region.length === 0) return texture("no-region-mark", "No bar, area, pie or funnel mark has a fill to texture.");
   if (requested === "texture") return texture("requested-texture", "Textures were requested.");
   if (!ctx.colorEnabled) return texture("color-off", "Colour is off, so textures tell the series apart.");
   const identityByColor = new Map<string, string>();

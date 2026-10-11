@@ -42,7 +42,7 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Don't key the live 3D viewport's mount on the mark or colour; use the object handle's `update()` and `scene.setOptions`, or every edit resets the camera.
 - Don't pass `rotX`/`rotY` with `mat` to `renderGlyphChart3d` (`bad-camera`), and don't hand-roll 3D rasterization instead of `compileScene` (a raw sampler key hides there).
 - Don't put notes inside a render area; reasons go on the Dock toggle (`disabledReason`) or frame chrome.
-- Don't gate sankey choices on a crossing-count proxy; `sankeyLostCells` counts exact lost cells.
+- Don't paint sankey flows as filled ribbons; stubs, a bracket and one line per flow keep each share and each path readable (`sankeyLines.ts`).
 - Don't tighten the sankey row-monotonicity bound below 2; reclaim and fold-stub steals each cost a row.
 - Don't narrow a `RangeSlider` thumb's native `min`/`max`; caps apply only on commit, or thumbs and fill disagree.
 - Don't prove byte-identity against this branch's defaults; pin fixtures rendered from the parent commit.
@@ -51,7 +51,7 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 
 ## Key gates
 
-- Package: `reviewFixtures.ts` (the `goodSpecs` byte-identity fixtures), `review.test.ts`, `validate.test.ts`, `schema.test.ts`, `rootIsolation.test.ts`, `ledger.test.ts`, `regionFill.test.ts`, `solidSubcell.test.ts`, `stackedArea.test.ts`, `sankeyOrderGate.test.ts`, `skipLevelSankey.test.ts`, `flowMarks.test.ts`, `arcShape.test.ts`, `textScale.test.ts`, `strokeWidth.test.ts`, `tickFormat.test.ts`, `effectsBridge.test.ts`.
+- Package: `reviewFixtures.ts` (the `goodSpecs` byte-identity fixtures), `review.test.ts`, `validate.test.ts`, `schema.test.ts`, `rootIsolation.test.ts`, `ledger.test.ts`, `regionFill.test.ts`, `solidSubcell.test.ts`, `stackedArea.test.ts`, `flowMarks.test.ts`, `sankeyLines.test.ts`, `arcShape.test.ts`, `textScale.test.ts`, `strokeWidth.test.ts`, `tickFormat.test.ts`, `effectsBridge.test.ts`.
 - 3D: `src/3d/render.test.ts`, `schema3d.test.ts`, `surface.test.ts`, `axisOriginCorner.test.ts`, `axisPerAxisOptions.test.ts`.
 - Website: `chartsMarkTypeFit.test.ts`, `chartsUrlState.test.ts`, `chartsWorkbenchTargetMatrix.test.tsx`, `TargetPreview/glyphMonoCmap.test.ts`.
 

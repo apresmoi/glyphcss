@@ -89,15 +89,6 @@ export interface GlyphChartMarkOptions {
    * `bad-stroke-width`.
    */
   readonly strokeWidth?: 1 | 2 | 3;
-  /**
-   * `sankey`: how much of a band's own region gets painted, AGENTS.md's
-   * "Charts" sankey clause. `"filled"` (default, byte-identical to before
-   * this option existed) paints the whole ribbon; `"outline"` paints only
-   * its two edges plus a thin centre stroke — the "should be less filled"
-   * ask, for a reader who wants the shape without the ink. No effect on
-   * any other mark type. Any other value rejects with `bad-options`.
-   */
-  readonly ribbon?: "filled" | "outline";
 }
 
 export type GlyphChartTransformKind = "bin" | "stack" | "group" | "normalize" | "window";
@@ -319,13 +310,13 @@ export interface GlyphChartRenderOptions {
    * only (`html` under `css`, `text` under an ANSI mode): `build.canvas` and
    * a plain `text` always carry textures, so a coloured chart's plain text
    * stays readable. An explicit `"solid"` that would make two series identical
-   * (colour off, two series sharing a colour, a sankey/funnel mark) is
+   * (colour off, two series sharing a colour) is
    * refused with a `region-fill-solid-refused` ledger entry.
    */
   readonly regionFill?: GlyphChartRegionFill;
   /**
-   * Replaces the charset's own series fill glyphs (bar, area, arc,
-   * sankey and funnel textures, and their legend swatches) with this
+   * Replaces the charset's own series fill glyphs (bar, area, arc and
+   * funnel textures, and their legend swatches) with this
    * palette, in series order. Past its length the glyphs repeat, reported
    * as `series-shade-repeat`. Solid colour fills and `cell` ramps ignore it.
    */
@@ -362,16 +353,7 @@ export interface GlyphChartMeta {
 export interface GlyphChartReport {
   readonly ledger: readonly GlyphChartLedgerEntry[];
   readonly unsupportedGlyphs: readonly string[];
-  /**
-   * The cell canvas's own `GlyphCanvasRouteConflict[]` (`glyphcss`,
-   * `resolveJunctions()`'s "not fully empty in practice" quantity AGENTS.md's
-   * "Charts" sankey clause discusses), forwarded UNCHANGED — a sankey band's
-   * ribbon claim can still coincide with another band's at a single cell
-   * along its own axis (never a whole run), and this is how a caller
-   * verifies that count directly rather than taking the prose's word
-   * for it (fable review, batch 3, finding e). Empty for every spec with no
-   * sankey mark, byte-identical to before this field existed.
-   */
+  /** The cell canvas's own `GlyphCanvasRouteConflict[]` (`glyphcss`), forwarded unchanged. No chart mark registers routes, so it stays empty. */
   readonly routeConflicts: readonly GlyphCanvasRouteConflict[];
 }
 

@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { renderGlyphChart } from "./render";
-import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartPlot, glyphChartSankey } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartPlot } from "./spec";
 import type { GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 const PALETTE = ["#", "=", "+", ":", "."];
@@ -53,14 +53,10 @@ describe("shades option", () => {
     expect(r.text).toContain("==");
   });
 
-  it("fills funnel stages and sankey ribbons from the palette", () => {
-    // Mutation: drop `shades` from paintFunnelMark's or computeSankeyRoutedRows' glyph -> red.
+  it("fills funnel stages from the palette", () => {
+    // Mutation: drop `shades` from paintFunnelMark's glyph -> red.
     const funnel = render(glyphChartPlot({ marks: [glyphChartFunnel([{ s: "Visit", v: 100 }, { s: "Cart", v: 40 }, { s: "Buy", v: 10 }], { stage: "s", value: "v" })] }));
     expect(funnel.text).not.toMatch(BUILT_IN);
-    const flows = [{ from: "A", to: "X", v: 5 }, { from: "B", to: "X", v: 3 }, { from: "B", to: "Y", v: 2 }];
-    const sankey = render(glyphChartPlot({ marks: [glyphChartSankey(flows, { source: "from", target: "to", value: "v" })] }));
-    expect(sankey.text).not.toMatch(BUILT_IN);
-    expect(sankey.text).toContain("=");
   });
 
   it("cycles on the palette's own length and reports each repeat", () => {

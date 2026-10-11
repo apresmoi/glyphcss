@@ -181,9 +181,10 @@ describe("options.color (c)", () => {
 
   it("(c) covers the sankey mark, per SOURCE NODE", () => {
     const mark = { ...glyphChartSankey([{ from: "A", to: "X", v: 1 }, { from: "B", to: "X", v: 1 }], { source: "from", target: "to", value: "v" }), options: { color: ["#101010", "#202020"] } };
-    const p = picture(mark, 40, 12, true);
-    expect(p.layout.legend!.items.find((it) => it.label === "A")?.color).toBe("#101010");
-    expect(p.layout.legend!.items.find((it) => it.label === "B")?.color).toBe("#202020");
+    const p = picture(mark, 40, 12, true, "box");
+    const colors = new Set(p.canvas.grid.color!.filter(Boolean));
+    expect(colors).toContain("#101010");
+    expect(colors).toContain("#202020");
   });
 
   it("(c) covers the funnel mark, per STAGE", () => {

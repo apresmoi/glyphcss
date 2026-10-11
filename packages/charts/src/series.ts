@@ -264,7 +264,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
   // with no collision at all — it cycles line styles or dot glyphs on a
   // different, unrelated period), so only they are checked here.
   if (ledger) {
-    const REGION_SHADE_MARK_TYPES = new Set(["bar", "area", "cell", "sankey", "funnel"]);
+    const REGION_SHADE_MARK_TYPES = new Set(["bar", "area", "cell", "funnel"]);
     const nameByShadeIndex = new Map<number, string>();
     for (const s of out) {
       if (s.name === undefined || !REGION_SHADE_MARK_TYPES.has(s.mark.type)) continue;

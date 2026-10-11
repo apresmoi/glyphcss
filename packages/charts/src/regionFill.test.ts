@@ -11,10 +11,9 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
 import { GLYPH_CHART_DEFAULT_REGION_FILL, glyphChartRegionFill, renderGlyphChart } from "./render";
 import { goodSpecs } from "./reviewFixtures";
-import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartSankey } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartSankey } from "./spec";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 const CHARSETS: readonly GlyphChartCharset[] = ["ascii", "box", "blocks", "braille"];
@@ -155,8 +154,8 @@ describe("auto resolution — solid only where colour carries identity", () => {
   it("the solid paint's ledger is discarded: a solid render reports exactly the textured render's ledger, never an entry twice", () => {
     // Mutation: hand the solid paint the real ledger in `renderGlyphChart` -> red (every paint-time entry is reported twice).
     const zeroSlice: GlyphChartSpec = { marks: [glyphChartArc([{ s: "A", v: 3 }, { s: "B", v: 0 }, { s: "C", v: 2 }], { fill: "s", y: "v" })] };
-    const sankey: GlyphChartSpec = { marks: [glyphChartSankey(ENERGY_FLOW_SANKEY_DATA, { source: "from", target: "to", value: "amount" })] };
-    for (const [spec, opts] of [[zeroSlice, {}], [sankey, { width: 40, height: 20 }], [energy, {}]] as const) {
+    const thinFunnel: GlyphChartSpec = { marks: [glyphChartFunnel([1000, 500, 1])] };
+    for (const [spec, opts] of [[zeroSlice, {}], [thinFunnel, { width: 40, height: 20 }], [energy, {}]] as const) {
       const base: GlyphChartRenderOptions = { color: "css", regionFill: "auto", ...opts };
       expect(glyphChartRegionFill(spec, base).fill).toBe("solid");
       const solid = renderGlyphChart(spec, base).report.ledger;
@@ -165,7 +164,7 @@ describe("auto resolution — solid only where colour carries identity", () => {
       expect(new Set(solid.map((e) => JSON.stringify(e))).size).toBe(solid.length);
     }
     expect(renderGlyphChart(zeroSlice, { color: "css" }).report.ledger.map((e) => e.code)).toContain("slice-dropped");
-    expect(renderGlyphChart(sankey, { color: "css", width: 40, height: 20 }).report.ledger.length).toBeGreaterThan(0);
+    expect(renderGlyphChart(thinFunnel, { color: "css", width: 40, height: 20 }).report.ledger.map((e) => e.code)).toContain("funnel-thin-stage");
   });
 
   it("the default palette separates 8 pie slices; a 9th repeats blue and falls back to textures", () => {
@@ -179,7 +178,7 @@ describe("auto resolution — solid only where colour carries identity", () => {
     expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1" }, regionFill: "auto" }).reason).toBe("color-off");
     expect(glyphChartRegionFill(energy, { color: "truecolor", env: { NO_COLOR: "1", FORCE_COLOR: "1" }, regionFill: "auto" }).fill).toBe("solid");
     const withSankey = { marks: [...stackedBar.marks, glyphChartSankey([{ a: "X", b: "Y", v: 1 }], { source: "a", target: "b", value: "v" })] };
-    // Sankey ribbons follow the rule like every other region mark (solidSubcell.test.ts).
+    // A sankey's lines take no fill, so they never hold the bars back.
     expect(glyphChartRegionFill(withSankey, { color: "css", regionFill: "auto" })).toMatchObject({ fill: "solid", reason: "colors-distinct" });
     // `no-region-mark` short-circuits ahead of the `requested` check, so this one is unaffected by the default.
     expect(glyphChartRegionFill({ marks: [goodSpecs[0]!.marks[0]!] }, { color: "css" }).reason).toBe("no-region-mark");
