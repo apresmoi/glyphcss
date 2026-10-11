@@ -79,10 +79,11 @@ export const GLYPH_CHART_SHADE_CYCLE_LENGTH = SHADE_RAMPS.box.length;
  * tables mid-cycle. Cycles modulo the active ramp's length past
  * `GLYPH_CHART_SHADE_CYCLE_LENGTH` series; `chartSeries` reports the
  * resulting repeat once per pair via `ledgerSeriesShadeRepeat` — this
- * function itself never throws or logs.
+ * function itself never throws or logs. `shades` (the render's own `shades`
+ * option) replaces the charset's table outright and cycles on its own length.
  */
-export function seriesShade(tier: GlyphChartCharset, index: number, total = index + 1): string {
-  const ramp = tier === "ascii" && total <= ASCII_SHADE_COMPACT.length ? ASCII_SHADE_COMPACT : SHADE_RAMPS[tier];
+export function seriesShade(tier: GlyphChartCharset, index: number, total = index + 1, shades?: readonly string[]): string {
+  const ramp = shades ?? (tier === "ascii" && total <= ASCII_SHADE_COMPACT.length ? ASCII_SHADE_COMPACT : SHADE_RAMPS[tier]);
   return ramp[index % ramp.length]!;
 }
 /**
@@ -92,9 +93,9 @@ export function seriesShade(tier: GlyphChartCharset, index: number, total = inde
  * legend swatch paths go through here, so a swatch always equals its fill.
  * `ascii` stays 7-bit.
  */
-export function regionFillGlyph(tier: GlyphChartCharset, index: number, total: number, fill: "solid" | "texture"): string {
+export function regionFillGlyph(tier: GlyphChartCharset, index: number, total: number, fill: "solid" | "texture", shades?: readonly string[]): string {
   if (fill === "solid") return tier === "ascii" ? "#" : "█";
-  return seriesShade(tier, index, total);
+  return seriesShade(tier, index, total, shades);
 }
 export interface ChartSeries extends GlyphChartResolvedMark {
   readonly name?: string;
@@ -110,9 +111,11 @@ export interface ChartSeries extends GlyphChartResolvedMark {
  * agree. `ledger` is optional — `paintGlyphChart`'s own call is the ONE
  * place `mark-color-unused` is reported (a caller like `seriesNames`/
  * `chartSeriesColors` re-derives the same series list for a different
- * purpose and must not double-report it).
+ * purpose and must not double-report it). `cycle` is the active fill
+ * palette's length, so a custom `shades` option wraps (and reports) where
+ * its own glyphs run out.
  */
-export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: GlyphChartLedgerEntry[]): ChartSeries[] {
+export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: GlyphChartLedgerEntry[], cycle = GLYPH_CHART_SHADE_CYCLE_LENGTH): ChartSeries[] {
   const named = new Map<string, number>();
   const out: ChartSeries[] = [];
   for (const resolved of marks) {
@@ -126,7 +129,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     // own `mark.type !== "sankey" && mark.type !== "funnel"` clause), so
     // adding them here was dead — verified by mutation (a prior review found
     // deleting them from a since-removed 3-way inclusion changed no test).
-    const canGroup = ["line", "area", "bar", "dot", "rect", "arc"].includes(mark.type);
+    const canGroup = ["line", "area", "bar", "dot", "arc"].includes(mark.type);
     const channel = canGroup ? (["fill", "stroke"] as const).find((c) => rows.some((r) => typeof r[c] === "string")) : undefined;
     const groups = new Map<string | undefined, GlyphChartMarkRow[]>();
     const displayNameByGroupKey = new Map<string | undefined, string | undefined>();
@@ -200,7 +203,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     for (const [groupKey, seriesRows] of groups) {
       const name = displayNameByGroupKey.get(groupKey);
       if (name !== undefined && !named.has(name)) named.set(name, named.size);
-      const shadeIndex = sliceIndex % GLYPH_CHART_SHADE_CYCLE_LENGTH;
+      const shadeIndex = sliceIndex % cycle;
       const color = resolveMarkColorAt(mark.options?.color, sliceIndex);
       out.push({ ...resolved, rows: seriesRows, name, styleIndex: name === undefined ? 0 : named.get(name)!, color, ...(mark.type === "arc" ? { shadeIndex } : {}) });
       if (mark.type === "arc") arcSliceNames.push(name ?? `slice ${sliceIndex + 1}`);
@@ -213,8 +216,8 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     // repeated monochrome fill makes two categories genuinely
     // indistinguishable with colour off, so it is reported, once per pair.
     if (ledger) {
-      for (let i = GLYPH_CHART_SHADE_CYCLE_LENGTH; i < arcSliceNames.length; i++) {
-        ledger.push(ledgerSeriesShadeRepeat({ repeated: arcSliceNames[i]!, reused: arcSliceNames[i % GLYPH_CHART_SHADE_CYCLE_LENGTH]! }));
+      for (let i = cycle; i < arcSliceNames.length; i++) {
+        ledger.push(ledgerSeriesShadeRepeat({ repeated: arcSliceNames[i]!, reused: arcSliceNames[i % cycle]! }));
       }
     }
     // `cell` always produces exactly ONE series (its rows are never split by
@@ -251,17 +254,17 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       else if (prior !== s.color && ledger) ledger.push(ledgerSeriesColorConflict({ name: s.name, kept: prior, rejected: s.color }));
     }
   }
-  // Region marks (bar/rect/area/cell/sankey/funnel) paint their fill via
+  // Region marks (bar/area/cell/sankey/funnel) paint their fill via
   // `seriesShade(tier, styleIndex)` — the CROSS-MARK `named` index, never
   // an arc's own local `shadeIndex` — so a wrap here is a wrap of that
-  // shared identity: a "Revenue" bar and a "Revenue" rect both use the
+  // shared identity: a "Revenue" bar and a "Revenue" area both use the
   // same glyph by design, but a NINTH distinct named region series reuses
   // the first's. Only the region-mark types actually consult `seriesShade`
   // for their fill (a line/dot's own name may sit at the same `styleIndex`
   // with no collision at all — it cycles line styles or dot glyphs on a
   // different, unrelated period), so only they are checked here.
   if (ledger) {
-    const REGION_SHADE_MARK_TYPES = new Set(["bar", "rect", "area", "cell", "sankey", "funnel"]);
+    const REGION_SHADE_MARK_TYPES = new Set(["bar", "area", "cell", "sankey", "funnel"]);
     const nameByShadeIndex = new Map<number, string>();
     for (const s of out) {
       if (s.name === undefined || !REGION_SHADE_MARK_TYPES.has(s.mark.type)) continue;
@@ -269,8 +272,8 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     }
     const reported = new Set<number>();
     for (const [index, name] of nameByShadeIndex) {
-      if (index < GLYPH_CHART_SHADE_CYCLE_LENGTH || reported.has(index)) continue;
-      const reused = nameByShadeIndex.get(index % GLYPH_CHART_SHADE_CYCLE_LENGTH);
+      if (index < cycle || reported.has(index)) continue;
+      const reused = nameByShadeIndex.get(index % cycle);
       if (reused === undefined) continue;
       reported.add(index);
       ledger.push(ledgerSeriesShadeRepeat({ repeated: name, reused }));

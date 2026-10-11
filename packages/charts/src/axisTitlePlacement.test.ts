@@ -29,7 +29,7 @@ function fixturePath(relative: string): string {
   if (!testPath) throw new Error("no test path available to resolve fixture from");
   return join(dirname(testPath), relative);
 }
-// Every `arc`-mark entry's own `text` (goodSpecs indices 6, 11, 20, 21, 22)
+// Every `arc`-mark entry's own `text` (goodSpecs indices 5, 10, 19, 20, 21)
 // was regenerated after the P1-1 fix (`GLYPH_CHART_TARGET_DEFAULTS.web.
 // cellAspect`, AGENTS.md's "Arc shape and callouts") — that fix changes the
 // web target's disc shape independently of `titleAt`, so the literal
@@ -37,7 +37,7 @@ function fixturePath(relative: string): string {
 // produces even with `titleAt` absent. Every other (non-arc) entry is
 // untouched.
 //
-// Multi-series entries (indices 17-22: `sankeySample`, `funnelSample`, the
+// Multi-series entries (indices 16-21: `sankeySample`, `funnelSample`, the
 // bare `[1000,500,100]` funnel, and the three `browserShares` arc specs)
 // were regenerated AGAIN for `series.ts`'s shade-ramp fix
 // (CHARTS-RESEARCH `DIAGNOSIS-pie-contrast.md`): the old `█ ▓ ▒ ░`/`# % + .`

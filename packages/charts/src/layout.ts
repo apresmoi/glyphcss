@@ -9,6 +9,7 @@
  */
 
 import { timeFormat } from "d3-time-format";
+import { cellFillValues, cellSigned } from "./heatmap";
 import { chartSeries, chartSeriesColors } from "./series";
 import { abbreviateChartText, chartText, glyphChartLabelLayout } from "./labels";
 import { hasZeroAnchoredMark } from "./scales";
@@ -129,6 +130,11 @@ export interface GlyphChartLayout {
   /** Packet item 6 — axis tick marks/titles/grid, resolved with their defaults. */
   readonly xTickMarks: boolean;
   readonly yTickMarks: boolean;
+  /** Resolved `axes.{x,y}.line`: `false` paints no axis line or tick marks, and a band-y heatmap's bottom category may use the row the x line would take. */
+  readonly xAxisLine: boolean;
+  readonly yAxisLine: boolean;
+  /** An unsigned heatmap's range-key row, or `-1` when there's none. */
+  readonly cellKeyRow: number;
   readonly xGrid: boolean;
   readonly yGrid: boolean;
   /** Resolved per `resolveGlyphChartAxisColor` — `paintAxes`/`paintGrid` apply this only when colour is enabled. */
@@ -186,7 +192,12 @@ function axisTicks(
   timeAxis = false,
   format?: GlyphChartResolvedTickFormat,
   textScale = 1,
+  // A heatmap's (flush band) categories: y labels may sit on consecutive
+  // rows, x labels need only their own width plus a gap, and thinning keeps
+  // the first category.
+  flush = false,
 ): GlyphChartLayoutTick[] {
+  const rowGap = flush ? 0 : 1;
   let sorted = raw.map((t) => ({ ...t, cell: toCell(t.fraction) })).sort((a, b) => a.cell - b.cell);
   // The leftmost tick is the reader's only anchor for what date the WHOLE
   // axis is showing, so it is forced to survive (added to the priority set,
@@ -226,7 +237,8 @@ function axisTicks(
     // glyph — scaling it the same way keeps the band-label stride (and so
     // which category labels survive) identical across every web Density,
     // exactly like the y-axis's own `yMinRowSpacing` above.
-    stride = Math.max(1, Math.ceil((axis === "x" ? 5 : 2) * textScale / spacing));
+    const footprint = axis === "y" ? 1 + rowGap : flush ? Math.max(...sorted.map((t) => t.label.length)) + 1 : 5;
+    stride = Math.max(1, Math.ceil(footprint * textScale / spacing));
   } else if (!band && sorted.length > requestedCount && requestedCount > 0) {
     stride = Math.ceil(sorted.length / requestedCount);
   }
@@ -247,9 +259,9 @@ function axisTicks(
   // arithmetic from zero (or from the minimum) by construction rather than
   // by coincidence.
   const zeroIndex = sorted.findIndex((t) => t.value === 0);
-  const strideAnchor = zeroIndex >= 0 ? zeroIndex : sorted.length - 1;
+  const strideAnchor = zeroIndex >= 0 ? zeroIndex : flush && axis === "x" ? 0 : sorted.length - 1;
   const strided = sorted.filter((t, i) => (((i - strideAnchor) % stride) + stride) % stride === 0 || priorityValuesEffective.has(t.value));
-  // Priority ticks (a bar/rect y-axis's zero baseline, a log axis's own
+  // Priority ticks (a bar y-axis's zero baseline, a log axis's own
   // decade values) go through the greedy collision test FIRST, so they can
   // never lose their cell to an ordinary neighbour that merely happened to
   // sort earlier — same candidates, same per-candidate logic, only the
@@ -316,7 +328,7 @@ function axisTicks(
     // `textScale`-row label + the same one-row gap).
     const collides = kept.some((k) => axis === "x"
       ? start <= k.labelStart + k.label.length * textScale && k.labelStart <= tEnd + 1
-      : Math.abs(t.cell - k.cell) < textScale + 1);
+      : Math.abs(t.cell - k.cell) < textScale + rowGap);
     if (collides) continue;
     // Never show the identical label text twice — ambiguous, not merely
     // crowded (review finding 5/8: a multi-day time axis kept THREE ticks
@@ -468,6 +480,8 @@ export function layoutGlyphChart(
   const yTickFormat = resolveGlyphChartTickFormat(yAxisOpts?.format);
   const xTickMarks = xAxisOpts?.tickMarks ?? true;
   const yTickMarks = yAxisOpts?.tickMarks ?? true;
+  const xAxisLine = xAxisOpts?.line ?? true;
+  const yAxisLine = yAxisOpts?.line ?? true;
   const xGrid = xAxisOpts?.grid ?? false;
   const yGrid = yAxisOpts?.grid ?? false;
   const xAxisColor = resolveGlyphChartAxisColor(spec.axes, "x");
@@ -581,6 +595,14 @@ export function layoutGlyphChart(
     ledger.push(ledgerLegendDropped({ series: names.length, cols, rows }));
   }
 
+  // Bottommost, under the axis labels: an unsigned heatmap's value key.
+  const fills = cellFillValues(marks);
+  let cellKeyRow = -1;
+  if (fills.length > 0 && !cellSigned(fills) && detail !== "simplified" && rows - top - 3 * textScale > 2 * textScale) {
+    cellKeyRow = bottom - textScale + 1;
+    bottom -= textScale;
+  }
+
   let xAxisLabelRow = -1;
   let xAxisLineRow = -1;
   let xAxisTitleRow = -1;
@@ -641,7 +663,7 @@ export function layoutGlyphChart(
         integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y")),
         yTickFormat,
       );
-      // The zero baseline is the one tick a bar/rect/area chart must always
+      // The zero baseline is the one tick a bar/area chart must always
       // label, whether or not d3's own "nice" set happened to include it.
       if (yZeroAnchored && !yTicksRaw.some((t) => t.value === 0)) {
         const zeroLabel = yTickFormat ? yTickFormat.apply(0, yTicksRaw.length, [...yTicksRaw.map((t) => t.value), 0]) : scales.y.format(0);
@@ -784,7 +806,7 @@ export function layoutGlyphChart(
       yTicksRaw = yTicksRaw.map((t) => {
         const index = scales.y.domain.indexOf(String(t.value));
         if (index < 0 || total === 0) return t;
-        const [chunkTop, chunkBottom] = bandPartitionRowRange(bandCategoryPlot(plotForTicks), total, total - 1 - index);
+        const [chunkTop, chunkBottom] = bandPartitionRowRange(bandCategoryPlot(plotForTicks, xAxisLine), total, total - 1 - index);
         const center = Math.round((chunkTop + chunkBottom) / 2);
         const fraction = plotHeight > 1 ? (plotForTicks.y1 - center) / (plotHeight - 1) : t.fraction;
         return { ...t, fraction };
@@ -820,7 +842,7 @@ export function layoutGlyphChart(
     // (CHARTS-RESEARCH diagnosis B6c): `scale.ticks()`'s own continuous
     // `start + bandwidth/2` fraction, rounded to a column independently,
     // can (and measurably did) land one column right of the band
-    // `bandColRange` — the function `paintBar`/`paintRect`/`paintCell`
+    // `bandColRange` — the function `paintBar`/`paintCell`
     // ACTUALLY paint from — occupies, because `bandColRange`'s own
     // `fractionToCol(hi) - 1` right-edge pull-in isn't visible to a
     // fraction computed independently of it. Re-deriving the tick's
@@ -849,13 +871,13 @@ export function layoutGlyphChart(
       : scales.y.type === "time" ? yTicksRaw.filter((t) => isDateBoundaryTick(t.value)).map((t) => t.value)
       : [],
     );
-    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat, textScale);
+    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat, textScale, scales.x.bandFlush);
     // `yLabelWidth * textScale`: `axisTicks`' own `maxWidth` is a COLUMN
     // budget (its `slot` is fed straight into `glyphChartLabelLayout`,
     // which now divides a candidate's `maxWidth` by `scale` to recover the
     // character budget) — `yLabelWidth` itself stays a raw character count
     // (the y gutter's own `yAxisCol` derivation multiplies it the same way).
-    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale);
+    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale, scales.y.bandFlush);
   }
 
   const plot: GlyphChartPlotRect = {
@@ -887,6 +909,9 @@ export function layoutGlyphChart(
     hasCartesianAxes: xAxisLineRow >= 0,
     xTickMarks,
     yTickMarks,
+    xAxisLine,
+    yAxisLine,
+    cellKeyRow,
     xGrid,
     yGrid,
     xAxisColor,
@@ -947,6 +972,17 @@ export function scaleToRowExact(scale: GlyphChartResolvedScale, plot: GlyphChart
 
 /** Exact band bounds in CELLS for a `band`-scaled `value` — `undefined` when `scale` isn't a band scale. */
 export function bandColRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown): readonly [number, number] | undefined {
+  if (scale.bandFlush) {
+    // Flush (heatmap) bands tile the plot by integer partition, like
+    // `bandRowRange`, so every cell gets the same width when the plot divides evenly.
+    const index = scale.domain.indexOf(String(value));
+    if (index < 0) return undefined;
+    const width = plot.x1 - plot.x0 + 1, total = scale.domain.length;
+    if (total > width) { const col = plot.x0 + Math.floor((index * width) / total); return [col, col]; }
+    const base = Math.floor(width / total), remainder = width % total;
+    const start = plot.x0 + index * base + Math.min(index, remainder);
+    return [start, start + base + (index < remainder ? 1 : 0) - 1];
+  }
   const range = scale.bandRange?.(value);
   if (!range) return undefined;
   const [lo, hi] = range;
@@ -974,8 +1010,8 @@ export function bandColRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
  * — the same "never hand back an empty range" rule `bandPartitionRowRange`
  * itself already keeps.
  */
-function bandCategoryPlot(plot: GlyphChartPlotRect): GlyphChartPlotRect {
-  return plot.y1 - 1 >= plot.y0 ? { ...plot, y1: plot.y1 - 1 } : plot;
+function bandCategoryPlot(plot: GlyphChartPlotRect, axisLine = true): GlyphChartPlotRect {
+  return axisLine && plot.y1 - 1 >= plot.y0 ? { ...plot, y1: plot.y1 - 1 } : plot;
 }
 
 /**
@@ -1035,12 +1071,12 @@ export function bandPartitionRowRange(plot: GlyphChartPlotRect, total: number, v
  * bottom-up: `index` 0 gets the LAST (bottommost, `visual = total - 1`)
  * chunk.
  */
-export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown): readonly [number, number] | undefined {
+export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown, axisLine = true): readonly [number, number] | undefined {
   if (!scale.bandRange) return undefined;
   const total = scale.domain.length;
   const index = scale.domain.indexOf(String(value));
   if (index < 0 || total === 0) return undefined;
-  return bandPartitionRowRange(bandCategoryPlot(plot), total, total - 1 - index);
+  return bandPartitionRowRange(bandCategoryPlot(plot, axisLine), total, total - 1 - index);
 }
 
 /**
@@ -1048,7 +1084,7 @@ export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
  * `plot`'s inclusive `[x0, x1] x [y0, y1]` rectangle — the standard
  * Liang-Barsky parametric line clip. Returns `null` when the segment misses
  * the rect entirely. Callers whose fill/text painters already clamp their
- * own coordinates (bar/rect/cell/arc/dot) don't need this; `line()` draws
+ * own coordinates (bar/cell/arc/dot) don't need this; `line()` draws
  * along a run the canvas itself never bounds to anything narrower than the
  * whole grid, so a mark whose value lies outside an explicit, narrower
  * scale domain (review finding 2) would otherwise paint through the title,

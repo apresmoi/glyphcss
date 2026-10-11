@@ -19,13 +19,13 @@ import { describe, expect, it } from "vitest";
 import { ECOMMERCE_FUNNEL_DATA, ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
 import { bandColRange, layoutGlyphChart, resolveGlyphChartLegendOption, scaleToCol, scaleToRowExact } from "./layout";
 import type { GlyphChartLedgerEntry } from "./ledger";
-import { paintGlyphChart } from "./paint";
+import { barBandColRange, paintGlyphChart } from "./paint";
 import { glyphChartRegionFill, renderGlyphChart } from "./render";
 import { resolveGlyphChartSpec } from "./resolve";
 import { goodSpecs } from "./reviewFixtures";
 import { resolveGlyphChartScales } from "./scales";
 import { chartSeries, resolveSeriesColor } from "./series";
-import { glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
+import { glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartLine, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
 import type { GlyphChartCharset, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 import { validateGlyphChartSpec } from "./validate";
 
@@ -415,7 +415,8 @@ describe("B: sub-cell boundaries between solid bands", () => {
         changed++;
         const key = `${spec.title ?? spec.marks[0]!.type}:${charset}:${w}x${h} (${x},${y}) ${a.ch}->${b.ch}`;
         expect(charset, key).not.toBe("box");
-        expect(b.bg !== null || (QUADRANTS.has(b.ch) && b.ch !== "█") || (QUADRANTS.has(a.ch) && a.ch !== "█"), key).toBe(true);
+        // A texture bar's eighth-block top is a partial cell too (reviewFixtures exception 11).
+        expect(b.bg !== null || (QUADRANTS.has(b.ch) && b.ch !== "█") || (QUADRANTS.has(a.ch) && a.ch !== "█") || "▁▂▃▅▆▇".includes(a.ch), key).toBe(true);
       }
     }
     expect(changed).toBeGreaterThan(100);
@@ -443,7 +444,7 @@ describe("Round 27: under solid, a write owns its whole cell, and a half-cell ed
   const short = glyphChartBar([{ x: "a", y: 3.6 }, { x: "b", y: 5.4 }, { x: "c", y: 2.2 }], { x: "x", y: "y" }, { name: "Short" });
   const overlays: GlyphChartSpec[] = [
     { marks: [tall, short] },
-    { marks: [...stackedBar.marks, glyphChartRect([{ x: "a", y: 5 }, { x: "b", y: 3 }], { x: "x", y: "y" }, { name: "Over" })] },
+    { marks: [...stackedBar.marks, glyphChartBar([{ x: "a", y: 5 }, { x: "b", y: 3 }], { x: "x", y: "y" }, { name: "Over" })] },
     // A line along the fossil band's own top edge: every cell it crosses is a two-colour boundary cell.
     { marks: [...energyArea.marks, glyphChartLine(energyRows.filter((r) => r.source === "Fossil fuels"), { x: "year", y: "twh" }, { name: "Fossil edge" })] },
   ];
@@ -485,7 +486,7 @@ describe("Round 27: under solid, a write owns its whole cell, and a half-cell ed
       const zeroExact = scaleToRowExact(scales.y, layout.plot, 0);
       const base = Math.abs(zeroExact - Math.round(zeroExact)) < 1e-9 ? Math.round(zeroExact) : zeroExact;
       for (const v of ["a", "b", "c"]) {
-        const [c0, c1] = bandColRange(scales.x, layout.plot, v)!;
+        const [c0, c1] = barBandColRange(scales.x, layout.plot, v, 1)!;
         const tops = values.map((m) => scaleToRowExact(scales.y, layout.plot, m.get(v)!));
         for (let x = c0; x <= c1; x++) for (let y = layout.plot.y0; y <= layout.plot.y1; y++) {
           if (y === layout.xAxisLineRow) continue;

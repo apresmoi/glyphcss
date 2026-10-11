@@ -27,7 +27,7 @@ describe("chartsUrlState — round trip", () => {
 
   it("round-trips every mark type added via 'add-mark', with edited channels/transform/options", async () => {
     let state = createChartsWorkbenchState();
-    for (const type of ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule"] as const) {
+    for (const type of ["line", "area", "bar", "dot", "arc", "cell", "text", "rule"] as const) {
       state = reduceChartsWorkbenchState(state, { type: "add-mark", markType: type });
     }
     state = reduceChartsWorkbenchState(state, {

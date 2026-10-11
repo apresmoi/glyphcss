@@ -1356,7 +1356,7 @@ interface SankeyRibbonSegment {
  * visually (fable review, batch 3, finding c). `paintGlyphChart` passes
  * each sankey mark's own index.
  */
-export function computeSankeyRoutedRows(canvas: SankeyRouteCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = "", textScale = 1): readonly SankeyRoutedRow[] {
+export function computeSankeyRoutedRows(canvas: SankeyRouteCanvas, plot: GlyphChartPlotRect, layout: GlyphChartSankeyLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], edgeIdPrefix = "", textScale = 1, shades?: readonly string[]): readonly SankeyRoutedRow[] {
   const nodeBoxes = new Map(layout.nodes.map((n) => [n.id, n]));
   const { bands, gap } = layout;
   const cols = sankeyColumnsByX0(nodeBoxes);
@@ -1503,7 +1503,7 @@ export function computeSankeyRoutedRows(canvas: SankeyRouteCanvas, plot: GlyphCh
   const routedRows: SankeyRoutedRow[] = [];
   let order = 0;
   for (const band of bands) {
-    const glyph = seriesShade(canvas.tier, band.styleIndex, sourceCount);
+    const glyph = seriesShade(canvas.tier, band.styleIndex, sourceCount, shades);
     const color = resolveSeriesColor(band, colorEnabled);
     const stubs = stubsByBand.get(band);
     if (stubs) {
@@ -2421,12 +2421,12 @@ export function paintSankeyMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
  * calling `paintSankeyMark` directly (one iteration, one registration
  * batch, one `resolveJunctions()` call — indistinguishable from today's).
  */
-export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[]; readonly ribbon?: GlyphChartSankeyRibbon }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture"): void {
+export function paintSankeyMarks(canvas: GlyphCanvas, plot: GlyphChartPlotRect, entries: readonly { readonly groups: readonly ChartSeries[]; readonly ribbon?: GlyphChartSankeyRibbon }[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture", shades?: readonly string[]): void {
   const registered: { readonly layout: GlyphChartSankeyLayout; readonly routedRows: readonly SankeyRoutedRow[]; readonly ribbon: GlyphChartSankeyRibbon }[] = [];
   for (let i = 0; i < entries.length; i++) {
     const layout = layoutSankeyGraph(entries[i]!.groups, plot, canvas.tier, ledger, textScale);
     if (!layout) continue;
-    const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, `sankey${i}:`, textScale);
+    const routedRows = computeSankeyRoutedRows(canvas, plot, layout, colorEnabled, ledger, `sankey${i}:`, textScale, shades);
     registered.push({ layout, routedRows, ribbon: entries[i]!.ribbon ?? "filled" });
   }
   if (registered.length === 0) return;
@@ -2462,7 +2462,7 @@ function formatFunnelValueCandidates(v: number): readonly string[] {
  * moved). Stage identity is by ROW, not name (`series.ts`'s `chartSeries`
  * keys a funnel by index) — two stages sharing a label are still two rows.
  */
-export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture"): void {
+export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture", shades?: readonly string[]): void {
   const rawStages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex, color: g.color }));
   if (rawStages.length === 0) return;
   const plotWidth = plot.x1 - plot.x0 + 1;
@@ -2539,7 +2539,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
     if (rowStart > plot.y1) break;
     const midRow = Math.floor((rowStart + rowEnd) / 2);
 
-    const glyph = regionFillGlyph(canvas.tier, stage.styleIndex, n, fill);
+    const glyph = regionFillGlyph(canvas.tier, stage.styleIndex, n, fill, shades);
     const color = resolveSeriesColor(stage, colorEnabled);
     let barWidth = maxValue > 0 ? Math.round((stage.value / maxValue) * innerWidth) : 0;
     if (stage.value > 0 && barWidth < 1) {

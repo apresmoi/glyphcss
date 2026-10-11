@@ -43,10 +43,6 @@ export function glyphChartArc(data: GlyphChartMark["data"], channels?: GlyphChar
   return mark("arc", data, channels, options);
 }
 
-export function glyphChartRect(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
-  return mark("rect", data, channels, options);
-}
-
 export function glyphChartCell(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
   return mark("cell", data, channels, options);
 }

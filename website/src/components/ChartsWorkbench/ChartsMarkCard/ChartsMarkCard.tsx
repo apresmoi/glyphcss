@@ -64,11 +64,6 @@ const CHART_MARK_TYPE_ICONS: Record<(typeof CHART_MARK_TYPES)[number], ReactNode
       <path d="M8 2 L8 8 L13 11" />
     </ToggleIcon>
   ),
-  rect: (
-    <ToggleIcon>
-      <rect x="3" y="3" width="10" height="10" />
-    </ToggleIcon>
-  ),
   cell: (
     <ToggleIcon>
       <rect x="2" y="2" width="12" height="12" />
@@ -124,9 +119,9 @@ export const CHART_MARK_TYPE_TOGGLE = CHART_MARK_TYPES.map((type) => ({
   label: type,
   desc: CHART_MARK_TYPE_DESCRIPTIONS[type],
 }));
-/** The type picker's own grouping (`ChartsMarkTypePicker.tsx`) — `rect`/
- *  `text`/`rule` never fit any data on this page and are left out of every
- *  group by design (that component's own doc has the full rationale). */
+/** The type picker's own grouping (`ChartsMarkTypePicker.tsx`) — `text`/
+ *  `rule` never fit any data on this page and are left out of every group
+ *  by design (that component's own doc has the full rationale). */
 export const CHARTS_MARK_TYPE_GROUPS: readonly ChartsMarkTypeGroup[] = [
   { label: "Trend", values: ["line", "area"] },
   { label: "Compare", values: ["bar", "dot"] },

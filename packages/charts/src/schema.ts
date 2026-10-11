@@ -152,7 +152,7 @@ export function glyphChartJsonSchema(): GlyphChartJsonSchema {
       },
     },
     allOf: [{
-      if: { properties: { marks: { contains: { properties: { type: { enum: ["bar", "rect", "area"] } }, required: ["type"] } } } },
+      if: { properties: { marks: { contains: { properties: { type: { enum: ["bar", "area"] } }, required: ["type"] } } } },
       then: { properties: { scales: { properties: { y: { properties: { type: { not: { enum: ["band", "ordinal", "time", "log"] } }, domain: { allOf: [{ contains: { type: "number", maximum: 0 } }, { contains: { type: "number", minimum: 0 } }] } } } } } } },
     }],
     "x-glyphcss-validation-rules": Object.fromEntries(GLYPH_CHART_VALIDATION_RULES.map((id) => [id, glyphChartRepairHint(id)])) as Record<GlyphChartValidationRuleId, string>,

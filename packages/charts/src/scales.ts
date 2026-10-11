@@ -15,6 +15,7 @@ import { scaleBand, scaleLinear, scaleLog, scaleSqrt, scaleTime, type ScaleBand 
 import { format as d3format } from "d3-format";
 import { timeValue, validateLogDomain, chartError } from "./validate";
 import { inferGlyphChartScaleType, type GlyphChartInferredScaleType } from "./infer";
+import { isHeatmap } from "./heatmap";
 import type { GlyphChartResolvedMark } from "./resolve";
 import type { GlyphChartScaleOptions } from "./types";
 
@@ -32,6 +33,8 @@ export interface GlyphChartResolvedScale {
   toFraction(value: unknown): number;
   /** For a `band` scale: the fractional step width one category occupies. `undefined` otherwise. */
   readonly bandStep?: number;
+  /** A heatmap's padding-free band scale: `bandColRange`/`bandRowRange` tile it by exact integer partition. */
+  readonly bandFlush?: boolean;
   /**
    * For a `band` scale: the EXACT `[start, end]` fraction a category's own
    * band occupies (its `scaleBand` position and bandwidth, not a heuristic
@@ -66,17 +69,17 @@ function collectValues(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"
 
 /** `true` iff any resolved mark is a `bar`/`area` — see module doc for why that forces 0 into the y-domain. */
 export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): boolean {
-  return marks.some((m) => ["bar", "area", "rect"].includes(m.mark.type));
+  return marks.some((m) => ["bar", "area"].includes(m.mark.type));
 }
 
-// `bar`/`rect`/`cell` are BAND-ONLY marks (`paintRect`'s own doc, "Band
-// marks use the scale's own bounds") — they paint an exact, gapless column
+// `bar`/`cell` are BAND-ONLY marks (AGENTS.md's "Band marks use the
+// scale's own bounds") — they paint an exact, gapless column
 // per category and cannot sit on a continuous time scale (`infer.ts`'s own
 // doc). Sharing an x axis with one of these keeps a string column `band`
 // regardless of ISO shape; a continuous mark (line/area/dot/rule) with no
 // band-only mark on the same axis still infers `time` from an all-ISO
 // column exactly as before.
-const BAND_ONLY_MARK_TYPES = new Set(["bar", "rect", "cell"]);
+const BAND_ONLY_MARK_TYPES = new Set(["bar", "cell"]);
 
 function axisHasBandOnlyMark(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"): boolean {
   return axis === "x" && marks.some((m) => BAND_ONLY_MARK_TYPES.has(m.mark.type));
@@ -173,7 +176,7 @@ function numericDomain(values: readonly unknown[], includeZero: boolean): [numbe
 // decimal via `~r` (round to significant digits, no trailing zeros).
 const SI_FORMAT = d3format("~s");
 const PLAIN_FORMAT = d3format("~r");
-function formatLinearTick(v: number): string {
+export function formatLinearTick(v: number): string {
   const abs = Math.abs(v);
   if (abs !== 0 && (abs >= 1000 || abs < 0.01)) return SI_FORMAT(v).replace(/−/g, "-").replace(/µ/g, "u");
   return PLAIN_FORMAT(v).replace(/−/g, "-");
@@ -216,7 +219,7 @@ function buildContinuous(
     }
     validateLogDomain(domain);
   }
-  if (includeZero && !(Math.min(...domain) <= 0 && Math.max(...domain) >= 0)) chartError("bar-domain-excludes-zero", "A bar/rect/area domain must include zero.");
+  if (includeZero && !(Math.min(...domain) <= 0 && Math.max(...domain) >= 0)) chartError("bar-domain-excludes-zero", "A bar/area domain must include zero.");
   const scale = (type === "log" ? scaleLog() : type === "sqrt" ? scaleSqrt() : scaleLinear()).domain([domain[0]!, domain[domain.length - 1]!]);
   if (opts?.nice) scale.nice();
   return {
@@ -228,18 +231,20 @@ function buildContinuous(
   };
 }
 
-function buildBand(values: readonly unknown[], opts: GlyphChartScaleOptions | undefined): GlyphChartResolvedScale {
+function buildBand(values: readonly unknown[], opts: GlyphChartScaleOptions | undefined, flush = false): GlyphChartResolvedScale {
   const seen = new Set<string>();
   const domain: string[] = [];
   const source = opts?.domain ? opts.domain.map(String) : values.map(String);
   for (const v of source) if (!seen.has(v)) { seen.add(v); domain.push(v); }
-  const scale: ScaleBand<string> = scaleBand<string>().domain(domain).range([0, 1]).paddingInner(0.2).paddingOuter(0.1);
+  // A heatmap's cells tile the plot; every other band chart keeps gaps between its bars.
+  const scale: ScaleBand<string> = scaleBand<string>().domain(domain).range([0, 1]).paddingInner(flush ? 0 : 0.2).paddingOuter(flush ? 0 : 0.1);
   const step = scale.step();
   return {
     type: "band",
     domain: scale.domain(),
     toFraction: (v) => (scale(String(v)) ?? 0) + scale.bandwidth() / 2,
     bandStep: step,
+    ...(flush ? { bandFlush: true } : {}),
     bandRange: (v) => {
       const start = scale(String(v)) ?? 0;
       return [start, start + scale.bandwidth()];
@@ -261,8 +266,8 @@ export function resolveGlyphChartScale(
     ? (opts.type === "ordinal" ? "band" : opts.type)
     : inferGlyphChartScaleType(values, { allowDateStrings: !axisHasBandOnlyMark(marks, axis) });
   const includeZero = axis === "y" && hasZeroAnchoredMark(marks);
-  if (includeZero && (type === "band" || type === "time")) chartError("bad-scale", "Bar/rect/area y scales must be numeric and include zero.");
-  if (type === "band") return buildBand(values, opts);
+  if (includeZero && (type === "band" || type === "time")) chartError("bad-scale", "Bar/area y scales must be numeric and include zero.");
+  if (type === "band") return buildBand(values, opts, isHeatmap(marks));
   return buildContinuous(type, values, includeZero, opts);
 }
 
