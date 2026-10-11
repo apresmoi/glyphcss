@@ -17,6 +17,12 @@ export interface Charts3dRenderInput {
   readonly env?: Readonly<Record<string, string | undefined>>;
   /** Omit for the tray's small thumbnails, which show no title row. */
   readonly showTitle?: boolean;
+  /**
+   * The tray's 24x8 tile: no axis lines, ticks or labels. The fit reserves
+   * room for every guide, and at that size the labels alone shrank the data
+   * to a dot.
+   */
+  readonly thumbnail?: boolean;
 }
 export type Charts3dRenderResult =
   | {
@@ -31,7 +37,10 @@ export type Charts3dRenderResult =
 export function renderCharts3dStatic(input: Charts3dRenderInput): Charts3dRenderResult {
   const resolved = resolveCharts3dView(input.view);
   if (!resolved.ok) return { ok: false, error: resolved.error };
-  const { mark, title, description } = resolved.resolved;
+  const { title, description } = resolved.resolved;
+  const mark = input.thumbnail
+    ? { ...resolved.resolved.mark, guides: { ...resolved.resolved.mark.guides, axisLines: false, ticks: false, tickLabels: false, titles: false } }
+    : resolved.resolved.mark;
   try {
     const cam = input.view.camera;
     // Packet C4, item 2: `renderGlyphChart3d`'s own `camera` option now

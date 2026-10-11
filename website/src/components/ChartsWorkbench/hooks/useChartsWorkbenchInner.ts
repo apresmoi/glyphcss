@@ -409,6 +409,7 @@ export function useChartsWorkbenchInner({
           color: "css",
           width: 24,
           height: 8,
+          thumbnail: true,
         });
         return out.ok ? out.text : "";
       }),
