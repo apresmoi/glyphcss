@@ -239,7 +239,7 @@ Coal 40 █─┼━━━ 40 ━━━┼─█─┤         ├─█
 
 ### `glyphChartFunnel`
 
-Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index) — every row is its own stage even when two share a label. Every stage gets an EQUAL row band; only the bar's WIDTH is proportional to value/max, centred between a label column (stage name, right-aligned) and a `value · NN%` readout on the right — never an equal-step trapezoid. More stages than the plot has rows folds the tail into one "other (k more)" stage rather than dropping it silently (`funnel-folded-stages`). A negative value rejects with `funnel-bad-value`; an all-zero funnel draws nothing (`empty-total`); a nonpositive first-stage value omits every percentage rather than printing a fabricated `0%` (`funnel-bad-reference`). A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a proportional width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
+Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index) — every row is its own stage even when two share a label. The funnel is one solid shape (`█`, `#` on ascii) whose stages settle at widths proportional to the SQUARE ROOT of value/max, so a late, small stage stays visible; each tapers in from the previous stage's width with quadrant half-steps, a blank row parts the stages, and the shape fills the plot with a blank row above and below. Each stage gets one label line on its waist: name, value, share of the first stage, and from the third stage on the share of the previous stage that made it (`↓ 31%`; `v` on ascii). The step and share columns give way before the shape gets too narrow; a value too wide for the gutter takes its SI form, then drops (`label-dropped`), never truncates. Stages are told apart by colour and label, so the fill ignores `regionFill` and `shades`. More stages than the plot has rows folds the tail into one "other (k more)" stage rather than dropping it silently (`funnel-folded-stages`). A negative value rejects with `funnel-bad-value`; an all-zero funnel draws nothing (`empty-total`); a nonpositive first-stage value omits every percentage rather than printing a fabricated `0%` (`funnel-bad-reference`). A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
 
 ```ts
 const data = [
@@ -252,25 +252,25 @@ const data = [
 renderGlyphChart(glyphChartFunnel(data, { stage: "stage", value: "count" }), { target: "chat", width: 64, height: 20 });
 ```
 ```
-             ████████████████████████████████████               
-       Visits████████████████████████████████████  10,000 · 100%
-             ████████████████████████████████████               
                                                                 
-                        ░░░░░░░░░░░░░░                          
-Product Views           ░░░░░░░░░░░░░░             4,000 · 40%  
-                        ░░░░░░░░░░░░░░                          
+███████████████████████████  Visits         10,000  100%        
                                                                 
-                             ▚▚▚▚                               
-  Add to Cart                ▚▚▚▚                  1,000 · 10%  
-                             ▚▚▚▚                               
+ ▜███████████████████████▛                                      
+  ▝▜███████████████████▛▘                                       
+    ▀█████████████████▀                                         
+     █████████████████       Product Views   4,000   40%        
                                                                 
-                               ╱                                
-     Checkout                  ╱                   400 · 4%     
-                               ╱                                
+      ▀█████████████▀                                           
+        ▀█████████▀                                             
+         █████████           Add to Cart     1,000   10%   ↓ 25%
                                                                 
-                               ▌                                
-     Purchase                  ▌                   260 · 3%     
-                               ▌                                
+         ▝███████▘                                              
+          ▝█████▘                                               
+           █████             Checkout          400    4%   ↓ 40%
+                                                                
+           █████                                                
+           ▜███▛                                                
+           ▐███▌             Purchase          260    3%   ↓ 65%
                                                                 
 ```
 
@@ -495,7 +495,7 @@ Every preset lives in one exported table, `GLYPH_CHART_TICK_FORMAT_PRESETS`:
 | `"time"` | `14:05` | — |
 | `"template"` | `42 °C` | `pattern: string` (required) — `{value}` is the auto-formatted value |
 
-A bare string is sugar for `{ preset: "<name>" }`; `"auto"` (and an absent `format`) is a no-op, so a default chart is byte-identical to one built before `format` existed. A formatted numeric label that overflows its cell budget still follows the existing abbreviate-or-drop policy: a preset's own SI fallback runs first where it has one (`number`, `integer`, `currency`); otherwise the label drops, never truncates into a shorter-but-wrong number (`"1,234.00"` never becomes `"1,2"`). A callback's return value is opaque text the library can't parse back into a number, so it's always treated as a category label — elided with `…` rather than dropped. Applies to axis ticks only, never an arc's own callout percentage or a funnel's value·percent label.
+A bare string is sugar for `{ preset: "<name>" }`; `"auto"` (and an absent `format`) is a no-op, so a default chart is byte-identical to one built before `format` existed. A formatted numeric label that overflows its cell budget still follows the existing abbreviate-or-drop policy: a preset's own SI fallback runs first where it has one (`number`, `integer`, `currency`); otherwise the label drops, never truncates into a shorter-but-wrong number (`"1,234.00"` never becomes `"1,2"`). A callback's return value is opaque text the library can't parse back into a number, so it's always treated as a category label — elided with `…` rather than dropped. Applies to axis ticks only, never an arc's own callout percentage or a funnel's value and share labels.
 
 ## Colours
 
@@ -518,7 +518,7 @@ glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: 
 
 `scales.x/y.type` supports `linear`, `log`, `sqrt`, `time`, `band`, and `ordinal` (band). Log and square-root scales use d3's actual transforms. Log domains containing zero or crossing sign reject with `log-domain`; zero-anchored bars/rects therefore need a zero-capable scale. Time domains accept calendar-valid ISO strings, parsed once; invalid ones reject with `bad-time-domain`. Intraday ticks use d3's multi-scale time format. `nice: true` enables d3 domain nicening.
 
-Categorical `fill` or `stroke` splits line, area, dot, bar and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/area) instead carries series identity through its own glyph — a SHAPE-FAMILY set (`█ ░ ▚ ╱ ▌ ═ ▓ ▒` in box/blocks/braille, `# . @ -`/`# . = / @ : | -` in ASCII below/above 4 series — see the pie section above) wherever colour cannot tell series apart, so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. `regionFill: "auto" | "solid" | "texture"` (default `"auto"`) swaps that glyph for a solid `█` (`#` on ascii) in the colour-carrying exits only — `html` under `css`, `text` under an ANSI mode — when colour is on, the target is not `terminal`/`chat`, and no two region series (funnel stages included) share a colour at the render's own depth (ansi16 maps the default blue and green to one colour). `build.canvas` and plain `text` always keep the textures. `glyphChartRegionFill(input, options)` returns the decision and a one-sentence reason; an explicit `"solid"` that would make two series identical is refused with a `region-fill-solid-refused` ledger entry. Past 8 series in one shade family the cycle wraps and `report.ledger` gets a `series-shade-repeat` entry per repeated pair. The `shades` render option (e.g. `shades: ["#", "=", "+", ":", "."]`) replaces that glyph set, legend swatches included, with your own palette: one visible character per series, 7-bit on `ascii`; it wraps and reports on its own length, and solid fills and `cell` ramps ignore it. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
+Categorical `fill` or `stroke` splits line, area, dot, bar and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/area) instead carries series identity through its own glyph — a SHAPE-FAMILY set (`█ ░ ▚ ╱ ▌ ═ ▓ ▒` in box/blocks/braille, `# . @ -`/`# . = / @ : | -` in ASCII below/above 4 series — see the pie section above) wherever colour cannot tell series apart, so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. `regionFill: "auto" | "solid" | "texture"` (default `"auto"`) swaps that glyph for a solid `█` (`#` on ascii) in the colour-carrying exits only — `html` under `css`, `text` under an ANSI mode — when colour is on, the target is not `terminal`/`chat`, and no two region series share a colour at the render's own depth (ansi16 maps the default blue and green to one colour). `build.canvas` and plain `text` always keep the textures. `glyphChartRegionFill(input, options)` returns the decision and a one-sentence reason; an explicit `"solid"` that would make two series identical is refused with a `region-fill-solid-refused` ledger entry. Past 8 series in one shade family the cycle wraps and `report.ledger` gets a `series-shade-repeat` entry per repeated pair. The `shades` render option (e.g. `shades: ["#", "=", "+", ":", "."]`) replaces that glyph set, legend swatches included, with your own palette: one visible character per series, 7-bit on `ascii`; it wraps and reports on its own length, and solid fills and `cell` ramps ignore it. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
 
 All strings pass through the canvas's text fold. ASCII output is 7-bit, including `-`, a three-cell `...`, accented titles and text marks. Axis labels use the same slot-aware abbreviation policy as other labels: SI first, then elision, with ledger entries. Crowded category labels thin every kth tick; numeric/time collisions also thin. Labels never rely on canvas clipping.
 

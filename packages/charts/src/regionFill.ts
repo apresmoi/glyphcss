@@ -25,8 +25,8 @@ import type { GlyphChartResolvedMark } from "./resolve";
 import { chartSeries, resolveSeriesColor } from "./series";
 import type { GlyphChartColorMode, GlyphChartRegionFill, GlyphChartRegionFillResolution, GlyphChartTarget } from "./types";
 
-/** Mark types whose fill glyph `regionFillGlyph` picks. `cell` shades by VALUE, so it never takes a solid fill. */
-const SOLID_CAPABLE_MARK_TYPES = new Set(["bar", "area", "arc", "funnel"]);
+/** Mark types whose fill glyph `regionFillGlyph` picks. `cell` shades by VALUE, and a funnel always paints solid, so neither has a texture to trade. */
+const SOLID_CAPABLE_MARK_TYPES = new Set(["bar", "area", "arc"]);
 
 /** Whether a render paints colour at all — shared by `renderGlyphChart` and `glyphChartRegionFill` so the two can never disagree. */
 export function glyphChartColorEnabled(color: GlyphChartColorMode, env: Readonly<Record<string, string | undefined>> | undefined): boolean {
@@ -54,7 +54,7 @@ export function resolveGlyphChartRegionFill(marks: readonly GlyphChartResolvedMa
     ({ requested, fill: "texture", reason, message, ...(colliding ? { colliding } : {}) });
   const series = chartSeries(marks);
   const region = series.filter((s) => SOLID_CAPABLE_MARK_TYPES.has(s.mark.type));
-  if (region.length === 0) return texture("no-region-mark", "No bar, area, pie or funnel mark has a fill to texture.");
+  if (region.length === 0) return texture("no-region-mark", "No bar, area or pie mark has a fill to texture.");
   if (requested === "texture") return texture("requested-texture", "Textures were requested.");
   if (!ctx.colorEnabled) return texture("color-off", "Colour is off, so textures tell the series apart.");
   const identityByColor = new Map<string, string>();

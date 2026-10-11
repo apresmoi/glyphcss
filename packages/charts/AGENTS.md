@@ -43,6 +43,7 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Don't pass `rotX`/`rotY` with `mat` to `renderGlyphChart3d` (`bad-camera`), and don't hand-roll 3D rasterization instead of `compileScene` (a raw sampler key hides there).
 - Don't put notes inside a render area; reasons go on the Dock toggle (`disabledReason`) or frame chrome.
 - Don't paint sankey flows as filled ribbons; stubs, a bracket and one line per flow keep each share and each path readable (`sankeyLines.ts`).
+- Don't texture funnel stages or size them linearly; one solid shape with √value widths, a blank row between stages and one label line each keeps late stages visible and readable (`paintFunnelMark`).
 - Don't tighten the sankey row-monotonicity bound below 2; reclaim and fold-stub steals each cost a row.
 - Don't narrow a `RangeSlider` thumb's native `min`/`max`; caps apply only on commit, or thumbs and fill disagree.
 - Don't prove byte-identity against this branch's defaults; pin fixtures rendered from the parent commit.

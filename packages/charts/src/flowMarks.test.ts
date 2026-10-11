@@ -14,7 +14,7 @@ import { renderGlyphChart } from "./render";
 import { ECOMMERCE_FUNNEL_DATA, ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
 import type { GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartPlotRect } from "./layout";
-import type { GlyphChartSpec } from "./types";
+import type { GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 const PLOT = (cols: number, rows: number): GlyphChartPlotRect => ({ x0: 0, y0: 0, x1: cols - 1, y1: rows - 1 });
 
@@ -253,29 +253,58 @@ describe("sankey rejects bad input", () => {
   });
 });
 
-describe("funnel widths are proportional to value", () => {
-  it("a 1000/500/250 funnel has bar widths in 4:2:1 within +/-1 cell", () => {
-    // Mutation: switch to equal-step widths (a trapezoid) instead of
-    // value-proportional ones -> the measured widths stop tracking 4:2:1.
+describe("funnel: one tapering shape, one label line per stage", () => {
+  const ecommerce: GlyphChartSpec = { title: "Checkout", marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA, { stage: "stage", value: "count" })] };
+  const lines = (spec: GlyphChartSpec, width: number, height: number, extra: Partial<GlyphChartRenderOptions> = {}) =>
+    renderGlyphChart(spec, { target: "chat", width, height, charset: "box", ...extra }).text.split("\n");
+
+  it("fills the plot, with a blank row under the title, above the legend and between stages, and nowhere else", () => {
+    // Mutation: cap the waists again, or drop the top or bottom spare row -> red.
+    const three: GlyphChartSpec = { ...ecommerce, marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA.slice(0, 3), { stage: "stage", value: "count" })] };
+    for (const [spec, stages] of [[ecommerce, 5], [three, 3]] as const) {
+      for (const [w, h] of [[60, 24], [72, 40], [96, 32]] as const) {
+        const rows = lines({ ...spec, legend: true }, w, h);
+        const blank = rows.map((row) => row.trim() === "");
+        const key = `${stages} stages at ${w}x${h}`;
+        expect(blank[1], key).toBe(true);
+        expect(blank[rows.length - 2], key).toBe(true);
+        expect(blank[rows.length - 3], key).toBe(false);
+        expect(blank.filter(Boolean), key).toHaveLength(2 + stages - 1);
+      }
+    }
+  });
+
+  it("labels each stage once: name, value, share of the first, and the step share from the third stage on", () => {
+    // Mutation: print the step on the second stage, or split a label over two lines -> red.
+    const labels = lines(ecommerce, 72, 24).filter((row) => /\d%/.test(row)).map((row) => row.replace(/^[^A-Z]*/u, "").trim());
+    expect(labels).toEqual([
+      "Visits         10,000  100%",
+      "Product Views   4,000   40%",
+      "Add to Cart     1,000   10%   ↓ 25%",
+      "Checkout          400    4%   ↓ 40%",
+      "Purchase          260    3%   ↓ 65%",
+    ]);
+  });
+
+  it("tapers between stages with quadrant half-steps on box, and whole cells on ascii", () => {
+    // Mutation: paint whole cells on box -> no quadrant glyph.
+    expect(lines(ecommerce, 72, 24).join("\n")).toMatch(/[▘▝▖▗▛▜▙▟]/u);
+    expect(lines(ecommerce, 72, 24, { charset: "ascii" }).join("\n")).not.toMatch(/[^\x20-\x7e\n]/);
+  });
+});
+
+describe("funnel widths follow the square root of value", () => {
+  it("a 1000/500/250 funnel settles at widths in 1 : 0.71 : 0.5 within +/-1 cell", () => {
+    // Mutation: switch to linear widths (4:2:1) -> the last stage lands at a quarter, not a half.
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([1000, 500, 250])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 60, height: 12, charset: "box" });
-    const rows = r.text.split("\n");
-    const rowWidths = rows.map((row) => (row.match(/[█░▚╱▌═▓▒]/g) ?? []).length);
-    // Group consecutive glyph-carrying rows into stage bands, separated by
-    // the blank gap row `layoutFunnelStages`'s own spacing leaves between
-    // stages, and take each band's own maximum painted width.
-    const bandWidths: number[] = [];
-    let current = 0;
-    for (const w of rowWidths) {
-      if (w > 0) current = Math.max(current, w);
-      else if (current > 0) { bandWidths.push(current); current = 0; }
-    }
-    if (current > 0) bandWidths.push(current);
+    // A stage's label sits on its waist; half cells count half.
+    const bandWidths = r.text.split("\n").filter((row) => /\d+%/.test(row))
+      .map((row) => (row.match(/█/g) ?? []).length + (row.match(/[▌▐]/g) ?? []).length / 2);
     expect(bandWidths).toHaveLength(3);
     const [w0, w1, w2] = bandWidths as [number, number, number];
-    expect(w0).toBeGreaterThan(0);
-    expect(Math.abs(w1 - w0 / 2)).toBeLessThanOrEqual(1);
-    expect(Math.abs(w2 - w0 / 4)).toBeLessThanOrEqual(1);
+    expect(Math.abs(w1 - w0 * Math.SQRT1_2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(w2 - w0 / 2)).toBeLessThanOrEqual(1);
   });
 
   it("funnel-not-monotone fires when a stage exceeds the one above it", () => {
@@ -962,26 +991,24 @@ describe("funnel stages past the row budget fold, never silently drop (P1-3)", (
 });
 
 describe("funnel value label formatting: plain first, then SI, then drop (P2-6)", () => {
-  it("[12345, 6789] at 30 cols keeps a value label (not dropped by the old 6-sig-digit ~s form)", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartFunnel([12345, 6789])] };
-    const r = renderGlyphChart(spec, { target: "chat", width: 30, height: 8 });
-    // The old fallback (`d3format("~s")`, 6 significant digits) rendered
-    // "12.345k" (7 chars) — LONGER than the plain, comma-grouped "12,345"
-    // (6 chars) it replaced — and dropped both stages' labels at this
-    // width. Now the plain form is tried FIRST, and only the row narrow
-    // enough to need it (12,345's own 6-char row) falls back to the
-    // 3-significant-digit "12.3k" (5 chars) — which still SURVIVES, unlike
-    // the old 6-digit form; the wider "6,789" row keeps its plain form.
-    expect(r.text).toMatch(/12\.3k/);
-    expect(r.text).toContain("6,789");
-    expect(r.report.ledger.some((e) => e.code === "label-dropped" && e.detail?.role === "funnel value label")).toBe(false);
+  it("[12345, 6789] keeps the exact plain value when it fits and takes the SI form only when it doesn't", () => {
+    // Mutation: try only the plain form -> the 11-column render drops 12,345.
+    const at = (width: number) => renderGlyphChart({ marks: [glyphChartFunnel([12345, 6789])] }, { target: "chat", width, height: 8 });
+    expect(at(30).text).toContain("12,345");
+    expect(at(11).text).toMatch(/12\.3k/);
+    for (const r of [at(30), at(11)]) {
+      expect(r.text).toContain("6,789");
+      expect(r.report.ledger.some((e) => e.code === "label-dropped" && e.detail?.role === "funnel value label")).toBe(false);
+    }
   });
 
   it("a value too wide even after SI abbreviation drops with a label-dropped ledger entry, never truncated", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartFunnel([123456789, 1])] };
-    const r = renderGlyphChart(spec, { target: "chat", width: 14, height: 8 });
+    // Mutation: write the line unchecked -> "123,456" is cut, with no ledger entry.
+    const r = renderGlyphChart({ marks: [glyphChartFunnel([123456789, 1])] }, { target: "chat", width: 8, height: 8 });
     const entry = r.report.ledger.find((e) => e.code === "label-dropped" && e.detail?.role === "funnel value label");
-    expect(entry).toBeTruthy();
+    expect(entry?.detail?.text).toBe("123,456,789");
+    expect(r.text).not.toMatch(/12/);
+    expect(r.text).toContain("1  1");
   });
 });
 
@@ -1024,11 +1051,11 @@ describe("dead guarantees now covered by tests (P2-7)", () => {
     expect(layoutExplicit.legend).not.toBeNull();
   });
 
-  it("m6: the ascii charset uses 'x' for the value/percent separator, not a folded '?' or the raw middle dot", () => {
+  it("m6: the ascii charset stays 7-bit: `#` stages and a `v` step", () => {
     const r = renderGlyphChart(funnelSpec, { target: "chat", charset: "ascii" });
-    expect(r.text).toMatch(/\bx\s+\d+%/);
-    expect(r.text).not.toContain("·");
-    expect(r.text).not.toContain("?");
+    expect(r.text).toMatch(/^[\x20-\x7e\n]*$/);
+    expect(r.text).toMatch(/#  [A-Z]/);
+    expect(r.text).toMatch(/v \d+%/);
   });
 
   it("m7: a sankey/funnel-only spec reserves NO cartesian axis gutter", () => {
@@ -1053,7 +1080,7 @@ describe("dead guarantees now covered by tests (P2-7)", () => {
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([100000, 1])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 10, charset: "box" });
     const rows = r.text.split("\n");
-    const rowWidths = rows.map((row) => (row.match(/[█░▚╱▌═▓▒]/g) ?? []).length);
+    const rowWidths = rows.map((row) => (row.match(/[█▌▐▘▝▀▖▗▄▙▛▜▟▚▞]/g) ?? []).length);
     const bandWidths: number[] = [];
     let current = 0;
     for (const w of rowWidths) {
@@ -1277,7 +1304,9 @@ describe("density scaling (`textScale`) keeps sankey/funnel geometry proportiona
       };
       // The first blank-row run strictly between two ink runs is the gap
       // between stage 0 and stage 1.
+      // A blank row parts the funnel from the title before stage 0.
       let y = 0;
+      while (y < height && !rowHasInk(y)) y++;
       while (y < height && rowHasInk(y)) y++;
       const gapStart = y;
       while (y < height && !rowHasInk(y)) y++;

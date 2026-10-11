@@ -254,7 +254,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       else if (prior !== s.color && ledger) ledger.push(ledgerSeriesColorConflict({ name: s.name, kept: prior, rejected: s.color }));
     }
   }
-  // Region marks (bar/area/cell/sankey/funnel) paint their fill via
+  // Region marks (bar/area/cell) paint their fill via
   // `seriesShade(tier, styleIndex)` — the CROSS-MARK `named` index, never
   // an arc's own local `shadeIndex` — so a wrap here is a wrap of that
   // shared identity: a "Revenue" bar and a "Revenue" area both use the
@@ -264,7 +264,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
   // with no collision at all — it cycles line styles or dot glyphs on a
   // different, unrelated period), so only they are checked here.
   if (ledger) {
-    const REGION_SHADE_MARK_TYPES = new Set(["bar", "area", "cell", "funnel"]);
+    const REGION_SHADE_MARK_TYPES = new Set(["bar", "area", "cell"]);
     const nameByShadeIndex = new Map<number, string>();
     for (const s of out) {
       if (s.name === undefined || !REGION_SHADE_MARK_TYPES.has(s.mark.type)) continue;

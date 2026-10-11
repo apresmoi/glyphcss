@@ -119,13 +119,20 @@
  *    exceptions 7 and 8 describe. Affects `goodSpecs[16]` (`sankeySample`) and
  *    `solidSubcell`'s `energySankey` on every tier; those keys were re-derived
  *    from the current build. Every other key is untouched.
+ * 15. (`flowMarks.ts`'s `paintFunnelMark`, `flowMarks.test.ts`) A funnel is
+ *    one solid shape tapering in quadrant half-steps, stage widths ∝ the
+ *    square root of value, filling the plot with a blank row between stages
+ *    and around the shape, and one label line per stage, instead of stacked
+ *    textured bars. Its fill ignores `regionFill` and `shades`. Affects
+ *    `goodSpecs[17]` and `[18]` and `solidSubcell`'s `funnel` on every tier;
+ *    those keys were re-derived from the current build.
  *
  * The `rect` mark's entry (`rect([-1,1])`, once index 4) left `goodSpecs`
  * with the mark itself; every later fixture key was renumbered down by one,
  * its value unchanged.
  *
- * A NEW divergence found outside these fourteen is a real regression, not a
- * fifteenth exception to wave through — add it here, with its own dedicated
+ * A NEW divergence found outside these fifteen is a real regression, not a
+ * sixteenth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";

@@ -13,7 +13,7 @@ import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GLYPH_CHART_DEFAULT_REGION_FILL, glyphChartRegionFill, renderGlyphChart } from "./render";
 import { goodSpecs } from "./reviewFixtures";
-import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartSankey } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartSankey } from "./spec";
 import type { GlyphChartCharset, GlyphChartColorMode, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 const CHARSETS: readonly GlyphChartCharset[] = ["ascii", "box", "blocks", "braille"];
@@ -154,8 +154,7 @@ describe("auto resolution — solid only where colour carries identity", () => {
   it("the solid paint's ledger is discarded: a solid render reports exactly the textured render's ledger, never an entry twice", () => {
     // Mutation: hand the solid paint the real ledger in `renderGlyphChart` -> red (every paint-time entry is reported twice).
     const zeroSlice: GlyphChartSpec = { marks: [glyphChartArc([{ s: "A", v: 3 }, { s: "B", v: 0 }, { s: "C", v: 2 }], { fill: "s", y: "v" })] };
-    const thinFunnel: GlyphChartSpec = { marks: [glyphChartFunnel([1000, 500, 1])] };
-    for (const [spec, opts] of [[zeroSlice, {}], [thinFunnel, { width: 40, height: 20 }], [energy, {}]] as const) {
+    for (const [spec, opts] of [[zeroSlice, {}], [energy, {}]] as const) {
       const base: GlyphChartRenderOptions = { color: "css", regionFill: "auto", ...opts };
       expect(glyphChartRegionFill(spec, base).fill).toBe("solid");
       const solid = renderGlyphChart(spec, base).report.ledger;
@@ -164,7 +163,6 @@ describe("auto resolution — solid only where colour carries identity", () => {
       expect(new Set(solid.map((e) => JSON.stringify(e))).size).toBe(solid.length);
     }
     expect(renderGlyphChart(zeroSlice, { color: "css" }).report.ledger.map((e) => e.code)).toContain("slice-dropped");
-    expect(renderGlyphChart(thinFunnel, { color: "css", width: 40, height: 20 }).report.ledger.map((e) => e.code)).toContain("funnel-thin-stage");
   });
 
   it("the default palette separates 8 pie slices; a 9th repeats blue and falls back to textures", () => {

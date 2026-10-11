@@ -1,9 +1,8 @@
 /**
  * `regionFill` follow-ups:
  *
- * - A: sankey ribbons, node-adjacent routes and funnel bars follow the
- *   whole-chart `regionFill` decision like every other region mark, without
- *   touching which cells a band claims.
+ * - A: a funnel paints solid stages and a sankey plain lines whatever the
+ *   whole-chart `regionFill` decision, so neither has a texture to trade.
  * - B: under a SOLID fill on `braille`/`blocks`, a boundary between two
  *   bands lands on the nearest HALF cell — `▄` in the lower band's colour
  *   over the canvas `bg` of the upper one — and a stack layer thinner than
@@ -132,26 +131,20 @@ function fixturePath(relative: string): string {
 }
 const hash = (s: string) => createHash("sha256").update(s).digest("hex").slice(0, 20);
 
-describe("A: a funnel follows regionFill; a sankey's lines take no fill", () => {
-  it("web + css resolves solid for a funnel; terminal, colour off and one hex keep textures; a sankey alone has nothing to fill", () => {
-    // Mutation: drop funnel from SOLID_CAPABLE_MARK_TYPES, or put sankey back in it -> red.
-    for (const spec of [funnel]) {
-      expect(glyphChartRegionFill(spec, WEB)).toMatchObject({ fill: "solid", reason: "colors-distinct" });
-      expect(glyphChartRegionFill(spec, { target: "terminal", regionFill: "auto" })).toMatchObject({ fill: "texture", reason: "target-terminal" });
-      expect(glyphChartRegionFill(spec, { ...WEB, color: "none" })).toMatchObject({ fill: "texture", reason: "color-off" });
-      const oneHex = { marks: [{ ...spec.marks[0]!, options: { ...spec.marks[0]!.options, color: "#ff0000" } }] };
-      expect(glyphChartRegionFill(oneHex, WEB)).toMatchObject({ fill: "texture", reason: "colors-collide" });
-    }
+describe("A: a funnel paints solid whatever regionFill says; a sankey's lines take no fill", () => {
+  it("neither a funnel nor a sankey alone has a texture to trade", () => {
+    // Mutation: put funnel or sankey back in SOLID_CAPABLE_MARK_TYPES -> red.
+    expect(glyphChartRegionFill(funnel, WEB)).toMatchObject({ fill: "texture", reason: "no-region-mark" });
     expect(glyphChartRegionFill(energySankey, WEB)).toMatchObject({ fill: "texture", reason: "no-region-mark" });
     // A stacked bar next to a sankey is now solid as a whole chart.
     expect(glyphChartRegionFill({ marks: [...stackedBar.marks, ...energySankey.marks] }, WEB).fill).toBe("solid");
   });
 
-  it("box: solid funnel bars are `█`, with no texture left", () => {
-    // Mutation: keep the texture glyph under solid -> red.
-    for (const spec of [funnel]) {
-      const rows = htmlCells(renderGlyphChart(spec, { ...WEB, charset: "box" }).html!).flat();
-      for (const g of ["░", "▚", "╱", "▌", "═", "▓", "▒", "╭", "╮", "╰", "╯"]) expect(rows.some((c) => c.ch === g), `${g} in ${spec.marks[0]!.type}`).toBe(false);
+  it("box: funnel stages are `█` and quadrant edges under textures and solid alike", () => {
+    // Mutation: paint a stage with `regionFillGlyph` again -> red.
+    for (const regionFill of ["texture", "solid"] as const) {
+      const rows = htmlCells(renderGlyphChart(funnel, { ...WEB, charset: "box", regionFill }).html!).flat();
+      for (const g of ["░", "▚", "╱", "═", "▓", "▒", "╭", "╮", "╰", "╯"]) expect(rows.some((c) => c.ch === g), `${g} under ${regionFill}`).toBe(false);
       expect(rows.filter((c) => c.ch === "█").length).toBeGreaterThan(50);
     }
   });
@@ -186,10 +179,14 @@ describe("A: a funnel follows regionFill; a sankey's lines take no fill", () => 
     expect(s.colors, key).toEqual(t.colors);
   });
 
-  it("a solid funnel's legend swatches are `█`", () => {
-    // Mutation: leave the funnel legend swatch on `seriesShade` -> red.
-    const funnelLegend = renderGlyphChart(funnel, { ...WEB, legend: true }).html!;
-    expect(htmlCells(funnelLegend).at(-1)!.map((c) => c.ch).join("")).not.toMatch(/[░▚╱▌═▓▒]/);
+  it("a funnel's legend swatches are `█`, on every exit", () => {
+    // Mutation: leave the funnel legend swatch on `regionFillGlyph` -> red.
+    const css = htmlCells(renderGlyphChart(funnel, { ...WEB, legend: true }).html!).at(-1)!.map((c) => c.ch).join("");
+    const plain = renderGlyphChart(funnel, { ...WEB, color: "none", legend: true }).text.split("\n").at(-1)!;
+    for (const legend of [css, plain]) {
+      expect(legend).not.toMatch(/[░▚╱▌═▓▒]/);
+      expect(legend).toContain("█");
+    }
   });
 });
 
@@ -508,8 +505,9 @@ describe("Round 27: under solid, a write owns its whole cell, and a half-cell ed
 // The fixture is b662a509's hashes with ONE documented exception: the 112 energySankey entries (14 exits x 4
 // charsets x 2 sizes) were re-pinned at d9bd096c, whose skip-level gate re-places Industrial below Electricity
 // Generation (Round 26). Regenerated against b662a509 in Round 27, every other entry matches it exactly and every
-// energySankey entry differs, so a change to any other spec's texture exits still reddens here.
-describe("texture output is byte-identical to b662a509, the energy sankey's re-placed order excepted (fixtures/solidSubcellParentFixtures.json)", () => {
+// energySankey entry differs, so a change to any other spec's texture exits still reddens here. The sankey, funnel
+// and their goodSpecs entries were later re-derived for reviewFixtures exceptions 14 and 15.
+describe("texture output is byte-identical to b662a509, the sankey and funnel redraws excepted (fixtures/solidSubcellParentFixtures.json)", () => {
   const parent: Record<string, string> = JSON.parse(readFileSync(fixturePath("fixtures/solidSubcellParentFixtures.json"), "utf8"));
   const specs: [string, GlyphChartSpec][] = [...goodSpecs.map((s, i) => [`g${i}`, s] as [string, GlyphChartSpec]), ["energyArea", energyArea], ["stackedBar", stackedBar], ["energySankey", energySankey], ["funnel", funnel]];
 

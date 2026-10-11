@@ -1487,7 +1487,8 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
+    else if (entry?.mark.type === "funnel") canvas.text(startCol, row, [canvas.tier === "ascii" ? "#" : "█"], { color, scale: textScale });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "area") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color, scale: textScale });
@@ -1573,7 +1574,7 @@ export function paintGlyphChart(
       const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
       if (sankeyLayout) paintSankeyLines(guarded, layout.plot, sankeyLayout, groups, opts.colorEnabled, ledger);
     }
-    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale, fill, shades);
+    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale);
     else if (mark.type === "area") {
       // One call per mark, not per series: a stack's silhouette is the edge
       // of ALL its layers together. An unstacked area whose boundary LINE
@@ -1788,9 +1789,11 @@ export function paintGlyphChart(
       // has no per-series shade cycle of its own (`paintCell` shades by
       // continuous VALUE, not by series) — its swatch is the ramp's own
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
-      // it can paint. A bar/area/sankey/funnel swatch follows the
-      // render's resolved `fill` exactly as its plot fill does.
-      else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "funnel") {
+      // it can paint. A bar/area swatch follows the
+      // render's resolved `fill` exactly as its plot fill does. A funnel
+      // paints every stage solid, told apart by colour and its own label.
+      else if (entry?.mark.type === "funnel") guardedLabels.text(swatchX, label.y, [canvas.tier === "ascii" ? "#" : "█"], { color, scale: label.scale });
+      else if (entry?.mark.type === "bar" || entry?.mark.type === "area") {
         guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: label.scale });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });

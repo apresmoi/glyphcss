@@ -53,10 +53,12 @@ describe("shades option", () => {
     expect(r.text).toContain("==");
   });
 
-  it("fills funnel stages from the palette", () => {
-    // Mutation: drop `shades` from paintFunnelMark's glyph -> red.
-    const funnel = render(glyphChartPlot({ marks: [glyphChartFunnel([{ s: "Visit", v: 100 }, { s: "Cart", v: 40 }, { s: "Buy", v: 10 }], { stage: "s", value: "v" })] }));
-    expect(funnel.text).not.toMatch(BUILT_IN);
+  it("leaves a funnel solid: its stages are told apart by colour and label, not texture", () => {
+    // Mutation: fill funnel stages from `shades` -> red.
+    const spec = glyphChartPlot({ marks: [glyphChartFunnel([{ s: "Visit", v: 100 }, { s: "Cart", v: 40 }, { s: "Buy", v: 10 }], { stage: "s", value: "v" })] });
+    const plain = renderGlyphChart(spec, BASE).text;
+    expect(render(spec).text).toBe(plain);
+    expect(plain).toContain("█");
   });
 
   it("cycles on the palette's own length and reports each repeat", () => {

@@ -18,16 +18,14 @@ import type { GlyphCanvas, GlyphCanvasTierName } from "glyphcss";
 import { accessorFor, identity, index, isNumericArray } from "./channels";
 import { abbreviateChartText, chartText } from "./labels";
 import {
-  ledgerEmptyTotal, ledgerFunnelBadReference, ledgerFunnelFoldedStages, ledgerFunnelNotMonotone, ledgerFunnelThinStage,
-  ledgerLabelDropped, ledgerSankeyAirDropped, ledgerSankeyColumnsFolded, ledgerSankeyFoldedFlows, ledgerSankeyImbalance,
+  ledgerEmptyTotal, ledgerFunnelBadReference, ledgerFunnelFoldedStages, ledgerFunnelNotMonotone, ledgerFunnelThinStage, ledgerLabelDropped,
+  ledgerSankeyAirDropped, ledgerSankeyColumnsFolded, ledgerSankeyFoldedFlows, ledgerSankeyImbalance,
   ledgerSankeyNodesDropped,
   type GlyphChartLedgerEntry,
 } from "./ledger";
 import type { GlyphChartPlotRect } from "./layout";
-import { regionFillGlyph, resolveSeriesColor, type ChartSeries } from "./series";
+import { resolveSeriesColor, type ChartSeries } from "./series";
 
-/** A resolved region fill (`regionFill.ts`); kept local so this module never imports `paint.ts`, which imports it. */
-type SankeyRegionFill = "solid" | "texture";
 import { chartError } from "./validate";
 import type { GlyphChartMark, GlyphChartMarkRow } from "./types";
 
@@ -338,11 +336,6 @@ function foldSankeyOutLinks(outLinks: readonly SankeyOutLink[], boxHeight: numbe
   return { finalLinks: candidates, heights: ensureFoldStubVisible(candidates, heights), foldedFlows, gap };
 }
 
-function fillGlyphRegion(canvas: GlyphCanvas, x0: number, y0: number, x1: number, y1: number, glyph: string, color: string | null): void {
-  if (x0 > x1 || y0 > y1) return;
-  const run = glyph.repeat(x1 - x0 + 1);
-  for (let y = y0; y <= y1; y++) canvas.text(x0, y, [run], { color });
-}
 
 // ── sankey ───────────────────────────────────────────────────────────────
 
@@ -738,133 +731,150 @@ function formatFunnelValueCandidates(v: number): readonly string[] {
   return si === plain ? [plain] : [plain, si];
 }
 
+const FUNNEL_QUADRANTS = [" ", "▘", "▝", "▀", "▖", "▌", "▞", "▛", "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"];
+/** A stage's own rows tapering in from the previous width, and the blank row between stages. */
+const GLYPH_CHART_FUNNEL_SLOPE_ROWS = 2;
+const GLYPH_CHART_FUNNEL_GAP_ROWS = 1;
+/** The narrowest the funnel itself may get before its label columns give way. */
+const GLYPH_CHART_FUNNEL_MIN_WIDTH = 8;
+
 /**
- * `groups` is `chartSeries`' per-stage split, ONE row each, in the ORDER
- * given (never re-sorted — a funnel is read top-to-bottom in declaration
- * order, a "not monotone" stage renders in place and is reported, not
- * moved). Stage identity is by ROW, not name (`series.ts`'s `chartSeries`
- * keys a funnel by index) — two stages sharing a label are still two rows.
+ * A funnel drawn as one tapering shape. Every stage settles at a width ∝
+ * the square root of its value (so a late, small stage stays visible) after
+ * tapering in from the previous stage's width, with a blank row between
+ * stages so each reads as its own segment. Edges use quadrant blocks for
+ * half-cell steps (ascii: whole cells). One label line per stage, on the row
+ * where it settles: name, value, share of the first stage, and the share of
+ * the previous stage that made it (`↓ 31%`), skipped for the second stage,
+ * where it would repeat the share of the first.
+ *
+ * `groups` is `chartSeries`' per-stage split, ONE row each, in the order
+ * given (never re-sorted: a "not monotone" stage renders in place and is
+ * reported). Stage identity is by row, so two stages sharing a label stay two.
  */
-export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, fill: SankeyRegionFill = "texture", shades?: readonly string[]): void {
+export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   const rawStages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex, color: g.color }));
   if (rawStages.length === 0) return;
   const plotWidth = plot.x1 - plot.x0 + 1;
   const plotHeight = plot.y1 - plot.y0 + 1;
   if (plotWidth <= 0 || plotHeight <= 0) return;
-
-  // `funnel-bad-value`/`empty-total` split (P2-5): a negative value already
-  // rejects at resolve time (`resolveFunnelRows`); an ALL-ZERO funnel is
-  // legitimate data (nothing converted) and draws nothing at all, exactly
-  // like `arc`'s own `empty-total` — never a fabricated bar or percentage.
+  // An all-zero funnel is legitimate data (nothing converted) and draws nothing.
   if (rawStages.every((s) => s.value === 0)) { ledger.push(ledgerEmptyTotal("funnel")); return; }
-
   for (let i = 1; i < rawStages.length; i++) {
     if (rawStages[i]!.value > rawStages[i - 1]!.value) {
       ledger.push(ledgerFunnelNotMonotone({ stage: rawStages[i]!.name, value: rawStages[i]!.value, previousStage: rawStages[i - 1]!.name, previousValue: rawStages[i - 1]!.value }));
     }
   }
 
-  // P1-3: stages past the row budget used to fall off the bottom silently
-  // (`if (rowStart > plot.y1) break`, no ledger entry). One stage needs at
-  // least 1 row with no gap when tightly packed, so more stages than
-  // `plotHeight` genuinely cannot all show — fold the tail into one
-  // synthetic "other (k more)" stage instead, sized at the LARGEST folded
-  // value (the first, since stages are conventionally non-increasing) so
-  // the funnel's own monotone shape stays plausible through the fold.
+  // Rows: the first stage settles at once; every later one spends its gap
+  // and slope rows first. Tight plots drop the slope, then the gap; past
+  // that the tail folds into "other (k more)" at its largest value.
+  const scaledGap = GLYPH_CHART_FUNNEL_GAP_ROWS * textScale, scaledSlope = GLYPH_CHART_FUNNEL_SLOPE_ROWS * textScale;
+  const rowsFor = (n: number, slope: number, gap: number) => n + (n - 1) * (slope + gap);
   let stages = rawStages;
-  if (rawStages.length > plotHeight && plotHeight >= 1) {
+  if (rawStages.length > plotHeight) {
     const keepCount = Math.max(0, plotHeight - 1);
-    const kept = rawStages.slice(0, keepCount);
     const folded = rawStages.slice(keepCount);
-    if (folded.length > 0) {
-      // AGENTS.md's Charts section promises the fold keeps "the LARGEST
-      // folded value" so the funnel's monotone shape stays plausible — a
-      // non-monotone input (already flagged above with
-      // `funnel-not-monotone`) can otherwise put the largest folded value
-      // anywhere in the tail, not just at its first element.
-      const foldedMax = folded.reduce((m, s) => Math.max(m, s.value), -Infinity);
-      const representative = folded.find((s) => s.value === foldedMax) ?? folded[0]!;
-      stages = [...kept, { name: `other (${folded.length} more)`, value: foldedMax, styleIndex: representative.styleIndex, color: representative.color }];
-      ledger.push(ledgerFunnelFoldedStages({ stages: folded.map((s) => s.name) }));
-    }
+    const foldedMax = folded.reduce((m, st) => Math.max(m, st.value), -Infinity);
+    const representative = folded.find((st) => st.value === foldedMax) ?? folded[0]!;
+    stages = [...rawStages.slice(0, keepCount), { name: `other (${folded.length} more)`, value: foldedMax, styleIndex: representative.styleIndex, color: representative.color }];
+    ledger.push(ledgerFunnelFoldedStages({ stages: folded.map((st) => st.name) }));
   }
   const n = stages.length;
+  const [slopeRows, gapRows] = ([[scaledSlope, scaledGap], [Math.min(1, scaledSlope), scaledGap], [0, scaledGap], [0, 0]] as const).find(([sl, g]) => rowsFor(n, sl, g) <= plotHeight) ?? [0, 0];
+  // The funnel fills the plot: a spare row above and below parts it from the
+  // title and the legend, the rest lengthen the waists and the slopes evenly, leftovers going to the
+  // slopes from the top so the taper reads as one shape.
+  let spare = plotHeight - rowsFor(n, slopeRows, gapRows);
+  const top = spare > 0 ? 1 : 0;
+  spare -= top + (spare > 1 ? 1 : 0);
+  const slots = n > 1 && slopeRows > 0 ? 2 * n - 1 : n;
+  const even = Math.floor(spare / slots);
+  let extra = spare - even * slots;
+  const slope = stages.map((_, i) => (i === 0 || slots === n ? 0 : slopeRows + even + (extra > 0 ? (extra--, 1) : 0)));
+  const waist = stages.map(() => 1 + even + (extra > 0 ? (extra--, 1) : 0));
 
-  // One EQUAL row band per stage (never proportional — only the bar WIDTH
-  // is ∝ value), with a `textScale`-row gap between stages when there's
-  // room — scaled the same way the sankey's own link/node gaps are
-  // (AGENTS.md's "Charts" "Density"), so the funnel's row proportions hold
-  // steady as the web Density slider grows the grid.
-  const stageGapRows = textScale;
-  const hasGap = n > 1 && plotHeight >= n + (n - 1) * stageGapRows;
-  const bandHeight = Math.max(1, Math.floor((plotHeight - (hasGap ? (n - 1) * stageGapRows : 0)) / n));
-  const maxValue = Math.max(0, ...stages.map((s) => s.value));
-
-  // P1-4: a nonpositive (or non-finite) reference stage used to make EVERY
-  // percentage print as a fabricated "0%" — a stage worth 100 labelled
-  // "0%". Omit the percent entirely when the denominator isn't usable
-  // (label just the value) and report it once, not per stage.
+  // A nonpositive first stage makes every share meaningless: omit them and report once.
   const referenceValue = rawStages[0]!.value;
   const hasValidReference = Number.isFinite(referenceValue) && referenceValue > 0;
   if (!hasValidReference) ledger.push(ledgerFunnelBadReference({ value: referenceValue }));
 
-  const labelGutter = Math.max(4 * textScale, Math.min(14 * textScale, Math.floor(plotWidth * 0.22)));
-  const innerX0 = plot.x0 + labelGutter;
-  const innerX1 = plot.x1 - labelGutter;
-  const innerWidth = Math.max(1, innerX1 - innerX0 + 1);
-  const centerCol = Math.floor((innerX0 + innerX1) / 2);
+  // Label columns: name, value, share of the first stage, step share. The
+  // step and share columns give way before the funnel gets too narrow.
+  const ascii = canvas.tier === "ascii";
+  const values = stages.map((st) => formatFunnelValueCandidates(st.value)[0]!);
+  const shares = stages.map((st) => hasValidReference ? `${((st.value / referenceValue) * 100).toFixed(0)}%` : "");
+  const steps = stages.map((st, i) => {
+    const previous = stages[i - 1]?.value ?? 0;
+    return i < 2 || !(previous > 0) ? "" : `${ascii ? "v" : "↓"} ${((st.value / previous) * 100).toFixed(0)}%`;
+  });
+  const width = (list: readonly string[]) => Math.max(0, ...list.map((t) => chartText(t, canvas.tier).length));
+  const nameWidth = width(stages.map((st) => st.name)), valueWidth = width(values), shareWidth = width(shares), stepWidth = width(steps);
+  const layouts = [
+    { share: true, step: true }, { share: true, step: false }, { share: false, step: false },
+  ].map((o) => ({ ...o, cols: nameWidth + 2 + valueWidth + (o.share && shareWidth ? 2 + shareWidth : 0) + (o.step && stepWidth ? 3 + stepWidth : 0) }));
+  const chosen = layouts.find((o) => plotWidth - 2 - o.cols * textScale >= GLYPH_CHART_FUNNEL_MIN_WIDTH) ?? layouts[layouts.length - 1]!;
+  const funnelWidth = Math.max(1, Math.min(plotWidth, plotWidth - 2 - chosen.cols * textScale));
+  const labelX = plot.x0 + funnelWidth + 2;
+  const labelRoom = Math.floor((plot.x1 - labelX + 1) / textScale);
+  const nameBudget = Math.max(1, labelRoom - (chosen.cols - nameWidth));
 
-  let cursor = plot.y0;
-  for (const stage of stages) {
-    const rowStart = cursor;
-    const rowEnd = Math.min(plot.y1, rowStart + bandHeight - 1);
-    cursor = rowEnd + 1 + (hasGap ? stageGapRows : 0);
-    if (rowStart > plot.y1) break;
-    const midRow = Math.floor((rowStart + rowEnd) / 2);
+  // Widths per sub-row (two per text row), -1 for a blank gap.
+  const maxValue = Math.max(0, ...stages.map((st) => st.value));
+  const stageWidth = stages.map((st) => {
+    if (!(st.value > 0) || !(maxValue > 0)) return 0;
+    const w = Math.sqrt(st.value / maxValue) * funnelWidth;
+    if (w < 1) { ledger.push(ledgerFunnelThinStage({ stage: st.name, value: st.value })); return 1; }
+    return w;
+  });
+  const sub: number[] = [];
+  const labelRow: number[] = [];
+  const stageEnd: number[] = [];
+  const y0 = plot.y0 + top;
+  stages.forEach((_, i) => {
+    if (i > 0) for (let k = 0; k < gapRows * 2; k++) sub.push(-1);
+    const from = i > 0 ? stageWidth[i - 1]! : stageWidth[i]!, to = stageWidth[i]!;
+    for (let k = 1; k <= slope[i]! * 2; k++) sub.push(from + ((to - from) * k) / (slope[i]! * 2));
+    for (let k = 0; k < waist[i]! * 2; k++) sub.push(to);
+    stageEnd.push(y0 + sub.length / 2 - 1);
+    // The label sits on the waist's middle row (the lower one when even).
+    labelRow.push(y0 + sub.length / 2 - 1 - Math.floor((waist[i]! - 1) / 2));
+  });
 
-    const glyph = regionFillGlyph(canvas.tier, stage.styleIndex, n, fill, shades);
-    const color = resolveSeriesColor(stage, colorEnabled);
-    let barWidth = maxValue > 0 ? Math.round((stage.value / maxValue) * innerWidth) : 0;
-    if (stage.value > 0 && barWidth < 1) {
-      barWidth = 1;
-      ledger.push(ledgerFunnelThinStage({ stage: stage.name, value: stage.value }));
+  const centre = funnelWidth / 2;
+  for (let r = 0; r * 2 < sub.length && y0 + r <= plot.y1; r++) {
+    const stageIndex = stageEnd.findIndex((row) => y0 + r <= row);
+    const color = resolveSeriesColor(stages[Math.max(0, stageIndex)]!, colorEnabled);
+    for (let c = 0; c < funnelWidth; c++) {
+      let glyph: string;
+      if (ascii) {
+        const w = Math.max(sub[r * 2]!, sub[r * 2 + 1]!);
+        glyph = w >= 0 && Math.abs(c + 0.5 - centre) <= w / 2 ? "#" : " ";
+      } else {
+        let mask = 0;
+        for (const [dy, dx, bit] of [[0, 0, 1], [0, 1, 2], [1, 0, 4], [1, 1, 8]] as const) {
+          const w = sub[r * 2 + dy]!;
+          if (w >= 0 && Math.abs(c + (dx + 0.5) / 2 - centre) <= w / 2) mask |= bit;
+        }
+        glyph = FUNNEL_QUADRANTS[mask]!;
+      }
+      if (glyph !== " ") canvas.text(plot.x0 + c, y0 + r, [glyph], { color });
     }
-    if (barWidth > 0) {
-      const half = Math.floor(barWidth / 2);
-      const barX0 = Math.max(plot.x0, centerCol - half);
-      const barX1 = Math.min(plot.x1, barX0 + barWidth - 1);
-      fillGlyphRegion(canvas, barX0, rowStart, barX1, rowEnd, glyph, color);
-    }
-
-    // Stage label: left of the bars, right-aligned in the label column.
-    // `textScale` shrinks the CHARACTER budget (never the gutter) so the
-    // label's own SCALED footprint (`stageText.length * textScale`) still
-    // fits inside it — byte-identical to before `textScale` existed at its
-    // default `1`.
-    const stageMax = Math.max(1, Math.floor((labelGutter - 1) / textScale));
-    const { text: stageText } = abbreviateChartText(stage.name, stageMax, canvas.tier);
-    const stageX = Math.max(plot.x0, plot.x0 + labelGutter - 1 - stageText.length * textScale);
-    canvas.text(stageX, midRow, [stageText], { scale: textScale });
-
-    // Value·percent label: right of the bars. `dot` is built by hand (`x`
-    // on `ascii`, since that tier has no middle dot) rather than going
-    // through `chartText` for the WHOLE string up front — kept for
-    // legibility (P3-3: the ASCII fold already turns a stray `·` into `?`
-    // on its own, `labels.ts`'s `chartText`, so this isn't preventing a
-    // raw byte leak; it is choosing a nicer glyph than the generic `?`
-    // fallback would). P2-6: try each value-format candidate (plain, then
-    // SI-abbreviated) WITH the percent suffix first, then without it, and
-    // drop (never truncate a number) only when nothing fits.
-    const pctSuffix = hasValidReference ? ` ${canvas.tier === "ascii" ? "x" : "·"} ${((stage.value / referenceValue) * 100).toFixed(0)}%` : "";
-    const valueMax = Math.max(1, Math.floor((labelGutter - 1) / textScale));
-    const candidates = formatFunnelValueCandidates(stage.value).map((v) => chartText(v, canvas.tier));
-    let valueText = "";
-    for (const v of candidates) {
-      const withPct = chartText(`${v}${pctSuffix}`, canvas.tier);
-      if (withPct.length <= valueMax) { valueText = withPct; break; }
-    }
-    if (!valueText) for (const v of candidates) if (v.length <= valueMax) { valueText = v; break; }
-    if (valueText) canvas.text(Math.min(plot.x1, plot.x1 - labelGutter + 2), midRow, [valueText], { scale: textScale });
-    else ledger.push(ledgerLabelDropped({ role: "funnel value label", text: candidates[0] ?? String(stage.value), reason: "it doesn't fit even after SI abbreviation" }));
   }
+
+  stages.forEach((st, i) => {
+    const row = labelRow[i]!;
+    if (row > plot.y1) return;
+    const name = abbreviateChartText(st.name, nameBudget, canvas.tier).text.padEnd(Math.min(nameWidth, nameBudget));
+    const share = chosen.share && shareWidth ? `  ${shares[i]!.padStart(shareWidth)}` : "";
+    const step = chosen.step && steps[i] ? `   ${steps[i]!}` : "";
+    // A number never truncates: a value too wide for the gutter takes its
+    // SI form, then gives up the step and share columns, then drops.
+    const raw = formatFunnelValueCandidates(st.value);
+    const candidates = [...raw.map((v) => `  ${v.padStart(valueWidth)}`), ...raw.map((v) => `  ${v}`)];
+    const tries = candidates.flatMap((v) => [v + share + step, v + share, v]);
+    const fit = tries.map((t) => chartText(name + t, canvas.tier).trimEnd()).find((t) => t.length <= labelRoom);
+    if (fit === undefined) ledger.push(ledgerLabelDropped({ role: "funnel value label", text: values[i]!, reason: "it doesn't fit even after SI abbreviation" }));
+    canvas.text(labelX, row, [fit ?? chartText(name, canvas.tier).trimEnd()], { color: resolveSeriesColor(st, colorEnabled), scale: textScale });
+  });
 }
