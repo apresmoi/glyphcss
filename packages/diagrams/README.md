@@ -64,7 +64,7 @@ Target defaults match charts: chat = 72×24 box / no color; terminal = 80×24 br
 
 ## Cell budgets and fidelity
 
-`renderGlyphDiagram` fits the graph to the requested cells in every detail mode. It measures label wrapping, adjusts margins and the two spacing axes, centers the candidate, and checks its actual routes before painting. Return edges can need wider gaps even when the node boxes already fit. `autoDirection: true` also permits a perpendicular orientation; otherwise the supplied or authored direction is preserved. Node and edge counts alone never trigger simplification.
+`renderGlyphDiagram` fits the graph to the requested cells in every detail mode. It measures label wrapping, adjusts margins and the two spacing axes, centers the candidate, and checks its actual routes before painting. Return edges can need wider gaps even when the node boxes already fit. Words are never cut while a whole-word fit exists: a left-to-right graph too wide for its cells first wraps its main path into rows like text, with every other node hanging under the main-path node it connects to (`layout-wrapped`). A loop starts at the node written first. `autoDirection: true` also permits a perpendicular orientation; otherwise the supplied or authored direction is preserved. Node and edge counts alone never trigger simplification.
 
 For resizable displays, call the same renderer with the new cell dimensions. `overflow: "expand"` allows a larger canvas when the complete graph cannot fit; its dimensions are in `result.canvas.grid` and the ledger records `layout-expanded`. A host can pan that canvas at a fixed font size. Expansion is opt-in for every target, including web. There is no font scaling or browser-specific layout path.
 

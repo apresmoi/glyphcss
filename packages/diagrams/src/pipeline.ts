@@ -126,7 +126,7 @@ export const GLYPH_DIAGRAM_DIRECTIONS: Readonly<Record<GlyphCanvasDirection, Gly
  * nodes in id order and could rank a loop's start (`Push`) after its end.
  * Unlooped graphs have no back edges and render the same in any order.
  */
-function backEdgeIds(nodes: readonly { readonly id: string }[], edges: readonly GlyphDiagramEdge[]): Set<string> {
+export function backEdgeIds(nodes: readonly { readonly id: string }[], edges: readonly GlyphDiagramEdge[]): Set<string> {
   const rank = new Map(nodes.map((node, i) => [node.id, i]));
   const out = new Map<string, GlyphDiagramEdge[]>();
   const indegree = new Map<string, number>();

@@ -1,6 +1,7 @@
 import { glyphDiagramCenterOffset } from "./center";
 import { glyphDiagramCompactionFloor } from "./degrade";
 import { glyphDiagramText } from "./labels";
+import { glyphDiagramSnakeLayout } from "./snake";
 import { layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
 import { GLYPH_DIAGRAM_ROUTE_SEPARATION, glyphDiagramHasRoutingClearance, routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import type { GlyphGraph } from "./types";
@@ -51,7 +52,7 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
 
   const floor = glyphDiagramCompactionFloor(graph);
   const candidates: Candidate[] = [initial];
-  const measured: GlyphDiagramReservedGraph[] = [];
+  const measured: { readonly reserved: GlyphDiagramReservedGraph; readonly wrap: number }[] = [];
   const seenMeasurements = new Set<string>();
   // Every distinct measurable wrap is considered. The upper bound comes from
   // authored text and the available cells, not a list of preferred resolutions.
@@ -61,7 +62,7 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
       const key = JSON.stringify([dir, reserved.nodes.map(node => [node.width, node.height])]);
       if (seenMeasurements.has(key)) continue;
       seenMeasurements.add(key);
-      measured.push(reserved);
+      measured.push({ reserved, wrap });
     }
   }
 
@@ -99,12 +100,33 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
     for (let rs = ranksep; rs >= Math.min(ranksep, floor); rs--) compact.push([ns, rs]);
   }
   compact.sort((a, b) => (nodesep - a[0]) + (ranksep - a[1]) - (nodesep - b[0]) - (ranksep - b[1]));
-  for (const reserved of measured) {
-    for (const [ns, rs] of compact) for (const pad of margins) {
-      const result = await tryLayout(reserved, ns, rs, pad);
-      if (result) return result;
+  // A wrap narrower than the longest word cuts words mid-letter ("Deplo"/"y"),
+  // so whole-word wraps go first, then the snake, and cut words only last.
+  const longestWord = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramText(node.label, options.charset).split(/\s+/).map(word => word.length)));
+  const tryMeasured = async (keep: (wrap: number) => boolean) => {
+    for (const { reserved, wrap } of measured) {
+      if (!keep(wrap)) continue;
+      for (const [ns, rs] of compact) for (const pad of margins) {
+        const result = await tryLayout(reserved, ns, rs, pad);
+        if (result) return result;
+      }
+    }
+  };
+  const whole = await tryMeasured(wrap => wrap >= longestWord);
+  if (whole) return whole;
+  if (directions.includes("LR")) {
+    for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= Math.max(1, Math.min(longestWord, width - 4)); wrap--) {
+      const lr = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: wrap });
+      for (const [, rs] of compact) {
+        const raw = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin });
+        if (!raw || raw.width > width || raw.height > height || !glyphDiagramHasRoutingClearance(raw)) continue;
+        const result = attempt({ raw, adjusted: true, nodesep, ranksep: rs, margin }, width, height);
+        if (result.okay) return result;
+      }
     }
   }
+  const cut = await tryMeasured(wrap => wrap < longestWord);
+  if (cut) return cut;
 
   // Tightening is insufficient when protected port lanes or a return edge
   // consume a gap. Each additional connection can need its own separated lane.

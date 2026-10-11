@@ -99,6 +99,10 @@ export function ledgerLayoutOverflow(opts: { readonly stage: "degrade" | "split"
   return entry("layout-overflow", message, { ...opts });
 }
 
+export function ledgerLayoutWrapped(opts: { readonly rows: number; readonly path: readonly string[] }): GlyphDiagramLedgerEntry {
+  return entry("layout-wrapped", `Wrapped the main path into ${opts.rows} rows to fit the width with whole words.`, { ...opts });
+}
+
 export function ledgerLayoutExpanded(opts: { readonly requestedWidth: number; readonly requestedHeight: number; readonly canvasWidth: number; readonly canvasHeight: number }): GlyphDiagramLedgerEntry {
   return entry("layout-expanded", `Expanded the canvas from ${opts.requestedWidth}x${opts.requestedHeight} to ${opts.canvasWidth}x${opts.canvasHeight} to keep the diagram connected.`, { ...opts });
 }
