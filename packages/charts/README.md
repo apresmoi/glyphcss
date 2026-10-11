@@ -183,6 +183,8 @@ renderGlyphChart(glyphChartCell(data, { x: "x", y: "y", fill: "v" }), { target: 
 
 ### `glyphChartText`
 
+Labels at data coordinates, meant as an annotation over another mark in the same plot. There, a label never overwrites the data it names: it takes the first spot with no data ink under it (centred above its point, centred below, then to its left or right with a one-cell gap), and stays above the point only when none is clear. A text-only chart centres each label on its point.
+
 ```ts
 renderGlyphChart(glyphChartText([{ x: 1, y: 1, label: "hi" }], { x: "x", y: "y", label: "label" }), { target: "chat", width: 20, height: 10 });
 ```

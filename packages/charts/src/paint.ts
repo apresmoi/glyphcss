@@ -1734,6 +1734,29 @@ export function paintGlyphChart(
   // the title/legend candidates that share this same placement pass must
   // stay uncoloured by this map.
   const textColors = new Map<string, string | null>();
+  // Over another mark, a label centred on its point would overwrite the very
+  // ink it names. It takes the first spot with no data ink under it: centred
+  // above, centred below, left, then right of the point, keeping one blank
+  // cell from the point sideways and off the x axis line. With no clear spot
+  // it stays above (or on) the point. Alone, there is nothing to cover.
+  const annotating = marks.some(({ mark }) => mark.type !== "text");
+  const inkFree = (start: number, row: number, length: number): boolean => {
+    if (row < layout.plot.y0 || row > layout.plot.y1 || row === layout.xAxisLineRow) return false;
+    if (start < layout.plot.x0 || start + length - 1 > layout.plot.x1) return false;
+    for (let x = start; x < start + length; x++) if (canvas.grid.char[row * canvas.cols + x] !== " ") return false;
+    return true;
+  };
+  const labelSpot = (col: number, r: number, text: string): { readonly x: number; readonly y: number } => {
+    if (!annotating) return { x: col, y: r };
+    const length = [...text].length, half = Math.floor(length / 2);
+    const spots = [
+      { start: col - half, y: r - 1 }, { start: col - half, y: r + 1 },
+      { start: col - 1 - length, y: r }, { start: col + 2, y: r },
+    ];
+    const free = spots.find((spot) => inkFree(spot.start, spot.y, length));
+    if (free) return { x: free.start + half, y: free.y };
+    return { x: col, y: r - 1 >= layout.plot.y0 ? r - 1 : r };
+  };
   for (const { mark, rows } of marks) {
     if (mark.type !== "text") continue;
     const textEntry = series.find((s) => s.mark === mark);
@@ -1746,7 +1769,7 @@ export function paintGlyphChart(
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
       const id = `text:${textIndex++}`;
       textColors.set(id, textColor);
-      candidates.push({ id, x: col, y: r, text: label, priority: 10, role: "data label" });
+      candidates.push({ id, ...labelSpot(col, r, label), text: label, priority: 10, role: "data label" });
     }
   }
 
