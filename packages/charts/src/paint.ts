@@ -1586,6 +1586,12 @@ export function paintGlyphChart(
   }
   const sankeyClaimedBy = new Set<number>();
   const areaBoundaryLines = !opts.colorEnabled && series.some((s) => s.name !== undefined);
+  // Rules are reference lines: they paint first, so every data mark after
+  // them (a bar crossing a target line included) stays whole on top.
+  for (const entry of series) {
+    if (entry.mark.type !== "rule") continue;
+    paintRule(guardedCanvas(canvas, "rule"), layout, scales, entry.ruleValues ?? [], entry.mark.options?.axis ?? "y", resolveSeriesColor(entry, opts.colorEnabled), resolveStrokeWidth(entry.mark.options));
+  }
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
@@ -1663,7 +1669,6 @@ export function paintGlyphChart(
       for (const layer of areaLayers(rows)) paintLine(guarded, layout, scales, layer.map((r) => ({ ...r, y: r.y1 ?? r.y })), color, style, width);
     }
     if (mark.type === "dot") paintDot(guarded, layout, scales, rows, color, opts.colorEnabled ? 0 : styleIndex);
-    if (mark.type === "rule") paintRule(guarded, layout, scales, ruleValues ?? [], mark.options?.axis ?? "y", color, width);
   }
 
   // labels: title, legend, then any explicit `text` marks and rule/data
