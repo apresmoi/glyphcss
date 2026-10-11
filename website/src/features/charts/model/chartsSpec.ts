@@ -255,9 +255,11 @@ export const CHART_PRESETS: readonly { readonly id: string; readonly label: stri
         marks: [
           glyphChartFunnel(
             [
-              { stage: "Visits", count: 1000 },
-              { stage: "Signups", count: 300 },
-              { stage: "Purchases", count: 80 },
+              { stage: "Visits", count: 10000 },
+              { stage: "Product view", count: 4200 },
+              { stage: "Add to cart", count: 1300 },
+              { stage: "Checkout", count: 610 },
+              { stage: "Purchase", count: 420 },
             ],
             { stage: "stage", value: "count" },
           ),
