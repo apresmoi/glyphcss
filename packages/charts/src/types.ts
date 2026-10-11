@@ -17,7 +17,6 @@ export type GlyphChartMarkType =
   | "bar"
   | "dot"
   | "arc"
-  | "rect"
   | "cell"
   | "text"
   | "rule"
@@ -260,7 +259,7 @@ export type GlyphChartCharset = "ascii" | "box" | "blocks" | "braille";
 export type GlyphChartColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
 export type GlyphChartDetail = "auto" | "faithful" | "balanced" | "simplified";
 /**
- * How a region mark (bar/rect/area/arc) fills: `"texture"` gives each series
+ * How a region mark (bar/area/arc) fills: `"texture"` gives each series
  * its own shape glyph, `"solid"` a full block in each series' own colour, and
  * `"auto"` is solid only where colour genuinely carries series identity
  * (AGENTS.md's "Charts" "Series and shading").
@@ -325,7 +324,7 @@ export interface GlyphChartRenderOptions {
    */
   readonly regionFill?: GlyphChartRegionFill;
   /**
-   * Replaces the charset's own series fill glyphs (bar, rect, area, arc,
+   * Replaces the charset's own series fill glyphs (bar, area, arc,
    * sankey and funnel textures, and their legend swatches) with this
    * palette, in series order. Past its length the glyphs repeat, reported
    * as `series-shade-repeat`. Solid colour fills and `cell` ramps ignore it.

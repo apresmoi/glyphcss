@@ -25,7 +25,7 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { goodSpecs } from "./reviewFixtures";
 import { resolveGlyphChartScales } from "./scales";
 import { chartSeries, resolveSeriesColor } from "./series";
-import { glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
+import { glyphChartArea, glyphChartBar, glyphChartFunnel, glyphChartLine, glyphChartSankey, normalizeGlyphChartInput } from "./spec";
 import type { GlyphChartCharset, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 import { validateGlyphChartSpec } from "./validate";
 
@@ -444,7 +444,7 @@ describe("Round 27: under solid, a write owns its whole cell, and a half-cell ed
   const short = glyphChartBar([{ x: "a", y: 3.6 }, { x: "b", y: 5.4 }, { x: "c", y: 2.2 }], { x: "x", y: "y" }, { name: "Short" });
   const overlays: GlyphChartSpec[] = [
     { marks: [tall, short] },
-    { marks: [...stackedBar.marks, glyphChartRect([{ x: "a", y: 5 }, { x: "b", y: 3 }], { x: "x", y: "y" }, { name: "Over" })] },
+    { marks: [...stackedBar.marks, glyphChartBar([{ x: "a", y: 5 }, { x: "b", y: 3 }], { x: "x", y: "y" }, { name: "Over" })] },
     // A line along the fossil band's own top edge: every cell it crosses is a two-colour boundary cell.
     { marks: [...energyArea.marks, glyphChartLine(energyRows.filter((r) => r.source === "Fossil fuels"), { x: "year", y: "twh" }, { name: "Fossil edge" })] },
   ];

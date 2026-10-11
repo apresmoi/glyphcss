@@ -28,9 +28,8 @@ export interface ChartsMarkTypeRule {
   /** The reason a disabled button carries, on its title and aria-label. */
   readonly needs: string;
   /** `buildChartCandidates` enumerates this type. `false` types never fit
-   *  a dataset: `rect` has no range channels on this page (it draws
-   *  exactly what `bar` draws), and `text`/`rule` are annotation layers
-   *  over another mark while the page charts one mark at a time. */
+   *  a dataset: `text`/`rule` are annotation layers over another mark
+   *  while the page charts one mark at a time. */
   readonly ranked: boolean;
   /** A bare number series (the tray's sample lists, or a table whose only
    *  chartable content is one measure) draws honestly as this type over
@@ -102,13 +101,7 @@ export const CHARTS_MARK_TYPE_RULES: Readonly<Record<GlyphChartMarkType, ChartsM
     requires: ["stage", "value"],
     needs: "Funnel needs a stage column (named like stage or step) and a positive number column.",
   },
-  rect: {
-    name: "Rect",
-    ranked: false,
-    series: false,
-    requires: [],
-    needs: "Rect needs x/y range columns, which this page doesn't bind; Bar draws the same shapes.",
-  },
+
   text: {
     name: "Text",
     ranked: false,

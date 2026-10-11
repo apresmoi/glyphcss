@@ -76,7 +76,7 @@ function fixturePath(relative: string): string {
 //
 // Regenerated again for `series.ts`'s shade-ramp fix (CHARTS-RESEARCH
 // `DIAGNOSIS-pie-contrast.md`, "## Charts" "Series and shading"): every
-// key for a multi-series mark (indices 17-22 — `sankeySample`,
+// key for a multi-series mark (indices 16-21 — `sankeySample`,
 // `funnelSample`, `[1000,500,100]`, the three `browserShares` arc specs —
 // at every charset) changed, plus a single-series ONE, `6:ascii`
 // (`arc([-1,1])`'s ASCII callout separator `·`, which used to fold to

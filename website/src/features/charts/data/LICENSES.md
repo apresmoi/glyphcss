@@ -25,7 +25,7 @@ Each dataset's own `source` field (`{ name, url, licence }`) carries this same c
 
 `renewableElectricityShareDataset` covers 1985-2025, matching the cited source's own published range — Ember (and the Energy Institute Statistical Review behind it) begin in the mid-1980s, so there is no real world-renewable-share datapoint for earlier years to vendor (P2-2).
 
-The eight datasets above the line were added to give every `@glyphcss/charts` mark type (`CHART_MARK_TYPES`) at least one dataset that recommends it — see `datasets.test.ts`'s "mark-type coverage" describe block for the full map and the three mark types (`rect`, `text`, `rule`) deliberately left uncovered, with why.
+The eight datasets above the line were added to give every `@glyphcss/charts` mark type (`CHART_MARK_TYPES`) at least one dataset that recommends it — see `datasets.test.ts`'s "mark-type coverage" describe block for the full map and the two mark types (`text`, `rule`) deliberately left uncovered, with why.
 
 ## 3D datasets — `datasets/chart3d/`
 

@@ -15,7 +15,7 @@ import { ChoiceButton } from "../IconToggle";
  *
  * `groups` orders the catalogue into named sections (Trend, Compare, …) —
  * `chartsWorkbenchState.ts`'s own `CHART_MARK_TYPES` is already sorted this
- * way, so a caller just slices it. Three types (`rect`/`text`/`rule`) never
+ * way, so a caller just slices it. Two types (`text`/`rule`) never
  * fit ANY data on this page (`CHARTS_MARK_TYPE_RULES.ranked: false`) — they
  * are left out of every group by design (dead, permanently-disabled tiles
  * are chrome with no authorship value) and instead surface only as a bare,
@@ -72,8 +72,8 @@ export function ChartsMarkTypePicker({
       }),
     }))
     .filter((s) => s.tiles.length > 0);
-  // The current type's own tile, when it isn't in any group at all (rect/
-  // text/rule — see this file's own doc) — appended bare, no section label,
+  // The current type's own tile, when it isn't in any group at all (text/
+  // rule — see this file's own doc) — appended bare, no section label,
   // so the picker is never left with no active tile.
   if (!grouped.has(value) && byValue.has(value)) sections.push({ label: null, tiles: [byValue.get(value)!] });
 

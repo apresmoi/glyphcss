@@ -183,7 +183,6 @@ export const CHART_MARK_TYPES = [
   "cell",
   "sankey",
   "funnel",
-  "rect",
   "text",
   "rule",
 ] as const;
@@ -945,12 +944,12 @@ export function chartsWorkbenchScaleTypeFits(
           ? {
               fits: false,
               short: "can't show 0",
-              reason: "A log scale can't include zero, and a bar, area or rect value axis always does.",
+              reason: "A log scale can't include zero, and a bar or area value axis always does.",
             }
           : { fits: false, short: "needs one sign", reason: "A log scale needs values of one sign, with no zero." };
       }
       if (probe.code === "bad-scale")
-        return { fits: false, short: "must be numeric", reason: "A bar, area or rect value axis must be numeric." };
+        return { fits: false, short: "must be numeric", reason: "A bar or area value axis must be numeric." };
       if (probe.code === "bad-time-domain")
         return { fits: false, short: "needs dates", reason: "A time scale needs date values (YYYY-MM-DD)." };
       return { fits: false, short: "unavailable", reason: `This data can't be drawn on a ${type} scale.` };
@@ -1064,12 +1063,12 @@ export function chartsScaleSliderBounds(
   return { min: domainMin - pad, max: domainMax + pad, ...(zeroAnchored ? { loCeiling: 0, hiFloor: 0 } : {}) };
 }
 
-/** `true` iff any mark in the workbench is a `bar`/`area`/`rect` —
+/** `true` iff any mark in the workbench is a `bar`/`area` —
  *  mirrors `@glyphcss/charts`' own `hasZeroAnchoredMark` (`scales.ts`,
  *  unexported), which is exactly the condition under which the library
  *  forces zero into the Y domain and rejects a domain that excludes it. */
 export function chartsWorkbenchHasZeroAnchoredMark(state: ChartsWorkbenchState): boolean {
-  return state.marks.some((mark) => ["bar", "area", "rect"].includes(mark.type));
+  return state.marks.some((mark) => ["bar", "area"].includes(mark.type));
 }
 
 /** `arc`/`sankey`/`funnel` are non-cartesian (AGENTS.md's "Charts" — "plumbed

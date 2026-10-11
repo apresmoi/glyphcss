@@ -1,6 +1,6 @@
 /**
  * Paints a resolved+laid-out spec onto a `GlyphCanvas`, in FIXED priority
- * order (PLAN.md Phase 1): fills (bar/area/rect/cell/arc — region marks)
+ * order (PLAN.md Phase 1): fills (bar/area/cell/arc — region marks)
  * first, then axes, then marks (line/dot/rule — stroke/point marks), then
  * labels (title/legend/data labels) last, so nothing paints over a label.
  * Since CHARTS-RESEARCH's B1 fix, a line/dot mark touching the y domain's
@@ -45,7 +45,7 @@ export type GlyphChartResolvedRegionFill = "solid" | "texture";
 export interface GlyphChartPaintOptions {
   readonly colorEnabled: boolean;
   /**
-   * Region-mark fill (bar/rect/area/arc and their legend swatches), already
+   * Region-mark fill (bar/area/arc and their legend swatches), already
    * resolved by `regionFill.ts`. Default `"texture"`, the pre-option paint.
    * `cell` ignores it (its ramp encodes value, not series); sankey ribbons
    * and funnel bars take it through `flowMarks.ts`.
@@ -104,7 +104,7 @@ function dodgeColRange(range: readonly [number, number], index: number, count: n
 /**
  * Fills `[x0,x1] x [y0,y1]` with a SPECIFIC glyph (never a continuous
  * `fillRect` shade level) — one row of `canvas.text` per painted row, the
- * glyph repeated across the run. Bar/rect/area series identity (B2) needs
+ * glyph repeated across the run. Bar/area series identity (B2) needs
  * the EXACT `seriesShade` glyph, and `ascii`'s series vocabulary (`# % + .`)
  * is not a subsequence of `fillRect`'s own 8-level shading ramp — only
  * `canvas.text` can guarantee the literal character painted.
@@ -632,43 +632,6 @@ function solidBarLayers(layout: GlyphChartLayout, scales: GlyphChartResolvedScal
     out.push({ color, c0: x0, c1: x1, floor: stacked, spansAt: () => span });
   }
   return out;
-}
-
-/**
- * A `rect` on a band `x` scale is a "band mark" exactly like `bar`
- * (AGENTS.md's "Band marks use the scale's own bounds") — it owns the FULL
- * band, not one arbitrary column — so UNSTACKED multi-series rects dodge
- * into that band's sub-bands via the SAME `dodgeColRange` a bar uses,
- * instead of every series overwriting the same single column (review
- * finding 4: an undodged Jan band read as North's bar with South's own
- * value merely painted over its base, "January resembles a stack").
- */
-function paintRect(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>): void {
-  const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
-  for (const row of rows) {
-    const stacked = row.y1 !== undefined;
-    const base = scaleToRow(scales.y, layout.plot, row.y0 ?? 0);
-    const value = scaleToRow(scales.y, layout.plot, row.y1 ?? row.y);
-    if (value === base) continue;
-    const top = Math.max(layout.plot.y0, Math.min(base, value) + (value > base ? 1 : 0));
-    const bottom = Math.min(layout.plot.y1, Math.max(base, value) - (value < base ? 1 : 0));
-
-    const band = bandColRange(scales.x, layout.plot, row.x);
-    let range: readonly [number, number];
-    if (band) {
-      range = band;
-    } else {
-      const col = scaleToCol(scales.x, layout.plot, row.x);
-      const half = Math.floor(fallbackWidth / 2);
-      range = [col - half, col - half + fallbackWidth - 1];
-    }
-    if (!stacked && dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
-    let [x0, x1] = range;
-    x0 = Math.max(layout.plot.x0, x0);
-    x1 = Math.min(layout.plot.x1, x1);
-    if (x0 > x1 || !Number.isFinite(top) || top > bottom) continue;
-    fillRegionShade(canvas, x0, top, x1, bottom, glyph, color);
-  }
 }
 
 /**
@@ -1523,7 +1486,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
-    else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
+    else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
     else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     canvas.text(textCol, row, [text], { color, scale: textScale });
@@ -1653,7 +1616,6 @@ export function paintGlyphChart(
       const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill, shades);
       if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
       else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
-      if (mark.type === "rect") paintRect(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check
         // (its own doc explains why: a cell mark is always ONE series, so
@@ -1818,16 +1780,16 @@ export function paintGlyphChart(
         paintSubcellDot(guardedLabels, swatchX, label.y, color);
       }
       else if (entry?.mark.type === "dot") guardedLabels.text(swatchX, label.y, [seriesDot(canvas.tier, i)], { color, scale: label.scale });
-      // Region marks (bar/rect/area/cell) carry series identity through
+      // Region marks (bar/area/cell) carry series identity through
       // their own FILL GLYPH, never a line style (CHARTS-RESEARCH diagnosis
       // B2/B6d) — the legend swatch must show that same glyph, so a bar
       // chart's legend never reads as a line chart's. `cell` (a heatmap)
       // has no per-series shade cycle of its own (`paintCell` shades by
       // continuous VALUE, not by series) — its swatch is the ramp's own
       // full-ink glyph, `seriesShade(tier, 0)`, matching the darkest cell
-      // it can paint. A bar/rect/area/sankey/funnel swatch follows the
+      // it can paint. A bar/area/sankey/funnel swatch follows the
       // render's resolved `fill` exactly as its plot fill does.
-      else if (entry?.mark.type === "bar" || entry?.mark.type === "rect" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
+      else if (entry?.mark.type === "bar" || entry?.mark.type === "area" || entry?.mark.type === "sankey" || entry?.mark.type === "funnel") {
         guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: label.scale });
       }
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });

@@ -18,8 +18,8 @@ export function chartError(code: GlyphChartValidationRuleId, message: string): n
   throw Object.assign(new TypeError(`glyphcss: ${code}: ${message}`), { code });
 }
 
-export const MARK_TYPES: readonly GlyphChartMarkType[] = ["line", "area", "bar", "dot", "arc", "rect", "cell", "text", "rule", "sankey", "funnel"];
-export const XY_MARK_TYPES = ["line", "area", "bar", "dot", "rect", "cell"];
+export const MARK_TYPES: readonly GlyphChartMarkType[] = ["line", "area", "bar", "dot", "arc", "cell", "text", "rule", "sankey", "funnel"];
+export const XY_MARK_TYPES = ["line", "area", "bar", "dot", "cell"];
 export const TRANSFORM_KINDS = ["bin", "stack", "group", "normalize", "window"];
 export const CHANNELS = ["x", "y", "fill", "stroke", "label", "source", "target", "value", "stage"];
 export const SCALE_TYPES = ["linear", "log", "sqrt", "time", "band", "ordinal"];
@@ -232,8 +232,8 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
     if (!["x", "y"].includes(axis) || !object(opts) || (opts.type !== undefined && (typeof opts.type !== "string" || !SCALE_TYPES.includes(opts.type))) || (opts.nice !== undefined && typeof opts.nice !== "boolean")) chartError("bad-scale", "Use a supported scale type and boolean nice.");
     const domain = opts.domain;
     const type = opts.type ?? "linear";
-    const zeroAnchored = axis === "y" && spec.marks.some((m) => ["bar", "rect", "area"].includes(m.type));
-    if (zeroAnchored && ["band", "ordinal", "time"].includes(type)) chartError("bad-scale", "Bar/rect/area y scales must be numeric and include zero.");
+    const zeroAnchored = axis === "y" && spec.marks.some((m) => ["bar", "area"].includes(m.type));
+    if (zeroAnchored && ["band", "ordinal", "time"].includes(type)) chartError("bad-scale", "Bar/area y scales must be numeric and include zero.");
     if (zeroAnchored && type === "log" && domain === undefined) chartError("log-domain", "The inferred zero baseline is incompatible with log scales.");
     if (domain === undefined) continue;
     if (!Array.isArray(domain) || domain.length < 2) chartError(type === "time" ? "bad-time-domain" : "bad-scale", "A domain requires at least two values.");
@@ -245,7 +245,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
       if (domain.some((v) => typeof v !== "number" || !Number.isFinite(v))) chartError("bad-scale", "Numeric domains require finite numbers.");
       const numbers = domain as number[];
       if (type === "log") validateLogDomain(numbers);
-      if (axis === "y" && spec.marks.some((m) => ["bar", "rect", "area"].includes(m.type)) && !(Math.min(...numbers) <= 0 && Math.max(...numbers) >= 0)) chartError("bar-domain-excludes-zero", "A bar, rect, or area domain must include zero.");
+      if (axis === "y" && spec.marks.some((m) => ["bar", "area"].includes(m.type)) && !(Math.min(...numbers) <= 0 && Math.max(...numbers) >= 0)) chartError("bar-domain-excludes-zero", "A bar or area domain must include zero.");
     }
   }
   return { ...spec, scales };
@@ -298,7 +298,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
   "bad-options": "Remove unsupported options; use a valid name, axis, radius, reducer, and labels mode.",
   "bad-scale": `Use ${SCALE_TYPES.join(", ")} and a domain of finite numbers or categories.`,
   "log-domain": "Use a strictly positive or strictly negative log domain; bars require a zero-capable scale.",
-  "bar-domain-excludes-zero": "Extend the explicit bar/rect/area domain to include zero.",
+  "bar-domain-excludes-zero": "Extend the explicit bar/area domain to include zero.",
   "bad-time-domain": "Use valid ISO strings or Date objects for time values and domains.",
   "bad-title": `Use a string, or { text, align?, position? } with align in ${TITLE_ALIGNS.join("/")} and position in ${TITLE_POSITIONS.join("/")}.`,
   "bad-legend": `Use a boolean, or { placement } with placement in ${LEGEND_PLACEMENTS.join(", ")}.`,

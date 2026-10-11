@@ -37,7 +37,7 @@
  *    canvas's junction system at all, so `canvas.resolveJunctions()` no
  *    longer writes stray box-drawing residue (`┌──────`-style glyphs) into
  *    its old, abandoned lane/free-row footprint before the smooth painter's
- *    own (different-shaped) footprint ever runs. Affects `goodSpecs[17]`
+ *    own (different-shaped) footprint ever runs. Affects `goodSpecs[16]`
  *    (`sankeySample`) on `blocks`/`braille` ONLY — `ascii`/`box` have no
  *    subcell smooth path to abandon a footprint from, and every other
  *    `goodSpecs` entry has no sankey mark at all. The three fixture JSON
@@ -52,7 +52,7 @@
  *    or entering one node — is now reserved at the LAYOUT layer before any
  *    row is split among nodes/bands, so a sankey's boxes are visibly
  *    shorter than their column and its links no longer stack edge to edge.
- *    Affects `goodSpecs[17]` (`sankeySample`) on EVERY tier (unlike #7,
+ *    Affects `goodSpecs[16]` (`sankeySample`) on EVERY tier (unlike #7,
  *    this changes row math the fallback path shares too) — the four
  *    fixture files that carry index 17 (`strokeWidthParentFixtures.json`,
  *    `textScaleParentFixtures.json`, `tickFormatParentFixtures.json`,
@@ -91,7 +91,7 @@
  *    top with the matching lower eighth block (`▁`-`▇`) instead of rounding
  *    to whole cells. Shaded series, `ascii`, negative bars and stack segments
  *    are unchanged. Affects the bar entries whose heights are not whole rows
- *    (`goodSpecs[15]`, `[30]`-`[32]`) on `box`/`blocks`/`braille` ONLY; those
+ *    (`goodSpecs[14]`, `[29]`-`[31]`) on `box`/`blocks`/`braille` ONLY; those
  *    keys were re-derived from the current build in every fixture file, each
  *    differing cell checked to be an eighth block where the parent had `█` or
  *    a blank. Every other key is untouched.
@@ -100,7 +100,7 @@
  *    paints at most `GLYPH_CHART_BAR_MAX_COLS` (3) cells, times `textScale`,
  *    centred on its tick, instead of filling its band (or 70% of its slot on
  *    a continuous x). Affects every bar entry wider than that
- *    (`goodSpecs[2]`, `[15]`, `[28]`-`[32]`) on every tier; those keys were
+ *    (`goodSpecs[2]`, `[14]`, `[27]`-`[31]`) on every tier; those keys were
  *    re-derived from the current build, each differing cell checked to be
  *    bar ink in the parent that is now blank. Every other key is untouched.
  *
@@ -108,15 +108,19 @@
  *    on two band scales tiles its cells flush, sizes each `2k` columns by `k`
  *    rows for the largest `k` that fits, and shrinks the canvas to that grid.
  *    Unsigned heatmaps also shade on a ramp with no blank level and get a
- *    range key. Affects `goodSpecs[14]` (signed, so only its geometry) on
+ *    range key. Affects `goodSpecs[13]` (signed, so only its geometry) on
  *    every tier; those keys were re-derived from the current build. Every
- *    other key is untouched, `goodSpecs[5]` (cells on linear scales) included.
+ *    other key is untouched, `goodSpecs[4]` (cells on linear scales) included.
+ *
+ * The `rect` mark's entry (`rect([-1,1])`, once index 4) left `goodSpecs`
+ * with the mark itself; every later fixture key was renumbered down by one,
+ * its value unchanged.
  *
  * A NEW divergence found outside these thirteen is a real regression, not a
  * fourteenth exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
  */
-import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRect, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import type { GlyphChartMark, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 export const categoricalSeriesData = [{ x: 0, y: 1, s: "A" }, { x: 1, y: 2, s: "A" }, { x: 0, y: 8, s: "B" }, { x: 1, y: 9, s: "B" }];
@@ -134,7 +138,7 @@ export const funnelSample = glyphChartFunnel(
   [{ stage: "Visits", count: 1000 }, { stage: "Views", count: 500 }, { stage: "Purchase", count: 100 }],
   { stage: "stage", value: "count" },
 );
-export const markFactories = [glyphChartLine, glyphChartArea, glyphChartBar, glyphChartDot, glyphChartRect, glyphChartCell, glyphChartArc, glyphChartText, glyphChartRule];
+export const markFactories = [glyphChartLine, glyphChartArea, glyphChartBar, glyphChartDot, glyphChartCell, glyphChartArc, glyphChartText, glyphChartRule];
 const spec = (mark: GlyphChartMark): GlyphChartSpec => ({ marks: [mark] });
 export const goodSpecs: GlyphChartSpec[] = [
   ...markFactories.map((fn) => spec(fn([-1, 1]))),
@@ -200,7 +204,7 @@ export const badSpecs: { id: string; spec: GlyphChartSpec; options?: GlyphChartR
   { id: "log-domain", spec: { marks: [glyphChartBar([1, 10])], scales: { y: { type: "log" } } } },
   { id: "bad-scale", spec: { marks: [glyphChartBar([1, 2])], scales: { y: { type: "band", domain: ["a", "b"] } } } },
   ...([[0, 100], [-1, 1]] as const).map((domain) => ({ id: "log-domain", spec: { marks: [glyphChartDot([1, 10, 100])], scales: { y: { type: "log" as const, domain } } } })),
-  ...([glyphChartBar, glyphChartRect] as const).map((fn) => ({ id: "bar-domain-excludes-zero", spec: { marks: [fn([5, 10])], scales: { y: { domain: [5, 10] } } } })),
+  { id: "bar-domain-excludes-zero", spec: { marks: [glyphChartBar([5, 10])], scales: { y: { domain: [5, 10] } } } },
   ...["2026-02-30", "2026-99-01", "2026-01-01T25:00:00Z"].map((date) => ({ id: "bad-time-domain", spec: { marks: [hourlyLine], scales: { x: { type: "time" as const, domain: [date, "2026-01-02"] } } } })),
   { id: "bad-time-domain", spec: { marks: [hourlyLine], scales: { x: { type: "time", domain: ["invalid", "2026-01-02"] } } } },
   { id: "bad-title", spec: { marks: [glyphChartLine([1, 2])], title: { text: "x", align: "diagonal" } as never } },

@@ -895,9 +895,9 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
   // enabled one re-binds the chart (`chartsMarkTypeFit.ts`).
   it("Type toggle: a type the dataset can't draw is disabled with its reason and a click does nothing; an enabled one re-binds the chart", () => {
     selectChartsDataset(container, "global-temperature");
-    // `rect`/`text`/`rule` never fit any data and render no tile at all
-    // unless they are the CURRENT type (`ChartsMarkTypePicker.tsx`'s own
-    // doc) — `typeButton` is nullable for exactly those three here.
+    // `text`/`rule` never fit any data and render no tile at all unless
+    // they are the CURRENT type (`ChartsMarkTypePicker.tsx`'s own doc) —
+    // `typeButton` is nullable for exactly those two here.
     const typeButton = (type: string) => container.querySelector<HTMLButtonElement>(`[aria-label^="Chart type: ${type}"]`);
     const enabled = CHART_MARK_TYPES.filter((type) => typeButton(type) && !typeButton(type)!.disabled);
     expect(enabled).toEqual(["line", "area", "dot"]);
@@ -938,7 +938,7 @@ describe("ChartsWorkbench — mounted controls and clipboard", () => {
     expect(xTime.textContent).toBe("time — needs dates");
     expect(xTime.title).toBe("A time scale needs date values (YYYY-MM-DD).");
     expect(enabled("Y type")).toEqual(["auto", "linear", "sqrt"]);
-    expect(options("Y type")[SCALE_TYPE_ORDER.indexOf("log")]!.title).toBe("A log scale can't include zero, and a bar, area or rect value axis always does.");
+    expect(options("Y type")[SCALE_TYPE_ORDER.indexOf("log")]!.title).toBe("A log scale can't include zero, and a bar or area value axis always does.");
   });
 
   it("a legacy link naming a scale type the data can't carry renders a disabled X domain row with the reason, never text inputs", () => {

@@ -129,7 +129,7 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
     // own `mark.type !== "sankey" && mark.type !== "funnel"` clause), so
     // adding them here was dead — verified by mutation (a prior review found
     // deleting them from a since-removed 3-way inclusion changed no test).
-    const canGroup = ["line", "area", "bar", "dot", "rect", "arc"].includes(mark.type);
+    const canGroup = ["line", "area", "bar", "dot", "arc"].includes(mark.type);
     const channel = canGroup ? (["fill", "stroke"] as const).find((c) => rows.some((r) => typeof r[c] === "string")) : undefined;
     const groups = new Map<string | undefined, GlyphChartMarkRow[]>();
     const displayNameByGroupKey = new Map<string | undefined, string | undefined>();
@@ -254,17 +254,17 @@ export function chartSeries(marks: readonly GlyphChartResolvedMark[], ledger?: G
       else if (prior !== s.color && ledger) ledger.push(ledgerSeriesColorConflict({ name: s.name, kept: prior, rejected: s.color }));
     }
   }
-  // Region marks (bar/rect/area/cell/sankey/funnel) paint their fill via
+  // Region marks (bar/area/cell/sankey/funnel) paint their fill via
   // `seriesShade(tier, styleIndex)` — the CROSS-MARK `named` index, never
   // an arc's own local `shadeIndex` — so a wrap here is a wrap of that
-  // shared identity: a "Revenue" bar and a "Revenue" rect both use the
+  // shared identity: a "Revenue" bar and a "Revenue" area both use the
   // same glyph by design, but a NINTH distinct named region series reuses
   // the first's. Only the region-mark types actually consult `seriesShade`
   // for their fill (a line/dot's own name may sit at the same `styleIndex`
   // with no collision at all — it cycles line styles or dot glyphs on a
   // different, unrelated period), so only they are checked here.
   if (ledger) {
-    const REGION_SHADE_MARK_TYPES = new Set(["bar", "rect", "area", "cell", "sankey", "funnel"]);
+    const REGION_SHADE_MARK_TYPES = new Set(["bar", "area", "cell", "sankey", "funnel"]);
     const nameByShadeIndex = new Map<number, string>();
     for (const s of out) {
       if (s.name === undefined || !REGION_SHADE_MARK_TYPES.has(s.mark.type)) continue;

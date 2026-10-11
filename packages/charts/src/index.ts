@@ -8,7 +8,6 @@ export {
   glyphChartBar,
   glyphChartDot,
   glyphChartArc,
-  glyphChartRect,
   glyphChartCell,
   glyphChartText,
   glyphChartRule,

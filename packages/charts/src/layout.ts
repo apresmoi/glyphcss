@@ -261,7 +261,7 @@ function axisTicks(
   const zeroIndex = sorted.findIndex((t) => t.value === 0);
   const strideAnchor = zeroIndex >= 0 ? zeroIndex : flush && axis === "x" ? 0 : sorted.length - 1;
   const strided = sorted.filter((t, i) => (((i - strideAnchor) % stride) + stride) % stride === 0 || priorityValuesEffective.has(t.value));
-  // Priority ticks (a bar/rect y-axis's zero baseline, a log axis's own
+  // Priority ticks (a bar y-axis's zero baseline, a log axis's own
   // decade values) go through the greedy collision test FIRST, so they can
   // never lose their cell to an ordinary neighbour that merely happened to
   // sort earlier — same candidates, same per-candidate logic, only the
@@ -663,7 +663,7 @@ export function layoutGlyphChart(
         integerOnlyTicks(yTicksFitted, scales.y.type !== "band" && scales.y.type !== "time" && isIntegerAxisData(marks, "y")),
         yTickFormat,
       );
-      // The zero baseline is the one tick a bar/rect/area chart must always
+      // The zero baseline is the one tick a bar/area chart must always
       // label, whether or not d3's own "nice" set happened to include it.
       if (yZeroAnchored && !yTicksRaw.some((t) => t.value === 0)) {
         const zeroLabel = yTickFormat ? yTickFormat.apply(0, yTicksRaw.length, [...yTicksRaw.map((t) => t.value), 0]) : scales.y.format(0);
@@ -842,7 +842,7 @@ export function layoutGlyphChart(
     // (CHARTS-RESEARCH diagnosis B6c): `scale.ticks()`'s own continuous
     // `start + bandwidth/2` fraction, rounded to a column independently,
     // can (and measurably did) land one column right of the band
-    // `bandColRange` — the function `paintBar`/`paintRect`/`paintCell`
+    // `bandColRange` — the function `paintBar`/`paintCell`
     // ACTUALLY paint from — occupies, because `bandColRange`'s own
     // `fractionToCol(hi) - 1` right-edge pull-in isn't visible to a
     // fraction computed independently of it. Re-deriving the tick's
@@ -1084,7 +1084,7 @@ export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
  * `plot`'s inclusive `[x0, x1] x [y0, y1]` rectangle — the standard
  * Liang-Barsky parametric line clip. Returns `null` when the segment misses
  * the rect entirely. Callers whose fill/text painters already clamp their
- * own coordinates (bar/rect/cell/arc/dot) don't need this; `line()` draws
+ * own coordinates (bar/cell/arc/dot) don't need this; `line()` draws
  * along a run the canvas itself never bounds to anything narrower than the
  * whole grid, so a mark whose value lies outside an explicit, narrower
  * scale domain (review finding 2) would otherwise paint through the title,

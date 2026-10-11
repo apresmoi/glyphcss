@@ -69,17 +69,17 @@ function collectValues(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"
 
 /** `true` iff any resolved mark is a `bar`/`area` — see module doc for why that forces 0 into the y-domain. */
 export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): boolean {
-  return marks.some((m) => ["bar", "area", "rect"].includes(m.mark.type));
+  return marks.some((m) => ["bar", "area"].includes(m.mark.type));
 }
 
-// `bar`/`rect`/`cell` are BAND-ONLY marks (`paintRect`'s own doc, "Band
-// marks use the scale's own bounds") — they paint an exact, gapless column
+// `bar`/`cell` are BAND-ONLY marks (AGENTS.md's "Band marks use the
+// scale's own bounds") — they paint an exact, gapless column
 // per category and cannot sit on a continuous time scale (`infer.ts`'s own
 // doc). Sharing an x axis with one of these keeps a string column `band`
 // regardless of ISO shape; a continuous mark (line/area/dot/rule) with no
 // band-only mark on the same axis still infers `time` from an all-ISO
 // column exactly as before.
-const BAND_ONLY_MARK_TYPES = new Set(["bar", "rect", "cell"]);
+const BAND_ONLY_MARK_TYPES = new Set(["bar", "cell"]);
 
 function axisHasBandOnlyMark(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"): boolean {
   return axis === "x" && marks.some((m) => BAND_ONLY_MARK_TYPES.has(m.mark.type));
@@ -219,7 +219,7 @@ function buildContinuous(
     }
     validateLogDomain(domain);
   }
-  if (includeZero && !(Math.min(...domain) <= 0 && Math.max(...domain) >= 0)) chartError("bar-domain-excludes-zero", "A bar/rect/area domain must include zero.");
+  if (includeZero && !(Math.min(...domain) <= 0 && Math.max(...domain) >= 0)) chartError("bar-domain-excludes-zero", "A bar/area domain must include zero.");
   const scale = (type === "log" ? scaleLog() : type === "sqrt" ? scaleSqrt() : scaleLinear()).domain([domain[0]!, domain[domain.length - 1]!]);
   if (opts?.nice) scale.nice();
   return {
@@ -266,7 +266,7 @@ export function resolveGlyphChartScale(
     ? (opts.type === "ordinal" ? "band" : opts.type)
     : inferGlyphChartScaleType(values, { allowDateStrings: !axisHasBandOnlyMark(marks, axis) });
   const includeZero = axis === "y" && hasZeroAnchoredMark(marks);
-  if (includeZero && (type === "band" || type === "time")) chartError("bad-scale", "Bar/rect/area y scales must be numeric and include zero.");
+  if (includeZero && (type === "band" || type === "time")) chartError("bad-scale", "Bar/area y scales must be numeric and include zero.");
   if (type === "band") return buildBand(values, opts, isHeatmap(marks));
   return buildContinuous(type, values, includeZero, opts);
 }

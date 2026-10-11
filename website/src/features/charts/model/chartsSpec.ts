@@ -24,7 +24,6 @@ import {
   glyphChartFunnel,
   glyphChartLine,
   glyphChartPlot,
-  glyphChartRect,
   glyphChartRule,
   glyphChartSankey,
   glyphChartScaleDomains,
@@ -110,8 +109,6 @@ export function sampleChartMark(type: GlyphChartMarkType): GlyphChartMark {
       return glyphChartDot(SAMPLE);
     case "arc":
       return glyphChartArc(SHARES, { y: "share", fill: "browser" });
-    case "rect":
-      return glyphChartRect(SAMPLE);
     case "cell":
       return glyphChartCell(HEATMAP, { x: "day", y: "hour", fill: "value" });
     case "text":

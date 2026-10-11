@@ -3,7 +3,7 @@ import { createGlyphCanvas } from "glyphcss";
 import { renderGlyphChart } from "./render";
 import { renderGlyphChartJson } from "./json";
 import { glyphChartRepairHint } from "./validate";
-import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot, glyphChartRect, glyphChartText } from "./spec";
+import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot, glyphChartText } from "./spec";
 import { bandColRange, bandRowRange, layoutGlyphChart, scaleToCol, scaleToRow } from "./layout";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
@@ -63,8 +63,9 @@ describe("exact Phase 1 review regressions", () => {
     expect(rows).toHaveLength(3);
     expect(Math.abs((rows[1]! - rows[0]!) - (rows[2]! - rows[1]!))).toBeLessThanOrEqual(1);
   });
-  it.each([glyphChartBar, glyphChartRect])("2: explicit [5,10] rejects and inferred rect/bar includes zero (%#)", (factory) => {
-    // Mutation: bypass explicit zero rule or omit rect from inference -> throws wrong/no rule or wrong cell-height ratio.
+  it("2: explicit [5,10] rejects and inferred bar includes zero", () => {
+    const factory = glyphChartBar;
+    // Mutation: bypass explicit zero rule or omit bar from inference -> throws wrong/no rule or wrong cell-height ratio.
     expect(() => renderGlyphChart({ marks: [factory([5, 10])], scales: { y: { domain: [5, 10] } } }, { width: 24, height: 8 })).toThrow(expect.objectContaining({ code: "bar-domain-excludes-zero" }));
     const p = picture(factory([5, 10]), 24, 8);
     const heights = [0, 1].map((x) => Array.from({ length: 6 }, (_, y) => p.at(scaleToCol(p.scales.x, p.layout.plot, x), y)).filter((c) => c === "█").length);
@@ -472,26 +473,6 @@ describe("post-commit review fixes (REVIEW-phase1-opus-postcommit.md, P1-0..6 + 
     const data = Array.from({ length: 6 }, (_, i) => ({ m: "only", v: i + 1, r: String(i) }));
     const p = picture(glyphChartBar(data, { x: "m", y: "v", fill: "r" }), 8, 8);
     expect(p.ledger.some((entry) => entry.code === "series-dodge-degraded")).toBe(true);
-  });
-
-  it("final-gate: unstacked multi-series RECTS dodge side by side too, exactly like bars — never one series painted over another's base", () => {
-    // Mutation: revert `paintRect` to a single undodged column per row (drop
-    // its `dodgeColRange` call) -> Jan's North (9) and South (2) rects both
-    // paint into the SAME column, so South's own value is merely a shorter
-    // overwrite of North's column instead of a distinct sub-band -> the
-    // column-range check below (identical shape to the bar test above) reddens.
-    const data = [
-      { m: "Jan", v: 9, r: "North" }, { m: "Jan", v: 2, r: "South" },
-      { m: "Feb", v: 3, r: "North" }, { m: "Feb", v: 8, r: "South" },
-    ];
-    const p = picture(glyphChartRect(data, { x: "m", y: "v", fill: "r" }), 34, 14);
-    const janRange = bandColRange(p.scales.x, p.layout.plot, "Jan")!;
-    const countFilled = (col: number) => { let n = 0; for (let y = p.layout.plot.y0; y <= p.layout.plot.y1; y++) if (p.at(col, y) !== " ") n++; return n; };
-    const janCols = Array.from({ length: janRange[1] - janRange[0] + 1 }, (_, i) => janRange[0] + i);
-    const janHeights = janCols.map(countFilled);
-    expect(janHeights[0]).toBeGreaterThan(janHeights.at(-1)!);
-    expect(janHeights.at(-1)!).toBeGreaterThan(0);
-    expect(new Set(janHeights).size).toBe(2);
   });
 
   it("P1-2: a line mark clips to the plot rect — an explicit narrower y-domain never paints over the title/axis", () => {

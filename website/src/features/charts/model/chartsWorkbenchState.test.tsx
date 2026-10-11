@@ -855,7 +855,7 @@ describe("chartsWorkbenchScaleTypeFits", () => {
     expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).x.time).toEqual({ fits: false, short: "needs dates", reason: "A time scale needs date values (YYYY-MM-DD)." });
     expect(chartsWorkbenchScaleTypeFits(pick("energy-consumption-by-source")).x.linear).toEqual({ fits: false, short: "needs numbers", reason: "A linear scale needs number values; this axis holds dates." });
     expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).x.sqrt).toEqual({ fits: false, short: "needs numbers", reason: "A sqrt scale needs number values; this axis holds categories." });
-    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).y.band).toEqual({ fits: false, short: "must be numeric", reason: "A bar, area or rect value axis must be numeric." });
+    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).y.band).toEqual({ fits: false, short: "must be numeric", reason: "A bar or area value axis must be numeric." });
     const sankey = chartsWorkbenchScaleTypeFits(pick("energy-flow-sankey"));
     expect(sankey.x.auto.fits).toBe(true);
     expect(sankey.x.band).toEqual({ fits: false, short: "no x/y scale", reason: CHARTS_NO_SCALE_REASON });
