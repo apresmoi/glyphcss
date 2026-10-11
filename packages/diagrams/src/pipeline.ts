@@ -60,7 +60,9 @@ export function canonicalizeGlyphGraph(graph: GlyphGraph): Omit<GlyphGraph, "edg
     const id = `${base}:${n}`; counts.set(base, n + 1); ids.add(id);
     return { ...e, id };
   }).sort((a, b) => compare(a.id, b.id));
-  return { ...graph, nodes: [...graph.nodes].sort((a, b) => compare(a.id, b.id)), edges,
+  // Nodes keep their authored order: it is the only signal for where a loop
+  // starts (`backEdgeIds`). Every order-sensitive step sorts on its own.
+  return { ...graph, nodes: [...graph.nodes], edges,
     groups: [...(graph.groups ?? [])].map((g) => ({ ...g, members: [...g.members].sort(compare) })).sort((a, b) => compare(a.id, b.id)) };
 }
 function wrap(text: string, width: number): string[] {
@@ -117,6 +119,41 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
   return { ...measured, nodes, ports };
 }
 export const GLYPH_DIAGRAM_DIRECTIONS: Readonly<Record<GlyphCanvasDirection, GlyphCanvasPoint>> = Object.freeze({ n: { x: 0, y: -1 }, e: { x: 1, y: 0 }, s: { x: 0, y: 1 }, w: { x: -1, y: 0 } });
+/**
+ * The edges that close a loop, found by a depth-first walk from the
+ * authored-first node of each loop. They go to dagre reversed, so it ranks
+ * the graph acyclic as given; left to its own cycle breaking, dagre walked
+ * nodes in id order and could rank a loop's start (`Push`) after its end.
+ * Unlooped graphs have no back edges and render the same in any order.
+ */
+function backEdgeIds(nodes: readonly { readonly id: string }[], edges: readonly GlyphDiagramEdge[]): Set<string> {
+  const rank = new Map(nodes.map((node, i) => [node.id, i]));
+  const out = new Map<string, GlyphDiagramEdge[]>();
+  const indegree = new Map<string, number>();
+  for (const edge of edges) {
+    if (edge.from === edge.to) continue;
+    out.set(edge.from, [...(out.get(edge.from) ?? []), edge]);
+    indegree.set(edge.to, (indegree.get(edge.to) ?? 0) + 1);
+  }
+  for (const list of out.values()) list.sort((a, b) => rank.get(a.to)! - rank.get(b.to)! || compare(a.id, b.id));
+  const back = new Set<string>(), state = new Map<string, "open" | "done">();
+  const visit = (root: string) => {
+    const stack: { id: string; next: number }[] = [{ id: root, next: 0 }];
+    state.set(root, "open");
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1]!;
+      const edge = (out.get(top.id) ?? [])[top.next++];
+      if (edge === undefined) { state.set(top.id, "done"); stack.pop(); continue; }
+      const seen = state.get(edge.to);
+      if (seen === "open") back.add(edge.id);
+      else if (seen === undefined) { state.set(edge.to, "open"); stack.push({ id: edge.to, next: 0 }); }
+    }
+  };
+  // Sources first, so a loop hanging off a real entry is entered from it.
+  for (const node of nodes) if (!indegree.has(node.id) && !state.has(node.id)) visit(node.id);
+  for (const node of nodes) if (!state.has(node.id)) visit(node.id);
+  return back;
+}
 export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedGraph, options: GlyphDiagramLayoutOptions = {}): Promise<GlyphDiagramLayout> {
   if (options.engine === "elk") glyphDiagramError("GLYPH_DIAGRAM_ELK_NOT_INSTALLED", "The ELK layout adapter is reserved for phase 4; use engine: dagre.");
   if (options.engine !== undefined && options.engine !== "dagre") glyphDiagramError("bad-options", "Phase 2 supports engine dagre only.");
@@ -124,45 +161,59 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   if (![nodesep, ranksep, margin].every(Number.isInteger) || nodesep < 3 || ranksep < 3 || margin < 0) glyphDiagramError("bad-options", "nodesep/ranksep must be integers >= 3; margin must be an integer >= 0.");
   const reserved = "ports" in graph ? graph : reserveGlyphGraphPorts(measureGlyphGraph(graph, options));
   const dagre = await import("@dagrejs/dagre");
-  const g = new dagre.graphlib.Graph({ multigraph: true, compound: true });
-  // dagre's own default is `edgesep: 20`, a bare pixel constant left over from
-  // its browser-diagram origin. `makeSpaceForEdgeLabels` inserts one dummy
-  // label-proxy node per edge into the intervening rank and spaces same-rank
-  // dummies `edgesep` apart, which pulls their real sibling endpoints to the
-  // same pitch. In TB that pitch coincides with `nodesep` + label width
-  // (~20 already) and the defect is invisible; in LR the transverse axis is
-  // node HEIGHT (3), so three siblings cost 45 rows instead of ~19
-  // (DIAGNOSIS-diagrams-fanout.md RC1/RC3). `1` is the smallest legal
-  // separation on this integer cell grid — measured identical in extent to
-  // `edgesep: nodesep` (80x19 either way) once it is off the pixel default,
-  // so there is no reason to spend more of the grid on it than its own unit.
-  g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1 });
-  g.setDefaultEdgeLabel(() => ({}));
   const ledger = [...reserved.ledger];
-  const groupKeys = new Map<string, string>();
   const includedGroups = [...reserved.groups].sort((a, b) => compare(a.id, b.id)).filter((group) => {
     const partialOverlap = reserved.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id))
       && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
     if (partialOverlap) ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "overlap" }));
     return group.members.length > 0 && !partialOverlap;
   });
-  for (const group of includedGroups) {
-    let id = `group:${group.id}`;
-    while (reserved.nodes.some((node) => node.id === id) || [...groupKeys.values()].includes(id)) id += ":group";
-    groupKeys.set(group.id, id); g.setNode(id, {});
-  }
-  for (const group of includedGroups) {
-    const parent = includedGroups.filter((other) => other.members.length > group.members.length && group.members.every((id) => other.members.includes(id))).sort((a, b) => a.members.length - b.members.length || compare(a.id, b.id))[0];
-    if (parent) g.setParent(groupKeys.get(group.id)!, groupKeys.get(parent.id)!);
-  }
-  // Re-sort even staged inputs: the public stage API must not leak insertion order into dagre.
-  for (const node of [...reserved.nodes].sort((a, b) => compare(a.id, b.id))) g.setNode(node.id, { width: node.width, height: node.height });
-  for (const node of reserved.nodes) {
-    const parent = includedGroups.filter((group) => group.members.includes(node.id)).sort((a, b) => a.members.length - b.members.length || compare(a.id, b.id))[0];
-    if (parent) g.setParent(node.id, groupKeys.get(parent.id)!);
-  }
-  for (const edge of [...reserved.edges].sort((a, b) => compare(a.id, b.id))) g.setEdge(edge.from, edge.to, {}, edge.id);
-  dagre.layout(g);
+  const build = (back: ReadonlySet<string>) => {
+    const g = new dagre.graphlib.Graph({ multigraph: true, compound: true });
+    // dagre's own default is `edgesep: 20`, a bare pixel constant left over from
+    // its browser-diagram origin. `makeSpaceForEdgeLabels` inserts one dummy
+    // label-proxy node per edge into the intervening rank and spaces same-rank
+    // dummies `edgesep` apart, which pulls their real sibling endpoints to the
+    // same pitch. In TB that pitch coincides with `nodesep` + label width
+    // (~20 already) and the defect is invisible; in LR the transverse axis is
+    // node HEIGHT (3), so three siblings cost 45 rows instead of ~19
+    // (DIAGNOSIS-diagrams-fanout.md RC1/RC3). `1` is the smallest legal
+    // separation on this integer cell grid — measured identical in extent to
+    // `edgesep: nodesep` (80x19 either way) once it is off the pixel default,
+    // so there is no reason to spend more of the grid on it than its own unit.
+    g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1 });
+    g.setDefaultEdgeLabel(() => ({}));
+    const groupKeys = new Map<string, string>();
+    for (const group of includedGroups) {
+      let id = `group:${group.id}`;
+      while (reserved.nodes.some((node) => node.id === id) || [...groupKeys.values()].includes(id)) id += ":group";
+      groupKeys.set(group.id, id); g.setNode(id, {});
+    }
+    for (const group of includedGroups) {
+      const parent = includedGroups.filter((other) => other.members.length > group.members.length && group.members.every((id) => other.members.includes(id))).sort((a, b) => a.members.length - b.members.length || compare(a.id, b.id))[0];
+      if (parent) g.setParent(groupKeys.get(group.id)!, groupKeys.get(parent.id)!);
+    }
+    // Re-sort even staged inputs: the public stage API must not leak insertion order into dagre.
+    for (const node of [...reserved.nodes].sort((a, b) => compare(a.id, b.id))) g.setNode(node.id, { width: node.width, height: node.height });
+    for (const node of reserved.nodes) {
+      const parent = includedGroups.filter((group) => group.members.includes(node.id)).sort((a, b) => a.members.length - b.members.length || compare(a.id, b.id))[0];
+      if (parent) g.setParent(node.id, groupKeys.get(parent.id)!);
+    }
+    for (const edge of [...reserved.edges].sort((a, b) => compare(a.id, b.id))) {
+      if (back.has(edge.id)) g.setEdge(edge.to, edge.from, {}, edge.id);
+      else g.setEdge(edge.from, edge.to, {}, edge.id);
+    }
+    dagre.layout(g);
+    return g;
+  };
+  // Dagre breaks loops itself and usually picks the authored start; when it
+  // ranks a loop's closing edge forward instead, the loop's start landed
+  // after its end, so lay out again with the authored back edges reversed.
+  // Graphs dagre already ranks right keep its exact layout.
+  const back = backEdgeIds(reserved.nodes, reserved.edges);
+  let g = build(new Set());
+  const rank = (id: string) => (g.node(id) as { rank?: number }).rank ?? 0;
+  if (reserved.edges.some((edge) => back.has(edge.id) && rank(edge.from) < rank(edge.to))) g = build(back);
   const positioned = reserved.nodes.map((node) => {
     const position = g.node(node.id);
     const x0 = Math.round(position.x - node.width / 2), y0 = Math.round(position.y - node.height / 2);
