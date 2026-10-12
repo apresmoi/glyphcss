@@ -32,8 +32,11 @@ Git is the familiar instance, not the vocabulary (no `commit`/`sha`/`branch`/`re
 ### Invariants
 
 - Lane allocation is the one new algorithm: assign on first appearance, keep while unresolved, FREE on merge for reuse — stops a long history drifting rightward.
-- One node row (`*` + `id  (marks)  label`) per node; merges join on a connector row ABOVE their node (git's `|/`), branches leave on one BELOW — never a spacer row.
-- `applyGlyphLaneCap`'s `cap` is a TOTAL column budget (dense + one shared overflow column) — collapsing fewer than two lanes saves nothing; a collapsed node keeps its row/label, only its lane position, logged as `lane-cap-collapsed`. Degrade order: lane-cap → pagination (never splitting a node from its connectors) → content truncation (`label-abbreviated`).
+- One node row (`*` + `[id  ](marks)  label`; `ids` defaults on for a git-log string, off for an object) per node; merges join on a connector row ABOVE their node (git's `|/`), branches leave on one BELOW — never a spacer row.
+- `truncated: true` marks `nodes` as a window: an absent parent is older history (all other rules still hold for present ids), the git adapter always sets it. Lanes still open after the last node get a dashed `continuation` row (`hop.v`, `:` on ascii) and log `lane-history-continues`; it stays with its neighbouring node when paging.
+- `order: "oldest-first"` renders the INVERSION (`invert.ts`: reversed, parents become children) through the same layout, so connector semantics are unchanged (`continuesFrom` keeps a node on its ORIGINAL first parent's lane, not the leftmost arriving one); the window cut becomes `incoming` lanes under a leading continuation row. The IR is always newest first.
+- `overflow: "expand"` is one page of full height, same width. Label cuts log ONE `label-abbreviated` summary per render, counted across pages.
+- `applyGlyphLaneCap`'s `cap` is a TOTAL column budget (dense + one shared overflow column) — collapsing fewer than two lanes saves nothing; a collapsed node keeps its row/label, only its lane position, logged as `lane-cap-collapsed`. Degrade order: lane-cap → pagination (never splitting a node from its connectors or continuation) → content truncation (`label-abbreviated`).
 - Connector corners reuse the tier's own square junction glyphs (`┌┐└┘├┤`), never new arc glyphs in glyphcss's shared tables.
 
 ## Colour

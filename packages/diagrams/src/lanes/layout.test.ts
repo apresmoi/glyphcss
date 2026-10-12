@@ -159,7 +159,7 @@ describe("applyGlyphLaneCap", () => {
     expect(capped.collapsedNodeIds).toEqual(["n3"]); // only n3 had a collapsed lane as its OWN primary lane
     for (const row of capped.rows) {
       if (row.type === "node") expect(row.lane).toBeLessThan(capped.columns);
-      else for (const lane of [row.hubLane, ...row.mergeLanes, ...row.branchLanes, ...row.passthroughLanes, ...row.untouchedLanes]) expect(lane).toBeLessThan(capped.columns);
+      else if (row.type === "connector") for (const lane of [row.hubLane, ...row.mergeLanes, ...row.branchLanes, ...row.passthroughLanes, ...row.untouchedLanes]) expect(lane).toBeLessThan(capped.columns);
     }
     // n0 and n1 (lanes 0/1, the two most active) keep distinct dense columns.
     const n0Row = capped.rows.find((r) => r.type === "node" && r.node.id === "n0") as { lane: number };
@@ -172,5 +172,102 @@ describe("applyGlyphLaneCap", () => {
     const capped = applyGlyphLaneCap(natural, natural.maxLane + 1);
     expect(capped.rows).toBe(natural.rows);
     expect(capped.collapsedLaneIndices).toEqual([]);
+  });
+});
+
+describe("layoutGlyphLaneRows: truncated windows", () => {
+  const WINDOW: GlyphLaneDag = {
+    truncated: true,
+    nodes: [
+      { id: "m", label: "merge", parents: ["a", "side"] },
+      { id: "a", label: "a", parents: ["old1"] },
+      { id: "side", label: "side", parents: ["old2"] },
+    ],
+  };
+
+  it("ends with one continuation row listing every lane still waiting on an absent parent", () => {
+    // Mutation: drop the trailing continuation push -> no such row -> red.
+    const { rows } = layoutGlyphLaneRows(WINDOW);
+    const last = rows[rows.length - 1]!;
+    expect(last).toMatchObject({ type: "continuation", lanes: [0, 1] });
+    expect(rows.filter((r) => r.type === "continuation")).toHaveLength(1);
+    expect(last.top).toBe(rows.length - 1);
+  });
+
+  it("emits no continuation for a complete history", () => {
+    expect(layoutGlyphLaneRows(GIT_STYLE).rows.some((r) => r.type === "continuation")).toBe(false);
+  });
+
+  it("pre-opens one lane per incoming id under a leading continuation row, and resolves them at their node", () => {
+    // Mutation: ignore options.incoming -> no leading row, lanes unopened -> red.
+    const dag: GlyphLaneDag = { nodes: [{ id: "x", label: "x", parents: ["y"] }, { id: "y", label: "y", parents: [] }] };
+    const { rows, laneOf } = layoutGlyphLaneRows(dag, { incoming: [{ id: "y", source: "a" }, { id: "y", source: "b" }] });
+    expect(rows[0]).toMatchObject({ type: "continuation", top: 0, lanes: [0, 1] });
+    expect(rows.map((r) => r.type)).toEqual(["continuation", "node", "connector", "node"]);
+    // x takes a fresh lane (2) since both pre-opened lanes wait for y; y then merges all three.
+    expect(laneOf.get("x")).toBe(2);
+    expect(laneOf.get("y")).toBe(0);
+    const merge = rows.find((r) => r.type === "connector");
+    expect(merge).toMatchObject({ hubLane: 0, mergeLanes: [1, 2] });
+  });
+
+  it("remaps and dedupes a continuation row's lanes when the cap collapses lanes", () => {
+    // Mutation: drop the continuation branch of applyGlyphLaneCap -> the row falls through to connector remapping, lanes undefined -> red.
+    const wide: GlyphLaneDag = {
+      truncated: true,
+      nodes: [
+        { id: "a", label: "a", parents: ["o1", "o2", "o3", "o4"] },
+      ],
+    };
+    const natural = layoutGlyphLaneRows(wide);
+    expect(natural.rows[natural.rows.length - 1]).toMatchObject({ type: "continuation", lanes: [0, 1, 2, 3] });
+    const capped = applyGlyphLaneCap(natural, 2);
+    const last = capped.rows[capped.rows.length - 1]!;
+    if (last.type !== "continuation") throw new Error("expected continuation");
+    expect(last.lanes.every((l) => l < capped.columns)).toBe(true);
+    expect(new Set(last.lanes).size).toBe(last.lanes.length);
+    expect(last.lanes.length).toBeLessThan(4);
+  });
+});
+
+describe("layoutGlyphLaneRows: incoming and continuesFrom", () => {
+  it("ignores an incoming id that no node resolves, drawing no phantom continuation", () => {
+    // Mutation: drop the present-id filter -> a leading and a trailing continuation appear -> red.
+    const dag: GlyphLaneDag = { nodes: [{ id: "a", label: "a", parents: [] }] };
+    const { rows } = layoutGlyphLaneRows(dag, { incoming: [{ id: "ghost", source: "s" }] });
+    expect(rows.map((r) => r.type)).toEqual(["node"]);
+  });
+
+  it("continues the lane named by continuesFrom, not the leftmost arriving lane, and merges the rest from the side", () => {
+    // Lane 0 was opened by "p1", lane 1 by "p0"; x continues p0's lane (1).
+    // Mutation: ignore options.continuesFrom -> x lands on lane 0 -> red.
+    const dag: GlyphLaneDag = {
+      nodes: [
+        { id: "r", label: "r", parents: ["p1", "p0"] },
+        { id: "p1", label: "p1", parents: ["x"] },
+        { id: "p0", label: "p0", parents: ["x"] },
+        { id: "x", label: "x", parents: [] },
+      ],
+    };
+    expect(layoutGlyphLaneRows(dag).laneOf.get("x")).toBe(0);
+    const { laneOf, rows } = layoutGlyphLaneRows(dag, { continuesFrom: new Map([["x", "p0"]]) });
+    expect(laneOf.get("x")).toBe(1);
+    expect(rows.find((r) => r.type === "connector" && r.mergeLanes.length > 0)).toMatchObject({ hubLane: 1, mergeLanes: [0] });
+  });
+
+  it("counts a continuation row toward lane activity, so the cap collapses the right lanes", () => {
+    // Lane 2 is touched by one node row plus the continuation, so it ties
+    // lane 1 at 2 and survives; without the continuation bump it ties lane 0
+    // at 1 and is collapsed in lane 1's place.
+    // Mutation: remove the continuation bump in laneActivity -> collapsed is [0, 2] -> red.
+    const node = (id: string): GlyphLaneNode => ({ id, label: id, parents: [] });
+    const rows: GlyphLaneRow[] = [
+      { type: "node", top: 0, node: node("a"), lane: 1, passthroughLanes: [2] },
+      { type: "node", top: 1, node: node("b"), lane: 1, passthroughLanes: [] },
+      { type: "node", top: 2, node: node("c"), lane: 0, passthroughLanes: [] },
+      { type: "continuation", top: 3, lanes: [2], waitingFor: ["old"] },
+    ];
+    const capped = applyGlyphLaneCap({ rows, maxLane: 2, laneOf: new Map() }, 2);
+    expect(capped.collapsedLaneIndices).toEqual([0, 1]);
   });
 });

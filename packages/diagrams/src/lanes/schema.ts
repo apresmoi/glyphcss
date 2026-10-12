@@ -47,6 +47,7 @@ export function glyphLaneJsonSchema(): GlyphLaneJsonSchema {
           },
         },
       },
+      truncated: { type: "boolean" },
     },
     glyphLaneIntegrity: true,
     "x-glyphcss-validation-rules": Object.fromEntries(GLYPH_LANE_VALIDATION_RULES.map((id) => [id, glyphLaneDagRepairHint(id)])) as Record<GlyphLaneValidationRuleId, string>,

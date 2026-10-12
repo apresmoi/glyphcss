@@ -888,6 +888,8 @@ export function glyphDiagramsWorkbenchLanesRenderOptions(
     ...resolved,
     width: size.width,
     height: size.height,
+    // A git log's ids are commit hashes worth reading; a JSON dag's are keys.
+    ids: state.lanes.sourceKind === "gitlog",
     ...(state.controls.target === "terminal"
       ? {
           env: {

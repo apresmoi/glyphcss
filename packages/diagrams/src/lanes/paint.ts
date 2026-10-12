@@ -6,7 +6,7 @@ import {
 import { glyphDiagramTruncateLabel } from "../labels";
 import { glyphDiagramCenterOffset } from "../center";
 import { glyphDiagramPaletteColor, resolveGlyphDiagramColor } from "../color";
-import { diagramLedgerEntryFromCanvasMessage, ledgerLabelAbbreviated, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "../ledger";
+import { diagramLedgerEntryFromCanvasMessage, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "../ledger";
 import type { GlyphLaneRow } from "./layout";
 import type { GlyphLaneNode } from "./types";
 import type { GlyphLaneRenderOptions } from "./render";
@@ -22,6 +22,12 @@ export const GLYPH_LANE_MIN_CONTENT_WIDTH = 6;
 export interface GlyphLanePaintResult {
   readonly text: string; readonly html?: string; readonly canvas: ReturnType<typeof createGlyphCanvas>;
   readonly ledger: GlyphDiagramLedgerEntry[]; readonly unsupportedGlyphs: string[];
+  /** Nodes whose row text was cut to fit — reported once per render by the caller, which alone sees every page. */
+  readonly abbreviatedNodeIds: string[];
+}
+
+function rowContent(node: GlyphLaneNode, ids: boolean): string {
+  return [...(ids ? [node.id] : []), ...(node.marks?.length ? [`(${node.marks.join(", ")})`] : []), node.label].join("  ");
 }
 
 function laneX(lane: number): number { return lane * GLYPH_LANE_COLUMN_WIDTH; }
@@ -70,6 +76,10 @@ export function paintGlyphLaneDag(
   const canvas = createGlyphCanvas({ cols: width, rows: canvasRows, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset];
   const ledger: GlyphDiagramLedgerEntry[] = [];
+  const abbreviatedNodeIds: string[] = [];
+  // The painter is public and always showed ids before the option existed;
+  // `renderGlyphLaneDag` is what picks the per-input default.
+  const ids = options.ids ?? true;
   // Tracks which node currently "owns" each lane index — feeds a
   // `laneColor` FUNCTION override only; the DEFAULT colour below is a pure
   // function of the lane (column) INDEX, never the node, so a merge reusing
@@ -85,8 +95,14 @@ export function paintGlyphLaneDag(
   // running into it (`render.ts`'s pagination keeps each unit together), so
   // `laneOwner.get(row.hubLane)` is set by the time a connector row runs.
   const laneOwner = new Map<number, GlyphLaneNode>();
+  // A lane running in from above (a window's cut, a page break) is coloured
+  // by the node it leads to when that node is on this panel, else the last
+  // node that occupied it, else — last resort — the panel's first node.
+  const panelNodes = new Map(rows.flatMap((row) => (row.type === "node" ? [[row.node.id, row.node] as const] : [])));
+  const firstNode = rows.find((row) => row.type === "node")?.node;
+  const laneWaiting = new Map<number, string>();
   const laneColorFor = (lane: number): string | null =>
-    colored ? resolveGlyphDiagramColor(options.laneColor, laneOwner.get(lane)!, glyphDiagramPaletteColor(lane), "laneColor") : null;
+    colored ? resolveGlyphDiagramColor(options.laneColor, (panelNodes.get(laneWaiting.get(lane) ?? "") ?? laneOwner.get(lane) ?? firstNode)!, glyphDiagramPaletteColor(lane), "laneColor") : null;
   const contentX = laneX(columns);
   const maxContentWidth = Math.max(0, width - contentX);
   // Centre the content in the grid through the package's ONE shared
@@ -95,7 +111,7 @@ export function paintGlyphLaneDag(
   // different kind of diagram beside a graph on the same page (measured at
   // 120x30: graph top 13 / left 21, lanes top 0 / left 0).
   const labelWidth = Math.max(0, ...rows.map((row) => row.type === "node"
-    ? glyphDiagramTruncateLabel(`${row.node.id}  ${row.node.marks?.length ? `(${row.node.marks.join(", ")})  ` : ""}${row.node.label}`, maxContentWidth, charset).length
+    ? glyphDiagramTruncateLabel(rowContent(row.node, ids), maxContentWidth, charset).length
     : 0));
   const { dx: padX, dy: padY } = glyphDiagramCenterOffset(
     { width: contentX + labelWidth, height: bodyHeight },
@@ -111,14 +127,19 @@ export function paintGlyphLaneDag(
       // function override for row.lane itself must see the node landing in
       // it now, not whatever occupied that column previously.
       laneOwner.set(row.lane, row.node);
+      for (const [lane, id] of laneWaiting) if (id === row.node.id) laneWaiting.delete(lane);
       const rowColor = laneColorFor(row.lane);
       for (const lane of row.passthroughLanes) canvas.text(lx(lane), row.top, [tier.straight.v], { color: laneColorFor(lane) });
       canvas.text(lx(row.lane), row.top, ["*"], { color: rowColor });
-      const marks = row.node.marks?.length ? `(${row.node.marks.join(", ")})  ` : "";
-      const full = `${row.node.id}  ${marks}${row.node.label}`;
+      const full = rowContent(row.node, ids);
       const content = glyphDiagramTruncateLabel(full, maxContentWidth, charset);
-      if (content !== full) ledger.push(ledgerLabelAbbreviated({ role: "node label", before: full, after: content }));
+      if (content !== full) abbreviatedNodeIds.push(row.node.id);
       if (content) canvas.text(contentX + padX, row.top, [content], { color: rowColor, align: "left" });
+      continue;
+    }
+    if (row.type === "continuation") {
+      row.lanes.forEach((lane, k) => laneWaiting.set(lane, row.waitingFor[k]!));
+      for (const lane of row.lanes) canvas.text(lx(lane), row.top, [tier.hop.v], { color: laneColorFor(lane) });
       continue;
     }
     // Lanes freshly branching out of the hub on THIS row have no owner yet
@@ -135,12 +156,14 @@ export function paintGlyphLaneDag(
     // ONE event, not several lanes' worth of colour — painted in the hub's
     // own colour throughout, same as every corner/tee glyph below.
     const hubColor = laneColorFor(row.hubLane);
+    const occupied = new Set([...touched, ...row.passthroughLanes]);
     for (let x = lx(spanMin) + 1; x < lx(spanMax); x++) {
       // The lane-column test must run on the UNSHIFTED coordinate: once the
       // centring pad moves every x, `x % COLUMN_WIDTH` no longer identifies
       // a lane column and the fill skipped the wrong cells, leaving a gap in
       // every connector (`├ ╮` instead of `├─╮`).
-      if ((x - padX) % GLYPH_LANE_COLUMN_WIDTH === 0) continue; // a lane column, painted below — never overwritten by the plain fill glyph
+      // A lane column with no lane in it is a plain gap in the run, not a cell to skip (`├─ ─╯`).
+      if ((x - padX) % GLYPH_LANE_COLUMN_WIDTH === 0 && occupied.has((x - padX) / GLYPH_LANE_COLUMN_WIDTH)) continue; // painted below — never overwritten by the plain fill glyph
       canvas.text(x, row.top, [tier.straight.h], { color: hubColor });
     }
     // Bits per touched lane are UNIONED into one map, so the hub's own N/S
@@ -168,5 +191,5 @@ export function paintGlyphLaneDag(
   const colorMode = options.color ?? "none";
   const text = colorMode === "none" || colorMode === "css" ? encodeGlyphCanvasText(canvas) : encodeGlyphCanvasAnsi(canvas, { colors: colorMode === "ansi16" ? "16" : colorMode === "ansi256" ? "256" : "truecolor", env: options.env });
   const html = colorMode === "css" ? encodeGlyphCanvasHtml(canvas) : undefined;
-  return { text, ...(html === undefined ? {} : { html }), canvas, ledger, unsupportedGlyphs: [...canvas.report.unsupportedGlyphs] };
+  return { text, ...(html === undefined ? {} : { html }), canvas, ledger, unsupportedGlyphs: [...canvas.report.unsupportedGlyphs], abbreviatedNodeIds };
 }

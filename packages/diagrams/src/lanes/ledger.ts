@@ -22,3 +22,12 @@ export function ledgerLaneCapCollapsed(opts: { readonly collapsedLanes: number; 
 export function ledgerLanePaged(opts: { readonly panels: number }): GlyphDiagramLedgerEntry {
   return entry("lane-paged", `Split the lane DAG into ${opts.panels} panels by time to fit the requested height; a lane that continues across a page boundary keeps its column.`, { ...opts });
 }
+
+export function ledgerLaneHistoryContinues(opts: { readonly lines: number; readonly nodeIds: readonly string[] }): GlyphDiagramLedgerEntry {
+  return entry("lane-history-continues", `Older history continues on ${opts.lines} line${opts.lines === 1 ? "" : "s"} past the oldest node shown, because it is outside the window.`, { ...opts });
+}
+
+/** One entry per render, not per label: a long history abbreviates dozens of rows and a ledger line each drowned out everything else. */
+export function ledgerLaneLabelsAbbreviated(opts: { readonly count: number; readonly columns: number; readonly nodeIds: readonly string[] }): GlyphDiagramLedgerEntry {
+  return entry("label-abbreviated", `Abbreviated ${opts.count} node label${opts.count === 1 ? "" : "s"} to fit ${opts.columns} columns.`, { role: "node label", count: opts.count, nodeIds: opts.nodeIds });
+}

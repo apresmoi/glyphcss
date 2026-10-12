@@ -10,9 +10,12 @@ const valid = {
 
 export const glyphLaneBadFixtures: readonly { id: string; value: unknown }[] = [
   { id: "bad-lane-dag", value: { ...valid, surprise: true } },
+  { id: "bad-lane-dag", value: { ...valid, truncated: "yes" } },
   { id: "empty-nodes", value: { nodes: [] } },
   { id: "bad-lane-node", value: { nodes: [{ id: " ", label: "bad", parents: [] }] } },
   { id: "bad-lane-node", value: { nodes: [{ id: "a", label: "A", parents: "b" }] } },
+  { id: "bad-lane-node", value: { truncated: true, nodes: [{ id: "a", label: "A", parents: [""] }] } },
+  { id: "bad-lane-node", value: { truncated: true, nodes: [{ id: "a", label: "A", parents: ["  "] }] } },
   { id: "bad-lane-node", value: { nodes: [{ id: "a", label: "A", parents: [], marks: [1] }] } },
   { id: "duplicate-node-id", value: { nodes: [...valid.nodes, { id: "a", label: "Again", parents: [] }] } },
   { id: "unknown-parent", value: { nodes: [{ id: "a", label: "A", parents: ["ghost"] }] } },
@@ -56,5 +59,27 @@ describe("GlyphLaneDag validation", () => {
       // to the generic message and this goes red instead of merely being truthy.
       expect(glyphLaneDagRepairHint(id)).not.toBe(fallback);
     }
+  });
+
+  describe("truncated windows", () => {
+    const window = { truncated: true, nodes: [{ id: "a", label: "A", parents: ["b", "older"] }, { id: "b", label: "B", parents: ["older"] }] };
+
+    it("accepts a parent id absent from nodes when truncated, and keeps the flag", () => {
+      // Mutation: drop the truncated skip in glyphLaneIntegrityFailure -> unknown-parent thrown -> red.
+      expect(validateGlyphLaneDag(window).truncated).toBe(true);
+    });
+
+    it("rejects the same absent parent when truncated is absent or false", () => {
+      expect(() => validateGlyphLaneDag({ nodes: window.nodes })).toThrow(expect.objectContaining({ code: "unknown-parent" }));
+      expect(() => validateGlyphLaneDag({ ...window, truncated: false })).toThrow(expect.objectContaining({ code: "unknown-parent" }));
+    });
+
+    it("still enforces parent order, self-parent and duplicate ids for ids that are present", () => {
+      // Mutation: make truncated skip the whole integrity check -> these stop throwing -> red.
+      const order = [{ id: "a", label: "A", parents: ["b"] }, { id: "b", label: "B", parents: ["a"] }];
+      expect(() => validateGlyphLaneDag({ truncated: true, nodes: order })).toThrow(expect.objectContaining({ code: "bad-parent-order" }));
+      expect(() => validateGlyphLaneDag({ truncated: true, nodes: [{ id: "a", label: "A", parents: ["a"] }] })).toThrow(expect.objectContaining({ code: "self-parent" }));
+      expect(() => validateGlyphLaneDag({ truncated: true, nodes: [...order.slice(0, 1).map((n) => ({ ...n, parents: [] })), { id: "a", label: "again", parents: [] }] })).toThrow(expect.objectContaining({ code: "duplicate-node-id" }));
+    });
   });
 });
