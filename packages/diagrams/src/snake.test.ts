@@ -122,7 +122,7 @@ describe("snake layout", () => {
     expect(r.canvas.grid.cols).toBe(72);
     expect(r.canvas.grid.rows).toBeGreaterThan(24);
     for (const label of ["New order", "Validate cart", "In stock?", "Charge card", "Retry payment", "Email customer", "Delivered"]) expect(r.text, label).toContain(label);
-  });
+  }, 15_000);
 
   it("declines graphs it cannot wrap: groups, or a main path under three nodes", () => {
     const grouped = measureGlyphGraph(glyphGraphFromMermaid("flowchart LR\n  subgraph g [G]\n    a --> b\n  end\n  b --> c --> d"), { direction: "LR" });

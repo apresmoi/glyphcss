@@ -197,28 +197,38 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
     }
     return next;
   };
-  // Everything tried so far keeps whole words. When the canvas may grow, a
-  // taller whole-word diagram beats one that fits by cutting words.
+  // Widening a gap inside the viewport can clear a blocked route; candidates it
+  // creates join the pool the final expand searches.
+  const repairWithin = async (pool: Candidate[]): Promise<GlyphDiagramAttempt | undefined> => {
+    const blocked = pool.filter(candidate => candidate.raw.width <= width && candidate.raw.height <= height);
+    for (let i = 0; i < blocked.length; i++) {
+      for (const candidate of await repair(blocked[i]!)) {
+        candidates.push(candidate);
+        // Increasing spacing outside a fixed viewport cannot rescue its overflow.
+        if (candidate.raw.width > width || candidate.raw.height > height) continue;
+        if (glyphDiagramHasRoutingClearance(candidate.raw)) {
+          const result = attempt(candidate, width, height);
+          if (result.okay) return result;
+        }
+        blocked.push(candidate);
+      }
+    }
+    return undefined;
+  };
+  // Whole words first, inside the viewport. When the canvas may grow, a taller
+  // whole-word diagram at the same width then beats one that fits by cutting
+  // words; a WIDER one does not — widening is the last resort below.
+  const repairedWhole = await repairWithin([...candidates]);
+  if (repairedWhole) return repairedWhole;
   if (options.overflow === "expand") {
-    const best = await expand([...candidates, ...tallSnakes]);
+    const best = await expand([...candidates, ...tallSnakes], width);
     if (best) return best;
   }
+  const wholeCount = candidates.length;
   const cut = await tryMeasured(wrap => wrap < longestWord);
   if (cut) return cut;
-
-  const blocked = candidates.filter(candidate => candidate.raw.width <= width && candidate.raw.height <= height);
-  for (let i = 0; i < blocked.length; i++) {
-    for (const candidate of await repair(blocked[i]!)) {
-      candidates.push(candidate);
-      // Increasing spacing outside a fixed viewport cannot rescue its overflow.
-      if (candidate.raw.width > width || candidate.raw.height > height) continue;
-      if (glyphDiagramHasRoutingClearance(candidate.raw)) {
-        const result = attempt(candidate, width, height);
-        if (result.okay) return result;
-      }
-      blocked.push(candidate);
-    }
-  }
+  const repairedCut = await repairWithin(candidates.slice(wholeCount));
+  if (repairedCut) return repairedCut;
 
   if (options.overflow === "expand") {
     const best = await expand(candidates);
@@ -228,11 +238,11 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
 
   // Preserve the available line width before adding rows: vertical panning
   // keeps each line readable without requiring sideways travel as well.
-  async function expand(pool: Candidate[]): Promise<GlyphDiagramAttempt | undefined> {
+  async function expand(pool: Candidate[], maxCols = Infinity): Promise<GlyphDiagramAttempt | undefined> {
     const cost = (cols: number, rows: number) => [cols / width, rows / height] as const;
     const compare = (a: readonly [number, number], b: readonly [number, number]) => a[0] - b[0] || a[1] - b[1];
     const lowerBound = (candidate: Candidate) => cost(Math.max(width, candidate.raw.width), Math.max(height, candidate.raw.height));
-    const candidates = [...pool];
+    const candidates = pool.filter(candidate => candidate.raw.width <= maxCols);
     let best: GlyphDiagramAttempt | undefined;
     while (candidates.length) {
       candidates.sort((a, b) => compare(lowerBound(a), lowerBound(b)));
@@ -243,14 +253,14 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
       // the same for this probe and the final paint, so an accepted route is reused.
       const hasClearance = glyphDiagramHasRoutingClearance(candidate.raw);
       for (let gutter = 0; hasClearance && gutter <= clearance * 2; gutter++) {
-        const cols = Math.max(width, candidate.raw.width + gutter), rows = Math.max(height, candidate.raw.height + gutter);
+        const cols = Math.min(maxCols, Math.max(width, candidate.raw.width + gutter)), rows = Math.max(height, candidate.raw.height + gutter);
         if (cols === previousWidth && rows === previousHeight) continue;
         previousWidth = cols; previousHeight = rows;
         if (best && compare(cost(cols, rows), cost(best.width, best.height)) >= 0) break;
         const result = attempt(candidate, cols, rows);
         if (result.okay) { best = result; break; }
       }
-      candidates.push(...await repair(candidate));
+      candidates.push(...(await repair(candidate)).filter(next => next.raw.width <= maxCols));
     }
     return best;
   }
