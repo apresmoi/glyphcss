@@ -1,6 +1,6 @@
 # @glyphcss/diagrams — agent guide
 
-2D diagrams only; no scene-object or camera API. Graphs (Mermaid `flowchart`/`graph` or JSON) rendered as cell text, plus other 2D forms over the same cell canvas (sequence diagrams and lane DAGs today). Root rules in `../../AGENTS.md` still apply.
+2D diagrams as cell text: graphs (Mermaid `flowchart`/`graph` or JSON), sequences and lane DAGs. No scene-object or camera API. Root rules in `../../AGENTS.md` apply.
 
 ## Pipeline
 
@@ -13,9 +13,7 @@ Adapters → `GlyphGraph` → measure → reserve ports → layout (dagre) → c
 
 ## Sequence diagrams (`./sequence`)
 
-A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no layout problem: order is authored, time runs downward, every geometric decision is a function of label/message length (no dagre, A*, or ranks). Pipeline: Mermaid/JSON → `validateGlyphSequence` → `layoutGlyphSequenceColumns` (label-width x's) → `layoutGlyphSequenceRows` → `paintGlyphSequence`, composed by `renderGlyphSequence`.
-
-**Domain-agnostic IR** — no `service`/`endpoint`/`request`/`http`/`caller` vocabulary. Participant: `id`/`label`/informational `kind?: string`/rendering-only `shape?: "lane" | "actor"`. Message: `from`/`to`/`label`/`style` only — self-ness and direction are DERIVED, never a field. Frame: `{ kind, label?, from, to, branches? }`; a branch (`{ kind, label?, at }`) is an `else` divider. Every `kind` renders VERBATIM (Mermaid's `alt`/`else`/`opt`/`loop` unmapped). Note: `{ text, over, at }`.
+No layout problem: order is authored, time runs downward, and geometry is a function of label lengths (no dagre, A*, or ranks). Pipeline: validate → column layout → row layout → paint, composed by `renderGlyphSequence`. The IR (`types.ts`) is domain-agnostic: no `service`/`endpoint`/`request`/`http` vocabulary; self-ness and direction derive from `from`/`to`; every frame/branch `kind` renders VERBATIM.
 
 ### Invariants
 
@@ -25,11 +23,11 @@ A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no
 
 ### Don't
 
-- Don't derive a message's `kind` from anything but `from`/`to`, or hardcode Mermaid's `alt`/`else`/`opt`/`loop` (`GlyphSequenceFrame.kind` is opaque). Don't allow `-` in a Mermaid participant id. Don't split a page inside a row-group.
+- Don't hardcode Mermaid's `alt`/`else`/`opt`/`loop`, or allow `-` in a Mermaid participant id. Don't split a page inside a row-group.
 
 ## Lane DAGs (`./lanes`)
 
-A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic: git is the familiar instance, not the vocabulary (no `commit`/`sha`/`branch`/`ref`/`author`; `marks` is the caller's opaque tag array). `nodes` is NEWEST FIRST; every `parents` id must occur LATER (`bad-parent-order`, the cycle-free proof). Pipeline: optional `glyphLaneDagFromGitLog` → `validateGlyphLaneDag` → `layoutGlyphLaneRows` → `applyGlyphLaneCap` → `paintGlyphLaneDag`. `renderGlyphLaneDag` composes them.
+Git is the familiar instance, not the vocabulary (no `commit`/`sha`/`branch`/`ref`/`author`; `marks` are opaque tags). `nodes` is NEWEST FIRST; every parent must occur LATER (`bad-parent-order`, the cycle-free proof). Pipeline: optional git-log adapter → validate → lane rows → lane cap → paint, composed by `renderGlyphLaneDag`.
 
 ### Invariants
 
@@ -40,7 +38,7 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 
 ## Colour
 
-`nodeColor`/`edgeColor` (root), `laneColor` (`./lanes`), `participantColor` (`./sequence`): `string | ((item) => string)`. Resolved once per item, validated against `bad-color` before the canvas ever sees it. `color.ts`'s `GLYPH_DIAGRAM_PALETTE`/`resolveGlyphDiagramColor(Option)` is the ONE shared implementation. Root keeps its flat default (edgeColor's arrowhead/label stay node-blue when unset); lane/participant default from the palette, cycled by index. `color: "none"` stays byte-identical either way — colour is additive, never the only way to tell two things apart.
+`nodeColor`/`edgeColor`, `laneColor`, `participantColor` take `string | ((item) => string)`, resolved once per item and checked against `bad-color` through `color.ts`, the ONE shared implementation. Root keeps a flat default; lanes/participants cycle the palette by index. `color: "none"` stays byte-identical — colour is never the only way to tell two things apart.
 
 ## Invariants
 
@@ -62,6 +60,4 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 
 ## Gate tests
 
-- `src/fixtureRules.test.ts`, `src/render.test.ts`, `src/rules.test.ts`/`schema.test.ts`/`validate.test.ts`, `src/mermaid.test.ts`, `src/ledger.test.ts`, `src/bundle.test.ts`; `packages/compile/src/diagramCli.test.ts`; `sequence/{validate,schema,mermaid,render,ledger}.test.ts`; `lanes/{validate,schema,layout,render,ledger,git}.test.ts`.
-
-Run `pnpm --filter @glyphcss/diagrams test`/`build`. API and usage: `README.md`.
+Every `src/**/*.test.ts` plus `packages/compile/src/diagramCli.test.ts`. Run `pnpm --filter @glyphcss/diagrams test`/`build`. API and usage: `README.md`.
