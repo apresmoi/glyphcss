@@ -18,6 +18,18 @@ const deploy = `flowchart LR
   fix --> push
   build --> staging[Deploy staging]
   staging --> prod[Deploy prod]`;
+const order = `flowchart LR
+  order[New order] --> validate[Validate cart]
+  validate --> stock{In stock?}
+  stock -->|yes| charge[Charge card]
+  stock -->|no| backorder[Backorder]
+  backorder --> notify[Email customer]
+  charge --> paid{Paid?}
+  paid -->|no| retry[Retry payment]
+  retry --> charge
+  paid -->|yes| pack[Pack box]
+  pack --> ship[Ship]
+  ship --> done[Delivered]`;
 const chat = { width: 72, height: 24, target: "chat", charset: "box", color: "none", autoDirection: true, detail: "faithful", overflow: "paginate" } as const;
 
 describe("snake layout", () => {
@@ -86,6 +98,30 @@ describe("snake layout", () => {
     const drop = raw.ports.filter((p) => p.edgeId.includes('"stock","backorder"'));
     expect(drop[0]!.anchor.x).toBe(drop[1]!.anchor.x);
     expect(routeGlyphGraphEdges(raw, { width: raw.width, height: raw.height }).unroutable).toEqual([]);
+  });
+
+  it("sizes each row gap on its own, never buying rows with a detour or a lost label", async () => {
+    // Mutations: uniform gaps only -> the Backorder-to-Charge gap pads to 3;
+    // drop the route-shape gate -> the deploy wrap line detours up the left;
+    // drop the label check -> a squeezed drop loses its "no".
+    const r = await renderGlyphDiagram(order, { ...chat, height: 30 });
+    const at = (id: string) => r.layout.nodes.find((n) => n.id === id)!;
+    expect(at("charge").y0 - at("backorder").y1 - 1).toBe(1);
+    for (const label of ["yes", "no"]) expect(r.text).toContain(label);
+    const d = await renderGlyphDiagram(deploy, { ...chat, height: 30 });
+    const wrap = d.routes.find((route) => route.edge.id.includes('"build","staging"'))!;
+    const bends = wrap.cells.slice(2).filter((c, i) => (wrap.cells[i + 1]!.x - wrap.cells[i]!.x) !== (c.x - wrap.cells[i + 1]!.x)).length;
+    expect(bends).toBe(2);
+    expect(d.text).toContain("no");
+  });
+
+  it("grows taller with whole words rather than cutting words or splitting, when the canvas may grow", async () => {
+    // Mutation: drop the whole-word expand before cutting words -> "Validate cart" splits mid-word or the graph pages.
+    const r = await renderGlyphDiagram(order, { ...chat, overflow: "expand" });
+    expect(r.pages).toHaveLength(1);
+    expect(r.canvas.grid.cols).toBe(72);
+    expect(r.canvas.grid.rows).toBeGreaterThan(24);
+    for (const label of ["New order", "Validate cart", "In stock?", "Charge card", "Retry payment", "Email customer", "Delivered"]) expect(r.text, label).toContain(label);
   });
 
   it("declines graphs it cannot wrap: groups, or a main path under three nodes", () => {

@@ -5,10 +5,15 @@ import { ledgerLayoutWrapped } from "./ledger";
 /**
  * `gap`: columns between neighbours. `branchGap`: rows between a main-path
  * row and the branches hanging under it. `rowGap`: rows between one row's
- * lowest box and the next row. The fitter searches the two row gaps: each
- * edge turning through a gap needs a row of its own.
+ * lowest box and the next row. A list gives each row its own gap (the last
+ * entry repeats). The fitter searches them: a gap only a straight drop
+ * crosses needs one row, and each edge turning through it needs more.
  */
-export interface GlyphDiagramSnakeOptions { readonly width: number; readonly gap: number; readonly margin: number; readonly branchGap: number; readonly rowGap: number }
+export interface GlyphDiagramSnakeOptions {
+  readonly width: number; readonly gap: number; readonly margin: number;
+  readonly branchGap: number | readonly number[]; readonly rowGap: number | readonly number[];
+}
+const gapAt = (gap: number | readonly number[], row: number) => typeof gap === "number" ? gap : gap[Math.min(row, gap.length - 1)]!;
 
 /**
  * A left-to-right graph too wide for its budget, laid out like text: the
@@ -103,7 +108,7 @@ function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, no
   }
   const rects = new Map<string, Rect>();
   let top = margin;
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
     const rowHeight = Math.max(...row.map((id) => sizes.get(id)!.height));
     let x = margin;
     for (const [i, id] of row.entries()) {
@@ -116,7 +121,7 @@ function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, no
     let bottom = top + rowHeight - 1;
     const branches = nodes.filter((node) => anchor.has(node.id) && row.includes(rootOf(node.id, anchor)));
     if (branches.length > 0) {
-      const bandTop = bottom + 1 + branchGap;
+      const bandTop = bottom + 1 + gapAt(branchGap, rowIndex);
       const bandHeight = Math.max(...branches.map((node) => sizes.get(node.id)!.height));
       // Direct branches in their anchors' order, each followed by the nodes
       // hanging off it, so a branch's own chain reads left to right.
@@ -146,7 +151,7 @@ function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, no
       }
       bottom = bandTop + bandHeight - 1;
     }
-    top = bottom + 1 + rowGap;
+    top = bottom + 1 + gapAt(rowGap, rowIndex);
   }
   return { rects, rows: rows.length };
 }

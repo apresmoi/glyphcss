@@ -2,6 +2,7 @@ import { glyphDiagramCenterOffset } from "./center";
 import { glyphDiagramCompactionFloor } from "./degrade";
 import { glyphDiagramText } from "./labels";
 import { glyphDiagramSnakeLayout } from "./snake";
+import { paintGlyphDiagram } from "./paint";
 import { layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
 import { GLYPH_DIAGRAM_ROUTE_SEPARATION, glyphDiagramHasRoutingClearance, routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import type { GlyphGraph } from "./types";
@@ -34,6 +35,35 @@ function attempt(candidate: Candidate, width: number, height: number): GlyphDiag
   const fits = raw.width <= width && raw.height <= height;
   const routing = fits ? routeGlyphGraphEdges(layout, { width, height }) : { routes: [], unroutable: [], ledger: [] };
   return { layout, routing, fits, okay: fits && routing.unroutable.length === 0, width, height, adjusted };
+}
+
+/**
+ * Uniform snake row gaps to start from, shortest total first: 3 rows let an
+ * edge turn between its two port lanes, and each more edge turning there can
+ * need one more. Gaps then shrink one at a time below that.
+ */
+function snakeGaps(edges: number): readonly (readonly [number, number])[] {
+  const most = 3 + edges;
+  return Array.from({ length: most - 2 }, (_, r) => Array.from({ length: most - 2 }, (_, b) => [r + 3, b + 3] as const))
+    .flat().sort((a, b) => a[0] + a[1] - b[0] - b[1] || a[0] - b[0]);
+}
+
+/** Total route length and bends: a tighter gap must not buy its rows with a detour. */
+function routeShape(result: GlyphDiagramAttempt): readonly [number, number] {
+  let cells = 0, bends = 0;
+  for (const route of result.routing.routes) {
+    cells += route.cells.length;
+    for (let i = 2; i < route.cells.length; i++) {
+      const [a, b, c] = [route.cells[i - 2]!, route.cells[i - 1]!, route.cells[i]!];
+      if ((b.x - a.x) !== (c.x - b.x) || (b.y - a.y) !== (c.y - b.y)) bends++;
+    }
+  }
+  return [cells, bends];
+}
+
+function dropsEdgeLabel(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): boolean {
+  const painted = paintGlyphDiagram(result.layout, result.routing, { ...options, width: result.width, height: result.height });
+  return painted.ledger.some(entry => entry.code === "label-dropped");
 }
 
 /** Resolve geometry in cells; output encoding and font metrics never enter this search. */
@@ -114,20 +144,44 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
   };
   const whole = await tryMeasured(wrap => wrap >= longestWord);
   if (whole) return whole;
+  // Snakes taller than the budget still count when the canvas may grow.
+  const tallSnakes: Candidate[] = [];
   if (directions.includes("LR")) {
     for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= Math.max(1, Math.min(longestWord, width - 4)); wrap--) {
       const lr = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: wrap });
-      for (const [, rs] of compact) for (let rowGap = 3; rowGap <= 3 + graph.edges.length; rowGap++) for (let branchGap = 3; branchGap <= rowGap; branchGap++) {
-        const raw = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap, rowGap });
-        if (!raw || raw.width > width || raw.height > height || !glyphDiagramHasRoutingClearance(raw)) continue;
-        const result = attempt({ raw, adjusted: true, nodesep, ranksep: rs, margin }, width, height);
-        if (result.okay) return result;
+      for (const [, rs] of compact) {
+        const snake = (rowGap: readonly number[], branchGap: readonly number[]) => {
+          const raw = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap, rowGap });
+          if (!raw || raw.width > width || !glyphDiagramHasRoutingClearance(raw)) return undefined;
+          const candidate = { raw, adjusted: true, nodesep, ranksep: rs, margin };
+          const result = attempt(candidate, width, Math.max(height, raw.height));
+          return result.okay && !dropsEdgeLabel(result, options) ? { candidate, result } : undefined;
+        };
+        // The shortest uniform gaps that route, then each gap shrunk on its
+        // own: one turning edge must not pad every other gap to its size.
+        let found: { readonly candidate: Candidate; readonly result: GlyphDiagramAttempt } | undefined, rowGaps: number[] = [], branchGaps: number[] = [];
+        for (const [r, b] of snakeGaps(graph.edges.length)) {
+          const rows = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap: b, rowGap: r })?.ledger.find(e => e.code === "layout-wrapped")?.detail?.rows as number | undefined;
+          if (rows === undefined) continue;
+          rowGaps = Array(rows).fill(r); branchGaps = Array(rows).fill(b);
+          found = snake(rowGaps, branchGaps);
+          if (found) break;
+        }
+        if (!found) continue;
+        for (const gaps of [rowGaps, branchGaps]) for (let i = 0; i < gaps.length; i++) {
+          for (let g = 1; g < gaps[i]!; g++) {
+            const trial = [...gaps]; trial[i] = g;
+            const tighter = gaps === rowGaps ? snake(trial, branchGaps) : snake(rowGaps, trial);
+            if (!tighter) continue;
+            const [cells, bends] = routeShape(tighter.result), [beforeCells, beforeBends] = routeShape(found.result);
+            if (cells <= beforeCells && bends <= beforeBends) { gaps[i] = g; found = tighter; break; }
+          }
+        }
+        if (found.candidate.raw.height <= height) return found.result;
+        if (options.overflow === "expand") tallSnakes.push(found.candidate);
       }
     }
   }
-  const cut = await tryMeasured(wrap => wrap < longestWord);
-  if (cut) return cut;
-
   // Tightening is insufficient when protected port lanes or a return edge
   // consume a gap. Each additional connection can need its own separated lane.
   // Search the two axes independently: widening one must not waste the other.
@@ -143,6 +197,15 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
     }
     return next;
   };
+  // Everything tried so far keeps whole words. When the canvas may grow, a
+  // taller whole-word diagram beats one that fits by cutting words.
+  if (options.overflow === "expand") {
+    const best = await expand([...candidates, ...tallSnakes]);
+    if (best) return best;
+  }
+  const cut = await tryMeasured(wrap => wrap < longestWord);
+  if (cut) return cut;
+
   const blocked = candidates.filter(candidate => candidate.raw.width <= width && candidate.raw.height <= height);
   for (let i = 0; i < blocked.length; i++) {
     for (const candidate of await repair(blocked[i]!)) {
@@ -158,11 +221,18 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
   }
 
   if (options.overflow === "expand") {
-    // Preserve the available line width before adding rows: vertical panning
-    // keeps each line readable without requiring sideways travel as well.
+    const best = await expand(candidates);
+    if (best) return best;
+  }
+  return first;
+
+  // Preserve the available line width before adding rows: vertical panning
+  // keeps each line readable without requiring sideways travel as well.
+  async function expand(pool: Candidate[]): Promise<GlyphDiagramAttempt | undefined> {
     const cost = (cols: number, rows: number) => [cols / width, rows / height] as const;
     const compare = (a: readonly [number, number], b: readonly [number, number]) => a[0] - b[0] || a[1] - b[1];
     const lowerBound = (candidate: Candidate) => cost(Math.max(width, candidate.raw.width), Math.max(height, candidate.raw.height));
+    const candidates = [...pool];
     let best: GlyphDiagramAttempt | undefined;
     while (candidates.length) {
       candidates.sort((a, b) => compare(lowerBound(a), lowerBound(b)));
@@ -182,7 +252,6 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
       }
       candidates.push(...await repair(candidate));
     }
-    if (best) return best;
+    return best;
   }
-  return first;
 }

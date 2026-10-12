@@ -47,8 +47,8 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 - `GLYPH_DIAGRAM_VALIDATION_RULES` backs runtime/schema, every rule with its own repair hint. `report.ledger` is `GlyphDiagramLedgerEntry[]` `{ code, message, detail? }`.
 - `unroutable` describes final output only; a layout that doesn't fit is `layout-overflow`, never `routing-attempt`. Malformed JSON is `GLYPH_DIAGRAM_BAD_JSON`; `engine: "elk"` is `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
 - Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert, never executed.
-- A loop starts at its authored-first node: canonical nodes keep authored order; a loop dagre ranks backwards is re-laid out with authored back edges reversed.
-- Never cut words while a whole-word fit exists: whole-word wraps, then snake (`snake.ts`), then cut words.
+- A loop starts at its authored-first node: canonical nodes keep authored order; a loop dagre ranks backwards is re-laid out with back edges reversed.
+- Never cut words while a whole-word fit exists: whole-word wraps, snake (`snake.ts`), expand at any height, then cut words.
 - Fit uses measured labels, ports and routes, never node/edge-count cutoffs or viewport presets. Search distinct wraps and independent gaps; return edges may need widening. `autoDirection` permits the perpendicular; all modes fit before semantic degradation.
 - `overflow: "paginate"` (default) keeps exact requested canvas dimensions. `"expand"` explicitly permits a connected canvas beyond those dimensions, with `layout-expanded` diagnostics. Ladder after fitting fails: decoration → duplicates → leaf clusters → split; never decoration once it fits, except explicit `simplified`.
 - Paint order: routes → junctions → node fills → target-border arrowheads → labels; an edge label touches its own route or is dropped. Text/HTML/ANSI are separate exits, each page carrying its `canvas`.
