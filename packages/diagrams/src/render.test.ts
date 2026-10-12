@@ -390,3 +390,45 @@ describe("colour surface: nodeColor / edgeColor", () => {
     await expect(renderGlyphDiagram(TWO_NODE, { color: "css", nodeColor: () => "#abc" })).rejects.toMatchObject({ code: "bad-color" });
   });
 });
+
+describe("authored direction before the perpendicular", () => {
+  const family = `flowchart TB
+  ana[Ana 1962] --> diego[Diego 1985]
+  carlos[Carlos 1960] --> diego
+  ana --> sofia[Sofia 1988]
+  carlos --> sofia
+  sofia --> mia[Mia 2019]
+  tom[Tom 1990] --> mia
+  sofia --> leo[Leo 2021]
+  tom --> leo`;
+  const fan = `flowchart TB
+  a[Gateway] --> b[Billing-service]
+  a --> c[Catalog-service]
+  a --> d[Delivery-service]
+  a --> e[Email-service]`;
+
+  it("keeps an authored top-down graph top-down when it fits there, instead of snaking it left-to-right", async () => {
+    // Mutations: run the snake before the in-viewport repair and same-width
+    // expand -> LR `layout-wrapped`; try the perpendicular first -> LR.
+    const r = await renderGlyphDiagram(family, { target: "chat", width: 72, height: 24, detail: "faithful", overflow: "expand", autoDirection: true });
+    expect(r.layout.direction).toBe("TB");
+    // Wrapped only between words, never inside one.
+    for (const node of r.layout.nodes) expect(node.lines.join(" "), node.id).toBe(node.label);
+    expect(r.report.ledger.map((e) => e.code)).not.toContain("layout-wrapped");
+    expect(r.canvas.grid.cols).toBeLessThanOrEqual(72);
+    for (const label of ["Ana 1962", "Carlos 1960", "Diego 1985", "Sofia 1988", "Mia 2019", "Tom 1990", "Leo 2021"]) expect(r.text, label).toContain(label);
+    expect(r.report.unroutable).toEqual([]);
+  });
+
+  it("still rotates an authored top-down graph that only fits perpendicular in whole words", async () => {
+    // Guards only that the perpendicular is still searched; the family test
+    // above guards that the authored direction goes first.
+    // Mutation: drop the perpendicular from the searched directions -> TB with cut words.
+    const r = await renderGlyphDiagram(fan, { target: "chat", width: 50, height: 24, detail: "faithful", autoDirection: true });
+    expect(r.layout.direction).toBe("LR");
+    for (const label of ["Gateway", "Billing-service", "Catalog-service", "Delivery-service", "Email-service"]) expect(r.text, label).toContain(label);
+    const off = await renderGlyphDiagram(fan, { target: "chat", width: 50, height: 24, detail: "faithful" });
+    expect(off.layout.direction).toBe("TB");
+    expect(off.text).not.toContain("Billing-service");
+  });
+});

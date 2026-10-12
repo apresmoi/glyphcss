@@ -133,20 +133,19 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
   // A wrap narrower than the longest word cuts words mid-letter ("Deplo"/"y"),
   // so whole-word wraps go first, then the snake, and cut words only last.
   const longestWord = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramText(node.label, options.charset).split(/\s+/).map(word => word.length)));
-  const tryMeasured = async (keep: (wrap: number) => boolean) => {
+  const tryMeasured = async (keep: (wrap: number) => boolean, only?: GlyphGraph["direction"]) => {
     for (const { reserved, wrap } of measured) {
-      if (!keep(wrap)) continue;
+      if (!keep(wrap) || (only && reserved.direction !== only)) continue;
       for (const [ns, rs] of compact) for (const pad of margins) {
         const result = await tryLayout(reserved, ns, rs, pad);
         if (result) return result;
       }
     }
   };
-  const whole = await tryMeasured(wrap => wrap >= longestWord);
-  if (whole) return whole;
-  // Snakes taller than the budget still count when the canvas may grow.
-  const tallSnakes: Candidate[] = [];
-  if (directions.includes("LR")) {
+  // The snake is a whole-word LR layout. Snakes taller than the budget still
+  // count when the canvas may grow, so they are returned for the expand pass.
+  const snakePass = async (): Promise<{ readonly fit?: GlyphDiagramAttempt; readonly tall: Candidate[] }> => {
+    const tallSnakes: Candidate[] = [];
     for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= Math.max(1, Math.min(longestWord, width - 4)); wrap--) {
       const lr = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: wrap });
       for (const [, rs] of compact) {
@@ -177,11 +176,12 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
             if (cells <= beforeCells && bends <= beforeBends) { gaps[i] = g; found = tighter; break; }
           }
         }
-        if (found.candidate.raw.height <= height) return found.result;
+        if (found.candidate.raw.height <= height) return { fit: found.result, tall: tallSnakes };
         if (options.overflow === "expand") tallSnakes.push(found.candidate);
       }
     }
-  }
+    return { tall: tallSnakes };
+  };
   // Tightening is insufficient when protected port lanes or a return edge
   // consume a gap. Each additional connection can need its own separated lane.
   // Search the two axes independently: widening one must not waste the other.
@@ -215,14 +215,23 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
     }
     return undefined;
   };
-  // Whole words first, inside the viewport. When the canvas may grow, a taller
-  // whole-word diagram at the same width then beats one that fits by cutting
-  // words; a WIDER one does not — widening is the last resort below.
-  const repairedWhole = await repairWithin([...candidates]);
-  if (repairedWhole) return repairedWhole;
-  if (options.overflow === "expand") {
-    const best = await expand([...candidates, ...tallSnakes], width);
-    if (best) return best;
+  // Each direction is exhausted in whole words before the next is tried, the
+  // authored one first: whole-word wraps, the snake (LR only), in-viewport
+  // repair, then (when the canvas may grow) a taller layout at the same width.
+  // A WIDER one does not beat cutting words in the other direction: widening
+  // is the last resort below.
+  for (const dir of directions) {
+    const whole = await tryMeasured(wrap => wrap >= longestWord, dir);
+    if (whole) return whole;
+    const snake = dir === "LR" ? await snakePass() : { tall: [] as Candidate[] };
+    if (snake.fit) return snake.fit;
+    const pool = candidates.filter(candidate => candidate.raw.direction === dir);
+    const repairedWhole = await repairWithin(pool);
+    if (repairedWhole) return repairedWhole;
+    if (options.overflow === "expand") {
+      const best = await expand([...candidates.filter(candidate => candidate.raw.direction === dir), ...snake.tall], width);
+      if (best) return best;
+    }
   }
   const wholeCount = candidates.length;
   const cut = await tryMeasured(wrap => wrap < longestWord);
