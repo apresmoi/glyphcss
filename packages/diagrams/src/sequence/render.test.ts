@@ -349,6 +349,14 @@ describe("long labels", () => {
     expect(r.text).not.toContain("…");
   });
 
+  it("starts every dashed arrow's pattern at its head, whatever the arrow's length", async () => {
+    // Mutation: count the dashes from the source -> an odd-length reply reads "◀ ╌".
+    const r = await renderGlyphSequence(CHECKOUT, chatSize);
+    const heads = r.text.split("\n").filter((l) => l.includes("◀") && !l.includes("◀┘"));
+    expect(heads.length).toBeGreaterThan(4);
+    for (const line of heads) expect(line).toMatch(/◀[╌─]/);
+  });
+
   it("reports every label it still has to cut", async () => {
     // Mutation: drop the paint's abbreviation entry -> the cut word goes unreported.
     const r = await renderGlyphSequence("sequenceDiagram\n  A->>B: Supercalifragilisticexpialidocious", { width: 16, height: 12 });

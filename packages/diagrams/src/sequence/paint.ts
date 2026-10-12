@@ -130,11 +130,12 @@ export function paintGlyphSequence(
     const sourceGlyph = tier.junction[forward ? N | S | E : N | S | W]!;
     canvas.text(fromX, y, [sourceGlyph], { color: rowColor });
     const tipX = forward ? toX - 1 : toX + 1;
-    let phase = 0;
+    // The dash pattern counts from the head, so every dashed arrow has a dash
+    // touching it whatever its length — counted from the source, an odd gap
+    // left a blank beside the head.
     for (let x = fromX + (forward ? 1 : -1); forward ? x <= tipX : x >= tipX; x += forward ? 1 : -1) {
       const crossing = xs.includes(x) && x !== fromX && x !== toX;
-      const glyph = crossing ? tier.junction[N | E | S | W]! : dashed ? (phase % 2 === 0 ? tier.hop.h : " ") : tier.straight.h;
-      phase++;
+      const glyph = crossing ? tier.junction[N | E | S | W]! : dashed ? (Math.abs(tipX - x) % 2 === 1 ? tier.hop.h : " ") : tier.straight.h;
       canvas.text(x, y, [glyph], { color: rowColor });
     }
     canvas.arrowhead(tipX, y, forward ? "e" : "w", { color: rowColor });
