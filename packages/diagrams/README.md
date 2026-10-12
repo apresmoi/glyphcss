@@ -122,7 +122,7 @@ const result = await renderGlyphSequence({
 console.log(result.text);
 ```
 
-`renderGlyphSequence` also accepts a Mermaid `sequenceDiagram` string (`participant`/`actor`, `->>`/`-->>` arrows, `alt`/`else`/`opt`/`loop`/`end`, `note over`); `renderGlyphSequenceJson` mirrors `renderGlyphDiagramJson`'s JSON-in/JSON-out shape. Degrades for space by abbreviating labels, then paging by TIME at a message boundary when the height doesn't fit, a frame cut by a page reopening under its current branch; `overflow: "expand"` grows taller instead of paging. Both are logged in `report.ledger`, same `{ code, message, detail? }` shape as the graph pipeline's.
+`renderGlyphSequence` also accepts a Mermaid `sequenceDiagram` string (`participant`/`actor`, `->>`/`-->>` arrows, `alt`/`else`/`opt`/`loop`/`end`, `note over`); `renderGlyphSequenceJson` mirrors `renderGlyphDiagramJson`'s JSON-in/JSON-out shape. Degrades for space by wrapping long message labels onto extra rows (abbreviating participant labels, and a single word too long for its line), then paging by TIME at a message boundary when the height doesn't fit, a frame cut by a page reopening under its current branch; `overflow: "expand"` grows taller instead of paging. Both are logged in `report.ledger`, same `{ code, message, detail? }` shape as the graph pipeline's.
 
 ## Lane DAGs (`@glyphcss/diagrams/lanes`)
 

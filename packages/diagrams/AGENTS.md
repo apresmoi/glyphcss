@@ -13,7 +13,7 @@ Adapters → `GlyphGraph` → measure → reserve ports → layout (dagre) → c
 
 ## Sequence diagrams (`./sequence`)
 
-A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no layout problem: order is authored, time runs downward, every geometric decision is a function of label/message length (no dagre, A*, or ranks). Pipeline: Mermaid/JSON → `validateGlyphSequence` → `layoutGlyphSequenceColumns` (label-width x's, shrinking-cap degrade) → `layoutGlyphSequenceRows` → `paintGlyphSequence`, composed by `renderGlyphSequence`.
+A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no layout problem: order is authored, time runs downward, every geometric decision is a function of label/message length (no dagre, A*, or ranks). Pipeline: Mermaid/JSON → `validateGlyphSequence` → `layoutGlyphSequenceColumns` (label-width x's) → `layoutGlyphSequenceRows` → `paintGlyphSequence`, composed by `renderGlyphSequence`.
 
 **Domain-agnostic IR** — no `service`/`endpoint`/`request`/`http`/`caller` vocabulary. Participant: `id`/`label`/informational `kind?: string`/rendering-only `shape?: "lane" | "actor"`. Message: `from`/`to`/`label`/`style` only — self-ness and direction are DERIVED, never a field. Frame: `{ kind, label?, from, to, branches? }`; a branch (`{ kind, label?, at }`) is an `else` divider. Every `kind` renders VERBATIM (Mermaid's `alt`/`else`/`opt`/`loop` unmapped). Note: `{ text, over, at }`.
 
@@ -21,7 +21,7 @@ A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no
 
 - A frame boxes its messages: label in the top border, dashed branch dividers, sides `1 + depth` outside its lifelines and around inner boxes. Columns make room for frames and self-labels. A note is a 3-row floating bar clamped on-canvas.
 - A message crossing an unrelated lifeline paints a 4-way junction glyph, never a silent gap. Self-messages get their own 3-row loop (tee→dash→corner, corner→arrowhead), never a zero-width arrow. Every glyph paints with whole-cell `canvas.text`, never `canvas.line()` (braille/blocks rasterise that at sub-cell dots).
-- Degrade: (1) abbreviate participant AND message labels under one shrinking cap (floor 3); (2) page by TIME at a message boundary, repeating the header per panel, when height doesn't fit (`overflow: "expand"` grows instead); a cut frame reopens under its current branch at full width, and panels centre on the whole sequence's ink. Both logged; still-too-wide at the floor logs `sequence-layout-overflow`.
+- Degrade: (1) one shrinking cap (floor 3) abbreviates participants and WRAPS messages (cutting only an over-long word); leftover width un-wraps, cheapest first; a frame label fills its box; cuts are logged; (2) page by TIME at a message boundary, repeating the header per panel, when height doesn't fit (`overflow: "expand"` grows instead); a cut frame reopens under its current branch at full width, and panels centre on the whole sequence's ink. Both logged; still-too-wide at the floor logs `sequence-layout-overflow`.
 
 ### Don't
 

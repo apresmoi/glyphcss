@@ -60,6 +60,29 @@ function frameDepths(frames: readonly GlyphSequenceFrame[]): number[] {
 /** The rightmost cell a self-message paints: its loop, or its label to the loop's right. */
 function selfInkRight(x: number, label: string): number { return x + Math.max(2, 1 + label.length); }
 
+/**
+ * A message label broken at spaces into lines at most `width` wide, so a
+ * long label costs rows instead of letters. Only a single word wider than
+ * the line is cut, with an ellipsis.
+ */
+export function glyphSequenceWrapLabel(text: string, width: number, charset: GlyphCanvasTierName): string[] {
+  const words = glyphDiagramText(text, charset).split(" ").filter(Boolean);
+  const lines: string[] = [];
+  let line = "";
+  for (const word of words) {
+    const fitted = glyphDiagramTruncateLabel(word, width, charset);
+    if (line && line.length + 1 + fitted.length > width) { lines.push(line); line = ""; }
+    line += (line ? " " : "") + fitted;
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+/** The widest line `label` wraps to under `cap`. */
+function wrappedWidth(label: string, cap: number, charset: GlyphCanvasTierName): string {
+  return glyphSequenceWrapLabel(label, cap, charset).reduce((a, b) => (b.length > a.length ? b : a), "");
+}
+
 /** A frame's box columns. */
 export interface GlyphSequenceFrameExtent { readonly x0: number; readonly x1: number }
 
@@ -69,7 +92,8 @@ export function glyphSequenceFrameExtents(sequence: GlyphSequence, columns: read
   return frameBoxes(sequence, sequence.participants.map((p) => xOf.get(p.id)!), opts.labelCap ?? Number.MAX_SAFE_INTEGER, opts.charset ?? "box").map(({ x0, x1 }) => ({ x0, x1 }));
 }
 
-interface GlyphSequenceFrameBox { readonly lo: number; readonly hi: number; readonly x0: number; readonly x1: number; readonly text: string; readonly short: number }
+/** `text` is the capped label the box is sized by; `full` is the whole label, which the box shows as far as its width allows. */
+interface GlyphSequenceFrameBox { readonly lo: number; readonly hi: number; readonly x0: number; readonly x1: number; readonly text: string; readonly full: string; readonly short: number }
 
 /**
  * Each frame's box over column positions `xs` (participant order): its sides
@@ -94,7 +118,7 @@ function frameBoxes(sequence: GlyphSequence, xs: readonly number[], labelCap: nu
     for (let i = frame.from; i <= frame.to; i++) {
       const m = sequence.messages[i]!;
       touched.push(indexOf.get(m.from)!, indexOf.get(m.to)!);
-      if (m.from === m.to) ink = Math.max(ink, selfInkRight(xs[indexOf.get(m.from)!]!, glyphDiagramTruncateLabel(m.label ?? "", labelCap, charset)));
+      if (m.from === m.to) ink = Math.max(ink, selfInkRight(xs[indexOf.get(m.from)!]!, wrappedWidth(m.label ?? "", labelCap, charset)));
     }
     for (const note of sequence.notes ?? []) if (note.at >= frame.from && note.at <= frame.to) touched.push(...note.over.map((id) => indexOf.get(id)!));
     const lo = Math.min(...touched), hi = Math.max(...touched);
@@ -105,7 +129,7 @@ function frameBoxes(sequence: GlyphSequence, xs: readonly number[], labelCap: nu
     const x0 = Math.min(xs[lo]! - offset, ...inner.map((b) => b.x0 - 1), extent?.x0 ?? Infinity);
     const base = Math.max(Math.max(xs[hi]!, ink) + offset, ...inner.map((b) => b.x1 + 1), extent?.x1 ?? -Infinity);
     const fit = x0 + text.length + 5;
-    return { lo, hi, x0, x1: Math.max(base, fit), text, short: Math.max(0, fit - base) };
+    return { lo, hi, x0, x1: Math.max(base, fit), text, full: markerText(frame.kind, frame.label, " ", charset), short: Math.max(0, fit - base) };
   }
 }
 
@@ -120,7 +144,7 @@ function frameBoxes(sequence: GlyphSequence, xs: readonly number[], labelCap: nu
  * neighbour away. `labelCap` bounds every label BEFORE this sizing runs (the
  * degrade lever — see `layoutGlyphSequenceColumns`).
  */
-function columnPositions(sequence: GlyphSequence, labelCap: number, charset: GlyphCanvasTierName): { readonly xs: readonly number[]; readonly labels: readonly string[]; readonly width: number } {
+function columnPositions(sequence: GlyphSequence, labelCap: number, charset: GlyphCanvasTierName, whole: ReadonlySet<GlyphSequenceMessage> = new Set()): { readonly xs: readonly number[]; readonly labels: readonly string[]; readonly width: number } {
   const { participants, messages } = sequence;
   const labels = participants.map((p) => glyphDiagramTruncateLabel(p.label, labelCap, charset));
   const halves = labels.map(halfWidth);
@@ -131,7 +155,7 @@ function columnPositions(sequence: GlyphSequence, labelCap: number, charset: Gly
   let inkRight = -Infinity;
   for (const message of messages) {
     if (!message.label) continue;
-    const label = glyphDiagramTruncateLabel(message.label, labelCap, charset);
+    const label = wrappedWidth(message.label, whole.has(message) ? Number.MAX_SAFE_INTEGER : labelCap, charset);
     const lo = Math.min(indexOf.get(message.from)!, indexOf.get(message.to)!);
     const hi = Math.max(indexOf.get(message.from)!, indexOf.get(message.to)!);
     if (lo === hi) {
@@ -170,7 +194,7 @@ function columnPositions(sequence: GlyphSequence, labelCap: number, charset: Gly
     xs = positions();
     if (!changed) break;
   }
-  for (const message of messages) if (message.from === message.to) inkRight = Math.max(inkRight, selfInkRight(xs[indexOf.get(message.from)!]!, glyphDiagramTruncateLabel(message.label ?? "", labelCap, charset)));
+  for (const message of messages) if (message.from === message.to) inkRight = Math.max(inkRight, selfInkRight(xs[indexOf.get(message.from)!]!, wrappedWidth(message.label ?? "", whole.has(message) ? Number.MAX_SAFE_INTEGER : labelCap, charset)));
   for (const box of frameBoxes(sequence, xs, labelCap, charset)) inkRight = Math.max(inkRight, box.x1);
   const trailingSelf = participants.length ? selfAt.has(participants.length - 1) : false;
   const rightMargin = 2 + (trailingSelf ? SELF_LOOP_WIDTH + 2 : 0);
@@ -216,6 +240,21 @@ export function layoutGlyphSequenceColumns(sequence: GlyphSequence, opts: { read
   let result = columnPositions(sequence, cap, charset);
   if (opts.maxWidth !== undefined) {
     while (result.width > opts.maxWidth && cap > 3) { cap--; result = columnPositions(sequence, cap, charset); }
+    // Width the cap left over un-wraps message labels, cheapest first,
+    // before any of it is spread as air.
+    const whole = new Set<GlyphSequenceMessage>();
+    const wrapped = sequence.messages.filter((m) => m.label && glyphSequenceWrapLabel(m.label, cap, charset).length > 1);
+    for (;;) {
+      let best: { readonly message: GlyphSequenceMessage; readonly trial: typeof result } | undefined;
+      for (const message of wrapped) {
+        if (whole.has(message)) continue;
+        const trial = columnPositions(sequence, cap, charset, new Set([...whole, message]));
+        if (trial.width <= opts.maxWidth && (!best || trial.width < best.trial.width)) best = { message, trial };
+      }
+      if (!best) break;
+      whole.add(best.message);
+      result = best.trial;
+    }
     result = withAir(result, opts.maxWidth);
   }
   const ledger: GlyphDiagramLedgerEntry[] = [];
@@ -230,7 +269,8 @@ export function layoutGlyphSequenceColumns(sequence: GlyphSequence, opts: { read
 export interface GlyphSequenceFrameDivider { readonly row: number; readonly text: string }
 
 export type GlyphSequenceRow =
-  | { readonly type: "message"; readonly index: number; readonly message: GlyphSequenceMessage; readonly self: boolean; readonly fromX: number; readonly toX: number; readonly top: number; readonly height: number }
+  /** `lines` is the label wrapped to the room over its arrow (beside its loop, for a self-message), one row each. */
+  | { readonly type: "message"; readonly index: number; readonly message: GlyphSequenceMessage; readonly lines: readonly string[]; readonly self: boolean; readonly fromX: number; readonly toX: number; readonly top: number; readonly height: number }
   /** A note's floating bar. `text` is the fully composed "kind  label" (or bare `kind` with no label) this marker displays — sized and centered as ONE string, never re-derived from `kind`/`label` separately downstream (that desynced the box width from the painted text — see the module's own history). */
   | { readonly type: "marker"; readonly kind: string; readonly label: string; readonly text: string; readonly x0: number; readonly x1: number; readonly centerX: number; readonly top: number; readonly height: number }
   /** A frame's box: `text` sits in the top border at `top`, each divider is one row, the bottom border is at `bottom`. */
@@ -294,8 +334,8 @@ export function layoutGlyphSequenceRows(sequence: GlyphSequence, columns: readon
 
   const boxes = frameBoxes(sequence, sequence.participants.map((p) => xOf.get(p.id)!), opts.labelCap ?? Number.MAX_SAFE_INTEGER, charset, opts.frameExtents);
   const frameBox = (index: number): { x0: number; x1: number; text: string } => {
-    const { x0, x1, text } = boxes[index]!;
-    return { x0: Math.max(0, x0), x1: Math.min(canvasWidth - 1, x1), text };
+    const { x0, x1, full } = boxes[index]!;
+    return { x0: Math.max(0, x0), x1: Math.min(canvasWidth - 1, x1), text: full };
   };
 
   const open = new Map<number, { top: number; dividers: GlyphSequenceFrameDivider[] }>();
@@ -336,8 +376,13 @@ export function layoutGlyphSequenceRows(sequence: GlyphSequence, columns: readon
     if (i === messages.length) break;
     const message = messages[i]!;
     const self = message.from === message.to;
-    const height = self ? 3 : 2;
-    rows.push({ type: "message", index: i, message, self, fromX: xOf.get(message.from)!, toX: xOf.get(message.to)!, top: row, height });
+    const fromX = xOf.get(message.from)!, toX = xOf.get(message.to)!;
+    // A self-message's label runs right of its loop up to the next lifeline; past the last one, the cap the columns were sized with.
+    const next = Math.min(...columns.map((c) => c.x).filter((x) => x > fromX));
+    const room = self ? (Number.isFinite(next) ? next - fromX - 3 : opts.labelCap ?? Number.MAX_SAFE_INTEGER) : Math.abs(toX - fromX) - 3;
+    const lines = glyphSequenceWrapLabel(message.label ?? "", Math.max(1, room), charset);
+    const height = Math.max(1, lines.length) + (self ? 2 : 1);
+    rows.push({ type: "message", index: i, message, lines, self, fromX, toX, top: row, height });
     row += height;
   }
   return { rows, height: row - startRow };

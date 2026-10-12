@@ -288,6 +288,75 @@ describe("frames", () => {
   });
 });
 
+const CHECKOUT = `sequenceDiagram
+  participant U as Shopper
+  participant W as Web app
+  participant C as Cart service
+  participant P as Payments
+  participant B as Bank
+  U->>W: Click checkout
+  W->>C: Reserve items
+  C-->>W: Reserved
+  W->>P: Charge $42.00
+  P->>B: Authorize card
+  alt approved
+    B-->>P: Auth code
+    P-->>W: Paid
+    W-->>U: Order #1042 placed
+  else declined
+    B-->>P: Declined
+    W-->>U: Try another card
+  end
+  opt receipt requested
+    W->>W: Render PDF
+    W-->>U: Email receipt
+  end`;
+const chatSize = { width: 72, height: 24, overflow: "expand" } as const;
+
+describe("long labels", () => {
+  it("wraps a message label too long for its gap onto extra rows above the arrow instead of cutting it", async () => {
+    // Mutation: wrap at an unbounded room -> "Order #1042 p…".
+    const r = await renderGlyphSequence(CHECKOUT, chatSize);
+    const lines = r.text.split("\n");
+    expect(r.text).not.toContain("…");
+    const order = rowOf(lines, "Order #1042");
+    expect(lines[order]).not.toContain("placed");
+    expect(lines[order + 1]).toContain("placed");
+    expect(lines[order + 2]).toContain("◀");
+    expect(r.report.ledger.filter((e) => e.code === "label-abbreviated")).toEqual([]);
+  });
+
+  it("spends leftover width un-wrapping labels before spreading it as air", async () => {
+    // Mutation: drop the un-wrap pass -> "Try another" and "card" split.
+    const r = await renderGlyphSequence(CHECKOUT, chatSize);
+    expect(r.text).toContain("Try another card");
+    expect(r.canvas.grid.cols).toBe(72);
+  });
+
+  it("shows a frame label whole when its box has room, whatever cap the message labels needed", async () => {
+    // Mutation: label the box with the capped text -> "opt receipt requ…".
+    const r = await renderGlyphSequence(CHECKOUT, chatSize);
+    expect(r.text).toContain("opt receipt requested");
+  });
+
+  it("wraps a self-message label beside its loop and draws the loop under the last line", async () => {
+    // Mutation: draw the loop at the label's first row -> it overwrites "PDF".
+    const r = await renderGlyphSequence("sequenceDiagram\n  participant A as App\n  participant B as Bank\n  A->>A: Render the receipt PDF\n  A->>B: Send", { width: 18, height: 24, overflow: "expand" });
+    const lines = r.text.split("\n");
+    const last = lines.findIndex((l) => l.includes("PDF"));
+    expect(last).toBeGreaterThan(rowOf(lines, "Render"));
+    expect(lines[last + 1]).toContain("┐");
+    expect(r.text).not.toContain("…");
+  });
+
+  it("reports every label it still has to cut", async () => {
+    // Mutation: drop the paint's abbreviation entry -> the cut word goes unreported.
+    const r = await renderGlyphSequence("sequenceDiagram\n  A->>B: Supercalifragilisticexpialidocious", { width: 16, height: 12 });
+    expect(r.text).toContain("…");
+    expect(r.report.ledger.some((e) => e.code === "label-abbreviated" && e.message.includes("Supercalifragilisticexpialidocious"))).toBe(true);
+  });
+});
+
 describe("colour surface: participantColor", () => {
   // A frame-free/note-free slice of LOGIN: every painted cell is
   // participant-owned (a frame/note marker bar is deliberately NOT
