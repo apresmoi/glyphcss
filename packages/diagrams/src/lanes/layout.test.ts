@@ -29,7 +29,7 @@ const GIT_STYLE: GlyphLaneDag = {
 };
 
 describe("layoutGlyphLaneRows: lane assignment", () => {
-  it("assigns the git-style reference DAG's lanes exactly, node row then connector row per branch/merge", () => {
+  it("assigns the git-style reference DAG's lanes exactly, merges joining above their node and branches leaving below it", () => {
     const { rows, maxLane, laneOf } = layoutGlyphLaneRows(GIT_STYLE);
     expect(laneOf.get("9f2c1ab")).toBe(0);
     expect(laneOf.get("4ab77de")).toBe(1);
@@ -40,11 +40,11 @@ describe("layoutGlyphLaneRows: lane assignment", () => {
     expect(maxLane).toBe(2);
 
     // node(9f2c1ab), connector(branch 0->1), node(4ab77de), connector(branch
-    // 1->2), node(1c90fee), node(7e41b02, merges lane2 back into lane1),
-    // connector(merge), node(2d6aa19), node(b83f5c7, merges lane1 into lane0),
-    // connector(merge)
+    // 1->2), node(1c90fee), connector(merge 2 into 1), node(7e41b02),
+    // node(2d6aa19), connector(merge 1 into 0), node(b83f5c7). A merge joined
+    // BELOW its node read as descending from the node's parent instead.
     expect(rows.map((r) => r.type)).toEqual([
-      "node", "connector", "node", "connector", "node", "node", "connector", "node", "node", "connector",
+      "node", "connector", "node", "connector", "node", "connector", "node", "node", "connector", "node",
     ]);
 
     const branch1 = rows[1]!; if (branch1.type !== "connector") throw new Error("expected connector");
@@ -53,11 +53,11 @@ describe("layoutGlyphLaneRows: lane assignment", () => {
     const branch2 = rows[3]!; if (branch2.type !== "connector") throw new Error("expected connector");
     expect(branch2).toMatchObject({ hubLane: 1, mergeLanes: [], branchLanes: [2], hubContinues: true });
 
-    const merge1 = rows[6]!; if (merge1.type !== "connector") throw new Error("expected connector");
+    const merge1 = rows[5]!; if (merge1.type !== "connector") throw new Error("expected connector");
     expect(merge1).toMatchObject({ hubLane: 1, mergeLanes: [2], branchLanes: [], hubContinues: true });
 
-    const merge2 = rows[9]!; if (merge2.type !== "connector") throw new Error("expected connector");
-    expect(merge2).toMatchObject({ hubLane: 0, mergeLanes: [1], branchLanes: [], hubContinues: false });
+    const merge2 = rows[8]!; if (merge2.type !== "connector") throw new Error("expected connector");
+    expect(merge2).toMatchObject({ hubLane: 0, mergeLanes: [1], branchLanes: [], hubContinues: true });
   });
 
   it("frees a merged lane and reuses it for a later, unrelated branch instead of appending a new column", () => {

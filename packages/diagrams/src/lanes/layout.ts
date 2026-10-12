@@ -15,11 +15,14 @@ import type { GlyphLaneDag, GlyphLaneNode } from "./types";
  *   property `render.test.ts`'s mutation-check test asserts directly.
  * - When more than one column is waiting for the same node (two different
  *   lines of history both name it as their next parent), that node is a
- *   MERGE point: the leftmost waiting column becomes its lane, the others
- *   are freed one row later (the connector row), never carried forward.
+ *   MERGE point: the leftmost waiting column becomes its lane, and the
+ *   others join it on a connector row ABOVE the node, as `git log --graph`
+ *   draws `|/` — joined below, a line read as descending from the node's
+ *   parent instead of the node.
  * - When a node names more than one parent, it is a BRANCH point: its own
  *   lane continues to `parents[0]`, and each further parent gets its own
- *   newly allocated lane (again preferring a freed column) one row later.
+ *   newly allocated lane (again preferring a freed column) on a connector
+ *   row BELOW the node.
  */
 
 export interface GlyphLaneRowCells {
@@ -34,12 +37,13 @@ export interface GlyphLaneNodeRow extends GlyphLaneRowCells {
   readonly lane: number;
 }
 
+/** A node's merges sit on a connector row directly above it (only `mergeLanes`), its branches on one directly below (only `branchLanes`). */
 export interface GlyphLaneConnectorRow {
   readonly type: "connector";
   readonly top: number;
   /** The lane the triggering node occupies — every merge/branch on this row pivots through it. */
   readonly hubLane: number;
-  /** Whether `hubLane` itself continues below this row (the node had at least one parent) — a childless node merged into by other lanes still closes its own column here. */
+  /** Whether `hubLane` itself continues below this row: always above a node, and below one only when the node has a parent. */
   readonly hubContinues: boolean;
   /** Lanes merging INTO `hubLane` on this row; freed immediately after. */
   readonly mergeLanes: readonly number[];
@@ -84,13 +88,25 @@ export function layoutGlyphLaneRows(dag: GlyphLaneDag): GlyphLaneRowsResult {
     laneOf.set(node.id, primaryLane);
     maxLane = Math.max(maxLane, primaryLane, ...mergeLanes);
 
-    const nodeRowOther = activeBefore.filter((i) => i !== primaryLane);
-    rows.push({ type: "node", top, node, lane: primaryLane, passthroughLanes: nodeRowOther });
+    const connector = (touched: readonly number[], active: readonly number[], fields: Pick<GlyphLaneConnectorRow, "hubContinues" | "mergeLanes" | "branchLanes">): void => {
+      const spanMin = Math.min(...touched), spanMax = Math.max(...touched);
+      const other = active.filter((i) => !touched.includes(i));
+      rows.push({
+        type: "connector", top, hubLane: primaryLane, ...fields,
+        passthroughLanes: other.filter((i) => i > spanMin && i < spanMax), untouchedLanes: other.filter((i) => i < spanMin || i > spanMax),
+      });
+      top++;
+    };
+    if (mergeLanes.length > 0) {
+      connector([primaryLane, ...mergeLanes], activeBefore, { hubContinues: true, mergeLanes, branchLanes: [] });
+      for (const laneIndex of mergeLanes) lanes[laneIndex] = null;
+    }
+    const activeAtNode = activeBefore.filter((i) => !mergeLanes.includes(i));
+    rows.push({ type: "node", top, node, lane: primaryLane, passthroughLanes: activeAtNode.filter((i) => i !== primaryLane) });
     top++;
 
     const [firstParent, ...restParents] = node.parents;
     lanes[primaryLane] = firstParent ?? null;
-    for (const laneIndex of mergeLanes) lanes[laneIndex] = null;
     const branchLanes = restParents.map((parentId) => {
       const laneIndex = allocateLane();
       lanes[laneIndex] = parentId;
@@ -98,19 +114,7 @@ export function layoutGlyphLaneRows(dag: GlyphLaneDag): GlyphLaneRowsResult {
       return laneIndex;
     });
 
-    if (mergeLanes.length > 0 || branchLanes.length > 0) {
-      const touched = [primaryLane, ...mergeLanes, ...branchLanes];
-      const spanMin = Math.min(...touched), spanMax = Math.max(...touched);
-      const other = activeBefore.filter((i) => i !== primaryLane && !mergeLanes.includes(i));
-      const passthroughLanes = other.filter((i) => i > spanMin && i < spanMax);
-      const untouchedLanes = other.filter((i) => i < spanMin || i > spanMax);
-      rows.push({
-        type: "connector", top, hubLane: primaryLane, hubContinues: firstParent !== undefined,
-        mergeLanes: [...mergeLanes].sort((a, b) => a - b), branchLanes: [...branchLanes].sort((a, b) => a - b),
-        passthroughLanes: passthroughLanes.sort((a, b) => a - b), untouchedLanes: untouchedLanes.sort((a, b) => a - b),
-      });
-      top++;
-    }
+    if (branchLanes.length > 0) connector([primaryLane, ...branchLanes], activeAtNode, { hubContinues: firstParent !== undefined, mergeLanes: [], branchLanes: [...branchLanes].sort((a, b) => a - b) });
   }
 
   return { rows, maxLane, laneOf };

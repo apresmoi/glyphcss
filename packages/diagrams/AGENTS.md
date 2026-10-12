@@ -34,9 +34,9 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 ### Invariants
 
 - Lane allocation is the one new algorithm: assign on first appearance, keep while unresolved, FREE on merge for reuse — stops a long history drifting rightward.
-- One node row (`*` + `id  (marks)  label`) per node, plus one connector row per branch/merge event only — never a spacer row with no topology change.
-- `applyGlyphLaneCap`'s `cap` is a TOTAL column budget (dense + one shared overflow column) — collapsing fewer than two lanes saves nothing; a collapsed node keeps its row/label, only its lane position, logged as `lane-cap-collapsed`. Degrade order: lane-cap → pagination (never splitting a node row from its connector row) → content truncation (`label-abbreviated`).
-- Connector corners reuse the tier's own square junction glyphs (`┌┐└┘├┤`), never new arc glyphs in glyphcss's shared tables. A lane merging into a hub and one branching out on the SAME row union their bits into one cell, never two exclusive paints.
+- One node row (`*` + `id  (marks)  label`) per node; merges join on a connector row ABOVE their node (git's `|/`), branches leave on one BELOW — never a spacer row.
+- `applyGlyphLaneCap`'s `cap` is a TOTAL column budget (dense + one shared overflow column) — collapsing fewer than two lanes saves nothing; a collapsed node keeps its row/label, only its lane position, logged as `lane-cap-collapsed`. Degrade order: lane-cap → pagination (never splitting a node from its connectors) → content truncation (`label-abbreviated`).
+- Connector corners reuse the tier's own square junction glyphs (`┌┐└┘├┤`), never new arc glyphs in glyphcss's shared tables.
 
 ## Colour
 

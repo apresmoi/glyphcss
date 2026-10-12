@@ -80,11 +80,10 @@ export function paintGlyphLaneDag(
   // call with: this map feeds it the node whose own row most recently set
   // this lane directly, or — for a lane a connector row just branched into,
   // before that lane's own first node row is reached — the row's hub node
-  // (the node CAUSING the branch). `layoutGlyphLaneRows` always emits a
-  // connector row directly after its own triggering node row
-  // (`render.ts`'s pagination keeps the pair adjacent too), so
-  // `laneOwner.get(row.hubLane)` is always already set by the time a
-  // connector row runs.
+  // (the node CAUSING the branch). A branch connector always directly
+  // follows its node row and a merge connector's hub is a lane already
+  // running into it (`render.ts`'s pagination keeps each unit together), so
+  // `laneOwner.get(row.hubLane)` is set by the time a connector row runs.
   const laneOwner = new Map<number, GlyphLaneNode>();
   const laneColorFor = (lane: number): string | null =>
     colored ? resolveGlyphDiagramColor(options.laneColor, laneOwner.get(lane)!, glyphDiagramPaletteColor(lane), "laneColor") : null;
@@ -144,13 +143,8 @@ export function paintGlyphLaneDag(
       if ((x - padX) % GLYPH_LANE_COLUMN_WIDTH === 0) continue; // a lane column, painted below — never overwritten by the plain fill glyph
       canvas.text(x, row.top, [tier.straight.h], { color: hubColor });
     }
-    // Bits per touched lane are UNIONED into one map, never painted with
-    // sequential exclusive passes: lane reuse (`layoutGlyphLaneRows` prefers
-    // a just-freed column) can put the SAME lane index in both `mergeLanes`
-    // and `branchLanes` on the SAME row (an old line closing and a new one
-    // opening in the identical column) — a later pass overwriting an
-    // earlier one would silently lose the merge's own incoming arc instead
-    // of combining into the one true 3/4-way junction that cell needs.
+    // Bits per touched lane are UNIONED into one map, so the hub's own N/S
+    // and its E/W toward each touched lane combine into one junction glyph.
     const bits = new Map<number, number>();
     const add = (lane: number, mask: number): void => { bits.set(lane, (bits.get(lane) ?? 0) | mask); };
     add(row.hubLane, N | (row.hubContinues ? S : 0));

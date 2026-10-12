@@ -67,14 +67,16 @@ function resolvedOptions(options: GlyphLaneRenderOptions) {
   return result;
 }
 
-/** A node row plus its immediately following connector row (if any) is one atomic unit — a page break never lands between the two. */
+/** A node row with its merge connector above and branch connector below (each if any) is one atomic unit — a page break never lands between them. */
 function buildUnits(rows: readonly GlyphLaneRow[]): GlyphLaneRow[][] {
   const units: GlyphLaneRow[][] = [];
-  let i = 0;
-  while (i < rows.length) {
-    const row = rows[i]!;
-    if (row.type === "node" && rows[i + 1]?.type === "connector") { units.push([row, rows[i + 1]!]); i += 2; }
-    else { units.push([row]); i += 1; }
+  for (let i = 0; i < rows.length;) {
+    const unit: GlyphLaneRow[] = [];
+    if (rows[i]!.type === "connector") unit.push(rows[i++]!);
+    if (rows[i]?.type === "node") unit.push(rows[i++]!);
+    const below = rows[i];
+    if (below?.type === "connector" && below.mergeLanes.length === 0) unit.push(rows[i++]!);
+    units.push(unit);
   }
   return units;
 }

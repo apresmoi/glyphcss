@@ -111,7 +111,7 @@ describe("renderGlyphLaneDag", () => {
     for (const page of result.pages) expect(page.text.split("\n").length).toBeLessThanOrEqual(8);
   });
 
-  it("never splits a node row from its own connector row across a page boundary", async () => {
+  it("never splits a node row from its own connector rows across a page boundary", async () => {
     // A repeating branch/merge history tall enough to force pagination.
     const nodes: GlyphLaneNode[] = [];
     const cycles = 6;
@@ -123,15 +123,19 @@ describe("renderGlyphLaneDag", () => {
     nodes.push({ id: `m${cycles}`, label: "root", parents: [] });
     const result = await renderGlyphLaneDag({ nodes }, { target: "chat", width: 40, height: 10 });
     expect(result.pages.length).toBeGreaterThan(1);
-    // Every branch/merge corner glyph is immediately preceded, in its own
-    // page, by the node row it belongs to — never the first line of a page
-    // (which would mean the pair got split).
+    // Mutation: page by node row plus the row after it -> a merge row ends a
+    // page with its node on the next one.
+    // In its own page, a branch row sits right under its node and a merge row
+    // right over it.
+    let merges = 0;
     for (const page of result.pages) {
       const lines = page.text.split("\n");
-      const firstConnectorIndex = lines.findIndex((l) => /[┌┐└┘├┤]/.test(l));
-      if (firstConnectorIndex === -1) continue;
-      expect(firstConnectorIndex).toBeGreaterThan(0);
+      lines.forEach((line, i) => {
+        if (/[╮┐╭┌]/.test(line)) expect(lines[i - 1], line).toContain("*");
+        if (/[╯┘]/.test(line)) { merges++; expect(lines[i + 1], line).toContain("*"); }
+      });
     }
+    expect(merges).toBeGreaterThan(0);
   });
 
   it("renders every ascii-charset output within the printable ASCII range", async () => {
