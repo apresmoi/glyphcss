@@ -74,16 +74,14 @@ export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, opt
     if (!placed) return undefined;
     const sides = portSides(measured, placed.rects);
     const grown = growForPorts(sizes, sides);
-    if (!grown) {
-      const nodes: GlyphDiagramPositionedNode[] = measured.nodes.map((node) => ({ ...node, ...sizes.get(node.id)!, ...placed.rects.get(node.id)! }));
-      const ports = assignPorts(sides, placed.rects);
-      return {
-        nodes, edges: measured.edges, groups: [], ports, direction: "LR",
-        width: Math.max(...nodes.map((n) => n.x1)) + 1 + margin, height: Math.max(...nodes.map((n) => n.y1)) + 1 + margin,
-        ledger: [...measured.ledger, ledgerLayoutWrapped({ rows: placed.rows, path: spine })],
-      };
-    }
-    sizes = grown;
+    if (grown) { sizes = grown; continue; }
+    const ports = straightenDrops(measured, anchor, assignPorts(sides, placed.rects), placed.rects);
+    const nodes: GlyphDiagramPositionedNode[] = measured.nodes.map((node) => ({ ...node, ...sizes.get(node.id)!, ...placed.rects.get(node.id)! }));
+    return {
+      nodes, edges: measured.edges, groups: [], ports, direction: "LR",
+      width: Math.max(...nodes.map((n) => n.x1)) + 1 + margin, height: Math.max(...nodes.map((n) => n.y1)) + 1 + margin,
+      ledger: [...measured.ledger, ledgerLayoutWrapped({ rows: placed.rows, path: spine })],
+    };
   }
   return undefined;
 }
@@ -133,7 +131,8 @@ function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, no
       const xs: number[] = [];
       for (const [i, id] of band.entries()) {
         const w = sizes.get(id)!.width, home = rects.get(anchor.get(id)!);
-        const wish = home ? home.x0 + Math.floor((home.x1 - home.x0) / 2) - Math.floor((w - 1) / 2) : margin;
+        const centre = home ? home.x0 + Math.floor((home.x1 - home.x0) / 2) : undefined;
+        const wish = centre === undefined ? margin : centre - Math.floor((w - 1) / 2);
         xs.push(Math.max(i === 0 ? margin : xs[i - 1]! + sizes.get(band[i - 1]!)!.width + gap, wish));
       }
       for (let i = band.length - 1; i >= 0; i--) {
@@ -189,6 +188,24 @@ function growForPorts(sizes: ReadonlyMap<string, Size>, sides: readonly Side[]):
     if (w !== size.width || h !== size.height) { grew = true; next.set(id, { width: w, height: h }); }
   }
   return grew ? next : undefined;
+}
+
+/**
+ * A crowded hanging row can't always slide its box under the exit feeding
+ * it, but a lone top entry can sit anywhere along the top edge: move it
+ * under the exit when that falls inside the box, so the drop runs straight.
+ */
+function straightenDrops(measured: GlyphDiagramMeasuredGraph, anchor: ReadonlyMap<string, string>, ports: readonly GlyphDiagramPositionedPort[], rects: ReadonlyMap<string, Rect>): GlyphDiagramPositionedPort[] {
+  return ports.map((port) => {
+    const edge = measured.edges.find((e) => e.id === port.edgeId)!;
+    if (port.end !== "to" || port.side !== "n" || anchor.get(edge.to) !== edge.from) return port;
+    if (ports.some((p) => p !== port && p.nodeId === port.nodeId && p.side === "n")) return port;
+    const out = ports.find((p) => p.edgeId === port.edgeId && p.end === "from")!;
+    const box = rects.get(port.nodeId)!;
+    if (out.side !== "s" || out.anchor.x <= box.x0 || out.anchor.x >= box.x1) return port;
+    const anchorPoint = { x: out.anchor.x, y: box.y0 };
+    return { ...port, offset: out.anchor.x - box.x0, anchor: anchorPoint, escape: { x: anchorPoint.x, y: anchorPoint.y - 1 } };
+  });
 }
 
 function assignPorts(sides: readonly Side[], rects: ReadonlyMap<string, Rect>): GlyphDiagramPositionedPort[] {

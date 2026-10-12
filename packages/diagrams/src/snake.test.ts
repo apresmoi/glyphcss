@@ -8,6 +8,7 @@ import { glyphGraphFromMermaid } from "./mermaid";
 import { measureGlyphGraph } from "./pipeline";
 import { renderGlyphDiagram } from "./render";
 import { glyphDiagramSnakeLayout } from "./snake";
+import { routeGlyphGraphEdges } from "./route";
 
 const deploy = `flowchart LR
   push[Push] --> ci[Run tests]
@@ -64,6 +65,27 @@ describe("snake layout", () => {
     const at = (id: string) => r.layout.nodes.find((n) => n.id === id)!;
     expect(at("stripe").y0).toBe(at("pay").y0);
     expect(at("stripe").x0).toBeGreaterThan(at("pay").x1);
+  });
+
+  it("lines a hanging node's entry up under the exit feeding it, even when the row is too crowded to slide the box there", () => {
+    // Mutation: drop `straightenDrops` -> "In stock?" has two bottom exits,
+    // the Backorder drop jogs across the wrap edge's and neither routes.
+    const order = glyphGraphFromMermaid(`flowchart LR
+  order[New order] --> validate[Validate cart]
+  validate --> stock{In stock?}
+  stock -->|yes| charge[Charge card]
+  stock -->|no| backorder[Backorder]
+  backorder --> notify[Email customer]
+  charge --> paid{Paid?}
+  paid -->|no| retry[Retry payment]
+  retry --> charge
+  paid -->|yes| pack[Pack box]
+  pack --> ship[Ship]
+  ship --> done[Delivered]`);
+    const raw = glyphDiagramSnakeLayout(measureGlyphGraph(order, { direction: "LR", labelWidth: 18 }), { width: 72, gap: 4, margin: 1, branchGap: 3, rowGap: 3 })!;
+    const drop = raw.ports.filter((p) => p.edgeId.includes('"stock","backorder"'));
+    expect(drop[0]!.anchor.x).toBe(drop[1]!.anchor.x);
+    expect(routeGlyphGraphEdges(raw, { width: raw.width, height: raw.height }).unroutable).toEqual([]);
   });
 
   it("declines graphs it cannot wrap: groups, or a main path under three nodes", () => {
