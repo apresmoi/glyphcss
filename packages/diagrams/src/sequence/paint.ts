@@ -34,7 +34,7 @@ export function paintGlyphSequence(
   rows: readonly GlyphSequenceRow[],
   bodyHeight: number,
   width: number,
-  options: GlyphSequenceRenderOptions & { readonly width: number; readonly height: number },
+  options: GlyphSequenceRenderOptions & { readonly width: number; readonly height: number; readonly inkRows?: readonly GlyphSequenceRow[] },
 ): GlyphSequencePaintResult {
   const charset: GlyphCanvasTierName = options.charset ?? "box";
   const colored = options.color !== "none";
@@ -75,8 +75,10 @@ export function paintGlyphSequence(
   // diagram a cell off centre. The lifelines' own columns are included too,
   // since a 1-glyph label is narrower than the rule beneath it.
   const labelLeft = (c: { readonly x: number; readonly label: string }): number => c.x - Math.floor(c.label.length / 2);
-  const inkLeft = Math.min(...columns.map((c) => Math.min(labelLeft(c), c.x)));
-  const inkRight = Math.max(...columns.map((c) => Math.max(labelLeft(c) + c.label.length - 1, c.x)));
+  // A frame's sides sit outside the lifelines it encloses, so they count as ink too.
+  const boxes = (options.inkRows ?? rows).filter((row) => row.type !== "message");
+  const inkLeft = Math.min(...columns.map((c) => Math.min(labelLeft(c), c.x)), ...boxes.map((b) => b.x0));
+  const inkRight = Math.max(...columns.map((c) => Math.max(labelLeft(c) + c.label.length - 1, c.x)), ...boxes.map((b) => b.x1));
   const { dx, dy: padY } = glyphDiagramCenterOffset(
     { width: inkRight - inkLeft + 1, height: contentHeight },
     { width: canvasCols, height: canvasRows },
@@ -90,7 +92,7 @@ export function paintGlyphSequence(
     ? { ...row, fromX: row.fromX + padX, toX: row.toX + padX }
     : row.type === "marker"
       ? { ...row, x0: row.x0 + padX, x1: row.x1 + padX, centerX: row.centerX + padX }
-      : row);
+      : { ...row, x0: row.x0 + padX, x1: row.x1 + padX });
   const height = contentHeight + padY;
   const canvas = createGlyphCanvas({ cols: canvasCols, rows: canvasRows, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset];
@@ -132,7 +134,33 @@ export function paintGlyphSequence(
     canvas.arrowhead(tipX, y, forward ? "e" : "w", { color: rowColor });
   };
 
+  // A frame's border is a rule across the lifelines it encloses: they pass
+  // through the solid top and bottom as crossings, and the dashed divider
+  // simply stops at them.
+  const paintFrame = (row: Extract<GlyphSequenceRow, { type: "frame" }>): void => {
+    const { x0, x1 } = row;
+    const top = bodyTop + row.top, bottom = bodyTop + row.bottom;
+    const dividers = new Map(row.dividers.map((d) => [bodyTop + d.row, d.text]));
+    const border = (y: number, left: string, right: string, fill: (x: number) => string, text: string): void => {
+      for (let x = x0 + 1; x < x1; x++) canvas.text(x, y, [fill(x)], { color });
+      canvas.text(x0, y, [left], { color });
+      canvas.text(x1, y, [right], { color });
+      if (text) canvas.text(x0 + 2, y, [` ${glyphDiagramTruncateLabel(text, Math.max(0, x1 - x0 - 5), charset)} `], { align: "left", color: accent });
+    };
+    const solid = (x: number): string => xs.includes(x) ? tier.junction[N | E | S | W]! : tier.straight.h;
+    border(top, tier.junction[S | E]!, tier.junction[S | W]!, solid, row.text);
+    for (let y = top + 1; y < bottom; y++) {
+      const divider = dividers.get(y);
+      if (divider === undefined) {
+        canvas.text(x0, y, [tier.straight.v], { color });
+        canvas.text(x1, y, [tier.straight.v], { color });
+      } else border(y, tier.junction[N | E | S]!, tier.junction[N | S | W]!, (x) => xs.includes(x) ? tier.straight.v : tier.hop.h, divider);
+    }
+    border(bottom, tier.junction[N | E]!, tier.junction[N | W]!, solid, "");
+  };
+
   for (const row of rows) {
+    if (row.type === "frame") { paintFrame(row); continue; }
     if (row.type === "marker") {
       const { x0, x1, centerX } = row;
       const top = bodyTop + row.top;

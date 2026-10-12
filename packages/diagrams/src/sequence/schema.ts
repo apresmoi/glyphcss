@@ -30,7 +30,8 @@ export const GLYPH_SEQUENCE_JSON_SCHEMA_KEYWORDS = [{
       || (sequence.notes !== undefined && !Array.isArray(sequence.notes))
       || sequence.participants.some((p) => !p || typeof p.id !== "string")
       || sequence.messages.some((m) => !m || typeof m.from !== "string" || typeof m.to !== "string")
-      || sequence.frames?.some((f) => !f || typeof f.from !== "number" || typeof f.to !== "number")
+      || sequence.frames?.some((f) => !f || typeof f.from !== "number" || typeof f.to !== "number"
+        || (f.branches !== undefined && (!Array.isArray(f.branches) || f.branches.some((b: { readonly at?: unknown } | null) => !b || typeof b.at !== "number"))))
       || sequence.notes?.some((n) => !n || !Array.isArray(n.over) || typeof n.at !== "number")) return true;
     return glyphSequenceIntegrityFailure(sequence) === null;
   },
@@ -61,7 +62,16 @@ export function glyphSequenceJsonSchema(): GlyphSequenceJsonSchema {
         type: "array",
         items: {
           type: "object", required: ["kind", "from", "to"], additionalProperties: false,
-          properties: { kind: ID_SCHEMA, label: { type: "string" }, from: { type: "integer", minimum: 0 }, to: { type: "integer", minimum: 0 } },
+          properties: {
+            kind: ID_SCHEMA, label: { type: "string" }, from: { type: "integer", minimum: 0 }, to: { type: "integer", minimum: 0 },
+            branches: {
+              type: "array",
+              items: {
+                type: "object", required: ["kind", "at"], additionalProperties: false,
+                properties: { kind: ID_SCHEMA, label: { type: "string" }, at: { type: "integer", minimum: 0 } },
+              },
+            },
+          },
         },
       },
       notes: {

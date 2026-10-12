@@ -74,7 +74,7 @@ describe("renderGlyphSequence", () => {
     expect(arrowLine).toContain("┼");
   });
 
-  it("renders a frame marker's own kind and label, centered over its message's participants", async () => {
+  it("renders a frame's own kind and label in its top border", async () => {
     const result = await renderGlyphSequence(LOGIN, { target: "chat", width: 60, height: 24 });
     expect(result.text).toContain("alt");
     expect(result.text).toMatch(/roles contains admin|roles contains a/);
@@ -142,6 +142,149 @@ describe("renderGlyphSequence", () => {
     const result = await renderGlyphSequence(`sequenceDiagram
     A->>B: hello`, { target: "chat", width: 30, height: 10 });
     expect(result.text).toContain("hello");
+  });
+});
+
+const SIGN_IN = `sequenceDiagram
+  participant U as User
+  participant W as Web
+  participant A as Auth
+  participant D as Database
+  U->>W: POST /login
+  W->>A: verify credentials
+  A->>D: find user by email
+  D-->>A: user record
+  alt password ok
+    A-->>W: session token
+    W-->>U: 200 + cookie
+  else wrong password
+    A-->>W: invalid
+    W-->>U: 401
+  end
+  U->>W: GET /dashboard
+  W-->>U: dashboard html`;
+
+const POLL = `sequenceDiagram
+  participant C as Client
+  participant Q as Queue
+  participant W as Worker
+  C->>Q: enqueue job
+  loop until queue empty
+    W->>Q: poll
+    Q-->>W: job
+    opt job is large
+      W->>W: split into chunks
+    end
+    W-->>Q: ack
+  end
+  Q-->>C: done`;
+
+const rowOf = (lines: readonly string[], text: string): number => lines.findIndex((l) => l.includes(text));
+
+describe("frames", () => {
+  it("encloses an alt's messages in one box, with else as a dashed divider between its branches", async () => {
+    const lines = (await renderGlyphSequence(SIGN_IN, { target: "chat", width: 72, height: 60 })).text.split("\n");
+    const top = rowOf(lines, "┌─ alt password ok"), divider = rowOf(lines, "├╌ else wrong password"), bottom = lines.findIndex((l, y) => y > divider && l.includes("└"));
+    // Mutation: draw the old floating bar per segment -> no "├╌ else" divider
+    // row exists, and nothing closes the box below the else branch.
+    expect(top).toBeGreaterThan(-1);
+    expect(divider).toBeGreaterThan(top);
+    expect(bottom).toBeGreaterThan(divider);
+    // The borders sit flush against the messages they enclose.
+    expect(rowOf(lines, "session token")).toBe(top + 1);
+    expect(rowOf(lines, "invalid")).toBe(divider + 1);
+    expect(rowOf(lines, " 401")).toBe(bottom - 2);
+    const x0 = lines[top]!.indexOf("┌"), x1 = lines[top]!.lastIndexOf("┐");
+    expect(lines[divider]!.indexOf("├")).toBe(x0);
+    expect(lines[bottom]!.indexOf("└")).toBe(x0);
+    expect(lines[bottom]!.lastIndexOf("┘")).toBe(x1);
+    for (let y = top + 1; y < bottom; y++) if (y !== divider) expect([lines[y]![x0], lines[y]![x1]]).toEqual(["│", "│"]);
+    // Messages outside the block stay outside the box.
+    expect(rowOf(lines, "user record")).toBeLessThan(top);
+    expect(rowOf(lines, "GET /dashboard")).toBeGreaterThan(bottom);
+  });
+
+  it("reopens a frame cut by a page break under its current branch", async () => {
+    const result = await renderGlyphSequence(SIGN_IN, { target: "chat", width: 72, height: 17 });
+    expect(result.pages.length).toBeGreaterThan(1);
+    const second = result.pages[1]!.text.split("\n");
+    // Mutation: clip the frame without its branch header -> the second panel
+    // opens with "alt password ok" (or no box) above the else branch.
+    expect(second.find((l) => l.includes("┌"))).toContain("else wrong password");
+  });
+
+  it("keeps every lifeline in the same column on every panel, framed or not", async () => {
+    const result = await renderGlyphSequence(POLL, { target: "chat", width: 72, height: 12 });
+    const lifelines = (page: { text: string }) => {
+      const lines = page.text.split("\n");
+      const header = lines.findIndex((l) => l.trim().length > 0);
+      return [...lines[header + 1]!].flatMap((ch, x) => (ch === "│" ? [x] : []));
+    };
+    expect(result.pages.some((page) => !page.text.includes("┌"))).toBe(true);
+    // Mutation: centre each panel on its own ink -> the frame-free panel,
+    // narrower than the framed ones, shifts every lifeline sideways.
+    for (const page of result.pages) expect(lifelines(page)).toEqual(lifelines(result.pages[0]!));
+  });
+
+  it("widens the gaps a frame encloses so its label never pushes its side across the next lifeline", async () => {
+    const lines = (await renderGlyphSequence(`sequenceDiagram
+      A->>B: go
+      alt a much longer condition than the gap
+        B-->>A: ok
+      end
+      B->>C: next`, { target: "chat", width: 72, height: 30 })).text.split("\n");
+    const top = rowOf(lines, "┌─ alt");
+    const cX = lines[rowOf(lines, "next") + 1]!.lastIndexOf("▶") + 1;
+    // Mutation: skip the column pass that makes room for frames -> the
+    // box's right side lands on or past C's lifeline.
+    expect(lines[top]!.lastIndexOf("┐")).toBeLessThan(cX - 1);
+    expect(lines[top]).toContain("a much longer condition than the gap");
+  });
+
+  it("wraps an outer frame around an inner one on a single lifeline whose label reaches past the outer's own box", async () => {
+    const lines = (await renderGlyphSequence(`sequenceDiagram
+      A->>B: go
+      loop x
+        B->>C: try
+        opt a much longer inner condition
+          C->>C: retry
+        end
+      end`, { target: "chat", width: 72, height: 30 })).text.split("\n");
+    const outer = rowOf(lines, "┌─ loop x"), inner = rowOf(lines, "┌─ opt");
+    // Mutation: size an outer frame from its own lifelines and label alone ->
+    // the inner box's label pushes the inner side past the outer one.
+    expect(lines[inner]!.lastIndexOf("┐")).toBeLessThan(lines[outer]!.lastIndexOf("┐"));
+    expect(lines[inner]!.indexOf("┌")).toBeGreaterThan(lines[outer]!.indexOf("┌"));
+  });
+
+  it("leaves room right of a self-message's loop for its whole label", async () => {
+    const lines = (await renderGlyphSequence(`sequenceDiagram
+      A->>A: validate the whole input
+      A->>B: send`, { target: "chat", width: 72, height: 30 })).text.split("\n");
+    // Mutation: size a self-message's gap for its loop alone -> the label
+    // is cut, or runs into B's lifeline.
+    expect(lines.some((l) => /validate the whole input\s+│/.test(l))).toBe(true);
+  });
+
+  it("nests an inner frame inside its outer one and keeps a self-message's whole label", async () => {
+    const lines = (await renderGlyphSequence(POLL, { target: "chat", width: 72, height: 60 })).text.split("\n");
+    const outer = rowOf(lines, "┌─ loop until queue empty"), inner = rowOf(lines, "┌─ opt job is large");
+    const outerX = [lines[outer]!.indexOf("┌"), lines[outer]!.lastIndexOf("┐")], innerX = [lines[inner]!.indexOf("┌"), lines[inner]!.lastIndexOf("┐")];
+    // Mutation: size every frame from its lifelines alone -> the inner box's
+    // label pushes it past the outer box's right side.
+    expect(innerX[0]!).toBeGreaterThan(outerX[0]!);
+    expect(innerX[1]!).toBeLessThan(outerX[1]!);
+    // Mutation: drop the self-label room from the column layout -> "split
+    // into chunks" is cut with an ellipsis.
+    expect(lines.some((l) => l.includes("split into chunks"))).toBe(true);
+  });
+
+  it("grows taller in one panel with overflow: expand instead of paging", async () => {
+    const result = await renderGlyphSequence(SIGN_IN, { target: "chat", width: 72, height: 10, overflow: "expand" });
+    // Mutation: ignore overflow -> the sequence pages at height 10.
+    expect(result.pages.length).toBe(1);
+    expect(result.report.ledger.some((e) => e.code === "sequence-paged")).toBe(false);
+    expect(result.text).toContain("dashboard html");
   });
 });
 

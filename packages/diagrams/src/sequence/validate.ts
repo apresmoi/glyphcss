@@ -3,7 +3,7 @@ import { glyphDiagramError } from "../validate";
 
 export const GLYPH_SEQUENCE_VALIDATION_RULES = [
   "bad-sequence", "empty-participants", "bad-participant", "duplicate-participant-id",
-  "bad-message", "duplicate-message-id", "unknown-participant", "bad-frame", "bad-frame-range",
+  "bad-message", "duplicate-message-id", "unknown-participant", "bad-frame", "bad-frame-range", "bad-frame-branch",
   "bad-note", "bad-note-range", "bad-options", "bad-size", "bad-color", "GLYPH_SEQUENCE_MERMAID_SYNTAX", "GLYPH_SEQUENCE_BAD_JSON",
 ] as const;
 export type GlyphSequenceValidationRuleId = typeof GLYPH_SEQUENCE_VALIDATION_RULES[number];
@@ -19,7 +19,8 @@ export const GLYPH_SEQUENCE_MESSAGE_STYLES: readonly GlyphSequenceMessageStyle[]
 export const GLYPH_SEQUENCE_KEYS = ["participants", "messages", "frames", "notes"];
 export const GLYPH_SEQUENCE_PARTICIPANT_KEYS = ["id", "label", "kind", "shape"];
 export const GLYPH_SEQUENCE_MESSAGE_KEYS = ["id", "from", "to", "label", "style"];
-export const GLYPH_SEQUENCE_FRAME_KEYS = ["kind", "label", "from", "to"];
+export const GLYPH_SEQUENCE_FRAME_KEYS = ["kind", "label", "from", "to", "branches"];
+export const GLYPH_SEQUENCE_FRAME_BRANCH_KEYS = ["kind", "label", "at"];
 export const GLYPH_SEQUENCE_NOTE_KEYS = ["text", "over", "at"];
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -52,6 +53,11 @@ export function glyphSequenceIntegrityFailure(sequence: GlyphSequence): GlyphSeq
   const lastIndex = sequence.messages.length - 1;
   for (const [index, frame] of (sequence.frames ?? []).entries()) {
     if (frame.from > frame.to || frame.from < 0 || frame.to > lastIndex) return { code: "bad-frame-range", message: `frame[${index}] "from"/"to" must be a valid inclusive message index range (0..${Math.max(0, lastIndex)}).` };
+    let previous = frame.from;
+    for (const branch of frame.branches ?? []) {
+      if (branch.at < previous || branch.at > frame.to + 1) return { code: "bad-frame-branch", message: `frame[${index}] branch "at" values must ascend within ${frame.from}..${frame.to + 1}.` };
+      previous = branch.at;
+    }
   }
   for (const [index, note] of (sequence.notes ?? []).entries()) {
     if (note.over.some((id) => !participantIds.has(id))) return { code: "unknown-participant", message: `note[${index}] references an unknown participant.` };
@@ -79,7 +85,9 @@ export function validateGlyphSequence(input: unknown): GlyphSequence {
     if (!Array.isArray(input.frames)) glyphDiagramError("bad-frame", "frames must be an array.");
     for (const [index, frame] of input.frames.entries()) {
       if (!object(frame) || !keys(frame, GLYPH_SEQUENCE_FRAME_KEYS) || !identifier(frame.kind) || !optional(frame, "label", string)
-        || !nonNegativeInt(frame.from) || !nonNegativeInt(frame.to)) glyphDiagramError("bad-frame", `frame[${index}] requires a kind, integer from/to message indices, and an optional label.`);
+        || !nonNegativeInt(frame.from) || !nonNegativeInt(frame.to)
+        || !optional(frame, "branches", (branches) => Array.isArray(branches) && branches.every((b) => object(b) && keys(b, GLYPH_SEQUENCE_FRAME_BRANCH_KEYS)
+          && identifier(b.kind) && optional(b, "label", string) && nonNegativeInt(b.at)))) glyphDiagramError("bad-frame", `frame[${index}] requires a kind, integer from/to message indices, an optional label, and optional branches [{ kind, label?, at }].`);
     }
   }
   if (input.notes !== undefined) {
@@ -95,7 +103,7 @@ export function validateGlyphSequence(input: unknown): GlyphSequence {
   return {
     participants: sequence.participants.map((p) => ({ ...p })),
     messages: sequence.messages.map((m) => ({ ...m })),
-    ...(sequence.frames === undefined ? {} : { frames: sequence.frames.map((f) => ({ ...f })) }),
+    ...(sequence.frames === undefined ? {} : { frames: sequence.frames.map((f) => ({ ...f, ...(f.branches ? { branches: f.branches.map((b) => ({ ...b })) } : {}) })) }),
     ...(sequence.notes === undefined ? {} : { notes: sequence.notes.map((n) => ({ ...n, over: [...n.over] })) }),
   };
 }
@@ -108,8 +116,9 @@ const REPAIR_HINTS: Readonly<Record<GlyphSequenceValidationRuleId, string>> = {
   "bad-message": `Use from/to participant ids, an optional label/id, and style ${GLYPH_SEQUENCE_MESSAGE_STYLES.join(" / ")}.`,
   "duplicate-message-id": "Give explicit message ids unique values, or omit them.",
   "unknown-participant": "Reference only ids present in participants.",
-  "bad-frame": "Use frames: [{ kind, label?, from, to }], with from/to as message indices.",
+  "bad-frame": "Use frames: [{ kind, label?, from, to, branches? }], with from/to as message indices and branches as [{ kind, label?, at }].",
   "bad-frame-range": "Use an inclusive from <= to within the message array's index range.",
+  "bad-frame-branch": "Give each branch an \"at\" between the frame's from and to + 1, in ascending order.",
   "bad-note": "Use notes: [{ text, over: [participantId, ...], at }].",
   "bad-note-range": "Use an \"at\" between 0 and the message count, inclusive.",
   "bad-options": "Use the documented target, charset, color, and title options.",

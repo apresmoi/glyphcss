@@ -1,7 +1,7 @@
 /**
  * The sequence-diagram IR. Deliberately domain-agnostic: a participant is an
  * ordered lane with an id and a label, a message is a directed step from one
- * lane to another, a frame is a labelled marker over a message range, and a
+ * lane to another, a frame is a labelled box around a message range, and a
  * note is a labelled marker over a set of lanes. None of this vocabulary
  * assumes a service call, an HTTP exchange, or any other domain — the same
  * shape fits people in a process, protocol peers, OS threads, hardware
@@ -37,20 +37,29 @@ export interface GlyphSequenceMessage {
 }
 
 /**
- * A labelled marker spanning an inclusive, 0-based range of `messages`
- * indices. `kind` is rendered verbatim and never interpreted — the Mermaid
- * adapter passes its own keywords (`"alt"`, `"else"`, `"opt"`, `"loop"`)
- * straight through, and a JSON caller may use any other keyword the same
- * way. There is no enclosing box and no explicit "end" mark (the approved
- * reference art draws a frame as a single floating condition bar, not a
- * UML-style box around its contents) — `from`/`to` size and position that
- * bar from the participants the spanned messages actually touch.
+ * A divider inside a frame, drawn just before message index `at` — Mermaid's
+ * `else`. `kind` is rendered verbatim like the frame's own.
+ */
+export interface GlyphSequenceFrameBranch {
+  readonly kind: string;
+  readonly label?: string;
+  readonly at: number;
+}
+
+/**
+ * A labelled box enclosing an inclusive, 0-based range of `messages`
+ * indices, with optional dividers (`branches`) splitting it into segments.
+ * `kind` is rendered verbatim and never interpreted — the Mermaid adapter
+ * passes its own keywords (`"alt"`, `"opt"`, `"loop"`, and `"else"` for a
+ * branch) straight through, and a JSON caller may use any other keyword the
+ * same way. The box spans the participants its messages touch.
  */
 export interface GlyphSequenceFrame {
   readonly kind: string;
   readonly label?: string;
   readonly from: number;
   readonly to: number;
+  readonly branches?: readonly GlyphSequenceFrameBranch[];
 }
 
 /**

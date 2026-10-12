@@ -2,11 +2,11 @@ import type { GlyphCanvas, GlyphCanvasTierName } from "glyphcss";
 import { glyphSequenceFromMermaid } from "./mermaid";
 import { glyphDiagramError } from "../validate";
 import { parseGlyphSequenceJson, glyphSequenceRepairHint, validateGlyphSequence } from "./validate";
-import { layoutGlyphSequenceColumns, layoutGlyphSequenceRows, type GlyphSequenceRow } from "./layout";
+import { glyphSequenceFrameExtents, layoutGlyphSequenceColumns, layoutGlyphSequenceRows, type GlyphSequenceFrameExtent } from "./layout";
 import { paintGlyphSequence } from "./paint";
 import { dedupeGlyphDiagramLedger, type GlyphDiagramLedgerEntry } from "../ledger";
 import { ledgerSequenceLayoutOverflow, ledgerSequencePaged } from "./ledger";
-import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceMessage, GlyphSequenceNote, GlyphSequenceParticipant } from "./types";
+import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceNote, GlyphSequenceParticipant } from "./types";
 
 export type GlyphSequenceTarget = "chat" | "terminal" | "web";
 export type GlyphSequenceCharset = GlyphCanvasTierName;
@@ -19,6 +19,8 @@ export interface GlyphSequenceRenderOptions {
   readonly width?: number;
   readonly height?: number;
   readonly title?: string;
+  /** Time-split panels at the requested height by default; expand keeps one panel and grows taller instead. */
+  readonly overflow?: "paginate" | "expand";
   readonly env?: Readonly<Record<string, string | undefined>>;
   /**
    * Per-participant override — same `string | ((node) => string)` shape as
@@ -66,64 +68,45 @@ function resolvedOptions(options: GlyphSequenceRenderOptions) {
     charset: options.charset ?? defaults.charset, color: options.color ?? defaults.color };
   if (![result.width, result.height].every((v) => Number.isInteger(v) && v > 0)) glyphDiagramError("bad-size", "width and height must be positive integers.");
   if (!["ascii", "box", "blocks", "braille"].includes(result.charset) || !["none", "ansi16", "ansi256", "truecolor", "css"].includes(result.color)
-    || (options.title !== undefined && typeof options.title !== "string")) glyphDiagramError("bad-options", "Use supported target, charset, color, and title options.");
+    || (options.title !== undefined && typeof options.title !== "string")
+    || (options.overflow !== undefined && !["paginate", "expand"].includes(options.overflow))) glyphDiagramError("bad-options", "Use supported target, charset, color, overflow, and title options.");
   return result;
 }
 
-interface GlyphSequenceUnit {
-  readonly messageIndex: number | null;
-  readonly height: number;
-  readonly message?: GlyphSequenceMessage;
-  readonly frames: readonly GlyphSequenceFrame[];
-  readonly notes: readonly GlyphSequenceNote[];
-}
+/**
+ * Messages `from..to` as a sequence of their own. A frame that started in an
+ * earlier panel reopens at the top under the header of the segment it is in
+ * (its last divider before `from`, else its own), so a continued `else`
+ * still says which branch it is. Notes after the last message ride with the
+ * last panel.
+ */
+interface GlyphSequencePanel { readonly sequence: GlyphSequence; readonly frameExtents: readonly GlyphSequenceFrameExtent[] }
 
-/** One unit per message (its own anchored frames/notes plus its own row height) plus, when present, a trailing unit for notes anchored after the last message. A page break never lands INSIDE a unit. */
-function buildUnits(sequence: GlyphSequence): GlyphSequenceUnit[] {
-  const units: GlyphSequenceUnit[] = [];
-  for (let i = 0; i < sequence.messages.length; i++) {
-    const message = sequence.messages[i]!;
-    const frames = (sequence.frames ?? []).filter((f) => f.from === i);
-    const notes = (sequence.notes ?? []).filter((n) => n.at === i);
-    const height = frames.length * 3 + notes.length * 3 + (message.from === message.to ? 3 : 2);
-    units.push({ messageIndex: i, height, message, frames, notes });
-  }
-  const trailingNotes = (sequence.notes ?? []).filter((n) => n.at === sequence.messages.length);
-  if (trailingNotes.length) units.push({ messageIndex: null, height: trailingNotes.length * 3, frames: [], notes: trailingNotes });
-  return units;
-}
-
-/** Greedy pack: never splits a unit across panels, and a single unit wider than the budget still gets its own panel rather than being dropped. */
-function packPanels(units: readonly GlyphSequenceUnit[], budget: number): GlyphSequenceUnit[][] {
-  if (!units.length) return [[]];
-  const panels: GlyphSequenceUnit[][] = [];
-  let current: GlyphSequenceUnit[] = [], currentHeight = 0;
-  for (const unit of units) {
-    if (current.length && currentHeight + unit.height > budget) { panels.push(current); current = []; currentHeight = 0; }
-    current.push(unit); currentHeight += unit.height;
-  }
-  if (current.length) panels.push(current);
-  return panels;
-}
-
-function panelSequence(sequence: GlyphSequence, panel: readonly GlyphSequenceUnit[]): GlyphSequence {
-  const realUnits = panel.filter((u) => u.messageIndex !== null);
-  const offset = realUnits[0]?.messageIndex ?? sequence.messages.length;
-  const lastMessageIndex = realUnits.length ? realUnits[realUnits.length - 1]!.messageIndex! : offset - 1;
-  const messages = realUnits.map((u) => u.message!);
+function panelSequence(sequence: GlyphSequence, extents: readonly GlyphSequenceFrameExtent[], from: number, to: number): GlyphSequencePanel {
+  const last = to === sequence.messages.length - 1;
   const frames: GlyphSequenceFrame[] = [];
-  const notes: GlyphSequenceNote[] = [];
-  for (const unit of panel) {
-    for (const frame of unit.frames) frames.push({ ...frame, from: frame.from - offset, to: Math.min(frame.to, lastMessageIndex) - offset });
-    const at = unit.messageIndex === null ? realUnits.length : unit.messageIndex - offset;
-    for (const note of unit.notes) notes.push({ ...note, at });
+  const frameExtents: GlyphSequenceFrameExtent[] = [];
+  for (const [index, frame] of (sequence.frames ?? []).entries()) {
+    if (frame.to < from || frame.from > to) continue;
+    frameExtents.push(extents[index]!);
+    const branches = frame.branches ?? [];
+    const current = frame.from < from ? branches.filter((b) => b.at <= from).at(-1) : undefined;
+    const head = current ?? frame;
+    const end = Math.min(frame.to, to);
+    // A continued frame's divider AT `from` became its header; one past `to`
+    // belongs to the next panel unless the frame closes here.
+    const kept = branches.filter((b) => (current ? b.at > from : true) && b.at <= (frame.to <= to ? frame.to + 1 : to))
+      .map((b) => ({ ...b, at: b.at - from }));
+    frames.push({
+      kind: head.kind, ...(head.label === undefined ? {} : { label: head.label }),
+      from: Math.max(frame.from, from) - from, to: end - from, ...(kept.length ? { branches: kept } : {}),
+    });
   }
-  return { participants: sequence.participants, messages, ...(frames.length ? { frames } : {}), ...(notes.length ? { notes } : {}) };
-}
-
-/** Rows the painter reserves above the body: the participant header, an actor glyph row when any participant is one, and the gap row. */
-function reservedHeaderRows(sequence: GlyphSequence): number {
-  return (sequence.participants.some((p) => p.shape === "actor") ? 2 : 1) + 1;
+  const notes = (sequence.notes ?? []).filter((n) => n.at >= from && (n.at <= to || (last && n.at === to + 1))).map((n) => ({ ...n, at: n.at - from }));
+  return {
+    sequence: { participants: sequence.participants, messages: sequence.messages.slice(from, to + 1), ...(frames.length ? { frames } : {}), ...(notes.length ? { notes } : {}) },
+    frameExtents,
+  };
 }
 
 export async function renderGlyphSequence(input: GlyphSequence | string, options: GlyphSequenceRenderOptions = {}): Promise<GlyphSequenceResult> {
@@ -136,34 +119,42 @@ export async function renderGlyphSequence(input: GlyphSequence | string, options
 
   const hasActor = cols.columns.some((c) => c.shape === "actor");
   const headerRows = hasActor ? 2 : 1;
-  const natural = layoutGlyphSequenceRows(sequence, cols.columns, 0, { charset: opts.charset });
+  const pageHeight = (body: number): number => headerRows + 1 + body + 1;
+  const extents = glyphSequenceFrameExtents(sequence, cols.columns, { charset: opts.charset, labelCap: cols.labelCap });
+  const layout = (panel: GlyphSequencePanel, air: number) => layoutGlyphSequenceRows(panel.sequence, cols.columns, 0, { charset: opts.charset, width: opts.width, air, labelCap: cols.labelCap, frameExtents: panel.frameExtents });
+  const whole: GlyphSequencePanel = { sequence, frameExtents: extents };
   // Spend leftover HEIGHT the same way the columns spend leftover width: one
-  // blank row between messages, only when the whole sequence still fits. A
-  // paged sequence takes none — the panels are already at the height limit.
-  const airGaps = Math.max(0, sequence.messages.length - 1);
-  const air = airGaps > 0 && natural.height + reservedHeaderRows(sequence) + airGaps <= opts.height ? 1 : 0;
-  const fullRows = air === 0 ? natural : layoutGlyphSequenceRows(sequence, cols.columns, 0, { charset: opts.charset, air });
-  const naturalHeight = headerRows + 1 + fullRows.height + 1;
-  if (cols.width > opts.width) ledger.push(ledgerSequenceLayoutOverflow({ naturalWidth: cols.width, naturalHeight, requestedWidth: opts.width, requestedHeight: opts.height }));
+  // blank row between messages, only when the whole sequence still fits with
+  // it. A paged sequence takes none — the panels are already at the limit.
+  const natural = layout(whole, 0);
+  const aired = sequence.messages.length > 1 ? layout(whole, 1) : natural;
+  const air = aired !== natural && pageHeight(aired.height) <= opts.height ? 1 : 0;
+  const full = air ? aired : natural;
+  if (cols.width > opts.width) ledger.push(ledgerSequenceLayoutOverflow({ naturalWidth: cols.width, naturalHeight: pageHeight(full.height), requestedWidth: opts.width, requestedHeight: opts.height }));
 
-  const units = buildUnits(sequence);
-  const budget = Math.max(1, opts.height - headerRows - 2);
-  const panels = naturalHeight <= opts.height ? [units] : packPanels(units, budget);
+  // Greedy by time: each panel takes messages while its own laid-out height
+  // (reopened frames included) fits; one message too tall still gets a panel.
+  const panels: GlyphSequencePanel[] = [];
+  if (pageHeight(full.height) <= opts.height || sequence.messages.length === 0 || opts.overflow === "expand") panels.push(whole);
+  else {
+    for (let start = 0; start < sequence.messages.length;) {
+      let end = start;
+      while (end + 1 < sequence.messages.length && pageHeight(layout(panelSequence(sequence, extents, start, end + 1), 0).height) <= opts.height) end++;
+      panels.push(panelSequence(sequence, extents, start, end));
+      start = end + 1;
+    }
+  }
   if (panels.length > 1) ledger.push(ledgerSequencePaged({ panels: panels.length }));
 
-  const paintedPages = panels.map((panel) => {
-    const sub = panelSequence(sequence, panel);
-    const rows: readonly GlyphSequenceRow[] = layoutGlyphSequenceRows(sub, cols.columns, 0, { charset: opts.charset, width: opts.width, air }).rows;
-    // Unit heights are the MESSAGE rows only; the air rows the layout
-    // inserted between them count too, or the lifelines stop short and the
-    // last messages fall outside the painted body.
-    const airRows = air * Math.max(0, panel.filter((u) => u.messageIndex !== null).length - 1);
-    const bodyHeight = panel.reduce((acc, u) => acc + u.height, 0) + airRows;
-    //  is the CONTENT width (the columns plus their own gutters);
+  const paintedPages = panels.map((sub) => {
+    const { rows, height } = layout(sub, air);
+    // `cols.width` is the CONTENT width (the columns plus their own gutters);
     // `opts.width` is the requested grid. Passing the grid here made the pad
     // that centres the diagram compute to zero, which is why a narrow
     // sequence sat in the corner of a wide viewport.
-    return paintGlyphSequence(sequence.participants, cols.columns, rows, bodyHeight, cols.width, opts);
+    // Every panel centres on the WHOLE sequence's ink, so the lifelines stay
+    // in the same columns from one panel to the next.
+    return paintGlyphSequence(sequence.participants, cols.columns, rows, height, cols.width, { ...opts, inkRows: full.rows });
   });
   for (const page of paintedPages) ledger.push(...page.ledger);
 

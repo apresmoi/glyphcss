@@ -13,19 +13,19 @@ Adapters → `GlyphGraph` → measure → reserve ports → layout (dagre) → c
 
 ## Sequence diagrams (`./sequence`)
 
-A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no layout problem: order is authored, time runs downward, every geometric decision is a function of label/message length (no dagre, A*, or ranks). Pipeline: `glyphSequenceFromMermaid`/JSON → `validateGlyphSequence` → `layoutGlyphSequenceColumns` (label-width x's, shrinking-cap degrade) → `layoutGlyphSequenceRows` (message/marker rows) → `paintGlyphSequence`. `renderGlyphSequence` composes them.
+A `GlyphSequence` (`participants`, `messages`, optional `frames`/`notes`) has no layout problem: order is authored, time runs downward, every geometric decision is a function of label/message length (no dagre, A*, or ranks). Pipeline: Mermaid/JSON → `validateGlyphSequence` → `layoutGlyphSequenceColumns` (label-width x's, shrinking-cap degrade) → `layoutGlyphSequenceRows` → `paintGlyphSequence`, composed by `renderGlyphSequence`.
 
-**Domain-agnostic IR** — no `service`/`endpoint`/`request`/`http`/`caller` vocabulary. Participant: `id`/`label`/informational `kind?: string`/rendering-only `shape?: "lane" | "actor"`. Message: `from`/`to`/`label`/`style` only — self-ness and direction are DERIVED, never a field. Frame: `{ kind, label?, from, to }`, `kind` rendered VERBATIM (Mermaid's `alt`/`else`/`opt`/`loop` unmapped). Note (`{ text, over, at }`): same floating-bar primitive, anchored to `over` lanes.
+**Domain-agnostic IR** — no `service`/`endpoint`/`request`/`http`/`caller` vocabulary. Participant: `id`/`label`/informational `kind?: string`/rendering-only `shape?: "lane" | "actor"`. Message: `from`/`to`/`label`/`style` only — self-ness and direction are DERIVED, never a field. Frame: `{ kind, label?, from, to, branches? }`; a branch (`{ kind, label?, at }`) is an `else` divider. Every `kind` renders VERBATIM (Mermaid's `alt`/`else`/`opt`/`loop` unmapped). Note: `{ text, over, at }`.
 
 ### Invariants
 
-- A frame/note is ONE floating condition bar (border+label+border, 3 rows) centered on its touched columns, widened only for its label — never a UML box or a closing mark at `to`. `markerBox` sizes the pre-composed `text` once and clamps into `[0, canvasWidth)`, re-deriving `centerX` from the CLAMPED `x0` (`canvas.text` drops out-of-bounds cells).
+- A frame boxes its messages: label in the top border, dashed branch dividers, sides `1 + depth` outside its lifelines and around inner boxes. Columns make room for frames and self-labels. A note is a 3-row floating bar clamped on-canvas.
 - A message crossing an unrelated lifeline paints a 4-way junction glyph, never a silent gap. Self-messages get their own 3-row loop (tee→dash→corner, corner→arrowhead), never a zero-width arrow. Every glyph paints with whole-cell `canvas.text`, never `canvas.line()` (braille/blocks rasterise that at sub-cell dots).
-- Degrade: (1) abbreviate participant AND message labels under one shrinking cap (floor 3); (2) page by TIME at a message boundary, repeating the header per panel, when height doesn't fit. Both logged; still-too-wide at the floor logs `sequence-layout-overflow`.
+- Degrade: (1) abbreviate participant AND message labels under one shrinking cap (floor 3); (2) page by TIME at a message boundary, repeating the header per panel, when height doesn't fit (`overflow: "expand"` grows instead); a cut frame reopens under its current branch at full width, and panels centre on the whole sequence's ink. Both logged; still-too-wide at the floor logs `sequence-layout-overflow`.
 
 ### Don't
 
-- Don't derive a message's `kind` from anything but `from`/`to`, or hardcode Mermaid's `alt`/`else`/`opt`/`loop` (`GlyphSequenceFrame.kind` is opaque). Don't allow `-` in a Mermaid participant id. Don't box a frame's messages, or split a page inside a row-group.
+- Don't derive a message's `kind` from anything but `from`/`to`, or hardcode Mermaid's `alt`/`else`/`opt`/`loop` (`GlyphSequenceFrame.kind` is opaque). Don't allow `-` in a Mermaid participant id. Don't split a page inside a row-group.
 
 ## Lane DAGs (`./lanes`)
 
@@ -48,7 +48,7 @@ A `GlyphLaneDag` (`nodes`: `id`/`label`/`parents`/optional `marks`) is agnostic:
 - `unroutable` describes final output only; a layout that doesn't fit is `layout-overflow`, never `routing-attempt`. Malformed JSON is `GLYPH_DIAGRAM_BAD_JSON`; `engine: "elk"` is `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
 - Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert, never executed.
 - A loop starts at its authored-first node: canonical nodes keep authored order; a loop dagre ranks backwards is re-laid out with back edges reversed.
-- Never cut words while a whole-word fit exists: whole-word wraps, snake (`snake.ts`), expand at any height, then cut words.
+- Never cut words while a whole-word fit exists: whole-word wraps, snake (`snake.ts`), in-viewport repair, expand taller at the same width, then cut words.
 - Fit uses measured labels, ports and routes, never node/edge-count cutoffs or viewport presets. Search distinct wraps and independent gaps; return edges may need widening. `autoDirection` permits the perpendicular; all modes fit before semantic degradation.
 - `overflow: "paginate"` (default) keeps exact requested canvas dimensions. `"expand"` explicitly permits a connected canvas beyond those dimensions, with `layout-expanded` diagnostics. Ladder after fitting fails: decoration → duplicates → leaf clusters → split; never decoration once it fits, except explicit `simplified`.
 - Paint order: routes → junctions → node fills → target-border arrowheads → labels; an edge label touches its own route or is dropped. Text/HTML/ANSI are separate exits, each page carrying its `canvas`.

@@ -1101,18 +1101,12 @@ export function glyphDiagramsWorkbenchMermaid(graph: GlyphGraph): string {
 /**
  * Mirrors `glyphDiagramsWorkbenchMermaid`'s own role for the sequence
  * pipeline — the JSON tab's own best-effort Mermaid rendering, read by
- * `set-sequence-editor`'s "switching tabs refreshes" rule above. An `alt`
- * frame immediately followed by a `kind: "else"` frame whose own `from` is
- * exactly the prior frame's `to + 1` is one continuous Mermaid block (`alt
- * … else … end`) — precisely the shape `glyphSequenceFromMermaid`'s own
- * parser produces for a real `alt`/`else` (`mermaid.ts`'s `closeSegment`:
- * an "else" mutates the SAME stack frame rather than opening a new one), so
- * detecting that adjacency here is what makes an alt/else round-trip
- * through this tab pair without duplicating "end" or losing the "else"
- * branch's own condition. Any other frame (`loop`, `opt`, or a JSON-authored
- * `kind` with no matching library keyword) opens and closes on its own —
- * `kind` is rendered verbatim, exactly as `packages/diagrams/AGENTS.md`'s
- * "Domain-agnostic IR" requires of the pipeline itself.
+ * `set-sequence-editor`'s "switching tabs refreshes" rule above. A frame is
+ * one Mermaid block and each of its `branches` an `else` line inside it —
+ * exactly the shape `glyphSequenceFromMermaid` parses back. Between two
+ * messages, blocks close inner first and open outer first, so nested frames
+ * round-trip. `kind` is written verbatim, exactly as
+ * `packages/diagrams/AGENTS.md`'s "Domain-agnostic IR" requires.
  */
 export function glyphDiagramsWorkbenchSequenceMermaid(sequence: GlyphSequence): string {
   const lines = ["sequenceDiagram"];
@@ -1124,39 +1118,29 @@ export function glyphDiagramsWorkbenchSequenceMermaid(sequence: GlyphSequence): 
         : `  ${keyword} ${participant.id}`,
     );
   }
-  const frames = [...(sequence.frames ?? [])].sort((a, b) => a.from - b.from);
-  const notesAt = new Map<number, GlyphSequenceNote[]>();
-  for (const note of sequence.notes ?? []) notesAt.set(note.at, [...(notesAt.get(note.at) ?? []), note]);
-  const emitNotes = (index: number) => {
-    for (const note of notesAt.get(index) ?? []) lines.push(`  note over ${note.over.join(",")}: ${note.text}`);
+  const frames = sequence.frames ?? [];
+  const span = (frame: GlyphSequenceFrame) => frame.to - frame.from;
+  const header = (kind: string, label: string | undefined) => `  ${kind}${label ? ` ${label}` : ""}`;
+  const branchesAt = (frame: GlyphSequenceFrame, at: number) => {
+    for (const branch of frame.branches ?? []) if (branch.at === at) lines.push(header(branch.kind, branch.label));
   };
-
-  let frameIndex = 0;
-  let openChainEnd = -1;
-  for (let i = 0; i < sequence.messages.length; i++) {
-    emitNotes(i);
-    while (frameIndex < frames.length && frames[frameIndex]!.from === i) {
-      const frame = frames[frameIndex]!;
-      lines.push(
-        frame.kind === "else" && openChainEnd === i - 1
-          ? `  else ${frame.label ?? ""}`.trimEnd()
-          : `  ${frame.kind}${frame.label ? ` ${frame.label}` : ""}`,
-      );
-      openChainEnd = frame.to;
-      frameIndex++;
+  const ids = frames.map((_, i) => i);
+  for (let i = 0; i <= sequence.messages.length; i++) {
+    const open = ids.filter((f) => frames[f]!.from < i && frames[f]!.to >= i - 1);
+    for (const f of open.sort((a, b) => span(frames[a]!) - span(frames[b]!) || a - b)) {
+      branchesAt(frames[f]!, i);
+      if (frames[f]!.to === i - 1) lines.push("  end");
     }
-    const message = sequence.messages[i]!;
+    for (const f of ids.filter((g) => frames[g]!.from === i).sort((a, b) => span(frames[b]!) - span(frames[a]!) || b - a)) {
+      lines.push(header(frames[f]!.kind, frames[f]!.label));
+      branchesAt(frames[f]!, i);
+    }
+    for (const note of sequence.notes ?? []) if (note.at === i) lines.push(`  note over ${note.over.join(",")}: ${note.text}`);
+    const message = sequence.messages[i];
+    if (!message) continue;
     const arrow = message.style === "dashed" ? "-->>" : "->>";
     lines.push(`  ${message.from}${arrow}${message.to}: ${message.label ?? ""}`.trimEnd());
-    if (i === openChainEnd) {
-      const next: GlyphSequenceFrame | undefined = frames[frameIndex];
-      if (!(next && next.kind === "else" && next.from === i + 1)) {
-        lines.push("  end");
-        openChainEnd = -1;
-      }
-    }
   }
-  emitNotes(sequence.messages.length);
   return `${lines.join("\n")}\n`;
 }
 

@@ -1,4 +1,4 @@
-import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceMessage, GlyphSequenceNote, GlyphSequenceParticipant } from "./types";
+import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceFrameBranch, GlyphSequenceMessage, GlyphSequenceNote, GlyphSequenceParticipant } from "./types";
 import { glyphDiagramError } from "../validate";
 import { validateGlyphSequence } from "./validate";
 
@@ -16,7 +16,7 @@ const BLOCK_START_RE = /^(alt|opt|loop)\s+(.*)$/;
 const ELSE_RE = /^else\b\s*(.*)$/;
 const NOTE_RE = new RegExp(`^note\\s+over\\s+(${ID_RE}(?:\\s*,\\s*${ID_RE})*)\\s*:\\s*(.*)$`, "i");
 
-interface OpenBlock { kind: string; label: string; startIndex: number }
+interface OpenBlock { readonly kind: string; readonly label: string; readonly startIndex: number; readonly branches: GlyphSequenceFrameBranch[] }
 
 /** Strip a trailing `%%` comment (never inside the message text — Mermaid comments are their own line) and surrounding whitespace. */
 function statementLines(source: string): string[] {
@@ -40,8 +40,14 @@ export function glyphSequenceFromMermaid(source: string): GlyphSequence {
   const ensureParticipant = (id: string): void => {
     if (!participants.has(id)) participants.set(id, { id, label: id });
   };
-  const closeSegment = (block: OpenBlock): void => {
-    if (block.startIndex <= messages.length - 1) frames.push({ kind: block.kind, ...(block.label ? { label: block.label } : {}), from: block.startIndex, to: messages.length - 1 });
+  // An `else` is a divider inside its `alt`, not a frame of its own — the
+  // whole block closes as ONE frame at `end`. A block with no messages draws
+  // nothing.
+  const close = (block: OpenBlock): void => {
+    if (block.startIndex <= messages.length - 1) frames.push({
+      kind: block.kind, ...(block.label ? { label: block.label } : {}), from: block.startIndex, to: messages.length - 1,
+      ...(block.branches.length ? { branches: block.branches } : {}),
+    });
   };
 
   for (const line of lines) {
@@ -52,19 +58,19 @@ export function glyphSequenceFromMermaid(source: string): GlyphSequence {
       continue;
     }
     const blockStart = BLOCK_START_RE.exec(line);
-    if (blockStart) { stack.push({ kind: blockStart[1]!, label: blockStart[2]!.trim(), startIndex: messages.length }); continue; }
+    if (blockStart) { stack.push({ kind: blockStart[1]!, label: blockStart[2]!.trim(), startIndex: messages.length, branches: [] }); continue; }
     const elseMatch = ELSE_RE.exec(line);
     if (elseMatch) {
       const top = stack[stack.length - 1];
       if (!top) syntax(`"else" has no matching "alt".`);
-      closeSegment(top);
-      top.kind = "else"; top.label = elseMatch[1]!.trim(); top.startIndex = messages.length;
+      const label = elseMatch[1]!.trim();
+      top.branches.push({ kind: "else", ...(label ? { label } : {}), at: messages.length });
       continue;
     }
     if (line === "end") {
       const top = stack.pop();
       if (!top) syntax(`"end" has no matching "alt"/"loop"/"opt".`);
-      closeSegment(top);
+      close(top);
       continue;
     }
     const note = NOTE_RE.exec(line);
