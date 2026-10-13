@@ -99,7 +99,7 @@ export function profileChartsData(rows: readonly TabularRow[]): ChartsDataProfil
 }
 
 /** `recommended.mark` (dataset or profiler) is `GlyphChartMarkType`-shaped
- *  already; only `rect`/`text`/`rule` never come out of a recommendation,
+ *  already; only `text`/`rule` never come out of a recommendation,
  *  so this covers exactly what `recommendChart`/a dataset's own field emit.
  *  `source`/`target`/`value`/`stage` are `sankey`/`funnel`'s own channel
  *  vocabulary (`datasets/types.ts`'s `ChartsDatasetRecommendation`) — the

@@ -10,7 +10,7 @@
 import { createGlyphCanvas } from "glyphcss";
 import { describe, expect, it } from "vitest";
 import { bandColRange, layoutGlyphChart } from "./layout";
-import { paintGlyphChart } from "./paint";
+import { barBandColRange, paintGlyphChart } from "./paint";
 import { renderGlyphChart } from "./render";
 import { resolveGlyphChartSpec } from "./resolve";
 import { resolveGlyphChartScales } from "./scales";
@@ -44,10 +44,11 @@ describe("item 2 (B1) — bars touch the axis, proportional from the axis line",
     // Mutation: reintroduce the reserved axis-line row below the plot
     // (`layout.ts`'s old `xAxisLineRow = bottom; bottom -= 1`) -> every
     // bar's bottom row stops one row short of the drawn "└" rule again,
-    // and the counts below (11/7/4/3, not the pre-fix 9/6/4/3 read from the
+    // and the counts below (11/7/5/3, not the pre-fix 9/6/4/3 read from the
     // axis) go red.
     const p = picture(page([glyphChartBar(BARS, { x: "month", y: "value" }, { name: "Sales" })]), 40, 14);
-    const FILL_GLYPHS = "█▓▒░";
+    // A bar's top cell may be a lower eighth block; it still occupies that row.
+    const FILL_GLYPHS = "█▓▒░▁▂▃▄▅▆▇";
     // Rows strictly ABOVE `xAxisLineRow` — the plot's own bottom row can
     // now legitimately BE the axis line row (B1's fix), so a naive
     // `plot.y0..plot.y1` scan would count the axis's own tick/rule glyphs
@@ -64,13 +65,20 @@ describe("item 2 (B1) — bars touch the axis, proportional from the axis line",
     };
     const heights = MONTHS.map(countFilled);
     // Exact counts at 40x14 (measured against the fixed code): value 8 (the
-    // domain max) fills the WHOLE plot height; 5, 3, 2 scale from it.
-    expect(heights).toEqual([4, 7, 3, 11]);
+    // domain max) fills the WHOLE plot height; 5, 3, 2 scale from it. Rows
+    // occupied, partial top included: 3/8, 5/8, 2/8 and 8/8 of 11 rows are
+    // 4 1/8, 6 7/8, 2 6/8 and 11 rows.
+    expect(heights).toEqual([5, 7, 3, 11]);
+    const topGlyph = (month: string) => {
+      const [x0] = barBandColRange(p.scales.x, p.layout.plot, month, 1)!;
+      return p.at(x0, p.layout.xAxisLineRow - heights[MONTHS.indexOf(month)]!);
+    };
+    expect(MONTHS.map(topGlyph)).toEqual(["▁", "▇", "▆", "█"]);
     // Every bar's own bottom-most FILL row is immediately above the axis
     // line, with no blank row between them (the diagnosis's own "the
     // columns grow not proportionally" / a floating blank `0` row).
     for (const month of MONTHS) {
-      const [x0] = bandColRange(p.scales.x, p.layout.plot, month)!;
+      const [x0] = barBandColRange(p.scales.x, p.layout.plot, month, 1)!;
       expect(FILL_GLYPHS.includes(p.at(x0, p.layout.xAxisLineRow - 1) ?? " ")).toBe(true);
     }
   });

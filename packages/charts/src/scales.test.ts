@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { resolveGlyphChartScales } from "./scales";
 import { resolveGlyphChartSpec } from "./resolve";
-import { glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot, glyphChartRect } from "./spec";
+import { glyphChartBar, glyphChartCell, glyphChartDot, glyphChartLine, glyphChartPlot } from "./spec";
 import { layoutGlyphChart } from "./layout";
 import { renderGlyphChart } from "./render";
 import type { GlyphChartLedgerEntry } from "./ledger";
@@ -76,12 +76,6 @@ describe("a band-only mark (bar/rect/cell) keeps band x for an all-ISO-date-stri
     const scales = resolveGlyphChartScales(marks, undefined);
     expect(scales.x.type).toBe("band");
     expect(scales.x.bandRange).toBeDefined();
-  });
-
-  it("glyphChartRect over ISO strings resolves x as band, never time", () => {
-    const marks = resolveGlyphChartSpec(glyphChartPlot({ marks: [glyphChartRect(isoDates.map((d, i) => ({ d, v: i + 1 })), { x: "d", y: "v" })] }));
-    const scales = resolveGlyphChartScales(marks, undefined);
-    expect(scales.x.type).toBe("band");
   });
 
   it("glyphChartCell over ISO strings resolves x as band, never time", () => {

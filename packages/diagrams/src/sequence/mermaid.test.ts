@@ -28,7 +28,7 @@ describe("glyphSequenceFromMermaid", () => {
     expect(sequence.messages[0]).not.toHaveProperty("kind");
   });
 
-  it("maps alt/else onto two generic sibling frames, and opt/loop onto their own kind", () => {
+  it("maps alt/else onto one frame with an else branch, and opt/loop onto their own kind", () => {
     const sequence = glyphSequenceFromMermaid(`sequenceDiagram
     A->>B: ask
     alt condition one
@@ -43,8 +43,7 @@ describe("glyphSequenceFromMermaid", () => {
       A->>B: poll
     end`);
     expect(sequence.frames).toEqual([
-      { kind: "alt", label: "condition one", from: 1, to: 1 },
-      { kind: "else", label: "condition two", from: 2, to: 2 },
+      { kind: "alt", label: "condition one", from: 1, to: 2, branches: [{ kind: "else", label: "condition two", at: 2 }] },
       { kind: "opt", label: "maybe", from: 3, to: 3 },
       { kind: "loop", label: "until done", from: 4, to: 4 },
     ]);

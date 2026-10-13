@@ -2,10 +2,11 @@ import type { GlyphCanvas, GlyphCanvasTierName } from "glyphcss";
 import { glyphLaneDagFromGitLog } from "./git";
 import { glyphDiagramError } from "../validate";
 import { parseGlyphLaneDagJson, glyphLaneDagRepairHint, validateGlyphLaneDag } from "./validate";
-import { layoutGlyphLaneRows, applyGlyphLaneCap, type GlyphLaneRow } from "./layout";
-import { paintGlyphLaneDag, GLYPH_LANE_COLUMN_WIDTH, GLYPH_LANE_MIN_CONTENT_WIDTH } from "./paint";
+import { layoutGlyphLaneRows, applyGlyphLaneCap, countGlyphLaneContinuationLines, type GlyphLaneRow } from "./layout";
+import { paintGlyphLaneDag, createColorState, copyColorState, advanceColorState, type GlyphLaneColorStart, GLYPH_LANE_COLUMN_WIDTH, GLYPH_LANE_MIN_CONTENT_WIDTH } from "./paint";
 import { dedupeGlyphDiagramLedger, type GlyphDiagramLedgerEntry } from "../ledger";
-import { ledgerLaneLayoutOverflow, ledgerLaneCapCollapsed, ledgerLanePaged } from "./ledger";
+import { ledgerLaneLayoutOverflow, ledgerLaneCapCollapsed, ledgerLanePaged, ledgerLaneHistoryContinues, ledgerLaneLabelsAbbreviated } from "./ledger";
+import { glyphLaneOutsideParents, invertGlyphLaneDag } from "./invert";
 import type { GlyphLaneDag, GlyphLaneNode } from "./types";
 
 export type GlyphLaneTarget = "chat" | "terminal" | "web";
@@ -19,6 +20,12 @@ export interface GlyphLaneRenderOptions {
   readonly width?: number;
   readonly height?: number;
   readonly title?: string;
+  /** Top-down reading order. The IR stays newest first; `"oldest-first"` lays out its inversion, so a fork reads as branches below the forking node. Default `"newest-first"`. */
+  readonly order?: "newest-first" | "oldest-first";
+  /** Whether each row leads with the node's id. Default: `true` for a git-log string (the id is the commit hash), `false` for a `GlyphLaneDag` object. */
+  readonly ids?: boolean;
+  /** `"paginate"` (default) splits by time to fit `height`; `"expand"` renders one page of the full height at the same width — mirrors the sequence form. */
+  readonly overflow?: "paginate" | "expand";
   readonly env?: Readonly<Record<string, string | undefined>>;
   /**
    * Per-lane override — same `string | ((node) => string)` shape as the
@@ -63,18 +70,27 @@ function resolvedOptions(options: GlyphLaneRenderOptions) {
     charset: options.charset ?? defaults.charset, color: options.color ?? defaults.color };
   if (![result.width, result.height].every((v) => Number.isInteger(v) && v > 0)) glyphDiagramError("bad-size", "width and height must be positive integers.");
   if (!["ascii", "box", "blocks", "braille"].includes(result.charset) || !["none", "ansi16", "ansi256", "truecolor", "css"].includes(result.color)
-    || (options.title !== undefined && typeof options.title !== "string")) glyphDiagramError("bad-options", "Use supported target, charset, color, and title options.");
+    || (options.title !== undefined && typeof options.title !== "string")
+    || (options.order !== undefined && !["newest-first", "oldest-first"].includes(options.order))
+    || (options.ids !== undefined && typeof options.ids !== "boolean")
+    || (options.overflow !== undefined && !["paginate", "expand"].includes(options.overflow))) glyphDiagramError("bad-options", "Use supported target, charset, color, title, order, ids, and overflow options.");
   return result;
 }
 
-/** A node row plus its immediately following connector row (if any) is one atomic unit — a page break never lands between the two. */
+/** A node row with its merge connector above and branch connector below (each if any) is one atomic unit — a page break never lands between them. */
 function buildUnits(rows: readonly GlyphLaneRow[]): GlyphLaneRow[][] {
   const units: GlyphLaneRow[][] = [];
-  let i = 0;
-  while (i < rows.length) {
-    const row = rows[i]!;
-    if (row.type === "node" && rows[i + 1]?.type === "connector") { units.push([row, rows[i + 1]!]); i += 2; }
-    else { units.push([row]); i += 1; }
+  for (let i = 0; i < rows.length;) {
+    const unit: GlyphLaneRow[] = [];
+    // A continuation is the window's cut, not a node: it stays with the node
+    // beside it so a page never holds only that dashed rule.
+    if (rows[i]!.type === "continuation") unit.push(rows[i++]!);
+    if (rows[i]?.type === "connector") unit.push(rows[i++]!);
+    if (rows[i]?.type === "node") unit.push(rows[i++]!);
+    const below = rows[i];
+    if (below?.type === "connector" && below.mergeLanes.length === 0) unit.push(rows[i++]!);
+    if (rows[i]?.type === "continuation") unit.push(rows[i++]!);
+    units.push(unit);
   }
   return units;
 }
@@ -98,12 +114,38 @@ function renumberRows(rows: readonly GlyphLaneRow[]): GlyphLaneRow[] {
   return rows.map((row, top) => ({ ...row, top }));
 }
 
+/** Test hook (not re-exported from index.ts): counts colour pre-passes so a test can assert one is skipped when nothing could observe it. */
+export const glyphLaneRenderProbe = { colorPasses: 0 };
+
+/**
+ * Per-page starting colour state from ONE pass over every row. A page after
+ * the first has no continuation row of its own to say what its entering
+ * lanes lead to, so each starts from the state the rows before it left.
+ * Page 0 gets the whole-diagram node index too: its leading continuation may
+ * wait for a node on a later page. Needed only when a `laneColor` function can
+ * observe the node it is handed.
+ */
+function pageColorStarts(rows: readonly GlyphLaneRow[], panels: readonly (readonly GlyphLaneRow[])[]): (GlyphLaneColorStart | undefined)[] {
+  glyphLaneRenderProbe.colorPasses++;
+  const nodes = new Map(rows.flatMap((row) => (row.type === "node" ? [[row.node.id, row.node] as const] : [])));
+  const first = rows.find((row) => row.type === "node")?.node;
+  const state = createColorState();
+  return panels.map((panel, index) => {
+    const start = { state: copyColorState(state), nodes, first };
+    for (const row of panel) advanceColorState(state, row);
+    return start;
+  });
+}
+
 export async function renderGlyphLaneDag(input: GlyphLaneDag | string, options: GlyphLaneRenderOptions = {}): Promise<GlyphLaneResult> {
   const opts = resolvedOptions(options);
   const dag = validateGlyphLaneDag(typeof input === "string" ? glyphLaneDagFromGitLog(input) : input);
   const ledger: GlyphDiagramLedgerEntry[] = [];
 
-  const natural = layoutGlyphLaneRows(dag);
+  const oldestFirst = opts.order === "oldest-first";
+  const inverted = oldestFirst ? invertGlyphLaneDag(dag) : undefined;
+  const natural = inverted ? layoutGlyphLaneRows(inverted.dag, { incoming: inverted.incoming, continuesFrom: inverted.continuesFrom }) : layoutGlyphLaneRows(dag);
+  const outside = glyphLaneOutsideParents(dag);
   const naturalColumns = natural.maxLane + 1;
   // Shrink the lane cap only until the lane area leaves at least this much
   // room for content — never purely until the lane area alone fits, which
@@ -118,16 +160,25 @@ export async function renderGlyphLaneDag(input: GlyphLaneDag | string, options: 
     ledger.push(ledgerLaneCapCollapsed({ collapsedLanes: capped.collapsedLaneIndices.length, nodeIds: capped.collapsedNodeIds }));
   }
 
+  // Counted after the cap and dedupe: the dashed lines actually painted, not
+  // the absent-parent references behind them.
+  const continuationLines = countGlyphLaneContinuationLines(capped.rows);
+  if (continuationLines > 0) ledger.push(ledgerLaneHistoryContinues({ lines: continuationLines, nodeIds: [...new Set(outside.map((o) => o.nodeId))] }));
+
   const bodyHeight = capped.rows.length;
   if (capped.columns * GLYPH_LANE_COLUMN_WIDTH >= opts.width) {
     ledger.push(ledgerLaneLayoutOverflow({ naturalWidth: capped.columns * GLYPH_LANE_COLUMN_WIDTH + 1, naturalHeight: bodyHeight, requestedWidth: opts.width, requestedHeight: opts.height }));
   }
 
-  const panels = bodyHeight <= opts.height ? [capped.rows] : packPanels(capped.rows, Math.max(1, opts.height));
+  const panels = bodyHeight <= opts.height || opts.overflow === "expand" ? [capped.rows] : packPanels(capped.rows, Math.max(1, opts.height));
   if (panels.length > 1) ledger.push(ledgerLanePaged({ panels: panels.length }));
 
-  const paintedPages = panels.map((panel) => paintGlyphLaneDag(renumberRows(panel), capped.columns, panel.length, opts.width, opts));
+  const ids = opts.ids ?? typeof input === "string";
+  const starts = panels.length > 1 && opts.color !== "none" && typeof opts.laneColor === "function" ? pageColorStarts(capped.rows, panels) : [];
+  const paintedPages = panels.map((panel, index) => paintGlyphLaneDag(renumberRows(panel), capped.columns, panel.length, opts.width, { ...opts, ids }, starts[index]));
   for (const page of paintedPages) ledger.push(...page.ledger);
+  const abbreviated = [...new Set(paintedPages.flatMap((p) => p.abbreviatedNodeIds))];
+  if (abbreviated.length) ledger.push(ledgerLaneLabelsAbbreviated({ count: abbreviated.length, columns: opts.width - capped.columns * GLYPH_LANE_COLUMN_WIDTH, nodeIds: abbreviated }));
 
   const first = paintedPages[0]!;
   return {

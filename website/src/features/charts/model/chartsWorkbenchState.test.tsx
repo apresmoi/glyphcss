@@ -239,7 +239,8 @@ describe("ChartsWorkbench state", () => {
   // never reintroduces the plain-boolean default over it (`chartsWorkbenchRenderOptions`'s own doc).
   it("legend/title placement dispatch through set-chart and reach the built spec", () => {
     const defaultChart = buildChartsWorkbenchSpec(initial());
-    expect(defaultChart.legend).toEqual({ placement: "bottom" });
+    // Unchosen legend rides as undefined so the library default applies (off for funnel/sankey).
+    expect(defaultChart.legend).toBeUndefined();
     expect(defaultChart.title).toMatchObject({ align: "center", position: "top" });
 
     const state = reduceChartsWorkbenchState(initial(), {
@@ -364,7 +365,7 @@ describe("final-gate-2 (Opus finding 1): the Heatmap tray preset paints every ca
       expect(line, `expected a tick-label row for "${label}" in:\n${rendered.text}`).toBeDefined();
       expect(line, `"${label}"'s own row carries no cell ink — only axis chrome:\n${rendered.text}`).toMatch(shadeGlyphs);
     }
-    // The axis LINE row itself (the corner "└"/tick-junction "┴" row) is
+    // The axis LINE row itself (the corner "└"/tick-junction "┬" row) is
     // chrome, not data — real ink never reaches it, and every plot-body
     // row strictly above it must carry ink (never bare axis characters).
     const axisRowIndex = lines.findIndex((l) => l.includes("└"));
@@ -855,7 +856,7 @@ describe("chartsWorkbenchScaleTypeFits", () => {
     expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).x.time).toEqual({ fits: false, short: "needs dates", reason: "A time scale needs date values (YYYY-MM-DD)." });
     expect(chartsWorkbenchScaleTypeFits(pick("energy-consumption-by-source")).x.linear).toEqual({ fits: false, short: "needs numbers", reason: "A linear scale needs number values; this axis holds dates." });
     expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).x.sqrt).toEqual({ fits: false, short: "needs numbers", reason: "A sqrt scale needs number values; this axis holds categories." });
-    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).y.band).toEqual({ fits: false, short: "must be numeric", reason: "A bar, area or rect value axis must be numeric." });
+    expect(chartsWorkbenchScaleTypeFits(pick("olympics-2024-medals")).y.band).toEqual({ fits: false, short: "must be numeric", reason: "A bar or area value axis must be numeric." });
     const sankey = chartsWorkbenchScaleTypeFits(pick("energy-flow-sankey"));
     expect(sankey.x.auto.fits).toBe(true);
     expect(sankey.x.band).toEqual({ fits: false, short: "no x/y scale", reason: CHARTS_NO_SCALE_REASON });

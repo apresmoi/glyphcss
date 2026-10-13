@@ -85,14 +85,13 @@ describe("CHARTS_DATASETS", () => {
 //
 // Every dataset should be reachable from the picker AND showcase every mark
 // type the library exposes at least once (the task this describe block
-// gates against). `rect`, `text`, and `rule` are deliberately left
-// uncovered: none of the sixteen datasets here is a genuinely natural fit
-// for any of the three (a Gantt-style date-range table for `rect`, a small
-// set of annotated points for `text`, or a single reference line for
-// `rule` would all have to be invented rather than sourced from a real
+// gates against). `text` and `rule` are deliberately left uncovered: none
+// of the sixteen datasets here is a genuinely natural fit for either (a
+// small set of annotated points for `text`, or a single reference line for
+// `rule` would have to be invented rather than sourced from a real
 // public dataset, and AGENTS.md/this task both say never invent data for a
 // vendored dataset).
-const DELIBERATELY_UNCOVERED_MARK_TYPES: readonly GlyphChartMarkType[] = ["rect", "text", "rule"];
+const DELIBERATELY_UNCOVERED_MARK_TYPES: readonly GlyphChartMarkType[] = ["text", "rule"];
 
 describe("mark-type coverage", () => {
   it("every CHART_MARK_TYPES entry is recommended by at least one dataset, or is a listed deliberate exception", () => {

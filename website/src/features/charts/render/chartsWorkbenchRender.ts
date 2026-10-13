@@ -151,7 +151,7 @@ export type ChartsWorkbenchRender =
 // its own default size doesn't). So the PRIMARY source is the rendered
 // TEXT itself.
 //
-// Counting the tick GLYPHS (`┴`/`┤`) was the first cut and is wrong: the
+// Counting the tick GLYPHS (`┬`/`┤`) was the first cut and is wrong: the
 // axis LINES themselves cross at a corner cell — `AGENTS.md`'s "the x-axis
 // LINE ROW is the y=0 row whenever 0 is in the y domain" means that row's
 // own y-tick position is almost always ALSO where the x-axis's rule

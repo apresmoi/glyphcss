@@ -1,19 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { createGlyphCanvas, encodeGlyphCanvasHtml } from "glyphcss";
-import { chartSeries, resolveSeriesColor, seriesShade } from "./series";
+import { createGlyphCanvas } from "glyphcss";
+import { chartSeries } from "./series";
 import { resolveGlyphChartSpec } from "./resolve";
 import { layoutGlyphChart, resolveGlyphChartLegendOption } from "./layout";
 import {
-  computeSankeyRoutedRows, GLYPH_CHART_SANKEY_LINK_GAP_ROWS, GLYPH_CHART_SANKEY_NODE_PADDING_ROWS,
-  layoutSankeyGraph, paintFunnelMark, paintSankeyLayout, paintSankeyMarks, type GlyphChartSankeyLayout,
+  GLYPH_CHART_SANKEY_LINK_GAP_ROWS, GLYPH_CHART_SANKEY_NODE_PADDING_ROWS,
+  layoutSankeyGraph, paintFunnelMark,
 } from "./flowMarks";
+import { paintSankeyLines } from "./sankeyLines";
 import { resolveGlyphChartScales } from "./scales";
 import { glyphChartFunnel, glyphChartLine, glyphChartSankey } from "./spec";
 import { renderGlyphChart } from "./render";
 import { ECOMMERCE_FUNNEL_DATA, ENERGY_FLOW_SANKEY_DATA } from "./flowMarksData";
 import type { GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartPlotRect } from "./layout";
-import type { GlyphChartSpec } from "./types";
+import type { GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
 const PLOT = (cols: number, rows: number): GlyphChartPlotRect => ({ x0: 0, y0: 0, x1: cols - 1, y1: rows - 1 });
 
@@ -252,29 +253,58 @@ describe("sankey rejects bad input", () => {
   });
 });
 
-describe("funnel widths are proportional to value", () => {
-  it("a 1000/500/250 funnel has bar widths in 4:2:1 within +/-1 cell", () => {
-    // Mutation: switch to equal-step widths (a trapezoid) instead of
-    // value-proportional ones -> the measured widths stop tracking 4:2:1.
+describe("funnel: one tapering shape, one label line per stage", () => {
+  const ecommerce: GlyphChartSpec = { title: "Checkout", marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA, { stage: "stage", value: "count" })] };
+  const lines = (spec: GlyphChartSpec, width: number, height: number, extra: Partial<GlyphChartRenderOptions> = {}) =>
+    renderGlyphChart(spec, { target: "chat", width, height, charset: "box", ...extra }).text.split("\n");
+
+  it("fills the plot, with a blank row under the title, above the legend and between stages, and nowhere else", () => {
+    // Mutation: cap the waists again, or drop the top or bottom spare row -> red.
+    const three: GlyphChartSpec = { ...ecommerce, marks: [glyphChartFunnel(ECOMMERCE_FUNNEL_DATA.slice(0, 3), { stage: "stage", value: "count" })] };
+    for (const [spec, stages] of [[ecommerce, 5], [three, 3]] as const) {
+      for (const [w, h] of [[60, 24], [72, 40], [96, 32]] as const) {
+        const rows = lines({ ...spec, legend: true }, w, h);
+        const blank = rows.map((row) => row.trim() === "");
+        const key = `${stages} stages at ${w}x${h}`;
+        expect(blank[1], key).toBe(true);
+        expect(blank[rows.length - 2], key).toBe(true);
+        expect(blank[rows.length - 3], key).toBe(false);
+        expect(blank.filter(Boolean), key).toHaveLength(2 + stages - 1);
+      }
+    }
+  });
+
+  it("labels each stage once: name, value, share of the first, and the step share from the third stage on", () => {
+    // Mutation: print the step on the second stage, or split a label over two lines -> red.
+    const labels = lines(ecommerce, 72, 24).filter((row) => /\d%/.test(row)).map((row) => row.replace(/^[^A-Z]*/u, "").trim());
+    expect(labels).toEqual([
+      "Visits         10,000  100%",
+      "Product Views   4,000   40%",
+      "Add to Cart     1,000   10%   ↓ 25%",
+      "Checkout          400    4%   ↓ 40%",
+      "Purchase          260    3%   ↓ 65%",
+    ]);
+  });
+
+  it("tapers between stages with quadrant half-steps on box, and whole cells on ascii", () => {
+    // Mutation: paint whole cells on box -> no quadrant glyph.
+    expect(lines(ecommerce, 72, 24).join("\n")).toMatch(/[▘▝▖▗▛▜▙▟]/u);
+    expect(lines(ecommerce, 72, 24, { charset: "ascii" }).join("\n")).not.toMatch(/[^\x20-\x7e\n]/);
+  });
+});
+
+describe("funnel widths follow the square root of value", () => {
+  it("a 1000/500/250 funnel settles at widths in 1 : 0.71 : 0.5 within +/-1 cell", () => {
+    // Mutation: switch to linear widths (4:2:1) -> the last stage lands at a quarter, not a half.
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([1000, 500, 250])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 60, height: 12, charset: "box" });
-    const rows = r.text.split("\n");
-    const rowWidths = rows.map((row) => (row.match(/[█░▚╱▌═▓▒]/g) ?? []).length);
-    // Group consecutive glyph-carrying rows into stage bands, separated by
-    // the blank gap row `layoutFunnelStages`'s own spacing leaves between
-    // stages, and take each band's own maximum painted width.
-    const bandWidths: number[] = [];
-    let current = 0;
-    for (const w of rowWidths) {
-      if (w > 0) current = Math.max(current, w);
-      else if (current > 0) { bandWidths.push(current); current = 0; }
-    }
-    if (current > 0) bandWidths.push(current);
+    // A stage's label sits on its waist; half cells count half.
+    const bandWidths = r.text.split("\n").filter((row) => /\d+%/.test(row))
+      .map((row) => (row.match(/█/g) ?? []).length + (row.match(/[▌▐]/g) ?? []).length / 2);
     expect(bandWidths).toHaveLength(3);
     const [w0, w1, w2] = bandWidths as [number, number, number];
-    expect(w0).toBeGreaterThan(0);
-    expect(Math.abs(w1 - w0 / 2)).toBeLessThanOrEqual(1);
-    expect(Math.abs(w2 - w0 / 4)).toBeLessThanOrEqual(1);
+    expect(Math.abs(w1 - w0 * Math.SQRT1_2)).toBeLessThanOrEqual(1);
+    expect(Math.abs(w2 - w0 / 2)).toBeLessThanOrEqual(1);
   });
 
   it("funnel-not-monotone fires when a stage exceeds the one above it", () => {
@@ -296,27 +326,7 @@ describe("funnel widths are proportional to value", () => {
 // ── round 2's own fixes: canvas-routed bands (AGENTS.md's "Charts" and
 // "Cell canvas" sections) ───────────────────────────────────────────────
 
-/** Mirrors `flowMarks.ts`'s own `buildSankeyBandRowRoute` row mapping — the
- * clamped `k = max(sourceHeight, targetHeight)` pairing — WITHOUT importing
- * an internal, so the test is checking the documented CONTRACT, not the
- * implementation's own working. */
-function bandRowEndpoints(band: { readonly sourceRowRange: readonly [number, number]; readonly targetRowRange?: readonly [number, number] }): readonly { readonly srcRow: number; readonly tgtRow: number }[] {
-  const [sr0, sr1] = band.sourceRowRange;
-  const [tr0, tr1] = band.targetRowRange!;
-  const srcH = sr1 - sr0 + 1, tgtH = tr1 - tr0 + 1;
-  const k = Math.max(srcH, tgtH);
-  return Array.from({ length: k }, (_, i) => ({ srcRow: sr0 + Math.min(i, srcH - 1), tgtRow: tr0 + Math.min(i, tgtH - 1) }));
-}
 
-function renderSankey(spec: GlyphChartSpec, width: number, height: number, charset: "box" | "ascii" | "braille" = "box") {
-  const groups = sankeyGroups(spec);
-  const plot = PLOT(width, height);
-  const ledger: GlyphChartLedgerEntry[] = [];
-  const layout = layoutSankeyGraph(groups, plot, charset, ledger)!;
-  const canvas = createGlyphCanvas({ cols: width, rows: height, tier: charset });
-  if (layout) paintSankeyLayout(canvas, plot, layout, true, ledger);
-  return { layout, canvas, ledger };
-}
 
 /** Deterministic seeded PRNG (mulberry32), reused for random-DAG sweeps. */
 function mulberry32b(seed: number): () => number {
@@ -338,252 +348,6 @@ function randomSankeySpec(seed: number): GlyphChartSpec {
   return { marks: [glyphChartSankey(rows, { source: "from", target: "to", value: "v" })] };
 }
 
-const fanSpec: GlyphChartSpec = { marks: [glyphChartSankey(
-  [{ from: "A", to: "X", amount: 5 }, { from: "A", to: "Y", amount: 5 }, { from: "B", to: "X", amount: 5 }, { from: "B", to: "Y", amount: 5 }],
-  { source: "from", target: "to", value: "amount" },
-)] };
-
-describe("sankey band painter routes through the canvas (P1-1, relocated root fix)", () => {
-  const sizes: readonly [number, number][] = [[40, 24], [72, 24], [96, 32], [140, 24]];
-  const tiers = ["box", "ascii", "braille"] as const;
-
-  it("gate (a): every band's own row touches BOTH its node borders, on every tier and size, for the fan and the energy dataset", () => {
-    for (const spec of [fanSpec, energySpec]) {
-      for (const [w, h] of sizes) {
-        for (const tier of tiers) {
-          const { layout, canvas } = renderSankey(spec, w, h, tier);
-          for (const band of layout.bands) {
-            if (band.folded || !band.targetRowRange) continue;
-            const srcBox = layout.nodes.find((n) => n.id === band.source)!;
-            const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
-            const color = resolveSeriesColor(band, true);
-            for (const { srcRow, tgtRow } of bandRowEndpoints(band)) {
-              const srcCellIdx = srcRow * canvas.cols + (srcBox.x1 + 1);
-              const tgtCellIdx = tgtRow * canvas.cols + (tgtBox.x0 - 1);
-              expect(canvas.grid.color[srcCellIdx], `${w}x${h}/${tier} ${band.source}->${band.target} row src=${srcRow} misses its own source border`).toBe(color);
-              expect(canvas.grid.color[tgtCellIdx], `${w}x${h}/${tier} ${band.source}->${band.target} row tgt=${tgtRow} misses its own target border`).toBe(color);
-            }
-          }
-        }
-      }
-    }
-  });
-
-  it("gate (b)/(c): painting each band's OWN routed cells alone (same routes, same lanes — never re-derived per band) accounts for exactly what the combined render shows, except at cells another band's own route genuinely also claims (zero silent overwrites)", () => {
-    for (const spec of [fanSpec, energySpec]) {
-      for (const [w, h] of sizes) {
-        const groups = sankeyGroups(spec);
-        const plot = PLOT(w, h);
-        const layout = layoutSankeyGraph(groups, plot, "box", [])!;
-        // ONE routing pass, shared by the combined render and every
-        // "isolated" band below — re-running `layoutSankeyGraph`/lane
-        // assignment on a single band in isolation would give it slot 0
-        // every time, a DIFFERENT (and therefore incomparable) placement
-        // than it gets inside the real, shared-lane layout.
-        const scratch = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-        const routedRows = computeSankeyRoutedRows(scratch, plot, layout, true, []);
-        const combined = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-        paintSankeyLayout(combined, plot, layout, true, []);
-
-        const cellsByBand = new Map<(typeof layout.bands)[number], Set<number>>();
-        for (const { band, cells } of routedRows) {
-          const set = cellsByBand.get(band) ?? new Set<number>();
-          for (const p of cells) set.add(p.y * w + p.x);
-          cellsByBand.set(band, set);
-        }
-        for (const [band, cells] of cellsByBand) {
-          const color = resolveSeriesColor(band, true);
-          for (const idx of cells) {
-            if (combined.grid.color[idx] === color) continue; // still owns it in the real render — fine.
-            // Lost this cell to a higher-priority band: legitimate ONLY if
-            // some OTHER band's own route also claims this exact cell —
-            // i.e. a genuine crossing, never a silent erasure of a run no
-            // other band ever touched.
-            const contestedByAnother = [...cellsByBand].some(([other, otherCells]) => other !== band && otherCells.has(idx));
-            expect(contestedByAnother, `${w}x${h} band ${band.source}->${band.target} lost cell ${idx} to nothing — a silent overwrite, not a crossing`).toBe(true);
-          }
-        }
-      }
-    }
-  });
-
-  /**
-   * `computeSankeyRoutedRows` registers rows on `canvas` in array order, one
-   * edge id per row (`"0"`, `"1"`, …) — replaying that same order against
-   * its OWN return value is how a caller with no access to the internal
-   * counter recovers which band owns which id, without re-deriving it.
-   */
-  function ownerByEdgeId(routedRows: readonly { readonly band: unknown }[]): ReadonlyMap<string, unknown> {
-    const owner = new Map<string, unknown>();
-    routedRows.forEach((row, i) => owner.set(`${i}`, row.band));
-    return owner;
-  }
-
-  /**
-   * gate (d), AS MEASURED — a declared impasse, not a silent gap.
-   *
-   * The task's own bar was zero `report.routeConflicts` entries of any kind.
-   * That bar is NOT met: a shared border column is a genuinely finite
-   * resource — every row of every band leaving (or entering) one node
-   * touches it, at exactly ONE cell each, but a BENT band's own dedicated
-   * ribbon column, reserved for its whole vertical extent, sits BETWEEN
-   * that border and wherever its lane is. A LATER row's mere entry sweep
-   * toward its own lane, or another band's horizontal leg sharing the same
-   * absolute row purely by coincidence (row numbers are a chart-wide
-   * resource, not scoped per node pair), can cross that reservation exactly
-   * along its own axis. Measured (`bench`-style sweep, not asserted below
-   * because it is not a pass/fail bound): the fan at 40-140 wide logs 15-45
-   * cross-band "parallel" conflicts, the energy dataset 0-23, and 200 seeded
-   * random DAGs 1,114 cross-band "parallel" hits total (of 8,657 conflict
-   * entries of all three kinds). Interval-colouring (`assignSankeyLanes`)
-   * closes the ORIGINAL round-1/round-2 failure mode this was meant to rule
-   * out — two OVERLAPPING bands sharing one column for their FULL length,
-   * which is what erased an entire run — but it cannot, by itself, prevent
-   * a single-cell coincidence between a transit sweep and someone else's
-   * reservation. Reaching true zero needs a fundamentally different
-   * router (true per-cell diagonal/Bresenham ribbons, or a Manhattan-A*
-   * clearance planner like `@glyphcss/diagrams`' own) — out of proportion
-   * to this fix, and a separate piece of work.
-   *
-   * What IS true, and IS asserted: a conflict cell is NEVER a visual
-   * defect. `paintSankeyLayout` ignores `resolveJunctions()`'s own
-   * box-drawing glyph entirely and repaints every cell itself, border cells
-   * first and unconditionally (see its own doc) — so whatever a conflict's
-   * `kind`, the cell that ends up on screen is always the fill of whichever
-   * band the SAME registration-order tie-break resolves to, never a blank
-   * cell, never the wrong band's colour, and never (gates (a)/(c) above)
-   * a band's own border or an uncontested run.
-   */
-  it("gate (d), measured: every route conflict cell paints the correct winner (registration order) — never blank, never the wrong band, on the fan, energy and 200 random DAGs", () => {
-    const cases: { readonly spec: GlyphChartSpec; readonly w: number; readonly h: number }[] = [
-      ...sizes.map(([w, h]) => ({ spec: fanSpec, w, h })),
-      ...sizes.map(([w, h]) => ({ spec: energySpec, w, h })),
-      ...Array.from({ length: 200 }, (_, seed) => [8, 16, 24].map((h) => ({ spec: randomSankeySpec(seed), w: 72, h }))).flat(),
-    ];
-    for (const { spec, w, h } of cases) {
-      const groups = sankeyGroups(spec);
-      const plot = PLOT(w, h);
-      const layout = layoutSankeyGraph(groups, plot, "box", [])!;
-      // Route registration is a pure function of `layout`/`plot` (it never
-      // reads canvas content), so computing it on a THROWAWAY canvas and
-      // reading the painted colours off a SEPARATE, real
-      // `paintSankeyLayout()` render is the same routes both times — this
-      // is what lets the test read exactly what a real render shows without
-      // reimplementing the painter's own two-pass claim logic here.
-      const probe = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-      const routedRows = computeSankeyRoutedRows(probe, plot, layout, true, []);
-      probe.resolveJunctions();
-      const canvas = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-      paintSankeyLayout(canvas, plot, layout, true, []);
-      const owner = ownerByEdgeId(routedRows);
-      const colorByBand = new Map(layout.bands.map((band) => [band, resolveSeriesColor(band, true)]));
-      for (const conflict of canvas.report.routeConflicts) {
-        const idx = conflict.row * canvas.cols + conflict.col;
-        const painted = canvas.grid.color[idx];
-        // Never blank, and never a colour belonging to none of the
-        // contending edges' own bands — whichever of them the two-pass
-        // (border-cells-first, then registration order) priority actually
-        // picked, it painted a colour one of the edges present here owns.
-        const contendingColors = new Set(conflict.edgeIds.map((id) => colorByBand.get(owner.get(id) as never) ?? null));
-        expect(painted, `${w}x${h} conflict (${conflict.kind}) at (${conflict.col},${conflict.row}) painted a colour outside its own contenders`).not.toBeNull();
-        expect(contendingColors.has(painted), `${w}x${h} conflict (${conflict.kind}) at (${conflict.col},${conflict.row})`).toBe(true);
-      }
-    }
-    // Real work, not padding for a slow runner: 200 seeded random DAGs x 3
-    // heights, each laid out AND rendered twice (a throwaway probe canvas
-    // plus a real `paintSankeyLayout()` pass) to read every route-conflict
-    // cell's actual painted colour — vitest's 5s default timed out once
-    // under machine load (AGENTS.md's "Settle on the component's own idle
-    // signal" budget convention).
-  }, 30_000);
-
-  it("a band routed through a depth-skipping gap never enters an intermediate node's own box (assert), and the energy dataset's Natural Gas -> Industrial is fully connected", () => {
-    // This used to route straight through Electricity Generation's own
-    // column and either get silently painted over (round 1) or lose its
-    // entire lane under EG's box (round 2, N2) — `layoutSankeyGraph`
-    // throws internally if any route cell ever lands inside a foreign
-    // node's box, so simply rendering without throwing is most of this
-    // gate; the rest checks the flagship band actually reaches both ends.
-    for (const [w, h] of [[40, 24], [72, 24], [96, 32], [140, 40]] as const) {
-      const { layout, canvas } = renderSankey(energySpec, w, h, "box");
-      const band = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial")!;
-      const srcBox = layout.nodes.find((n) => n.id === "Natural Gas")!;
-      const tgtBox = layout.nodes.find((n) => n.id === "Industrial")!;
-      const color = resolveSeriesColor(band, true);
-      for (const { srcRow, tgtRow } of bandRowEndpoints(band)) {
-        expect(canvas.grid.color[srcRow * canvas.cols + (srcBox.x1 + 1)], `${w}x${h} src row ${srcRow}`).toBe(color);
-        expect(canvas.grid.color[tgtRow * canvas.cols + (tgtBox.x0 - 1)], `${w}x${h} tgt row ${tgtRow}`).toBe(color);
-      }
-    }
-  });
-
-  it("mutation check: two OVERLAPPING bent bands never share a ribbon column (interval-coloured lane uniqueness)", () => {
-    // Direct check on the placement itself, not a pixel-count proxy: A->Y
-    // and B->X have IDENTICAL vertical extents (both [6,18] at 72 wide) —
-    // exactly the case `assignSankeyLanes`'s interval colouring exists to
-    // separate. Reintroducing a single shared lane column (mutating the
-    // painter to ignore its own `laneStartByBand` map) does NOT fail this
-    // test's sibling pixel-based gates above — gate (a) is independently
-    // guaranteed by the border-priority pass, and low-90s-percent cell
-    // survival turns out to be typical even for a CORRECT layout on this
-    // data (dense real crossings), so a percentage threshold can't
-    // discriminate the mutation from honest crossings either. This test
-    // catches it directly instead: it fails immediately if the two
-    // ribbons' own dedicated columns are the same.
-    const { layout, canvas } = renderSankey(fanSpec, 72, 24, "box");
-    const findRibbonColumn = (band: (typeof layout.bands)[number]): number => {
-      // The "lane" column is whichever x holds the LONGEST run of
-      // consecutive-y cells in row 0's own route — the dedicated vertical.
-      const probe = createGlyphCanvas({ cols: 72, rows: 24, tier: "box" });
-      const routedRows = computeSankeyRoutedRows(probe, PLOT(72, 24), layout, true, []);
-      const row0 = routedRows.find((r) => r.band === band)!;
-      const spanByX = new Map<number, { min: number; max: number }>();
-      for (const p of row0.cells) {
-        const span = spanByX.get(p.x) ?? { min: p.y, max: p.y };
-        span.min = Math.min(span.min, p.y); span.max = Math.max(span.max, p.y);
-        spanByX.set(p.x, span);
-      }
-      return [...spanByX.entries()].reduce((best, [x, s]) => (s.max - s.min > best.span ? { x, span: s.max - s.min } : best), { x: -1, span: -1 }).x;
-    };
-    const ay = layout.bands.find((b) => b.source === "A" && b.target === "Y")!;
-    const bx = layout.bands.find((b) => b.source === "B" && b.target === "X")!;
-    expect(findRibbonColumn(ay)).not.toBe(findRibbonColumn(bx));
-  });
-
-  it("a crossing band that would be too narrow to fit its own ribbon reports sankey-crossings-merged", () => {
-    // A full bipartite fan (every source to every target) has crossings no
-    // column reordering can eliminate. At a narrow plot width the resulting
-    // real (non-folded) diagonal bands' own ribbons outgrow the gap. Height
-    // 60 (not the pre-air-feature 31) is what it now takes for enough real
-    // bands to survive folding under the reserved node padding/link gap to
-    // still crowd the narrow gap — a shorter plot folds so much of this
-    // dense a fan into "(other)" stubs that too few real bent bands remain
-    // to overflow it.
-    const n = 6;
-    const rows: { from: string; to: string; amount: number }[] = [];
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) rows.push({ from: `S${i}`, to: `T${j}`, amount: 1 });
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey(rows, { source: "from", target: "to", value: "amount" })] };
-    const { ledger } = renderSankey(spec, 15, 60, "box");
-    expect(ledger.some((e) => e.code === "sankey-crossings-merged")).toBe(true);
-  });
-
-  it("sankey-crossings-merged names the actual BENT-BAND count, not the packed column width, as 'bands' (sankey round-3 review, finding l/R3)", () => {
-    const n = 6;
-    const rows: { from: string; to: string; amount: number }[] = [];
-    for (let i = 0; i < n; i++) for (let j = 0; j < n; j++) rows.push({ from: `S${i}`, to: `T${j}`, amount: 1 });
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey(rows, { source: "from", target: "to", value: "amount" })] };
-    const { ledger } = renderSankey(spec, 15, 60, "box");
-    const entry = ledger.find((e) => e.code === "sankey-crossings-merged")!;
-    const detail = entry.detail as { crossing: number; lanes: number; bands: number };
-    // `bands` (bent-band count) must never be reported as if it were the
-    // packed COLUMN width (`crossing`) — the old message printed `crossing`
-    // and called it "flows", conflating a column count with a band count.
-    expect(detail.bands).toBeGreaterThan(0);
-    expect(detail.bands).toBeLessThanOrEqual(detail.crossing);
-    expect(entry.message).toContain(`${detail.bands} crossing band`);
-    expect(entry.message).not.toContain(`${detail.crossing} crossing flow`);
-  });
-});
 
 describe("sankey fold bucket name never collides with a real node id (sankey round-3 review, finding l/N10/R6)", () => {
   it("a real node literally named '(other)' keeps its own identity — the fold bucket gets a disambiguated name instead", () => {
@@ -633,67 +397,10 @@ describe("sankey fold bucket name never collides with a real node id (sankey rou
 });
 
 describe("two sankey marks sharing one canvas never corrupt or silently overwrite each other's bands (fable review, batch 3, finding c)", () => {
-  function bandCellsOf(layout: GlyphChartSankeyLayout, w: number, h: number, prefix: string): Set<number> {
-    const scratch = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-    const routed = computeSankeyRoutedRows(scratch, PLOT(w, h), layout, true, [], prefix);
-    const cells = new Set<number>();
-    for (const { cells: rowCells } of routed) for (const p of rowCells) cells.add(p.y * w + p.x);
-    return cells;
-  }
 
-  it("paintSankeyMarks never throws registering two marks' edge ids (namespaced) on one canvas", () => {
-    const w = 72, h = 24;
-    const plot = PLOT(w, h);
-    const canvas = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-    // Pre-fix, both marks' `computeSankeyRoutedRows` register edge ids
-    // "0", "1", … on the SAME canvas-wide edge/route store
-    // (`junctions.ts`'s own doc: "a second `route()` call for the same
-    // edge id REPLACES its route entirely"), so mark #2 registering "0"
-    // again silently discards mark #1's own route bookkeeping for that id.
-    expect(() => paintSankeyMarks(canvas, plot, [{ groups: sankeyGroups(fanSpec) }, { groups: sankeyGroups(energySpec) }], true, [])).not.toThrow();
-  });
 
-  it("paintSankeyMarks: mark #1's already-painted band cells survive mark #2's paint pass unchanged (one shared claim map, ONE resolveJunctions() call)", () => {
-    const w = 72, h = 24;
-    const plot = PLOT(w, h);
-    const layoutA = layoutSankeyGraph(sankeyGroups(fanSpec), plot, "box", [])!;
-    const bandCellsA = bandCellsOf(layoutA, w, h, "sankey0:");
-    expect(bandCellsA.size).toBeGreaterThan(0);
 
-    // Mark A alone, for the "before" snapshot of what it actually painted.
-    const alone = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-    paintSankeyMarks(alone, plot, [{ groups: sankeyGroups(fanSpec) }], true, []);
-    const charAfterA = alone.grid.char.slice();
-    const colorAfterA = alone.grid.color.slice();
 
-    // Both marks together, through the SAME batched entry point.
-    const combined = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-    paintSankeyMarks(combined, plot, [{ groups: sankeyGroups(fanSpec) }, { groups: sankeyGroups(energySpec) }], true, []);
-
-    for (const idx of bandCellsA) {
-      expect(combined.grid.char[idx], `cell ${idx} (mark A's own band cell) was overwritten by mark B`).toBe(charAfterA[idx]);
-      expect(combined.grid.color[idx]).toBe(colorAfterA[idx]);
-    }
-  });
-
-  it("mutation check: calling paintSankeyLayout per mark (the pre-fix shape — its own resolveJunctions() every time, no shared claim) DOES let mark B corrupt mark A's already-painted cells", () => {
-    const w = 72, h = 24;
-    const plot = PLOT(w, h);
-    const layoutA = layoutSankeyGraph(sankeyGroups(fanSpec), plot, "box", [])!;
-    const bandCellsA = bandCellsOf(layoutA, w, h, "sankeyA:");
-
-    const canvas = createGlyphCanvas({ cols: w, rows: h, tier: "box" });
-    // No shared claimedBy, and each call resolves junctions on its own —
-    // exactly the two-call shape `paintSankeyMarks` replaces.
-    paintSankeyLayout(canvas, plot, layoutA, true, [], undefined, "sankeyA:");
-    const charAfterA = canvas.grid.char.slice();
-    const layoutB = layoutSankeyGraph(sankeyGroups(energySpec), plot, "box", [])!;
-    paintSankeyLayout(canvas, plot, layoutB, true, [], undefined, "sankeyB:");
-
-    let overwritten = 0;
-    for (const idx of bandCellsA) if (canvas.grid.char[idx] !== charAfterA[idx]) overwritten++;
-    expect(overwritten).toBeGreaterThan(0);
-  });
 
   it("a spec with two sankey marks renders through paintGlyphChart with no exception and both sources listed in meta.series", () => {
     const spec: GlyphChartSpec = { marks: [
@@ -707,23 +414,6 @@ describe("two sankey marks sharing one canvas never corrupt or silently overwrit
 });
 
 describe("report.routeConflicts is surfaced by renderGlyphChart (fable review, batch 3, finding e)", () => {
-  it("a sankey render's own canvas.report.routeConflicts reaches r.report.routeConflicts unchanged", () => {
-    const r = renderGlyphChart(energySpec, { target: "chat", width: 72, height: 24 });
-    // AGENTS.md's Charts section documents this as measurable ("not fully
-    // empty in practice") but `render.ts` used to copy only
-    // `canvas.report.ledger`/`unsupportedGlyphs`, dropping it on the floor —
-    // no caller could see it at all. The energy dataset at this size is a
-    // real, non-trivial case (crossing bands), so this also proves the
-    // field isn't merely present-but-always-empty.
-    expect(Array.isArray(r.report.routeConflicts)).toBe(true);
-    expect(r.report.routeConflicts.length).toBeGreaterThan(0);
-    for (const c of r.report.routeConflicts) {
-      expect(typeof c.col).toBe("number");
-      expect(typeof c.row).toBe("number");
-      expect(["parallel", "corner", "multi"]).toContain(c.kind);
-      expect(Array.isArray(c.edgeIds)).toBe(true);
-    }
-  });
 
   it("a spec with no sankey/funnel mark reports an empty routeConflicts, byte-identical to before this field existed", () => {
     const r = renderGlyphChart({ marks: [glyphChartLine([1, 2, 3])] }, { target: "chat" });
@@ -740,119 +430,6 @@ describe("report.routeConflicts is surfaced by renderGlyphChart (fable review, b
   // loss unless reported — which `sankey-band-broken` (finding k) now
   // does, per band. This test pins the TRUE count at the energy dataset's
   // own reported size rather than assuming a number.
-  it("the true routeConflicts count at the energy dataset's own 72x24 is measured and pinned, not assumed empty", () => {
-    const r = renderGlyphChart(energySpec, { target: "chat", width: 72, height: 24 });
-    // A real, non-trivial number — the declared impasse's own measurement.
-    // Lower than the pre-air-feature 98, and lower again (74 -> 36) after
-    // DIAGNOSIS-sankey-column-jump.md's fix: a skip-level band's own k rows
-    // now spread across distinct pass-through rows and final-lane columns
-    // instead of collapsing onto one shared cell each, which is exactly what
-    // used to manufacture most of these conflicts (every one of a tall
-    // band's own rows converging on the SAME single cell as every other
-    // band crossing that cell). Genuine crossings remain — see gate (d).
-    // 36 -> 27: lane packing now reserves a skip-level leg's real descent
-    // (pass-through rows included), not its endpoint rows (codex round-1 P1).
-    // 27 -> 20: Round 3's corridor-aware order puts Industrial below
-    // Electricity Generation, so Natural Gas -> Industrial no longer climbs
-    // through that node's outflows to reach it.
-    expect(r.report.routeConflicts.length).toBe(20);
-  });
-});
-
-describe("sankey-band-broken: a band's own run interrupted by a crossing band is reported, not silent (sankey round-3 review, finding k)", () => {
-  it("energy 140x40: Renewables -> Electricity Generation's own run is broken and reported with a real cell count", () => {
-    const r = renderGlyphChart(energySpec, { target: "chat", width: 140, height: 40 });
-    const entry = r.report.ledger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string; target: string }).source === "Renewables" && (e.detail as { target: string }).target === "Electricity Generation");
-    expect(entry, "sankey-band-broken must fire for Renewables -> Electricity Generation at 140x40").toBeTruthy();
-    expect((entry!.detail as { cells: number }).cells).toBeGreaterThan(0);
-  });
-
-  it("a band with no crossing (a simple two-node flow with room to spare) never reports sankey-band-broken", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
-    const r = renderGlyphChart(spec, { target: "chat", width: 72, height: 24 });
-    expect(r.report.ledger.some((e) => e.code === "sankey-band-broken")).toBe(false);
-  });
-
-  // Sankey round-4 review (N3, relocated agy P2-1): `sankey-band-broken`
-  // counted a REFUSAL per crossing (row, cell) pair rather than per
-  // DISTINCT cell — several of a multi-row band's own rows routinely cross
-  // the SAME foreign-owned cell at a shared free-row detour, and the old
-  // counter added a fresh unit for every one of those revisits. Fixed by
-  // tracking a per-band `Set` of refused cell indices instead of a running
-  // counter (`flowMarks.ts`'s `refusedCellsByBand`).
-  //
-  // Sized at 72x40, not the original 140x40: DIAGNOSIS-sankey-column-jump.md's
-  // fix gives every row of a skip-level band its OWN pass-through row and
-  // final-lane column, so at the original 140x40 (whose gaps are wide
-  // enough to spread every row without ever reusing one) the self-overlap
-  // this test exists to exercise no longer occurs there at all — measured,
-  // naive and distinct now agree exactly (20 == 20) at 140x40. 72x40 is
-  // narrower, forcing `pickSankeyFreeRowBand`/`assignSankeyFinalLanes`'s own
-  // documented degrade (fewer clear rows/lanes than the band's own `k` than
-  // it needs to give every row a fully distinct one), which is what still
-  // reproduces real, measured row self-overlap (naive 37 vs distinct 25) —
-  // the residual the fix's own doc calls out, not a defect.
-  //
-  // DIAGNOSIS-sankey-column-jump.md Round 3 moved Industrial below
-  // Electricity Generation, and Natural Gas -> Industrial now loses 5 cells
-  // at 72x40 with no row revisiting another's (naive 5 == distinct 5), so the
-  // repro moved to the band that now carries the self-overlap:
-  // Nuclear -> Electricity Generation, whose rows cross the skip-level
-  // band's lane (naive 35 vs distinct 23).
-  it("N3: Nuclear -> Electricity Generation reports the DISTINCT lost-cell count — an independent recount confirms the ledger's own number, and mutating the fix back to a per-crossing counter would report a different (larger) figure", () => {
-    const groups = sankeyGroups(energySpec);
-    const plot = PLOT(72, 40);
-    const layout = layoutSankeyGraph(groups, plot, "box", [])!;
-    const targetBand = layout.bands.find((b) => b.source === "Nuclear" && b.target === "Electricity Generation");
-    expect(targetBand, "the energy dataset must still carry a Nuclear -> Electricity Generation band").toBeTruthy();
-
-    // ONE shared routing pass (`computeSankeyRoutedRows`, on its own scratch
-    // canvas so registering it doesn't collide with the real paint's own
-    // edge ids) gives every row's OWN cells — the same routes the real
-    // paint uses, never re-derived per band (gate (b)/(c)'s own doc
-    // explains why re-deriving in isolation gives a different, wrong lane
-    // placement). A SEPARATE canvas holds the real, combined paint.
-    const scratch = createGlyphCanvas({ cols: 72, rows: 40, tier: "box" });
-    const routedRows = computeSankeyRoutedRows(scratch, plot, layout, true, []);
-    const combined = createGlyphCanvas({ cols: 72, rows: 40, tier: "box" });
-    const combinedLedger: GlyphChartLedgerEntry[] = [];
-    paintSankeyLayout(combined, plot, layout, true, combinedLedger);
-
-    const entry = combinedLedger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string; target: string }).source === "Nuclear" && (e.detail as { target: string }).target === "Electricity Generation");
-    expect(entry, "sankey-band-broken must fire for Nuclear -> Electricity Generation at 72x40 with the reserved air live").toBeTruthy();
-    const reportedCells = (entry!.detail as { cells: number }).cells;
-
-    const bandColor = resolveSeriesColor(targetBand!, true);
-    const bandRows = routedRows.filter((r) => r.band === targetBand);
-    expect(bandRows.length, "the band must have more than one routed row to exercise the self-crossing case N3 is about").toBeGreaterThan(1);
-
-    // Independent recount, DISTINCT cells: a cell counts once no matter how
-    // many of the band's own rows cross it.
-    const distinctLost = new Set<number>();
-    // Naive recount, the OLD (pre-fix) shape: once per (row, cell) crossing,
-    // with no dedup across rows — this is what a counter-based
-    // `refusedByBand` would have reported.
-    let naiveLost = 0;
-    for (const row of bandRows) {
-      for (const p of row.cells) {
-        const idx = p.y * combined.cols + p.x;
-        if (combined.grid.color[idx] === bandColor) continue; // this row's own cell, not a loss.
-        distinctLost.add(idx);
-        naiveLost++;
-      }
-    }
-    // The dataset must actually exercise the divergence this test is
-    // for — several rows sharing a lost cell — or the two recounts would
-    // trivially agree and the mutation-sensitivity claim below would be
-    // vacuous.
-    expect(naiveLost, "the naive per-row recount must exceed the distinct-cell recount for this to be a real N3 repro").toBeGreaterThan(distinctLost.size);
-    // The production ledger must match the DISTINCT recount — this is what
-    // reverting `refusedCellsByBand` from a `Set` back to a counter would
-    // break: the real entry would then report `naiveLost`, not
-    // `distinctLost.size`, and this assertion would go red.
-    expect(reportedCells).toBe(distinctLost.size);
-    expect(reportedCells).not.toBe(naiveLost);
-  });
 });
 
 describe("sankey fold reaches a fixed point (P1-2)", () => {
@@ -1280,20 +857,6 @@ describe("sankey visual air: node padding + link gap, reserved at the LAYOUT lay
     }
   });
 
-  it("zero stray glyphs outside ribbon, box and label cells, with node padding and link gaps live (energy dataset, 72x24, box)", () => {
-    const { layout, canvas } = renderSankey(energySpec, 72, 24, "box");
-    const nodeColumns = layout!.nodes.map((n) => [n.x0, n.x1, n.y0, n.y1] as const);
-    const junctionGlyphs = new Set(["─", "│", "┌", "└", "┘", "┐", "╌", "╎", "┴", "┬", "├", "┤", "┼"]);
-    const stray: { x: number; y: number; char: string }[] = [];
-    for (let idx = 0; idx < canvas.grid.char.length; idx++) {
-      const c = canvas.grid.char[idx]!;
-      if (!junctionGlyphs.has(c)) continue;
-      const x = idx % canvas.cols, y = Math.floor(idx / canvas.cols);
-      if (nodeColumns.some(([x0, x1, y0, y1]) => x >= x0 && x <= x1 && y >= y0 && y <= y1)) continue;
-      stray.push({ x, y, char: c });
-    }
-    expect(stray, `found stray junction glyphs outside every node box: ${JSON.stringify(stray)}`).toEqual([]);
-  });
 
   it("mutation check: the gap reservation is load-bearing — a build with GLYPH_CHART_SANKEY_LINK_GAP_ROWS/NODE_PADDING_ROWS forced to 0 (verified by hand: both constants set to 0 in flowMarks.ts) reproduces the pre-air edge-to-edge layout, and this suite's own 'exactly one blank row' test above goes red against it — recorded here as a comment, not re-run automatically, since the constants are compile-time exports with no runtime override seam", () => {
     // Verified during development: setting both `GLYPH_CHART_SANKEY_NODE_PADDING_ROWS`
@@ -1314,50 +877,6 @@ describe("sankey visual air: node padding + link gap, reserved at the LAYOUT lay
     expect(GLYPH_CHART_SANKEY_LINK_GAP_ROWS).toBeGreaterThan(0);
   });
 
-  it("mutation check: comparing a band's painted footprint against the UNPADDED node box (ignoring gap rows) reports false 'losses' at exactly the gap rows — the reason honesty must compare against the PLANNED (gapped) set", () => {
-    // A single hub with three separate, single-link targets (never the
-    // energy dataset's own crowded topology, where a DIFFERENT band's
-    // skip-level pass-through can legitimately route through a gap
-    // column near an unrelated node) — Hub's own gap column is exclusively
-    // its own three bands' territory, so any ink found there in a planned
-    // gap row can only be this false-loss check's own comparison error,
-    // never a genuine foreign band crossing through.
-    const groups = sankeyGroups(adversarialSpec);
-    const plot = PLOT(40, 30);
-    const layout = layoutSankeyGraph(groups, plot, "box", [])!;
-    const { canvas } = renderSankey(adversarialSpec, 40, 30, "box");
-    let falseLossesFound = 0;
-    for (const node of layout.nodes) {
-      const outgoing = layout.bands.filter((b) => b.source === node.id);
-      if (outgoing.length < 2) continue;
-      // The WRONG ground truth a painter-level "air" attempt would have to
-      // use: the node's own FULL, unpadded interior column — every row in
-      // [node.y0, node.y1] at the node's own right edge, with no notion of
-      // a planned gap.
-      for (let y = node.y0; y <= node.y1; y++) {
-        const isRealBandRow = outgoing.some((b) => y >= b.sourceRowRange[0] && y <= b.sourceRowRange[1]);
-        if (isRealBandRow) continue; // a genuine band row — not part of this check.
-        // This row is a PLANNED gap row (between two of this node's own
-        // bands) — nothing paints it, which the LAYOUT-level design treats
-        // as expected-empty. A naive "every row in the box must be painted"
-        // comparison would misreport it as a lost cell. Checked one column
-        // OUTSIDE the node's own box (`x1 + 1`, where a band's ribbon
-        // stub would start) — `x1` itself is the box's own right BORDER,
-        // always drawn (`│`), and isn't part of any band's footprint.
-        const idx = y * canvas.cols + node.x1 + 1;
-        const char = canvas.grid.char[idx];
-        expect(char, `row ${y} just right of node "${node.id}" should be blank (a planned gap), not band ink`).toBe(" ");
-        falseLossesFound++;
-      }
-    }
-    // The naive unpadded comparison WOULD have flagged every one of these
-    // as a silent loss — proving the planned-set comparison (gate (b)/(c)
-    // above, which reads `routedRows`' own footprint — a gap row was never
-    // part of it to begin with) is what keeps the zero-overwrite gate
-    // honest under visual air, not an accident of this dataset having no
-    // multi-band nodes.
-    expect(falseLossesFound).toBeGreaterThan(0);
-  });
 });
 
 describe("duplicate funnel stage names are kept, never merged (P2-4)", () => {
@@ -1472,26 +991,24 @@ describe("funnel stages past the row budget fold, never silently drop (P1-3)", (
 });
 
 describe("funnel value label formatting: plain first, then SI, then drop (P2-6)", () => {
-  it("[12345, 6789] at 30 cols keeps a value label (not dropped by the old 6-sig-digit ~s form)", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartFunnel([12345, 6789])] };
-    const r = renderGlyphChart(spec, { target: "chat", width: 30, height: 8 });
-    // The old fallback (`d3format("~s")`, 6 significant digits) rendered
-    // "12.345k" (7 chars) — LONGER than the plain, comma-grouped "12,345"
-    // (6 chars) it replaced — and dropped both stages' labels at this
-    // width. Now the plain form is tried FIRST, and only the row narrow
-    // enough to need it (12,345's own 6-char row) falls back to the
-    // 3-significant-digit "12.3k" (5 chars) — which still SURVIVES, unlike
-    // the old 6-digit form; the wider "6,789" row keeps its plain form.
-    expect(r.text).toMatch(/12\.3k/);
-    expect(r.text).toContain("6,789");
-    expect(r.report.ledger.some((e) => e.code === "label-dropped" && e.detail?.role === "funnel value label")).toBe(false);
+  it("[12345, 6789] keeps the exact plain value when it fits and takes the SI form only when it doesn't", () => {
+    // Mutation: try only the plain form -> the 11-column render drops 12,345.
+    const at = (width: number) => renderGlyphChart({ marks: [glyphChartFunnel([12345, 6789])] }, { target: "chat", width, height: 8 });
+    expect(at(30).text).toContain("12,345");
+    expect(at(11).text).toMatch(/12\.3k/);
+    for (const r of [at(30), at(11)]) {
+      expect(r.text).toContain("6,789");
+      expect(r.report.ledger.some((e) => e.code === "label-dropped" && e.detail?.role === "funnel value label")).toBe(false);
+    }
   });
 
   it("a value too wide even after SI abbreviation drops with a label-dropped ledger entry, never truncated", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartFunnel([123456789, 1])] };
-    const r = renderGlyphChart(spec, { target: "chat", width: 14, height: 8 });
+    // Mutation: write the line unchecked -> "123,456" is cut, with no ledger entry.
+    const r = renderGlyphChart({ marks: [glyphChartFunnel([123456789, 1])] }, { target: "chat", width: 8, height: 8 });
     const entry = r.report.ledger.find((e) => e.code === "label-dropped" && e.detail?.role === "funnel value label");
-    expect(entry).toBeTruthy();
+    expect(entry?.detail?.text).toBe("123,456,789");
+    expect(r.text).not.toMatch(/12/);
+    expect(r.text).toContain("1  1");
   });
 });
 
@@ -1522,30 +1039,6 @@ describe("P3 fixes", () => {
     expect(() => renderGlyphChart({ marks: [funnelWithTransform] })).toThrow(expect.objectContaining({ code: "bad-options" }));
   });
 
-  it("N7: a 2-row sankey node skips its label rather than overwriting its own border, and reports label-dropped", () => {
-    // A single link both ends of which own the WHOLE plot height forces
-    // both nodes' boxes to exactly `plotHeight` rows — pinning it at 2
-    // deterministically (mutation `n13` in the round-2 review: removing
-    // the `< 3` guard leaves this passing at 947/947 with no red test).
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "Q", to: "R", amount: 100 }], { source: "from", target: "to", value: "amount" })] };
-    const groups = sankeyGroups(spec);
-    const plot = PLOT(60, 2);
-    const ledger: GlyphChartLedgerEntry[] = [];
-    const layout = layoutSankeyGraph(groups, plot, "box", ledger)!;
-    const q = layout.nodes.find((n) => n.id === "Q")!;
-    expect(q.height).toBe(2);
-    const canvas = createGlyphCanvas({ cols: 60, rows: 2, tier: "box" });
-    paintSankeyLayout(canvas, plot, layout, false, ledger);
-    const rowText = (row: number): string => canvas.grid.char.slice(row * 60, row * 60 + 60).map((c) => c ?? " ").join("");
-    // Structural: neither of the box's two rows contains the node's own
-    // letter — the label MUST be dropped (there's no third, interior row
-    // to put it on without overwriting a border), never overlaid onto a
-    // corner/edge glyph. Mutating the `< 3` guard away paints "Q" straight
-    // into row 0 here, which is exactly what this assertion catches.
-    expect(rowText(0)).not.toContain("Q");
-    expect(rowText(1)).not.toContain("Q");
-    expect(ledger.some((e) => e.code === "label-dropped" && e.detail?.role === "sankey node label" && e.detail?.text === "Q")).toBe(true);
-  });
 });
 
 describe("dead guarantees now covered by tests (P2-7)", () => {
@@ -1558,11 +1051,11 @@ describe("dead guarantees now covered by tests (P2-7)", () => {
     expect(layoutExplicit.legend).not.toBeNull();
   });
 
-  it("m6: the ascii charset uses 'x' for the value/percent separator, not a folded '?' or the raw middle dot", () => {
+  it("m6: the ascii charset stays 7-bit: `#` stages and a `v` step", () => {
     const r = renderGlyphChart(funnelSpec, { target: "chat", charset: "ascii" });
-    expect(r.text).toMatch(/\bx\s+\d+%/);
-    expect(r.text).not.toContain("·");
-    expect(r.text).not.toContain("?");
+    expect(r.text).toMatch(/^[\x20-\x7e\n]*$/);
+    expect(r.text).toMatch(/#  [A-Z]/);
+    expect(r.text).toMatch(/v \d+%/);
   });
 
   it("m7: a sankey/funnel-only spec reserves NO cartesian axis gutter", () => {
@@ -1587,7 +1080,7 @@ describe("dead guarantees now covered by tests (P2-7)", () => {
     const spec: GlyphChartSpec = { marks: [glyphChartFunnel([100000, 1])] };
     const r = renderGlyphChart(spec, { target: "chat", width: 40, height: 10, charset: "box" });
     const rows = r.text.split("\n");
-    const rowWidths = rows.map((row) => (row.match(/[█░▚╱▌═▓▒]/g) ?? []).length);
+    const rowWidths = rows.map((row) => (row.match(/[█▌▐▘▝▀▖▗▄▙▛▜▟▚▞]/g) ?? []).length);
     const bandWidths: number[] = [];
     let current = 0;
     for (const w of rowWidths) {
@@ -1611,16 +1104,11 @@ describe("dead guarantees now covered by tests (P2-7)", () => {
     const foldedBand = layout.bands.find((b) => b.folded)!;
     expect(foldedBand).toBeTruthy();
     const canvas = createGlyphCanvas({ cols: 60, rows: 6, tier: "box" });
-    paintSankeyLayout(canvas, plot, layout, true, ledger);
+    paintSankeyLines(canvas, plot, layout, groups, true, ledger);
+    // Mutation: skip painting folded bands -> no "(other)" line on the hub's rows.
     const [sr0, sr1] = foldedBand.sourceRowRange;
-    const hubBox = layout.nodes.find((n) => n.id === "Hub")!;
-    let painted = false;
-    for (let row = sr0; row <= sr1; row++) {
-      for (let col = hubBox.x1 + 1; col <= plot.x1; col++) {
-        if (canvas.grid.char[row * canvas.cols + col] !== " ") painted = true;
-      }
-    }
-    expect(painted).toBe(true);
+    const rowText = (row: number) => canvas.grid.char.slice(row * canvas.cols, (row + 1) * canvas.cols).join("");
+    expect(Array.from({ length: sr1 - sr0 + 1 }, (_, i) => rowText(sr0 + i)).join("\n")).toContain("(other)");
   });
 });
 
@@ -1650,335 +1138,24 @@ describe("chat-target renders (visual reference)", () => {
       { from: "Power", to: "Industry", amount: 30 },
     ];
     const r = renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
-    // Re-derived here after the "Sankey ribbon rendering" packet and again
-    // after the "visual air" packet (packages/charts/AGENTS.md): a band's own straight run is the SERIES
-    // glyph one step lighter (`█` -> `▓`, never a silent gap —
-    // `SANKEY_LIGHTER_STRAIGHT_GLYPH`) and a turn is a rounded corner
-    // (`╭ ╯`) instead of a flat, undifferentiated block — and a blank ROW
-    // now separates the stacked Coal/Gas boxes (`sankeyAirGap`'s node
-    // padding, row 5) and the two bands Power sends out (its own link gap,
-    // between the Homes and Industry ribbons).
     expect(r.text).toBe([
-      "┌────────┐█▓▓▓▓▓▓▓▓█┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐",
-      "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│  Coal  │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "└────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │",
-      "                    │        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "          ╭░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │",
-      "┌────────┐░╭░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │",
-      "│        │░╯╭░░░░░░░│        │        ╰▚└────────┘",
-      "│        │░░╯╭░░░░░░│        │▚                   ",
-      "│  Gas   │░░░╯╭░░░░░│        │▚╮                  ",
-      "│        │░░░░╯╭░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐",
-      "│        │░░░░░╯╭░░░└────────┘▚╰▚▚▚▚▚▚▚▚│Industry│",
-      "│        │░░░░░░╯░              ╰▚▚▚▚▚▚▚│        │",
-      "└────────┘░░░░░░░╯               ╰▚▚▚▚▚▚└────────┘",
-      "   █  Coal          ░  Gas         ▚  Power       ",
+      "        █─╮          ╭─█─╮         ╭─█            ",
+      "        █─┤          ├─█─┤         ├─█            ",
+      "Coal 40 █─┼━━━ 40 ━━━┼─█─┤         ├─█            ",
+      "        █─┤          ├─█─┤         ├─█            ",
+      "        █─┤          ╰─█─┼━━ 70 ━━━┼─█ Homes 70   ",
+      "        █─╯            █─┤         ├─█            ",
+      "                     ╭─█─┤         ├─█            ",
+      "                     ├─█─┤         ├─█            ",
+      "        █─╮          ├─█─╯         ├─█            ",
+      "        █─┤        ┏━┼─█           ╰─█            ",
+      "        █─┤        ┃ ├─█─╮                        ",
+      " Gas 60 █─┼━━ 60 ━━┛ ├─█─┼─ 30 ──╮                ",
+      "        █─┤          ├─█─┤       │ ╭─█            ",
+      "        █─┤          ╰─█─╯       ╰─┼─█ Industry 30",
+      "        █─┤        Power 100       ├─█            ",
+      "        █─╯                        ╰─█            ",
     ].join("\n"));
-  });
-});
-
-describe("sankey ribbon rendering — braille/blocks smooth curve, box/ascii corners, ribbon option", () => {
-  function braillePopcount(ch: string): number {
-    const cp = ch.codePointAt(0)!;
-    if (cp < 0x2800 || cp > 0x28ff) return 0;
-    let m = cp - 0x2800, c = 0;
-    while (m) { c += m & 1; m >>= 1; }
-    return c;
-  }
-  // `GlyphCanvas.sub`'s own dot-bit layout (bit0..2 left column rows 0..2,
-  // bit3..5 right column rows 0..2, bit6 left row 3, bit7 right row 3),
-  // decoded to recover which of a cell's 4 rows, for ONE dot column, carry
-  // ink — used to trace the ribbon's own top edge across dot columns below.
-  function localColumnBits(localCol: 0 | 1): readonly number[] {
-    return localCol === 0 ? [0, 1, 2, 6] : [3, 4, 5, 7];
-  }
-  function topmostSetRow(mask: number, localCol: 0 | 1): number | null {
-    const bits = localColumnBits(localCol);
-    for (let localRow = 0; localRow < 4; localRow++) if (mask & (1 << bits[localRow]!)) return localRow;
-    return null;
-  }
-
-  it("braille: a band whose height changes between source and target has a monotone top edge, changing by at most 1 dot per dot-column (no staircase)", () => {
-    const { layout, canvas } = renderSankey(energySpec, 140, 63, "braille");
-    const band = layout.bands.find((b) => b.source === "Renewables" && b.target === "Electricity Generation" && !b.folded)!;
-    expect(band).toBeDefined();
-    // A genuinely diagonal band (different height at each end) — otherwise
-    // there's no edge to trace at all.
-    expect(band.sourceRowRange).not.toEqual(band.targetRowRange);
-    const srcBox = layout.nodes.find((n) => n.id === band.source)!;
-    const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
-
-    const topPerDotColumn: number[] = [];
-    for (let x = srcBox.x1 + 1; x <= tgtBox.x0 - 1; x++) {
-      for (const localCol of [0, 1] as const) {
-        for (let row = 0; row < canvas.rows; row++) {
-          const cp = canvas.grid.char[row * canvas.cols + x]!.codePointAt(0)!;
-          if (cp < 0x2800 || cp > 0x28ff) continue;
-          const local = topmostSetRow(cp - 0x2800, localCol);
-          if (local !== null) { topPerDotColumn.push(row * 4 + local); break; }
-        }
-      }
-    }
-    // At least a handful of samples across the gap — otherwise this band's
-    // own gap is too narrow to say anything about a "curve" at all.
-    expect(topPerDotColumn.length).toBeGreaterThan(6);
-    for (let i = 1; i < topPerDotColumn.length; i++) {
-      const delta = Math.abs(topPerDotColumn[i]! - topPerDotColumn[i - 1]!);
-      expect(delta, `dot-column ${i}: top edge jumped ${delta} dots (${topPerDotColumn[i - 1]} -> ${topPerDotColumn[i]})`).toBeLessThanOrEqual(1);
-    }
-    const direction = Math.sign(topPerDotColumn[topPerDotColumn.length - 1]! - topPerDotColumn[0]!);
-    for (let i = 1; i < topPerDotColumn.length; i++) {
-      const step = Math.sign(topPerDotColumn[i]! - topPerDotColumn[i - 1]!);
-      expect(step === 0 || step === direction, `dot-column ${i} moved against the overall direction`).toBe(true);
-    }
-  });
-
-  it("mutation check: forcing the edge dot itself through the texture gate (rather than always-on) reintroduces jumps > 1 dot on the same band", () => {
-    // A structural mutation-sensitivity check for the test above: replaying
-    // its own decode logic against a canvas painted with texture applied to
-    // EVERY dot (edges included, the pre-fix shape) must find a step > 1
-    // somewhere, or the monotone-edge test above isn't actually exercising
-    // anything. `sankeyRibbonTextureOn` for `Renewables`' own glyph (`╱`,
-    // diagonal stripe, ~50% density) is what supplies the noise.
-    const { layout, canvas: reference } = renderSankey(energySpec, 140, 63, "braille");
-    const band = layout.bands.find((b) => b.source === "Renewables" && b.target === "Electricity Generation" && !b.folded)!;
-    const srcBox = layout.nodes.find((n) => n.id === band.source)!;
-    const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
-    void reference;
-    // Re-derive the same edge values this module computes internally and
-    // re-apply texture UNCONDITIONALLY (the mutation), decoding the same
-    // "topmost set row per dot column" sequence the real test above reads
-    // off the actual render.
-    const [sr0, sr1] = band.sourceRowRange;
-    const [tr0, tr1] = band.targetRowRange!;
-    const dotX0 = (srcBox.x1 + 1) * 2, dotX1 = (tgtBox.x0 - 1) * 2 + 1;
-    const srcTop = sr0 * 4, srcBot = sr1 * 4 + 3, tgtTop = tr0 * 4, tgtBot = tr1 * 4 + 3;
-    const smoothstep = (u: number): number => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
-    const edgeAt = (dotX: number, y0: number, y1: number): number => (dotX1 <= dotX0 ? y1 : y0 + (y1 - y0) * smoothstep((dotX - dotX0) / (dotX1 - dotX0)));
-    // Same texture predicate the module uses (four density families keyed
-    // by the exact glyph `seriesShade` assigns this band's own source).
-    const glyph = seriesShade("braille", layout.nodes.findIndex((n) => n.id === "Renewables") >= 0 ? 3 : 0, 4);
-    const on = (absDotX: number, absDotY: number): boolean => {
-      // Mirrors `sankeyRibbonTextureOn`'s own "╱" case (Renewables' glyph).
-      void glyph;
-      return (((absDotX - absDotY) % 4) + 4) % 4 < 2;
-    };
-    const topPerDotColumn: number[] = [];
-    for (let x = srcBox.x1 + 1; x <= tgtBox.x0 - 1; x++) {
-      for (const localCol of [0, 1] as const) {
-        const dotX = x * 2 + localCol;
-        const top = Math.round(edgeAt(dotX, srcTop, tgtTop));
-        const bot = Math.round(edgeAt(dotX, srcBot, tgtBot));
-        let found: number | null = null;
-        for (let d = top; d <= bot && found === null; d++) if (on(dotX, d)) found = d;
-        if (found !== null) topPerDotColumn.push(found);
-      }
-    }
-    const maxDelta = Math.max(...Array.from({ length: topPerDotColumn.length - 1 }, (_, i) => Math.abs(topPerDotColumn[i + 1]! - topPerDotColumn[i]!)));
-    expect(maxDelta, "the unconditionally-textured (pre-fix) edge should show a jump the always-on-edge fix removes").toBeGreaterThan(1);
-  });
-
-  it("4 monochrome (color: none) series produce 4 distinct dot textures, and each one's texture is keyed by the SAME glyph the legend swatch shows (seriesShade)", () => {
-    // Tall, uneven bands (a wide plot height so each of the four gets many
-    // dot-rows of genuine INTERIOR — strictly between its own forced-solid
-    // top/bottom edge dots — to sample the texture from, uncontaminated by
-    // the edge dots every ribbon always paints full regardless of series.
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey(
-      [{ from: "S0", to: "Hub", amount: 40 }, { from: "S1", to: "Hub", amount: 30 }, { from: "S2", to: "Hub", amount: 20 }, { from: "S3", to: "Hub", amount: 10 }],
-      { source: "from", target: "to", value: "amount" },
-    )] };
-    const groups = sankeyGroups(spec);
-    const plot = PLOT(96, 220);
-    const ledger: GlyphChartLedgerEntry[] = [];
-    const layout = layoutSankeyGraph(groups, plot, "braille", ledger)!;
-    const canvas = createGlyphCanvas({ cols: 96, rows: 220, tier: "braille" });
-    paintSankeyLayout(canvas, plot, layout, false, ledger); // colorEnabled: false.
-    const smoothstep = (u: number): number => { const t = Math.min(1, Math.max(0, u)); return t * t * (3 - 2 * t); };
-
-    // Every series' interior dot at the SAME (dotX, dotRow) sample point,
-    // as an on/off VECTOR — two glyphs sharing a density (`▚` and `╱` both
-    // read ~50%) must still be told apart by PATTERN, which only a
-    // position-by-position comparison (not an aggregate density) can show.
-    const vectors: boolean[][] = [];
-    for (let i = 0; i < 4; i++) {
-      const band = layout.bands.find((b) => b.source === `S${i}` && !b.folded)!;
-      expect(band, `S${i}->Hub band missing`).toBeDefined();
-      const srcBox = layout.nodes.find((n) => n.id === band.source)!;
-      const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
-      // The exact glyph `paint.ts`'s legend swatch shows for this series —
-      // `seriesShade(tier, styleIndex, total)`, unchanged from before this
-      // packet — is the ONE thing the ribbon's own texture is keyed on.
-      expect(band.styleIndex).toBe(i);
-      expect(seriesShade("braille", band.styleIndex, 4)).toBe(seriesShade("braille", i, 4));
-
-      // Re-derive this band's own analytic top/bottom dot-row bound at a
-      // handful of interior dot columns (the SAME smoothstep this module's
-      // real `sankeyRibbonEdgeAt` uses), then sample the ACTUALLY RENDERED
-      // dot bit strictly BETWEEN those bounds — excluding the two forced
-      // full edge dots at each column, which read as "solid" for every
-      // series alike and carry no texture information.
-      const [sr0, sr1] = band.sourceRowRange;
-      const [tr0, tr1] = band.targetRowRange!;
-      const dotX0 = (srcBox.x1 + 1) * 2, dotX1 = (tgtBox.x0 - 1) * 2 + 1;
-      const srcTop = sr0 * 4, srcBot = sr1 * 4 + 3, tgtTop = tr0 * 4, tgtBot = tr1 * 4 + 3;
-      const edgeAt = (dotX: number, y0: number, y1: number): number => (dotX1 <= dotX0 ? y1 : y0 + (y1 - y0) * smoothstep((dotX - dotX0) / (dotX1 - dotX0)));
-      const vector: boolean[] = [];
-      // A FIXED relative offset from each band's own top edge, at a FIXED
-      // relative dot column — every series' own vector samples the SAME
-      // shape of positions relative to ITS OWN ribbon, so the four vectors
-      // are directly comparable position-by-position.
-      for (let dx = 1; dx <= 12; dx++) {
-        const x = srcBox.x1 + 1 + dx;
-        if (x >= tgtBox.x0 - 1) break;
-        for (const localCol of [0, 1] as const) {
-          const dotX = x * 2 + localCol;
-          const topD = Math.round(edgeAt(dotX, srcTop, tgtTop));
-          const botD = Math.round(edgeAt(dotX, srcBot, tgtBot));
-          for (let off = 1; off <= 3 && topD + off < botD; off++) {
-            const d = topD + off;
-            const cellRow = Math.floor(d / 4), localRow = d - cellRow * 4;
-            const cp = canvas.grid.char[cellRow * canvas.cols + x]!.codePointAt(0)!;
-            if (cp < 0x2800 || cp > 0x28ff) { vector.push(false); continue; }
-            const bit = localColumnBits(localCol)[localRow]!;
-            vector.push(((cp - 0x2800) & (1 << bit)) !== 0);
-          }
-        }
-      }
-      expect(vector.length, `S${i}->Hub band has no interior dots to sample at 220 rows`).toBeGreaterThan(20);
-      vectors.push(vector);
-    }
-    // Pairwise distinct as PATTERNS (position-by-position), not merely as
-    // aggregate densities — the four glyphs `seriesShade` assigns index
-    // 0..3 (`█ ░ ▚ ╱` on `box`/`blocks`/`braille`) map to four visually
-    // different `sankeyRibbonTextureOn` families even where two of them
-    // (`▚`'s checker, `╱`'s diagonal stripe) happen to share a density.
-    for (let i = 0; i < vectors.length; i++) {
-      for (let j = i + 1; j < vectors.length; j++) {
-        const a = vectors[i]!, b = vectors[j]!;
-        const n = Math.min(a.length, b.length);
-        const differing = Array.from({ length: n }, (_, k) => k).filter((k) => a[k] !== b[k]).length;
-        expect(differing, `series ${i} and ${j} textures are pixel-identical over ${n} sampled positions`).toBeGreaterThan(0);
-      }
-    }
-  });
-
-  it("ribbon: outline paints at most 30% of the dots ribbon: filled paints, on this band (a representative, not universal, case)", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey(
-      [{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }, { from: "Power", to: "Homes", amount: 70 }, { from: "Power", to: "Industry", amount: 30 }],
-      { source: "from", target: "to", value: "amount" },
-    )] };
-    const countDots = (ribbon: "filled" | "outline"): number => {
-      const groups = sankeyGroups(spec);
-      const plot = PLOT(96, 32);
-      const ledger: GlyphChartLedgerEntry[] = [];
-      const layout = layoutSankeyGraph(groups, plot, "braille", ledger)!;
-      const canvas = createGlyphCanvas({ cols: 96, rows: 32, tier: "braille" });
-      paintSankeyLayout(canvas, plot, layout, true, ledger, new Set(), "", ribbon);
-      let total = 0;
-      for (const ch of canvas.grid.char) total += braillePopcount(ch!);
-      return total;
-    };
-    const filled = countDots("filled");
-    const outline = countDots("outline");
-    expect(filled).toBeGreaterThan(0);
-    expect(outline).toBeGreaterThan(0);
-    expect(outline, `outline (${outline} dots) should be <= 30% of filled (${filled} dots)`).toBeLessThanOrEqual(filled * 0.3);
-  });
-
-  // codex P2-9 / fable P1-2: the 30% figure above holds for THIS band, not
-  // universally — an 8-way fan-in into one hub (thin bands, the shape the
-  // review's own repro used) measured 62.9%-36.5% at 40x20..96x32 on
-  // braille/blocks even with the P1-1 junction-residue fix in place (the
-  // remaining ink is the two EDGE dots themselves, `topD`/`botD`, which
-  // `outline` always paints so the ribbon still reads as two traced
-  // lines — for a band only 2-4 dots tall those edges ARE most of its own
-  // cross-section). No fixed percentage is honest across every band
-  // width, so the real, universal claim is narrower: outline is NEVER
-  // MORE ink than filled, on every tier, and (since the P1-1 fix removed
-  // the junction residue that used to make an ascii/box outline band read
-  // as a solid slab, sometimes with MORE ink than filled — ratios up to
-  // 1.42 measured pre-fix) that specifically excludes the "outline looks
-  // filled" regression this fix targets.
-  it("ribbon: outline is NEVER more ink than filled, on every tier, at every size (an 8-way fan-in — the thinnest realistic band shape)", () => {
-    const data = Array.from({ length: 8 }, (_, i) => ({ from: `S${i}`, to: "Hub", amount: 10 }));
-    const base = glyphChartSankey(data, { source: "from", target: "to", value: "amount" });
-    const ink = (text: string): number => [...text].filter((c) => c !== " " && c !== "\n").length;
-    for (const [w, h] of [[40, 20], [72, 24], [96, 32], [140, 40]] as const) {
-      for (const charset of ["ascii", "box", "blocks", "braille"] as const) {
-        const filled = renderGlyphChart({ marks: [{ ...base, options: { ...base.options, ribbon: "filled" } }] }, { target: "web", width: w, height: h, charset, legend: false });
-        const outline = renderGlyphChart({ marks: [{ ...base, options: { ...base.options, ribbon: "outline" } }] }, { target: "web", width: w, height: h, charset, legend: false });
-        const fi = ink(filled.text), oi = ink(outline.text);
-        expect(fi, `${w}x${h} ${charset}: filled render is unexpectedly empty`).toBeGreaterThan(0);
-        expect(oi, `${w}x${h} ${charset}: outline (${oi}) must be less ink than filled (${fi})`).toBeLessThan(fi);
-      }
-    }
-  });
-
-  it("box mode: a straight-run interior cell paints the tier's own lighter glyph (never a silent gap) — the 'less filled' ask without weakening the zero-overwrite gate", () => {
-    // A wide, tall, single straight band gives a long run of interior
-    // cells to sample. `█` is the ONLY glyph in the shape family with no
-    // ink gaps of its own, so it's the one case `SANKEY_LIGHTER_STRAIGHT_GLYPH`
-    // must visibly act on.
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
-    const { canvas, layout } = (() => {
-      const groups = sankeyGroups(spec);
-      const plot = PLOT(60, 20);
-      const ledger: GlyphChartLedgerEntry[] = [];
-      const layoutResult = layoutSankeyGraph(groups, plot, "box", ledger)!;
-      const c = createGlyphCanvas({ cols: 60, rows: 20, tier: "box" });
-      paintSankeyLayout(c, plot, layoutResult, true, ledger);
-      return { canvas: c, layout: layoutResult };
-    })();
-    const band = layout.bands[0]!;
-    const srcBox = layout.nodes.find((n) => n.id === band.source)!;
-    const tgtBox = layout.nodes.find((n) => n.id === band.target)!;
-    expect(seriesShade("box", 0, 1)).toBe("█");
-    let sawLighter = false;
-    let sawGap = false;
-    for (let x = srcBox.x1 + 2; x < tgtBox.x0 - 1; x++) {
-      for (let y = band.sourceRowRange[0]; y <= band.sourceRowRange[1]; y++) {
-        const ch = canvas.grid.char[y * canvas.cols + x]!;
-        if (ch === "▓") sawLighter = true;
-        if (ch === " ") sawGap = true;
-      }
-    }
-    expect(sawLighter, "no interior cell used the lighter substitute glyph").toBe(true);
-    expect(sawGap, "an interior cell of an uncontested straight band was silently left blank").toBe(false);
-  });
-
-  it("textScale: a sankey node label at scale 2 is emitted as one scaled span (never a per-glyph run), and its reserved box never reaches into a band's own gap column", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey(
-      [{ from: "Coal", to: "Power", amount: 40 }, { from: "Gas", to: "Power", amount: 60 }],
-      { source: "from", target: "to", value: "amount" },
-    )] };
-    const groups = sankeyGroups(spec);
-    const plot = PLOT(60, 24);
-    const ledger: GlyphChartLedgerEntry[] = [];
-    const layout = layoutSankeyGraph(groups, plot, "box", ledger)!;
-    const canvas = createGlyphCanvas({ cols: 60, rows: 24, tier: "box" });
-    paintSankeyLayout(canvas, plot, layout, true, ledger, new Set(), "", "filled", 2); // textScale: 2.
-
-    // Every node's own label origin cell got a REAL scale-2 textScale mark
-    // (`GlyphCanvas.textScale`), and the HTML exit reflects it as one
-    // `<span class="glyph-text">` per label, not one span per glyph.
-    let sawScaledOrigin = false;
-    for (const s of canvas.textScale) if (s === 2) sawScaledOrigin = true;
-    expect(sawScaledOrigin, "no cell carries a textScale of 2 — the node label never went through canvas.text({ scale: 2 })").toBe(true);
-    const html = encodeGlyphCanvasHtml(canvas);
-    expect(html).toContain('class="glyph-text"');
-
-    // Every `textFiller` cell (the scaled label's own reserved box, minus
-    // its origin) sits strictly INSIDE some node's own column range —
-    // never in a band's gap column, which is what would put a ribbon dot
-    // underneath a label reservation instead of beside it.
-    const nodeColumns = layout.nodes.map((n) => [n.x0, n.x1] as const);
-    for (let idx = 0; idx < canvas.textFiller.length; idx++) {
-      if (canvas.textFiller[idx] !== 1) continue;
-      const x = idx % canvas.cols;
-      expect(nodeColumns.some(([x0, x1]) => x >= x0 && x <= x1), `textFiller cell at column ${x} sits outside every node's own box — in a band's gap column`).toBe(true);
-    }
   });
 });
 
@@ -2127,7 +1304,9 @@ describe("density scaling (`textScale`) keeps sankey/funnel geometry proportiona
       };
       // The first blank-row run strictly between two ink runs is the gap
       // between stage 0 and stage 1.
+      // A blank row parts the funnel from the title before stage 0.
       let y = 0;
+      while (y < height && !rowHasInk(y)) y++;
       while (y < height && rowHasInk(y)) y++;
       const gapStart = y;
       while (y < height && !rowHasInk(y)) y++;
@@ -2145,348 +1324,5 @@ describe("density scaling (`textScale`) keeps sankey/funnel geometry proportiona
     const withExplicit1 = createGlyphCanvas({ cols: width, rows: height, tier: "box" });
     paintFunnelMark(withExplicit1, PLOT(width, height), groups, true, [], 1);
     expect(Array.from(withExplicit1.grid.char)).toEqual(Array.from(withDefault.grid.char));
-  });
-});
-
-describe("batch-4 review: smooth ribbon junction residue, crossing refusals, and self-overlap (codex P1-5/P1-6, fable P1-1/P1-3, agy P2-1)", () => {
-  // codex P1-5 / fable P1-1: `A→C:10, B→C:5` at 40x16 braille used to leave
-  // seven unclaimed `┌──────`-style glyphs outside the painted ribbons,
-  // because the smooth painter's own footprint never revisited the OLD
-  // lane/free-row cells `resolveJunctions()` had already written box-
-  // drawing glyphs into. The root fix (`sankeyPlanPaintsSmooth`) stops
-  // REGISTERING a smooth-eligible band's route with the canvas's junction
-  // system at all, so no residue is ever written for it in the first
-  // place. Every painted glyph must be either inside a node box, part of
-  // the two ribbons' own braille/dot ink, or blank — never a leftover
-  // box-drawing/line glyph (`─│┌└┘┐╌╎┴┬├┤┼`) floating in open space.
-  it("no stray junction glyphs outside the painted ribbons or node boxes (A->C:10, B->C:5, 40x16 braille)", () => {
-    const data = [{ from: "A", to: "C", amount: 10 }, { from: "B", to: "C", amount: 5 }];
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey(data, { source: "from", target: "to", value: "amount" })] };
-    const { layout, canvas } = renderSankey(spec, 40, 16, "braille");
-    // A node box's own border legitimately IS one of these glyphs
-    // (`┌─┐│└┘`) — the residue this gate exists to catch only ever
-    // appeared in the GAP columns strictly between two node boxes, so
-    // only cells outside every node's own [x0,x1] range are checked.
-    const nodeColumns = layout!.nodes.map((n) => [n.x0, n.x1] as const);
-    const junctionGlyphs = new Set(["─", "│", "┌", "└", "┘", "┐", "╌", "╎", "┴", "┬", "├", "┤", "┼"]);
-    const stray: { x: number; y: number; char: string }[] = [];
-    for (let idx = 0; idx < canvas.grid.char.length; idx++) {
-      const c = canvas.grid.char[idx]!;
-      if (!junctionGlyphs.has(c)) continue;
-      const x = idx % canvas.cols, y = Math.floor(idx / canvas.cols);
-      if (nodeColumns.some(([x0, x1]) => x >= x0 && x <= x1)) continue;
-      stray.push({ x, y, char: c });
-    }
-    expect(stray, `found stray junction glyphs outside every node box: ${JSON.stringify(stray)}`).toEqual([]);
-  });
-
-  // codex P1-6 / fable P1-3: two crossing SMOOTH ribbons used to silently
-  // drop the loser's cells with no ledger entry at all (`report.ledger`
-  // stayed `[]` on braille/blocks while the identical topology on box
-  // reported two `sankey-band-broken` entries) — the smooth path ignored
-  // `paintCell`'s own refusal result entirely. K2,2 (A/B -> C/D) genuinely
-  // crosses on both diagonals.
-  it("a genuine smooth-ribbon crossing (K2,2 on braille) is reported via sankey-band-broken, never silently dropped", () => {
-    const data = [
-      { from: "A", to: "C", amount: 1 }, { from: "A", to: "D", amount: 1 },
-      { from: "B", to: "C", amount: 1 }, { from: "B", to: "D", amount: 1 },
-    ];
-    const r = renderGlyphChart(
-      { marks: [glyphChartSankey(data, { source: "from", target: "to", value: "amount" })] },
-      { target: "web", width: 72, height: 24, charset: "braille", legend: false },
-    );
-    const entries = r.report.ledger.filter((e) => e.code === "sankey-band-broken");
-    expect(entries.length, "a crossing K2,2 on braille must report at least one sankey-band-broken entry").toBeGreaterThan(0);
-    for (const e of entries) expect((e.detail as { cells: number }).cells).toBeGreaterThan(0);
-  });
-
-  // agy P2-1: the OLD mechanism keyed a cell's "owner" by the fallback
-  // row's own local ARRAY INDEX, not its band — so a multi-row band's
-  // later rows always disagreed with row 0's index at a shared
-  // pass-through cell (`pickSankeyFreeRow` routinely converges every
-  // internal row of a tall skip-level band onto the SAME free row across
-  // an intermediate node's column), fabricating a break for every band
-  // with height > 1 even with nothing else competing for its cells. The
-  // fix tracks real ownership PER BAND (`cellOwner`/`paintForBand`): a
-  // band's own later rows re-claiming a cell its own earlier row already
-  // painted is excluded, while a genuine foreign claim still counts. This
-  // is checked directly: A->C is a wide (200-unit, many-row) skip-level
-  // band with no possible foreign claim on most of its own free-row
-  // stretch, so it must not appear in the ledger at all, while B->C (the
-  // adjacent straight band A->C's own detour genuinely merges into, near
-  // C's own border) legitimately does.
-  it("a multi-row band's own internal rows sharing a cell (self-overlap) is never reported as sankey-band-broken", () => {
-    const data = [
-      { from: "A", to: "B", amount: 5 },
-      { from: "B", to: "C", amount: 5 },
-      { from: "A", to: "C", amount: 200 },
-    ];
-    const r = renderGlyphChart(
-      { marks: [glyphChartSankey(data, { source: "from", target: "to", value: "amount" })] },
-      { target: "chat", width: 72, height: 40 },
-    );
-    const bySource = (source: string) => r.report.ledger.find((e) => e.code === "sankey-band-broken" && (e.detail as { source: string }).source === source);
-    // B->C must exist for C to sit at depth 2 (what makes A->C skip-level),
-    // and its approach into C must cross A->C's final-lane descent: a genuine
-    // 1-cell crossing (DIAGNOSIS-sankey-column-jump.md point 3). Self-overlap
-    // miscounted as refusal (the defect guarded here) reports dozens of cells.
-    const entryA = bySource("A");
-    if (entryA) expect((entryA.detail as { cells: number }).cells, "A->C's own multi-row self-overlap must not be reported as a break").toBeLessThan(5);
-  });
-
-  it("mutation-check baseline: a band with no crossing at all still reports nothing (unaffected by the ownership fix)", () => {
-    const spec: GlyphChartSpec = { marks: [glyphChartSankey([{ from: "A", to: "B", amount: 10 }], { source: "from", target: "to", value: "amount" })] };
-    const r = renderGlyphChart(spec, { target: "chat", width: 72, height: 24 });
-    expect(r.report.ledger.some((e) => e.code === "sankey-band-broken")).toBe(false);
-  });
-});
-
-describe("codex round-1 review of the skip-level fix: lane extents, pass-through choice, paint order", () => {
-  /** Distinct VERTICAL unit edges each band's own routed rows walk, keyed by band. */
-  function verticalEdgesByBand(routedRows: ReturnType<typeof computeSankeyRoutedRows>): Map<string, Set<string>> {
-    const out = new Map<string, Set<string>>();
-    for (const row of routedRows) {
-      const key = `${row.band.source} -> ${row.band.target}`;
-      const edges = out.get(key) ?? new Set<string>();
-      for (let i = 1; i < row.cells.length; i++) {
-        const a = row.cells[i - 1]!, b = row.cells[i]!;
-        if (a.x === b.x) edges.add(`${a.x},${Math.min(a.y, b.y)}`);
-      }
-      out.set(key, edges);
-    }
-    return out;
-  }
-  function sharedVerticalEdges(byBand: Map<string, Set<string>>): { readonly pair: string; readonly shared: number }[] {
-    const keys = [...byBand.keys()];
-    const out: { pair: string; shared: number }[] = [];
-    for (let i = 0; i < keys.length; i++) for (let j = i + 1; j < keys.length; j++) {
-      let shared = 0;
-      for (const e of byBand.get(keys[i]!)!) if (byBand.get(keys[j]!)!.has(e)) shared++;
-      if (shared > 0) out.push({ pair: `${keys[i]} & ${keys[j]}`, shared });
-    }
-    return out;
-  }
-  /** Every routed cell lying inside a node box that is neither of its own band's endpoints. */
-  function crossedForeignBoxes(layout: GlyphChartSankeyLayout, routedRows: ReturnType<typeof computeSankeyRoutedRows>): string[] {
-    const out: string[] = [];
-    for (const row of routedRows) {
-      for (const p of row.cells) {
-        for (const n of layout.nodes) {
-          if (n.id === row.band.source || n.id === row.band.target) continue;
-          if (p.x >= n.x0 && p.x <= n.x1 && p.y >= n.y0 && p.y <= n.y1) out.push(`${row.band.source} -> ${row.band.target} at ${p.x},${p.y} inside ${n.id}`);
-        }
-      }
-    }
-    return out.slice(0, 5);
-  }
-  /** A layered DAG with skip-level links — `randomSankeySpec` is bipartite, so it never has one. */
-  function randomLayeredSankeySpec(seed: number): GlyphChartSpec {
-    const rand = mulberry32(seed + 7919);
-    const layers = 3 + Math.floor(rand() * 3);
-    const perLayer = Array.from({ length: layers }, () => 1 + Math.floor(rand() * 3));
-    const rows: { from: string; to: string; v: number }[] = [];
-    for (let l = 0; l < layers - 1; l++) for (let a = 0; a < perLayer[l]!; a++) {
-      rows.push({ from: `L${l}N${a}`, to: `L${l + 1}N${Math.floor(rand() * perLayer[l + 1]!)}`, v: 5 + Math.round(rand() * 40) });
-      for (let m = l + 2; m < layers; m++) if (rand() < 0.5) rows.push({ from: `L${l}N${a}`, to: `L${m}N${Math.floor(rand() * perLayer[m]!)}`, v: 5 + Math.round(rand() * 40) });
-    }
-    const dedup = new Map(rows.map((r) => [`${r.from}->${r.to}`, r]));
-    return { marks: [glyphChartSankey([...dedup.values()], { source: "from", target: "to", value: "v" })] };
-  }
-  /** The plot rect `renderGlyphChart` itself hands the sankey painter. */
-  function renderPlot(spec: GlyphChartSpec, charset: "box" | "braille", w: number, h: number): GlyphChartPlotRect {
-    const marks = resolveGlyphChartSpec(spec);
-    return layoutGlyphChart(spec, marks, resolveGlyphChartScales(marks, spec.scales), w, h, "auto", [], charset, resolveGlyphChartLegendOption(spec.legend, false), 1).plot;
-  }
-
-  // P1: a lane item reserved only a band's SOURCE/TARGET rows, but a
-  // skip-level band's legs actually descend from its pass-through rows —
-  // below every intermediate box — so two such bands with disjoint endpoints
-  // were packed onto the same final-lane columns and overlapped for most of
-  // their descent. Executed repro from the review: N1->N5 and N2->N5 both
-  // on columns 216-219, sharing 29 vertical edges, in a 43-column gap.
-  const reviewEdges = [[0, 1, 39], [1, 2, 15], [2, 3, 28], [3, 4, 21], [4, 5, 39], [0, 3, 36], [0, 4, 14], [0, 5, 23], [1, 5, 12], [2, 4, 29], [2, 5, 14]] as const;
-  const reviewSpec: GlyphChartSpec = { marks: [glyphChartSankey(reviewEdges.map(([s, t, v]) => ({ from: `N${s}`, to: `N${t}`, amount: v })), { source: "from", target: "to", value: "amount" })] };
-
-  it("P1: the review's own repro — no two bands share a vertical edge at 240x32 on box, with no gap reported as merged", () => {
-    const plot = PLOT(240, 32);
-    const ledger: GlyphChartLedgerEntry[] = [];
-    const layout = layoutSankeyGraph(sankeyGroups(reviewSpec), plot, "box", ledger)!;
-    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 240, rows: 32, tier: "box" }), plot, layout, false, ledger);
-    expect(ledger.some((e) => e.code === "sankey-crossings-merged"), "the repro's gaps are wide enough that no degrade is licensed").toBe(false);
-    expect(sharedVerticalEdges(verticalEdgesByBand(routedRows))).toEqual([]);
-  });
-
-  it("P1: over a seeded sweep of layered DAGs with skip-level links, bands share a vertical edge only in a render with a merged gap", () => {
-    let skipLevelRenders = 0;
-    let unionFullRenders = 0;
-    for (let seed = 0; seed < 80; seed++) {
-      for (const [w, h] of [[96, 32], [160, 32], [240, 40]] as const) {
-        const spec = randomLayeredSankeySpec(seed);
-        const plot = PLOT(w, h);
-        const ledger: GlyphChartLedgerEntry[] = [];
-        const layout = layoutSankeyGraph(sankeyGroups(spec), plot, "box", ledger);
-        if (!layout) continue;
-        const columnOf = new Map(layout.nodes.map((n) => [n.id, n.x0]));
-        const columns = [...new Set(columnOf.values())].sort((a, b) => a - b);
-        // Codex round-2: every render routes, including the ones whose
-        // intermediate columns leave no row clear of all of them at once
-        // (the router used to throw on those, and this sweep skipped them).
-        // The foreign-box check is independent of the router's own
-        // assertion, which only ever saw skip-level bands with unequal ends:
-        // a band with EQUAL source/target rows ran straight through the boxes
-        // between them, silently (46 of 480 renders at 71736d61; seed 27 at
-        // 96x32 is the first).
-        const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: w, rows: h, tier: "box" }), plot, layout, false, ledger);
-        for (const b of layout.bands) {
-          if (b.folded) continue;
-          const between = layout.nodes.filter((n) => n.x0 > columnOf.get(b.source)! && n.x0 < columnOf.get(b.target)!);
-          const used = new Set<number>();
-          for (const n of between) for (let y = n.y0; y <= n.y1; y++) used.add(y);
-          if (between.length > 0 && used.size === h) { unionFullRenders++; break; }
-        }
-        expect(crossedForeignBoxes(layout, routedRows), `seed ${seed} at ${w}x${h}`).toEqual([]);
-        if (ledger.some((e) => e.code === "sankey-crossings-merged" || e.code === "sankey-columns-folded")) continue;
-        if (layout.bands.some((b) => !b.folded && columns.indexOf(columnOf.get(b.target)!) - columns.indexOf(columnOf.get(b.source)!) > 1)) skipLevelRenders++;
-        expect(sharedVerticalEdges(verticalEdgesByBand(routedRows)), `seed ${seed} at ${w}x${h}`).toEqual([]);
-      }
-    }
-    // Non-vacuity: the sweep must actually route skip-level bands unmerged,
-    // and must include the no-single-clear-row case (measured: 4 renders,
-    // seed 32 at all three sizes and seed 38 at 240x40).
-    expect(skipLevelRenders).toBeGreaterThan(50);
-    expect(unionFullRenders).toBeGreaterThan(0);
-  });
-
-  // Pass-through choice: among the clear windows below Electricity
-  // Generation's box, the distance-nearest one (rows 22-25) runs along the
-  // Nuclear/Renewables/Losses ribbons. Measured on the reported chart
-  // (title row, braille 96x32, legend off) by forcing each of the 7 windows:
-  // lost cells 145/135/130/127/125/123/119 for rows 22-25 .. 28-31, and the
-  // crossing score ranks them in exactly that order (HEAD before this round
-  // lost 127). On box the nearest window is already the fewest-crossings
-  // one (151; HEAD 165).
-  //
-  // Round 3 (DIAGNOSIS-sankey-column-jump.md): Industrial now sits BELOW
-  // Electricity Generation (rows 24-31), so the fewest-crossings window is
-  // also the one that needs no climb: braille keeps 28-31, which IS the
-  // band's own target range (a straight last gap), and box takes 27-30, one
-  // row short of it. Lost cells fall 119 -> 35 and 151 -> 51.
-  const reportedChart: GlyphChartSpec = { ...energySpec, title: "National energy flow (illustrative)" };
-  function passThroughRows(charset: "box" | "braille"): readonly number[] {
-    const plot = renderPlot(reportedChart, charset, 96, 32);
-    const layout = layoutSankeyGraph(sankeyGroups(reportedChart), plot, charset, [])!;
-    const rows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier: charset }), plot, layout, false, []);
-    const eg = layout.nodes.find((n) => n.id === "Electricity Generation")!;
-    return rows.filter((row) => row.band.source === "Natural Gas" && row.band.target === "Industrial").map((row) => row.cells.find((p) => p.x >= eg.x0 && p.x <= eg.x1)!.y);
-  }
-  const lostCells = (charset: "box" | "braille"): number => renderGlyphChart(reportedChart, { target: "web", charset, color: "none", width: 96, height: 32, legend: false })
-    .report.ledger.filter((e) => e.code === "sankey-band-broken").reduce((n, e) => n + (e.detail as { cells: number }).cells, 0);
-
-  it("pass-through rows are chosen by fewest crossed cells, not by distance, on the reported chart", () => {
-    expect(passThroughRows("braille")).toEqual([28, 29, 30, 31]);
-    expect(lostCells("braille")).toBe(35);
-    expect(passThroughRows("box")).toEqual([27, 28, 29, 30]);
-    expect(lostCells("box")).toBe(51);
-  });
-
-  // P2 (RC2's two-phase paint order had no defending test): with borders
-  // painted first, interiors must still resolve by REGISTRATION order. The
-  // skip-level Natural Gas -> Industrial is registered third, and the
-  // Nuclear and Renewables ribbons it crosses are registered after it.
-  // Painting a band's interior after later bands' — RC2's deferral of every
-  // fallback band — hands them every crossing cell (the review measured
-  // 0 -> 127 lost cells). Round 3 paints the skip band as a smooth ribbon on
-  // braille, so this now reads the ledger both kinds share instead of the
-  // band's lane route, which it no longer paints.
-  it("P2: an earlier-registered band keeps every interior crossing cell against later-registered ribbons, on box (lanes) and braille (smooth)", () => {
-    for (const tier of ["box", "braille"] as const) {
-      const plot = PLOT(96, 32);
-      const layout = layoutSankeyGraph(sankeyGroups(energySpec), plot, tier, [])!;
-      const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier }), plot, layout, true, []);
-      const ledger: GlyphChartLedgerEntry[] = [];
-      paintSankeyLayout(createGlyphCanvas({ cols: 96, rows: 32, tier }), plot, layout, true, ledger);
-      const skip = layout.bands.find((b) => b.source === "Natural Gas" && b.target === "Industrial")!;
-      expect(routedRows.filter((r) => r.band === skip).every((r) => (r.segments !== undefined) === (tier === "braille")), `${tier}: smooth exactly on braille`).toBe(true);
-      const lost = (source: string, target: string): number => ledger
-        .filter((e) => e.code === "sankey-band-broken" && (e.detail as { source: string }).source === source && (e.detail as { target: string }).target === target)
-        .reduce((n, e) => n + (e.detail as { cells: number }).cells, 0);
-      // Non-vacuity: the later ribbons it crosses do lose cells to it.
-      expect(lost("Nuclear", "Electricity Generation") + lost("Renewables", "Electricity Generation"), `${tier}: the crossing is real`).toBeGreaterThan(10);
-      expect(layout.bands.indexOf(skip)).toBeLessThan(layout.bands.findIndex((b) => b.source === "Nuclear"));
-      // On braille the skip band loses nothing. On box its lanes cross the
-      // Nuclear ribbon's own border column, which phase 1 gives Nuclear.
-      if (tier === "braille") expect(lost("Natural Gas", "Industrial")).toBe(0);
-      else expect(lost("Natural Gas", "Industrial")).toBeLessThanOrEqual(skip.sourceRowRange[1] - skip.sourceRowRange[0] + 1);
-    }
-  });
-
-  // Codex round-2: a skip-level band whose intermediate columns leave no row
-  // clear of ALL of them at once used to be handed the plot's top row — by
-  // construction inside one of those boxes — and the router's node-box
-  // assertion threw, failing the whole render (8 of 480 renders in a layered
-  // sweep, 4 distinct layouts). Two cases reach that state and they need
-  // different answers.
-  const sankeyOf = (data: readonly { from: string; to: string; v: number }[]): GlyphChartSpec => ({ marks: [glyphChartSankey(data, { source: "from", target: "to", value: "v" })] });
-  // Every intermediate column has clear rows, just not the same ones:
-  // {C, X} clears rows 10-11, {E} clears rows 20-31. A route exists.
-  const noSharedClearRow = sankeyOf([{ from: "A", to: "C", v: 1 }, { from: "A", to: "D", v: 1 }, { from: "B", to: "X", v: 1 }, { from: "X", to: "E", v: 2 }, { from: "E", to: "D", v: 1 }]);
-  // C (and E) fill their column top to bottom. No route exists.
-  const filledColumn = sankeyOf([{ from: "A", to: "D", v: 2 }, { from: "B", to: "C", v: 1 }, { from: "C", to: "E", v: 5 }, { from: "E", to: "D", v: 1 }]);
-
-  it("round-2: no row clears every intermediate column at once — the band jogs between columns on rows clear in each, and the render never throws", () => {
-    for (const charset of ["box", "ascii", "braille", "blocks"] as const) {
-      const r = renderGlyphChart(noSharedClearRow, { target: "web", charset });
-      expect(r.report.ledger.some((e) => e.code === "sankey-band-unroutable"), `a route exists on ${charset}`).toBe(false);
-    }
-    const plot = PLOT(96, 32);
-    const layout = layoutSankeyGraph(sankeyGroups(noSharedClearRow), plot, "box", [])!;
-    const box = (id: string) => layout.nodes.find((n) => n.id === id)!;
-    const [a, c, x, e, d] = ["A", "C", "X", "E", "D"].map(box);
-    // The premise: C and X share one intermediate column and E is the next;
-    // the only rows {C, X} leaves clear lie inside E, so no single row clears
-    // both columns, while each column alone still has clear rows.
-    expect(c!.x0).toBe(x!.x0);
-    expect(e!.x0).toBeGreaterThan(c!.x1);
-    expect([c!.y0, x!.y1]).toEqual([plot.y0, plot.y1]);
-    expect(x!.y0 - c!.y1).toBeGreaterThan(1);
-    expect(e!.y0).toBeLessThanOrEqual(c!.y1 + 1);
-    expect(e!.y1).toBeGreaterThanOrEqual(x!.y0 - 1);
-    expect(e!.y1).toBeLessThan(plot.y1);
-    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 96, rows: 32, tier: "box" }), plot, layout, false, []);
-    expect(crossedForeignBoxes(layout, routedRows)).toEqual([]);
-    const rows = routedRows.filter((r) => r.band.source === "A" && r.band.target === "D");
-    expect(rows.length).toBeGreaterThan(0);
-    for (const row of rows) {
-      expect(row.cells[0]!.x).toBe(a!.x1 + 1);
-      expect(row.cells[row.cells.length - 1]!.x).toBe(d!.x0 - 1);
-      expect(row.cells.some((p) => p.x >= c!.x0 && p.x <= c!.x1 && p.y > c!.y1 && p.y < x!.y0), "crosses {C, X} in its clear rows").toBe(true);
-      expect(row.cells.some((p) => p.x >= e!.x0 && p.x <= e!.x1 && p.y > e!.y1), "crosses {E} below E").toBe(true);
-    }
-  });
-
-  it("round-2: an intermediate column filled top to bottom leaves no route — the band is drawn as two stubs and named in the ledger, never an exception", () => {
-    for (const charset of ["box", "ascii", "braille", "blocks"] as const) {
-      const r = renderGlyphChart(filledColumn, { target: "web", charset, width: 40, height: 20 });
-      const entry = r.report.ledger.find((e) => e.code === "sankey-band-unroutable");
-      expect(entry?.detail, `named on ${charset}`).toEqual({ source: "A", target: "D", blockingNodes: ["C"] });
-    }
-    const plot = PLOT(40, 20);
-    const ledger: GlyphChartLedgerEntry[] = [];
-    const layout = layoutSankeyGraph(sankeyGroups(filledColumn), plot, "box", ledger)!;
-    const c = layout.nodes.find((n) => n.id === "C")!;
-    expect([c.y0, c.y1], "the premise: C fills its column").toEqual([plot.y0, plot.y1]);
-    const routedRows = computeSankeyRoutedRows(createGlyphCanvas({ cols: 40, rows: 20, tier: "box" }), plot, layout, false, ledger);
-    expect(crossedForeignBoxes(layout, routedRows)).toEqual([]);
-    const band = layout.bands.find((b) => b.source === "A" && b.target === "D")!;
-    const a = layout.nodes.find((n) => n.id === "A")!;
-    const d = layout.nodes.find((n) => n.id === "D")!;
-    const rows = routedRows.filter((r) => r.band === band);
-    const leaving = rows.filter((r) => r.cells[0]!.x === a.x1 + 1);
-    const arriving = rows.filter((r) => r.cells[r.cells.length - 1]!.x === d.x0 - 1);
-    // One straight stub row per band row at each end, and nothing else.
-    expect(leaving.map((r) => r.cells[0]!.y)).toEqual(Array.from({ length: band.sourceRowRange[1] - band.sourceRowRange[0] + 1 }, (_, i) => band.sourceRowRange[0] + i));
-    expect(arriving.map((r) => r.cells[0]!.y)).toEqual(Array.from({ length: band.targetRowRange![1] - band.targetRowRange![0] + 1 }, (_, i) => band.targetRowRange![0] + i));
-    expect(leaving.length + arriving.length).toBe(rows.length);
-    for (const r of rows) expect(new Set(r.cells.map((p) => p.y)).size).toBe(1);
   });
 });

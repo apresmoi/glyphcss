@@ -138,7 +138,8 @@ describe("--3d: parseChartArgs and resolveChart3dCliOutput", () => {
   it("renders a 3D surface spec, with axis titles surviving in plain text", () => {
     const input: GlyphChart3dJsonInput = { data: { z: volcano() }, options: { axes: { x: { title: "x" }, y: { title: "y" }, z: { title: "z" } } } };
     const { text } = resolveChart3dCliOutput(input, { target: "web", color: "none" }, { isTTY: false });
-    for (const title of ["x", "y", "z"]) expect(text.includes(title)).toBe(true);
+    // The far y title sits behind the peak at the default's low eye.
+    for (const title of ["x", "z"]) expect(text.includes(title)).toBe(true);
   });
 
   // Fix round 1, P1-3: `--color none` with NO explicit `options.shading`

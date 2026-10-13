@@ -7,7 +7,7 @@ export {
   layoutGlyphLaneRows, applyGlyphLaneCap,
 } from "./layout";
 export type {
-  GlyphLaneRow, GlyphLaneNodeRow, GlyphLaneConnectorRow, GlyphLaneRowsResult, GlyphLaneCapResult,
+  GlyphLaneRow, GlyphLaneNodeRow, GlyphLaneConnectorRow, GlyphLaneContinuationRow, GlyphLaneLayoutOptions, GlyphLaneRowsResult, GlyphLaneCapResult,
 } from "./layout";
 export { paintGlyphLaneDag, GLYPH_LANE_COLUMN_WIDTH, GLYPH_LANE_MIN_CONTENT_WIDTH } from "./paint";
 export type { GlyphLanePaintResult } from "./paint";

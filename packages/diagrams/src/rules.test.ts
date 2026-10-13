@@ -83,6 +83,25 @@ describe("diagram routing rules", () => {
     });
     expect(result.placed).toEqual([]); expect(result.dropped).toEqual(["edge"]);
   });
+  it("starts a loop at its authored-first node, however the ids sort", async () => {
+    // Mutation: drop the re-layout with authored back edges -> dagre walks ids
+    // alphabetically and ranks Push after Fix code.
+    const deploy = glyphGraphFromMermaid(`flowchart LR
+  push[Push] --> ci[Run tests]
+  ci --> ok{Tests pass?}
+  ok -->|yes| build[Build image]
+  ok -->|no| fix[Fix code]
+  fix --> push
+  build --> staging[Deploy staging]`);
+    const first = async (graph: GlyphGraph) => {
+      const layout = await layoutGlyphGraph(graph);
+      return [...layout.nodes].sort((a, b) => a.x0 - b.x0)[0]!.id;
+    };
+    expect(await first(deploy)).toBe("push");
+    const loop: GlyphGraph = { direction: "LR", nodes: [{ id: "a", label: "A" }, { id: "b", label: "B" }, { id: "c", label: "C" }], edges: [{ from: "a", to: "b" }, { from: "b", to: "c" }, { from: "c", to: "a" }] };
+    expect(await first(loop)).toBe("a");
+    expect(await first({ ...loop, nodes: [...loop.nodes].reverse() })).toBe("c");
+  });
   // Mutation: remove canonical sorting before port reservation/dagre; tied sibling and parallel edge ordering changes.
   it("shuffled nodes, edges and groups render identically", async () => {
     for (const name of ["subgraph", "diamond", "six-port"]) {

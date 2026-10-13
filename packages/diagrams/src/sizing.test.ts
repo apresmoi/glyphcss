@@ -167,7 +167,9 @@ describe("dynamic graph sizing", () => {
     },
     30000,
   );
-  it.each(families)(
+  // A loop starts at its authored-first node, so reversing a looped graph's
+  // input legitimately moves its start (`rules.test.ts`).
+  it.each(families.filter((family) => family.name !== "return"))(
     "is deterministic for reversed $name input",
     async ({ graph }) => {
       const options = { width: 67, height: 31, autoDirection: true, detail: "faithful" as const };

@@ -21,8 +21,9 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Every chart string is painted through `canvas.text`; no direct grid writes. Numeric labels abbreviate (SI) or drop, never truncate.
 - Plain-text and ANSI exits ignore `textScale`; it is a web-only HTML affordance.
 - Effects (`composeGlyphChartEffects`, and 3D effect layers) are preview-only: Copy, CLI and JSON exits never see a composed build.
-- A bar, area or rect domain includes zero; explicit domains excluding it reject. Log domains keep one sign.
+- A bar or area domain includes zero; explicit domains excluding it reject. Log domains keep one sign.
 - Sankey/funnel are non-cartesian like `arc`: no x/y scales, no transforms (`bad-options`).
+- A `cell`-only chart on two band scales is a heatmap: flush bands tiled by integer partition, `2k`×`k` cells, and the canvas shrinks to the grid (`heatmap.ts`). An unsigned heatmap's ramp has no blank level and a range key; a signed one keeps blank for exactly zero.
 - 3D: the axis-triad origin is the fixed data-min corner; axis lines are real mesh geometry (a fine sub-cell line), never stamped glyphs; `p.texture` uses the namespaced object sampler key; the static exit must round-trip `resolved.camera`.
 - Public API changes land in `README.md` in the same PR.
 
@@ -41,15 +42,17 @@ An Observable-Plot-flavoured chart spec rendered as text (ascii/box/blocks/brail
 - Don't key the live 3D viewport's mount on the mark or colour; use the object handle's `update()` and `scene.setOptions`, or every edit resets the camera.
 - Don't pass `rotX`/`rotY` with `mat` to `renderGlyphChart3d` (`bad-camera`), and don't hand-roll 3D rasterization instead of `compileScene` (a raw sampler key hides there).
 - Don't put notes inside a render area; reasons go on the Dock toggle (`disabledReason`) or frame chrome.
-- Don't gate sankey choices on a crossing-count proxy; `sankeyLostCells` counts exact lost cells.
+- Don't paint sankey flows as filled ribbons; stubs, a bracket and one line per flow keep each share and each path readable (`sankeyLines.ts`).
+- Don't texture funnel stages or size them linearly; one solid shape with √value widths, a blank row between stages and one label line each keeps late stages visible and readable (`paintFunnelMark`).
 - Don't tighten the sankey row-monotonicity bound below 2; reclaim and fold-stub steals each cost a row.
 - Don't narrow a `RangeSlider` thumb's native `min`/`max`; caps apply only on commit, or thumbs and fill disagree.
 - Don't prove byte-identity against this branch's defaults; pin fixtures rendered from the parent commit.
 - Don't assert a painted cell is merely non-blank; an axis glyph satisfies that. Assert the expected glyph.
+- Don't give an unsigned heatmap ramp a blank level; a blank cell reads as missing data.
 
 ## Key gates
 
-- Package: `reviewFixtures.ts` (the `goodSpecs` byte-identity fixtures), `review.test.ts`, `validate.test.ts`, `schema.test.ts`, `rootIsolation.test.ts`, `ledger.test.ts`, `regionFill.test.ts`, `solidSubcell.test.ts`, `stackedArea.test.ts`, `sankeyOrderGate.test.ts`, `skipLevelSankey.test.ts`, `flowMarks.test.ts`, `arcShape.test.ts`, `textScale.test.ts`, `strokeWidth.test.ts`, `tickFormat.test.ts`, `effectsBridge.test.ts`.
+- Package: `reviewFixtures.ts` (the `goodSpecs` byte-identity fixtures), `review.test.ts`, `validate.test.ts`, `schema.test.ts`, `rootIsolation.test.ts`, `ledger.test.ts`, `regionFill.test.ts`, `solidSubcell.test.ts`, `stackedArea.test.ts`, `flowMarks.test.ts`, `sankeyLines.test.ts`, `arcShape.test.ts`, `textScale.test.ts`, `strokeWidth.test.ts`, `tickFormat.test.ts`, `effectsBridge.test.ts`.
 - 3D: `src/3d/render.test.ts`, `schema3d.test.ts`, `surface.test.ts`, `axisOriginCorner.test.ts`, `axisPerAxisOptions.test.ts`.
 - Website: `chartsMarkTypeFit.test.ts`, `chartsUrlState.test.ts`, `chartsWorkbenchTargetMatrix.test.tsx`, `TargetPreview/glyphMonoCmap.test.ts`.
 

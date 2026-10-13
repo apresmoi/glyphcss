@@ -391,6 +391,8 @@ export interface GlyphChart3dBarsMark {
 export interface GlyphChart3dLineSeriesEntry {
   readonly name: string;
   readonly color: string;
+  /** True for a lone series with no explicit `color`: it is drawn dark to bright along its path, so overlapping loops stay apart. */
+  readonly colorAlongPath: boolean;
   readonly points: readonly (readonly [number, number, number])[];
 }
 export interface GlyphChart3dLineMark {

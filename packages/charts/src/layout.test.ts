@@ -107,7 +107,7 @@ describe("layoutGlyphChart — degrade ladder logs to the ledger", () => {
  * budget/minimum column spacing (`xTickCountProvisional`/`xTickCount`),
  * and the band-label stride all scale by `textScale` to make that true —
  * grid-line spacing needs no separate fix, since gridlines paint at the
- * same `xTicks`/`yTicks` this suite reads. Tick-mark GLYPHS (`┤`/`┴`) stay
+ * same `xTicks`/`yTicks` this suite reads. Tick-mark GLYPHS (`┤`/`┬`) stay
  * one cell wide regardless (they are line glyphs, not text) — untouched by
  * any of this and not exercised here.
  */

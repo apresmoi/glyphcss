@@ -353,7 +353,7 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
     // rotation sweep below already uses — reused here so the stamped-cell
     // check stays meaningful instead of chasing a manual camera's own
     // clipping.
-    function stampedTitleCell(titleAt: "start" | "end"): { col: number; row: number } {
+    function stampedTitleCell(titleAt: "center" | "end"): { col: number; row: number } {
       const mark = glyphChartSurface({ z: bumpGrid() }, undefined, { axes: { z: { title: "height", titleAt } } });
       const result = renderGlyphChart3d(mark, { target: "web", color: "none", charset: "ascii", width: 100, height: 40, camera: { rotX: 60, rotY: 30 } });
       const idx = result.text.indexOf("height");
@@ -362,9 +362,11 @@ describe("axes.{x,y,z}.titleAt / titleOffset — P1-3 (user feedback: 'configure
       return { row: lines.length - 1, col: lines[lines.length - 1]!.length };
     }
 
-    const startCell = stampedTitleCell("start");
+    // "center", not "start": a start title sits beside the t=0 tick, which
+    // outranks titles, so whether it survives depends on the fitted zoom.
+    const centerCell = stampedTitleCell("center");
     const endCell = stampedTitleCell("end");
-    expect(startCell).not.toEqual(endCell);
+    expect(centerCell).not.toEqual(endCell);
   });
 
   it("bad-axis-title-at: an unknown titleAt value rejects", () => {

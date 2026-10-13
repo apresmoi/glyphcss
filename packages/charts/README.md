@@ -30,7 +30,7 @@ console.log(text);
 4 ┤  -▔‾_-         \\\        //        
   │__-               \\\     //         
   │                    \\\\ //          
-2 └┴───────────┴──────────\//──────────┴
+2 └┬───────────┬──────────\//──────────┬
    0           1           2           3
 ```
 
@@ -38,7 +38,7 @@ A bare `number[]` infers `x = index, y = identity` — the same shorthand `Plot.
 
 ## Marks
 
-Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartRect`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal) — unless every string in the channel is itself a calendar-valid ISO date, which infers `time` instead — a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends"). `line`, `rule`, and an `area`'s own boundary line accept `options.strokeWidth?: 1 | 2 | 3` (default `1`) — `ascii`/`box` widen by substituting a heavier glyph on the same cells; `blocks`/`braille` widen with real sub-cell dot ink. Two more constructors are non-cartesian, like `arc`: `glyphChartSankey(data, { source, target, value, name?, color? })` and `glyphChartFunnel(data, { stage?, value?, name?, color? })`.
+Every constructor returns a plain `GlyphChartMark` value: `glyphChartLine(data, channels?, options?)`, `glyphChartArea`, `glyphChartBar`, `glyphChartDot`, `glyphChartArc`, `glyphChartCell`, `glyphChartText`, `glyphChartRule(values, { axis? })`. `channels` maps `x`/`y`/`fill`/`stroke`/`label` to a field name, an accessor `(datum, index) => value`, or a literal array running parallel to `data`. Channel type inference copies Plot: a `Date` value infers `time`, a `string` infers `band` (ordinal) — unless every string in the channel is itself a calendar-valid ISO date, which infers `time` instead — a `number` infers `linear`. Every constructor also accepts `options.name?: string` — a series name shown in the legend, independent of any categorical `fill`/`stroke` split (see "Legends"). `line`, `rule`, and an `area`'s own boundary line accept `options.strokeWidth?: 1 | 2 | 3` (default `1`) — `ascii`/`box` widen by substituting a heavier glyph on the same cells; `blocks`/`braille` widen with real sub-cell dot ink. Two more constructors are non-cartesian, like `arc`: `glyphChartSankey(data, { source, target, value, name?, color? })` and `glyphChartFunnel(data, { stage?, value?, name?, color? })`.
 
 ### `glyphChartLine`
 
@@ -56,7 +56,7 @@ renderGlyphChart(glyphChartLine([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
 4 ┤   /// \\     /                     \
   │ ///    \\\  //                      
   │//        \\//                       
-2 └┴──────────\/───────────┴───────────┴
+2 └┬──────────\/───────────┬───────────┬
    0           2           4           6
 ```
 
@@ -76,31 +76,31 @@ renderGlyphChart(glyphChartArea([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width:
   │████████████ ████████████████████████
 2 ┤█████████████████████████████████████
   │█████████████████████████████████████
-0 └┴───────────┴───────────┴───────────┴
+0 └┬───────────┬───────────┬───────────┬
    0           2           4           6
 ```
 
 ### `glyphChartBar`
 
-Bar cell heights are proportional to values within one cell, measured from the axis LINE — which sits on the y=0 row itself (an interior row for a mixed-sign domain, the plot's own bottom row otherwise), so a bar always touches it, never floating a row above a separately-drawn line. Zero paints nothing; both signs exclude the baseline. Bar, rect and area inferred y-domains include zero; an explicit domain excluding zero rejects with `bar-domain-excludes-zero`. Stacked bars/areas paint the transform’s `y0`→`y1` bounds.
+Bar heights are proportional to values, measured from the axis LINE — which sits on the y=0 row itself (an interior row for a mixed-sign domain, the plot's own bottom row otherwise), so a bar always touches it, never floating a row above a separately-drawn line. Zero paints nothing; both signs exclude the baseline. A positive, unstacked `█` bar ends in a lower eighth block (`▁`–`▇`) for its last fraction of a row, so values whole cells would round together stay distinct; shaded series, `ascii`, negative bars and stack segments keep whole cells. Each bar series is at most 3 cells wide (times `textScale`), centred on its tick; dodged series sit side by side, 3 cells each. Bar and area inferred y-domains include zero; an explicit domain excluding zero rejects with `bar-domain-excludes-zero`. Stacked bars/areas paint the transform’s `y0`→`y1` bounds.
 
 ```ts
 renderGlyphChart(glyphChartBar([3, -5, 2, 8]), { target: "chat", width: 40, height: 14 });
 ```
 ```
-   │                                ████
-   │                                ████
-   │                                ████
- 5 ┤                                ████
-   │                                ████
-   │███                             ████
-   │███                 ██████      ████
- 0 ├┴───────────┴──────────┴───────────┴
-   │         ██████                     
-   │         ██████                     
-   │         ██████                     
-   │         ██████                     
--5 ┤         ██████                     
+   │                                  ██
+   │                                  ██
+   │                                  ██
+ 5 ┤                                  ██
+   │▃▃                                ██
+   │██                    ▄▄▄         ██
+   │██                    ███         ██
+ 0 ├┬───────────┬──────────┬───────────┬
+   │           ███                      
+   │           ███                      
+   │           ███                      
+   │           ███                      
+-5 ┤           ███                      
     0           1          2           3
 ```
 
@@ -120,7 +120,7 @@ renderGlyphChart(glyphChartDot([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 
 4 ┤                                    ●
   │                                     
   │●                                    
-2 └┴───────────●───────────┴───────────┴
+2 └┬───────────●───────────┬───────────┬
    0           2           4           6
 ```
 
@@ -128,7 +128,7 @@ renderGlyphChart(glyphChartDot([3, 5, 2, 8, 6, 9, 4]), { target: "chat", width: 
 
 An arc/text-only spec draws no cartesian axis. Record arcs require the value channel `y`; categories use `fill`, falling back to `label`, then the row index. Missing `y` rejects with `arc-missing-value`. Numeric arrays use each element as the value and its index as the category. Positive categories become `meta.series` and legend entries; repeated categories sum into one slice. Nonpositive values occupy no angle, and an all-zero pie is empty with an `empty-total` ledger entry. Pass `options.innerRadius` (`0 <= radius < 1`) for a donut hole.
 
-The disc is a genuine circle on screen (its radius is split by the canvas's own `cellAspect`, never fit independently per axis) and never touches the plot rect edge (`GLYPH_CHART_ARC_FILL = 0.8`). `options.labels: "callout" | "legend-only"` (default `"callout"`) draws a leader line from each slice whose own angular span is at least 8° out to a `name · NN%` label beside the disc — left half left, right half right, same-side labels stacked one row apart and dropped (`label-dropped`) when a side runs out of room; `"legend-only"` paints just the disc, leaving identification to the legend row.
+The disc is a genuine circle on screen (its radius is split by the canvas's own `cellAspect`, never fit independently per axis) and never touches the plot rect edge (`GLYPH_CHART_ARC_FILL = 0.8`). `options.labels: "callout" | "legend-only"` (default `"callout"`) draws a leader line from each slice whose own angular span is at least 8° out to a `name · NN%` label beside the disc — left half left, right half right, same-side labels stacked one row apart and dropped (`label-dropped`) when a side runs out of room; a thinner slice gets no callout and its own `label-dropped` entry, since with `legend: false` nothing else names it; `"legend-only"` paints just the disc, leaving identification to the legend row.
 
 ```ts
 const data = [
@@ -157,7 +157,9 @@ Slices cycle a SHAPE-FAMILY glyph set, not a density ramp — `█ ░ ▚ ╱ �
 
 ### `glyphChartCell` (heatmap)
 
-Both axes band-scale string categories. Numeric `fill` uses one shared monotone shade ramp: sequential for same-sign data, diverging around zero for mixed signs. `[-10, 0, 10]` yields full ink, blank, full ink — blank means "no signal" (reserved for exactly zero on the diverging ramp), never the domain's most extreme value; each side ramps independently from zero out to its own extreme.
+Both axes band-scale string categories. A chart made only of `cell` marks on two band scales is a heatmap: its cells tile flush, each `2k` columns by `k` rows (about square on screen) for the largest `k` that fits, and the chart shrinks to that grid rather than stretching cells across the canvas. Every row and column keeps its label when they fit.
+
+Numeric `fill` uses one shared ramp across every cell mark. Same-sign data splits its own min..max into equal bins over `░ ▒ ▓ █` (ASCII `. : + * % # @`, ordered by measured ink), with no blank level, and a one-line range key under the grid reads `min ░░▒▒▓▓██ max`. The `cellRamp` render option replaces that ramp (lightest first, one visible character each, 7-bit on `ascii`), key included. Mixed-sign data keeps a diverging ramp around zero and no key: `[-10, 0, 10]` yields full ink, blank, full ink — blank means "no signal", reserved for exactly zero, and each side ramps independently out to its own extreme. A cell with no `fill` paints solid.
 
 ```ts
 const data = [];
@@ -165,23 +167,23 @@ for (let x = 0; x < 4; x++) for (let y = 0; y < 3; y++) data.push({ x: String(x)
 renderGlyphChart(glyphChartCell(data, { x: "x", y: "y", fill: "v" }), { target: "chat", width: 40, height: 14 });
 ```
 ```
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-2 ┤          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ▒▒▒▒▒▒▒  ▓▓▓▓▓▓▓  ███████  
-  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-1 ┤          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-  │          ░░░░░░░  ▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒  
-  │                                     
-  │                                     
-0 ┤                                     
-  └────┴────────┴────────┴────────┴─────
-       0        1        2        3     
+  │░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓██████
+2 ┤░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓██████
+  │░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓██████
+  │░░░░░░░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓
+1 ┤░░░░░░░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓
+  │░░░░░░░░░░░░▒▒▒▒▒▒▓▓▓▓▓▓
+  │░░░░░░░░░░░░░░░░░░░░░░░░
+0 ┤░░░░░░░░░░░░░░░░░░░░░░░░
+  │░░░░░░░░░░░░░░░░░░░░░░░░
+  └───┬─────┬─────┬─────┬──
+      0     1     2     3  
+   0 ░░▒▒▓▓██ 6            
 ```
 
 ### `glyphChartText`
+
+Labels at data coordinates, meant as an annotation over another mark in the same plot. There, a label never overwrites the data it names: it takes the first spot with no data ink under it (centred above its point, centred below, then to its left or right with a one-cell gap), and stays above the point only when none is clear. A text-only chart centres each label on its point.
 
 ```ts
 renderGlyphChart(glyphChartText([{ x: 1, y: 1, label: "hi" }], { x: "x", y: "y", label: "label" }), { target: "chat", width: 20, height: 10 });
@@ -199,13 +201,13 @@ renderGlyphChart(glyphChartText([{ x: 1, y: 1, label: "hi" }], { x: "x", y: "y",
                     
 ```
 
-### `glyphChartRect`
-
-Like `bar`, but drawn as a plain 1-cell-wide column at each `x`/`y` pair rather than a band-scaled bar — the primitive a `bin`-transformed histogram paints into.
-
 ### `glyphChartSankey`
 
-Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`); row height is ∝ throughput under ONE global rows-per-unit scale (never independently normalised per column, which could draw a larger value thinner than a smaller one elsewhere), and a flow's band is ∝ value at BOTH ends — every row split uses the same cumulative-rounding technique `bar`/`rect` dodging uses, so a node's own row height and the sum of its outgoing/incoming band rows always conserve exactly, and folding a too-small flow into a single `(other)` band iterates to a fixed point (`sankey-folded-flows`). A gap row (`GLYPH_CHART_SANKEY_NODE_PADDING_ROWS`, `GLYPH_CHART_SANKEY_LINK_GAP_ROWS`) is reserved BEFORE that split — between stacked node boxes in one column, and between consecutive bands leaving or entering one node — so a box is visibly shorter than its column and bands don't stack edge to edge; the gap is a planned absence baked into the row math itself, degrading toward 0 (never below 1 row for a band) when the plot is too tight to afford it. Each band of k rows is painted as k parallel single-cell-wide routes through the cell canvas's own edge/route contract on `ascii`/`box` (a rounded corner at each turn, its own series glyph one step lighter on a straight run) or as a genuine per-dot-column smooth ribbon on `braille`/`blocks`, each reserving a column within an interval-coloured ribbon — two bands share a ribbon slot only when their vertical extents never overlap, so two overlapping crossing bands land on different columns and a crossing reads as two bands passing rather than one erasing the other (`sankey-crossings-merged` when a gap is too narrow for every ribbon). A row's own first and last cell (touching its source/target border) are claimed with absolute priority ahead of any other band's transit, so every band reaches both its own borders regardless of any crossing through it; `report.routeConflicts` is not fully empty in practice (two ribbons sharing one border column can still coincide at a single cell along their own axis), but a conflict cell always paints a real contending band's own colour, never a blank or foreign one. A non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive value or a missing channel rejects with `sankey-bad-value` (a non-finite value in the data itself rejects earlier and generically with `non-finite-data`); a typo'd channel name rejects with `sankey-missing-channel` rather than a misleading cycle error; a genuine cycle rejects with `sankey-cycle`. Legend: one entry per source node.
+Non-cartesian, like `arc`. `{ source, target, value }` name channels the way every other mark does. Node columns are laid out by depth (`d3-sankey`), and each node is a one-column bar (`█`, ascii `#`) whose height is its throughput under ONE global rows-per-unit scale, so a larger value is never drawn shorter than a smaller one elsewhere. Every flow gets a share of rows on both of its bars, split by cumulative rounding so a node's shares always add up to its own height, with a blank row between shares and between stacked bars when there is room (`GLYPH_CHART_SANKEY_LINK_GAP_ROWS`, `GLYPH_CHART_SANKEY_NODE_PADDING_ROWS`).
+
+A flow is drawn as a line, not a ribbon: one stub per row of its source share, gathered into a single line, and fanned back out over its target share. With room in the gap, the gathering is a tree that folds the outer rows inward one stage at a time (`┴─╮` above the middle row, `┬─╯` below), never wider than a quarter of the gap, so a tall share folds several rows per stage; a tight gap gets a single bracket (`╮ ┤ ┼ ┤ ╯`). The line carries the flow's value on its longest clear run, and its weight hints at size: `━` for a flow at least 55% of the largest, `─` from 25%, `┄` below (ascii `=`, `-`, `.`). Bends take one column of their own per gap, so lines only meet at right angles, and a vertical crossing another flow's line passes over it. A flow skipping a column threads through a free row between that column's bars (`sankey-band-unroutable` when there is none). Outer columns label their bars in a gutter beside them, `name value`; a middle column's label goes under (else over) its bar. A flow too small for its own row folds into `(other)` (`sankey-folded-flows`).
+
+A non-terminal node whose inflow and outflow disagree gets `sankey-imbalance`; a nonpositive value or a missing channel rejects with `sankey-bad-value` (a non-finite value in the data itself rejects earlier and generically with `non-finite-data`); a typo'd channel name rejects with `sankey-missing-channel` rather than a misleading cycle error; a genuine cycle rejects with `sankey-cycle`. The legend defaults off, since every node is labelled; `legend: true` lists the sources with line swatches.
 
 ```ts
 const data = [
@@ -217,27 +219,27 @@ const data = [
 renderGlyphChart(glyphChartSankey(data, { source: "from", target: "to", value: "amount" }), { target: "chat", width: 50, height: 16 });
 ```
 ```
-┌────────┐█▓▓▓▓▓▓▓▓█┌────────┐▚▚▚▚▚▚▚▚▚▚┌────────┐
-│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
-│  Coal  │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
-│        │█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│        │
-└────────┘█▓▓▓▓▓▓▓▓█│        │▚▚▚▚▚▚▚▚▚▚│ Homes  │
-                    │        │▚▚▚▚▚▚▚▚▚▚│        │
-          ╭░░░░░░░░░│ Power  │▚▚▚▚▚▚▚▚▚▚│        │
-┌────────┐░╭░░░░░░░░│        │▚▚▚▚▚▚▚▚▚▚│        │
-│        │░╯╭░░░░░░░│        │        ╰▚└────────┘
-│        │░░╯╭░░░░░░│        │▚                   
-│  Gas   │░░░╯╭░░░░░│        │▚╮                  
-│        │░░░░╯╭░░░░│        │▚▚▚▚▚▚▚▚▚▚┌────────┐
-│        │░░░░░╯╭░░░└────────┘▚╰▚▚▚▚▚▚▚▚│Industry│
-│        │░░░░░░╯░              ╰▚▚▚▚▚▚▚│        │
-└────────┘░░░░░░░╯               ╰▚▚▚▚▚▚└────────┘
-   █  Coal          ░  Gas         ▚  Power       
+        █─╮          ╭─█─╮         ╭─█            
+        █─┤          ├─█─┤         ├─█            
+Coal 40 █─┼━━━ 40 ━━━┼─█─┤         ├─█            
+        █─┤          ├─█─┤         ├─█            
+        █─┤          ╰─█─┼━━ 70 ━━━┼─█ Homes 70   
+        █─╯            █─┤         ├─█            
+                     ╭─█─┤         ├─█            
+                     ├─█─┤         ├─█            
+        █─╮          ├─█─╯         ├─█            
+        █─┤        ┏━┼─█           ╰─█            
+        █─┤        ┃ ├─█─╮                        
+ Gas 60 █─┼━━ 60 ━━┛ ├─█─┼─ 30 ──╮                
+        █─┤          ├─█─┤       │ ╭─█            
+        █─┤          ╰─█─╯       ╰─┼─█ Industry 30
+        █─┤        Power 100       ├─█            
+        █─╯                        ╰─█            
 ```
 
 ### `glyphChartFunnel`
 
-Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index) — every row is its own stage even when two share a label. Every stage gets an EQUAL row band; only the bar's WIDTH is proportional to value/max, centred between a label column (stage name, right-aligned) and a `value · NN%` readout on the right — never an equal-step trapezoid. More stages than the plot has rows folds the tail into one "other (k more)" stage rather than dropping it silently (`funnel-folded-stages`). A negative value rejects with `funnel-bad-value`; an all-zero funnel draws nothing (`empty-total`); a nonpositive first-stage value omits every percentage rather than printing a fabricated `0%` (`funnel-bad-reference`). A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a proportional width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
+Non-cartesian, like `arc`/`sankey`. `data` is ordered `{ stage, value }` records (or a bare `number[]`, stage = index) — every row is its own stage even when two share a label. The funnel is one solid shape (`█`, `#` on ascii) whose stages settle at widths proportional to the SQUARE ROOT of value/max, so a late, small stage stays visible; each tapers in from the previous stage's width with quadrant half-steps, a blank row parts the stages, and the shape fills the plot with a blank row above and below. Each stage gets one label line on its waist: name, value, share of the first stage, and from the third stage on the share of the previous stage that made it (`↓ 31%`; `v` on ascii). The step and share columns give way before the shape gets too narrow; a value too wide for the gutter takes its SI form, then drops (`label-dropped`), never truncates. Stages are told apart by colour and label, so the fill ignores `regionFill` and `shades`. More stages than the plot has rows folds the tail into one "other (k more)" stage rather than dropping it silently (`funnel-folded-stages`). A negative value rejects with `funnel-bad-value`; an all-zero funnel draws nothing (`empty-total`); a nonpositive first-stage value omits every percentage rather than printing a fabricated `0%` (`funnel-bad-reference`). A stage exceeding the one above it renders in place and logs `funnel-not-monotone`; a width under one cell draws a one-cell stub and logs `funnel-thin-stage`. Legend defaults OFF (the stage labels already carry identity); pass `legend: true` to list the stages anyway.
 
 ```ts
 const data = [
@@ -250,25 +252,25 @@ const data = [
 renderGlyphChart(glyphChartFunnel(data, { stage: "stage", value: "count" }), { target: "chat", width: 64, height: 20 });
 ```
 ```
-             ████████████████████████████████████               
-       Visits████████████████████████████████████  10,000 · 100%
-             ████████████████████████████████████               
                                                                 
-                        ░░░░░░░░░░░░░░                          
-Product Views           ░░░░░░░░░░░░░░             4,000 · 40%  
-                        ░░░░░░░░░░░░░░                          
+███████████████████████████  Visits         10,000  100%        
                                                                 
-                             ▚▚▚▚                               
-  Add to Cart                ▚▚▚▚                  1,000 · 10%  
-                             ▚▚▚▚                               
+ ▜███████████████████████▛                                      
+  ▝▜███████████████████▛▘                                       
+    ▀█████████████████▀                                         
+     █████████████████       Product Views   4,000   40%        
                                                                 
-                               ╱                                
-     Checkout                  ╱                   400 · 4%     
-                               ╱                                
+      ▀█████████████▀                                           
+        ▀█████████▀                                             
+         █████████           Add to Cart     1,000   10%   ↓ 25%
                                                                 
-                               ▌                                
-     Purchase                  ▌                   260 · 3%     
-                               ▌                                
+         ▝███████▘                                              
+          ▝█████▘                                               
+           █████             Checkout          400    4%   ↓ 40%
+                                                                
+           █████                                                
+           ▜███▛                                                
+           ▐███▌             Purchase          260    3%   ↓ 65%
                                                                 
 ```
 
@@ -303,7 +305,7 @@ renderGlyphChart(spec, { target: "chat", width: 50, height: 16 });
 2 ┤                             -_●/              
   │                                               
   │                                               
-0 └┴──────────────┴───────────────┴──────────────┴
+0 └┬──────────────┬───────────────┬──────────────┬
    0              1               2              3
 ```
 
@@ -333,7 +335,7 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
   │     //  \ \\// /                      \ 
 2 ┤  //     \ \\/                          \
   │//         \  /                          
-0 └┴───────────\/─────────────┴────────────┴
+0 └┬───────────\/─────────────┬────────────┬
    0            2             4            6
      ───Revenue            ── Visits        
 ```
@@ -364,7 +366,7 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
 4 ┤ ///     \\    /                        \
   │//        \\  //                         
   │           \\//                          
-2 └┴───────────\/─────────────┴────────────┴
+2 └┬───────────\/─────────────┬────────────┬
    0            2             4            6
 ```
 
@@ -388,7 +390,7 @@ renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 4
 4 ┤    /// \\     //                       \
   │ ///     \\\  //                         
   │//         \\//                          
-2 └┴───────────\/─────────────┴────────────┴
+2 └┬───────────\/─────────────┬────────────┬
    0            2             4            6
                 ───Revenue                  
 Weekly revenue
@@ -396,7 +398,7 @@ Weekly revenue
 
 ## Axes
 
-`spec.axes?.{x,y}: { ticks?, tickMarks?, title?, grid? }`. Tick marks are on by default — `┤`/`┴` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
+`spec.axes?.{x,y}: { ticks?, tickMarks?, line?, title?, grid? }`. `line: false` hides that axis's line and tick marks and keeps its labels. Tick marks are on by default — `┤`/`┬` where a tick actually lands, `│`/`─` elsewhere, `└` at the corner (`+` on every stem under `charset: "ascii"`, since its own junction table already collapses every multi-stem glyph to that):
 
 ```ts
 renderGlyphChart(glyphChartLine([3, 5, 2, 8]), { target: "chat", charset: "ascii", color: "none", width: 30, height: 10 }).text;
@@ -443,7 +445,7 @@ value
   │      //                 \\\    /                            
   │                           \\  //                            
   │                            \\//                             
-2 └──────┴───────────┴──────────\/───────────┴───────────┴──────
+2 └──────┬───────────┬──────────\/───────────┬───────────┬──────
         Jan         Feb         Mar         Apr         May     
                                month                            
                           ───Revenue                            
@@ -493,7 +495,7 @@ Every preset lives in one exported table, `GLYPH_CHART_TICK_FORMAT_PRESETS`:
 | `"time"` | `14:05` | — |
 | `"template"` | `42 °C` | `pattern: string` (required) — `{value}` is the auto-formatted value |
 
-A bare string is sugar for `{ preset: "<name>" }`; `"auto"` (and an absent `format`) is a no-op, so a default chart is byte-identical to one built before `format` existed. A formatted numeric label that overflows its cell budget still follows the existing abbreviate-or-drop policy: a preset's own SI fallback runs first where it has one (`number`, `integer`, `currency`); otherwise the label drops, never truncates into a shorter-but-wrong number (`"1,234.00"` never becomes `"1,2"`). A callback's return value is opaque text the library can't parse back into a number, so it's always treated as a category label — elided with `…` rather than dropped. Applies to axis ticks only, never an arc's own callout percentage or a funnel's value·percent label.
+A bare string is sugar for `{ preset: "<name>" }`; `"auto"` (and an absent `format`) is a no-op, so a default chart is byte-identical to one built before `format` existed. A formatted numeric label that overflows its cell budget still follows the existing abbreviate-or-drop policy: a preset's own SI fallback runs first where it has one (`number`, `integer`, `currency`); otherwise the label drops, never truncates into a shorter-but-wrong number (`"1,234.00"` never becomes `"1,2"`). A callback's return value is opaque text the library can't parse back into a number, so it's always treated as a category label — elided with `…` rather than dropped. Applies to axis ticks only, never an arc's own callout percentage or a funnel's value and share labels.
 
 ## Colours
 
@@ -516,7 +518,7 @@ glyphChartLine(categoricalSeriesData, { x: "x", y: "y", stroke: "s" }, { color: 
 
 `scales.x/y.type` supports `linear`, `log`, `sqrt`, `time`, `band`, and `ordinal` (band). Log and square-root scales use d3's actual transforms. Log domains containing zero or crossing sign reject with `log-domain`; zero-anchored bars/rects therefore need a zero-capable scale. Time domains accept calendar-valid ISO strings, parsed once; invalid ones reject with `bad-time-domain`. Intraday ticks use d3's multi-scale time format. `nice: true` enables d3 domain nicening.
 
-Categorical `fill` or `stroke` splits line, area, dot, bar, rect and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/rect/area) instead carries series identity through its own glyph — a SHAPE-FAMILY set (`█ ░ ▚ ╱ ▌ ═ ▓ ▒` in box/blocks/braille, `# . @ -`/`# . = / @ : | -` in ASCII below/above 4 series — see the pie section above) wherever colour cannot tell series apart, so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. `regionFill: "auto" | "solid" | "texture"` (default `"auto"`) swaps that glyph for a solid `█` (`#` on ascii) in the colour-carrying exits only — `html` under `css`, `text` under an ANSI mode — when colour is on, the target is not `terminal`/`chat`, and no two region series (sankey sources and funnel stages included) share a colour at the render's own depth (ansi16 maps the default blue and green to one colour). `build.canvas` and plain `text` always keep the textures. `glyphChartRegionFill(input, options)` returns the decision and a one-sentence reason; an explicit `"solid"` that would make two series identical is refused with a `region-fill-solid-refused` ledger entry. Past 8 series in one shade family the cycle wraps and `report.ledger` gets a `series-shade-repeat` entry per repeated pair. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
+Categorical `fill` or `stroke` splits line, area, dot, bar and cell rows into separate series. Each appears in `meta.series` and the legend, alongside any named marks (see "Legends"). Colour uses distinct series colours. A LINE/area-boundary series monochrome-cycles solid/dashed/dotted/double strokes; a REGION mark's fill (bar/area) instead carries series identity through its own glyph — a SHAPE-FAMILY set (`█ ░ ▚ ╱ ▌ ═ ▓ ▒` in box/blocks/braille, `# . @ -`/`# . = / @ : | -` in ASCII below/above 4 series — see the pie section above) wherever colour cannot tell series apart, so a stacked/dodged chart stays readable in Copy ASCII; its legend swatch is that same glyph, never a line style. `regionFill: "auto" | "solid" | "texture"` (default `"auto"`) swaps that glyph for a solid `█` (`#` on ascii) in the colour-carrying exits only — `html` under `css`, `text` under an ANSI mode — when colour is on, the target is not `terminal`/`chat`, and no two region series share a colour at the render's own depth (ansi16 maps the default blue and green to one colour). `build.canvas` and plain `text` always keep the textures. `glyphChartRegionFill(input, options)` returns the decision and a one-sentence reason; an explicit `"solid"` that would make two series identical is refused with a `region-fill-solid-refused` ledger entry. Past 8 series in one shade family the cycle wraps and `report.ledger` gets a `series-shade-repeat` entry per repeated pair. The `shades` render option (e.g. `shades: ["#", "=", "+", ":", "."]`) replaces that glyph set, legend swatches included, with your own palette: one visible character per series, 7-bit on `ascii`; it wraps and reports on its own length, and solid fills and `cell` ramps ignore it. A `dot` mark's glyph is a distinct whole-cell shape (`● × + ◆`/ASCII `o x + *`) on `ascii`/`box`; under `braille`/`blocks` every point instead paints a full 2×2 sub-cell dot cluster (4 dots, positioned at the exact sub-cell coordinate) regardless of series or colour, since a single dot there measures under 2px — colour carries series identity for dots at that resolution. The frozen canvas logs its existing solid fallback for double diagonals. Categorical dot y-values paint on band centres. `size`, `shape`, and `curve` are unsupported and removed from the public types/schema; supplied values reject instead of being ignored.
 
 All strings pass through the canvas's text fold. ASCII output is 7-bit, including `-`, a three-cell `...`, accented titles and text marks. Axis labels use the same slot-aware abbreviation policy as other labels: SI first, then elision, with ledger entries. Crowded category labels thin every kth tick; numeric/time collisions also thin. Labels never rely on canvas clipping.
 
@@ -565,7 +567,7 @@ renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "box", width: 
 4 ┤  // \\   //               /      \\  // 
   │ //   \\  /                        \\//  
   │//     \\//                         //   
-2 └┴───────\/────────┴────────┴────────┴────
+2 └┬───────\/────────┬────────┬────────┬────
    0        2        4        6        8    
 ```
 ```ts
@@ -582,10 +584,10 @@ renderGlyphChart(glyphChartLine(data), { target: "chat", charset: "braille", wid
 4 ┤   ⡔⠁⠑⡄   ⢀⠇               ⠱⠃     ⠘⡄   ⡔⠁
   │ ⢀⠎   ⠘⢄  ⢸                        ⠸⡀⢀⠎  
   │⠠⠃     ⠈⢢ ⡇                         ⠱⠃   
-2 └┴────────⠻────────┴────────┴────────┴────
+2 └┬────────⠻────────┬────────┬────────┬────
    0        2        4        6        8    
 ```
-Real, unedited output from both calls. `box` uses 12 distinct glyphs: the two slope glyphs `/`/`\`, five tick digits (`0`/`2`/`4`/`6`/`8`), and five whole-cell axis/junction glyphs `│`/`─`/`┤`/`┴`/`└`. `braille` uses 40 distinct glyphs total — the same five tick digits and five axis/junction glyphs, unchanged from `box`'s own, plus 30 distinct actual braille dot patterns for the data line, never `/`/`\`.
+Real, unedited output from both calls. `box` uses 12 distinct glyphs: the two slope glyphs `/`/`\`, five tick digits (`0`/`2`/`4`/`6`/`8`), and five whole-cell axis/junction glyphs `│`/`─`/`┤`/`┬`/`└`. `braille` uses 40 distinct glyphs total — the same five tick digits and five axis/junction glyphs, unchanged from `box`'s own, plus 30 distinct actual braille dot patterns for the data line, never `/`/`\`.
 
 The `/charts` page applies target defaults to untouched controls and preserves explicit overrides per control. **Reset to target defaults** clears them. Terminal previews decode ANSI into coloured spans; CSS output shows HTML on every target; the chat frame never shows colour and hides **Copy ANSI**. **Copy as text** always copies plain text. ANSI escapes are never inserted into the browser preview.
 

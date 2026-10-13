@@ -17,7 +17,6 @@ export type GlyphChartMarkType =
   | "bar"
   | "dot"
   | "arc"
-  | "rect"
   | "cell"
   | "text"
   | "rule"
@@ -90,15 +89,6 @@ export interface GlyphChartMarkOptions {
    * `bad-stroke-width`.
    */
   readonly strokeWidth?: 1 | 2 | 3;
-  /**
-   * `sankey`: how much of a band's own region gets painted, AGENTS.md's
-   * "Charts" sankey clause. `"filled"` (default, byte-identical to before
-   * this option existed) paints the whole ribbon; `"outline"` paints only
-   * its two edges plus a thin centre stroke — the "should be less filled"
-   * ask, for a reader who wants the shape without the ink. No effect on
-   * any other mark type. Any other value rejects with `bad-options`.
-   */
-  readonly ribbon?: "filled" | "outline";
 }
 
 export type GlyphChartTransformKind = "bin" | "stack" | "group" | "normalize" | "window";
@@ -172,6 +162,8 @@ export type GlyphChartTickFormat = string | GlyphChartTickFormatPreset | GlyphCh
 export interface GlyphChartAxisOptions {
   readonly ticks?: number;
   readonly tickMarks?: boolean;
+  /** `false` hides this axis's line and tick marks; its tick labels and title stay. Default `true`. */
+  readonly line?: boolean;
   readonly title?: string;
   readonly grid?: boolean;
   /** Canonical `#rrggbb`; overrides `spec.axes.color` for this one axis (line, tick marks, tick labels, title, and grid). */
@@ -258,7 +250,7 @@ export type GlyphChartCharset = "ascii" | "box" | "blocks" | "braille";
 export type GlyphChartColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
 export type GlyphChartDetail = "auto" | "faithful" | "balanced" | "simplified";
 /**
- * How a region mark (bar/rect/area/arc) fills: `"texture"` gives each series
+ * How a region mark (bar/area/arc) fills: `"texture"` gives each series
  * its own shape glyph, `"solid"` a full block in each series' own colour, and
  * `"auto"` is solid only where colour genuinely carries series identity
  * (AGENTS.md's "Charts" "Series and shading").
@@ -318,10 +310,24 @@ export interface GlyphChartRenderOptions {
    * only (`html` under `css`, `text` under an ANSI mode): `build.canvas` and
    * a plain `text` always carry textures, so a coloured chart's plain text
    * stays readable. An explicit `"solid"` that would make two series identical
-   * (colour off, two series sharing a colour, a sankey/funnel mark) is
+   * (colour off, two series sharing a colour) is
    * refused with a `region-fill-solid-refused` ledger entry.
    */
   readonly regionFill?: GlyphChartRegionFill;
+  /**
+   * Replaces the charset's own series fill glyphs (bar, area, arc and
+   * funnel textures, and their legend swatches) with this
+   * palette, in series order. Past its length the glyphs repeat, reported
+   * as `series-shade-repeat`. Solid colour fills and `cell` ramps ignore it.
+   */
+  readonly shades?: readonly string[];
+  /**
+   * An unsigned heatmap's (`cell`) value ramp, lightest first, replacing the
+   * charset's own (`░ ▒ ▓ █`, ascii `. : + * % # @`). Values split into
+   * equal bins across their own min..max, one glyph each. A signed heatmap
+   * (values on both sides of zero) keeps its gain/loss ramps.
+   */
+  readonly cellRamp?: readonly string[];
 }
 
 /**
@@ -347,16 +353,7 @@ export interface GlyphChartMeta {
 export interface GlyphChartReport {
   readonly ledger: readonly GlyphChartLedgerEntry[];
   readonly unsupportedGlyphs: readonly string[];
-  /**
-   * The cell canvas's own `GlyphCanvasRouteConflict[]` (`glyphcss`,
-   * `resolveJunctions()`'s "not fully empty in practice" quantity AGENTS.md's
-   * "Charts" sankey clause discusses), forwarded UNCHANGED — a sankey band's
-   * ribbon claim can still coincide with another band's at a single cell
-   * along its own axis (never a whole run), and this is how a caller
-   * verifies that count directly rather than taking the prose's word
-   * for it (fable review, batch 3, finding e). Empty for every spec with no
-   * sankey mark, byte-identical to before this field existed.
-   */
+  /** The cell canvas's own `GlyphCanvasRouteConflict[]` (`glyphcss`), forwarded unchanged. No chart mark registers routes, so it stays empty. */
   readonly routeConflicts: readonly GlyphCanvasRouteConflict[];
 }
 

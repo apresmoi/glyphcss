@@ -3,10 +3,10 @@ import {
   encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml,
   type GlyphCanvasTierName,
 } from "glyphcss";
-import { glyphDiagramTruncateLabel } from "../labels";
+import { glyphDiagramText, glyphDiagramTruncateLabel } from "../labels";
 import { glyphDiagramCenterOffset } from "../center";
 import { glyphDiagramPaletteColor, resolveGlyphDiagramColor } from "../color";
-import { diagramLedgerEntryFromCanvasMessage, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "../ledger";
+import { diagramLedgerEntryFromCanvasMessage, ledgerLabelAbbreviated, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "../ledger";
 import type { GlyphSequenceColumn, GlyphSequenceRow } from "./layout";
 import type { GlyphSequenceParticipant } from "./types";
 import type { GlyphSequenceRenderOptions } from "./render";
@@ -34,7 +34,7 @@ export function paintGlyphSequence(
   rows: readonly GlyphSequenceRow[],
   bodyHeight: number,
   width: number,
-  options: GlyphSequenceRenderOptions & { readonly width: number; readonly height: number },
+  options: GlyphSequenceRenderOptions & { readonly width: number; readonly height: number; readonly inkRows?: readonly GlyphSequenceRow[] },
 ): GlyphSequencePaintResult {
   const charset: GlyphCanvasTierName = options.charset ?? "box";
   const colored = options.color !== "none";
@@ -75,8 +75,10 @@ export function paintGlyphSequence(
   // diagram a cell off centre. The lifelines' own columns are included too,
   // since a 1-glyph label is narrower than the rule beneath it.
   const labelLeft = (c: { readonly x: number; readonly label: string }): number => c.x - Math.floor(c.label.length / 2);
-  const inkLeft = Math.min(...columns.map((c) => Math.min(labelLeft(c), c.x)));
-  const inkRight = Math.max(...columns.map((c) => Math.max(labelLeft(c) + c.label.length - 1, c.x)));
+  // A frame's sides sit outside the lifelines it encloses, so they count as ink too.
+  const boxes = (options.inkRows ?? rows).filter((row) => row.type !== "message");
+  const inkLeft = Math.min(...columns.map((c) => Math.min(labelLeft(c), c.x)), ...boxes.map((b) => b.x0));
+  const inkRight = Math.max(...columns.map((c) => Math.max(labelLeft(c) + c.label.length - 1, c.x)), ...boxes.map((b) => b.x1));
   const { dx, dy: padY } = glyphDiagramCenterOffset(
     { width: inkRight - inkLeft + 1, height: contentHeight },
     { width: canvasCols, height: canvasRows },
@@ -90,11 +92,17 @@ export function paintGlyphSequence(
     ? { ...row, fromX: row.fromX + padX, toX: row.toX + padX }
     : row.type === "marker"
       ? { ...row, x0: row.x0 + padX, x1: row.x1 + padX, centerX: row.centerX + padX }
-      : row);
+      : { ...row, x0: row.x0 + padX, x1: row.x1 + padX });
   const height = contentHeight + padY;
   const canvas = createGlyphCanvas({ cols: canvasCols, rows: canvasRows, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset];
   const ledger: GlyphDiagramLedgerEntry[] = [];
+  // Every label cut to fit is reported, never lost silently.
+  const fitted = (role: string, text: string, maxWidth: number): string => {
+    const shown = glyphDiagramTruncateLabel(text, maxWidth, charset);
+    if (shown !== text) ledger.push(ledgerLabelAbbreviated({ role, before: text, after: shown }));
+    return shown;
+  };
 
   for (const column of columns) {
     const participantColor = participantColors.get(column.id) ?? (colored ? accent : null);
@@ -122,17 +130,44 @@ export function paintGlyphSequence(
     const sourceGlyph = tier.junction[forward ? N | S | E : N | S | W]!;
     canvas.text(fromX, y, [sourceGlyph], { color: rowColor });
     const tipX = forward ? toX - 1 : toX + 1;
-    let phase = 0;
+    // The dash pattern counts from the head, so every dashed arrow has a dash
+    // touching it whatever its length — counted from the source, an odd gap
+    // left a blank beside the head.
     for (let x = fromX + (forward ? 1 : -1); forward ? x <= tipX : x >= tipX; x += forward ? 1 : -1) {
       const crossing = xs.includes(x) && x !== fromX && x !== toX;
-      const glyph = crossing ? tier.junction[N | E | S | W]! : dashed ? (phase % 2 === 0 ? tier.hop.h : " ") : tier.straight.h;
-      phase++;
+      const glyph = crossing ? tier.junction[N | E | S | W]! : dashed ? (Math.abs(tipX - x) % 2 === 1 ? tier.hop.h : " ") : tier.straight.h;
       canvas.text(x, y, [glyph], { color: rowColor });
     }
     canvas.arrowhead(tipX, y, forward ? "e" : "w", { color: rowColor });
   };
 
+  // A frame's border is a rule across the lifelines it encloses: they pass
+  // through the solid top and bottom as crossings, and the dashed divider
+  // simply stops at them.
+  const paintFrame = (row: Extract<GlyphSequenceRow, { type: "frame" }>): void => {
+    const { x0, x1 } = row;
+    const top = bodyTop + row.top, bottom = bodyTop + row.bottom;
+    const dividers = new Map(row.dividers.map((d) => [bodyTop + d.row, d.text]));
+    const border = (y: number, left: string, right: string, fill: (x: number) => string, text: string): void => {
+      for (let x = x0 + 1; x < x1; x++) canvas.text(x, y, [fill(x)], { color });
+      canvas.text(x0, y, [left], { color });
+      canvas.text(x1, y, [right], { color });
+      if (text) canvas.text(x0 + 2, y, [` ${fitted("frame label", text, Math.max(0, x1 - x0 - 5))} `], { align: "left", color: accent });
+    };
+    const solid = (x: number): string => xs.includes(x) ? tier.junction[N | E | S | W]! : tier.straight.h;
+    border(top, tier.junction[S | E]!, tier.junction[S | W]!, solid, row.text);
+    for (let y = top + 1; y < bottom; y++) {
+      const divider = dividers.get(y);
+      if (divider === undefined) {
+        canvas.text(x0, y, [tier.straight.v], { color });
+        canvas.text(x1, y, [tier.straight.v], { color });
+      } else border(y, tier.junction[N | E | S]!, tier.junction[N | S | W]!, (x) => xs.includes(x) ? tier.straight.v : tier.hop.h, divider);
+    }
+    border(bottom, tier.junction[N | E]!, tier.junction[N | W]!, solid, "");
+  };
+
   for (const row of rows) {
+    if (row.type === "frame") { paintFrame(row); continue; }
     if (row.type === "marker") {
       const { x0, x1, centerX } = row;
       const top = bodyTop + row.top;
@@ -144,36 +179,38 @@ export function paintGlyphSequence(
       }
       canvas.text(x0, top + 1, [tier.straight.v], { color });
       canvas.text(x1, top + 1, [tier.straight.v], { color });
-      const text = glyphDiagramTruncateLabel(row.text, Math.max(0, x1 - x0 - 1), charset);
+      const text = fitted("note", row.text, Math.max(0, x1 - x0 - 1));
       canvas.text(centerX, top + 1, [text], { align: "center", color: accent });
       continue;
     }
-    const { message, self, fromX, toX, top } = row;
+    const { message, lines, self, fromX, toX, top } = row;
     const y = bodyTop + top;
+    const labelRows = Math.max(1, lines.length);
     const dashed = message.style === "dashed";
     // The ORIGINATING participant's own colour — "each lifeline and the
     // arrows originating from it" (`render.ts`'s own doc on this option);
     // a message this participant only RECEIVES never recolours.
     const rowColor = participantColors.get(message.from) ?? (colored ? (self ? accent : color) : null);
+    const label = (left: number, maxWidth: number): void => {
+      const shown = lines.map((line) => glyphDiagramTruncateLabel(line, maxWidth, charset));
+      shown.forEach((line, i) => canvas.text(left, y + i, [line], { color: rowColor, align: "left" }));
+      const whole = glyphDiagramText(message.label ?? "", charset).split(" ").filter(Boolean).join(" ");
+      if (shown.join(" ") !== whole) ledger.push(ledgerLabelAbbreviated({ role: "message label", before: message.label ?? "", after: shown.join(" ") }));
+    };
     if (self) {
-      if (message.label) {
-        const maxWidth = Math.max(0, width - fromX - 4);
-        canvas.text(fromX + 2, y, [glyphDiagramTruncateLabel(message.label, maxWidth, charset)], { color: rowColor, align: "left" });
-      }
-      canvas.text(fromX, y + 1, [tier.junction[N | S | E]!], { color: rowColor });
-      canvas.text(fromX + 1, y + 1, [dashed ? tier.hop.h : tier.straight.h], { color: rowColor });
-      canvas.text(fromX + 2, y + 1, [tier.junction[S | W]!], { color: rowColor });
-      canvas.text(fromX, y + 2, [tier.straight.v], { color: rowColor });
-      canvas.text(fromX + 2, y + 2, [tier.junction[N | W]!], { color: rowColor });
-      canvas.arrowhead(fromX + 1, y + 2, "w", { color: rowColor });
+      label(fromX + 2, Math.max(0, width - fromX - 4));
+      const y0 = y + labelRows - 1;
+      canvas.text(fromX, y0 + 1, [tier.junction[N | S | E]!], { color: rowColor });
+      canvas.text(fromX + 1, y0 + 1, [dashed ? tier.hop.h : tier.straight.h], { color: rowColor });
+      canvas.text(fromX + 2, y0 + 1, [tier.junction[S | W]!], { color: rowColor });
+      canvas.text(fromX, y0 + 2, [tier.straight.v], { color: rowColor });
+      canvas.text(fromX + 2, y0 + 2, [tier.junction[N | W]!], { color: rowColor });
+      canvas.arrowhead(fromX + 1, y0 + 2, "w", { color: rowColor });
       continue;
     }
-    if (message.label) {
-      const left = Math.min(fromX, toX), right = Math.max(fromX, toX);
-      const maxWidth = Math.max(0, right - left - 3);
-      canvas.text(left + 2, y, [glyphDiagramTruncateLabel(message.label, maxWidth, charset)], { color: rowColor, align: "left" });
-    }
-    paintArrowRow(y + 1, fromX, toX, dashed, rowColor);
+    const left = Math.min(fromX, toX), right = Math.max(fromX, toX);
+    label(left + 2, Math.max(0, right - left - 3));
+    paintArrowRow(y + labelRows, fromX, toX, dashed, rowColor);
   }
 
   ledger.push(...canvas.report.ledger.map(diagramLedgerEntryFromCanvasMessage), ...canvas.report.routeConflicts.map((c) => ledgerRouteConflict(c)));

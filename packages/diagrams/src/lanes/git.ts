@@ -16,11 +16,10 @@ function syntax(message: string): never { return glyphDiagramError("GLYPH_LANE_G
  * builds a `GlyphLaneDag` directly and never touches this file.
  *
  * Expects one commit per line, NEWEST FIRST (`git log`'s own default
- * order — see `types.ts`'s own doc on `GlyphLaneDag.nodes`), and every
- * referenced parent present somewhere in the same output: a truncated
- * window (`git log -20`) that cuts off a parent fails the same
- * `unknown-parent` integrity check a hand-authored JSON document would —
- * use `git log --all` or a deep-enough `-n` for a self-contained window.
+ * order — see `types.ts`'s own doc on `GlyphLaneDag.nodes`). The result is
+ * always `truncated`: a window (`git log -20`) routinely names parents
+ * older than its last line, and that is the common real input, so an absent
+ * parent is read as older history rather than rejected.
  */
 export function glyphLaneDagFromGitLog(source: string): GlyphLaneDag {
   if (typeof source !== "string") syntax("git log source must be a string.");
@@ -32,10 +31,21 @@ export function glyphLaneDagFromGitLog(source: string): GlyphLaneDag {
     const [id, parentField, decoration, ...subjectParts] = parts;
     if (!id?.trim()) syntax(`Missing id in line: "${line}".`);
     const parents = (parentField ?? "").trim().split(/\s+/).filter((p) => p.length > 0);
-    const marks = (decoration ?? "").trim().replace(/^\(|\)$/g, "").split(",")
-      .map((mark) => mark.trim().replace(/^HEAD\s*->\s*/, "").replace(/^tag:\s*/, ""))
-      .filter((mark) => mark.length > 0);
+    const entries = (decoration ?? "").trim().replace(/^\(|\)$/g, "").split(",")
+      .map((mark) => mark.trim().replace(/^HEAD\s*->\s*/, ""))
+      .map((mark) => ({ tag: /^tag:\s*/.test(mark), name: mark.replace(/^tag:\s*/, "") }))
+      .filter((entry) => entry.name.length > 0);
+    // `origin/x` beside a local branch `x` on the same commit is the same name
+    // twice (`origin/fix/x` -> `fix/x`; only the first segment is a remote).
+    // Only branch names are compared, never tags: `release/v1` beside
+    // `tag: v1` are two different things. A local `feature/x` beside a local
+    // `x` is indistinguishable from a remote without a remote list, and is
+    // dropped too.
+    const branches = new Set(entries.filter((entry) => !entry.tag).map((entry) => entry.name));
+    const marks = entries
+      .filter((entry) => entry.tag || !(entry.name.includes("/") && branches.has(entry.name.slice(entry.name.indexOf("/") + 1))))
+      .map((entry) => entry.name);
     return { id: id!.trim(), label: subjectParts.join("|").trim(), parents, ...(marks.length ? { marks } : {}) };
   });
-  return validateGlyphLaneDag({ nodes });
+  return validateGlyphLaneDag({ nodes, truncated: true });
 }

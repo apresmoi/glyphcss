@@ -4,24 +4,24 @@ import { glyphChartBar, glyphChartLine, glyphChartPlot } from "./spec";
 
 /**
  * Packet "renderers, legends, axes, table editor" item 6 — axes with tick
- * marks default ON (`┤`/`┴`/`└`, `+` on ascii), a requested `ticks` count,
+ * marks default ON (`┤`/`┬`/`└`, `+` on ascii), a requested `ticks` count,
  * `tickMarks: false` reverting to the plain axis, integer-only ticks for
  * integer/index data, and axis titles (default: the channel's own field
  * name) plus an opt-in faint grid.
  */
 describe("axes — tick marks (default ON)", () => {
-  it("default render shows tick marks (┤/┴) at tick positions and └ at the corner", () => {
+  it("default render shows tick marks (┤/┬) at tick positions and └ at the corner", () => {
     const r = renderGlyphChart(glyphChartLine([3, 5, 2, 8, 6, 9]), { target: "chat", charset: "box", color: "none", width: 30, height: 12 });
     expect(r.text).toContain("┤");
-    expect(r.text).toContain("┴");
+    expect(r.text).toContain("┬");
     expect(r.text).toContain("└");
   });
 
-  it("tickMarks: false restores the plain axis (no ┤/┴/└ anywhere)", () => {
+  it("tickMarks: false restores the plain axis (no ┤/┬/└ anywhere)", () => {
     const spec = { marks: [glyphChartLine([3, 5, 2, 8, 6, 9])], axes: { x: { tickMarks: false }, y: { tickMarks: false } } };
     const r = renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 30, height: 12 });
     expect(r.text).not.toContain("┤");
-    expect(r.text).not.toContain("┴");
+    expect(r.text).not.toContain("┬");
     expect(r.text).not.toContain("└");
     expect(r.text).toContain("│");
     expect(r.text).toContain("─");
@@ -32,7 +32,7 @@ describe("axes — tick marks (default ON)", () => {
     expect(r.text).toContain("+");
     // ascii's own junction table collapses every multi-stem entry (corner
     // included) to '+' — never a box-drawing glyph leaking through.
-    expect(r.text).not.toMatch(/[┤┴└┼├┬┐┘┌]/);
+    expect(r.text).not.toMatch(/[┤┴┬└┼├┐┘┌]/);
   });
 
   it("ticks: 3 yields no more than 3 evenly spaced x ticks", () => {
@@ -61,7 +61,7 @@ describe("axes — tick marks (default ON)", () => {
   it("mutation guard: tick cells and non-tick cells on the same axis line read DIFFERENT glyphs", () => {
     const spec = { marks: [glyphChartLine([3, 5, 2, 8, 6, 9])] };
     const r = renderGlyphChart(spec, { target: "chat", charset: "box", color: "none", width: 30, height: 12 });
-    const xAxisRow = r.text.split("\n").find((line) => line.includes("┴") || line.includes("└"))!;
+    const xAxisRow = r.text.split("\n").find((line) => line.includes("┬") || line.includes("└"))!;
     expect(xAxisRow).toBeDefined();
     expect(xAxisRow).toContain("─");
   });

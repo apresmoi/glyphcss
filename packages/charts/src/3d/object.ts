@@ -19,7 +19,7 @@ import {
 } from "glyphcss";
 import { stampGlyphOverlayCell, stampGlyphOverlayLine, encodeGlyphSceneObjectSamplerKey } from "glyphcss";
 import type { GlyphCamera, GlyphSceneObject, GlyphSceneObjectMesh, GlyphSceneOverlay, Polygon, TextureSampler, Vec3 } from "glyphcss";
-import { glyphChart3dBandColor, glyphChart3dBandIndex } from "./colorscale";
+import { glyphChart3dBandColor, glyphChart3dBandIndex, interpolateGlyphChart3dAnchors, resolveGlyphChart3dColorscaleAnchors } from "./colorscale";
 import type {
   GlyphChart3dAxisTriadSpec, GlyphChart3dBarsMark, GlyphChart3dColorLegend, GlyphChart3dLineMark, GlyphChart3dMark,
   GlyphChart3dObjectOptions, GlyphChart3dParametricMark, GlyphChart3dResolvedAxis, GlyphChart3dScatterMark, GlyphChart3dSurfaceMark,
@@ -1043,8 +1043,9 @@ function buildBarsMesh(mark: GlyphChart3dBarsMark): Polygon[] {
   return polygons;
 }
 
-/** `line3d`'s own ribbon half-width — a touch thicker than the axis triad's own line (data, not furniture, gets a little more visual weight). */
-const LINE3D_HALF_WIDTH_FRACTION = 0.012;
+/** `line3d`'s own ribbon half-width. A third of the old 0.012: a dense trajectory (Lorenz) at that width merged its loops into one solid mass. */
+const LINE3D_HALF_WIDTH_FRACTION = 0.004;
+const PATH_COLORSCALE = resolveGlyphChart3dColorscaleAnchors("viridis");
 
 /** `line3d` — each series' own ordered points, connected by ribbon-mesh segments (the SAME primitive the axis triad's own lines use). */
 function buildLineMesh(mark: GlyphChart3dLineMark): Polygon[] {
@@ -1058,7 +1059,9 @@ function buildLineMesh(mark: GlyphChart3dLineMark): Polygon[] {
       mapAxisValue(p[2], mark.axes.z, ext[2]),
     ]);
     for (let i = 0; i < mapped.length - 1; i++) {
-      polygons.push(...orientedRibbonPolygons(mapped[i]!, mapped[i + 1]!, halfWidth, series.color));
+      // Starts at 0.15, not 0: viridis's darkest purple vanishes on a dark page.
+      const color = series.colorAlongPath ? interpolateGlyphChart3dAnchors(PATH_COLORSCALE, 0.15 + 0.85 * i / (mapped.length - 1)) : series.color;
+      polygons.push(...orientedRibbonPolygons(mapped[i]!, mapped[i + 1]!, halfWidth, color));
     }
   }
   return polygons;

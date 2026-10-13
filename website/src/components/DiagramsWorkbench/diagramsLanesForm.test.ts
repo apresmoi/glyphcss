@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 import { glyphLaneDagFromGitLog, validateGlyphLaneDag } from "@glyphcss/diagrams/lanes";
 import {
   GLYPH_LANES_WORKBENCH_PRESETS, buildGlyphDiagramsWorkbenchLanes, createGlyphDiagramsWorkbenchState,
-  glyphDiagramsWorkbenchLanesGitLog, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
+  glyphDiagramsWorkbenchLanesGitLog, glyphDiagramsWorkbenchLanesRenderOptions, reduceGlyphDiagramsWorkbenchState, resolveGlyphDiagramsWorkbenchControls,
 } from "../../features/diagrams/model/diagramsWorkbenchState";
 import { decodeDiagramsUrlState, encodeDiagramsUrlState } from "../../features/diagrams/services/diagramsUrlState";
 
@@ -65,7 +65,11 @@ describe("diagramsWorkbenchState — lanes editor tab refresh", () => {
     const original = preset.sourceKind === "gitlog" ? glyphLaneDagFromGitLog(preset.source) : validateGlyphLaneDag(JSON.parse(preset.source));
     const regenerated = glyphDiagramsWorkbenchLanesGitLog(original);
     const roundTripped = glyphLaneDagFromGitLog(regenerated);
-    expect(roundTripped).toEqual(original);
+    // The git-log adapter always marks its result `truncated` (a log window
+    // names parents past its last line), so the dag-level flag legitimately
+    // differs from a hand-authored JSON preset; the nodes must be identical.
+    expect(roundTripped.nodes).toEqual(original.nodes);
+    expect(roundTripped.truncated).toBe(true);
   });
 });
 
@@ -83,6 +87,14 @@ describe("diagramsWorkbenchState — lanes JSON edits", () => {
   it("a malformed JSON draft fails with the library's own tagged GLYPH_LANE_BAD_JSON code", () => {
     const state = reduceGlyphDiagramsWorkbenchState(reduceGlyphDiagramsWorkbenchState(applyPreset("data-lineage"), { type: "set-lanes-editor", editor: "json" }), { type: "edit-lanes-source", value: "{ nodes: [" });
     expect(() => buildGlyphDiagramsWorkbenchLanes(state)).toThrow(expect.objectContaining({ code: "GLYPH_LANE_BAD_JSON" }));
+  });
+});
+
+describe("diagramsWorkbenchState — lanes ids", () => {
+  it("shows a git log's commit hashes but hides a JSON dag's keys", () => {
+    // Mutation: drop the option -> the git preset renders without its hashes.
+    expect(glyphDiagramsWorkbenchLanesRenderOptions(applyPreset("release-train")).ids).toBe(true);
+    expect(glyphDiagramsWorkbenchLanesRenderOptions(applyPreset("incident")).ids).toBe(false);
   });
 });
 

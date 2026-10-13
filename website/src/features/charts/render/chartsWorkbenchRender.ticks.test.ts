@@ -29,7 +29,7 @@ describe("chartsWorkbenchRenderedTickCounts", () => {
     expect(counts!.y).toBeLessThan(16);
     // The axis line really is there — this is what makes the row/column
     // search trustworthy rather than a coincidence.
-    expect(rendered.text).toContain("┴");
+    expect(rendered.text).toContain("┬");
     expect(rendered.text).toContain("┤");
   });
 
@@ -37,7 +37,7 @@ describe("chartsWorkbenchRenderedTickCounts", () => {
     const rendered = renderChartsWorkbenchSpec(LINE_SPEC, { target: "web", charset: "ascii", color: "none", width: 96, height: 32 });
     expect(rendered.ok).toBe(true);
     if (!rendered.ok) return;
-    expect(rendered.text).not.toContain("┴");
+    expect(rendered.text).not.toContain("┬");
     const counts = chartsWorkbenchRenderedTickCounts(rendered.text, "ascii");
     expect(counts).toBeDefined();
     expect(counts!.x).toBeGreaterThan(0);
@@ -59,7 +59,7 @@ describe("chartsWorkbenchRenderedTickCounts", () => {
       "    │          ",
       " 10 ┤          ",
       "    │          ",
-      "  0 ├────┴─────",
+      "  0 ├────┬─────",
       "    0    5     ",
     ].join("\n");
     const counts = chartsWorkbenchRenderedTickCounts(text, "box");

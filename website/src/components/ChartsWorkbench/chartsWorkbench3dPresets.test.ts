@@ -56,10 +56,12 @@ describe("every 3D preset mounts a real live scene with non-empty painted output
 describe("every 3D preset renders a non-empty static thumbnail (the tray's own render call)", () => {
   it.each(CHARTS_3D_DATASETS)("$id ($markType)", (dataset) => {
     const out = renderCharts3dStatic({
-      view: createCharts3dViewState(dataset.id), target: "web", charset: "ascii", color: "css", width: 24, height: 8,
+      view: createCharts3dViewState(dataset.id), target: "web", charset: "ascii", color: "css", width: 24, height: 8, thumbnail: true,
     });
     expect(out.ok, dataset.id).toBe(true);
     if (!out.ok) return;
-    expect(out.text.replace(/[\s\n]/g, "").length, `${dataset.id} thumbnail is blank`).toBeGreaterThan(0);
+    // Mutation: keep the axis guides on the tile -> the labels claim the fit
+    // and the data shrinks to a few cells.
+    expect(out.text.replace(/[\s\n]/g, "").length, `${dataset.id} thumbnail is nearly blank`).toBeGreaterThanOrEqual(10);
   });
 });

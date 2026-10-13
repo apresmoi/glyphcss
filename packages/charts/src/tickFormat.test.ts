@@ -52,7 +52,7 @@ function fixturePath(relative: string): string {
 // match byte for byte.
 //
 // Regenerated for `series.ts`'s shade-ramp fix (CHARTS-RESEARCH
-// `DIAGNOSIS-pie-contrast.md`): indices 17-22 (`sankeySample`,
+// `DIAGNOSIS-pie-contrast.md`): indices 16-21 (`sankeySample`,
 // `funnelSample`, `[1000,500,100]`, the three `browserShares` arc specs)
 // changed at `box` — the fix's whole point is that a multi-series
 // region/arc mark's fill glyph is no longer a single density ramp. Every

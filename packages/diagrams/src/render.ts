@@ -93,7 +93,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const first = pages[0]!;
   return { ...first, text: pages.map((p) => p.text).join("\n\n"), ...(first.html === undefined ? {} : { html: pages.map((p) => p.html).join("\n\n") }),
     pages: pages.map(({ ledger: _ledger, unsupportedGlyphs: _glyphs, ...page }) => page),
-    meta: { nodes: original.nodes, edges: original.edges, groups: original.groups ?? [], description: `${options.title ? `${options.title}. ` : ""}${original.nodes.length} nodes, ${original.edges.length} edges, ${(original.groups ?? []).length} groups; ${current.layout.direction}; ${pages.length} panel${pages.length === 1 ? "" : "s"}.` },
+    meta: { nodes: [...original.nodes].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)), edges: original.edges, groups: original.groups ?? [], description: `${options.title ? `${options.title}. ` : ""}${original.nodes.length} nodes, ${original.edges.length} edges, ${(original.groups ?? []).length} groups; ${current.layout.direction}; ${pages.length} panel${pages.length === 1 ? "" : "s"}.` },
     report: { ledger: dedupeGlyphDiagramLedger(ledger), unsupportedGlyphs: pages.flatMap((p) => p.unsupportedGlyphs), unroutable: [...unroutable].sort() } };
 }
 export async function renderGlyphDiagramJson(json: string, options: GlyphDiagramRenderOptions = {}): Promise<string> {

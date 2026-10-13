@@ -58,7 +58,8 @@ describe("the fit probe", () => {
     expect(chartsBuiltMarkProbe(build("line", split, { x: "d", y: "v", fill: "k" }))).toBe("blank");
     expect(chartsBuiltMarkProbe(build("line", split, { x: "d", y: "v" }))).toBe("draws");
     const grid = [{ a: "p", b: "q", v: 0 }, { a: "p", b: "r", v: 0 }, { a: "s", b: "q", v: 0 }];
-    expect(chartsBuiltMarkProbe(build("cell", grid, { x: "a", y: "b", fill: "v" }))).toBe("blank");
+    // A heatmap has no blank level: an all-zero grid paints its lightest glyph.
+    expect(chartsBuiltMarkProbe(build("cell", grid, { x: "a", y: "b", fill: "v" }))).toBe("draws");
     expect(chartsBuiltMarkProbe(build("cell", grid.map((r, i) => ({ ...r, v: i + 1 })), { x: "a", y: "b", fill: "v" }))).toBe("draws");
   });
 });

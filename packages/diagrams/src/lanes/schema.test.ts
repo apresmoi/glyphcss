@@ -42,4 +42,13 @@ describe("lane DAG JSON Schema and runtime parity", () => {
     expect(validate(missing)).toBe(false);
     expect(schema.$comment).toContain("Register GLYPH_LANE_JSON_SCHEMA_KEYWORDS");
   });
+
+  it("accepts a truncated window's absent parent in both the runtime and Ajv, and rejects it without the flag", () => {
+    // Mutation: have the Ajv keyword ignore dag.truncated -> the first expectation goes red.
+    const window = { truncated: true, nodes: [{ id: "a", label: "A", parents: ["older"] }] };
+    expect(validate(window), JSON.stringify(validate.errors)).toBe(true);
+    expect(validateGlyphLaneDag(window).truncated).toBe(true);
+    expect(validate({ nodes: window.nodes })).toBe(false);
+    expect(validate({ ...window, truncated: "yes" })).toBe(false);
+  });
 });

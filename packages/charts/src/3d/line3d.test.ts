@@ -39,6 +39,28 @@ describe("glyphChartLine3d — model and mesh", () => {
     const lineMesh = object.meshes.find((m) => m.name === "line")!;
     expect(lineMesh.polygons.length).toBe(3 * 6);
   });
+
+  it("a lone series with no colour runs dark to bright along its path; an explicit colour or a second series keeps one colour", () => {
+    // Mutation: drop the path colour, or apply it whatever the input -> red.
+    const segmentColors = (mark: ReturnType<typeof glyphChartLine3d>) =>
+      [...new Set(glyphChartObject(mark).meshes.find((m) => m.name === "line")!.polygons.map((p) => p.color))];
+    const pts: [number, number, number][] = [[0, 0, 0], [1, 0, 0], [2, 1, 0], [3, 1, 1], [4, 2, 1]];
+    expect(segmentColors(glyphChartLine3d(pts))).toHaveLength(4);
+    expect(segmentColors(glyphChartLine3d([{ color: "#ff0000", points: pts }]))).toEqual(["#ff0000"]);
+    const two = glyphChartLine3d([{ points: pts }, { points: pts.map(([x, y, z]) => [x, y + 1, z] as [number, number, number]) }]);
+    expect(segmentColors(two)).toHaveLength(2);
+  });
+
+  it("draws a thin ribbon so a dense trajectory's loops stay apart", () => {
+    // Mutation: restore the old 0.012 half-width -> the ribbon is 3x wider.
+    const mark = glyphChartLine3d([[0, 0, 0], [10, 0, 0]]);
+    const polygons = glyphChartObject(mark).meshes.find((m) => m.name === "line")!.polygons;
+    const ys = polygons.flatMap((p) => p.vertices.map((v) => v[1]!));
+    const zs = polygons.flatMap((p) => p.vertices.map((v) => v[2]!));
+    const width = Math.max(Math.max(...ys) - Math.min(...ys), Math.max(...zs) - Math.min(...zs));
+    expect(width).toBeLessThanOrEqual(0.015 * Math.min(mark.aspect[0], mark.aspect[1]));
+    expect(width).toBeGreaterThan(0);
+  });
 });
 
 describe("glyphChart3dLorenzAttractor — the computed example", () => {

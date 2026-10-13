@@ -24,7 +24,6 @@ import {
   glyphChartFunnel,
   glyphChartLine,
   glyphChartPlot,
-  glyphChartRect,
   glyphChartRule,
   glyphChartSankey,
   glyphChartScaleDomains,
@@ -110,8 +109,6 @@ export function sampleChartMark(type: GlyphChartMarkType): GlyphChartMark {
       return glyphChartDot(SAMPLE);
     case "arc":
       return glyphChartArc(SHARES, { y: "share", fill: "browser" });
-    case "rect":
-      return glyphChartRect(SAMPLE);
     case "cell":
       return glyphChartCell(HEATMAP, { x: "day", y: "hour", fill: "value" });
     case "text":
@@ -258,9 +255,11 @@ export const CHART_PRESETS: readonly { readonly id: string; readonly label: stri
         marks: [
           glyphChartFunnel(
             [
-              { stage: "Visits", count: 1000 },
-              { stage: "Signups", count: 300 },
-              { stage: "Purchases", count: 80 },
+              { stage: "Visits", count: 10000 },
+              { stage: "Product view", count: 4200 },
+              { stage: "Add to cart", count: 1300 },
+              { stage: "Checkout", count: 610 },
+              { stage: "Purchase", count: 420 },
             ],
             { stage: "stage", value: "count" },
           ),
@@ -367,7 +366,8 @@ export interface ChartsWorkbenchState {
   readonly chart: {
     readonly title: string;
     readonly description: string;
-    readonly legend: boolean;
+    /** The user's choice, kept apart from `legendPlacement`: picking any placement (bottom included) sets it `true`. `undefined` = the user has not chosen: the spec carries no legend, so the library default applies (on, except funnel/sankey-only charts, whose labels already name every stage/node). */
+    readonly legend?: boolean;
     readonly legendPlacement: GlyphChartLegendPlacement;
     readonly titleAlign: GlyphChartTitleAlign;
     readonly titlePosition: GlyphChartTitlePosition;
@@ -444,7 +444,6 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     chart: {
       title: preset.label,
       description: "",
-      legend: true,
       legendPlacement: "bottom",
       titleAlign: "center",
       titlePosition: "top",
@@ -544,7 +543,8 @@ export function buildChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChar
     axes: { x: buildAxis(state.axes.x), y: buildAxis(state.axes.y) },
     title: { text: state.chart.title, align: state.chart.titleAlign, position: state.chart.titlePosition },
     description: state.chart.description,
-    legend: state.chart.legend ? { placement: state.chart.legendPlacement } : false,
+    legend:
+      state.chart.legend === undefined ? undefined : state.chart.legend && { placement: state.chart.legendPlacement },
   });
   const needsDomain = [state.scales.x, state.scales.y].some((scale) => scale.min.trim() || scale.max.trim());
   const inferred = needsDomain ? glyphChartScaleDomains(spec) : undefined;

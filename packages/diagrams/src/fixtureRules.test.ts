@@ -314,7 +314,9 @@ it("reserves both side capacities before centering ports and canonicalizes every
   expect(hub.width).toBe(13);
   expect(reserved.ports.find((p) => p.nodeId === "H" && p.end === "to")!.offset).toBe(6);
   const canonical = canonicalizeGlyphGraph({ ...graph, groups: [{ id: "z", members: ["Z", "H"] }, { id: "a", members: ["B", "A"] }] });
-  for (const items of [canonical.nodes, canonical.edges, canonical.groups!]) expect(items.map((item) => item.id)).toEqual(items.map((item) => item.id).sort());
+  // Nodes keep their authored order: it decides where a loop starts.
+  expect(canonical.nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id));
+  for (const items of [canonical.edges, canonical.groups!]) expect(items.map((item) => item.id)).toEqual(items.map((item) => item.id).sort());
   for (const group of canonical.groups!) expect(group.members).toEqual([...group.members].sort());
 });
 

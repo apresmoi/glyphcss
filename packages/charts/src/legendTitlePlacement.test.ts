@@ -164,6 +164,6 @@ describe("corner legend reports the drops the bottom placement already reports, 
     // series label character landed on it. Before the fix, the corner
     // legend's own bottom row was mapped onto exactly this row (`plot.y1`),
     // painting a series name over the axis rule.
-    expect(axisRow).toMatch(/^[└┴─\s0]+$/);
+    expect(axisRow).toMatch(/^[└┬─\s0]+$/);
   });
 });

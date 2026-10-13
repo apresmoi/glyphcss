@@ -14,7 +14,7 @@ export function parseGlyphLaneDagJson(json: string): unknown {
   catch (e) { return glyphDiagramError("GLYPH_LANE_BAD_JSON", `Invalid JSON: ${e instanceof Error ? e.message : String(e)}`); }
 }
 
-export const GLYPH_LANE_KEYS = ["nodes"];
+export const GLYPH_LANE_KEYS = ["nodes", "truncated"];
 export const GLYPH_LANE_NODE_KEYS = ["id", "label", "parents", "marks"];
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -50,6 +50,7 @@ export function glyphLaneIntegrityFailure(dag: GlyphLaneDag): GlyphLaneIntegrity
     for (const parentId of node.parents) {
       if (parentId === node.id) return { code: "self-parent", message: `Node "${node.id}" names itself as its own parent.` };
       const parentIndex = indexOf.get(parentId);
+      if (parentIndex === undefined && dag.truncated === true) continue;
       if (parentIndex === undefined) return { code: "unknown-parent", message: `Node "${node.id}" references an unknown parent "${parentId}".` };
       if (parentIndex <= index) return { code: "bad-parent-order", message: `Node "${node.id}" references parent "${parentId}", which must occur later in the array (an older node) — array order is time, newest first.` };
     }
@@ -58,29 +59,34 @@ export function glyphLaneIntegrityFailure(dag: GlyphLaneDag): GlyphLaneIntegrity
 }
 
 export function validateGlyphLaneDag(input: unknown): GlyphLaneDag {
-  if (!object(input) || !keys(input, GLYPH_LANE_KEYS) || !Array.isArray(input.nodes)) glyphDiagramError("bad-lane-dag", "A lane DAG requires a nodes array, and only a nodes field.");
+  if (!object(input) || !keys(input, GLYPH_LANE_KEYS) || !Array.isArray(input.nodes) || !optional(input, "truncated", (v) => typeof v === "boolean")) {
+    glyphDiagramError("bad-lane-dag", "A lane DAG requires a nodes array, and only nodes and an optional boolean truncated field.");
+  }
   if (input.nodes.length === 0) glyphDiagramError("empty-nodes", "A lane DAG requires at least one node.");
   for (const [index, node] of input.nodes.entries()) {
     if (!object(node) || !keys(node, GLYPH_LANE_NODE_KEYS) || !identifier(node.id) || !string(node.label)
-      || !Array.isArray(node.parents) || !stringArray(node.parents) || !optional(node, "marks", stringArray)) {
-      glyphDiagramError("bad-lane-node", `node[${index}] requires a non-empty id, a string label, a string-array parents, and an optional string-array marks.`);
+      || !Array.isArray(node.parents) || !stringArray(node.parents) || !node.parents.every(identifier) || !optional(node, "marks", stringArray)) {
+      glyphDiagramError("bad-lane-node", `node[${index}] requires a non-empty id, a string label, a parents array of non-blank ids, and an optional string-array marks.`);
     }
   }
   const dag = input as unknown as GlyphLaneDag;
   const failure = glyphLaneIntegrityFailure(dag);
   if (failure) glyphDiagramError(failure.code, failure.message);
-  return { nodes: dag.nodes.map((n) => ({ ...n, parents: [...n.parents], ...(n.marks === undefined ? {} : { marks: [...n.marks] }) })) };
+  return {
+    nodes: dag.nodes.map((n) => ({ ...n, parents: [...n.parents], ...(n.marks === undefined ? {} : { marks: [...n.marks] }) })),
+    ...(dag.truncated === undefined ? {} : { truncated: dag.truncated }),
+  };
 }
 
 const REPAIR_HINTS: Readonly<Record<GlyphLaneValidationRuleId, string>> = {
-  "bad-lane-dag": "Pass { nodes }; remove unsupported top-level fields.",
+  "bad-lane-dag": "Pass { nodes, truncated? }; remove unsupported top-level fields.",
   "empty-nodes": "Add at least one node with an id, label, and parents array.",
-  "bad-lane-node": "Use a non-empty id, a string label, a parents array of ids, and an optional marks array of strings.",
+  "bad-lane-node": "Use a non-empty id, a string label, a parents array of non-blank ids, and an optional marks array of strings.",
   "duplicate-node-id": "Give every node a unique id.",
-  "unknown-parent": "Reference only ids present in nodes.",
+  "unknown-parent": "Reference only ids present in nodes, or set truncated: true when nodes is a window of a longer history.",
   "bad-parent-order": "List nodes newest first; a parent must occur later in the array than its child.",
   "self-parent": "A node cannot name itself as its own parent.",
-  "bad-options": "Use the documented target, charset, color, and title options.",
+  "bad-options": "Use the documented target, charset, color, title, order, ids, and overflow options.",
   "bad-size": "Pass positive integer width and height, or omit them.",
   "bad-color": "laneColor must be a canonical lowercase #rrggbb string, or a function returning one.",
   "GLYPH_LANE_GIT_SYNTAX": "Pass \"id|parents|decoration|subject\" lines, newest first, one per commit.",

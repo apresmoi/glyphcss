@@ -23,6 +23,7 @@ import {
   chartsWorkbenchDensity,
   chartsWorkbenchDensityLocked,
   chartsWorkbenchHasCartesianMark,
+  chartsWorkbenchLegendControl,
   chartsWorkbenchHasZeroAnchoredMark,
   chartsWorkbenchInferredDomains,
   chartsWorkbenchScaleTypeFits,
@@ -204,7 +205,13 @@ export function ChartsDock({
   useText(chart, "Description", state.chart.description, (description) =>
     dispatch({ type: "set-chart", patch: { description } }),
   );
-  useToggle(chart, "Legend", state.chart.legend, (legend) => dispatch({ type: "set-chart", patch: { legend } }));
+  const legendControl = chartsWorkbenchLegendControl(state);
+  const legendCtrl = useToggle(chart, "Legend", legendControl.shown, (legend) =>
+    dispatch({ type: "set-chart", patch: { legend } }),
+  );
+  useEffect(() => {
+    legendCtrl?.setVisible(legendControl.visible);
+  }, [legendCtrl, legendControl.visible]);
   const legendPlacementSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
   const regionFillSlot = useDockSlot(chart, { position: "bottom", className: "dock-toggle-row-slot" });
   const regionFillStatus = useMemo(() => chartsWorkbenchRegionFillStatus(state), [state]);
@@ -558,6 +565,7 @@ export function ChartsDock({
           titlePlacementSlot,
         )}
       {legendPlacementSlot &&
+        legendControl.visible &&
         createPortal(
           <div className="dock-toggle-row">
             <span className="dock-toggle-row-label">Legend at</span>

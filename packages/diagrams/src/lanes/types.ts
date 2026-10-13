@@ -32,4 +32,6 @@ export interface GlyphLaneNode {
  */
 export interface GlyphLaneDag {
   readonly nodes: readonly GlyphLaneNode[];
+  /** `nodes` is a window of a longer history: a parent id absent from `nodes` is older history outside it. */
+  readonly truncated?: boolean;
 }
