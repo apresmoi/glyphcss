@@ -48,6 +48,7 @@ describe("diagram routing rules", () => {
     offsets.slice(1).forEach((v, i) => expect(v - offsets[i]!).toBeGreaterThanOrEqual(2));
     const layout = await layoutGlyphGraph(reserved, { nodesep: 6, ranksep: 12 });
     const result = routeGlyphGraphEdges(layout, { width: layout.width + 20, height: layout.height + 20 });
+    expect(routeGlyphGraphEdges(layout, { width: layout.width + 20, height: layout.height + 20, stopOnFailure: true })).toEqual(result);
     expect(result.unroutable).toEqual([]); expect(result.routes).toHaveLength(6);
     const segments = result.routes.map((r) => r.cells.slice(1).map((b, i) => ({ a: r.cells[i]!, b, horizontal: b.y === r.cells[i]!.y })));
     for (let a = 0; a < segments.length; a++) for (let b = a + 1; b < segments.length; b++) for (const p of segments[a]!) for (const q of segments[b]!) {
@@ -64,6 +65,18 @@ describe("diagram routing rules", () => {
     const result = routeGlyphGraphEdges(obstacleFixture(), { obstacles: [{ x0: 12, y0: 0, x1: 20, y1: 14 }] });
     expect(result.routes).toEqual([]); expect(result.unroutable).toEqual(["through-middle"]);
     expect(result.ledger).toContainEqual(expect.objectContaining({ code: "unroutable", detail: expect.objectContaining({ edgeId: "through-middle" }) }));
+  });
+  it("stops discarded fitting probes at one failure but reports every final-output failure", () => {
+    const raw = obstacleFixture();
+    const edge = { ...raw.edges[0]!, id: "second" };
+    const layout = { ...raw, edges: [...raw.edges, edge], ports: [...raw.ports, ...raw.ports.map(port => ({ ...port, edgeId: edge.id }))] };
+    const options = { obstacles: [{ x0: 12, y0: 0, x1: 20, y1: 14 }] };
+    const full = routeGlyphGraphEdges(layout, options);
+    const probe = routeGlyphGraphEdges(layout, { ...options, stopOnFailure: true });
+    expect(full.unroutable).toHaveLength(2);
+    expect(full.ledger).toHaveLength(2);
+    expect(probe.unroutable).toEqual(full.unroutable.slice(0, 1));
+    expect(probe.ledger).toEqual(full.ledger.slice(0, 1));
   });
   it("places labels disjoint from every node, route and prior label, within the viewport", async () => {
     const layout = await layoutGlyphGraph(glyphGraphFromMermaid(fixture("diamond")));

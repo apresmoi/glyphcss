@@ -28,9 +28,10 @@ export interface GlyphDiagramAttempt {
 interface Candidate { readonly raw: GlyphDiagramLayout; readonly adjusted: boolean; readonly nodesep: number; readonly ranksep: number; readonly margin: number }
 const MAX_TALL_SNAKES = 3;
 const MAX_LOOP_WRAPS = 3;
+const MAX_EXPAND_PROBES = 256;
 const perpendicular: Record<GlyphGraph["direction"], GlyphGraph["direction"]> = { TB: "LR", LR: "TB", BT: "RL", RL: "BT" };
 
-function attempt(candidate: Candidate, width: number, height: number): GlyphDiagramAttempt {
+function attempt(candidate: Candidate, width: number, height: number, stopOnFailure = false): GlyphDiagramAttempt {
   const { raw, adjusted } = candidate;
   const { dx, dy } = glyphDiagramCenterOffset(raw, { width, height });
   const layout = { ...raw,
@@ -38,7 +39,7 @@ function attempt(candidate: Candidate, width: number, height: number): GlyphDiag
     ports: raw.ports.map(p => ({ ...p, anchor: { x: p.anchor.x + dx, y: p.anchor.y + dy }, escape: { x: p.escape.x + dx, y: p.escape.y + dy } })),
   };
   const fits = raw.width <= width && raw.height <= height;
-  const routing = fits ? routeGlyphGraphEdges(layout, { width, height }) : { routes: [], unroutable: [], ledger: [] };
+  const routing = fits ? routeGlyphGraphEdges(layout, { width, height, stopOnFailure }) : { routes: [], unroutable: [], ledger: [] };
   // A loop that fits nowhere is not a routing failure the search would notice: its label would only be dropped.
   return { layout, routing, fits, okay: fits && routing.unroutable.length === 0 && glyphDiagramLoopsClear(layout), width, height, adjusted };
 }
@@ -344,6 +345,31 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions): Prom
     const lowerBound = (candidate: Candidate) => cost(Math.max(width, candidate.raw.width), Math.max(height, candidate.raw.height));
     const candidates = pool.filter(candidate => candidate.raw.width <= maxCols);
     let best: GlyphDiagramAttempt | undefined;
+    const probed: Candidate[] = [];
+    const smallest = new Map<Candidate, GlyphDiagramAttempt>();
+    // Repair internal spacing before spending routing work on exterior gutters.
+    // A bounded probe prevents an impossible tight canvas from exhausting every gap.
+    for (let probes = 0; candidates.length && probes < MAX_EXPAND_PROBES; probes++) {
+      candidates.sort((a, b) => compare(lowerBound(a), lowerBound(b)));
+      const candidate = candidates.shift()!;
+      if (best && compare(lowerBound(candidate), cost(best.width, best.height)) >= 0) {
+        candidates.unshift(candidate);
+        break;
+      }
+      probed.push(candidate);
+      if (glyphDiagramHasRoutingClearance(candidate.raw)) {
+        const result = attempt(candidate, Math.max(width, candidate.raw.width), Math.max(height, candidate.raw.height), true);
+        smallest.set(candidate, result);
+        if (result.okay) best = result;
+      }
+      candidates.push(...(await repair(candidate)).filter(next => next.raw.width <= maxCols));
+    }
+    // A spacing fit is only an upper bound: an earlier candidate can route with
+    // a cheaper exterior gutter. Replay in search order, including equal-cost
+    // alternatives, so the spacing probe cannot change the accepted tie.
+    const spacingBest = best;
+    best = undefined;
+    candidates.unshift(...probed);
     while (candidates.length) {
       candidates.sort((a, b) => compare(lowerBound(a), lowerBound(b)));
       const candidate = candidates.shift()!;
@@ -357,7 +383,9 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions): Prom
         if (cols === previousWidth && rows === previousHeight) continue;
         previousWidth = cols; previousHeight = rows;
         if (best && compare(cost(cols, rows), cost(best.width, best.height)) >= 0) break;
-        const result = attempt(candidate, cols, rows);
+        if (spacingBest && compare(cost(cols, rows), cost(spacingBest.width, spacingBest.height)) > 0) break;
+        const cached = smallest.get(candidate);
+        const result = cached?.width === cols && cached.height === rows ? cached : attempt(candidate, cols, rows, true);
         if (result.okay) { best = result; break; }
       }
       candidates.push(...(await repair(candidate)).filter(next => next.raw.width <= maxCols));

@@ -66,7 +66,7 @@ function ringParallelBlockAxis(p: GlyphCanvasPoint, r: GlyphDiagramRect): 0 | 1 
   return undefined;
 }
 export interface GlyphDiagramRoute { readonly edge: GlyphDiagramEdge; readonly cells: readonly GlyphCanvasPoint[] }
-export interface GlyphDiagramRoutingOptions { readonly width?: number; readonly height?: number; readonly bendCost?: number; readonly crossingCost?: number; readonly ringParallelCost?: number; readonly obstacles?: readonly GlyphDiagramRect[] }
+export interface GlyphDiagramRoutingOptions { readonly width?: number; readonly height?: number; readonly bendCost?: number; readonly crossingCost?: number; readonly ringParallelCost?: number; readonly obstacles?: readonly GlyphDiagramRect[]; readonly stopOnFailure?: boolean }
 export interface GlyphDiagramRoutingResult { readonly routes: readonly GlyphDiagramRoute[]; readonly unroutable: readonly string[]; readonly ledger: readonly GlyphDiagramLedgerEntry[] }
 const steps = [GLYPH_DIAGRAM_DIRECTIONS.n, GLYPH_DIAGRAM_DIRECTIONS.e, GLYPH_DIAGRAM_DIRECTIONS.s, GLYPH_DIAGRAM_DIRECTIONS.w];
 const key = (p: GlyphCanvasPoint) => `${p.x},${p.y}`;
@@ -168,6 +168,9 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   const loopLabels = geometries.flatMap((g) => g.label ? [{ ...g.label, x0: g.label.x0 - 1, x1: g.label.x1 + 1 }] : []);
   const obstacles = [...(options.obstacles ?? []), ...loopLabels];
   for (const edge of ordered) {
+    // Fitting discards a canvas after its first failed edge; routing the rest
+    // cannot make that gutter feasible. Final-output routing keeps every failure.
+    if (options.stopOnFailure && unroutable.length) break;
     const from = ports.get(edge.id)!.find((p) => p.end === "from")!;
     const to = ports.get(edge.id)!.find((p) => p.end === "to")!;
     if (edge.from === edge.to) {
@@ -217,7 +220,31 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     let order = 0, found: State | undefined;
     const startCost = ringParallelCost(start, startDir);
     const initial: State = { ...start, dir: startDir, cost: startCost, estimate: startCost + Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y), order: order++ };
-    if (isFree(start, startDir) && isFree(goal, endDir)) { queue.push(initial); best.set(`${key(initial)},${startDir}`, startCost); }
+    // Ignore bends and port direction for a cheap necessary connectivity check.
+    // Earlier routes often enclose the target: no gutter can rescue that edge
+    // unless it opens this component. Search from the target's usually small side.
+    const connected = (): boolean => {
+      if (!options.stopOnFailure || !used.size) return true;
+      const visited = new Set<number>(), pending = [goal];
+      visited.add(goal.y * cols + goal.x);
+      while (pending.length) {
+        const point = pending.pop()!;
+        if (same(point, start)) return true;
+        for (let dir = 0; dir < steps.length; dir++) {
+          const next = { x: point.x + steps[dir]!.x, y: point.y + steps[dir]!.y };
+          if (next.x < 0 || next.y < 0 || next.x >= cols || next.y >= rows) continue;
+          const id = next.y * cols + next.x;
+          // A* checks the destination's movement axis; a predecessor may
+          // arrive on the other axis and turn here. Keep that possibility.
+          if (visited.has(id) || !isFree(point, dir) || (!isFree(next, 0) && !isFree(next, 1))) continue;
+          visited.add(id); pending.push(next);
+        }
+      }
+      return false;
+    };
+    if (isFree(start, startDir) && isFree(goal, endDir) && connected()) {
+      queue.push(initial); best.set(`${key(initial)},${startDir}`, startCost);
+    }
     let current: State | undefined;
     while ((current = queue.pop())) {
       if (current.cost !== best.get(`${key(current)},${current.dir}`)) continue;

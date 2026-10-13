@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 
 // Counts the snake layouts the fitter asks for, a measure of its work that does not depend on how fast the machine is.
 vi.mock("./snake", async (importOriginal) => {
@@ -9,9 +12,14 @@ vi.mock("./pipeline", async (importOriginal) => {
   const real = await importOriginal<typeof import("./pipeline")>();
   return { ...real, layoutGlyphGraph: vi.fn(real.layoutGlyphGraph) };
 });
+vi.mock("./route", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./route")>();
+  return { ...real, routeGlyphGraphEdges: vi.fn(real.routeGlyphGraphEdges) };
+});
 import { glyphDiagramSnakeLayout } from "./snake";
 import { layoutGlyphGraph } from "./pipeline";
 import { renderGlyphDiagram } from "./render";
+import { routeGlyphGraphEdges } from "./route";
 
 const chain = (nodes: number, loops: readonly number[]) => `flowchart LR\n${Array.from({ length: nodes }, (_, i) => `n${i}[Node ${i}]`).join(" --> ")}\n${loops.map((at, i) => `n${at} -->|retry step ${i}| n${at}`).join("\n")}\n`;
 const work = async (source: string, options: Parameters<typeof renderGlyphDiagram>[1]) => {
@@ -57,3 +65,42 @@ describe("the layout search prunes loop wraps by the stacked footprint", () => {
 });
 // Today 231 layouts; without the stacked rows 735.
 const LAYOUTS = 300;
+
+// These hashes were captured before changing the fitter; the count bound must fail when the spacing-first probe is removed.
+describe("expansion repairs spacing before repeating exterior gutters", () => {
+  it("event-queue considers cheaper gutters of already-probed spacing candidates", async () => {
+    const source = readFileSync(resolve(__dirname, "../fixtures/event-queue.mmd"), "utf8");
+    const result = await renderGlyphDiagram(source, {
+      width: 60, height: 24, target: "chat", charset: "box", color: "none", autoDirection: true, detail: "faithful", overflow: "expand",
+    });
+    expect(result.pages).toHaveLength(1);
+    expect(result.canvas.grid).toMatchObject({ cols: 60, rows: 34 });
+    expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
+      .toBe("c42a8d84867de8e3e8dc6329be7b4e8fd34d718975be99b5e365b6ba160a777a");
+  });
+  it.each([
+    ["galaxy-sources-to-model", 24, "e78406bf4aeddbca28e6274203adfcf8406d1cf070bd76dfacf9e7b2889d5464", 350, 900_000],
+    ["galaxy-sources-h60", 60, "14ca0dced2351325ca61c1b2a6d40675db173602d34b75bdf456af667459e811", 110, 75_000],
+  ] as const)("%s keeps its text within routing and A* work bounds", async (name, height, hash, routingBound, stateBound) => {
+    const source = readFileSync(resolve(__dirname, `../bench/corpus/${name}.mmd`), "utf8");
+    vi.mocked(routeGlyphGraphEdges).mockClear();
+    // A routing-call bound alone misses exhaustive A* inside each gutter.
+    // Count best-cost state writes, identified by the router's x,y,direction key.
+    let states = 0;
+    const set = Map.prototype.set;
+    const spy = vi.spyOn(Map.prototype, "set").mockImplementation(function (this: Map<unknown, unknown>, key: unknown, value: unknown) {
+      if (typeof key === "string" && /^-?\d+,-?\d+,[0-3]$/.test(key)) states++;
+      return set.call(this, key, value);
+    });
+    let result: Awaited<ReturnType<typeof renderGlyphDiagram>>;
+    try {
+      result = await renderGlyphDiagram(source, {
+        width: 72, height, target: "chat", charset: "box", color: "none", autoDirection: true, detail: "faithful", overflow: "expand",
+      });
+    } finally { spy.mockRestore(); }
+    expect(result.pages).toHaveLength(1);
+    expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex")).toBe(hash);
+    expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThan(routingBound);
+    expect(states).toBeLessThan(stateBound);
+  }, 180_000);
+});

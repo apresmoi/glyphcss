@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-13T19:55:30.226Z",
-  "gitRevision": "1170cc183c7913af6753d65c5769ac3535fb21c1",
-  "sourceBundleSha256": "773c58e9c7efcbe96dc3d98aa774b1e3d478dff8e3dc64c9a2ec6fdb56585a58",
+  "generatedAt": "2026-10-13T20:44:22.485Z",
+  "gitRevision": "843b9c9e2bbb5ccea82281fe9bef9f23232bb5b5",
+  "sourceBundleSha256": "6f71c0b86aabc588e69acae0e23717ea202a3d50251e994d6ed2d67b722b7a25",
   "nodeVersion": "v22.23.2",
   "platform": "darwin",
   "arch": "arm64",
@@ -27,7 +27,7 @@
       "status": "rendered",
       "nodes": 8,
       "edges": 7,
-      "ms": 51.69804100000002,
+      "ms": 66.058625,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -144,7 +144,7 @@
           }
         }
       ],
-      "elapsedMs": 74.090875
+      "elapsedMs": 88.093541
     },
     {
       "file": "telescope-query-outcomes-detailed.mmd",
@@ -163,7 +163,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 10.853834000000006,
+      "ms": 11.307917000000003,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -223,7 +223,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 32.21687499999999
+      "elapsedMs": 34.63508300000001
     },
     {
       "file": "telescope-command-chain.mmd",
@@ -242,7 +242,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 10.03083399999997,
+      "ms": 9.904291,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -302,7 +302,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 30.934499999999986
+      "elapsedMs": 30.832334000000003
     },
     {
       "file": "telescope-explore-edge-labels.mmd",
@@ -321,7 +321,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 11.306958000000009,
+      "ms": 12.047167000000002,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -383,7 +383,7 @@
           }
         }
       ],
-      "elapsedMs": 32.50491600000004
+      "elapsedMs": 33.22608300000002
     },
     {
       "file": "telescope-query-outcomes.mmd",
@@ -402,7 +402,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 10.459208999999987,
+      "ms": 11.023792000000014,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -462,7 +462,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 31.18816700000002
+      "elapsedMs": 32.187666999999976
     },
     {
       "file": "telescope-explore-node-labels.mmd",
@@ -481,7 +481,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 10.444708999999989,
+      "ms": 10.635333000000003,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -533,7 +533,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 31.618041000000005
+      "elapsedMs": 32.62537499999996
     },
     {
       "file": "telescope-export-destinations.mmd",
@@ -552,7 +552,7 @@
       "status": "rendered",
       "nodes": 3,
       "edges": 2,
-      "ms": 9.082458999999972,
+      "ms": 9.723416999999984,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -596,7 +596,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 29.5
+      "elapsedMs": 30.575917000000004
     },
     {
       "file": "telescope-checkout-edge-label.mmd",
@@ -615,7 +615,7 @@
       "status": "rendered",
       "nodes": 6,
       "edges": 5,
-      "ms": 23.15466600000002,
+      "ms": 21.809167000000002,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -697,7 +697,7 @@
           }
         }
       ],
-      "elapsedMs": 44.69766699999997
+      "elapsedMs": 42.873958000000016
     },
     {
       "file": "telescope-package-workspace-edge.mmd",
@@ -716,7 +716,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 21.758332999999993,
+      "ms": 11.238917000000015,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -768,7 +768,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 50.55258300000003
+      "elapsedMs": 32.192957999999976
     },
     {
       "file": "telescope-checkout.mmd",
@@ -787,7 +787,7 @@
       "status": "rendered",
       "nodes": 6,
       "edges": 5,
-      "ms": 23.514542000000006,
+      "ms": 22.042125,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -860,7 +860,7 @@
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         }
       ],
-      "elapsedMs": 53.93816700000002
+      "elapsedMs": 43.49458400000003
     },
     {
       "file": "telescope-package-workspace-node.mmd",
@@ -879,7 +879,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 11.231708000000026,
+      "ms": 10.703750000000014,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -931,7 +931,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 34.035541999999964
+      "elapsedMs": 33.01620799999995
     },
     {
       "file": "telescope-install-to-html.mmd",
@@ -950,7 +950,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 34.839417000000026,
+      "ms": 35.92137500000001,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1029,7 +1029,7 @@
           }
         }
       ],
-      "elapsedMs": 56.026958000000036
+      "elapsedMs": 56.736999999999966
     },
     {
       "file": "galaxy-fit-loop-detailed.mmd",
@@ -1048,7 +1048,7 @@
       "status": "rendered",
       "nodes": 9,
       "edges": 10,
-      "ms": 181.95841599999994,
+      "ms": 175.76291700000002,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1177,7 +1177,7 @@
           }
         }
       ],
-      "elapsedMs": 204.312
+      "elapsedMs": 196.69845800000007
     },
     {
       "file": "galaxy-fit-loop-vertical.mmd",
@@ -1196,7 +1196,7 @@
       "status": "rendered",
       "nodes": 7,
       "edges": 8,
-      "ms": 711.6075000000001,
+      "ms": 801.5262919999999,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1303,7 +1303,7 @@
           }
         }
       ],
-      "elapsedMs": 733.7647079999999
+      "elapsedMs": 821.971208
     },
     {
       "file": "galaxy-fit-without-return.mmd",
@@ -1322,7 +1322,7 @@
       "status": "rendered",
       "nodes": 7,
       "edges": 7,
-      "ms": 76.39637499999981,
+      "ms": 80.07950000000005,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1411,7 +1411,7 @@
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         }
       ],
-      "elapsedMs": 98.15345900000011
+      "elapsedMs": 100.57237499999997
     },
     {
       "file": "galaxy-sources-to-model.mmd",
@@ -1430,7 +1430,7 @@
       "status": "rendered",
       "nodes": 14,
       "edges": 13,
-      "ms": 74823.188625,
+      "ms": 1490.924167,
       "metrics": {
         "wordCuts": 0,
         "crossings": 3,
@@ -1577,7 +1577,7 @@
           }
         }
       ],
-      "elapsedMs": 74844.522708
+      "elapsedMs": 1512.424834
     },
     {
       "file": "galaxy-anchors-detailed.mmd",
@@ -1596,7 +1596,7 @@
       "status": "rendered",
       "nodes": 10,
       "edges": 9,
-      "ms": 1535.730666000003,
+      "ms": 70.5092080000004,
       "metrics": {
         "wordCuts": 0,
         "crossings": 3,
@@ -1711,7 +1711,7 @@
           }
         }
       ],
-      "elapsedMs": 1556.7035830000095
+      "elapsedMs": 91.12395800000013
     },
     {
       "file": "galaxy-anchors.mmd",
@@ -1730,7 +1730,7 @@
       "status": "rendered",
       "nodes": 9,
       "edges": 8,
-      "ms": 3467.5165419999976,
+      "ms": 160.00395800000024,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1837,7 +1837,7 @@
           }
         }
       ],
-      "elapsedMs": 3488.022582999998
+      "elapsedMs": 180.60916599999973
     },
     {
       "file": "galaxy-build-detailed.mmd",
@@ -1856,7 +1856,7 @@
       "status": "rendered",
       "nodes": 11,
       "edges": 11,
-      "ms": 214.21670799999265,
+      "ms": 232.47087499999998,
       "metrics": {
         "wordCuts": 4,
         "crossings": 0,
@@ -2019,7 +2019,7 @@
           }
         }
       ],
-      "elapsedMs": 235.7204170000041
+      "elapsedMs": 253.0151249999999
     },
     {
       "file": "galaxy-build-compact.mmd",
@@ -2038,7 +2038,7 @@
       "status": "rendered",
       "nodes": 11,
       "edges": 11,
-      "ms": 258.1260840000032,
+      "ms": 162.586542,
       "metrics": {
         "wordCuts": 3,
         "crossings": 0,
@@ -2195,7 +2195,7 @@
           }
         }
       ],
-      "elapsedMs": 279.3462500000023
+      "elapsedMs": 183.56545800000004
     },
     {
       "file": "galaxy-score-loop.mmd",
@@ -2214,7 +2214,7 @@
       "status": "rendered",
       "nodes": 10,
       "edges": 12,
-      "ms": 867.46033300001,
+      "ms": 870.0156660000002,
       "metrics": {
         "wordCuts": 0,
         "crossings": 5,
@@ -2358,7 +2358,7 @@
           }
         }
       ],
-      "elapsedMs": 889.3426250000048
+      "elapsedMs": 890.8785419999995
     },
     {
       "file": "galaxy-five-step-loop.mmd",
@@ -2377,7 +2377,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 5,
-      "ms": 69.46233399999619,
+      "ms": 71.34037499999977,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -2450,7 +2450,7 @@
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         }
       ],
-      "elapsedMs": 89.4227499999979
+      "elapsedMs": 91.60199999999986
     },
     {
       "file": "galaxy-sources-h60.mmd",
@@ -2469,7 +2469,7 @@
       "status": "rendered",
       "nodes": 14,
       "edges": 13,
-      "ms": 67994.31525,
+      "ms": 487.5940419999997,
       "metrics": {
         "wordCuts": 24,
         "crossings": 1,
@@ -2713,7 +2713,7 @@
           }
         }
       ],
-      "elapsedMs": 68014.65933400001
+      "elapsedMs": 508.14458300000024
     }
   ]
 }
