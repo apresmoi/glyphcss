@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyGlyphLaneCap, layoutGlyphLaneRows, type GlyphLaneRow, type GlyphLaneRowsResult } from "./layout";
+import { applyGlyphLaneCap, countGlyphLaneContinuationLines, layoutGlyphLaneRows, type GlyphLaneRow, type GlyphLaneRowsResult } from "./layout";
 import type { GlyphLaneDag, GlyphLaneNode } from "./types";
 
 // The reference shape from the task brief:
@@ -227,6 +227,47 @@ describe("layoutGlyphLaneRows: truncated windows", () => {
     expect(last.lanes.every((l) => l < capped.columns)).toBe(true);
     expect(new Set(last.lanes).size).toBe(last.lanes.length);
     expect(last.lanes.length).toBeLessThan(4);
+  });
+});
+
+describe("applyGlyphLaneCap: continuation waitingFor", () => {
+  it("keeps waitingFor aligned with the remapped lanes, keeping the first id of each collapsed column", () => {
+    const wide: GlyphLaneDag = { truncated: true, nodes: [{ id: "a", label: "a", parents: ["o1", "o2", "o3", "o4"] }] };
+    const natural = layoutGlyphLaneRows(wide);
+    const naturalLast = natural.rows[natural.rows.length - 1]!;
+    if (naturalLast.type !== "continuation") throw new Error("expected continuation");
+    expect(naturalLast.waitingFor).toEqual(["o1", "o2", "o3", "o4"]);
+    const capped = applyGlyphLaneCap(natural, 2);
+    const last = capped.rows[capped.rows.length - 1]!;
+    if (last.type !== "continuation") throw new Error("expected continuation");
+    // Lane 0 stays dense; lanes 1-3 fold into the one overflow column, which keeps the
+    // first of their ids.
+    // Mutation: take the LAST id per collapsed column (or skip the dedupe) -> ["o1", "o4"] / length 4 -> red.
+    expect(last.lanes).toEqual([0, 1]);
+    expect(last.waitingFor).toEqual(["o1", "o2"]);
+    expect(last.waitingFor).toHaveLength(last.lanes.length);
+  });
+});
+
+describe("countGlyphLaneContinuationLines", () => {
+  it("counts distinct lane columns across a leading AND a trailing continuation, once each", () => {
+    // `incoming` dashes a lane above x, and x's own absent parent leaves that same
+    // column open at the end, so it is dashed at both ends.
+    const dag: GlyphLaneDag = {
+      truncated: true,
+      nodes: [{ id: "x", label: "x", parents: ["old"] }, { id: "y", label: "y", parents: ["old2", "old3"] }],
+    };
+    const { rows } = layoutGlyphLaneRows(dag, { incoming: [{ id: "x", source: "up" }] });
+    const continuations = rows.filter((r) => r.type === "continuation");
+    expect(continuations.map((r) => r.top)).toEqual([0, rows.length - 1]);
+    const [leading, trailing] = continuations as [Extract<GlyphLaneRow, { type: "continuation" }>, Extract<GlyphLaneRow, { type: "continuation" }>];
+    const overlap = leading.lanes.filter((l) => trailing.lanes.includes(l));
+    expect(overlap.length).toBeGreaterThan(0);
+    // Mutation: count only the first continuation row -> leading.lanes.length; sum both rows -> includes the overlap twice -> red.
+    expect(countGlyphLaneContinuationLines(rows)).toBe(new Set([...leading.lanes, ...trailing.lanes]).size);
+    expect(countGlyphLaneContinuationLines(rows)).toBe(leading.lanes.length + trailing.lanes.length - overlap.length);
+    expect(countGlyphLaneContinuationLines(rows)).toBeGreaterThan(leading.lanes.length);
+    expect(countGlyphLaneContinuationLines(rows)).toBeLessThan(leading.lanes.length + trailing.lanes.length);
   });
 });
 

@@ -2,8 +2,8 @@ import type { GlyphCanvas, GlyphCanvasTierName } from "glyphcss";
 import { glyphLaneDagFromGitLog } from "./git";
 import { glyphDiagramError } from "../validate";
 import { parseGlyphLaneDagJson, glyphLaneDagRepairHint, validateGlyphLaneDag } from "./validate";
-import { layoutGlyphLaneRows, applyGlyphLaneCap, type GlyphLaneRow } from "./layout";
-import { paintGlyphLaneDag, GLYPH_LANE_COLUMN_WIDTH, GLYPH_LANE_MIN_CONTENT_WIDTH } from "./paint";
+import { layoutGlyphLaneRows, applyGlyphLaneCap, countGlyphLaneContinuationLines, type GlyphLaneRow } from "./layout";
+import { paintGlyphLaneDag, createColorState, copyColorState, advanceColorState, type GlyphLaneColorStart, GLYPH_LANE_COLUMN_WIDTH, GLYPH_LANE_MIN_CONTENT_WIDTH } from "./paint";
 import { dedupeGlyphDiagramLedger, type GlyphDiagramLedgerEntry } from "../ledger";
 import { ledgerLaneLayoutOverflow, ledgerLaneCapCollapsed, ledgerLanePaged, ledgerLaneHistoryContinues, ledgerLaneLabelsAbbreviated } from "./ledger";
 import { glyphLaneOutsideParents, invertGlyphLaneDag } from "./invert";
@@ -114,6 +114,29 @@ function renumberRows(rows: readonly GlyphLaneRow[]): GlyphLaneRow[] {
   return rows.map((row, top) => ({ ...row, top }));
 }
 
+/** Test hook (not re-exported from index.ts): counts colour pre-passes so a test can assert one is skipped when nothing could observe it. */
+export const glyphLaneRenderProbe = { colorPasses: 0 };
+
+/**
+ * Per-page starting colour state from ONE pass over every row. A page after
+ * the first has no continuation row of its own to say what its entering
+ * lanes lead to, so each starts from the state the rows before it left.
+ * Page 0 gets the whole-diagram node index too: its leading continuation may
+ * wait for a node on a later page. Needed only when a `laneColor` function can
+ * observe the node it is handed.
+ */
+function pageColorStarts(rows: readonly GlyphLaneRow[], panels: readonly (readonly GlyphLaneRow[])[]): (GlyphLaneColorStart | undefined)[] {
+  glyphLaneRenderProbe.colorPasses++;
+  const nodes = new Map(rows.flatMap((row) => (row.type === "node" ? [[row.node.id, row.node] as const] : [])));
+  const first = rows.find((row) => row.type === "node")?.node;
+  const state = createColorState();
+  return panels.map((panel, index) => {
+    const start = { state: copyColorState(state), nodes, first };
+    for (const row of panel) advanceColorState(state, row);
+    return start;
+  });
+}
+
 export async function renderGlyphLaneDag(input: GlyphLaneDag | string, options: GlyphLaneRenderOptions = {}): Promise<GlyphLaneResult> {
   const opts = resolvedOptions(options);
   const dag = validateGlyphLaneDag(typeof input === "string" ? glyphLaneDagFromGitLog(input) : input);
@@ -139,8 +162,8 @@ export async function renderGlyphLaneDag(input: GlyphLaneDag | string, options: 
 
   // Counted after the cap and dedupe: the dashed lines actually painted, not
   // the absent-parent references behind them.
-  const continuation = capped.rows.find((row) => row.type === "continuation");
-  if (continuation?.type === "continuation") ledger.push(ledgerLaneHistoryContinues({ lines: continuation.lanes.length, nodeIds: [...new Set(outside.map((o) => o.nodeId))] }));
+  const continuationLines = countGlyphLaneContinuationLines(capped.rows);
+  if (continuationLines > 0) ledger.push(ledgerLaneHistoryContinues({ lines: continuationLines, nodeIds: [...new Set(outside.map((o) => o.nodeId))] }));
 
   const bodyHeight = capped.rows.length;
   if (capped.columns * GLYPH_LANE_COLUMN_WIDTH >= opts.width) {
@@ -151,7 +174,8 @@ export async function renderGlyphLaneDag(input: GlyphLaneDag | string, options: 
   if (panels.length > 1) ledger.push(ledgerLanePaged({ panels: panels.length }));
 
   const ids = opts.ids ?? typeof input === "string";
-  const paintedPages = panels.map((panel) => paintGlyphLaneDag(renumberRows(panel), capped.columns, panel.length, opts.width, { ...opts, ids }));
+  const starts = panels.length > 1 && opts.color !== "none" && typeof opts.laneColor === "function" ? pageColorStarts(capped.rows, panels) : [];
+  const paintedPages = panels.map((panel, index) => paintGlyphLaneDag(renumberRows(panel), capped.columns, panel.length, opts.width, { ...opts, ids }, starts[index]));
   for (const page of paintedPages) ledger.push(...page.ledger);
   const abbreviated = [...new Set(paintedPages.flatMap((p) => p.abbreviatedNodeIds))];
   if (abbreviated.length) ledger.push(ledgerLaneLabelsAbbreviated({ count: abbreviated.length, columns: opts.width - capped.columns * GLYPH_LANE_COLUMN_WIDTH, nodeIds: abbreviated }));

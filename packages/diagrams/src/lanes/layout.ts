@@ -177,6 +177,16 @@ export function layoutGlyphLaneRows(dag: GlyphLaneDag, options: GlyphLaneLayoutO
   return { rows, maxLane, laneOf };
 }
 
+/**
+ * The `lane-history-continues` count: distinct lane columns carrying a dashed
+ * rule on ANY continuation row. A column dashed at both ends (a window cut on
+ * each side) is one line, since the ledger reports lines the reader sees as
+ * running past the window, not rules painted.
+ */
+export function countGlyphLaneContinuationLines(rows: readonly GlyphLaneRow[]): number {
+  return new Set(rows.flatMap((row) => (row.type === "continuation" ? row.lanes : []))).size;
+}
+
 export interface GlyphLaneCapResult {
   readonly rows: readonly GlyphLaneRow[];
   /** Total rendered columns, including the single shared overflow column when anything collapsed. */

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { renderGlyphLaneDag, renderGlyphLaneDagJson } from "./render";
+import { glyphLaneRenderProbe, renderGlyphLaneDag, renderGlyphLaneDagJson } from "./render";
 import type { GlyphLaneDag, GlyphLaneNode } from "./types";
 
 // Same shape as layout.test.ts's GIT_STYLE fixture — kept independent here
@@ -440,6 +440,176 @@ describe("oldest-first lane choice", () => {
     // Mutation: look up the panel's first node (b) before the waiting node -> "#0000bb" -> red.
     expect(dash).toBeGreaterThanOrEqual(0);
     expect(color[dash]).toBe("#cc0000");
+  });
+});
+
+// Colours of every painted cell in reading order, page after page: pagination
+// and centring move cells around but must never recolour a glyph.
+const paintedColors = (pages: readonly { readonly canvas: { readonly grid: { readonly char: readonly string[]; readonly color: readonly (string | null)[] } } }[]): string[] =>
+  pages.flatMap((page) => page.canvas.grid.char.flatMap((ch, i) => (ch.trim() ? [`${ch}${page.canvas.grid.color[i]}`] : [])));
+const colorByIndex = (dag: GlyphLaneDag) => {
+  const palette = new Map(dag.nodes.map((node, i) => [node.id, `#${((i + 1) * 0x101010).toString(16).padStart(6, "0")}`] as const));
+  return { palette, laneColor: (node: GlyphLaneNode) => palette.get(node.id)! };
+};
+
+describe("laneColor on a paginated panel", () => {
+  const dag: GlyphLaneDag = {
+    nodes: [
+      { id: "m", label: "merge m", parents: ["a1", "b1"] },
+      { id: "a1", label: "a one", parents: ["a2"] },
+      { id: "a2", label: "a two", parents: ["a3"] },
+      { id: "a3", label: "a three", parents: ["r"] },
+      { id: "b1", label: "b one", parents: ["r"] },
+      { id: "r", label: "root", parents: [] },
+    ],
+  };
+  const open: GlyphLaneDag = { truncated: true, nodes: [{ id: "m", label: "m", parents: ["a", "outside"] }, { id: "a", label: "a", parents: ["b"] }, { id: "b", label: "b", parents: ["c"] }, { id: "c", label: "c", parents: [] }] };
+  const forked: GlyphLaneDag = {
+    nodes: [
+      { id: "z", label: "z", parents: ["h"] },
+      { id: "h", label: "h", parents: ["p", "q"] },
+      { id: "p", label: "p", parents: ["p2"] },
+      { id: "p2", label: "p2", parents: ["p3"] },
+      { id: "p3", label: "p3", parents: ["r"] },
+      { id: "q", label: "q", parents: ["r"] },
+      { id: "r", label: "r", parents: [] },
+    ],
+  };
+
+  it("colours a lane entering page 2 from above as the unpaginated render does", async () => {
+    const { palette, laneColor } = colorByIndex(dag);
+    const result = await renderGlyphLaneDag(dag, { target: "web", color: "css", order: "oldest-first", width: 30, height: 3, laneColor });
+    expect(result.pages.length).toBe(3);
+    const { char, color } = result.pages[1]!.canvas.grid;
+    // Page 2 opens on a3 (lane 1) with lane 0 (last occupied by b1) running in from above.
+    const rail = char.indexOf("│");
+    // Mutation: drop the carried-in state in paint.ts -> the page's first node (a3) colours it -> red.
+    expect(rail).toBeGreaterThanOrEqual(0);
+    expect(color[rail]).toBe(palette.get("b1"));
+  });
+
+  it.each([
+    ["a complete dag, oldest-first", dag, "oldest-first"],
+    ["a complete dag, newest-first", dag, "newest-first"],
+    ["a truncated dag with an unresolved lane, newest-first", open, "newest-first"],
+    ["a truncated dag with an unresolved lane, oldest-first", open, "oldest-first"],
+    ["a branch whose node is on a later page", forked, "newest-first"],
+    ["a branch whose node is on a later page, oldest-first", forked, "oldest-first"],
+    ["a git-log window", TRUNCATED_LOG, "newest-first"],
+    ["a git-log window, oldest-first", TRUNCATED_LOG, "oldest-first"],
+  ] as const)("paints every glyph the same colour on every page as unpaginated: %s", async (_name, input, order) => {
+    const colors = typeof input === "string" ? { laneColor: (node: GlyphLaneNode) => `#${(node.id.charCodeAt(0) * 0x010203).toString(16).padStart(6, "0")}` } : colorByIndex(input);
+    const base = { target: "web", color: "css", order, width: 40, laneColor: colors.laneColor } as const;
+    const whole = await renderGlyphLaneDag(input, { ...base, overflow: "expand" });
+    expect(whole.pages.length).toBe(1);
+    for (const height of [2, 3, 4]) {
+      const paged = await renderGlyphLaneDag(input, { ...base, height });
+      expect(paged.pages.length).toBeGreaterThan(1);
+      // Mutation: skip the carried-in state, or any one of its three updates in advanceColorState -> a page's entering lane recolours -> red.
+      expect(paintedColors(paged.pages)).toEqual(paintedColors(whole.pages));
+    }
+  });
+
+  it("keeps a lane that ends in a continuation the colour of its opener on every page, final dash included", async () => {
+    const { palette, laneColor } = colorByIndex(open);
+    const result = await renderGlyphLaneDag(open, { target: "web", color: "css", width: 30, height: 2, laneColor });
+    expect(result.pages.length).toBeGreaterThan(2);
+    const rails = result.pages.flatMap((page) => page.canvas.grid.char.flatMap((ch, i) => (ch === "│" || ch === "╎" ? [page.canvas.grid.color[i]] : [])));
+    // Mutation: resolve an unresolved waiting id to the page's first node instead of the owner -> a's / c's colour on later pages -> red.
+    expect(rails.length).toBeGreaterThan(2);
+    expect(new Set(rails)).toEqual(new Set([palette.get("m")]));
+  });
+
+  it("colours a lane branched below a node by that node until its own node row, across a page break", async () => {
+    const { palette, laneColor } = colorByIndex(forked);
+    const result = await renderGlyphLaneDag(forked, { target: "web", color: "css", width: 30, height: 3, laneColor });
+    expect(result.pages.length).toBeGreaterThan(1);
+    const rails = result.pages.flatMap((page) => page.canvas.grid.char.flatMap((ch, i) => (ch === "│" ? [page.canvas.grid.color[i]] : [])));
+    // Lane 1 (branched from h) rails until q; lane 0 rails under p3 at q's row. z, the first node, owns neither.
+    // Mutation: drop the branch seeding in advanceColorState -> the lane falls back to z's colour -> red.
+    expect(rails.length).toBeGreaterThan(1);
+    expect(new Set(rails)).toEqual(new Set([palette.get("h"), palette.get("p3")]));
+  });
+
+  it("forgets a lane's waiting node once it arrives, so a reused lane takes its new hub's colour", async () => {
+    // Oldest-first, a's two absent parents open two lanes waiting for a; lane 1 merges away and is
+    // reused by c2's branch to d1, so its rail on d2's row must be c2's colour, not a's.
+    const reuse: GlyphLaneDag = {
+      truncated: true,
+      nodes: [{ id: "d1", label: "d1", parents: ["c2"] }, { id: "d2", label: "d2", parents: ["c2"] }, { id: "c2", label: "c2", parents: ["a"] }, { id: "a", label: "a", parents: ["o1", "o2"] }],
+    };
+    const { palette, laneColor } = colorByIndex(reuse);
+    const result = await renderGlyphLaneDag(reuse, { target: "web", color: "css", order: "oldest-first", width: 30, height: 20, laneColor });
+    const { char, color } = result.canvas.grid;
+    const rails = char.flatMap((ch, i) => (ch === "│" ? [color[i]] : []));
+    // Mutation: stop deleting arrived ids from the waiting map in advanceColorState -> a's colour -> red.
+    expect(rails.length).toBeGreaterThan(0);
+    expect(new Set(rails)).toEqual(new Set([palette.get("c2")]));
+  });
+
+  it("never calls a laneColor function when colour is off, paginated or not", async () => {
+    const boom = (): string => { throw new Error("laneColor must not run under color none"); };
+    // Mutation: build the page colour starts or paint colours without the color-none guard -> throws -> red.
+    await expect(renderGlyphLaneDag(dag, { color: "none", width: 30, height: 2, laneColor: boom })).resolves.toBeDefined();
+    await expect(renderGlyphLaneDag(dag, { color: "none", width: 30, height: 20, laneColor: boom })).resolves.toBeDefined();
+  });
+});
+
+describe("laneColor pre-pass", () => {
+  const passes = async (options: Parameters<typeof renderGlyphLaneDag>[1]): Promise<number> => {
+    const before = glyphLaneRenderProbe.colorPasses;
+    await renderGlyphLaneDag(GIT_STYLE, { target: "web", width: 40, ...options });
+    return glyphLaneRenderProbe.colorPasses - before;
+  };
+  const fn = (): string => "#112233";
+
+  it("runs once for a paginated render with a laneColor function, and is skipped whenever nothing could observe it", async () => {
+    expect(await passes({ color: "css", height: 3, laneColor: fn })).toBe(1);
+    // Mutation: drop `opts.color !== "none"` from the pre-pass condition -> 1 pass under color none -> red.
+    expect(await passes({ color: "none", height: 3, laneColor: fn })).toBe(0);
+    // Mutation: drop the laneColor-is-a-function test -> 1 pass for a string -> red.
+    expect(await passes({ color: "css", height: 3, laneColor: "#123456" })).toBe(0);
+    expect(await passes({ color: "css", height: 3 })).toBe(0);
+    // Mutation: drop `panels.length > 1` -> 1 pass for one page -> red.
+    expect(await passes({ color: "css", height: 24, laneColor: fn })).toBe(0);
+  });
+});
+
+describe("lane connector colours", () => {
+  it("colours each corner by its own lane and the connecting bar by the hub, on both branch and merge rows", async () => {
+    const result = await renderGlyphLaneDag(GIT_STYLE, { target: "web", color: "css", width: 72, height: 24 });
+    const { char, color, cols, rows } = result.canvas.grid;
+    const lines = Array.from({ length: rows }, (_, y) => char.slice(y * cols, (y + 1) * cols).join(""));
+    const x0 = lines.find((l) => l.includes("*"))!.indexOf("*");
+    const at = (needle: string, lane: number): string | null => {
+      const y = lines.findIndex((l) => l.slice(x0).startsWith(needle));
+      return color[y * cols + x0 + lane * 2] ?? null;
+    };
+    const [L0, L1, L2] = ["#4c78a8", "#f58518", "#54a24b"];
+    // Mutation: colour every connector glyph by the hub lane -> the lane-1 and lane-2 corners take the hub's colour -> red.
+    expect(at("├─╮", 0)).toBe(L0); expect(at("├─╮", 1)).toBe(L1);       // branch 0 -> 1
+    expect(at("│ ├─╮", 1)).toBe(L1); expect(at("│ ├─╮", 2)).toBe(L2);   // branch 1 -> 2
+    expect(at("│ ├─╯", 1)).toBe(L1); expect(at("│ ├─╯", 2)).toBe(L2);   // merge 2 into 1
+    expect(at("├─╯", 0)).toBe(L0); expect(at("├─╯", 1)).toBe(L1);       // merge 1 into 0
+    // The connecting bar belongs to the hub.
+    expect(color[lines.findIndex((l) => l.slice(x0).startsWith("├─╮")) * cols + x0 + 1]).toBe(L0);
+    expect(color[lines.findIndex((l) => l.slice(x0).startsWith("│ ├─╯")) * cols + x0 + 3]).toBe(L1);
+  });
+});
+
+describe("default lane palette", () => {
+  it("colours each lane by its column index from the shared palette", async () => {
+    const result = await renderGlyphLaneDag(GIT_STYLE, { target: "web", color: "css", width: 72, height: 24 });
+    const { char, color, cols } = result.canvas.grid;
+    const lines = Array.from({ length: result.canvas.grid.rows }, (_, y) => char.slice(y * cols, (y + 1) * cols).join(""));
+    const starColors = lines.flatMap((line, y) => (line.includes("*") ? [[line.indexOf("*"), color[y * cols + line.indexOf("*")]] as const] : []));
+    const xs = [...new Set(starColors.map(([x]) => x))].sort((a, b) => a - b);
+    expect(xs).toHaveLength(3);
+    const colorAt = (x: number) => new Set(starColors.filter(([sx]) => sx === x).map(([, c]) => c));
+    // Mutation: shift the palette index by one in paint.ts -> lane 0 is #f58518 -> red.
+    expect(colorAt(xs[0]!)).toEqual(new Set(["#4c78a8"]));
+    expect(colorAt(xs[1]!)).toEqual(new Set(["#f58518"]));
+    expect(colorAt(xs[2]!)).toEqual(new Set(["#54a24b"]));
   });
 });
 

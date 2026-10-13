@@ -30,6 +30,45 @@ function rowContent(node: GlyphLaneNode, ids: boolean): string {
   return [...(ids ? [node.id] : []), ...(node.marks?.length ? [`(${node.marks.join(", ")})`] : []), node.label].join("  ");
 }
 
+/** The two maps `laneColor` resolution reads: the node a lane is waiting for (set by a continuation row) and the last node to occupy it. */
+export interface GlyphLaneColorState {
+  readonly waiting: Map<number, string>;
+  readonly owner: Map<number, GlyphLaneNode>;
+}
+
+/**
+ * What a page needs to colour exactly as the unpaginated render would: the
+ * state at its first row, plus the whole diagram's node index and first node
+ * (a waiting id or fallback may name a node on another page).
+ */
+export interface GlyphLaneColorStart {
+  readonly state: GlyphLaneColorState;
+  readonly nodes: ReadonlyMap<string, GlyphLaneNode>;
+  readonly first: GlyphLaneNode | undefined;
+}
+
+export function createColorState(): GlyphLaneColorState { return { waiting: new Map(), owner: new Map() }; }
+export function copyColorState(state: GlyphLaneColorState): GlyphLaneColorState { return { waiting: new Map(state.waiting), owner: new Map(state.owner) }; }
+
+/**
+ * The ONE place a row changes lane-colour state, shared by the painter and
+ * by `render.ts`'s single pre-pass over every row, so a page's starting state
+ * cannot drift from what painting the rows in sequence would have produced.
+ * Applied BEFORE the row's own colours resolve: a node's lane must see the
+ * node landing in it, and a freshly branched lane its hub (the node row
+ * directly above), until its own node row overwrites that.
+ */
+export function advanceColorState(state: GlyphLaneColorState, row: GlyphLaneRow): void {
+  if (row.type === "node") {
+    state.owner.set(row.lane, row.node);
+    for (const [lane, id] of state.waiting) if (id === row.node.id) state.waiting.delete(lane);
+  } else if (row.type === "continuation") {
+    row.lanes.forEach((lane, k) => state.waiting.set(lane, row.waitingFor[k]!));
+  } else {
+    for (const lane of row.branchLanes) state.owner.set(lane, state.owner.get(row.hubLane)!);
+  }
+}
+
 function laneX(lane: number): number { return lane * GLYPH_LANE_COLUMN_WIDTH; }
 
 /**
@@ -69,6 +108,8 @@ export function paintGlyphLaneDag(
   bodyHeight: number,
   width: number,
   options: GlyphLaneRenderOptions & { readonly width: number; readonly height: number },
+  /** Colour state carried in from the rows before this page — see `GlyphLaneColorStart`. */
+  start?: GlyphLaneColorStart,
 ): GlyphLanePaintResult {
   const charset: GlyphCanvasTierName = options.charset ?? "box";
   const colored = options.color !== "none";
@@ -94,13 +135,13 @@ export function paintGlyphLaneDag(
   // follows its node row and a merge connector's hub is a lane already
   // running into it (`render.ts`'s pagination keeps each unit together), so
   // `laneOwner.get(row.hubLane)` is set by the time a connector row runs.
-  const laneOwner = new Map<number, GlyphLaneNode>();
   // A lane running in from above (a window's cut, a page break) is coloured
   // by the node it leads to when that node is on this panel, else the last
   // node that occupied it, else — last resort — the panel's first node.
-  const panelNodes = new Map(rows.flatMap((row) => (row.type === "node" ? [[row.node.id, row.node] as const] : [])));
-  const firstNode = rows.find((row) => row.type === "node")?.node;
-  const laneWaiting = new Map<number, string>();
+  const panelNodes = start?.nodes ?? new Map(rows.flatMap((row) => (row.type === "node" ? [[row.node.id, row.node] as const] : [])));
+  const firstNode = start?.first ?? rows.find((row) => row.type === "node")?.node;
+  const state = start ? copyColorState(start.state) : createColorState();
+  const laneOwner = state.owner, laneWaiting = state.waiting;
   const laneColorFor = (lane: number): string | null =>
     colored ? resolveGlyphDiagramColor(options.laneColor, (panelNodes.get(laneWaiting.get(lane) ?? "") ?? laneOwner.get(lane) ?? firstNode)!, glyphDiagramPaletteColor(lane), "laneColor") : null;
   const contentX = laneX(columns);
@@ -126,8 +167,7 @@ export function paintGlyphLaneDag(
       // Owner set BEFORE resolving this row's own colour — a `laneColor`
       // function override for row.lane itself must see the node landing in
       // it now, not whatever occupied that column previously.
-      laneOwner.set(row.lane, row.node);
-      for (const [lane, id] of laneWaiting) if (id === row.node.id) laneWaiting.delete(lane);
+      advanceColorState(state, row);
       const rowColor = laneColorFor(row.lane);
       for (const lane of row.passthroughLanes) canvas.text(lx(lane), row.top, [tier.straight.v], { color: laneColorFor(lane) });
       canvas.text(lx(row.lane), row.top, ["*"], { color: rowColor });
@@ -138,7 +178,7 @@ export function paintGlyphLaneDag(
       continue;
     }
     if (row.type === "continuation") {
-      row.lanes.forEach((lane, k) => laneWaiting.set(lane, row.waitingFor[k]!));
+      advanceColorState(state, row);
       for (const lane of row.lanes) canvas.text(lx(lane), row.top, [tier.hop.v], { color: laneColorFor(lane) });
       continue;
     }
@@ -146,7 +186,7 @@ export function paintGlyphLaneDag(
     // — seed them with the hub's own node (set on the node row directly
     // above, per this function's own doc above) before any colour below
     // resolves them; a lane's later node row overwrites this.
-    for (const lane of row.branchLanes) laneOwner.set(lane, laneOwner.get(row.hubLane)!);
+    advanceColorState(state, row);
     for (const lane of row.untouchedLanes) canvas.text(lx(lane), row.top, [tier.straight.v], { color: laneColorFor(lane) });
     for (const lane of row.passthroughLanes) canvas.text(lx(lane), row.top, [tier.junction[N | E | S | W]!], { color: laneColorFor(lane) });
 
