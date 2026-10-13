@@ -454,6 +454,17 @@ function validateStyleState(value: unknown): ChartsWorkbenchStyleState | null {
   };
 }
 
+/** Legacy-link rule. Links saved before the legend choice existed carry `legend: true` for every chart (no `legendChosen` marker). Decode that as unchosen (library default) EXCEPT where it would change the link's immediate rendering: a funnel/sankey-only chart (default off) or a non-bottom placement. New links mark an explicit "on" with `legendChosen`. */
+function legacyLegendIsExplicit(marks: readonly { readonly type: string }[], placement: string): boolean {
+  return placement !== "bottom" || (marks.length > 0 && marks.every((m) => m.type === "funnel" || m.type === "sankey"));
+}
+
+/** Writes the `legendChosen` marker so a decoded explicit "on" is told apart from a legacy `legend: true`. */
+function withLegendChoiceMarker(state: ChartsWorkbenchState): ChartsWorkbenchState {
+  if (state.chart.legend !== true) return state;
+  return { ...state, chart: { ...state.chart, legendChosen: true } } as ChartsWorkbenchState;
+}
+
 function validateDataState(value: unknown): ChartsWorkbenchDataState | null {
   if (value === undefined) return { source: null, pipeline: [] };
   if (!isRecord(value)) return null;
@@ -793,7 +804,11 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
   if (!axisX || !axisY) return null;
 
   if (!isRecord(chart)) return null;
-  if (typeof chart.title !== "string" || typeof chart.description !== "string" || typeof chart.legend !== "boolean")
+  if (
+    typeof chart.title !== "string" ||
+    typeof chart.description !== "string" ||
+    (chart.legend !== undefined && typeof chart.legend !== "boolean")
+  )
     return null;
   // Append-only additions (owner packet items 1/2/3): a `v1` link saved
   // before legend/title placement existed carries none of these three keys
@@ -834,7 +849,12 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
     chart: {
       title: chart.title,
       description: chart.description,
-      legend: chart.legend,
+      legend:
+        chart.legend === true &&
+        chart.legendChosen !== true &&
+        !legacyLegendIsExplicit(cleanMarks, chart.legendPlacement ?? "bottom")
+          ? undefined
+          : chart.legend,
       legendPlacement: chart.legendPlacement ?? "bottom",
       titleAlign: chart.titleAlign ?? "center",
       titlePosition: chart.titlePosition ?? "top",
@@ -1119,7 +1139,7 @@ export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Pro
   // envelope ever sees `state`, so it applies unconditionally, not only
   // once the link is already over the size-warn threshold the custom-drop
   // branch below is gated on.
-  const full = await chartsUrlEnvelope.encode(chartsUrlStateForEncode(state));
+  const full = await chartsUrlEnvelope.encode(withLegendChoiceMarker(chartsUrlStateForEncode(state)));
   const fullSize = new TextEncoder().encode(full).length;
   const source = state.data.source;
   if (fullSize <= CHARTS_URL_SIZE_WARN_BYTES || source?.kind !== "custom" || source.omitted) {
@@ -1145,7 +1165,7 @@ export async function encodeChartsUrlStateInfo(state: ChartsWorkbenchState): Pro
       },
     },
   };
-  const raw = await chartsUrlEnvelope.encode(dropped);
+  const raw = await chartsUrlEnvelope.encode(withLegendChoiceMarker(dropped));
   const sizeBytes = new TextEncoder().encode(raw).length;
   if (sizeBytes > CHARTS_URL_SIZE_WARN_BYTES) {
     return { raw: "", sizeBytes, omittedCustomBytes, tooLarge: true };

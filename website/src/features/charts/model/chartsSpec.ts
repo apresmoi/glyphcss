@@ -366,7 +366,8 @@ export interface ChartsWorkbenchState {
   readonly chart: {
     readonly title: string;
     readonly description: string;
-    readonly legend: boolean;
+    /** The user's choice, kept apart from `legendPlacement`: picking any placement (bottom included) sets it `true`. `undefined` = the user has not chosen: the spec carries no legend, so the library default applies (on, except funnel/sankey-only charts, whose labels already name every stage/node). */
+    readonly legend?: boolean;
     readonly legendPlacement: GlyphChartLegendPlacement;
     readonly titleAlign: GlyphChartTitleAlign;
     readonly titlePosition: GlyphChartTitlePosition;
@@ -443,7 +444,6 @@ export function createChartsWorkbenchState(): ChartsWorkbenchState {
     chart: {
       title: preset.label,
       description: "",
-      legend: true,
       legendPlacement: "bottom",
       titleAlign: "center",
       titlePosition: "top",
@@ -543,7 +543,8 @@ export function buildChartsWorkbenchSpec(state: ChartsWorkbenchState): GlyphChar
     axes: { x: buildAxis(state.axes.x), y: buildAxis(state.axes.y) },
     title: { text: state.chart.title, align: state.chart.titleAlign, position: state.chart.titlePosition },
     description: state.chart.description,
-    legend: state.chart.legend ? { placement: state.chart.legendPlacement } : false,
+    legend:
+      state.chart.legend === undefined ? undefined : state.chart.legend && { placement: state.chart.legendPlacement },
   });
   const needsDomain = [state.scales.x, state.scales.y].some((scale) => scale.min.trim() || scale.max.trim());
   const inferred = needsDomain ? glyphChartScaleDomains(spec) : undefined;

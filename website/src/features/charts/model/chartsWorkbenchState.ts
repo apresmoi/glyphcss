@@ -630,8 +630,11 @@ export function reduceChartsWorkbenchState(
         },
       };
     }
-    case "set-chart":
-      return { ...state, chart: { ...state.chart, ...action.patch } };
+    case "set-chart": {
+      // Picking a placement (bottom included) is an explicit "show the legend" choice.
+      const choosesPlacement = action.patch.legendPlacement !== undefined && !("legend" in action.patch);
+      return { ...state, chart: { ...state.chart, ...action.patch, ...(choosesPlacement ? { legend: true } : {}) } };
+    }
     case "set-terminal":
       return { ...state, terminal: { ...state.terminal, [action.flag]: action.value } };
     case "set-data-source": {
@@ -1091,6 +1094,17 @@ const CHARTS_NON_CARTESIAN_MARK_TYPES: ReadonlySet<GlyphChartMarkType> = new Set
  *  `chartsWorkbenchInferredDomains`' placeholder domain. */
 export function chartsWorkbenchHasCartesianMark(state: ChartsWorkbenchState): boolean {
   return state.marks.some((mark) => !CHARTS_NON_CARTESIAN_MARK_TYPES.has(mark.type));
+}
+
+/** The Dock's Legend control for the ACTIVE chart. `visible` is false in 3D:
+ *  the 3D renderer never reads `chart.legend` (its colorbar is not a legend
+ *  toggle), so offering the control there would lie. In 2D `shown` is the
+ *  user's explicit choice, else the library default (off only when every mark
+ *  is a `funnel`/`sankey`), mirroring `layoutGlyphChart`. */
+export function chartsWorkbenchLegendControl(state: ChartsWorkbenchState): { visible: boolean; shown: boolean } {
+  if (state.dimension === "3d") return { visible: false, shown: false };
+  const flowOnly = state.marks.length > 0 && state.marks.every((m) => m.type === "funnel" || m.type === "sankey");
+  return { visible: true, shown: state.chart.legend ?? !flowOnly };
 }
 
 /** A `RangeSlider`'s numeric domain is timestamps for a `"time"` scale,

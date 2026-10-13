@@ -239,7 +239,8 @@ describe("ChartsWorkbench state", () => {
   // never reintroduces the plain-boolean default over it (`chartsWorkbenchRenderOptions`'s own doc).
   it("legend/title placement dispatch through set-chart and reach the built spec", () => {
     const defaultChart = buildChartsWorkbenchSpec(initial());
-    expect(defaultChart.legend).toEqual({ placement: "bottom" });
+    // Unchosen legend rides as undefined so the library default applies (off for funnel/sankey).
+    expect(defaultChart.legend).toBeUndefined();
     expect(defaultChart.title).toMatchObject({ align: "center", position: "top" });
 
     const state = reduceChartsWorkbenchState(initial(), {
