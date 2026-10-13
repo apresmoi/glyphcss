@@ -57,11 +57,11 @@ Order is authored, time runs downward, geometry follows label lengths. Pipeline:
 
 ## Don't
 
-- Don't reuse a canvas across panels. Don't hide an unroutable edge under a box fill; log `unroutable`.
+- Don't reuse a canvas across panels or hide an unroutable edge under a box fill; log `unroutable`.
 - Don't assign reserved port slots in lexical order — dagre reorders siblings; use the laid-out transverse order. Don't use a flat compaction floor: it is per graph (`max(3, widest fan + 1)`).
 - Don't move fitting into consumers, use font scaling, or accept a node box without testing centered routes. Deduplicate candidates before layout.
 - Don't widen a node for loop room. Don't split Mermaid statements on `;` inside quotes, edge-text spans or after a state transition's `:`.
 
 ## Gate tests
 
-Every `src/**/*.test.ts` plus `packages/compile/src/diagramCli.test.ts`. API and usage: `README.md`.
+Every `src/**/*.test.ts` plus `packages/compile/src/diagramCli.test.ts`; not `bench/`. API: `README.md`.

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "toolUseBlocks": 18,
+  "executions": 24,
+  "uniqueSources": 23,
+  "defaultEvidence": [
+    "glyphcss-diagrams/skills/runtime/common.mjs",
+    "glyphcss-diagrams/skills/runtime/diagrams.mjs"
+  ],
+  "corpus": [
+    "telescope-explore-decision.mmd",
+    "telescope-query-outcomes-detailed.mmd",
+    "telescope-command-chain.mmd",
+    "telescope-explore-edge-labels.mmd",
+    "telescope-query-outcomes.mmd",
+    "telescope-explore-node-labels.mmd",
+    "telescope-export-destinations.mmd",
+    "telescope-checkout-edge-label.mmd",
+    "telescope-package-workspace-edge.mmd",
+    "telescope-checkout.mmd",
+    "telescope-package-workspace-node.mmd",
+    "telescope-install-to-html.mmd",
+    "galaxy-fit-loop-detailed.mmd",
+    "galaxy-fit-loop-vertical.mmd",
+    "galaxy-fit-without-return.mmd",
+    "galaxy-sources-to-model.mmd",
+    "galaxy-anchors-detailed.mmd",
+    "galaxy-anchors.mmd",
+    "galaxy-build-detailed.mmd",
+    "galaxy-build-compact.mmd",
+    "galaxy-score-loop.mmd",
+    "galaxy-five-step-loop.mmd",
+    "galaxy-sources-h60.mmd"
+  ],
+  "targets": [
+    {
+      "file": "galaxy-resolution-search.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-inputs-dense.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-fit-dense.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-inputs-minimal.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-fit-minimal.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-build-stages.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-stars-dust-columns.txt",
+      "role": "structural reference only; never rendered"
+    },
+    {
+      "file": "galaxy-compare-score-adjust.txt",
+      "role": "structural reference only; never rendered"
+    }
+  ]
+}

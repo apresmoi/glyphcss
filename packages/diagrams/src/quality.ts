@@ -1,0 +1,96 @@
+import { canonicalizeGlyphGraph } from "./pipeline";
+import type { GlyphDiagramResult } from "./renderTypes";
+
+interface GlyphDiagramEdgeQuality {
+  readonly page: number;
+  readonly edgeId: string;
+  readonly bends: number;
+  readonly routeCells: number;
+  readonly portDistance: number;
+  /** Coincident escape ports have no finite ratio and are excluded from aggregates. */
+  readonly detourRatio: number | null;
+}
+
+export interface GlyphDiagramQuality {
+  readonly wordCuts: number;
+  readonly crossings: number;
+  readonly bends: { readonly total: number; readonly max: number };
+  readonly detourRatio: { readonly mean: number; readonly max: number };
+  readonly maxArrowheadsOnSide: number;
+  readonly expansionRatio: number;
+  readonly whitespaceFraction: number;
+  readonly droppedEdges: number;
+  readonly droppedLabels: number;
+  readonly pages: number;
+  readonly edges: readonly GlyphDiagramEdgeQuality[];
+}
+
+/** Offline measurements only; importing this module never changes fitting or painting. */
+export function computeGlyphDiagramQuality(result: GlyphDiagramResult, budget: { readonly width: number; readonly height: number }): GlyphDiagramQuality {
+  if (![budget.width, budget.height].every((n) => Number.isSafeInteger(n) && n > 0)) {
+    throw new RangeError("Quality budget must contain positive integer width and height.");
+  }
+  const edges: GlyphDiagramEdgeQuality[] = [];
+  const renderedEdges = new Set<string>();
+  let crossings = 0, maxArrowheadsOnSide = 0, outputCells = 0, whitespaceCells = 0;
+  result.pages.forEach((page, pageIndex) => {
+    const { cols, rows, char } = page.canvas.grid;
+    outputCells += cols * rows;
+    whitespaceCells += char.filter((cell) => cell === " ").length;
+    // A crossing is one cell traversed straight through on both axes by different
+    // routes. Shared endpoints, collinear strokes and corner contacts are not crossings.
+    const crossingAxes = new Map<string, { h: Set<string>; v: Set<string> }>();
+    const arrowheads = new Map<string, number>();
+    for (const route of page.routes) {
+      renderedEdges.add(route.edge.id);
+      let bends = 0;
+      route.cells.forEach((cell, i) => {
+        const prev = route.cells[i - 1], next = route.cells[i + 1];
+        if (!prev || !next) return;
+        const incoming = { x: cell.x - prev.x, y: cell.y - prev.y };
+        const outgoing = { x: next.x - cell.x, y: next.y - cell.y };
+        if (incoming.x !== outgoing.x || incoming.y !== outgoing.y) { bends++; return; }
+        const key = `${cell.x},${cell.y}`;
+        const axes = crossingAxes.get(key) ?? { h: new Set<string>(), v: new Set<string>() };
+        axes[incoming.y === 0 ? "h" : "v"].add(route.edge.id);
+        crossingAxes.set(key, axes);
+      });
+      const from = page.layout.ports.find((port) => port.edgeId === route.edge.id && port.end === "from")!;
+      const to = page.layout.ports.find((port) => port.edgeId === route.edge.id && port.end === "to")!;
+      // Routes include escape cells, not border anchors. Use those same ports in
+      // the denominator; count cells literally (a d-step straight walk has d+1 cells).
+      const portDistance = Math.abs(from.escape.x - to.escape.x) + Math.abs(from.escape.y - to.escape.y);
+      edges.push({ page: pageIndex + 1, edgeId: route.edge.id, bends, routeCells: route.cells.length,
+        portDistance, detourRatio: portDistance === 0 ? null : route.cells.length / portDistance });
+      if (route.edge.style !== "undirected") {
+        const key = JSON.stringify([to.nodeId, to.side]);
+        // Point fan-in paints one head after its join bar, unlike boxed nodes.
+        const point = page.layout.nodes.find((node) => node.id === to.nodeId)?.shape === "point";
+        arrowheads.set(key, point ? 1 : (arrowheads.get(key) ?? 0) + 1);
+      }
+    }
+    crossings += [...crossingAxes.values()].filter(({ h, v }) => [...h].some((id) => [...v].some((other) => other !== id))).length;
+    maxArrowheadsOnSide = Math.max(maxArrowheadsOnSide, ...arrowheads.values());
+  });
+  const detours = edges.flatMap((edge) => edge.detourRatio === null ? [] : [edge.detourRatio]);
+  const missingEdges = new Set(result.report.unroutable);
+  // Metadata keeps original edges, including ones removed by semantic degradation.
+  const original = canonicalizeGlyphGraph({ nodes: result.meta.nodes, edges: result.meta.edges, groups: result.meta.groups, direction: result.layout.direction });
+  for (const edge of original.edges) if (!renderedEdges.has(edge.id)) missingEdges.add(edge.id);
+  for (const entry of result.report.ledger) if (entry.code === "unroutable" && typeof entry.detail?.edgeId === "string") missingEdges.add(entry.detail.edgeId);
+  const wordCuts = result.report.ledger.filter((entry) => entry.code === "word-cut")
+    .reduce((total, entry) => total + (entry.detail?.nodes as { words: readonly string[] }[]).reduce((sum, node) => sum + node.words.length, 0), 0);
+  return {
+    wordCuts, crossings,
+    bends: { total: edges.reduce((sum, edge) => sum + edge.bends, 0), max: Math.max(0, ...edges.map((edge) => edge.bends)) },
+    detourRatio: { mean: detours.length ? detours.reduce((sum, ratio) => sum + ratio, 0) / detours.length : 0, max: Math.max(0, ...detours) },
+    maxArrowheadsOnSide,
+    expansionRatio: outputCells / (budget.width * budget.height),
+    whitespaceFraction: outputCells ? whitespaceCells / outputCells : 0,
+    droppedEdges: missingEdges.size,
+    // The renderer deduplicates its ledger; this counts reported label losses,
+    // not an inferred count of unique labels reconstructed from encoded text.
+    droppedLabels: result.report.ledger.filter((entry) => entry.code === "label-dropped").length,
+    pages: result.pages.length, edges,
+  };
+}

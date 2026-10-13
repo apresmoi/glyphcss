@@ -1,0 +1,10 @@
+flowchart LR
+  papers[Papers: shape] --> model[3D galaxy]
+  dust[Dust maps] --> model
+  sim[Simulation: texture] --> model
+  limits[Physical limits] --> knobs[Knobs]
+  knobs --> model
+  model --> sky[Sky from Sun]
+  model --> face[Face-on]
+  nasa[NASA sky photo] --> sky
+  ngc[NGC 6744 photo] --> face

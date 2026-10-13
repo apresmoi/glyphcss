@@ -1,0 +1,6 @@
+flowchart LR
+  bin["npm telescope"] -->|needs| co["cssEarth checkout"]
+  co --> src["CLI sources"]
+  co --> cat["object catalogue"]
+  co --> cache["caches + toolchains"]
+  co --> site["site bake"]

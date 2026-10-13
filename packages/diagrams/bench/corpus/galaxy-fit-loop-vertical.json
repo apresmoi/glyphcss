@@ -1,0 +1,24 @@
+{
+  "sha256": "9fc8083e35fb6f2488ee572e98c7e88e8231d31969b5989650856c0cc0b20fb5",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render a simpler top-down fitting diagram",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

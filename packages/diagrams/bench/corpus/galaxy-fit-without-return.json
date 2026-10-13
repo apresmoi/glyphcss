@@ -1,0 +1,24 @@
+{
+  "sha256": "7dcaa6ede44600550a58398b9ecfbe17e19d876ed73a2070bdc98d829c7e8c22",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render the fitting diagram without the loop edge",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

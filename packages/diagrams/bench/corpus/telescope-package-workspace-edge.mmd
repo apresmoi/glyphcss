@@ -1,0 +1,4 @@
+flowchart LR
+  pkg["@cssearth/telescope"] --> home["~/.cssearth cache"]
+  pkg --> html["standalone HTML"]
+  pkg -.->|"--workspace"| site["site object"]

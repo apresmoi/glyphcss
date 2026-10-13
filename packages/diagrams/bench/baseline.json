@@ -1,0 +1,2719 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-13T19:55:30.226Z",
+  "gitRevision": "1170cc183c7913af6753d65c5769ac3535fb21c1",
+  "sourceBundleSha256": "773c58e9c7efcbe96dc3d98aa774b1e3d478dff8e3dc64c9a2ec6fdb56585a58",
+  "nodeVersion": "v22.23.2",
+  "platform": "darwin",
+  "arch": "arm64",
+  "timeCapMs": 180000,
+  "filter": null,
+  "complete": true,
+  "records": [
+    {
+      "file": "telescope-explore-decision.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "394e4305b2152af58eafaddf26a28adf3ad1cb924d4e7c54406a6d9ec3671ef1",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 8,
+      "edges": 7,
+      "ms": 51.69804100000002,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.25,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1.5833333333333333,
+        "whitespaceFraction": 0.7934941520467836,
+        "droppedEdges": 0,
+        "droppedLabels": 1,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"pick\",\"saves explore.json\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"exp\",\"obj\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"get\",\"out\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"out\",\"exp\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pick\",\"get\",\"get --pick N\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 25,
+            "portDistance": 24,
+            "detourRatio": 1.0416666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pick\",\"img\",\"wwt-image --pick N\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pick\",\"raw\",\"fetch --archive A --pick N\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 25,
+            "portDistance": 24,
+            "detourRatio": 1.0416666666666667
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 38
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x38 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 38
+          }
+        },
+        {
+          "code": "label-dropped",
+          "message": "Dropped the edge label \"wwt-image --pick N\" — there was no free space near its target.",
+          "detail": {
+            "role": "edge label",
+            "text": "wwt-image --pick N",
+            "reason": "there was no free space near its target"
+          }
+        },
+        {
+          "code": "label-abbreviated",
+          "message": "Abbreviated the edge label from \"fetch --archive A --pick N\" to \"fetch --archive A --pic…\" to fit.",
+          "detail": {
+            "role": "edge label",
+            "before": "fetch --archive A --pick N",
+            "after": "fetch --archive A --pic…"
+          }
+        }
+      ],
+      "elapsedMs": 74.090875
+    },
+    {
+      "file": "telescope-query-outcomes-detailed.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "b3b91231329b913872414e6073636ec1c450c1b49a1b6122c5b67de2ba827694",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 5,
+      "edges": 4,
+      "ms": 10.853834000000006,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.192361111111111,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8396990740740741,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"f\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 10,
+            "portDistance": 9,
+            "detourRatio": 1.1111111111111112
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"r\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"u\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"q\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 32.21687499999999
+    },
+    {
+      "file": "telescope-command-chain.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "19067960d60e94d6087540a73aa78bd6459ef44380eced22d6eef2bda82ded5a",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 5,
+      "edges": 4,
+      "ms": 10.03083399999997,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 0,
+          "max": 0
+        },
+        "detourRatio": {
+          "mean": 1.3333333333333333,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.9045138888888888,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"get\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"exp\",\"obj\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"get\",\"out\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"out\",\"exp\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 30.934499999999986
+    },
+    {
+      "file": "telescope-explore-edge-labels.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "d114c9802bb873f01cf86d6e63d6c61b6b1c4a39a35a904bd667cf84b4a6765c",
+      "invocations": 2,
+      "status": "rendered",
+      "nodes": 4,
+      "edges": 3,
+      "ms": 11.306958000000009,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.1814814814814816,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8512731481481481,
+        "droppedEdges": 0,
+        "droppedLabels": 1,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"img\",\"wwt-image\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"q\",\"get\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"raw\",\"fetch\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 10,
+            "portDistance": 9,
+            "detourRatio": 1.1111111111111112
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "label-dropped",
+          "message": "Dropped the edge label \"get\" — there was no free space near its target.",
+          "detail": {
+            "role": "edge label",
+            "text": "get",
+            "reason": "there was no free space near its target"
+          }
+        }
+      ],
+      "elapsedMs": 32.50491600000004
+    },
+    {
+      "file": "telescope-query-outcomes.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "3d83488930a5944d6eedfc133d99be10d00955785442f8b0574c907c738b0272",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 5,
+      "edges": 4,
+      "ms": 10.459208999999987,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.192361111111111,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8657407407407407,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"f\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 10,
+            "portDistance": 9,
+            "detourRatio": 1.1111111111111112
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"r\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"u\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"q\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 31.18816700000002
+    },
+    {
+      "file": "telescope-explore-node-labels.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "485d9ee9e89bee2b2801aa033afcc5d84a19e827ab2b627f8017285643fa2226",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 4,
+      "edges": 3,
+      "ms": 10.444708999999989,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.162037037037037,
+          "max": 1.25
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8182870370370371,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"img\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"q\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ex\",\"raw\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 10,
+            "portDistance": 9,
+            "detourRatio": 1.1111111111111112
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 31.618041000000005
+    },
+    {
+      "file": "telescope-export-destinations.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "fe95b1c3b50945f0f80f81c51d0873a2285af664860c92531736d72aa0c2fb03",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 3,
+      "edges": 2,
+      "ms": 9.082458999999972,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.1714285714285713,
+          "max": 1.2
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8663194444444444,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"exp\",\"html\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"exp\",\"obj\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 29.5
+    },
+    {
+      "file": "telescope-checkout-edge-label.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "b3d2c9b8d7b7f2d573511a4b9030fbf261ff5d0cc97ed7b8136a0ad166142bcc",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 6,
+      "edges": 5,
+      "ms": 23.15466600000002,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 8,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.1467532467532469,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.7853009259259259,
+        "droppedEdges": 0,
+        "droppedLabels": 1,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"bin\",\"co\",\"needs\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"cache\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"cat\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"site\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"src\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 16,
+            "portDistance": 15,
+            "detourRatio": 1.0666666666666667
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "label-dropped",
+          "message": "Dropped the edge label \"needs\" — there was no free space near its target.",
+          "detail": {
+            "role": "edge label",
+            "text": "needs",
+            "reason": "there was no free space near its target"
+          }
+        }
+      ],
+      "elapsedMs": 44.69766699999997
+    },
+    {
+      "file": "telescope-package-workspace-edge.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "20ba894cfdaa2c982cc8259fde700da0788e43ad11bdefe04b8c615ab653a3d2",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 4,
+      "edges": 3,
+      "ms": 21.758332999999993,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.1553030303030303,
+          "max": 1.25
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8472222222222222,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pkg\",\"home\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pkg\",\"html\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pkg\",\"site\",\"--workspace\",\"dotted\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 50.55258300000003
+    },
+    {
+      "file": "telescope-checkout.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "10c22e0b6a41e4dcb016d220ea8355070d59a04cdd099fca39bca2ac142192a7",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 6,
+      "edges": 5,
+      "ms": 23.514542000000006,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 8,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.1467532467532469,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.7853009259259259,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"bin\",\"co\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"cache\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"cat\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"site\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"co\",\"src\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 16,
+            "portDistance": 15,
+            "detourRatio": 1.0666666666666667
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        }
+      ],
+      "elapsedMs": 53.93816700000002
+    },
+    {
+      "file": "telescope-package-workspace-node.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "e44aeb05119c4b5e9055e22f84b26ca1c2ed986066a9d2887405eb5501f06e10",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 4,
+      "edges": 3,
+      "ms": 11.231708000000026,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 4,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.0928030303030303,
+          "max": 1.125
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8182870370370371,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pkg\",\"home\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 17,
+            "portDistance": 16,
+            "detourRatio": 1.0625
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pkg\",\"html\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"pkg\",\"site\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [],
+      "elapsedMs": 34.035541999999964
+    },
+    {
+      "file": "telescope-install-to-html.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "b4a65e35b72568e78763773f797a474f5f9cbdd6a95c9a4959cd34865c8e600d",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 5,
+      "edges": 4,
+      "ms": 34.839417000000026,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 2,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.254807692307692,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.84375,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"e\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"g\",\"x\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 53,
+            "portDistance": 52,
+            "detourRatio": 1.0192307692307692
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"i\",\"e\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"x\",\"h\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-wrapped",
+          "message": "Wrapped the main path into 2 rows to fit the width with whole words.",
+          "detail": {
+            "rows": 2,
+            "path": [
+              "i",
+              "e",
+              "g",
+              "x",
+              "h"
+            ]
+          }
+        }
+      ],
+      "elapsedMs": 56.026958000000036
+    },
+    {
+      "file": "galaxy-fit-loop-detailed.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "76e8a3fac9a76566dcb8bd7e7f09f58044a95d2f8af9a417160611ddd1e25c8f",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 9,
+      "edges": 10,
+      "ms": 181.95841599999994,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 15,
+          "max": 6
+        },
+        "detourRatio": {
+          "mean": 1.3896462803483676,
+          "max": 2.0784313725490198
+        },
+        "maxArrowheadsOnSide": 1,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.6898148148148148,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"data\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"face\",\"ngc\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"knobs\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 5,
+            "routeCells": 50,
+            "portDistance": 31,
+            "detourRatio": 1.6129032258064515
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"face\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"sky\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"nasa\",\"score\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ngc\",\"score\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 27,
+            "portDistance": 26,
+            "detourRatio": 1.0384615384615385
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"score\",\"search\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"search\",\"knobs\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"sky\",\"nasa\",\"\",\"solid\",0]:0",
+            "bends": 6,
+            "routeCells": 106,
+            "portDistance": 51,
+            "detourRatio": 2.0784313725490198
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-wrapped",
+          "message": "Wrapped the main path into 2 rows to fit the width with whole words.",
+          "detail": {
+            "rows": 2,
+            "path": [
+              "data",
+              "model",
+              "sky",
+              "nasa",
+              "score",
+              "search",
+              "knobs"
+            ]
+          }
+        }
+      ],
+      "elapsedMs": 204.312
+    },
+    {
+      "file": "galaxy-fit-loop-vertical.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "9fc8083e35fb6f2488ee572e98c7e88e8231d31969b5989650856c0cc0b20fb5",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 7,
+      "edges": 8,
+      "ms": 711.6075000000001,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 12,
+          "max": 4
+        },
+        "detourRatio": {
+          "mean": 1.4350184765892,
+          "max": 2.59375
+        },
+        "maxArrowheadsOnSide": 2,
+        "expansionRatio": 1.5833333333333333,
+        "whitespaceFraction": 0.8548976608187134,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"data\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 3,
+            "portDistance": 2,
+            "detourRatio": 1.5
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"face\",\"score\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"knobs\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 83,
+            "portDistance": 32,
+            "detourRatio": 2.59375
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"face\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 20,
+            "portDistance": 19,
+            "detourRatio": 1.0526315789473684
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"sky\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 3,
+            "portDistance": 2,
+            "detourRatio": 1.5
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"score\",\"search\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 3,
+            "portDistance": 2,
+            "detourRatio": 1.5
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"search\",\"knobs\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"sky\",\"score\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 38
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x38 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 38
+          }
+        }
+      ],
+      "elapsedMs": 733.7647079999999
+    },
+    {
+      "file": "galaxy-fit-without-return.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "7dcaa6ede44600550a58398b9ecfbe17e19d876ed73a2070bdc98d829c7e8c22",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 7,
+      "edges": 7,
+      "ms": 76.39637499999981,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 12,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.2323129251700682,
+          "max": 1.5
+        },
+        "maxArrowheadsOnSide": 2,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8240740740740741,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"data\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"face\",\"score\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"knobs\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"face\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"sky\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"score\",\"search\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 3,
+            "portDistance": 2,
+            "detourRatio": 1.5
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"sky\",\"score\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        }
+      ],
+      "elapsedMs": 98.15345900000011
+    },
+    {
+      "file": "galaxy-sources-to-model.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "ebb53d32761061b389e32f4a12db43a092e57cd4bf52dd3c345c4840bb7dba56",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 14,
+      "edges": 13,
+      "ms": 74823.188625,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 3,
+        "bends": {
+          "total": 22,
+          "max": 6
+        },
+        "detourRatio": {
+          "mean": 1.211663265509419,
+          "max": 2.6818181818181817
+        },
+        "maxArrowheadsOnSide": 6,
+        "expansionRatio": 2.2083333333333335,
+        "whitespaceFraction": 0.7872117400419287,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"arms\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 29,
+            "portDistance": 28,
+            "detourRatio": 1.0357142857142858
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"bar\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 23,
+            "portDistance": 22,
+            "detourRatio": 1.0454545454545454
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"bd\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 14,
+            "portDistance": 13,
+            "detourRatio": 1.0769230769230769
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"bh\",\"disc\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"dd\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"disc\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 6,
+            "routeCells": 59,
+            "portDistance": 22,
+            "detourRatio": 2.6818181818181817
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"dr\",\"dd\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ed\",\"ld\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"fire\",\"dd\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ld\",\"g\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 28,
+            "portDistance": 27,
+            "detourRatio": 1.037037037037037
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ma\",\"bd\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"reid\",\"arms\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 13,
+            "portDistance": 12,
+            "detourRatio": 1.0833333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"so\",\"bar\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 53
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x53 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 53
+          }
+        }
+      ],
+      "elapsedMs": 74844.522708
+    },
+    {
+      "file": "galaxy-anchors-detailed.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "0f6512ae16d5ac0854ce4bd59417ce9fbb458858d59aae6be1c842b8c7824ecd",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 10,
+      "edges": 9,
+      "ms": 1535.730666000003,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 3,
+        "bends": {
+          "total": 26,
+          "max": 8
+        },
+        "detourRatio": {
+          "mean": 2.338885935377163,
+          "max": 10.444444444444445
+        },
+        "maxArrowheadsOnSide": 4,
+        "expansionRatio": 1.375,
+        "whitespaceFraction": 0.7415824915824916,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"dust\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"knobs\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"limits\",\"knobs\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"face\",\"\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 52,
+            "portDistance": 19,
+            "detourRatio": 2.736842105263158
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"sky\",\"\",\"solid\",0]:0",
+            "bends": 8,
+            "routeCells": 94,
+            "portDistance": 9,
+            "detourRatio": 10.444444444444445
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"nasa\",\"sky\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"ngc\",\"face\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 10,
+            "portDistance": 9,
+            "detourRatio": 1.1111111111111112
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"papers\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"sim\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 13,
+            "portDistance": 12,
+            "detourRatio": 1.0833333333333333
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 33
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x33 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 33
+          }
+        }
+      ],
+      "elapsedMs": 1556.7035830000095
+    },
+    {
+      "file": "galaxy-anchors.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "1fbb923755899ec4bde7ddd9902dfaea2117a85af97ba286386c634dfa088652",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 9,
+      "edges": 8,
+      "ms": 3467.5165419999976,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 14,
+          "max": 2
+        },
+        "detourRatio": {
+          "mean": 1.1047129514801928,
+          "max": 1.25
+        },
+        "maxArrowheadsOnSide": 4,
+        "expansionRatio": 1.125,
+        "whitespaceFraction": 0.7546296296296297,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"dust\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 30,
+            "portDistance": 29,
+            "detourRatio": 1.0344827586206897
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"face\",\"ngc\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"knobs\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"face\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 14,
+            "portDistance": 13,
+            "detourRatio": 1.0769230769230769
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"model\",\"sky\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 15,
+            "portDistance": 14,
+            "detourRatio": 1.0714285714285714
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"papers\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 14,
+            "portDistance": 13,
+            "detourRatio": 1.0769230769230769
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"sim\",\"model\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 28,
+            "portDistance": 27,
+            "detourRatio": 1.037037037037037
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"sky\",\"nasa\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 27
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x27 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 27
+          }
+        }
+      ],
+      "elapsedMs": 3488.022582999998
+    },
+    {
+      "file": "galaxy-build-detailed.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "d7ae3ef94dcb238005e53fb80518bd2bb447b9af3d41dad559bafbdbe9267649",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 11,
+      "edges": 11,
+      "ms": 214.21670799999265,
+      "metrics": {
+        "wordCuts": 4,
+        "crossings": 0,
+        "bends": {
+          "total": 22,
+          "max": 6
+        },
+        "detourRatio": {
+          "mean": 1.1741024905758626,
+          "max": 1.4857142857142858
+        },
+        "maxArrowheadsOnSide": 3,
+        "expansionRatio": 2,
+        "whitespaceFraction": 0.7980324074074074,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"C\",\"M\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"D\",\"M\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 17,
+            "portDistance": 16,
+            "detourRatio": 1.0625
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"E\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 20,
+            "portDistance": 19,
+            "detourRatio": 1.0526315789473684
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"G\",\"C\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"G\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 28,
+            "portDistance": 27,
+            "detourRatio": 1.037037037037037
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"M\",\"X\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"P\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"R\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"S\",\"M\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 24,
+            "portDistance": 23,
+            "detourRatio": 1.0434782608695652
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"V\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 6,
+            "routeCells": 52,
+            "portDistance": 35,
+            "detourRatio": 1.4857142857142858
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"X\",\"K\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 48
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x48 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 48
+          }
+        },
+        {
+          "code": "word-cut",
+          "message": "Cut words across lines in the label of \"G\", \"E\", \"V\", \"X\" because no layout with whole words fit.",
+          "detail": {
+            "nodes": [
+              {
+                "id": "G",
+                "words": [
+                  "populations"
+                ]
+              },
+              {
+                "id": "E",
+                "words": [
+                  "Edenhofer"
+                ]
+              },
+              {
+                "id": "V",
+                "words": [
+                  "measured"
+                ]
+              },
+              {
+                "id": "X",
+                "words": [
+                  "scattering"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "elapsedMs": 235.7204170000041
+    },
+    {
+      "file": "galaxy-build-compact.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "a0a71225e5aab23eb1227885c40e12c45dc9934055c42d64c7906d35dd909498",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 11,
+      "edges": 11,
+      "ms": 258.1260840000032,
+      "metrics": {
+        "wordCuts": 3,
+        "crossings": 0,
+        "bends": {
+          "total": 20,
+          "max": 6
+        },
+        "detourRatio": {
+          "mean": 1.3376600672055217,
+          "max": 2.75
+        },
+        "maxArrowheadsOnSide": 3,
+        "expansionRatio": 1.5416666666666667,
+        "whitespaceFraction": 0.81006006006006,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"C\",\"M\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"D\",\"M\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 12,
+            "portDistance": 11,
+            "detourRatio": 1.0909090909090908
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"E\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"G\",\"C\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"G\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 15,
+            "portDistance": 14,
+            "detourRatio": 1.0714285714285714
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"M\",\"X\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"P\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"R\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"S\",\"M\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 14,
+            "portDistance": 13,
+            "detourRatio": 1.0769230769230769
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"V\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 6,
+            "routeCells": 55,
+            "portDistance": 20,
+            "detourRatio": 2.75
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"X\",\"K\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 37
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x24 to 72x37 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 24,
+            "canvasWidth": 72,
+            "canvasHeight": 37
+          }
+        },
+        {
+          "code": "word-cut",
+          "message": "Cut words across lines in the label of \"E\", \"R\", \"X\" because no layout with whole words fit.",
+          "detail": {
+            "nodes": [
+              {
+                "id": "E",
+                "words": [
+                  "Edenhofer"
+                ]
+              },
+              {
+                "id": "R",
+                "words": [
+                  "Drimmel+FIRE"
+                ]
+              },
+              {
+                "id": "X",
+                "words": [
+                  "Dim+scatter"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "elapsedMs": 279.3462500000023
+    },
+    {
+      "file": "galaxy-score-loop.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "54ea740689f5eed90e980f461a94ef4ae66ea4b2fe0ec519ff3300ab4c2f3fc7",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 10,
+      "edges": 12,
+      "ms": 867.46033300001,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 5,
+        "bends": {
+          "total": 17,
+          "max": 4
+        },
+        "detourRatio": {
+          "mean": 1.2322052547780045,
+          "max": 1.8125
+        },
+        "maxArrowheadsOnSide": 2,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.6319444444444444,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"A\",\"L\",\"\",\"solid\",0]:0",
+            "bends": 3,
+            "routeCells": 43,
+            "portDistance": 42,
+            "detourRatio": 1.0238095238095237
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"F\",\"A\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"I\",\"N\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"I\",\"Q\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 36,
+            "portDistance": 35,
+            "detourRatio": 1.0285714285714285
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"K\",\"F\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"K\",\"I\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"K\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 39,
+            "portDistance": 38,
+            "detourRatio": 1.0263157894736843
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"L\",\"O\",\"\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 70,
+            "portDistance": 67,
+            "detourRatio": 1.044776119402985
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"N\",\"L\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"O\",\"B\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"O\",\"K\",\"\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 29,
+            "portDistance": 16,
+            "detourRatio": 1.8125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"Q\",\"L\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 18,
+            "portDistance": 17,
+            "detourRatio": 1.0588235294117647
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-wrapped",
+          "message": "Wrapped the main path into 2 rows to fit the width with whole words.",
+          "detail": {
+            "rows": 2,
+            "path": [
+              "K",
+              "I",
+              "N",
+              "L",
+              "O",
+              "B"
+            ]
+          }
+        }
+      ],
+      "elapsedMs": 889.3426250000048
+    },
+    {
+      "file": "galaxy-five-step-loop.mmd",
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "3e557bb2c73b0ba7adb41a0fc33055ca5da6612c1dba7686094244ac9358dd6f",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 5,
+      "edges": 5,
+      "ms": 69.46233399999619,
+      "metrics": {
+        "wordCuts": 0,
+        "crossings": 0,
+        "bends": {
+          "total": 8,
+          "max": 4
+        },
+        "detourRatio": {
+          "mean": 1.2729824561403507,
+          "max": 1.3333333333333333
+        },
+        "maxArrowheadsOnSide": 2,
+        "expansionRatio": 1,
+        "whitespaceFraction": 0.8223379629629629,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"A\",\"B\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"B\",\"C\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"C\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"D\",\"E\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"E\",\"B\",\"adjust knobs\",\"solid\",0]:0",
+            "bends": 4,
+            "routeCells": 74,
+            "portDistance": 57,
+            "detourRatio": 1.2982456140350878
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 24
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        }
+      ],
+      "elapsedMs": 89.4227499999979
+    },
+    {
+      "file": "galaxy-sources-h60.mmd",
+      "options": {
+        "width": 72,
+        "height": 60,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "sourceSha256": "90e55bdd2e4bee3e74290ae58b9553aed54626cfb971b3b06bac7f3fd598bf59",
+      "invocations": 1,
+      "status": "rendered",
+      "nodes": 14,
+      "edges": 13,
+      "ms": 67994.31525,
+      "metrics": {
+        "wordCuts": 24,
+        "crossings": 1,
+        "bends": {
+          "total": 22,
+          "max": 6
+        },
+        "detourRatio": {
+          "mean": 1.2001887273946097,
+          "max": 1.8518518518518519
+        },
+        "maxArrowheadsOnSide": 4,
+        "expansionRatio": 1.3,
+        "whitespaceFraction": 0.863960113960114,
+        "droppedEdges": 0,
+        "droppedLabels": 0,
+        "pages": 1,
+        "edges": [
+          {
+            "page": 1,
+            "edgeId": "edge:[\"A\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 17,
+            "portDistance": 16,
+            "detourRatio": 1.0625
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"B\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 9,
+            "portDistance": 8,
+            "detourRatio": 1.125
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"C\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 18,
+            "portDistance": 17,
+            "detourRatio": 1.0588235294117647
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"D\",\"G\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 18,
+            "portDistance": 17,
+            "detourRatio": 1.0588235294117647
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"E\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 11,
+            "portDistance": 10,
+            "detourRatio": 1.1
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"G\",\"L\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"H\",\"S\",\"\",\"solid\",0]:0",
+            "bends": 6,
+            "routeCells": 50,
+            "portDistance": 27,
+            "detourRatio": 1.8518518518518519
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"K\",\"X\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"L\",\"K\",\"\",\"solid\",0]:0",
+            "bends": 0,
+            "routeCells": 4,
+            "portDistance": 3,
+            "detourRatio": 1.3333333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"P\",\"G\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 21,
+            "portDistance": 20,
+            "detourRatio": 1.05
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"R\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 13,
+            "portDistance": 12,
+            "detourRatio": 1.0833333333333333
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"S\",\"P\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 7,
+            "portDistance": 6,
+            "detourRatio": 1.1666666666666667
+          },
+          {
+            "page": 1,
+            "edgeId": "edge:[\"V\",\"D\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 23,
+            "portDistance": 22,
+            "detourRatio": 1.0454545454545454
+          }
+        ]
+      },
+      "sizes": [
+        {
+          "width": 72,
+          "height": 78
+        }
+      ],
+      "ledger": [
+        {
+          "code": "budget-compaction",
+          "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
+        },
+        {
+          "code": "layout-expanded",
+          "message": "Expanded the canvas from 72x60 to 72x78 to keep the diagram connected.",
+          "detail": {
+            "requestedWidth": 72,
+            "requestedHeight": 60,
+            "canvasWidth": 72,
+            "canvasHeight": 78
+          }
+        },
+        {
+          "code": "word-cut",
+          "message": "Cut words across lines in the label of \"A\", \"S\", \"B\", \"C\", \"H\", \"P\", \"G\", \"E\", \"V\", \"R\", \"L\", \"K\", \"X\" because no layout with whole words fit.",
+          "detail": {
+            "nodes": [
+              {
+                "id": "A",
+                "words": [
+                  "Discs:",
+                  "Bland-Hawthorn"
+                ]
+              },
+              {
+                "id": "S",
+                "words": [
+                  "Stars"
+                ]
+              },
+              {
+                "id": "B",
+                "words": [
+                  "Galaxia"
+                ]
+              },
+              {
+                "id": "C",
+                "words": [
+                  "Arms:"
+                ]
+              },
+              {
+                "id": "H",
+                "words": [
+                  "Hole:",
+                  "Robin"
+                ]
+              },
+              {
+                "id": "P",
+                "words": [
+                  "Paint",
+                  "colors:",
+                  "Galaxia"
+                ]
+              },
+              {
+                "id": "G",
+                "words": [
+                  "galaxy"
+                ]
+              },
+              {
+                "id": "E",
+                "words": [
+                  "dust:",
+                  "Edenhofer"
+                ]
+              },
+              {
+                "id": "V",
+                "words": [
+                  "dust:",
+                  "Vergely"
+                ]
+              },
+              {
+                "id": "R",
+                "words": [
+                  "dust:",
+                  "Drimmel"
+                ]
+              },
+              {
+                "id": "L",
+                "words": [
+                  "Shine",
+                  "light:",
+                  "CCM89",
+                  "SKIRT"
+                ]
+              },
+              {
+                "id": "K",
+                "words": [
+                  "Camera"
+                ]
+              },
+              {
+                "id": "X",
+                "words": [
+                  "Earth",
+                  "photos"
+                ]
+              }
+            ]
+          }
+        }
+      ],
+      "elapsedMs": 68014.65933400001
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+{
+  "sha256": "54ea740689f5eed90e980f461a94ef4ae66ea4b2fe0ec519ff3300ab4c2f3fc7",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 2,
+          "description": "Render compact pipeline diagrams",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

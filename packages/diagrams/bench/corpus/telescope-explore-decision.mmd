@@ -1,0 +1,8 @@
+flowchart TD
+  ex["explore TARGET"] -->|saves explore.json| pick{"what next?"}
+  pick -->|"get --pick N"| get["qualified product"]
+  pick -->|"fetch --archive A --pick N"| raw["raw archive file"]
+  pick -->|"wwt-image --pick N"| img["display image"]
+  get --> out["outputs RESULT"]
+  out --> exp["export --output KIND"]
+  exp --> obj["new-object SPEC --bake"]

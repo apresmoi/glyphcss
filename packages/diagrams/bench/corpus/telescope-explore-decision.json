@@ -1,0 +1,24 @@
+{
+  "sha256": "394e4305b2152af58eafaddf26a28adf3ad1cb924d4e7c54406a6d9ec3671ef1",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render the telescope flow diagrams",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

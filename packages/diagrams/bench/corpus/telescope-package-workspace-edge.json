@@ -1,0 +1,24 @@
+{
+  "sha256": "20ba894cfdaa2c982cc8259fde700da0788e43ad11bdefe04b8c615ab653a3d2",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 2,
+          "description": "Render today vs proposed package diagrams",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

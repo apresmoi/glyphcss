@@ -1,0 +1,9 @@
+flowchart TB
+  papers[Papers] --> model[3D galaxy]
+  dust[Dust maps] --> model
+  sim[Simulation] --> model
+  knobs[Knobs + limits] --> model
+  model --> sky[Sky from Sun]
+  model --> face[Face-on]
+  sky --> nasa[vs NASA photo]
+  face --> ngc[vs NGC 6744]

@@ -63,6 +63,7 @@
     }
   },
   "scripts": {
+    "bench": "node --experimental-strip-types bench/run.ts",
     "build": "tsup",
     "typecheck": "tsc --noEmit -p .",
     "test": "npm run typecheck && vitest run --passWithNoTests",

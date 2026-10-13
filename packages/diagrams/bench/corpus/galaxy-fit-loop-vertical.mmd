@@ -1,0 +1,9 @@
+flowchart TB
+  data[Measured maps] --> model[3D galaxy]
+  knobs[Knobs] --> model
+  model --> sky[Sky from Sun vs NASA]
+  model --> face[Face-on vs NGC 6744]
+  sky --> score[Score]
+  face --> score
+  score --> search[Search]
+  search --> knobs

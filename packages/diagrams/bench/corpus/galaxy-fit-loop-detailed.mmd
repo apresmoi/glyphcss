@@ -1,0 +1,11 @@
+flowchart LR
+  data[Measured maps] --> model[3D galaxy]
+  knobs[Knobs] --> model
+  model --> sky[Sky from Sun]
+  model --> face[Face-on]
+  sky --> nasa[vs NASA sky]
+  face --> ngc[vs NGC 6744]
+  nasa --> score[Score]
+  ngc --> score
+  score --> search[Search]
+  search --> knobs
