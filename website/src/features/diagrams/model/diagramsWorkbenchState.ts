@@ -1133,11 +1133,14 @@ export function glyphDiagramsWorkbenchSequenceMermaid(sequence: GlyphSequence): 
       branchesAt(frames[f]!, i);
       if (frames[f]!.to === i - 1) lines.push("  end");
     }
-    for (const f of ids.filter((g) => frames[g]!.from === i).sort((a, b) => span(frames[b]!) - span(frames[a]!) || b - a)) {
+    for (const f of ids
+      .filter((g) => frames[g]!.from === i)
+      .sort((a, b) => span(frames[b]!) - span(frames[a]!) || b - a)) {
       lines.push(header(frames[f]!.kind, frames[f]!.label));
       branchesAt(frames[f]!, i);
     }
-    for (const note of sequence.notes ?? []) if (note.at === i) lines.push(`  note over ${note.over.join(",")}: ${note.text}`);
+    for (const note of sequence.notes ?? [])
+      if (note.at === i) lines.push(`  note over ${note.over.join(",")}: ${note.text}`);
     const message = sequence.messages[i];
     if (!message) continue;
     const arrow = message.style === "dashed" ? "-->>" : "->>";

@@ -39,7 +39,10 @@ export function renderCharts3dStatic(input: Charts3dRenderInput): Charts3dRender
   if (!resolved.ok) return { ok: false, error: resolved.error };
   const { title, description } = resolved.resolved;
   const mark = input.thumbnail
-    ? { ...resolved.resolved.mark, guides: { ...resolved.resolved.mark.guides, axisLines: false, ticks: false, tickLabels: false, titles: false } }
+    ? {
+        ...resolved.resolved.mark,
+        guides: { ...resolved.resolved.mark.guides, axisLines: false, ticks: false, tickLabels: false, titles: false },
+      }
     : resolved.resolved.mark;
   try {
     const cam = input.view.camera;
