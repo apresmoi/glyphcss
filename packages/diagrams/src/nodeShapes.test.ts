@@ -13,7 +13,8 @@ import type { GlyphGraph, GlyphGraphNodeShape } from "./types";
  * cell `layout.nodes[0]`'s own rectangle names, never a fixed offset, so
  * this stays correct across a label-width change.
  */
-const SHAPE_OUTLINES: Readonly<Record<GlyphGraphNodeShape, {
+// `point` has no outline: it is only its glyph (see stateRender.test.ts).
+const SHAPE_OUTLINES: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, {
   readonly corners: readonly [string, string, string, string]; // TL, TR, BL, BR
   readonly topRule: string;
   readonly bottomRule: string;
@@ -31,7 +32,7 @@ const SHAPE_OUTLINES: Readonly<Record<GlyphGraphNodeShape, {
 };
 
 describe("box-charset node shape outlines match the approved catalogue", () => {
-  for (const [shape, expected] of Object.entries(SHAPE_OUTLINES) as [GlyphGraphNodeShape, (typeof SHAPE_OUTLINES)[GlyphGraphNodeShape]][]) {
+  for (const [shape, expected] of Object.entries(SHAPE_OUTLINES) as [GlyphGraphNodeShape, (typeof SHAPE_OUTLINES)[keyof typeof SHAPE_OUTLINES]][]) {
     it(`${shape} paints the catalogue's own corners, rules and sides`, async () => {
       const graph: GlyphGraph = { direction: "TB", nodes: [{ id: "n", label: "Node", shape }], edges: [] };
       const result = await renderGlyphDiagram(graph, { charset: "box", target: "chat", width: 30, height: 8 });
@@ -71,7 +72,7 @@ describe("box-charset node shape outlines match the approved catalogue", () => {
   });
 
   it("ascii keeps its pre-existing 7-bit fallback per shape, unaffected by the box-charset catalogue above", async () => {
-    const ascii: Readonly<Record<GlyphGraphNodeShape, readonly [string, string, string, string]>> = {
+    const ascii: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, readonly [string, string, string, string]>> = {
       rect: ["+", "+", "+", "+"], rounded: ["(", ")", "(", ")"], stadium: ["(", ")", "(", ")"],
       cylinder: ["+", "+", "+", "+"], circle: ["(", ")", "(", ")"], diamond: ["/", "\\", "\\", "/"],
       asymmetric: [">", "]", ">", "]"], subroutine: ["+", "+", "+", "+"],

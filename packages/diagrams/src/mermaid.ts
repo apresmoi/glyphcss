@@ -1,5 +1,8 @@
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdge, GlyphGraphEdgeStyle, GlyphGraphGroup, GlyphGraphNode, GlyphGraphNodeShape } from "./types";
 import { glyphDiagramError, validateGlyphGraph } from "./validate";
+import { labelText, skipMermaidComment } from "./mermaidText";
+import type { GlyphDiagramLedgerEntry } from "./ledger";
+import { glyphGraphFromMermaidState, glyphMermaidStateNotes } from "./mermaidState";
 
 function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAID_SYNTAX", message); }
 
@@ -54,16 +57,7 @@ function statements(source: string): string[] {
       if (char === "|") pipe = false;
       continue;
     }
-    if (char === "%" && source[index + 1] === "%" && brackets.length === 0) {
-      if (source[index + 2] === "{") {
-        const end = source.indexOf("}%%", index + 3);
-        if (end < 0) syntax("Unclosed Mermaid init directive.");
-        index = end + 2;
-      } else {
-        while (index + 1 < source.length && source[index + 1] !== "\n") index++;
-      }
-      continue;
-    }
+    if (char === "%" && source[index + 1] === "%" && brackets.length === 0) { index = skipMermaidComment(source, index); continue; }
     // "-." not immediately followed by "->" opens an edge-text span; the bare
     // "-.->" dotted arrow has no text between its delimiters and needs none.
     if (char === "-" && source[index + 1] === "." && brackets.length === 0 && !source.startsWith("-.->", index)) {
@@ -87,40 +81,6 @@ function statements(source: string): string[] {
   if (quote || brackets.length || pipe) syntax("Unclosed quoted label, node shape, edge text, or edge label.");
   if (current.trim()) output.push(current.trim());
   return output;
-}
-
-function labelText(input: string): string {
-  let text = input.trim();
-  const quoted = text.length >= 2 && ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'")));
-  if (quoted) text = text.slice(1, -1);
-  // LangGraph emits paragraph markup inside stadium nodes. Strip only literal
-  // markup here; an entity-escaped angle bracket (e.g. "&lt;p&gt;") is plain
-  // text and survives to the decode below. Styling, links, and Mermaid click
-  // statements never become DOM or code.
-  text = text.replace(/<br\s*\/?\s*>/gi, "\n").replace(/<\/?(?:p|b|strong|i|em|span)(?:\s[^>]*?)?\s*>/gi, "");
-  // One left-to-right scan of the ORIGINAL (still-encoded) text: an HTML
-  // entity always wins over quote-escape interpretation at that position, and
-  // its decoded output is never re-scanned. Two sequential whole-string
-  // passes (decode entities, then unescape "\\\"") would instead treat a
-  // backslash PRODUCED by decoding "&#92;" as a second, spurious escape and
-  // eat it -- corrupting a round-tripped "\\server\\share"-style label.
-  // Quote-escapes are real Mermaid source syntax and only apply when this
-  // text was actually quoted.
-  const pattern = quoted ? /&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[\da-f]+);|\\["'\\]/gi : /&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[\da-f]+);/gi;
-  text = text.replace(pattern, (match: string) => {
-    // The escape alternative only appears in the quoted pattern and is
-    // always exactly two characters ("\" + one of " ' \); an entity is
-    // always longer, starts with "&", and ends with ";".
-    if (match.length === 2 && match[0] === "\\") return match[1]!;
-    const value = match.slice(1, -1).toLowerCase();
-    const named: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-    if (named[value] !== undefined) return named[value]!;
-    const point = value.startsWith("#x") ? Number.parseInt(value.slice(2), 16) : Number.parseInt(value.slice(1), 10);
-    return point >= 0 && point <= 0x10ffff && !(point >= 0xd800 && point <= 0xdfff) ? String.fromCodePoint(point) : match;
-  });
-  // "&nbsp;" decodes to a plain space; trim it (and any other edge
-  // whitespace) at the label's ends.
-  return text.trim();
 }
 
 const SHAPES: readonly { open: string; close: string; shape: GlyphGraphNodeShape }[] = [
@@ -213,6 +173,7 @@ export function glyphGraphFromMermaid(source: string): GlyphGraph {
   // delimiters need not obey flowchart syntax to earn its named rejection.
   const prefix = source.replace(/^\uFEFF/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const declaredKind = /^[\w-]+/.exec(prefix)?.[0];
+  if (declaredKind === "stateDiagram" || declaredKind === "stateDiagram-v2") return glyphGraphFromMermaidState(source);
   if (declaredKind && declaredKind !== "flowchart" && declaredKind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${declaredKind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${declaredKind} is not supported; use flowchart or graph.`);
   const parts = statements(source.replace(/^\uFEFF/, ""));
   const header = parts.shift();
@@ -226,7 +187,7 @@ export function glyphGraphFromMermaid(source: string): GlyphGraph {
   if (declaration[2]) parts.unshift(declaration[2]);
   const nodes = new Map<string, GlyphGraphNode>();
   const edges: GlyphGraphEdge[] = [];
-  const groups = new Map<string, { id: string; label?: string; members: string[] }>();
+  const groups = new Map<string, { id: string; label?: string; members: string[]; parent?: string }>();
   const activeGroups: string[] = [];
 
   const addNode = ({ node, declared }: ReturnType<GlyphMermaidStatement["node"]>): string => {
@@ -259,7 +220,7 @@ export function glyphGraphFromMermaid(source: string): GlyphGraph {
       if (explicit) { id = explicit[1]!; label = labelText(explicit[2]!); }
       else { id = labelText(body); label = id; }
       if (!id.trim() || groups.has(id)) syntax(`subgraph id "${id}" must be non-empty and unique.`);
-      groups.set(id, { id, label, members: [] });
+      groups.set(id, { id, label, members: [], ...(activeGroups.length ? { parent: activeGroups[activeGroups.length - 1] } : {}) });
       activeGroups.push(id);
       continue;
     }
@@ -274,5 +235,13 @@ export function glyphGraphFromMermaid(source: string): GlyphGraph {
     }
   }
   if (activeGroups.length) syntax(`Unclosed subgraph "${activeGroups[activeGroups.length - 1]}".`);
-  return validateGlyphGraph({ nodes: [...nodes.values()], edges, ...(groups.size ? { groups: [...groups.values()] as GlyphGraphGroup[] } : {}), direction });
+  // A parent is only recorded where the enclosing group lists exactly the same nodes, the one case it cannot be inferred.
+  const nested = [...groups.values()].map(({ parent, ...group }) => parent !== undefined && groups.get(parent)!.members.length === group.members.length ? { ...group, parent } : group);
+  return validateGlyphGraph({ nodes: [...nodes.values()], edges, ...(groups.size ? { groups: nested as GlyphGraphGroup[] } : {}), direction });
+}
+
+/** Notes a Mermaid source adds to a render's ledger beyond its graph; only a state diagram has any. */
+export function glyphMermaidNotes(source: string): GlyphDiagramLedgerEntry[] {
+  const kind = /^[\w-]+/.exec(source.replace(/^\uFEFF/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, ""))?.[0];
+  return kind === "stateDiagram" || kind === "stateDiagram-v2" ? glyphMermaidStateNotes(source) : [];
 }

@@ -13,7 +13,7 @@ const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/$
 const pointInside = (p: { x: number; y: number }, n: { x0: number; x1: number; y0: number; y1: number }) => p.x >= n.x0 && p.x <= n.x1 && p.y >= n.y0 && p.y <= n.y1;
 function obstacleFixture(): GlyphDiagramLayout {
   const edge = { id: "through-middle", from: "a", to: "b" };
-  return { direction: "LR", width: 34, height: 15, groups: [], ledger: [], edges: [edge],
+  return { direction: "LR", width: 34, height: 15, groups: [], loops: [], ledger: [], edges: [edge],
     nodes: [
       { id: "a", label: "A", lines: ["A"], width: 5, height: 3, x0: 1, y0: 5, x1: 5, y1: 7 },
       { id: "b", label: "B", lines: ["B"], width: 5, height: 3, x0: 27, y0: 5, x1: 31, y1: 7 },

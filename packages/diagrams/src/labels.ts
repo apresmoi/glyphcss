@@ -6,13 +6,17 @@ import { ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLabelNearForeignGroup
 function labelRole(id: string): string {
   if (id === "title") return "diagram title";
   if (id.startsWith("group:")) return "group label";
-  if (id.startsWith("edge:")) return "edge label";
+  if (id.startsWith("edge:") || id.startsWith("edge-row:")) return "edge label";
   return "node label";
 }
 
 export interface GlyphDiagramLabelCandidate {
   readonly id: string; readonly x: number; readonly y: number; readonly text: string;
   readonly priority?: number; readonly maxWidth?: number;
+  /** An exact top-left cell: the label goes there or is dropped. It is not searched for, so it need not touch a route. */
+  readonly place?: { readonly x: number; readonly y: number };
+  /** Owned space held against other labels even when this row has no text. */
+  readonly reserve?: GlyphDiagramRect;
   /** Edge labels must touch their own route's neighbourhood, or be dropped. */
   readonly route?: readonly GlyphCanvasPoint[];
   /**
@@ -45,7 +49,8 @@ export interface GlyphDiagramLabelLayoutResult { readonly placed: readonly Glyph
 
 /** Measure the canvas's own grapheme folding, then enforce the ASCII target's narrower repertoire. */
 export function glyphDiagramText(value: string, charset: GlyphCanvasTierName = "box"): string {
-  const input = charset === "ascii" ? value.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...") : value;
+  // The three one-glyph markers the state adapter writes (and any label holding them) fold to look-alikes, not "?".
+  const input = charset === "ascii" ? value.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...").replace(/[●◆]/g, "*").replace(/◉/g, "@") : value;
   const scratch = createGlyphCanvas({ cols: Math.max(1, input.length), rows: 1, tier: charset });
   scratch.text(0, 0, [input]);
   const folded = scratch.grid.char.join("").trimEnd();
@@ -71,11 +76,15 @@ export function glyphDiagramTruncateLabel(text: string, maxWidth: number, charse
 export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCandidate[], options: GlyphDiagramLabelLayoutOptions): GlyphDiagramLabelLayoutResult {
   const placed: GlyphDiagramPlacedLabel[] = [], dropped: string[] = [], ledger: GlyphDiagramLedgerEntry[] = [];
   const occupied = [...options.obstacles];
+  const reservations = candidates.filter((label) => label.reserve !== undefined);
   const { cols, rows } = options.viewport;
-  for (const label of [...candidates].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+  // Fixed rows go first, in reading order independent of their synthetic ids; reservations also hold blank cells.
+  for (const label of [...candidates].sort((a, b) => Number(b.place !== undefined) - Number(a.place !== undefined) || (b.priority ?? 0) - (a.priority ?? 0) || (a.place && b.place ? a.place.y - b.place.y || a.place.x - b.place.x : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
     const role = labelRole(label.id);
     let text = glyphDiagramText(label.text.replace(/\s+/g, " "), options.charset);
     const maxWidth = Math.max(0, Math.min(cols, label.maxWidth ?? cols));
+    // A candidate with nothing to show (an empty row of a multi-row label, a blank label) is not a label: nothing is placed and nothing is reported.
+    if (!text.trim()) continue;
     if (text.length > maxWidth) {
       const ellipsis = options.charset === "ascii" ? "..." : "…";
       text = maxWidth > ellipsis.length ? text.slice(0, maxWidth - ellipsis.length) + ellipsis : text.slice(0, maxWidth);
@@ -94,12 +103,17 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
     const touchedGroups = (rect: GlyphDiagramRect) => avoid.filter((a) => glyphDiagramRectsOverlap(a.rect, rect)).map((a) => a.groupId);
     const positions: { x: number; y: number; distance: number; nearForeignGroup: boolean }[] = [];
     for (let y = 0; y < rows; y++) for (let x = 0; x + text.length <= cols; x++) {
+      if (label.place && (x !== label.place.x || y !== label.place.y)) continue;
       if (label.route && !label.route.some((p) => Math.max(x - p.x, 0, p.x - (x + text.length - 1)) + Math.abs(y - p.y) === 1)) continue;
       const rect = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
       positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y), nearForeignGroup: touchedGroups(rect).length > 0 });
     }
     positions.sort((a, b) => (a.nearForeignGroup === b.nearForeignGroup ? 0 : a.nearForeignGroup ? 1 : -1) || a.distance - b.distance || a.y - b.y || a.x - b.x);
-    const position = positions.find(({ x, y }) => !occupied.some((rect) => glyphDiagramRectsOverlap(rect, { x0: x, y0: y, x1: x + text.length - 1, y1: y })));
+    const position = positions.find(({ x, y }) => {
+      const span = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
+      return !occupied.some((rect) => glyphDiagramRectsOverlap(rect, span)) &&
+        !reservations.some((owner) => owner !== label && glyphDiagramRectsOverlap(owner.reserve!, span));
+    });
     if (!position) { dropped.push(label.id); ledger.push(ledgerLabelDropped({ role, text, reason: "there was no free space near its target" })); continue; }
     const { x, y } = position;
     const result = { id: label.id, x, y, text, abbreviated, x0: x, y0: y, x1: x + text.length - 1, y1: y };

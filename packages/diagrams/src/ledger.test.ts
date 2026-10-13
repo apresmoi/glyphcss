@@ -17,6 +17,8 @@ import {
   ledgerRoutingAttempt,
   ledgerSplitPanelDropped,
   ledgerUnroutable,
+  ledgerStateShared,
+  ledgerWordsCut,
 } from "./ledger";
 
 const SAMPLES = [
@@ -26,7 +28,8 @@ const SAMPLES = [
   ledgerGroupMemberList({ groupId: "G2", reason: "unrelated-nodes" }),
   ledgerLabelAbbreviated({ role: "edge label", before: "a very long edge label", after: "a very long e…" }),
   ledgerLabelDropped({ role: "group label", text: "Group 1", reason: "there was no room for any text" }),
-  ledgerLabelFolded({ nodeId: "n1", before: "café 漢字", after: "cafe ??" }),
+  ledgerLabelFolded({ role: "node label", owner: "n1", before: "café 漢字", after: "cafe ??" }),
+  ledgerLabelFolded({ role: "edge label", owner: "a to b", before: "a ◆", after: "a *" }),
   ledgerRouteConflict({ kind: "parallel", col: 3, row: 4, edgeIds: ["e1", "e2"] }),
   ledgerRouteConflict({ kind: "corner", col: 1, row: 2, edgeIds: ["e1", "e2"] }),
   ledgerRouteConflict({ kind: "multi", col: 5, row: 6, edgeIds: ["e1", "e2", "e3"] }),
@@ -44,6 +47,8 @@ const SAMPLES = [
   ledgerSplitPanelDropped({ panel: 2, requestedWidth: 60, requestedHeight: 20, nodes: ["a", "b"] }),
   ledgerUnroutable({ edgeId: "e1", reason: "no path was found from \"a\" to \"b\"" }),
   ledgerDoubleDiagonalSolid({ col: 4, row: 6 }),
+  ledgerStateShared({ id: "Work", owner: "Busy", scope: "Idle" }),
+  ledgerWordsCut({ nodes: [{ id: "Idle", words: ["Idle"] }, { id: "Work", words: ["Work"] }] }),
 ];
 
 describe("diagram ledger entries read like sentences, not internal logs", () => {

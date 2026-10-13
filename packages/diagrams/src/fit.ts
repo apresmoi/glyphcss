@@ -3,8 +3,9 @@ import { glyphDiagramCompactionFloor } from "./degrade";
 import { glyphDiagramText } from "./labels";
 import { glyphDiagramSnakeLayout } from "./snake";
 import { paintGlyphDiagram } from "./paint";
-import { layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
-import { GLYPH_DIAGRAM_ROUTE_SEPARATION, glyphDiagramHasRoutingClearance, routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
+import { GLYPH_DIAGRAM_LOOP_LABEL_MAX } from "./loop";
+import { glyphDiagramGroupDepths, glyphDiagramGroupParents, glyphDiagramWrap, layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
+import { GLYPH_DIAGRAM_ROUTE_SEPARATION, glyphDiagramHasRoutingClearance, glyphDiagramLoopsClear, routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import type { GlyphGraph } from "./types";
 
 export interface GlyphDiagramFitOptions extends GlyphDiagramLayoutOptions {
@@ -12,6 +13,8 @@ export interface GlyphDiagramFitOptions extends GlyphDiagramLayoutOptions {
   readonly height: number;
   readonly autoDirection?: boolean;
   readonly overflow?: "paginate" | "expand";
+  /** Stop before cutting a word (default true). The nested-frame fallback uses it to try the cheaper layouts first. */
+  readonly cutWords?: boolean;
 }
 export interface GlyphDiagramAttempt {
   readonly layout: GlyphDiagramLayout;
@@ -23,6 +26,8 @@ export interface GlyphDiagramAttempt {
   readonly adjusted: boolean;
 }
 interface Candidate { readonly raw: GlyphDiagramLayout; readonly adjusted: boolean; readonly nodesep: number; readonly ranksep: number; readonly margin: number }
+const MAX_TALL_SNAKES = 3;
+const MAX_LOOP_WRAPS = 3;
 const perpendicular: Record<GlyphGraph["direction"], GlyphGraph["direction"]> = { TB: "LR", LR: "TB", BT: "RL", RL: "BT" };
 
 function attempt(candidate: Candidate, width: number, height: number): GlyphDiagramAttempt {
@@ -34,7 +39,8 @@ function attempt(candidate: Candidate, width: number, height: number): GlyphDiag
   };
   const fits = raw.width <= width && raw.height <= height;
   const routing = fits ? routeGlyphGraphEdges(layout, { width, height }) : { routes: [], unroutable: [], ledger: [] };
-  return { layout, routing, fits, okay: fits && routing.unroutable.length === 0, width, height, adjusted };
+  // A loop that fits nowhere is not a routing failure the search would notice: its label would only be dropped.
+  return { layout, routing, fits, okay: fits && routing.unroutable.length === 0 && glyphDiagramLoopsClear(layout), width, height, adjusted };
 }
 
 /**
@@ -42,9 +48,9 @@ function attempt(candidate: Candidate, width: number, height: number): GlyphDiag
  * edge turn between its two port lanes, and each more edge turning there can
  * need one more. Gaps then shrink one at a time below that.
  */
-function snakeGaps(edges: number): readonly (readonly [number, number])[] {
-  const most = 3 + edges;
-  return Array.from({ length: most - 2 }, (_, r) => Array.from({ length: most - 2 }, (_, b) => [r + 3, b + 3] as const))
+function snakeGaps(edges: number, floor: number): readonly (readonly [number, number])[] {
+  const most = floor + edges;
+  return Array.from({ length: most - floor + 1 }, (_, r) => Array.from({ length: most - floor + 1 }, (_, b) => [r + floor, b + floor] as const))
     .flat().sort((a, b) => a[0] + a[1] - b[0] - b[1] || a[0] - b[0]);
 }
 
@@ -68,6 +74,21 @@ function dropsEdgeLabel(result: GlyphDiagramAttempt, options: GlyphDiagramFitOpt
 
 /** Resolve geometry in cells; output encoding and font metrics never enter this search. */
 export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
+  const nested = Math.max(0, ...glyphDiagramGroupDepths(glyphDiagramGroupParents(graph.groups ?? [])).values()) > 0;
+  if (!nested) return fitOnce(graph, options);
+  // Frames padded outside the frames they hold are a preference, not a requirement: they cost a few cells on every side, so a
+  // graph that only fits with frames sharing a border still gets them before it is cut into panels or its words are cut.
+  const padded = await fitOnce(graph, { ...options, frameInset: true, cutWords: false });
+  if (padded.okay) return padded;
+  const shared = await fitOnce(graph, { ...options, frameInset: false, cutWords: false });
+  if (shared.okay) return shared;
+  const cutPadded = await fitOnce(graph, { ...options, frameInset: true });
+  if (cutPadded.okay) return cutPadded;
+  const cutShared = await fitOnce(graph, { ...options, frameInset: false });
+  return cutShared.okay ? cutShared : cutPadded;
+}
+
+async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
   const { width, height } = options;
   const direction = options.direction ?? graph.direction;
   const directions = options.autoDirection ? [direction, perpendicular[direction]] : [direction];
@@ -82,14 +103,62 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
 
   const floor = glyphDiagramCompactionFloor(graph);
   const candidates: Candidate[] = [initial];
+  // A loop's label wraps too, whole words only, widest first: each distinct break of every loop label is a width to try. All the
+  // loops on one node stack beside (or under) it, so what a break needs is the combined footprint of the node's loops.
+  const fold = (label: string) => label.split(/\r?\n/).map(line => glyphDiagramText(line, options.charset)).join("\n");
+  const loopHosts = new Map<string, string[]>();
+  for (const edge of graph.edges) if (edge.from === edge.to) loopHosts.set(edge.from, [...(loopHosts.get(edge.from) ?? []), edge.label?.trim() ? fold(edge.label) : ""]);
+  const loopLabels = [...loopHosts.values()].flat().filter(label => label);
+  const stackRows = (k: number) => Math.max(3, k + 1), stackCols = (cols: number) => cols > 0 ? cols + 4 : 3;
+  /** The cells a node's stacked loops need: across a top-down node, `rows` down its side and `cols` of its widest label; under a left-to-right one, `cols` along its bottom to the last label's end and `rows` of its tallest label. */
+  const footprint = (across: boolean, loops: readonly (readonly string[])[]) => {
+    const ks = loops.map(lines => lines.length), ls = loops.map(lines => Math.max(0, ...lines.map(line => line.length)));
+    // The last loop's label reaches furthest, and any of them may be last: the least it can need is a lower bound.
+    const rows = across ? Math.min(...ks.map((k, j) => 1 + ks.reduce((sum, other, i) => i === j ? sum : sum + stackRows(other), 0) + Math.max(k, 3))) : Math.max(...ks);
+    const cols = across ? Math.max(...ls) : Math.min(...ls.map((l, j) => 1 + ls.reduce((sum, other, i) => i === j ? sum : sum + stackCols(other), 0) + 2 + l));
+    return { rows, cols };
+  };
+  const loopBreaks: { readonly w: number; readonly hosts: (readonly string[])[][] }[] = [];
+  {
+    const widest = Math.min(options.loopLabelWidth ?? GLYPH_DIAGRAM_LOOP_LABEL_MAX, Math.max(1, ...loopLabels.flatMap(label => label.split("\n").map(line => line.length))));
+    const word = Math.max(1, ...loopLabels.flatMap(label => label.split(/\s+/).map(part => part.length)));
+    const seen = new Set<string>();
+    for (let w = widest; w >= Math.min(widest, word); w--) {
+      const hosts = [...loopHosts.values()].map(labels => labels.map(label => label ? glyphDiagramWrap(label, w) : []));
+      const key = JSON.stringify(hosts);
+      if (!seen.has(key)) { seen.add(key); loopBreaks.push({ w, hosts }); }
+    }
+  }
+  // Every label wrap is searched against every loop wrap. Only breaks that could fit the canvas in this direction are searched
+  // (beside a node a label needs its width plus the node and the loop, below one its rows plus the node's; rows are free when the
+  // canvas may grow), and when none could, three spread across all of them, so a growing canvas still has something to grow from.
+  // The snake and the layout search take the same list.
+  const loopWrapsCache = new Map<string, number[]>();
+  const loopWrapsFor = (dir: GlyphGraph["direction"]): number[] => {
+    const known = loopWrapsCache.get(dir);
+    if (known) return known;
+    const across = dir === "TB" || dir === "BT";
+    const possible = loopBreaks.filter(({ hosts }) => hosts.every(loops => {
+      const { rows, cols } = footprint(across, loops);
+      const rowsFit = options.overflow === "expand" || (across ? rows <= height : rows <= height - 4);
+      return rowsFit && (across ? cols <= width - 8 : cols <= width - 1);
+    }));
+    const pool = possible.length ? possible : loopBreaks;
+    const few3 = (list: typeof pool) => list.length > MAX_LOOP_WRAPS ? [list[0]!, list[Math.floor(list.length / 2)]!, list[list.length - 1]!] : list;
+    const widths = (possible.length ? pool : few3(pool)).map(({ w }) => w);
+    loopWrapsCache.set(dir, widths);
+    return widths;
+  };
+  // A loop and its label take rows of the gap below their node, and the edge wrapping to the next row turns in what is left.
+  const loopRows = loopLabels.length || graph.edges.some(edge => edge.from === edge.to) ? 2 : 0;
   const measured: { readonly reserved: GlyphDiagramReservedGraph; readonly wrap: number }[] = [];
   const seenMeasurements = new Set<string>();
   // Every distinct measurable wrap is considered. The upper bound comes from
   // authored text and the available cells, not a list of preferred resolutions.
   for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= 1; wrap--) {
-    for (const dir of directions) {
-      const reserved = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options, direction: dir, labelWidth: wrap }));
-      const key = JSON.stringify([dir, reserved.nodes.map(node => [node.width, node.height])]);
+    for (const dir of directions) for (const loopLabelWidth of loopWrapsFor(dir)) {
+      const reserved = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options, direction: dir, labelWidth: wrap, loopLabelWidth }));
+      const key = JSON.stringify([dir, reserved.nodes.map(node => [node.width, node.height]), reserved.loops.map(loop => loop.lines)]);
       if (seenMeasurements.has(key)) continue;
       seenMeasurements.add(key);
       measured.push({ reserved, wrap });
@@ -105,7 +174,7 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
   const place = async (reserved: GlyphDiagramReservedGraph, ns: number, rs: number, pad: number) => {
     // The two spacing axes converge on the same candidates through different
     // parents. Deduplicate before Dagre, not only after it has done the work.
-    const key = JSON.stringify([reserved.direction, reserved.nodes.map(node => [node.width, node.height]), ns, rs, pad]);
+    const key = JSON.stringify([reserved.direction, reserved.nodes.map(node => [node.width, node.height]), reserved.loops.map(loop => loop.lines), ns, rs, pad]);
     if (layoutInputs.has(key)) return;
     layoutInputs.add(key);
     const raw = await layoutGlyphGraph(reserved, { ...options, nodesep: ns, ranksep: rs, margin: pad });
@@ -147,8 +216,12 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
   const snakePass = async (): Promise<{ readonly fit?: GlyphDiagramAttempt; readonly tall: Candidate[] }> => {
     const tallSnakes: Candidate[] = [];
     for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= Math.max(1, Math.min(longestWord, width - 4)); wrap--) {
-      const lr = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: wrap });
+      for (const loopLabelWidth of loopWrapsFor("LR")) {
+      const lr = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: wrap, loopLabelWidth });
       for (const [, rs] of compact) {
+        // A few tall snakes are all the expand pass needs, but a later candidate may still fit the requested height, so the search
+        // goes on; routing is only spent on one whose rows could fit even with every gap at a single row.
+        if (tallSnakes.length >= MAX_TALL_SNAKES && !((glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap: 1, rowGap: 1 })?.height ?? Infinity) <= height)) continue;
         const snake = (rowGap: readonly number[], branchGap: readonly number[]) => {
           const raw = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap, rowGap });
           if (!raw || raw.width > width || !glyphDiagramHasRoutingClearance(raw)) return undefined;
@@ -158,26 +231,43 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
         };
         // The shortest uniform gaps that route, then each gap shrunk on its
         // own: one turning edge must not pad every other gap to its size.
-        let found: { readonly candidate: Candidate; readonly result: GlyphDiagramAttempt } | undefined, rowGaps: number[] = [], branchGaps: number[] = [];
-        for (const [r, b] of snakeGaps(graph.edges.length)) {
-          const rows = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap: b, rowGap: r })?.ledger.find(e => e.code === "layout-wrapped")?.detail?.rows as number | undefined;
-          if (rows === undefined) continue;
-          rowGaps = Array(rows).fill(r); branchGaps = Array(rows).fill(b);
-          found = snake(rowGaps, branchGaps);
-          if (found) break;
+        type Found = { readonly candidate: Candidate; readonly result: GlyphDiagramAttempt; readonly rowGaps: number[]; readonly branchGaps: number[] };
+        // A graph with nothing hanging under its main path has no use for the branch gap, so only one value of it is searched.
+        const branchless = (() => {
+          const at = (b: number) => glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap: b, rowGap: 3 })?.nodes.map(n => [n.x0, n.y0]);
+          return JSON.stringify(at(3)) === JSON.stringify(at(4));
+        })();
+        // The first uniform gaps, from `floor` up, that route: more cannot make a snake shorter.
+        const firstRouted = (floor: number): Found | undefined => {
+          for (const [r, b] of snakeGaps(graph.edges.length, floor)) {
+            if (branchless && b !== floor) continue;
+            const rows = glyphDiagramSnakeLayout(lr, { width, gap: rs, margin, branchGap: b, rowGap: r })?.ledger.find(e => e.code === "layout-wrapped")?.detail?.rows as number | undefined;
+            if (rows === undefined) continue;
+            const here = snake(Array(rows).fill(r), Array(rows).fill(b));
+            if (here) return { ...here, rowGaps: Array(rows).fill(r), branchGaps: Array(rows).fill(b) };
+          }
+        };
+        // Gaps roomy enough for a loop's rows and the turn after them come first; the bare minimum is the fallback when those make the layout too tall.
+        let found = loopRows ? firstRouted(3 + loopRows) : undefined;
+        if (!found || found.candidate.raw.height > height) {
+          const bare = firstRouted(3);
+          if (bare && (!found || bare.candidate.raw.height <= height)) found = bare;
         }
+        const rowGaps = found?.rowGaps ?? [], branchGaps = found?.branchGaps ?? [];
         if (!found) continue;
-        for (const gaps of [rowGaps, branchGaps]) for (let i = 0; i < gaps.length; i++) {
+        let best: { readonly candidate: Candidate; readonly result: GlyphDiagramAttempt } = found;
+        for (const gaps of branchless ? [rowGaps] : [rowGaps, branchGaps]) for (let i = 0; i < gaps.length; i++) {
           for (let g = 1; g < gaps[i]!; g++) {
             const trial = [...gaps]; trial[i] = g;
             const tighter = gaps === rowGaps ? snake(trial, branchGaps) : snake(rowGaps, trial);
             if (!tighter) continue;
-            const [cells, bends] = routeShape(tighter.result), [beforeCells, beforeBends] = routeShape(found.result);
-            if (cells <= beforeCells && bends <= beforeBends) { gaps[i] = g; found = tighter; break; }
+            const [cells, bends] = routeShape(tighter.result), [beforeCells, beforeBends] = routeShape(best.result);
+            if (cells <= beforeCells && bends <= beforeBends) { gaps[i] = g; best = tighter; break; }
           }
         }
-        if (found.candidate.raw.height <= height) return { fit: found.result, tall: tallSnakes };
-        if (options.overflow === "expand") tallSnakes.push(found.candidate);
+        if (best.candidate.raw.height <= height) return { fit: best.result, tall: tallSnakes };
+        if (options.overflow === "expand") tallSnakes.push(best.candidate);
+      }
       }
     }
     return { tall: tallSnakes };
@@ -233,6 +323,7 @@ export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitO
       if (best) return best;
     }
   }
+  if (options.cutWords === false) return first;
   const wholeCount = candidates.length;
   const cut = await tryMeasured(wrap => wrap < longestWord);
   if (cut) return cut;

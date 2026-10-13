@@ -1,11 +1,11 @@
-import { glyphGraphFromMermaid } from "./mermaid";
+import { glyphGraphFromMermaid, glyphMermaidNotes } from "./mermaid";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
-import { canonicalizeGlyphGraph } from "./pipeline";
+import { canonicalizeGlyphGraph, glyphDiagramFoldLabel } from "./pipeline";
 import { paintGlyphDiagram } from "./paint";
 import { glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph } from "./degrade";
 import { fitGlyphGraph, type GlyphDiagramAttempt } from "./fit";
-import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
+import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerLabelFolded, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, ledgerWordsCut, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
 
@@ -42,13 +42,15 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const opts = resolvedOptions(options);
   const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
-  const ledger: GlyphDiagramLedgerEntry[] = [], unroutable = new Set<string>();
+  const ledger: GlyphDiagramLedgerEntry[] = typeof input === "string" ? glyphMermaidNotes(input) : [], unroutable = new Set<string>();
   const attempt = (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => fitGlyphGraph(candidate, opts);
   // Ports outside the viewport indicate size overflow, not failed routing.
   const overflowOrRoutingAttempt = (current: GlyphDiagramAttempt, stage: "degrade" | "split"): GlyphDiagramLedgerEntry[] =>
     current.fits
       ? current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage }))
       : [ledgerLayoutOverflow({ stage, layoutWidth: current.layout.width, layoutHeight: current.layout.height, requestedWidth: opts.width, requestedHeight: opts.height })];
+  // The title is folded where it is painted; the fold is reported here, with every other label's.
+  if (options.title && glyphDiagramFoldLabel(options.title, opts.charset) !== options.title.split(/\r?\n/).map((line) => line.trimEnd()).join("\n")) ledger.push(ledgerLabelFolded({ role: "title", owner: "diagram", before: options.title, after: glyphDiagramFoldLabel(options.title, opts.charset) }));
   let current = await attempt(graph);
   if (current.adjusted) ledger.push(ledgerBudgetStage("compaction"));
   if (opts.detail === "simplified" || !current.okay) {
@@ -82,10 +84,22 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
       // A too-small viewport cannot legally show a partial box or a dangling clipped transit.
       ledger.push(ledgerSplitPanelDropped({ panel: index + 1, requestedWidth: opts.width, requestedHeight: opts.height, nodes: layout.nodes.map((n) => n.id) }));
       layout.edges.forEach((e) => { unroutable.add(e.id); ledger.push(ledgerUnroutable({ edgeId: e.id, reason: "it's too large for the viewport" })); });
-      layout = { ...layout, nodes: [], edges: [], groups: [], ports: [] }; routing = { routes: [], unroutable: [], ledger: [] };
+      layout = { ...layout, nodes: [], edges: [], groups: [], ports: [], loops: [] }; routing = { routes: [], unroutable: [], ledger: [] };
     }
     routing.unroutable.forEach((id) => unroutable.add(id));
     ledger.push(...layout.ledger, ...routing.ledger);
+    // A word the layout had to break across lines is a fidelity loss the reader cannot otherwise see: every node's drawn rows
+    // and every loop label's rows are compared with the words that were written.
+    const broken = (label: string, lines: readonly string[]) => {
+      const shown = new Set(lines.flatMap((line) => line.split(" ")));
+      // The whole label is folded once, as it was when measured, then its words are compared.
+      return glyphDiagramFoldLabel(label, opts.charset).split(/\s+/).filter(Boolean).filter((word) => !shown.has(word));
+    };
+    const cut = [
+      ...layout.nodes.filter((node) => node.shape !== "point").map((node) => ({ id: node.id, words: broken(node.label, node.lines) })),
+      ...layout.loops.map((loop) => ({ id: `${loop.nodeId} loop`, words: broken(layout.edges.find((e) => e.id === loop.edgeId)?.label ?? "", loop.lines) })),
+    ].filter((entry) => entry.words.length > 0);
+    if (cut.length) ledger.push(ledgerWordsCut({ nodes: cut }));
     const painted = paintGlyphDiagram(layout, routing, { ...opts, width, height });
     ledger.push(...painted.ledger);
     return painted;

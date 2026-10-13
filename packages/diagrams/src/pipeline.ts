@@ -2,7 +2,8 @@ import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from
 import type { GlyphGraph, GlyphGraphNode, GlyphGraphEdge, GlyphGraphGroup } from "./types";
 import { validateGlyphGraph, glyphDiagramError } from "./validate";
 import { glyphDiagramText } from "./labels";
-import { ledgerGroupMemberList, ledgerLabelFolded, type GlyphDiagramLedgerEntry } from "./ledger";
+import { ledgerGroupMemberList, ledgerLabelAbbreviated, ledgerLabelFolded, type GlyphDiagramLedgerEntry } from "./ledger";
+import { GLYPH_DIAGRAM_LOOP_LABEL_MAX, GLYPH_DIAGRAM_LOOP_SPAN, glyphDiagramLoopGeometry, glyphDiagramLoopSide, glyphDiagramLoopSlots, type GlyphDiagramLoop } from "./loop";
 
 export const GLYPH_DIAGRAM_NODE_PAD = Object.freeze({ x: 1, y: 0 });
 export interface GlyphDiagramRect { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number }
@@ -17,6 +18,53 @@ export function glyphDiagramGroupRect(memberNodes: readonly GlyphDiagramRect[], 
     y1: Math.min(bounds.rows - 1, Math.max(...memberNodes.map((n) => n.y1)) + GLYPH_DIAGRAM_GROUP_PAD),
   };
 }
+/**
+ * Each group's enclosing group. A group names its parent when it has one (the only way to nest two groups that list the same
+ * nodes); otherwise its parent is the smallest other group that holds all its members.
+ */
+export function glyphDiagramGroupParents(groups: readonly GlyphGraphGroup[]): Map<string, string | undefined> {
+  const holds = (outer: GlyphGraphGroup, inner: GlyphGraphGroup) => inner.members.every((id) => outer.members.includes(id));
+  const parents = new Map<string, string | undefined>();
+  for (const group of groups) {
+    const named = group.parent === undefined ? undefined : groups.find((other) => other.id === group.parent);
+    if (named && named !== group && holds(named, group)) { parents.set(group.id, named.id); continue; }
+    const inferred = groups.filter((other) => other !== group && other.members.length > group.members.length && holds(other, group))
+      .sort((x, y) => x.members.length - y.members.length || compare(x.id, y.id))[0];
+    parents.set(group.id, inferred?.id);
+  }
+  return parents;
+}
+/** How many groups enclose each group. */
+export function glyphDiagramGroupDepths(parents: ReadonlyMap<string, string | undefined>): Map<string, number> {
+  const depth = (id: string, seen = 0): number => { const up = parents.get(id); return up === undefined || seen > parents.size ? 0 : 1 + depth(up, seen + 1); };
+  return new Map([...parents.keys()].map((id) => [id, depth(id)]));
+}
+/**
+ * Every group's frame. A member counts with its loops and their labels, so the
+ * frame encloses them; a frame around another group is padded beyond that
+ * group's own, so nested frames never share a border column.
+ */
+export function glyphDiagramGroupRects(layout: Pick<GlyphDiagramLayout, "nodes" | "groups" | "ports" | "loops" | "frameInset">, bounds: { readonly cols: number; readonly rows: number }): Map<string, GlyphDiagramRect> {
+  const loopBounds = glyphDiagramLoopGeometry(layout);
+  const extent = (node: GlyphDiagramRect & { readonly id: string }): GlyphDiagramRect => {
+    const own = loopBounds.filter((geometry) => geometry.loop.nodeId === node.id).map((geometry) => geometry.bounds);
+    return { x0: Math.min(node.x0, ...own.map((b) => b.x0)), y0: Math.min(node.y0, ...own.map((b) => b.y0)), x1: Math.max(node.x1, ...own.map((b) => b.x1)), y1: Math.max(node.y1, ...own.map((b) => b.y1)) };
+  };
+  const parents = glyphDiagramGroupParents(layout.groups), depths = glyphDiagramGroupDepths(parents);
+  const rects = new Map<string, GlyphDiagramRect>();
+  // Innermost first, so a frame can be padded outside the frames it holds.
+  for (const group of [...layout.groups].sort((a, b) => depths.get(b.id)! - depths.get(a.id)!)) {
+    let rect = glyphDiagramGroupRect(layout.nodes.filter((n) => group.members.includes(n.id)).map(extent), bounds);
+    if (!rect) continue;
+    if (layout.frameInset !== false) for (const [id, inner] of rects) {
+      if (parents.get(id) !== group.id) continue;
+      rect = { x0: Math.min(rect.x0, Math.max(0, inner.x0 - GLYPH_DIAGRAM_GROUP_PAD)), y0: Math.min(rect.y0, Math.max(0, inner.y0 - GLYPH_DIAGRAM_GROUP_PAD)),
+        x1: Math.max(rect.x1, Math.min(bounds.cols - 1, inner.x1 + GLYPH_DIAGRAM_GROUP_PAD)), y1: Math.max(rect.y1, Math.min(bounds.rows - 1, inner.y1 + GLYPH_DIAGRAM_GROUP_PAD)) };
+    }
+    rects.set(group.id, rect);
+  }
+  return rects;
+}
 export interface GlyphDiagramMeasuredNode extends GlyphGraphNode { readonly width: number; readonly height: number; readonly lines: readonly string[] }
 export interface GlyphDiagramEdge extends GlyphGraphEdge { readonly id: string }
 export interface GlyphDiagramMeasuredGraph {
@@ -24,6 +72,8 @@ export interface GlyphDiagramMeasuredGraph {
   readonly edges: readonly GlyphDiagramEdge[];
   readonly groups: readonly GlyphGraphGroup[];
   readonly direction: GlyphGraph["direction"];
+  /** Self-edges (`from === to`), in edge order; each hangs a compact loop on its node's loop side. */
+  readonly loops: readonly GlyphDiagramLoop[];
   readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
 export interface GlyphDiagramPort { readonly edgeId: string; readonly nodeId: string; readonly end: "from" | "to"; readonly side: GlyphCanvasDirection; readonly offset: number }
@@ -36,6 +86,9 @@ export interface GlyphDiagramLayout {
   readonly groups: readonly GlyphGraphGroup[];
   readonly ports: readonly GlyphDiagramPositionedPort[];
   readonly direction: GlyphGraph["direction"];
+  readonly loops: readonly GlyphDiagramLoop[];
+  /** Whether a frame around another frame is padded outside it (the default). Without, a parent holding exactly its child's members shares its border. */
+  readonly frameInset?: boolean;
   readonly width: number; readonly height: number;
   readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
@@ -43,7 +96,15 @@ export interface GlyphDiagramLayoutOptions {
   readonly engine?: "dagre" | "elk"; readonly direction?: GlyphGraph["direction"];
   readonly nodesep?: number; readonly ranksep?: number;
   readonly charset?: GlyphCanvasTierName; readonly labelWidth?: number;
+  /** Widest a self-loop's label row may be before it wraps onto another row, default 24. */
+  readonly loopLabelWidth?: number;
+  /** Pad a nested group's frame outside its child's, default true. The fitter turns it off before it splits a graph or cuts a word. */
+  readonly frameInset?: boolean;
   readonly margin?: number;
+}
+/** A node label as the cells will show it: folded to the charset line by line. */
+export function glyphDiagramFoldLabel(label: string, charset?: GlyphCanvasTierName): string {
+  return label.split(/\r?\n/).map((line) => glyphDiagramText(line, charset)).join("\n");
 }
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 
@@ -65,7 +126,8 @@ export function canonicalizeGlyphGraph(graph: GlyphGraph): Omit<GlyphGraph, "edg
   return { ...graph, nodes: [...graph.nodes], edges,
     groups: [...(graph.groups ?? [])].map((g) => ({ ...g, members: [...g.members].sort(compare) })).sort((a, b) => compare(a.id, b.id)) };
 }
-function wrap(text: string, width: number): string[] {
+/** Whole-word wrap into rows of at most `width` cells; a word longer than that is cut. */
+export function glyphDiagramWrap(text: string, width: number): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split(/\r?\n/)) {
     let line = "";
@@ -83,40 +145,80 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
   const canonical = canonicalizeGlyphGraph(validateGlyphGraph(graph));
   const limit = options.labelWidth ?? 18;
   if (!Number.isInteger(limit) || limit < 1) glyphDiagramError("bad-options", "labelWidth must be a positive integer.");
+  const loopLimit = options.loopLabelWidth ?? GLYPH_DIAGRAM_LOOP_LABEL_MAX;
+  if (!Number.isInteger(loopLimit) || loopLimit < 1) glyphDiagramError("bad-options", "loopLabelWidth must be a positive integer.");
   const ledger: GlyphDiagramLedgerEntry[] = [];
+  // The one place any graph label is folded for the charset and the fold reported: node, edge, loop and group labels all come through it.
+  const fold = (label: string, role: string, owner: string): string => {
+    const folded = glyphDiagramFoldLabel(label, options.charset);
+    if (folded !== label.split(/\r?\n/).map((line) => line.trimEnd()).join("\n")) ledger.push(ledgerLabelFolded({ role, owner, before: label, after: folded }));
+    return folded;
+  };
+  for (const edge of canonical.edges) if (edge.label && edge.from !== edge.to) fold(edge.label, "edge label", `${edge.from} to ${edge.to}`);
+  for (const group of canonical.groups ?? []) if (group.label) fold(group.label, "group label", group.id);
   const nodes = canonical.nodes.map((node) => {
-    const folded = node.label.split(/\r?\n/).map((line) => glyphDiagramText(line, options.charset)).join("\n");
-    if (folded !== node.label) ledger.push(ledgerLabelFolded({ nodeId: node.id, before: node.label, after: folded }));
-    const lines = wrap(folded, limit);
+    const folded = fold(node.label, "node label", node.id);
+    const lines = glyphDiagramWrap(folded, limit);
     const extra = node.shape === "subroutine" ? 2 : 0;
+    // A point is the first character of its label and nothing else, and says so when it drops the rest;
+    // `reserveGlyphGraphPorts` adds the cells its edges need.
+    if (node.shape === "point") {
+      const glyph = Array.from(folded.trim())[0] ?? "";
+      if (Array.from(folded.trim()).length > 1) ledger.push(ledgerLabelAbbreviated({ role: "node label", before: folded.trim(), after: glyph }));
+      return { ...node, lines: [glyph], width: 1, height: 1 };
+    }
     return { ...node, lines, width: Math.max(5, ...lines.map((l) => l.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.x + extra)), height: lines.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.y };
   });
-  return { nodes, edges: canonical.edges, groups: canonical.groups ?? [], direction: options.direction ?? canonical.direction, ledger };
+  // A loop's label wraps like a node's, so the fitter can trade its width for the room it takes.
+  const loops = canonical.edges.filter((edge) => edge.from === edge.to).map((edge) => {
+    const text = edge.label ? fold(edge.label, "loop label", edge.from) : "";
+    const lines = text.trim() ? glyphDiagramWrap(text, loopLimit) : [];
+    return { edgeId: edge.id, nodeId: edge.from, lines, labelWidth: Math.max(0, ...lines.map((line) => line.length)) };
+  });
+  return { nodes, edges: canonical.edges, groups: canonical.groups ?? [], direction: options.direction ?? canonical.direction, loops, ledger };
 }
 const sides: Record<GlyphGraph["direction"], readonly [GlyphCanvasDirection, GlyphCanvasDirection]> = { TB: ["s", "n"], BT: ["n", "s"], LR: ["e", "w"], RL: ["w", "e"] };
 export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): GlyphDiagramReservedGraph {
   const ports: GlyphDiagramPort[] = [];
   const [fromSide, toSide] = sides[measured.direction];
+  // A self-edge never competes for the flow sides: it hangs on the loop side.
+  const flow = measured.edges.filter((e) => e.from !== e.to);
+  const loopSide = glyphDiagramLoopSide(measured.direction);
   const nodes = measured.nodes.map((node) => {
     let width = node.width, height = node.height;
+    // A point has no border to keep ports off its corners: k ports need 2k - 1 cells. Along the flow it also holds what its
+    // entries need before the glyph: nothing, one arrowhead, or (several) a bar and then one arrowhead.
+    const point = node.shape === "point", room = (count: number) => point ? Math.max(1, 2 * count - 1) : 2 * count + 1;
     // Size both opposite sides before assigning either side's offsets.
-    for (const [side, count] of [[fromSide, measured.edges.filter((e) => e.from === node.id).length], [toSide, measured.edges.filter((e) => e.to === node.id).length]] as const) {
-      if (side === "n" || side === "s") width = Math.max(width, 2 * count + 1);
-      else height = Math.max(height, 2 * count + 1);
+    for (const [side, count] of [[fromSide, flow.filter((e) => e.from === node.id).length], [toSide, flow.filter((e) => e.to === node.id).length]] as const) {
+      if (side === "n" || side === "s") width = Math.max(width, room(count));
+      else height = Math.max(height, room(count));
+    }
+    if (point) {
+      const entries = flow.filter((e) => e.to === node.id).length, along = entries === 0 ? 1 : entries === 1 ? 2 : 3;
+      if (loopSide === "e") height = Math.max(height, along); else width = Math.max(width, along);
     }
     for (const side of ["n", "e", "s", "w"] as const) {
-      const connections = measured.edges.flatMap((edge) => [
+      const connections = flow.flatMap((edge) => [
         ...(edge.from === node.id && side === fromSide ? [{ edgeId: edge.id, end: "from" as const }] : []),
         ...(edge.to === node.id && side === toSide ? [{ edgeId: edge.id, end: "to" as const }] : []),
       ]);
-      const min = 2 * connections.length + 1;
+      const min = room(connections.length);
       if (side === "n" || side === "s") width = Math.max(width, min); else height = Math.max(height, min);
       const length = side === "n" || side === "s" ? width : height;
       connections.forEach((connection, index) => ports.push({ ...connection, nodeId: node.id, side, offset: Math.floor((length - 1 - 2 * (connections.length - 1)) / 2) + 2 * index }));
     }
+    const { slots, length } = glyphDiagramLoopSlots(measured.loops.filter((loop) => loop.nodeId === node.id), loopSide);
+    if (loopSide === "e") height = Math.max(height, length); else width = Math.max(width, length);
+    for (const slot of slots) ports.push({ edgeId: slot.edgeId, nodeId: node.id, end: "from", side: loopSide, offset: slot.exit }, { edgeId: slot.edgeId, nodeId: node.id, end: "to", side: loopSide, offset: slot.entry });
     return { ...node, width, height };
   });
   return { ...measured, nodes, ports };
+}
+/** Where a `point` node's glyph sits: centred across the flow, on the side its edges leave from, so the arrowheads entering it have their own row or column. */
+export function glyphDiagramPointCell(node: GlyphDiagramRect, direction: GlyphGraph["direction"]): GlyphCanvasPoint {
+  const x = node.x0 + Math.floor((node.x1 - node.x0) / 2), y = node.y0 + Math.floor((node.y1 - node.y0) / 2);
+  return direction === "TB" ? { x, y: node.y1 } : direction === "BT" ? { x, y: node.y0 } : direction === "LR" ? { x: node.x1, y } : { x: node.x0, y };
 }
 export const GLYPH_DIAGRAM_DIRECTIONS: Readonly<Record<GlyphCanvasDirection, GlyphCanvasPoint>> = Object.freeze({ n: { x: 0, y: -1 }, e: { x: 1, y: 0 }, s: { x: 0, y: 1 }, w: { x: -1, y: 0 } });
 /**
@@ -162,12 +264,26 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   const reserved = "ports" in graph ? graph : reserveGlyphGraphPorts(measureGlyphGraph(graph, options));
   const dagre = await import("@dagrejs/dagre");
   const ledger = [...reserved.ledger];
+  const loopSide = glyphDiagramLoopSide(reserved.direction), across = loopSide === "e";
+  /**
+   * `reach`: cells past the node's border the loops and their labels occupy
+   * along the loop side's normal; `along`: with loops below a node, the last
+   * label cell's offset from the node's left edge.
+   */
+  const loopRoom = (nodeId: string) => {
+    const { slots } = glyphDiagramLoopSlots(reserved.loops.filter((loop) => loop.nodeId === nodeId), loopSide);
+    return {
+      reach: Math.max(0, ...slots.map((slot) => slot.labelWidth > 0 ? (across ? 3 + slot.labelWidth : 1 + slot.lines.length) : GLYPH_DIAGRAM_LOOP_SPAN)),
+      along: Math.max(0, ...slots.map((slot) => slot.entry + 1 + slot.labelWidth)),
+    };
+  };
   const includedGroups = [...reserved.groups].sort((a, b) => compare(a.id, b.id)).filter((group) => {
     const partialOverlap = reserved.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id))
       && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
     if (partialOverlap) ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "overlap" }));
     return group.members.length > 0 && !partialOverlap;
   });
+  const groupParents = glyphDiagramGroupParents(includedGroups), groupDepths = glyphDiagramGroupDepths(groupParents);
   const build = (back: ReadonlySet<string>) => {
     const g = new dagre.graphlib.Graph({ multigraph: true, compound: true });
     // dagre's own default is `edgesep: 20`, a bare pixel constant left over from
@@ -190,17 +306,35 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
       groupKeys.set(group.id, id); g.setNode(id, {});
     }
     for (const group of includedGroups) {
-      const parent = includedGroups.filter((other) => other.members.length > group.members.length && group.members.every((id) => other.members.includes(id))).sort((a, b) => a.members.length - b.members.length || compare(a.id, b.id))[0];
-      if (parent) g.setParent(groupKeys.get(group.id)!, groupKeys.get(parent.id)!);
+      const parent = groupParents.get(group.id);
+      if (parent !== undefined) g.setParent(groupKeys.get(group.id)!, groupKeys.get(parent)!);
     }
     // Re-sort even staged inputs: the public stage API must not leak insertion order into dagre.
     for (const node of [...reserved.nodes].sort((a, b) => compare(a.id, b.id))) g.setNode(node.id, { width: node.width, height: node.height });
     for (const node of reserved.nodes) {
-      const parent = includedGroups.filter((group) => group.members.includes(node.id)).sort((a, b) => a.members.length - b.members.length || compare(a.id, b.id))[0];
+      const parent = includedGroups.filter((group) => group.members.includes(node.id)).sort((a, b) => groupDepths.get(b.id)! - groupDepths.get(a.id)! || a.members.length - b.members.length || compare(a.id, b.id))[0];
       if (parent) g.setParent(node.id, groupKeys.get(parent.id)!);
     }
+    // dagre keeps a self-edge's room as a dummy sibling AFTER the node in its
+    // layer, so the node itself stays aligned with its neighbours' centres. One
+    // edge per node carries the whole room; its size is the cells the loops
+    // and labels need beyond what `nodesep` already leaves between siblings.
+    const loopHosts = new Set<string>();
     for (const edge of [...reserved.edges].sort((a, b) => compare(a.id, b.id))) {
-      if (back.has(edge.id)) g.setEdge(edge.to, edge.from, {}, edge.id);
+      if (edge.from === edge.to) {
+        if (loopHosts.has(edge.from)) continue;
+        loopHosts.add(edge.from);
+        const room = loopRoom(edge.from), node = reserved.nodes.find((n) => n.id === edge.from)!;
+        // Without a dummy the siblings keep `nodesep` blank cells apart, and the dummy itself costs one more (`edgesep`),
+        // so it is only added when the loop needs at least that much.
+        const widen = across ? 0 : Math.max(0, 2 * (room.along + 1) - node.width);
+        if (room.reach < nodesep && widen === 0) continue;
+        // `labelpos: "c"` stops dagre adding its 10-cell label offset to this size.
+        // Below a node the label also runs along the rank, so the layer is widened until the node, centred in it, still has the label inside.
+        g.setEdge(edge.from, edge.to, across
+          ? { width: room.reach - nodesep, height: node.height, labelpos: "c" }
+          : { width: widen, height: Math.max(0, room.reach - nodesep), labelpos: "c" }, edge.id);
+      } else if (back.has(edge.id)) g.setEdge(edge.to, edge.from, {}, edge.id);
       else g.setEdge(edge.from, edge.to, {}, edge.id);
     }
     dagre.layout(g);
@@ -221,8 +355,11 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   });
   // Compound engines reserve caption padding in their own units. A global
   // translation removes that leading whitespace without changing any node separation.
-  const shiftX = Math.min(...positioned.map((node) => node.x0)) - margin;
-  const shiftY = Math.min(...positioned.map((node) => node.y0)) - margin;
+  // A group nested k deep draws k frames, each GROUP_PAD outside the last, so the outermost needs that room on every side.
+  const frameInset = options.frameInset ?? true;
+  const inset = frameInset ? Math.max(0, ...groupDepths.values()) * GLYPH_DIAGRAM_GROUP_PAD : 0;
+  const shiftX = Math.min(...positioned.map((node) => node.x0)) - margin - inset;
+  const shiftY = Math.min(...positioned.map((node) => node.y0)) - margin - inset;
   const nodes = positioned.map((node) => ({ ...node, x0: node.x0 - shiftX, x1: node.x1 - shiftX, y0: node.y0 - shiftY, y1: node.y1 - shiftY }));
   const byId = new Map(nodes.map((node) => [node.id, node]));
   // Capacity and escape slots were reserved before layout. Assign those slots
@@ -249,5 +386,10 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
     const delta = GLYPH_DIAGRAM_DIRECTIONS[port.side];
     return { ...port, anchor, escape: { x: anchor.x + delta.x, y: anchor.y + delta.y } };
   });
-  return { ...reserved, ledger, nodes, ports, width: Math.max(1, ...nodes.map((n) => n.x1 + 1 + margin)), height: Math.max(1, ...nodes.map((n) => n.y1 + 1 + margin)) };
+  // A loop's room is part of the layout's extent, so the canvas never clips the label it reserved.
+  // A group's frame sits GROUP_PAD outside what it holds, clamped to the canvas. A loop's label ends the layout's own extent, so
+  // inside a group it needs one cell beyond it even at margin 0, or the clamped frame would run through the label's last row.
+  const inFrame = (id: string) => includedGroups.some((group) => group.members.includes(id));
+  const loopRoomEnd = glyphDiagramLoopGeometry({ ports, loops: reserved.loops }).map((g) => ({ ...g.bounds, pad: Math.max(margin, inFrame(g.loop.nodeId) ? 1 : 0) }));
+  return { ...reserved, ledger, nodes, ports, frameInset, width: Math.max(1, ...nodes.map((n) => n.x1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.x1 + 1 + b.pad + inset)), height: Math.max(1, ...nodes.map((n) => n.y1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.y1 + 1 + b.pad + inset)) };
 }

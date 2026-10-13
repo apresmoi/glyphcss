@@ -63,7 +63,7 @@ The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Make
 
 ### Diagrams
 
-`glyphcss diagram <file.mmd|graph.json>` renders Mermaid `flowchart`/`graph`
+`glyphcss diagram <file.mmd|graph.json>` renders Mermaid `flowchart`/`graph`/`stateDiagram`
 source or `{ nodes, edges, direction?, groups? }` JSON. JSON direction defaults
 to `TB`. Every unsupported Mermaid kind rejects with its named rule id.
 

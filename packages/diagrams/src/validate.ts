@@ -2,8 +2,8 @@ import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNo
 
 export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
-  "unknown-node", "bad-group", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
-  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "unknown-node", "bad-group", "point-loop", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
+  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
   "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
@@ -20,12 +20,12 @@ export function parseGlyphDiagramJson(json: string): unknown {
 }
 
 export const GLYPH_GRAPH_DIRECTIONS: readonly GlyphGraphDirection[] = ["TB", "LR", "BT", "RL"];
-export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder"];
+export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point"];
 export const GLYPH_GRAPH_EDGE_STYLES: readonly GlyphGraphEdgeStyle[] = ["solid", "dotted", "thick", "undirected"];
 export const GLYPH_GRAPH_KEYS = ["nodes", "edges", "groups", "direction"];
 export const GLYPH_GRAPH_NODE_KEYS = ["id", "label", "kind", "group", "shape"];
 export const GLYPH_GRAPH_EDGE_KEYS = ["id", "from", "to", "label", "style", "priority"];
-export const GLYPH_GRAPH_GROUP_KEYS = ["id", "label", "members"];
+export const GLYPH_GRAPH_GROUP_KEYS = ["id", "label", "members", "parent"];
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -52,6 +52,7 @@ export function glyphGraphIntegrityFailure(graph: GlyphGraph): GlyphGraphIntegri
       edgeIds.add(edge.id);
     }
     if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) return { code: "unknown-node", message: `Edge "${edge.id ?? `${edge.from} -> ${edge.to}`}" references an unknown node.` };
+    if (edge.from === edge.to && graph.nodes.find((node) => node.id === edge.from)!.shape === "point") return { code: "point-loop", message: `Edge "${edge.id ?? edge.from}" loops on the point node "${edge.from}", which has no border to leave and re-enter.` };
   }
   const groups = new Map<string, ReadonlySet<string>>();
   for (const group of graph.groups ?? []) {
@@ -60,6 +61,20 @@ export function glyphGraphIntegrityFailure(graph: GlyphGraph): GlyphGraphIntegri
     if (members.size !== group.members.length) return { code: "group-membership", message: `Group "${group.id}" lists a member more than once.` };
     if (group.members.some((id) => !nodeIds.has(id))) return { code: "unknown-node", message: `Group "${group.id}" references an unknown node.` };
     groups.set(group.id, members);
+  }
+  // Every named parent must be a different group before ancestry is walked, so a chain cannot run off the end.
+  for (const group of graph.groups ?? []) {
+    if (group.parent !== undefined && (!groups.has(group.parent) || group.parent === group.id)) return { code: "unknown-group", message: `Group "${group.id}" names "${group.parent}" as its parent, which is not another group.` };
+  }
+  for (const group of graph.groups ?? []) {
+    if (group.parent === undefined) continue;
+    if (group.members.some((id) => !groups.get(group.parent!)!.has(id))) return { code: "group-membership", message: `Group "${group.id}" lists nodes that its parent "${group.parent}" does not.` };
+  }
+  const parentOf = new Map((graph.groups ?? []).map((group) => [group.id, group.parent]));
+  for (const group of graph.groups ?? []) {
+    for (let up = group.parent, steps = 0; up !== undefined; up = parentOf.get(up)) {
+      if (up === group.id || ++steps > groups.size) return { code: "group-membership", message: `Group "${group.id}" is its own ancestor.` };
+    }
   }
   for (const node of graph.nodes) {
     if (node.group === undefined) continue;
@@ -79,6 +94,7 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
       || !optional(node, "kind", string) || !optional(node, "group", identifier) || !optional(node, "shape", (value) => member(value, GLYPH_GRAPH_NODE_SHAPES))) {
       glyphDiagramError("bad-node", `node[${index}] requires a non-empty id, a string label, and supported optional fields.`);
     }
+    if (node.shape === "point" && !/\S/u.test(node.label as string)) glyphDiagramError("bad-node", `node[${index}] is a point, which is drawn as its label's first character and needs one.`);
   }
   for (const [index, edge] of input.edges.entries()) {
     if (!object(edge) || !keys(edge, GLYPH_GRAPH_EDGE_KEYS) || !identifier(edge.from) || !identifier(edge.to)
@@ -90,7 +106,7 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
   if (input.groups !== undefined) {
     if (!Array.isArray(input.groups)) glyphDiagramError("bad-group", "groups must be an array.");
     for (const [index, group] of input.groups.entries()) {
-      if (!object(group) || !keys(group, GLYPH_GRAPH_GROUP_KEYS) || !identifier(group.id) || !optional(group, "label", string)
+      if (!object(group) || !keys(group, GLYPH_GRAPH_GROUP_KEYS) || !identifier(group.id) || !optional(group, "label", string) || !optional(group, "parent", identifier)
         || !Array.isArray(group.members) || !group.members.every(identifier)) glyphDiagramError("bad-group", `group[${index}] requires an id and an array of node ids as members.`);
     }
   }
@@ -108,12 +124,13 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
 const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-graph": "Pass { nodes, edges, groups?, direction }; remove unsupported graph fields.",
   "empty-nodes": "Add at least one node with an id and label.",
-  "bad-node": `Use a non-empty id, a string label, and shape ${GLYPH_GRAPH_NODE_SHAPES.join(" / ")}; kind and group are optional strings.`,
+  "bad-node": `Use a non-empty id, a string label, and shape ${GLYPH_GRAPH_NODE_SHAPES.join(" / ")}; kind and group are optional strings; a point needs a non-empty label.`,
   "duplicate-node-id": "Give every node a unique id; use labels for repeated display text.",
   "bad-edge": `Use from/to ids, an optional label/id, finite priority, and style ${GLYPH_GRAPH_EDGE_STYLES.join(" / ")}.`,
   "duplicate-edge-id": "Give explicit edge ids unique values, or omit them for deterministic generated ids.",
   "unknown-node": "Add the referenced node or update the edge endpoint/group member to an existing node id.",
-  "bad-group": "Use groups: [{ id, label?, members: [nodeId, ...] }].",
+  "bad-group": "Use groups: [{ id, label?, members: [nodeId, ...], parent? }].",
+  "point-loop": "Give the node a bordered shape to loop on, or remove the self edge; a point has no border to leave and re-enter.",
   "duplicate-group-id": "Give every group a unique id.",
   "unknown-group": "Add the node's group to graph.groups or remove node.group.",
   "group-membership": "List each member once and include every node that names this group.",
@@ -121,13 +138,17 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-size": "Pass positive integer width and height, or omit them.",
   "bad-options": "Use the documented target, charset, color, detail, and dagre layout options.",
   "bad-color": "nodeColor/edgeColor must be a canonical lowercase #rrggbb string, or a function returning one.",
-  "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph.",
+  "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph. In a stateDiagram, use the supported state statements and close every composite state.",
+  "GLYPH_MERMAID_STATE_NOTE": "Remove the note; put its text in the state's description (`Id : text`) or in a transition label.",
+  "GLYPH_MERMAID_STATE_CONCURRENCY": "Draw each concurrent region as its own composite state or its own diagram; `--` regions are not rendered.",
+  "GLYPH_MERMAID_STATE_FORK_JOIN": "Replace the <<fork>>/<<join>> with a <<choice>> or a plain state; the bar is not rendered.",
+  "GLYPH_MERMAID_STATE_COMPOSITE_LOOP": "Move the self transition onto one of the composite's inner states, or draw it between the composite and another state.",
   "GLYPH_DIAGRAM_UNROUTABLE": "Increase the viewport or node/rank separation, or simplify the graph so every edge has a legal lane.",
   "GLYPH_DIAGRAM_ELK_NOT_INSTALLED": "Use engine: dagre; the ELK adapter is reserved for phase 4.",
   "GLYPH_DIAGRAM_BAD_JSON": "Pass a syntactically valid JSON document encoding a graph object.",
 };
 
 export function glyphDiagramRepairHint(id: string): string {
-  if (id.startsWith("GLYPH_MERMAID_UNSUPPORTED_")) return "Convert this diagram to a Mermaid flowchart or graph, or pass nodes/edges JSON.";
+  if (id.startsWith("GLYPH_MERMAID_UNSUPPORTED_")) return "Convert this diagram to a Mermaid flowchart, graph or stateDiagram, or pass nodes/edges JSON.";
   return REPAIR_HINTS[id as GlyphDiagramValidationRuleId] ?? "Check the graph and render options against the diagram schema.";
 }

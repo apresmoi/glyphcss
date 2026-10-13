@@ -1,0 +1,59 @@
+import { describe, expect, it, vi } from "vitest";
+
+// Counts the snake layouts the fitter asks for, a measure of its work that does not depend on how fast the machine is.
+vi.mock("./snake", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./snake")>();
+  return { ...real, glyphDiagramSnakeLayout: vi.fn(real.glyphDiagramSnakeLayout) };
+});
+vi.mock("./pipeline", async (importOriginal) => {
+  const real = await importOriginal<typeof import("./pipeline")>();
+  return { ...real, layoutGlyphGraph: vi.fn(real.layoutGlyphGraph) };
+});
+import { glyphDiagramSnakeLayout } from "./snake";
+import { layoutGlyphGraph } from "./pipeline";
+import { renderGlyphDiagram } from "./render";
+
+const chain = (nodes: number, loops: readonly number[]) => `flowchart LR\n${Array.from({ length: nodes }, (_, i) => `n${i}[Node ${i}]`).join(" --> ")}\n${loops.map((at, i) => `n${at} -->|retry step ${i}| n${at}`).join("\n")}\n`;
+const work = async (source: string, options: Parameters<typeof renderGlyphDiagram>[1]) => {
+  vi.mocked(glyphDiagramSnakeLayout).mockClear();
+  const r = await renderGlyphDiagram(source, { target: "chat", autoDirection: false, detail: "faithful", ...options });
+  return { r, calls: vi.mocked(glyphDiagramSnakeLayout).mock.calls.length };
+};
+
+describe("the snake search does a bounded amount of work with loops", () => {
+  // Counts are exact for a given search, so each bound sits just above today's and below what dropping a bound produces. Before the search was bounded the same graphs took 15 s to 4 minutes.
+  it("14 nodes with 2 loops at 72x24", async () => {
+    const { r, calls } = await work(chain(14, [1, 7]), { width: 72, height: 24, overflow: "paginate" });
+    expect(r.pages).toHaveLength(1);
+    expect(calls).toBeLessThan(CALLS.fourteen);
+  });
+  it("15 nodes with 3 loops at 72x24", async () => {
+    const { r, calls } = await work(chain(15, [0, 5, 10]), { width: 72, height: 24, overflow: "paginate" });
+    expect(r.pages).toHaveLength(1);
+    expect(calls).toBeLessThan(CALLS.fifteen);
+  });
+  it("12 nodes with a loop on each, expanding", async () => {
+    const { calls } = await work(chain(12, Array.from({ length: 12 }, (_, i) => i)), { width: 40, height: 20, overflow: "expand" });
+    expect(calls).toBeLessThan(CALLS.twelve);
+  });
+  it("5 nodes with 4 loops in a tight canvas", async () => {
+    const { calls } = await work(chain(5, [0, 1, 2, 3]), { width: 40, height: 12, overflow: "paginate" });
+    expect(calls).toBeLessThan(CALLS.five);
+  });
+});
+// Today: 13, 401, 962 and 1276 layouts. The snake now searches every loop wrap that could fit and keeps looking for a snake of the requested
+// height while expanding, so the last two are higher than when it took three wraps and stopped at three tall candidates (485, 1108). Dropping
+// the cheap height check that keeps it from routing hopeless candidates gives 5860 for the twelve; enumerating branch gaps gives 513 and 18644.
+const CALLS = { fourteen: 20, fifteen: 450, twelve: 1050, five: 1350 };
+
+describe("the layout search prunes loop wraps by the stacked footprint", () => {
+  it("tries few layouts when stacked loops cannot fit the height at any wrap", async () => {
+    // Mutation: size each node's loops by their tallest label alone (drop the stacked rows from `footprint`) -> far more wraps survive and are laid out.
+    vi.mocked(layoutGlyphGraph).mockClear();
+    const source = "flowchart TB\nA[Processor] -->|one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen| A\nA -->|retry after the backoff window until success with delay forever| A";
+    await renderGlyphDiagram(source, { target: "chat", width: 39, height: 7, autoDirection: false, overflow: "paginate", detail: "faithful" });
+    expect(vi.mocked(layoutGlyphGraph).mock.calls.length).toBeLessThan(LAYOUTS);
+  });
+});
+// Today 231 layouts; without the stacked rows 735.
+const LAYOUTS = 300;

@@ -49,6 +49,9 @@ export function glyphDiagramJsonSchema(): GlyphDiagramJsonSchema {
           properties: {
             id: ID_SCHEMA, label: { type: "string" }, kind: { type: "string" }, group: ID_SCHEMA, shape: { enum: GLYPH_GRAPH_NODE_SHAPES },
           },
+          // A point is drawn as its label's first character, so a blank label leaves it nothing to draw (runtime: `bad-node`).
+          if: { required: ["shape"], properties: { shape: { const: "point" } } },
+          then: { properties: { label: { pattern: "\\S" } } },
         },
       },
       edges: {
@@ -62,7 +65,7 @@ export function glyphDiagramJsonSchema(): GlyphDiagramJsonSchema {
         type: "array",
         items: {
           type: "object", required: ["id", "members"], additionalProperties: false,
-          properties: { id: ID_SCHEMA, label: { type: "string" }, members: { type: "array", items: ID_SCHEMA } },
+          properties: { id: ID_SCHEMA, label: { type: "string" }, members: { type: "array", items: ID_SCHEMA }, parent: ID_SCHEMA },
         },
       },
       direction: { enum: GLYPH_GRAPH_DIRECTIONS },

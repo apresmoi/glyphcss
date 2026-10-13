@@ -34,6 +34,12 @@ const bad: { rule: string; graph: unknown }[] = [
   { rule: "unknown-group", graph: { ...base, nodes: [{ id: "a", label: "A", group: "ghost" }, base.nodes[1]] } },
   { rule: "group-membership", graph: { ...base, groups: [{ id: "g", members: ["a", "a"] }] } },
   { rule: "group-membership", graph: { ...base, nodes: [{ id: "a", label: "A", group: "g" }, base.nodes[1]], groups: [{ id: "g", members: ["b"] }] } },
+  { rule: "bad-node", graph: { ...base, nodes: [{ id: "a", label: "", shape: "point" }, base.nodes[1]] } },
+  { rule: "bad-node", graph: { ...base, nodes: [{ id: "a", label: "  ", shape: "point" }, base.nodes[1]] } },
+  { rule: "point-loop", graph: { ...base, nodes: [{ id: "a", label: "*", shape: "point" }, base.nodes[1]], edges: [{ from: "a", to: "a" }] } },
+  { rule: "unknown-group", graph: { ...base, groups: [{ id: "g", members: ["a"], parent: "ghost" }] } },
+  { rule: "unknown-group", graph: { ...base, groups: [{ id: "a1", members: ["a"], parent: "b1" }, { id: "b1", members: ["a"], parent: "missing" }] } },
+  { rule: "group-membership", graph: { ...base, groups: [{ id: "g", members: ["a"], parent: "h" }, { id: "h", members: ["a"], parent: "g" }] } },
   { rule: "bad-direction", graph: { ...base, direction: "TD" } },
 ];
 
@@ -58,6 +64,12 @@ describe("diagram JSON Schema and runtime parity", () => {
     // its runtime clause or schema clause makes one side accept this input.
     expect(() => validateGlyphGraph(graph)).toThrow(expect.objectContaining({ code: rule }));
     expect(validate(graph), JSON.stringify(validate.errors)).toBe(false);
+  });
+
+  it("accepts a point with a label and a nested group, in both", () => {
+    const good = { ...base, nodes: [{ id: "a", label: "*", shape: "point" }, base.nodes[1]], groups: [{ id: "g", members: ["a"] }, { id: "h", members: ["a"], parent: "g" }] };
+    expect(validate(good), JSON.stringify(validate.errors)).toBe(true);
+    expect(() => validateGlyphGraph(good)).not.toThrow();
   });
 
   it("requires the custom keyword for relational rules instead of claiming standard Schema can compare ids", () => {

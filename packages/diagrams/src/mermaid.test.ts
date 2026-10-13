@@ -133,7 +133,7 @@ describe("Mermaid flowchart adapter", () => {
   });
 
   it.each([
-    "sequenceDiagram", "stateDiagram", "stateDiagram-v2", "erDiagram", "pie", "gantt", "mindmap",
+    "sequenceDiagram", "erDiagram", "pie", "gantt", "mindmap",
     "gitgraph", "classDiagram", "classDiagram-v2", "journey", "timeline", "C4", "C4Context", "C4Container",
     "C4Component", "C4Dynamic", "C4Deployment", "requirementDiagram", "quadrantChart", "xychart-beta",
     "block-beta", "sankey-beta", "packet-beta", "architecture-beta", "kanban", "radar-beta", "treemap-beta",

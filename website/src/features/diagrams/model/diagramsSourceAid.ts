@@ -43,7 +43,8 @@ export interface DiagramsSourceSnippet {
  * Mermaid delimiters. `cylinder` has no Mermaid token the adapter parses
  * (`packages/diagrams/AGENTS.md`: a JSON-only shape today), so it is
  * offered on the JSON tab only — the Mermaid legend must never show syntax
- * the library would reject.
+ * the library would reject. `point` is JSON-only too: Mermaid state diagrams
+ * make it, flowcharts have no token for it.
  */
 export const DIAGRAMS_SHAPE_CATALOGUE: readonly {
   readonly shape: GlyphGraphNodeShape;
@@ -60,6 +61,7 @@ export const DIAGRAMS_SHAPE_CATALOGUE: readonly {
   { shape: "subroutine", label: "Subroutine", open: "[[", close: "]]", mermaid: true },
   { shape: "asymmetric", label: "Asymmetric", open: ">", close: "]", mermaid: true },
   { shape: "cylinder", label: "Cylinder", open: "[(", close: ")]", mermaid: false },
+  { shape: "point", label: "Point", open: "", close: "", mermaid: false },
 ];
 
 const selectWord = (body: string, word: string): readonly [number, number] => {

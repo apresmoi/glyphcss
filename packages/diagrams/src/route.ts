@@ -1,7 +1,8 @@
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramError } from "./validate";
-import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRect, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
+import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRects, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import { ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
+import { glyphDiagramLoopGeometry, type GlyphDiagramLoopGeometry } from "./loop";
 
 const PORT_LANE_LENGTH = 2;
 const PORT_LANE_CLEARANCE = 1;
@@ -77,6 +78,20 @@ function otherPortLanes(layout: GlyphDiagramLayout, edgeId: string): GlyphCanvas
     return Array.from({ length: PORT_LANE_LENGTH }, (_, offset) => ({ x: port.escape.x + offset * delta.x, y: port.escape.y + offset * delta.y }));
   });
 }
+/** Every self-edge's cells and label room; a hand-built layout that never listed its loops gets label-less ones. */
+function loopGeometries(layout: GlyphDiagramLayout): GlyphDiagramLoopGeometry[] {
+  const loops = layout.edges.filter((edge) => edge.from === edge.to).map((edge) => layout.loops.find((loop) => loop.edgeId === edge.id) ?? { edgeId: edge.id, nodeId: edge.from, lines: [], labelWidth: 0 });
+  return glyphDiagramLoopGeometry({ ports: layout.ports, loops });
+}
+const touches = (a: GlyphDiagramRect, b: GlyphDiagramRect, pad = 0) => a.x0 - pad <= b.x1 && a.x1 + pad >= b.x0 && a.y0 - pad <= b.y1 && a.y1 + pad >= b.y0;
+const cellRect = (p: GlyphCanvasPoint): GlyphDiagramRect => ({ x0: p.x, y0: p.y, x1: p.x, y1: p.y });
+/** Whether two loops would touch: one's cells inside the other's label room, or the two labels or the two loops' cells meeting. */
+function loopsConflict(a: GlyphDiagramLoopGeometry, b: GlyphDiagramLoopGeometry): boolean {
+  return (a.label !== undefined && b.cells.some((p) => touches(a.label!, cellRect(p), 1)))
+    || (b.label !== undefined && a.cells.some((p) => touches(b.label!, cellRect(p), 1)))
+    || (a.label !== undefined && b.label !== undefined && touches(a.label, b.label, 1))
+    || a.cells.some((p) => b.cells.some((q) => Math.abs(p.x - q.x) + Math.abs(p.y - q.y) <= 1));
+}
 function blockedByNodes(p: GlyphCanvasPoint, layout: GlyphDiagramLayout, start: GlyphCanvasPoint, goal: GlyphCanvasPoint): boolean {
   return layout.nodes.some(node => inside(p, node))
     || (!same(p, start) && !same(p, goal) && layout.nodes.some(node => inside(p, node, NODE_CLEARANCE)));
@@ -84,9 +99,28 @@ function blockedByNodes(p: GlyphCanvasPoint, layout: GlyphDiagramLayout, start: 
 function blockedByPortLanes(p: GlyphCanvasPoint, lanes: readonly GlyphCanvasPoint[]): boolean {
   return lanes.some(lane => Math.abs(p.x - lane.x) + Math.abs(p.y - lane.y) <= PORT_LANE_CLEARANCE);
 }
+/**
+ * Whether every self-loop has its four cells and its label's rows clear of
+ * every node and every other loop. A loop is a fixed shape, so unlike a
+ * routed edge a blocked one is known without searching.
+ */
+export function glyphDiagramLoopsClear(layout: GlyphDiagramLayout): boolean {
+  const geometries = loopGeometries(layout);
+  for (const mine of geometries) {
+    const edge = layout.edges.find((e) => e.id === mine.loop.edgeId)!;
+    const from = layout.ports.find((port) => port.edgeId === edge.id && port.end === "from")!, to = layout.ports.find((port) => port.edgeId === edge.id && port.end === "to")!;
+    const lanes = otherPortLanes(layout, edge.id);
+    if (mine.cells.some((point) => blockedByNodes(point, layout, from.escape, to.escape) || blockedByPortLanes(point, lanes))) return false;
+    if (mine.label && layout.nodes.some((node) => touches(node, mine.label!, 1))) return false;
+    if (geometries.some((other) => other !== mine && loopsConflict(mine, other))) return false;
+  }
+  return true;
+}
 /** Reject blocked mandatory port steps; a passing layout can still need route search. */
 export function glyphDiagramHasRoutingClearance(layout: GlyphDiagramLayout): boolean {
+  if (!glyphDiagramLoopsClear(layout)) return false;
   for (const edge of layout.edges) {
+    if (edge.from === edge.to) continue;
     const ports = layout.ports.filter(port => port.edgeId === edge.id);
     const from = ports.find(port => port.end === "from")!;
     const to = ports.find(port => port.end === "to")!;
@@ -118,9 +152,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   // Mirrors `paint.ts`'s own group-rect computation exactly (same helper),
   // so the ring this pays extra to cross is the same rectangle the painter
   // rings with dots.
-  const groupRects = layout.groups
-    .map((group) => glyphDiagramGroupRect(layout.nodes.filter((n) => group.members.includes(n.id)), { cols, rows }))
-    .filter((r): r is GlyphDiagramRect => r !== undefined);
+  const groupRects = [...glyphDiagramGroupRects(layout, { cols, rows }).values()];
   // A direction whose axis matches ANY guarded rect's forbidden axis at `p`
   // pays `ringParallel` — see `GLYPH_DIAGRAM_ROUTE_COSTS`'s own doc for why
   // this is a cost, not a hard block, and why it is high enough to never be
@@ -130,9 +162,26 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
       ? options.ringParallelCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.ringParallel : 0;
   const ports = new Map(layout.edges.map((e) => [e.id, layout.ports.filter((p) => p.edgeId === e.id)]));
   const ordered = [...layout.edges].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // A loop's label room (and the blank cell before it) is kept clear of every other route, so the label paint
+  // places beside the loop can never be taken by a transit routed after it.
+  const geometries = loopGeometries(layout);
+  const loopLabels = geometries.flatMap((g) => g.label ? [{ ...g.label, x0: g.label.x0 - 1, x1: g.label.x1 + 1 }] : []);
+  const obstacles = [...(options.obstacles ?? []), ...loopLabels];
   for (const edge of ordered) {
     const from = ports.get(edge.id)!.find((p) => p.end === "from")!;
     const to = ports.get(edge.id)!.find((p) => p.end === "to")!;
+    if (edge.from === edge.to) {
+      // A loop is a fixed shape, not a search. All four of its cells lie in its
+      // two ports' protected lanes, which every other edge already routes around.
+      const mine = geometries.find((g) => g.loop.edgeId === edge.id)!, cells = mine.cells, lanes = otherPortLanes(layout, edge.id);
+      const free = cells.every((p) => p.x >= 0 && p.y >= 0 && p.x < cols && p.y < rows
+        && !blockedByNodes(p, layout, from.escape, to.escape) && !(options.obstacles ?? []).some((r) => inside(p, r)) && !blockedByPortLanes(p, lanes))
+        && !geometries.some((other) => other !== mine && loopsConflict(mine, other))
+        && (!mine.label || (mine.label.x1 < cols && mine.label.y1 < rows));
+      if (!free) { unroutable.push(edge.id); ledger.push(ledgerUnroutable({ edgeId: edge.id, reason: `there is no room beside "${edge.from}" for its loop` })); continue; }
+      routes.push({ edge, cells });
+      continue;
+    }
     const start = from.escape, goal = to.escape;
     const outward = GLYPH_DIAGRAM_DIRECTIONS[from.side], inward = GLYPH_DIAGRAM_DIRECTIONS[to.side];
     const startDir = steps.findIndex((s) => same(s, outward));
@@ -152,7 +201,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
       if (cached !== undefined) return (cached & (1 << axis)) !== 0;
       let freeAxes = 0;
       if (!blockedByNodes(p, layout, start, goal)
-        && !(options.obstacles ?? []).some(r => inside(p, r))
+        && !obstacles.some(r => inside(p, r))
         && !blockedByPortLanes(p, otherLanes)) {
         freeAxes = 3;
         if (crossing) freeAxes &= crossing.axis === 2 ? 0 : ~(1 << crossing.axis);

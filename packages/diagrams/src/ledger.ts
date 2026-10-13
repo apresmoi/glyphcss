@@ -41,8 +41,17 @@ export function ledgerLabelDropped(opts: { readonly role: string; readonly text?
   return entry("label-dropped", `Dropped the ${opts.role}${named} — ${opts.reason}.`, { ...opts });
 }
 
-export function ledgerLabelFolded(opts: { readonly nodeId: string; readonly before: string; readonly after: string }): GlyphDiagramLedgerEntry {
-  return entry("label-folded", `Replaced unsupported characters in the "${opts.nodeId}" label — it now reads "${opts.after}".`, { ...opts });
+export function ledgerStateShared(opts: { readonly id: string; readonly owner: string; readonly scope: string }): GlyphDiagramLedgerEntry {
+  return entry("state-shared", `The state "${opts.id}" belongs to composite "${opts.owner}", where it was first used, so its use inside "${opts.scope}" is that same state.`, { ...opts });
+}
+
+export function ledgerWordsCut(opts: { readonly nodes: readonly { readonly id: string; readonly words: readonly string[] }[] }): GlyphDiagramLedgerEntry {
+  const names = opts.nodes.map((node) => `"${node.id}"`).join(", ");
+  return entry("word-cut", `Cut words across lines in the label of ${names} because no layout with whole words fit.`, { nodes: opts.nodes.map((node) => ({ id: node.id, words: [...node.words] })) });
+}
+
+export function ledgerLabelFolded(opts: { readonly role: string; readonly owner: string; readonly before: string; readonly after: string }): GlyphDiagramLedgerEntry {
+  return entry("label-folded", `Replaced unsupported characters in the ${opts.role} of "${opts.owner}" — it now reads "${opts.after}".`, { ...opts });
 }
 
 /**

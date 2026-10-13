@@ -1,6 +1,6 @@
 # @glyphcss/diagrams
 
-2D Mermaid flowcharts and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
+2D Mermaid flowcharts, state diagrams and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
 
 > Layout and the examples below use the installed `@dagrejs/dagre@3.1.1`. `fixtures/langgraph-export.mmd` is the real, unmodified `draw_mermaid()` export byte-for-byte (including its `&nbsp;`-padded conditional edge text); `fixtures/langgraph.mmd` is a variant that makes agent→tools solid and keeps a labelled dotted edge to `__end__`.
 
@@ -31,13 +31,41 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 
 ## Graph and source vocabulary
 
-- Nodes: `{ id, label, kind?, group?, shape? }`. Shapes: `rect`, `rounded`, `diamond`, `circle`, `subroutine`, `asymmetric`, `stadium`; all reserve rectangular footprints, with cell-sized border distinctions.
+- Nodes: `{ id, label, kind?, group?, shape? }`. Shapes: `rect`, `rounded`, `diamond`, `circle`, `subroutine`, `asymmetric`, `stadium`, `cylinder`; all reserve rectangular footprints, with cell-sized border distinctions. `point` is the exception: no border, just the first character of its `label` (a start or end marker; a longer label is cut and `label-abbreviated` says so, an empty one is `bad-node`). One edge entering it ends in one arrowhead against the glyph; several meet in a bar and reach the glyph through one arrowhead; several leaving it join the glyph through a bar. A point cannot hold a self edge (`point-loop`).
 - Edges: `{ id?, from, to, label?, style?, priority? }`. Styles: `solid`, `dotted`, `thick`, `undirected`. Larger priority routes first and wins an unavoidable crossing.
-- Groups: `{ id, label?, members: string[] }[]`. Nested/disjoint membership uses compound dagre layout. Overlapping memberships use explicit member-list annotations when an enclosure would claim unrelated nodes.
+- Groups: `{ id, label?, members: string[], parent? }[]`. Nested/disjoint membership uses compound dagre layout; a group's parent is the smallest group holding all its members, unless it names `parent` (needed only when both list the same nodes). A frame is padded outside the frames it holds; a graph that only fits without that padding gets shared borders before its words are cut or it is split. Overlapping memberships use explicit member-list annotations when an enclosure would claim unrelated nodes.
 - Directions: `TB`, `LR`, `BT`, `RL`; Mermaid `TD` normalizes to `TB`.
 - Mermaid: `flowchart`/`graph`, `[ ]`, `( )`, `{ }`, `(( ))`, `[[ ]]`, `>( ]`, `([ ])`; `-->`, `---`, `-.->`, `==>`, `-- text -->`, `-->|text|`, `-. text .->`, chained edges, `&` fan-out, and `subgraph ... end`.
 - `classDef`, `class`, `style`, `click`, `linkStyle`, and `%%` comments remain inert source directives, parsed as data and never executed. URLs/callbacks are never followed. LangGraph paragraph wrappers (`<p>…</p>`) are stripped and HTML entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#NN;`, `&#xHH;`, `&nbsp;`) are decoded once in labels; `&nbsp;` becomes a plain space, trimmed at label ends. A quoted label, a `|label|` edge label, and a `-. text .->` edge-text span are all protected from statement-splitting, so an entity's own `;` can't truncate a statement early.
-- Other diagram kinds reject by name, e.g. `GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM`, `GLYPH_MERMAID_UNSUPPORTED_STATEDIAGRAM`, and `GLYPH_MERMAID_UNSUPPORTED_C4CONTEXT`.
+- A self-edge (`A --> A`) draws as a compact four-cell loop on the side no flow edge uses (right of a `TB`/`BT` node, below an `LR`/`RL` one): out of one port, around, and back into the next with an arrowhead. Its label sits one blank cell past the loop (the one label that does not touch its route) and wraps like a node label, at `loopLabelWidth` cells (default 24), which the fitter narrows before it gives up whole words. Layout reserves exactly the loop's and label's room, and a group frame encloses them, so they never touch another node, edge, label or frame. Several loops on one node stack without touching, and a left-to-right graph that wraps into rows keeps its loops.
+- Other diagram kinds reject by name, e.g. `GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM`, `GLYPH_MERMAID_UNSUPPORTED_CLASSDIAGRAM`, and `GLYPH_MERMAID_UNSUPPORTED_C4CONTEXT`. `sequenceDiagram` has its own `./sequence` entry; `stateDiagram` is below.
+
+## Mermaid state diagrams
+
+`renderGlyphDiagram` and `glyphGraphFromMermaid` accept `stateDiagram` and `stateDiagram-v2` and render them through the graph pipeline (fit, route, paint like a flowchart); `glyphGraphFromMermaidState` is the same adapter on its own. States are nodes, transitions are labelled edges, and the default direction is `TB`.
+
+Supported:
+
+- `A --> B` and `A --> B : event`; a state is declared by use. `state "Long name" as Id` sets its title; each `Id : text` line adds a row under the title, so a state reads `title` then one row per description. States are `rounded` boxes.
+- `[*]` as a start (`[*] --> X`) or an end (`X --> [*]`). Every scope (the diagram, and each composite) has one start and one end node shared by all its `[*]` uses, drawn as a borderless `point` whose label is `●` (start) or `◉` (end); in `ascii` the glyphs fold to `*` (`●`, `◆`) and `@` (`◉`) in any label, reported as `label-folded` like other folds. An edge enters a point through an arrowhead on the row above its glyph (the column before it, left to right), and several exits join the glyph through a bar. Their node ids are `[*]:start`, `[*]:end`, and `[*]:start:<composite>`, `[*]:end:<composite>`, and their `kind` is `state-start` / `state-end`.
+- `state Parent { ... }`, nested: a group around its inner states and its own start/end. A state belongs to the scope where it is first mentioned. The graph connects nodes, not groups, so `X --> Parent` ends at the composite's inner start (else its first inner state) and `Parent --> X` leaves from its inner end (else its last inner state). A composite with no inner state is an ordinary state.
+- `state c <<choice>>` (or `[[choice]]`, or `state "Decide" as c <<choice>>`): a `diamond` whose label is `◆` (`*` in `ascii`).
+- A composite is labelled with its `state "Name" as P` name, then any `P : text` lines after ` - `. A state id used inside a second composite is the same state (ids are global, as in Mermaid) and the ledger says so with `state-shared`.
+- `direction LR|TB|RL|BT|TD`. Inside a composite it is ignored. `%%` comments (a whole line, trailing, or a multi-line `%%{ init ... }%%` before the header), `classDef`, `class`, `style`, `hide empty description`, `scale N [width|height]` and `:::name` are inert data. Statements end at a newline or `;` (not inside a quoted name, an HTML entity, or after a transition's `:`, where the rest of the line is its label); a composite's `}` stands on its own line. `state` and `end` are keywords, not state names.
+- A self transition `A --> A : retry` draws as the loop above.
+- After a transition's ` : ` or a description's, a quote is an ordinary character (`A --> B : 5" pipe`) and a newline always ends the statement; a quote opens a name only after `state`.
+
+Rejected by name, never silently dropped (each code has a repair hint in `glyphDiagramRepairHint`):
+
+| Code | Construct |
+| --- | --- |
+| `GLYPH_MERMAID_STATE_NOTE` | `note ... of X`, `note ... end note`, `floating note` |
+| `GLYPH_MERMAID_STATE_CONCURRENCY` | `--` concurrent regions |
+| `GLYPH_MERMAID_STATE_COMPOSITE_LOOP` | a composite state transitioning to itself (`P --> P`): a loop hangs on a node's border, and a frame is only drawn after layout; put it on an inner state |
+| `GLYPH_MERMAID_STATE_FORK_JOIN` | `<<fork>>` and `<<join>>`: the bar is one cell thick, but a node box is at least three rows tall and its border takes the arrowhead |
+
+Anything else that is not a state statement is `GLYPH_MERMAID_SYNTAX`.
+
 
 ## Output options
 
@@ -54,6 +82,8 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 | `engine` | `dagre` only |
 | `nodesep`, `ranksep` | Preferred separation in integer cells ≥ 3, default 4 / 4; fitting may adjust it |
 | `labelWidth` | Optional maximum label wrap width in cells; fitting may wrap more narrowly |
+| `loopLabelWidth` | Optional maximum wrap width of a self-loop's label, default 24; fitting may wrap it more narrowly |
+| `frameInset` | `true` by default: a group frame holding another is padded outside it. `renderGlyphDiagram` turns it off by itself when that is the only way to avoid cutting words or splitting |
 | `margin` | Preferred surrounding cells, default 1; fitting may reduce it |
 | `title` | Optional label placed against the same obstacles as edge labels |
 | `env` | Explicit `NO_COLOR` / `FORCE_COLOR` values; process environment is never read implicitly |
@@ -70,7 +100,7 @@ For resizable displays, call the same renderer with the new cell dimensions. `ov
 
 With the default `overflow: "paginate"`, every panel keeps the exact requested dimensions. If fitting fails, the ordered ladder drops decoration, merges duplicate connections, collapses sibling leaves, then splits into edge-induced panels. Each change is reported; originals remain in `meta`, and boundary nodes repeat across panels. `faithful` preserves decoration, duplicates, and leaf identities; only geometric fitting and splitting apply. `simplified` drops decoration immediately; `auto` and `balanced` share the same behavior.
 
-A panel that cannot fit even its endpoint boxes stays blank, reports the affected ids, and draws no clipped node or transit. `report.unroutable` describes final output only. Failed intermediate attempts are identified separately in the ledger. Edge labels can be abbreviated or dropped when no disjoint text rectangle fits.
+A panel that cannot fit even its endpoint boxes stays blank, reports the affected ids, and draws no clipped node or transit. `report.unroutable` describes final output only. Failed intermediate attempts are identified separately in the ledger. Edge labels can be abbreviated or dropped when no disjoint text rectangle fits. A word broken across lines to fit is reported once as `word-cut`, naming the nodes and loops. In `ascii` any label (node, edge, loop, group or title) whose characters were folded is reported as `label-folded` with its role and owner. The snake and fit searches are bounded, so a long chain with many loops stays fast.
 
 ## Staged API
 
@@ -88,7 +118,7 @@ const routing = routeGlyphGraphEdges(layout, { width: 80, height: 24 });
 const output = paintGlyphDiagram(layout, routing, { width: 80, height: 24, charset: "box", color: "none" });
 ```
 
-Port reservation enlarges node sides before layout to at least `2N + 1` cells for `N` ports. A* uses unit steps, bend cost 4, crossing cost 12, node clearance, and reserved escape lanes. Routes contain every 4-adjacent cell; never replace them with a bend-only point list. Reserved slots follow Dagre’s actual endpoint order without changing node sizes or separation. Every paint call creates a fresh canvas and applies routes → junction resolution → node borders → target-border arrowheads → labels. Edge labels stay adjacent to their own route or are reported as dropped.
+Port reservation enlarges node sides before layout to at least `2N + 1` cells for `N` ports; a self-edge's two ports sit on the loop side, and `layout.loops` records the label room each one reserved. A* uses unit steps, bend cost 4, crossing cost 12, node clearance, and reserved escape lanes. Routes contain every 4-adjacent cell; never replace them with a bend-only point list. Reserved slots follow Dagre’s actual endpoint order without changing node sizes or separation. Every paint call creates a fresh canvas and applies routes → junction resolution → node borders → target-border arrowheads → labels. Edge labels stay adjacent to their own route or are reported as dropped.
 
 ## Validation and optional ELK boundary
 

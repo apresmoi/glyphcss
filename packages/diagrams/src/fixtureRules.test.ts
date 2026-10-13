@@ -331,7 +331,7 @@ it.each(["box", "ascii"] as const)("%s painter distinguishes a real merge from a
   const vertical = Array.from({ length: 7 }, (_, y) => ({ x: 5, y: y + 1 }));
   const first = { id: "a", from: "left", to: "right", style: "undirected" as const };
   const second = { id: "b", from: "top", to: "bottom", style: "undirected" as const };
-  const layout = { nodes: [], edges: [first, second], ports: [], groups: [], direction: "TB" as const, width: 12, height: 10, ledger: [] };
+  const layout = { nodes: [], edges: [first, second], ports: [], groups: [], direction: "TB" as const, loops: [], width: 12, height: 10, ledger: [] };
   const crossing = paintGlyphDiagram(layout, { routes: [{ edge: first, cells: horizontal }, { edge: second, cells: vertical }], unroutable: [], ledger: [] }, { width: 12, height: 10, charset });
   expect(crossing.canvas.grid.char[4 * 12 + 5]).toBe(GLYPH_CANVAS_TIERS[charset].hop.h);
   expect(crossing.ledger).toEqual([]);
