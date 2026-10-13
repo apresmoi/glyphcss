@@ -3,6 +3,13 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 
+// Preserve the existing balanced-BK work guarantees at their original bounds.
+// The combined default + four-alignment search is checked in fitAlignment.test.ts.
+vi.mock("./fitAlignment", async importOriginal => {
+  const real = await importOriginal<typeof import("./fitAlignment")>();
+  return { ...real, GLYPH_DIAGRAM_DAGRE_ALIGNMENTS: [] };
+});
+
 // Counts the snake layouts the fitter asks for, a measure of its work that does not depend on how fast the machine is.
 vi.mock("./snake", async (importOriginal) => {
   const real = await importOriginal<typeof import("./snake")>();
@@ -66,7 +73,7 @@ describe("the layout search prunes loop wraps by the stacked footprint", () => {
 // Today 231 layouts; without the stacked rows 735.
 const LAYOUTS = 300;
 
-// These hashes were captured before changing the fitter; the count bound must fail when the spacing-first probe is removed.
+// Hashes pin approved output; the count bound must fail when the spacing-first probe is removed.
 describe("expansion repairs spacing before repeating exterior gutters", () => {
   it("event-queue considers cheaper gutters of already-probed spacing candidates", async () => {
     const source = readFileSync(resolve(__dirname, "../fixtures/event-queue.mmd"), "utf8");
@@ -80,7 +87,7 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
   });
   it.each([
     ["galaxy-sources-to-model", 24, "e78406bf4aeddbca28e6274203adfcf8406d1cf070bd76dfacf9e7b2889d5464", 350, 900_000],
-    ["galaxy-sources-h60", 60, "14ca0dced2351325ca61c1b2a6d40675db173602d34b75bdf456af667459e811", 110, 75_000],
+    ["galaxy-sources-h60", 60, "d496896cc5f81d46efbf290b76bc6c13cf6dac23393f2a8786f029e5d193493a", 110, 75_000],
   ] as const)("%s keeps its text within routing and A* work bounds", async (name, height, hash, routingBound, stateBound) => {
     const source = readFileSync(resolve(__dirname, `../bench/corpus/${name}.mmd`), "utf8");
     vi.mocked(routeGlyphGraphEdges).mockClear();

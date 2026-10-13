@@ -1,7 +1,7 @@
 import { glyphGraphFromMermaid, glyphMermaidNotes } from "./mermaid";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
-import { canonicalizeGlyphGraph, glyphDiagramFoldLabel } from "./pipeline";
+import { canonicalizeGlyphGraph, glyphDiagramFoldLabel, glyphDiagramWords } from "./pipeline";
 import { paintGlyphDiagram } from "./paint";
 import { glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph } from "./degrade";
 import { fitGlyphGraph, type GlyphDiagramAttempt } from "./fit";
@@ -43,7 +43,12 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
   const ledger: GlyphDiagramLedgerEntry[] = typeof input === "string" ? glyphMermaidNotes(input) : [], unroutable = new Set<string>();
-  const attempt = (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => fitGlyphGraph(candidate, opts);
+  const attempt = async (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => {
+    const result = await fitGlyphGraph(candidate, opts);
+    // A budget exhausted before splitting is still part of the render's work.
+    ledger.push(...result.layout.ledger.filter(entry => entry.code === "fit-search-limited"));
+    return result;
+  };
   // Ports outside the viewport indicate size overflow, not failed routing.
   const overflowOrRoutingAttempt = (current: GlyphDiagramAttempt, stage: "degrade" | "split"): GlyphDiagramLedgerEntry[] =>
     current.fits
@@ -91,9 +96,10 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
     // A word the layout had to break across lines is a fidelity loss the reader cannot otherwise see: every node's drawn rows
     // and every loop label's rows are compared with the words that were written.
     const broken = (label: string, lines: readonly string[]) => {
-      const shown = new Set(lines.flatMap((line) => line.split(" ")));
+      const shown = new Set(lines.flatMap(glyphDiagramWords));
       // The whole label is folded once, as it was when measured, then its words are compared.
-      return glyphDiagramFoldLabel(label, opts.charset).split(/\s+/).filter(Boolean).filter((word) => !shown.has(word));
+      return glyphDiagramFoldLabel(label, opts.charset).split(/\s+/).filter(Boolean)
+        .filter(word => glyphDiagramWords(word).some(piece => !shown.has(piece)));
     };
     const cut = [
       ...layout.nodes.filter((node) => node.shape !== "point").map((node) => ({ id: node.id, words: broken(node.label, node.lines) })),

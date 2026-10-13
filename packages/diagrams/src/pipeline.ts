@@ -1,3 +1,4 @@
+import { GLYPH_DIAGRAM_DAGRE_ALIGN, type GlyphDiagramDagreAlignment } from "./fitAlignment";
 import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from "glyphcss";
 import type { GlyphGraph, GlyphGraphNode, GlyphGraphEdge, GlyphGraphGroup } from "./types";
 import { validateGlyphGraph, glyphDiagramError } from "./validate";
@@ -107,6 +108,10 @@ export function glyphDiagramFoldLabel(label: string, charset?: GlyphCanvasTierNa
   return label.split(/\r?\n/).map((line) => glyphDiagramText(line, charset)).join("\n");
 }
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
+/** Punctuation belongs to the preceding piece when a label wraps. */
+export function glyphDiagramWords(text: string): string[] {
+  return text.split(/\s+|(?<=[-+/:])/).filter(Boolean);
+}
 
 /** Stable synthetic ids preserve duplicate edges without depending on input order. */
 export function canonicalizeGlyphGraph(graph: GlyphGraph): Omit<GlyphGraph, "edges"> & { edges: GlyphDiagramEdge[] } {
@@ -126,16 +131,20 @@ export function canonicalizeGlyphGraph(graph: GlyphGraph): Omit<GlyphGraph, "edg
   return { ...graph, nodes: [...graph.nodes], edges,
     groups: [...(graph.groups ?? [])].map((g) => ({ ...g, members: [...g.members].sort(compare) })).sort((a, b) => compare(a.id, b.id)) };
 }
-/** Whole-word wrap into rows of at most `width` cells; a word longer than that is cut. */
+/** Wrap at spaces or after punctuation; only a piece longer than `width` needs letter cuts. */
 export function glyphDiagramWrap(text: string, width: number): string[] {
   const lines: string[] = [];
   for (const paragraph of text.split(/\r?\n/)) {
     let line = "";
     for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      if (line && line.length + word.length + 1 > width) { lines.push(line); line = ""; }
-      let rest = word;
-      while (rest.length > width) { if (line) { lines.push(line); line = ""; } lines.push(rest.slice(0, width)); rest = rest.slice(width); }
-      line += (line ? " " : "") + rest;
+      const pieces = glyphDiagramWords(word);
+      for (let i = 0; i < pieces.length; i++) {
+        const space = i === 0 && line ? " " : "";
+        if (line && line.length + space.length + pieces[i]!.length > width) { lines.push(line); line = ""; }
+        let rest = pieces[i]!;
+        while (rest.length > width) { if (line) { lines.push(line); line = ""; } lines.push(rest.slice(0, width)); rest = rest.slice(width); }
+        line += (i === 0 && line ? " " : "") + rest;
+      }
     }
     lines.push(line);
   }
@@ -263,6 +272,7 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   if (![nodesep, ranksep, margin].every(Number.isInteger) || nodesep < 3 || ranksep < 3 || margin < 0) glyphDiagramError("bad-options", "nodesep/ranksep must be integers >= 3; margin must be an integer >= 0.");
   const reserved = "ports" in graph ? graph : reserveGlyphGraphPorts(measureGlyphGraph(graph, options));
   const dagre = await import("@dagrejs/dagre");
+  const align = (options as GlyphDiagramLayoutOptions & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: GlyphDiagramDagreAlignment })[GLYPH_DIAGRAM_DAGRE_ALIGN];
   const ledger = [...reserved.ledger];
   const loopSide = glyphDiagramLoopSide(reserved.direction), across = loopSide === "e";
   /**
@@ -297,7 +307,7 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
     // separation on this integer cell grid — measured identical in extent to
     // `edgesep: nodesep` (80x19 either way) once it is off the pixel default,
     // so there is no reason to spend more of the grid on it than its own unit.
-    g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1 });
+    g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1, align });
     g.setDefaultEdgeLabel(() => ({}));
     const groupKeys = new Map<string, string>();
     for (const group of includedGroups) {
@@ -348,11 +358,37 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   let g = build(new Set());
   const rank = (id: string) => (g.node(id) as { rank?: number }).rank ?? 0;
   if (reserved.edges.some((edge) => back.has(edge.id) && rank(edge.from) < rank(edge.to))) g = build(back);
-  const positioned = reserved.nodes.map((node) => {
+  let positioned = reserved.nodes.map((node) => {
     const position = g.node(node.id);
     const x0 = Math.round(position.x - node.width / 2), y0 = Math.round(position.y - node.height / 2);
     return { ...node, x0, y0, x1: x0 + node.width - 1, y1: y0 + node.height - 1 };
   });
+  // Single BK alignments can put several connections through one gap. Reserve
+  // one channel per crossing edge and a turn, with an extra escape cell beyond
+  // caller spacing. Leave the balanced layout byte-identical. Loop dummies and compound frames already own room.
+  if (align && !reserved.loops.length && !includedGroups.length) {
+    const across = reserved.direction === "TB" || reserved.direction === "BT";
+    const coord = (r: number) => Math.min(...positioned.filter(node => rank(node.id) === r).map(node => across ? node.y0 : node.x0));
+    const ranks = [...new Set(reserved.nodes.map(node => rank(node.id)))].sort((a, b) => coord(a) - coord(b));
+    const shifts = new Map<number, number>();
+    let shift = 0;
+    for (let i = 0; i < ranks.length; i++) {
+      const r = ranks[i]!;
+      if (i) {
+        const before = ranks[i - 1]!;
+        const earlier = positioned.filter(node => rank(node.id) === before), later = positioned.filter(node => rank(node.id) === r);
+        const gap = across ? Math.min(...later.map(node => node.y0)) - Math.max(...earlier.map(node => node.y1)) - 1
+          : Math.min(...later.map(node => node.x0)) - Math.max(...earlier.map(node => node.x1)) - 1;
+        const crossing = reserved.edges.filter(edge => Math.min(rank(edge.from), rank(edge.to)) <= Math.min(before, r) && Math.max(rank(edge.from), rank(edge.to)) >= Math.max(before, r)).length;
+        shift += Math.max(0, Math.max(ranksep + 1, crossing + 1) - gap);
+      }
+      shifts.set(r, shift);
+    }
+    positioned = positioned.map(node => {
+      const delta = shifts.get(rank(node.id))!;
+      return across ? { ...node, y0: node.y0 + delta, y1: node.y1 + delta } : { ...node, x0: node.x0 + delta, x1: node.x1 + delta };
+    });
+  }
   // Compound engines reserve caption padding in their own units. A global
   // translation removes that leading whitespace without changing any node separation.
   // A group nested k deep draws k frames, each GROUP_PAD outside the last, so the outermost needs that room on every side.

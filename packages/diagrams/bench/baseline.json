@@ -1,12 +1,12 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-13T20:44:22.485Z",
-  "gitRevision": "843b9c9e2bbb5ccea82281fe9bef9f23232bb5b5",
-  "sourceBundleSha256": "6f71c0b86aabc588e69acae0e23717ea202a3d50251e994d6ed2d67b722b7a25",
+  "generatedAt": "2026-10-13T21:24:06.894Z",
+  "gitRevision": "82889683aae13374afbc72a805240c12422199eb",
+  "sourceBundleSha256": "3f8899e4d41f46845dc4d4238f44c40ade445e675953985d58de59d2154ec075",
   "nodeVersion": "v22.23.2",
   "platform": "darwin",
   "arch": "arm64",
-  "timeCapMs": 180000,
+  "timeCapMs": 10000,
   "filter": null,
   "complete": true,
   "records": [
@@ -27,7 +27,7 @@
       "status": "rendered",
       "nodes": 8,
       "edges": 7,
-      "ms": 66.058625,
+      "ms": 61.770584000000014,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -144,7 +144,7 @@
           }
         }
       ],
-      "elapsedMs": 88.093541
+      "elapsedMs": 84.473291
     },
     {
       "file": "telescope-query-outcomes-detailed.mmd",
@@ -163,7 +163,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 11.307917000000003,
+      "ms": 10.826542000000018,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -223,7 +223,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 34.63508300000001
+      "elapsedMs": 31.43508300000002
     },
     {
       "file": "telescope-command-chain.mmd",
@@ -242,7 +242,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 9.904291,
+      "ms": 9.611334,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -302,7 +302,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 30.832334000000003
+      "elapsedMs": 30.002332999999993
     },
     {
       "file": "telescope-explore-edge-labels.mmd",
@@ -321,7 +321,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 12.047167000000002,
+      "ms": 10.691458000000011,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -383,7 +383,7 @@
           }
         }
       ],
-      "elapsedMs": 33.22608300000002
+      "elapsedMs": 30.629999999999995
     },
     {
       "file": "telescope-query-outcomes.mmd",
@@ -402,7 +402,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 11.023792000000014,
+      "ms": 10.40545800000001,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -462,7 +462,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 32.187666999999976
+      "elapsedMs": 30.412916000000052
     },
     {
       "file": "telescope-explore-node-labels.mmd",
@@ -481,7 +481,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 10.635333000000003,
+      "ms": 10.846042000000011,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -533,7 +533,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 32.62537499999996
+      "elapsedMs": 31.69712499999997
     },
     {
       "file": "telescope-export-destinations.mmd",
@@ -552,7 +552,7 @@
       "status": "rendered",
       "nodes": 3,
       "edges": 2,
-      "ms": 9.723416999999984,
+      "ms": 9.200333999999998,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -596,7 +596,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 30.575917000000004
+      "elapsedMs": 29.017416000000026
     },
     {
       "file": "telescope-checkout-edge-label.mmd",
@@ -615,7 +615,7 @@
       "status": "rendered",
       "nodes": 6,
       "edges": 5,
-      "ms": 21.809167000000002,
+      "ms": 21.233541000000002,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -697,7 +697,7 @@
           }
         }
       ],
-      "elapsedMs": 42.873958000000016
+      "elapsedMs": 41.273416
     },
     {
       "file": "telescope-package-workspace-edge.mmd",
@@ -716,7 +716,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 11.238917000000015,
+      "ms": 11.057416999999987,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -768,7 +768,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 32.192957999999976
+      "elapsedMs": 30.895624999999995
     },
     {
       "file": "telescope-checkout.mmd",
@@ -787,7 +787,7 @@
       "status": "rendered",
       "nodes": 6,
       "edges": 5,
-      "ms": 22.042125,
+      "ms": 20.255916999999954,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -860,7 +860,7 @@
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         }
       ],
-      "elapsedMs": 43.49458400000003
+      "elapsedMs": 40.013458000000014
     },
     {
       "file": "telescope-package-workspace-node.mmd",
@@ -879,7 +879,7 @@
       "status": "rendered",
       "nodes": 4,
       "edges": 3,
-      "ms": 10.703750000000014,
+      "ms": 10.897665999999958,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -931,7 +931,7 @@
         }
       ],
       "ledger": [],
-      "elapsedMs": 33.01620799999995
+      "elapsedMs": 30.4626659999999
     },
     {
       "file": "telescope-install-to-html.mmd",
@@ -950,7 +950,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 4,
-      "ms": 35.92137500000001,
+      "ms": 31.81979100000001,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1029,7 +1029,7 @@
           }
         }
       ],
-      "elapsedMs": 56.736999999999966
+      "elapsedMs": 51.748917000000006
     },
     {
       "file": "galaxy-fit-loop-detailed.mmd",
@@ -1048,7 +1048,7 @@
       "status": "rendered",
       "nodes": 9,
       "edges": 10,
-      "ms": 175.76291700000002,
+      "ms": 157.26824999999997,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1177,7 +1177,7 @@
           }
         }
       ],
-      "elapsedMs": 196.69845800000007
+      "elapsedMs": 177.68291699999997
     },
     {
       "file": "galaxy-fit-loop-vertical.mmd",
@@ -1196,7 +1196,7 @@
       "status": "rendered",
       "nodes": 7,
       "edges": 8,
-      "ms": 801.5262919999999,
+      "ms": 613.1382500000001,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1289,6 +1289,24 @@
       ],
       "ledger": [
         {
+          "code": "fit-search-limited",
+          "message": "Stopped expansion spacing search at its deterministic work limit.",
+          "detail": {
+            "stage": "expansion-spacing",
+            "candidateLimit": 256
+          }
+        },
+        {
+          "code": "fit-search-limited",
+          "message": "Stopped expansion gutter search at its deterministic work limit.",
+          "detail": {
+            "stage": "expansion-gutters",
+            "routeLimit": 128,
+            "candidateLimit": 256,
+            "totalRouteLimit": 384
+          }
+        },
+        {
           "code": "budget-compaction",
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         },
@@ -1303,7 +1321,7 @@
           }
         }
       ],
-      "elapsedMs": 821.971208
+      "elapsedMs": 633.761875
     },
     {
       "file": "galaxy-fit-without-return.mmd",
@@ -1322,7 +1340,7 @@
       "status": "rendered",
       "nodes": 7,
       "edges": 7,
-      "ms": 80.07950000000005,
+      "ms": 74.0329999999999,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1411,7 +1429,7 @@
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         }
       ],
-      "elapsedMs": 100.57237499999997
+      "elapsedMs": 94.7287080000001
     },
     {
       "file": "galaxy-sources-to-model.mmd",
@@ -1430,7 +1448,7 @@
       "status": "rendered",
       "nodes": 14,
       "edges": 13,
-      "ms": 1490.924167,
+      "ms": 807.77225,
       "metrics": {
         "wordCuts": 0,
         "crossings": 3,
@@ -1563,6 +1581,16 @@
       ],
       "ledger": [
         {
+          "code": "fit-search-limited",
+          "message": "Stopped expansion gutter search at its deterministic work limit.",
+          "detail": {
+            "stage": "expansion-gutters",
+            "routeLimit": 128,
+            "candidateLimit": 256,
+            "totalRouteLimit": 384
+          }
+        },
+        {
           "code": "budget-compaction",
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         },
@@ -1577,7 +1605,7 @@
           }
         }
       ],
-      "elapsedMs": 1512.424834
+      "elapsedMs": 828.4396669999999
     },
     {
       "file": "galaxy-anchors-detailed.mmd",
@@ -1596,7 +1624,7 @@
       "status": "rendered",
       "nodes": 10,
       "edges": 9,
-      "ms": 70.5092080000004,
+      "ms": 72.4488339999998,
       "metrics": {
         "wordCuts": 0,
         "crossings": 3,
@@ -1711,7 +1739,7 @@
           }
         }
       ],
-      "elapsedMs": 91.12395800000013
+      "elapsedMs": 93.09225000000015
     },
     {
       "file": "galaxy-anchors.mmd",
@@ -1730,7 +1758,7 @@
       "status": "rendered",
       "nodes": 9,
       "edges": 8,
-      "ms": 160.00395800000024,
+      "ms": 161.8540420000004,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -1837,7 +1865,7 @@
           }
         }
       ],
-      "elapsedMs": 180.60916599999973
+      "elapsedMs": 182.15783299999975
     },
     {
       "file": "galaxy-build-detailed.mmd",
@@ -1856,7 +1884,7 @@
       "status": "rendered",
       "nodes": 11,
       "edges": 11,
-      "ms": 232.47087499999998,
+      "ms": 804.7642919999998,
       "metrics": {
         "wordCuts": 4,
         "crossings": 0,
@@ -2019,7 +2047,7 @@
           }
         }
       ],
-      "elapsedMs": 253.0151249999999
+      "elapsedMs": 826.7016669999998
     },
     {
       "file": "galaxy-build-compact.mmd",
@@ -2038,9 +2066,9 @@
       "status": "rendered",
       "nodes": 11,
       "edges": 11,
-      "ms": 162.586542,
+      "ms": 374.813541,
       "metrics": {
-        "wordCuts": 3,
+        "wordCuts": 1,
         "crossings": 0,
         "bends": {
           "total": 20,
@@ -2052,7 +2080,7 @@
         },
         "maxArrowheadsOnSide": 3,
         "expansionRatio": 1.5416666666666667,
-        "whitespaceFraction": 0.81006006006006,
+        "whitespaceFraction": 0.8108108108108109,
         "droppedEdges": 0,
         "droppedLabels": 0,
         "pages": 1,
@@ -2170,7 +2198,7 @@
         },
         {
           "code": "word-cut",
-          "message": "Cut words across lines in the label of \"E\", \"R\", \"X\" because no layout with whole words fit.",
+          "message": "Cut words across lines in the label of \"E\" because no layout with whole words fit.",
           "detail": {
             "nodes": [
               {
@@ -2178,24 +2206,12 @@
                 "words": [
                   "Edenhofer"
                 ]
-              },
-              {
-                "id": "R",
-                "words": [
-                  "Drimmel+FIRE"
-                ]
-              },
-              {
-                "id": "X",
-                "words": [
-                  "Dim+scatter"
-                ]
               }
             ]
           }
         }
       ],
-      "elapsedMs": 183.56545800000004
+      "elapsedMs": 395.77808300000015
     },
     {
       "file": "galaxy-score-loop.mmd",
@@ -2214,7 +2230,7 @@
       "status": "rendered",
       "nodes": 10,
       "edges": 12,
-      "ms": 870.0156660000002,
+      "ms": 857.9664580000003,
       "metrics": {
         "wordCuts": 0,
         "crossings": 5,
@@ -2358,7 +2374,7 @@
           }
         }
       ],
-      "elapsedMs": 890.8785419999995
+      "elapsedMs": 878.8887909999999
     },
     {
       "file": "galaxy-five-step-loop.mmd",
@@ -2377,7 +2393,7 @@
       "status": "rendered",
       "nodes": 5,
       "edges": 5,
-      "ms": 71.34037499999977,
+      "ms": 72.5508749999999,
       "metrics": {
         "wordCuts": 0,
         "crossings": 0,
@@ -2450,7 +2466,7 @@
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         }
       ],
-      "elapsedMs": 91.60199999999986
+      "elapsedMs": 92.79433400000016
     },
     {
       "file": "galaxy-sources-h60.mmd",
@@ -2469,21 +2485,21 @@
       "status": "rendered",
       "nodes": 14,
       "edges": 13,
-      "ms": 487.5940419999997,
+      "ms": 1111.10275,
       "metrics": {
-        "wordCuts": 24,
+        "wordCuts": 7,
         "crossings": 1,
         "bends": {
-          "total": 22,
+          "total": 20,
           "max": 6
         },
         "detourRatio": {
-          "mean": 1.2001887273946097,
-          "max": 1.8518518518518519
+          "mean": 1.180921709869078,
+          "max": 1.7
         },
         "maxArrowheadsOnSide": 4,
-        "expansionRatio": 1.3,
-        "whitespaceFraction": 0.863960113960114,
+        "expansionRatio": 1.1833333333333333,
+        "whitespaceFraction": 0.8487871674491393,
         "droppedEdges": 0,
         "droppedLabels": 0,
         "pages": 1,
@@ -2492,145 +2508,148 @@
             "page": 1,
             "edgeId": "edge:[\"A\",\"S\",\"\",\"solid\",0]:0",
             "bends": 2,
-            "routeCells": 17,
-            "portDistance": 16,
-            "detourRatio": 1.0625
+            "routeCells": 19,
+            "portDistance": 18,
+            "detourRatio": 1.0555555555555556
           },
           {
             "page": 1,
             "edgeId": "edge:[\"B\",\"S\",\"\",\"solid\",0]:0",
             "bends": 0,
-            "routeCells": 9,
-            "portDistance": 8,
-            "detourRatio": 1.125
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
           },
           {
             "page": 1,
             "edgeId": "edge:[\"C\",\"S\",\"\",\"solid\",0]:0",
             "bends": 2,
-            "routeCells": 18,
-            "portDistance": 17,
-            "detourRatio": 1.0588235294117647
+            "routeCells": 20,
+            "portDistance": 19,
+            "detourRatio": 1.0526315789473684
           },
           {
             "page": 1,
             "edgeId": "edge:[\"D\",\"G\",\"\",\"solid\",0]:0",
             "bends": 2,
-            "routeCells": 18,
-            "portDistance": 17,
-            "detourRatio": 1.0588235294117647
+            "routeCells": 34,
+            "portDistance": 33,
+            "detourRatio": 1.0303030303030303
           },
           {
             "page": 1,
             "edgeId": "edge:[\"E\",\"D\",\"\",\"solid\",0]:0",
             "bends": 2,
-            "routeCells": 11,
-            "portDistance": 10,
-            "detourRatio": 1.1
+            "routeCells": 19,
+            "portDistance": 18,
+            "detourRatio": 1.0555555555555556
           },
           {
             "page": 1,
             "edgeId": "edge:[\"G\",\"L\",\"\",\"solid\",0]:0",
             "bends": 0,
-            "routeCells": 4,
-            "portDistance": 3,
-            "detourRatio": 1.3333333333333333
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
           },
           {
             "page": 1,
             "edgeId": "edge:[\"H\",\"S\",\"\",\"solid\",0]:0",
             "bends": 6,
-            "routeCells": 50,
-            "portDistance": 27,
-            "detourRatio": 1.8518518518518519
+            "routeCells": 51,
+            "portDistance": 30,
+            "detourRatio": 1.7
           },
           {
             "page": 1,
             "edgeId": "edge:[\"K\",\"X\",\"\",\"solid\",0]:0",
             "bends": 0,
-            "routeCells": 4,
-            "portDistance": 3,
-            "detourRatio": 1.3333333333333333
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
           },
           {
             "page": 1,
             "edgeId": "edge:[\"L\",\"K\",\"\",\"solid\",0]:0",
             "bends": 0,
-            "routeCells": 4,
-            "portDistance": 3,
-            "detourRatio": 1.3333333333333333
+            "routeCells": 5,
+            "portDistance": 4,
+            "detourRatio": 1.25
           },
           {
             "page": 1,
             "edgeId": "edge:[\"P\",\"G\",\"\",\"solid\",0]:0",
             "bends": 2,
-            "routeCells": 21,
-            "portDistance": 20,
-            "detourRatio": 1.05
+            "routeCells": 6,
+            "portDistance": 5,
+            "detourRatio": 1.2
           },
           {
             "page": 1,
             "edgeId": "edge:[\"R\",\"D\",\"\",\"solid\",0]:0",
-            "bends": 2,
-            "routeCells": 13,
-            "portDistance": 12,
-            "detourRatio": 1.0833333333333333
-          },
-          {
-            "page": 1,
-            "edgeId": "edge:[\"S\",\"P\",\"\",\"solid\",0]:0",
-            "bends": 2,
+            "bends": 0,
             "routeCells": 7,
             "portDistance": 6,
             "detourRatio": 1.1666666666666667
           },
           {
             "page": 1,
+            "edgeId": "edge:[\"S\",\"P\",\"\",\"solid\",0]:0",
+            "bends": 2,
+            "routeCells": 8,
+            "portDistance": 7,
+            "detourRatio": 1.1428571428571428
+          },
+          {
+            "page": 1,
             "edgeId": "edge:[\"V\",\"D\",\"\",\"solid\",0]:0",
             "bends": 2,
-            "routeCells": 23,
-            "portDistance": 22,
-            "detourRatio": 1.0454545454545454
+            "routeCells": 19,
+            "portDistance": 18,
+            "detourRatio": 1.0555555555555556
           }
         ]
       },
       "sizes": [
         {
           "width": 72,
-          "height": 78
+          "height": 71
         }
       ],
       "ledger": [
+        {
+          "code": "fit-search-limited",
+          "message": "Stopped expansion gutter search at its deterministic work limit.",
+          "detail": {
+            "stage": "expansion-gutters",
+            "routeLimit": 128,
+            "candidateLimit": 256,
+            "totalRouteLimit": 384
+          }
+        },
         {
           "code": "budget-compaction",
           "message": "Adjusted label wrapping, spacing and orientation to the available cells before simplifying the diagram."
         },
         {
           "code": "layout-expanded",
-          "message": "Expanded the canvas from 72x60 to 72x78 to keep the diagram connected.",
+          "message": "Expanded the canvas from 72x60 to 72x71 to keep the diagram connected.",
           "detail": {
             "requestedWidth": 72,
             "requestedHeight": 60,
             "canvasWidth": 72,
-            "canvasHeight": 78
+            "canvasHeight": 71
           }
         },
         {
           "code": "word-cut",
-          "message": "Cut words across lines in the label of \"A\", \"S\", \"B\", \"C\", \"H\", \"P\", \"G\", \"E\", \"V\", \"R\", \"L\", \"K\", \"X\" because no layout with whole words fit.",
+          "message": "Cut words across lines in the label of \"A\", \"B\", \"P\", \"E\", \"V\", \"R\" because no layout with whole words fit.",
           "detail": {
             "nodes": [
               {
                 "id": "A",
                 "words": [
-                  "Discs:",
                   "Bland-Hawthorn"
-                ]
-              },
-              {
-                "id": "S",
-                "words": [
-                  "Stars"
                 ]
               },
               {
@@ -2640,80 +2659,35 @@
                 ]
               },
               {
-                "id": "C",
-                "words": [
-                  "Arms:"
-                ]
-              },
-              {
-                "id": "H",
-                "words": [
-                  "Hole:",
-                  "Robin"
-                ]
-              },
-              {
                 "id": "P",
                 "words": [
-                  "Paint",
                   "colors:",
                   "Galaxia"
                 ]
               },
               {
-                "id": "G",
-                "words": [
-                  "galaxy"
-                ]
-              },
-              {
                 "id": "E",
                 "words": [
-                  "dust:",
                   "Edenhofer"
                 ]
               },
               {
                 "id": "V",
                 "words": [
-                  "dust:",
                   "Vergely"
                 ]
               },
               {
                 "id": "R",
                 "words": [
-                  "dust:",
                   "Drimmel"
-                ]
-              },
-              {
-                "id": "L",
-                "words": [
-                  "Shine",
-                  "light:",
-                  "CCM89",
-                  "SKIRT"
-                ]
-              },
-              {
-                "id": "K",
-                "words": [
-                  "Camera"
-                ]
-              },
-              {
-                "id": "X",
-                "words": [
-                  "Earth",
-                  "photos"
                 ]
               }
             ]
           }
         }
       ],
-      "elapsedMs": 508.14458300000024
+      "elapsedMs": 1131.6573339999995
     }
   ]
 }
