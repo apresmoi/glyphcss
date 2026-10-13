@@ -16,6 +16,7 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     environment: "node",
+    setupFiles: ["./src/test/eventLoop.ts"],
     // Render-heavy workbench suites time out when every CPU gets a DOM worker.
     maxWorkers: 2,
   },
