@@ -1,3 +1,4 @@
+import { orderGlyphSequenceItem } from "./authoredOrder";
 import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceFrameBranch, GlyphSequenceMessage, GlyphSequenceNote, GlyphSequenceParticipant } from "./types";
 import { glyphDiagramError } from "../validate";
 import { validateGlyphSequence } from "./validate";
@@ -18,7 +19,7 @@ const NOTE_RE = new RegExp(`^note\\s+over\\s+(${ID_RE}(?:\\s*,\\s*${ID_RE})*)\\s
 const SIDE_NOTE_RE = new RegExp(`^note\\s+(left|right)\\s+of\\s+(${ID_RE})\\s*:\\s*(.*)$`, "i");
 const ACTIVATION_RE = new RegExp(`^(activate|deactivate)\\s+(${ID_RE})$`);
 
-interface OpenBlock { readonly kind: string; readonly label: string; readonly startIndex: number; readonly branches: GlyphSequenceFrameBranch[] }
+interface OpenBlock { readonly kind: string; readonly label: string; readonly startIndex: number; readonly order: number; readonly branches: GlyphSequenceFrameBranch[] }
 
 /** Mermaid comments occupy their own line; message text remains literal. */
 function statementLines(source: string): string[] {
@@ -49,13 +50,13 @@ export function glyphSequenceFromMermaid(source: string): GlyphSequence {
   // nothing.
   const close = (block: OpenBlock): void => {
     if (block.kind === "rect" || block.kind === "box") return;
-    if (block.startIndex <= messages.length - 1) frames.push({
+    if (block.startIndex <= messages.length - 1) frames.push(orderGlyphSequenceItem({
       kind: block.kind, ...(block.label ? { label: block.label } : {}), from: block.startIndex, to: messages.length - 1,
       ...(block.branches.length ? { branches: block.branches } : {}),
-    });
+    }, block.order));
   };
 
-  for (const line of lines) {
+  for (const [order, line] of lines.entries()) {
     const declare = DECLARE_RE.exec(line);
     if (declare) {
       const [, kindWord, id, label] = declare;
@@ -70,7 +71,7 @@ export function glyphSequenceFromMermaid(source: string): GlyphSequence {
     }
     if (stack.at(-1)?.kind === "box") syntax(`"box" supports participant/actor declarations only; found "${line}".`);
     const blockStart = BLOCK_START_RE.exec(line);
-    if (blockStart) { stack.push({ kind: blockStart[1]!, label: blockStart[2]?.trim() ?? "", startIndex: messages.length, branches: [] }); continue; }
+    if (blockStart) { stack.push({ kind: blockStart[1]!, label: blockStart[2]?.trim() ?? "", startIndex: messages.length, order, branches: [] }); continue; }
     const branch = BRANCH_RE.exec(line);
     if (branch) {
       const top = stack[stack.length - 1];
@@ -78,7 +79,7 @@ export function glyphSequenceFromMermaid(source: string): GlyphSequence {
       const owner = kind === "else" ? "alt" : kind === "and" ? "par" : "critical";
       if (top?.kind !== owner) syntax(`"${kind}" has no matching "${owner}".`);
       const label = branch[2]!.trim();
-      top.branches.push({ kind, ...(label ? { label } : {}), at: messages.length });
+      top.branches.push(orderGlyphSequenceItem({ kind, ...(label ? { label } : {}), at: messages.length }, order));
       continue;
     }
     if (line === "autonumber") { autonumber = true; continue; }
@@ -93,14 +94,14 @@ export function glyphSequenceFromMermaid(source: string): GlyphSequence {
     const sideNote = SIDE_NOTE_RE.exec(line);
     if (sideNote) {
       ensureParticipant(sideNote[2]!);
-      notes.push({ text: sideNote[3]!.trim(), over: [sideNote[2]!], at: messages.length, placement: sideNote[1]!.toLowerCase() as "left" | "right" });
+      notes.push(orderGlyphSequenceItem({ text: sideNote[3]!.trim(), over: [sideNote[2]!], at: messages.length, placement: sideNote[1]!.toLowerCase() as "left" | "right" }, order));
       continue;
     }
     const note = NOTE_RE.exec(line);
     if (note) {
       const over = note[1]!.split(",").map((id) => id.trim());
       over.forEach(ensureParticipant);
-      notes.push({ text: note[2]!.trim(), over, at: messages.length });
+      notes.push(orderGlyphSequenceItem({ text: note[2]!.trim(), over, at: messages.length }, order));
       continue;
     }
     const arrow = ARROW_RE.exec(line);

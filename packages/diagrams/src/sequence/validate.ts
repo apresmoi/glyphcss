@@ -1,3 +1,4 @@
+import { glyphSequenceAuthoredOrder, orderGlyphSequenceItem } from "./authoredOrder";
 import type { GlyphSequence, GlyphSequenceParticipantShape, GlyphSequenceMessageStyle } from "./types";
 import { glyphDiagramError } from "../validate";
 
@@ -106,8 +107,8 @@ export function validateGlyphSequence(input: unknown): GlyphSequence {
     ...(sequence.title === undefined ? {} : { title: sequence.title }),
     participants: sequence.participants.map((p) => ({ ...p })),
     messages: sequence.messages.map((m) => ({ ...m })),
-    ...(sequence.frames === undefined ? {} : { frames: sequence.frames.map((f) => ({ ...f, ...(f.branches ? { branches: f.branches.map((b) => ({ ...b })) } : {}) })) }),
-    ...(sequence.notes === undefined ? {} : { notes: sequence.notes.map((n) => ({ ...n, over: [...n.over] })) }),
+    ...(sequence.frames === undefined ? {} : { frames: sequence.frames.map((f) => orderGlyphSequenceItem({ ...f, ...(f.branches ? { branches: f.branches.map((b) => orderGlyphSequenceItem({ ...b }, glyphSequenceAuthoredOrder(b))) } : {}) }, glyphSequenceAuthoredOrder(f))) }),
+    ...(sequence.notes === undefined ? {} : { notes: sequence.notes.map((n) => orderGlyphSequenceItem({ ...n, over: [...n.over] }, glyphSequenceAuthoredOrder(n))) }),
   };
 }
 

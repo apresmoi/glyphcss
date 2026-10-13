@@ -47,10 +47,10 @@ describe("Dagre alignment is a private fit dimension", () => {
       const result = await renderGlyphDiagram(text, { target: "web" });
       expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(15);
       expect(computeGlyphDiagramQuality(result, { width: 96, height: 32 })).toMatchObject({
-        wordCuts: 0, crossings: 2, bends: { total: 16, max: 4 }, droppedEdges: 0, droppedLabels: 0, pages: 1,
+        wordCuts: 0, crossings: 0, bends: { total: 10, max: 2 }, droppedEdges: 0, droppedLabels: 0, pages: 1,
       });
       expect(createHash("sha256").update(result.text).digest("hex"))
-        .toBe("ef49a31a89cd5b05665dd0cf41850a4b10449aaf0c5bc8043ba3a8d679cf8c88");
+        .toBe("86379608bd9352577c00d367121c498fb3224076ff5acf450d08f44627300343");
     } finally { control.routeLimit = Infinity; }
   });
 

@@ -16,8 +16,8 @@ const deploy = `flowchart LR
   ok -->|yes| build[Build image]
   ok -->|no| fix[Fix code]
   fix --> push
-  build --> staging[Deploy staging]
-  staging --> prod[Deploy prod]`;
+  build --> staging[Deploy staging environment]
+  staging --> prod[Deploy prod cluster]`;
 const order = `flowchart LR
   order[New order] --> validate[Validate cart]
   validate --> stock{In stock?}

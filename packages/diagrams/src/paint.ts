@@ -148,6 +148,8 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   // neighbour exists there instead of requiring both.
   for (const route of routing.routes) {
     const routeColor = routeColors.get(route.edge.id)!;
+    const side = layout.ports.find((port) => port.edgeId === route.edge.id && port.end === "from")?.side;
+    const singleAxis = side === "n" || side === "s" ? "v" : "h";
     let dotPhase = 0;
     // The route's own LAST drawable cell sits flush against the arrowhead
     // `canvas.arrowhead` paints at the port's anchor, one cell further in —
@@ -164,8 +166,9 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       const axis = prev && next ? (prev.x === next.x ? "v" : prev.y === next.y ? "h" : undefined)
         : prev ? (prev.x === p.x ? "v" : "h")
         : next ? (next.x === p.x ? "v" : "h")
-        : undefined;
-      let glyph = canvas.grid.char[p.y * canvas.cols + p.x]!;
+        : singleAxis;
+      // Junction resolution has no neighbour from which to infer a one-cell segment.
+      let glyph = route.cells.length === 1 ? tier.straight[singleAxis] : canvas.grid.char[p.y * canvas.cols + p.x]!;
       // A dotted EDGE uses the axis-oriented `hop` glyph (`╌`/`╎`), never the
       // isotropic `dot` a group boundary rings itself with — USER FEEDBACK,
       // verbatim: "some of the lines that are dotted are hard to understand

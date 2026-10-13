@@ -239,10 +239,10 @@ it.each([
 it("detects translation-invariant protected lane collisions before routing", async () => {
   const { layoutGlyphGraph } = await import("./pipeline");
   const { glyphDiagramHasRoutingClearance } = await import("./route");
-  const graph = glyphGraphFromMermaid(readFileSync("fixtures/langgraph.mmd", "utf8"));
+  const graph = glyphGraphFromMermaid(readFileSync("fixtures/six-port.mmd", "utf8"));
   const tight = await layoutGlyphGraph(graph, { direction: "LR", nodesep: 3, ranksep: 3 });
   expect(glyphDiagramHasRoutingClearance(tight)).toBe(false);
-  const roomy = await layoutGlyphGraph(graph, { direction: "LR", nodesep: 4, ranksep: 4 });
+  const roomy = await layoutGlyphGraph(graph, { direction: "LR", nodesep: 5, ranksep: 5 });
   expect(glyphDiagramHasRoutingClearance(roomy)).toBe(true);
   const shifted = {
     ...tight,

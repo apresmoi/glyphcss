@@ -86,7 +86,7 @@ describe("cut words are reported", () => {
 
   it("names the nodes whose words were broken across lines", async () => {
     // Mutation: drop the detection in render.ts -> the ledger shows only budget-compaction.
-    const r = await renderGlyphDiagram(BUSY, { target: "chat", width: 72, height: 38, overflow: "paginate", autoDirection: false });
+    const r = await renderGlyphDiagram(BUSY, { target: "chat", width: 24, height: 38, overflow: "paginate", autoDirection: false });
     const entry = r.report.ledger.find((e) => e.code === "word-cut");
     expect(entry).toBeDefined();
     const cut = (entry!.detail as { nodes: { id: string; words: string[] }[] }).nodes;

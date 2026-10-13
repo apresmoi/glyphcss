@@ -1,3 +1,4 @@
+import { glyphSequenceAuthoredOrder } from "./authoredOrder";
 import type { GlyphCanvasTierName } from "glyphcss";
 import { glyphDiagramText, glyphDiagramTruncateLabel } from "../labels";
 import { ledgerLabelAbbreviated, type GlyphDiagramLedgerEntry } from "../ledger";
@@ -127,7 +128,7 @@ function frameBoxes(sequence: GlyphSequence, xs: readonly number[], labelCap: nu
       if (m.from === m.to) ink = Math.max(ink, selfInkRight(xs[indexOf.get(m.from)!]!, wrappedWidth(m.label ?? "", labelCap, charset)));
     }
     const sideNotes = [];
-    for (const note of sequence.notes ?? []) if (note.at >= frame.from && note.at <= frame.to) {
+    for (const note of sequence.notes ?? []) if (note.at >= frame.from && note.at <= frame.to && !(note.at === frame.from && glyphSequenceAuthoredOrder(note) < glyphSequenceAuthoredOrder(frame))) {
       touched.push(...note.over.map((id) => indexOf.get(id)!));
       if (note.placement) sideNotes.push(sideNoteBox(note, xs[indexOf.get(note.over[0]!)!]!, labelCap, charset));
     }
@@ -186,9 +187,13 @@ function columnPositions(sequence: GlyphSequence, labelCap: number, charset: Gly
     return xs;
   };
   let xs = positions();
-  for (const note of sequence.notes ?? []) if (note.placement === "left") {
-    const box = sideNoteBox(note, xs[indexOf.get(note.over[0]!)!]!, labelCap, charset);
-    if (box.x0 < 1) { lead += 1 - box.x0; xs = positions(); }
+  for (const note of sequence.notes ?? []) if (note.placement) {
+    const lane = indexOf.get(note.over[0]!)!;
+    const box = sideNoteBox(note, 0, labelCap, charset);
+    if (note.placement === "right" && lane < gaps.length) gaps[lane] = Math.max(gaps[lane]!, box.x1 + 2);
+    if (note.placement === "left" && lane > 0) gaps[lane - 1] = Math.max(gaps[lane - 1]!, 2 - box.x0);
+    xs = positions();
+    if (note.placement === "left" && xs[lane]! + box.x0 < 1) { lead += 1 - xs[lane]! - box.x0; xs = positions(); }
   }
   // Each pass only widens, so this settles; the cap bounds a pathological nest.
   for (let pass = 0; pass < 2 * (sequence.frames?.length ?? 0); pass++) {
@@ -331,9 +336,8 @@ function markerBox(xs: readonly number[], label: string, canvasWidth: number): {
  *
  * Between two messages the order is fixed: frames ending there close (inner
  * first, each after its own trailing dividers), then the `air` row, then
- * dividers of frames still open, then frames starting there open (outer
- * first, each followed by any divider at its very start), then notes — so a
- * border sits flush against the messages it encloses.
+ * dividers/opening borders/notes follow Mermaid statement order. JSON has no
+ * statement order, so it keeps dividers, openings (outer first), then notes.
  */
 export function layoutGlyphSequenceRows(sequence: GlyphSequence, columns: readonly GlyphSequenceColumn[], startRow: number, opts: { readonly charset?: GlyphCanvasTierName; readonly width?: number; readonly air?: number; readonly labelCap?: number; readonly frameExtents?: readonly GlyphSequenceFrameExtent[] } = {}): GlyphSequenceRowsResult {
   const charset = opts.charset ?? "box";
@@ -375,21 +379,35 @@ export function layoutGlyphSequenceRows(sequence: GlyphSequence, columns: readon
       row++;
     }
     if (i > 0 && i < messages.length) row += opts.air ?? 0;
-    for (const index of frameIds.filter((f) => open.has(f)).sort(byDepth(-1))) divide(index, i);
+    const events: { order: number; paint: () => void }[] = [];
+    const dividers = (index: number) => {
+      for (const branch of frames[index]!.branches ?? []) if (branch.at === i) events.push({
+        order: glyphSequenceAuthoredOrder(branch), paint: () => {
+          open.get(index)!.dividers.push({ row, text: markerText(branch.kind, branch.label, " ", charset) });
+          row++;
+        },
+      });
+    };
+    for (const index of frameIds.filter((f) => open.has(f)).sort(byDepth(-1))) dividers(index);
     for (const index of frameIds.filter((f) => frames[f]!.from === i).sort(byDepth(-1))) {
-      open.set(index, { top: row, dividers: [] });
-      row++;
-      divide(index, i);
+      events.push({ order: glyphSequenceAuthoredOrder(frames[index]!), paint: () => {
+        open.set(index, { top: row, dividers: [] });
+        row++;
+      } });
+      dividers(index);
     }
     for (const note of notes) {
       if (note.at !== i || !note.over.length) continue;
-      const text = markerText("note", note.text, "  ", charset);
-      const { x0, x1, centerX } = note.placement
-        ? sideNoteBox(note, xOf.get(note.over[0]!)!, opts.labelCap ?? Number.MAX_SAFE_INTEGER, charset)
-        : markerBox(note.over.map((id) => xOf.get(id)!), text, canvasWidth);
-      rows.push({ type: "marker", kind: "note", label: note.text, text, x0, x1, centerX, top: row, height: 3 });
-      row += 3;
+      events.push({ order: glyphSequenceAuthoredOrder(note), paint: () => {
+        const text = markerText("note", note.text, "  ", charset);
+        const { x0, x1, centerX } = note.placement
+          ? sideNoteBox(note, xOf.get(note.over[0]!)!, opts.labelCap ?? Number.MAX_SAFE_INTEGER, charset)
+          : markerBox(note.over.map((id) => xOf.get(id)!), text, canvasWidth);
+        rows.push({ type: "marker", kind: "note", label: note.text, text, x0, x1, centerX, top: row, height: 3 });
+        row += 3;
+      } });
     }
+    for (const event of events.sort((a, b) => a.order - b.order)) event.paint();
     if (i === messages.length) break;
     const message = messages[i]!;
     const self = message.from === message.to;

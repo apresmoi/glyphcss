@@ -1,3 +1,4 @@
+import { glyphSequenceAuthoredOrder, orderGlyphSequenceItem } from "./authoredOrder";
 import type { GlyphCanvas, GlyphCanvasTierName } from "glyphcss";
 import { glyphSequenceFromMermaid } from "./mermaid";
 import { glyphDiagramError } from "../validate";
@@ -96,13 +97,13 @@ function panelSequence(sequence: GlyphSequence, extents: readonly GlyphSequenceF
     // A continued frame's divider AT `from` became its header; one past `to`
     // belongs to the next panel unless the frame closes here.
     const kept = branches.filter((b) => (current ? b.at > from : true) && b.at <= (frame.to <= to ? frame.to + 1 : to))
-      .map((b) => ({ ...b, at: b.at - from }));
-    frames.push({
+      .map((b) => orderGlyphSequenceItem({ ...b, at: b.at - from }, glyphSequenceAuthoredOrder(b)));
+    frames.push(orderGlyphSequenceItem({
       kind: head.kind, ...(head.label === undefined ? {} : { label: head.label }),
       from: Math.max(frame.from, from) - from, to: end - from, ...(kept.length ? { branches: kept } : {}),
-    });
+    }, glyphSequenceAuthoredOrder(frame)));
   }
-  const notes = (sequence.notes ?? []).filter((n) => n.at >= from && (n.at <= to || (last && n.at === to + 1))).map((n) => ({ ...n, at: n.at - from }));
+  const notes = (sequence.notes ?? []).filter((n) => n.at >= from && (n.at <= to || (last && n.at === to + 1))).map((n) => orderGlyphSequenceItem({ ...n, at: n.at - from }, glyphSequenceAuthoredOrder(n)));
   return {
     sequence: { participants: sequence.participants, messages: sequence.messages.slice(from, to + 1), ...(frames.length ? { frames } : {}), ...(notes.length ? { notes } : {}) },
     frameExtents,

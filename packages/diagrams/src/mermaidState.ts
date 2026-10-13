@@ -217,7 +217,6 @@ function parseMermaidState(source: string): { graph: GlyphGraph; notes: GlyphDia
   if (stack.length) syntax(`Unclosed composite state "${stack[stack.length - 1]}".`);
 
   // A composite with no inner state is an ordinary state.
-  // A composite with no inner state is an ordinary state.
   for (const composite of [...composites.values()]) {
     if (composite.members.length > 0) continue;
     composites.delete(composite.id);

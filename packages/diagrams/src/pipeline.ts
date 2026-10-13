@@ -193,13 +193,23 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
   // A self-edge never competes for the flow sides: it hangs on the loop side.
   const flow = measured.edges.filter((e) => e.from !== e.to);
   const loopSide = glyphDiagramLoopSide(measured.direction);
+  const back = backEdgeIds(measured.nodes, flow);
+  // Closing edges use transverse ports, not the flow sides.
+  const backSide = loopSide === "e" ? "w" : "n";
+  const pointIds = new Set(measured.nodes.filter((node) => node.shape === "point").map((node) => node.id));
+  const edgeSide = (edge: GlyphDiagramEdge, end: "from" | "to") => back.has(edge.id) && !pointIds.has(end === "from" ? edge.from : edge.to) ? backSide : end === "from" ? fromSide : toSide;
   const nodes = measured.nodes.map((node) => {
     let width = node.width, height = node.height;
     // A point has no border to keep ports off its corners: k ports need 2k - 1 cells. Along the flow it also holds what its
     // entries need before the glyph: nothing, one arrowhead, or (several) a bar and then one arrowhead.
     const point = node.shape === "point", room = (count: number) => point ? Math.max(1, 2 * count - 1) : 2 * count + 1;
-    // Size both opposite sides before assigning either side's offsets.
-    for (const [side, count] of [[fromSide, flow.filter((e) => e.from === node.id).length], [toSide, flow.filter((e) => e.to === node.id).length]] as const) {
+    const connectionsOn = (side: GlyphCanvasDirection) => flow.flatMap((edge) => [
+      ...(edge.from === node.id && side === edgeSide(edge, "from") ? [{ edgeId: edge.id, end: "from" as const }] : []),
+      ...(edge.to === node.id && side === edgeSide(edge, "to") ? [{ edgeId: edge.id, end: "to" as const }] : []),
+    ]);
+    // Size every side before centering any port on it.
+    for (const side of ["n", "e", "s", "w"] as const) {
+      const count = connectionsOn(side).length;
       if (side === "n" || side === "s") width = Math.max(width, room(count));
       else height = Math.max(height, room(count));
     }
@@ -208,12 +218,7 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       if (loopSide === "e") height = Math.max(height, along); else width = Math.max(width, along);
     }
     for (const side of ["n", "e", "s", "w"] as const) {
-      const connections = flow.flatMap((edge) => [
-        ...(edge.from === node.id && side === fromSide ? [{ edgeId: edge.id, end: "from" as const }] : []),
-        ...(edge.to === node.id && side === toSide ? [{ edgeId: edge.id, end: "to" as const }] : []),
-      ]);
-      const min = room(connections.length);
-      if (side === "n" || side === "s") width = Math.max(width, min); else height = Math.max(height, min);
+      const connections = connectionsOn(side);
       const length = side === "n" || side === "s" ? width : height;
       connections.forEach((connection, index) => ports.push({ ...connection, nodeId: node.id, side, offset: Math.floor((length - 1 - 2 * (connections.length - 1)) / 2) + 2 * index }));
     }
@@ -398,22 +403,41 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   const shiftY = Math.min(...positioned.map((node) => node.y0)) - margin - inset;
   const nodes = positioned.map((node) => ({ ...node, x0: node.x0 - shiftX, x1: node.x1 - shiftX, y0: node.y0 - shiftY, y1: node.y1 - shiftY }));
   const byId = new Map(nodes.map((node) => [node.id, node]));
+  // Follow Dagre's transverse embedding for a reversed edge; a fixed side can
+  // cross the forward branch Dagre put on that side. Capacity was reserved on
+  // the opposite self-loop side; switching a subset keeps that same capacity.
+  const backSides = new Map<string, GlyphCanvasDirection>();
+  for (const edge of reserved.edges.filter((edge) => back.has(edge.id))) {
+    const from = g.node(edge.from), to = g.node(edge.to);
+    const path = g.edge({ v: edge.from, w: edge.to, name: edge.id }) ?? g.edge({ v: edge.to, w: edge.from, name: edge.id });
+    const points = path.points as { x: number; y: number }[];
+    const axis = across ? "x" : "y";
+    const middle = points[Math.floor(points.length / 2)]![axis];
+    const positive = middle > (from[axis] + to[axis]) / 2;
+    const hasLoop = reserved.loops.some((loop) => loop.nodeId === edge.from || loop.nodeId === edge.to);
+    backSides.set(edge.id, hasLoop ? (across ? "w" : "n") : across ? (positive ? "e" : "w") : (positive ? "s" : "n"));
+  }
+  const planned = reserved.ports.map((port) => backSides.has(port.edgeId) && byId.get(port.nodeId)!.shape !== "point"
+    ? { ...port, side: backSides.get(port.edgeId)! } : port);
   // Capacity and escape slots were reserved before layout. Assign those slots
   // in the engine's actual transverse order, not in lexical edge order: dagre
   // 3 may reverse siblings while retaining a perfectly planar embedding.
   const offsets = new Map<GlyphDiagramPort, number>();
   for (const node of nodes) for (const side of ["n", "e", "s", "w"] as const) {
-    const ports = reserved.ports.filter((p) => p.nodeId === node.id && p.side === side);
+    const ports = planned.filter((p) => p.nodeId === node.id && p.side === side);
     const transverse = (port: GlyphDiagramPort) => {
       const edge = reserved.edges.find((e) => e.id === port.edgeId)!;
       const other = byId.get(port.end === "from" ? edge.to : edge.from)!;
       return side === "n" || side === "s" ? other.x0 + other.x1 : other.y0 + other.y1;
     };
-    const slots = ports.map((p) => p.offset).sort((a, b) => a - b);
+    const length = side === "n" || side === "s" ? node.width : node.height;
+    const slots = ports.some((port) => back.has(port.edgeId))
+      ? ports.map((_, i) => Math.floor((length - 1 - 2 * (ports.length - 1)) / 2) + 2 * i)
+      : ports.map((port) => port.offset).sort((a, b) => a - b);
     ports.sort((a, b) => transverse(a) - transverse(b) || compare(a.edgeId, b.edgeId));
     ports.forEach((port, i) => offsets.set(port, slots[i]!));
   }
-  const ports = reserved.ports.map((original) => {
+  const ports = planned.map((original) => {
     const port = { ...original, offset: offsets.get(original)! };
     const node = byId.get(port.nodeId)!;
     const anchor = port.side === "n" || port.side === "s"
