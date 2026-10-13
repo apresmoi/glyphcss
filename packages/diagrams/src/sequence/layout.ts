@@ -1,7 +1,7 @@
 import type { GlyphCanvasTierName } from "glyphcss";
 import { glyphDiagramText, glyphDiagramTruncateLabel } from "../labels";
 import { ledgerLabelAbbreviated, type GlyphDiagramLedgerEntry } from "../ledger";
-import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceMessage, GlyphSequenceParticipantShape } from "./types";
+import type { GlyphSequence, GlyphSequenceFrame, GlyphSequenceMessage, GlyphSequenceNote, GlyphSequenceParticipantShape } from "./types";
 
 /**
  * There is no layout PROBLEM here (see the package's own sequence contract
@@ -37,6 +37,12 @@ function halfWidth(label: string): number { return Math.max(1, Math.ceil(label.l
 
 function markerText(kind: string, label: string | undefined, separator: string, charset: GlyphCanvasTierName): string {
   return glyphDiagramText(label ? `${kind}${separator}${label}` : kind, charset);
+}
+
+function sideNoteBox(note: GlyphSequenceNote, x: number, cap: number, charset: GlyphCanvasTierName) {
+  const width = markerText("note", glyphDiagramTruncateLabel(note.text, cap, charset), "  ", charset).length + 4;
+  const x0 = note.placement === "left" ? x - width - 1 : x + 2;
+  return { x0, x1: x0 + width - 1, centerX: x0 + Math.floor(width / 2) };
 }
 
 /**
@@ -120,14 +126,18 @@ function frameBoxes(sequence: GlyphSequence, xs: readonly number[], labelCap: nu
       touched.push(indexOf.get(m.from)!, indexOf.get(m.to)!);
       if (m.from === m.to) ink = Math.max(ink, selfInkRight(xs[indexOf.get(m.from)!]!, wrappedWidth(m.label ?? "", labelCap, charset)));
     }
-    for (const note of sequence.notes ?? []) if (note.at >= frame.from && note.at <= frame.to) touched.push(...note.over.map((id) => indexOf.get(id)!));
+    const sideNotes = [];
+    for (const note of sequence.notes ?? []) if (note.at >= frame.from && note.at <= frame.to) {
+      touched.push(...note.over.map((id) => indexOf.get(id)!));
+      if (note.placement) sideNotes.push(sideNoteBox(note, xs[indexOf.get(note.over[0]!)!]!, labelCap, charset));
+    }
     const lo = Math.min(...touched), hi = Math.max(...touched);
     const offset = 1 + depths[f]!;
     const text = markerText(frame.kind, frame.label === undefined ? undefined : glyphDiagramTruncateLabel(frame.label, labelCap, charset), " ", charset);
     const inner = order.filter((g) => depths[g]! < depths[f]! && boxes[g] && frames[g]!.from >= frame.from && frames[g]!.to <= frame.to).map((g) => boxes[g]!);
     const extent = extents?.[f];
-    const x0 = Math.min(xs[lo]! - offset, ...inner.map((b) => b.x0 - 1), extent?.x0 ?? Infinity);
-    const base = Math.max(Math.max(xs[hi]!, ink) + offset, ...inner.map((b) => b.x1 + 1), extent?.x1 ?? -Infinity);
+    const x0 = Math.min(xs[lo]! - offset, ...inner.map((b) => b.x0 - 1), ...sideNotes.map((b) => b.x0 - 1), extent?.x0 ?? Infinity);
+    const base = Math.max(Math.max(xs[hi]!, ink) + offset, ...inner.map((b) => b.x1 + 1), ...sideNotes.map((b) => b.x1 + 1), extent?.x1 ?? -Infinity);
     const fit = x0 + text.length + 5;
     return { lo, hi, x0, x1: Math.max(base, fit), text, full: markerText(frame.kind, frame.label, " ", charset), short: Math.max(0, fit - base) };
   }
@@ -176,6 +186,10 @@ function columnPositions(sequence: GlyphSequence, labelCap: number, charset: Gly
     return xs;
   };
   let xs = positions();
+  for (const note of sequence.notes ?? []) if (note.placement === "left") {
+    const box = sideNoteBox(note, xs[indexOf.get(note.over[0]!)!]!, labelCap, charset);
+    if (box.x0 < 1) { lead += 1 - box.x0; xs = positions(); }
+  }
   // Each pass only widens, so this settles; the cap bounds a pathological nest.
   for (let pass = 0; pass < 2 * (sequence.frames?.length ?? 0); pass++) {
     let changed = false;
@@ -196,6 +210,7 @@ function columnPositions(sequence: GlyphSequence, labelCap: number, charset: Gly
   }
   for (const message of messages) if (message.from === message.to) inkRight = Math.max(inkRight, selfInkRight(xs[indexOf.get(message.from)!]!, wrappedWidth(message.label ?? "", whole.has(message) ? Number.MAX_SAFE_INTEGER : labelCap, charset)));
   for (const box of frameBoxes(sequence, xs, labelCap, charset)) inkRight = Math.max(inkRight, box.x1);
+  for (const note of sequence.notes ?? []) if (note.placement) inkRight = Math.max(inkRight, sideNoteBox(note, xs[indexOf.get(note.over[0]!)!]!, labelCap, charset).x1);
   const trailingSelf = participants.length ? selfAt.has(participants.length - 1) : false;
   const rightMargin = 2 + (trailingSelf ? SELF_LOOP_WIDTH + 2 : 0);
   const width = Math.max((xs[xs.length - 1] ?? 0) + halves[halves.length - 1]! + rightMargin, inkRight + 2);
@@ -235,7 +250,7 @@ export interface GlyphSequenceColumnsResult {
  */
 export function layoutGlyphSequenceColumns(sequence: GlyphSequence, opts: { readonly charset?: GlyphCanvasTierName; readonly maxWidth?: number } = {}): GlyphSequenceColumnsResult {
   const charset = opts.charset ?? "box";
-  const naturalCap = Math.max(3, ...sequence.participants.map((p) => p.label.length), ...sequence.messages.map((m) => m.label?.length ?? 0), ...(sequence.frames ?? []).map((f) => f.label?.length ?? 0));
+  const naturalCap = Math.max(3, ...sequence.participants.map((p) => p.label.length), ...sequence.messages.map((m) => m.label?.length ?? 0), ...(sequence.frames ?? []).map((f) => f.label?.length ?? 0), ...(sequence.notes ?? []).filter((n) => n.placement).map((n) => n.text.length));
   let cap = naturalCap;
   let result = columnPositions(sequence, cap, charset);
   if (opts.maxWidth !== undefined) {
@@ -369,7 +384,9 @@ export function layoutGlyphSequenceRows(sequence: GlyphSequence, columns: readon
     for (const note of notes) {
       if (note.at !== i || !note.over.length) continue;
       const text = markerText("note", note.text, "  ", charset);
-      const { x0, x1, centerX } = markerBox(note.over.map((id) => xOf.get(id)!), text, canvasWidth);
+      const { x0, x1, centerX } = note.placement
+        ? sideNoteBox(note, xOf.get(note.over[0]!)!, opts.labelCap ?? Number.MAX_SAFE_INTEGER, charset)
+        : markerBox(note.over.map((id) => xOf.get(id)!), text, canvasWidth);
       rows.push({ type: "marker", kind: "note", label: note.text, text, x0, x1, centerX, top: row, height: 3 });
       row += 3;
     }

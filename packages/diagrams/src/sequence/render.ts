@@ -110,15 +110,15 @@ function panelSequence(sequence: GlyphSequence, extents: readonly GlyphSequenceF
 }
 
 export async function renderGlyphSequence(input: GlyphSequence | string, options: GlyphSequenceRenderOptions = {}): Promise<GlyphSequenceResult> {
-  const opts = resolvedOptions(options);
   const sequence = validateGlyphSequence(typeof input === "string" ? glyphSequenceFromMermaid(input) : input);
+  const opts = resolvedOptions({ ...options, title: options.title === undefined ? sequence.title : options.title });
   const ledger: GlyphDiagramLedgerEntry[] = [];
 
   const cols = layoutGlyphSequenceColumns(sequence, { charset: opts.charset, maxWidth: opts.width });
   ledger.push(...cols.ledger);
 
   const hasActor = cols.columns.some((c) => c.shape === "actor");
-  const headerRows = hasActor ? 2 : 1;
+  const headerRows = (hasActor ? 2 : 1) + (opts.title ? 2 : 0);
   const pageHeight = (body: number): number => headerRows + 1 + body + 1;
   const extents = glyphSequenceFrameExtents(sequence, cols.columns, { charset: opts.charset, labelCap: cols.labelCap });
   const layout = (panel: GlyphSequencePanel, air: number) => layoutGlyphSequenceRows(panel.sequence, cols.columns, 0, { charset: opts.charset, width: opts.width, air, labelCap: cols.labelCap, frameExtents: panel.frameExtents });
@@ -166,7 +166,7 @@ export async function renderGlyphSequence(input: GlyphSequence | string, options
     pages: paintedPages.map(({ text, html, canvas }) => ({ text, canvas, ...(html === undefined ? {} : { html }) })),
     meta: {
       participants: sequence.participants, messages: sequence.messages, frames: sequence.frames ?? [], notes: sequence.notes ?? [],
-      description: `${options.title ? `${options.title}. ` : ""}${sequence.participants.length} participants, ${sequence.messages.length} messages; ${panels.length} panel${panels.length === 1 ? "" : "s"}.`,
+      description: `${opts.title ? `${opts.title}. ` : ""}${sequence.participants.length} participants, ${sequence.messages.length} messages; ${panels.length} panel${panels.length === 1 ? "" : "s"}.`,
     },
     report: { ledger: dedupeGlyphDiagramLedger(ledger), unsupportedGlyphs: paintedPages.flatMap((p) => p.unsupportedGlyphs) },
   };

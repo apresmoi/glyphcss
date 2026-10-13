@@ -123,6 +123,25 @@ function cutsWords(result: GlyphDiagramAttempt, charset: GlyphDiagramFitOptions[
 
 async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
   const search: FitSearch = { attempts: new Map(), layouts: new Map(), snakes: new Map(), ledger: [], work: { expansionRoutes: 0 } };
+  const initial = await fitOnce(graph, options, search, true);
+  // A closed return corridor is a geometry failure, not a wrapping failure.
+  // Try the same labels with BK alignment and one extra cell on either gap
+  // before exhaustively wrapping/cutting them. Failed probes remain cached
+  // for the full search; a passing default still keeps its exact output.
+  if (initial.fits && !initial.okay && !cutsWords(initial, options.charset)) {
+    const ns = options.nodesep ?? 4, rs = options.ranksep ?? 4;
+    let repaired: GlyphDiagramAttempt | undefined;
+    for (const align of [undefined, ...GLYPH_DIAGRAM_DAGRE_ALIGNMENTS]) {
+      for (const [nodesep, ranksep] of [[ns, rs], [ns + 1, rs], [ns, rs + 1]]) {
+        const result = await fitOnce(graph, { ...options, nodesep, ranksep, [GLYPH_DIAGRAM_DAGRE_ALIGN]: align } as GlyphDiagramFitOptions, search, true);
+        if (!result.okay || cutsWords(result, options.charset)) continue;
+        const [cells, bends] = routeShape(result), [bestCells, bestBends] = repaired ? routeShape(repaired) : [Infinity, Infinity];
+        if (bends < bestBends || (bends === bestBends && cells < bestCells)) repaired = result;
+        break;
+      }
+    }
+    if (repaired) return { ...repaired, adjusted: true };
+  }
   const first = await fitOnce(graph, options, search);
   let best = first;
   if (!first.okay || cutsWords(first, options.charset)) {
@@ -144,7 +163,7 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
   return search.ledger.length ? { ...best, layout: { ...best.layout, ledger: [...best.layout.ledger, ...search.ledger] } } : best;
 }
 
-async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, search: FitSearch): Promise<GlyphDiagramAttempt> {
+async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, search: FitSearch, initialOnly = false): Promise<GlyphDiagramAttempt> {
   const attempt = (candidate: Candidate, width: number, height: number, stopOnFailure = false): GlyphDiagramAttempt => {
     // Identical BK alignments share centered routes, including unsuccessful
     // probes. Wrap text and loop geometry are part of the identity.
@@ -176,7 +195,7 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
   // that an already-impossible viewport would otherwise prune before layout.
   const initial: Candidate = { raw: await layout(graph, { ...options, direction, labelWidth }), adjusted: false, nodesep, ranksep, margin };
   const first = attempt(initial, width, height);
-  if (first.okay) return first;
+  if (first.okay || initialOnly) return first;
 
   const floor = glyphDiagramCompactionFloor(graph);
   const candidates: Candidate[] = [initial];

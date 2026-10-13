@@ -27,6 +27,7 @@ import { glyphDiagramSnakeLayout } from "./snake";
 import { layoutGlyphGraph } from "./pipeline";
 import { renderGlyphDiagram } from "./render";
 import { routeGlyphGraphEdges } from "./route";
+import { computeGlyphDiagramQuality } from "./quality";
 
 const chain = (nodes: number, loops: readonly number[]) => `flowchart LR\n${Array.from({ length: nodes }, (_, i) => `n${i}[Node ${i}]`).join(" --> ")}\n${loops.map((at, i) => `n${at} -->|retry step ${i}| n${at}`).join("\n")}\n`;
 const work = async (source: string, options: Parameters<typeof renderGlyphDiagram>[1]) => {
@@ -81,9 +82,13 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
       width: 60, height: 24, target: "chat", charset: "box", color: "none", autoDirection: true, detail: "faithful", overflow: "expand",
     });
     expect(result.pages).toHaveLength(1);
-    expect(result.canvas.grid).toMatchObject({ cols: 60, rows: 34 });
+    // Clean cylinders save one row; the reviewed output has one crossing and no semantic loss.
+    expect(computeGlyphDiagramQuality(result, { width: 60, height: 24 })).toMatchObject({
+      wordCuts: 0, crossings: 1, droppedEdges: 0, droppedLabels: 0,
+    });
+    expect(result.canvas.grid).toMatchObject({ cols: 60, rows: 33 });
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("c42a8d84867de8e3e8dc6329be7b4e8fd34d718975be99b5e365b6ba160a777a");
+      .toBe("aea376bd9373c7b14f039fe0fcf010334325872e093e836c5d2fc9676d502932");
   });
   it.each([
     ["galaxy-sources-to-model", 24, "e78406bf4aeddbca28e6274203adfcf8406d1cf070bd76dfacf9e7b2889d5464", 350, 900_000],

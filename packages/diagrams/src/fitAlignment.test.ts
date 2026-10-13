@@ -39,13 +39,29 @@ const alignments = () => vi.mocked(layoutGlyphGraph).mock.calls.map(([, opts]) =
 const clear = () => { vi.mocked(layoutGlyphGraph).mockClear(); vi.mocked(routeGlyphGraphEdges).mockClear(); };
 
 describe("Dagre alignment is a private fit dimension", () => {
+  it("repairs agent-guardrail's web corridor before exhaustive wrapping", async () => {
+    clear();
+    control.routeLimit = 15;
+    try {
+      const text = readFileSync(resolve(__dirname, "../fixtures/agent-guardrail.mmd"), "utf8");
+      const result = await renderGlyphDiagram(text, { target: "web" });
+      expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(15);
+      expect(computeGlyphDiagramQuality(result, { width: 96, height: 32 })).toMatchObject({
+        wordCuts: 0, crossings: 2, bends: { total: 16, max: 4 }, droppedEdges: 0, droppedLabels: 0, pages: 1,
+      });
+      expect(createHash("sha256").update(result.text).digest("hex"))
+        .toBe("ef49a31a89cd5b05665dd0cf41850a4b10449aaf0c5bc8043ba3a8d679cf8c88");
+    } finally { control.routeLimit = Infinity; }
+  });
+
   it("keeps a whole-word default byte-identical without trying extra alignments", async () => {
     clear();
     const text = readFileSync(resolve(__dirname, "../fixtures/event-queue.mmd"), "utf8");
     const result = await renderGlyphDiagram(text, { ...options, width: 60, height: 24 });
+    expect(computeGlyphDiagramQuality(result, { width: 60, height: 24 }).wordCuts).toBe(0);
     expect(alignments().every(align => align === undefined)).toBe(true);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("c42a8d84867de8e3e8dc6329be7b4e8fd34d718975be99b5e365b6ba160a777a");
+      .toBe("aea376bd9373c7b14f039fe0fcf010334325872e093e836c5d2fc9676d502932");
   });
 
   it("recognizes a folded multiline default as a whole-word fit", async () => {

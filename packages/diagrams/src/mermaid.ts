@@ -83,7 +83,12 @@ function statements(source: string): string[] {
   return output;
 }
 
-const SHAPES: readonly { open: string; close: string; shape: GlyphGraphNodeShape }[] = [
+const SHAPES: readonly { open: string; close: string | readonly string[]; shape: GlyphGraphNodeShape }[] = [
+  { open: "(((", close: ")))", shape: "circle" },
+  { open: "[(", close: ")]", shape: "cylinder" },
+  { open: "[/", close: ["/]", "\\]"], shape: "rect" },
+  { open: "[\\", close: ["\\]", "/]"], shape: "rect" },
+  { open: "{{", close: "}}", shape: "rect" },
   { open: "([", close: "])", shape: "stadium" },
   { open: "((", close: "))", shape: "circle" },
   { open: "[[", close: "]]", shape: "subroutine" },
@@ -105,7 +110,8 @@ class GlyphMermaidStatement {
     this.position += value.length;
     return true;
   }
-  private until(close: string): string {
+  private until(close: string | readonly string[]): string {
+    const closers = typeof close === "string" ? [close] : close;
     const start = this.position;
     let quote = "";
     while (this.position < this.source.length) {
@@ -114,14 +120,17 @@ class GlyphMermaidStatement {
         if (char === "\\") this.position++;
         else if (char === quote) quote = "";
       } else if (char === '"' || (char === "'" && /[\s[(|{]/.test(this.source[this.position - 1] ?? " "))) quote = char;
-      else if (this.source.startsWith(close, this.position)) {
-        const value = this.source.slice(start, this.position);
-        this.position += close.length;
-        return value;
+      else {
+        const end = closers.find((value) => this.source.startsWith(value, this.position));
+        if (end) {
+          const value = this.source.slice(start, this.position);
+          this.position += end.length;
+          return value;
+        }
       }
       this.position++;
     }
-    return syntax(`Missing "${close}" in "${this.source}".`);
+    return syntax(`Missing "${closers.join(" or ")}" in "${this.source}".`);
   }
   node(): { node: GlyphGraphNode; declared: boolean } {
     this.whitespace();
@@ -151,10 +160,15 @@ class GlyphMermaidStatement {
     while (this.consume("&")) nodes.push(this.node());
     return nodes;
   }
-  edge(): { style: GlyphGraphEdgeStyle; label?: string } {
+  edge(): { style: GlyphGraphEdgeStyle; label?: string; bidirectional?: boolean } {
     let style: GlyphGraphEdgeStyle;
     let label: string | undefined;
-    if (this.consume("-.->")) style = "dotted";
+    let bidirectional = false;
+    if (this.consume("~~~")) syntax('Invisible link "~~~" is unsupported: the graph IR has no layout-only edge.');
+    if (this.consume("<-->")) { style = "solid"; bidirectional = true; }
+    else if (this.consume("--->")) style = "solid";
+    else if (this.consume("o--o") || this.consume("x--x")) style = "undirected";
+    else if (this.consume("-.->")) style = "dotted";
     else if (this.consume("==>")) style = "thick";
     else if (this.consume("-->")) style = "solid";
     else if (this.consume("---")) style = "undirected";
@@ -163,7 +177,7 @@ class GlyphMermaidStatement {
     else if (this.consume("==")) { style = "thick"; label = labelText(this.until("==>")); }
     else return syntax(`Unsupported edge operator near "${this.rest}".`);
     if (this.consume("|")) label = labelText(this.until("|"));
-    return { style, ...(label !== undefined ? { label } : {}) };
+    return { style, ...(label !== undefined ? { label } : {}), ...(bidirectional ? { bidirectional } : {}) };
   }
 }
 
@@ -228,9 +242,12 @@ export function glyphGraphFromMermaid(source: string): GlyphGraph {
     const cursor = new GlyphMermaidStatement(statement);
     let from = cursor.nodeSet().map(addNode);
     while (cursor.rest) {
-      const edge = cursor.edge();
+      const { bidirectional, ...edge } = cursor.edge();
       const to = cursor.nodeSet().map(addNode);
-      for (const sourceId of from) for (const targetId of to) edges.push({ from: sourceId, to: targetId, ...edge });
+      for (const sourceId of from) for (const targetId of to) {
+        edges.push({ from: sourceId, to: targetId, ...edge });
+        if (bidirectional) edges.push({ from: targetId, to: sourceId, ...edge });
+      }
       from = to;
     }
   }

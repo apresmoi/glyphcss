@@ -2,10 +2,63 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { glyphGraphFromMermaid } from "./mermaid";
+import { renderGlyphDiagram } from "./render";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, "../fixtures", `${name}.mmd`), "utf8");
 
 describe("Mermaid flowchart adapter", () => {
+  const tierOneShapes = [
+    ["[(text)]", "cylinder"], ["[/text/]", "rect"], ["[\\text\\]", "rect"],
+    ["[/text\\]", "rect"], ["[\\text/]", "rect"], ["{{text}}", "rect"], ["(((text)))", "circle"],
+  ] as const;
+
+  it.each(tierOneShapes)("parses %s with a clean label and the existing %s shape", (syntax, shape) => {
+    expect(glyphGraphFromMermaid(`flowchart LR; A${syntax} --> B`).nodes[0]).toEqual({ id: "A", label: "text", shape });
+  });
+
+  it.each(tierOneShapes)("renders %s like an explicitly authored %s", async (syntax, shape) => {
+    const options = { target: "chat", width: 40, height: 12 } as const;
+    const actual = await renderGlyphDiagram(`flowchart LR; A${syntax} --> B`, options);
+    const expected = await renderGlyphDiagram({ direction: "LR", nodes: [{ id: "A", label: "text", shape }, { id: "B", label: "B" }], edges: [{ from: "A", to: "B", style: "solid" }] }, options);
+    expect(actual.text).toBe(expected.text);
+    expect(actual.text).toContain("text");
+  });
+
+  it("protects quoted delimiters and semicolons in tier-1 shapes", () => {
+    expect(glyphGraphFromMermaid('flowchart LR; A[/"a/] b; c"\\] --> B').nodes[0]!.label).toBe("a/] b; c");
+  });
+
+  it.each([["--->", "solid"], ["o--o", "undirected"], ["x--x", "undirected"]] as const)("maps %s to a clean %s edge", async (operator, style) => {
+    const graph = glyphGraphFromMermaid(`flowchart LR; A ${operator}|link| B --> C`);
+    expect(graph.edges).toEqual([{ from: "A", to: "B", style, label: "link" }, { from: "B", to: "C", style: "solid" }]);
+    const result = await renderGlyphDiagram(`flowchart LR; A ${operator} B`, { target: "chat", width: 40, height: 12 });
+    expect(result.report.unroutable).toEqual([]);
+    expect(/[▶▼◀▲]/.test(result.text)).toBe(style === "solid");
+  });
+
+  it("expands <--> to two directed edges, including labels, sets and chains", () => {
+    const graph = glyphGraphFromMermaid("flowchart LR; A & B <-->|both| C --> D");
+    expect(graph.edges).toEqual([
+      { from: "A", to: "C", style: "solid", label: "both" }, { from: "C", to: "A", style: "solid", label: "both" },
+      { from: "B", to: "C", style: "solid", label: "both" }, { from: "C", to: "B", style: "solid", label: "both" },
+      { from: "C", to: "D", style: "solid" },
+    ]);
+  });
+
+  it("renders <--> with heads at both endpoints", async () => {
+    const result = await renderGlyphDiagram("flowchart LR; A <--> B", { target: "chat", width: 40, height: 16 });
+    expect(result.report.unroutable).toEqual([]);
+    expect(result.routes.map((route) => route.edge.to).sort()).toEqual(["A", "B"]);
+    for (const route of result.routes) {
+      const port = result.layout.ports.find((port) => port.edgeId === route.edge.id && port.end === "to")!;
+      expect(/[▶▼◀▲]/.test(result.canvas.grid.char[port.anchor.y * result.canvas.cols + port.anchor.x]!)).toBe(true);
+    }
+  });
+
+  it("rejects ~~~ by name rather than drawing an invisible link", () => {
+    expect(() => glyphGraphFromMermaid("flowchart LR; A ~~~ B")).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_SYNTAX", message: expect.stringContaining('Invisible link "~~~"') }));
+  });
+
   it.each(["chain", "diamond", "fan-out", "cycle", "subgraph", "langgraph", "six-port"])("accepts the %s fixture unchanged", (name) => {
     const source = fixture(name);
     const graph = glyphGraphFromMermaid(source);

@@ -162,6 +162,26 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
       ? options.ringParallelCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.ringParallel : 0;
   const ports = new Map(layout.edges.map((e) => [e.id, layout.ports.filter((p) => p.edgeId === e.id)]));
   const ordered = [...layout.edges].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  // A branch entering a farther border can fence off a nearer sibling's
+  // group entry once committed. Reserve the nearer border first, retaining
+  // the original slots among unrelated edges and equal-distance siblings.
+  const entries = new Map<string, number[]>();
+  const horizontal = layout.direction === "LR" || layout.direction === "RL";
+  ordered.forEach((edge, index) => {
+    const groups = layout.groups.filter(group => group.members.includes(edge.to) && !group.members.includes(edge.from)).map(group => group.id).sort();
+    if (!groups.length) return;
+    const family = JSON.stringify([edge.from, edge.priority ?? 0, groups]);
+    entries.set(family, [...(entries.get(family) ?? []), index]);
+  });
+  const distance = (edge: GlyphDiagramEdge) => {
+    const pair = ports.get(edge.id)!, from = pair.find(port => port.end === "from")!.escape, to = pair.find(port => port.end === "to")!.escape;
+    return horizontal ? Math.abs(from.x - to.x) : Math.abs(from.y - to.y);
+  };
+  for (const indices of entries.values()) {
+    if (indices.length < 2) continue;
+    const family = indices.map(index => ordered[index]!).sort((a, b) => distance(a) - distance(b));
+    indices.forEach((index, i) => { ordered[index] = family[i]!; });
+  }
   // A loop's label room (and the blank cell before it) is kept clear of every other route, so the label paint
   // places beside the loop can never be taken by a transit routed after it.
   const geometries = loopGeometries(layout);

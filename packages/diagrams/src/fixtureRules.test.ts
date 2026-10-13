@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { GLYPH_CANVAS_TIERS } from "glyphcss";
 import { renderGlyphDiagram } from "./render";
+import { computeGlyphDiagramQuality } from "./quality";
 import { glyphGraphFromMermaid } from "./mermaid";
 import { glyphDiagramRectsOverlap } from "./labels";
 import { paintGlyphDiagram } from "./paint";
@@ -193,6 +194,16 @@ it.each(["agent-guardrail", "rag-pipeline", "subgraph", "transformer-block", "cr
     expect(boundaryCellsChecked).toBeGreaterThan(0);
   },
 );
+it("agent-guardrail: clearing the Workers entry corridor preserves whole labels", async () => {
+  const r = await renderGlyphDiagram(fixture("agent-guardrail"), { target: "web" });
+  const quality = computeGlyphDiagramQuality(r, { width: 96, height: 32 });
+  expect(r.pages).toHaveLength(1);
+  expect(quality.wordCuts).toBe(0);
+  expect(quality.crossings).toBeLessThanOrEqual(2);
+  expect(quality.droppedEdges).toBe(0);
+  expect(quality.droppedLabels).toBe(0);
+  expect(collinearViolations(r).violations).toEqual([]);
+});
 // `agent-supervisor` and `event-queue` are the two shipped fixtures where
 // this is PROVEN structurally unavoidable, not merely untried: every
 // alternative route for the one offending edge in each (`supervisor ->

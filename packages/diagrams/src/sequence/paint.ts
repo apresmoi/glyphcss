@@ -46,7 +46,8 @@ export function paintGlyphSequence(
   const participantColors = new Map(participants.map((p, i) =>
     [p.id, colored ? resolveGlyphDiagramColor(options.participantColor, p, glyphDiagramPaletteColor(i), "participantColor") : null]));
   const hasActor = columns.some((c) => c.shape === "actor");
-  const headerRows = hasActor ? 2 : 1;
+  const titleRows = options.title ? 2 : 0;
+  const headerRows = (hasActor ? 2 : 1) + titleRows;
   const contentHeight = headerRows + 1 + bodyHeight + 1;
   const canvasRows = Math.max(contentHeight, options.height);
   /**
@@ -104,9 +105,11 @@ export function paintGlyphSequence(
     return shown;
   };
 
+  if (options.title) canvas.text(Math.floor(canvasCols / 2), padY, [fitted("title", glyphDiagramText(options.title, charset), canvasCols)], { align: "center", color: accent });
+
   for (const column of columns) {
     const participantColor = participantColors.get(column.id) ?? (colored ? accent : null);
-    if (column.shape === "actor") canvas.text(column.x, padY, ["o"], { align: "center", color: participantColor });
+    if (column.shape === "actor") canvas.text(column.x, padY + titleRows, ["o"], { align: "center", color: participantColor });
     canvas.text(column.x, padY + headerRows - 1, [column.label], { align: "center", color: participantColor });
   }
   // Whole-cell `canvas.text`, never `canvas.line()` — mirrors the graph
@@ -198,7 +201,7 @@ export function paintGlyphSequence(
       if (shown.join(" ") !== whole) ledger.push(ledgerLabelAbbreviated({ role: "message label", before: message.label ?? "", after: shown.join(" ") }));
     };
     if (self) {
-      label(fromX + 2, Math.max(0, width - fromX - 4));
+      label(fromX + 2, Math.max(0, canvasCols - fromX - 4));
       const y0 = y + labelRows - 1;
       canvas.text(fromX, y0 + 1, [tier.junction[N | S | E]!], { color: rowColor });
       canvas.text(fromX + 1, y0 + 1, [dashed ? tier.hop.h : tier.straight.h], { color: rowColor });

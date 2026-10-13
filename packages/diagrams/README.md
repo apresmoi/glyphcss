@@ -40,6 +40,18 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 - A self-edge (`A --> A`) draws as a compact four-cell loop on the side no flow edge uses (right of a `TB`/`BT` node, below an `LR`/`RL` one): out of one port, around, and back into the next with an arrowhead. Its label sits one blank cell past the loop (the one label that does not touch its route) and wraps like a node label, at `loopLabelWidth` cells (default 24), which the fitter narrows before it gives up whole words. Layout reserves exactly the loop's and label's room, and a group frame encloses them, so they never touch another node, edge, label or frame. Several loops on one node stack without touching, and a left-to-right graph that wraps into rows keeps its loops.
 - Other diagram kinds reject by name, e.g. `GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM`, `GLYPH_MERMAID_UNSUPPORTED_CLASSDIAGRAM`, and `GLYPH_MERMAID_UNSUPPORTED_C4CONTEXT`. `sequenceDiagram` has its own `./sequence` entry; `stateDiagram` is below.
 
+Additional flowchart syntax preserves the inner label, without shape punctuation:
+
+| Construct | Behaviour |
+|---|---|
+| `A[(text)]` | Existing `cylinder` shape |
+| `A(((text)))` | Existing `circle` shape; no second ring |
+| `A[/text/]`, `A[\text\]`, `A[/text\]`, `A[\text/]`, `A{{text}}` | Rectangle with label `text` |
+| `A <--> B` | Two directed edges, one in each direction; a label is copied to both |
+| `A ---> B` | Same as `-->` |
+| `A o--o B`, `A x--x B` | Undirected edges; endpoint circles/crosses are omitted |
+| `A ~~~ B` | Rejects with `GLYPH_MERMAID_SYNTAX` naming the invisible link: the IR has no layout-only edge |
+
 ## Mermaid state diagrams
 
 `renderGlyphDiagram` and `glyphGraphFromMermaid` accept `stateDiagram` and `stateDiagram-v2` and render them through the graph pipeline (fit, route, paint like a flowchart); `glyphGraphFromMermaidState` is the same adapter on its own. States are nodes, transitions are labelled edges, and the default direction is `TB`.
@@ -137,7 +149,7 @@ const validate = ajv.compile(glyphDiagramJsonSchema());
 
 ## Sequence diagrams (`@glyphcss/diagrams/sequence`)
 
-A separate subpath and a separate IR — `renderGlyphSequence` never touches `GlyphGraph`, dagre, or the A* router. A `GlyphSequence` is `{ participants, messages, frames?, notes? }`, all domain-agnostic: a participant is `{ id, label, kind?, shape? }` (`shape` is `"lane"` or `"actor"`, informational `kind` otherwise), a message is `{ from, to, label?, style? }` (`style` is `"solid"`/`"dashed"`; self-ness and arrow direction are always derived from `from`/`to`), a frame is `{ kind, label?, from, to, branches? }`, a box around an inclusive message-index range whose `branches` (`{ kind, label?, at }`, Mermaid's `else`) draw dashed dividers, with every `kind` rendered verbatim, and a note is `{ text, over, at }` anchored to one or more participants at a message index. Nothing here assumes an HTTP call — the same IR fits people in a process, protocol peers, threads, or hardware components.
+A separate subpath and a separate IR — `renderGlyphSequence` never touches `GlyphGraph`, dagre, or the A* router. A `GlyphSequence` is `{ participants, messages, frames?, notes?, title? }`, all domain-agnostic: a participant is `{ id, label, kind?, shape? }` (`shape` is `"lane"` or `"actor"`, informational `kind` otherwise), a message is `{ from, to, label?, style? }` (`style` is `"solid"`/`"dashed"`; self-ness and arrow direction are always derived from `from`/`to`), a frame is `{ kind, label?, from, to, branches? }`, a box around an inclusive message-index range whose `branches` (`{ kind, label?, at }`) draw dashed dividers, with every `kind` rendered verbatim, and a note is `{ text, over, at, placement? }` anchored to participants at a message index. A note centers over its lanes by default; `placement: "left" | "right"` places it beside exactly one lane. `title` appears above the participant headers on every page; the render option `title` overrides it. Nothing here assumes an HTTP call — the same IR fits people in a process, protocol peers, threads, or hardware components.
 
 ```ts
 import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
@@ -153,6 +165,19 @@ console.log(result.text);
 ```
 
 `renderGlyphSequence` also accepts a Mermaid `sequenceDiagram` string (`participant`/`actor`, `->>`/`-->>` arrows, `alt`/`else`/`opt`/`loop`/`end`, `note over`); `renderGlyphSequenceJson` mirrors `renderGlyphDiagramJson`'s JSON-in/JSON-out shape. Degrades for space by wrapping long message labels onto extra rows (abbreviating participant labels, and a single word too long for its line), then paging by TIME at a message boundary when the height doesn't fit, a frame cut by a page reopening under its current branch; `overflow: "expand"` grows taller instead of paging. Both are logged in `report.ledger`, same `{ code, message, detail? }` shape as the graph pipeline's.
+
+| Additional sequence syntax | Behaviour |
+|---|---|
+| `->>+`, `-->>-`, `activate X`, `deactivate X` | Accepted; activation bars and activation state are ignored |
+| `Note left of X: text`, `Note right of X: text` | Three-row note beside X; reserves space and reports label cuts |
+| `autonumber` | Message labels become `1. text`, `2. text`, …; custom starts/increments reject |
+| `par` / `and`, `critical` / `option`, `break` … `end` | Frames/dividers render their kinds verbatim; `and` requires `par`, `option` requires `critical` |
+| `rect colour` … `end` | Inert grouping; no frame or background colour |
+| `box description` … `end` | Inert grouping around participant/actor declarations; no box |
+| `title text`, `title: text` | Diagram title |
+| `-x`, `-)`, `--x`, `--)` | Existing solid/dashed directed arrows; cross/open heads are normalized |
+
+Unsupported statements and malformed blocks reject with `GLYPH_SEQUENCE_MERMAID_SYNTAX` naming the offending construct. Activation, box and rect omissions above are intentional adapter approximations.
 
 ## Lane DAGs (`@glyphcss/diagrams/lanes`)
 
