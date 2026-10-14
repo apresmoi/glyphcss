@@ -107,7 +107,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
     // A word the layout had to break across lines is a fidelity loss the reader cannot otherwise see: every node's drawn rows
     // and every loop label's rows are compared with the words that were written.
     const broken = (label: string, lines: readonly string[]) => {
-      const shown = new Set(lines.flatMap(glyphDiagramWords));
+      const shown = new Set(lines.flatMap(line => glyphDiagramWords(line)));
       // The whole label is folded once, as it was when measured, then its words are compared.
       return glyphDiagramFoldLabel(label, opts.charset).split(/\s+/).filter(Boolean)
         .filter(word => glyphDiagramWords(word).some(piece => !shown.has(piece)));

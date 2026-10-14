@@ -130,7 +130,7 @@ const routing = routeGlyphGraphEdges(layout, { width: 80, height: 24 });
 const output = paintGlyphDiagram(layout, routing, { width: 80, height: 24, charset: "box", color: "none" });
 ```
 
-Port reservation enlarges node sides before layout to at least `2N + 1` cells for `N` ports; a self-edge's two ports sit on the loop side, and `layout.loops` records the label room each one reserved. A* uses unit steps, bend cost 4, crossing cost 12, node clearance, and reserved escape lanes. Routes contain every 4-adjacent cell; never replace them with a bend-only point list. Reserved slots follow Dagre’s actual endpoint order without changing node sizes or separation. Every paint call creates a fresh canvas and applies routes → junction resolution → node borders → target-border arrowheads → labels. Edge labels stay adjacent to their own route or are reported as dropped.
+Port reservation enlarges node sides before layout to at least `2N + 1` cells for `N` distinct slots (shared fan edges count once); a self-edge's two ports sit on the loop side, and `layout.loops` records the label room each one reserved. A* uses unit steps, bend cost 4, crossing cost 12, node clearance, and reserved escape lanes. Routes contain every 4-adjacent cell; never replace them with a bend-only point list. Reserved slots follow Dagre’s actual endpoint order without changing node sizes or separation. Every paint call creates a fresh canvas and applies routes → junction resolution → node borders → target-border arrowheads → labels. Edge labels stay adjacent to their own route or are reported as dropped.
 
 ## Validation and optional ELK boundary
 

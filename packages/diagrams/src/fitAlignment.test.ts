@@ -71,6 +71,16 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(alignments().every(align => align === undefined)).toBe(true);
   });
 
+  it("recognizes a fourth-row hyphenated label without alignment probes", async () => {
+    clear();
+    const result = await renderGlyphDiagram({ direction: "TB", nodes: [
+      { id: "A", label: "one\ntwo\nthree\na-b" }, { id: "B", label: "end" },
+    ], edges: [{ from: "A", to: "B" }] }, options);
+    expect(result.layout.nodes.find(node => node.id === "A")!.lines).toEqual(["one", "two", "three", "a-b"]);
+    expect(result.report.ledger.map(entry => entry.code)).not.toContain("word-cut");
+    expect(new Set(alignments())).toEqual(new Set([undefined]));
+  });
+
   it("keeps the clean folded default without alignment probes", async () => {
     clear();
     const result = await renderGlyphDiagram(source(), options);
@@ -110,7 +120,6 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(probes).toHaveLength(0);
     expect(new Set(alignments())).toEqual(new Set([undefined]));
     if (name === "galaxy-anchors-detailed") {
-      expect(probes.every(([graph]) => "ports" in graph)).toBe(true);
       expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(10);
     }
     expect(computeGlyphDiagramQuality(result, { width: 72, height: 24 })).toMatchObject({

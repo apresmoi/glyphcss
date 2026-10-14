@@ -92,3 +92,19 @@ it("straightens Search to Knobs across the available rank space", async () => {
   expect(new Set(route.cells.map(cell => cell.x)).size).toBe(1);
   expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ crossings: 0, fakeFrames: 0, droppedEdges: 0, droppedLabels: 0 });
 });
+
+it("straightens every forward five-step-loop link within 72 columns", async () => {
+  const result = await renderGlyphDiagram(fixture("galaxy-five-step-loop"), options);
+  const quality = computeGlyphDiagramQuality(result, options);
+  expect(result.canvas.cols).toBe(72);
+  expect(quality).toMatchObject({ wordCuts: 0, crossings: 0, fakeFrames: 0, droppedEdges: 0, droppedLabels: 0, pages: 1 });
+  expect(quality.bends.total).toBeLessThanOrEqual(2);
+  for (const [from, to] of [["A", "B"], ["B", "C"], ["C", "D"], ["D", "E"]]) {
+    const route = result.routes.find(route => route.edge.from === from && route.edge.to === to)!;
+    expect(new Set(route.cells.map(cell => cell.y)).size).toBe(1);
+  }
+  expect(result.layout.nodes.map(node => node.label)).toEqual([
+    "1 Papers + dust maps", "2 Build 3D galaxy", "3 Take 3 photos", "4 Compare to real ones", "5 Score",
+  ]);
+  expect(result.labels.map(label => label.text)).toContain("adjust knobs");
+});

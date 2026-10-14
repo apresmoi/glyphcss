@@ -52,3 +52,11 @@ it("keeps a fitting hyphenated token together after preceding words", () => {
   expect(glyphDiagramWrap("x Face-on Edge-on", 7)).toEqual(["x", "Face-on", "Edge-on"]);
   expect(glyphDiagramWrap("Face-on", 5)).toEqual(["Face-", "on"]);
 });
+
+it("does not pass the fourth label row's index as a hyphen width", async () => {
+  const result = await renderGlyphDiagram({ direction: "TB", nodes: [{ id: "A", label: "one\ntwo\nthree\na-b" }], edges: [] }, {
+    target: "chat", width: 72, height: 24,
+  });
+  expect(result.layout.nodes[0]!.lines).toEqual(["one", "two", "three", "a-b"]);
+  expect(result.report.ledger.map(entry => entry.code)).not.toContain("word-cut");
+});

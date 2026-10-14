@@ -19,7 +19,7 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     expect(r.pages).toHaveLength(1);
     expect(r.routes).toHaveLength(graph.edges.length);
     expect(r.report.unroutable).toEqual([]);
-    expect(r.report.ledger.map(entry => entry.code)).toEqual(name === "diamond" ? ["budget-compaction"] : []);
+    expect(r.report.ledger.map(entry => entry.code)).toEqual(name === "diamond" || name === "cycle" ? ["budget-compaction"] : []);
     expect(r.layout.nodes).toHaveLength(graph.nodes.length);
     for (const route of r.routes) {
       for (const p of route.cells) expect(r.layout.nodes.some((n) => inside(p, n)), route.edge.id).toBe(false);

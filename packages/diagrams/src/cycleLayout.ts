@@ -127,7 +127,7 @@ export function glyphDiagramCycleLayout(measured: GlyphDiagramMeasuredGraph, opt
   for (const edge of measured.edges) {
     const fromMain = main.has(edge.from), toMain = main.has(edge.to);
     sides.set(edge.id, back.has(edge.id) ? ["n", "n"] : feederIds.has(edge.from) ? ["n", "s"]
-      : !fromMain && toMain ? [stacked || forward.filter(other => !main.has(other.from) && other.to === edge.to).length === 1 ? "e" : "s", "s"] : fromMain && !toMain ? (stacked
+      : !fromMain && toMain ? ["e", "s"] : fromMain && !toMain ? (stacked
         ? ["s", columns.get(edge.to) !== columns.get(edge.from) && outgoing(edge.to).some(next => main.has(next.to)) ? "w" : "n"]
         : feeders.some(node => outgoing(node.id)[0]!.to === edge.from) ? ["e", "w"] : ["s", "n"])
       : stacked && !fromMain && !toMain && (positioned.get(edge.from)!.y0 + Math.floor((positioned.get(edge.from)!.height - 1) / 2))
