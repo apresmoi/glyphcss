@@ -8,6 +8,7 @@ import { fitGlyphGraph, type GlyphDiagramAttempt } from "./fit";
 import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerLabelFolded, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, ledgerWordsCut, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
+import { GLYPH_DIAGRAM_WORK, GlyphDiagramWork } from "./work";
 
 // Mirrors `@glyphcss/charts`' `GLYPH_CHART_TARGET_DEFAULTS` for contract
 // consistency across the two packages — braille is the default wherever a
@@ -43,8 +44,15 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
   const ledger: GlyphDiagramLedgerEntry[] = typeof input === "string" ? glyphMermaidNotes(input) : [], unroutable = new Set<string>();
+  const work = new GlyphDiagramWork(original, opts.width, opts.height);
   const attempt = async (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => {
-    const result = await fitGlyphGraph(candidate, opts);
+    if (!work.terminal && !work.canLayout(candidate)) {
+      work.limited = true; work.terminal = true;
+      // An unfunded first layout has no geometry to retain. A boundary panel
+      // supplies the normal attempt shape; only the complete split is painted.
+      return { ...await fitGlyphGraph(splitGlyphGraph(candidate)[0]!, { ...opts, [GLYPH_DIAGRAM_WORK]: work }), okay: false };
+    }
+    const result = await fitGlyphGraph(candidate, { ...opts, [GLYPH_DIAGRAM_WORK]: work });
     // A budget exhausted before splitting is still part of the render's work.
     ledger.push(...result.layout.ledger.filter(entry => entry.code === "fit-search-limited"));
     return result;
@@ -60,29 +68,31 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   if (current.adjusted) ledger.push(ledgerBudgetStage("compaction"));
   if (opts.detail === "simplified" || !current.okay) {
     ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
-    if (opts.detail !== "faithful") {
+    if (opts.detail !== "faithful" && !work.limited) {
       // Gated on `!current.okay`: running decoration unconditionally threw
       // away labels and shapes on diagrams compaction had already rescued.
       if (opts.detail === "simplified" || !current.okay) {
         ledger.push(ledgerBudgetStage("decoration"));
         graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
-        if (!current.okay) {
+        if (!current.okay && !work.limited) {
           const merged = glyphDiagramMergeDuplicates(graph); graph = merged.graph;
           ledger.push(ledgerBudgetStage("duplicates"), ...merged.ledger); current = await attempt(graph);
         }
-        if (!current.okay) {
+        if (!current.okay && !work.limited) {
           const collapsed = glyphDiagramCollapseLeaves(graph); graph = collapsed.graph;
           ledger.push(ledgerBudgetStage("leaf-clusters"), ...collapsed.ledger); current = await attempt(graph);
         }
       }
-    } else ledger.push(ledgerDetailFaithful());
+    } else if (opts.detail === "faithful") ledger.push(ledgerDetailFaithful());
   }
   const attempts = [current];
   if (!current.okay) {
     ledger.push(...overflowOrRoutingAttempt(current, "split"), ledgerBudgetStage("split"));
     attempts.length = 0;
+    work.terminal = work.limited;
     for (const panel of splitGlyphGraph(graph)) attempts.push(await attempt(panel));
   }
+  ledger.push(...work.ledger());
   const pages = attempts.map(({ layout, routing, fits, width, height }, index) => {
     if (width > opts.width || height > opts.height) ledger.push(ledgerLayoutExpanded({ requestedWidth: opts.width, requestedHeight: opts.height, canvasWidth: width, canvasHeight: height }));
     if (!fits) {

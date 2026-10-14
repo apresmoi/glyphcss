@@ -3,6 +3,7 @@ import { glyphDiagramError } from "./validate";
 import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRects, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import { ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphDiagramLoopGeometry, type GlyphDiagramLoopGeometry } from "./loop";
+import { GLYPH_DIAGRAM_WORK, type GlyphDiagramWork } from "./work";
 
 const PORT_LANE_LENGTH = 2;
 const PORT_LANE_CLEARANCE = 1;
@@ -144,6 +145,8 @@ class Queue {
 }
 /** Per-edge cell walks keep graph identity intact until the canvas resolves crossings. */
 export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphDiagramRoutingOptions = {}): GlyphDiagramRoutingResult {
+  const work = (options as GlyphDiagramRoutingOptions & { [GLYPH_DIAGRAM_WORK]?: GlyphDiagramWork })[GLYPH_DIAGRAM_WORK];
+  work?.route();
   const cols = options.width ?? layout.width, rows = options.height ?? layout.height;
   if (![cols, rows].every((v) => Number.isInteger(v) && v > 0)) glyphDiagramError("bad-size", "Routing bounds must be positive integers.");
   if ([options.bendCost, options.crossingCost, options.ringParallelCost].some((v) => v !== undefined && (!Number.isFinite(v) || v < 0))) glyphDiagramError("bad-options", "Routing costs must be finite nonnegative numbers.");
@@ -248,6 +251,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
       const visited = new Set<number>(), pending = [goal];
       visited.add(goal.y * cols + goal.x);
       while (pending.length) {
+        work?.take("expansions");
         const point = pending.pop()!;
         if (same(point, start)) return true;
         for (let dir = 0; dir < steps.length; dir++) {
@@ -267,6 +271,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     }
     let current: State | undefined;
     while ((current = queue.pop())) {
+      work?.take("expansions");
       if (current.cost !== best.get(`${key(current)},${current.dir}`)) continue;
       if (same(current, goal) && current.dir === endDir) { found = current; break; }
       for (let dir = 0; dir < steps.length; dir++) {
