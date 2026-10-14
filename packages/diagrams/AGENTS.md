@@ -1,19 +1,19 @@
 # @glyphcss/diagrams — agent guide
 
-Cell-text graphs, sequences, lane DAGs; root rules apply.
+Graphs/sequences/lanes; root rules apply.
 
 ## Pipeline
 
-Adapters → `GlyphGraph` → measure/wrap → ports → layout (Dagre ranks/order/alignment → gap channels) → center → route → fresh-canvas paint. `renderGlyphDiagram` reuses fits/routes; default web.
+Adapters → `GlyphGraph` → wrap → ports → Dagre ranks/order/alignment → gap channels → center → route → geometry compaction → fresh-canvas paint. `renderGlyphDiagram` reuses fits/routes; default web.
 
 ## 2D entry points
 
-- Root never imports scene or elkjs (`./elk` stub).
+- Root imports no scene/elkjs (`./elk` stub).
 - `./sequence`, `./lanes`: separate IR/pipelines, never `GlyphGraph`; share only `color.ts`.
 
 ## Sequence diagrams (`./sequence`)
 
-Authored order; time downward; label-sized. Validate → columns → rows → paint. `from`/`to` give direction; frame/branch `kind` renders verbatim. Mermaid note/opening/divider order survives validation/paging; JSON: dividers → openings → notes.
+Authored order/time downward. Validate → columns → rows → paint. `from`/`to` give direction; frame/branch `kind` renders verbatim. Mermaid note/opening/divider order survives validation/paging; JSON: dividers → openings → notes.
 
 ### Invariants
 
@@ -44,35 +44,39 @@ Authored order; time downward; label-sized. Validate → columns → rows → pa
 
 ## Invariants
 
-- `GLYPH_DIAGRAM_VALIDATION_RULES`: runtime/schema plus repair hints. `report.ledger` entries are `{ code, message, detail? }`.
+- `GLYPH_DIAGRAM_VALIDATION_RULES`: runtime/schema + repair hints. `report.ledger` entries are `{ code, message, detail? }`.
 - `unroutable`: final output only; non-fitting layout: `layout-overflow`, never `routing-attempt`. Malformed JSON: `GLYPH_DIAGRAM_BAD_JSON`; `engine: "elk"`: `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
 - Mermaid shapes: cylinder → `cylinder`, double circle → `circle`, parallelogram/trapezoid/hexagon → `rect`. `<-->` → two directed edges; `--->` solid; `o--o`/`x--x` undirected; `~~~` named rejection (no layout-only edge).
-- Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert; never execute. Labels share `measureGlyphGraph`'s `fold` (`label-folded`); empty rows place no text/label ledger entries. Loops reserve full label rectangles, blank rows/unused width included, against other labels. Wrapped rows: `edge-row:` + JSON `[edgeId, rowIndex]`, distinct from `edge:` ids; keep edge colour. Compaction floor: connections, not loops.
+- Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert; never execute. Labels share `measureGlyphGraph`'s `fold` (`label-folded`); empty rows place no text/label ledger entries. Loops reserve full label rectangles, blank rows/unused width included, against other labels. Wrapped rows: `edge-row:` + JSON `[edgeId, rowIndex]`; distinct ids, edge colour. Compaction floor: connections, not loops.
 - `stateDiagram` → graph IR (`mermaidState.ts`). One start/end `point` per diagram/composite; glyph in LABEL, `kind` informational. `<<choice>>` is a diamond.
-- Points: glyph alone, 2k-1 cells across, k ports. One entry: arrowhead before glyph; several: bar then one head. Several exits: bar on glyph's line; all junctions use the tier. Snake: points left-to-right, two-column row-start padding. Point self-edges: `point-loop`.
-- Composite edges: recursively enter start/first child, exit end/last child; no self-loop. Empty composites are states. Label: name then `P : text` lines after " - ".
-- Reused ids: one state (`state-shared`); `parent` requires identical membership. Quotes open names after `state` only. Notes, `--` regions, fork/join reject: `GLYPH_MERMAID_STATE_*`.
-- Self-edges: fixed four-cell loops, not A*; ports on a side no flow edge uses (`e` in TB/BT, `s` in LR/RL), exact room: Dagre dummy AFTER node (`labelpos: "c"`, or none when `nodesep` already suffices). Loop labels wrap like node labels (`loopLabelWidth`, traded by fitter), sit one blank cell past the loop, and alone need no route contact. Frames/snake count loops/labels with their node.
-- Loops start at the authored-first node. Preserve order; re-layout backwards Dagre ranks with back edges reversed. Back edges: Dagre-side transverse ports; preserve self-loop/point ports.
-- Without loops/points/nested groups, frame insets stay byte-identical. ASCII folds (`●`/`◆`/`◉` → `*`/`*`/`@`) and punctuation wrapping are output exceptions. Nested padding yields to shared borders (`frameInset: false`) before cuts/splits. Wrap after `-`, `+`, `/`, `:`; punctuation stays on the first row, not a word cut. Letter cuts log `word-cut`.
-- Search: first routable snake gaps; one branch gap without hanging nodes; prune stacked loops/impossible node area/acyclic rank paths.
-- Expansion: <=256 spacing/replay probes, <=128 gutters, <=384 routes across alignments (`fit-search-limited`). Reuse routes; skip disconnected targets; stop failed probes early.
-- Render budget: 2,500,000 search units; non-self edges cubed/layout, squared/snake; 1,000/routing, one/A* or flood expansion. Shared across directions, frames, rungs and splits. Reserve panel wrapping, two gap choices and one route. Exhaustion keeps the best fit or uses wrapped edge panels (`render-work-limited`); no resets or partial probes.
-- Whole words before cuts; defaults exact except guarded repairs. Reuse UL/UR/DL/DR fits in bounds; repair gaps; reserve crossing/turn/escape/loop/frame room.
-- Plain fits widen cut labels into spare columns (one reroute/alignment; label caps apply). First-fit bounds: words → crossings → fake frames → bends → detours → length. Crossing probes: UR/UL, fitted labels and two perpendicular wraps; first improvement wins. No added crossings/label drops.
-- Source order/≤3-column top-down shifts never add crossings/frames/drops.
-- Fold one ≥3-box TB/BT tail if shorter/routable; no groups/loops/points.
-- Fit labels/ports/routes, no count cutoffs/viewport presets. Search wraps/independent gaps within shared work before semantic degradation.
+- Points: glyph alone, 2k-1 cells across, k ports. Entry: head before glyph; several: bar then head. Exits: bar on glyph row; tier junctions. Snake: points left-to-right, two-column row-start padding. Point self-edges: `point-loop`.
+- Composite edges enter start/first child, exit end/last child; no self-loop. Empty composites are states. Label: name then `P : text` lines after " - ".
+- Reused ids: one state (`state-shared`); identical members for `parent`. Quotes open names after `state`. Notes, regions, fork/join reject: `GLYPH_MERMAID_STATE_*`.
+- Self-edges: 4-cell loops on `e` in TB/BT, `s` in LR/RL. Dagre dummy after node (`labelpos: "c"`), omitted when `nodesep` suffices. Wrap labels at `loopLabelWidth`, one blank cell past the loop. Frames/snake include loops/labels.
+- Loops start at authored-first node. Reverse backwards ranks; returns use Dagre transverse sides; preserve loop/point ports.
+- Without loops/points/nesting, frame insets stay byte-identical. ASCII folds (`●`/`◆`/`◉` → `*`/`*`/`@`) and punctuation wrapping are output exceptions. Nested padding yields to shared borders (`frameInset: false`) before cuts/splits. Wrap after `-`, `+`, `/`, `:`; punctuation stays above, not a word cut. Letter cuts log `word-cut`.
+- Search: first routable snake gaps; prune impossible footprints.
+- Expansion: ≤256 spacing/replay probes, ≤128 gutters, ≤384 routes (`fit-search-limited`). Reuse routes; stop on failure.
+- Budget: 2,500,000; edges cubed/layout, squared/snake; 1,000/routing, one/A* or flood expansion. Shared across probes/splits. Reserve panel wraps, two gaps, one route. Exhaustion keeps a fit or edge panels (`render-work-limited`); no resets/partial probes.
+- Whole words before cuts; compact post-fit. Reuse bounded UL/UR/DL/DR fits; protect gaps/turns/ports/loops/frames.
+- Widen cuts into spare columns once. Score: words → crossings → frames → bends → detours → length. Replay fitted UR/UL labels and two perpendicular wraps; first improvement. Wide LR/RL DAGs try two vertical wraps before repair. No added crossings/drops.
+- Straighten single links/subtrees within free space; other shifts ≤3 columns. No added crossings/frames/drops.
+- Fold one ≥3-box TB/BT tail to reduce occupied rows, even within the canvas, left-to-right; move the head left if needed; reserve incoming clearance upstream. No groups/loops/points. Whole words before folding.
+- Forward fans share ports/trunks by style; mixed fan-in/out connections, returns, parallel edges, points and frame crossings keep lanes. Never join two buses through one shared edge. Shared exits: junctions; fan-ins: one head. Flat LR/RL fans keep one blank sibling row; public spacing stays authored.
+- Edge labels on exclusive branches. Reserve missing labels on the measured fit (one layout/reroute); vertical reservations include side room in bounds. One fit only.
+- Compact pass-through rows/columns before paint; keep labels, borders, bends, ports and a blank box/route moat. Preserve grouped geometry.
+- Wrap/gap before degrading.
 - `overflow: "paginate"` (default) keeps exact canvas size; `"expand"` grows canvases (`layout-expanded`). After fitting fails: decoration → duplicates → leaf clusters → split; no decoration once it fits, except `simplified`.
-- Same-priority sibling frame entries: nearer flow-axis border first. Paint: routes → junctions → fills → target-border heads → labels; one-cell routes paint along the port axis; edge labels touch their route or drop (a loop's sits one cell past it). All Text/HTML/ANSI exits carry `canvas`.
+- Sibling frame entries: nearer border first at equal priority. Paint: routes → junctions → fills → border heads → labels. One-cell routes use the port axis. Labels clear vertical stems by one blank cell; otherwise touch their route or drop (loops: one cell past). Dotted straight cells use continuous hop glyphs. Text/HTML/ANSI carry `canvas`.
 
 ## Don't
 
 - Don't reuse a canvas across panels or hide an unroutable edge under box fill; log `unroutable`.
-- Don't assign ports lexically: use Dagre's laid-out transverse sibling order. Don't claim fan floor (`max(3, widest fan + 1)`) guarantees search: above caller spacing it leaves that axis unchanged.
-- Don't move fitting to consumers, scale fonts, or accept node boxes without testing centered routes. Deduplicate before layout.
+- Don't assign ports lexically: follow Dagre sibling order. Don't merge different styles or move loop slots when regrouping ports.
+- Don't move fitting to consumers, scale fonts, or accept node boxes without centered-route tests. Deduplicate before layout.
 - Don't widen a node for loop room. Don't split Mermaid statements on `;` inside quotes, edge-text spans or after a state transition's `:`.
+
 
 ## Gates
 
-`src/**/*.test.ts` plus `packages/compile/src/diagramCli.test.ts`. API: `README.md`.
+`src/**/*.test.ts` plus `packages/compile/src/diagramCli.test.ts`. `README.md`: API.

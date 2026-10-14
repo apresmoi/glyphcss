@@ -1,11 +1,11 @@
 import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection, type GlyphCanvasTierName } from "glyphcss";
+import { glyphDiagramGraphLabels } from "./graphLabels";
 import { resolveGlyphDiagramColor, resolveGlyphDiagramColorOption } from "./color";
-import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
+import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelLayoutResult } from "./labels";
 import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphDiagramGroupRects, glyphDiagramPointCell, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
-import { glyphDiagramLoopGeometry } from "./loop";
 import type { GlyphGraphNodeShape } from "./types";
 
 /**
@@ -89,7 +89,7 @@ const DEFAULT_GRAPH_NODE_COLOR = "#38bdf8";
 const DEFAULT_GRAPH_EDGE_COLOR = "#94a3b8";
 
 /** Always paints into fresh storage: re-registering a route cannot erase its old canvas glyphs. */
-export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number }): GlyphDiagramPage & { ledger: GlyphDiagramLedgerEntry[]; unsupportedGlyphs: string[] } {
+export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number; labelLayout?: GlyphDiagramLabelLayoutResult }): GlyphDiagramPage & { ledger: GlyphDiagramLedgerEntry[]; unsupportedGlyphs: string[] } {
   const charset = options.charset ?? "box", canvas = createGlyphCanvas({ cols: options.width, rows: options.height, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset], colored = options.color !== "none";
   const color = colored ? DEFAULT_GRAPH_EDGE_COLOR : null, accent = colored ? DEFAULT_GRAPH_NODE_COLOR : null;
@@ -110,7 +110,6 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   // `nodeColor`/`edgeColor` (a per-node/per-edge function) has nothing to
   // resolve them against; scope stays exactly the two options this form
   // documents.
-  const labelColors = new Map<string, string | null>();
   const ledger: GlyphDiagramLedgerEntry[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
   const count = new Map<string, number>(), routeCells = new Set<string>();
   for (const route of routing.routes) for (const p of route.cells) { const k = `${p.x},${p.y}`; count.set(k, (count.get(k) ?? 0) + 1); routeCells.add(k); obstacles.push({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); }
@@ -132,25 +131,12 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   });
   for (const route of routing.routes) { canvas.edge(route.edge.id, route.edge); canvas.route(route.edge.id, route.cells); }
   canvas.resolveJunctions();
-  // Style only exclusive straight cells, preserving the resolver's corner and crossing verdicts.
-  // REVIEW-diagrams-fanout-opus.md P3-1: the dotted phase used to key off the
-  // cell's raw index in `route.cells`, which also counts every CORNER cell
-  // (undrawable — no straight `axis`) that the run happens to pass through.
-  // A short, corner-heavy route could land its two eligible cells on
-  // consecutive odd indices and paint zero dots (`cycle.mmd`'s "retry" edge:
-  // both eligible cells fell on odd indices and painted two blanks, no dot,
-  // over its whole six-cell run). `dotPhase` instead counts only the cells
-  // this loop actually draws, so the alternation is dot-blank-dot-blank
-  // along the run regardless of how many corners sit between them. The
-  // route's two ENDPOINTS are drawable too — the escape cell touching the
-  // node border, and the final cell touching the target arrowhead — each
-  // has only one neighbour, so `axis` is now derived from whichever single
-  // neighbour exists there instead of requiring both.
+  // The hop glyph is already dashed; blanking alternate cells breaks short elbows and stubs.
   for (const route of routing.routes) {
     const routeColor = routeColors.get(route.edge.id)!;
     const side = layout.ports.find((port) => port.edgeId === route.edge.id && port.end === "from")?.side;
     const singleAxis = side === "n" || side === "s" ? "v" : "h";
-    let dotPhase = 0;
+
     // The route's own LAST drawable cell sits flush against the arrowhead
     // `canvas.arrowhead` paints at the port's anchor, one cell further in —
     // whatever phase the alternation happens to land on there is invisible
@@ -177,17 +163,12 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       // broken rule" (tiers.ts's own doc, reused here rather than invented)
       // and, unlike a round dot, tells a horizontal run from a vertical one
       // on sight — the direction cue the isotropic dot could never give.
-      if (axis && route.edge.style === "dotted") { glyph = dotPhase % 2 ? " " : tier.hop[axis]; dotPhase++; lastDotted = { x: p.x, y: p.y, axis }; }
+      if (axis && route.edge.style === "dotted") { glyph = tier.hop[axis]; lastDotted = { x: p.x, y: p.y, axis }; }
       if (axis && route.edge.style === "thick") glyph = tier.double[axis];
       canvas.text(p.x, p.y, [glyph], { color: routeColor });
     });
     if (lastDotted) canvas.text(lastDotted.x, lastDotted.y, [tier.hop[lastDotted.axis]], { color: routeColor });
   }
-  const candidates: GlyphDiagramLabelCandidate[] = [];
-  // Populated only for a group that actually gets a drawn dotted ring below
-  // (never a group that degraded to a plain member-list caption) — an edge
-  // label has nothing to stay clear of where there is no boundary painted.
-  const drawnGroupRects = new Map<string, GlyphDiagramRect>();
   const groupRects = glyphDiagramGroupRects(layout, { cols: canvas.cols, rows: canvas.rows });
   for (const group of layout.groups) {
     const nodes = layout.nodes.filter((n) => group.members.includes(n.id));
@@ -196,12 +177,9 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const unrelatedInside = layout.nodes.some((node) => !group.members.includes(node.id) && glyphDiagramRectsOverlap(node, rect));
     const partialOverlap = layout.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id)) && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
     if (unrelatedInside || partialOverlap) {
-      candidates.push({ id: `group:${group.id}`, text: `${group.label ?? group.id}: ${nodes.map((node) => node.label).join(", ")}`, x: Math.floor(canvas.cols / 2), y: rect.y0, priority: 1 });
-      labelColors.set(`group:${group.id}`, accent);
       ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "unrelated-nodes" }));
       continue;
     }
-    drawnGroupRects.set(group.id, rect);
     // Group boundaries are annotation, never opaque routing obstacles; gaps preserve any route crossing the enclosure.
     // USER FEEDBACK, verbatim: "some of the lines that are dotted are hard
     // to understand on what is the direction — I think that because we
@@ -264,7 +242,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       if (collinear) continue;
       canvas.text(x, y, [tier.dot], { color });
     }
-    if (group.label) { candidates.push({ id: `group:${group.id}`, text: group.label, x: Math.floor((rect.x0 + rect.x1) / 2), y: rect.y0, priority: 1, maxWidth: rect.x1 - rect.x0 - 1 }); labelColors.set(`group:${group.id}`, accent); }
+
   }
   // A point is only its glyph. Exits leave through a bar of junctions on the glyph's own row or column; several entries
   // meet in a bar one cell further out and reach the glyph through one arrowhead, so every edge's last cell is joined
@@ -334,6 +312,14 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     ([[x0, y0], [x1, y0], [x0, y1], [x1, y1]] as const).forEach(([x, y], i) => canvas.text(x, y, [corners[i]!], { color: nodeColor }));
     if (node.shape === "subroutine") for (let y = y0 + 1; y < y1; y++) { canvas.text(x0 + 1, y, [tier.straight.v], { color: nodeColor }); canvas.text(x1 - 1, y, [tier.straight.v], { color: nodeColor }); }
   }
+  const exits = new Set<string>();
+  for (const port of layout.ports) if (port.end === "from" && port.trunk && routing.routes.some(route => route.edge.id === port.edgeId)) {
+    const key = `${port.anchor.x},${port.anchor.y}`;
+    if (exits.has(key)) continue;
+    exits.add(key);
+    const mask = { n: 11, e: 7, s: 14, w: 13 }[port.side];
+    canvas.text(port.anchor.x, port.anchor.y, [tier.junction[mask]!], { color: nodeColors.get(port.nodeId)! });
+  }
   // Borders own the node footprint; tips replace their reserved target cell
   // after the border fill so they touch the target without entering its label.
   for (const route of routing.routes) {
@@ -350,50 +336,12 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
     canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color: edgeAccentColors.get(route.edge.id)! });
   }
-  for (const route of routing.routes) if (route.edge.label) {
-    // A loop's label has its room reserved beside it, one blank cell past the loop: each wrapped row goes
-    // exactly there, the one case where a label does not touch its own route.
-    const loop = layout.loops.find((item) => item.edgeId === route.edge.id);
-    if (loop) {
-      const room = glyphDiagramLoopGeometry(layout).find((g) => g.loop === loop)?.label;
-      if (room) loop.lines.forEach((text, i) => {
-        // The separate namespace and tuple encoding cannot alias an authored edge id or another wrapped row.
-        const id = i === 0 ? `edge:${route.edge.id}` : `edge-row:${JSON.stringify([route.edge.id, i])}`;
-        const y = room.y0 + i;
-        candidates.push({ id, text, x: room.x0, y, place: { x: room.x0, y }, reserve: { x0: room.x0, x1: room.x1, y0: y, y1: y }, priority: route.edge.priority });
-        labelColors.set(id, edgeAccentColors.get(route.edge.id)!);
-      });
-      continue;
-    }
-    const mid = route.cells[Math.floor(route.cells.length / 2)]!;
-    // USER FEEDBACK, verbatim: "the label of retry shouldn't be near
-    // workers, it should be from the other side of the workers box,
-    // otherwise its confusing" — an edge label landing next to a group
-    // NEITHER of its own endpoints belongs to reads as annotating that
-    // group. Only a group this edge doesn't touch at all counts as
-    // foreign; a group the edge enters or leaves is legitimately close to
-    // its own label.
-    const avoid = layout.groups
-      .filter((group) => drawnGroupRects.has(group.id) && !group.members.includes(route.edge.from) && !group.members.includes(route.edge.to))
-      .map((group) => ({ groupId: group.id, rect: drawnGroupRects.get(group.id)! }));
-    candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: mid.x, y: mid.y, route: route.cells, maxWidth: Math.min(24, canvas.cols), priority: route.edge.priority, avoid });
-    labelColors.set(`edge:${route.edge.id}`, edgeAccentColors.get(route.edge.id)!);
-  }
-  if (options.title) { candidates.push({ id: "title", text: options.title, x: Math.floor(canvas.cols / 2), y: 0, priority: Infinity }); labelColors.set("title", accent); }
-  // REVIEW-diagrams-fanout-opus.md P3-1: `glyphDiagramLabelLayout` only
-  // rejects literal overlap, so a label candidate immediately touching a
-  // node's own border (distance 0, not overlap) was never excluded —
-  // `cycle.mmd`'s short "retry" edge landed its label flush against the
-  // Check box (`└───────┘retry`) while every longer route's own label
-  // happened to land far enough from a node border by the geometry alone.
-  // A label must still be free to sit exactly one cell from its OWN route
-  // (that's the whole placement rule, `label.route`'s distance-1 check
-  // above), so only NODE rects get the one-cell pad here, never the route
-  // point-obstacles a label is required to touch.
-  const labelObstacles: GlyphDiagramRect[] = [...layout.nodes.map((n) => ({ x0: n.x0 - 1, y0: n.y0 - 1, x1: n.x1 + 1, y1: n.y1 + 1 })),
-    ...routing.routes.flatMap((route) => route.cells.map((p) => ({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })))];
-  const labels = glyphDiagramLabelLayout(candidates, { charset, viewport: { cols: canvas.cols, rows: canvas.rows }, obstacles: labelObstacles });
-  labels.placed.forEach((label) => canvas.text(label.x, label.y, [label.text], { color: labelColors.get(label.id) ?? accent }));
+  const labels = options.labelLayout ?? glyphDiagramGraphLabels(layout, routing, options);
+  labels.placed.forEach(label => {
+    const edgeId = label.id.startsWith("edge:") ? label.id.slice(5)
+      : label.id.startsWith("edge-row:") ? (JSON.parse(label.id.slice(9)) as [string, number])[0] : undefined;
+    canvas.text(label.x, label.y, [label.text], { color: edgeId === undefined ? accent : edgeAccentColors.get(edgeId) ?? accent });
+  });
   ledger.push(...labels.ledger);
   // A node owns its interior label slot; external labels see the entire node as an obstacle.
   for (const node of layout.nodes) {

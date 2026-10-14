@@ -24,9 +24,14 @@ it("routes Vergely directly into its dust cluster without enclosing Galaxia", as
   const result = await renderGlyphDiagram(source, options);
   const vergely = result.layout.nodes.find(node => node.id === "V")!;
   const galaxia = result.layout.nodes.find(node => node.id === "G")!;
-  expect(vergely.x0).toBeGreaterThan(galaxia.x1);
   const route = result.routes.find(route => route.edge.from === "V")!;
-  expect(route.cells.every(cell => cell.y > vergely.y1 && cell.x > galaxia.x1)).toBe(true);
+  if (result.layout.direction === "LR") {
+    expect(vergely.y0).toBeGreaterThan(galaxia.y1);
+    expect(route.cells.every(cell => cell.x > vergely.x1 && cell.y > galaxia.y1)).toBe(true);
+  } else {
+    expect(vergely.x0).toBeGreaterThan(galaxia.x1);
+    expect(route.cells.every(cell => cell.y > vergely.y1 && cell.x > galaxia.x1)).toBe(true);
+  }
   const quality = computeGlyphDiagramQuality(result, options);
   expect(quality.fakeFrames).toBe(0);
   expect(quality.edges.find(edge => edge.edgeId === route.edge.id)!.bends).toBe(2);

@@ -17,7 +17,7 @@ export interface GlyphDiagramLabelCandidate {
   readonly place?: { readonly x: number; readonly y: number };
   /** Owned space held against other labels even when this row has no text. */
   readonly reserve?: GlyphDiagramRect;
-  /** Edge labels must touch their own route's neighbourhood, or be dropped. */
+  /** Edge labels stay beside their route, with one blank cell beside vertical stems. */
   readonly route?: readonly GlyphCanvasPoint[];
   /**
    * Groups this label PREFERS not to touch — a candidate cell whose own
@@ -51,6 +51,7 @@ export interface GlyphDiagramLabelLayoutResult { readonly placed: readonly Glyph
 export function glyphDiagramText(value: string, charset: GlyphCanvasTierName = "box"): string {
   // The three one-glyph markers the state adapter writes (and any label holding them) fold to look-alikes, not "?".
   const input = charset === "ascii" ? value.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...").replace(/[●◆]/g, "*").replace(/◉/g, "@") : value;
+  if (/^[\x20-\x7e]*$/.test(input)) return input.trimEnd();
   const scratch = createGlyphCanvas({ cols: Math.max(1, input.length), rows: 1, tier: charset });
   scratch.text(0, 0, [input]);
   const folded = scratch.grid.char.join("").trimEnd();
@@ -75,7 +76,14 @@ export function glyphDiagramTruncateLabel(text: string, maxWidth: number, charse
 }
 export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCandidate[], options: GlyphDiagramLabelLayoutOptions): GlyphDiagramLabelLayoutResult {
   const placed: GlyphDiagramPlacedLabel[] = [], dropped: string[] = [], ledger: GlyphDiagramLedgerEntry[] = [];
-  const occupied = [...options.obstacles];
+  const occupied = new Uint8Array(options.viewport.cols * options.viewport.rows);
+  const occupy = (rect: GlyphDiagramRect) => {
+    const left = Math.max(0, rect.x0), right = Math.min(options.viewport.cols - 1, rect.x1);
+    if (left > right) return;
+    for (let y = Math.max(0, rect.y0); y <= Math.min(options.viewport.rows - 1, rect.y1); y++)
+      occupied.fill(1, y * options.viewport.cols + left, y * options.viewport.cols + right + 1);
+  };
+  for (const rect of options.obstacles) occupy(rect);
   const reservations = candidates.filter((label) => label.reserve !== undefined);
   const { cols, rows } = options.viewport;
   // Fixed rows go first, in reading order independent of their synthetic ids; reservations also hold blank cells.
@@ -102,23 +110,32 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
     const avoid = (label.avoid ?? []).map(({ rect, groupId }) => ({ groupId, rect: { x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 } }));
     const touchedGroups = (rect: GlyphDiagramRect) => avoid.filter((a) => glyphDiagramRectsOverlap(a.rect, rect)).map((a) => a.groupId);
     const positions: { x: number; y: number; distance: number; nearForeignGroup: boolean }[] = [];
-    for (let y = 0; y < rows; y++) for (let x = 0; x + text.length <= cols; x++) {
-      if (label.place && (x !== label.place.x || y !== label.place.y)) continue;
-      if (label.route && !label.route.some((p) => Math.max(x - p.x, 0, p.x - (x + text.length - 1)) + Math.abs(y - p.y) === 1)) continue;
+    const cells = new Set<number>();
+    const add = (x: number, y: number) => {
+      if (x >= 0 && y >= 0 && y < rows && x + text.length <= cols) cells.add(y * cols + x);
+    };
+    if (label.place) add(label.place.x, label.place.y);
+    else if (label.route) for (const p of label.route) {
+      // The span can touch a route above/below anywhere, or at either end on its own row.
+      for (let x = p.x - text.length + 1; x <= p.x; x++) { add(x, p.y - 1); add(x, p.y + 1); }
+      add(p.x - text.length, p.y); add(p.x + 1, p.y);
+      add(p.x - text.length - 1, p.y); add(p.x + 2, p.y);
+    }
+    else for (let y = 0; y < rows; y++) for (let x = 0; x + text.length <= cols; x++) add(x, y);
+    for (const cell of cells) {
+      const x = cell % cols, y = Math.floor(cell / cols);
       const rect = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
+      if (occupied.subarray(y * cols + x, y * cols + x + text.length).some(cell => cell !== 0)
+        || reservations.some(owner => owner !== label && glyphDiagramRectsOverlap(owner.reserve!, rect))) continue;
       positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y), nearForeignGroup: touchedGroups(rect).length > 0 });
     }
     positions.sort((a, b) => (a.nearForeignGroup === b.nearForeignGroup ? 0 : a.nearForeignGroup ? 1 : -1) || a.distance - b.distance || a.y - b.y || a.x - b.x);
-    const position = positions.find(({ x, y }) => {
-      const span = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
-      return !occupied.some((rect) => glyphDiagramRectsOverlap(rect, span)) &&
-        !reservations.some((owner) => owner !== label && glyphDiagramRectsOverlap(owner.reserve!, span));
-    });
+    const position = positions[0];
     if (!position) { dropped.push(label.id); ledger.push(ledgerLabelDropped({ role, text, reason: "there was no free space near its target" })); continue; }
     const { x, y } = position;
     const result = { id: label.id, x, y, text, abbreviated, x0: x, y0: y, x1: x + text.length - 1, y1: y };
     for (const groupId of touchedGroups(result)) ledger.push(ledgerLabelNearForeignGroup({ role, text, groupId }));
-    placed.push(result); occupied.push(result);
+    placed.push(result); occupy(result);
   }
   return { placed, dropped, ledger };
 }

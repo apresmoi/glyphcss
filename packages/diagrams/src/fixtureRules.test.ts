@@ -19,7 +19,7 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     expect(r.pages).toHaveLength(1);
     expect(r.routes).toHaveLength(graph.edges.length);
     expect(r.report.unroutable).toEqual([]);
-    expect(r.report.ledger).toEqual([]);
+    expect(r.report.ledger.map(entry => entry.code)).toEqual(name === "diamond" ? ["budget-compaction"] : []);
     expect(r.layout.nodes).toHaveLength(graph.nodes.length);
     for (const route of r.routes) {
       for (const p of route.cells) expect(r.layout.nodes.some((n) => inside(p, n)), route.edge.id).toBe(false);
@@ -31,6 +31,9 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     const segments = r.routes.map((route) => route.cells.slice(1).map((b, i) => ({ a: route.cells[i]!, b, horizontal: b.y === route.cells[i]!.y })));
     for (let a = 0; a < segments.length; a++) for (let b = a + 1; b < segments.length; b++) for (const p of segments[a]!) for (const q of segments[b]!) {
       if (p.horizontal !== q.horizontal) continue;
+      const shared = r.layout.ports.some(port => port.edgeId === r.routes[a]!.edge.id && port.trunk
+        && r.layout.ports.some(other => other.edgeId === r.routes[b]!.edge.id && other.trunk === port.trunk));
+      if (shared && (p.horizontal ? p.a.y === q.a.y : p.a.x === q.a.x)) continue;
       if (p.horizontal && Math.max(Math.min(p.a.x, p.b.x), Math.min(q.a.x, q.b.x)) <= Math.min(Math.max(p.a.x, p.b.x), Math.max(q.a.x, q.b.x))) expect(Math.abs(p.a.y - q.a.y)).toBeGreaterThanOrEqual(2);
       if (!p.horizontal && Math.max(Math.min(p.a.y, p.b.y), Math.min(q.a.y, q.b.y)) <= Math.min(Math.max(p.a.y, p.b.y), Math.max(q.a.y, q.b.y))) expect(Math.abs(p.a.x - q.a.x)).toBeGreaterThanOrEqual(2);
     }
@@ -322,8 +325,9 @@ it("reserves both side capacities before centering ports and canonicalizes every
   const graph = glyphGraphFromMermaid("graph TB; Z --> H; H --> A & B & C & D & E & F");
   const reserved = reserveGlyphGraphPorts(measureGlyphGraph(graph));
   const hub = reserved.nodes.find((n) => n.id === "H")!;
-  expect(hub.width).toBe(13);
-  expect(reserved.ports.find((p) => p.nodeId === "H" && p.end === "to")!.offset).toBe(6);
+  expect(hub.width).toBe(5);
+  expect(new Set(reserved.ports.filter(port => port.nodeId === "H" && port.end === "from").map(port => port.offset))).toEqual(new Set([2]));
+  expect(reserved.ports.find((p) => p.nodeId === "H" && p.end === "to")!.offset).toBe(2);
   const canonical = canonicalizeGlyphGraph({ ...graph, groups: [{ id: "z", members: ["Z", "H"] }, { id: "a", members: ["B", "A"] }] });
   // Nodes keep their authored order: it decides where a loop starts.
   expect(canonical.nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id));

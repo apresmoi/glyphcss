@@ -36,16 +36,16 @@ describe("diagram routing rules", () => {
     cells.slice(1).forEach((p, i) => expect(Math.abs(p.x - cells[i]!.x) + Math.abs(p.y - cells[i]!.y)).toBe(1));
   });
   // Mutation: bypass reserveGlyphGraphPorts, or replace its 2-cell offsets/minimum dimension with 1-cell spacing.
-  it("widens the six-port node before dagre and keeps one blank cell between parallel routes", async () => {
+  it("shares the six-way fan port before dagre and separates its exclusive branches", async () => {
     const graph = glyphGraphFromMermaid(fixture("six-port"));
     const measured = measureGlyphGraph(graph), reserved = reserveGlyphGraphPorts(measured);
     const hubId = graph.edges[0]!.from;
     const hub = reserved.nodes.find((n) => n.id === hubId)!;
-    expect(hub.width).toBeGreaterThanOrEqual(13);
+    expect(hub.width).toBe(measured.nodes.find(node => node.id === hubId)!.width);
     const ports = reserved.ports.filter((p) => p.nodeId === hubId && p.end === "from");
     expect(ports).toHaveLength(6);
     const offsets = ports.map((p) => p.offset).sort((a, b) => a - b);
-    offsets.slice(1).forEach((v, i) => expect(v - offsets[i]!).toBeGreaterThanOrEqual(2));
+    expect(new Set(offsets).size).toBe(1);
     const layout = await layoutGlyphGraph(reserved, { nodesep: 6, ranksep: 12 });
     const result = routeGlyphGraphEdges(layout, { width: layout.width + 20, height: layout.height + 20 });
     expect(routeGlyphGraphEdges(layout, { width: layout.width + 20, height: layout.height + 20, stopOnFailure: true })).toEqual(result);
@@ -53,6 +53,7 @@ describe("diagram routing rules", () => {
     const segments = result.routes.map((r) => r.cells.slice(1).map((b, i) => ({ a: r.cells[i]!, b, horizontal: b.y === r.cells[i]!.y })));
     for (let a = 0; a < segments.length; a++) for (let b = a + 1; b < segments.length; b++) for (const p of segments[a]!) for (const q of segments[b]!) {
       if (p.horizontal !== q.horizontal) continue;
+      if (p.horizontal ? p.a.y === q.a.y : p.a.x === q.a.x) continue;
       if (p.horizontal && Math.max(Math.min(p.a.x, p.b.x), Math.min(q.a.x, q.b.x)) <= Math.min(Math.max(p.a.x, p.b.x), Math.max(q.a.x, q.b.x))) expect(Math.abs(p.a.y - q.a.y)).toBeGreaterThanOrEqual(2);
       if (!p.horizontal && Math.max(Math.min(p.a.y, p.b.y), Math.min(q.a.y, q.b.y)) <= Math.min(Math.max(p.a.y, p.b.y), Math.max(q.a.y, q.b.y))) expect(Math.abs(p.a.x - q.a.x)).toBeGreaterThanOrEqual(2);
     }
@@ -145,9 +146,9 @@ describe("diagram fidelity ladder", () => {
     expect(result.meta.edges).toHaveLength(13); expect(result.routes).toHaveLength(1);
     expect(glyphDiagramMergeDuplicates(graph).graph.edges).toHaveLength(1);
   });
-  it("retains more than nine nodes when the complete geometry fits", async () => {
+  it("retains more than nine nodes when the complete fan geometry fits", async () => {
     const nodes = Array.from({ length: 10 }, (_, i) => ({ id: `n${i}`, label: `N${i}` }));
-    const edges = nodes.slice(1).map((node, i) => ({ id: `e${i}`, from: nodes[i]!.id, to: node.id }));
+    const edges = nodes.slice(1).map((node, i) => ({ id: `e${i}`, from: nodes[0]!.id, to: node.id }));
     const result = await renderGlyphDiagram({ nodes, edges, direction: "TB" }, { width: 100, height: 100 });
     expect(result.pages).toHaveLength(1);
     expect(result.layout.nodes.map(({ id }) => id).sort()).toEqual(nodes.map(({ id }) => id).sort());

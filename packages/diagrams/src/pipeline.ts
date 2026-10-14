@@ -6,6 +6,8 @@ import { glyphDiagramText } from "./labels";
 import { ledgerGroupMemberList, ledgerLabelAbbreviated, ledgerLabelFolded, type GlyphDiagramLedgerEntry } from "./ledger";
 import { GLYPH_DIAGRAM_LOOP_LABEL_MAX, GLYPH_DIAGRAM_LOOP_SPAN, glyphDiagramLoopGeometry, glyphDiagramLoopSide, glyphDiagramLoopSlots, type GlyphDiagramLoop } from "./loop";
 
+export const GLYPH_DIAGRAM_FAN_GAP = Symbol("fan gap");
+export const GLYPH_DIAGRAM_EDGE_LABEL_ROOM = Symbol("edge label room");
 export const GLYPH_DIAGRAM_NODE_PAD = Object.freeze({ x: 1, y: 0 });
 export interface GlyphDiagramRect { readonly x0: number; readonly y0: number; readonly x1: number; readonly y1: number }
 /** A group's own member-node bbox padded on every side, clamped to the canvas — the exact rectangle the painter rings with dots. Shared with `route.ts`'s clearance cost so "where the router keeps clear" and "where the boundary is drawn" can never drift apart. */
@@ -77,7 +79,7 @@ export interface GlyphDiagramMeasuredGraph {
   readonly loops: readonly GlyphDiagramLoop[];
   readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
-export interface GlyphDiagramPort { readonly edgeId: string; readonly nodeId: string; readonly end: "from" | "to"; readonly side: GlyphCanvasDirection; readonly offset: number }
+export interface GlyphDiagramPort { readonly edgeId: string; readonly nodeId: string; readonly end: "from" | "to"; readonly side: GlyphCanvasDirection; readonly offset: number; readonly trunk?: string }
 export interface GlyphDiagramReservedGraph extends GlyphDiagramMeasuredGraph { readonly ports: readonly GlyphDiagramPort[] }
 export interface GlyphDiagramPositionedNode extends GlyphDiagramMeasuredNode, GlyphDiagramRect {}
 export interface GlyphDiagramPositionedPort extends GlyphDiagramPort { readonly anchor: GlyphCanvasPoint; readonly escape: GlyphCanvasPoint }
@@ -102,6 +104,8 @@ export interface GlyphDiagramLayoutOptions {
   /** Pad a nested group's frame outside its child's, default true. The fitter turns it off before it splits a graph or cuts a word. */
   readonly frameInset?: boolean;
   readonly margin?: number;
+  readonly [GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?: readonly string[];
+  readonly [GLYPH_DIAGRAM_FAN_GAP]?: boolean;
 }
 /** A node label as the cells will show it: folded to the charset line by line. */
 export function glyphDiagramFoldLabel(label: string, charset?: GlyphCanvasTierName): string {
@@ -207,9 +211,24 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       ...(edge.from === node.id && side === edgeSide(edge, "from") ? [{ edgeId: edge.id, end: "from" as const }] : []),
       ...(edge.to === node.id && side === edgeSide(edge, "to") ? [{ edgeId: edge.id, end: "to" as const }] : []),
     ]);
+    const slotsOn = (side: GlyphCanvasDirection) => {
+      const slots = new Map<string, ReturnType<typeof connectionsOn>>();
+      for (const connection of connectionsOn(side)) {
+        const edge = flow.find(edge => edge.id === connection.edgeId)!;
+        // Forward branches of one style share their stem; points and returns retain their own lanes.
+        const parallel = flow.filter(other => other.from === edge.from && other.to === edge.to).length > 1;
+        const crossesFrame = measured.groups.some(group => group.members.includes(edge.from) !== group.members.includes(edge.to));
+        const mixedFan = connection.end === "from"
+          ? flow.some(branch => branch.from === node.id && flow.some(other => other.to === branch.to && other.from !== node.id))
+          : flow.some(branch => branch.to === node.id && flow.some(other => other.from === branch.from && other.to !== node.id));
+        const key = pointIds.has(edge.from) || pointIds.has(edge.to) || back.has(edge.id) || parallel || crossesFrame || mixedFan ? edge.id : JSON.stringify([node.id, side, connection.end, edge.style ?? "solid"]);
+        slots.set(key, [...(slots.get(key) ?? []), connection]);
+      }
+      return [...slots.entries()];
+    };
     // Size every side before centering any port on it.
     for (const side of ["n", "e", "s", "w"] as const) {
-      const count = connectionsOn(side).length;
+      const count = slotsOn(side).length;
       if (side === "n" || side === "s") width = Math.max(width, room(count));
       else height = Math.max(height, room(count));
     }
@@ -218,9 +237,11 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       if (loopSide === "e") height = Math.max(height, along); else width = Math.max(width, along);
     }
     for (const side of ["n", "e", "s", "w"] as const) {
-      const connections = connectionsOn(side);
+      const slots = slotsOn(side);
       const length = side === "n" || side === "s" ? width : height;
-      connections.forEach((connection, index) => ports.push({ ...connection, nodeId: node.id, side, offset: Math.floor((length - 1 - 2 * (connections.length - 1)) / 2) + 2 * index }));
+      slots.forEach(([key, connections], index) => connections.forEach(connection => ports.push({ ...connection,
+        nodeId: node.id, side, offset: Math.floor((length - 1 - 2 * (slots.length - 1)) / 2) + 2 * index,
+        ...(connections.length > 1 ? { trunk: key } : {}) })));
     }
     const { slots, length } = glyphDiagramLoopSlots(measured.loops.filter((loop) => loop.nodeId === node.id), loopSide);
     if (loopSide === "e") height = Math.max(height, length); else width = Math.max(width, length);
@@ -312,7 +333,7 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
     // separation on this integer cell grid — measured identical in extent to
     // `edgesep: nodesep` (80x19 either way) once it is off the pixel default,
     // so there is no reason to spend more of the grid on it than its own unit.
-    g.setGraph({ rankdir: reserved.direction, nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1, align });
+    g.setGraph({ rankdir: reserved.direction, nodesep: options[GLYPH_DIAGRAM_FAN_GAP] && !across && !reserved.loops.length && !includedGroups.length && reserved.ports.some(port => port.trunk) ? 1 : nodesep, ranksep, marginx: margin, marginy: margin, edgesep: 1, align });
     g.setDefaultEdgeLabel(() => ({}));
     const groupKeys = new Map<string, string>();
     for (const group of includedGroups) {
@@ -349,8 +370,12 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
         g.setEdge(edge.from, edge.to, across
           ? { width: room.reach - nodesep, height: node.height, labelpos: "c" }
           : { width: widen, height: Math.max(0, room.reach - nodesep), labelpos: "c" }, edge.id);
-      } else if (back.has(edge.id)) g.setEdge(edge.to, edge.from, {}, edge.id);
-      else g.setEdge(edge.from, edge.to, {}, edge.id);
+      } else {
+        const labelWidth = options[GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?.includes(edge.id) ? glyphDiagramText(edge.label ?? "", options.charset).length : 0;
+        const room = labelWidth ? { width: labelWidth + 2, height: 3, labelpos: "c" } : {};
+        if (back.has(edge.id)) g.setEdge(edge.to, edge.from, room, edge.id);
+        else g.setEdge(edge.from, edge.to, room, edge.id);
+      }
     }
     dagre.layout(g, !includedGroups.length && !reserved.loops.length && !back.size ? {
       customOrder: (ordered, order) => {
@@ -482,11 +507,17 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
       return side === "n" || side === "s" ? other.x0 + other.x1 : other.y0 + other.y1;
     };
     const length = side === "n" || side === "s" ? node.width : node.height;
-    const slots = ports.some((port) => back.has(port.edgeId))
-      ? ports.map((_, i) => Math.floor((length - 1 - 2 * (ports.length - 1)) / 2) + 2 * i)
-      : ports.map((port) => port.offset).sort((a, b) => a - b);
-    ports.sort((a, b) => transverse(a) - transverse(b) || compare(a.edgeId, b.edgeId));
-    ports.forEach((port, i) => offsets.set(port, slots[i]!));
+    const loops = new Set(reserved.loops.map(loop => loop.edgeId));
+    for (const port of ports.filter(port => loops.has(port.edgeId))) offsets.set(port, port.offset);
+    const slots = new Map<string, GlyphDiagramPort[]>();
+    for (const port of ports.filter(port => !loops.has(port.edgeId))) {
+      const key = port.trunk ?? `${port.edgeId}:${port.end}`;
+      slots.set(key, [...(slots.get(key) ?? []), port]);
+    }
+    const ordered = [...slots.values()].sort((a, b) => transverse(a[0]!) - transverse(b[0]!) || compare(a[0]!.edgeId, b[0]!.edgeId));
+    const reservedOffsets = ordered.map(slot => slot[0]!.offset).sort((a, b) => a - b);
+    ordered.forEach((slot, i) => slot.forEach(port => offsets.set(port, ports.some(port => back.has(port.edgeId))
+      ? Math.floor((length - 1 - 2 * (ordered.length - 1)) / 2) + 2 * i : reservedOffsets[i]!)));
   }
   const ports = planned.map((original) => {
     const port = { ...original, offset: offsets.get(original)! };
@@ -502,5 +533,9 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   // inside a group it needs one cell beyond it even at margin 0, or the clamped frame would run through the label's last row.
   const inFrame = (id: string) => includedGroups.some((group) => group.members.includes(id));
   const loopRoomEnd = glyphDiagramLoopGeometry({ ports, loops: reserved.loops }).map((g) => ({ ...g.bounds, pad: Math.max(margin, inFrame(g.loop.nodeId) ? 1 : 0) }));
-  return { ...reserved, ledger, nodes, ports, frameInset, width: Math.max(1, ...nodes.map((n) => n.x1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.x1 + 1 + b.pad + inset)), height: Math.max(1, ...nodes.map((n) => n.y1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.y1 + 1 + b.pad + inset)) };
+  // Vertical labels live beside the route, beyond the normalized node bounds.
+  const labelRoomEnd = across ? reserved.edges.filter(edge => !back.has(edge.id) && options[GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?.includes(edge.id)).map(edge =>
+    Math.max(...ports.filter(port => port.edgeId === edge.id).map(port => port.anchor.x))
+      + glyphDiagramText(edge.label ?? "", options.charset).length + 3 + margin) : [];
+  return { ...reserved, ledger, nodes, ports, frameInset, width: Math.max(1, ...labelRoomEnd, ...nodes.map((n) => n.x1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.x1 + 1 + b.pad + inset)), height: Math.max(1, ...nodes.map((n) => n.y1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.y1 + 1 + b.pad + inset)) };
 }

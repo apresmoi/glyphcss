@@ -8,6 +8,8 @@ import { fitGlyphGraph, type GlyphDiagramAttempt } from "./fit";
 import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerLabelFolded, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, ledgerWordsCut, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
+import { glyphDiagramGraphLabels } from "./graphLabels";
+import { glyphDiagramCompactGeometry } from "./compact";
 import { GLYPH_DIAGRAM_WORK, GlyphDiagramWork } from "./work";
 
 // Mirrors `@glyphcss/charts`' `GLYPH_CHART_TARGET_DEFAULTS` for contract
@@ -94,7 +96,6 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   }
   ledger.push(...work.ledger());
   const pages = attempts.map(({ layout, routing, fits, width, height }, index) => {
-    if (width > opts.width || height > opts.height) ledger.push(ledgerLayoutExpanded({ requestedWidth: opts.width, requestedHeight: opts.height, canvasWidth: width, canvasHeight: height }));
     if (!fits) {
       // A too-small viewport cannot legally show a partial box or a dangling clipped transit.
       ledger.push(ledgerSplitPanelDropped({ panel: index + 1, requestedWidth: opts.width, requestedHeight: opts.height, nodes: layout.nodes.map((n) => n.id) }));
@@ -116,7 +117,21 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
       ...layout.loops.map((loop) => ({ id: `${loop.nodeId} loop`, words: broken(layout.edges.find((e) => e.id === loop.edgeId)?.label ?? "", loop.lines) })),
     ].filter((entry) => entry.words.length > 0);
     if (cut.length) ledger.push(ledgerWordsCut({ nodes: cut }));
-    const painted = paintGlyphDiagram(layout, routing, { ...opts, width, height });
+    let labels = glyphDiagramGraphLabels(layout, routing, { ...opts, width, height });
+    if (fits && routing.unroutable.length === 0) {
+      const compact = glyphDiagramCompactGeometry(layout, routing, labels.placed, { width, height });
+      // Keep the caller's canvas size; only expanded canvases shrink back toward the requested budget.
+      width = Math.max(opts.width, compact.width); height = Math.max(opts.height, compact.height);
+      const dx = Math.floor((width - compact.width) / 2), dy = Math.floor((height - compact.height) / 2);
+      const point = (p: { x: number; y: number }) => ({ x: p.x + dx, y: p.y + dy });
+      const rect = (r: { x0: number; x1: number; y0: number; y1: number }) => ({ x0: r.x0 + dx, x1: r.x1 + dx, y0: r.y0 + dy, y1: r.y1 + dy });
+      layout = { ...compact.layout, nodes: compact.layout.nodes.map(n => ({ ...n, ...rect(n) })),
+        ports: compact.layout.ports.map(p => ({ ...p, anchor: point(p.anchor), escape: point(p.escape) })) };
+      routing = { ...compact.routing, routes: compact.routing.routes.map(r => ({ ...r, cells: r.cells.map(point) })) };
+      labels = { ...labels, placed: compact.labels.map(l => ({ ...l, ...point(l), ...rect(l) })) };
+    }
+    const painted = paintGlyphDiagram(layout, routing, { ...opts, width, height, labelLayout: labels });
+    if (width > opts.width || height > opts.height) ledger.push(ledgerLayoutExpanded({ requestedWidth: opts.width, requestedHeight: opts.height, canvasWidth: width, canvasHeight: height }));
     ledger.push(...painted.ledger);
     return painted;
   });

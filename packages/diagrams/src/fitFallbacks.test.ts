@@ -8,6 +8,17 @@ import { glyphDiagramHasRoutingClearance } from "./route";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/${name}.mmd`), "utf8");
 
+it("preserves LR during cut-word replays when autoDirection is false", async () => {
+  const result = await renderGlyphDiagram("flowchart LR\nA[abcdefghijklmnopqrstu] --> B[zyxwvutsrqponmlkjihg]", {
+    width: 20, height: 24, autoDirection: false, overflow: "expand", detail: "faithful",
+  });
+  expect(result.layout.direction).toBe("LR");
+  expect(result.pages).toHaveLength(1);
+  expect(result.routes).toHaveLength(1);
+  expect(result.report.unroutable).toEqual([]);
+  expect(result.report.ledger.some(entry => entry.code === "word-cut")).toBe(true);
+});
+
 describe("a panel that cannot show anything stays a blank panel", () => {
   it("renders a looped node in a canvas too small for it", async () => {
     // Mutation: leave `loops` on the cleared layout -> paint reads a loop with no ports and throws.
@@ -124,7 +135,7 @@ describe("loop label wraps are chosen to fit the canvas", () => {
     // Mutation: apply the height limit when the canvas may grow -> the fitting wraps are filtered out and the canvas grows to 14 rows.
     const source = "flowchart TB\nA[Processor] -->|one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen| A\nA -->|retry after the backoff window until success with delay forever| A";
     const r = await renderGlyphDiagram(source, { target: "chat", width: 39, height: 6, autoDirection: false, overflow: "expand", detail: "faithful" });
-    expect([r.canvas.cols, r.canvas.rows]).toEqual([39, 10]);
+    expect([r.canvas.cols, r.canvas.rows]).toEqual([39, 9]);
   });
 
   it("fits two stacked loops whose labels need their combined room", async () => {

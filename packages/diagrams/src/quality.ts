@@ -43,7 +43,7 @@ export function computeGlyphDiagramQuality(result: GlyphDiagramResult, budget: {
     crossings += geometry.crossings;
     fakeFrames += geometry.fakeFrames;
     edges.push(...geometry.edges.map(edge => ({ ...edge, page: pageIndex + 1 })));
-    const arrowheads = new Map<string, number>();
+    const arrowheads = new Map<string, Set<string>>();
     for (const route of page.routes) {
       renderedEdges.add(route.edge.id);
       const to = page.layout.ports.find(port => port.edgeId === route.edge.id && port.end === "to")!;
@@ -51,10 +51,12 @@ export function computeGlyphDiagramQuality(result: GlyphDiagramResult, budget: {
         const key = JSON.stringify([to.nodeId, to.side]);
         // Point fan-in paints one head after its join bar, unlike boxed nodes.
         const point = page.layout.nodes.find((node) => node.id === to.nodeId)?.shape === "point";
-        arrowheads.set(key, point ? 1 : (arrowheads.get(key) ?? 0) + 1);
+        const cells = arrowheads.get(key) ?? new Set<string>();
+        cells.add(point ? "point" : `${to.anchor.x},${to.anchor.y}`);
+        arrowheads.set(key, cells);
       }
     }
-    maxArrowheadsOnSide = Math.max(maxArrowheadsOnSide, ...arrowheads.values());
+    maxArrowheadsOnSide = Math.max(maxArrowheadsOnSide, ...[...arrowheads.values()].map(cells => cells.size));
   });
   const detours = edges.flatMap((edge) => edge.detourRatio === null ? [] : [edge.detourRatio]);
   const missingEdges = new Set(result.report.unroutable);

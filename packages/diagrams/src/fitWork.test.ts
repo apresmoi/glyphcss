@@ -88,11 +88,11 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
     });
     expect(result.canvas.grid).toMatchObject({ cols: 60, rows: 33 });
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("aea376bd9373c7b14f039fe0fcf010334325872e093e836c5d2fc9676d502932");
+      .toBe("ed4757e6bdd04a45136ee40352ab5a5b6b268922a5b9ecbe317413ee6fba18db");
   });
   it.each([
-    ["galaxy-sources-to-model", 24, "e78406bf4aeddbca28e6274203adfcf8406d1cf070bd76dfacf9e7b2889d5464", 350, 900_000],
-    ["galaxy-sources-h60", 60, "cfa29b1a49ac00f3769d18b3089f640763cc8d93ae5638c8c13ca53a5aba44a5", 110, 75_000],
+    ["galaxy-sources-to-model", 24, "0ab6b16c4d94a819d907bc5d5624f839ded5789d53d8d96266cd3f71007ded8b", 350, 900_000],
+    ["galaxy-sources-h60", 60, "ce879ac913538e74ba521fdcfc1db38eaabcff80f8f8426a62ed0af3434550d2", 110, 75_000],
   ] as const)("%s keeps its text within routing and A* work bounds", async (name, height, hash, routingBound, stateBound) => {
     const source = readFileSync(resolve(__dirname, `../bench/corpus/${name}.mmd`), "utf8");
     vi.mocked(routeGlyphGraphEdges).mockClear();
@@ -111,7 +111,7 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
       });
     } finally { spy.mockRestore(); }
     expect(computeGlyphDiagramQuality(result, { width: 72, height })).toMatchObject({
-      wordCuts: name === "galaxy-sources-h60" ? 3 : 0, crossings: name === "galaxy-sources-h60" ? 1 : 3,
+      wordCuts: 0, crossings: 0,
       droppedEdges: 0, droppedLabels: 0, pages: 1,
     });
     expect(result.pages).toHaveLength(1);

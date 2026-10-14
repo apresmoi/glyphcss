@@ -1,15 +1,9 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { layoutGlyphGraph, type GlyphDiagramLayout } from "./pipeline";
 
 const control = vi.hoisted(() => ({ reject: "" as "" | "crossings" | "fakeFrames" | "labels" | "routing",
-  attempts: [] as GlyphDiagramLayout[] }));
-// The first folded fit has S=1, C=16, M=15. These are alignment probes only.
-const shifted = (layout: GlyphDiagramLayout) => layout.nodes.find(node => node.id === "P")?.x0 === 0
-  && layout.ports.some(port => port.nodeId === "X" && port.end === "from" && port.side === "e")
-  && layout.nodes.some(node => node.id === "S" && node.x0 !== 1 || node.id === "C" && node.x0 !== 16
-    || node.id === "M" && node.x0 !== 15);
+  seed: [] as (readonly [string, number])[], attempts: [] as GlyphDiagramLayout[] }));
+const shifted = (layout: GlyphDiagramLayout) => control.seed.some(([id, x]) => layout.nodes.find(node => node.id === id)?.x0 !== x);
 vi.mock("./routeQuality", async importOriginal => {
   const real = await importOriginal<typeof import("./routeQuality")>();
   return { ...real, glyphDiagramRouteQuality: (...args: Parameters<typeof real.glyphDiagramRouteQuality>) => {
@@ -18,12 +12,11 @@ vi.mock("./routeQuality", async importOriginal => {
       ? { ...quality, [control.reject]: 100 } : quality;
   } };
 });
-vi.mock("./paint", async importOriginal => {
-  const real = await importOriginal<typeof import("./paint")>();
-  return { ...real, paintGlyphDiagram: (...args: Parameters<typeof real.paintGlyphDiagram>) => {
-    const painted = real.paintGlyphDiagram(...args);
-    return shifted(args[0]) && control.reject === "labels" ? { ...painted,
-      ledger: [...painted.ledger, { code: "label-dropped", message: "Injected alignment label loss." }] } : painted;
+vi.mock("./graphLabels", async importOriginal => {
+  const real = await importOriginal<typeof import("./graphLabels")>();
+  return { ...real, glyphDiagramGraphLabels: (...args: Parameters<typeof real.glyphDiagramGraphLabels>) => {
+    const labels = real.glyphDiagramGraphLabels(...args);
+    return shifted(args[0]) && control.reject === "labels" ? { ...labels, dropped: [...labels.dropped, "edge:injected"] } : labels;
   } };
 });
 vi.mock("./route", async importOriginal => {
@@ -35,42 +28,27 @@ vi.mock("./route", async importOriginal => {
       ? { ...routing, unroutable: [args[0].edges[0]!.id] } : routing;
   } };
 });
-import { renderGlyphDiagram } from "./render";
-import { computeGlyphDiagramQuality } from "./quality";
 import { glyphDiagramStraightenPorts, type GlyphDiagramAttempt } from "./fit";
 import { glyphGraphFromMermaid } from "./mermaid";
 import { routeGlyphGraphEdges } from "./route";
 import { glyphDiagramRouteQuality } from "./routeQuality";
 
-const source = readFileSync(resolve(__dirname, "../bench/corpus/galaxy-build-detailed.mmd"), "utf8");
-const options = { target: "chat", width: 72, height: 24, autoDirection: true, detail: "faithful", overflow: "expand" } as const;
-afterEach(() => { control.reject = ""; control.attempts = []; });
+afterEach(() => { control.reject = ""; control.attempts = []; control.seed = []; });
 
-it("straightens small port offsets in top-down order once, including the moved node's child", async () => {
-  const result = await renderGlyphDiagram(source, options);
-  const quality = computeGlyphDiagramQuality(result, options);
-  expect(quality).toMatchObject({ bends: { total: 10, max: 2 }, crossings: 0, fakeFrames: 0,
-    wordCuts: 1, droppedEdges: 0, droppedLabels: 0, pages: 1 });
-  expect(result.canvas.rows).toBe(32);
-  const probes = control.attempts.filter(shifted);
-  expect(probes).toHaveLength(3);
-  expect(probes.map(layout => ["S", "C", "M"].map(id => layout.nodes.find(node => node.id === id)!.x0)))
-    .toEqual([[1, 17, 15], [2, 17, 15], [2, 17, 17]]);
-  for (const [from, to, bends] of [["P", "S", 0], ["G", "S", 2], ["G", "C", 0], ["S", "M", 2], ["C", "M", 0], ["D", "M", 2]] as const) {
-    const route = result.routes.find(route => route.edge.from === from && route.edge.to === to)!;
-    expect(quality.edges.find(edge => edge.edgeId === route.edge.id)!.bends).toBe(bends);
-  }
-  expect((await renderGlyphDiagram(source, options)).text).toBe(result.text);
+it("straightens small port offsets once, including the moved node's child", async () => {
+  const before = await placedAttempt("flowchart TB\nA[abc] --> B[def]\nB --> C[ghi]", { A: [4, 1], B: [5, 12], C: [6, 24] }, 30);
+  const result = glyphDiagramStraightenPorts(before, { width: 30, height: 30, margin: 0 });
+  expect(result.layout.nodes.map(node => node.x0)).toEqual([4, 4, 4]);
+  expect(control.attempts).toHaveLength(2);
+  expect(glyphDiagramRouteQuality(result.layout, result.routing.routes)).toMatchObject({ crossings: 0, fakeFrames: 0 });
+  expect(result.routing.routes.every(route => new Set(route.cells.map(cell => cell.x)).size === 1)).toBe(true);
 });
 
-it.each(["crossings", "fakeFrames", "labels", "routing"] as const)("keeps the folded fit when alignment adds %s", async reject => {
+it.each(["crossings", "fakeFrames", "labels", "routing"] as const)("keeps the fit when alignment adds %s", async reject => {
+  const before = await placedAttempt("flowchart TB\nA[abc] --> B[def]\nB --> C[ghi]", { A: [4, 1], B: [5, 12], C: [6, 24] }, 30);
   control.reject = reject;
-  const result = await renderGlyphDiagram(source, options);
+  expect(glyphDiagramStraightenPorts(before, { width: 30, height: 30, margin: 0 })).toBe(before);
   expect(control.attempts.some(shifted)).toBe(true);
-  expect(shifted(result.layout)).toBe(false);
-  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ bends: { total: 20 }, crossings: 0,
-    fakeFrames: 0, droppedEdges: 0, droppedLabels: 0 });
-  expect(result.canvas.rows).toBe(32);
 });
 
 // Real measured boxes/ports and routing; explicit positions isolate each guard
@@ -88,6 +66,7 @@ async function placedAttempt(source: string, positions: Record<string, readonly 
   const routing = routeGlyphGraphEdges(layout, { width, height: 30 });
   expect(routing.unroutable).toEqual([]);
   control.attempts = [];
+  control.seed = nodes.map(node => [node.id, node.x0] as const);
   return { layout, routing, width, height: 30, okay: true, fits: true, adjusted: true };
 }
 
@@ -98,16 +77,27 @@ it("rejects an aligned port shift past the left margin before rerouting", async 
 });
 
 it("rejects an aligned port shift into another box before rerouting", async () => {
-  const before = await placedAttempt("flowchart TB\nA[abc] --> B[def]\nC[ghi] --> D[jkl]",
-    { A: [5, 1], B: [3, 12], C: [20, 1], D: [11, 12] }, 30);
+  const before = await placedAttempt("flowchart TB\nA[abc] --> B[def]\nD[jkl]",
+    { A: [5, 1], B: [3, 12], D: [11, 12] }, 30);
   expect(glyphDiagramStraightenPorts(before, { width: 30, height: 30, margin: 0 })).toBe(before);
   expect(control.attempts).toHaveLength(0);
 });
 
-it("rejects a straight incoming edge when it only transfers its bends to the outgoing edge", async () => {
+it("moves the straight outgoing subtree rather than transferring incoming bends", async () => {
   const before = await placedAttempt("flowchart TB\nA[abc] --> B[def]\nB --> C[ghi]",
     { A: [5, 1], B: [4, 12], C: [4, 24] }, 24);
   expect(glyphDiagramRouteQuality(before.layout, before.routing.routes).edges.reduce((sum, edge) => sum + edge.bends, 0)).toBe(2);
-  expect(glyphDiagramStraightenPorts(before, { width: 24, height: 30, margin: 0 })).toBe(before);
+  const result = glyphDiagramStraightenPorts(before, { width: 24, height: 30, margin: 0 });
+  expect(result.layout.nodes.map(node => node.x0)).toEqual([5, 5, 5]);
+  expect(glyphDiagramRouteQuality(result.layout, result.routing.routes).edges.reduce((sum, edge) => sum + edge.bends, 0)).toBe(0);
   expect(control.attempts).toHaveLength(1);
+});
+
+it("straightens a large offset by shifting the lower single-input subtree", async () => {
+  const before = await placedAttempt("flowchart TB\nA[abc] --> B[def]\nB --> C[ghi]", { A: [2, 1], B: [18, 12], C: [18, 24] }, 36);
+  const result = glyphDiagramStraightenPorts(before, { width: 36, height: 30, margin: 0 });
+  expect(result.layout.nodes.map(node => node.x0)).toEqual([2, 2, 2]);
+  expect(control.attempts).toHaveLength(1);
+  expect(result.routing.routes.every(route => new Set(route.cells.map(cell => cell.x)).size === 1)).toBe(true);
+  expect(glyphDiagramRouteQuality(result.layout, result.routing.routes)).toMatchObject({ crossings: 0, fakeFrames: 0 });
 });

@@ -47,10 +47,10 @@ describe("Dagre alignment is a private fit dimension", () => {
       const result = await renderGlyphDiagram(text, { target: "web" });
       expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(15);
       expect(computeGlyphDiagramQuality(result, { width: 96, height: 32 })).toMatchObject({
-        wordCuts: 0, crossings: 0, bends: { total: 10, max: 2 }, droppedEdges: 0, droppedLabels: 0, pages: 1,
+        wordCuts: 0, crossings: 0, bends: { total: 8, max: 2 }, droppedEdges: 0, droppedLabels: 0, pages: 1,
       });
       expect(createHash("sha256").update(result.text).digest("hex"))
-        .toBe("86379608bd9352577c00d367121c498fb3224076ff5acf450d08f44627300343");
+        .toBe("573c315691b33ea6a8c25fd11bf5fc34dbd13cbcfafe828634a016fb6cfe6be9");
     } finally { control.routeLimit = Infinity; }
   });
 
@@ -61,7 +61,7 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(computeGlyphDiagramQuality(result, { width: 60, height: 24 }).wordCuts).toBe(0);
     expect(alignments().every(align => align === undefined)).toBe(true);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("aea376bd9373c7b14f039fe0fcf010334325872e093e836c5d2fc9676d502932");
+      .toBe("ed4757e6bdd04a45136ee40352ab5a5b6b268922a5b9ecbe317413ee6fba18db");
   });
 
   it("recognizes a folded multiline default as a whole-word fit", async () => {
@@ -71,18 +71,19 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(alignments().every(align => align === undefined)).toBe(true);
   });
 
-  it("stops at the first alignment improvement without a quality regression", async () => {
+  it("keeps the clean folded default without alignment probes", async () => {
     clear();
     const result = await renderGlyphDiagram(source(), options);
     const quality = computeGlyphDiagramQuality(result, options);
-    expect(new Set(alignments())).toEqual(new Set([undefined, "UL"]));
+    expect(new Set(alignments())).toEqual(new Set([undefined]));
     expect(quality.wordCuts).toBe(0);
-    expect(result.canvas.grid).toMatchObject({ cols: 72, rows: 71 });
-    expect(quality.crossings).toBeLessThanOrEqual(1);
-    expect(quality.bends.total).toBeLessThanOrEqual(22);
+    expect(result.canvas.grid).toMatchObject({ cols: 72, rows: 60 });
+    expect(quality.crossings).toBe(0);
+    expect(quality.bends.total).toBeLessThanOrEqual(24);
     expect(quality.bends.max).toBeLessThanOrEqual(6);
-    expect(quality.detourRatio.mean).toBeLessThanOrEqual(1.2001887273946097);
-    expect(quality.detourRatio.max).toBeLessThanOrEqual(1.8518518518518519);
+    // Two-cell straight links have the endpoint-inclusive ratio 2 after compaction.
+    expect(quality.detourRatio.mean).toBeCloseTo(1.3224409912413009, 12);
+    expect(quality.detourRatio.max).toBeLessThanOrEqual(2);
     expect(quality.whitespaceFraction).toBeLessThanOrEqual(0.863960113960114);
     expect(quality.maxArrowheadsOnSide).toBeLessThanOrEqual(4);
     expect(quality.droppedEdges).toBe(0);
@@ -90,7 +91,7 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(quality.pages).toBe(1);
     expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(380);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("ff2b34364100294b0ddb83ad7805dec13a306e7ad3b931cac5eddf93302ebc4b");
+      .toBe("ce879ac913538e74ba521fdcfc1db38eaabcff80f8f8426a62ed0af3434550d2");
   }, 30_000);
 
   it("routes an identical single-node layout only once across BK alignments", async () => {
@@ -106,10 +107,12 @@ describe("Dagre alignment is a private fit dimension", () => {
     const result = await renderGlyphDiagram(text, { ...options, height: 24 });
     const probes = vi.mocked(layoutGlyphGraph).mock.calls.filter(([, opts]) =>
       (opts as typeof opts & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: GlyphDiagramDagreAlignment })?.[GLYPH_DIAGRAM_DAGRE_ALIGN]);
-    expect(probes.length).toBeGreaterThan(0);
-    expect(probes.length).toBeLessThanOrEqual(6);
-    expect(new Set(alignments())).toEqual(new Set(name === "galaxy-anchors-detailed" ? [undefined, "UR"] : [undefined, "UR", "UL"]));
-    expect(probes.every(([graph]) => "ports" in graph)).toBe(true);
+    expect(probes).toHaveLength(name === "galaxy-anchors-detailed" ? 2 : 0);
+    expect(new Set(alignments())).toEqual(new Set(name === "galaxy-anchors-detailed" ? [undefined, "UR"] : [undefined]));
+    if (name === "galaxy-anchors-detailed") {
+      expect(probes.every(([graph]) => "ports" in graph)).toBe(true);
+      expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(10);
+    }
     expect(computeGlyphDiagramQuality(result, { width: 72, height: 24 })).toMatchObject({
       wordCuts: 0, crossings: 0, droppedEdges: 0, droppedLabels: 0, pages: 1,
     });
@@ -140,7 +143,7 @@ describe("Dagre alignment is a private fit dimension", () => {
       expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(450);
       expect(result.pages.length).toBeGreaterThan(0);
       expect(result.report.unroutable).toEqual([]);
-      expect(result.report.ledger).toContainEqual(expect.objectContaining({ code: "fit-search-limited" }));
+      expect(result.report.ledger.some(entry => entry.code === "render-work-limited")).toBe(false);
       expect(result.pages.flatMap(page => page.routes)).toHaveLength(13);
     } finally { control.forced = undefined; control.routeLimit = Infinity; }
   }, 30_000);
