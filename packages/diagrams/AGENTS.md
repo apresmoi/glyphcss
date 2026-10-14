@@ -2,7 +2,7 @@
 
 ## Flow
 
-Adapters → graph → wrap → ports → cycle/Dagre → channels → center → route → compact → paint. Reuse fits/routes; default web.
+Adapters → graph → wrap → ports → cycle/Dagre → channels → center → route → compact → paint. Reuse fits/routes; default web. Reuse flat geometry across margins.
 
 ## Entry points
 
@@ -52,15 +52,15 @@ Authored time downward. Validate → columns → rows → paint. `from`/`to`: di
 - Reused ids: one state (`state-shared`); identical members for `parent`. Quotes open names after `state`. Notes, regions, fork/join reject: `GLYPH_MERMAID_STATE_*`.
 - Self-edges: 4-cell loops on `e` in TB/BT, `s` in LR/RL. Dagre dummy after node (`labelpos: "c"`), omitted when `nodesep` suffices. Wrap labels at `loopLabelWidth`, one blank cell past the loop. Frames/snake include loops/labels.
 - Loops start at authored-first. Flat LR cycles share one eligibility check: spine, top return, feeders below targets. Multiple side joins stack by spine column; reserve sibling clearance, rewrap within caps, merge laterally into bottom centres. Side joins exit laterally; try zero margin before Dagre. Validate options first; other cycles use Dagre/snake.
-- Flat frame insets stay byte-identical. Output exceptions: ASCII folds (`●`/`◆`/`◉` → `*`/`*`/`@`) and punctuation wraps. Nested padding yields to shared borders (`frameInset: false`) before cuts/splits. Wrap after `+`, `/`, `:`; split a hyphenated token only when it exceeds its wrap width. Punctuation stays above; letter cuts log `word-cut`.
+- Flat insets stay byte-identical; exceptions: ASCII folds (`●`/`◆`/`◉` → `*`/`*`/`@`) and punctuation wraps. Nested padding yields to shared borders (`frameInset: false`) before cuts/splits. Wrap after `+`, `/`, `:`; split a hyphenated token only when it exceeds its wrap width. Punctuation stays above; letter cuts log `word-cut`.
 - Expansion: ≤256 spacing/replay probes, ≤128 gutters, ≤384 routes (`fit-search-limited`). Reuse routes; stop on failure.
 - Budget: 2,500,000; edges cubed/layout, squared/snake; 1,000/routing, one/A* or flood expansion. Shared across probes/splits. Reserve wraps, two gaps, one route. Exhaustion keeps a fit or edge panels (`render-work-limited`); no resets/partial probes.
 - Whole words before cuts: uncapped flat nodes may keep their own longest token. Crowded sources try one-cell gaps and trade widths for the tallest label, balancing equally short wraps. Public spacing >=3. Compact post-fit; protect gaps/turns/ports/loops/frames.
 - Widen cuts into spare columns once. Score: words → crossings → frames → bends → detours → length. Replay fitted UR/UL labels and two perpendicular wraps; first improvement. Wide LR/RL DAGs try two vertical wraps before repair. No new crossings/drops.
 - Straighten single links/subtrees within free space; other shifts ≤3 columns. No added crossings/frames/drops.
-- Fold one ≥3-box TB/BT tail or suffix left-to-right when it saves rows. Try two-cell gaps, then one; widen tall labels into right-hand spare cells. Reserve upstream entry clearance. Before expansion when feasible. No groups/loops/points.
-- Forward fans share ports/trunks by style; mixed fan-in/out connections, returns, parallel edges, points and frame crossings keep lanes. Never join two buses through one shared edge. Shared exits: junctions; fan-ins: one head. Flat LR/RL sink fans align near edges with one blank sibling row. A singleton style shares an exit stub, with separate buses and no added label rows. Single-source feeders order beside their target; guard crossings.
-- Fan captions follow their exclusive segment/stem and prefer their own entry. Move entries for label room; vertical fan-ins shift boxes ≤1 cell with centre ports. Missing captions reserve room (one layout/reroute).
+- Fold one ≥3-box TB/BT tail/suffix LR to save rows. Gaps 2 then 1; widen tall labels into spare cells. Reserve entry clearance. For frames, try one gap-1 probe centred inside the framed source span; require improvement. Before expansion when feasible. No groups/loops/points.
+- Forward fans share ports/trunks by style; mixed fan-in/out connections, returns, parallel edges, points and frame crossings keep lanes. Never join two buses through one shared edge. Shared exits: junctions; fan-ins: one head. Flat LR/RL sink fans align near edges with one blank sibling row. Singleton styles share exit stubs; separate buses, no extra rows. Order single-source feeders beside targets; guard crossings.
+- Fan captions follow their exclusive segment/stem and prefer their own entry. Move entries for label room; vertical fan-ins shift boxes ≤1 cell with centre ports. Missing captions reserve room once.
 - Compact pass-through slices; protect labels, borders, bends, ports and box/route moats. Keep grouped geometry.
 - `overflow: "paginate"` (default) keeps exact canvas size; `"expand"` grows canvases (`layout-expanded`). After fitting fails: decoration → duplicates → leaf clusters → split; no decoration once it fits, except `simplified`.
 - Sibling frame entries: nearer border first at equal priority. Paint: routes → junctions → fills → border heads → labels. Labels clear vertical stems by one blank cell; otherwise touch their route or drop (loops: one cell past). Dotted straight cells use continuous hop glyphs. Text/HTML/ANSI carry `canvas`.

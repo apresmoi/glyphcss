@@ -78,8 +78,7 @@ it.each(corpus)("keeps corpus fidelity and topology: %s", async file => {
   const quality = computeGlyphDiagramQuality(result, opts);
   expect(quality.wordCuts).toBe(0);
   expect(quality.crossings).toBe(0);
-  const frames = name === "galaxy-sources-h60" ? 1 : 0;
-  expect(quality.fakeFrames).toBeLessThanOrEqual(frames);
+  expect(quality.fakeFrames).toBe(0);
   expect(quality).toMatchObject({ droppedEdges: 0, droppedLabels: 0, pages: 1 });
   if (name === "galaxy-sources-h60") expect(result.canvas.rows).toBeLessThanOrEqual(60);
 }, 15_000);

@@ -2,7 +2,7 @@ import { GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
 import { glyphDiagramError } from "./validate";
 import { glyphDiagramCycleLayout, glyphDiagramCyclePaths } from "./cycleLayout";
 import { glyphDiagramGraphLabels } from "./graphLabels";
-import { glyphDiagramRouteQuality } from "./routeQuality";
+import { glyphDiagramFakeFrames, glyphDiagramRouteQuality } from "./routeQuality";
 import { GLYPH_DIAGRAM_DAGRE_ALIGN, GLYPH_DIAGRAM_DAGRE_ALIGNMENTS } from "./fitAlignment";
 import type { GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphDiagramCenterOffset } from "./center";
@@ -189,7 +189,7 @@ function balanceSources(graph: GlyphDiagramReservedGraph, options: GlyphDiagramF
 interface FitSearch {
   readonly work: { expansionRoutes: number };
   readonly snakes: Map<number, SnakeSearch>;
-  readonly layouts: Map<string, GlyphDiagramLayout>;
+  readonly layouts: Map<string, { readonly raw: GlyphDiagramLayout; readonly pad: number }>;
   readonly attempts: Map<string, GlyphDiagramAttempt>;
   readonly ledger: GlyphDiagramLedgerEntry[];
   readonly maxWidth?: number;
@@ -223,6 +223,15 @@ function compareScore(a: readonly number[], b: readonly number[]): number {
 
 /** One sideways trailing chain, with the existing labels and a full reroute. */
 export function glyphDiagramFoldTail(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): GlyphDiagramAttempt {
+  const folded = foldTail(result, options);
+  if (folded === result || readability(folded)[1] === 0) return folded;
+  const frames = glyphDiagramFakeFrames(folded.layout, folded.routing.routes);
+  const compact = foldTail(result, options, { layout: folded.layout, frames });
+  return compact !== result && compareScore(readability(compact), readability(folded)) < 0 ? compact : folded;
+}
+
+function foldTail(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions,
+  entry?: { layout: GlyphDiagramLayout; frames: ReturnType<typeof glyphDiagramFakeFrames> }): GlyphDiagramAttempt {
   const layout = result.layout;
   if (!result.okay || options[GLYPH_DIAGRAM_WORK]?.terminal || layout.groups.length || layout.loops.length
     || (layout.direction !== "TB" && layout.direction !== "BT")) return result;
@@ -241,7 +250,7 @@ export function glyphDiagramFoldTail(result: GlyphDiagramAttempt, options: Glyph
   let chain = tails.sort((a, b) => b.length - a.length)[0];
   if (!chain) return result;
   const margin = result[FIT_SPACING] ?? options.margin ?? 1;
-  let gap = 2;
+  let gap = entry ? 1 : 2;
   const needed = () => chain!.reduce((sum, node) => sum + node.width, 0) + gap * (chain!.length - 1);
   while (needed() + 2 * margin > result.width && chain.length >= 3) {
     if (gap === 2) gap = 1;
@@ -261,7 +270,21 @@ export function glyphDiagramFoldTail(result: GlyphDiagramAttempt, options: Glyph
   }
   const rowWidth = needed();
   const originalHead = chain[0]!;
-  const x0 = Math.min(originalHead.x0, result.width - margin - rowWidth);
+  let x0 = Math.min(originalHead.x0, result.width - margin - rowWidth);
+  if (entry) {
+    const inputs = layout.ports.filter(port => port.nodeId === originalHead.id && port.end === "to" && (port.side === "n" || port.side === "s"));
+    const frames = entry.frames.filter(frame => inputs.some(port => frame.edgeIds.includes(port.edgeId)));
+    // A folded fan-in can put its entry beyond an unrelated source band.
+    // Spend the narrower gaps on moving that entry inside the band's span,
+    // where neither incoming branch can masquerade as its enclosing border.
+    const positions = frames.flatMap(frame => frame.nodeIds.flatMap(id => {
+      const node = entry.layout.nodes.find(node => node.id === id)!;
+      return inputs.flatMap(port => [node.x0 + 1 - port.offset, node.x1 - 1 - port.offset]);
+    })).filter(x => x >= margin && x + rowWidth <= result.width - margin && x !== x0);
+    positions.sort((a, b) => Math.abs(a - x0) - Math.abs(b - x0) || a - b);
+    if (!positions.length) return result;
+    x0 = positions[0]!;
+  }
   const head = { ...originalHead, x0, x1: x0 + originalHead.width - 1 };
   const center = head.y0 + Math.floor((head.height - 1) / 2);
   let x = head.x1 + gap + 1;
@@ -562,13 +585,26 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
   };
   const layout = async (graph: GlyphGraph | GlyphDiagramReservedGraph, opts: GlyphDiagramLayoutOptions) => {
     const align = (opts as GlyphDiagramLayoutOptions & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: string })[GLYPH_DIAGRAM_DAGRE_ALIGN];
-    // With one node, BK can only translate it; normalization removes that.
-    const key = JSON.stringify([graph, opts, opts[GLYPH_DIAGRAM_WORD_WIDTH], opts[GLYPH_DIAGRAM_EDGE_LABEL_ROOM], graph.nodes.length === 1 ? undefined : align]);
+    const reserved = "ports" in graph ? graph : reserveGlyphGraphPorts(measureGlyphGraph(graph, opts));
+    const flat = !reserved.groups.length && !reserved.loops.length;
+    const pad = flat ? opts.margin ?? 1 : 0;
+    // In a flat layout margin only translates geometry and adds two exterior
+    // strips. Translate only on reuse; a single-probe fit needs no translated copy.
+    const translate = (raw: GlyphDiagramLayout, delta: number): GlyphDiagramLayout => delta === 0 ? raw : ({ ...raw,
+      nodes: raw.nodes.map(node => ({ ...node, x0: node.x0 + delta, x1: node.x1 + delta, y0: node.y0 + delta, y1: node.y1 + delta })),
+      ports: raw.ports.map(port => ({ ...port, anchor: { x: port.anchor.x + delta, y: port.anchor.y + delta },
+        escape: { x: port.escape.x + delta, y: port.escape.y + delta } })),
+      width: raw.width + 2 * delta, height: raw.height + 2 * delta,
+    });
+    const key = flat ? JSON.stringify([reserved, opts.engine ?? "dagre", opts.nodesep ?? 4, opts.ranksep ?? 4,
+      opts.charset, opts.frameInset ?? true, opts[GLYPH_DIAGRAM_FAN_GAP], opts[GLYPH_DIAGRAM_EDGE_LABEL_ROOM],
+      reserved.nodes.length === 1 ? undefined : align])
+      : JSON.stringify([graph, opts, opts[GLYPH_DIAGRAM_WORD_WIDTH], opts[GLYPH_DIAGRAM_EDGE_LABEL_ROOM], graph.nodes.length === 1 ? undefined : align]);
     const known = search.layouts.get(key);
-    if (known) return known;
-    work?.layout(graph);
-    const result = await layoutGlyphGraph(graph, opts);
-    search.layouts.set(key, result);
+    if (known) return translate(known.raw, pad - known.pad);
+    work?.layout(reserved);
+    const result = await layoutGlyphGraph(reserved, opts);
+    search.layouts.set(key, { raw: result, pad });
     return result;
   };
   const { width, height } = options;

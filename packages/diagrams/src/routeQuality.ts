@@ -29,12 +29,12 @@ export function glyphDiagramRouteQuality(layout: GlyphDiagramLayout, routes: rea
       portDistance, detourRatio: portDistance === 0 ? null : route.cells.length / portDistance });
   }
   const crossings = [...crossingAxes.values()].filter(({ h, v }) => [...h].some((id) => [...v].some((other) => other !== id))).length;
-  return { crossings, edges, fakeFrames: fakeFrames(layout, routes) };
+  return { crossings, edges, fakeFrames: glyphDiagramFakeFrames(layout, routes).length };
 }
 
 /** Parallel route segments enclosing an unrelated box can read as a group border. */
-function fakeFrames(layout: GlyphDiagramLayout, routes: readonly GlyphDiagramRoute[]): number {
-  const segments: { axis: "h" | "v"; at: number; lo: number; hi: number; from: string; to: string }[] = [];
+export function glyphDiagramFakeFrames(layout: GlyphDiagramLayout, routes: readonly GlyphDiagramRoute[]) {
+  const segments: { axis: "h" | "v"; at: number; lo: number; hi: number; from: string; to: string; edgeId: string }[] = [];
   for (const route of routes) {
     let start = 0;
     for (let i = 1; i < route.cells.length; i++) {
@@ -43,18 +43,20 @@ function fakeFrames(layout: GlyphDiagramLayout, routes: readonly GlyphDiagramRou
       if (next && (horizontal ? next.y === b.y : next.x === b.x)) continue;
       segments.push({ axis: horizontal ? "h" : "v", at: horizontal ? a.y : a.x,
         lo: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
-        hi: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y), from: route.edge.from, to: route.edge.to });
+        hi: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y), from: route.edge.from, to: route.edge.to, edgeId: route.edge.id });
       start = i;
     }
   }
-  let count = 0;
+  const frames: { edgeIds: readonly string[]; nodeIds: readonly string[] }[] = [];
   for (let i = 0; i < segments.length; i++) for (let j = i + 1; j < segments.length; j++) {
     const a = segments[i]!, b = segments[j]!;
     if (a.axis !== b.axis || a.at === b.at) continue;
     const lo = Math.max(a.lo, b.lo), hi = Math.min(a.hi, b.hi);
-    if (layout.nodes.some(n => ![a.from, a.to, b.from, b.to].includes(n.id) && (a.axis === "h"
+    const encloses = (n: GlyphDiagramLayout["nodes"][number]) => ![a.from, a.to, b.from, b.to].includes(n.id) && (a.axis === "h"
       ? n.x0 >= lo && n.x1 <= hi && n.y0 > Math.min(a.at, b.at) && n.y1 < Math.max(a.at, b.at)
-      : n.y0 >= lo && n.y1 <= hi && n.x0 > Math.min(a.at, b.at) && n.x1 < Math.max(a.at, b.at)))) count++;
+      : n.y0 >= lo && n.y1 <= hi && n.x0 > Math.min(a.at, b.at) && n.x1 < Math.max(a.at, b.at));
+    const enclosed = layout.nodes.filter(encloses);
+    if (enclosed.length) frames.push({ edgeIds: [a.edgeId, b.edgeId], nodeIds: enclosed.map(node => node.id) });
   }
-  return count;
+  return frames;
 }

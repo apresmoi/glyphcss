@@ -81,17 +81,17 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(quality.crossings).toBe(0);
     expect(quality.bends.total).toBeLessThanOrEqual(24);
     expect(quality.bends.max).toBeLessThanOrEqual(6);
-    // Two-cell straight links have the endpoint-inclusive ratio 2 after compaction.
-    expect(quality.detourRatio.mean).toBeCloseTo(1.3261622593619746, 12);
+    // One-cell tail gaps shorten the endpoint-inclusive straight-link ratios.
+    expect(quality.detourRatio.mean).toBeCloseTo(1.1221990684836984, 12);
     expect(quality.detourRatio.max).toBeLessThanOrEqual(2);
-    expect(quality.whitespaceFraction).toBeLessThanOrEqual(0.863960113960114);
+    expect(quality.whitespaceFraction).toBeLessThanOrEqual(0.8358796296296296);
     expect(quality.maxArrowheadsOnSide).toBeLessThanOrEqual(4);
     expect(quality.droppedEdges).toBe(0);
     expect(quality.droppedLabels).toBe(0);
     expect(quality.pages).toBe(1);
     expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(380);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("a6f5efcd83a5ddb6dd338311c727fdcf29c36a0c60983052693526cf4e775e33");
+      .toBe("73412184ca223fe59d25c54a2df17bd6f8c9db371f85e24f09551e6712c034c8");
   }, 30_000);
 
   it("routes an identical single-node layout only once across BK alignments", async () => {

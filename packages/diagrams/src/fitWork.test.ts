@@ -92,7 +92,7 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
   });
   it.each([
     ["galaxy-sources-to-model", 24, "0ab6b16c4d94a819d907bc5d5624f839ded5789d53d8d96266cd3f71007ded8b", 350, 900_000],
-    ["galaxy-sources-h60", 60, "a6f5efcd83a5ddb6dd338311c727fdcf29c36a0c60983052693526cf4e775e33", 110, 75_000],
+    ["galaxy-sources-h60", 60, "73412184ca223fe59d25c54a2df17bd6f8c9db371f85e24f09551e6712c034c8", 110, 75_000],
   ] as const)("%s keeps its text within routing and A* work bounds", async (name, height, hash, routingBound, stateBound) => {
     const source = readFileSync(resolve(__dirname, `../bench/corpus/${name}.mmd`), "utf8");
     vi.mocked(routeGlyphGraphEdges).mockClear();
