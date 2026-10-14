@@ -82,7 +82,7 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(quality.bends.total).toBeLessThanOrEqual(24);
     expect(quality.bends.max).toBeLessThanOrEqual(6);
     // Two-cell straight links have the endpoint-inclusive ratio 2 after compaction.
-    expect(quality.detourRatio.mean).toBeCloseTo(1.3224409912413009, 12);
+    expect(quality.detourRatio.mean).toBeCloseTo(1.3261622593619746, 12);
     expect(quality.detourRatio.max).toBeLessThanOrEqual(2);
     expect(quality.whitespaceFraction).toBeLessThanOrEqual(0.863960113960114);
     expect(quality.maxArrowheadsOnSide).toBeLessThanOrEqual(4);
@@ -91,7 +91,7 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(quality.pages).toBe(1);
     expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(380);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("ce879ac913538e74ba521fdcfc1db38eaabcff80f8f8426a62ed0af3434550d2");
+      .toBe("a6f5efcd83a5ddb6dd338311c727fdcf29c36a0c60983052693526cf4e775e33");
   }, 30_000);
 
   it("routes an identical single-node layout only once across BK alignments", async () => {
@@ -107,8 +107,8 @@ describe("Dagre alignment is a private fit dimension", () => {
     const result = await renderGlyphDiagram(text, { ...options, height: 24 });
     const probes = vi.mocked(layoutGlyphGraph).mock.calls.filter(([, opts]) =>
       (opts as typeof opts & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: GlyphDiagramDagreAlignment })?.[GLYPH_DIAGRAM_DAGRE_ALIGN]);
-    expect(probes).toHaveLength(name === "galaxy-anchors-detailed" ? 2 : 0);
-    expect(new Set(alignments())).toEqual(new Set(name === "galaxy-anchors-detailed" ? [undefined, "UR"] : [undefined]));
+    expect(probes).toHaveLength(0);
+    expect(new Set(alignments())).toEqual(new Set([undefined]));
     if (name === "galaxy-anchors-detailed") {
       expect(probes.every(([graph]) => "ports" in graph)).toBe(true);
       expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(10);

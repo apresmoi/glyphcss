@@ -60,7 +60,8 @@ it("paints continuous dashed workspace strokes through short runs", async () => 
     const vertical = prev && next ? prev.x === next.x : (prev ?? next)!.x === cell.x;
     const horizontal = prev && next ? prev.y === next.y : !vertical;
     if (!vertical && !horizontal) continue;
-    expect(result.canvas.grid.char[cell.y * result.canvas.cols + cell.x]).toBe(vertical ? "╎" : "╌");
+    const shared = result.routes.some(other => other !== route && other.cells.some(p => p.x === cell.x && p.y === cell.y));
+    expect(result.canvas.grid.char[cell.y * result.canvas.cols + cell.x]).toBe(shared ? "─" : vertical ? "╎" : "╌");
     strokes++;
   }
   expect(strokes).toBeGreaterThan(0);

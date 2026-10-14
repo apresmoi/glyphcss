@@ -10,7 +10,7 @@ const options = { target: "chat", width: 72, height: 24, autoDirection: true, de
 it("recovers a lone label's whole word without narrowing other ranks", async () => {
   const result = await renderGlyphDiagram(source("galaxy-build-detailed"), options);
   expect(result.layout.nodes.find(n => n.id === "X")!.lines).toContain("scattering");
-  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ wordCuts: 1, crossings: 0, droppedEdges: 0, droppedLabels: 0, pages: 1 });
+  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ wordCuts: 0, crossings: 0, droppedEdges: 0, droppedLabels: 0, pages: 1 });
 });
 
 it("recovers a word in a horizontal fit without adding crossings or pages", async () => {

@@ -1,3 +1,4 @@
+import { GLYPH_DIAGRAM_BRANCH_LABEL } from "./layoutHints";
 import { createGlyphCanvas, type GlyphCanvasTierName, type GlyphCanvasPoint } from "glyphcss";
 import type { GlyphDiagramRect } from "./pipeline";
 import { ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLabelNearForeignGroup, type GlyphDiagramLedgerEntry } from "./ledger";
@@ -19,6 +20,7 @@ export interface GlyphDiagramLabelCandidate {
   readonly reserve?: GlyphDiagramRect;
   /** Edge labels stay beside their route, with one blank cell beside vertical stems. */
   readonly route?: readonly GlyphCanvasPoint[];
+  readonly [GLYPH_DIAGRAM_BRANCH_LABEL]?: boolean;
   /**
    * Groups this label PREFERS not to touch — a candidate cell whose own
    * text span overlaps or is orthogonally adjacent to one of these rects
@@ -87,7 +89,7 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
   const reservations = candidates.filter((label) => label.reserve !== undefined);
   const { cols, rows } = options.viewport;
   // Fixed rows go first, in reading order independent of their synthetic ids; reservations also hold blank cells.
-  for (const label of [...candidates].sort((a, b) => Number(b.place !== undefined) - Number(a.place !== undefined) || (b.priority ?? 0) - (a.priority ?? 0) || (a.place && b.place ? a.place.y - b.place.y || a.place.x - b.place.x : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
+  for (const label of [...candidates].sort((a, b) => Number(b.place !== undefined) - Number(a.place !== undefined) || (b.priority ?? 0) - (a.priority ?? 0) || (a[GLYPH_DIAGRAM_BRANCH_LABEL] && b[GLYPH_DIAGRAM_BRANCH_LABEL] ? b.text.length - a.text.length : 0) || (a.place && b.place ? a.place.y - b.place.y || a.place.x - b.place.x : 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) {
     const role = labelRole(label.id);
     let text = glyphDiagramText(label.text.replace(/\s+/g, " "), options.charset);
     const maxWidth = Math.max(0, Math.min(cols, label.maxWidth ?? cols));
@@ -115,11 +117,25 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
       if (x >= 0 && y >= 0 && y < rows && x + text.length <= cols) cells.add(y * cols + x);
     };
     if (label.place) add(label.place.x, label.place.y);
-    else if (label.route) for (const p of label.route) {
-      // The span can touch a route above/below anywhere, or at either end on its own row.
-      for (let x = p.x - text.length + 1; x <= p.x; x++) { add(x, p.y - 1); add(x, p.y + 1); }
-      add(p.x - text.length, p.y); add(p.x + 1, p.y);
-      add(p.x - text.length - 1, p.y); add(p.x + 2, p.y);
+    else if (label.route) {
+      const routeCells = new Set(label.route.map(p => `${p.x},${p.y}`));
+      for (const p of label.route) {
+        // A horizontal label belongs to the full branch segment, not a single bend at its far end.
+        if (!label[GLYPH_DIAGRAM_BRANCH_LABEL]) for (let x = p.x - text.length + 1; x <= p.x; x++) {
+          add(x, p.y - 1); add(x, p.y + 1);
+        }
+        else if (!routeCells.has(`${p.x - 1},${p.y}`)) {
+          let right = p.x;
+          while (routeCells.has(`${right + 1},${p.y}`)) right++;
+          const inset = text.length > 2 ? 1 : 0, interior = Math.max(1, text.length - 2);
+          for (let x = p.x - inset; x <= right - inset - interior + 1; x++) {
+            add(x, p.y - 1); add(x, p.y + 1);
+          }
+        }
+        if (!label[GLYPH_DIAGRAM_BRANCH_LABEL] || routeCells.has(`${p.x},${p.y - 1}`) || routeCells.has(`${p.x},${p.y + 1}`)) {
+          add(p.x - text.length - 1, p.y); add(p.x + 2, p.y);
+        }
+      }
     }
     else for (let y = 0; y < rows; y++) for (let x = 0; x + text.length <= cols; x++) add(x, y);
     for (const cell of cells) {

@@ -1,3 +1,4 @@
+import { GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
 import { GLYPH_DIAGRAM_DAGRE_ALIGN, type GlyphDiagramDagreAlignment } from "./fitAlignment";
 import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from "glyphcss";
 import type { GlyphGraph, GlyphGraphNode, GlyphGraphEdge, GlyphGraphGroup } from "./types";
@@ -104,6 +105,7 @@ export interface GlyphDiagramLayoutOptions {
   /** Pad a nested group's frame outside its child's, default true. The fitter turns it off before it splits a graph or cuts a word. */
   readonly frameInset?: boolean;
   readonly margin?: number;
+  readonly [GLYPH_DIAGRAM_WORD_WIDTH]?: boolean;
   readonly [GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?: readonly string[];
   readonly [GLYPH_DIAGRAM_FAN_GAP]?: boolean;
 }
@@ -113,8 +115,8 @@ export function glyphDiagramFoldLabel(label: string, charset?: GlyphCanvasTierNa
 }
 const compare = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0;
 /** Punctuation belongs to the preceding piece when a label wraps. */
-export function glyphDiagramWords(text: string): string[] {
-  return text.split(/\s+|(?<=[-+/:])/).filter(Boolean);
+export function glyphDiagramWords(text: string, width = 0): string[] {
+  return text.split(/\s+|(?<=[+/:])/).flatMap(piece => piece.length > width ? piece.split(/(?<=-)/) : [piece]).filter(Boolean);
 }
 
 /** Stable synthetic ids preserve duplicate edges without depending on input order. */
@@ -141,7 +143,7 @@ export function glyphDiagramWrap(text: string, width: number): string[] {
   for (const paragraph of text.split(/\r?\n/)) {
     let line = "";
     for (const word of paragraph.split(/\s+/).filter(Boolean)) {
-      const pieces = glyphDiagramWords(word);
+      const pieces = glyphDiagramWords(word, width);
       for (let i = 0; i < pieces.length; i++) {
         const space = i === 0 && line ? " " : "";
         if (line && line.length + space.length + pieces[i]!.length > width) { lines.push(line); line = ""; }
@@ -171,7 +173,8 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
   for (const group of canonical.groups ?? []) if (group.label) fold(group.label, "group label", group.id);
   const nodes = canonical.nodes.map((node) => {
     const folded = fold(node.label, "node label", node.id);
-    const lines = glyphDiagramWrap(folded, limit);
+    const nodeLimit = options[GLYPH_DIAGRAM_WORD_WIDTH] ? Math.max(limit, ...glyphDiagramWords(folded, Infinity).map(word => word.length)) : limit;
+    const lines = glyphDiagramWrap(folded, nodeLimit);
     const extra = node.shape === "subroutine" ? 2 : 0;
     // A point is the first character of its label and nothing else, and says so when it drops the rest;
     // `reserveGlyphGraphPorts` adds the cells its edges need.
@@ -226,9 +229,17 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       }
       return [...slots.entries()];
     };
+    const sharedFanSide = (slots: ReturnType<typeof slotsOn>) => slots.length > 1 && slots.some(([, connections]) => connections.length === 1) && slots.every(([, connections]) => connections.every(connection => connection.end === "from"
+      && !back.has(connection.edgeId) && !pointIds.has(node.id)
+      && !pointIds.has(flow.find(edge => edge.id === connection.edgeId)!.to)
+      && flow.filter(edge => edge.from === node.id && edge.to === flow.find(edge => edge.id === connection.edgeId)!.to).length === 1
+      && !flow.some(edge => edge.to === flow.find(edge => edge.id === connection.edgeId)!.to && edge.from !== node.id)))
+      && !measured.groups.length && !back.size;
+    // Style lanes diverge outside the box; they do not add blank label rows.
     // Size every side before centering any port on it.
     for (const side of ["n", "e", "s", "w"] as const) {
-      const count = slotsOn(side).length;
+      const slots = slotsOn(side);
+      const count = sharedFanSide(slots) ? 1 : slots.length;
       if (side === "n" || side === "s") width = Math.max(width, room(count));
       else height = Math.max(height, room(count));
     }
@@ -240,8 +251,8 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       const slots = slotsOn(side);
       const length = side === "n" || side === "s" ? width : height;
       slots.forEach(([key, connections], index) => connections.forEach(connection => ports.push({ ...connection,
-        nodeId: node.id, side, offset: Math.floor((length - 1 - 2 * (slots.length - 1)) / 2) + 2 * index,
-        ...(connections.length > 1 ? { trunk: key } : {}) })));
+        nodeId: node.id, side, offset: sharedFanSide(slots) ? Math.floor((length - 1) / 2) : Math.floor((length - 1 - 2 * (slots.length - 1)) / 2) + 2 * index,
+        ...(connections.length > 1 || sharedFanSide(slots) ? { trunk: key } : {}) })));
     }
     const { slots, length } = glyphDiagramLoopSlots(measured.loops.filter((loop) => loop.nodeId === node.id), loopSide);
     if (loopSide === "e") height = Math.max(height, length); else width = Math.max(width, length);
@@ -291,11 +302,16 @@ export function backEdgeIds(nodes: readonly { readonly id: string }[], edges: re
   for (const node of nodes) if (!state.has(node.id)) visit(node.id);
   return back;
 }
-export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedGraph, options: GlyphDiagramLayoutOptions = {}): Promise<GlyphDiagramLayout> {
+/** Validate shared layout contracts before either geometry strategy runs. */
+export function validateGlyphDiagramLayoutOptions(options: GlyphDiagramLayoutOptions = {}): void {
   if (options.engine === "elk") glyphDiagramError("GLYPH_DIAGRAM_ELK_NOT_INSTALLED", "The ELK layout adapter is reserved for phase 4; use engine: dagre.");
   if (options.engine !== undefined && options.engine !== "dagre") glyphDiagramError("bad-options", "Phase 2 supports engine dagre only.");
   const nodesep = options.nodesep ?? 4, ranksep = options.ranksep ?? 4, margin = options.margin ?? 1;
-  if (![nodesep, ranksep, margin].every(Number.isInteger) || nodesep < 3 || ranksep < 3 || margin < 0) glyphDiagramError("bad-options", "nodesep/ranksep must be integers >= 3; margin must be an integer >= 0.");
+  if (![nodesep, ranksep, margin].every(Number.isInteger) || nodesep < (options[GLYPH_DIAGRAM_FAN_GAP] ? 1 : 3) || ranksep < 3 || margin < 0) glyphDiagramError("bad-options", "nodesep/ranksep must be integers >= 3; margin must be an integer >= 0.");
+}
+export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedGraph, options: GlyphDiagramLayoutOptions = {}): Promise<GlyphDiagramLayout> {
+  validateGlyphDiagramLayoutOptions(options);
+  const nodesep = options.nodesep ?? 4, ranksep = options.ranksep ?? 4, margin = options.margin ?? 1;
   const reserved = "ports" in graph ? graph : reserveGlyphGraphPorts(measureGlyphGraph(graph, options));
   const dagre = await import("@dagrejs/dagre");
   const align = (options as GlyphDiagramLayoutOptions & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: GlyphDiagramDagreAlignment })[GLYPH_DIAGRAM_DAGRE_ALIGN];
@@ -399,6 +415,17 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
           row.sort((a, b) => a.first + a.last - b.first - b.last || ordered.node(a.id).order! - ordered.node(b.id).order!);
           row.slice(1).forEach((right, i) => constraints.push({ left: row[i]!.id, right: right.id }));
         }
+        for (const source of sources) {
+          const targets = reserved.edges.filter(edge => edge.from === source.id).map(edge => edge.to);
+          if (targets.length !== 1) continue;
+          for (const fan of reserved.nodes.filter(node => node.id !== source.id && ordered.node(node.id).rank === ordered.node(source.id).rank)) {
+            const children = reserved.edges.filter(edge => edge.from === fan.id).map(edge => edge.to);
+            if (children.length < 2 || !children.includes(targets[0]!) || children.some(id => ordered.node(id).rank !== ordered.node(targets[0]!).rank)) continue;
+            children.sort((a, b) => ordered.node(a).order! - ordered.node(b).order!);
+            if (targets[0] === children[0]) constraints.push({ left: source.id, right: fan.id });
+            else if (targets[0] === children.at(-1)) constraints.push({ left: fan.id, right: source.id });
+          }
+        }
         if (constraints.length) {
           const original = new Map(ordered.nodes().map(id => [id, ordered.node(id).order]));
           // Normalized edges join adjacent ranks, including the dummy chains.
@@ -470,6 +497,18 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
       return across ? { ...node, y0: node.y0 + delta, y1: node.y1 + delta } : { ...node, x0: node.x0 + delta, x1: node.x1 + delta };
     });
   }
+  if (options[GLYPH_DIAGRAM_FAN_GAP] && !across && !reserved.loops.length && !includedGroups.length && !back.size && !reserved.nodes.some(node => node.shape === "point")) {
+    for (const source of reserved.nodes) {
+      const targets = positioned.filter(node => reserved.edges.some(edge => edge.from === source.id && edge.to === node.id));
+      if (targets.length < 2 || targets.some(node => reserved.edges.some(edge => edge.from === node.id || (edge.to === node.id && edge.from !== source.id)))
+        || targets.some(node => rank(node.id) !== rank(targets[0]!.id))) continue;
+      const near = reserved.direction === "LR" ? Math.min(...targets.map(node => node.x0)) : Math.max(...targets.map(node => node.x1));
+      const ids = new Set(targets.map(node => node.id));
+      positioned = positioned.map(node => !ids.has(node.id) ? node : reserved.direction === "LR"
+        ? { ...node, x0: near, x1: near + node.width - 1 } : { ...node, x1: near, x0: near - node.width + 1 });
+
+    }
+  }
   // Compound engines reserve caption padding in their own units. A global
   // translation removes that leading whitespace without changing any node separation.
   // A group nested k deep draws k frames, each GROUP_PAD outside the last, so the outermost needs that room on every side.
@@ -519,8 +558,44 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
     ordered.forEach((slot, i) => slot.forEach(port => offsets.set(port, ports.some(port => back.has(port.edgeId))
       ? Math.floor((length - 1 - 2 * (ordered.length - 1)) / 2) + 2 * i : reservedOffsets[i]!)));
   }
+  // A fan-in trunk may meet a nearby source column without a one-cell jog.
+  if (across && options[GLYPH_DIAGRAM_FAN_GAP] && !includedGroups.length && !reserved.loops.length && !back.size
+    && !reserved.nodes.some(node => node.shape === "point")) {
+    for (const node of nodes) for (const side of ["n", "s"] as const) {
+      const family = planned.filter(port => port.nodeId === node.id && port.side === side);
+      if (family.length < 2 || family.some(port => port.end !== "to" || !port.trunk || port.trunk !== family[0]!.trunk
+        || reserved.edges.find(edge => edge.id === port.edgeId)!.label)) continue;
+      const at = node.x0 + offsets.get(family[0]!)!;
+      const columns = family.map(port => {
+        const source = planned.find(other => other.edgeId === port.edgeId && other.end === "from")!;
+        return byId.get(source.nodeId)!.x0 + offsets.get(source)!;
+      }).filter(x => Math.abs(x - at) <= 1 && x > node.x0 && x < node.x1);
+      columns.sort((a, b) => Math.abs(a - at) - Math.abs(b - at) || a - b);
+      if (columns.length) {
+        const dx = columns[0]! - at;
+        const shifted = { ...node, x0: node.x0 + dx, x1: node.x1 + dx };
+        if (shifted.x0 < margin || nodes.some(other => other.id !== node.id && other.y0 <= shifted.y1 + 1 && other.y1 >= shifted.y0 - 1
+          && other.x0 <= shifted.x1 + 1 && other.x1 >= shifted.x0 - 1)) continue;
+        // Move the box with its centre port; moving just the port trades the
+        // merge jog for an off-centre arrowhead on the fan-in target.
+        nodes[nodes.indexOf(node)] = shifted;
+        byId.set(node.id, shifted);
+      }
+    }
+  }
   const ports = planned.map((original) => {
     const port = { ...original, offset: offsets.get(original)! };
+    const edge = reserved.edges.find(edge => edge.id === port.edgeId)!;
+    if (options[GLYPH_DIAGRAM_FAN_GAP] && across && edge.label && glyphDiagramText(edge.label, options.charset).length > byId.get(port.nodeId)!.width - 4 && !reserved.nodes.some(node => node.shape === "point") && port.end === "to" && (port.side === "n" || port.side === "s")) {
+      const source = planned.find(other => other.edgeId === edge.id && other.end === "from")!;
+      const sourceNode = byId.get(source.nodeId)!, target = byId.get(port.nodeId)!;
+      const stem = sourceNode.x0 + offsets.get(source)!;
+      const at = target.x0 + port.offset;
+      const distance = glyphDiagramText(edge.label, options.charset).length + 3;
+      const wish = stem - Math.sign(stem - at) * distance;
+      if (Math.abs(stem - at) < distance && wish > target.x0 && wish < target.x1) port.offset = wish - target.x0;
+    }
+
     const node = byId.get(port.nodeId)!;
     const anchor = port.side === "n" || port.side === "s"
       ? { x: node.x0 + port.offset, y: port.side === "n" ? node.y0 : node.y1 }

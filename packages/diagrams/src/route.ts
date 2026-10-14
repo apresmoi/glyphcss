@@ -75,7 +75,8 @@ const same = (a: GlyphCanvasPoint, b: GlyphCanvasPoint) => a.x === b.x && a.y ==
 const inside = (p: GlyphCanvasPoint, r: GlyphDiagramRect, ring = 0) => p.x >= r.x0 - ring && p.x <= r.x1 + ring && p.y >= r.y0 - ring && p.y <= r.y1 + ring;
 function otherPortLanes(layout: GlyphDiagramLayout, edgeId: string): GlyphCanvasPoint[] {
   const own = layout.ports.filter(port => port.edgeId === edgeId);
-  const siblings = new Set(layout.ports.filter(port => port.trunk && own.some(p => p.trunk === port.trunk)).map(port => port.edgeId));
+  const siblings = new Set(layout.ports.filter(port => (port.trunk && own.some(p => p.trunk === port.trunk))
+    || own.some(p => p.end === "from" && port.end === "from" && p.nodeId === port.nodeId && same(p.escape, port.escape))).map(port => port.edgeId));
   return layout.ports.filter(port => port.edgeId !== edgeId && !siblings.has(port.edgeId)).flatMap(port => {
     const delta = GLYPH_DIAGRAM_DIRECTIONS[port.side];
     return Array.from({ length: PORT_LANE_LENGTH }, (_, offset) => ({ x: port.escape.x + offset * delta.x, y: port.escape.y + offset * delta.y }));
@@ -166,7 +167,15 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     groupRects.some((r) => { const axis = ringParallelBlockAxis(p, r); return axis === 2 || axis === dir % 2; })
       ? options.ringParallelCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.ringParallel : 0;
   const ports = new Map(layout.edges.map((e) => [e.id, layout.ports.filter((p) => p.edgeId === e.id)]));
-  const ordered = [...layout.edges].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const trunkCounts = new Map<string, number>();
+  for (const port of layout.ports) if (port.trunk) trunkCounts.set(port.trunk, (trunkCounts.get(port.trunk) ?? 0) + 1);
+  const singletonBuses = new Set(layout.ports.filter(port => port.end === "from" && port.trunk && trunkCounts.get(port.trunk) === 1).map(port => port.edgeId));
+  const sideJoins = new Set(layout.edges.filter(edge => ports.get(edge.id)!.every(port => port.side === "s")).map(edge => edge.id));
+  // Forward branches claim their corridor before same-side joins; a singleton style claims its own bus first.
+  const ordered = [...layout.edges].sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0)
+    || Number(sideJoins.has(a.id)) - Number(sideJoins.has(b.id))
+    || Number(singletonBuses.has(b.id)) - Number(singletonBuses.has(a.id))
+    || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // A branch entering a farther border can fence off a nearer sibling's
   // group entry once committed. Reserve the nearer border first, retaining
   // the original slots among unrelated edges and equal-distance siblings.
@@ -217,8 +226,12 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     const otherLanes = otherPortLanes(layout, edge.id);
     const trunks = [from.trunk, to.trunk].filter((trunk): trunk is string => !!trunk);
     const family = new Map(trunks.map(trunk => [trunk, new Set(layout.ports.filter(port => port.trunk === trunk).map(port => port.edgeId))]));
+    const sharedExits = new Set(layout.ports.filter(port => port.end === "from" && port.nodeId === from.nodeId && same(port.escape, from.escape)).map(port => port.edgeId));
     const foreign = (cell: ReturnType<typeof used.get>) => {
       if (!cell) return false;
+      // Different style buses share only the short exit stub, then keep separate lanes.
+      if (sharedExits.size > 1 && Math.abs(cell.point.x - from.escape.x) + Math.abs(cell.point.y - from.escape.y) <= PORT_LANE_LENGTH
+        && [...cell.owners].every(id => sharedExits.has(id))) return false;
       return ![...family.values()].some(owners => [...cell.owners].every(id => owners.has(id)));
     };
     // Obstacles and earlier routes stay fixed throughout this edge's A*.

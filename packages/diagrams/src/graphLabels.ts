@@ -1,3 +1,4 @@
+import { GLYPH_DIAGRAM_BRANCH_LABEL } from "./layoutHints";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
 import { glyphDiagramGroupRects, type GlyphDiagramLayout } from "./pipeline";
 import { glyphDiagramLoopGeometry } from "./loop";
@@ -44,8 +45,12 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
       const mid = branch[Math.floor(branch.length / 2)] ?? route.cells[Math.floor(route.cells.length / 2)]!;
       const avoid = layout.groups.filter(group => drawn.has(group.id) && !group.members.includes(route.edge.from) && !group.members.includes(route.edge.to))
         .map(group => ({ groupId: group.id, rect: drawn.get(group.id)! }));
-      candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: mid.x, y: mid.y,
-        route: branch, maxWidth: options.width, priority: route.edge.priority, avoid });
+      const fan = !layout.loops.length && !layout.nodes.some(node => node.shape === "point")
+        && layout.ports.some(port => port.edgeId === route.edge.id && port.end === "from" && port.trunk)
+        && (route.edge.label.length > layout.nodes.find(node => node.id === route.edge.to)!.width - 4 || /\s/.test(route.edge.label));
+      const entry = layout.ports.find(port => port.edgeId === route.edge.id && port.end === "to")!;
+      candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: fan ? entry.anchor.x : mid.x, y: mid.y,
+        route: branch, [GLYPH_DIAGRAM_BRANCH_LABEL]: fan, maxWidth: options.width, priority: route.edge.priority, avoid });
     }
   }
   if (options.title) candidates.push({ id: "title", text: options.title, x: Math.floor(options.width / 2), y: 0, priority: Infinity });

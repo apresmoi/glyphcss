@@ -47,3 +47,8 @@ describe("punctuation wrapping", () => {
     expect(glyphDiagramWrap("abcdefgh", 6)).toEqual(["abcdef", "gh"]);
   });
 });
+
+it("keeps a fitting hyphenated token together after preceding words", () => {
+  expect(glyphDiagramWrap("x Face-on Edge-on", 7)).toEqual(["x", "Face-on", "Edge-on"]);
+  expect(glyphDiagramWrap("Face-on", 5)).toEqual(["Face-", "on"]);
+});

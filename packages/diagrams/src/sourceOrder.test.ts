@@ -55,6 +55,23 @@ t6 --> u2`;
 it.each([72, 120])("keeps the unconstrained shared-fan order at %s columns when constraints add crossings", async width => {
   const options = { target: "chat", width, height: 80, autoDirection: false, detail: "faithful", overflow: "expand" } as const;
   const result = await renderGlyphDiagram(sharedFan, options);
-  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ crossings: 4, fakeFrames: 4,
+  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ crossings: 4, fakeFrames: 1,
     wordCuts: 0, droppedEdges: 0, droppedLabels: 0, pages: 1 });
+});
+
+it("places independent photo sources beside the target they feed", async () => {
+  const source = readFileSync(resolve(__dirname, "../bench/corpus/galaxy-anchors-detailed.mmd"), "utf8");
+  const options = { target: "chat", width: 72, height: 24, autoDirection: true, detail: "faithful", overflow: "expand" } as const;
+  const result = await renderGlyphDiagram(source, options);
+  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ wordCuts: 0, crossings: 0, fakeFrames: 0, droppedEdges: 0, droppedLabels: 0 });
+  for (const id of ["nasa", "ngc"]) {
+    const route = result.routes.find(route => route.edge.from === id)!;
+    const from = result.layout.nodes.find(node => node.id === id)!, to = result.layout.nodes.find(node => node.id === route.edge.to)!;
+    expect(Math.max(from.y0, to.y0)).toBeLessThanOrEqual(Math.min(from.y1, to.y1));
+    let bends = 0;
+    route.cells.forEach((cell, i) => { const prev = route.cells[i - 1], next = route.cells[i + 1];
+      if (prev && next && ((cell.x - prev.x) !== (next.x - cell.x) || (cell.y - prev.y) !== (next.y - cell.y))) bends++;
+    });
+    expect(bends).toBeLessThanOrEqual(2);
+  }
 });

@@ -76,10 +76,9 @@ it.each(corpus)("keeps corpus fidelity and topology: %s", async file => {
   const opts = sidecar.renders[0].options as GlyphDiagramRenderOptions & { width: number; height: number };
   const result = await renderGlyphDiagram(fixture(name), opts);
   const quality = computeGlyphDiagramQuality(result, opts);
-  expect(quality.wordCuts).toBeLessThanOrEqual(name === "galaxy-build-detailed" ? 1 : 0);
-  expect(quality.crossings).toBeLessThanOrEqual(name === "galaxy-score-loop" ? 5 : name === "galaxy-sources-h60" ? 1 : 0);
-  const frames = name === "galaxy-fit-loop-detailed" || name === "galaxy-score-loop" ? 4
-    : name === "galaxy-anchors-detailed" || name === "galaxy-sources-h60" ? 1 : 0;
+  expect(quality.wordCuts).toBe(0);
+  expect(quality.crossings).toBe(0);
+  const frames = name === "galaxy-sources-h60" ? 1 : 0;
   expect(quality.fakeFrames).toBeLessThanOrEqual(frames);
   expect(quality).toMatchObject({ droppedEdges: 0, droppedLabels: 0, pages: 1 });
   if (name === "galaxy-sources-h60") expect(result.canvas.rows).toBeLessThanOrEqual(60);

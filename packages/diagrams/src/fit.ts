@@ -1,3 +1,6 @@
+import { GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
+import { glyphDiagramError } from "./validate";
+import { glyphDiagramCycleLayout, glyphDiagramCyclePaths } from "./cycleLayout";
 import { glyphDiagramGraphLabels } from "./graphLabels";
 import { glyphDiagramRouteQuality } from "./routeQuality";
 import { GLYPH_DIAGRAM_DAGRE_ALIGN, GLYPH_DIAGRAM_DAGRE_ALIGNMENTS } from "./fitAlignment";
@@ -7,7 +10,7 @@ import { glyphDiagramCompactionFloor } from "./degrade";
 import { glyphDiagramText } from "./labels";
 import { glyphDiagramSnakeLayout } from "./snake";
 import { GLYPH_DIAGRAM_LOOP_LABEL_MAX } from "./loop";
-import { GLYPH_DIAGRAM_FAN_GAP, GLYPH_DIAGRAM_EDGE_LABEL_ROOM, glyphDiagramFoldLabel, glyphDiagramGroupDepths, glyphDiagramGroupParents, glyphDiagramWords, glyphDiagramWrap, GLYPH_DIAGRAM_DIRECTIONS, layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
+import { validateGlyphDiagramLayoutOptions, backEdgeIds, GLYPH_DIAGRAM_FAN_GAP, GLYPH_DIAGRAM_EDGE_LABEL_ROOM, glyphDiagramFoldLabel, glyphDiagramGroupDepths, glyphDiagramGroupParents, glyphDiagramWords, glyphDiagramWrap, GLYPH_DIAGRAM_DIRECTIONS, layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
 import { GLYPH_DIAGRAM_ROUTE_SEPARATION, glyphDiagramHasRoutingClearance, glyphDiagramLoopsClear, routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import type { GlyphGraph } from "./types";
 import { GLYPH_DIAGRAM_WORK, GlyphDiagramWorkLimit, type GlyphDiagramWork } from "./work";
@@ -92,6 +95,7 @@ function dropsEdgeLabel(result: GlyphDiagramAttempt, options: GlyphDiagramFitOpt
 
 /** Resolve geometry in cells; output encoding and font metrics never enter this search. */
 export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
+  validateGlyphDiagramLayoutOptions(options);
   options = { ...options, [GLYPH_DIAGRAM_FAN_GAP]: true };
   const nested = Math.max(0, ...glyphDiagramGroupDepths(glyphDiagramGroupParents(graph.groups ?? [])).values()) > 0;
   if (!nested) return fitAligned(graph, options);
@@ -141,6 +145,45 @@ function minimumFootprintFits(graph: GlyphDiagramReservedGraph, width: number, h
     }
   }
   return visited !== graph.nodes.length || Math.max(0, ...extent.values()) <= (across ? height : width);
+}
+
+/** Trade unused source widths for the tallest source label before cutting it. */
+function balanceSources(graph: GlyphDiagramReservedGraph, options: GlyphDiagramFitOptions): GlyphDiagramReservedGraph | undefined {
+  if (graph.groups.length || graph.loops.length || graph.nodes.some(node => node.shape === "point")
+    || (graph.direction !== "TB" && graph.direction !== "BT") || options.labelWidth !== undefined) return;
+  const sources = graph.nodes.filter(node => !graph.edges.some(edge => edge.to === node.id));
+  const tallest = [...sources].sort((a, b) => b.height - a.height)[0];
+  if (!tallest || sources.length < 2 || tallest.height < Math.min(...sources.map(node => node.height)) + 3) return;
+  const measure = (node: typeof tallest, limit: number) => {
+    const { width, height, lines, ...authored } = node;
+    return measureGlyphGraph({ direction: graph.direction, nodes: [authored], edges: [] },
+      { charset: options.charset, labelWidth: limit }).nodes[0]!;
+  };
+  const minima = sources.map(node => measure(node, Math.max(1, ...glyphDiagramWords(glyphDiagramFoldLabel(node.label, options.charset), Infinity).map(word => word.length))));
+  const extra = tallest.shape === "subroutine" ? 6 : 4;
+  const limit = options.width - (sources.length - 1) - minima.filter(node => node.id !== tallest.id).reduce((sum, node) => sum + node.width, 0) - extra;
+  if (limit <= Math.max(...tallest.lines.map(line => line.length))) return;
+  let widened = measure(tallest, limit);
+  // Among equally short wraps, avoid isolated short words, including the last row.
+  const words = glyphDiagramFoldLabel(tallest.label, options.charset).split(/\s+/).filter(Boolean);
+  if (!tallest.label.includes("\n") && words.every(word => word.length <= limit)) {
+    const wraps: { lines: string[]; cost: number }[] = [{ lines: [], cost: 0 }];
+    for (let end = 1; end <= words.length; end++) {
+      const choices: typeof wraps = [];
+      for (let start = end - 1; start >= 0; start--) {
+        const line = words.slice(start, end).join(" ");
+        if (line.length > limit) break;
+        const before = wraps[start]!;
+        choices.push({ lines: [...before.lines, line], cost: before.cost + (limit - line.length) ** 2 });
+      }
+      wraps.push(choices.sort((a, b) => a.lines.length - b.lines.length || a.cost - b.cost)[0]!);
+    }
+    const lines = wraps.at(-1)!.lines;
+    widened = { ...widened, lines, height: lines.length + 2 };
+  }
+  const replacements = new Map(minima.map(node => [node.id, node]));
+  replacements.set(tallest.id, widened);
+  return reserveGlyphGraphPorts({ ...graph, nodes: graph.nodes.map(node => replacements.get(node.id) ?? node) });
 }
 
 interface FitSearch {
@@ -195,11 +238,28 @@ export function glyphDiagramFoldTail(result: GlyphDiagramAttempt, options: Glyph
     return chain;
   }).filter(chain => chain.length >= 3 && chain.every(node => node.shape !== "point"));
   // One deterministic chain keeps repairs within the fitting work bound.
-  const chain = tails.sort((a, b) => b.length - a.length)[0];
+  let chain = tails.sort((a, b) => b.length - a.length)[0];
   if (!chain) return result;
-  const margin = result[FIT_SPACING] ?? options.margin ?? 1, gap = 2;
-  const rowWidth = chain.reduce((sum, node) => sum + node.width, 0) + gap * (chain.length - 1);
-  if (rowWidth + 2 * margin > result.width) return result;
+  const margin = result[FIT_SPACING] ?? options.margin ?? 1;
+  let gap = 2;
+  const needed = () => chain!.reduce((sum, node) => sum + node.width, 0) + gap * (chain!.length - 1);
+  while (needed() + 2 * margin > result.width && chain.length >= 3) {
+    if (gap === 2) gap = 1;
+    else { chain = chain.slice(1); gap = 2; }
+  }
+  if (chain.length < 3) return result;
+  let spare = result.width - margin - Math.min(chain[0]!.x0, result.width - margin - needed()) - needed();
+  for (const node of [...chain].sort((a, b) => b.height - a.height)) {
+    if (spare <= 0) break;
+    const extra = node.shape === "subroutine" ? 6 : 4;
+    const limit = Math.min(options.labelWidth ?? Infinity, node.width - extra + spare);
+    const lines = glyphDiagramWrap(glyphDiagramFoldLabel(node.label, options.charset), limit);
+    const width = Math.max(node.width, ...lines.map(line => line.length + extra));
+    if (lines.length >= node.lines.length) continue;
+    chain = chain.map(other => other.id === node.id ? { ...node, lines, width, height: lines.length + 2, y1: node.y0 + lines.length + 1 } : other);
+    spare -= width - node.width;
+  }
+  const rowWidth = needed();
   const originalHead = chain[0]!;
   const x0 = Math.min(originalHead.x0, result.width - margin - rowWidth);
   const head = { ...originalHead, x0, x1: x0 + originalHead.width - 1 };
@@ -351,6 +411,7 @@ function widenRanks(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions
 }
 
 async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
+  let cycle: GlyphDiagramAttempt | undefined;
   const search: FitSearch = { attempts: new Map(), layouts: new Map(), snakes: new Map(), ledger: [], work: { expansionRoutes: 0 } };
   try { return await searchAligned(); }
   catch (error) {
@@ -361,7 +422,29 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
     return { ...best, layout: { ...best.layout, ledger: [...best.layout.ledger, ...search.ledger] } };
   }
   async function searchAligned(): Promise<GlyphDiagramAttempt> {
+    const cyclePaths = options[GLYPH_DIAGRAM_WORK]?.terminal ? undefined : glyphDiagramCyclePaths(measureGlyphGraph(graph, options));
+    if (cyclePaths) {
+      const longest = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramWords(glyphDiagramFoldLabel(node.label, options.charset), Infinity).map(word => word.length)));
+      for (const labelWidth of [...new Set([options.labelWidth ?? Infinity, longest, ...graph.nodes.flatMap(node => glyphDiagramWords(glyphDiagramFoldLabel(node.label, options.charset), Infinity).map(word => word.length)).sort((a, b) => b - a)])]) {
+        const measured = measureGlyphGraph(graph, { ...options, direction: "LR", labelWidth: Math.max(1, Math.min(labelWidth, options.labelWidth ?? Infinity, options.width - 4)), [GLYPH_DIAGRAM_WORD_WIDTH]: options.labelWidth === undefined });
+        options[GLYPH_DIAGRAM_WORK]?.layout(measured);
+        const cycleOptions = { width: options.width, gap: 3, margin: options.margin ?? 1, labelWidth: options.labelWidth, charset: options.charset };
+        const raw = glyphDiagramCycleLayout(measured, cycleOptions, cyclePaths)
+          ?? glyphDiagramCycleLayout(measured, { ...cycleOptions, margin: 0 }, cyclePaths);
+        if (!raw) continue;
+        const candidate = routeAttempt({ raw, adjusted: true, nodesep: 1, ranksep: 4, margin: options.margin ?? 1 }, options.width,
+          options.overflow === "expand" ? Math.max(options.height, raw.height) : options.height, true, options[GLYPH_DIAGRAM_WORK]);
+        if (candidate.okay && !cutsWords(candidate, options.charset) && readability(candidate)[0] === 0 && !dropsEdgeLabel(candidate, options)) {
+          if (readability(candidate)[1] === 0) return candidate;
+          if (!cycle || compareScore(readability(candidate), readability(cycle)) < 0) cycle = candidate;
+          break;
+        }
+      }
+    }
     let initial = await fitOnce(graph, options, search, !options[GLYPH_DIAGRAM_WORK]?.terminal);
+    // A complete, crossing-free cycle already beats a failed ordinary placement.
+    // Repeating the wrapping search cannot improve that rejected initial route.
+    if (cycle && (!initial.okay || compareScore(readability(cycle), readability(initial)) < 0)) return cycle;
     if (options[GLYPH_DIAGRAM_WORK]?.terminal) return initial;
     // A closed return corridor is a geometry failure, not a wrapping failure.
     // Try the same labels with BK alignment and one extra cell on either gap
@@ -382,6 +465,7 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       if (repaired) initial = { ...repaired, adjusted: true };
     }
     let first = widenRanks(initial.okay ? initial : await fitOnce(graph, options, search), options);
+    if (cycle && first.okay && readability(cycle)[0]! < readability(first)[0]! && readability(cycle)[1]! <= readability(first)[1]!) return cycle;
     const missing = first.okay ? glyphDiagramGraphLabels(first.layout, first.routing,
       { ...options, width: first.width, height: first.height }).dropped : [];
     if (missing.length) {
@@ -389,9 +473,10 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       const margin = first[FIT_SPACING] ?? options.margin ?? 1;
       options[GLYPH_DIAGRAM_WORK]?.layout(first.layout);
       const raw = await layoutGlyphGraph(first.layout, { ...options, direction: first.layout.direction,
-        margin, ranksep: Math.max(options.ranksep ?? 4, ...edges.map(edge =>
+        margin, ranksep: Math.max((options.ranksep ?? 4) + (first.layout.direction === "TB" || first.layout.direction === "BT" ? 2 : 0), ...edges.map(edge =>
           first.layout.direction === "LR" || first.layout.direction === "RL" ? glyphDiagramText(edge.label!, options.charset).length + 4 : 4)),
-        [GLYPH_DIAGRAM_EDGE_LABEL_ROOM]: edges.map(edge => edge.id) });
+        [GLYPH_DIAGRAM_EDGE_LABEL_ROOM]: edges.filter(edge => !(first.layout.direction === "TB" || first.layout.direction === "BT")
+          || !first.layout.ports.some(port => port.edgeId === edge.id && port.end === "from" && port.trunk)).map(edge => edge.id) });
       const repaired = routeAttempt({ raw, adjusted: true, nodesep: options.nodesep ?? 4, ranksep: options.ranksep ?? 4, margin },
         options.overflow === "expand" ? Math.max(first.width, raw.width) : first.width,
         options.overflow === "expand" ? Math.max(first.height, raw.height) : first.height, true, options[GLYPH_DIAGRAM_WORK]);
@@ -403,7 +488,7 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       && (first.layout.groups.length || first.layout.ledger.some(entry => entry.code === "layout-wrapped"))) return first;
     let best = folded;
     if (first.layout.nodes.length === 1) return first;
-    if (!first.okay || cutsWords(first, options.charset) || readability(first)[0]! > 0) {
+    if (!first.okay || cutsWords(first, options.charset) || readability(first)[0]! > 0 || readability(first)[1]! > 0) {
       // Crossing-free whole-word defaults keep their text. Readability alternatives
       // stay within the first fit's canvas and the existing shared work budget.
       const bounded = { ...search, maxWidth: first.okay ? first.width : undefined, maxHeight: first.okay ? first.height : undefined };
@@ -478,7 +563,7 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
   const layout = async (graph: GlyphGraph | GlyphDiagramReservedGraph, opts: GlyphDiagramLayoutOptions) => {
     const align = (opts as GlyphDiagramLayoutOptions & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: string })[GLYPH_DIAGRAM_DAGRE_ALIGN];
     // With one node, BK can only translate it; normalization removes that.
-    const key = JSON.stringify([graph, opts, opts[GLYPH_DIAGRAM_EDGE_LABEL_ROOM], graph.nodes.length === 1 ? undefined : align]);
+    const key = JSON.stringify([graph, opts, opts[GLYPH_DIAGRAM_WORD_WIDTH], opts[GLYPH_DIAGRAM_EDGE_LABEL_ROOM], graph.nodes.length === 1 ? undefined : align]);
     const known = search.layouts.get(key);
     if (known) return known;
     work?.layout(graph);
@@ -495,6 +580,28 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
   // Keep validation at the public layout boundary, including explicit values
   // that an already-impossible viewport would otherwise prune before layout.
   const initial: Candidate = { raw: await layout(graph, { ...options, direction, labelWidth }), adjusted: false, nodesep, ranksep, margin };
+  // Default fitting can fold before expansion; authored wrap/spacing keeps its established probe order.
+  if (!work?.terminal && options.labelWidth === undefined && options.nodesep === undefined && options.ranksep === undefined && options.margin === undefined
+    && options.overflow === "expand" && initial.raw.width <= width && initial.raw.height > height
+    && (direction === "TB" || direction === "BT") && !initial.raw.groups.length && !initial.raw.loops.length) {
+    const sinks = initial.raw.nodes.filter(node => !graph.edges.some(edge => edge.from === node.id));
+    const hasTail = sinks.some(sink => {
+      let id = sink.id, length = 1;
+      while (length < 3) {
+        const parents = graph.edges.filter(edge => edge.to === id);
+        if (parents.length !== 1 || graph.edges.filter(edge => edge.from === parents[0]!.from).length !== 1) return false;
+        id = parents[0]!.from; length++;
+      }
+      return true;
+    });
+    if (hasTail) {
+      const labels = initial.raw.edges.some(edge => edge.label && initial.raw.ports.some(port => port.edgeId === edge.id && port.end === "from" && port.trunk));
+      const raw = labels ? await layout(graph, { ...options, direction, labelWidth, ranksep: ranksep + 2 }) : initial.raw;
+      const extended = attempt({ ...initial, raw }, width, raw.height, true);
+      const folded = glyphDiagramFoldTail(extended, options);
+      if (folded !== extended && !cutsWords(folded, options.charset)) return folded;
+    }
+  }
   const first = attempt(initial, work?.terminal && options.overflow === "expand" ? Math.max(width, initial.raw.width) : width,
     work?.terminal && options.overflow === "expand" ? Math.max(height, initial.raw.height) : height);
   if (first.okay || initialOnly || (work?.terminal && first.fits)) return first;
@@ -551,17 +658,28 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
   const loopRows = loopLabels.length || graph.edges.some(edge => edge.from === edge.to) ? 2 : 0;
   // Every distinct measurable wrap is considered. The upper bound comes from
   // authored text and the available cells, not a list of preferred resolutions.
+  const pieceFloor = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramWords(glyphDiagramFoldLabel(node.label, options.charset), Infinity).map(word => word.length)));
+  const sourceWords = graph.nodes.filter(node => !graph.edges.some(edge => edge.to === node.id)).map(node =>
+    Math.max(5, ...glyphDiagramWords(glyphDiagramFoldLabel(node.label, options.charset), Infinity).map(word => word.length + 4)));
+  const sourceWidth = sourceWords.reduce((sum, value) => sum + value, 0);
+  const crowdedSources = sourceWords.length > 1 && sourceWidth + floor * (sourceWords.length - 1) > width
+    && sourceWidth + sourceWords.length - 1 <= width;
+
   function* measurements() {
     const seenMeasurements = new Set<string>();
     for (let wrap = Math.min(labelWidth, Math.max(1, width - 4)); wrap >= 1; wrap--) {
       work?.take("probes");
-      for (const dir of directions) for (const loopLabelWidth of loopWrapsFor(dir)) {
-        const reserved = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options, direction: dir, labelWidth: wrap, loopLabelWidth }));
+      for (const whole of (options.labelWidth === undefined && wrap < pieceFloor && crowdedSources && !graph.groups?.length ? [true, false] : [false])) for (const dir of directions) for (const loopLabelWidth of loopWrapsFor(dir)) {
+        const reserved = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options, direction: dir, labelWidth: wrap, loopLabelWidth, [GLYPH_DIAGRAM_WORD_WIDTH]: whole }));
         const key = JSON.stringify([dir, reserved.nodes.map(node => [node.width, node.height]), reserved.loops.map(loop => loop.lines)]);
         if (seenMeasurements.has(key)) continue;
         seenMeasurements.add(key);
         if (options.overflow !== "expand" && !minimumFootprintFits(reserved, width, height)) continue;
-        yield { reserved, wrap };
+        if (whole) {
+          const balanced = balanceSources(reserved, options);
+          if (balanced) yield { reserved: balanced, whole, wrap: Math.max(wrap, pieceFloor) };
+        }
+        yield { reserved, whole, wrap: whole ? Math.max(wrap, ...graph.nodes.flatMap(node => glyphDiagramFoldLabel(node.label, options.charset).split(/\s+/).map(word => word.length))) : wrap };
       }
     }
   }
@@ -612,10 +730,17 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
   const longestWord = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramText(node.label, options.charset).split(/\s+/).map(word => word.length)));
   const longestPiece = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramWords(glyphDiagramText(node.label, options.charset)).map(word => word.length)));
   const tryMeasured = async (keep: (wrap: number) => boolean, only?: GlyphGraph["direction"]) => {
-    for (const { reserved, wrap } of measured) {
+    for (const { reserved, wrap, whole } of measured) {
       if (!keep(wrap) || (only && reserved.direction !== only)) continue;
       for (const [ns, rs] of compact) for (const pad of margins) {
         const result = await tryLayout(reserved, ns, rs, pad);
+        if (result) return result;
+      }
+      const roots = reserved.nodes.filter(node => !reserved.edges.some(edge => edge.to === node.id));
+      const rootWidth = roots.reduce((sum, node) => sum + node.width, 0);
+      if (whole && (reserved.direction === "TB" || reserved.direction === "BT") && rootWidth + floor * (roots.length - 1) > width
+        && rootWidth + roots.length - 1 <= width) for (const pad of margins) {
+        const result = await tryLayout(reserved, 1, ranksep, pad);
         if (result) return result;
       }
     }
