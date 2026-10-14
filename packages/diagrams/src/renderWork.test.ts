@@ -67,7 +67,7 @@ describe("one deterministic render-wide work budget", () => {
   });
 
   it.each([
-    [72, 24, "paginate", "a3e41473b333783898b18272c7d0550760f4724411ac6b42feefed5de2b165af"],
+    [72, 24, "paginate", "0f54857ef0b69ea3a9756a556a3e8364d06bdad8b098a55668234aa3d892174e"],
     [143, 57, "expand", "4bb9c280088c9b1e00bec5c5a9a97acfde1ad3432e54d6cdc798477458ab285c"],
     [80, 43, "expand", "05167ad3a6472da1336dfe0df75b764ff341b6f5b5a571be7641b5ca6e3a7ee7"],
     [48, 42, "expand", "aaefb1395d7fc30c6b791c9506f0895a5da675456c877a8cd84cdad7ddce516d"],
@@ -82,7 +82,7 @@ describe("one deterministic render-wide work budget", () => {
     expect(result.pages[0]!.routes).toHaveLength(7);
     expect(result.report.unroutable).toEqual([]);
     expect(result.report.ledger.some(entry => entry.code === "render-work-limited")).toBe(false);
-    // These hashes come from HEAD, including its complete wrapped labels.
+    // The 72x24 fit reduces bends from six to four with unchanged cuts/crossings/losses.
     expect(createHash("sha256").update(result.text).digest("hex")).toBe(hash);
     const budget = (vi.mocked(routeGlyphGraphEdges).mock.calls[0]![1] as GlyphDiagramRoutingOptions & { [GLYPH_DIAGRAM_WORK]: GlyphDiagramWork })[GLYPH_DIAGRAM_WORK];
     expect(budget.counts.layouts).toBeGreaterThan(0);

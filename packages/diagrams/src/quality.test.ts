@@ -54,6 +54,19 @@ describe("offline diagram quality", () => {
     }
   });
 
+  it("counts enclosing parallel route pairs, excluding endpoint boxes and boundary contacts", () => {
+    const enclosing = page([route("upper", cells([0, 0], [1, 0], [2, 0], [3, 0], [4, 0])),
+      route("lower", cells([0, 4], [1, 4], [2, 4], [3, 4], [4, 4]))]);
+    const box: GlyphDiagramPositionedNode = { id: "unrelated", label: "x", shape: "rect", lines: ["x"], width: 3, height: 3, x0: 1, x1: 3, y0: 1, y1: 3 };
+    const withBox = { ...enclosing, layout: { ...enclosing.layout, nodes: [box] } };
+    expect(computeGlyphDiagramQuality(result(withBox), budget).fakeFrames).toBe(1);
+    for (const n of [{ ...box, id: "sink" }, { ...box, y0: 0 }, { ...box, x1: 5 }]) {
+      expect(computeGlyphDiagramQuality(result({ ...withBox, layout: { ...withBox.layout, nodes: [n] } }), budget).fakeFrames).toBe(0);
+    }
+    const rotated = { ...withBox, routes: withBox.routes.map(r => ({ ...r, cells: r.cells.map(p => ({ x: p.y, y: p.x })) })) };
+    expect(computeGlyphDiagramQuality(result(rotated), budget).fakeFrames).toBe(1);
+  });
+
   it("reports per-edge bend counts and literal cell/escape-distance ratios", () => {
     const quality = computeGlyphDiagramQuality(result(page([straight(), detour()])), budget);
     expect(quality.bends).toEqual({ total: 2, max: 2 });

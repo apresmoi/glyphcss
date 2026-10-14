@@ -92,7 +92,7 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
   });
   it.each([
     ["galaxy-sources-to-model", 24, "e78406bf4aeddbca28e6274203adfcf8406d1cf070bd76dfacf9e7b2889d5464", 350, 900_000],
-    ["galaxy-sources-h60", 60, "d496896cc5f81d46efbf290b76bc6c13cf6dac23393f2a8786f029e5d193493a", 110, 75_000],
+    ["galaxy-sources-h60", 60, "cfa29b1a49ac00f3769d18b3089f640763cc8d93ae5638c8c13ca53a5aba44a5", 110, 75_000],
   ] as const)("%s keeps its text within routing and A* work bounds", async (name, height, hash, routingBound, stateBound) => {
     const source = readFileSync(resolve(__dirname, `../bench/corpus/${name}.mmd`), "utf8");
     vi.mocked(routeGlyphGraphEdges).mockClear();
@@ -110,6 +110,10 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
         width: 72, height, target: "chat", charset: "box", color: "none", autoDirection: true, detail: "faithful", overflow: "expand",
       });
     } finally { spy.mockRestore(); }
+    expect(computeGlyphDiagramQuality(result, { width: 72, height })).toMatchObject({
+      wordCuts: name === "galaxy-sources-h60" ? 3 : 0, crossings: name === "galaxy-sources-h60" ? 1 : 3,
+      droppedEdges: 0, droppedLabels: 0, pages: 1,
+    });
     expect(result.pages).toHaveLength(1);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex")).toBe(hash);
     expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThan(routingBound);

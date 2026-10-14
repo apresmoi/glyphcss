@@ -71,12 +71,12 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(alignments().every(align => align === undefined)).toBe(true);
   });
 
-  it("tries all four alignments and improves sources without a quality regression", async () => {
+  it("stops at the first alignment improvement without a quality regression", async () => {
     clear();
     const result = await renderGlyphDiagram(source(), options);
     const quality = computeGlyphDiagramQuality(result, options);
-    expect(new Set(alignments())).toEqual(new Set([undefined, "UL", "UR", "DL", "DR"]));
-    expect(quality.wordCuts).toBe(7);
+    expect(new Set(alignments())).toEqual(new Set([undefined, "UL"]));
+    expect(quality.wordCuts).toBe(0);
     expect(result.canvas.grid).toMatchObject({ cols: 72, rows: 71 });
     expect(quality.crossings).toBeLessThanOrEqual(1);
     expect(quality.bends.total).toBeLessThanOrEqual(22);
@@ -90,7 +90,7 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(quality.pages).toBe(1);
     expect(vi.mocked(routeGlyphGraphEdges).mock.calls.length).toBeLessThanOrEqual(380);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("36d558df903ca8fb9a62cc6d6b355c736985375b916a9c780a7a53a0721b10c5");
+      .toBe("ff2b34364100294b0ddb83ad7805dec13a306e7ad3b931cac5eddf93302ebc4b");
   }, 30_000);
 
   it("routes an identical single-node layout only once across BK alignments", async () => {
@@ -98,6 +98,21 @@ describe("Dagre alignment is a private fit dimension", () => {
     const result = await renderGlyphDiagram("flowchart TB\nA[abcdefgh]", { ...options, labelWidth: 2 });
     expect(result.layout.nodes[0]!.lines).toEqual(["ab", "cd", "ef", "gh"]);
     expect(routeGlyphGraphEdges).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["galaxy-anchors-detailed", "galaxy-sources-to-model"])("bounds measured-label probes for %s crossings", async name => {
+    clear();
+    const text = readFileSync(resolve(__dirname, `../bench/corpus/${name}.mmd`), "utf8");
+    const result = await renderGlyphDiagram(text, { ...options, height: 24 });
+    const probes = vi.mocked(layoutGlyphGraph).mock.calls.filter(([, opts]) =>
+      (opts as typeof opts & { [GLYPH_DIAGRAM_DAGRE_ALIGN]?: GlyphDiagramDagreAlignment })?.[GLYPH_DIAGRAM_DAGRE_ALIGN]);
+    expect(probes.length).toBeGreaterThan(0);
+    expect(probes.length).toBeLessThanOrEqual(6);
+    expect(new Set(alignments())).toEqual(new Set(name === "galaxy-anchors-detailed" ? [undefined, "UR"] : [undefined, "UR", "UL"]));
+    expect(probes.every(([graph]) => "ports" in graph)).toBe(true);
+    expect(computeGlyphDiagramQuality(result, { width: 72, height: 24 })).toMatchObject({
+      wordCuts: 0, crossings: 0, droppedEdges: 0, droppedLabels: 0, pages: 1,
+    });
   });
 
   it.each(["TB", "BT", "LR", "RL"] as const)("reserves %s gaps by crossing connections, not the largest fan", async direction => {
