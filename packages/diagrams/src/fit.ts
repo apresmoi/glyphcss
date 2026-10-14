@@ -178,6 +178,111 @@ function compareScore(a: readonly number[], b: readonly number[]): number {
   return 0;
 }
 
+/** One sideways trailing chain, with the existing labels and a full reroute. */
+function foldTail(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): GlyphDiagramAttempt {
+  const layout = result.layout;
+  if (!result.okay || options[GLYPH_DIAGRAM_WORK]?.terminal || layout.groups.length || layout.loops.length
+    || (layout.direction !== "TB" && layout.direction !== "BT")
+    || (layout.height <= options.height && layout.height <= layout.width)) return result;
+  const incoming = (id: string) => layout.edges.filter(edge => edge.to === id);
+  const outgoing = (id: string) => layout.edges.filter(edge => edge.from === id);
+  const tails = layout.nodes.filter(node => incoming(node.id).length === 1 && !outgoing(node.id).length).map(sink => {
+    const chain = [sink];
+    while (incoming(chain[0]!.id).length === 1) {
+      const parent = layout.nodes.find(node => node.id === incoming(chain[0]!.id)[0]!.from)!;
+      if (outgoing(parent.id).length !== 1 || chain.includes(parent)) break;
+      chain.unshift(parent);
+    }
+    return chain;
+  }).filter(chain => chain.length >= 3 && chain.every(node => node.shape !== "point"));
+  // Longest first, then authored node order: no left/right or gap search.
+  const chain = tails.sort((a, b) => b.length - a.length)[0];
+  if (!chain) return result;
+  const margin = result[FIT_SPACING] ?? options.margin ?? 1, gap = options.ranksep ?? 4;
+  const rowWidth = chain.reduce((sum, node) => sum + node.width, 0) + gap * (chain.length - 1);
+  if (rowWidth + 2 * margin > result.width) return result;
+  const rowHeight = Math.max(...chain.map(node => node.height));
+  const top = layout.direction === "TB" ? chain[0]!.y0 : chain[0]!.y1 - rowHeight + 1;
+  const center = top + Math.floor((rowHeight - 1) / 2);
+  let x = Math.floor((result.width - rowWidth) / 2);
+  const moved = new Map(chain.map(node => {
+    const y = center - Math.floor((node.height - 1) / 2);
+    const placed = { ...node, x0: x, x1: x + node.width - 1, y0: y, y1: y + node.height - 1 };
+    x += node.width + gap;
+    return [node.id, placed];
+  }));
+  const placed = layout.nodes.map(node => moved.get(node.id) ?? node);
+  const shift = Math.min(...placed.map(node => node.y0)) - margin;
+  const nodes = placed.map(node => ({ ...node, y0: node.y0 - shift, y1: node.y1 - shift }));
+  if (nodes.some((node, i) => nodes.slice(i + 1).some(other => node.x0 <= other.x1 && node.x1 >= other.x0
+    && node.y0 <= other.y1 && node.y1 >= other.y0))) return result;
+  const naturalHeight = Math.max(...nodes.map(node => node.y1 + 1 + margin));
+  const height = Math.max(options.height, naturalHeight);
+  if (height >= result.height) return result;
+  const byId = new Map(nodes.map(node => [node.id, node]));
+  const ids = new Set(chain.map(node => node.id));
+  const ports = layout.ports.map(port => {
+    const edge = layout.edges.find(edge => edge.id === port.edgeId)!;
+    const sideways = ids.has(edge.from) && ids.has(edge.to);
+    const side = sideways ? port.end === "from" ? "e" : "w" : port.side;
+    const node = byId.get(port.nodeId)!;
+    const offset = sideways ? Math.floor((node.height - 1) / 2) : port.offset;
+    const anchor = side === "n" || side === "s" ? { x: node.x0 + offset, y: side === "n" ? node.y0 : node.y1 }
+      : { x: side === "w" ? node.x0 : node.x1, y: node.y0 + offset };
+    const delta = GLYPH_DIAGRAM_DIRECTIONS[side];
+    return { ...port, side, offset, anchor, escape: { x: anchor.x + delta.x, y: anchor.y + delta.y } };
+  });
+  const raw = { ...layout, nodes, ports, width: result.width, height: naturalHeight };
+  const candidate = routeAttempt({ raw, adjusted: true, nodesep: options.nodesep ?? 4, ranksep: gap, margin },
+    result.width, height, true, options[GLYPH_DIAGRAM_WORK]);
+  return candidate.okay && readability(candidate)[0]! <= readability(result)[0]!
+    && readability(candidate)[1]! <= readability(result)[1]! && !dropsEdgeLabel(candidate, options) ? candidate : result;
+}
+
+/** One top-down pass: a moved parent can straighten its children next. */
+export function glyphDiagramStraightenPorts(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): GlyphDiagramAttempt {
+  if (!result.okay || result.layout.groups.length || result.layout.loops.length
+    || (result.layout.direction !== "TB" && result.layout.direction !== "BT")
+    || options[GLYPH_DIAGRAM_WORK]?.terminal) return result;
+  const margin = result[FIT_SPACING] ?? options.margin ?? 1;
+  const rowOrder = [...result.layout.nodes].sort((a, b) => (result.layout.direction === "TB" ? a.y0 - b.y0 : b.y1 - a.y1)
+    || a.x0 - b.x0 || a.id.localeCompare(b.id));
+  for (const original of rowOrder) {
+    if (options[GLYPH_DIAGRAM_WORK]?.limited) break;
+    const layout = result.layout, node = layout.nodes.find(node => node.id === original.id)!;
+    const incoming = layout.ports.filter(port => port.nodeId === node.id && port.end === "to"
+      && (port.side === "n" || port.side === "s")).sort((a, b) => a.edgeId.localeCompare(b.edgeId));
+    let best = result;
+    const tried = new Set<number>();
+    for (const to of incoming) {
+      const from = layout.ports.find(port => port.edgeId === to.edgeId && port.end === "from")!;
+      if (from.side !== (to.side === "n" ? "s" : "n")
+        || (to.side === "n" ? from.anchor.y >= to.anchor.y : from.anchor.y <= to.anchor.y)) continue;
+      const dx = from.anchor.x - to.anchor.x;
+      if (!dx || Math.abs(dx) > 3 || tried.has(dx)) continue;
+      tried.add(dx);
+      const moved = { ...node, x0: node.x0 + dx, x1: node.x1 + dx };
+      if (moved.x0 < margin || moved.x1 >= result.width - margin
+        || layout.nodes.some(other => other.id !== node.id && moved.x0 <= other.x1 && moved.x1 >= other.x0
+          && moved.y0 <= other.y1 && moved.y1 >= other.y0)) continue;
+      const raw = { ...layout, width: result.width, height: result.height,
+        nodes: layout.nodes.map(other => other.id === node.id ? moved : other),
+        ports: layout.ports.map(port => port.nodeId === node.id ? { ...port,
+          anchor: { ...port.anchor, x: port.anchor.x + dx }, escape: { ...port.escape, x: port.escape.x + dx } } : port) };
+      const candidate = routeAttempt({ raw, adjusted: true, margin, nodesep: options.nodesep ?? 4, ranksep: options.ranksep ?? 4 },
+        result.width, result.height, true, options[GLYPH_DIAGRAM_WORK]);
+      if (!candidate.okay) continue;
+      const route = candidate.routing.routes.find(route => route.edge.id === to.edgeId)!;
+      if (!route.cells.every(cell => cell.x === from.anchor.x)) continue;
+      if (readability(candidate)[2]! < readability(best)[2]!
+        && readability(candidate)[0]! <= readability(result)[0]!
+        && readability(candidate)[1]! <= readability(result)[1]! && !dropsEdgeLabel(candidate, options)) best = candidate;
+    }
+    result = best;
+  }
+  return result;
+}
+
 /** Widen cut labels into their rank's spare columns without moving other ranks. */
 function widenRanks(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): GlyphDiagramAttempt {
   if (!result.okay || !cutsWords(result, options.charset) || result.layout.groups.length || result.layout.loops.length) return result;
@@ -252,6 +357,8 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       if (repaired) return { ...repaired, adjusted: true };
     }
     const first = widenRanks(await fitOnce(graph, options, search), options);
+    const folded = foldTail(first, options);
+    if (folded !== first) return glyphDiagramStraightenPorts(folded, options);
     if (first.okay && !cutsWords(first, options.charset)
       && (first.layout.groups.length || first.layout.ledger.some(entry => entry.code === "layout-wrapped"))) return first;
     let best = first;

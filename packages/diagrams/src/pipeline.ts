@@ -352,7 +352,58 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
       } else if (back.has(edge.id)) g.setEdge(edge.to, edge.from, {}, edge.id);
       else g.setEdge(edge.from, edge.to, {}, edge.id);
     }
-    dagre.layout(g);
+    dagre.layout(g, !includedGroups.length && !reserved.loops.length && !back.size ? {
+      customOrder: (ordered, order) => {
+        order(ordered, {});
+        // A source with one destination must not straddle an unrelated fan.
+        // Constrain disjoint destination spans, then let Dagre order its dummy
+        // chains too; moving just the real boxes leaves the crossing behind.
+        const sources = reserved.nodes.filter(node => !reserved.edges.some(edge => edge.to === node.id));
+        const spans = sources.flatMap(node => {
+          const targets = reserved.edges.filter(edge => edge.from === node.id).map(edge => ordered.node(edge.to));
+          if (!targets.length || targets.some(target => target.rank !== targets[0]!.rank)) return [];
+          return [{ id: node.id, rank: ordered.node(node.id).rank, targetRank: targets[0]!.rank,
+            first: Math.min(...targets.map(target => target.order!)), last: Math.max(...targets.map(target => target.order!)) }];
+        });
+        const constraints: { left: string; right: string }[] = [];
+        for (const rank of new Set(spans.map(span => span.rank))) {
+          const row = spans.filter(span => span.rank === rank);
+          if (row.some(span => span.targetRank !== row[0]!.targetRank)) continue;
+          if (!row.some(left => row.some(right => left.last < right.first
+            && ordered.node(left.id).order! > ordered.node(right.id).order!))) continue;
+          row.sort((a, b) => a.first + a.last - b.first - b.last || ordered.node(a.id).order! - ordered.node(b.id).order!);
+          row.slice(1).forEach((right, i) => constraints.push({ left: row[i]!.id, right: right.id }));
+        }
+        if (constraints.length) {
+          const original = new Map(ordered.nodes().map(id => [id, ordered.node(id).order]));
+          // Normalized edges join adjacent ranks, including the dummy chains.
+          // Count weighted inversions across every rank, as Dagre's sweep does.
+          const crossings = () => {
+            const edges = ordered.edges();
+            const rows = new Map<number, typeof edges>();
+            for (const edge of edges) {
+              const rank = ordered.node(edge.v).rank!;
+              const row = rows.get(rank) ?? [];
+              row.push(edge); rows.set(rank, row);
+            }
+            let count = 0;
+            for (const row of rows.values()) for (let i = 0; i < row.length; i++) {
+              const a = row[i]!;
+              for (const b of row.slice(i + 1)) {
+                if ((ordered.node(a.v).order! - ordered.node(b.v).order!)
+                  * (ordered.node(a.w).order! - ordered.node(b.w).order!) < 0) {
+                  count += ordered.edge(a).weight! * ordered.edge(b).weight!;
+                }
+              }
+            }
+            return count;
+          };
+          const before = crossings();
+          order(ordered, { constraints });
+          if (crossings() > before) for (const [id, position] of original) ordered.node(id).order = position;
+        }
+      },
+    } : {});
     return g;
   };
   // Dagre breaks loops itself and usually picks the authored start; when it

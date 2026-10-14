@@ -58,8 +58,10 @@ Authored order; time downward; label-sized. Validate → columns → rows → pa
 - Search: first routable snake gaps; one branch gap without hanging nodes; prune stacked loops/impossible node area/acyclic rank paths.
 - Expansion: <=256 spacing/replay probes, <=128 gutters, <=384 routes across alignments (`fit-search-limited`). Reuse routes; skip disconnected targets; stop failed probes early.
 - Render budget: 2,500,000 search units; non-self edges cubed/layout, squared/snake; 1,000/routing, one/A* or flood expansion. Shared across directions, frames, rungs and splits. Reserve panel wrapping, two gap choices and one route. Exhaustion keeps the best fit or uses wrapped edge panels (`render-work-limited`); no resets or partial probes.
-- Whole words before cuts. Keep crossing-free whole-word defaults exact; repair blocked aligned gaps before wrapping. Try UL/UR/DL/DR within canvas bounds; reuse identical layouts/routes/snake work. Aligned ranks reserve crossing/turn/escape channels; loops/frames keep Dagre room.
+- Whole words before cuts; defaults exact except guarded repairs. Reuse UL/UR/DL/DR fits in bounds; repair gaps; reserve crossing/turn/escape/loop/frame room.
 - Plain fits widen cut labels into spare columns (one reroute/alignment; label caps apply). First-fit bounds: words → crossings → fake frames → bends → detours → length. Crossing probes: UR/UL, fitted labels and two perpendicular wraps; first improvement wins. No added crossings/label drops.
+- Source order/≤3-column top-down shifts never add crossings/frames/drops.
+- Fold one ≥3-box TB/BT tail if shorter/routable; no groups/loops/points.
 - Fit labels/ports/routes, no count cutoffs/viewport presets. Search wraps/independent gaps within shared work before semantic degradation.
 - `overflow: "paginate"` (default) keeps exact canvas size; `"expand"` grows canvases (`layout-expanded`). After fitting fails: decoration → duplicates → leaf clusters → split; no decoration once it fits, except `simplified`.
 - Same-priority sibling frame entries: nearer flow-axis border first. Paint: routes → junctions → fills → target-border heads → labels; one-cell routes paint along the port axis; edge labels touch their route or drop (a loop's sits one cell past it). All Text/HTML/ANSI exits carry `canvas`.
