@@ -2,7 +2,6 @@
 
 No scene/elkjs.
 
-
 ## Sequence (`./sequence`)
 
 Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`. Mermaid order; JSON: dividers → openings → notes.
@@ -64,10 +63,10 @@ Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`
 - Self-edges: 4-cell loops on `e` (TB/BT), `s` (LR/RL). Dagre dummy after node only if needed. Labels wrap at `loopLabelWidth`, one cell past loop. Frames/snake include them.
 - Loops start authored-first. Flat LR: spine/top return/feeders below targets; stack joins by column, reserve clearance, rewrap, merge bottom centres. Side joins exit laterally; margin 0 before Dagre. Validate options; other cycles: Dagre/snake.
 - Share borders before cuts/splits; wrap after `+/:`; split hyphens beyond width; log `word-cut`.
-- Fit caps: 256 expansions/128 gutters/384 routes; shared 2,500,000 units, no resets/partial probes. Reserve wraps/gaps/route; reuse routes. Exhaustion: fit or edge panels (`render-work-limited`).
-- Words before cuts; widen tall labels, balance wraps, try gap 1 for crowded sources. Compact: ports/routes/loops/frames/moats; region flow gaps ≥2. Score words/crossings/frames/bends/detours/length; probes cannot add crossings/fake frames/dropped edges.
-- Chains snake within occupied bands. Fold one TB/BT tail/suffix LR before expansion (flat, no loops/points). Preserve authored LR/RL siblings. Fans share same-style trunks/ports; mixed/parallel/point/frame links keep lanes. Side feeders stay beside targets. Never join buses through one edge.
-- Fan captions: exclusive stems/entries; vertical fan-ins shift boxes ≤1, centre ports. Reserve missing captions, then two margin-0 probes.
+- Fit caps: 256 expansions/128 gutters/384 routes; shared 2,500,000 units, no resets/partial probes. Reserve wraps/gaps/routes; reuse routes. Exhaustion: fit or panels (`render-work-limited`).
+- Whole words first; widen/balance tall wraps; crowded sources try gap 1. Compact ports/routes/loops/frames/moats; region gaps ≥2. Score words/crossings/frames/bends/detours/length; probes cannot add crossings/fake frames/dropped edges.
+- Snakes: occupied bands, straight turns past loops. Repair after gaps: upper band, loop room, margin 0, reroute. Fold flat TB/BT tails/suffixes LR before expansion (no loops/points); keep LR/RL siblings. Same-style fan trunks/ports; mixed/parallel/point/frame links keep lanes. Feeders beside targets; no edge-owned bus.
+- Fan captions on exclusive stems/entries; vertical fan-ins shift ≤1, centre ports. Reserve missing captions, then two margin-0 probes.
 - `overflow: "paginate"` keeps exact size; `"expand"` grows (`layout-expanded`). Failed fit: decoration → duplicates → leaves → split; fitted decoration survives except optional diamond markers or `simplified`.
 - Frame entries at equal priority: nearer first. Paint routes/junctions/fills/heads/labels. Labels clear vertical stems by 1; else touch/drop (loops: 1 past). Dotted hops stay continuous.
 

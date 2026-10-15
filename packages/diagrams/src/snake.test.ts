@@ -102,12 +102,15 @@ describe("snake layout", () => {
   });
 
   it("sizes each row gap on its own, never buying rows with a detour or a lost label", async () => {
-    // Mutations: uniform gaps only -> the Backorder-to-Charge gap pads to 3;
+    // Mutations: uniform gaps only -> the Retry-to-Ship gap pads to 3;
     // drop the route-shape gate -> the deploy wrap line detours up the left;
     // drop the label check -> a squeezed drop loses its "no".
-    const r = await renderGlyphDiagram(order, { ...chat, height: 30 });
+    const r = await renderGlyphDiagram(order, { ...chat, overflow: "expand" });
     const at = (id: string) => r.layout.nodes.find((n) => n.id === id)!;
-    expect(at("charge").y0 - at("backorder").y1 - 1).toBe(1);
+    expect(at("ship").y0 - at("retry").y1 - 1).toBe(1);
+    for (const [from, to] of [["backorder", "order"], ["order", "charge"], ["charge", "retry"]]) {
+      expect(at(to!).y0 - at(from!).y1 - 1).toBe(3);
+    }
     for (const label of ["yes", "no"]) expect(r.text).toContain(label);
     const d = await renderGlyphDiagram(deploy, { ...chat, height: 30 });
     const wrap = d.routes.find((route) => route.edge.id.includes('"build","staging"'))!;

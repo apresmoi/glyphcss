@@ -883,8 +883,8 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
             const result = attempt(candidate, width, Math.max(height, raw.height));
             if (!result.okay || dropsEdgeLabel(result, options)) return undefined;
             const path = raw.ledger.find(entry => entry.code === "layout-wrapped")!.detail!.path as string[];
-            // Reflecting a hanging band or a south-loop overhang changes its
-            // clearance obligations. Keep those established placements here.
+            // Branches and south loops need their own clearance after
+            // reflection; repair them once after fitting the original gaps.
             if (path.length !== lr.nodes.length || lr.edges.length !== path.length - 1) return { candidate, result };
             const returns = new Set(raw.edges.filter(edge => {
               const index = path.indexOf(edge.from);
@@ -934,6 +934,36 @@ async function fitOnce(graph: GlyphGraph, options: GlyphDiagramFitOptions, searc
             if (!tighter) continue;
             const [cells, bends] = routeShape(tighter.result), [beforeCells, beforeBends] = routeShape(best.result);
             if (cells <= beforeCells && bends <= beforeBends) { gaps[i] = g; best = tighter; break; }
+          }
+        }
+        // Repair a fitted band's geometry once, after spacing compaction. A
+        // reflected branch/loop has different clearance from the original;
+        // replaying it at every shrinking gap both wastes work and loses fits.
+        const path = best.candidate.raw.ledger.find(entry => entry.code === "layout-wrapped")!.detail!.path as string[];
+        if (path.length !== lr.nodes.length || lr.edges.length !== path.length - 1) {
+          const returns = new Set(best.candidate.raw.edges.filter(edge => {
+            const index = path.indexOf(edge.from);
+            if (index < 0 || path[index + 1] !== edge.to) return false;
+            const from = best.candidate.raw.nodes.find(node => node.id === edge.from)!, to = best.candidate.raw.nodes.find(node => node.id === edge.to)!;
+            return to.y0 > from.y1;
+          }).map(edge => edge.id));
+          if (glyphDiagramFakeFrames(best.result.layout, best.result.routing.routes).some(frame => frame.edgeIds.every(id => returns.has(id)))) {
+            // The old loop-sized gaps belong to the old placement. Start
+            // from turn clearance; reserve real loop room, then route again.
+            for (const pad of [...new Set([margin, 0])]) {
+              const raw = snakeLayout(lr, { width, gap: rs, margin: pad, reverseRows: true,
+                rowGap: 3, branchGap: 3 });
+              if (raw && raw.width <= width && raw.height <= best.result.height && glyphDiagramHasRoutingClearance(raw)) {
+                const candidate = { raw, adjusted: true, nodesep, ranksep: rs, margin: pad };
+                const result = attempt(candidate, width, best.result.height);
+                if (result.okay && !dropsEdgeLabel(result, options)
+                  && readability(result)[0]! <= readability(best.result)[0]!
+                  && readability(result)[1]! < readability(best.result)[1]!) {
+                  best = { candidate, result };
+                  break;
+                }
+              }
+            }
           }
         }
         if (best.candidate.raw.height <= height) return { fit: best.result, tall: tallSnakes };
