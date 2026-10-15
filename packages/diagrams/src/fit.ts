@@ -526,9 +526,10 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       return repaired.okay && !dropsEdgeLabel(repaired, options) ? repaired : result;
     }
     first = await keepCaptions(first);
-    if (options.autoDirection && graph.nodes.every(node => node.shape === "compartment")) {
-      // Compartment heights vary with members. Compare both orientations after
-      // reserving captions, so an early geometric fit cannot erase semantics.
+    if (options.autoDirection && (graph.nodes.every(node => node.shape === "compartment")
+      || (graph.groups?.length && dropsEdgeLabel(first, options)))) {
+      // Compartment heights and group frames can leave no caption corridor.
+      // Compare orientations after reservation before accepting a geometric fit.
       const alternative = await keepCaptions(await fitOnce(graph, { ...options, direction: perpendicular[first.layout.direction], autoDirection: false }, search));
       const pressure = (result: GlyphDiagramAttempt) => Math.max(result.layout.width / options.width, result.layout.height / options.height);
       if (alternative.okay && !cutsWords(alternative, options.charset) && !dropsEdgeLabel(alternative, options)

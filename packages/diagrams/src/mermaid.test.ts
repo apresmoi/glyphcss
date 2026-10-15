@@ -165,9 +165,9 @@ describe("Mermaid flowchart adapter", () => {
 
   it.each([
     "sequenceDiagram", "usecaseDiagram", "pie", "gantt",
-    "zenuml", "classDiagram-v2", "journey", "timeline", "C4", "C4Context", "C4Container",
-    "C4Component", "C4Dynamic", "C4Deployment", "requirementDiagram", "quadrantChart", "xychart-beta",
-    "block-beta", "sankey-beta", "packet-beta", "architecture-beta", "kanban", "radar-beta", "treemap-beta",
+    "zenuml", "classDiagram-v2", "journey", "timeline", "C4",
+    "quadrantChart", "xychart-beta",
+    "sankey-beta", "packet-beta", "kanban", "radar-beta", "treemap-beta",
   ])("rejects %s by its exact kind name", (kind) => {
     // Mutation: silently accept/skip an unsupported header -> this named gate fails.
     expect(() => glyphGraphFromMermaid(`${kind}\nA`)).toThrow(expect.objectContaining({ code: `GLYPH_MERMAID_UNSUPPORTED_${kind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}` }));

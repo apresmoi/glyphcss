@@ -1,6 +1,6 @@
 # @glyphcss/diagrams
 
-2D Mermaid flowcharts, class and ER diagrams, state diagrams, git histories, mindmaps and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
+2D Mermaid flowcharts, class and ER diagrams, state, block, architecture, requirement and C4 diagrams, git histories, mindmaps and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
 
 > Layout and the examples below use the installed `@dagrejs/dagre@3.1.1`. `fixtures/langgraph-export.mmd` is the real, unmodified `draw_mermaid()` export byte-for-byte (including its `&nbsp;`-padded conditional edge text); `fixtures/langgraph.mmd` is a variant that makes agent→tools solid and keeps a labelled dotted edge to `__end__`.
 
@@ -39,7 +39,7 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 - Mermaid: `flowchart`/`graph`, `[ ]`, `( )`, `{ }`, `(( ))`, `[[ ]]`, `>( ]`, `([ ])`; `-->`, `---`, `-.->`, `==>`, `-- text -->`, `-->|text|`, `-. text .->`, chained edges, `&` fan-out, and `subgraph ... end`.
 - `classDef`, `class`, `style`, `click`, `linkStyle`, and `%%` comments remain inert source directives, parsed as data and never executed. URLs/callbacks are never followed. LangGraph paragraph wrappers (`<p>…</p>`) are stripped and numeric and HTML named entities (`&#NN;`, `&#xHH;`, `&copy;`, Mermaid `#copy;`) are decoded once in labels; `&nbsp;` becomes a plain space, trimmed at label ends. A quoted label, a `|label|` edge label, and a `-. text .->` edge-text span are all protected from statement-splitting, so an entity's own `;` can't truncate a statement early.
 - A self-edge (`A --> A`) draws as a compact four-cell loop on the side no flow edge uses (right of a `TB`/`BT` node, below an `LR`/`RL` one): out of one port, around, and back into the next with an arrowhead. Its label sits one blank cell past the loop (the one label that does not touch its route) and wraps like a node label, at `loopLabelWidth` cells (default 24), which the fitter narrows before it gives up whole words. Layout reserves exactly the loop's and label's room, and a group frame encloses them, so they never touch another node, edge, label or frame. Several loops on one node stack without touching, and a left-to-right graph that wraps into rows keeps its loops.
-- Other diagram kinds reject by name, e.g. `GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM`, `GLYPH_MERMAID_UNSUPPORTED_GANTT`, and `GLYPH_MERMAID_UNSUPPORTED_C4CONTEXT`. `sequenceDiagram` has its own `./sequence` entry; `stateDiagram` is below.
+- Other diagram kinds reject by name, e.g. `GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM`, `GLYPH_MERMAID_UNSUPPORTED_GANTT`. `sequenceDiagram` has its own `./sequence` entry; `stateDiagram` is below.
 
 Additional flowchart syntax follows the [official Mermaid flowchart reference](https://mermaid.js.org/syntax/flowchart.html). Shapes reuse the approved border families; no new outlines are introduced.
 
@@ -63,6 +63,40 @@ Additional flowchart syntax follows the [official Mermaid flowchart reference](h
 | YAML frontmatter, `accTitle`, `accDescr` | Inert metadata; logged |
 
 Approximations use `mermaid-degraded` with `detail.kind`; shape notes are deduplicated by canonical shape kind (including aliases). Unknown future shapes fall back to rectangles. Malformed syntax still uses `GLYPH_MERMAID_SYNTAX`. The checked-in `fixtures/flowchart-v11.json` supplies executable examples for every shape alias and edge family.
+
+## Mermaid block, architecture, requirement and C4 diagrams
+
+These adapters use the graph pipeline and approved node outlines. The executable
+catalogue is `fixtures/mermaid-task5.json`; each example is checked at 72 columns
+for chat (`box`, 24 rows) and web (`braille`, 32 rows).
+
+| Source | Supported syntax | Cell rendering and logged approximations |
+|---|---|---|
+| `block`, `block-beta` | `columns N` / `auto`, `id:width`, `space[:width]`, named/anonymous nested `block ... end`, flowchart shapes, labelled/dotted/thick/open/bidirectional links, `<["label"]>(right/left/up/down/x/y/combined)` arrows | Equal-width columns use the widest single-column need (or a spanning block's per-column need); span N covers N columns and N−1 gaps. Each nested grid uses its own column count and row wrapping within its allocated span. Frames keep one blank row/cell between their borders and content, including nested frames. Labels wrap at whole words before overwide rows use fewer columns (`block-row-wrap`); spans clamp to that row. Nested blocks use group frames. Block arrows use the asymmetric family plus direction tags. Crowded routes/captions, overheight fixed grids, self-loops or grids above 256 columns yield to the graph fitter (`block-layout`); `overflow: "expand"` keeps the grid and grows height. |
+| `architecture`, `architecture-beta` | Groups, nested `in`, services, junctions, built-in/custom icon names, all `L/R/T/B` ports, `--` / `<--` / `-->` / `<-->`, `{group}` edges, `align row/column` | Icons become inert text tags (`database` → `[db]`); junctions use `+` points. The first source port guides overall direction; routing chooses actual ports, logged. Group edges connect the named member through its frame; alignment constraints yield to layout, logged. A junction self-loop uses a rounded box. |
+| `requirementDiagram` | All six requirement types, `id/text/risk/verifymethod`, elements with `type/docref`, all seven labelled relationships in either written direction, quoted/plain text, markdown, `direction`, classes/styles | Existing compartment rectangles keep type stereotypes and left-aligned fields. Relationships use labelled solid (`contains`) or dotted directed edges. Markdown becomes plain text; styles stay inert. |
+| `C4Context`, `C4Container`, `C4Component`, `C4Dynamic`, `C4Deployment` | Person/System/Container/Component, external/Db/Queue variants, boundaries, deployment nodes and Node aliases, Rel/BiRel, directional/backward relations, RelIndex, positional and `$named` arguments | Person → rounded plus stereotype; Db → cylinder; Queue → rectangle plus stereotype; external → text marker because approved borders are solid. Nested boundaries use groups. Labels, technology and descriptions survive; dynamic numbering follows relation order. Direction hints yield to graph layout. C4 defaults to adaptive orientation to keep group-edge captions; explicit `direction` / `autoDirection` options override it. |
+
+Styles, configuration (`UpdateLayoutConfig` included), callbacks, URLs and assets
+stay inert and are never fetched or executed. C4 source titles are inert; pass
+`title` to the renderer. Empty groups become labelled rectangles. Group-id edges
+attach to their first/last real member. Approximations appear as
+`mermaid-degraded` entries with `detail.kind`; normal fit losses retain the
+existing ledger codes. Malformed statements have named
+`GLYPH_MERMAID_{BLOCK,ARCHITECTURE,REQUIREMENT,C4}_SYNTAX` errors (shared flowchart
+shape/link errors use `GLYPH_MERMAID_SYNTAX`). CJK still folds to `?` on the shared
+canvas, with `label-folded` notes.
+
+Empty and space-only blocks (for example `block\nspace:3`) render a blank canvas
+(or only the render-option title), with a `block-empty` ledger note and no fake node.
+This exception follows the in-memory block hint; empty JSON graphs still reject
+with `empty-nodes`.
+
+Block placement and C4 adaptive orientation are internal source hints preserved
+by `glyphGraphFromMermaid` and object rendering. JSON serialization keeps graph
+semantics but omits these symbol hints, so a JSON round trip uses ordinary graph
+layout. Exact icon artwork, arrow polygons, SysML/C4 styling and force-directed
+architecture alignment are intentionally approximated, not new visual families.
 
 ## Mermaid state diagrams
 
@@ -140,7 +174,7 @@ Relationship captions never overwrite group borders, including an endpoint's own
 | `width`, `height` | Positive integer cells, per panel |
 | `detail` | `auto`, `faithful`, `balanced`, `simplified` |
 | `direction` | Optional graph direction override |
-| `autoDirection` | `false` by default; allow the perpendicular direction when fitting |
+| `autoDirection` | `false` by default (C4 source enables it); allow the perpendicular direction when fitting |
 | `overflow` | `paginate` (default) for fixed-size pages; `expand` permits a larger connected canvas |
 | `engine` | `dagre` only |
 | `nodesep`, `ranksep` | Preferred separation in integer cells ≥ 3, default 4 / 4; fitting may adjust it |

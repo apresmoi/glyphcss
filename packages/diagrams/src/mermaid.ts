@@ -8,6 +8,7 @@ import { glyphParseMermaidGit, type GlyphMermaidGitLanes } from "./mermaidGit";
 import { glyphParseMermaidMindmap } from "./mermaidMindmap";
 import { glyphParseMermaidClassEr } from "./mermaidClassEr";
 import { glyphParseMermaidState } from "./mermaidState";
+import { glyphParseMermaidStructured } from "./mermaidStructured";
 
 function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAID_SYNTAX", message); }
 
@@ -96,10 +97,10 @@ const SHAPES: readonly { open: string; close: string | readonly string[]; shape:
   { open: ">", close: "]", shape: "asymmetric" },
 ];
 
-class GlyphMermaidStatement {
+export class GlyphMermaidStatement {
   private position = 0;
   private closedWith = "";
-  constructor(private readonly source: string, private readonly note: (kind: string, message: string) => void, private readonly edgeIds: Set<string>) {}
+  constructor(private readonly source: string, private readonly note: (kind: string, message: string) => void, private readonly edgeIds: Set<string>, private readonly colonIds = true) {}
   get rest(): string { return this.source.slice(this.position).trimStart(); }
   private whitespace(): void { this.position += this.source.slice(this.position).length - this.rest.length; }
   private consume(value: string): boolean {
@@ -139,9 +140,17 @@ class GlyphMermaidStatement {
     for (const match of body.matchAll(field)) properties[match[1]!] = labelText(match[2]!);
     return properties;
   }
+  blockSpan(): number {
+    const match = /^:\s*(\d+)/.exec(this.rest);
+    if (!match) return 1;
+    this.whitespace(); this.position += match[0].length;
+    if (Number(match[1]) < 1) syntax("Block widths must be positive.");
+    return Number(match[1]);
+  }
+  skip(length: number): void { this.whitespace(); this.position += length; }
   node(): { node: GlyphGraphNode; declared: boolean; labelDeclared: boolean; properties?: Record<string, string> } {
     this.whitespace();
-    const match = /^[\p{L}\p{N}_](?:[\p{L}\p{N}_.]|:(?!:)|-(?=[\p{L}\p{N}_]))*/u.exec(this.rest);
+    const match = (this.colonIds ? /^[\p{L}\p{N}_](?:[\p{L}\p{N}_.]|:(?!:)|-(?=[\p{L}\p{N}_]))*/u : /^[\p{L}\p{N}_](?:[\p{L}\p{N}_.]|-(?=[\p{L}\p{N}_]))*/u).exec(this.rest);
     if (!match) syntax(`Expected a node id near "${this.rest}".`);
     const id = match[0];
     this.position += id.length;
@@ -246,6 +255,7 @@ export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: G
   // delimiters need not obey flowchart syntax to earn its named rejection.
   const prefix = source.replace(/^\uFEFF/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const declaredKind = /^[\w-]+/.exec(prefix)?.[0];
+  if (declaredKind && /^(?:block(?:-beta)?|architecture(?:-beta)?|requirementDiagram|C4(?:Context|Container|Component|Dynamic|Deployment))$/.test(declaredKind)) return glyphParseMermaidStructured(originalSource, declaredKind);
   if (declaredKind?.toLowerCase() === "gitgraph") return glyphParseMermaidGit(originalSource);
   if (declaredKind === "classDiagram" || declaredKind === "erDiagram") return glyphParseMermaidClassEr(originalSource, declaredKind === "erDiagram");
   if (declaredKind === "mindmap") return glyphParseMermaidMindmap(originalSource);

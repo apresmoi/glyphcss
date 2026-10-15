@@ -1,6 +1,8 @@
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker } from "./presentation";
 import { renderGlyphMermaidGit } from "./mermaidGitRender";
 import { glyphParseMermaid } from "./mermaid";
+import { glyphTryRenderMermaidBlock } from "./mermaidBlockRender";
+import { GLYPH_MERMAID_ADAPTIVE, type GlyphMermaidBlockGraph } from "./mermaidStructured";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
 import { canonicalizeGlyphGraph, glyphDiagramFoldLabel, glyphDiagramWords } from "./pipeline";
@@ -44,9 +46,12 @@ function resolvedOptions(options: GlyphDiagramRenderOptions) {
   return result;
 }
 export async function renderGlyphDiagram(input: GlyphGraph | string, options: GlyphDiagramRenderOptions = {}): Promise<GlyphDiagramResult> {
-  const opts = resolvedOptions(options);
+  let opts = resolvedOptions(options);
   const parsed = typeof input === "string" ? glyphParseMermaid(input) : { graph: glyphGraphFromJson(input), notes: [] };
   if ("lanes" in parsed && parsed.lanes) return renderGlyphMermaidGit(parsed.graph, parsed.lanes, parsed.notes, opts);
+  if ((parsed.graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_ADAPTIVE] && options.autoDirection === undefined && options.direction === undefined) opts = { ...opts, autoDirection: true };
+  const block = glyphTryRenderMermaidBlock(parsed.graph, parsed.notes, opts);
+  if (block) return block;
   const original = canonicalizeGlyphGraph(parsed.graph);
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
   let diamondMarkers = graph.nodes.filter(node => glyphDiagramHasDiamondMarker(node)).map(node => node.id);

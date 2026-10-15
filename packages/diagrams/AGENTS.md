@@ -4,13 +4,13 @@
 
 Graph → wrap → ports → layout → route → compact → paint.
 
-## Entry points
+## Entries
 
-Root: no scene/elkjs. `./sequence`, `./lanes`: separate pipelines; share `color.ts`.
+Root: no scene/elkjs. Separate sequence/lane pipelines.
 
 ## Sequence (`./sequence`)
 
-Time downward: validate → columns → rows → paint. `from`/`to`: direction; `kind`: verbatim. Mermaid order; JSON: dividers → openings → notes.
+Time downward: validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`. Mermaid order; JSON: dividers → openings → notes.
 
 ### Contracts
 
@@ -40,9 +40,16 @@ Time downward: validate → columns → rows → paint. `from`/`to`: direction; 
 
 ## Class and ER
 
-- `compartment`: rect/header/left-aligned members; alone accepts `compartments: string[][]`. Measure/fit includes members; empty sections omitted. Ports avoid rules/corners in all layouts/loops.
+- `compartment`: rect/header/left-aligned `compartments: string[][]`; no other shape accepts members. Measure/fit includes rows; omit empty sections. Ports avoid rules/corners.
 - `-` ids; spaced generics/ER backtick attributes. Literal typography; namespaces/groups, notes/rows, multiplicity/bracket captions (source first). Config/styles/URLs inert; log fallbacks. `GLYPH_MERMAID_{CLASS,ER}_SYNTAX`.
 - Heads: `relation-markers`, pending approval; ER: border + escape. Degradation keeps semantics. Auto-direction: caption-safe viewport pressure; LR room once. Captions clear frame borders. CJK: `label-folded`.
+
+## Block, architecture, requirement and C4
+
+- Structured Mermaid: tolerant; inert assets/directives; named errors (shared shapes/links: generic).
+- Block hints survive object renders, not JSON. Recursive columns/rows; span N = N columns + N−1 gaps; frames inset content by 2 cells. Wrap words → fewer columns (`block-row-wrap`) → fitter for crowding/height/>256 (`block-layout`). Empty/spaces → blank/title + `block-empty`; JSON nonempty. Arrows: asymmetric + tag.
+- Architecture: icon tags (`database` → `[db]`), junction `+`. First source side guides direction; ports/alignment/group edges approximate, logged. Self-loop → rounded.
+- Requirements: compartments/fields/seven labelled relations; plain markdown. C4: person rounded, Db cylinder, Queue rect, Ext marker; stereotypes. Boundaries: groups. Dynamic numbers: relation order. Index/style/layout/title/assets inert. Adaptive orientation preserves captions unless overridden; missing group captions try perpendicular fit.
 
 ## Colour
 
@@ -50,31 +57,27 @@ Time downward: validate → columns → rows → paint. `from`/`to`: direction; 
 
 ## Contracts
 
-- Ledger `{ code, message, detail? }`; repair hints.
+- Ledger: `{ code, message, detail? }` + hints.
 - `unroutable`: final output only; non-fitting layout: `layout-overflow`, never `routing-attempt`. Bad JSON: `GLYPH_DIAGRAM_BAD_JSON`; ELK: `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
 - Mermaid → approved families (`mermaidShapes.ts`); assets inert; log `mermaid-degraded`. Diamond markers are measured/painted, never labels/meta; source/graph share selection. Clean fits keep markers; troubled fits drop all if better (`diamond-markers-dropped`), even faithful; keep authored/state glyphs. Heads: vocabulary in `types.ts`; bidirectional one edge; invisible links layout only. Log length/direction/group/markdown/metadata fallbacks. Parse once; link ids own metadata.
-- Styles/interactions/comments inert; `class` declares classDiagram nodes. Shared measurement `fold` logs `label-folded`; blank rows place no text/ledger. Loops reserve full label rectangles, including blanks. Wrapped rows: `edge-row:` + JSON `[edgeId, rowIndex]`; distinct ids, edge colour. Compaction floor: connections, not loops.
+- Styles/interactions/comments inert; classDiagram `class` declares nodes. Shared folding logs `label-folded`; blank rows have no text/ledger. Loops reserve blank rows too. Wrapped labels: `edge-row:` + JSON `[edgeId, rowIndex]`; distinct ids, edge colour. Compaction floor: connections, not loops.
 - `stateDiagram` → graph IR (`mermaidState.ts`). One start/end `point` per scope; label glyph, informational `kind`. `<<choice>>` is a diamond.
 - Points: glyph, 2k-1 transverse cells for k ports. Equal heads may share bars/tips; mixed heads keep ports. Exit junctions on glyph row. LR snake: two-column padding. Self-edge: `point-loop`.
-- Composites: enter start/first child, exit end/last; no self-loop. Empty → state. Caption joins name/descriptions with " - ".
+- Composites: enter start/first child, exit end/last; no loop. Empty → state. Caption: name/descriptions joined by " - ".
 - States: shared ids log `state-shared`; equal groups need `parent`. Quotes open after `state`. Notes/regions/fork/join reject (`GLYPH_MERMAID_STATE_*`).
 - Self-edges: 4-cell loops on `e` (TB/BT), `s` (LR/RL). Dagre dummy after node (`labelpos: "c"`) only if needed. Labels wrap at `loopLabelWidth`, one cell past loop. Frames/snake include them.
 - Loops start authored-first. Flat LR cycles: spine/top return/feeders below targets; stack side joins by column, reserve clearance, rewrap within caps, merge bottom centres. Side joins exit laterally; margin 0 before Dagre. Validate options; other cycles use Dagre/snake.
-- Insets byte-identical except approved markers/folds/wraps. Nested padding yields to shared borders before cuts/splits. Wrap after `+/:`; hyphen splits only beyond width; letter cuts log `word-cut`.
-- Limits: 256 expansion probes/128 gutters/384 routes (`fit-search-limited`). Shared budget 2,500,000: edges cubed/layout, squared/snake; 1,000/route, one/A*/flood expansion. Reserve wraps/two gaps/one route; reuse routes, stop on failure. Exhaustion keeps fit or edge panels (`render-work-limited`); no resets/partial probes.
-- Chain snakes reflect occupied bands; align turns within clearance. Branches/loops unchanged.
-- Before cuts, keep longest uncapped tokens. Crowded sources try one-cell gaps; trade widths for tallest labels, balance short wraps. Spacing >=3. Compact post-fit; protect gaps/turns/ports/loops/frames and box/route moats.
-- Widen cuts once. Score words/crossings/frames/bends/detours/length. Replay UR/UL labels, two perpendicular wraps; first improvement. Wide LR/RL DAGs try two vertical wraps before repair; no new crossings/drops.
-- Straighten links/subtrees in free space, any direction; other shifts ≤3 cells. No added crossings/frames/drops.
-- Fold one ≥3-box TB/BT tail/suffix LR before expansion. Gaps 2 then 1; widen tall labels; reserve entries. Frames: one gap-1 probe centred in source span, only if better. No groups/loops/points.
-- LR/RL siblings keep authored order. Fans share style ports/trunks; mixed fans/returns/parallel edges/points/frame crossings keep lanes. Never join buses through one edge. Exits: junctions; fan-ins: one head. LR/RL sinks align near edges, one blank sibling row. Singleton styles share exit stubs, separate buses, no extra rows. Single-source feeders beside targets; no added crossings.
-- Fan captions follow exclusive stems/entries. Move entries for room; vertical fan-ins shift boxes ≤1 cell, centre ports. Missing captions reserve room, then two margin-0 probes.
+- Insets byte-identical except markers/folds/wraps. Shared nested borders before cuts/splits. Wrap after `+/:`; split hyphens beyond width; log `word-cut`.
+- Bounded fit: 256 expansion probes/128 gutters/384 routes; shared 2,500,000 work units, no resets/partial probes. Reserve wraps, gaps and a route; reuse routes. Exhaustion keeps fit or edge panels (`render-work-limited`).
+- Whole words before cuts; widen tall labels, balance short wraps, try gap 1 for crowded sources. Compact protects ports/routes/loops/frames/moats. Score words/crossings/frames/bends/detours/length; readability probes cannot add crossings, fake frames or dropped edges.
+- Chains snake within occupied bands. Fold one TB/BT tail/suffix LR before expansion (no groups/loops/points). Preserve authored LR/RL siblings. Fans share same-style trunks/ports; mixed/parallel/point/frame links keep lanes. Side feeders stay beside targets. Never join buses through one edge.
+- Fan captions: exclusive stems/entries; vertical fan-ins shift boxes ≤1, centre ports. Reserve missing captions, then two margin-0 probes.
 - `overflow: "paginate"` keeps exact size; `"expand"` grows (`layout-expanded`). Failed fit: decoration → duplicates → leaves → split; fitted decoration survives except optional diamond markers or `simplified`.
-- Equal-priority frame entries: nearer border first. Paint routes/junctions/fills/heads/labels. Labels clear vertical stems by one cell; else touch route or drop (loops: one cell past). Dotted straights use continuous hops.
+- Equal-priority frame entries: nearer first. Paint routes/junctions/fills/heads/labels. Labels clear vertical stems by 1; else touch route/drop (loops: 1 past). Dotted straights: continuous hops.
 
 ## Don't
 
 - Don't reuse canvases or hide unroutable edges under fills; log `unroutable`.
 - Ports follow sibling order, never lexical. No style-bus merges beyond shared exit stubs; keep loop slots.
 - Fit here; no font scaling. Deduplicate first.
-- No loop-driven node widening. Preserve `;` in quotes, edge-text spans, and after state-transition `:`.
+- No loop widening. Preserve `;` in quotes, edge-text spans, and after state-transition `:`.

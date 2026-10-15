@@ -1,9 +1,10 @@
+import { GLYPH_MERMAID_BLOCK } from "./layoutHints";
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeHead, GlyphGraphEdgeStyle, GlyphGraphNodeShape } from "./types";
 
 export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
   "unknown-node", "bad-group", "point-loop", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
-  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_CLASS_SYNTAX", "GLYPH_MERMAID_ER_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_BLOCK_SYNTAX", "GLYPH_MERMAID_ARCHITECTURE_SYNTAX", "GLYPH_MERMAID_REQUIREMENT_SYNTAX", "GLYPH_MERMAID_C4_SYNTAX", "GLYPH_MERMAID_CLASS_SYNTAX", "GLYPH_MERMAID_ER_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
   "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
@@ -88,7 +89,10 @@ export function glyphGraphIntegrityFailure(graph: GlyphGraph): GlyphGraphIntegri
 
 export function validateGlyphGraph(input: unknown): GlyphGraph {
   if (!object(input) || !keys(input, GLYPH_GRAPH_KEYS) || !Array.isArray(input.edges)) glyphDiagramError("bad-graph", "A graph requires nodes and edges arrays, and only nodes/edges/groups/direction fields.");
-  if (!Array.isArray(input.nodes) || input.nodes.length === 0) glyphDiagramError("empty-nodes", "A graph requires at least one node.");
+  // Only an authored empty block is a drawable blank canvas; empty JSON graphs still reject.
+  const emptyBlock = (input as Record<PropertyKey, unknown>)[GLYPH_MERMAID_BLOCK]
+    && input.edges.length === 0 && (input.groups === undefined || Array.isArray(input.groups) && input.groups.length === 0);
+  if (!Array.isArray(input.nodes) || input.nodes.length === 0 && !emptyBlock) glyphDiagramError("empty-nodes", "A graph requires at least one node.");
   if (!member(input.direction, GLYPH_GRAPH_DIRECTIONS)) glyphDiagramError("bad-direction", "direction must be TB, LR, BT, or RL.");
   for (const [index, node] of input.nodes.entries()) {
     if (!object(node) || !keys(node, GLYPH_GRAPH_NODE_KEYS) || !identifier(node.id) || !string(node.label)
@@ -119,6 +123,7 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
   const failure = glyphGraphIntegrityFailure(graph);
   if (failure) glyphDiagramError(failure.code, failure.message);
   return {
+    ...graph,
     nodes: graph.nodes.map((node) => ({ ...node })),
     edges: graph.edges.map((edge) => ({ ...edge })),
     ...(graph.groups === undefined ? {} : { groups: graph.groups.map((group) => ({ ...group, members: [...group.members] })) }),
@@ -144,6 +149,10 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-options": "Use the documented target, charset, color, detail, and dagre layout options.",
   "bad-color": "nodeColor/edgeColor must be a canonical lowercase #rrggbb string, or a function returning one.",
   "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph. In a stateDiagram, use the supported state statements and close every composite state.",
+  "GLYPH_MERMAID_BLOCK_SYNTAX": "Use columns, blocks, space blocks and links; close nested blocks with end.",
+  "GLYPH_MERMAID_ARCHITECTURE_SYNTAX": "Declare groups/services/junctions and connect id:L/R/T/B ports; name existing parents.",
+  "GLYPH_MERMAID_REQUIREMENT_SYNTAX": "Use requirement/element field blocks and labelled relationships; close braces and quotes.",
+  "GLYPH_MERMAID_C4_SYNTAX": "Use C4 element, boundary and relationship calls with aliases; close calls and boundaries.",
   "GLYPH_MERMAID_CLASS_SYNTAX": "Use class declarations, member blocks, namespaces and class relations; close blocks and quotes.",
   "GLYPH_MERMAID_ER_SYNTAX": "Use entity attribute blocks and cardinality relationships; close blocks and quotes.",
   "GLYPH_MERMAID_GIT_SYNTAX": "Use commit, branch, checkout/switch, merge or cherry-pick; reference existing branches/commits and immediate merge parents.",

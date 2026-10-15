@@ -1,5 +1,5 @@
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker, glyphDiagramNodeText, type GlyphDiagramPresentationOptions } from "./presentation";
-import { GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
+import { GLYPH_DIAGRAM_WORD_WIDTH, GLYPH_DIAGRAM_GROUP_BOUNDS } from "./layoutHints";
 import { GLYPH_DIAGRAM_DAGRE_ALIGN, type GlyphDiagramDagreAlignment } from "./fitAlignment";
 import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from "glyphcss";
 import type { GlyphGraph, GlyphGraphNode, GlyphGraphEdge, GlyphGraphGroup } from "./types";
@@ -49,7 +49,7 @@ export function glyphDiagramGroupDepths(parents: ReadonlyMap<string, string | un
  * frame encloses them; a frame around another group is padded beyond that
  * group's own, so nested frames never share a border column.
  */
-export function glyphDiagramGroupRects(layout: Pick<GlyphDiagramLayout, "nodes" | "groups" | "ports" | "loops" | "frameInset">, bounds: { readonly cols: number; readonly rows: number }): Map<string, GlyphDiagramRect> {
+export function glyphDiagramGroupRects(layout: Pick<GlyphDiagramLayout, "nodes" | "groups" | "ports" | "loops" | "frameInset" | typeof GLYPH_DIAGRAM_GROUP_BOUNDS>, bounds: { readonly cols: number; readonly rows: number }): Map<string, GlyphDiagramRect> {
   const loopBounds = glyphDiagramLoopGeometry(layout);
   const extent = (node: GlyphDiagramRect & { readonly id: string }): GlyphDiagramRect => {
     const own = loopBounds.filter((geometry) => geometry.loop.nodeId === node.id).map((geometry) => geometry.bounds);
@@ -59,6 +59,8 @@ export function glyphDiagramGroupRects(layout: Pick<GlyphDiagramLayout, "nodes" 
   const rects = new Map<string, GlyphDiagramRect>();
   // Innermost first, so a frame can be padded outside the frames it holds.
   for (const group of [...layout.groups].sort((a, b) => depths.get(b.id)! - depths.get(a.id)!)) {
+    const authored = layout[GLYPH_DIAGRAM_GROUP_BOUNDS]?.get(group.id);
+    if (authored) { rects.set(group.id, authored); continue; }
     let rect = glyphDiagramGroupRect(layout.nodes.filter((n) => group.members.includes(n.id)).map(extent), bounds);
     if (!rect) continue;
     if (layout.frameInset !== false) for (const [id, inner] of rects) {
@@ -86,6 +88,7 @@ export interface GlyphDiagramReservedGraph extends GlyphDiagramMeasuredGraph { r
 export interface GlyphDiagramPositionedNode extends GlyphDiagramMeasuredNode, GlyphDiagramRect {}
 export interface GlyphDiagramPositionedPort extends GlyphDiagramPort { readonly anchor: GlyphCanvasPoint; readonly escape: GlyphCanvasPoint }
 export interface GlyphDiagramLayout {
+  readonly [GLYPH_DIAGRAM_GROUP_BOUNDS]?: ReadonlyMap<string, GlyphDiagramRect>;
   readonly nodes: readonly GlyphDiagramPositionedNode[];
   readonly edges: readonly GlyphDiagramEdge[];
   readonly groups: readonly GlyphGraphGroup[];
