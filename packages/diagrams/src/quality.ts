@@ -46,13 +46,14 @@ export function computeGlyphDiagramQuality(result: GlyphDiagramResult, budget: {
     const arrowheads = new Map<string, Set<string>>();
     for (const route of page.routes) {
       renderedEdges.add(route.edge.id);
-      const to = page.layout.ports.find(port => port.edgeId === route.edge.id && port.end === "to")!;
-      if (route.edge.style !== "undirected") {
-        const key = JSON.stringify([to.nodeId, to.side]);
-        // Point fan-in paints one head after its join bar, unlike boxed nodes.
-        const point = page.layout.nodes.find((node) => node.id === to.nodeId)?.shape === "point";
+      for (const end of ["from", "to"] as const) {
+        const head = end === "from" ? route.edge.startHead ?? "none" : route.edge.endHead ?? (route.edge.style === "undirected" ? "none" : "arrow");
+        if (head !== "arrow") continue;
+        const port = page.layout.ports.find(port => port.edgeId === route.edge.id && port.end === end)!;
+        const key = JSON.stringify([port.nodeId, port.side]);
+        const point = page.layout.nodes.find((node) => node.id === port.nodeId)?.shape === "point";
         const cells = arrowheads.get(key) ?? new Set<string>();
-        cells.add(point ? "point" : `${to.anchor.x},${to.anchor.y}`);
+        cells.add(point ? "point" : `${port.anchor.x},${port.anchor.y}`);
         arrowheads.set(key, cells);
       }
     }
@@ -62,7 +63,7 @@ export function computeGlyphDiagramQuality(result: GlyphDiagramResult, budget: {
   const missingEdges = new Set(result.report.unroutable);
   // Metadata keeps original edges, including ones removed by semantic degradation.
   const original = canonicalizeGlyphGraph({ nodes: result.meta.nodes, edges: result.meta.edges, groups: result.meta.groups, direction: result.layout.direction });
-  for (const edge of original.edges) if (!renderedEdges.has(edge.id)) missingEdges.add(edge.id);
+  for (const edge of original.edges) if (!edge.invisible && !renderedEdges.has(edge.id)) missingEdges.add(edge.id);
   for (const entry of result.report.ledger) if (entry.code === "unroutable" && typeof entry.detail?.edgeId === "string") missingEdges.add(entry.detail.edgeId);
   const wordCuts = result.report.ledger.filter((entry) => entry.code === "word-cut")
     .reduce((total, entry) => total + (entry.detail?.nodes as { words: readonly string[] }[]).reduce((sum, node) => sum + node.words.length, 0), 0);

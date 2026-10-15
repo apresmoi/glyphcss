@@ -202,6 +202,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   const loopLabels = geometries.flatMap((g) => g.label ? [{ ...g.label, x0: g.label.x0 - 1, x1: g.label.x1 + 1 }] : []);
   const obstacles = [...(options.obstacles ?? []), ...loopLabels];
   for (const edge of ordered) {
+    if (edge.invisible) continue;
     // Fitting discards a canvas after its first failed edge; routing the rest
     // cannot make that gutter feasible. Final-output routing keeps every failure.
     if (options.stopOnFailure && unroutable.length) break;

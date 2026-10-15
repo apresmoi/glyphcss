@@ -1,4 +1,4 @@
-import { GLYPH_DIAGRAM_BRANCH_LABEL } from "./layoutHints";
+import { GLYPH_DIAGRAM_BRANCH_LABEL, GLYPH_DIAGRAM_ROUTE_TOUCH } from "./layoutHints";
 import { createGlyphCanvas, type GlyphCanvasTierName, type GlyphCanvasPoint } from "glyphcss";
 import type { GlyphDiagramRect } from "./pipeline";
 import { ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLabelNearForeignGroup, type GlyphDiagramLedgerEntry } from "./ledger";
@@ -21,6 +21,7 @@ export interface GlyphDiagramLabelCandidate {
   /** Edge labels stay beside their route, with one blank cell beside vertical stems. */
   readonly route?: readonly GlyphCanvasPoint[];
   readonly [GLYPH_DIAGRAM_BRANCH_LABEL]?: boolean;
+  readonly [GLYPH_DIAGRAM_ROUTE_TOUCH]?: boolean;
   /**
    * Groups this label PREFERS not to touch — a candidate cell whose own
    * text span overlaps or is orthogonally adjacent to one of these rects
@@ -111,7 +112,7 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
     // is free.
     const avoid = (label.avoid ?? []).map(({ rect, groupId }) => ({ groupId, rect: { x0: rect.x0 - 1, y0: rect.y0 - 1, x1: rect.x1 + 1, y1: rect.y1 + 1 } }));
     const touchedGroups = (rect: GlyphDiagramRect) => avoid.filter((a) => glyphDiagramRectsOverlap(a.rect, rect)).map((a) => a.groupId);
-    const positions: { x: number; y: number; distance: number; nearForeignGroup: boolean }[] = [];
+    const positions: { x: number; y: number; distance: number; nearForeignGroup: boolean; touchesRoute: boolean }[] = [];
     const cells = new Set<number>();
     const add = (x: number, y: number) => {
       if (x >= 0 && y >= 0 && y < rows && x + text.length <= cols) cells.add(y * cols + x);
@@ -143,9 +144,10 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
       const rect = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
       if (occupied.subarray(y * cols + x, y * cols + x + text.length).some(cell => cell !== 0)
         || reservations.some(owner => owner !== label && glyphDiagramRectsOverlap(owner.reserve!, rect))) continue;
-      positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y), nearForeignGroup: touchedGroups(rect).length > 0 });
+      positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y), nearForeignGroup: touchedGroups(rect).length > 0,
+        touchesRoute: label[GLYPH_DIAGRAM_ROUTE_TOUCH] && label.route?.some(p => Math.max(rect.x0 - p.x, 0, p.x - rect.x1) + Math.abs(y - p.y) === 1) || false });
     }
-    positions.sort((a, b) => (a.nearForeignGroup === b.nearForeignGroup ? 0 : a.nearForeignGroup ? 1 : -1) || a.distance - b.distance || a.y - b.y || a.x - b.x);
+    positions.sort((a, b) => (a.nearForeignGroup === b.nearForeignGroup ? 0 : a.nearForeignGroup ? 1 : -1) || Number(b.touchesRoute) - Number(a.touchesRoute) || a.distance - b.distance || a.y - b.y || a.x - b.x);
     const position = positions[0];
     if (!position) { dropped.push(label.id); ledger.push(ledgerLabelDropped({ role, text, reason: "there was no free space near its target" })); continue; }
     const { x, y } = position;

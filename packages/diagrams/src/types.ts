@@ -10,6 +10,8 @@ export interface GlyphGraphNode {
   readonly shape?: GlyphGraphNodeShape;
 }
 
+export type GlyphGraphEdgeHead = "arrow" | "circle" | "cross" | "none";
+
 export interface GlyphGraphEdge {
   readonly id?: string;
   readonly from: string;
@@ -17,6 +19,10 @@ export interface GlyphGraphEdge {
   readonly label?: string;
   readonly style?: GlyphGraphEdgeStyle;
   readonly priority?: number;
+  readonly startHead?: GlyphGraphEdgeHead;
+  readonly endHead?: GlyphGraphEdgeHead;
+  /** Participates in layout without reserving or painting a route. */
+  readonly invisible?: boolean;
 }
 
 export interface GlyphGraphGroup {

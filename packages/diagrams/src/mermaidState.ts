@@ -90,11 +90,11 @@ const endId = (scope: string) => scope ? `[*]:end:${scope}` : "[*]:end";
  *   name rather than dropped: a fork/join is a one-cell bar, and a node box
  *   is at least 3 rows tall with its border taking the arrowhead.
  */
-export function glyphGraphFromMermaidState(source: string): GlyphGraph { return parseMermaidState(source).graph; }
-/** What the source says that the graph cannot: a state id reused inside a second composite (see `ledgerStateShared`). Parses again, which is cheap. */
-export function glyphMermaidStateNotes(source: string): GlyphDiagramLedgerEntry[] { return parseMermaidState(source).notes; }
+export function glyphGraphFromMermaidState(source: string): GlyphGraph { return glyphParseMermaidState(source).graph; }
+/** What the source says that the graph cannot: a state id reused inside a second composite (see `ledgerStateShared`). The combined internal reader supplies graph and notes together. */
+export function glyphMermaidStateNotes(source: string): GlyphDiagramLedgerEntry[] { return glyphParseMermaidState(source).notes; }
 
-function parseMermaidState(source: string): { graph: GlyphGraph; notes: GlyphDiagramLedgerEntry[] } {
+export function glyphParseMermaidState(source: string): { graph: GlyphGraph; notes: GlyphDiagramLedgerEntry[] } {
   const notes: GlyphDiagramLedgerEntry[] = [];
   const parts = statements(source.replace(/^﻿/, ""));
   const header = parts.shift();

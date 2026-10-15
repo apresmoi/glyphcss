@@ -44,7 +44,7 @@ export function glyphDiagramDropDecoration(graph: GlyphGraph): GlyphGraph {
 export function glyphDiagramMergeDuplicates(graph: GlyphGraph): { graph: GlyphGraph; ledger: GlyphDiagramLedgerEntry[] } {
   const seen = new Map<string, string>(), ledger: GlyphDiagramLedgerEntry[] = [];
   const edges = canonicalizeGlyphGraph(graph).edges.filter((edge) => {
-    const key = JSON.stringify([edge.from, edge.to, edge.style === "undirected"]);
+    const key = JSON.stringify([edge.from, edge.to, edge.style === "undirected", edge.startHead, edge.endHead, edge.invisible]);
     const prior = seen.get(key);
     if (prior !== undefined) { ledger.push(ledgerDuplicateEdgeMerged({ edgeId: edge.id, into: prior })); return false; }
     seen.set(key, edge.id); return true;
@@ -58,7 +58,7 @@ export function glyphDiagramCollapseLeaves(graph: GlyphGraph): { graph: GlyphGra
     if (incoming.length !== 1 || graph.edges.some((e) => e.from === node.id)) continue;
     // Group membership is semantic; collapse only siblings from the same explicit group set.
     const groups = (graph.groups ?? []).filter((g) => g.members.includes(node.id)).map((g) => g.id).sort();
-    const key = JSON.stringify([incoming[0]!.from, groups, node.group ?? ""]);
+    const key = JSON.stringify([incoming[0]!.from, groups, node.group ?? "", incoming[0]!.startHead, incoming[0]!.endHead, incoming[0]!.invisible]);
     clusters.set(key, [...(clusters.get(key) ?? []), node.id]);
   }
   let result = graph;

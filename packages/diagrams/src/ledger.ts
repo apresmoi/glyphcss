@@ -135,6 +135,10 @@ export function ledgerBudgetStage(stage: GlyphDiagramDegradeStage): GlyphDiagram
   return entry(`budget-${stage}`, BUDGET_STAGE_MESSAGE[stage]);
 }
 
+export function ledgerDiamondMarkersDropped(nodes: readonly string[]): GlyphDiagramLedgerEntry {
+  return entry("diamond-markers-dropped", "Omitted optional diamond label markers and their padding to preserve captions and route readability.", { nodes: [...nodes] });
+}
+
 export function ledgerDetailFaithful(): GlyphDiagramLedgerEntry {
   return entry("detail-faithful", "Kept every shape, label and duplicate connection as drawn — splitting into panels was the only change allowed to fit the diagram.");
 }
@@ -171,4 +175,8 @@ export function dedupeGlyphDiagramLedger(ledger: readonly GlyphDiagramLedgerEntr
   const seen = new Map<string, GlyphDiagramLedgerEntry>();
   for (const entry of ledger) seen.set(JSON.stringify(entry), entry);
   return [...seen.values()];
+}
+
+export function ledgerMermaidDegraded(opts: { readonly kind: string; readonly message: string }): GlyphDiagramLedgerEntry {
+  return entry("mermaid-degraded", opts.message, { kind: opts.kind });
 }

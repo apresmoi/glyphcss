@@ -32,25 +32,36 @@ const encoded = await renderGlyphDiagramJson(JSON.stringify(graph), { target: "t
 ## Graph and source vocabulary
 
 - Nodes: `{ id, label, kind?, group?, shape? }`. Shapes: `rect`, `rounded`, `diamond`, `circle`, `subroutine`, `asymmetric`, `stadium`, `cylinder`; all reserve rectangular footprints, with cell-sized border distinctions. `point` is the exception: no border, just the first character of its `label` (a start or end marker; a longer label is cut and `label-abbreviated` says so, an empty one is `bad-node`). One edge entering it ends in one arrowhead against the glyph; several meet in a bar and reach the glyph through one arrowhead; several leaving it join the glyph through a bar. A point cannot hold a self edge (`point-loop`).
-- Edges: `{ id?, from, to, label?, style?, priority? }`. Styles: `solid`, `dotted`, `thick`, `undirected`. Larger priority routes first and wins an unavoidable crossing.
+- Edges: `{ id?, from, to, label?, style?, priority?, startHead?, endHead?, invisible? }`. Styles: `solid`, `dotted`, `thick`, `undirected`. Larger priority routes first and wins an unavoidable crossing. Heads are `arrow`, `circle`, `cross`, or `none`; the default is no start head and an arrow end (no end for `undirected`). `invisible: true` participates in layout and paints nothing.
 - Groups: `{ id, label?, members: string[], parent? }[]`. Nested/disjoint membership uses compound dagre layout; a group's parent is the smallest group holding all its members, unless it names `parent` (needed only when both list the same nodes). A frame is padded outside the frames it holds; a graph that only fits without that padding gets shared borders before its words are cut or it is split. Overlapping memberships use explicit member-list annotations when an enclosure would claim unrelated nodes.
 - Directions: `TB`, `LR`, `BT`, `RL`; Mermaid `TD` normalizes to `TB`.
 - Mermaid: `flowchart`/`graph`, `[ ]`, `( )`, `{ }`, `(( ))`, `[[ ]]`, `>( ]`, `([ ])`; `-->`, `---`, `-.->`, `==>`, `-- text -->`, `-->|text|`, `-. text .->`, chained edges, `&` fan-out, and `subgraph ... end`.
-- `classDef`, `class`, `style`, `click`, `linkStyle`, and `%%` comments remain inert source directives, parsed as data and never executed. URLs/callbacks are never followed. LangGraph paragraph wrappers (`<p>…</p>`) are stripped and HTML entities (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&#NN;`, `&#xHH;`, `&nbsp;`) are decoded once in labels; `&nbsp;` becomes a plain space, trimmed at label ends. A quoted label, a `|label|` edge label, and a `-. text .->` edge-text span are all protected from statement-splitting, so an entity's own `;` can't truncate a statement early.
+- `classDef`, `class`, `style`, `click`, `linkStyle`, and `%%` comments remain inert source directives, parsed as data and never executed. URLs/callbacks are never followed. LangGraph paragraph wrappers (`<p>…</p>`) are stripped and numeric and HTML named entities (`&#NN;`, `&#xHH;`, `&copy;`, Mermaid `#copy;`) are decoded once in labels; `&nbsp;` becomes a plain space, trimmed at label ends. A quoted label, a `|label|` edge label, and a `-. text .->` edge-text span are all protected from statement-splitting, so an entity's own `;` can't truncate a statement early.
 - A self-edge (`A --> A`) draws as a compact four-cell loop on the side no flow edge uses (right of a `TB`/`BT` node, below an `LR`/`RL` one): out of one port, around, and back into the next with an arrowhead. Its label sits one blank cell past the loop (the one label that does not touch its route) and wraps like a node label, at `loopLabelWidth` cells (default 24), which the fitter narrows before it gives up whole words. Layout reserves exactly the loop's and label's room, and a group frame encloses them, so they never touch another node, edge, label or frame. Several loops on one node stack without touching, and a left-to-right graph that wraps into rows keeps its loops.
 - Other diagram kinds reject by name, e.g. `GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM`, `GLYPH_MERMAID_UNSUPPORTED_CLASSDIAGRAM`, and `GLYPH_MERMAID_UNSUPPORTED_C4CONTEXT`. `sequenceDiagram` has its own `./sequence` entry; `stateDiagram` is below.
 
-Additional flowchart syntax preserves the inner label, without shape punctuation:
+Additional flowchart syntax follows the [official Mermaid flowchart reference](https://mermaid.js.org/syntax/flowchart.html). Shapes reuse the approved border families; no new outlines are introduced.
 
 | Construct | Behaviour |
 |---|---|
-| `A[(text)]` | Existing `cylinder` shape |
-| `A(((text)))` | Existing `circle` shape; no second ring |
-| `A[/text/]`, `A[\text\]`, `A[/text\]`, `A[\text/]`, `A{{text}}` | Rectangle with label `text` |
-| `A <--> B` | Two directed edges, one in each direction; a label is copied to both |
-| `A ---> B` | Same as `-->` |
-| `A o--o B`, `A x--x B` | Undirected edges; endpoint circles/crosses are omitted |
-| `A ~~~ B` | Rejects with `GLYPH_MERMAID_SYNTAX` naming the invisible link: the IR has no layout-only edge |
+| `A@{ shape: name, label: "text" }` | All documented v11 shape names and aliases map to the closest existing family; labels and later property updates are preserved |
+| `A@{ icon: "fa:user", form: "circle", label: "User" }`, `A@{ img: "url", label: "Photo", w: 60, h: 60, pos: "t", constraint: "on" }` | Label in an approved family (icon form respected); no icon lookup, image fetch, sizing or execution |
+| `A[(text)]`, `A(((text)))` | Cylinder, circle (second ring omitted) |
+| `A[/text/]`, `A[\text\]`, `A[/text\]`, `A[\text/]`, `A{{text}}` | Rectangle; clean inner label |
+| `A{text}`, `A@{shape: diam, label: "text"}` | Rounded approved diamond family with `◆ text` (`* text` in ASCII), with one blank cell inside each border; the presentation marker yields to fitting (below); graph labels stay `text` |
+| `A <--> B`, `A <-.-> B`, `A <==> B` | One solid/dotted/thick edge with a head at each border; one label |
+| `A --o B`, `A --x B`, `A o--o B`, `A x--x B` | Circle/cross border heads (`●`/`✕`; ASCII `o`/`x`) |
+| Longer solid/dotted/thick/open links, including labelled variants | Accepted with compact renderer spacing; length preference logged |
+| `A ~~~ B` | Layout-only connection; no route, label or head is painted |
+| `A e1@--> B`, `e1@{ animate: true, animation: fast, curve: basis }` | Properties attach only to ids declared on parsed links (before/after declaration); quoted label text cannot become metadata; animation logged, routes stay orthogonal |
+| `A --> B & C --> D`, `A & B --> C & D` | Chaining and Cartesian fan-in/fan-out; equally sized siblings with identical neighbours/style keep authored order when crossing-free |
+| Markdown strings (``"`**bold** and *italic*`"``) | Plain text with authored line breaks and renderer wrapping; formatting omitted |
+| `:::class`, styling, click directives, comments | Inert; Unicode ids/labels and Mermaid decimal and HTML named entities (`#35;`, `#copy;`, `&copy;`) decoded once |
+| Local `direction` in a subgraph | Inherits diagram direction; logged |
+| Edges to/from subgraph ids | Attach to first/last real member; logged; empty subgraphs become labelled rectangles |
+| YAML frontmatter, `accTitle`, `accDescr` | Inert metadata; logged |
+
+Approximations use `mermaid-degraded` with `detail.kind`; shape notes are deduplicated by canonical shape kind (including aliases). Unknown future shapes fall back to rectangles. Malformed syntax still uses `GLYPH_MERMAID_SYNTAX`. The checked-in `fixtures/flowchart-v11.json` supplies executable examples for every shape alias and edge family.
 
 ## Mermaid state diagrams
 
@@ -110,7 +121,7 @@ Target defaults match charts: chat = 72×24 box / no color; terminal = 80×24 br
 
 For resizable displays, call the same renderer with the new cell dimensions. `overflow: "expand"` allows a larger canvas when the complete graph cannot fit; its dimensions are in `result.canvas.grid` and the ledger records `layout-expanded`. A host can pan that canvas at a fixed font size. Expansion is opt-in for every target, including web. There is no font scaling or browser-specific layout path.
 
-With the default `overflow: "paginate"`, every panel keeps the exact requested dimensions. If fitting fails, the ordered ladder drops decoration, merges duplicate connections, collapses sibling leaves, then splits into edge-induced panels. Each change is reported; originals remain in `meta`, and boundary nodes repeat across panels. `faithful` preserves decoration, duplicates, and leaf identities; only geometric fitting and splitting apply. `simplified` drops decoration immediately; `auto` and `balanced` share the same behavior.
+With the default `overflow: "paginate"`, every panel keeps the exact requested dimensions. If fitting fails, the ordered ladder drops decoration, merges duplicate connections, collapses sibling leaves, then splits into edge-induced panels. Each change is reported; originals remain in `meta`, and boundary nodes repeat across panels. Diamond markers and their padding are renderer presentation: measurement reserves their cells and paint draws them; graph labels, metadata and JSON exports keep the authored text. Mermaid source and its parsed graph use the same marker selection and fallback. These markers are optional decoration in every mode, including `faithful`: clean fits retain them; troubled fits compare a marker-free candidate, removing all generated markers together only when it scores better on fit, captions, whole words, crossings, fake frames, then route bends/detours/length. One `diamond-markers-dropped` ledger note names the nodes. Shapes, authored glyphs, state-choice markers and metadata survive that step. `faithful` otherwise preserves decoration, duplicates, and leaf identities; geometric fitting and splitting apply. `simplified` drops decoration immediately; `auto` and `balanced` share the same behavior.
 
 A panel that cannot fit even its endpoint boxes stays blank, reports the affected ids, and draws no clipped node or transit. `report.unroutable` describes final output only. Failed intermediate attempts are identified separately in the ledger. Edge labels can be abbreviated or dropped when no disjoint text rectangle fits. A word broken across lines to fit is reported once as `word-cut`, naming the nodes and loops. In `ascii` any label (node, edge, loop, group or title) whose characters were folded is reported as `label-folded` with its role and owner. The snake and fit searches are bounded, so a long chain with many loops stays fast.
 
@@ -234,7 +245,7 @@ diamond.ascii:
                                        ++
                                        |
                                    /---v----\
-                                   | Ready? |
+                                   |* Ready?|
                                    \--------/
                                       | |
                                  yes  | |  no

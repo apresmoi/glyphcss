@@ -1,3 +1,4 @@
+import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramDiamondGlyph } from "./presentation";
 import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection, type GlyphCanvasTierName } from "glyphcss";
 import { glyphDiagramGraphLabels } from "./graphLabels";
 import { resolveGlyphDiagramColor, resolveGlyphDiagramColorOption } from "./color";
@@ -250,6 +251,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   const pointEntries = new Map<string, number>();
   for (const port of layout.ports) {
     const edge = layout.edges.find((e) => e.id === port.edgeId)!;
+    if (edge.invisible) continue;
     if (port.end === "to" && edge.from !== edge.to && layout.nodes.find((n) => n.id === port.nodeId)?.shape === "point") pointEntries.set(port.nodeId, (pointEntries.get(port.nodeId) ?? 0) + 1);
   }
   const POINT_FLOW = {
@@ -262,7 +264,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const flow = POINT_FLOW[layout.direction], glyph = glyphDiagramPointCell(node, layout.direction), across = layout.direction === "TB" || layout.direction === "BT";
     const crossOf = (p: { x: number; y: number }) => across ? p.x : p.y;
     const at = (cross: number, along: { x: number; y: number }) => across ? { x: cross, y: along.y } : { x: along.x, y: cross };
-    const anchors = (side: string) => layout.ports.filter((p) => p.nodeId === node.id && p.side === side && layout.edges.find((e) => e.id === p.edgeId)!.from !== layout.edges.find((e) => e.id === p.edgeId)!.to).map((p) => crossOf(p.anchor)).sort((a, b) => a - b);
+    const anchors = (side: string) => layout.ports.filter((p) => p.nodeId === node.id && p.side === side && !layout.edges.find(e => e.id === p.edgeId)!.invisible && layout.edges.find((e) => e.id === p.edgeId)!.from !== layout.edges.find((e) => e.id === p.edgeId)!.to).map((p) => crossOf(p.anchor)).sort((a, b) => a - b);
     // A bar over `cross` coordinates, each of which has a line leaving it on the `side` bit; `stem` adds a line on one more cell.
     const bar = (crosses: readonly number[], along: { x: number; y: number }, side: number, stem?: { cross: number; bit: number }) => {
       for (let c = crosses[0]!; c <= crosses[crosses.length - 1]!; c++) {
@@ -322,19 +324,22 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   }
   // Borders own the node footprint; tips replace their reserved target cell
   // after the border fill so they touch the target without entering its label.
-  for (const route of routing.routes) {
-    const port = layout.ports.find((p) => p.edgeId === route.edge.id && p.end === "to");
-    // An edge with no arrowhead still has to reach a point: its reserved cell is drawn as a straight run into the glyph.
-    if (route.edge.style === "undirected") {
-      if (port && (pointEntries.get(port.nodeId) ?? 0) === 1) {
+  for (const route of routing.routes) for (const end of ["from", "to"] as const) {
+    const head = end === "from" ? route.edge.startHead ?? "none" : route.edge.endHead ?? (route.edge.style === "undirected" ? "none" : "arrow");
+    const port = layout.ports.find((p) => p.edgeId === route.edge.id && p.end === end);
+    if (!port) continue;
+    if (head === "none") {
+      if (end === "to" && (pointEntries.get(port.nodeId) ?? 0) === 1) {
         const flow = POINT_FLOW[layout.direction];
         canvas.text(port.anchor.x, port.anchor.y, [tier.junction[flow.entry | flow.exit]!], { color: routeColors.get(route.edge.id)! });
       }
       continue;
     }
-    if (!port || (pointEntries.get(port.nodeId) ?? 0) > 1) continue;
+    if (end === "to" && (pointEntries.get(port.nodeId) ?? 0) > 1) continue;
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
-    canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color: edgeAccentColors.get(route.edge.id)! });
+    const color = edgeAccentColors.get(route.edge.id)!;
+    if (head === "arrow") canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color });
+    else canvas.text(port.anchor.x, port.anchor.y, [head === "circle" ? charset === "ascii" ? "o" : "●" : charset === "ascii" ? "x" : "✕"], { color });
   }
   const labels = options.labelLayout ?? glyphDiagramGraphLabels(layout, routing, options);
   labels.placed.forEach(label => {
@@ -351,7 +356,14 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const nodeColor = nodeColors.get(node.id)!;
     node.lines.forEach((line, i) => {
       const result = glyphDiagramLabelLayout([{ id: node.id, text: line, x: Math.floor(innerWidth / 2), y: 0 }], { charset, viewport: { cols: innerWidth, rows: 1 }, obstacles: [] });
-      for (const label of result.placed) canvas.text(node.x0 + 1 + (node.shape === "subroutine" ? 1 : 0) + label.x, top + i, [label.text], { color: nodeColor });
+      // Measurement includes the marker in its wrapped rows; its identity is presentation state, never label text.
+      const marker = node[GLYPH_DIAGRAM_DIAMOND_MARKER] && i === 0 ? glyphDiagramDiamondGlyph(charset) : "";
+      for (const label of result.placed) {
+        const x = node.x0 + 1 + (node.shape === "subroutine" ? 1 : 0) + label.x;
+        if (marker) canvas.text(x, top + i, [marker], { color: nodeColor });
+        const text = label.text.slice(marker.length);
+        if (text) canvas.text(x + marker.length, top + i, [text], { color: nodeColor });
+      }
       ledger.push(...result.ledger);
     });
   }

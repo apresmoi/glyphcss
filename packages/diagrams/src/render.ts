@@ -1,11 +1,12 @@
-import { glyphGraphFromMermaid, glyphMermaidNotes } from "./mermaid";
+import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker } from "./presentation";
+import { glyphParseMermaid } from "./mermaid";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
 import { canonicalizeGlyphGraph, glyphDiagramFoldLabel, glyphDiagramWords } from "./pipeline";
 import { paintGlyphDiagram } from "./paint";
 import { glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph } from "./degrade";
-import { fitGlyphGraph, type GlyphDiagramAttempt } from "./fit";
-import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerLabelFolded, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, ledgerWordsCut, type GlyphDiagramLedgerEntry } from "./ledger";
+import { fitGlyphGraph, glyphDiagramDecorationScore, type GlyphDiagramAttempt } from "./fit";
+import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDiamondMarkersDropped, ledgerLabelFolded, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, ledgerWordsCut, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
 import { glyphDiagramGraphLabels } from "./graphLabels";
@@ -43,18 +44,22 @@ function resolvedOptions(options: GlyphDiagramRenderOptions) {
 }
 export async function renderGlyphDiagram(input: GlyphGraph | string, options: GlyphDiagramRenderOptions = {}): Promise<GlyphDiagramResult> {
   const opts = resolvedOptions(options);
-  const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
+  const parsed = typeof input === "string" ? glyphParseMermaid(input) : { graph: glyphGraphFromJson(input), notes: [] };
+  const original = canonicalizeGlyphGraph(parsed.graph);
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
-  const ledger: GlyphDiagramLedgerEntry[] = typeof input === "string" ? glyphMermaidNotes(input) : [], unroutable = new Set<string>();
+  let diamondMarkers = graph.nodes.filter(node => glyphDiagramHasDiamondMarker(node)).map(node => node.id);
+  let drawDiamondMarkers = true;
+  const ledger: GlyphDiagramLedgerEntry[] = parsed.notes, unroutable = new Set<string>();
   const work = new GlyphDiagramWork(original, opts.width, opts.height);
-  const attempt = async (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => {
+  const attempt = async (candidate: GlyphGraph, markers = drawDiamondMarkers): Promise<GlyphDiagramAttempt> => {
+    const presentation = { ...opts, [GLYPH_DIAGRAM_DIAMOND_MARKER]: markers, [GLYPH_DIAGRAM_WORK]: work };
     if (!work.terminal && !work.canLayout(candidate)) {
       work.limited = true; work.terminal = true;
       // An unfunded first layout has no geometry to retain. A boundary panel
       // supplies the normal attempt shape; only the complete split is painted.
-      return { ...await fitGlyphGraph(splitGlyphGraph(candidate)[0]!, { ...opts, [GLYPH_DIAGRAM_WORK]: work }), okay: false };
+      return { ...await fitGlyphGraph(splitGlyphGraph(candidate)[0]!, presentation), okay: false };
     }
-    const result = await fitGlyphGraph(candidate, { ...opts, [GLYPH_DIAGRAM_WORK]: work });
+    const result = await fitGlyphGraph(candidate, presentation);
     // A budget exhausted before splitting is still part of the render's work.
     ledger.push(...result.layout.ledger.filter(entry => entry.code === "fit-search-limited"));
     return result;
@@ -67,6 +72,21 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   // The title is folded where it is painted; the fold is reported here, with every other label's.
   if (options.title && glyphDiagramFoldLabel(options.title, opts.charset) !== options.title.split(/\r?\n/).map((line) => line.trimEnd()).join("\n")) ledger.push(ledgerLabelFolded({ role: "title", owner: "diagram", before: options.title, after: glyphDiagramFoldLabel(options.title, opts.charset) }));
   let current = await attempt(graph);
+  if (diamondMarkers.length && !work.limited) {
+    const score = glyphDiagramDecorationScore(current, opts);
+    // Clean fits retain their approved look. A troubled fit tries the smallest
+    // decoration loss before removing shapes or semantic captions, even in faithful mode.
+    if (score.slice(0, 5).some(value => value > 0)) {
+      const candidate = await attempt(graph, false);
+      const plainScore = glyphDiagramDecorationScore(candidate, opts);
+      const difference = plainScore.findIndex((value, i) => value !== score[i]);
+      if (difference >= 0 && plainScore[difference]! < score[difference]!) {
+        drawDiamondMarkers = false; current = candidate;
+        ledger.push(ledgerDiamondMarkersDropped(diamondMarkers));
+        diamondMarkers = [];
+      }
+    }
+  }
   if (current.adjusted) ledger.push(ledgerBudgetStage("compaction"));
   if (opts.detail === "simplified" || !current.okay) {
     ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
@@ -75,6 +95,11 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
       // away labels and shapes on diagrams compaction had already rescued.
       if (opts.detail === "simplified" || !current.okay) {
         ledger.push(ledgerBudgetStage("decoration"));
+        if (diamondMarkers.length) {
+          drawDiamondMarkers = false;
+          ledger.push(ledgerDiamondMarkersDropped(diamondMarkers));
+          diamondMarkers = [];
+        }
         graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
         if (!current.okay && !work.limited) {
           const merged = glyphDiagramMergeDuplicates(graph); graph = merged.graph;

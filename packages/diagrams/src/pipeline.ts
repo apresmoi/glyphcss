@@ -1,3 +1,4 @@
+import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker, glyphDiagramNodeText, type GlyphDiagramPresentationOptions } from "./presentation";
 import { GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
 import { GLYPH_DIAGRAM_DAGRE_ALIGN, type GlyphDiagramDagreAlignment } from "./fitAlignment";
 import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from "glyphcss";
@@ -69,7 +70,7 @@ export function glyphDiagramGroupRects(layout: Pick<GlyphDiagramLayout, "nodes" 
   }
   return rects;
 }
-export interface GlyphDiagramMeasuredNode extends GlyphGraphNode { readonly width: number; readonly height: number; readonly lines: readonly string[] }
+export interface GlyphDiagramMeasuredNode extends GlyphGraphNode, GlyphDiagramPresentationOptions { readonly width: number; readonly height: number; readonly lines: readonly string[] }
 export interface GlyphDiagramEdge extends GlyphGraphEdge { readonly id: string }
 export interface GlyphDiagramMeasuredGraph {
   readonly nodes: readonly GlyphDiagramMeasuredNode[];
@@ -96,7 +97,7 @@ export interface GlyphDiagramLayout {
   readonly width: number; readonly height: number;
   readonly ledger: readonly GlyphDiagramLedgerEntry[];
 }
-export interface GlyphDiagramLayoutOptions {
+export interface GlyphDiagramLayoutOptions extends GlyphDiagramPresentationOptions {
   readonly engine?: "dagre" | "elk"; readonly direction?: GlyphGraph["direction"];
   readonly nodesep?: number; readonly ranksep?: number;
   readonly charset?: GlyphCanvasTierName; readonly labelWidth?: number;
@@ -121,12 +122,14 @@ export function glyphDiagramWords(text: string, width = 0): string[] {
 
 /** Stable synthetic ids preserve duplicate edges without depending on input order. */
 export function canonicalizeGlyphGraph(graph: GlyphGraph): Omit<GlyphGraph, "edges"> & { edges: GlyphDiagramEdge[] } {
-  const sorted = [...graph.edges].sort((a, b) => compare(a.id ?? "", b.id ?? "") || compare(JSON.stringify([a.from, a.to, a.label ?? "", a.style ?? "solid", a.priority ?? 0]), JSON.stringify([b.from, b.to, b.label ?? "", b.style ?? "solid", b.priority ?? 0])));
+  const signature = (edge: GlyphGraphEdge) => JSON.stringify([edge.from, edge.to, edge.label ?? "", edge.style ?? "solid", edge.priority ?? 0,
+    ...(edge.startHead !== undefined || edge.endHead !== undefined || edge.invisible !== undefined ? [edge.startHead, edge.endHead, edge.invisible] : [])]);
+  const sorted = [...graph.edges].sort((a, b) => compare(a.id ?? "", b.id ?? "") || compare(signature(a), signature(b)));
   const ids = new Set(sorted.flatMap((e) => e.id === undefined ? [] : [e.id]));
   const counts = new Map<string, number>();
   const edges = sorted.map((e) => {
     if (e.id !== undefined) return { ...e, id: e.id };
-    const base = `edge:${JSON.stringify([e.from, e.to, e.label ?? "", e.style ?? "solid", e.priority ?? 0])}`;
+    const base = `edge:${signature(e)}`;
     let n = counts.get(base) ?? 0;
     while (ids.has(`${base}:${n}`)) n++;
     const id = `${base}:${n}`; counts.set(base, n + 1); ids.add(id);
@@ -172,7 +175,9 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
   for (const edge of canonical.edges) if (edge.label && edge.from !== edge.to) fold(edge.label, "edge label", `${edge.from} to ${edge.to}`);
   for (const group of canonical.groups ?? []) if (group.label) fold(group.label, "group label", group.id);
   const nodes = canonical.nodes.map((node) => {
-    const folded = fold(node.label, "node label", node.id);
+    fold(node.label, "node label", node.id);
+    const marker = glyphDiagramHasDiamondMarker(node, options);
+    const folded = glyphDiagramNodeText(node, options);
     const nodeLimit = options[GLYPH_DIAGRAM_WORD_WIDTH] ? Math.max(limit, ...glyphDiagramWords(folded, Infinity).map(word => word.length)) : limit;
     const lines = glyphDiagramWrap(folded, nodeLimit);
     const extra = node.shape === "subroutine" ? 2 : 0;
@@ -183,7 +188,7 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
       if (Array.from(folded.trim()).length > 1) ledger.push(ledgerLabelAbbreviated({ role: "node label", before: folded.trim(), after: glyph }));
       return { ...node, lines: [glyph], width: 1, height: 1 };
     }
-    return { ...node, lines, width: Math.max(5, ...lines.map((l) => l.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.x + extra)), height: lines.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.y };
+    return { ...node, [GLYPH_DIAGRAM_DIAMOND_MARKER]: marker, lines, width: Math.max(5, ...lines.map((l) => l.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.x + extra)), height: lines.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.y };
   });
   // A loop's label wraps like a node's, so the fitter can trade its width for the room it takes.
   const loops = canonical.edges.filter((edge) => edge.from === edge.to).map((edge) => {
@@ -224,7 +229,7 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
         const mixedFan = connection.end === "from"
           ? flow.some(branch => branch.from === node.id && flow.some(other => other.to === branch.to && other.from !== node.id))
           : flow.some(branch => branch.to === node.id && flow.some(other => other.from === branch.from && other.to !== node.id));
-        const key = pointIds.has(edge.from) || pointIds.has(edge.to) || back.has(edge.id) || parallel || crossesFrame || mixedFan ? edge.id : JSON.stringify([node.id, side, connection.end, edge.style ?? "solid"]);
+        const key = pointIds.has(edge.from) || pointIds.has(edge.to) || back.has(edge.id) || parallel || crossesFrame || mixedFan || edge.startHead || edge.endHead || edge.invisible ? edge.id : JSON.stringify([node.id, side, connection.end, edge.style ?? "solid"]);
         slots.set(key, [...(slots.get(key) ?? []), connection]);
       }
       return [...slots.entries()];
@@ -407,6 +412,19 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
             first: Math.min(...targets.map(target => target.order!)), last: Math.max(...targets.map(target => target.order!)) }];
         });
         const constraints: { left: string; right: string }[] = [];
+        // Interchangeable siblings have the same neighbours, so their authored
+        // order is a tie-break rather than a competing topology constraint.
+        const siblings = new Map<string, string[]>();
+        for (const node of reserved.nodes) {
+          const incoming = reserved.edges.filter(edge => edge.to === node.id).map(edge => edge.from).sort(compare);
+          if (across || incoming.length !== 1) continue;
+          const outgoing = reserved.edges.filter(edge => edge.from === node.id).map(edge => edge.to).sort(compare);
+          const key = JSON.stringify([ordered.node(node.id).rank, node.width, node.height, node.shape, incoming, outgoing,
+            reserved.edges.filter(edge => edge.from === node.id || edge.to === node.id).map(edge => edge.style)]);
+          const family = siblings.get(key) ?? [];
+          family.push(node.id); siblings.set(key, family);
+        }
+        for (const family of siblings.values()) family.slice(1).forEach((right, i) => constraints.push({ left: family[i]!, right }));
         for (const rank of new Set(spans.map(span => span.rank))) {
           const row = spans.filter(span => span.rank === rank);
           if (row.some(span => span.targetRank !== row[0]!.targetRank)) continue;

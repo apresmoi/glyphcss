@@ -24,7 +24,7 @@ export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", 
 export const GLYPH_GRAPH_EDGE_STYLES: readonly GlyphGraphEdgeStyle[] = ["solid", "dotted", "thick", "undirected"];
 export const GLYPH_GRAPH_KEYS = ["nodes", "edges", "groups", "direction"];
 export const GLYPH_GRAPH_NODE_KEYS = ["id", "label", "kind", "group", "shape"];
-export const GLYPH_GRAPH_EDGE_KEYS = ["id", "from", "to", "label", "style", "priority"];
+export const GLYPH_GRAPH_EDGE_KEYS = ["id", "from", "to", "label", "style", "priority", "startHead", "endHead", "invisible"];
 export const GLYPH_GRAPH_GROUP_KEYS = ["id", "label", "members", "parent"];
 
 function object(value: unknown): value is Record<string, unknown> {
@@ -99,6 +99,9 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
   for (const [index, edge] of input.edges.entries()) {
     if (!object(edge) || !keys(edge, GLYPH_GRAPH_EDGE_KEYS) || !identifier(edge.from) || !identifier(edge.to)
       || !optional(edge, "id", identifier) || !optional(edge, "label", string) || !optional(edge, "style", (value) => member(value, GLYPH_GRAPH_EDGE_STYLES))
+      || !optional(edge, "startHead", (value) => member(value, ["arrow", "circle", "cross", "none"]))
+      || !optional(edge, "endHead", (value) => member(value, ["arrow", "circle", "cross", "none"]))
+      || !optional(edge, "invisible", (value) => typeof value === "boolean")
       || !optional(edge, "priority", (value) => typeof value === "number" && Number.isFinite(value))) {
       glyphDiagramError("bad-edge", `edge[${index}] requires from/to ids, a supported style, and finite priority.`);
     }

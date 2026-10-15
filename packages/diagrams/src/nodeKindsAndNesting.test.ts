@@ -100,14 +100,18 @@ describe("nested state diagrams", () => {
   });
 });
 
-describe("markers are labels written by the adapter, never substituted by kind", () => {
+describe("state glyphs are authored labels; shape decoration never substitutes by kind", () => {
   it("keeps every authored label whatever its kind and shape", async () => {
     // Mutation: swap a node's label for a marker glyph by its kind -> "Keep this text" becomes "◆".
     for (const [kind, shape] of [["state-choice", "diamond"], ["state-start", "point"], ["state-end", "point"], ["state-start", "diamond"]] as const) {
       const label = shape === "point" ? "K" : "Keep this text";
       const r = await renderGlyphDiagram({ direction: "TB", nodes: [{ id: "A", label, shape, kind }], edges: [] }, { target: "chat" });
       expect(r.text).toContain(label);
-      expect(r.text).not.toMatch(/[●◉◆]/);
+      expect(r.meta.nodes[0]!.label).toBe(label);
+      expect(r.layout.nodes[0]!.label).toBe(label);
+      expect(r.text).not.toMatch(/[●◉]/);
+      if (shape === "diamond") expect(r.text).toContain(`◆ ${label}`);
+      else expect(r.text).not.toContain("◆");
     }
   });
 

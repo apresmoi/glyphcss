@@ -1,4 +1,5 @@
-import { backEdgeIds, glyphDiagramFoldLabel, glyphDiagramWrap, GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramPositionedPort } from "./pipeline";
+import { glyphDiagramNodeText } from "./presentation";
+import { backEdgeIds, glyphDiagramWrap, GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramPositionedPort } from "./pipeline";
 import type { GlyphCanvasDirection, GlyphCanvasTierName } from "glyphcss";
 
 interface GlyphDiagramCyclePaths {
@@ -83,7 +84,7 @@ export function glyphDiagramCycleLayout(measured: GlyphDiagramMeasuredGraph, opt
   if (Math.max(rowWidth, bandWidth) > options.width) return undefined;
   for (const id of corridors) {
     const node = byId.get(id)!, width = widths[columns.get(id)!]!;
-    const lines = glyphDiagramWrap(glyphDiagramFoldLabel(node.label, options.charset), Math.min(width - 4 - (node.shape === "subroutine" ? 2 : 0), options.labelWidth ?? Infinity));
+    const lines = glyphDiagramWrap(glyphDiagramNodeText(node, options), Math.min(width - 4 - (node.shape === "subroutine" ? 2 : 0), options.labelWidth ?? Infinity));
     byId.set(id, { ...node, lines, width, height: node.height + lines.length - node.lines.length });
   }
   const rowHeight = Math.max(...spine.map(id => byId.get(id)!.height));
@@ -158,7 +159,7 @@ export function glyphDiagramCycleLayout(measured: GlyphDiagramMeasuredGraph, opt
       : { x: side === "e" ? node.x1 : node.x0, y: node.y0 + offset };
     const delta = GLYPH_DIAGRAM_DIRECTIONS[side];
     ports.push({ edgeId: edge.id, nodeId: node.id, end, side, offset, anchor, escape: { x: anchor.x + delta.x, y: anchor.y + delta.y },
-      ...(!back.has(edge.id) && family.length > 1 ? { trunk: JSON.stringify([node.id, side, end, edge.style ?? "solid"]) } : {}) });
+      ...(!back.has(edge.id) && !edge.startHead && !edge.endHead && !edge.invisible && family.length > 1 ? { trunk: JSON.stringify([node.id, side, end, edge.style ?? "solid"]) } : {}) });
   }
   return { ...measured, nodes, ports, width: Math.max(rowWidth, bandWidth), height: Math.max(...nodes.map(node => node.y1)) + 4 + margin };
 }

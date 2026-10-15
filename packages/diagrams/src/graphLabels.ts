@@ -1,4 +1,5 @@
-import { GLYPH_DIAGRAM_BRANCH_LABEL } from "./layoutHints";
+import { GLYPH_DIAGRAM_DIAMOND_MARKER } from "./presentation";
+import { GLYPH_DIAGRAM_BRANCH_LABEL, GLYPH_DIAGRAM_ROUTE_TOUCH } from "./layoutHints";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
 import { glyphDiagramGroupRects, type GlyphDiagramLayout } from "./pipeline";
 import { glyphDiagramLoopGeometry } from "./loop";
@@ -50,7 +51,9 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
         && (route.edge.label.length > layout.nodes.find(node => node.id === route.edge.to)!.width - 4 || /\s/.test(route.edge.label));
       const entry = layout.ports.find(port => port.edgeId === route.edge.id && port.end === "to")!;
       candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: fan ? entry.anchor.x : mid.x, y: mid.y,
-        route: branch, [GLYPH_DIAGRAM_BRANCH_LABEL]: fan, maxWidth: options.width, priority: route.edge.priority, avoid });
+        route: branch, [GLYPH_DIAGRAM_BRANCH_LABEL]: fan,
+        [GLYPH_DIAGRAM_ROUTE_TOUCH]: layout.nodes.some(node => node.id === route.edge.from && node[GLYPH_DIAGRAM_DIAMOND_MARKER])
+          && layout.ports.some(port => port.edgeId === route.edge.id && port.end === "from" && port.trunk), maxWidth: options.width, priority: route.edge.priority, avoid });
     }
   }
   if (options.title) candidates.push({ id: "title", text: options.title, x: Math.floor(options.width / 2), y: 0, priority: Infinity });

@@ -67,12 +67,12 @@ describe("one deterministic render-wide work budget", () => {
   });
 
   it.each([
-    [72, 24, "paginate", "a3e41473b333783898b18272c7d0550760f4724411ac6b42feefed5de2b165af"],
-    [143, 57, "expand", "4bb9c280088c9b1e00bec5c5a9a97acfde1ad3432e54d6cdc798477458ab285c"],
-    [80, 43, "expand", "05167ad3a6472da1336dfe0df75b764ff341b6f5b5a571be7641b5ca6e3a7ee7"],
-    [48, 42, "expand", "aaefb1395d7fc30c6b791c9506f0895a5da675456c877a8cd84cdad7ddce516d"],
-    [38, 10, "expand", "f802736ad13af06fc7d44eead0e961d9ac3c7762dc9061a83c648fd78cb706ac"],
-    [13, 7, "expand", "fb3436013eba783161c696ae24ba14b2ffab360cfbbf2630521a9ef89212da2c"],
+    [72, 24, "paginate", "f3032b4c6f951b27e9842b5bd087b05aef43389c3cbcae82d7c6a5d4d41e95de"],
+    [143, 57, "expand", "de783948b53706d3581b5b2eca538ef5e82e5caf46a56f5a47511a8995393844"],
+    [80, 43, "expand", "60eb573d308f51c0f2ee1afd512f57eade3d616c60df06687518729d048be6ab"],
+    [48, 42, "expand", "edaca79ba2defb390bb8ddf0502fd4f26fd6d6eca5b1127157ca816f14f98346"],
+    [38, 10, "expand", "af8d301a8b60b50fe217487ad9317d001bec18780f186e3fad8ec59119561ba3"],
+    [13, 7, "expand", "f6f0c11743486b84edf4a5b100172aa68c0bc5836739c8458b3ed3731413989c"],
   ] as const)("keeps RAG complete without exhaustion at %s × %s (%s)", async (width, height, overflow, hash) => {
     control.layoutLimit = 1_000; control.routeLimit = 1_000; control.snakeLimit = 10_000;
     const source = readFileSync(resolve(__dirname, "../fixtures/rag-pipeline.mmd"), "utf8");

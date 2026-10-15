@@ -58,7 +58,7 @@ export function glyphDiagramJsonSchema(): GlyphDiagramJsonSchema {
         type: "array",
         items: {
           type: "object", required: ["from", "to"], additionalProperties: false,
-          properties: { id: ID_SCHEMA, from: ID_SCHEMA, to: ID_SCHEMA, label: { type: "string" }, style: { enum: GLYPH_GRAPH_EDGE_STYLES }, priority: { type: "number" } },
+          properties: { id: ID_SCHEMA, from: ID_SCHEMA, to: ID_SCHEMA, label: { type: "string" }, style: { enum: GLYPH_GRAPH_EDGE_STYLES }, priority: { type: "number" }, startHead: { enum: ["arrow", "circle", "cross", "none"] }, endHead: { enum: ["arrow", "circle", "cross", "none"] }, invisible: { type: "boolean" } },
         },
       },
       groups: {

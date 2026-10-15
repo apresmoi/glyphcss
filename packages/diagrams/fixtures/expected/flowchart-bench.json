@@ -1,0 +1,324 @@
+[
+  {
+    "file": "telescope-explore-decision.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "7a43f37398ec4d647dbc59f4ec99ca8d2d23a701fc7c8172434af56b0292e604"
+  },
+  {
+    "file": "telescope-query-outcomes-detailed.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "e88a7b5966fbe39e3e1ff5336ad620f1d43d16a269aec25376438af6d8b19cbf"
+  },
+  {
+    "file": "telescope-command-chain.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "e21c8cfd039620621bd93aab78590591b594f55cd3e59e31c5275bef2064f756"
+  },
+  {
+    "file": "telescope-explore-edge-labels.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "57bda204c42b741c1cbd4773b391aca51461f9d623b7ce8172d0d144a1355a51"
+  },
+  {
+    "file": "telescope-query-outcomes.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "44dbfdfb8ffba50fefb0e16d40a8340d9bff3bc01e5ff2563bb558c746a8efde"
+  },
+  {
+    "file": "telescope-explore-node-labels.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "80b7e2092200be57265ace5ffbd445dc189a1b48615088b0362a6667d7be81ef"
+  },
+  {
+    "file": "telescope-export-destinations.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "bddad746510ae967912017e58e8a55527ecc653175c9e972049eeb3db6b609b7"
+  },
+  {
+    "file": "telescope-checkout-edge-label.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "41ef90ecde7b3e929c40cf50ac0f5a517c08433cbf96a4926203c6d884761186"
+  },
+  {
+    "file": "telescope-package-workspace-edge.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "78db7904c42dedd5390df37d98cd786e6fc1f5b5676262f717dc9cbc522cc77d"
+  },
+  {
+    "file": "telescope-checkout.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "e9d99900c9bbc4d1f05319816598a14e8df05cf5229432c2b065b4e139635704"
+  },
+  {
+    "file": "telescope-package-workspace-node.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "1d35e95ca49f3b527b415937e5d585d67885ebd74148deff5af33e449250db84"
+  },
+  {
+    "file": "telescope-install-to-html.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "88a7c76538e7013c5e20429051c0b967b0cc30bd74f5edf4addb9c46e7f148ae"
+  },
+  {
+    "file": "galaxy-fit-loop-detailed.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "d520bd1af7aafa0566167bf9ab93004e5f5ecc4eed1a03ba92053e17b57e5176"
+  },
+  {
+    "file": "galaxy-fit-loop-vertical.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "f5e6669fb7f6d78fcea653c270dc055e158330adfc223a142a8ad6d8aafde60a"
+  },
+  {
+    "file": "galaxy-fit-without-return.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "6153a82ff074b6e0bf965829d7cd5ba08ec955890d67aaccd9e12e000fc38fdb"
+  },
+  {
+    "file": "galaxy-sources-to-model.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "3ccf47da9fbd6853cb486aa74a4b32927c31df4a91ca1b7b72b50c0b17564235"
+  },
+  {
+    "file": "galaxy-anchors-detailed.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "f87f25325ed4e892a8e0b307c41f65a0abd7add10ace7a4357a21a231b3f27a5"
+  },
+  {
+    "file": "galaxy-anchors.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "99a29f7cb469973aa8a47edbff6159a89b47a9ae36b526de7a5a542231c9fed7"
+  },
+  {
+    "file": "galaxy-build-detailed.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "a5ab487c4f177a38a6e515640b4e84b93bb5d4c7a20e844c28bb29a0bb8a2ef8"
+  },
+  {
+    "file": "galaxy-build-compact.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "242b88c0a039ded3b8ef857d66a012b3d9a6989980f0a2a361b0de3ce6d268a4"
+  },
+  {
+    "file": "galaxy-score-loop.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "c9afe2c5c48344ee7ada9d304e8df2d006664f698dad5a3a8a2a7bb38536c01d"
+  },
+  {
+    "file": "galaxy-five-step-loop.mmd",
+    "options": {
+      "width": 72,
+      "height": 24,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "cced4b94775d076518bbfa9626a2c455e25edb8bcadd48b5d0644f59ce20c677"
+  },
+  {
+    "file": "galaxy-sources-h60.mmd",
+    "options": {
+      "width": 72,
+      "height": 60,
+      "target": "chat",
+      "charset": "box",
+      "color": "none",
+      "autoDirection": true,
+      "detail": "faithful",
+      "overflow": "expand"
+    },
+    "sha256": "9f3191526867c362e5e0cf5c966936de62c97fa6fe334c65924ee6009fa8aa08"
+  }
+]
