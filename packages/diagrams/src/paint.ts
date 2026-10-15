@@ -114,6 +114,8 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   // resolve them against; scope stays exactly the two options this form
   // documents.
   const ledger: GlyphDiagramLedgerEntry[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
+  // User-approved relation ends: UML △ ◆ ◇ and ER ┼┼ ┼○ ┼> ○> (feet point at
+  // the border). Changing a glyph here is a visual-language change.
   const paintMarker = (head: GlyphGraphEdgeHead, at: { x: number; y: number }, side: GlyphCanvasDirection, color: string | null) => {
     const ascii = charset === "ascii";
     const glyph = head === "circle" ? ascii ? "o" : "●" : head === "cross" ? ascii ? "x" : "✕"
