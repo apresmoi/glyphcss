@@ -1,7 +1,5 @@
 # @glyphcss/charts — agent guide
 
-`AGENTS.md` is canonical; `README.md` documents APIs; comments hold rationale.
-
 ## What it is
 
 A Plot-style chart spec on the cell canvas (ascii/box/blocks/braille). Root has no camera, mesh, depth test, `compileScene` or rasterizer.
@@ -25,24 +23,24 @@ A Plot-style chart spec on the cell canvas (ascii/box/blocks/braille). Root has 
 - Sankey/funnel/treemap are non-cartesian: no x/y scales or transforms (`bad-options`).
 - A `cell`-only chart on two band scales is a heatmap: flush bands tiled by integer partition, `2k`×`k` cells, and the canvas shrinks to the grid (`heatmap.ts`). An unsigned heatmap's ramp has no blank level and a range key; a signed one keeps blank for exactly zero.
 - 3D: the axis-triad origin is the fixed data-min corner; axis lines are real mesh geometry (a fine sub-cell line), never stamped glyphs; `p.texture` uses the namespaced object sampler key; the static exit must round-trip `resolved.camera`.
-- Mermaid readers reuse native marks; configuration/directives stay inert. Errors: `GLYPH_MERMAID_SYNTAX` / `GLYPH_MERMAID_NOT_CHART_TYPE`; merge source ledger into both reports. Strip comments/directives before label protection, respecting quoted CSV/free titles; preserve treemap indentation. XY numeric series each span their range; implicit x starts at 1. Horizontal XY swaps bars/lines; quadrant endpoint labels replace 0/1 ticks. Reuse `resolveSankeyRows`; cycles become flow lists and CSV quoting survives.
+- Journey: compact task rows reuse horizontal bars on 0–5 with score/actors beside each bar. Left section headers, one blank between sections, none between tasks. Wrap words; long actors go under bars. Log omissions and face/timeline fallback. Auto-height fits rows. Never make actors/sections category bands.
+- Mermaid: native marks, inert configuration/directives. Require full per-type directives; preserve name prefixes. Journey `#` comments precede label protection; empty scores become 0 with the logged clamp. Errors: `GLYPH_MERMAID_SYNTAX` / `GLYPH_MERMAID_NOT_CHART_TYPE`; merge source ledger into both reports. Strip trailing comments before directive recognition, preserving quoted `%%`. Strip comments/directives before label protection; respect CSV/free titles and treemap indentation. XY series span their range; implicit x starts at 1. Horizontal XY swaps bars/lines; quadrant endpoint labels replace 0/1 ticks. Reuse `resolveSankeyRows`; cycles become flow lists and CSV quoting survives.
 - Bars default vertical byte-identically. `orientation: "horizontal"` reads value x/category y; `channels.x0` supplies an interval start, otherwise x includes zero. Horizontal bars share integer row geometry with labels: label on first bar, contiguous series, one scaled blank row between groups when room; no transforms. A sub-cell interval becomes a dot with `bar-interval-collapsed`. Preserve Date rule channels for Gantt markers.
-- Gantt: calendar durations/exclusions, latest `after`/earliest `until`, forward refs, rowless `vert`, section rows and status text. Log milestone dots, approximate ticks, unshaded exclusions and inert today/layout settings. No clock: partial dates anchor to 1970; missing starts to epoch, with notes.
+- Gantt: calendar durations/exclusions, latest `after`/earliest `until`, forward refs, rowless `vert`, section/status rows. Log milestone dots, approximate ticks, unshaded exclusions and inert today/layout settings. No clock: partial dates anchor to 1970; missing starts to epoch, logged.
 - Radar: ids/labels, positional/keyed curves, min/max, grids/ticks/legend. Box/ascii use grouped horizontal bars; braille/blocks use lettered vertices and omit interior tick values. Log these fallbacks, missing/clamped values and straight unfilled curves. Treemap: unique acyclic ids, finite nonnegative leaves, branch sums, aspect-aware squarify; invalid hierarchies use `treemap-hierarchy`. Siblings share borders/junctions; children share parent sides/bottom. Labels reserve a scaled blank cell inside each side border. Omit tiny tiles/unfittable whole labels (`treemap-omitted`); value configuration stays inert, logged.
-- Line legends reserve three swatch cells plus a blank, including subcell/corners. Tests/examples: `mermaidTask7.test.ts`; baseline exceptions: `reviewFixtures.ts`.
+- Line legends reserve three swatch cells plus a blank, including subcell/corners.
 
 ## Don't
 
 - Don't default `chat` to braille, or show it colour: chat fonts carry 0/256 braille glyphs and a paste drops ANSI. `TargetPreview` enforces both itself, whatever the caller passes.
-- Don't gate the page's `isHtml` on target; the library emits `html` on every target and `TargetPreview` decides what each frame may show.
-- Don't paint a glyph `<pre>` with `font-family: inherit` or `line-height` above 1 (main, terminal, chat fence, tray tile): the workbench shell's stack has no Glyph Mono, and `█` must overlap rows to read solid.
+- Don't gate `isHtml` on target; `TargetPreview` decides what each frame shows.
+- Don't paint glyph `<pre>` with `font-family: inherit` or `line-height` above 1: the shell lacks Glyph Mono, and `█` must overlap rows to read solid.
 - Don't swap region glyphs after painting for solid fills; repaint with `regionFill: "solid"` into a second canvas that only colour-carrying exits read.
 - Don't use `grid.char !== " "` as coverage; `canvas.ink` is coverage (a painted blank counts).
 - Don't pass fractional `textScale`; round density, font size and width together.
 - Don't copy the dense grid; Copy ASCII/ANSI read a density-1 render at the same measured viewport.
-- Don't restate mark-fit rules; paint-probe through `chartsBuildBoundMark`.
-- Don't clean mark rows at render time: `?c=` omission byte-matches a mark's data against a fresh derivation.
-- Don't rename a vendored dataset id (add to `CHARTS_DATASET_ID_ALIASES`), insert a Random pool segment before existing ones, or add a second `Math.random()` draw.
+- Don't restate mark-fit rules; probe `chartsBuildBoundMark`. Don't clean mark rows at render time: `?c=` byte-matches a fresh derivation.
+- Don't rename dataset ids (use `CHARTS_DATASET_ID_ALIASES`), reorder Random pool segments or add a `Math.random()` draw.
 - Don't key the live 3D viewport's mount on the mark or colour; use the object handle's `update()` and `scene.setOptions`, or every edit resets the camera.
 - Don't pass `rotX`/`rotY` with `mat` to `renderGlyphChart3d` (`bad-camera`), and don't hand-roll 3D rasterization instead of `compileScene` (a raw sampler key hides there).
 - Don't put notes inside a render area; reasons go on the Dock toggle (`disabledReason`) or frame chrome.
@@ -58,7 +56,5 @@ A Plot-style chart spec on the cell canvas (ascii/box/blocks/braille). Root has 
 
 - Package: all `src/**/*.test.ts`, including parent byte-identity and schema parity.
 - 3D: render/schema, surface, axis origin and per-axis options.
-- Website (in scope): fit, URL state, targets, font coverage.
 
-`pnpm test && pnpm build` before a PR.
 Vitest pins `Europe/Berlin` before workers start because the parent-build fixtures capture local-calendar time scales in that zone; preserve those fixtures and the renderer's local-time behavior.

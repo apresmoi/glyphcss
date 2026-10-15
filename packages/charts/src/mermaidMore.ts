@@ -1,3 +1,4 @@
+import { GLYPH_CHART_JOURNEY, type GlyphChartJourneyRow } from "./journey";
 import { formatLinearTick } from "./scales";
 import { timeFormat } from "d3-time-format";
 import { glyphChartBar, glyphChartDot, glyphChartLine, glyphChartText, glyphChartTreemap } from "./spec";
@@ -15,6 +16,32 @@ type Common = Pick<GlyphChartMermaidSpec, "title" | "description" | "ledger">;
 const channels = { x: "x", y: "y", label: "label" } as const;
 const quietAxes = { x: { title: "", ticks: 0, line: false }, y: { title: "", ticks: 0, line: false } } as const;
 const empty = () => glyphChartText([{ x: 0, y: 0, label: "" }], channels);
+
+/** Preserve source rows; the journey layout owns wrapping and task/actor attribution. */
+export function journey(parts: string[], common: Common, r: Reader): GlyphChartMermaidSpec {
+  const ledger = common.ledger as GlyphChartLedgerEntry[];
+  const rows: GlyphChartJourneyRow[] = [], bars: GlyphChartDatum[] = [];
+  for (const part of parts) {
+    const section = /^section\s+(.+)$/i.exec(part);
+    if (section) { rows.push({ kind: "section", text: r.label(section[1]!) }); continue; }
+    const statement = part.startsWith('"') ? JSON.parse(part) as string : part;
+    const task = /^(.+?)\s*:\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?)?\s*(?::\s*([\s\S]*))?$/i.exec(statement);
+    if (!task) r.syntax(`Expected a journey task, score and optional actors in "${statement}".`);
+    const score = task[2] === undefined ? 0 : r.numeric(task[2]);
+    const value = Math.max(1, Math.min(5, score));
+    if (value !== score) ledger.push(ledgerMermaidDegraded({ feature: "journey score outside 1–5", replacement: "a score clamped to 1–5", score, value }));
+    const name = r.label(task[1]!);
+    const actors = (task[3] ?? "").split(",").map((actor) => r.label(actor)).filter(Boolean).join(", ");
+    const id = `journey-${rows.length}`;
+    rows.push({ kind: "task", id, text: name, value, actors });
+    bars.push({ x: value, y: id, task: name, score, actors });
+  }
+  ledger.push(ledgerMermaidDegraded({ feature: "journey timeline and faces", replacement: "section headers and compact task rows with horizontal bars on a fixed 0–5 scale, numeric scores and actors", fallback: "journey-summary" }));
+  return { ...common, [GLYPH_CHART_JOURNEY]: rows,
+    marks: [glyphChartBar(bars.length ? bars : [{ x: 0, y: "journey-empty" }], { x: "x", y: "y" }, { orientation: "horizontal" })],
+    legend: false, scales: { x: { type: "linear", domain: [0, 5], nice: false }, y: { type: "band" } }, axes: quietAxes,
+  } as GlyphChartMermaidSpec;
+}
 
 export function radar(parts: string[], common: Common, r: Reader, summary = false): GlyphChartMermaidSpec {
   const axes: { id: string; label: string }[] = [], curves: { id: string; label: string; values: string[] }[] = [];
@@ -125,7 +152,6 @@ export function treemap(body: string, common: Common, r: Reader): GlyphChartMerm
     const acc = /^\s*acc(?:Title|Descr)\s*:\s*(.*)$/i.exec(line);
     if (acc) { description = [description, r.label(acc[1]!)].filter(Boolean).join("\n"); continue; }
     if (!line.trim()) continue;
-    if (/^\s*(?:classDef|class|style|click)\s/i.test(line)) { ledger.push(ledgerMermaidIgnored({ feature: line.trim().split(/\s/)[0]! })); continue; }
     const match = /^(\s*)("(?:\\.|""|[^"\\])*")(?:\s*:\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?))?\s*(?:::\:[\w,-]+)?\s*;?\s*$/i.exec(line);
     if (!match) r.syntax(`Expected an indented quoted treemap node in "${line.trim()}".`);
     const indent = match[1]!.replace(/\t/g, "    ").length;
@@ -213,7 +239,6 @@ export function gantt(parts: string[], common: Common, r: Reader): GlyphChartMer
       if (["todaymarker", "weekday"].includes(key)) ledger.push(ledgerMermaidIgnored({ feature: setting[1]!, replacement: key === "todaymarker" ? "no live today marker" : "native calendar ticks and exclusions" }));
       continue;
     }
-    if (/^(?:click|classDef|style)\s/i.test(part)) { ledger.push(ledgerMermaidIgnored({ feature: part.split(/\s/)[0]! })); continue; }
     const colon = part.indexOf(":"); if (colon < 0) r.syntax(`Expected a Gantt task in "${part}".`);
     const fields = r.splitList(part.slice(colon + 1)), tags: string[] = [];
     while (/^(?:crit|active|done|milestone|vert)$/i.test(fields[0] ?? "")) tags.push(fields.shift()!.toLowerCase());

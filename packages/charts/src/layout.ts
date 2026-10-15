@@ -115,6 +115,7 @@ export interface GlyphChartLegendLayout {
 }
 
 export interface GlyphChartLayout {
+  readonly journey?: import("./journey").GlyphChartJourneyLayout;
   readonly cols: number;
   readonly rows: number;
   readonly plot: GlyphChartPlotRect;

@@ -2,7 +2,7 @@ import type { GlyphChartDatum, GlyphChartMark, GlyphChartRenderOptions, GlyphCha
 import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import { ledgerMermaidDegraded, ledgerMermaidIgnored, type GlyphChartLedgerEntry } from "./ledger";
 import { GLYPH_CHART_TARGET_DEFAULTS, renderGlyphChart } from "./render";
-import { gantt, radar, treemap } from "./mermaidMore";
+import { gantt, journey, radar, treemap } from "./mermaidMore";
 import { resolveSankeyRows } from "./flowMarks";
 
 /** A normal chart spec plus source-adaptation notes; use the convenience renderer to merge both ledgers. */
@@ -37,6 +37,33 @@ function numeric(raw: string): number {
   const value = Number(raw.trim());
   if (!raw.trim() || !Number.isFinite(value)) syntax(`Expected a finite number, got "${raw}".`);
   return value;
+}
+
+/** Directive grammars see no comment suffix; quoted URLs and style values retain literal %% text. */
+function withoutTrailingComment(line: string): string {
+  let quote = "";
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]!;
+    if (quote) {
+      if (char === "\\") i++;
+      else if (char === quote) {
+        if (line[i + 1] === quote) i++; else quote = "";
+      }
+    } else if (char === '"' || char === "'") quote = char;
+    else if (char === "%" && line[i + 1] === "%") return line.slice(0, i);
+  }
+  return line;
+}
+
+/** Only Gantt has click statements; a leading word alone is never a directive. */
+function inertDirective(statement: string, kind: string): string | undefined {
+  if (kind === "gantt") {
+    const href = String.raw`href\s+${QUOTED}`;
+    const call = String.raw`call\s+[^\s(]+\s*\([^\n]*\)`;
+    if (new RegExp(`^click\\s+[^\\s:]+\\s+(?:${href}(?:\\s+${call})?|${call}(?:\\s+${href})?)\\s*;?\\s*$`, "i").test(statement)) return "click";
+  }
+  if (kind.startsWith("treemap") && /^classDef\s+[a-zA-Z_][a-zA-Z0-9_]+(?:\s+[^;\r\n]*)?;?$/i.test(statement)) return "classDef";
+  return undefined;
 }
 
 /** Configuration stays inert; name the requested look and the actual native fallback. */
@@ -84,6 +111,9 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
     const csv = /^\s*sankey(?:-beta)?\b/i.test(body);
+    if (!quoted && kind === "journey" && char === "#") {
+      const end = source.indexOf("\n", i); i = end < 0 ? source.length : end - 1; continue;
+    }
     // Comments must win over every free-label protector, even when they contain colons or unbalanced quotes.
     const comment = !quoted && (!csv || /(?:^|\n)[ \t]*$/.test(body)) && /^[ \t]*%%/.exec(source.slice(i));
     if (comment) {
@@ -98,6 +128,18 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
       continue;
     }
     if (!quoted && !csv && (/(?:^|\n|;)\s*$/.test(body) || /^pie(?:\s+showData)?\s+$/i.test(body))) {
+      const rawLine = source.slice(i).split("\n")[0]!;
+      const directive = inertDirective(withoutTrailingComment(rawLine).trim(), kind);
+      if (directive) { ledger.push(ledgerMermaidIgnored({ feature: directive })); i += rawLine.length - 1; continue; }
+      if (kind === "journey") {
+        // Journey names are free text, including unmatched quotes/brackets and semicolons.
+        const statement = rawLine.replace(/(?:%%|#).*$/, "").trim();
+        const section = /^section\s+(.+)$/i.exec(statement);
+        if (section) { body += `section ${JSON.stringify(label(section[1]!))}`; i += rawLine.length - 1; continue; }
+        if (!/^(?:title\s|acc(?:Title|Descr)\s*:|accDescr\s*\{)/i.test(statement) && statement.includes(":")) {
+          body += JSON.stringify(statement); i += rawLine.length - 1; continue;
+        }
+      }
       // Titles are free text to end-of-line, so their punctuation must never enter the shared scanner.
       if (kind === "gantt") {
         const rawLine = source.slice(i).split("\n")[0]!;
@@ -105,12 +147,12 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
         const format = /^(dateFormat|axisFormat|todayMarker)\s+(.+)$/i.exec(statement);
         if (format) { body += `${format[1]} ${JSON.stringify(format[2]!)}`; i += rawLine.length - 1; continue; }
         const free = /^(section)\s+(.+)$/i.exec(statement);
-        const task = /^(?!title\b|accTitle\b|accDescr\b|dateFormat\b|axisFormat\b|todayMarker\b|click\b|classDef\b|vert\b)([^:]+):/.exec(statement);
+        const task = /^(?!title\b|accTitle\b|accDescr\b|dateFormat\b|axisFormat\b|todayMarker\b|vert\b)([^:]+):/.exec(statement);
         if (free) { body += `section ${JSON.stringify(label(free[2]!))}`; i += rawLine.length - 1; continue; }
         if (task) { body += JSON.stringify(label(task[1]!)) + ":"; i += rawLine.length - statement.length + task[0].length - 1; continue; }
       }
       const heading = /^title[ \t]+([^\n]*)/i.exec(source.slice(i));
-      if (heading) { title = heading[1]!; body += " "; i += heading[0].length - 1; continue; }
+      if (heading) { title = kind === "journey" ? heading[1]!.replace(/#.*$/, "") : heading[1]!; body += " "; i += heading[0].length - 1; continue; }
       const acc = /^(accTitle|accDescr)\s*:\s*([^\n]*)/i.exec(source.slice(i))
         ?? /^(accDescr)\s*\{([\s\S]*?)\}/i.exec(source.slice(i));
       if (acc) { body += `${acc[1]}: ${JSON.stringify(acc[2]!.trim())}`; i += acc[0].length - 1; continue; }
@@ -191,8 +233,9 @@ export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec { r
 function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpec {
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
   const prefix = source.replace(/^\uFEFF/, "").replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
-  const declared = /^[\w-]+/.exec(prefix)?.[0];
-  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "radar", "radar-beta", "treemap", "treemap-beta"].includes(declared.toLowerCase())) {
+  const journeyPrefix = prefix.replace(/^(?:\s|#[^\n]*(?:\n|$)|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
+  const declared = /^[\w-]+/.exec(/^journey\b/i.test(journeyPrefix) ? journeyPrefix : prefix)?.[0];
+  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta"].includes(declared.toLowerCase())) {
     fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${declared} is not a chart type handled by this reader.`);
   }
   const ledger: GlyphChartLedgerEntry[] = [];
@@ -200,7 +243,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   const header = /^([\w-]+)\b/.exec(cleaned.body);
   if (!header) syntax("Expected a Mermaid chart declaration.");
   const kind = header[1]!.toLowerCase();
-  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "radar", "radar-beta", "treemap", "treemap-beta"].includes(kind)) {
+  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta"].includes(kind)) {
     return fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${header[1]} is not a chart type handled by this reader.`);
   }
   if (kind.startsWith("treemap")) return treemap(cleaned.body.slice(header[0].length), { title: cleaned.title, ledger }, { label, numeric, syntax, splitList });
@@ -225,7 +268,6 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
       while (!value.includes("}") && i + 1 < parts.length) value += `\n${parts[++i]}`;
       description = [description, value.replace(/}\s*$/, "").trim()].filter(Boolean).join("\n"); continue;
     }
-    if (/^(?:style|click|linkStyle|class)\s/i.test(part)) { ledger.push(ledgerMermaidIgnored({ feature: part.split(/\s/)[0]! })); continue; }
     content.push(part);
   }
   const common = { title, description, ledger };
@@ -243,6 +285,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   }
   if (kind === "quadrantchart") return quadrant(content, common, degrade);
   if (kind === "gantt") return gantt(content, common, { label, numeric, syntax, splitList });
+  if (kind === "journey") return journey(content, common, { label, numeric, syntax, splitList });
   if (kind.startsWith("radar")) return radar(content, common, { label, numeric, syntax, splitList }, radarSummary);
   let categories: string[] | undefined, xDomain: number[] | undefined, yDomain: number[] | undefined;
   let xTitle = "", yTitle = "";
@@ -308,7 +351,7 @@ function quadrant(parts: string[], common: Common, degrade: Degrade): GlyphChart
   let xNames: string[] = [], yNames: string[] = [];
   const styles = (text: string) => Object.fromEntries(splitList(text).map((part) => { const at = part.indexOf(":"); return [part.slice(0, at).trim(), part.slice(at + 1).trim()]; }));
   for (const part of parts) {
-    const classDef = /^classDef\s+(\S+)\s+(.+)$/i.exec(part);
+    const classDef = /^classDef\s+([\w-]+)\s+([a-z][\w-]*\s*:\s*[^\[\]]+)$/i.exec(part);
     if (classDef) { classes.set(classDef[1]!, styles(classDef[2]!)); continue; }
     const axis = /^([xy])-axis\s+(.+)$/i.exec(part);
     if (axis) {

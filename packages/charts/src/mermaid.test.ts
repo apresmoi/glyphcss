@@ -186,7 +186,7 @@ describe("Mermaid chart reader", () => {
     expect(chart.description).toBe("Browsers\nShare by browser");
     expect(chart.ledger.map((e) => e.code)).toEqual(["mermaid-ignored", "mermaid-ignored", "mermaid-ignored"]);
     expect(chart.ledger[1]?.detail?.feature).toBe("pie.donutHole");
-    expect(spec('pie\nclick A "javascript:alert(1)"\n"A":1').ledger[0]?.code).toBe("mermaid-ignored");
+    expect(() => spec('pie\nclick A "javascript:alert(1)"\n"A":1')).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_SYNTAX" }));
     expect(spec('pie\n"A %% literal; &amp; B": 1 %% ignored').marks[0]!.data[0]).toEqual({ label: "A %% literal; & B", value: 1 });
     expect(spec('xychart\ntitle "`Markdown title`"\nx-axis ["A, B", C]\nline [1,2]').title).toBe("Markdown title");
   });

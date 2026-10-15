@@ -1547,6 +1547,16 @@ export function paintGlyphChart(
   const shades = opts.shades;
   if (fill === "solid") canvas = solidOwnedCanvas(canvas);
   const series = chartSeries(marks, ledger, shades?.length);
+  if (layout.journey) {
+    for (const entry of series) {
+      const rows = entry.rows.filter((row) => layout.horizontalBarBands.has(String(row.y)));
+      const glyph = regionFillGlyph(canvas.tier, entry.styleIndex, series.length, fill, shades);
+      paintHorizontalBar(canvas, layout, scales, rows, resolveSeriesColor(entry, opts.colorEnabled), glyph, { index: 0, count: 1 }, ledger, new Set(), textScale);
+    }
+    for (const label of layout.journey.labels) canvas.text(label.x, label.y, [label.text], { scale: textScale });
+    return;
+  }
+
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
   const cellSigned = lo < 0 && hi > 0;
