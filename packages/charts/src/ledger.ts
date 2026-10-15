@@ -254,3 +254,11 @@ export function chartLedgerEntryFromCanvasMessage(raw: string): GlyphChartLedger
   const match = /cell \((\d+), (\d+)\)/.exec(raw);
   return ledgerDoubleDiagonalSolid({ col: match ? Number(match[1]) : 0, row: match ? Number(match[2]) : 0 });
 }
+
+export function ledgerMermaidDegraded(opts: { readonly feature: string; readonly replacement: string; readonly [key: string]: unknown }): GlyphChartLedgerEntry {
+  return entry("mermaid-degraded", `Rendered "${opts.feature}" as ${opts.replacement}.`, { ...opts });
+}
+
+export function ledgerMermaidIgnored(opts: { readonly feature: string; readonly replacement?: string }): GlyphChartLedgerEntry {
+  return entry("mermaid-ignored", `Kept "${opts.feature}" inert and used ${opts.replacement ?? "the chart defaults"}.`, { ...opts });
+}

@@ -97,3 +97,6 @@ export type {
   GlyphChartYAxisOptions,
   GlyphChartYAxisTitleAt,
 } from "./types";
+
+export { glyphChartFromMermaid, renderGlyphChartMermaid } from "./mermaid";
+export type { GlyphChartMermaidSpec, GlyphChartMermaidError, GlyphChartMermaidErrorCode } from "./mermaid";

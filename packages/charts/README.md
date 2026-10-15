@@ -603,6 +603,50 @@ glyphChartRepairHint("empty-marks"); // "Add at least one mark to spec.marks, e.
 
 Empty data, missing x/y on cartesian records, missing y on arc records (`arc-missing-value`), unknown transforms and null marks reject with rule IDs. Non-finite values reject with `non-finite-data`; categorical y on dots is valid. Ajv runs every shared JSON fixture and designed-bad spec against the schema and compares runtime verdicts. Runtime additionally checks accessor results and inferred domains. `width`/`height` are render options, validated as positive integers with `bad-size` before layout.
 
+## Mermaid charts
+
+`glyphChartFromMermaid(source)` returns a normal `GlyphChartMermaidSpec` with an additional `ledger` of source-adaptation notes. `renderGlyphChartMermaid(source, options)` uses the existing mark pipeline and merges those notes into both `report.ledger` and `build.report.ledger`. Passing the spec directly to `renderGlyphChart` works; retain its source `ledger` separately in that case.
+
+```ts
+import { glyphChartFromMermaid, renderGlyphChartMermaid } from "@glyphcss/charts";
+
+const source = `pie showData title Pets
+"Dogs" : 45.5
+"Cats" : 32.25
+"Birds" : 22.25`;
+const spec = glyphChartFromMermaid(source);
+const { text, report } = renderGlyphChartMermaid(source, { target: "chat", width: 72 });
+```
+
+- **`pie` → arc:** optional title and `showData`, quoted labels, decimal values, ordered slices. `showData` appends the raw value in brackets to the slice name. Zero values remain empty slices.
+- **`xychart` / `xychart-beta` → bar and line:** optional title and axes; categorical or numeric x-axis; numeric y-axis; signed decimal values; multiple named or unnamed series; optional per-point quoted line labels. Quoted categories stay categorical even when they resemble dates. Each numeric series independently spans the entire x range; without a range the first nonempty series establishes `1..length`, and later series span that same range. Horizontal line-only charts swap coordinates, scales, titles and point labels. Labels on bar values are accepted and ignored, as in Mermaid.
+- **`sankey` / `sankey-beta` → sankey:** three-column CSV, quoted commas, doubled quotes, multiline fields and blank lines. Native flow layout, weighting and folding apply.
+- **`quadrantChart` → dots, rules and text:** title, one-sided or paired axes, all four quadrant captions, normalized points, direct point styles and forward `classDef` references. Direct styles override classes. Hex fill colors survive color-capable output; short hex expands to canonical six-digit hex.
+
+Degradations use `mermaid-degraded` with structured details: horizontal XY charts containing bars keep their data and axis roles in the vertical renderer because the existing bar mark only paints a vertical y=0 baseline and has no orientation option; explicit bar domains expand to include zero; short category lists gain numbered categories; quadrant endpoint labels share axis titles; point radius/border styling becomes a single-cell dot; unsupported CSS colors use the default; multiline CSV names become single-line labels. Nonpositive Sankey flows are omitted with a count; cycles, empty node names and ambiguous normalized names become an honest text flow list (compact height unless explicitly supplied), preserving connectivity and values.
+
+Titles are free text to the end of the line, including unmatched brackets/quotes and semicolons. Comments are skipped outside quotes and free-text titles. Frontmatter title is retained; configuration, initialization directives and interaction/style directives remain inert and produce `mermaid-ignored`. Configuration-driven themes, dimensions, donut holes, pie highlighting, data-label switches and browser interactions are not applied. Explicit documented options also receive an individual `mermaid-ignored` note naming the replacement:
+
+| Source option | Replacement and limitation |
+| --- | --- |
+| `pie.textPosition` | Outside callouts; arc labels have no radial-position option. |
+| `pie.legendPosition` | Bottom legend. Native `spec.legend` supports bottom/inside corners, but source configuration stays inert. |
+| `pie.donutHole` | Solid pie. Native `arc.options.innerRadius` supports holes, but source configuration stays inert. |
+| `pie.highlightSlice` | Unhighlighted slices; static arcs have no highlight/hover state. |
+| `sankey.nodeAlignment` | Native depth columns; no alignment option. |
+| `sankey.nodeColors` | Default per-source palette. Native `mark.options.color` supports per-source hex colors, but independent target-node colors are unavailable. |
+| `sankey.linkColor` | Source-colored links. Native colors support source/constant hex colors; target/gradient links are unavailable. |
+| `sankey.labelStyle` | Plain node labels; no text outlines. |
+| `sankey.nodeWidth`, `sankey.nodePadding` | One-cell bars and native cell padding; no pixel-size options. |
+| `sankey.showValues`, `prefix`, `suffix` | Native node totals/flow values with no prefix/suffix; no value-label switch/formatter. |
+| `width`, `height` | Caller-supplied columns/rows; source pixel dimensions are inert. |
+
+Accessibility title/description statements become description metadata. Native renderer notes still report space-driven label dropping, tick thinning and flow folding; arbitrary label density cannot guarantee a lossless 72-column rendering.
+
+Malformed source throws an error with `code: "GLYPH_MERMAID_SYNTAX"`. Every other Mermaid header throws `code: "GLYPH_MERMAID_NOT_CHART_TYPE"` before parsing its body, so a dispatcher can route it. These source-reader errors are separate from chart-spec validation rules. Rendering options retain the ordinary renderer's validation errors.
+
+The source fixtures in `src/fixtures/mermaidExamples.json` cover the examples above. To write their verbatim 72-column renders, run `GLYPH_MERMAID_ARTIFACT_DIR=/absolute/local/directory pnpm --filter @glyphcss/charts exec vitest run src/mermaid.test.ts` from the repository root.
+
 ## Agent / CLI entry
 
 ```ts
