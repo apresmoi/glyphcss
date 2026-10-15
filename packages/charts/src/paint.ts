@@ -13,6 +13,7 @@
  * "tiers are tables, painters are dumb" discipline one level up.
  */
 
+import { GLYPH_CHART_RADAR, fitGlyphRadarScales, type GlyphChartRadarSpec } from "./radar";
 import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle, type GlyphCanvasPoint } from "glyphcss";
 import {
   bandColRange,
@@ -1244,9 +1245,9 @@ function markRow(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, val
     ?? (exact ? scaleToRowExact : scaleToRow)(scales.y, layout.plot, value);
 }
 
-function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid", width: 1 | 2 | 3 = 1): void {
+function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid", width: 1 | 2 | 3 = 1, exact = false): void {
   const points = rows
-    .map((r) => ({ x: scaleToCol(scales.x, layout.plot, r.x), y: markRow(layout, scales, r.y) }));
+    .map((r) => ({ x: (exact ? scaleToColExact : scaleToCol)(scales.x, layout.plot, r.x), y: markRow(layout, scales, r.y, exact) }));
   const clipPlot = strokeClipPlot(layout.plot, GLYPH_CANVAS_TIERS[canvas.tier].subcell, width);
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]!, b = points[i + 1]!;
@@ -1467,7 +1468,7 @@ function lineSwatch(entry: ChartSeries | undefined): boolean {
   return !entry || !["arc", "dot", "funnel", "bar", "area", "cell"].includes(entry.mark.type);
 }
 
-function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[]): void {
+function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[], solidLines = false): void {
   const { plot } = layout;
   const plotWidth = plot.x1 - plot.x0 + 1;
   const maxRow = layout.xAxisLineRow === plot.y1 ? plot.y1 - 1 : plot.y1;
@@ -1521,7 +1522,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     else if (entry?.mark.type === "funnel") canvas.text(startCol, row, [canvas.tier === "ascii" ? "#" : "█"], { color, scale: textScale });
     else if (entry?.mark.type === "bar" || entry?.mark.type === "area") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
-    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 2), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 2), y: row }, { color, style: solidLines ? "solid" : SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
     if (lineSwatch(entry)) canvas.text(textCol - 1, row, [" "], { color });
     canvas.text(textCol, row, [text], { color, scale: textScale });
   }
@@ -1539,6 +1540,8 @@ export function paintGlyphChart(
   opts: GlyphChartPaintOptions,
   ledger: GlyphChartLedgerEntry[],
 ): void {
+  const radial = (spec as GlyphChartRadarSpec)[GLYPH_CHART_RADAR] === true;
+  scales = fitGlyphRadarScales(spec, scales, layout.plot, canvas.cellAspect);
   // Web-only affordance — see `GlyphChartPaintOptions.textScale`'s own doc.
   // Default `1`, so every `scale: textScale` forwarded below is `scale: 1`
   // (canvas.text's own byte-identical default) when the caller never set it.
@@ -1691,7 +1694,7 @@ export function paintGlyphChart(
     const style = opts.colorEnabled ? "solid" : SERIES_STYLES[styleIndex % SERIES_STYLES.length]!;
     const guarded = guardedCanvas(canvas, mark.type);
     const width = resolveStrokeWidth(mark.options);
-    if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, style, width);
+    if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, radial ? "solid" : style, width, radial);
     // An UNSTACKED area's boundaries carry the same monochrome series
     // vocabulary as lines: its series' fills overlap, so a later fill can
     // hide an earlier series and the line is what still shows it. A STACKED
@@ -1863,7 +1866,7 @@ export function paintGlyphChart(
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });
       // A line-style swatch (`canvas.line`) has no `textScale` analogue —
       // stays a single row regardless of `label.scale`.
-      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 2), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 2), y: label.y }, { color, style: radial ? "solid" : SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
       if (lineSwatch(entry)) guardedLabels.text(label.x - 1, label.y, [" "], { color });
       guardedLabels.text(label.x, label.y, [label.text], { color, scale: label.scale });
     } else if (textColors.has(label.id)) {
@@ -1871,7 +1874,7 @@ export function paintGlyphChart(
     } else guardedLabels.text(label.x, label.y, [label.text], { scale: label.scale });
   }
   if (layout.legend && layout.legend.row === undefined) {
-    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill, shades);
+    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill, shades, radial);
   }
   if (layout.cellKeyRow >= 0) {
     const cellColor = series.find((s) => s.mark.type === "cell");

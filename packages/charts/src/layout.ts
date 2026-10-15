@@ -39,7 +39,8 @@ import type {
 function formatAxisTicks(ticks: readonly GlyphChartTick[], fmt: GlyphChartResolvedTickFormat | undefined): readonly GlyphChartTick[] {
   if (!fmt) return ticks;
   const values = ticks.map((t) => t.value);
-  return ticks.map((t, i) => ({ ...t, label: fmt.apply(t.value, i, values) }));
+  // Empty formatter labels hide ticks; they are not space-driven omissions.
+  return ticks.map((t, i) => ({ ...t, label: fmt.apply(t.value, i, values) })).filter((t) => t.label !== "");
 }
 
 /** `title: string` is `{ text, align: "center", position: "top" }` — byte-identical to before this option existed. */
@@ -663,7 +664,7 @@ export function layoutGlyphChart(
       // thinning, which still applies underneath either path). Band ticks
       // ignore `count` entirely (`buildBand`'s own `ticks()`), so they're
       // excluded too.
-      const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
+      const yTicksFitted = yRowBudget === 0 ? [] : scales.y.type === "band" || yAxisOpts?.ticks !== undefined
         ? scales.y.ticks(yRowBudget)
         : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottomForFit, yMinRowSpacing);
       let yTicksRaw: readonly GlyphChartTick[] = formatAxisTicks(
@@ -856,7 +857,7 @@ export function layoutGlyphChart(
     // set of tick VALUES `scale.ticks(n)` returns) stays the same across
     // every web Density, mirroring the y budget's `yMinRowSpacing` above.
     const xTickCountProvisional = xAxisOpts?.ticks ?? Math.max(2, Math.floor(plotWidth / (6 * textScale)));
-    const provisionalXTicks = formatAxisTicks(scales.x.ticks(xTickCountProvisional), xTickFormat);
+    const provisionalXTicks = formatAxisTicks(xTickCountProvisional === 0 ? [] : scales.x.ticks(xTickCountProvisional), xTickFormat);
     const measuredXLabelWidth = provisionalXTicks.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.x.type !== "band" && typeof t.value === "number").text.length), 1);
     const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth * textScale + 1))));
     let xTicksRaw = integerOnlyTicks(

@@ -44,6 +44,7 @@
  * `"none"`, which never touches the ANSI encoder at all.
  */
 
+import { fitGlyphGanttTicks } from "./gantt";
 import {
   createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor,
 } from "glyphcss";
@@ -80,9 +81,8 @@ interface GlyphChartTargetDefaults {
   readonly color: GlyphChartColorMode;
   /**
    * Column-width / row-height ratio for THIS target's own monospace grid —
-   * fed to `createGlyphCanvas({ cellAspect })`, which only `arcRadii` reads
-   * (`paint.ts`'s "Arc shape and callouts" doc); no other painter, tier
-   * table, junction resolver or encoder consults it (grepped, and pinned by
+   * fed to `createGlyphCanvas({ cellAspect })`, read by arc radii and radar radial
+   * fitting; no tier table, junction resolver or encoder consults it (grepped, and pinned by
    * `render.byteIdentity.test.ts`'s per-target non-arc fixtures). `web`:
    * `0.5859375` = 1200/2048 em, Glyph Mono's OWN measured advance
    * (`fontTools` on `website/public/fonts/glyph-mono.woff2`) at the chart
@@ -194,7 +194,8 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   validateGlyphChartCellRamp(options.cellRamp, charset);
 
   const marks = resolveGlyphChartSpec(spec);
-  const scales = resolveGlyphChartScales(marks, spec.scales);
+  const resolvedScales = resolveGlyphChartScales(marks, spec.scales);
+  const scales = { ...resolvedScales, x: fitGlyphGanttTicks(spec, resolvedScales.x) };
 
   const ledger: GlyphChartLedgerEntry[] = [];
   const legendOption = resolveGlyphChartLegendOption(spec.legend, options.legend);

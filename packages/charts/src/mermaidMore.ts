@@ -1,4 +1,5 @@
-import { GLYPH_CHART_GANTT, type GlyphChartGanttRow } from "./gantt";
+import { GLYPH_CHART_RADAR } from "./radar";
+import { GLYPH_CHART_GANTT, GLYPH_CHART_GANTT_TICKS, glyphGanttTickGranularity, type GlyphChartGanttRow } from "./gantt";
 import { GLYPH_CHART_JOURNEY, type GlyphChartJourneyRow } from "./journey";
 import { formatLinearTick } from "./scales";
 import { timeFormat } from "d3-time-format";
@@ -118,7 +119,7 @@ export function radar(parts: string[], common: Common, r: Reader, summary = fals
   const line = (data: GlyphChartDatum[], name?: string) => glyphChartLine(data, channels, { color: name ? undefined : "#7a7f8a", ...(name ? { name } : {}) });
   if (axes.length) {
     for (let i = 1; i <= ticks; i++) {
-      const n = polygon ? axes.length : 64;
+      const n = polygon ? axes.length : 256;
       marks.push(line(Array.from({ length: n + 1 }, (_, k) => point(k, i / ticks, n))));
     }
     axes.forEach((a, i) => { marks.push(line([{ x: 0, y: 0 }, point(i, 1)])); captions.push({ ...point(i, 1.18), label: a.label }); });
@@ -140,9 +141,8 @@ export function radar(parts: string[], common: Common, r: Reader, summary = fals
   }
   if (captions.length) marks.push(glyphChartText(captions, channels));
   ledger.push(ledgerMermaidDegraded({ feature: "radar tick labels", replacement: "unlabeled graticules; interior numbers omitted to avoid curve collisions" }));
-  ledger.push(ledgerMermaidDegraded({ feature: "radar radial aspect", replacement: "independent native Cartesian x/y scaling, so graticules can appear elliptical" }));
   ledger.push(ledgerMermaidDegraded({ feature: "radar filled smooth curves", replacement: "closed native line polygons without fill or smoothing" }));
-  return { ...common, marks: marks.length ? marks : [empty()], scales: { x: { domain: [-1.45, 1.45] }, y: { domain: [-1.35, 1.35] } }, axes: quietAxes, legend };
+  return { ...common, [GLYPH_CHART_RADAR]: true, marks: marks.length ? marks : [empty()], scales: { x: { domain: [-1.45, 1.45] }, y: { domain: [-1.35, 1.35] } }, axes: quietAxes, legend } as GlyphChartMermaidSpec;
 }
 
 export function treemap(body: string, common: Common, r: Reader): GlyphChartMermaidSpec {
@@ -331,5 +331,5 @@ export function gantt(parts: string[], common: Common, r: Reader): GlyphChartMer
     if (m) ticks = Math.max(1, Math.min(100, Math.ceil((hi - lo) / (Number(m[1]) * ({ millisecond: 1, second: 1000, minute: 60000, hour: 3600000, day: DAY, week: 7 * DAY, month: 30 * DAY }[m[2]!] ?? DAY)))));
     ledger.push(ledgerMermaidDegraded({ feature: `Gantt tickInterval ${interval}`, replacement: "a requested native tick count, thinned to prevent label collisions" }));
   }
-  return { ...common, [GLYPH_CHART_GANTT]: ganttRows, marks: marks.length ? marks : [empty()], scales: { x: { type: "time", domain: [new Date(lo), new Date(hi)], nice: false }, ...(rows.length ? { y: { type: "band" as const, ...(rows.length > 1 ? { domain: [...rows].reverse() } : {}) } } : {}) }, axes: { x: { title: "", ...(ticks === undefined ? {} : { ticks }), format: (v) => timeFormat(axisFormat)(new Date(v)) }, y: { title: "", tickMarks: false, line: false, format: (v) => labels.get(String(v)) ?? "" } }, legend: markers.some((m) => m.label !== "") } as GlyphChartMermaidSpec;
+  return { ...common, [GLYPH_CHART_GANTT]: ganttRows, [GLYPH_CHART_GANTT_TICKS]: glyphGanttTickGranularity(dateFormat, axisFormat), marks: marks.length ? marks : [empty()], scales: { x: { type: "time", domain: [new Date(lo), new Date(hi)], nice: false }, ...(rows.length ? { y: { type: "band" as const, ...(rows.length > 1 ? { domain: [...rows].reverse() } : {}) } } : {}) }, axes: { x: { title: "", ...(ticks === undefined ? {} : { ticks }), format: (v) => timeFormat(axisFormat)(new Date(v)) }, y: { title: "", tickMarks: false, line: false, format: (v) => labels.get(String(v)) ?? "" } }, legend: markers.some((m) => m.label !== "") } as GlyphChartMermaidSpec;
 }

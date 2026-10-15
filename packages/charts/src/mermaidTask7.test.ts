@@ -326,7 +326,7 @@ describe("Task 7 Mermaid syntax and native marks", () => {
     expect(chart.marks.filter((m) => m.type === "line" && m.data.length === 6 && !m.options?.name)).toHaveLength(3);
     const circle = parse(task7Examples[3]!.source);
     expect(circle.legend).toBe(false);
-    expect(circle.marks.filter((m) => m.type === "line" && m.data.length === 65)).toHaveLength(2);
+    expect(circle.marks.filter((m) => m.type === "line" && m.data.length === 257)).toHaveLength(2);
     expect(circle.marks.find((m) => m.options?.name)?.data[1]).toEqual({ x: 1, y: expect.closeTo(0) });
     const range = parse('radar\naxis A,B,C\ncurve c{2,4,6}\nmin 2\nmax 6\nticks 0');
     expect(range.marks.find((m) => m.options?.name)?.data[0]).toEqual({ x: 0, y: 0 });
