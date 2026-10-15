@@ -142,7 +142,7 @@ describe("Task 7 Mermaid syntax and native marks", () => {
       expect(result.text).toContain("A: Team A"); expect(result.text).toContain("B: Team B");
       for (const axis of ["Code", "Docs", "Tests", "Design", "Ops"]) expect(result.text).toContain(axis);
       expect(result.text).not.toMatch(/[\\/‾]/);
-      const barRows = result.text.split("\n").slice(1, -3).filter((row) => /[█░#.]/.test(row));
+      const barRows = result.text.split("\n").slice(result.build.plot.y0, result.build.plot.y1).filter((row) => /[█░#.]/.test(row));
       expect(barRows).toHaveLength(10);
       expect(barRows.every((row) => !(row.includes("█") && row.includes("░")) && !(row.includes("#") && row.includes(".")))).toBe(true);
       expect(result.report.ledger.some((e) => e.detail?.feature === "radar whole-cell curves")).toBe(true);

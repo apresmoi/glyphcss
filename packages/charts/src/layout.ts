@@ -762,6 +762,30 @@ export function layoutGlyphChart(
     // the plot, put the drawn rule one row past the plot's own y=0 row,
     // floating every bar/area a full row off the line meant to anchor them.
 
+    // Fixed-height bands spend spare canvas rows after all chrome, never between content and its axis.
+    const ganttRows = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT];
+    const bandRows = scales.y.type === "band" && horizontalBarGroupRows > 0
+      && marks.every(({ mark }) => mark.type === "line" || mark.type === "text" || mark.type === "rule" || mark.type === "bar" && mark.options?.orientation === "horizontal");
+    if (ganttRows || bandRows) {
+      const sections = ganttRows?.filter((row) => row.section).length ?? 0;
+      const count = scales.y.domain.length;
+      const contentRows = ganttRows
+        ? (ganttRows.length + Math.max(0, sections - 1)) * textScale
+        : count * Math.max(textScale, horizontalBarGroupRows) + Math.max(0, count - 1) * textScale;
+      const fittedBottom = Math.min(bottom, top + Math.max(1, contentRows) - 1 + (ganttRows || xAxisLine ? 1 : 0));
+      const spare = bottom - fittedBottom;
+      if (spare > 0) {
+        const afterPlot = (row: number) => row > bottom ? row - spare : row;
+        xAxisLabelRow = afterPlot(xAxisLabelRow);
+        xAxisTitleRow = afterPlot(xAxisTitleRow);
+        yAxisTitleRow = afterPlot(yAxisTitleRow);
+        if (titleRow !== null) titleRow = afterPlot(titleRow);
+        if (legend?.row !== undefined) legend = { ...legend, row: afterPlot(legend.row) };
+        if (cellKeyRow >= 0) cellKeyRow = afterPlot(cellKeyRow);
+        bottom = fittedBottom;
+      }
+    }
+
     // The FINAL gutter/tick fit, against the now fully-reserved `bottom` —
     // see `computeYGutter`'s own comment above for why this must be a
     // second, later call rather than reusing the provisional one.

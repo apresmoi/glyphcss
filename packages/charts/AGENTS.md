@@ -2,9 +2,9 @@
 
 ## What it is
 
-Plot specs on the cell canvas (ascii/box/blocks/braille); no camera, mesh, depth test, `compileScene` or rasterizer.
+Cell-canvas plots (ascii/box/blocks/braille); no camera, mesh, depth test or rasterizer.
 
-- **Model:** `buildGlyphChart(input, options)`: validate → transforms → scales → layout → paint; returns `GlyphChartBuild` (`canvas`, `colorCanvas`, `plot`, `meta`, `report`, `resolved`), no strings.
+- **Model:** `buildGlyphChart(input, options)`: validate → transforms → scales → layout → paint → `GlyphChartBuild` (`canvas`, `colorCanvas`, `plot`, `meta`, `report`, `resolved`), no strings.
 - **Encode:** `encodeGlyphChart(build, "text" | "html")`; `renderGlyphChart` composes both.
 - **`./3d`:** surface/scatter/parametric/bars/line build `GlyphSceneObject`s through `compileScene`. May import root helpers, never the reverse.
 
@@ -23,10 +23,10 @@ Plot specs on the cell canvas (ascii/box/blocks/braille); no camera, mesh, depth
 - Sankey/funnel/treemap are non-cartesian: no x/y scales or transforms (`bad-options`).
 - `cell`-only + two band scales: heatmap (`heatmap.ts`), flush integer-partitioned `2k`×`k` cells; shrink canvas to grid. An unsigned heatmap's ramp has no blank level and a range key; a signed one keeps blank for exactly zero.
 - 3D: the axis-triad origin is the fixed data-min corner; axis lines are real mesh geometry (a fine sub-cell line), never stamped glyphs; `p.texture` uses the namespaced object sampler key; the static exit must round-trip `resolved.camera`.
-- Journey: compact task rows reuse horizontal bars on 0–5 with score/actors beside each bar. Left section headers, one blank between sections, none between tasks. Wrap words; long actors go under bars. Log omissions and face/timeline fallback. Auto-height fits rows. Never make actors/sections category bands.
+- Journey: compact 0–5 task bars with score/actors beside them. Left section headers; one blank between sections, none between tasks. Wrap words; long actors under bars. Log omissions and face/timeline fallback. Auto-height fits. Never use actors/sections as bands.
 - Mermaid: `@glyphcss/core/mermaid` preamble/entities/comments; own tokenizer. Inert config: `mermaid-degraded`. Native marks; preserve directive prefixes. Errors: `GLYPH_MERMAID_SYNTAX` / `GLYPH_MERMAID_NOT_CHART_TYPE`; source ledger in both reports. Strip `%%` comments/directives before label protection/recognition; preserve quoted/CSV/free-title literals and treemap indentation. Only journey/timeline have `#` comments; timeline event/title/section tokens retain hashes. Journey empty scores use the logged clamp. XY spans its range from implicit x=1; horizontal XY swaps bars/lines; quadrant endpoints replace 0/1 ticks. Reuse `resolveSankeyRows`; cycles become flow lists.
-- Bars default vertical byte-identically. `orientation: "horizontal"` reads value x/category y; `channels.x0` supplies an interval start, otherwise x includes zero. Horizontal bars share integer row geometry with labels: label on first bar, contiguous series, one scaled blank row/group when room; no transforms. A sub-cell interval becomes a dot with `bar-interval-collapsed`. Keep Date Gantt rules.
-- Gantt: calendar durations/exclusions, latest `after`/earliest `until`, forward refs, rowless `vert`, status labels. Column-zero section headers; two-cell-indented, right-aligned tasks; contiguous rows and one blank before later sections. Keep native time/bar geometry; never thin authored rows as ticks. Log milestone dots, approximate ticks, unshaded exclusions and inert today/layout settings. Clock-free: partial dates anchor to 1970; missing starts to epoch, logged.
+- Bars default vertical byte-identically. `orientation: "horizontal"` reads value x/category y; `channels.x0` supplies an interval start, otherwise x includes zero. Horizontal bars share integer row geometry with labels: label on first bar, contiguous series, one scaled blank row/group when room; no transforms. A sub-cell interval becomes a dot with `bar-interval-collapsed`. Fixed band axes/legends follow content; spare rows trail below. Line/area/vertical plots and treemaps keep proportional height.
+- Gantt: calendar durations/exclusions, latest `after`/earliest `until`, forward refs, rowless `vert`, status labels. Column-zero sections; tasks indented two cells/right-aligned; contiguous rows, one blank before later sections. Native time/bar geometry; authored rows never thin as ticks. Log milestone dots, approximate ticks, unshaded exclusions and inert today/layout settings. Clock-free: partial dates use 1970; missing starts use epoch, logged.
 - Radar: ids/labels, positional/keyed curves, min/max, grids/ticks/legend. Box/ascii use grouped horizontal bars; braille/blocks use lettered vertices and omit interior tick values. Log these fallbacks, missing/clamped values and straight unfilled curves. Treemap: unique acyclic ids, finite nonnegative leaves, branch sums, aspect-aware squarify; invalid hierarchies use `treemap-hierarchy`. Siblings share borders/junctions; children share parent sides/bottom. Labels reserve a scaled blank cell inside each side border. Omit tiny tiles/unfittable whole labels (`treemap-omitted`); value configuration stays inert, logged.
 - Structure annotations survive shallow copies, not JSON. Auto-height fits; explicit height omits whole groups, logged. Timeline: authored periods vertical, indented two cells under column-zero headers; one blank row between sections, none inside. Events beside periods; only whitespace-followed colons split events, retaining times/URLs. Wrap words, honor `<br>`; stack narrow columns with the same indent; log oversized words. Packet: 32-bit rows, ascending absolute vertical decimal ticks, sharp shared borders (OR masks), whole-word labels and numbered keys (stack multi-digit keys). Log narrower rows, inert config, overlaps, invalid ranges and the 256-row field cap.
 - Kanban: preserve indent; skip blanks. Unindented title/accessibility only; nested data stays data. Hashes/label `%%` are data. Bare/anonymous/repeated ids keep occurrences. Single-quoted backslashes are literal. Sharp lanes/cards; whole words; minimize wrapped card rows; wrap lanes, logged. Shared lane bottoms; empty-body row only if empty. Metadata: ticket, assigned, priority. Log inert URLs.
@@ -46,14 +46,14 @@ Plot specs on the cell canvas (ascii/box/blocks/braille); no camera, mesh, depth
 - Don't remount 3D on mark/colour changes; use handle `update()` and `scene.setOptions` to preserve camera.
 - Don't pass `rotX`/`rotY` with `mat` to `renderGlyphChart3d` (`bad-camera`), and don't hand-roll 3D rasterization instead of `compileScene` (a raw sampler key hides there).
 - Don't put notes in renders; use Dock `disabledReason` or frame chrome.
-- Sankey: no filled ribbons; use stubs, a bracket and one line per flow (`sankeyLines.ts`).
+- Sankey: no filled ribbons; use stubs, a bracket and one line/flow (`sankeyLines.ts`).
 - Don't texture funnel stages or size them linearly; one solid shape with √value widths, a blank row between stages and one label line each keeps late stages visible and readable (`paintFunnelMark`).
 - Keep sankey's row-monotonicity bound ≥2; reclaim and fold-stub each cost a row.
 - Don't narrow a `RangeSlider` thumb's native `min`/`max`; caps apply only on commit, or thumbs and fill disagree.
 
 ## Gates
 
-- Package: all tests, parent fixtures/schema parity.
+- Package gates: tests, parent fixtures/schema parity.
 - 3D: render/schema, surface, axis origin, per-axis options.
 
 Vitest pins `Europe/Berlin`; keep local-calendar output.

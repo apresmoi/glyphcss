@@ -96,12 +96,13 @@ describe("final cleanup 2", () => {
     }
   });
 
+  // G1 refreshes only horizontal XY hashes; Gantt axis bytes now follow the authored rows.
   it("preserves vertical bars and categorical XY fixture hashes", () => {
     for (const target of ["chat", "web"] as const) {
       expect(digest(renderGlyphChart(glyphChartBar([3,-5,2,8]), { ...size, target }).text)).toBe((baseline as Record<string, string>)[`vertical:${target}`]);
       const gantt = renderGlyphChartMermaid(examples[0]!.source, { ...size, target });
       const ganttLines = gantt.text.split("\n");
-      expect(digest(ganttLines.slice(-2).join("\n"))).toBe((baseline as Record<string, string>)[`gantt-axis:${target}`]);
+      expect(digest(ganttLines.slice(gantt.build.plot.y1, gantt.build.plot.y1 + 2).join("\n"))).toBe((baseline as Record<string, string>)[`gantt-axis:${target}`]);
       expect(digest(ganttLines.filter((line) => /[█●\u2801-\u28ff]/.test(line)).map((line) => line.slice(gantt.build.plot.x0)).join("\n"))).toBe((baseline as Record<string, string>)[`gantt-bars:${target}`]);
       for (const example of examples.slice(1)) expect(digest(renderGlyphChartMermaid(example.source, { ...size, target }).text)).toBe((baseline as Record<string, string>)[`${example.name}:${target}`]);
     }
