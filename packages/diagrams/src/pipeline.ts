@@ -412,15 +412,30 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
             first: Math.min(...targets.map(target => target.order!)), last: Math.max(...targets.map(target => target.order!)) }];
         });
         const constraints: { left: string; right: string }[] = [];
-        // Interchangeable siblings have the same neighbours, so their authored
-        // order is a tie-break rather than a competing topology constraint.
+        // Disjoint tree children can differ in size and descendants without
+        // competing topology constraints. Keep their authored top-to-bottom
+        // order too; sorting only equivalent leaves reverses whole subtrees.
+        const treeNodes = new Map<string, boolean>();
+        const tree = (id: string): boolean => {
+          if (!treeNodes.has(id)) {
+            // A back-link disqualifies a subtree during Dagre's initial cycle pass.
+            treeNodes.set(id, false);
+            treeNodes.set(id, reserved.edges.filter(edge => edge.from === id).every(edge =>
+              reserved.edges.filter(other => other.to === edge.to).length === 1 && tree(edge.to)));
+          }
+          return treeNodes.get(id)!;
+        };
         const siblings = new Map<string, string[]>();
         for (const node of reserved.nodes) {
           const incoming = reserved.edges.filter(edge => edge.to === node.id).map(edge => edge.from).sort(compare);
           if (across || incoming.length !== 1) continue;
           const outgoing = reserved.edges.filter(edge => edge.from === node.id).map(edge => edge.to).sort(compare);
-          const key = JSON.stringify([ordered.node(node.id).rank, node.width, node.height, node.shape, incoming, outgoing,
-            reserved.edges.filter(edge => edge.from === node.id || edge.to === node.id).map(edge => edge.style)]);
+          const parentChildren = reserved.edges.filter(edge => edge.from === incoming[0]);
+          const treeFamily = parentChildren.length > 1 && (parentChildren.every(edge => edge.style === "undirected") || parentChildren.some(edge => reserved.edges.some(child => child.from === edge.to)))
+            && parentChildren.every(edge => tree(edge.to));
+          const key = JSON.stringify(treeFamily ? [ordered.node(node.id).rank, incoming] :
+            [ordered.node(node.id).rank, node.width, node.height, node.shape, incoming, outgoing,
+              reserved.edges.filter(edge => edge.from === node.id || edge.to === node.id).map(edge => edge.style)]);
           const family = siblings.get(key) ?? [];
           family.push(node.id); siblings.set(key, family);
         }

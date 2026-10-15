@@ -317,3 +317,26 @@ describe("a point is joined to its edges whatever their style, at either end", (
     }
   });
 });
+
+
+describe("point joins preserve explicit heads", () => {
+  it.each(["TB", "BT", "LR", "RL"] as const)("uses the requested shared head in %s", async (direction) => {
+    for (const head of ["none", "circle", "cross", "arrow"] as const) {
+      const graph = fan(direction, 0, 2);
+      const r = await renderGlyphDiagram({ ...graph, edges: graph.edges.map(e => ({ ...e, endHead: head })) }, options);
+      const glyph = glyphDiagramPointCell(node(r, "e"), direction);
+      const delta = { TB: [0, -1], BT: [0, 1], LR: [-1, 0], RL: [1, 0] }[direction]!;
+      const expected = head === "none" ? direction === "TB" || direction === "BT" ? "│" : "─" : head === "circle" ? "●" : head === "cross" ? "✕" : { TB: "▼", BT: "▲", LR: "▶", RL: "◀" }[direction];
+      expect(cell(r, glyph.x + delta[0]!, glyph.y + delta[1]!)).toBe(expected);
+      expect(r.report.unroutable).toEqual([]);
+    }
+  });
+  it("keeps mixed heads at their own entry ports", async () => {
+    const graph = fan("TB", 0, 2);
+    const r = await renderGlyphDiagram({ ...graph, edges: graph.edges.map((e, i) => ({ ...e, endHead: i ? "cross" : "circle" })) }, options);
+    for (const port of r.layout.ports.filter(p => p.nodeId === "e")) {
+      const edge = r.layout.edges.find(e => e.id === port.edgeId)!;
+      expect(cell(r, port.anchor.x, port.anchor.y)).toBe(edge.endHead === "circle" ? "●" : "✕");
+    }
+  });
+});

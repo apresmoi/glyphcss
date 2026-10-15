@@ -3,7 +3,7 @@ import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNo
 export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
   "unknown-node", "bad-group", "point-loop", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
-  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
   "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
@@ -142,6 +142,8 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-options": "Use the documented target, charset, color, detail, and dagre layout options.",
   "bad-color": "nodeColor/edgeColor must be a canonical lowercase #rrggbb string, or a function returning one.",
   "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph. In a stateDiagram, use the supported state statements and close every composite state.",
+  "GLYPH_MERMAID_GIT_SYNTAX": "Use commit, branch, checkout/switch, merge or cherry-pick; reference existing branches/commits and immediate merge parents.",
+  "GLYPH_MERMAID_MINDMAP_SYNTAX": "Use one root and indentation for children; close node shapes and quoted markdown labels.",
   "GLYPH_MERMAID_STATE_NOTE": "Remove the note; put its text in the state's description (`Id : text`) or in a transition label.",
   "GLYPH_MERMAID_STATE_CONCURRENCY": "Draw each concurrent region as its own composite state or its own diagram; `--` regions are not rendered.",
   "GLYPH_MERMAID_STATE_FORK_JOIN": "Replace the <<fork>>/<<join>> with a <<choice>> or a plain state; the bar is not rendered.",

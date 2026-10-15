@@ -1,6 +1,6 @@
 # @glyphcss/diagrams
 
-2D Mermaid flowcharts, state diagrams and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
+2D Mermaid flowcharts, state diagrams, git histories, mindmaps and JSON graphs rendered into text cells for chat, terminals, and HTML. Layout and rendering are asynchronous. The pipeline uses the public glyphcss cell canvas, with no camera, scene, or DOM renderer.
 
 > Layout and the examples below use the installed `@dagrejs/dagre@3.1.1`. `fixtures/langgraph-export.mmd` is the real, unmodified `draw_mermaid()` export byte-for-byte (including its `&nbsp;`-padded conditional edge text); `fixtures/langgraph.mmd` is a variant that makes agent→tools solid and keeps a labelled dotted edge to `__end__`.
 
@@ -89,6 +89,22 @@ Rejected by name, never silently dropped (each code has a repair hint in `glyphD
 
 Anything else that is not a state statement is `GLYPH_MERMAID_SYNTAX`.
 
+
+## Mermaid gitGraph and mindmap
+
+The existing `renderGlyphDiagram(source, options)` and `glyphGraphFromMermaid(source)` entries dispatch both headers. Examples for every feature family are executable in `fixtures/mermaid-task3.json`.
+
+**gitGraph** reuses `./lanes`, with one `*` per commit and its id, tags and annotations beside it. It accepts `commit` (`id`, `type: NORMAL|REVERSE|HIGHLIGHT`, `tag`), quoted/unquoted `branch` names with `order`, `checkout`/`switch`, `merge` with the same commit attributes, and `cherry-pick id: "source" [parent: "merge-parent"]`. Cherry-picks have one ancestry parent (the current head); source and selected merge parent are text annotations. Generated ids are deterministic and avoid authored ids. Branch names annotate their final heads; marker, header and tag-outline approximations are logged as `git-layout`.
+
+- `TB:` reads oldest first down the page; `BT:` reads newest first. Default/explicit `LR:` degrades to oldest-first vertical lanes, leaving room for labels at 72 columns (`git-orientation`). Branch identity keeps main in the first lane by default. Unordered branches follow declaration order, then explicitly ordered branches follow numeric `order`; `mainBranchOrder` can reposition main. Width pressure can collapse lanes with `lane-cap-collapsed`.
+- Init directives and YAML frontmatter are never executed. YAML comments are stripped without changing quoted hashes. Only scalar `mainBranchName`, `mainBranchOrder`, `showBranches`, and `showCommitLabel` are read as source data. Hiding branches hides names; ancestry lines remain (`git-hidden-branches`). Hiding labels hides ids, retaining tags/types/provenance. Themes, rotation, parallel placement and other configuration are inert (`git-config`).
+- `REVERSE`/`HIGHLIGHT` become text (`git-types`); merge circles become the existing marker plus connectors and `merge`/type text (`git-merge`); cherries become provenance text (`git-cherry-pick`). No new glyph families.
+- Root results retain ancestry in `meta.nodes`/`meta.edges`; graph-only `layout.nodes/edges/ports`, `routes`, and `labels` are empty because lanes own placement. `glyphGraphFromMermaid` returns a conventional rounded-node ancestry projection; rendering that graph uses the graph pipeline. Source rendering uses lanes. Graph-only spacing/direction/color callbacks do not configure lanes; native `./lanes` remains available for lane options.
+- Invalid statements/references use `GLYPH_MERMAID_GIT_SYNTAX`; duplicate branch/commit ids and cherry-picks without a required immediate merge parent reject.
+
+**mindmap** uses indentation (including uneven dedents) to build a left-to-right tree with undirected connectors. This keeps words horizontal and leaves wrapping/paging to the graph fitter, rather than spreading a radial map across 72 columns. Siblings retain authored top-to-bottom order. Apostrophes are ordinary text. Repeated labels remain distinct nodes. Shapes map to approved families: `[]` → rectangle, `()` → rounded, `(())` → circle, `))((` bang / `)(` cloud → rounded, `{{}}` hexagon → rectangle. Unshaped nodes use rounded boxes. Layout, default shape and approximated shapes have `mermaid-degraded` notes.
+
+`::icon(...)` and `:::class1 class2`, inline or on their own line, are inert (`mindmap-assets`); assets are never fetched. Quoted markdown strings preserve multiline text and wrap normally; bold/italic styling becomes plain text (`markdown`). Frontmatter/configuration, including tidy-tree and branch/depth coloring, is inert (`mindmap-config`); caller render options control presentation. Invalid hierarchy or unclosed shapes use `GLYPH_MERMAID_MINDMAP_SYNTAX`. Other diagram kinds keep their named unsupported errors.
 
 ## Output options
 

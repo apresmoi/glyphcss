@@ -1,4 +1,5 @@
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker } from "./presentation";
+import { renderGlyphMermaidGit } from "./mermaidGitRender";
 import { glyphParseMermaid } from "./mermaid";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
@@ -45,6 +46,7 @@ function resolvedOptions(options: GlyphDiagramRenderOptions) {
 export async function renderGlyphDiagram(input: GlyphGraph | string, options: GlyphDiagramRenderOptions = {}): Promise<GlyphDiagramResult> {
   const opts = resolvedOptions(options);
   const parsed = typeof input === "string" ? glyphParseMermaid(input) : { graph: glyphGraphFromJson(input), notes: [] };
+  if ("lanes" in parsed && parsed.lanes) return renderGlyphMermaidGit(parsed.graph, parsed.lanes, parsed.notes, opts);
   const original = canonicalizeGlyphGraph(parsed.graph);
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
   let diamondMarkers = graph.nodes.filter(node => glyphDiagramHasDiamondMarker(node)).map(node => node.id);

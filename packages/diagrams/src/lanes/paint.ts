@@ -27,7 +27,7 @@ export interface GlyphLanePaintResult {
 }
 
 function rowContent(node: GlyphLaneNode, ids: boolean): string {
-  return [...(ids ? [node.id] : []), ...(node.marks?.length ? [`(${node.marks.join(", ")})`] : []), node.label].join("  ");
+  return [...(ids ? [node.id] : []), ...(node.marks?.length ? [`(${node.marks.join(", ")})`] : []), node.label].filter(part => part !== "").join("  ");
 }
 
 /** The two maps `laneColor` resolution reads: the node a lane is waiting for (set by a continuation row) and the last node to occupy it. */
@@ -210,7 +210,7 @@ export function paintGlyphLaneDag(
     // and its E/W toward each touched lane combine into one junction glyph.
     const bits = new Map<number, number>();
     const add = (lane: number, mask: number): void => { bits.set(lane, (bits.get(lane) ?? 0) | mask); };
-    add(row.hubLane, N | (row.hubContinues ? S : 0));
+    add(row.hubLane, (row.hubStarts ? 0 : N) | (row.hubContinues ? S : 0));
     for (const lane of touched) if (lane !== row.hubLane) add(row.hubLane, lane > row.hubLane ? E : W);
     // A touched lane BETWEEN the hub and a further-out lane also carries the
     // horizontal run PASSING THROUGH its own cell, so it needs both E and W

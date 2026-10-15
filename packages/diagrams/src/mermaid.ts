@@ -4,6 +4,8 @@ import { labelText, skipMermaidComment, GLYPH_MERMAID_ENTITY } from "./mermaidTe
 import type { GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphMermaidShape } from "./mermaidShapes";
 import { ledgerMermaidDegraded } from "./ledger";
+import { glyphParseMermaidGit, type GlyphMermaidGitLanes } from "./mermaidGit";
+import { glyphParseMermaidMindmap } from "./mermaidMindmap";
 import { glyphParseMermaidState } from "./mermaidState";
 
 function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAID_SYNTAX", message); }
@@ -229,7 +231,8 @@ class GlyphMermaidStatement {
 
 export function glyphGraphFromMermaid(source: string): GlyphGraph { return glyphParseMermaid(source).graph; }
 
-export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: GlyphDiagramLedgerEntry[] } {
+export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: GlyphDiagramLedgerEntry[]; lanes?: GlyphMermaidGitLanes } {
+  const originalSource = source;
   const notes: GlyphDiagramLedgerEntry[] = [];
   const note = (kind: string, message: string) => { if (!notes.some(entry => entry.detail?.kind === kind)) notes.push(ledgerMermaidDegraded({ kind, message })); };
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
@@ -242,6 +245,8 @@ export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: G
   // delimiters need not obey flowchart syntax to earn its named rejection.
   const prefix = source.replace(/^\uFEFF/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const declaredKind = /^[\w-]+/.exec(prefix)?.[0];
+  if (declaredKind?.toLowerCase() === "gitgraph") return glyphParseMermaidGit(originalSource);
+  if (declaredKind === "mindmap") return glyphParseMermaidMindmap(originalSource);
   if (declaredKind === "stateDiagram" || declaredKind === "stateDiagram-v2") return glyphParseMermaidState(source);
   if (declaredKind && declaredKind !== "flowchart" && declaredKind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${declaredKind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${declaredKind} is not supported; use flowchart or graph.`);
   const parts = statements(source.replace(/^\uFEFF/, ""));

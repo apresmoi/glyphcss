@@ -280,9 +280,13 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       const arrow = { x: glyph.x - flow.inward.x, y: glyph.y - flow.inward.y }, barAt = { x: arrow.x - flow.inward.x, y: arrow.y - flow.inward.y };
       bar(entries, barAt, flow.entry, { cross: crossOf(glyph), bit: flow.exit });
       const routed = layout.ports.filter((p) => p.nodeId === node.id && p.end === "to").map((p) => routing.routes.find((r) => r.edge.id === p.edgeId)).filter((r) => r !== undefined);
-      const directed = routed.find((r) => r!.edge.style !== "undirected");
-      if (directed) canvas.arrowhead(arrow.x, arrow.y, flow.from, { color: edgeAccentColors.get(directed.edge.id)! });
-      else canvas.text(arrow.x, arrow.y, [tier.junction[flow.entry | flow.exit]!], { color: nodeColor });
+      const heads = routed.map((r) => r.edge.endHead ?? (r.edge.style === "undirected" ? "none" : "arrow"));
+      const shared = heads.every((head) => head === heads[0]);
+      // Only equal heads can share a tip. Mixed heads stay at their own entry ports.
+      const head = shared ? heads[0] : "none";
+      const color = routed.length ? edgeAccentColors.get(routed[0]!.edge.id)! : nodeColor;
+      if (head === "arrow") canvas.arrowhead(arrow.x, arrow.y, flow.from, { color });
+      else canvas.text(arrow.x, arrow.y, [head === "circle" ? charset === "ascii" ? "o" : "●" : head === "cross" ? charset === "ascii" ? "x" : "✕" : tier.junction[flow.entry | flow.exit]!], { color });
     }
     // The glyph itself is the node's label, folded and charset-picked at measure time.
     if (node.lines[0]) canvas.text(glyph.x, glyph.y, [node.lines[0]], { color: nodeColor });
@@ -335,7 +339,10 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       }
       continue;
     }
-    if (end === "to" && (pointEntries.get(port.nodeId) ?? 0) > 1) continue;
+    if (end === "to" && (pointEntries.get(port.nodeId) ?? 0) > 1) {
+      const heads = routing.routes.filter((r) => r.edge.to === port.nodeId).map((r) => r.edge.endHead ?? (r.edge.style === "undirected" ? "none" : "arrow"));
+      if (heads.every((value) => value === heads[0])) continue;
+    }
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
     const color = edgeAccentColors.get(route.edge.id)!;
     if (head === "arrow") canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color });
