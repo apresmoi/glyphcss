@@ -1,5 +1,6 @@
+import { glyphDiagramStateFramePorts } from "./stateFrame";
 import { glyphDiagramNodeContent } from "./presentation";
-import { GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
+import { GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame, GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
 import { glyphDiagramError } from "./validate";
 import { glyphDiagramCycleLayout, glyphDiagramCyclePaths } from "./cycleLayout";
 import { glyphDiagramGraphLabels } from "./graphLabels";
@@ -11,7 +12,7 @@ import { glyphDiagramCompactionFloor } from "./degrade";
 import { glyphDiagramText } from "./labels";
 import { glyphDiagramSnakeLayout } from "./snake";
 import { GLYPH_DIAGRAM_LOOP_LABEL_MAX } from "./loop";
-import { validateGlyphDiagramLayoutOptions, backEdgeIds, GLYPH_DIAGRAM_FAN_GAP, GLYPH_DIAGRAM_EDGE_LABEL_ROOM, glyphDiagramFoldLabel, glyphDiagramGroupDepths, glyphDiagramGroupParents, glyphDiagramWords, glyphDiagramWrap, glyphDiagramPortOffsets, GLYPH_DIAGRAM_DIRECTIONS, layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
+import { validateGlyphDiagramLayoutOptions, backEdgeIds, glyphDiagramGroupRects, type GlyphDiagramPositionedPort, GLYPH_DIAGRAM_FAN_GAP, GLYPH_DIAGRAM_EDGE_LABEL_ROOM, glyphDiagramFoldLabel, glyphDiagramGroupDepths, glyphDiagramGroupParents, glyphDiagramWords, glyphDiagramWrap, glyphDiagramPortOffsets, GLYPH_DIAGRAM_DIRECTIONS, layoutGlyphGraph, measureGlyphGraph, reserveGlyphGraphPorts, type GlyphDiagramLayout, type GlyphDiagramLayoutOptions, type GlyphDiagramReservedGraph } from "./pipeline";
 import { GLYPH_DIAGRAM_ROUTE_SEPARATION, glyphDiagramHasRoutingClearance, glyphDiagramLoopsClear, routeGlyphGraphEdges, type GlyphDiagramRoutingResult } from "./route";
 import type { GlyphGraph } from "./types";
 import { GLYPH_DIAGRAM_WORK, GlyphDiagramWorkLimit, type GlyphDiagramWork } from "./work";
@@ -47,10 +48,10 @@ const perpendicular: Record<GlyphGraph["direction"], GlyphGraph["direction"]> = 
 function routeAttempt(candidate: Candidate, width: number, height: number, stopOnFailure = false, work?: GlyphDiagramWork): GlyphDiagramAttempt {
   const { raw, adjusted } = candidate;
   const { dx, dy } = glyphDiagramCenterOffset(raw, { width, height });
-  const layout = { ...raw,
+  const layout = glyphDiagramStateFramePorts({ ...raw,
     nodes: raw.nodes.map(n => ({ ...n, x0: n.x0 + dx, x1: n.x1 + dx, y0: n.y0 + dy, y1: n.y1 + dy })),
     ports: raw.ports.map(p => ({ ...p, anchor: { x: p.anchor.x + dx, y: p.anchor.y + dy }, escape: { x: p.escape.x + dx, y: p.escape.y + dy } })),
-  };
+  }, { cols: width, rows: height });
   const fits = raw.width <= width && raw.height <= height;
   let routing: GlyphDiagramRoutingResult = { routes: [], unroutable: [], ledger: [] };
   if (fits) {
@@ -342,7 +343,9 @@ function foldTail(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions,
 
 /** One pass in flow order: a moved parent can straighten its children next. */
 export function glyphDiagramStraightenPorts(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): GlyphDiagramAttempt {
-  if (!result.okay || result.layout.groups.length || result.layout.loops.length || result.layout.nodes.some(node => node.shape === "point")
+  if (!result.okay || result.layout.loops.length
+    || ((result.layout.groups.length || result.layout.nodes.some(node => node.shape === "point"))
+      && !result.layout.edges.some(edge => (edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]))
     || options[GLYPH_DIAGRAM_WORK]?.terminal) return result;
   const vertical = result.layout.direction === "TB" || result.layout.direction === "BT";
   const reverse = result.layout.direction === "BT" || result.layout.direction === "RL";
@@ -351,6 +354,14 @@ export function glyphDiagramStraightenPorts(result: GlyphDiagramAttempt, options
   const entry = reverse ? vertical ? "s" : "e" : vertical ? "n" : "w";
   const exit = reverse ? vertical ? "n" : "w" : vertical ? "s" : "e";
   const margin = result[FIT_SPACING] ?? options.margin ?? 1;
+  const droppedLabels = new Set(glyphDiagramGraphLabels(result.layout, result.routing,
+    { ...options, width: result.width, height: result.height }).dropped);
+  const frame = (layout: GlyphDiagramLayout, port: GlyphDiagramPositionedPort) =>
+    (layout.edges.find(edge => edge.id === port.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end];
+  const endpointIds = (layout: GlyphDiagramLayout, port: GlyphDiagramPositionedPort) => {
+    const group = frame(layout, port)?.group;
+    return group ? layout.groups.find(other => other.id === group)!.members : [port.nodeId];
+  };
   const rowOrder = [...result.layout.nodes].sort((a, b) => (reverse ? b[end] - a[end] : a[start] - b[start])
     || a[low] - b[low] || a.id.localeCompare(b.id));
   for (const original of rowOrder) {
@@ -365,41 +376,62 @@ export function glyphDiagramStraightenPorts(result: GlyphDiagramAttempt, options
       if (to.side !== entry || from.side !== exit
         || (reverse ? from.anchor[vertical ? "y" : "x"] <= to.anchor[vertical ? "y" : "x"]
           : from.anchor[vertical ? "y" : "x"] >= to.anchor[vertical ? "y" : "x"])) continue;
+      // A frame endpoint owns its complete enclosure; its representative child
+      // must never move alone or carry internal transitions into the fan count.
+      const toFrame = frame(layout, to), fromFrame = frame(layout, from);
+      if (layout.groups.length && !toFrame && !fromFrame) continue;
       const delta = from.anchor[axis] - to.anchor[axis];
       if (!delta || tried.has(delta)) continue;
       tried.add(delta);
-      const single = incoming.length === 1 && layout.edges.filter(edge => edge.from === from.nodeId).length === 1;
+      const single = incoming.filter(port => !toFrame || frame(layout, port)?.group === toFrame.group).length === 1
+        && layout.ports.filter(port => port.end === "from" && (fromFrame ? frame(layout, port)?.group === fromFrame.group : port.nodeId === from.nodeId)).length === 1;
       if (!single && Math.abs(delta) > 3) continue;
-      const ids = new Set([node.id]);
+      // A free root is cheaper to move than a complete target enclosure, whose
+      // return corridors may already use the last available viewport columns.
+      const moveSource = !!toFrame && !fromFrame && single && !layout.edges.some(edge => edge.to === from.nodeId);
+      const shift = moveSource ? -delta : delta;
+      const ids = new Set(endpointIds(layout, moveSource ? from : to));
       // Keep a single-input subtree together; joins remain anchored to their
       // other inputs, and backward edges must never pull an ancestor along.
-      if (single) for (const id of ids) for (const edge of layout.edges.filter(edge => edge.from === id)) {
+      if (single && !moveSource) for (const id of ids) for (const edge of layout.edges.filter(edge => edge.from === id)) {
+        if ((edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.to) continue;
         const parent = layout.nodes.find(other => other.id === id)!;
         const child = layout.nodes.find(other => other.id === edge.to)!;
         if (layout.edges.filter(other => other.to === child.id).length === 1
           && (reverse ? child[end] < parent[start] : child[start] > parent[end])) ids.add(child.id);
       }
+      // Partial membership would resize a frame and move unrelated border ports.
+      if (layout.groups.some(group => group.members.some(id => ids.has(id)) && !group.members.every(id => ids.has(id)))) continue;
       const moved = layout.nodes.filter(other => ids.has(other.id));
+      const rects = glyphDiagramGroupRects(layout, { cols: result.width, rows: result.height });
       const free = moved.every(other => {
         const neighbours = layout.nodes.filter(peer => !ids.has(peer.id) && other[start] <= peer[end] && other[end] >= peer[start]);
         const before = Math.max(margin, ...neighbours.filter(peer => peer[high] < other[low]).map(peer => peer[high] + 2));
         const after = Math.min((vertical ? result.width : result.height) - margin - 1,
           ...neighbours.filter(peer => peer[low] > other[high]).map(peer => peer[low] - 2));
-        return other[low] + delta >= before && other[high] + delta <= after;
+        if (other[low] + shift < before || other[high] + shift > after) return false;
+        return layout.groups.every(group => {
+          if (group.members.some(id => ids.has(id))) return true;
+          const rect = rects.get(group.id);
+          return !rect || other[start] > rect[end] || other[end] < rect[start]
+            || other[high] + shift < rect[low] - 1 || other[low] + shift > rect[high] + 1;
+        });
       });
       if (!free) continue;
       const raw = { ...layout, width: result.width, height: result.height,
-        nodes: layout.nodes.map(other => ids.has(other.id) ? { ...other, [low]: other[low] + delta, [high]: other[high] + delta } : other),
+        nodes: layout.nodes.map(other => ids.has(other.id) ? { ...other, [low]: other[low] + shift, [high]: other[high] + shift } : other),
         ports: layout.ports.map(port => ids.has(port.nodeId) ? { ...port,
-          anchor: { ...port.anchor, [axis]: port.anchor[axis] + delta }, escape: { ...port.escape, [axis]: port.escape[axis] + delta } } : port) };
+          anchor: { ...port.anchor, [axis]: port.anchor[axis] + shift }, escape: { ...port.escape, [axis]: port.escape[axis] + shift } } : port) };
       const candidate = routeAttempt({ raw, adjusted: true, margin, nodesep: options.nodesep ?? 4, ranksep: options.ranksep ?? 4 },
         result.width, result.height, true, options[GLYPH_DIAGRAM_WORK]);
       if (!candidate.okay) continue;
       const route = candidate.routing.routes.find(route => route.edge.id === to.edgeId)!;
-      if (!route.cells.every(cell => cell[axis] === from.anchor[axis])) continue;
+      const aligned = candidate.layout.ports.find(port => port.edgeId === to.edgeId && port.end === "from")!;
+      if (!route.cells.every(cell => cell[axis] === aligned.anchor[axis])) continue;
       if (readability(candidate)[2]! < readability(best)[2]!
         && readability(candidate)[0]! <= readability(result)[0]!
-        && readability(candidate)[1]! <= readability(result)[1]! && !dropsEdgeLabel(candidate, options)) best = candidate;
+        && readability(candidate)[1]! <= readability(result)[1]! && glyphDiagramGraphLabels(candidate.layout, candidate.routing,
+          { ...options, width: candidate.width, height: candidate.height }).dropped.every(id => droppedLabels.has(id))) best = candidate;
     }
     result = best;
   }
@@ -542,7 +574,7 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
     const folded = glyphDiagramFoldTail(first, options);
     if (folded !== first && !cutsWords(folded, options.charset)) return glyphDiagramStraightenPorts(folded, options);
     if (first.okay && !cutsWords(first, options.charset)
-      && (first.layout.groups.length || first.layout.ledger.some(entry => entry.code === "layout-wrapped"))) return first;
+      && (first.layout.groups.length || first.layout.ledger.some(entry => entry.code === "layout-wrapped"))) return glyphDiagramStraightenPorts(first, options);
     let best = folded;
     if (first.layout.nodes.length === 1) return first;
     if (!first.okay || cutsWords(first, options.charset) || readability(first)[0]! > 0 || readability(first)[1]! > 0) {

@@ -1,5 +1,6 @@
+import { glyphDiagramStateFramePorts } from "./stateFrame";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker, glyphDiagramNodeText, type GlyphDiagramPresentationOptions } from "./presentation";
-import { GLYPH_DIAGRAM_WORD_WIDTH, GLYPH_DIAGRAM_GROUP_BOUNDS } from "./layoutHints";
+import { GLYPH_DIAGRAM_WORD_WIDTH, GLYPH_DIAGRAM_GROUP_BOUNDS, GLYPH_MERMAID_STATE_REGION, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateRegion, type GlyphMermaidStateFrame } from "./layoutHints";
 import { GLYPH_DIAGRAM_DAGRE_ALIGN, type GlyphDiagramDagreAlignment } from "./fitAlignment";
 import type { GlyphCanvasDirection, GlyphCanvasPoint, GlyphCanvasTierName } from "glyphcss";
 import type { GlyphGraph, GlyphGraphNode, GlyphGraphEdge, GlyphGraphGroup } from "./types";
@@ -250,8 +251,8 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
     // entries need before the glyph: nothing, one arrowhead, or (several) a bar and then one arrowhead.
     const point = node.shape === "point", room = (count: number) => point ? Math.max(1, 2 * count - 1) : 2 * count + 1;
     const connectionsOn = (side: GlyphCanvasDirection) => flow.flatMap((edge) => [
-      ...(edge.from === node.id && side === edgeSide(edge, "from") ? [{ edgeId: edge.id, end: "from" as const }] : []),
-      ...(edge.to === node.id && side === edgeSide(edge, "to") ? [{ edgeId: edge.id, end: "to" as const }] : []),
+      ...(edge.from === node.id && !(edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.from && side === edgeSide(edge, "from") ? [{ edgeId: edge.id, end: "from" as const }] : []),
+      ...(edge.to === node.id && !(edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.to && side === edgeSide(edge, "to") ? [{ edgeId: edge.id, end: "to" as const }] : []),
     ]);
     const slotsOn = (side: GlyphCanvasDirection) => {
       const slots = new Map<string, ReturnType<typeof connectionsOn>>();
@@ -283,7 +284,7 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       else height = Math.max(height, room(count));
     }
     if (point) {
-      const entries = flow.filter((e) => e.to === node.id).length, along = entries === 0 ? 1 : entries === 1 ? 2 : 3;
+      const entries = flow.filter((e) => e.to === node.id && !(e as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.to).length, along = entries === 0 ? 1 : entries === 1 ? 2 : 3;
       if (loopSide === "e") height = Math.max(height, along); else width = Math.max(width, along);
     }
     const loops = glyphDiagramLoopSlots(measured.loops.filter((loop) => loop.nodeId === node.id), loopSide);
@@ -310,6 +311,9 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
     loops.slots.forEach((slot, i) => ports.push({ edgeId: slot.edgeId, nodeId: node.id, end: "from", side: loopSide, offset: loopOffsets[2 * i]! }, { edgeId: slot.edgeId, nodeId: node.id, end: "to", side: loopSide, offset: loopOffsets[2 * i + 1]! }));
     return { ...node, width, height };
   });
+  for (const edge of flow) for (const end of ["from", "to"] as const) {
+    if ((edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[end]) ports.push({ edgeId: edge.id, nodeId: edge[end], end, side: end === "from" ? fromSide : toSide, offset: 0 });
+  }
   return { ...measured, nodes, ports };
 }
 /** Where a `point` node's glyph sits: centred across the flow, on the side its edges leave from, so the arrowheads entering it have their own row or column. */
@@ -440,8 +444,16 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
       } else {
         const labelWidth = options[GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?.includes(edge.id) ? glyphDiagramText(edge.label ?? "", options.charset).length : 0;
         const room = labelWidth ? { width: labelWidth + 2, height: 3, labelpos: "c" } : {};
-        if (back.has(edge.id)) g.setEdge(edge.to, edge.from, room, edge.id);
-        else g.setEdge(edge.from, edge.to, room, edge.id);
+        const frame = (edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME];
+        // Panels keep only their own endpoints; absent region peers must not
+        // become phantom Dagre nodes that move the remaining boxes.
+        const peers = (end: "from" | "to") => frame?.[end]?.nodes.filter(id => reserved.nodes.some(node => node.id === id));
+        const froms = peers("from")?.length ? peers("from")! : [edge.from], tos = peers("to")?.length ? peers("to")! : [edge.to];
+        // Constrain all region ranks without manufacturing drawable transitions.
+        for (const from of froms) for (const to of tos) {
+          if (back.has(edge.id)) g.setEdge(to, from, room, edge.id);
+          else g.setEdge(from, to, room, edge.id);
+        }
       }
     }
     dagre.layout(g, !includedGroups.length && !reserved.loops.length && !back.size ? {
@@ -550,6 +562,30 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
     const x0 = Math.round(position.x - node.width / 2), y0 = Math.round(position.y - node.height / 2);
     return { ...node, x0, y0, x1: x0 + node.width - 1, y1: y0 + node.height - 1 };
   });
+  // Dagre may reverse compound siblings. Move whole region envelopes, including
+  // their loop room, into authored slots before assigning any real ports/routes.
+  for (const parent of [...includedGroups].sort((a, b) => groupDepths.get(b.id)! - groupDepths.get(a.id)!)) {
+    const regions = includedGroups.filter(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]?.parent === parent.id)
+      .sort((a, b) => (a as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]!.index - (b as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]!.index);
+    if (regions.length < 2) continue;
+    const envelope = (group: GlyphGraphGroup) => {
+      const members = positioned.filter(node => group.members.includes(node.id));
+      return { group, lo: Math.min(...members.map(node => across ? node.x0 : node.y0)),
+        hi: Math.max(...members.map(node => (across ? node.x1 : node.y1) + loopRoom(node.id).reach)) };
+    };
+    const authored = regions.map(envelope), visual = [...authored].sort((a, b) => a.lo - b.lo);
+    let cursor = visual[0]!.lo;
+    const shifts = new Map<string, number>();
+    authored.forEach((region, i) => {
+      for (const id of region.group.members) shifts.set(id, cursor - region.lo);
+      cursor += region.hi - region.lo + 1;
+      if (i + 1 < visual.length) cursor += Math.max(1, visual[i + 1]!.lo - visual[i]!.hi - 1);
+    });
+    positioned = positioned.map(node => {
+      const delta = shifts.get(node.id) ?? 0;
+      return across ? { ...node, x0: node.x0 + delta, x1: node.x1 + delta } : { ...node, y0: node.y0 + delta, y1: node.y1 + delta };
+    });
+  }
   // Single BK alignments can put several connections through one gap. Reserve
   // one channel per crossing edge and a turn, with an extra escape cell beyond
   // caller spacing. Leave the balanced layout byte-identical. Loop dummies and compound frames already own room.
@@ -617,8 +653,9 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   // in the engine's actual transverse order, not in lexical edge order: dagre
   // 3 may reverse siblings while retaining a perfectly planar embedding.
   const offsets = new Map<GlyphDiagramPort, number>();
+  for (const port of planned) if ((reserved.edges.find(edge => edge.id === port.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end]) offsets.set(port, port.offset);
   for (const node of nodes) for (const side of ["n", "e", "s", "w"] as const) {
-    const ports = planned.filter((p) => p.nodeId === node.id && p.side === side);
+    const ports = planned.filter((p) => p.nodeId === node.id && p.side === side && !(reserved.edges.find(edge => edge.id === p.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[p.end]);
     const transverse = (port: GlyphDiagramPort) => {
       const edge = reserved.edges.find((e) => e.id === port.edgeId)!;
       const other = byId.get(port.end === "from" ? edge.to : edge.from)!;
@@ -692,5 +729,6 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   const labelRoomEnd = across ? reserved.edges.filter(edge => !back.has(edge.id) && options[GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?.includes(edge.id)).map(edge =>
     Math.max(...ports.filter(port => port.edgeId === edge.id).map(port => port.anchor.x))
       + glyphDiagramText(edge.label ?? "", options.charset).length + 3 + margin) : [];
-  return { ...reserved, ledger, nodes, ports, frameInset, width: Math.max(1, ...labelRoomEnd, ...nodes.map((n) => n.x1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.x1 + 1 + b.pad + inset)), height: Math.max(1, ...nodes.map((n) => n.y1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.y1 + 1 + b.pad + inset)) };
+  const layout = { ...reserved, ledger, nodes, ports, frameInset, width: Math.max(1, ...labelRoomEnd, ...nodes.map((n) => n.x1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.x1 + 1 + b.pad + inset)), height: Math.max(1, ...nodes.map((n) => n.y1 + 1 + margin + inset), ...loopRoomEnd.map((b) => b.y1 + 1 + b.pad + inset)) };
+  return glyphDiagramStateFramePorts(layout, { cols: layout.width, rows: layout.height });
 }

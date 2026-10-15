@@ -4,7 +4,7 @@ import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeHead, GlyphGraphEdg
 export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
   "unknown-node", "bad-group", "point-loop", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
-  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_BLOCK_SYNTAX", "GLYPH_MERMAID_ARCHITECTURE_SYNTAX", "GLYPH_MERMAID_REQUIREMENT_SYNTAX", "GLYPH_MERMAID_C4_SYNTAX", "GLYPH_MERMAID_CLASS_SYNTAX", "GLYPH_MERMAID_ER_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_BLOCK_SYNTAX", "GLYPH_MERMAID_ARCHITECTURE_SYNTAX", "GLYPH_MERMAID_REQUIREMENT_SYNTAX", "GLYPH_MERMAID_C4_SYNTAX", "GLYPH_MERMAID_CLASS_SYNTAX", "GLYPH_MERMAID_ER_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
   "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
@@ -157,10 +157,8 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "GLYPH_MERMAID_ER_SYNTAX": "Use entity attribute blocks and cardinality relationships; close blocks and quotes.",
   "GLYPH_MERMAID_GIT_SYNTAX": "Use commit, branch, checkout/switch, merge or cherry-pick; reference existing branches/commits and immediate merge parents.",
   "GLYPH_MERMAID_MINDMAP_SYNTAX": "Use one root and indentation for children; close node shapes and quoted markdown labels.",
-  "GLYPH_MERMAID_STATE_NOTE": "Remove the note; put its text in the state's description (`Id : text`) or in a transition label.",
-  "GLYPH_MERMAID_STATE_CONCURRENCY": "Draw each concurrent region as its own composite state or its own diagram; `--` regions are not rendered.",
-  "GLYPH_MERMAID_STATE_FORK_JOIN": "Replace the <<fork>>/<<join>> with a <<choice>> or a plain state; the bar is not rendered.",
-  "GLYPH_MERMAID_STATE_COMPOSITE_LOOP": "Move the self transition onto one of the composite's inner states, or draw it between the composite and another state.",
+  "GLYPH_MERMAID_STATE_NOTE": "Use note right/left of Id : text, or a multiline note closed by end note.",
+  "GLYPH_MERMAID_STATE_CONCURRENCY": "Place -- only inside a composite state body, between concurrent regions.",
   "GLYPH_DIAGRAM_UNROUTABLE": "Increase the viewport or node/rank separation, or simplify the graph so every edge has a legal lane.",
   "GLYPH_DIAGRAM_ELK_NOT_INSTALLED": "Use engine: dagre; the ELK adapter is reserved for phase 4.",
   "GLYPH_DIAGRAM_BAD_JSON": "Pass a syntactically valid JSON document encoding a graph object.",

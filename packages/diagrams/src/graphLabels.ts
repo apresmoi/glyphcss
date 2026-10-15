@@ -1,5 +1,5 @@
 import { GLYPH_DIAGRAM_DIAMOND_MARKER } from "./presentation";
-import { GLYPH_DIAGRAM_BRANCH_LABEL, GLYPH_DIAGRAM_ROUTE_TOUCH } from "./layoutHints";
+import { GLYPH_DIAGRAM_BRANCH_LABEL, GLYPH_DIAGRAM_ROUTE_TOUCH, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
 import { glyphDiagramGroupRects, type GlyphDiagramLayout } from "./pipeline";
 import { glyphDiagramLoopGeometry } from "./loop";
@@ -61,7 +61,8 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
   }
   if (options.title) candidates.push({ id: "title", text: options.title, x: Math.floor(options.width / 2), y: 0, priority: Infinity });
   // External text clears boxes and vertical stems by one cell.
-  const obstacles = [...layout.nodes.map(n => ({ x0: n.x0 - 1, y0: n.y0 - 1, x1: n.x1 + 1, y1: n.y1 + 1 })),
+  const framePorts = layout.ports.filter(port => (layout.edges.find(edge => edge.id === port.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end]);
+  const obstacles = [...framePorts.map(port => ({ x0: port.anchor.x - 1, x1: port.anchor.x + 1, y0: port.anchor.y, y1: port.anchor.y })), ...layout.nodes.map(n => ({ x0: n.x0 - 1, y0: n.y0 - 1, x1: n.x1 + 1, y1: n.y1 + 1 })),
     ...routing.routes.flatMap(route => route.cells.map((p, i) => {
       const prev = route.cells[i - 1], next = route.cells[i + 1];
       const vertical = prev?.x === p.x || next?.x === p.x;

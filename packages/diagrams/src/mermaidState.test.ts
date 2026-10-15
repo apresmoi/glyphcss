@@ -163,23 +163,13 @@ describe("state diagram inert and rejected constructs", () => {
   });
 
   it.each([
-    ["GLYPH_MERMAID_STATE_NOTE", "A --> B\nnote right of A : hello"],
-    ["GLYPH_MERMAID_STATE_NOTE", "A --> B\nnote left of B\n  text\nend note"],
-    ["GLYPH_MERMAID_STATE_NOTE", "A --> B\nfloating note \"x\" as N"],
-    ["GLYPH_MERMAID_STATE_CONCURRENCY", "state P {\n A --> B\n --\n C --> D\n}"],
-    ["GLYPH_MERMAID_STATE_FORK_JOIN", "state f <<fork>>\nA --> f"],
-    ["GLYPH_MERMAID_STATE_FORK_JOIN", "state j <<join>>\nj --> A"],
-    ["GLYPH_MERMAID_STATE_FORK_JOIN", "state j [[join]]\nj --> A"],
-  ])("rejects by name: %s for %j", (code, body) => {
-    // Mutation: silently skip the construct -> no throw, every case goes red.
+    ["GLYPH_MERMAID_STATE_NOTE", "A\nnote right of A\nunclosed"],
+    ["GLYPH_MERMAID_STATE_NOTE", 'floating note "x" as N'],
+    ["GLYPH_MERMAID_STATE_CONCURRENCY", "A\n--\nB"],
+  ])("rejects malformed constructs by name: %s", (code, body) => {
     expect(() => parse(body)).toThrow(expect.objectContaining({ code }));
-  });
-
-  it("documents every new code with its own repair hint", () => {
-    for (const code of ["GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN"]) {
-      expect(GLYPH_DIAGRAM_VALIDATION_RULES).toContain(code);
-      expect(glyphDiagramRepairHint(code)).not.toMatch(/^Check the graph/);
-    }
+    expect(GLYPH_DIAGRAM_VALIDATION_RULES).toContain(code);
+    expect(glyphDiagramRepairHint(code)).not.toMatch(/^Check the graph/);
   });
 
   it.each(["", "stateDiagram-v2\nA ~~ B", "stateDiagram-v2\nA --> ", "stateDiagram-v2\nstate \"unclosed as X", "stateDiagram-v2\nstate"])("rejects malformed source %j with a syntax rule", (source) => {
@@ -188,14 +178,10 @@ describe("state diagram inert and rejected constructs", () => {
 });
 
 describe("state diagram edge cases", () => {
-  it("rejects a composite's transition to itself by name instead of drawing a false edge", () => {
-    // Mutation: drop the composite self-transition check -> the edge resolves to inner end -> inner start, a transition that was never written.
-    for (const body of ["[*] --> P\nP --> P : restart\nstate P {\n X --> Y\n}", "state P {\n X --> Y\n}\nP --> P"]) {
-      expect(() => parse(body)).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_STATE_COMPOSITE_LOOP" }));
-    }
-    expect(GLYPH_DIAGRAM_VALIDATION_RULES).toContain("GLYPH_MERMAID_STATE_COMPOSITE_LOOP");
-    expect(glyphDiagramRepairHint("GLYPH_MERMAID_STATE_COMPOSITE_LOOP")).toMatch(/inner state/);
-    // A plain state, and a composite with no inner state, still loop.
+  it("degrades composite self transitions to exit-to-entry links with a ledger note", () => {
+    const body = "state P {\n X --> Y\n}\nP --> P : restart";
+    expect(edgeList(parse(body))).toEqual(["X>Y", "Y>X:restart"]);
+    expect(glyphMermaidNotes(`stateDiagram-v2\n${body}`).some(n => n.detail?.kind === "state-composite-loop")).toBe(true);
     expect(parse("A --> A : again").edges).toHaveLength(1);
     expect(parse("P --> P\nstate P {\n}").edges).toEqual([{ from: "P", to: "P", style: "solid" }]);
   });
@@ -236,7 +222,7 @@ describe("state diagram edge cases", () => {
     // Mutation: drop the optional `"name" as` from the stereotype pattern -> the line is a syntax error.
     const graph = parse(`state "Decide" as c <<choice>>\nA --> c\nc --> B : yes`);
     expect(graph.nodes.find((n) => n.id === "c")).toMatchObject({ shape: "diamond", kind: "state-choice" });
-    expect(() => parse(`state "Split" as f <<fork>>`)).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_STATE_FORK_JOIN" }));
+    expect(parse(`state "Split" as f <<fork>>`).nodes[0]).toMatchObject({ label: "Split\n[fork]", shape: "rounded", kind: "state-fork" });
   });
 });
 

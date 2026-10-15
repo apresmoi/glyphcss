@@ -119,7 +119,11 @@ describe("state diagram rendering", () => {
     expect(down.layout.height).toBeGreaterThan(across.layout.height);
   });
 
-  it("rejects an unsupported construct through the renderer with its code", async () => {
-    await expect(renderGlyphDiagram("stateDiagram-v2\nA --> B\nnote right of A : hi", chat)).rejects.toMatchObject({ code: "GLYPH_MERMAID_STATE_NOTE" });
+  it("renders supported notes and rejects malformed notes by name", async () => {
+    const result = await renderGlyphDiagram("stateDiagram-v2\nA --> B\nnote right of A : hi", chat);
+    expect(result.text).toContain("Note: hi");
+    expect(result.report.ledger.some(note => note.detail?.kind === "state-note")).toBe(true);
+    expect(result.report.unroutable).toEqual([]);
+    await expect(renderGlyphDiagram("stateDiagram-v2\nA --> B\nnote right of A\nunclosed", chat)).rejects.toMatchObject({ code: "GLYPH_MERMAID_STATE_NOTE" });
   });
 });

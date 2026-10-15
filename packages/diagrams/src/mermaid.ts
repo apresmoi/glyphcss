@@ -259,7 +259,7 @@ export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: G
   if (declaredKind?.toLowerCase() === "gitgraph") return glyphParseMermaidGit(originalSource);
   if (declaredKind === "classDiagram" || declaredKind === "erDiagram") return glyphParseMermaidClassEr(originalSource, declaredKind === "erDiagram");
   if (declaredKind === "mindmap") return glyphParseMermaidMindmap(originalSource);
-  if (declaredKind === "stateDiagram" || declaredKind === "stateDiagram-v2") return glyphParseMermaidState(source);
+  if (declaredKind === "stateDiagram" || declaredKind === "stateDiagram-v2") return glyphParseMermaidState(originalSource);
   if (declaredKind && declaredKind !== "flowchart" && declaredKind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${declaredKind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${declaredKind} is not supported; use flowchart or graph.`);
   const parts = statements(source.replace(/^\uFEFF/, ""));
   const header = parts.shift();

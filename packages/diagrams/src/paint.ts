@@ -1,9 +1,11 @@
+import { glyphDiagramStateDividers } from "./stateFrame";
+import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramDiamondGlyph } from "./presentation";
 import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection, type GlyphCanvasTierName } from "glyphcss";
 import { glyphDiagramGraphLabels } from "./graphLabels";
 import { resolveGlyphDiagramColor, resolveGlyphDiagramColorOption } from "./color";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelLayoutResult } from "./labels";
-import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
+import { diagramLedgerEntryFromCanvasMessage, ledgerMermaidDegraded, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphDiagramGroupRects, glyphDiagramPointCell, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
@@ -185,6 +187,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   }
   const groupRects = glyphDiagramGroupRects(layout, { cols: canvas.cols, rows: canvas.rows });
   for (const group of layout.groups) {
+    if ((group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]) continue;
     const nodes = layout.nodes.filter((n) => group.members.includes(n.id));
     if (!nodes.length) continue;
     const rect = groupRects.get(group.id)!;
@@ -258,13 +261,29 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     }
 
   }
+  // Region sub-groups reserve independent compound layout space; only their
+  // shared divider is visible, using the same hop rule as sequence frames.
+  for (const divider of glyphDiagramStateDividers(layout, groupRects)) {
+    const outer = groupRects.get(divider.parent);
+    if (!outer) continue;
+    if (!divider.valid) {
+      ledger.push(ledgerMermaidDegraded({ kind: "state-region-divider", message: "Overlapping region bounds cannot carry a divider; region membership remains in metadata." }));
+      continue;
+    }
+    const { vertical, position } = divider;
+    for (let along = (vertical ? outer.y0 : outer.x0) + 1; along < (vertical ? outer.y1 : outer.x1); along++) {
+      const x = vertical ? position : along, y = vertical ? along : position;
+      if (obstacles.some(rect => glyphDiagramRectsOverlap(rect, { x0: x, x1: x, y0: y, y1: y }))) continue;
+      canvas.text(x, y, [vertical ? tier.hop.v : tier.hop.h], { color });
+    }
+  }
   // A point is only its glyph. Exits leave through a bar of junctions on the glyph's own row or column; several entries
   // meet in a bar one cell further out and reach the glyph through one arrowhead, so every edge's last cell is joined
   // to the glyph by cells that are drawn. Bits: 1 n, 2 e, 4 s, 8 w.
   const pointEntries = new Map<string, number>();
   for (const port of layout.ports) {
     const edge = layout.edges.find((e) => e.id === port.edgeId)!;
-    if (edge.invisible) continue;
+    if (edge.invisible || (edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end]) continue;
     if (port.end === "to" && edge.from !== edge.to && layout.nodes.find((n) => n.id === port.nodeId)?.shape === "point") pointEntries.set(port.nodeId, (pointEntries.get(port.nodeId) ?? 0) + 1);
   }
   const POINT_FLOW = {
@@ -277,7 +296,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const flow = POINT_FLOW[layout.direction], glyph = glyphDiagramPointCell(node, layout.direction), across = layout.direction === "TB" || layout.direction === "BT";
     const crossOf = (p: { x: number; y: number }) => across ? p.x : p.y;
     const at = (cross: number, along: { x: number; y: number }) => across ? { x: cross, y: along.y } : { x: along.x, y: cross };
-    const anchors = (side: string) => layout.ports.filter((p) => p.nodeId === node.id && p.side === side && !layout.edges.find(e => e.id === p.edgeId)!.invisible && layout.edges.find((e) => e.id === p.edgeId)!.from !== layout.edges.find((e) => e.id === p.edgeId)!.to).map((p) => crossOf(p.anchor)).sort((a, b) => a - b);
+    const anchors = (side: string) => layout.ports.filter((p) => !(layout.edges.find(e => e.id === p.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[p.end] && p.nodeId === node.id && p.side === side && !layout.edges.find(e => e.id === p.edgeId)!.invisible && layout.edges.find((e) => e.id === p.edgeId)!.from !== layout.edges.find((e) => e.id === p.edgeId)!.to).map((p) => crossOf(p.anchor)).sort((a, b) => a - b);
     // A bar over `cross` coordinates, each of which has a line leaving it on the `side` bit; `stem` adds a line on one more cell.
     const bar = (crosses: readonly number[], along: { x: number; y: number }, side: number, stem?: { cross: number; bit: number }) => {
       for (let c = crosses[0]!; c <= crosses[crosses.length - 1]!; c++) {
@@ -292,7 +311,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     if (entries.length > 1) {
       const arrow = { x: glyph.x - flow.inward.x, y: glyph.y - flow.inward.y }, barAt = { x: arrow.x - flow.inward.x, y: arrow.y - flow.inward.y };
       bar(entries, barAt, flow.entry, { cross: crossOf(glyph), bit: flow.exit });
-      const routed = layout.ports.filter((p) => p.nodeId === node.id && p.end === "to").map((p) => routing.routes.find((r) => r.edge.id === p.edgeId)).filter((r) => r !== undefined);
+      const routed = layout.ports.filter((p) => p.nodeId === node.id && p.end === "to" && !(layout.edges.find(edge => edge.id === p.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.to).map((p) => routing.routes.find((r) => r.edge.id === p.edgeId)).filter((r) => r !== undefined);
       const heads = routed.map((r) => r.edge.endHead ?? (r.edge.style === "undirected" ? "none" : "arrow"));
       const shared = heads.every((head) => head === heads[0]);
       // Only equal heads can share a tip. Mixed heads stay at their own entry ports.
@@ -334,6 +353,14 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     for (const row of node.separators ?? []) canvas.text(x0, labelTop + row, [tier.junction[7]! + tier.straight.h.repeat(node.width - 2) + tier.junction[13]!], { color: nodeColor });
     if (node.shape === "subroutine") for (let y = y0 + 1; y < y1; y++) { canvas.text(x0 + 1, y, [tier.straight.v], { color: nodeColor }); canvas.text(x1 - 1, y, [tier.straight.v], { color: nodeColor }); }
   }
+  // A frame has no opaque node border. Restore its attachment cell after the
+  // dotted enclosure yields to the route, so an outgoing stem touches it.
+  for (const port of layout.ports) {
+    const edge = layout.edges.find(edge => edge.id === port.edgeId)!;
+    if (!(edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end]
+      || !routing.routes.some(route => route.edge.id === edge.id)) continue;
+    canvas.text(port.anchor.x, port.anchor.y, [port.side === "n" || port.side === "s" ? tier.straight.v : tier.straight.h], { color: routeColors.get(edge.id)! });
+  }
   const exits = new Set<string>();
   for (const port of layout.ports) if (port.end === "from" && port.trunk && routing.routes.some(route => route.edge.id === port.edgeId)) {
     const key = `${port.anchor.x},${port.anchor.y}`;
@@ -348,14 +375,15 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const head = end === "from" ? route.edge.startHead ?? "none" : route.edge.endHead ?? (route.edge.style === "undirected" ? "none" : "arrow");
     const port = layout.ports.find((p) => p.edgeId === route.edge.id && p.end === end);
     if (!port) continue;
+    const frameEnd = (route.edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[end];
     if (head === "none") {
-      if (end === "to" && (pointEntries.get(port.nodeId) ?? 0) === 1) {
+      if (!frameEnd && end === "to" && (pointEntries.get(port.nodeId) ?? 0) === 1) {
         const flow = POINT_FLOW[layout.direction];
         canvas.text(port.anchor.x, port.anchor.y, [tier.junction[flow.entry | flow.exit]!], { color: routeColors.get(route.edge.id)! });
       }
       continue;
     }
-    if (end === "to" && (pointEntries.get(port.nodeId) ?? 0) > 1) {
+    if (!frameEnd && end === "to" && (pointEntries.get(port.nodeId) ?? 0) > 1) {
       const heads = routing.routes.filter((r) => r.edge.to === port.nodeId).map((r) => r.edge.endHead ?? (r.edge.style === "undirected" ? "none" : "arrow"));
       if (heads.every((value) => value === heads[0])) continue;
     }

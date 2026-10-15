@@ -1,5 +1,6 @@
+import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import type { GlyphCanvasPoint } from "glyphcss";
-import type { GlyphDiagramLayout, GlyphDiagramRect } from "./pipeline";
+import { glyphDiagramGroupRects, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import { glyphDiagramLoopGeometry } from "./loop";
 import type { GlyphDiagramPlacedLabel } from "./labels";
 import type { GlyphDiagramRoutingResult } from "./route";
@@ -7,13 +8,16 @@ import type { GlyphDiagramRoutingResult } from "./route";
 /** Delete only pass-through slices: topology, labels and port clearance survive together. */
 export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult,
   labels: readonly GlyphDiagramPlacedLabel[], bounds: { width: number; height: number }) {
-  // Group padding is part of the frame contract; grouped layouts keep their existing geometry.
-  if (layout.groups.length) return { layout, routing, labels: [...labels], ...bounds };
+  // Ordinary compound layouts retain their padding; regions allow safe flow-axis slices.
+  const regions = layout.groups.some(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]);
+  if (layout.groups.length && !regions) return { layout, routing, labels: [...labels], ...bounds };
   let nodes = [...layout.nodes], ports = [...layout.ports], routes = [...routing.routes], placed = [...labels];
   let width = bounds.width, height = bounds.height;
   while (true) {
     const previousWidth = width, previousHeight = height;
     for (const axis of ["y", "x"] as const) {
+      // Region dividers own the transverse spacing; compact only along flow.
+      if (regions && (axis === "y") !== (layout.direction === "TB" || layout.direction === "BT")) continue;
       const vertical = axis === "y", lo = vertical ? "y0" : "x0", hi = vertical ? "y1" : "x1";
       const extent = vertical ? height : width;
       const protectedSlices = new Set<number>();
@@ -21,7 +25,7 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
         for (let i = rect[lo]; i <= rect[hi]; i++) protectedSlices.add(i);
       };
       for (const node of nodes) {
-        if (!vertical || node.shape === "point") protect(node);
+        if (regions || !vertical || node.shape === "point") protect(node);
         else {
           protectedSlices.add(node.y0); protectedSlices.add(node.y1);
           const top = node.y0 + Math.floor((node.height - node.lines.length) / 2);
@@ -31,6 +35,15 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
       for (const label of placed) protect(label);
       const current = { ...layout, nodes, ports };
       for (const loop of glyphDiagramLoopGeometry(current)) protect(loop.bounds);
+      const frames = regions ? glyphDiagramGroupRects(current, { cols: width, rows: height }) : new Map();
+      if (regions) for (const group of layout.groups) {
+        const rect = frames.get(group.id);
+        if (!rect) continue;
+        const members = nodes.filter(node => group.members.includes(node.id));
+        // Preserve caption/padding bands, including nested frame separation.
+        protect({ ...rect, [hi]: Math.min(...members.map(node => node[lo])) });
+        protect({ ...rect, [lo]: Math.max(...members.map(node => node[hi])) });
+      }
       for (const port of ports) {
         protectedSlices.add(port.anchor[axis]); protectedSlices.add(port.escape[axis]);
       }
@@ -64,7 +77,7 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
       for (let i = 0; i < extent; i++) {
         map[i] = i - shift;
         const tight = gaps.some(gap => i >= gap.start && i <= gap.end
-          && gap.end - gap.start + 1 - (shift - prefix[gap.start]!) <= 1);
+          && gap.end - gap.start + 1 - (shift - prefix[gap.start]!) <= (regions ? 2 : 1));
         if (!protectedSlices.has(i) && !tight) { removed.add(i); shift++; }
         prefix[i + 1] = shift;
       }
