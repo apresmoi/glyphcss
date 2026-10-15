@@ -1,3 +1,4 @@
+import { glyphChartRowSpacing } from "./rowSpacing";
 import { chartText } from "./labels";
 import { ledgerMermaidDegraded, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartLayout } from "./layout";
@@ -166,6 +167,7 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
     const periods = source.rows.filter((row) => row.kind === "period");
     const periodWidth = Math.min(Math.max(1, ...periods.map((row) => chartText(row.text, charset).length)), Math.max(1, Math.floor(contentWidth / 3)));
     const eventX = indent + periodWidth + 5, eventWidth = width - eventX;
+    const boundaries: number[] = [];
     let content = false;
     for (const row of source.rows) {
       if (row.kind === "section") {
@@ -195,19 +197,39 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
           events.forEach((s, i) => { if (s.first) add(eventX - 2, y + i, "-"); add(eventX, y + i, s.text); });
         });
       }
+      if (row !== source.rows.at(-1)) boundaries.push(y * scale);
       content = true;
     }
+    const space = glyphChartRowSpacing(y * scale, height, boundaries, scale);
+    for (const label of labels) label.y = space(label.y);
+    for (const segment of lines) { segment.from.y = space(segment.from.y); segment.to.y = space(segment.to.y); }
     if (!source.rows.length) group(1, "empty caption", () => wrap("No periods", width, "caption").forEach((s, i) => add(0, y + i, s)));
   } else if (source.kind === "kanban") {
     const rect = (x: number, top: number, w: number, h: number) => {
       line(x, top, x + w - 1, top); line(x, top + h - 1, x + w - 1, top + h - 1);
       line(x, top, x, top + h - 1); line(x + w - 1, top, x + w - 1, top + h - 1);
     };
-    const metadata = (item: KanbanItem) => [item.metadata.ticket ? `#${item.metadata.ticket.replace(/^#/, "")}` : "", item.metadata.assigned, item.metadata.priority].filter(Boolean).join(" · ");
+    const metadata = (item: KanbanItem) => [item.metadata.ticket ? `#${item.metadata.ticket.replace(/^#/, "")}` : "", item.metadata.assigned, item.metadata.priority].filter((value): value is string => Boolean(value));
+    const wrapMetadata = (item: KanbanItem, budget: number, report = true): string[] => {
+      const rows: string[] = [];
+      const separator = ` ${chartText("·", charset)} `;
+      for (const value of metadata(item)) {
+        const text = chartText(value, charset, report ? { ledger, role: "kanban metadata" } : undefined);
+        // A separator belongs between complete items, never at either edge of a row.
+        if (text.length > budget) {
+          if (report) note("kanban metadata item wider than the viewport", "the complete item omitted, never split", { item: text, columns: budget });
+          continue;
+        }
+        const last = rows.length - 1;
+        if (last >= 0 && rows[last]!.length + separator.length + text.length <= budget) rows[last] += separator + text;
+        else rows.push(text);
+      }
+      return rows;
+    };
     // Reserve outer lane + inset + card border + text padding before choosing columns.
     const wordWidth = (text: string, padding: number) => chartText(text, charset).split(/\s+/).map((word) => word.length + padding);
     const wanted = source.columns.map((column) => Math.min(width, Math.max(9, ...wordWidth(column.text, 4),
-      ...column.items.flatMap((item) => [...wordWidth(item.text, 8), ...wordWidth(metadata(item), 8)]))));
+      ...column.items.flatMap((item) => [...wordWidth(item.text, 8), ...metadata(item).map((value) => chartText(value, charset).length + 8)]))));
     const bands: { column: KanbanColumn; width: number }[][] = [];
     source.columns.forEach((column, i) => {
       const last = bands[bands.length - 1], w = wanted[i]!;
@@ -218,22 +240,44 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
     for (const band of bands) {
       const extra = Math.max(0, width - band.reduce((sum, lane) => sum + lane.width, 0) - (band.length - 1) * 2);
       // Whole-word wrapping has plateaus: a greedy one-cell gain misses improvements several cells away.
-      // Explore every spare-width partition, minimizing card rows before balancing the remaining space.
+      // Explore spare-width partitions; fit the tallest lane, then balance widths before saving wraps.
       type Allocation = { rows: number; headers: number; balance: number; widths: number[] };
-      let allocations: (Allocation | undefined)[] = [{ rows: 0, headers: 0, balance: 0, widths: [] }];
-      for (const lane of band) {
-        const choices = Array.from({ length: extra + 1 }, (_, share) => {
-          const w = lane.width + share;
-          return { w, rows: lane.column.items.reduce((sum, item) => sum + Math.max(1, wrap(item.text, w - 8, "item", false).length) + wrap(metadata(item), w - 8, "metadata", false).length, 0),
-            headers: Math.max(1, wrap(lane.column.text, w - 4, "column header", false).length), balance: (w - (width - (band.length - 1) * 2) / band.length) ** 2 };
+      const choicesByLane = band.map((lane) => Array.from({ length: extra + 1 }, (_, share) => {
+        const w = lane.width + share;
+        const rows = lane.column.items.reduce((sum, item) => sum + Math.max(1, wrap(item.text, w - 8, "item", false).length) + wrapMetadata(item, w - 8, false).length, 0);
+        const headers = Math.max(1, wrap(lane.column.text, w - 4, "column header", false).length);
+        return { w, rows, headers, height: rows + headers + 3 + lane.column.items.length * 2 + (lane.column.items.length ? 0 : 1),
+          balance: (w - (width - (band.length - 1) * 2) / band.length) ** 2 };
+      }));
+      // The tallest lane owns the board height. Minimizing total text rows first can
+      // strand a tall narrow lane beside short wide ones, then omit its final card.
+      let heights = [0];
+      for (const choices of choicesByLane) {
+        const next: number[] = [];
+        heights.forEach((previous, spent) => {
+          for (let share = 0; share + spent <= extra; share++) {
+            const candidate = Math.max(previous, choices[share]!.height);
+            next[spent + share] = Math.min(next[spent + share] ?? Infinity, candidate);
+          }
         });
+        heights = next;
+      }
+      const maxHeight = heights[extra]!;
+      const balanceFirst = new Set(band.map((lane) => lane.column.items.length)).size === 1;
+      let allocations: (Allocation | undefined)[] = [{ rows: 0, headers: 0, balance: 0, widths: [] }];
+      for (const choices of choicesByLane) {
         const next: (Allocation | undefined)[] = [];
         allocations.forEach((previous, spent) => {
           if (!previous) return;
           for (let share = 0; share + spent <= extra; share++) {
-            const choice = choices[share]!, candidate = { rows: previous.rows + choice.rows, headers: previous.headers + choice.headers, balance: previous.balance + choice.balance, widths: [...previous.widths, choice.w] };
+            const choice = choices[share]!;
+            if (choice.height > maxHeight) continue;
+            const candidate = { rows: previous.rows + choice.rows, headers: previous.headers + choice.headers, balance: previous.balance + choice.balance, widths: [...previous.widths, choice.w] };
             const best = next[spent + share];
-            if (!best || candidate.rows < best.rows || candidate.rows === best.rows && (candidate.headers < best.headers || candidate.headers === best.headers && candidate.balance < best.balance)) next[spent + share] = candidate;
+            const better = !best || (balanceFirst
+              ? candidate.balance < best.balance || candidate.balance === best.balance && (candidate.rows < best.rows || candidate.rows === best.rows && candidate.headers < best.headers)
+              : candidate.rows < best.rows || candidate.rows === best.rows && (candidate.headers < best.headers || candidate.headers === best.headers && candidate.balance < best.balance));
+            if (better) next[spent + share] = candidate;
           }
         });
         allocations = next;
@@ -241,7 +285,7 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
       const lanes = band.map((lane, i) => {
         const w = allocations[extra]!.widths[i]!;
         const header = wrap(lane.column.text, w - 4, "column header");
-        const cards = lane.column.items.map((item) => ({ item, text: wrap(item.text, w - 8, "item"), meta: wrap(metadata(item), w - 8, "metadata") }));
+        const cards = lane.column.items.map((item) => ({ item, text: wrap(item.text, w - 8, "item"), meta: wrapMetadata(item, w - 8) }));
         return { ...lane, width: w, header, cards, headerRows: Math.max(1, header.length) };
       });
       const fitted = lanes.map((lane) => {
@@ -303,7 +347,7 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
       const digits = String(row * bits + bits - 1).length;
       const cells = segments.map((segment) => {
         const left = x + (segment.start - row * bits) * pitch, right = x + (segment.end - row * bits + 1) * pitch;
-        const budget = right - left - 1;
+        const budget = Math.max(1, right - left - 3);
         const keyed = segment.field.text.split(/\s+/).some((word) => chartText(word, charset).length > budget);
         if (keyed && !keys.has(segment.index)) {
           const key = keys.size + 1; keys.set(segment.index, key);
@@ -330,12 +374,23 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
         }
       });
     }
+    const keyRows: string[] = [];
     for (const [index, key] of keys) {
       if (!visible.has(index)) continue;
-      const field = source.fields[index]!, text = wrap(`${key}. [${field.start}${field.end === field.start ? "" : `-${field.end}`}] ${field.text}`, width, "key");
-      group(text.length, "key", () => text.forEach((s, i) => add(0, y + i, s)));
+      const field = source.fields[index]!, text = `${key}. [${field.start}${field.end === field.start ? "" : `-${field.end}`}] ${field.text}`;
+      const last = keyRows.length - 1;
+      if (last >= 0 && keyRows[last]!.length + 2 + text.length <= width - x) keyRows[last] += `  ${text}`;
+      else keyRows.push(...wrap(text, width - x, "key"));
     }
+    group(keyRows.length, "key", () => keyRows.forEach((s, i) => add(x, y + i, s)));
     if (!source.fields.length) { const text = wrap("No fields", width, "caption"); group(Math.max(1, text.length), "empty caption", () => text.forEach((s, i) => add(0, y + i, s))); }
+  }
+  if (source.kind === "timeline") {
+    const body = labels.filter((label) => !title.length || label.y >= title.length * scale);
+    const right = Math.max(0, ...body.map((label) => label.x / scale + label.text.length), ...lines.map((line) => Math.max(line.from.x, line.to.x) / scale + 1));
+    const offset = Math.max(0, Math.floor((width - right) / 2)) * scale;
+    for (const label of body) label.x += offset;
+    for (const line of lines) { line.from.x += offset; line.to.x += offset; }
   }
   const rows = height ?? Math.max(scale, y * scale);
   return {

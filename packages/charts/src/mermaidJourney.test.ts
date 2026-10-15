@@ -112,15 +112,16 @@ describe("Mermaid journey", () => {
     expect(spec.scales!.x).toEqual({ type: "linear", domain: [0, 5], nice: false });
     expect(spec.legend).toBe(false);
     for (const target of ["chat", "web"] as const) {
+      const bar = target === "web" ? "▄" : "█";
       const result = renderGlyphChartMermaid(source, { target, width: 72 });
       const rows = result.text.split("\n").map((row) => row.trimEnd());
       expect(rows).toHaveLength(9);
       expect(rows[0]!.trim()).toBe("My working day");
-      expect(rows[1]).toBe("Go to work");
+      expect(rows[1]).toBe("         Go to work");
       expect(rows[5]).toBe("");
-      expect(rows[6]).toBe("Go home");
+      expect(rows[6]).toBe("         Go home");
       for (const [i, task, score, actors] of [[2, "Make tea", 5, "Me"], [3, "Go upstairs", 3, "Me"], [4, "Do work", 1, "Me, Cat"], [7, "Go downstairs", 5, "Me"], [8, "Sit down", 5, "Me"]] as const) {
-        expect(rows[i]).toMatch(new RegExp(`^  ${task} +█+ +${score}  ${actors}$`));
+        expect(rows[i]).toMatch(new RegExp(`^           ${task} +${bar}+ +${score}  ${actors}$`));
       }
       expect(result.text).not.toContain("Actors:");
       expect(rows.filter((row) => row === "")).toHaveLength(1);
@@ -131,13 +132,14 @@ describe("Mermaid journey", () => {
     const source = examples[1]!.source;
     expect(bars(source).map((b) => b.x)).toEqual([1, 2, 3, 4, 5]);
     expect(new Set(bars(source).map((b) => b.y)).size).toBe(5);
-    expect(renderGlyphChartMermaid(source, { target: "chat", width: 72 }).text.split("\n").filter((row) => row.trimEnd() === "Visit")).toHaveLength(2);
+    expect(renderGlyphChartMermaid(source, { target: "chat", width: 72 }).text.split("\n").filter((row) => row.trim() === "Visit")).toHaveLength(2);
     for (const target of ["chat", "web"] as const) {
+      const bar = target === "web" ? "▄" : "█";
       const result = renderGlyphChartMermaid(source, { target, width: 72 });
-      const lengths = result.text.split("\n").filter((s) => s.includes("█")).map((s) => s.match(/█/g)!.length);
+      const lengths = result.text.split("\n").filter((s) => s.includes(bar)).map((s) => s.match(new RegExp(bar, "g"))!.length);
       expect(lengths).toHaveLength(5);
       expect(lengths.every((length, i) => i === 0 || length > lengths[i - 1]!)).toBe(true);
-      const rows = result.text.split("\n").filter((row) => row.includes("█"));
+      const rows = result.text.split("\n").filter((row) => row.includes(bar));
       rows.forEach((row, i) => {
         expect(row.slice(result.build.plot.x0 + 1, result.build.plot.x1 + 1).trim().length).toBe(Math.round((i + 1) * 26 / 5));
         expect(row.slice(result.build.plot.x1 + 1)).toMatch(new RegExp(`^ ${i + 1}  Visitor`));
@@ -150,6 +152,7 @@ describe("Mermaid journey", () => {
     const source = examples[2]!.source;
     const words = "Discover the service together Read the welcome message carefully New customer Support specialist Finish the first visit Confirm the account details Account manager".split(" ");
     for (const target of ["chat", "web"] as const) {
+
       const result = renderGlyphChartMermaid(source, { target, width: 72 });
       for (const word of words) expect(result.text).toMatch(new RegExp(`\\b${word}\\b`));
       expect(result.report.ledger.filter((e) => /label-(abbreviated|dropped)|ticks-thinned/.test(e.code))).toEqual([]);
@@ -159,18 +162,19 @@ describe("Mermaid journey", () => {
 
   it("wraps actors under their own bar without inserting blank rows or moving the next task", () => {
     for (const target of ["chat", "web"] as const) {
+      const bar = target === "web" ? "▄" : "█";
       const result = renderGlyphChartMermaid(examples[10]!.source, { target, width: 72 });
       const rows = result.text.split("\n").map((row) => row.trimEnd());
-      const barCol = rows[1]!.indexOf("█");
+      const barCol = rows[1]!.indexOf(bar);
       expect(rows).toHaveLength(5);
-      expect(rows[1]).toMatch(/^  Plan +█+ +2$/);
+      expect(rows[1]).toMatch(new RegExp(`^    Plan +${bar}+ +2$`));
       expect(rows[2]).toBe(" ".repeat(barCol) + "New customer, Support specialist, Account manager, Reviewer,");
       expect(rows[3]).toBe(" ".repeat(barCol) + "Quality lead, Release manager");
-      expect(rows[4]).toMatch(/^  Ship +█+ +5  Team$/);
+      expect(rows[4]).toMatch(new RegExp(`^    Ship +${bar}+ +5  Team$`));
       expect(result.report.ledger.filter((entry) => entry.detail?.word)).toEqual([]);
       const wrapped = renderGlyphChartMermaid(examples[2]!.source, { target, width: 72 }).text.split("\n");
-      expect(wrapped[2]).toMatch(/^  Read the welcome message +█+ +3 +$/);
-      expect(wrapped[3]).toMatch(/^  carefully +New customer, Support specialist +$/);
+      expect(wrapped[2]).toMatch(new RegExp(`^        Read the welcome message +${bar}+ +3 +$`));
+      expect(wrapped[3]).toMatch(/^        carefully +New customer, Support specialist +$/);
       const oversized = renderGlyphChartMermaid(examples[11]!.source, { target, width: 72 });
       expect(oversized.text).not.toContain("Supercal");
       expect(oversized.report.ledger.filter((entry) => entry.detail?.word)).toHaveLength(1);
@@ -215,6 +219,7 @@ describe("Mermaid journey", () => {
     ]);
     expect(spec.ledger.filter((e) => e.detail?.feature === "journey score outside 1–5").map((e) => [e.detail?.score, e.detail?.value])).toEqual([[0, 1], [0, 1], [0, 1]]);
     for (const target of ["chat", "web"] as const) {
+
       const result = renderGlyphChartMermaid(source, { target, width: 72 });
       expect(result.text).toContain("Work");
       expect(result.text).not.toMatch(/Hidden|comment|unbalanced/);
@@ -239,6 +244,7 @@ describe("Mermaid journey", () => {
     if (["xychart", "quadrantChart", "gantt", "radar"].includes(kind)) expect(data).toContain("ClassDef meetup");
     expect(spec.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept "))).toEqual([]);
     for (const target of ["chat", "web"] as const) {
+
       const result = renderExample(source, target);
       expect(result.text.split("\n").every((row) => [...row].length === 72)).toBe(true);
       expect(result.report.ledger.filter((e) => /label-(abbreviated|dropped)/.test(e.code))).toEqual([]);
@@ -283,6 +289,7 @@ click a call handler() href "https://example.com"`;
     expect(spec.ledger).toEqual(glyphChartFromMermaid(bare).ledger);
     expect(spec.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept ") && e.detail?.feature === (kind === "gantt" ? "click" : "classDef"))).toHaveLength(2);
     for (const target of ["chat", "web"] as const) {
+
       const result = renderExample(source, target);
       expect(result.text).toBe(renderGlyphChartMermaid(bare, { target, width: 72, height: 6 }).text);
       expect(result.text).toContain("Leaf");
@@ -297,7 +304,7 @@ click a call handler() href "https://example.com"`;
   it("accepts actorless tasks and preserves empty sections without inventing bars", () => {
     const source = examples[4]!.source;
     expect(bars(source).map((b) => b.actors)).toEqual(["", "", "Team, Reviewer"]);
-    expect(renderGlyphChartMermaid(source, { target: "chat", width: 72 }).text.split("\n").filter((row) => row.trimEnd() === "Empty")).toHaveLength(2);
+    expect(renderGlyphChartMermaid(source, { target: "chat", width: 72 }).text.split("\n").filter((row) => row.trim() === "Empty")).toHaveLength(2);
   });
 
   it("repairs out-of-range scores and logs whole-word omissions", () => {
@@ -327,6 +334,7 @@ click a call handler() href "https://example.com"`;
 
   it.each(examples)("renders $name in both real target defaults", ({ source }) => {
     for (const target of ["chat", "web"] as const) {
+
       const result = renderExample(source, target);
       expect(result.build.resolved.charset).toBe(target === "chat" ? "box" : "braille");
       expect(result.text.split("\n").every((row) => [...row].length === 72)).toBe(true);

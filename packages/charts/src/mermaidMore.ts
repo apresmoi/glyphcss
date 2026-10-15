@@ -309,12 +309,18 @@ export function gantt(parts: string[], common: Common, r: Reader): GlyphChartMer
     if (task.section && task.section !== previousSection) { const key = `__section${index}`; rows.push(key); labels.set(key, task.section); ganttRows.push({ key, label: task.section, section: true }); }
     previousSection = task.section;
     const row = `${index + 1}. ${name}`; rows.push(row);
-    labels.set(row, `${task.label}${task.tags.some((s) => ["crit", "active", "done"].includes(s)) ? ` ${task.tags.filter((s) => ["crit", "active", "done"].includes(s)).join(" ")}` : ""}`);
-    ganttRows.push({ key: row, label: labels.get(row)!, section: false });
+    const status = task.tags.filter((s) => ["crit", "active", "done"].includes(s)).join(",");
+    labels.set(row, task.label);
+    ganttRows.push({ key: row, label: task.label, section: false, ...(status ? { status } : {}) });
     lo = Math.min(lo, t.start); hi = Math.max(hi, t.end);
     if (task.tags.includes("milestone") || t.start === t.end) marks.push(glyphChartDot([{ x: new Date((t.start + t.end) / 2), y: row }], channels));
     else marks.push(glyphChartBar([{ x0: new Date(t.start), x: new Date(t.end), y: row }], { x0: "x0", x: "x", y: "y" }, { orientation: "horizontal" }));
   });
+  const taskWidth = Math.max(0, ...ganttRows.filter((row) => !row.section).map((row) => row.label.length));
+  const statusWidth = Math.max(0, ...ganttRows.map((row) => row.status?.length ?? 0));
+  if (statusWidth) for (const row of ganttRows) {
+    if (!row.section) labels.set(row.key, `${row.label.padStart(taskWidth)}  ${(row.status ?? "").padEnd(statusWidth)}`);
+  }
   for (const marker of markers) {
     const date = marker.time ?? parse(marker.date); if (!Number.isFinite(date)) { ledger.push(ledgerMermaidDegraded({ feature: "unrecognized Gantt vertical marker", replacement: "an omitted marker" })); continue; }
     lo = Math.min(lo, date); hi = Math.max(hi, date);
@@ -323,7 +329,7 @@ export function gantt(parts: string[], common: Common, r: Reader): GlyphChartMer
   if (!Number.isFinite(lo)) { lo = 0; hi = DAY; }
   if (lo === hi) hi = lo + DAY;
   if (excluded.length) ledger.push(ledgerMermaidDegraded({ feature: "Gantt excluded-day background shading", replacement: "an unshaded time axis with duration calculations retaining all exclusions" }));
-  if (tasks.some((t) => t.tags.some((s) => ["crit", "active", "done"].includes(s)))) ledger.push(ledgerMermaidDegraded({ feature: "Gantt status styling", replacement: "literal crit/active/done tags beside task labels" }));
+  if (tasks.some((t) => t.tags.some((s) => ["crit", "active", "done"].includes(s)))) ledger.push(ledgerMermaidDegraded({ feature: "Gantt status styling", replacement: "an aligned status column, retaining simultaneous crit/active/done tags" }));
   if (tasks.some((t) => t.tags.includes("milestone"))) ledger.push(ledgerMermaidDegraded({ feature: "Gantt milestone diamonds", replacement: "native dots at start plus half duration" }));
   let ticks: number | undefined;
   if (interval) {

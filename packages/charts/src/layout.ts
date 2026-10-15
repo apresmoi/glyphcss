@@ -124,6 +124,7 @@ export interface GlyphChartLayout {
   readonly plot: GlyphChartPlotRect;
   readonly xTicks: readonly GlyphChartLayoutTick[];
   readonly yTicks: readonly GlyphChartLayoutTick[];
+  readonly gantt?: boolean;
   readonly horizontalBarBands: ReadonlyMap<string, readonly [number, number]>;
   readonly titleRow: number | null;
   /** `null` when there's no title text at all (distinct from `titleRow === null`, which can also mean "dropped for lack of room"). */
@@ -677,7 +678,12 @@ export function layoutGlyphChart(
         const zeroLabel = yTickFormat ? yTickFormat.apply(0, yTicksRaw.length, [...yTicksRaw.map((t) => t.value), 0]) : scales.y.format(0);
         yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: zeroLabel }];
       }
-      const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
+      const ganttRows = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT];
+      const ganttStatusWidth = Math.max(0, ...(ganttRows ?? []).map((row) => row.status?.length ?? 0));
+      const ganttLabelWidth = Math.max(1, ...(ganttRows ?? []).filter((row) => !row.section).map((row) => chartText(row.label, charset).length + 2 + (ganttStatusWidth ? ganttStatusWidth + 2 : 0)));
+      const yLabelWidth = ganttRows && ganttStatusWidth
+        ? Math.min(Math.max(1, Math.floor(cols / 2)), ganttLabelWidth)
+        : Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
       // The gutter reserves `yLabelWidth * textScale` COLUMNS — each
       // character of a right-aligned y-tick label now occupies `textScale`
       // columns once painted via `canvas.text({ scale: textScale })`.
@@ -771,7 +777,7 @@ export function layoutGlyphChart(
       const sections = ganttRows?.filter((row) => row.section).length ?? 0;
       const count = scales.y.domain.length;
       const contentRows = ganttRows
-        ? (ganttRows.length + Math.max(0, sections - 1)) * textScale
+        ? (ganttRows.length + Math.max(0, sections - 1) + Math.max(0, ganttRows.filter((row) => !row.section).length - 1) * 2) * textScale
         : count * Math.max(textScale, horizontalBarGroupRows) + Math.max(0, count - 1) * textScale;
       const fittedBottom = Math.min(bottom, top + Math.max(1, contentRows) - 1 + (ganttRows || xAxisLine ? 1 : 0));
       const spare = bottom - fittedBottom;

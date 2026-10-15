@@ -168,8 +168,8 @@ describe("content-sized band layouts", () => {
   });
   it.each([1, 2, 3])("keeps scaled Gantt bands and chrome adjacent at textScale %i", (textScale) => {
     const r = renderGlyphChartMermaid(examples[0]!.source, { target: "web", width: 144, height: 80, textScale });
-    // Title + two section rows + three task rows + one section gap.
-    expect(r.build.plot.y1).toBe(7 * textScale);
+    // Compact seven rows plus two extra blank rows at each of the two task gaps.
+    expect(r.build.plot.y1).toBe(11 * textScale);
   });
   it.each(examples.slice(1, 9).filter(({ name }) => name !== "Horizontal XY lines"))("keeps $name's drawing independent of spare height", ({ source }) => {
     for (const target of ["chat", "web"] as const) {

@@ -247,7 +247,9 @@ describe("Task 7 Mermaid syntax and native marks", () => {
     const chart = parse(source);
     expect(chart.ledger.map((e) => e.detail?.feature)).toContain("treemap.showValues");
     expect(chart.ledger.map((e) => e.detail?.feature)).toContain("treemap.valueFormat");
-    expect(renderGlyphChartMermaid(source, { ...options, target: "chat" }).text).toContain("Leaf 1.234k");
+    const lines = renderGlyphChartMermaid(source, { ...options, target: "chat" }).text.split("\n");
+    const row = lines.findIndex((line) => line.includes("Leaf"));
+    expect(lines[row + 1]!.indexOf("1.234k")).toBe(lines[row]!.indexOf("Leaf"));
   });
   it("shares treemap sibling borders with proper junctions and no accumulating inset", () => {
     const source = 'treemap\n"Root"\n  "Branch"\n    "Nested"\n      "First leaf": 4\n      "Second leaf": 4\n    "Third leaf": 4\n  "Last leaf": 4';
@@ -345,7 +347,12 @@ describe("Task 7 Mermaid syntax and native marks", () => {
     for (const a of tiles) for (const b of tiles) if (a.index !== b.index) expect(a.x >= b.x + b.w - 1e-9 || b.x >= a.x + a.w - 1e-9 || a.y >= b.y + b.h - 1e-9 || b.y >= a.y + a.h - 1e-9).toBe(true);
     const mark = glyphChartTreemap([{ id: "r", label: "Root" }, { id: "a", parent: "r", value: 6, label: "A" }, { id: "b", parent: "r", value: 3, label: "B" }]);
     const render = renderGlyphChart(mark, { ...options, target: "chat" });
-    expect(render.text).toContain("Root"); expect(render.text).toContain("A 6"); expect(render.text).toContain("B 3");
+    expect(render.text).toContain("Root");
+    const lines = render.text.split("\n");
+    for (const [label, value] of [["A", "6"], ["B", "3"]]) {
+      const row = lines.findIndex((line) => line.includes(label!));
+      expect(lines[row + 1]!.indexOf(value!)).toBe(lines[row]!.indexOf(label!));
+    }
     expect(render.text).toContain("┌");
     expect(() => renderGlyphChart(glyphChartTreemap([{ id: "a", parent: "a", value: 1 }]))).toThrow(expect.objectContaining({ code: "treemap-hierarchy" }));
   });

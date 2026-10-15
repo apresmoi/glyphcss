@@ -163,7 +163,17 @@ function paintHorizontalBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scale
     const cap = textScale * dodge.count;
     if (range[1] - range[0] + 1 > cap) range = [range[0], range[0] + cap - 1];
     if (dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
-    fillRegionShade(canvas, Math.max(layout.plot.x0, Math.min(start, end) + (end > start ? 1 : 0)), Math.max(layout.plot.y0, range[0]), Math.min(layout.plot.x1, Math.max(start, end) - (end < start ? 1 : 0)), Math.min(layout.plot.y1, range[1]), glyph, color);
+    // Scheduled/table rows must stay distinct even at line-height: 1 with no spare rows.
+    const halfHeight = (layout.gantt || layout.journey) && GLYPH_CANVAS_TIERS[canvas.tier].subcell && glyph === FULL_BLOCK;
+    const x0 = Math.max(layout.plot.x0, Math.min(start, end) + (end > start ? 1 : 0));
+    const x1 = Math.min(layout.plot.x1, Math.max(start, end) - (end < start ? 1 : 0));
+    const height = range[1] - range[0] + 1;
+    let top = halfHeight ? range[1] - Math.ceil(height / 2) + 1 : range[0];
+    if (halfHeight && height % 2) {
+      fillRegionShade(canvas, x0, Math.max(layout.plot.y0, top), x1, Math.min(layout.plot.y1, top), LOWER_EIGHTHS[3]!, color);
+      top++;
+    }
+    fillRegionShade(canvas, x0, Math.max(layout.plot.y0, top), x1, Math.min(layout.plot.y1, range[1]), glyph, color);
   }
 }
 
@@ -1323,7 +1333,8 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
   const subcell = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
   const glyph = seriesDot(canvas.tier, styleIndex);
   for (const row of rows) {
-    if (subcell) {
+    // Milestones are authored events: use the existing whole-cell point vocabulary.
+    if (subcell && !layout.gantt) {
       const col = scaleToColExact(scales.x, layout.plot, row.x);
       const r = markRow(layout, scales, row.y, true);
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
@@ -1344,7 +1355,7 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
     const col = scaleToCol(scales.x, layout.plot, row.x);
     const r = markRow(layout, scales, row.y);
     if (!Number.isFinite(col) || !Number.isFinite(r) || col < layout.plot.x0 || col > layout.plot.x1 || r < layout.plot.y0 || r > layout.plot.y1) continue;
-    canvas.text(col, r, [glyph], { color });
+    canvas.text(col, r, [layout.gantt ? seriesDot(canvas.tier, 0) : glyph], { color });
   }
 }
 

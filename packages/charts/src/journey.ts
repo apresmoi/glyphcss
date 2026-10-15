@@ -1,3 +1,4 @@
+import { glyphChartRowSpacing } from "./rowSpacing";
 import { chartText } from "./labels";
 import { ledgerMermaidDegraded, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartLayout } from "./layout";
@@ -50,6 +51,7 @@ export function layoutGlyphJourney(spec: GlyphChartJourneySpec, cols: number, he
     title = kept.join(" ") || null;
   }
   if (title) { if (maxRows >= 1) add(Math.floor((width - title.length) / 2), y, title); else note("journey title beyond the viewport", { title }); y++; }
+  const boundaries: number[] = [];
   let content = false;
   for (const row of authored) {
     if (row.kind === "section") {
@@ -75,11 +77,21 @@ export function layoutGlyphJourney(spec: GlyphChartJourneySpec, cols: number, he
       horizontalBarBands.set(row.id, [y * scale, (y + 1) * scale - 1]);
     } else note("journey task outside the viewport", { task: row.text, columns: width, rows: height ?? y + rowHeight });
     y += rowHeight;
+    if (row !== authored.at(-1)) boundaries.push(y * scale);
     content = true;
   }
   if (!authored.length) { if (width >= 8 && maxRows >= y + 1) add(0, y, "No tasks"); else note("journey empty caption outside the viewport", { columns: width }); y++; }
   const rows = height ?? Math.max(scale, y * scale);
-  const plot = { x0: Math.min(cols - 1, barStart * scale - 1), x1: Math.min(cols - 1, (barStart + barWidth) * scale - 1), y0: 0, y1: rows - 1 };
+  const space = glyphChartRowSpacing(y * scale, height, boundaries, scale);
+  for (const label of labels) label.y = space(label.y);
+  for (const [id, [top, bottom]] of horizontalBarBands) horizontalBarBands.set(id, [space(top), space(bottom)]);
+  // Centre the table as one unit; centring individual rows would detach scores and actors.
+  const body = labels.filter((label) => !title || label.y !== 0);
+  const left = Math.min(0, ...body.map((label) => label.x / scale));
+  const right = Math.max(scoreCol + scoreWidth, ...body.map((label) => label.x / scale + label.text.length));
+  const offset = Math.max(0, Math.floor((width - (right - left)) / 2) - left);
+  for (const label of body) label.x += offset * scale;
+  const plot = { x0: Math.min(cols - 1, (barStart + offset) * scale - 1), x1: Math.min(cols - 1, (barStart + offset + barWidth) * scale - 1), y0: 0, y1: rows - 1 };
   return {
     cols, rows, plot, horizontalBarBands, journey: { labels },
     xTicks: [], yTicks: [], titleText: title, titleRow: title ? 0 : null, titleAlign: "center",

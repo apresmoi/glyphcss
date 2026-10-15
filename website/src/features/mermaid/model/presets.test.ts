@@ -18,10 +18,19 @@ const renders: { type: string; target: string; text: string; html?: string; note
 const types = ["flowchart", "graph", "stateDiagram", "sequenceDiagram", "classDiagram", "erDiagram", "mindmap", "gitGraph", "block", "architecture", "requirementDiagram", "C4Context", "C4Container", "C4Component", "C4Deployment", "C4Dynamic", "pie", "xychart", "sankey", "quadrantChart", "gantt", "radar", "treemap", "journey", "timeline", "packet", "kanban"];
 
 describe("Mermaid presets in the main workbench pipelines", () => {
-  it("covers every requested header and preserves the CLI examples verbatim", async () => {
+  it("covers every requested header; six showcase presets expand the CLI smoke examples", async () => {
     expect(GLYPH_MERMAID_PRESETS.map((preset) => preset.type)).toEqual(types);
     const cli = JSON.parse(await readFile("../packages/compile/src/fixtures/mermaidIntegration.json", "utf8"));
-    expect(GLYPH_MERMAID_PRESETS.map(({ id, label, ...example }) => example)).toEqual(cli);
+    const expanded = ["gantt", "treemap", "journey", "timeline", "packet", "kanban"];
+    for (const { id, label, ...example } of GLYPH_MERMAID_PRESETS) {
+      const original = cli.find((entry: { type: string }) => entry.type === example.type);
+      expect(original).toBeDefined();
+      if (expanded.includes(example.type)) {
+        expect(example.owner).toBe(original.owner);
+        expect(example.source.split("\n").length).toBeGreaterThan(original.source.split("\n").length * 2);
+        expect(example.labels.length).toBeGreaterThan(original.labels.length * 2);
+      } else expect(example).toEqual(original);
+    }
   });
   describe.each(["chat", "web"] as const)("%s at 72 columns", (target) => {
     it.each(GLYPH_MERMAID_PRESETS)("$type loads its source and paints its labels", async (preset) => {

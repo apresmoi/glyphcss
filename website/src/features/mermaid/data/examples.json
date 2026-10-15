@@ -212,12 +212,22 @@
   {
     "type": "gantt",
     "owner": "charts",
-    "source": "gantt\n dateFormat YYYY-MM-DD\n section Release\n Build :a, 2026-01-01, 2d\n Test :after a, 1d",
+    "source": "gantt\n title Customer portal release\n dateFormat YYYY-MM-DD\n axisFormat %b %d\n section Discovery\n Interviews :done, research, 2026-04-06, 3d\n Prototype :done, design, after research, 4d\n Sign off :milestone, approved, after design, 0d\n section Delivery\n API :active, api, after approved, 5d\n Dashboard :active, ui, after approved, 7d\n Integration :crit, merge, after api ui, 3d\n section Launch\n Acceptance :crit, qa, after merge, 3d\n Runbook :docs, after ui, 4d\n Go live :milestone, after qa docs, 0d",
     "labels": [
-      "Build",
-      "Test"
+      "Discovery",
+      "Delivery",
+      "Launch",
+      "Interviews",
+      "Prototype",
+      "Sign off",
+      "API",
+      "Dashboard",
+      "Integration",
+      "Acceptance",
+      "Runbook",
+      "Go live"
     ],
-    "height": 8
+    "height": 30
   },
   {
     "type": "radar",
@@ -234,57 +244,114 @@
   {
     "type": "treemap",
     "owner": "charts",
-    "source": "treemap-beta\n \"Team\"\n  \"Build\": 6\n  \"Test\": 4",
+    "source": "treemap-beta\n title Engineering budget (kUSD)\n \"Product\"\n  \"Experience\"\n   \"Portal\": 28\n   \"Mobile\": 22\n   \"Design\": 16\n  \"Services\"\n   \"API\": 26\n   \"Search\": 18\n   \"Billing\": 14\n \"Platform\"\n  \"Cloud\": 24\n  \"Data\": 20\n  \"Security\": 16\n  \"Tools\": 12",
     "labels": [
-      "Build",
-      "Test"
+      "Product",
+      "Experience",
+      "Portal",
+      "Mobile",
+      "Design",
+      "Services",
+      "API",
+      "Search",
+      "Billing",
+      "Platform",
+      "Cloud",
+      "Data",
+      "Security",
+      "Tools"
     ],
-    "height": 10
+    "height": 23
   },
   {
     "type": "journey",
     "owner": "charts",
-    "source": "journey\n title Release\n section Work\n Build: 4: Alice\n Test: 5: Bob",
+    "source": "journey\n title First order experience\n section Discover\n Find the store: 4: Buyer\n Compare plans: 3: Buyer, Sales\n Ask a question: 2: Buyer, Support\n section Purchase\n Create account: 3: Buyer\n Pay for order: 2: Buyer, Payments\n Get receipt: 5: Buyer, Payments\n section Return\n Track delivery: 4: Buyer, Support\n Reorder: 5: Buyer, Sales",
     "labels": [
-      "Build",
-      "Test",
-      "Alice",
-      "Bob"
+      "Discover",
+      "Purchase",
+      "Return",
+      "Find the store",
+      "Compare plans",
+      "Ask a question",
+      "Create account",
+      "Pay for order",
+      "Get receipt",
+      "Track delivery",
+      "Reorder",
+      "Buyer",
+      "Sales",
+      "Support",
+      "Payments"
     ],
-    "height": 6
+    "height": 28
   },
   {
     "type": "timeline",
     "owner": "charts",
-    "source": "timeline\n title Release\n section Work\n Monday : Build\n Tuesday : Test",
+    "source": "timeline\n title Customer portal roadmap\n section Foundation\n April : Customer interviews : Prototype approved\n May : API beta : Account migration\n section Delivery\n June : Private preview : Feedback sessions\n July : Public launch : Support training : Status page live\n section Growth\n August : Mobile access : Usage analytics\n September : Team workspaces : Regional rollout",
     "labels": [
-      "Monday",
-      "Tuesday",
-      "Build",
-      "Test"
+      "Foundation",
+      "Delivery",
+      "Growth",
+      "April",
+      "May",
+      "June",
+      "July",
+      "August",
+      "September",
+      "Customer interviews",
+      "Prototype approved",
+      "API beta",
+      "Account migration",
+      "Private preview",
+      "Feedback sessions",
+      "Public launch",
+      "Support training",
+      "Status page live",
+      "Mobile access",
+      "Usage analytics",
+      "Team workspaces",
+      "Regional rollout"
     ],
-    "height": 6
+    "height": 29
   },
   {
     "type": "packet",
     "owner": "charts",
-    "source": "packet-beta\n 0-7: \"Header\"\n 8-31: \"Payload\"",
+    "source": "packet-beta\n title TCP header (20 bytes)\n 0-15: \"Source port\"\n 16-31: \"Destination port\"\n 32-63: \"Sequence number\"\n 64-95: \"Acknowledgment number\"\n 96-99: \"Offset\"\n 100-103: \"Reserved\"\n 104-111: \"Flags\"\n 112-127: \"Window size\"\n 128-143: \"Checksum\"\n 144-159: \"Urgent pointer\"",
     "labels": [
-      "Header",
-      "Payload"
+      "Source port",
+      "Destination port",
+      "Sequence number",
+      "Acknowledgment number",
+      "Offset",
+      "Reserved",
+      "Flags",
+      "Window size",
+      "Checksum",
+      "Urgent pointer"
     ],
-    "height": 6
+    "height": 29
   },
   {
     "type": "kanban",
     "owner": "charts",
-    "source": "kanban\n todo[Todo]\n  a[Build]\n done[Done]\n  b[Test]",
+    "source": "kanban\ntitle Portal sprint\n ready[Ready]\n  search[Search filters]@{ assigned: 'Mia', ticket: '241', priority: 'High' }\n  export[CSV export]@{ assigned: 'Noah', ticket: '242', priority: 'Low' }\n  audit[Audit log]@{ assigned: 'Ava', ticket: '243', priority: 'High' }\n doing[In progress]\n  login[Team login]@{ assigned: 'Liam', ticket: '238', priority: 'Very High' }\n  alerts[Email alerts]@{ assigned: 'Mia', ticket: '239', priority: 'High' }\n  roles[Access roles]@{ assigned: 'Ava', ticket: '235', priority: 'High' }\n done[Done]\n  charts[Usage charts]@{ assigned: 'Noah', ticket: '236', priority: 'Low' }\n  profile[User profile]@{ assigned: 'Liam', ticket: '231', priority: 'Low' }\n  billing[Billing page]@{ assigned: 'Ava', ticket: '232', priority: 'High' }",
     "labels": [
-      "Todo",
+      "Ready",
+      "In progress",
       "Done",
-      "Build",
-      "Test"
+      "Search filters",
+      "CSV export",
+      "Audit log",
+      "Team login",
+      "Email alerts",
+      "Access roles",
+      "Usage charts",
+      "User profile",
+      "Billing page"
     ],
-    "height": 9
+    "height": 20
   }
 ]

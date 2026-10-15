@@ -160,13 +160,13 @@ describe("Mermaid timeline and packet", () => {
     ] });
     const rows = trimmed(examples[0]!.source);
     expect(rows).toHaveLength(6);
-    expect(rows[2]).toMatch(/^  2004 +│ - Facebook$/);
+    expect(rows[2]).toMatch(/^                            2004 +│ - Facebook$/);
     expect(rows[3]).toMatch(/^ +│ - Google$/);
     expect(rows[4]).toMatch(/^ +│ - YouTube$/);
-    expect(rows[5]).toMatch(/^  2006 +│ - Twitter$/);
+    expect(rows[5]).toMatch(/^                            2006 +│ - Twitter$/);
   });
 
-  it("keeps section headers at column zero, indents periods and separates sections once", () => {
+  it("centres the section table, indents periods and separates sections once", () => {
     for (const target of ["chat", "web"] as const) {
       const rows = render(examples[1]!.source, target).text.split("\n").map((row) => row.trimEnd());
       expect(rows.slice(1)).toEqual([
@@ -181,7 +181,7 @@ describe("Mermaid timeline and packet", () => {
         "  Later         │ - Ship the first version",
         "                │ - Listen to feedback",
         "  Future        │",
-      ]);
+      ].map((row) => row ? "              " + row : row));
     }
     expect(glyphChartFromMermaid(examples[1]!.source).ledger.some((entry) => entry.detail?.feature === "timeline direction and event boxes")).toBe(true);
   });
@@ -191,7 +191,7 @@ describe("Mermaid timeline and packet", () => {
       expect(render(examples[17]!.source, target).text.split("\n").map((row) => row.trimEnd())).toEqual([
         "First", "  Extraordinarilylongperiod", "  An extraordinarilylongdescription remains whole", "",
         "Second", "  Anotherextraordinarilylongperiod", "  Finished",
-      ]);
+      ].map((row) => row ? "           " + row : row));
     }
   });
 

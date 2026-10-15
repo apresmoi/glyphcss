@@ -71,6 +71,39 @@ export function paintTreemap(canvas: GlyphCanvas, plot: GlyphChartPlotRect, rows
   while (pending.length) { const node = pending.pop()!; order.push(node); for (const child of node.children) pending.push(child); }
   for (const node of order.reverse()) node.value = node.children.length ? node.children.reduce((s, n) => s + n.value, 0) : node.value / maximum;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
+  const labelLines = (node: Node, w: number): string[] => {
+    const label = chartText(String(node.row.label), canvas.tier);
+    const cols = Math.floor((w - 2 - 2 * scale) / scale);
+    if (node.children.length) return [label];
+    const lines: string[] = [];
+    for (const word of label.split(/\s+/)) {
+      const last = lines.length - 1;
+      if (last >= 0 && lines[last]!.length + 1 + word.length <= cols) lines[last] += ` ${word}`;
+      else lines.push(word);
+    }
+    lines.push(formatLinearTick(Number(node.row.y)));
+    return lines;
+  };
+  const partition = (children: Node[], w: number, h: number, aspect: number): Tile[] => squarify(children, (w - 1) * aspect, h - 1)
+    .map((t) => ({ node: children[t.index]!, x: Math.round(t.x / aspect), y: Math.round(t.y), w: Math.round((t.x + t.w) / aspect) - Math.round(t.x / aspect) + 1, h: Math.round(t.y + t.h) - Math.round(t.y) + 1 }));
+  const fits = (tile: Tile) => {
+    const lines = labelLines(tile.node, tile.w);
+    return tile.w >= 3 && tile.h >= 3 && lines.length <= Math.floor((tile.h - 2) / scale)
+      && lines.every((line) => line.length <= Math.floor((tile.w - 2 - 2 * scale) / scale))
+      && (!tile.node.children.length || lines.length === 1);
+  };
+  // Equal-area partitions can have very different text capacity. Probe a bounded set of
+  // aspect targets, including descendants' header costs, before keeping a blank sliver.
+  const omissions = (tiles: Tile[]): number => {
+    let count = 0;
+    const pending = [...tiles];
+    while (pending.length) {
+      const tile = pending.pop()!;
+      if (!fits(tile)) count++;
+      if (tile.node.children.length) pending.push(...partition(tile.node.children, tile.w, tile.h - 1 - scale, canvas.cellAspect));
+    }
+    return count;
+  };
   // Inclusive partition endpoints let siblings share cells; OR masks preserve every T/cross junction.
   const borders = new Map<number, number>();
   const edge = (x: number, y: number, mask: number) => { const key = y * canvas.cols + x; borders.set(key, (borders.get(key) ?? 0) | mask); };
@@ -85,26 +118,20 @@ export function paintTreemap(canvas: GlyphCanvas, plot: GlyphChartPlotRect, rows
   const paint = (children: Node[], x: number, y: number, w: number, h: number) => {
     if (w < 3 || h < 3) { for (const child of children) ledger.push(ledgerTreemapOmitted({ label: String(child.row.label), reason: "no room below the branch header" })); return; }
     for (const child of children) if (!child.value) ledger.push(ledgerTreemapOmitted({ label: String(child.row.label), reason: "zero or unrepresentable area" }));
-    const aspect = canvas.cellAspect;
-    const tiles: Tile[] = squarify(children, (w - 1) * aspect, h - 1).map((t) => ({ node: children[t.index]!, x: x + Math.round(t.x / aspect), y: y + Math.round(t.y), w: Math.round((t.x + t.w) / aspect) - Math.round(t.x / aspect) + 1, h: Math.round(t.y + t.h) - Math.round(t.y) + 1 }));
-    for (const { node, x: xx, y: yy, w: ww, h: hh } of tiles) {
+    let tiles = partition(children, w, h, canvas.cellAspect), missing = omissions(tiles);
+    for (const factor of [0.75, 1.5, 0.5, 2, 0.25, 4]) {
+      if (!missing) break;
+      const candidate = partition(children, w, h, canvas.cellAspect * factor), lost = omissions(candidate);
+      if (lost < missing) { tiles = candidate; missing = lost; }
+    }
+    for (const { node, x: dx, y: dy, w: ww, h: hh } of tiles) {
+      const xx = x + dx, yy = y + dy;
       if (ww < 3 || hh < 3) { ledger.push(ledgerTreemapOmitted({ label: String(node.row.label), reason: "less than one bordered cell" })); continue; }
       rect(xx, yy, ww, hh);
-      const label = chartText(String(node.row.label), canvas.tier, { ledger, role: "treemap label" });
-      const value = formatLinearTick(Number(node.row.y));
-      const text = `${label}${node.children.length ? "" : ` ${value}`}`;
+      chartText(String(node.row.label), canvas.tier, { ledger, role: "treemap label" });
       const cols = Math.floor((ww - 2 - 2 * scale) / scale), rows = Math.floor((hh - 2) / scale);
-      let lines = [text];
-      if (text.length > cols && !node.children.length) {
-        lines = [];
-        for (const word of label.split(/\s+/)) {
-          const last = lines[lines.length - 1];
-          if (last && last.length + 1 + word.length <= cols) lines[lines.length - 1] = `${last} ${word}`;
-          else lines.push(word);
-        }
-        lines.push(value);
-      }
-      if (lines.length <= rows && lines.every((line) => line.length <= cols)) canvas.text(xx + 1 + scale, yy + 1, lines, { color, scale });
+      const lines = labelLines(node, ww);
+      if (lines.length <= rows && lines.every((line) => line.length <= cols) && (!node.children.length || lines.length === 1)) canvas.text(xx + 1 + scale, yy + 1, lines, { color, scale });
       else ledger.push(ledgerTreemapOmitted({ label: String(node.row.label), reason: "label does not fit" }));
       if (node.children.length) paint(node.children, xx, yy + 1 + scale, ww, hh - 1 - scale);
     }
