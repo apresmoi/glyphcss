@@ -6,6 +6,7 @@ import { glyphMermaidShape } from "./mermaidShapes";
 import { ledgerMermaidDegraded } from "./ledger";
 import { glyphParseMermaidGit, type GlyphMermaidGitLanes } from "./mermaidGit";
 import { glyphParseMermaidMindmap } from "./mermaidMindmap";
+import { glyphParseMermaidClassEr } from "./mermaidClassEr";
 import { glyphParseMermaidState } from "./mermaidState";
 
 function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAID_SYNTAX", message); }
@@ -246,6 +247,7 @@ export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: G
   const prefix = source.replace(/^\uFEFF/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const declaredKind = /^[\w-]+/.exec(prefix)?.[0];
   if (declaredKind?.toLowerCase() === "gitgraph") return glyphParseMermaidGit(originalSource);
+  if (declaredKind === "classDiagram" || declaredKind === "erDiagram") return glyphParseMermaidClassEr(originalSource, declaredKind === "erDiagram");
   if (declaredKind === "mindmap") return glyphParseMermaidMindmap(originalSource);
   if (declaredKind === "stateDiagram" || declaredKind === "stateDiagram-v2") return glyphParseMermaidState(source);
   if (declaredKind && declaredKind !== "flowchart" && declaredKind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${declaredKind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${declaredKind} is not supported; use flowchart or graph.`);

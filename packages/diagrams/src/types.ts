@@ -1,5 +1,5 @@
 export type GlyphGraphDirection = "TB" | "LR" | "BT" | "RL";
-export type GlyphGraphNodeShape = "rect" | "rounded" | "diamond" | "circle" | "subroutine" | "asymmetric" | "stadium" | "cylinder" | "point";
+export type GlyphGraphNodeShape = "rect" | "rounded" | "diamond" | "circle" | "subroutine" | "asymmetric" | "stadium" | "cylinder" | "point" | "compartment";
 export type GlyphGraphEdgeStyle = "solid" | "dotted" | "thick" | "undirected";
 
 export interface GlyphGraphNode {
@@ -8,9 +8,11 @@ export interface GlyphGraphNode {
   readonly kind?: string;
   readonly group?: string;
   readonly shape?: GlyphGraphNodeShape;
+  /** Member rows below the header, separated by rules; only for compartment nodes. */
+  readonly compartments?: readonly (readonly string[])[];
 }
 
-export type GlyphGraphEdgeHead = "arrow" | "circle" | "cross" | "none";
+export type GlyphGraphEdgeHead = "arrow" | "circle" | "cross" | "none" | "triangle" | "filled-diamond" | "open-diamond" | "er-one" | "er-zero-one" | "er-many" | "er-zero-many";
 
 export interface GlyphGraphEdge {
   readonly id?: string;

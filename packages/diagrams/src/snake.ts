@@ -1,5 +1,5 @@
 import type { GlyphCanvasDirection } from "glyphcss";
-import { GLYPH_DIAGRAM_DIRECTIONS, backEdgeIds, glyphDiagramPointCell, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort } from "./pipeline";
+import { GLYPH_DIAGRAM_DIRECTIONS, backEdgeIds, glyphDiagramPointCell, glyphDiagramPortOffsets, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort } from "./pipeline";
 import { ledgerLayoutWrapped } from "./ledger";
 import { glyphDiagramLoopGeometry, glyphDiagramLoopSlots, type GlyphDiagramLoopSlot } from "./loop";
 
@@ -13,6 +13,8 @@ import { glyphDiagramLoopGeometry, glyphDiagramLoopSlots, type GlyphDiagramLoopS
 export interface GlyphDiagramSnakeOptions {
   readonly width: number; readonly gap: number; readonly margin: number;
   readonly branchGap: number | readonly number[]; readonly rowGap: number | readonly number[];
+  /** Alternate reading direction when repeated row returns would enclose a box. */
+  readonly reverseRows?: boolean;
 }
 const gapAt = (gap: number | readonly number[], row: number) => typeof gap === "number" ? gap : gap[Math.min(row, gap.length - 1)]!;
 
@@ -30,7 +32,7 @@ const gapAt = (gap: number | readonly number[], row: number) => typeof gap === "
  */
 export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, options: GlyphDiagramSnakeOptions): GlyphDiagramLayout | undefined {
   if (measured.direction !== "LR" || measured.groups.length > 0) return undefined;
-  const { width, gap, margin, branchGap, rowGap } = options;
+  const { width, gap, margin, branchGap, rowGap, reverseRows } = options;
   const order = new Map(measured.nodes.map((node, i) => [node.id, i]));
   const back = backEdgeIds(measured.nodes, measured.edges);
   const flow = measured.edges.filter((edge) => edge.from !== edge.to);
@@ -93,12 +95,12 @@ export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, opt
     };
     // A point that opens a row has its entries on its west side, so it keeps the two columns an entry's lane needs.
     const lead = (id: string) => pointIds.has(id) && entries(id) > 0 ? 2 : 0;
-    const placed = place(spine, anchor, measured.nodes, sizes, overhang, between, lead, { width, margin, gap, branchGap, rowGap }, pitch);
+    const placed = place(spine, anchor, measured.nodes, sizes, overhang, between, lead, { width, margin, gap, branchGap, rowGap, reverseRows }, pitch);
     if (!placed) return undefined;
     const sides = portSides(flow, placed.rects, pointIds);
     const grown = growForPorts(measured, sizes, sides, loopsOf);
     if (grown) { sizes = grown; continue; }
-    const ports = [...straightenDrops(flow, anchor, assignPorts(sides, placed.rects, loopsOf), placed.rects), ...loopPorts(measured, placed.rects, loopsOf)];
+    const ports = [...straightenDrops(flow, anchor, assignPorts(measured, sides, placed.rects, loopsOf), placed.rects), ...loopPorts(measured, placed.rects, loopsOf)];
     const nodes: GlyphDiagramPositionedNode[] = measured.nodes.map((node) => ({ ...node, ...sizes.get(node.id)!, ...placed.rects.get(node.id)! }));
     const loopBounds = glyphDiagramLoopGeometry({ ports, loops: measured.loops }).map((g) => g.bounds);
     return {
@@ -114,7 +116,7 @@ type Rect = { x0: number; y0: number; x1: number; y1: number };
 type Size = { width: number; height: number };
 
 function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, nodes: readonly GlyphDiagramMeasuredNode[], sizes: ReadonlyMap<string, Size>, overhang: ReadonlyMap<string, number>, between: (a: string, aTop: number, b: string, bTop: number) => number, lead: (id: string) => number,
-  { width, margin, gap, branchGap, rowGap }: GlyphDiagramSnakeOptions, pitch: (from: string, to: string) => number): { rects: Map<string, Rect>; rows: number } | undefined {
+  { width, margin, gap, branchGap, rowGap, reverseRows }: GlyphDiagramSnakeOptions, pitch: (from: string, to: string) => number): { rects: Map<string, Rect>; rows: number } | undefined {
   const right = width - margin;
   const rows: string[][] = [[]];
   let cursor = margin;
@@ -175,6 +177,34 @@ function place(spine: readonly string[], anchor: ReadonlyMap<string, string>, no
       }
       bottom = bandTop + bandHeight - 1;
     }
+    // A return across every row gap can look like a frame around the middle
+    // row. Reflect complete bands before assigning ports so those turns can
+    // run down alternating sides instead, using the same node/route families.
+    if (reverseRows) {
+      const band = [...row, ...branches.map(node => node.id)];
+      if (rowIndex % 2 === 1) {
+        const extent = Math.min(...band.map(id => rects.get(id)!.x0)) + Math.max(...band.map(id => rects.get(id)!.x1));
+        for (const id of band) {
+          const rect = rects.get(id)!;
+          rects.set(id, { ...rect, x0: extent - rect.x1, x1: extent - rect.x0 });
+        }
+      }
+      if (rowIndex > 0) {
+        // Turn ports use integer centres, even for unequal box widths. Align
+        // the whole band, bounded by point-entry and loop-label clearance.
+        const previousRow = rows[rowIndex - 1]!;
+        const previous = rects.get(previousRow[previousRow.length - 1]!)!, first = rects.get(row[0]!)!;
+        const desired = Math.floor((previous.x0 + previous.x1) / 2) - Math.floor((first.x0 + first.x1) / 2);
+        const min = Math.max(...band.map(id => margin + lead(id) - rects.get(id)!.x0));
+        const max = Math.min(...band.map(id => right - 1 - overhang.get(id)! - rects.get(id)!.x1));
+        if (min > max) return undefined;
+        const shift = Math.max(min, Math.min(max, desired));
+        for (const id of band) {
+          const rect = rects.get(id)!;
+          rects.set(id, { ...rect, x0: rect.x0 + shift, x1: rect.x1 + shift });
+        }
+      }
+    }
     top = bottom + 1 + gapAt(rowGap, rowIndex);
   }
   return { rects, rows: rows.length };
@@ -220,11 +250,15 @@ function growForPorts(measured: GlyphDiagramMeasuredGraph, sizes: ReadonlyMap<st
   const next = new Map(sizes);
   for (const [id, size] of sizes) {
     let { width: w, height: h } = size;
-    const point = measured.nodes.find((node) => node.id === id)!.shape === "point", loops = loopsOf(id);
+    const node = measured.nodes.find((node) => node.id === id)!, point = node.shape === "point", loops = loopsOf(id);
     for (const side of ["n", "e", "s", "w"] as const) {
       const count = sides.filter((s) => s.nodeId === id && s.side === side).length;
       const min = room(point, count) + (side === "s" && count > 0 ? loopSpan(loops.slots) : 0);
       if (side === "n" || side === "s") w = Math.max(w, min); else h = Math.max(h, min);
+    }
+    for (const side of ["e", "w"] as const) {
+      const count = sides.filter(s => s.nodeId === id && s.side === side).length;
+      while (!glyphDiagramPortOffsets({ ...node, height: h }, side, Array.from({ length: count }, (_, i) => Math.floor((h - 1 - 2 * (count - 1)) / 2) + 2 * i))) h++;
     }
     if (point) w = Math.max(w, pointAlong(sides.filter((s) => s.nodeId === id && s.end === "to").length));
     w = Math.max(w, loops.length);
@@ -259,7 +293,7 @@ function straightenDrops(edges: GlyphDiagramMeasuredGraph["edges"], anchor: Read
   });
 }
 
-function assignPorts(sides: readonly Side[], rects: ReadonlyMap<string, Rect>, loopsOf: (id: string) => { slots: GlyphDiagramLoopSlot[] }): GlyphDiagramPositionedPort[] {
+function assignPorts(measured: GlyphDiagramMeasuredGraph, sides: readonly Side[], rects: ReadonlyMap<string, Rect>, loopsOf: (id: string) => { slots: GlyphDiagramLoopSlot[] }): GlyphDiagramPositionedPort[] {
   const ports: GlyphDiagramPositionedPort[] = [];
   const groups = new Map<string, Side[]>();
   for (const s of sides) groups.set(`${s.nodeId}\u0000${s.side}`, [...(groups.get(`${s.nodeId}\u0000${s.side}`) ?? []), s]);
@@ -271,8 +305,10 @@ function assignPorts(sides: readonly Side[], rects: ReadonlyMap<string, Rect>, l
     // Exits below a node with loops start past the loops' labels.
     const from = side === "s" ? loopSpan(loopsOf(list[0]!.nodeId).slots) : 0;
     const length = (across ? node.x1 - node.x0 + 1 : node.y1 - node.y0 + 1) - from;
+    const offsets = glyphDiagramPortOffsets({ ...measured.nodes.find(n => n.id === list[0]!.nodeId)!, height: node.y1 - node.y0 + 1 }, side,
+      list.map((_, i) => from + Math.floor((length - 1 - 2 * (list.length - 1)) / 2) + 2 * i))!;
     list.forEach((s, i) => {
-      const offset = from + Math.floor((length - 1 - 2 * (list.length - 1)) / 2) + 2 * i;
+      const offset = offsets[i]!;
       const anchorPoint = across ? { x: node.x0 + offset, y: side === "n" ? node.y0 : node.y1 } : { x: side === "w" ? node.x0 : node.x1, y: node.y0 + offset };
       const delta = GLYPH_DIAGRAM_DIRECTIONS[side];
       ports.push({ edgeId: s.edgeId, nodeId: s.nodeId, end: s.end, side, offset, anchor: anchorPoint, escape: { x: anchorPoint.x + delta.x, y: anchorPoint.y + delta.y } });

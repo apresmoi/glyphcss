@@ -172,7 +172,7 @@ describe("Mermaid mindmap", () => {
   });
 });
 it("keeps unrelated headers' named unsupported errors and supplies new repair hints", () => {
-  expect(() => glyphGraphFromMermaid("erDiagram\nA ||--|| B")).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_UNSUPPORTED_ERDIAGRAM" }));
+  expect(() => glyphGraphFromMermaid("packet-beta\n0-3: Header")).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_UNSUPPORTED_PACKET_BETA" }));
   expect(glyphDiagramRepairHint("GLYPH_MERMAID_GIT_SYNTAX")).toContain("cherry-pick");
   expect(glyphDiagramRepairHint("GLYPH_MERMAID_MINDMAP_SYNTAX")).toContain("indentation");
 });

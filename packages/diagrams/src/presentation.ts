@@ -18,3 +18,9 @@ export function glyphDiagramNodeText(node: GlyphGraphNode & GlyphDiagramPresenta
   const text = glyphDiagramHasDiamondMarker(node, options) ? `${DIAMOND} ${node.label}` : node.label;
   return text.split(/\r?\n/).map(line => glyphDiagramText(line, options.charset)).join("\n");
 }
+
+/** Whole-word fitting includes members, while header measurement stays separate. */
+export function glyphDiagramNodeContent(node: GlyphGraphNode & GlyphDiagramPresentationOptions,
+  options: GlyphDiagramPresentationOptions & { readonly charset?: GlyphCanvasTierName } = {}): string {
+  return [glyphDiagramNodeText(node, options), ...(node.compartments ?? []).flat().map(row => row.split(/\r?\n/).map(line => glyphDiagramText(line, options.charset)).join("\n"))].join("\n");
+}

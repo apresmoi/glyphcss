@@ -1,5 +1,5 @@
 import { glyphDiagramNodeText } from "./presentation";
-import { backEdgeIds, glyphDiagramWrap, GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramPositionedPort } from "./pipeline";
+import { backEdgeIds, glyphDiagramWrap, glyphDiagramPortOffsets, GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramPositionedPort } from "./pipeline";
 import type { GlyphCanvasDirection, GlyphCanvasTierName } from "glyphcss";
 
 interface GlyphDiagramCyclePaths {
@@ -84,6 +84,7 @@ export function glyphDiagramCycleLayout(measured: GlyphDiagramMeasuredGraph, opt
   if (Math.max(rowWidth, bandWidth) > options.width) return undefined;
   for (const id of corridors) {
     const node = byId.get(id)!, width = widths[columns.get(id)!]!;
+    if (node.shape === "compartment") { byId.set(id, { ...node, width }); continue; }
     const lines = glyphDiagramWrap(glyphDiagramNodeText(node, options), Math.min(width - 4 - (node.shape === "subroutine" ? 2 : 0), options.labelWidth ?? Infinity));
     byId.set(id, { ...node, lines, width, height: node.height + lines.length - node.lines.length });
   }
@@ -155,6 +156,7 @@ export function glyphDiagramCycleLayout(measured: GlyphDiagramMeasuredGraph, opt
       if (sharedX <= node.x0 || sharedX >= node.x1) return undefined;
       offset = sharedX - node.x0;
     }
+    offset = glyphDiagramPortOffsets(node, side, [offset])![0]!;
     const anchor = side === "n" || side === "s" ? { x: node.x0 + offset, y: side === "n" ? node.y0 : node.y1 }
       : { x: side === "e" ? node.x1 : node.x0, y: node.y0 + offset };
     const delta = GLYPH_DIAGRAM_DIRECTIONS[side];

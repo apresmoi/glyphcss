@@ -1,9 +1,9 @@
-import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeStyle, GlyphGraphNodeShape } from "./types";
+import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdgeHead, GlyphGraphEdgeStyle, GlyphGraphNodeShape } from "./types";
 
 export const GLYPH_DIAGRAM_VALIDATION_RULES = [
   "bad-graph", "empty-nodes", "bad-node", "duplicate-node-id", "bad-edge", "duplicate-edge-id",
   "unknown-node", "bad-group", "point-loop", "duplicate-group-id", "unknown-group", "group-membership", "bad-direction",
-  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
+  "bad-size", "bad-options", "bad-color", "GLYPH_MERMAID_SYNTAX", "GLYPH_MERMAID_CLASS_SYNTAX", "GLYPH_MERMAID_ER_SYNTAX", "GLYPH_MERMAID_GIT_SYNTAX", "GLYPH_MERMAID_MINDMAP_SYNTAX", "GLYPH_MERMAID_STATE_NOTE", "GLYPH_MERMAID_STATE_CONCURRENCY", "GLYPH_MERMAID_STATE_FORK_JOIN", "GLYPH_MERMAID_STATE_COMPOSITE_LOOP", "GLYPH_DIAGRAM_UNROUTABLE", "GLYPH_DIAGRAM_ELK_NOT_INSTALLED",
   "GLYPH_DIAGRAM_BAD_JSON",
 ] as const;
 export type GlyphDiagramValidationRuleId = typeof GLYPH_DIAGRAM_VALIDATION_RULES[number];
@@ -20,10 +20,11 @@ export function parseGlyphDiagramJson(json: string): unknown {
 }
 
 export const GLYPH_GRAPH_DIRECTIONS: readonly GlyphGraphDirection[] = ["TB", "LR", "BT", "RL"];
-export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point"];
+export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point", "compartment"];
 export const GLYPH_GRAPH_EDGE_STYLES: readonly GlyphGraphEdgeStyle[] = ["solid", "dotted", "thick", "undirected"];
+export const GLYPH_GRAPH_EDGE_HEADS: readonly GlyphGraphEdgeHead[] = ["arrow", "circle", "cross", "none", "triangle", "filled-diamond", "open-diamond", "er-one", "er-zero-one", "er-many", "er-zero-many"];
 export const GLYPH_GRAPH_KEYS = ["nodes", "edges", "groups", "direction"];
-export const GLYPH_GRAPH_NODE_KEYS = ["id", "label", "kind", "group", "shape"];
+export const GLYPH_GRAPH_NODE_KEYS = ["id", "label", "kind", "group", "shape", "compartments"];
 export const GLYPH_GRAPH_EDGE_KEYS = ["id", "from", "to", "label", "style", "priority", "startHead", "endHead", "invisible"];
 export const GLYPH_GRAPH_GROUP_KEYS = ["id", "label", "members", "parent"];
 
@@ -94,13 +95,14 @@ export function validateGlyphGraph(input: unknown): GlyphGraph {
       || !optional(node, "kind", string) || !optional(node, "group", identifier) || !optional(node, "shape", (value) => member(value, GLYPH_GRAPH_NODE_SHAPES))) {
       glyphDiagramError("bad-node", `node[${index}] requires a non-empty id, a string label, and supported optional fields.`);
     }
+    if (node.compartments !== undefined && (node.shape !== "compartment" || !Array.isArray(node.compartments) || !node.compartments.every((part: unknown) => Array.isArray(part) && part.every(string)))) glyphDiagramError("bad-node", `node[${index}] compartments require the compartment shape and arrays of string rows.`);
     if (node.shape === "point" && !/\S/u.test(node.label as string)) glyphDiagramError("bad-node", `node[${index}] is a point, which is drawn as its label's first character and needs one.`);
   }
   for (const [index, edge] of input.edges.entries()) {
     if (!object(edge) || !keys(edge, GLYPH_GRAPH_EDGE_KEYS) || !identifier(edge.from) || !identifier(edge.to)
       || !optional(edge, "id", identifier) || !optional(edge, "label", string) || !optional(edge, "style", (value) => member(value, GLYPH_GRAPH_EDGE_STYLES))
-      || !optional(edge, "startHead", (value) => member(value, ["arrow", "circle", "cross", "none"]))
-      || !optional(edge, "endHead", (value) => member(value, ["arrow", "circle", "cross", "none"]))
+      || !optional(edge, "startHead", (value) => member(value, GLYPH_GRAPH_EDGE_HEADS))
+      || !optional(edge, "endHead", (value) => member(value, GLYPH_GRAPH_EDGE_HEADS))
       || !optional(edge, "invisible", (value) => typeof value === "boolean")
       || !optional(edge, "priority", (value) => typeof value === "number" && Number.isFinite(value))) {
       glyphDiagramError("bad-edge", `edge[${index}] requires from/to ids, a supported style, and finite priority.`);
@@ -142,6 +144,8 @@ const REPAIR_HINTS: Readonly<Record<GlyphDiagramValidationRuleId, string>> = {
   "bad-options": "Use the documented target, charset, color, detail, and dagre layout options.",
   "bad-color": "nodeColor/edgeColor must be a canonical lowercase #rrggbb string, or a function returning one.",
   "GLYPH_MERMAID_SYNTAX": "Use flowchart/graph declarations, supported node shapes, and supported edge operators; close every shape and subgraph. In a stateDiagram, use the supported state statements and close every composite state.",
+  "GLYPH_MERMAID_CLASS_SYNTAX": "Use class declarations, member blocks, namespaces and class relations; close blocks and quotes.",
+  "GLYPH_MERMAID_ER_SYNTAX": "Use entity attribute blocks and cardinality relationships; close blocks and quotes.",
   "GLYPH_MERMAID_GIT_SYNTAX": "Use commit, branch, checkout/switch, merge or cherry-pick; reference existing branches/commits and immediate merge parents.",
   "GLYPH_MERMAID_MINDMAP_SYNTAX": "Use one root and indentation for children; close node shapes and quoted markdown labels.",
   "GLYPH_MERMAID_STATE_NOTE": "Remove the note; put its text in the state's description (`Id : text`) or in a transition label.",

@@ -140,7 +140,7 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
         .filter(word => glyphDiagramWords(word).some(piece => !shown.has(piece)));
     };
     const cut = [
-      ...layout.nodes.filter((node) => node.shape !== "point").map((node) => ({ id: node.id, words: broken(node.label, node.lines) })),
+      ...layout.nodes.filter((node) => node.shape !== "point").map((node) => ({ id: node.id, words: broken([node.label, ...(node.compartments ?? []).flat()].join("\n"), node.lines) })),
       ...layout.loops.map((loop) => ({ id: `${loop.nodeId} loop`, words: broken(layout.edges.find((e) => e.id === loop.edgeId)?.label ?? "", loop.lines) })),
     ].filter((entry) => entry.words.length > 0);
     if (cut.length) ledger.push(ledgerWordsCut({ nodes: cut }));

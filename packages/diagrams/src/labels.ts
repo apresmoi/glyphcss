@@ -18,6 +18,8 @@ export interface GlyphDiagramLabelCandidate {
   readonly place?: { readonly x: number; readonly y: number };
   /** Owned space held against other labels even when this row has no text. */
   readonly reserve?: GlyphDiagramRect;
+  /** Hard obstacles for this label alone; group captions may occupy their own border. */
+  readonly obstacles?: readonly GlyphDiagramRect[];
   /** Edge labels stay beside their route, with one blank cell beside vertical stems. */
   readonly route?: readonly GlyphCanvasPoint[];
   readonly [GLYPH_DIAGRAM_BRANCH_LABEL]?: boolean;
@@ -143,6 +145,7 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
       const x = cell % cols, y = Math.floor(cell / cols);
       const rect = { x0: x, y0: y, x1: x + text.length - 1, y1: y };
       if (occupied.subarray(y * cols + x, y * cols + x + text.length).some(cell => cell !== 0)
+        || label.obstacles?.some(obstacle => glyphDiagramRectsOverlap(obstacle, rect))
         || reservations.some(owner => owner !== label && glyphDiagramRectsOverlap(owner.reserve!, rect))) continue;
       positions.push({ x, y, distance: Math.abs(x + Math.floor(text.length / 2) - label.x) + 2 * Math.abs(y - label.y), nearForeignGroup: touchedGroups(rect).length > 0,
         touchesRoute: label[GLYPH_DIAGRAM_ROUTE_TOUCH] && label.route?.some(p => Math.max(rect.x0 - p.x, 0, p.x - rect.x1) + Math.abs(y - p.y) === 1) || false });

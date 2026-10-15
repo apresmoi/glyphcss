@@ -9,6 +9,7 @@ import { measureGlyphGraph } from "./pipeline";
 import { renderGlyphDiagram } from "./render";
 import { glyphDiagramSnakeLayout } from "./snake";
 import { routeGlyphGraphEdges } from "./route";
+import { glyphDiagramRouteQuality } from "./routeQuality";
 
 const deploy = `flowchart LR
   push[Push] --> ci[Run tests]
@@ -130,4 +131,23 @@ describe("snake layout", () => {
     const short = measureGlyphGraph(glyphGraphFromMermaid("flowchart LR\n  a --> b"), { direction: "LR" });
     expect(glyphDiagramSnakeLayout(short, { width: 20, gap: 4, margin: 1, branchGap: 3, rowGap: 3 })).toBeUndefined();
   });
+});
+
+// Plain rectangles exercise the same geometry as class/ER compartments.
+it.each(["chat", "web"] as const)("keeps three-row returns from enclosing a middle box: %s", async target => {
+  const graph = { direction: "LR" as const, nodes: [..."ABCDEFG"].map(id => ({ id, label: `${id} identifier id` })),
+    edges: [..."ABCDEF"].map((from, i) => ({ from, to: "BCDEFG"[i]! })) };
+  const result = await renderGlyphDiagram(graph, { target, width: 72 });
+  expect(result.pages).toHaveLength(1);
+  expect(result.report.ledger.find(entry => entry.code === "layout-wrapped")?.detail?.rows).toBe(3);
+  expect(result.routes).toHaveLength(6);
+  expect(result.report.unroutable).toEqual([]);
+  expect(result.report.ledger.filter(entry => ["word-cut", "label-dropped"].includes(entry.code))).toEqual([]);
+  const quality = glyphDiagramRouteQuality(result.layout, result.routes);
+  expect(quality).toMatchObject({ crossings: 0, fakeFrames: 0 });
+  for (const [from, to] of [["C", "D"], ["F", "G"]]) {
+    const route = result.routes.find(route => route.edge.from === from && route.edge.to === to)!;
+    expect(quality.edges.find(edge => edge.edgeId === route.edge.id)!.bends, `${from}→${to}`).toBe(0);
+    expect(new Set(route.cells.map(cell => cell.x)).size, `${from}→${to} vertical`).toBe(1);
+  }
 });

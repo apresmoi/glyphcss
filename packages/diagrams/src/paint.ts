@@ -7,7 +7,7 @@ import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRoute
 import { glyphDiagramGroupRects, glyphDiagramPointCell, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
-import type { GlyphGraphNodeShape } from "./types";
+import type { GlyphGraphNodeShape, GlyphGraphEdgeHead } from "./types";
 
 /**
  * Node-SHAPE outline glyphs — a diagram-local vocabulary (mirrors
@@ -112,6 +112,19 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   // resolve them against; scope stays exactly the two options this form
   // documents.
   const ledger: GlyphDiagramLedgerEntry[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
+  const paintMarker = (head: GlyphGraphEdgeHead, at: { x: number; y: number }, side: GlyphCanvasDirection, color: string | null) => {
+    const ascii = charset === "ascii";
+    const glyph = head === "circle" ? ascii ? "o" : "●" : head === "cross" ? ascii ? "x" : "✕"
+      : head === "triangle" ? ascii ? "^" : "△" : head === "filled-diamond" ? ascii ? "*" : "◆"
+      : head === "open-diamond" ? ascii ? "o" : "◇"
+      : head === "er-many" || head === "er-zero-many" ? ({ n: "v", s: "^", e: "<", w: ">" }[side])
+      : ascii ? "+" : "┼";
+    canvas.text(at.x, at.y, [glyph], { color });
+    if (head.startsWith("er-")) {
+      const delta = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] }[side]!;
+      canvas.text(at.x + delta[0]!, at.y + delta[1]!, [head === "er-zero-one" || head === "er-zero-many" ? ascii ? "o" : "○" : ascii ? "+" : "┼"], { color });
+    }
+  };
   const count = new Map<string, number>(), routeCells = new Set<string>();
   for (const route of routing.routes) for (const p of route.cells) { const k = `${p.x},${p.y}`; count.set(k, (count.get(k) ?? 0) + 1); routeCells.add(k); obstacles.push({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); }
   // Every route cell's own local travel axis, independent of edge style —
@@ -286,7 +299,8 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       const head = shared ? heads[0] : "none";
       const color = routed.length ? edgeAccentColors.get(routed[0]!.edge.id)! : nodeColor;
       if (head === "arrow") canvas.arrowhead(arrow.x, arrow.y, flow.from, { color });
-      else canvas.text(arrow.x, arrow.y, [head === "circle" ? charset === "ascii" ? "o" : "●" : head === "cross" ? charset === "ascii" ? "x" : "✕" : tier.junction[flow.entry | flow.exit]!], { color });
+      else if (head && head !== "none") paintMarker(head, arrow, flow.from, color);
+      else canvas.text(arrow.x, arrow.y, [tier.junction[flow.entry | flow.exit]!], { color });
     }
     // The glyph itself is the node's label, folded and charset-picked at measure time.
     if (node.lines[0]) canvas.text(glyph.x, glyph.y, [node.lines[0]], { color: nodeColor });
@@ -316,6 +330,8 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     for (let x = x0 + 1; x < x1; x++) { canvas.text(x, y0, [topRule], { color: nodeColor }); canvas.text(x, y1, [bottomRule], { color: nodeColor }); }
     for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [sideLeft], { color: nodeColor }); canvas.text(x1, y, [sideRight], { color: nodeColor }); }
     ([[x0, y0], [x1, y0], [x0, y1], [x1, y1]] as const).forEach(([x, y], i) => canvas.text(x, y, [corners[i]!], { color: nodeColor }));
+    const labelTop = y0 + Math.floor((node.height - node.lines.length) / 2);
+    for (const row of node.separators ?? []) canvas.text(x0, labelTop + row, [tier.junction[7]! + tier.straight.h.repeat(node.width - 2) + tier.junction[13]!], { color: nodeColor });
     if (node.shape === "subroutine") for (let y = y0 + 1; y < y1; y++) { canvas.text(x0 + 1, y, [tier.straight.v], { color: nodeColor }); canvas.text(x1 - 1, y, [tier.straight.v], { color: nodeColor }); }
   }
   const exits = new Set<string>();
@@ -346,7 +362,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
     const color = edgeAccentColors.get(route.edge.id)!;
     if (head === "arrow") canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color });
-    else canvas.text(port.anchor.x, port.anchor.y, [head === "circle" ? charset === "ascii" ? "o" : "●" : charset === "ascii" ? "x" : "✕"], { color });
+    else paintMarker(head, port.anchor, port.side, color);
   }
   const labels = options.labelLayout ?? glyphDiagramGraphLabels(layout, routing, options);
   labels.placed.forEach(label => {
@@ -362,6 +378,11 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const top = node.y0 + Math.floor((node.height - node.lines.length) / 2);
     const nodeColor = nodeColors.get(node.id)!;
     node.lines.forEach((line, i) => {
+      if (node.separators?.includes(i)) return;
+      if (node.shape === "compartment" && i > (node.separators?.[0] ?? Infinity)) {
+        if (line) canvas.text(node.x0 + 2, top + i, [line], { color: nodeColor });
+        return;
+      }
       const result = glyphDiagramLabelLayout([{ id: node.id, text: line, x: Math.floor(innerWidth / 2), y: 0 }], { charset, viewport: { cols: innerWidth, rows: 1 }, obstacles: [] });
       // Measurement includes the marker in its wrapped rows; its identity is presentation state, never label text.
       const marker = node[GLYPH_DIAGRAM_DIAMOND_MARKER] && i === 0 ? glyphDiagramDiamondGlyph(charset) : "";

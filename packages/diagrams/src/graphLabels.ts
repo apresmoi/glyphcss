@@ -27,6 +27,9 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
       x: Math.floor((rect.x0 + rect.x1) / 2), y: rect.y0, priority: 1, maxWidth: rect.x1 - rect.x0 - 1 });
   }
   const counts = new Map<string, number>();
+  const borders = [...drawn.values()].flatMap(rect => [
+    { ...rect, y1: rect.y0 }, { ...rect, y0: rect.y1 }, { ...rect, x1: rect.x0 }, { ...rect, x0: rect.x1 },
+  ]);
   for (const route of routing.routes) for (const cell of route.cells) {
     const key = `${cell.x},${cell.y}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);
@@ -39,7 +42,7 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
         const id = i === 0 ? `edge:${route.edge.id}` : `edge-row:${JSON.stringify([route.edge.id, i])}`;
         const y = room.y0 + i;
         candidates.push({ id, text, x: room.x0, y, place: { x: room.x0, y },
-          reserve: { x0: room.x0, x1: room.x1, y0: y, y1: y }, priority: route.edge.priority });
+          reserve: { x0: room.x0, x1: room.x1, y0: y, y1: y }, priority: route.edge.priority, obstacles: borders });
       });
     } else {
       const branch = route.cells.filter(cell => counts.get(`${cell.x},${cell.y}`) === 1);
@@ -51,7 +54,7 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
         && (route.edge.label.length > layout.nodes.find(node => node.id === route.edge.to)!.width - 4 || /\s/.test(route.edge.label));
       const entry = layout.ports.find(port => port.edgeId === route.edge.id && port.end === "to")!;
       candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: fan ? entry.anchor.x : mid.x, y: mid.y,
-        route: branch, [GLYPH_DIAGRAM_BRANCH_LABEL]: fan,
+        route: branch, obstacles: borders, [GLYPH_DIAGRAM_BRANCH_LABEL]: fan,
         [GLYPH_DIAGRAM_ROUTE_TOUCH]: layout.nodes.some(node => node.id === route.edge.from && node[GLYPH_DIAGRAM_DIAMOND_MARKER])
           && layout.ports.some(port => port.edgeId === route.edge.id && port.end === "from" && port.trunk), maxWidth: options.width, priority: route.edge.priority, avoid });
     }

@@ -1,0 +1,197 @@
+[
+  {
+    "id": "class-members",
+    "source": "classDiagram\nclass Box~T~ {\n  <<interface>>\n  +T value\n  -int size$\n  #List~T~ values\n  ~bool ready\n  +get() T*\n  +make()$ T\n}\nBox : +set(T value) void\nBox : -clear() void$\n"
+  },
+  {
+    "id": "class-labels-annotations",
+    "source": "classDiagram\nclass A[\"Public API\"]\n<<Service>> A\nclass B <<Abstract>>\nclass `C-D` {\n <<Enumeration>>\n OPEN\n CLOSED\n}\nA --> B : uses\nB ..> `C-D` : reads\n"
+  },
+  {
+    "id": "class-namespaces",
+    "source": "classDiagram\ndirection LR\nnamespace App.Models[\"Models\"] {\n class User {\n  +int id\n }\n namespace Internal {\n  class Key\n }\n User --> Key : owns\n}\n"
+  },
+  {
+    "id": "class-notes-inert",
+    "source": "---\ntitle: Inert title\n---\n%%{init: {\"theme\":\"dark\"}}%%\nclassDiagram\nclass User\nnote for User \"Keeps keys\\nNever fetches URLs\"\nnote \"Review before release\"\nclassDef hot fill:red\nstyle User fill:blue\ncssClass \"User\" hot\nclick User call callback()\nlink User \"https://example.invalid\"\ncallback User \"callback\"\nUser:::hot\naccTitle: Sample\naccDescr: Inert description\n"
+  },
+  {
+    "id": "class-cardinality",
+    "source": "classDiagram\ndirection LR\nCompany \"1\" --> \"0..*\" Person : employs\n"
+  },
+  {
+    "id": "class-inline-blocks",
+    "source": "classDiagram; class A { +int id; +run() void }; class B[\"Beta\"]; A --> B : call"
+  },
+  {
+    "id": "er-attributes",
+    "source": "erDiagram\nCUSTOMER[\"Customers\"] {\n int id PK \"primary\"\n string? email UK\n int owner FK, UK\n string[] tags\n varchar(32) name \"display name\"\n}\n"
+  },
+  {
+    "id": "er-quoted-unicode",
+    "source": "erDiagram\ndirection LR\n\"User account\" ||--o{ ROW[\"Entries\"] : \"owns **rows**\"\n\"User account\" {\n int *id PK\n string 名称 \"name\"\n}\nROW { int id PK int user FK }\n"
+  },
+  {
+    "id": "er-groups-inert",
+    "source": "erDiagram\nsubgraph DB[\"Storage\"]\n direction LR\n subgraph Core\n  USER { int id PK }\n end\n ROW { int id PK }\n USER ||--o{ ROW : owns\nend\nstyle USER fill:blue\nclassDef hot fill:red\nclass USER hot\nUSER:::hot\n"
+  },
+  {
+    "id": "er-group-endpoints",
+    "source": "erDiagram\nsubgraph DB[\"Storage\"]\n USER\nend\nDB ||--o{ ROW : contains\n"
+  },
+  {
+    "id": "class-inheritance",
+    "source": "classDiagram\ndirection LR\nA <|-- B : inheritance\n"
+  },
+  {
+    "id": "class-composition",
+    "source": "classDiagram\ndirection LR\nA *-- B : composition\n"
+  },
+  {
+    "id": "class-aggregation",
+    "source": "classDiagram\ndirection LR\nA o-- B : aggregation\n"
+  },
+  {
+    "id": "class-association",
+    "source": "classDiagram\ndirection LR\nA --> B : association\n"
+  },
+  {
+    "id": "class-dependency",
+    "source": "classDiagram\ndirection LR\nA ..> B : dependency\n"
+  },
+  {
+    "id": "class-realization",
+    "source": "classDiagram\ndirection LR\nA ..|> B : realization\n"
+  },
+  {
+    "id": "class-link",
+    "source": "classDiagram\ndirection LR\nA -- B : link\n"
+  },
+  {
+    "id": "class-dashed",
+    "source": "classDiagram\ndirection LR\nA .. B : dashed\n"
+  },
+  {
+    "id": "class-bidirectional",
+    "source": "classDiagram\ndirection LR\nA <|--|> B : bidirectional\n"
+  },
+  {
+    "id": "class-reverse",
+    "source": "classDiagram\ndirection LR\nA <-- B : reverse\n"
+  },
+  {
+    "id": "class-lollipop-left",
+    "source": "classDiagram\ndirection LR\nA ()-- B : lollipop-left\n"
+  },
+  {
+    "id": "class-lollipop-right",
+    "source": "classDiagram\ndirection LR\nA --() B : lollipop-right\n"
+  },
+  {
+    "id": "er-cardinality-0",
+    "source": "erDiagram\ndirection LR\nA |o--o| B : links\n"
+  },
+  {
+    "id": "er-cardinality-1",
+    "source": "erDiagram\ndirection LR\nA ||--|| B : links\n"
+  },
+  {
+    "id": "er-cardinality-2",
+    "source": "erDiagram\ndirection LR\nA }o--o{ B : links\n"
+  },
+  {
+    "id": "er-cardinality-3",
+    "source": "erDiagram\ndirection LR\nA }|--|{ B : links\n"
+  },
+  {
+    "id": "er-direction-TB",
+    "source": "erDiagram\ndirection TB\nA ||..o{ B : optional\n"
+  },
+  {
+    "id": "er-direction-BT",
+    "source": "erDiagram\ndirection BT\nA ||..o{ B : optional\n"
+  },
+  {
+    "id": "er-direction-LR",
+    "source": "erDiagram\ndirection LR\nA ||..o{ B : optional\n"
+  },
+  {
+    "id": "er-direction-RL",
+    "source": "erDiagram\ndirection RL\nA ||..o{ B : optional\n"
+  },
+  {
+    "id": "er-alias-0",
+    "source": "erDiagram\ndirection LR\nA one or zero to zero or one B : aliases\n"
+  },
+  {
+    "id": "er-alias-1",
+    "source": "erDiagram\ndirection LR\nA one or more optionally to one or many B : aliases\n"
+  },
+  {
+    "id": "er-alias-2",
+    "source": "erDiagram\ndirection LR\nA many(1) to 1+ B : aliases\n"
+  },
+  {
+    "id": "er-alias-3",
+    "source": "erDiagram\ndirection LR\nA zero or more to zero or many B : aliases\n"
+  },
+  {
+    "id": "er-alias-4",
+    "source": "erDiagram\ndirection LR\nA many(0) to 0+ B : aliases\n"
+  },
+  {
+    "id": "er-alias-5",
+    "source": "erDiagram\ndirection LR\nA only one to 1 B : aliases\n"
+  },
+  {
+    "id": "class-literal-labels",
+    "source": "classDiagram\ndirection LR\nclass A[\"A:::literal\"]\nA --> B : set {key}:::text\n"
+  },
+  {
+    "id": "er-metadata",
+    "source": "erDiagram\n%% comment\naccDescr {\nMetadata stays inert\n}\nsubgraph Empty\nend\nA[\"API:::literal\"] ||--o{ B : \"set {key}:::text\"\n"
+  },
+  {
+    "id": "class-tight-braces",
+    "source": "classDiagram\nnamespace Foo{class Demo{+int id}}\n"
+  },
+  {
+    "id": "er-tight-braces",
+    "source": "erDiagram\nDemo{int id PK}\nDemo ||--o{ Other : owns\n"
+  },
+  {
+    "id": "class-empty-compartments",
+    "source": "classDiagram\nclass Empty\nclass EmptyBlock {}\nclass Fields {\n +int id\n}\nclass Methods {\n +run()\n}\n"
+  },
+  {
+    "id": "class-identifier-forms",
+    "source": "classDiagram\ndirection TB\nnamespace -Space {\n class -A {\n  +int id\n }\n}\nclass 123\nclass 名前\nclass `a / b`\nclass Box~Map<K, V>~\nnote for -A \"leading hyphen\"\n-A --> 123 : next\n123 --> 名前 : next\n名前 --> `a / b` : next\n`a / b` --> Box~Map<K, V>~ : next\n"
+  },
+  {
+    "id": "er-identifier-forms",
+    "source": "erDiagram\ndirection TB\n-A { int id PK\n `custom type`? `given name`\n }\n-A ||--o{ *B : links\n*B ||--o{ 1.5 : links\n1.5 ||--o{ 名前 : links\n名前 ||--o{ \"with / punctuation\" : links\n"
+  },
+  {
+    "id": "class-labels-annotations-auto",
+    "source": "classDiagram\nclass A[\"Public API\"]\n<<Service>> A\nclass B <<Abstract>>\nclass `C-D` {\n <<Enumeration>>\n OPEN\n CLOSED\n}\nA --> B : uses\nB ..> `C-D` : reads\n",
+    "options": {
+      "autoDirection": true
+    }
+  },
+  {
+    "id": "class-wrapped-ports",
+    "source": "classDiagram\ndirection LR\nclass A { int identifier }\nclass B { int identifier }\nclass C { int identifier }\nclass D { int identifier }\nclass E { int identifier }\nclass F { int identifier }\nA --> B\nB --> C\nC --> D\nD --> E\nE --> F\n"
+  },
+  {
+    "id": "class-return-ports",
+    "source": "classDiagram\ndirection LR\nclass A { int id }\nclass B { int id }\nclass C { int id }\nclass D { int id }\nA --> B\nB --> C\nC --> A : retry\nB --> D\n"
+  },
+  {
+    "id": "class-three-row-snake",
+    "source": "classDiagram\ndirection LR\nclass A { int identifier }\nclass B { int identifier }\nclass C { int identifier }\nclass D { int identifier }\nclass E { int identifier }\nclass F { int identifier }\nclass G { int identifier }\nA --> B\nB --> C\nC --> D\nD --> E\nE --> F\nF --> G"
+  },
+  {
+    "id": "flow-three-row-snake",
+    "source": "flowchart LR\nA[A identifier id] --> B[B identifier id] --> C[C identifier id] --> D[D identifier id] --> E[E identifier id] --> F[F identifier id] --> G[G identifier id]"
+  }
+]

@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { renderGlyphDiagram } from "./render";
+import { glyphDiagramGroupRects } from "./pipeline";
+import { glyphDiagramRectsOverlap } from "./labels";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/${name}.mmd`), "utf8");
 const snapshot = (name: string) => resolve(__dirname, `../fixtures/expected/${name}.txt`);
@@ -55,6 +57,10 @@ describe("state diagram rendering", () => {
     const frame = { x0: Math.min(...boxes(inner).map((n) => n.x0)), x1: Math.max(...boxes(inner).map((n) => n.x1)), y0: Math.min(...boxes(inner).map((n) => n.y0)), y1: Math.max(...boxes(inner).map((n) => n.y1)) };
     for (const outsider of boxes(["Idle", "[*]:start", "[*]:end"])) expect(outsider.x1 < frame.x0 - 1 || outsider.x0 > frame.x1 + 1 || outsider.y1 < frame.y0 - 1 || outsider.y0 > frame.y1 + 1).toBe(true);
     expect(r.text).toContain("Active");
+    for (const rect of glyphDiagramGroupRects(r.layout, { cols: r.canvas.grid.cols, rows: r.canvas.grid.rows }).values()) {
+      const borders = [{ ...rect, y1: rect.y0 }, { ...rect, y0: rect.y1 }, { ...rect, x1: rect.x0 }, { ...rect, x0: rect.x1 }];
+      for (const label of r.labels.filter(label => label.id.startsWith("edge:"))) expect(borders.some(border => glyphDiagramRectsOverlap(label, border))).toBe(false);
+    }
     expect(count(r.text, "●")).toBe(2);
     expect(count(r.text, "◉")).toBe(2);
     await expect(r.text).toMatchFileSnapshot(snapshot("state-composite.box.chat72x24"));
