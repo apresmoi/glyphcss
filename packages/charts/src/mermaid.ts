@@ -3,6 +3,7 @@ import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChart
 import { ledgerMermaidDegraded, ledgerMermaidIgnored, type GlyphChartLedgerEntry } from "./ledger";
 import { GLYPH_CHART_TARGET_DEFAULTS, renderGlyphChart } from "./render";
 import { gantt, journey, radar, treemap } from "./mermaidMore";
+import { packet, timeline } from "./mermaidStructure";
 import { resolveSankeyRows } from "./flowMarks";
 
 /** A normal chart spec plus source-adaptation notes; use the convenience renderer to merge both ledgers. */
@@ -19,6 +20,8 @@ function syntax(message: string): never { return fail("GLYPH_MERMAID_SYNTAX", me
 const NUMBER = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?`;
 const QUOTED = String.raw`"(?:\\.|""|[^"\\])*"`;
 const TEXT_CHANNELS = { x: "x", y: "y", label: "label" } as const;
+// Only journey/timeline have a hash-comment lexer rule; other readers retain hashes as data.
+const HASH_COMMENT_TYPES = new Set(["journey", "timeline"]);
 function label(raw: string): string {
   let text = raw.trim();
   if (text.startsWith('"') && text.endsWith('"')) {
@@ -85,13 +88,23 @@ function ignoredConfiguration(source: string, kind: string, ledger: GlyphChartLe
     showValues: "native node totals and flow values; the Sankey mark has no value-label switch",
     prefix: "unprefixed numeric values; the Sankey mark has no value-prefix option",
     suffix: "unsuffixed numeric values; the Sankey mark has no value-suffix option",
+  } : kind.startsWith("packet") ? {
+    bitsPerRow: "32 bits per row, reduced only for the caller's cell budget",
+    bitOrder: "ascending absolute bit positions in every row",
+    showBits: "absolute decimal bit ticks above every row",
+    bitWidth: "integer cell widths from the caller's column budget",
+    rowHeight: "content-fitted rows with whole-word wrapping",
+    paddingX: "cell-based border padding",
+    paddingY: "content-fitted rows without pixel padding",
+  } : kind === "timeline" ? {
+    disableMulticolor: "plain section headers and text/rules without section background colors",
   } : kind.startsWith("treemap") ? {
     showValues: "native leaf labels always include values; source configuration is inert",
     valueFormat: "native SI value formatting; source format strings are inert",
   } : {};
   for (const [key, replacement] of Object.entries({ ...looks, width: "the caller's column budget, never source pixels", height: "the caller's row budget, never source pixels" })) {
     if (new RegExp(`(?:^|[\\s,{])["']?${key}["']?\\s*:`, "m").test(source)) {
-      ledger.push(ledgerMermaidIgnored({ feature: `${pie ? "pie" : sankey ? "sankey" : kind.startsWith("treemap") ? "treemap" : "chart"}.${key}`, replacement }));
+      ledger.push(ledgerMermaidIgnored({ feature: `${pie ? "pie" : sankey ? "sankey" : kind.startsWith("treemap") ? "treemap" : kind.startsWith("packet") ? "packet" : kind === "timeline" ? "timeline" : "chart"}.${key}`, replacement }));
     }
   }
 }
@@ -111,7 +124,7 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
     const csv = /^\s*sankey(?:-beta)?\b/i.test(body);
-    if (!quoted && kind === "journey" && char === "#") {
+    if (!quoted && HASH_COMMENT_TYPES.has(kind) && char === "#") {
       const end = source.indexOf("\n", i); i = end < 0 ? source.length : end - 1; continue;
     }
     // Comments must win over every free-label protector, even when they contain colons or unbalanced quotes.
@@ -139,6 +152,18 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
         if (!/^(?:title\s|acc(?:Title|Descr)\s*:|accDescr\s*\{)/i.test(statement) && statement.includes(":")) {
           body += JSON.stringify(statement); i += rawLine.length - 1; continue;
         }
+      }
+      if (kind === "timeline" || kind.startsWith("packet")) {
+        let statement = withoutTrailingComment(rawLine).trim();
+        if (kind === "timeline" && !/^section\b/i.test(statement)) {
+          // Timeline periods exclude hashes; event/title/section tokens consume them as literal text.
+          const hash = statement.indexOf("#"), event = statement.search(/:\s/);
+          if (hash >= 0 && (event < 0 || hash < event) && !/^(?:timeline\b|title\s|acc(?:Title|Descr)\s*:|accDescr\s*\{)/i.test(statement)) statement = statement.slice(0, hash).trimEnd();
+        }
+        const data = kind === "timeline"
+          ? !/^(?:timeline\b|title\s|acc(?:Title|Descr)\s*:|accDescr\s*\{)/i.test(statement)
+          : /^(?:\+\d+|\d+(?:\s*-\s*\d+)?)\s*:/.test(statement);
+        if (data && statement) { body += JSON.stringify(statement); i += rawLine.length - 1; continue; }
       }
       // Titles are free text to end-of-line, so their punctuation must never enter the shared scanner.
       if (kind === "gantt") {
@@ -233,9 +258,10 @@ export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec { r
 function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpec {
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
   const prefix = source.replace(/^\uFEFF/, "").replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
-  const journeyPrefix = prefix.replace(/^(?:\s|#[^\n]*(?:\n|$)|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
-  const declared = /^[\w-]+/.exec(/^journey\b/i.test(journeyPrefix) ? journeyPrefix : prefix)?.[0];
-  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta"].includes(declared.toLowerCase())) {
+  const hashPrefix = prefix.replace(/^(?:\s|#[^\n]*(?:\n|$)|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
+  const hashKind = /^[\w-]+/.exec(hashPrefix)?.[0]?.toLowerCase() ?? "";
+  const declared = /^[\w-]+/.exec(HASH_COMMENT_TYPES.has(hashKind) ? hashPrefix : prefix)?.[0];
+  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta", "timeline", "packet", "packet-beta"].includes(declared.toLowerCase())) {
     fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${declared} is not a chart type handled by this reader.`);
   }
   const ledger: GlyphChartLedgerEntry[] = [];
@@ -243,7 +269,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   const header = /^([\w-]+)\b/.exec(cleaned.body);
   if (!header) syntax("Expected a Mermaid chart declaration.");
   const kind = header[1]!.toLowerCase();
-  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta"].includes(kind)) {
+  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta", "timeline", "packet", "packet-beta"].includes(kind)) {
     return fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${header[1]} is not a chart type handled by this reader.`);
   }
   if (kind.startsWith("treemap")) return treemap(cleaned.body.slice(header[0].length), { title: cleaned.title, ledger }, { label, numeric, syntax, splitList });
@@ -255,6 +281,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   let showData = false;
   if (kind === "pie") { showData = /^showData\b/i.test(body); body = body.replace(/^showData\b/i, "").trim(); }
   if (kind.startsWith("xychart")) body = body.replace(/^(?:horizontal|vertical)\b/i, "").trim();
+  if (kind === "timeline") body = body.replace(/^(?:LR|TD)\b/i, "").trim();
   const parts = statements(body);
   const content: string[] = [];
   // Accessibility data is kept as inert metadata, never HTML or callbacks.
@@ -286,6 +313,8 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   if (kind === "quadrantchart") return quadrant(content, common, degrade);
   if (kind === "gantt") return gantt(content, common, { label, numeric, syntax, splitList });
   if (kind === "journey") return journey(content, common, { label, numeric, syntax, splitList });
+  if (kind === "timeline") return timeline(content, common, { label, syntax });
+  if (kind.startsWith("packet")) return packet(content, common, { label, syntax });
   if (kind.startsWith("radar")) return radar(content, common, { label, numeric, syntax, splitList }, radarSummary);
   let categories: string[] | undefined, xDomain: number[] | undefined, yDomain: number[] | undefined;
   let xTitle = "", yTitle = "";

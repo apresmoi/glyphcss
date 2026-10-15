@@ -47,6 +47,7 @@
 import {
   createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor,
 } from "glyphcss";
+import { layoutGlyphMermaidStructure } from "./mermaidStructure";
 import { layoutGlyphJourney } from "./journey";
 import { heatmapFit, isHeatmap } from "./heatmap";
 import { layoutGlyphChart, resolveGlyphChartLegendOption, seriesNames } from "./layout";
@@ -200,10 +201,11 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   // A heatmap lays out twice: once at the full budget to learn how much
   // plot it gets, then shrunk to the grid its square cells need.
   const heatmap = isHeatmap(marks) && scales.x.type === "band" && scales.y.type === "band";
-  const journey = layoutGlyphJourney(spec, width, options.height, textScale, charset, ledger);
-  if (journey) height = journey.rows;
-  let cols = width, rows = journey?.rows ?? height;
-  let layout = journey ?? layoutGlyphChart(spec, marks, scales, cols, rows, detail, heatmap ? [] : ledger, charset, legendOption, textScale);
+  const rowLayout = layoutGlyphJourney(spec, width, options.height, textScale, charset, ledger)
+    ?? layoutGlyphMermaidStructure(spec, width, options.height, textScale, charset, ledger);
+  if (rowLayout) height = rowLayout.rows;
+  let cols = width, rows = rowLayout?.rows ?? height;
+  let layout = rowLayout ?? layoutGlyphChart(spec, marks, scales, cols, rows, detail, heatmap ? [] : ledger, charset, legendOption, textScale);
   if (heatmap) {
     // Chrome rows and the y gutter can shift once the budget shrinks (an
     // auto axis title needs 20 rows), so the fit repeats until it settles.

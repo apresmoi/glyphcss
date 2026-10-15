@@ -1547,6 +1547,21 @@ export function paintGlyphChart(
   const shades = opts.shades;
   if (fill === "solid") canvas = solidOwnedCanvas(canvas);
   const series = chartSeries(marks, ledger, shades?.length);
+  if (layout.mermaidStructure) {
+    // Same inclusive OR masks as treemap borders: ordinary line() overwrites junctions.
+    const borders = new Map<number, number>();
+    const edge = (x: number, y: number, mask: number) => {
+      const key = y * canvas.cols + x;
+      borders.set(key, (borders.get(key) ?? 0) | mask);
+    };
+    for (const { from, to } of layout.mermaidStructure.lines) {
+      if (from.y === to.y) for (let x = from.x; x <= to.x; x++) edge(x, from.y, (x > from.x ? 8 : 0) | (x < to.x ? 2 : 0));
+      else for (let y = from.y; y <= to.y; y++) edge(from.x, y, (y > from.y ? 1 : 0) | (y < to.y ? 4 : 0));
+    }
+    for (const [key, mask] of borders) canvas.text(key % canvas.cols, Math.floor(key / canvas.cols), [GLYPH_CANVAS_TIERS[canvas.tier].junction[mask]!]);
+    for (const label of layout.mermaidStructure.labels) canvas.text(label.x, label.y, [label.text], { scale: textScale });
+    return;
+  }
   if (layout.journey) {
     for (const entry of series) {
       const rows = entry.rows.filter((row) => layout.horizontalBarBands.has(String(row.y)));
