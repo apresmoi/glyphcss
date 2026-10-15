@@ -8,6 +8,7 @@
  * space and axes squeezing into what's left.
  */
 
+import { GLYPH_CHART_GANTT, layoutGlyphGantt, type GlyphChartGanttSpec } from "./gantt";
 import { timeFormat } from "d3-time-format";
 import { cellFillValues, cellSigned } from "./heatmap";
 import { chartSeries, chartSeriesColors } from "./series";
@@ -878,7 +879,7 @@ export function layoutGlyphChart(
     // which now divides a candidate's `maxWidth` by `scale` to recover the
     // character budget) — `yLabelWidth` itself stays a raw character count
     // (the y gutter's own `yAxisCol` derivation multiplies it the same way).
-    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale, scales.y.bandFlush);
+    yTicks = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT] ? [] : axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale, scales.y.bandFlush);
   }
 
   const plot: GlyphChartPlotRect = {
@@ -894,7 +895,7 @@ export function layoutGlyphChart(
     y1: xAxisLineRow >= 0 ? Math.max(top, bottom) : bottom,
   };
 
-  return {
+  return layoutGlyphGantt(spec, {
     cols,
     rows,
     plot,
@@ -925,7 +926,7 @@ export function layoutGlyphChart(
     xAxisTitleRow,
     xAxisTitleAt: xTitleAt,
     yAxisTitleRow,
-  };
+  }, textScale, charset, ledger);
 }
 
 export function fractionToCol(plot: GlyphChartPlotRect, fraction: number): number {

@@ -1,3 +1,4 @@
+import { GLYPH_CHART_GANTT, type GlyphChartGanttRow } from "./gantt";
 import { GLYPH_CHART_JOURNEY, type GlyphChartJourneyRow } from "./journey";
 import { formatLinearTick } from "./scales";
 import { timeFormat } from "d3-time-format";
@@ -298,16 +299,18 @@ export function gantt(parts: string[], common: Common, r: Reader): GlyphChartMer
     visiting.delete(task.id); const result = { start, end }; resolved.set(task.id, result); return result;
   };
   const marks: GlyphChartMark[] = [], rows: string[] = [], labels = new Map<string, string>();
+  const ganttRows: GlyphChartGanttRow[] = [];
   let previousSection: string | undefined;
   let lo = Infinity, hi = -Infinity;
   tasks.forEach((task, index) => {
     const t = resolve(task);
     if (task.tags.includes("vert")) { markers.push({ label: task.label, date: "", time: t.start }); lo = Math.min(lo, t.start); hi = Math.max(hi, t.end); return; }
     const name = `${task.section ? `${task.section} / ` : ""}${task.label}${task.tags.some((s) => ["crit", "active", "done"].includes(s)) ? ` [${task.tags.filter((s) => ["crit", "active", "done"].includes(s)).join(",")}]` : ""}`;
-    if (task.section && task.section !== previousSection) { const key = `__section${index}`; rows.push(key); labels.set(key, task.section); }
+    if (task.section && task.section !== previousSection) { const key = `__section${index}`; rows.push(key); labels.set(key, task.section); ganttRows.push({ key, label: task.section, section: true }); }
     previousSection = task.section;
     const row = `${index + 1}. ${name}`; rows.push(row);
     labels.set(row, `${task.label}${task.tags.some((s) => ["crit", "active", "done"].includes(s)) ? ` ${task.tags.filter((s) => ["crit", "active", "done"].includes(s)).join(" ")}` : ""}`);
+    ganttRows.push({ key: row, label: labels.get(row)!, section: false });
     lo = Math.min(lo, t.start); hi = Math.max(hi, t.end);
     if (task.tags.includes("milestone") || t.start === t.end) marks.push(glyphChartDot([{ x: new Date((t.start + t.end) / 2), y: row }], channels));
     else marks.push(glyphChartBar([{ x0: new Date(t.start), x: new Date(t.end), y: row }], { x0: "x0", x: "x", y: "y" }, { orientation: "horizontal" }));
@@ -328,5 +331,5 @@ export function gantt(parts: string[], common: Common, r: Reader): GlyphChartMer
     if (m) ticks = Math.max(1, Math.min(100, Math.ceil((hi - lo) / (Number(m[1]) * ({ millisecond: 1, second: 1000, minute: 60000, hour: 3600000, day: DAY, week: 7 * DAY, month: 30 * DAY }[m[2]!] ?? DAY)))));
     ledger.push(ledgerMermaidDegraded({ feature: `Gantt tickInterval ${interval}`, replacement: "a requested native tick count, thinned to prevent label collisions" }));
   }
-  return { ...common, marks: marks.length ? marks : [empty()], scales: { x: { type: "time", domain: [new Date(lo), new Date(hi)], nice: false }, ...(rows.length ? { y: { type: "band" as const, ...(rows.length > 1 ? { domain: [...rows].reverse() } : {}) } } : {}) }, axes: { x: { title: "", ...(ticks === undefined ? {} : { ticks }), format: (v) => timeFormat(axisFormat)(new Date(v)) }, y: { title: "", tickMarks: false, line: false, format: (v) => labels.get(String(v)) ?? "" } }, legend: markers.some((m) => m.label !== "") };
+  return { ...common, [GLYPH_CHART_GANTT]: ganttRows, marks: marks.length ? marks : [empty()], scales: { x: { type: "time", domain: [new Date(lo), new Date(hi)], nice: false }, ...(rows.length ? { y: { type: "band" as const, ...(rows.length > 1 ? { domain: [...rows].reverse() } : {}) } } : {}) }, axes: { x: { title: "", ...(ticks === undefined ? {} : { ticks }), format: (v) => timeFormat(axisFormat)(new Date(v)) }, y: { title: "", tickMarks: false, line: false, format: (v) => labels.get(String(v)) ?? "" } }, legend: markers.some((m) => m.label !== "") } as GlyphChartMermaidSpec;
 }

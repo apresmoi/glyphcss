@@ -15,10 +15,10 @@ Plot specs on the cell canvas (ascii/box/blocks/braille); no camera, mesh, depth
 - 3D has its own table, `GLYPH_CHART_3D_VALIDATION_RULES`. Never add 3D codes to the root table or touch `src/validate.ts` for 3D.
 - Defaults stay byte-identical; pin parent fixtures (`src/reviewFixtures.ts`); other `goodSpecs` diffs regress.
 - `textScale` scales text AND fixed cell-count geometry (tick budgets, sankey/funnel widths, gaps and padding, callout gutters). Data-proportional quantities never scale.
-- Only the colour-carrying exits read the solid `regionFill` paint. `build.canvas` and plain `text` always keep textures.
+- Only colour exits read solid `regionFill`; `build.canvas`/plain text keep textures.
 - Paint text through `canvas.text`, never direct grid writes. Numeric labels use SI or drop, never truncate.
 - `textScale`: web HTML only; text/ANSI ignore it.
-- Effects/3D are preview-only; no composed Copy/CLI/JSON.
+- Effects/3D: preview-only; no Copy/CLI/JSON.
 - A bar/area value domain includes zero, except floating intervals; explicit zero-excluding domains reject. Log domains keep one sign.
 - Sankey/funnel/treemap are non-cartesian: no x/y scales or transforms (`bad-options`).
 - `cell`-only + two band scales: heatmap (`heatmap.ts`), flush integer-partitioned `2k`×`k` cells; shrink canvas to grid. An unsigned heatmap's ramp has no blank level and a range key; a signed one keeps blank for exactly zero.
@@ -26,11 +26,11 @@ Plot specs on the cell canvas (ascii/box/blocks/braille); no camera, mesh, depth
 - Journey: compact task rows reuse horizontal bars on 0–5 with score/actors beside each bar. Left section headers, one blank between sections, none between tasks. Wrap words; long actors go under bars. Log omissions and face/timeline fallback. Auto-height fits rows. Never make actors/sections category bands.
 - Mermaid: `@glyphcss/core/mermaid` preamble/entities/comments; own tokenizer. Inert config: `mermaid-degraded`. Native marks; preserve directive prefixes. Errors: `GLYPH_MERMAID_SYNTAX` / `GLYPH_MERMAID_NOT_CHART_TYPE`; source ledger in both reports. Strip `%%` comments/directives before label protection/recognition; preserve quoted/CSV/free-title literals and treemap indentation. Only journey/timeline have `#` comments; timeline event/title/section tokens retain hashes. Journey empty scores use the logged clamp. XY spans its range from implicit x=1; horizontal XY swaps bars/lines; quadrant endpoints replace 0/1 ticks. Reuse `resolveSankeyRows`; cycles become flow lists.
 - Bars default vertical byte-identically. `orientation: "horizontal"` reads value x/category y; `channels.x0` supplies an interval start, otherwise x includes zero. Horizontal bars share integer row geometry with labels: label on first bar, contiguous series, one scaled blank row/group when room; no transforms. A sub-cell interval becomes a dot with `bar-interval-collapsed`. Keep Date Gantt rules.
-- Gantt: calendar durations/exclusions, latest `after`/earliest `until`, forward refs, rowless `vert`, section/status rows. Log milestone dots, approximate ticks, unshaded exclusions and inert today/layout settings. Clock-free: partial dates anchor to 1970; missing starts to epoch, logged.
+- Gantt: calendar durations/exclusions, latest `after`/earliest `until`, forward refs, rowless `vert`, status labels. Column-zero section headers; two-cell-indented, right-aligned tasks; contiguous rows and one blank before later sections. Keep native time/bar geometry; never thin authored rows as ticks. Log milestone dots, approximate ticks, unshaded exclusions and inert today/layout settings. Clock-free: partial dates anchor to 1970; missing starts to epoch, logged.
 - Radar: ids/labels, positional/keyed curves, min/max, grids/ticks/legend. Box/ascii use grouped horizontal bars; braille/blocks use lettered vertices and omit interior tick values. Log these fallbacks, missing/clamped values and straight unfilled curves. Treemap: unique acyclic ids, finite nonnegative leaves, branch sums, aspect-aware squarify; invalid hierarchies use `treemap-hierarchy`. Siblings share borders/junctions; children share parent sides/bottom. Labels reserve a scaled blank cell inside each side border. Omit tiny tiles/unfittable whole labels (`treemap-omitted`); value configuration stays inert, logged.
 - Structure annotations survive shallow copies, not JSON. Auto-height fits; explicit height omits whole groups, logged. Timeline: authored periods vertical, indented two cells under column-zero headers; one blank row between sections, none inside. Events beside periods; only whitespace-followed colons split events, retaining times/URLs. Wrap words, honor `<br>`; stack narrow columns with the same indent; log oversized words. Packet: 32-bit rows, ascending absolute vertical decimal ticks, sharp shared borders (OR masks), whole-word labels and numbered keys (stack multi-digit keys). Log narrower rows, inert config, overlaps, invalid ranges and the 256-row field cap.
 - Kanban: preserve indent; skip blanks. Unindented title/accessibility only; nested data stays data. Hashes/label `%%` are data. Bare/anonymous/repeated ids keep occurrences. Single-quoted backslashes are literal. Sharp lanes/cards; whole words; minimize wrapped card rows; wrap lanes, logged. Shared lane bottoms; empty-body row only if empty. Metadata: ticket, assigned, priority. Log inert URLs.
-- Legends: three swatch cells + blank, including subcell/corners.
+- Legends: three swatch cells + blank on every tier/placement.
 
 ## Don't
 
@@ -39,21 +39,21 @@ Plot specs on the cell canvas (ascii/box/blocks/braille); no camera, mesh, depth
 - Don't paint glyph `<pre>` with `font-family: inherit` or `line-height` above 1: the shell lacks Glyph Mono, and `█` must overlap rows to read solid.
 - Don't swap region glyphs after painting for solid fills; repaint with `regionFill: "solid"` into a second canvas that only colour-carrying exits read.
 - Don't use `grid.char !== " "` as coverage; `canvas.ink` is coverage (a painted blank counts).
-- Don't pass fractional `textScale`; round density/font size/width together.
+- Keep `textScale` integral; round density/font size/width together.
 - Don't copy the dense grid; Copy ASCII/ANSI read a density-1 render at the same measured viewport.
-- Don't restate mark-fit rules; probe `chartsBuildBoundMark`. Don't clean mark rows at render time: `?c=` byte-matches a fresh derivation.
-- Don't rename dataset ids (use `CHARTS_DATASET_ID_ALIASES`), reorder Random pool segments or add a `Math.random()` draw.
+- Probe `chartsBuildBoundMark`; don't duplicate mark-fit rules or clean rows at render time (`?c=` must byte-match).
+- Keep dataset ids (`CHARTS_DATASET_ID_ALIASES`), Random segment order and `Math.random()` draw count.
 - Don't remount 3D on mark/colour changes; use handle `update()` and `scene.setOptions` to preserve camera.
 - Don't pass `rotX`/`rotY` with `mat` to `renderGlyphChart3d` (`bad-camera`), and don't hand-roll 3D rasterization instead of `compileScene` (a raw sampler key hides there).
 - Don't put notes in renders; use Dock `disabledReason` or frame chrome.
-- Don't paint sankey flows as filled ribbons; stubs, a bracket and one line per flow keep each share and each path readable (`sankeyLines.ts`).
+- Sankey: no filled ribbons; use stubs, a bracket and one line per flow (`sankeyLines.ts`).
 - Don't texture funnel stages or size them linearly; one solid shape with √value widths, a blank row between stages and one label line each keeps late stages visible and readable (`paintFunnelMark`).
-- Don't tighten the sankey row-monotonicity bound below 2; reclaim and fold-stub steals each cost a row.
+- Keep sankey's row-monotonicity bound ≥2; reclaim and fold-stub each cost a row.
 - Don't narrow a `RangeSlider` thumb's native `min`/`max`; caps apply only on commit, or thumbs and fill disagree.
 
 ## Gates
 
-- Package: all tests, including parent fixtures/schema parity.
+- Package: all tests, parent fixtures/schema parity.
 - 3D: render/schema, surface, axis origin, per-axis options.
 
-Vitest pins `Europe/Berlin`; preserve local-calendar rendering.
+Vitest pins `Europe/Berlin`; keep local-calendar output.
