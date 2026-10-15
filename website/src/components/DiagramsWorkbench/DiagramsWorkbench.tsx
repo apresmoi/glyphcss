@@ -18,6 +18,7 @@ import {
   InstrumentWorkbench,
   PresetTray,
 } from "../InstrumentWorkbench";
+import { GlyphMermaidExamples } from "../MermaidExamples";
 import { TargetPreview } from "../TargetPreview";
 import { EXPORT_FORMATS } from "./controllerHelpers";
 import { DiagramsDataOverlay } from "./DiagramsDataOverlay";
@@ -323,6 +324,7 @@ function GlyphDiagramsWorkbenchInner({
         </Dock>
       </InstrumentBody>
       <PresetTray id="diagrams-presets-panel" label="Diagram presets" open={mobilePanel === "presets"}>
+        <GlyphMermaidExamples owner="diagrams" />
         {GLYPH_DIAGRAMS_TRAY.map((entry, index) => {
           const key = `${entry.kind}:${entry.preset.id}`;
           const previous = GLYPH_DIAGRAMS_TRAY[index - 1];

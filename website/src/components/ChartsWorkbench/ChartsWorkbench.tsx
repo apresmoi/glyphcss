@@ -14,6 +14,7 @@ import {
   InstrumentWorkbench,
   PresetTray,
 } from "../InstrumentWorkbench";
+import { GlyphMermaidExamples } from "../MermaidExamples";
 import { TargetPreview } from "../TargetPreview";
 import { Charts3dViewport } from "./Charts3dViewport";
 import { ChartsDataFolder } from "./ChartsDataFolder";
@@ -42,7 +43,11 @@ function ChartsWorkbenchInner({
   initialNotice?: string;
   initialRemoteRef?: string;
 }) {
-  const view = useChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef });
+  const view = useChartsWorkbenchInner({
+    initialState,
+    initialNotice,
+    initialRemoteRef,
+  });
   if (!view) return null;
   const {
     is3d,
@@ -349,6 +354,7 @@ function ChartsWorkbenchInner({
         </Dock>
       </InstrumentBody>
       <PresetTray id="charts-presets-panel" label="Chart presets" open={mobilePanel === "presets"}>
+        <GlyphMermaidExamples owner="charts" />
         {CHART_PRESETS.map((preset, index) => (
           <button
             type="button"

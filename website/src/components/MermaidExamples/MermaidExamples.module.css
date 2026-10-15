@@ -1,0 +1,37 @@
+.root {
+  grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
+}
+.root summary {
+  cursor: pointer;
+  color: var(--gc-text-muted);
+}
+.source {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  margin-block: var(--gc-space-2);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  resize: vertical;
+}
+.preview {
+  max-width: 100%;
+  overflow: auto;
+  scrollbar-width: none;
+}
+.preview::-webkit-scrollbar {
+  display: none;
+}
+.root .preview :global(pre.glyph-output) {
+  font-family: var(--gc-font-render);
+  line-height: 1;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gc-space-2);
+}

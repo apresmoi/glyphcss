@@ -90,11 +90,11 @@ describe("diagram CLI argument and file boundary", () => {
     expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("bad-size");
   });
 
-  it("preserves an unsupported Mermaid kind rule across the command boundary", async () => {
+  it("renders sequenceDiagram through the command boundary", async () => {
     await writeFile(mermaidFile, "sequenceDiagram\n A->>B: Hello");
-    vi.spyOn(process, "exit").mockImplementation((status) => { throw Object.assign(new Error("exit"), { status }); });
-    await expect(runGlyphDiagram([mermaidFile])).rejects.toMatchObject({ status: 1 });
-    expect(vi.mocked(process.stderr.write).mock.calls.flat().join("")).toContain("GLYPH_MERMAID_UNSUPPORTED_SEQUENCEDIAGRAM");
+    const output = join(directory, "sequence.txt");
+    await runGlyphDiagram([mermaidFile, "--target", "chat", "-o", output]);
+    expect(await readFile(output, "utf8")).toContain("Hello");
   });
 
   it("reports a missing input file and exits 1", async () => {

@@ -3,7 +3,14 @@ title: Responsive diagrams
 description: Fit diagrams to a cell budget while keeping the font size stable.
 ---
 
-`@glyphcss/diagrams` lays out Mermaid flowcharts and JSON graphs in character cells. The library measures labels, reserves connection ports, adjusts spacing, and checks the routed connections before painting.
+`@glyphcss/diagrams` lays out Mermaid diagrams and JSON graphs in character cells.
+Supported diagram headers are `flowchart`/`graph`, `stateDiagram`/`stateDiagram-v2`,
+`sequenceDiagram` (the `./sequence` entry), `classDiagram`, `erDiagram`, `mindmap`,
+`gitGraph` (lanes), `block`, `architecture`, `requirementDiagram`, and
+`C4Context`, `C4Container`, `C4Component`, `C4Dynamic`, `C4Deployment`.
+Beta header aliases use the same readers. The [diagrams workbench](/diagrams)
+preset tray has a Mermaid example selector, with source and a 72-column web
+preview for every type. The library measures labels, reserves connection ports, adjusts spacing, and checks the routed connections before painting.
 
 To render diagrams directly in an agent conversation, install the [Glyphcss chart and diagram skills](https://github.com/apresmoi/glyphcss-diagrams#install). The repository includes Claude Code and Codex setup, portable installers, and examples.
 
@@ -26,3 +33,21 @@ For a resizable host, measure its available columns and rows at the chosen font 
 For fixed terminal or chat output, omit `overflow` or use `"paginate"`. Every panel keeps exactly the requested dimensions. If geometric fitting fails, the renderer can simplify and split the graph; `detail: "faithful"` preserves node identities and decoration and allows splitting. The original graph remains in `result.meta`, and `result.report.ledger` explains changes. No finite grid can show arbitrarily many legible nodes at a fixed character size.
 
 React and Vue can call `renderGlyphDiagram` from their effect or mount lifecycle and display its text or escaped HTML in a monospace `pre`. They use the same library fitting as the [diagrams workbench](/diagrams), whose export panel generates examples for both frameworks.
+
+
+## One Mermaid CLI
+
+`glyphcss diagram example.mmd --target chat --width 72` routes all diagram
+headers above and every chart header: `pie`, `xychart`, `sankey`,
+`quadrantChart`, `gantt`, `radar`, `treemap`, `journey`, `timeline`, `packet`,
+`kanban`. The [charts workbench](/charts) preset tray offers a Mermaid example
+for each chart type, using its native web/braille look. Both agent skill render
+scripts accept the same Mermaid types, alongside their existing JSON forms.
+
+Configuration, styling callbacks and external assets stay inert. Unsupported
+looks degrade through the package's existing marks and approved node families;
+source and render notes appear in the fidelity ledger. Graph spacing/direction
+flags do not apply to charts, sequences or Git histories; the CLI logs ignored
+flags on stderr. Chart titles come from source; `--title` is diagram-only.
+Unknown headers and malformed syntax preserve the reader's named errors.
+Space limits can still omit labels or paginate: inspect the ledger and output.

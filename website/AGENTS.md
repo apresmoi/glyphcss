@@ -36,8 +36,10 @@ Astro + Starlight documentation and interactive workbenches. Not published. The 
 - Every glyph `<pre>` explicitly uses the render font token (Glyph Mono first) and `line-height: 1`. Live `.glyph-output` rules need greater specificity than glyphcss's injected two-class selector. Chat previews deliberately use the UI monospace font to reproduce paste behavior.
 - Every glyph emitted by a canvas tier must exist in the Glyph Mono subset (`TargetPreview/glyphMonoCmap.test.ts`).
 - Copy ASCII/ANSI reads a separate logical render, never the dense preview grid or preview-only effects.
-- Diagrams: 2D only. Resize changes cells, never font size/density. Library owns wrapping, spacing and Auto direction; web opts into expansion and pans without scrollbars. Exports use the same native options. Code: HTML/TypeScript/React/Vue. Source: Mermaid/JSON/Git log.
-- Charts keeps bindings above chart choices and preserves compatible columns on type changes. Table-based 3D charts expose XYZ fields and retain About/source metadata. Show the title once; keep metadata brief with descriptions and disabled reasons in tooltips.
+- Diagrams: 2D; resize changes cells. Library owns wrap/spacing/direction; web expands and pans. Native options in exports; code HTML/TS/React/Vue, source Mermaid/JSON/Git log.
+- Charts keeps bindings above choices and compatible columns on type changes. 3D tables expose XYZ and retain metadata. Title once; brief metadata and reasons in tooltips.
+
+- Both preset trays offer per-type Mermaid examples at 72 columns, web/braille via public readers. Keep source hints and ledger beside previews.
 
 ## Verification
 

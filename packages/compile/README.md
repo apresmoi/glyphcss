@@ -63,9 +63,24 @@ The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Make
 
 ### Diagrams
 
-`glyphcss diagram <file.mmd|graph.json>` renders Mermaid `flowchart`/`graph`/`stateDiagram`
-source or `{ nodes, edges, direction?, groups? }` JSON. JSON direction defaults
-to `TB`. Every unsupported Mermaid kind rejects with its named rule id.
+`glyphcss diagram <file.mmd|graph.json>` is the single Mermaid entry. It dispatches
+flowchart/graph, stateDiagram, sequenceDiagram, classDiagram, erDiagram, mindmap,
+gitGraph, block, architecture, requirementDiagram and all five C4 headers to
+`@glyphcss/diagrams` (sequence uses `./sequence`; Git source uses the root's lane
+adapter). Pie, xychart, sankey, quadrantChart, gantt, radar, treemap, journey,
+timeline, packet and kanban use `@glyphcss/charts`. Beta/version aliases follow
+the packages' readers. JSON remains `{ nodes, edges, direction?, groups? }`,
+with direction defaulting to `TB`.
+
+Source configuration and interactions remain inert. Reader errors retain their
+named codes: charts signal `GLYPH_MERMAID_NOT_CHART_TYPE` only to dispatch;
+unknown kinds preserve `GLYPH_MERMAID_UNSUPPORTED_<HEADER>`. Malformed chart
+bodies never fall through to a different reader. Graph direction/spacing/engine
+flags are ignored with `mermaid-option-ignored` for charts, sequences and Git
+history; `--detail` applies to graphs/charts. `--title` applies to diagrams;
+charts retain their source title and log that override as ignored. Sequence
+preamble metadata/init are inert and logged; `--title` still overrides its title.
+The separate `chart` command continues to accept chart JSON and 3D options.
 
 ```sh
 npm install -D @glyphcss/compile
