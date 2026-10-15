@@ -7,7 +7,9 @@ import type { GlyphChartCharset, GlyphChartSpec } from "./types";
 
 type TimelineRow = { kind: "section"; text: string } | { kind: "period"; text: string; events: string[] };
 type PacketField = { start: number; end: number; text: string };
-type Structure = { kind: "timeline"; rows: TimelineRow[] } | { kind: "packet"; fields: PacketField[] };
+type KanbanItem = { id: string; text: string; metadata: Record<string, string> };
+type KanbanColumn = { id: string; text: string; items: KanbanItem[] };
+type Structure = { kind: "kanban"; columns: KanbanColumn[] } | { kind: "timeline"; rows: TimelineRow[] } | { kind: "packet"; fields: PacketField[] };
 interface Reader { label(raw: string): string; syntax(message: string): never }
 type Common = Pick<GlyphChartMermaidSpec, "title" | "description" | "ledger">;
 // Like journey, the annotation survives shallow copies and validation; JSON is not its transport.
@@ -21,10 +23,77 @@ export interface GlyphChartMermaidStructureLayout {
 const statement = (part: string): string => part.startsWith('"') ? JSON.parse(part) as string : part;
 const textLabel = (raw: string, r: Reader) => r.label(raw.replace(/<br\s*\/?\s*>/gi, "\uE000")).replace(/\uE000/g, "\n");
 function spec(common: Common, structure: Structure): GlyphChartMermaidSpec {
-  const labels = structure.kind === "timeline" ? structure.rows.flatMap((row) => row.kind === "section" ? [row.text] : [row.text, ...row.events]) : structure.fields.map((field) => field.text);
+  const labels = structure.kind === "kanban" ? structure.columns.flatMap((column) => [column.text, ...column.items.map((item) => item.text)]) : structure.kind === "timeline" ? structure.rows.flatMap((row) => row.kind === "section" ? [row.text] : [row.text, ...row.events]) : structure.fields.map((field) => field.text);
   return { ...common, [GLYPH_CHART_MERMAID_STRUCTURE]: structure, legend: false,
     marks: [glyphChartText((labels.length ? labels : [""]).map((label, y) => ({ x: 0, y, label })), { x: "x", y: "y", label: "label" })],
   } as GlyphChartMermaidSpec;
+}
+
+/** Protect indentation and node/metadata literals before the shared statement scanner. */
+export function protectGlyphKanbanStatement(source: string): { text: string; length: number } | undefined {
+  if (/^[ \t]*kanban\b/i.test(source) || /^(?:title[ \t]|acc(?:Title|Descr)\s*:|accDescr\s*\{)/i.test(source)) return undefined;
+  let bracket = false, metadata = 0, quote = "";
+  for (let i = 0; i < source.length; i++) {
+    const char = source[i]!;
+    if (quote) {
+      if (char === "\\" && quote === '"') i++;
+      else if (char === quote) { if (source[i + 1] === quote) i++; else quote = ""; }
+    } else if ((bracket && char === '"') || (metadata && (char === '"' || char === "'") && /[:,{\[]\s*$/.test(source.slice(0, i)))) quote = char;
+    else if (!metadata && char === "[") bracket = true;
+    else if (bracket && char === "]") bracket = false;
+    else if (!bracket && char === "{" && (metadata || source[i - 1] === "@")) metadata++;
+    else if (metadata && char === "}") metadata--;
+    else if (!bracket && !metadata && (char === "\n" || source.startsWith("%%", i))) {
+      return { text: source.slice(0, i), length: i };
+    }
+  }
+  return { text: source, length: source.length };
+}
+
+export function kanban(parts: string[], common: Common, r: Reader): GlyphChartMermaidSpec {
+  const columns: KanbanColumn[] = [], ledger = common.ledger as GlyphChartLedgerEntry[];
+  let columnIndent = Infinity, itemIndent: number | undefined;
+  for (const part of parts) {
+    const raw = statement(part), indent = /^[ \t]*/.exec(raw)![0].length;
+    if (!raw.trim()) continue;
+    const match = /^\s*([^\[\]{}@]*?)(?:\[((?:"(?:\\.|[^"\\])*"|[^\]])*)\])?\s*(?:@\{([\s\S]*)\})?\s*$/.exec(raw);
+    if (!match || (!match[1]!.trim() && match[2] === undefined)) r.syntax(`Expected a kanban column or item in "${raw.trim()}".`);
+    const text = textLabel(match[2] ?? match[1]!, r), id = match[1]!.trim() || text;
+    const metadata: Record<string, string> = {};
+    if (match[3] !== undefined) {
+      // Scalar metadata is YAML-like; commas inside either quoted form are literal.
+      const fields: string[] = [], raw = match[3]!;
+      let start = 0, quote = "", depth = 0;
+      for (let i = 0; i <= raw.length; i++) {
+        const char = raw[i];
+        if (quote) {
+          if (char === "\\" && quote === '"') i++;
+          else if (char === quote) { if (raw[i + 1] === quote) i++; else quote = ""; }
+        } else if ((char === '"' || char === "'") && /[:,{\[]\s*$/.test(raw.slice(start, i))) quote = char;
+        else if (char === "[" || char === "{") depth++;
+        else if (char === "]" || char === "}") depth--;
+        else if (i === raw.length || (char === "," && depth === 0)) { if (raw.slice(start, i).trim()) fields.push(raw.slice(start, i)); start = i + 1; }
+      }
+      if (quote || depth) r.syntax("Unclosed kanban metadata value.");
+      for (const field of fields) {
+        const pair = /^\s*([\w-]+)\s*:\s*([\s\S]*?)\s*$/.exec(field);
+        if (!pair) r.syntax(`Expected key: value in kanban metadata "${field}".`);
+        const key = pair[1]!, value = pair[2]!;
+        const decoded = value.startsWith("'") && value.endsWith("'") ? value.slice(1, -1).replace(/''/g, "'") : value;
+        if (["assigned", "ticket", "priority"].includes(key)) metadata[key] = r.label(decoded);
+        else ledger.push(ledgerMermaidDegraded({ feature: `kanban metadata ${key}`, replacement: "unsupported metadata omitted", id }));
+      }
+    }
+    if (!columns.length || indent <= columnIndent) {
+      columns.push({ id, text, items: [] }); columnIndent = indent; itemIndent = undefined;
+      if (Object.keys(metadata).length) ledger.push(ledgerMermaidDegraded({ feature: "kanban column metadata", replacement: "plain column header", id }));
+    } else {
+      if (itemIndent !== undefined && indent !== itemIndent) ledger.push(ledgerMermaidDegraded({ feature: "kanban nested indentation", replacement: "a card in the current column, in authored order", id }));
+      itemIndent ??= indent;
+      columns[columns.length - 1]!.items.push({ id, text, metadata });
+    }
+  }
+  return spec(common, { kind: "kanban", columns });
 }
 
 export function timeline(parts: string[], common: Common, r: Reader): GlyphChartMermaidSpec {
@@ -67,12 +136,12 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
   const width = Math.floor(cols / scale), maxRows = height === undefined ? Infinity : Math.floor(height / scale);
   const labels: (Point & { text: string })[] = [], lines: { from: Point; to: Point }[] = [];
   const note = (feature: string, replacement: string, detail?: Record<string, unknown>) => ledger.push(ledgerMermaidDegraded({ feature, replacement, ...detail }));
-  const wrap = (text: string, budget: number, role: string): string[] => {
+  const wrap = (text: string, budget: number, role: string, report = true): string[] => {
     const result: string[] = [];
     for (const paragraph of text.split("\n")) {
       let row = "";
       for (const word of chartText(paragraph, charset).split(/\s+/).filter(Boolean)) {
-        if (word.length > budget) { note(`${source.kind} ${role} word wider than the viewport`, "the whole word omitted, never split", { word, columns: Math.max(0, budget) }); continue; }
+        if (word.length > budget) { if (report) note(`${source.kind} ${role} word wider than the viewport`, "the whole word omitted, never split", { word, columns: Math.max(0, budget) }); continue; }
         if (row && row.length + 1 + word.length > budget) { result.push(row); row = ""; }
         row += `${row ? " " : ""}${word}`;
       }
@@ -129,6 +198,87 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
       content = true;
     }
     if (!source.rows.length) group(1, "empty caption", () => wrap("No periods", width, "caption").forEach((s, i) => add(0, y + i, s)));
+  } else if (source.kind === "kanban") {
+    const rect = (x: number, top: number, w: number, h: number) => {
+      line(x, top, x + w - 1, top); line(x, top + h - 1, x + w - 1, top + h - 1);
+      line(x, top, x, top + h - 1); line(x + w - 1, top, x + w - 1, top + h - 1);
+    };
+    const metadata = (item: KanbanItem) => [item.metadata.ticket ? `#${item.metadata.ticket.replace(/^#/, "")}` : "", item.metadata.assigned, item.metadata.priority].filter(Boolean).join(" · ");
+    // Reserve outer lane + inset + card border + text padding before choosing columns.
+    const wordWidth = (text: string, padding: number) => chartText(text, charset).split(/\s+/).map((word) => word.length + padding);
+    const wanted = source.columns.map((column) => Math.min(width, Math.max(9, ...wordWidth(column.text, 4),
+      ...column.items.flatMap((item) => [...wordWidth(item.text, 8), ...wordWidth(metadata(item), 8)]))));
+    const bands: { column: KanbanColumn; width: number }[][] = [];
+    source.columns.forEach((column, i) => {
+      const last = bands[bands.length - 1], w = wanted[i]!;
+      if (!last || last.reduce((sum, lane) => sum + lane.width, 0) + last.length * 2 + w > width) bands.push([{ column, width: w }]);
+      else last.push({ column, width: w });
+    });
+    if (bands.length > 1) note("kanban columns wrapped", "further rows of boxed lanes in authored order", { laneRows: bands.length, columns: width });
+    for (const band of bands) {
+      const extra = Math.max(0, width - band.reduce((sum, lane) => sum + lane.width, 0) - (band.length - 1) * 2);
+      // Whole-word wrapping has plateaus: a greedy one-cell gain misses improvements several cells away.
+      // Explore every spare-width partition, minimizing card rows before balancing the remaining space.
+      type Allocation = { rows: number; headers: number; balance: number; widths: number[] };
+      let allocations: (Allocation | undefined)[] = [{ rows: 0, headers: 0, balance: 0, widths: [] }];
+      for (const lane of band) {
+        const choices = Array.from({ length: extra + 1 }, (_, share) => {
+          const w = lane.width + share;
+          return { w, rows: lane.column.items.reduce((sum, item) => sum + Math.max(1, wrap(item.text, w - 8, "item", false).length) + wrap(metadata(item), w - 8, "metadata", false).length, 0),
+            headers: Math.max(1, wrap(lane.column.text, w - 4, "column header", false).length), balance: (w - (width - (band.length - 1) * 2) / band.length) ** 2 };
+        });
+        const next: (Allocation | undefined)[] = [];
+        allocations.forEach((previous, spent) => {
+          if (!previous) return;
+          for (let share = 0; share + spent <= extra; share++) {
+            const choice = choices[share]!, candidate = { rows: previous.rows + choice.rows, headers: previous.headers + choice.headers, balance: previous.balance + choice.balance, widths: [...previous.widths, choice.w] };
+            const best = next[spent + share];
+            if (!best || candidate.rows < best.rows || candidate.rows === best.rows && (candidate.headers < best.headers || candidate.headers === best.headers && candidate.balance < best.balance)) next[spent + share] = candidate;
+          }
+        });
+        allocations = next;
+      }
+      const lanes = band.map((lane, i) => {
+        const w = allocations[extra]!.widths[i]!;
+        const header = wrap(lane.column.text, w - 4, "column header");
+        const cards = lane.column.items.map((item) => ({ item, text: wrap(item.text, w - 8, "item"), meta: wrap(metadata(item), w - 8, "metadata") }));
+        return { ...lane, width: w, header, cards, headerRows: Math.max(1, header.length) };
+      });
+      const fitted = lanes.map((lane) => {
+        const { width: w, column } = lane;
+        if (w < 9) { note("kanban lane narrower than a card", "the complete lane omitted", { id: column.id, columns: w }); return undefined; }
+        const base = lane.headerRows + 3;
+        if (y + base + 1 > maxRows) { note("kanban lane outside the viewport", "the complete lane omitted", { id: column.id, rows: base + 1 }); return undefined; }
+        const cards = [];
+        let h = base;
+        for (const card of lane.cards) {
+          const cardHeight = Math.max(1, card.text.length) + card.meta.length + 2;
+          if (y + h + cardHeight > maxRows) { note("kanban card outside the viewport", "the complete card omitted", { id: card.item.id, rows: cardHeight }); continue; }
+          cards.push({ ...card, height: cardHeight }); h += cardHeight;
+        }
+        return { ...lane, cards, height: h + (cards.length ? 0 : 1) };
+      });
+      const bandHeight = Math.max(0, ...fitted.map((lane) => lane?.height ?? 0));
+      let x = 0;
+      fitted.forEach((lane, i) => {
+        if (!lane) { x += lanes[i]!.width + 2; return; }
+        const { width: w, cards } = lane;
+        rect(x, y, w, bandHeight);
+        lane.header.forEach((s, i) => add(x + 2, y + 1 + i, s));
+        line(x, y + lane.headerRows + 1, x + w - 1, y + lane.headerRows + 1);
+        let cardY = y + lane.headerRows + 2;
+        for (const card of cards) {
+          rect(x + 2, cardY, w - 4, card.height);
+          card.text.forEach((s, i) => add(x + 4, cardY + 1 + i, s));
+          card.meta.forEach((s, i) => add(x + 4, cardY + 1 + Math.max(1, card.text.length) + i, s));
+          cardY += card.height;
+        }
+        x += w + 2;
+      });
+      y += bandHeight + 1;
+    }
+    if (bands.length) y = Math.max(title.length, y - 1);
+    else { const text = wrap("No columns", width, "caption"); group(Math.max(1, text.length), "empty caption", () => text.forEach((s, i) => add(0, y + i, s))); }
   } else {
     const bits = Math.min(32, Math.max(1, Math.floor((width - 1) / 2)));
     const pitch = Math.floor((width - 1) / bits), gridWidth = bits * pitch, x = Math.floor((width - gridWidth - 1) / 2);

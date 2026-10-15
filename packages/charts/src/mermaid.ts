@@ -3,7 +3,7 @@ import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChart
 import { ledgerMermaidDegraded, ledgerMermaidIgnored, type GlyphChartLedgerEntry } from "./ledger";
 import { GLYPH_CHART_TARGET_DEFAULTS, renderGlyphChart } from "./render";
 import { gantt, journey, radar, treemap } from "./mermaidMore";
-import { packet, timeline } from "./mermaidStructure";
+import { kanban, packet, protectGlyphKanbanStatement, timeline } from "./mermaidStructure";
 import { resolveSankeyRows } from "./flowMarks";
 
 /** A normal chart spec plus source-adaptation notes; use the convenience renderer to merge both ledgers. */
@@ -96,6 +96,8 @@ function ignoredConfiguration(source: string, kind: string, ledger: GlyphChartLe
     rowHeight: "content-fitted rows with whole-word wrapping",
     paddingX: "cell-based border padding",
     paddingY: "content-fitted rows without pixel padding",
+  } : kind === "kanban" ? {
+    ticketBaseUrl: "plain ticket text; external links and ticket URL interpolation are inert",
   } : kind === "timeline" ? {
     disableMulticolor: "plain section headers and text/rules without section background colors",
   } : kind.startsWith("treemap") ? {
@@ -104,7 +106,7 @@ function ignoredConfiguration(source: string, kind: string, ledger: GlyphChartLe
   } : {};
   for (const [key, replacement] of Object.entries({ ...looks, width: "the caller's column budget, never source pixels", height: "the caller's row budget, never source pixels" })) {
     if (new RegExp(`(?:^|[\\s,{])["']?${key}["']?\\s*:`, "m").test(source)) {
-      ledger.push(ledgerMermaidIgnored({ feature: `${pie ? "pie" : sankey ? "sankey" : kind.startsWith("treemap") ? "treemap" : kind.startsWith("packet") ? "packet" : kind === "timeline" ? "timeline" : "chart"}.${key}`, replacement }));
+      ledger.push(ledgerMermaidIgnored({ feature: `${pie ? "pie" : sankey ? "sankey" : kind.startsWith("treemap") ? "treemap" : kind.startsWith("packet") ? "packet" : kind === "timeline" ? "timeline" : kind === "kanban" ? "kanban" : "chart"}.${key}`, replacement }));
     }
   }
 }
@@ -120,7 +122,7 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
     if (config) ignoredConfiguration(config[1]!, kind, ledger);
     return "";
   });
-  let body = "", quoted = false;
+  let body = "", quoted = false, depth = 0;
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
     const csv = /^\s*sankey(?:-beta)?\b/i.test(body);
@@ -140,10 +142,14 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
       } else { const end = source.indexOf("\n", i); i = end < 0 ? source.length : end - 1; }
       continue;
     }
-    if (!quoted && !csv && (/(?:^|\n|;)\s*$/.test(body) || /^pie(?:\s+showData)?\s+$/i.test(body))) {
+    if (!quoted && !csv && depth === 0 && (/(?:^|\n|;)\s*$/.test(body) || /^pie(?:\s+showData)?\s+$/i.test(body))) {
       const rawLine = source.slice(i).split("\n")[0]!;
       const directive = inertDirective(withoutTrailingComment(rawLine).trim(), kind);
       if (directive) { ledger.push(ledgerMermaidIgnored({ feature: directive })); i += rawLine.length - 1; continue; }
+      if (kind === "kanban") {
+        const record = protectGlyphKanbanStatement(source.slice(i));
+        if (record?.length) { body += JSON.stringify(record.text); i += record.length - 1; continue; }
+      }
       if (kind === "journey") {
         // Journey names are free text, including unmatched quotes/brackets and semicolons.
         const statement = rawLine.replace(/(?:%%|#).*$/, "").trim();
@@ -188,6 +194,10 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
       quoted = !quoted; continue;
     }
     if (quoted && !csv && char === "\\" && i + 1 < source.length) { body += char + source[++i]; continue; }
+    if (!quoted && !csv) {
+      if (char === "[" || char === "{") depth++;
+      if (char === "]" || char === "}") depth--;
+    }
     body += char;
   }
   if (quoted) syntax("Unclosed quoted text.");
@@ -261,7 +271,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   const hashPrefix = prefix.replace(/^(?:\s|#[^\n]*(?:\n|$)|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const hashKind = /^[\w-]+/.exec(hashPrefix)?.[0]?.toLowerCase() ?? "";
   const declared = /^[\w-]+/.exec(HASH_COMMENT_TYPES.has(hashKind) ? hashPrefix : prefix)?.[0];
-  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta", "timeline", "packet", "packet-beta"].includes(declared.toLowerCase())) {
+  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta", "timeline", "packet", "packet-beta", "kanban"].includes(declared.toLowerCase())) {
     fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${declared} is not a chart type handled by this reader.`);
   }
   const ledger: GlyphChartLedgerEntry[] = [];
@@ -269,7 +279,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   const header = /^([\w-]+)\b/.exec(cleaned.body);
   if (!header) syntax("Expected a Mermaid chart declaration.");
   const kind = header[1]!.toLowerCase();
-  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta", "timeline", "packet", "packet-beta"].includes(kind)) {
+  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "journey", "radar", "radar-beta", "treemap", "treemap-beta", "timeline", "packet", "packet-beta", "kanban"].includes(kind)) {
     return fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${header[1]} is not a chart type handled by this reader.`);
   }
   if (kind.startsWith("treemap")) return treemap(cleaned.body.slice(header[0].length), { title: cleaned.title, ledger }, { label, numeric, syntax, splitList });
@@ -313,6 +323,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   if (kind === "quadrantchart") return quadrant(content, common, degrade);
   if (kind === "gantt") return gantt(content, common, { label, numeric, syntax, splitList });
   if (kind === "journey") return journey(content, common, { label, numeric, syntax, splitList });
+  if (kind === "kanban") return kanban(content, common, { label, syntax });
   if (kind === "timeline") return timeline(content, common, { label, syntax });
   if (kind.startsWith("packet")) return packet(content, common, { label, syntax });
   if (kind.startsWith("radar")) return radar(content, common, { label, numeric, syntax, splitList }, radarSummary);
