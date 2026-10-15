@@ -27,8 +27,9 @@ import {
   type GlyphChartPlotRect,
 } from "./layout";
 import { abbreviateChartText, chartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerBarIntervalCollapsed, ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { layoutSankeyGraph, paintFunnelMark } from "./flowMarks";
+import { paintTreemap } from "./treemap";
 import { paintSankeyLines } from "./sankeyLines";
 import { cellRange, cellRampLevel, heatmapRamp } from "./heatmap";
 import { formatLinearTick } from "./scales";
@@ -143,6 +144,28 @@ export function barBandColRange(scale: GlyphChartResolvedScale, plot: GlyphChart
 const FULL_BLOCK = "█";
 const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
 
+function paintHorizontalBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>, textScale: number): void {
+  for (const row of rows) {
+    const start = scaleToCol(scales.x, layout.plot, row.x0 ?? 0);
+    const end = scaleToCol(scales.x, layout.plot, row.x);
+    const band = layout.horizontalBarBands.get(String(row.y)) ?? bandRowRange(scales.y, layout.plot, row.y, layout.xAxisLine);
+    const center = band ? Math.round((band[0] + band[1]) / 2) : scaleToRow(scales.y, layout.plot, row.y);
+    let range: readonly [number, number] = band ?? [center, center];
+    if (start === end) {
+      if (row.x0 !== undefined && Number(row.x) !== Number(row.x0)) {
+        ledger.push(ledgerBarIntervalCollapsed({ row: row.index }));
+        const eventRow = band ? Math.min(band[1], band[0] + dodge.index * textScale) : center;
+        canvas.text(start, eventRow, [seriesDot(canvas.tier, 0)], { color });
+      }
+      continue;
+    }
+    const cap = textScale * dodge.count;
+    if (range[1] - range[0] + 1 > cap) range = [range[0], range[0] + cap - 1];
+    if (dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
+    fillRegionShade(canvas, Math.max(layout.plot.x0, Math.min(start, end) + (end > start ? 1 : 0)), Math.max(layout.plot.y0, range[0]), Math.min(layout.plot.x1, Math.max(start, end) - (end < start ? 1 : 0)), Math.min(layout.plot.y1, range[1]), glyph, color);
+  }
+}
+
 /**
  * A bar's cell span is `(baseline, value]` — NOT `[0, value]` clamped to
  * "above" — so a negative value (mixed-sign honesty gate) draws BELOW the
@@ -163,6 +186,7 @@ const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
  * (`░▒▓`), `ascii`'s `#`, negative bars (no lower-anchored glyph hangs from
  * a cell's top) and stack segments keep whole cells.
  */
+
 function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>, textScale: number): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
@@ -1214,9 +1238,15 @@ function strokeClipPlot(plot: GlyphChartPlotRect, subcell: boolean, width: 1 | 2
  * own `options.strokeWidth`, forwarded to `canvas.line()` — see
  * `strokeClipPlot`'s doc for why width 2/3 clips against a tighter rect.
  */
+/** Categorical overlays must follow the bar/label row, rather than the old continuous band centre. */
+function markRow(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, value: unknown, exact = false): number {
+  return layout.horizontalBarBands.get(String(value))?.[0]
+    ?? (exact ? scaleToRowExact : scaleToRow)(scales.y, layout.plot, value);
+}
+
 function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid", width: 1 | 2 | 3 = 1): void {
   const points = rows
-    .map((r) => ({ x: scaleToCol(scales.x, layout.plot, r.x), y: scaleToRow(scales.y, layout.plot, r.y) }));
+    .map((r) => ({ x: scaleToCol(scales.x, layout.plot, r.x), y: markRow(layout, scales, r.y) }));
   const clipPlot = strokeClipPlot(layout.plot, GLYPH_CANVAS_TIERS[canvas.tier].subcell, width);
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]!, b = points[i + 1]!;
@@ -1291,7 +1321,7 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
   for (const row of rows) {
     if (subcell) {
       const col = scaleToColExact(scales.x, layout.plot, row.x);
-      const r = scaleToRowExact(scales.y, layout.plot, row.y);
+      const r = markRow(layout, scales, row.y, true);
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
       // Clip by the mark's actual DESTINATION cell — the same dot-lattice
       // rounding `paintSubcellDot`/the canvas independently perform — never
@@ -1308,7 +1338,7 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
       continue;
     }
     const col = scaleToCol(scales.x, layout.plot, row.x);
-    const r = scaleToRow(scales.y, layout.plot, row.y);
+    const r = markRow(layout, scales, row.y);
     if (!Number.isFinite(col) || !Number.isFinite(r) || col < layout.plot.x0 || col > layout.plot.x1 || r < layout.plot.y0 || r > layout.plot.y1) continue;
     canvas.text(col, r, [glyph], { color });
   }
@@ -1320,10 +1350,10 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
 // means a rule's own footprint never depends on `width` (`canvas.ts`'s
 // whole-cell path only substitutes a heavier glyph), so `strokeClipPlot`'s
 // margin is never needed here.
-function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, values: readonly number[], axis: "x" | "y", color: string | null, width: 1 | 2 | 3 = 1): void {
+function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, values: readonly (number | Date)[], axis: "x" | "y", color: string | null, width: 1 | 2 | 3 = 1): void {
   for (const v of values) {
     if (axis === "y") {
-      const row = scaleToRow(scales.y, layout.plot, v);
+      const row = markRow(layout, scales, v);
       if (row < layout.plot.y0 || row > layout.plot.y1) continue;
       // A rule landing on the axis LINE's own row (now possible since B1's
       // fix folded that row into the plot — see `layoutGlyphChart`'s
@@ -1429,14 +1459,14 @@ function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
  * silently erasing it (CHARTS-RESEARCH B1's row folded into the plot is
  * exactly the row a `bottom-*`/tall `top-*` legend would otherwise reach).
  *
- * `textScale` (AGENTS.md's "Charts" "Density") reserves an `s`-row-tall band
- * per entry — `canvas.text`'s own `scale`-row pitch — with a `3*s`-wide
- * swatch gutter, exactly the `3 * textScale` the bottom-placed legend's own
- * `swatchGutter` uses, so entries never crowd tighter than a scale-2 swatch's
- * own `2x2` box needs. Every expression below reduces to the pre-`textScale`
- * one at `textScale === 1` (`3*1 === 3`, `floor(plotHeight/1) === plotHeight`,
- * …), so this is byte-identical there.
+ * Text and fixed gaps scale together. Line swatches reserve three ink
+ * cells plus a genuinely blank separator; region swatches retain their
+ * existing three-cell gutter.
  */
+function lineSwatch(entry: ChartSeries | undefined): boolean {
+  return !entry || !["arc", "dot", "funnel", "bar", "area", "cell"].includes(entry.mark.type);
+}
+
 function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[]): void {
   const { plot } = layout;
   const plotWidth = plot.x1 - plot.x0 + 1;
@@ -1453,15 +1483,17 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
   if (legend.items.length > items.length) {
     ledger.push(ledgerLegendDropped({ series: legend.items.length - items.length, cols: plotWidth, rows: plotHeight }));
   }
-  const swatchGutterCols = 3 * textScale;
-  const maxTextWidth = Math.max(1, Math.floor((plotWidth - 2) / textScale));
+
   let covered = 0;
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
     const row = isBottom ? maxRow - items.length * textScale + 1 + i * textScale : plot.y0 + i * textScale;
+    const entry = series.find((s) => s.name === item.label);
+    const swatchGutterCols = (lineSwatch(entry) ? 4 : 3) * textScale;
+    const maxTextWidth = Math.max(1, Math.floor((plotWidth - swatchGutterCols) / textScale));
     const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false);
     if (dropped || !text) continue;
-    // `swatchGutterCols` (not `2 * textScale`) so a LINE-style swatch (the
+    // The wider line gutter lets a LINE-style swatch (the
     // trailing `else` below) has room for the same styled run the bottom
     // legend paints (`paint.ts`'s own label-phase swatch, `swatchX ..
     // label.x - 1`) — a single-cell `canvas.line(p, p)` degenerates to one
@@ -1476,7 +1508,6 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
         if (canvas.grid.char[rr * canvas.cols + c] !== " ") covered++;
       }
     }
-    const entry = series.find((s) => s.name === item.label);
     const color = colorEnabled ? item.color ?? null : null;
     const styleIdx = entry ? (entry.mark.type === "arc" ? entry.shadeIndex! : entry.styleIndex) : i;
     // `total` mirrors the mark's own paint-time count — the number of
@@ -1490,7 +1521,8 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     else if (entry?.mark.type === "funnel") canvas.text(startCol, row, [canvas.tier === "ascii" ? "#" : "█"], { color, scale: textScale });
     else if (entry?.mark.type === "bar" || entry?.mark.type === "area") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
-    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 2), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+    if (lineSwatch(entry)) canvas.text(textCol - 1, row, [" "], { color });
     canvas.text(textCol, row, [text], { color, scale: textScale });
   }
   if (covered > 0) ledger.push(ledgerLegendOverlapsMarks({ placement: legend.placement, covered }));
@@ -1569,7 +1601,8 @@ export function paintGlyphChart(
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
-    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill, shades);
+    if (mark.type === "treemap") paintTreemap(guarded, layout.plot, resolvedRows, groups[0] ? resolveSeriesColor(groups[0], opts.colorEnabled) : null, ledger, textScale);
+    else if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill, shades);
     else if (mark.type === "sankey") {
       const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
       if (sankeyLayout) paintSankeyLines(guarded, layout.plot, sankeyLayout, groups, opts.colorEnabled, ledger);
@@ -1594,7 +1627,8 @@ export function paintGlyphChart(
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
       const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill, shades);
-      if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
+      if (mark.type === "bar" && mark.options?.orientation === "horizontal") paintHorizontalBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
+      else if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
       else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check
@@ -1695,10 +1729,15 @@ export function paintGlyphChart(
     // swatches" both scale, AGENTS.md's "Charts" "Density" paragraph), so
     // its own gutter before the label scales the same way the original
     // flat 3-column gutter did at `textScale === 1`.
-    const swatchGutter = 3 * textScale;
     for (let i = 0; i < layout.legend.items.length; i++) {
       const item = layout.legend.items[i]!;
-      candidates.push({ id: `legend:${i}`, x: regionStart + i * slot + Math.floor(slot / 2), y: legendRow, text: item.label, maxWidth: Math.max(1, slot - swatchGutter), priority, role: "legend label", scale: textScale });
+      const entry = series.find((s) => s.name === item.label);
+      const swatchGutter = (lineSwatch(entry) ? 4 : 3) * textScale;
+      const maxWidth = Math.max(1, slot - swatchGutter);
+      const anchor = regionStart + i * slot + Math.floor(slot / 2);
+      const halfLabel = Math.floor(Math.min(chartText(item.label, canvas.tier).length * textScale, maxWidth) / 2);
+      const x = lineSwatch(entry) ? Math.max(anchor, regionStart + i * slot + swatchGutter + halfLabel) : anchor;
+      candidates.push({ id: `legend:${i}`, x, y: legendRow, text: item.label, maxWidth, priority, role: "legend label", scale: textScale });
     }
   }
   let textIndex = 0;
@@ -1744,7 +1783,7 @@ export function paintGlyphChart(
       const label = row.label !== undefined ? String(row.label) : row.y !== undefined ? String(row.y) : "";
       if (!label) continue;
       const col = scaleToCol(scales.x, layout.plot, row.x);
-      const r = row.y !== undefined ? scaleToRow(scales.y, layout.plot, row.y) : layout.plot.y0;
+      const r = row.y !== undefined ? markRow(layout, scales, row.y) : layout.plot.y0;
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
       const id = `text:${textIndex++}`;
       textColors.set(id, textColor);
@@ -1769,7 +1808,7 @@ export function paintGlyphChart(
       // The swatch itself paints at `label.scale` too (AGENTS.md's
       // "Charts" "Density" — legend "names + swatches" both scale), so its
       // own gutter matches the candidate's own `swatchGutter` above.
-      const swatchX = Math.max(0, label.x - 3 * label.scale);
+      const swatchX = Math.max(0, label.x - (lineSwatch(entry) ? 4 : 3) * label.scale);
       // See `paintCornerLegend`'s own doc on `shadeTotal`.
       const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
       if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: label.scale });
@@ -1799,7 +1838,8 @@ export function paintGlyphChart(
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });
       // A line-style swatch (`canvas.line`) has no `textScale` analogue —
       // stays a single row regardless of `label.scale`.
-      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 2), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+      if (lineSwatch(entry)) guardedLabels.text(label.x - 1, label.y, [" "], { color });
       guardedLabels.text(label.x, label.y, [label.text], { color, scale: label.scale });
     } else if (textColors.has(label.id)) {
       guardedLabels.text(label.x, label.y, [label.text], { color: textColors.get(label.id)!, scale: label.scale });

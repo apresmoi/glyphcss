@@ -87,10 +87,16 @@ const MARK_SCHEMA = {
     },
     options: {
       type: "object", additionalProperties: false,
-      properties: { innerRadius: { type: "number", minimum: 0, exclusiveMaximum: 1 }, axis: { enum: ["x", "y"] }, name: { type: "string" }, color: MARK_COLOR_SCHEMA, labels: { enum: ["callout", "legend-only"] }, strokeWidth: { enum: [1, 2, 3] } },
+      properties: { innerRadius: { type: "number", minimum: 0, exclusiveMaximum: 1 }, axis: { enum: ["x", "y"] }, name: { type: "string" }, color: MARK_COLOR_SCHEMA, labels: { enum: ["callout", "legend-only"] }, strokeWidth: { enum: [1, 2, 3] }, orientation: { enum: ["vertical", "horizontal"] } },
     },
   },
   allOf: [{
+    if: { properties: { type: { const: "bar" }, channels: { required: ["x0"] } }, required: ["type", "channels"] },
+    then: { required: ["options"], properties: { options: { properties: { orientation: { const: "horizontal" } }, required: ["orientation"] } }, not: { required: ["transform"] } },
+  }, {
+    if: { properties: { type: { const: "bar" }, options: { properties: { orientation: { const: "horizontal" } }, required: ["orientation"] } }, required: ["type", "options"] },
+    then: { not: { required: ["transform"] } },
+  }, {
     if: { properties: { type: { enum: XY_MARK_TYPES }, data: { contains: { type: "object" } } }, required: ["data", "type"] },
     then: { properties: { channels: { required: ["x", "y"] } } },
   }, {
@@ -107,7 +113,7 @@ const MARK_SCHEMA = {
     // (`validate.ts`'s own doc at this same check) — structurally
     // checkable regardless of the transform's own shape, unlike the
     // resolved-value half of `sankey-bad-value`/`funnel-bad-value`.
-    if: { properties: { type: { enum: ["sankey", "funnel"] } }, required: ["type"] },
+    if: { properties: { type: { enum: ["sankey", "funnel", "treemap"] } }, required: ["type"] },
     then: { not: { required: ["transform"] } },
   }, {
     // Mirrors the `arc-missing-value` clause above: a funnel over RECORD
@@ -151,10 +157,26 @@ export function glyphChartJsonSchema(): GlyphChartJsonSchema {
         ],
       },
     },
-    allOf: [{
-      if: { properties: { marks: { contains: { properties: { type: { enum: ["bar", "area"] } }, required: ["type"] } } } },
-      then: { properties: { scales: { properties: { y: { properties: { type: { not: { enum: ["band", "ordinal", "time", "log"] } }, domain: { allOf: [{ contains: { type: "number", maximum: 0 } }, { contains: { type: "number", minimum: 0 } }] } } } } } } },
-    }],
+    allOf: (["x", "y"] as const).map((axis) => ({
+      if: { properties: { marks: { contains: { anyOf: [
+        ...(axis === "y" ? [{ properties: { type: { const: "area" } }, required: ["type"] }] : []),
+        { properties: { type: { const: "bar" }, channels: { not: { required: ["x0"] } }, options: axis === "x" ? { properties: { orientation: { const: "horizontal" } }, required: ["orientation"] } : { not: { properties: { orientation: { const: "horizontal" } }, required: ["orientation"] } } }, required: axis === "x" ? ["type", "options"] : ["type"] },
+      ] } } } },
+      then: {
+        properties: {
+          scales: {
+            properties: {
+              [axis]: {
+                properties: {
+                  type: { not: { enum: ["band", "ordinal", "time", "log"] } },
+                  domain: { allOf: [{ contains: { type: "number", maximum: 0 } }, { contains: { type: "number", minimum: 0 } }] },
+                },
+              },
+            },
+          },
+        },
+      },
+    })),
     "x-glyphcss-validation-rules": Object.fromEntries(GLYPH_CHART_VALIDATION_RULES.map((id) => [id, glyphChartRepairHint(id)])) as Record<GlyphChartValidationRuleId, string>,
   };
 }

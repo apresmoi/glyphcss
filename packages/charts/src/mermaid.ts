@@ -1,7 +1,8 @@
 import type { GlyphChartDatum, GlyphChartMark, GlyphChartRenderOptions, GlyphChartResult, GlyphChartScaleOptions, GlyphChartSpec } from "./types";
 import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import { ledgerMermaidDegraded, ledgerMermaidIgnored, type GlyphChartLedgerEntry } from "./ledger";
-import { renderGlyphChart } from "./render";
+import { GLYPH_CHART_TARGET_DEFAULTS, renderGlyphChart } from "./render";
+import { gantt, radar, treemap } from "./mermaidMore";
 import { resolveSankeyRows } from "./flowMarks";
 
 /** A normal chart spec plus source-adaptation notes; use the convenience renderer to merge both ledgers. */
@@ -57,10 +58,13 @@ function ignoredConfiguration(source: string, kind: string, ledger: GlyphChartLe
     showValues: "native node totals and flow values; the Sankey mark has no value-label switch",
     prefix: "unprefixed numeric values; the Sankey mark has no value-prefix option",
     suffix: "unsuffixed numeric values; the Sankey mark has no value-suffix option",
+  } : kind.startsWith("treemap") ? {
+    showValues: "native leaf labels always include values; source configuration is inert",
+    valueFormat: "native SI value formatting; source format strings are inert",
   } : {};
   for (const [key, replacement] of Object.entries({ ...looks, width: "the caller's column budget, never source pixels", height: "the caller's row budget, never source pixels" })) {
     if (new RegExp(`(?:^|[\\s,{])["']?${key}["']?\\s*:`, "m").test(source)) {
-      ledger.push(ledgerMermaidIgnored({ feature: `${pie ? "pie" : sankey ? "sankey" : "chart"}.${key}`, replacement }));
+      ledger.push(ledgerMermaidIgnored({ feature: `${pie ? "pie" : sankey ? "sankey" : kind.startsWith("treemap") ? "treemap" : "chart"}.${key}`, replacement }));
     }
   }
 }
@@ -80,8 +84,31 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
     const csv = /^\s*sankey(?:-beta)?\b/i.test(body);
+    // Comments must win over every free-label protector, even when they contain colons or unbalanced quotes.
+    const comment = !quoted && (!csv || /(?:^|\n)[ \t]*$/.test(body)) && /^[ \t]*%%/.exec(source.slice(i));
+    if (comment) {
+      i += comment[0].length - 2;
+      if (source.startsWith("%%{", i)) {
+        const end = source.indexOf("}%%", i + 3);
+        if (end < 0) syntax("Unclosed Mermaid directive.");
+        ledger.push(ledgerMermaidIgnored({ feature: "initialization directive" }));
+        ignoredConfiguration(source.slice(i, end), kind, ledger);
+        body += " "; i = end + 2;
+      } else { const end = source.indexOf("\n", i); i = end < 0 ? source.length : end - 1; }
+      continue;
+    }
     if (!quoted && !csv && (/(?:^|\n|;)\s*$/.test(body) || /^pie(?:\s+showData)?\s+$/i.test(body))) {
       // Titles are free text to end-of-line, so their punctuation must never enter the shared scanner.
+      if (kind === "gantt") {
+        const rawLine = source.slice(i).split("\n")[0]!;
+        const statement = rawLine.trimStart();
+        const format = /^(dateFormat|axisFormat|todayMarker)\s+(.+)$/i.exec(statement);
+        if (format) { body += `${format[1]} ${JSON.stringify(format[2]!)}`; i += rawLine.length - 1; continue; }
+        const free = /^(section)\s+(.+)$/i.exec(statement);
+        const task = /^(?!title\b|accTitle\b|accDescr\b|dateFormat\b|axisFormat\b|todayMarker\b|click\b|classDef\b|vert\b)([^:]+):/.exec(statement);
+        if (free) { body += `section ${JSON.stringify(label(free[2]!))}`; i += rawLine.length - 1; continue; }
+        if (task) { body += JSON.stringify(label(task[1]!)) + ":"; i += rawLine.length - statement.length + task[0].length - 1; continue; }
+      }
       const heading = /^title[ \t]+([^\n]*)/i.exec(source.slice(i));
       if (heading) { title = heading[1]!; body += " "; i += heading[0].length - 1; continue; }
       const acc = /^(accTitle|accDescr)\s*:\s*([^\n]*)/i.exec(source.slice(i))
@@ -94,16 +121,6 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
       quoted = !quoted; continue;
     }
     if (quoted && !csv && char === "\\" && i + 1 < source.length) { body += char + source[++i]; continue; }
-    if (!quoted && !csv && source.startsWith("%%", i)) {
-      if (source.startsWith("%%{", i)) {
-        const end = source.indexOf("}%%", i + 3);
-        if (end < 0) syntax("Unclosed Mermaid directive.");
-        ledger.push(ledgerMermaidIgnored({ feature: "initialization directive" }));
-        ignoredConfiguration(source.slice(i, end), kind, ledger);
-        body += " "; i = end + 2;
-      } else { const end = source.indexOf("\n", i); i = end < 0 ? source.length : end - 1; }
-      continue;
-    }
     body += char;
   }
   if (quoted) syntax("Unclosed quoted text.");
@@ -121,8 +138,8 @@ function statements(body: string): string[] {
     }
     if (quote && char === "\\" && i + 1 < body.length) { current += char + body[++i]; continue; }
     if (!quote) {
-      if (char === "[") depth++;
-      if (char === "]") depth--;
+      if (char === "[" || char === "{") depth++;
+      if (char === "]" || char === "}") depth--;
       if (char === "&") {
         const entity = /^&(?:#x[\da-f]+|#\d+|\w+);/i.exec(body.slice(i));
         if (entity) { current += entity[0]; i += entity[0].length - 1; continue; }
@@ -169,11 +186,13 @@ function bracketList(body: string): { prefix: string; content: string } | undefi
 const emptyMark = () => glyphChartText([{ x: 0, y: 0, label: "" }], TEXT_CHANNELS);
 
 /** Tolerant Mermaid chart reader. Other grammars are rejected before their body is tokenized. */
-export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec {
+export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec { return parseChart(source, false); }
+
+function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpec {
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
   const prefix = source.replace(/^\uFEFF/, "").replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const declared = /^[\w-]+/.exec(prefix)?.[0];
-  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart"].includes(declared.toLowerCase())) {
+  if (declared && !["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "radar", "radar-beta", "treemap", "treemap-beta"].includes(declared.toLowerCase())) {
     fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${declared} is not a chart type handled by this reader.`);
   }
   const ledger: GlyphChartLedgerEntry[] = [];
@@ -181,9 +200,10 @@ export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec {
   const header = /^([\w-]+)\b/.exec(cleaned.body);
   if (!header) syntax("Expected a Mermaid chart declaration.");
   const kind = header[1]!.toLowerCase();
-  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart"].includes(kind)) {
+  if (!["pie", "xychart", "xychart-beta", "sankey", "sankey-beta", "quadrantchart", "gantt", "radar", "radar-beta", "treemap", "treemap-beta"].includes(kind)) {
     return fail("GLYPH_MERMAID_NOT_CHART_TYPE", `Mermaid ${header[1]} is not a chart type handled by this reader.`);
   }
+  if (kind.startsWith("treemap")) return treemap(cleaned.body.slice(header[0].length), { title: cleaned.title, ledger }, { label, numeric, syntax, splitList });
   let body = cleaned.body.slice(header[0].length).trim();
   let title = cleaned.title, description: string | undefined;
   const degrade = (feature: string, replacement: string, detail?: Record<string, unknown>) => ledger.push(ledgerMermaidDegraded({ feature, replacement, ...detail }));
@@ -222,6 +242,8 @@ export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec {
     return { ...common, marks: [data.length ? glyphChartArc(data, { y: "value", fill: "label" }) : emptyMark()] };
   }
   if (kind === "quadrantchart") return quadrant(content, common, degrade);
+  if (kind === "gantt") return gantt(content, common, { label, numeric, syntax, splitList });
+  if (kind.startsWith("radar")) return radar(content, common, { label, numeric, syntax, splitList }, radarSummary);
   let categories: string[] | undefined, xDomain: number[] | undefined, yDomain: number[] | undefined;
   let xTitle = "", yTitle = "";
   const series: { type: "bar" | "line"; name?: string; points: { value: number; label: string }[] }[] = [];
@@ -258,17 +280,14 @@ export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec {
   // Mermaid's first nonempty series establishes the implicit numeric range; later series span it independently.
   const firstSeries = series.find((s) => s.points.length);
   if (!categories && !xDomain && firstSeries) xDomain = [1, firstSeries.points.length];
-  const hasBars = series.some((s) => s.type === "bar");
-  // Line geometry is channel-driven; the bar painter is fixed to a y=0 baseline and numeric y values.
-  const transpose = horizontal && !hasBars;
-  if (horizontal && hasBars) degrade("horizontal bar orientation", "vertical bars and lines with the original axis roles", { reason: "The existing bar mark only paints vertical bars from y=0 and has no orientation option; swapping channels cannot draw a horizontal bar." });
+  const transpose = horizontal;
   for (const s of series) {
     if (!s.points.length) continue;
     const data = s.points.map((p, i) => {
       const position = categories ? categories[i]! : xDomain ? xDomain[0]! + (xDomain[1]! - xDomain[0]!) * i / Math.max(1, s.points.length - 1) : i + 1;
       return transpose ? { x: p.value, y: position, label: p.label } : { x: position, y: p.value, label: p.label };
     });
-    marks.push((s.type === "bar" ? glyphChartBar : glyphChartLine)(data, { x: "x", y: "y" }, s.name ? { name: s.name } : undefined));
+    marks.push((s.type === "bar" ? glyphChartBar : glyphChartLine)(data, { x: "x", y: "y" }, { ...(s.name ? { name: s.name } : {}), ...(s.type === "bar" && horizontal ? { orientation: "horizontal" as const } : {}) }));
     if (s.type === "line" && data.some((d) => d.label)) marks.push(glyphChartText(data.filter((d) => d.label), TEXT_CHANNELS, s.name ? { name: s.name } : undefined));
   }
   if (yDomain && series.some((s) => s.type === "bar") && !(Math.min(...yDomain) <= 0 && Math.max(...yDomain) >= 0)) {
@@ -286,15 +305,15 @@ function quadrant(parts: string[], common: Common, degrade: Degrade): GlyphChart
   const classes = new Map<string, Record<string, string>>();
   const points: { label: string; x: number; y: number; className?: string; style: Record<string, string> }[] = [];
   const captions: GlyphChartDatum[] = [];
-  let xTitle = "", yTitle = "";
+  let xNames: string[] = [], yNames: string[] = [];
   const styles = (text: string) => Object.fromEntries(splitList(text).map((part) => { const at = part.indexOf(":"); return [part.slice(0, at).trim(), part.slice(at + 1).trim()]; }));
   for (const part of parts) {
     const classDef = /^classDef\s+(\S+)\s+(.+)$/i.exec(part);
     if (classDef) { classes.set(classDef[1]!, styles(classDef[2]!)); continue; }
     const axis = /^([xy])-axis\s+(.+)$/i.exec(part);
     if (axis) {
-      const names = splitList(axis[2]!, "-->").map(label).join(" / ");
-      if (axis[1]!.toLowerCase() === "x") xTitle = names; else yTitle = names;
+      const names = splitList(axis[2]!, "-->").map(label);
+      if (axis[1]!.toLowerCase() === "x") xNames = names; else yNames = names;
       continue;
     }
     const caption = /^quadrant-([1-4])\s+(.+)$/i.exec(part);
@@ -320,8 +339,8 @@ function quadrant(parts: string[], common: Common, degrade: Degrade): GlyphChart
     marks.push(glyphChartText(data, TEXT_CHANNELS, color ? { color } : undefined));
   }
   if (captions.length) marks.push(glyphChartText(points.length ? captions : captions.map((caption) => ({ ...caption, y: Number(caption.y) > 0.5 ? 0.75 : 0.25 })), TEXT_CHANNELS));
-  if (xTitle || yTitle) degrade("quadrant endpoint label placement", "paired low and high labels in the axis titles");
-  return { ...common, marks, scales: { x: { domain: [0, 1], nice: false }, y: { domain: [0, 1], nice: false } }, axes: { x: { title: xTitle, ticks: 2 }, y: { title: yTitle, ticks: 2 } }, legend: false };
+  const endpoint = (names: string[]) => (value: number | string | Date) => Number(value) === 0 ? names[0] ?? "" : Number(value) === 1 ? names[1] ?? "" : "";
+  return { ...common, marks, scales: { x: { domain: [0, 1], nice: false }, y: { domain: [0, 1], nice: false } }, axes: { x: { title: "", tickMarks: false, ticks: xNames.length ? 2 : 0, format: endpoint(xNames) }, y: { title: "", tickMarks: false, ticks: yNames.length ? 2 : 0, format: endpoint(yNames) } }, legend: false };
 }
 
 function sankey(body: string, ledger: GlyphChartLedgerEntry[], title?: string): GlyphChartMermaidSpec {
@@ -371,7 +390,8 @@ function sankey(body: string, ledger: GlyphChartLedgerEntry[], title?: string): 
 
 /** Render through the ordinary mark pipeline and retain adaptation notes in both result.report and build.report. */
 export function renderGlyphChartMermaid(source: string, options: GlyphChartRenderOptions = {}): GlyphChartResult {
-  const spec = glyphChartFromMermaid(source);
+  const charset = options.charset ?? GLYPH_CHART_TARGET_DEFAULTS[options.target ?? "web"].charset;
+  const spec = parseChart(source, charset === "box" || charset === "ascii");
   const flowList = spec.ledger.some((entry) => entry.detail?.fallback === "flow-list");
   const result = renderGlyphChart(spec, flowList && options.height === undefined ? { ...options, height: Math.max(3, spec.marks[0]!.data.length) } : options);
   const report = { ...result.report, ledger: [...spec.ledger, ...result.report.ledger] };

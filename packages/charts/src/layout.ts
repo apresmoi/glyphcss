@@ -120,6 +120,7 @@ export interface GlyphChartLayout {
   readonly plot: GlyphChartPlotRect;
   readonly xTicks: readonly GlyphChartLayoutTick[];
   readonly yTicks: readonly GlyphChartLayoutTick[];
+  readonly horizontalBarBands: ReadonlyMap<string, readonly [number, number]>;
   readonly titleRow: number | null;
   /** `null` when there's no title text at all (distinct from `titleRow === null`, which can also mean "dropped for lack of room"). */
   readonly titleText: string | null;
@@ -460,6 +461,8 @@ export function layoutGlyphChart(
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
+  const horizontalSeries = chartSeries(marks).filter(({ mark }) => mark.type === "bar" && mark.options?.orientation === "horizontal");
+  const horizontalBarGroupRows = textScale * horizontalSeries.reduce((max, entry) => Math.max(max, horizontalSeries.filter(({ mark }) => mark === entry.mark).length), 0);
 
   // A spec made only of `arc`/`text` marks has no cartesian x/y axis to
   // show at all (a pie chart's own radius fills the whole rect) — skipping
@@ -467,7 +470,7 @@ export function layoutGlyphChart(
   // ticks against a meaningless default [0,1] domain, is what keeps a
   // donut chart from wasting a third of a small viewport on an axis nobody
   // reads. Computed early (packet item 6 needs it to gate axis titles too).
-  const NON_CARTESIAN_MARK_TYPES = ["arc", "text", "sankey", "funnel"];
+  const NON_CARTESIAN_MARK_TYPES = ["arc", "text", "sankey", "funnel", "treemap"];
   const cartesian = marks.some(({ mark }) => !NON_CARTESIAN_MARK_TYPES.includes(mark.type));
 
   const xAxisOpts = spec.axes?.x;
@@ -644,7 +647,7 @@ export function layoutGlyphChart(
     // this package sweeps. Kept in its now-correct (interval-counting)
     // form because it is the more honest formula for what this variable is
     // actually named, not because a wrong seed would change the result.
-    const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
+    const yZeroAnchored = yAxisOpts?.ticks !== 0 && scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
     // The minimum y-tick row spacing generalizes from `2` (a scale-1 label
     // row + a blank gap row, `axisTicks`'s own y-collision rule) to
     // `textScale + 1` — see that function's own matching comment.
@@ -793,22 +796,17 @@ export function layoutGlyphChart(
       ? fractionToRow(plotForTicks, zeroFraction)
       : plotForTicks.y1;
 
-    // A band category's tick fraction is otherwise an independent
-    // continuous-fraction computation (`scale.ticks()`'s own `bandwidth/2`
-    // center) that rounds to a row on its OWN, unrelated to `bandRowRange`'s
-    // integer partition of the same plot — the two can (and, pre-fix,
-    // measurably did — review finding 2) disagree about which row a
-    // category's band actually occupies. Re-deriving each band tick's
-    // fraction from `bandPartitionRowRange`'s own chunk centre guarantees
-    // the label always lands inside (at the centre of) the exact rows
-    // `bandRowRange` paints, by construction rather than by coincidence.
+    // Integer row geometry owns both marks and ticks: horizontal labels
+    // name the first series row; heatmap labels name the chunk centre.
     if (scales.y.type === "band") {
       const total = scales.y.domain.length;
       yTicksRaw = yTicksRaw.map((t) => {
         const index = scales.y.domain.indexOf(String(t.value));
         if (index < 0 || total === 0) return t;
-        const [chunkTop, chunkBottom] = bandPartitionRowRange(bandCategoryPlot(plotForTicks, xAxisLine), total, total - 1 - index);
-        const center = Math.round((chunkTop + chunkBottom) / 2);
+        const [chunkTop, chunkBottom] = horizontalBarGroupRows
+          ? horizontalBarRowRange(scales.y, plotForTicks, t.value, horizontalBarGroupRows, textScale, xAxisLine)!
+          : bandPartitionRowRange(bandCategoryPlot(plotForTicks, xAxisLine), total, total - 1 - index);
+        const center = horizontalBarGroupRows ? chunkTop : Math.round((chunkTop + chunkBottom) / 2);
         const fraction = plotHeight > 1 ? (plotForTicks.y1 - center) / (plotHeight - 1) : t.fraction;
         return { ...t, fraction };
       });
@@ -900,6 +898,9 @@ export function layoutGlyphChart(
     plot,
     xTicks,
     yTicks,
+    horizontalBarBands: new Map(horizontalBarGroupRows && scales.y.type === "band"
+      ? scales.y.domain.map((value) => [String(value), horizontalBarRowRange(scales.y, plot, value, horizontalBarGroupRows, textScale, xAxisLine)!])
+      : []),
     titleRow,
     titleText: resolvedTitle.text,
     titleAlign: resolvedTitle.align,
@@ -1078,6 +1079,23 @@ export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
   const index = scale.domain.indexOf(String(value));
   if (index < 0 || total === 0) return undefined;
   return bandPartitionRowRange(bandCategoryPlot(plot, axisLine), total, total - 1 - index);
+}
+
+/** Bars and labels share one integer layout; rounding each category independently can consume the last separator. */
+export function horizontalBarRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown, groupRows: number, gap: number, axisLine = true): readonly [number, number] | undefined {
+  const band = bandRowRange(scale, plot, value, axisLine);
+  if (!band) return undefined;
+  const categoryPlot = bandCategoryPlot(plot, axisLine), total = scale.domain.length;
+  const used = total * groupRows + (total - 1) * gap;
+  const height = categoryPlot.y1 - categoryPlot.y0 + 1;
+  if (used <= height) {
+    const visual = total - 1 - scale.domain.indexOf(String(value));
+    const top = categoryPlot.y0 + Math.floor((height - used) / 2) + visual * (groupRows + gap);
+    return [top, top + groupRows - 1];
+  }
+  const rows = Math.min(groupRows, band[1] - band[0] + 1);
+  const top = band[0] + Math.floor((band[1] - band[0] + 1 - rows) / 2);
+  return [top, top + rows - 1];
 }
 
 /**

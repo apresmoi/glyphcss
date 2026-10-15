@@ -38,14 +38,17 @@ export function isNumericArray(data: GlyphChartMark["data"]): data is readonly n
  */
 export function materializeGlyphChartMarkRows(mark: GlyphChartMark): GlyphChartMarkRow[] {
   const shorthand = isNumericArray(mark.data);
-  const xAcc = accessorFor(mark.channels.x) ?? (shorthand ? index : identity);
-  const yAcc = accessorFor(mark.channels.y) ?? (shorthand ? identity : undefined);
+  const horizontal = mark.type === "bar" && mark.options?.orientation === "horizontal";
+  const x0Acc = accessorFor(mark.channels.x0);
+  const xAcc = accessorFor(mark.channels.x) ?? (shorthand ? horizontal ? identity : index : identity);
+  const yAcc = accessorFor(mark.channels.y) ?? (shorthand ? horizontal ? index : identity : undefined);
   const fillAcc = accessorFor(mark.channels.fill);
   const strokeAcc = accessorFor(mark.channels.stroke);
   const labelAcc = accessorFor(mark.channels.label);
 
   return mark.data.map((datum, i) => ({
     x: xAcc(datum, i),
+    ...(x0Acc ? { x0: x0Acc(datum, i) } : {}),
     y: yAcc ? yAcc(datum, i) : undefined,
     fill: fillAcc?.(datum, i),
     stroke: strokeAcc?.(datum, i),

@@ -55,9 +55,9 @@ function collectValues(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"
       if (ruleAxis === axis) for (const v of ruleValues ?? []) values.push(v);
       continue;
     }
-    if (mark.type === "arc" || mark.type === "sankey" || mark.type === "funnel") continue; // non-cartesian — positioned independently of x/y scales.
+    if (mark.type === "arc" || mark.type === "sankey" || mark.type === "funnel" || mark.type === "treemap") continue; // non-cartesian — positioned independently of x/y scales.
     for (const row of rows) {
-      if (axis === "x") values.push(row.x);
+      if (axis === "x") { values.push(row.x); if (row.x0 !== undefined) values.push(row.x0); }
       else {
         if (row.y1 !== undefined) { values.push(row.y0 ?? 0); values.push(row.y1); }
         else values.push(row.y);
@@ -68,8 +68,8 @@ function collectValues(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"
 }
 
 /** `true` iff any resolved mark is a `bar`/`area` — see module doc for why that forces 0 into the y-domain. */
-export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): boolean {
-  return marks.some((m) => ["bar", "area"].includes(m.mark.type));
+export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y" = "y"): boolean {
+  return marks.some(({ mark }) => mark.type === "area" ? axis === "y" : mark.type === "bar" && mark.channels.x0 === undefined && axis === (mark.options?.orientation === "horizontal" ? "x" : "y"));
 }
 
 // `bar`/`cell` are BAND-ONLY marks (AGENTS.md's "Band marks use the
@@ -79,10 +79,10 @@ export function hasZeroAnchoredMark(marks: readonly GlyphChartResolvedMark[]): b
 // regardless of ISO shape; a continuous mark (line/area/dot/rule) with no
 // band-only mark on the same axis still infers `time` from an all-ISO
 // column exactly as before.
-const BAND_ONLY_MARK_TYPES = new Set(["bar", "cell"]);
+
 
 function axisHasBandOnlyMark(marks: readonly GlyphChartResolvedMark[], axis: "x" | "y"): boolean {
-  return axis === "x" && marks.some((m) => BAND_ONLY_MARK_TYPES.has(m.mark.type));
+  return marks.some(({ mark }) => mark.type === "cell" ? axis === "x" : mark.type === "bar" && axis === (mark.options?.orientation === "horizontal" ? "y" : "x"));
 }
 
 type GlyphChartValueClass = "band" | "time" | "linear";
@@ -265,7 +265,7 @@ export function resolveGlyphChartScale(
   const type = opts?.type
     ? (opts.type === "ordinal" ? "band" : opts.type)
     : inferGlyphChartScaleType(values, { allowDateStrings: !axisHasBandOnlyMark(marks, axis) });
-  const includeZero = axis === "y" && hasZeroAnchoredMark(marks);
+  const includeZero = hasZeroAnchoredMark(marks, axis);
   if (includeZero && (type === "band" || type === "time")) chartError("bad-scale", "Bar/area y scales must be numeric and include zero.");
   if (type === "band") return buildBand(values, opts, isHeatmap(marks));
   return buildContinuous(type, values, includeZero, opts);

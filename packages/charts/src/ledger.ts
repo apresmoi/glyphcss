@@ -262,3 +262,11 @@ export function ledgerMermaidDegraded(opts: { readonly feature: string; readonly
 export function ledgerMermaidIgnored(opts: { readonly feature: string; readonly replacement?: string }): GlyphChartLedgerEntry {
   return entry("mermaid-ignored", `Kept "${opts.feature}" inert and used ${opts.replacement ?? "the chart defaults"}.`, { ...opts });
 }
+
+export function ledgerTreemapOmitted(opts: { readonly label: string; readonly reason: string }): GlyphChartLedgerEntry {
+  return entry("treemap-omitted", `Omitted treemap content "${opts.label}" because of ${opts.reason}.`, { ...opts });
+}
+
+export function ledgerBarIntervalCollapsed(opts: { readonly row: number }): GlyphChartLedgerEntry {
+  return entry("bar-interval-collapsed", "Rendered a sub-cell horizontal interval as a one-cell event marker.", { ...opts });
+}

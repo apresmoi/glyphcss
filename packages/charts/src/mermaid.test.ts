@@ -113,10 +113,11 @@ describe("Mermaid chart reader", () => {
     expect(chart.marks[0]!.data).toMatchObject([{ x: "Jan", y: 1 }, { x: "Feb", y: 2 }]);
   });
 
-  it("records the vertical-only bar limitation while preserving mixed-series axis roles", () => {
+  it("transposes mixed bars and lines through native horizontal bars", () => {
     const chart = spec(examples[3]!.source);
-    expect(chart.ledger).toContainEqual(expect.objectContaining({ code: "mermaid-degraded", detail: expect.objectContaining({ feature: "horizontal bar orientation", replacement: "vertical bars and lines with the original axis roles", reason: expect.stringContaining("no orientation option") }) }));
-    expect(chart.marks[0]!.data[1]).toEqual({ x: "West", y: 18, label: "" });
+    expect(chart.ledger.some((e) => e.detail?.feature === "horizontal bar orientation")).toBe(false);
+    expect(chart.marks[0]!.options?.orientation).toBe("horizontal");
+    expect(chart.marks[0]!.data[1]).toEqual({ x: 18, y: "West", label: "" });
   });
 
   it.each(["sankey", "sankey-beta"])("parses %s RFC CSV commas, doubled quotes, blank lines and multiline fields", (header) => {
@@ -153,8 +154,11 @@ describe("Mermaid chart reader", () => {
     const chart = spec(examples[6]!.source);
     expect(chart.title).toBe("Campaign priorities");
     expect(chart.scales).toEqual({ x: { domain: [0, 1], nice: false }, y: { domain: [0, 1], nice: false } });
-    expect(chart.axes?.x?.title).toBe("Low Reach / High Reach");
-    expect(chart.axes?.y?.title).toBe("Low Engagement / High Engagement");
+    expect(chart.axes?.x?.title).toBe("");
+    expect((chart.axes?.x?.format as (v: number) => string)(0)).toBe("Low Reach");
+    expect((chart.axes?.x?.format as (v: number) => string)(1)).toBe("High Reach");
+    expect((chart.axes?.y?.format as (v: number) => string)(0)).toBe("Low Engagement");
+    expect((chart.axes?.y?.format as (v: number) => string)(1)).toBe("High Engagement");
     expect(chart.marks.slice(0, 2)).toMatchObject([{ type: "rule", data: [0.5], options: { axis: "x" } }, { type: "rule", data: [0.5], options: { axis: "y" } }]);
     expect(chart.marks[2]).toMatchObject({ type: "dot", data: [{ x: 0.3, y: 0.6 }] });
     expect(chart.marks.at(-1)?.data).toEqual([{ x: .75, y: .94, label: "Expand" }, { x: .25, y: .94, label: "Promote" }, { x: .25, y: .44, label: "Reassess" }, { x: .75, y: .44, label: "Improve" }]);
@@ -171,7 +175,9 @@ describe("Mermaid chart reader", () => {
     expect(css).toContain("#ff3300"); expect(css).toContain("#00ff33");
     expect(spec('quadrantChart\nP: [0,1] color: #ABCDEF').marks[2]!.options?.color).toBe("#abcdef");
     expect(codes('quadrantChart\nP: [0,1] color: red')).toContain("mermaid-degraded");
-    expect(spec('quadrantChart\nx-axis Left\ny-axis Bottom').axes).toMatchObject({ x: { title: "Left" }, y: { title: "Bottom" } });
+    const axes = spec('quadrantChart\nx-axis Left\ny-axis Bottom').axes;
+    expect((axes?.x?.format as (v: number) => string)(0)).toBe("Left");
+    expect((axes?.y?.format as (v: number) => string)(0)).toBe("Bottom");
   });
 
   it("keeps configuration and executable-looking directives inert, preserving accessibility metadata", () => {
@@ -214,13 +220,14 @@ describe("Mermaid chart reader", () => {
   it("protects arbitrary accessibility prose and quoted axis delimiters", () => {
     const chart = spec('pie\naccTitle: A lone " bracket [; %% literal\naccDescr {Words with [ and " punctuation}\n"A": 1');
     expect(chart.description).toBe('A lone " bracket [; %% literal\nWords with [ and " punctuation');
-    expect(spec('quadrantChart\nx-axis "Low --> literal" --> "High"').axes?.x?.title).toBe("Low --> literal / High");
+    const format = spec('quadrantChart\nx-axis "Low --> literal" --> "High"').axes?.x?.format as (v: number) => string;
+    expect(format(0)).toBe("Low --> literal"); expect(format(1)).toBe("High");
     expect(spec('sankey\n"C:\\",B,1').marks[0]!.data).toEqual([{ source: "C:\\", target: "B", value: 1 }]);
     expect(spec('xychart\nbar [1 "ignored", 2]').marks.map((mark) => mark.type)).toEqual(["bar"]);
   });
 
   it("rejects every other header by name before parsing foreign delimiters", () => {
-    for (const header of ["flowchart", "sequenceDiagram", "stateDiagram-v2", "gantt", "radar-beta"]) {
+    for (const header of ["flowchart", "sequenceDiagram", "stateDiagram-v2"]) {
       expect(() => spec(`%% comment\n${header}\nforeign [ \"`)).toThrowError(expect.objectContaining({ code: "GLYPH_MERMAID_NOT_CHART_TYPE" }));
     }
   });

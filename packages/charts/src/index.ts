@@ -13,6 +13,7 @@ export {
   glyphChartRule,
   glyphChartSankey,
   glyphChartFunnel,
+  glyphChartTreemap,
   glyphChartPlot,
   normalizeGlyphChartInput,
 } from "./spec";

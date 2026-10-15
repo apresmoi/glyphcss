@@ -1,3 +1,4 @@
+// Historical fixtures 11/26 include the approved legend-gap correction (reviewFixtures exception 16).
 /**
  * `options.strokeWidth` (AGENTS.md's "Charts"): `1 | 2 | 3` on `line`,
  * `area` (its boundary), `rule` — every mark whose own painter reaches

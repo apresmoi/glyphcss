@@ -18,10 +18,10 @@ export function chartError(code: GlyphChartValidationRuleId, message: string): n
   throw Object.assign(new TypeError(`glyphcss: ${code}: ${message}`), { code });
 }
 
-export const MARK_TYPES: readonly GlyphChartMarkType[] = ["line", "area", "bar", "dot", "arc", "cell", "text", "rule", "sankey", "funnel"];
+export const MARK_TYPES: readonly GlyphChartMarkType[] = ["line", "area", "bar", "dot", "arc", "cell", "text", "rule", "sankey", "funnel", "treemap"];
 export const XY_MARK_TYPES = ["line", "area", "bar", "dot", "cell"];
 export const TRANSFORM_KINDS = ["bin", "stack", "group", "normalize", "window"];
-export const CHANNELS = ["x", "y", "fill", "stroke", "label", "source", "target", "value", "stage"];
+export const CHANNELS = ["x", "y", "fill", "stroke", "label", "source", "target", "value", "stage", "x0", "id", "parent"];
 export const SCALE_TYPES = ["linear", "log", "sqrt", "time", "band", "ordinal"];
 export const REDUCERS = ["mean", "sum", "min", "max"];
 export const TITLE_ALIGNS = ["left", "center", "right"];
@@ -149,13 +149,15 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   if (mark.type === "funnel" && mark.data.every((v) => typeof v === "number") && mark.data.some((v) => (v as number) < 0)) {
     chartError("funnel-bad-value", "Funnel values must be finite and not negative (zero is allowed).");
   }
+  if (mark.type === "bar" && mark.channels.x0 !== undefined && mark.options?.orientation !== "horizontal") chartError("bad-options", "x0 intervals require a horizontal bar.");
+  if (mark.type === "bar" && mark.options?.orientation === "horizontal" && mark.transform !== undefined) chartError("bad-options", "Horizontal bars take materialized x/y rows; transforms currently operate on vertical values.");
   if (mark.transform !== undefined) {
     // Neither flow mark has an x/y scale for a transform to bin/stack/group
     // against (AGENTS.md's "Charts": both are laid out from their own
     // graph/row structure, never a scale) — silently ignoring `transform`
     // here used to render as if it weren't there at all (P3-5); reject
     // instead, exactly like an unsupported `options` key.
-    if (mark.type === "sankey" || mark.type === "funnel") chartError("bad-options", `A ${mark.type} mark does not support transform — it has no x/y scale to bin/stack/group against.`);
+    if (mark.type === "sankey" || mark.type === "funnel" || mark.type === "treemap" || mark.channels.x0 !== undefined) chartError("bad-options", `A ${mark.type} mark does not support transform — it has no x/y scale to bin/stack/group against.`);
     const t = mark.transform;
     if (!object(t) || !TRANSFORM_KINDS.includes(t.kind)) chartError("unknown-transform", "Use a known transform kind.");
     if (t.n !== undefined && (!Number.isInteger(t.n) || t.n <= 0)) chartError("invalid-transform-n", "transform.n must be a positive integer.");
@@ -164,7 +166,8 @@ function validateMark(mark: GlyphChartMark, index: number): void {
   }
   if (mark.options !== undefined) {
     const o = mark.options;
-    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels", "strokeWidth"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, labels, and strokeWidth are supported options; size/shape/curve are not supported.");
+    if (!object(o) || Object.keys(o).some((k) => !["innerRadius", "axis", "name", "color", "labels", "strokeWidth", "orientation"].includes(k)) || (o.name !== undefined && typeof o.name !== "string")) chartError("bad-options", "Only innerRadius, axis, name, color, labels, strokeWidth, and orientation are supported options; size/shape/curve are not supported.");
+    if (o.orientation !== undefined && o.orientation !== "vertical" && o.orientation !== "horizontal") chartError("bad-options", "orientation must be vertical or horizontal.");
     if (o.innerRadius !== undefined && (typeof o.innerRadius !== "number" || !Number.isFinite(o.innerRadius) || o.innerRadius < 0 || o.innerRadius >= 1)) chartError("invalid-inner-radius", "innerRadius must be in [0, 1).");
     if (o.axis !== undefined && o.axis !== "x" && o.axis !== "y") chartError("invalid-rule-axis", "axis must be x or y.");
     if (o.color !== undefined) validateMarkColor(o.color);
@@ -231,7 +234,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
     if (!["x", "y"].includes(axis) || !object(opts) || (opts.type !== undefined && (typeof opts.type !== "string" || !SCALE_TYPES.includes(opts.type))) || (opts.nice !== undefined && typeof opts.nice !== "boolean")) chartError("bad-scale", "Use a supported scale type and boolean nice.");
     const domain = opts.domain;
     const type = opts.type ?? "linear";
-    const zeroAnchored = axis === "y" && spec.marks.some((m) => ["bar", "area"].includes(m.type));
+    const zeroAnchored = spec.marks.some((m) => m.type === "area" ? axis === "y" : m.type === "bar" && m.channels.x0 === undefined && axis === (m.options?.orientation === "horizontal" ? "x" : "y"));
     if (zeroAnchored && ["band", "ordinal", "time"].includes(type)) chartError("bad-scale", "Bar/area y scales must be numeric and include zero.");
     if (zeroAnchored && type === "log" && domain === undefined) chartError("log-domain", "The inferred zero baseline is incompatible with log scales.");
     if (domain === undefined) continue;
@@ -244,7 +247,7 @@ export function validateGlyphChartSpec(spec: GlyphChartSpec): GlyphChartSpec {
       if (domain.some((v) => typeof v !== "number" || !Number.isFinite(v))) chartError("bad-scale", "Numeric domains require finite numbers.");
       const numbers = domain as number[];
       if (type === "log") validateLogDomain(numbers);
-      if (axis === "y" && spec.marks.some((m) => ["bar", "area"].includes(m.type)) && !(Math.min(...numbers) <= 0 && Math.max(...numbers) >= 0)) chartError("bar-domain-excludes-zero", "A bar or area domain must include zero.");
+      if (zeroAnchored && !(Math.min(...numbers) <= 0 && Math.max(...numbers) >= 0)) chartError("bar-domain-excludes-zero", "A bar or area domain must include zero.");
     }
   }
   return { ...spec, scales };
@@ -331,6 +334,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphChartValidationRuleId, string>> = {
  * finding 10), indistinguishable from a code the lookup has never heard of.
  */
 const RUNTIME_REPAIR_HINTS: Readonly<Record<string, string>> = {
+  "treemap-hierarchy": "Use unique ids, existing acyclic parents and finite nonnegative leaf values.",
   "mixed-x-scale": "Set an explicit scales.x.type, or make every mark's x channel resolve to the same value type (or one that fits the same band domain).",
   "GLYPH_CHART_INTERNAL_COORD": "Check the named mark's x/y channels resolve to values already in-domain (a band scale needs a matching category; a continuous scale needs a finite number).",
   "sankey-cycle": "Remove the cyclic source -> target link — a sankey's node columns are a DAG's depth order and have no honest position for a cycle.",

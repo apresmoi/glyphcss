@@ -12,7 +12,7 @@
     "source": "xychart\n title Temperatures\n x-axis Hour 0 --> 12\n y-axis Celsius -5 --> 10\n line [+1.3, .6, 2.4, -.34]"
   },
   {
-    "name": "XY horizontal bar limitation (vertical-only native bar mark)",
+    "name": "XY horizontal native bars and lines",
     "source": "xychart horizontal\n title \"Regional sales\"\n x-axis [East, West, North]\n y-axis Units\n bar [10, 18, 14]\n line [12, 16, 15]"
   },
   {
