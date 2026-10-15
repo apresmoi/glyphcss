@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_CHART_PRESETS } from "../../mermaid/model/presets";
 import { charts3dFitsForState, charts3dSourceWithChannel } from "./charts3dFields";
 import { resolveCharts3dView, type Charts3dChannels } from "./chartsWorkbench3d";
 import { cellOutputSnippets } from "../../../utils/export/cellOutputSnippets";
@@ -302,6 +303,8 @@ export function chartsWorkbenchWebGridSize(
 }
 
 export type ChartsWorkbenchAction =
+  | { type: "apply-mermaid-preset"; id: string }
+  | { type: "edit-mermaid-source"; value: string }
   | { type: "add-mark"; markType?: GlyphChartMarkType }
   | { type: "remove-mark"; id: number }
   | { type: "update-mark"; id: number; patch: Partial<Omit<ChartsWorkbenchMark, "id">> }
@@ -442,6 +445,20 @@ export function reduceChartsWorkbenchState(
   action: ChartsWorkbenchAction,
 ): ChartsWorkbenchState {
   switch (action.type) {
+    case "apply-mermaid-preset": {
+      const preset = GLYPH_MERMAID_CHART_PRESETS.find((item) => item.id === action.id);
+      if (!preset) return state;
+      return {
+        ...state,
+        dimension: "2d",
+        mermaid: preset.source,
+        marks: [],
+        data: { source: null, pipeline: [] },
+        chart: { ...state.chart, title: preset.label, description: "" },
+      };
+    }
+    case "edit-mermaid-source":
+      return state.mermaid === undefined ? state : { ...state, mermaid: action.value };
     case "add-mark":
       return {
         ...state,
@@ -528,6 +545,7 @@ export function reduceChartsWorkbenchState(
       // placeholder) the moment a preset makes that statement false.
       return {
         ...state,
+        mermaid: undefined,
         dimension: "2d",
         marks: preset.spec.marks.map((mark, i) => editableMark(mark, state.nextMarkId + i)),
         nextMarkId: state.nextMarkId + preset.spec.marks.length,
@@ -685,6 +703,7 @@ export function reduceChartsWorkbenchState(
       if (!built) return state;
       return {
         ...state,
+        mermaid: undefined,
         dimension: "2d",
         marks: [built.mark],
         nextMarkId: state.nextMarkId + 1,
@@ -711,6 +730,7 @@ export function reduceChartsWorkbenchState(
       if (!built) return state;
       return {
         ...state,
+        mermaid: undefined,
         dimension: "2d",
         marks: [built.mark],
         nextMarkId: state.nextMarkId + 1,
@@ -733,6 +753,7 @@ export function reduceChartsWorkbenchState(
       if (!findCharts3dDataset(action.id)) return state;
       return {
         ...state,
+        mermaid: undefined,
         dimension: "3d",
         chart3d: {
           ...state.chart3d,
@@ -759,6 +780,7 @@ export function reduceChartsWorkbenchState(
     case "select-3d-remote-table":
       return {
         ...state,
+        mermaid: undefined,
         dimension: "3d",
         chart3d: { ...state.chart3d, source: action.source, camera: { ...CHARTS_3D_DEFAULT_CAMERA } },
       };
@@ -1363,6 +1385,24 @@ export function chartsWorkbenchRenderOptions(
 }
 
 export function generateChartsWorkbenchSnippets(state: ChartsWorkbenchState, viewportPx?: GlyphPixelBox) {
+  if (state.mermaid !== undefined) {
+    const resolved = chartsWorkbenchRenderOptions(state, viewportPx);
+    const options =
+      resolved.target === "chat" && resolved.charset === "braille"
+        ? { ...resolved, charset: "box" as const }
+        : resolved;
+    const expression = `renderGlyphChartMermaid(source, ${JSON.stringify(options, null, 2)})`;
+    return {
+      mermaid: state.mermaid,
+      ...cellOutputSnippets({
+        imports: 'import { renderGlyphChartMermaid } from "@glyphcss/charts";',
+        setup: `const source = ${JSON.stringify(state.mermaid)};`,
+        expression,
+        component: "GlyphChart",
+      }),
+      typescript: `import { renderGlyphChartMermaid } from "@glyphcss/charts";\n\nconst source = ${JSON.stringify(state.mermaid)};\nconst chart = ${expression};\n`,
+    };
+  }
   const spec = buildChartsWorkbenchSpec(state);
   const options = chartsWorkbenchRenderOptions(state, viewportPx);
   const json = JSON.stringify(spec, null, 2);

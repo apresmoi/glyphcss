@@ -1,6 +1,6 @@
 # website — agent guide
 
-Astro + Starlight documentation and interactive workbenches. Not published. The root `AGENTS.md` applies.
+Root `AGENTS.md` applies.
 
 ## Ownership and composition
 
@@ -31,7 +31,7 @@ Astro + Starlight documentation and interactive workbenches. Not published. The 
 - Fresh `/maps` starts at zero tilt and bearing; shared links retain their saved pose.
 - Preserve existing URLs, serialized state versions, dataset identifiers, rendering results, and export contents during UI refactors. URL state is append-only: new fields are optional, malformed fields degrade to absent, and only incompatible reshapes bump a version prefix. Shipped dataset IDs are frozen; renames require an alias map.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.
-- Each mounted scene, animation, listener, observer, subscription, or request has one lifecycle owner and cleanup. Lazy demo loading must tolerate unmounts and React StrictMode effect replay.
+- Scenes, animations, listeners, observers, subscriptions, and requests each have one lifecycle owner and cleanup. Lazy demo loading must tolerate unmounts and React StrictMode effect replay.
 - Show only render, controls, presets, and exports. Feedback belongs on controls; unavailable controls are dimmed with an accessible reason, not hidden or explained inside the viewport.
 - Every glyph `<pre>` explicitly uses the render font token (Glyph Mono first) and `line-height: 1`. Live `.glyph-output` rules need greater specificity than glyphcss's injected two-class selector. Chat previews deliberately use the UI monospace font to reproduce paste behavior.
 - Every glyph emitted by a canvas tier must exist in the Glyph Mono subset (`TargetPreview/glyphMonoCmap.test.ts`).
@@ -39,12 +39,12 @@ Astro + Starlight documentation and interactive workbenches. Not published. The 
 - Diagrams: 2D; resize changes cells. Library owns wrap/spacing/direction; web expands and pans. Native options in exports; code HTML/TS/React/Vue, source Mermaid/JSON/Git log.
 - Charts keeps bindings above choices and compatible columns on type changes. 3D tables expose XYZ and retain metadata. Title once; brief metadata and reasons in tooltips.
 
-- Both preset trays offer per-type Mermaid examples at 72 columns, web/braille via public readers. Keep source hints and ledger beside previews.
+- Mermaid tiles load source into the rail and readers into the canvas. Ledgers stay in the rail; no second preview. Only flowchart/graph Mermaid uses guided fields; other headers use plain text without completions or masks. Edits re-render in both workbenches. Chart source is URL-optional; dim native controls while it owns the chart.
 
 ## Verification
 
 - `pnpm --filter @glyphcss/website check` audits ownership, imports, runtime cycles, inline presentation, tokens, and formatting. `format` formats; `test:architecture` tests rules with invalid fixtures. No violation baselines or wildcard exemptions.
 - During owner changes, run focused behavior/style checks, then `pnpm test && pnpm build`. Preserve every assertion; update moved imports and stylesheet ownership.
 - Vitest: 2 workers (avoids starvation), `Europe/Berlin` set before forks (calendar snapshots; runtime uses the caller's zone), one event-loop yield per test (frees happy-dom WeakRef DOM; keep the retention test).
-- Browser-check desktop/mobile renders, keyboard controls, long content, URL restoration, copy/download exports, docs search, and renderer cleanup. Await readiness/rendered content, never fixed sleeps.
+- Browser-check desktop/mobile, keyboard, long content, URL restore, exports, search, cleanup. Await content, never fixed sleeps.
 - Astro dev/build must not share active caches. Stop only owned dev before the final standard build; restart afterward.

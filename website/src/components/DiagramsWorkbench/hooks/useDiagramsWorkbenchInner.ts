@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../../features/mermaid/model/presets";
 import { type GlyphGraph, renderGlyphDiagram } from "@glyphcss/diagrams";
 import { glyphLaneDagFromGitLog, renderGlyphLaneDag, validateGlyphLaneDag } from "@glyphcss/diagrams/lanes";
 import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
@@ -74,11 +75,12 @@ function renderGlyphDiagramsTrayThumbnails(
   return Promise.all(
     GLYPH_DIAGRAMS_TRAY.map(async (entry) => {
       const key = `${entry.kind}:${entry.preset.id}`;
+      const color = entry.kind === "mermaid" ? { color: "none" as const } : {};
       try {
-        if (entry.kind === "sequence") {
+        if (entry.kind === "sequence" || (entry.kind === "mermaid" && entry.preset.type === "sequenceDiagram")) {
           return [
             key,
-            (await renderGlyphSequence(entry.preset.source, { target, width: 60, height: 24 })).text,
+            (await renderGlyphSequence(entry.preset.source, { target, width: 60, height: 24, ...color })).text,
           ] as const;
         }
         if (entry.kind === "lanes") {
@@ -86,10 +88,13 @@ function renderGlyphDiagramsTrayThumbnails(
             entry.preset.sourceKind === "gitlog"
               ? glyphLaneDagFromGitLog(entry.preset.source)
               : validateGlyphLaneDag(JSON.parse(entry.preset.source));
-          return [key, (await renderGlyphLaneDag(dag, { target, width: 60, height: 24 })).text] as const;
+          return [key, (await renderGlyphLaneDag(dag, { target, width: 60, height: 24, ...color })).text] as const;
         }
         const preset = entry.preset;
-        return [key, (await renderGlyphDiagram(preset.source, { target, width: 60, height: 24 })).text] as const;
+        return [
+          key,
+          (await renderGlyphDiagram(preset.source, { target, width: 60, height: 24, ...color })).text,
+        ] as const;
       } catch {
         return [key, "Preview unavailable"] as const;
       }
@@ -417,11 +422,13 @@ export function useDiagramsWorkbenchInner({
     state.form === "graph"
       ? state.graphSource?.kind === "remote"
         ? state.graphSource.title
-        : GLYPH_DIAGRAM_WORKBENCH_PRESETS.find(
+        : [...GLYPH_DIAGRAM_WORKBENCH_PRESETS, ...GLYPH_MERMAID_DIAGRAM_PRESETS].find(
             (p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId,
           )?.label
       : state.form === "sequence"
-        ? GLYPH_SEQUENCE_WORKBENCH_PRESETS.find((p) => p.id === state.sequence.presetId)?.label
+        ? [...GLYPH_SEQUENCE_WORKBENCH_PRESETS, ...GLYPH_MERMAID_DIAGRAM_PRESETS].find(
+            (p) => p.id === state.sequence.presetId,
+          )?.label
         : GLYPH_LANES_WORKBENCH_PRESETS.find((p) => p.id === state.lanes.presetId)?.label;
 
   const railTitle = loadedLabel ? `${formLabel} · ${loadedLabel}` : formLabel;

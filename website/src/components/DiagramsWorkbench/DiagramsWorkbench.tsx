@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../features/mermaid/model/presets";
 import { diagramsSourceSnippets } from "../../features/diagrams/model/diagramsSourceAid";
 import {
   type GlyphDiagramsWorkbenchState,
@@ -18,7 +19,6 @@ import {
   InstrumentWorkbench,
   PresetTray,
 } from "../InstrumentWorkbench";
-import { GlyphMermaidExamples } from "../MermaidExamples";
 import { TargetPreview } from "../TargetPreview";
 import { EXPORT_FORMATS } from "./controllerHelpers";
 import { DiagramsDataOverlay } from "./DiagramsDataOverlay";
@@ -201,6 +201,23 @@ function GlyphDiagramsWorkbenchInner({
               highlight={hovered}
             />
           </div>
+          {((state.form === "graph" &&
+            state.graphSource?.kind === "builtin" &&
+            state.graphSource.presetId.startsWith("mermaid-")) ||
+            state.form === "sequence") &&
+            currentRendered?.ok &&
+            Boolean(currentRendered.ledger?.length) && (
+              <details className="diagrams-mermaid-notes">
+                <summary>Adaptation notes ({currentRendered.ledger!.length})</summary>
+                <ul>
+                  {currentRendered.ledger!.map((entry, index) => (
+                    <li key={index}>
+                      {entry.code}: {entry.message}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
         </InstrumentRail>
         <InstrumentMain>
           {/* Search + Random, floating over the viewport — the SAME overlay
@@ -213,7 +230,7 @@ function GlyphDiagramsWorkbenchInner({
               loadedTitle={
                 state.graphSource?.kind === "remote"
                   ? state.graphSource.title
-                  : (GLYPH_DIAGRAM_WORKBENCH_PRESETS.find(
+                  : ([...GLYPH_DIAGRAM_WORKBENCH_PRESETS, ...GLYPH_MERMAID_DIAGRAM_PRESETS].find(
                       (p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId,
                     )?.label ?? "")
               }
@@ -324,7 +341,6 @@ function GlyphDiagramsWorkbenchInner({
         </Dock>
       </InstrumentBody>
       <PresetTray id="diagrams-presets-panel" label="Diagram presets" open={mobilePanel === "presets"}>
-        <GlyphMermaidExamples owner="diagrams" />
         {GLYPH_DIAGRAMS_TRAY.map((entry, index) => {
           const key = `${entry.kind}:${entry.preset.id}`;
           const previous = GLYPH_DIAGRAMS_TRAY[index - 1];
@@ -345,14 +361,16 @@ function GlyphDiagramsWorkbenchInner({
               className="synth-tile"
               key={key}
               title={`Apply “${entry.preset.label}”`}
-              aria-label={`Apply ${entry.preset.label}`}
+              aria-label={`Apply ${entry.kind === "mermaid" ? "Mermaid " : ""}${entry.preset.label}`}
               onClick={() =>
                 dispatch(
-                  entry.kind === "sequence"
-                    ? { type: "apply-sequence-preset", id: entry.preset.id }
-                    : entry.kind === "lanes"
-                      ? { type: "apply-lanes-preset", id: entry.preset.id }
-                      : { type: "apply-preset", id: entry.preset.id },
+                  entry.kind === "mermaid"
+                    ? { type: "apply-mermaid-preset", id: entry.preset.id }
+                    : entry.kind === "sequence"
+                      ? { type: "apply-sequence-preset", id: entry.preset.id }
+                      : entry.kind === "lanes"
+                        ? { type: "apply-lanes-preset", id: entry.preset.id }
+                        : { type: "apply-preset", id: entry.preset.id },
                 )
               }
             >

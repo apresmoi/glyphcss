@@ -709,3 +709,20 @@
 .root :global(.charts-data-folder) + :global(.charts-marks-section) {
   padding-top: var(--gc-space-2);
 }
+
+.root :global(.charts-mermaid-source) {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--gc-space-2);
+}
+.root :global(.charts-mermaid-source textarea) {
+  min-height: 240px;
+}
+.root :global(.charts-mermaid-source details) {
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.root :global(.charts-mermaid-disabled) {
+  opacity: 0.45;
+}

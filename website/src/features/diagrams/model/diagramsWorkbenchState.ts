@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../mermaid/model/presets";
 import { cellOutputSnippets } from "../../../utils/export/cellOutputSnippets";
 import {
   GLYPH_DIAGRAM_TARGET_DEFAULTS,
@@ -514,6 +515,11 @@ export interface GlyphDiagramsWorkbenchState {
  */
 export type GlyphDiagramsTrayEntry =
   | {
+      readonly kind: "mermaid";
+      readonly section: "Mermaid";
+      readonly preset: (typeof GLYPH_MERMAID_DIAGRAM_PRESETS)[number];
+    }
+  | {
       readonly kind: "graph";
       readonly section: string | null;
       readonly preset: (typeof GLYPH_DIAGRAM_WORKBENCH_PRESETS)[number];
@@ -545,9 +551,11 @@ export const GLYPH_DIAGRAMS_TRAY: readonly GlyphDiagramsTrayEntry[] = [
     section: "Lanes" as const,
     preset,
   })),
+  ...GLYPH_MERMAID_DIAGRAM_PRESETS.map((preset) => ({ kind: "mermaid" as const, section: "Mermaid" as const, preset })),
 ];
 
 export type GlyphDiagramsWorkbenchAction =
+  | { type: "apply-mermaid-preset"; id: string }
   | { type: "set-form"; form: GlyphDiagramsFormId }
   | { type: "set-sequence-editor"; editor: GlyphDiagramsWorkbenchSequenceState["editor"] }
   | { type: "edit-sequence-source"; value: string }
@@ -628,6 +636,34 @@ export function reduceGlyphDiagramsWorkbenchState(
   action: GlyphDiagramsWorkbenchAction,
 ): GlyphDiagramsWorkbenchState {
   switch (action.type) {
+    case "apply-mermaid-preset": {
+      const preset = GLYPH_MERMAID_DIAGRAM_PRESETS.find((item) => item.id === action.id);
+      if (!preset) return state;
+      if (preset.type === "sequenceDiagram")
+        return {
+          ...state,
+          form: "sequence",
+          sequence: {
+            editor: "mermaid",
+            sourceKind: "mermaid",
+            mermaid: preset.source,
+            json: JSON.stringify(glyphSequenceFromMermaid(preset.source), null, 2),
+            presetId: preset.id,
+          },
+        };
+      return {
+        ...state,
+        form: "graph",
+        editor: "mermaid",
+        sourceKind: "mermaid",
+        mermaid: preset.source,
+        json: JSON.stringify(glyphGraphFromMermaid(preset.source), null, 2),
+        layout: { ...state.layout, direction: undefined },
+        diagram: { ...state.diagram, title: preset.label },
+        graphSource: { kind: "builtin", presetId: preset.id },
+        graphEdited: false,
+      };
+    }
     case "set-editor": {
       // Switching tabs REFRESHES the newly-shown representation's text from
       // whichever source is currently authoritative (`sourceKind`) — it
@@ -639,6 +675,7 @@ export function reduceGlyphDiagramsWorkbenchState(
       try {
         const graph = buildGlyphDiagramsWorkbenchGraph(state);
         if (action.editor === "json") return { ...state, editor: "json", json: JSON.stringify(graph, null, 2) };
+        if (state.sourceKind === "mermaid" && !state.layout.direction) return { ...state, editor: "mermaid" };
         return { ...state, editor: "mermaid", mermaid: glyphDiagramsWorkbenchMermaid(graph) };
       } catch {
         return { ...state, editor: action.editor, sourceKind: action.editor };
@@ -719,6 +756,8 @@ export function reduceGlyphDiagramsWorkbenchState(
         const sequence = buildGlyphDiagramsWorkbenchSequence(state);
         if (action.editor === "json")
           return { ...state, sequence: { ...state.sequence, editor: "json", json: JSON.stringify(sequence, null, 2) } };
+        if (state.sequence.sourceKind === "mermaid")
+          return { ...state, sequence: { ...state.sequence, editor: "mermaid" } };
         return {
           ...state,
           sequence: { ...state.sequence, editor: "mermaid", mermaid: glyphDiagramsWorkbenchSequenceMermaid(sequence) },

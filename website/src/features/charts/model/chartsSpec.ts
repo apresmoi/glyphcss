@@ -358,6 +358,7 @@ export interface ChartsWorkbenchStyleState {
 }
 
 export interface ChartsWorkbenchState {
+  readonly mermaid?: string;
   readonly marks: readonly ChartsWorkbenchMark[];
   readonly nextMarkId: number;
   readonly controls: GlyphChartsWorkbenchControls;

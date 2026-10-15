@@ -1,6 +1,7 @@
 import {
   glyphChartRegionFill,
   renderGlyphChart,
+  renderGlyphChartMermaid,
   type GlyphChartCharset,
   type GlyphChartInput,
   type GlyphChartMeta,
@@ -326,11 +327,13 @@ function renderSpec(
   input: GlyphChartInput,
   options: GlyphChartRenderOptions,
   logicalEm?: number,
+  mermaid?: string,
 ): ChartsWorkbenchRender {
   try {
     const downgraded = chatCharsetDowngrade(options);
     const charsetDowngraded = downgraded !== options;
-    const result = renderGlyphChart(input, downgraded);
+    const result =
+      mermaid === undefined ? renderGlyphChart(input, downgraded) : renderGlyphChartMermaid(mermaid, downgraded);
     const grid = result.build.canvas.grid;
     const text = Array.from({ length: grid.rows }, (_, row) =>
       grid.char.slice(row * grid.cols, (row + 1) * grid.cols).join(""),
@@ -390,6 +393,13 @@ export function renderChartsWorkbenchState(
   viewportPx?: GlyphPixelBox,
 ): ChartsWorkbenchRender {
   try {
+    if (state.mermaid !== undefined)
+      return renderSpec(
+        { marks: [] },
+        chartsWorkbenchRenderOptions(state, viewportPx),
+        chartsWorkbenchEffectiveDensity(state.controls),
+        state.mermaid,
+      );
     // A data mark that paints nothing is a chart that failed to show its
     // data, never a blank frame (`chartsWorkbenchNothingDrawn`).
     const nothingDrawn = chartsWorkbenchNothingDrawn(state);
