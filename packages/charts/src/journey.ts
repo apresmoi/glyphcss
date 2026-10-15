@@ -22,7 +22,7 @@ export function layoutGlyphJourney(spec: GlyphChartJourneySpec, cols: number, he
   const fold = (text: string) => chartText(text, charset);
   const wrap = (text: string, budget: number, role: string): string[] => {
     const lines: string[] = [];
-    for (const word of fold(text).split(/\s+/).filter(Boolean)) {
+    for (const word of chartText(text, charset, { ledger, role: `journey ${role}` }).split(/\s+/).filter(Boolean)) {
       if (word.length > budget) { note(`journey ${role} word wider than its column`, { word, columns: Math.max(0, budget) }); continue; }
       const last = lines.length - 1;
       if (last >= 0 && lines[last]!.length + word.length + 1 <= budget) lines[last] += ` ${word}`;
@@ -42,7 +42,7 @@ export function layoutGlyphJourney(spec: GlyphChartJourneySpec, cols: number, he
   let y = 0;
   const add = (x: number, row: number, text: string) => { if (text) labels.push({ x: x * scale, y: row * scale, text }); };
   const rawTitle = typeof spec.title === "string" ? spec.title : spec.title?.text;
-  let title: string | null = rawTitle ? fold(rawTitle) : null;
+  let title: string | null = rawTitle ? chartText(rawTitle, charset, { ledger, role: "journey title" }) : null;
   if (title && title.length > width) {
     const kept: string[] = [];
     for (const word of title.split(/\s+/)) { if ([...kept, word].join(" ").length > width) break; kept.push(word); }
@@ -65,7 +65,7 @@ export function layoutGlyphJourney(spec: GlyphChartJourneySpec, cols: number, he
     const actorText = fold(row.actors);
     const beside = actorText.length <= width - actorCol;
     const actorX = beside ? actorCol : barStart;
-    const actors = wrap(actorText, width - actorX, "actor");
+    const actors = wrap(row.actors, width - actorX, "actor");
     const actorOffset = beside || !actors.length ? 0 : 1;
     const rowHeight = Math.max(1, names.length, actorOffset + actors.length);
     if (y + rowHeight <= maxRows && scoreCol + scoreWidth <= width) {

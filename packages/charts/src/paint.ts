@@ -973,7 +973,7 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
       }
 
       const full = `${c.name} · ${c.pct}%`;
-      const fullFolded = chartText(full, canvas.tier);
+      const fullFolded = chartText(full, canvas.tier, { ledger, role: "pie callout" });
       const maxWidthChars = Math.max(1, Math.floor(maxWidthCols / textScale));
       let text: string;
       if (fullFolded.length <= maxWidthChars) {
@@ -1123,7 +1123,7 @@ function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
  * canvas" / "sub-cell data marks, whole-cell axes"), and `canvas.text()`
  * never rasterises sub-cell regardless of tier.
  */
-function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean, textScale = 1): void {
+function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   if (!layout.hasCartesianAxes) return;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const yTickRows = new Set(layout.yTicks.map((t) => t.cell));
@@ -1190,9 +1190,12 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
     const x = layout.xAxisTitleAt === "start" ? layout.plot.x0
       : layout.xAxisTitleAt === "end" ? Math.max(layout.plot.x0, layout.plot.x1 - titleCols + 1)
       : Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - titleCols) / 2));
+    // Axis titles use the canvas fold directly, without chartText's extra ASCII substitutions.
+    chartText(layout.xAxisTitle, "box", { ledger, role: "x-axis title" });
     canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle], { color: xColor, scale: textScale });
   }
   if (layout.yAxisTitle) {
+    chartText(layout.yAxisTitle, "box", { ledger, role: "y-axis title" });
     canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle], { color: yColor, scale: textScale });
   }
 }
@@ -1492,7 +1495,7 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     const entry = series.find((s) => s.name === item.label);
     const swatchGutterCols = (lineSwatch(entry) ? 4 : 3) * textScale;
     const maxTextWidth = Math.max(1, Math.floor((plotWidth - swatchGutterCols) / textScale));
-    const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false);
+    const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false, undefined, undefined, { ledger, role: "legend label" });
     if (dropped || !text) continue;
     // The wider line gutter lets a LINE-style swatch (the
     // trailing `else` below) has room for the same styled run the bottom
@@ -1687,7 +1690,7 @@ export function paintGlyphChart(
   // ONE column a mark actually touches may show sub-cell ink on the axis
   // row under braille/blocks; `paintGrid`'s own faint gridlines still
   // paint first, so marks correctly sit on top of them either way.
-  paintAxes(canvas, layout, opts.colorEnabled, textScale);
+  paintAxes(canvas, layout, opts.colorEnabled, ledger, textScale);
   for (const entry of series) {
     const { mark, rows, styleIndex } = entry;
     const color = resolveSeriesColor(entry, opts.colorEnabled);

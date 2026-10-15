@@ -10,7 +10,7 @@
 
 import { format as d3format } from "d3-format";
 import { createGlyphCanvas, type GlyphCanvasTierName } from "glyphcss";
-import { ledgerLabelAbbreviated, ledgerLabelDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerLabelAbbreviated, ledgerLabelDropped, ledgerLabelFolded, type GlyphChartLedgerEntry } from "./ledger";
 
 export interface GlyphChartObstacleRect {
   readonly x0: number;
@@ -90,6 +90,8 @@ export interface GlyphChartLabelLayoutResult {
   readonly ledger: readonly GlyphChartLedgerEntry[];
 }
 
+type FoldNote = { ledger: GlyphChartLedgerEntry[]; role: string };
+
 /**
  * Measure the same folded cells text() paints, including the ASCII
  * repertoire. `·` (U+00B7, the pie callout's own `name · NN%` separator —
@@ -100,14 +102,19 @@ export interface GlyphChartLabelLayoutResult {
  * callout printed `Alpha ? 13%` (CHARTS-RESEARCH DIAGNOSIS-pie-contrast.md
  * C5) — a reader can't tell that from a genuinely unsupported glyph.
  */
-export function chartText(text: string, charset: GlyphCanvasTierName = "box"): string {
+export function chartText(text: string, charset: GlyphCanvasTierName = "box", note?: FoldNote): string {
   // NFD routes accented graphemes through the canvas's existing fold. The
   // frozen canvas accepts other single-cell Unicode; ASCII is chart policy.
   const input = charset === "ascii" ? text.normalize("NFD").replace(/−/g, "-").replace(/…/g, "...").replace(/µ/g, "u").replace(/·/g, "-") : text;
   const scratch = createGlyphCanvas({ cols: Math.max(1, input.length), rows: 1, tier: charset });
   scratch.text(0, 0, [input]);
   const folded = scratch.grid.char.join("").trimEnd();
-  return charset === "ascii" ? folded.replace(/[^\x20-\x7e]/gu, "?") : folded;
+  const result = charset === "ascii" ? folded.replace(/[^\x20-\x7e]/gu, "?") : folded;
+  // Measurement probes stay inert; wrapping must record the original before it is lost.
+  if (note && result !== text.trimEnd() && !note.ledger.some((entry) => entry.code === "label-folded" && entry.detail?.role === note.role && entry.detail?.before === text && entry.detail?.after === result)) {
+    note.ledger.push(ledgerLabelFolded({ role: note.role, before: text, after: result }));
+  }
+  return result;
 }
 
 export interface GlyphChartAbbreviateResult {
@@ -144,9 +151,10 @@ export function abbreviateChartText(
   numeric = false,
   rawValue?: number,
   siFallback?: (value: number) => string,
+  foldNote?: FoldNote,
 ): GlyphChartAbbreviateResult {
   const original = text;
-  text = chartText(text, charset);
+  text = chartText(text, charset, foldNote);
   if (text.length <= maxWidth) return { text, changed: text !== original };
   const asNumber = Number(text);
   const rawNumeric = Number.isFinite(asNumber) && text.trim() !== "";
@@ -242,7 +250,7 @@ export function glyphChartLabelLayout(
     // `abbreviateChartText` actually measures against.
     const maxWidthCols = Math.max(1, Math.min(cols, c.maxWidth ?? cols));
     const maxWidth = Math.max(1, Math.floor(maxWidthCols / scale));
-    const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric, c.rawValue, c.siFallback);
+    const { text, changed, dropped: numericOverflow } = abbreviateChartText(c.text, maxWidth, opts.charset, c.numeric, c.rawValue, c.siFallback, { ledger, role });
     if (numericOverflow) {
       dropped.push(c.id);
       ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "the number couldn't be abbreviated to fit" }));

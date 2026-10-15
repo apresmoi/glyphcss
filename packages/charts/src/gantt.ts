@@ -67,7 +67,7 @@ export function layoutGlyphGantt(spec: GlyphChartGanttSpec, layout: GlyphChartLa
     if (fits) {
       const indent = row.section ? 0 : 2 * scale;
       const width = row.section ? layout.cols : Math.max(0, layout.plot.x0 - indent);
-      const text = chartText(row.label, charset), words = text.split(/\s+/);
+      const text = chartText(row.label, charset, { ledger, role: row.section ? "Gantt section" : "Gantt task" }), words = text.split(/\s+/);
       let label = "";
       for (const word of words) {
         const next = label ? `${label} ${word}` : word;

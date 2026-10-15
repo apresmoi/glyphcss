@@ -140,7 +140,7 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
     const result: string[] = [];
     for (const paragraph of text.split("\n")) {
       let row = "";
-      for (const word of chartText(paragraph, charset).split(/\s+/).filter(Boolean)) {
+      for (const word of chartText(paragraph, charset, report ? { ledger, role: `${source.kind} ${role}` } : undefined).split(/\s+/).filter(Boolean)) {
         if (word.length > budget) { if (report) note(`${source.kind} ${role} word wider than the viewport`, "the whole word omitted, never split", { word, columns: Math.max(0, budget) }); continue; }
         if (row && row.length + 1 + word.length > budget) { result.push(row); row = ""; }
         row += `${row ? " " : ""}${word}`;

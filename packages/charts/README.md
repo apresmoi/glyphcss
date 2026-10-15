@@ -621,6 +621,8 @@ Empty data, missing x/y on cartesian records, missing y on arc records (`arc-mis
 
 `glyphChartFromMermaid(source)` returns a normal `GlyphChartMermaidSpec` with an additional `ledger` of source-adaptation notes. `renderGlyphChartMermaid(source, options)` uses the existing mark pipeline and merges those notes into both `report.ledger` and `build.report.ledger`. Passing the spec directly to `renderGlyphChart` works; retain its source `ledger` separately in that case.
 
+All chart readers report unsupported-character substitutions as `label-folded` with the label role and original/folded text (`before`/`after`), including text folded before wrapping. Folding follows the target charset; unsupported wide characters still become `?`. Existing `label-abbreviated` notes remain; rendering is unchanged.
+
 ```ts
 import { glyphChartFromMermaid, renderGlyphChartMermaid } from "@glyphcss/charts";
 

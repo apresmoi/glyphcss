@@ -87,6 +87,10 @@ export function ledgerLabelAbbreviated(opts: { readonly role: string; readonly b
   return entry("label-abbreviated", `Abbreviated the ${opts.role} from "${opts.before}" to "${opts.after}" to fit.`, { ...opts });
 }
 
+export function ledgerLabelFolded(opts: { readonly role: string; readonly before: string; readonly after: string }): GlyphChartLedgerEntry {
+  return entry("label-folded", `Replaced unsupported characters in the ${opts.role} from "${opts.before}" to "${opts.after}".`, { ...opts });
+}
+
 export function ledgerLabelDropped(opts: { readonly role: string; readonly text: string; readonly reason: string }): GlyphChartLedgerEntry {
   return entry("label-dropped", `Dropped the ${opts.role} "${opts.text}" — ${opts.reason}.`, { ...opts });
 }

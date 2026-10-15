@@ -90,7 +90,7 @@ export function paintTreemap(canvas: GlyphCanvas, plot: GlyphChartPlotRect, rows
     for (const { node, x: xx, y: yy, w: ww, h: hh } of tiles) {
       if (ww < 3 || hh < 3) { ledger.push(ledgerTreemapOmitted({ label: String(node.row.label), reason: "less than one bordered cell" })); continue; }
       rect(xx, yy, ww, hh);
-      const label = chartText(String(node.row.label), canvas.tier);
+      const label = chartText(String(node.row.label), canvas.tier, { ledger, role: "treemap label" });
       const value = formatLinearTick(Number(node.row.y));
       const text = `${label}${node.children.length ? "" : ` ${value}`}`;
       const cols = Math.floor((ww - 2 - 2 * scale) / scale), rows = Math.floor((hh - 2) / scale);
