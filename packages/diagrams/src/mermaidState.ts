@@ -1,6 +1,7 @@
+import { stripGlyphMermaidPreamble } from "@glyphcss/core/mermaid";
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdge, GlyphGraphGroup, GlyphGraphNode } from "./types";
 import { glyphDiagramError, validateGlyphGraph } from "./validate";
-import { labelText, skipMermaidComment } from "./mermaidText";
+import { GLYPH_MERMAID_ENTITY, labelText, skipMermaidComment } from "./mermaidText";
 import { GLYPH_MERMAID_STATE_REGION, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
 import { ledgerMermaidDegraded, ledgerStateShared, type GlyphDiagramLedgerEntry } from "./ledger";
 
@@ -51,9 +52,9 @@ function statements(source: string): string[] {
       current += char; if (char === '"') quote = false; continue;
     }
     if (!noteBody && char === '"' && /^\s*state\s+$/.test(current)) { quote = true; current += char; continue; }
-    if (char === "&") {
-      const entity = /^&(?:amp|lt|gt|quot|apos|nbsp|#\d+|#x[\da-f]+);/i.exec(source.slice(index));
-      if (entity) { current += entity[0]; index += entity[0].length - 1; continue; }
+    if (char === "&" || char === "#") {
+      const entity = GLYPH_MERMAID_ENTITY.exec(source.slice(index));
+      if (entity?.index === 0) { current += entity[0]; index += entity[0].length - 1; continue; }
     }
     if (char === "%" && source[index + 1] === "%") { index = skipMermaidComment(source, index); continue; }
     if (char === "\n" || char === "\r" || (char === ";" && !noteBody && !/^\s*note\b/i.test(current) && !TRANSITION_HEAD.test(current))) end(); else current += char;
@@ -81,10 +82,9 @@ export function glyphParseMermaidState(source: string): { graph: GlyphGraph; not
   const notes: GlyphDiagramLedgerEntry[] = [];
   const note = (kind: string, message: string) => { if (!notes.some(entry => entry.detail?.kind === kind)) notes.push(ledgerMermaidDegraded({ kind, message })); };
   source = source.replace(/^\uFEFF/, "");
-  if (/^\s*---\s*\n/.test(source)) {
-    source = source.replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "");
-    note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
-  }
+  const preamble = stripGlyphMermaidPreamble(source);
+  source = preamble.body;
+  if (preamble.frontmatter !== undefined) note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
   if (/%%\{/.test(source)) note("state-directive", "Mermaid state configuration is inert.");
   const parts = statements(source);
   const header = parts.shift();

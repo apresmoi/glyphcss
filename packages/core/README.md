@@ -111,3 +111,7 @@ console.log(`${polygons.length} triangles → ${merged.length} merged polygons`)
 
 dispose();
 ```
+
+## Mermaid text helpers (`@glyphcss/core/mermaid`)
+
+Charts and diagrams share `stripGlyphMermaidPreamble`, `glyphMermaidContent`, `skipGlyphMermaidComment` and `decodeGlyphMermaidEntities` from this browser-independent subpath. It normalizes BOM/CRLF, extracts inert frontmatter, locates comment/directive spans and decodes HTML/Mermaid entities once. Callers retain grammar-specific quoting, tokenization, title policy and named errors. These helpers are separate from the root mesh API.

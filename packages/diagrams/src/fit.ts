@@ -1,6 +1,6 @@
 import { glyphDiagramStateFramePorts } from "./stateFrame";
 import { glyphDiagramNodeContent } from "./presentation";
-import { GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame, GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
+import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame, GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
 import { glyphDiagramError } from "./validate";
 import { glyphDiagramCycleLayout, glyphDiagramCyclePaths } from "./cycleLayout";
 import { glyphDiagramGraphLabels } from "./graphLabels";
@@ -127,8 +127,9 @@ interface SnakeSearch { readonly fit?: GlyphDiagramAttempt; readonly tall: Candi
 function minimumFootprintFits(graph: GlyphDiagramReservedGraph, width: number, height: number): boolean {
   if (graph.nodes.some(node => node.width > width || node.height > height)
     || graph.nodes.reduce((cells, node) => cells + node.width * node.height, 0) > width * height) return false;
-  // Compound ranking and cycle reversal have their own constraints; don't infer their ranks here.
-  if (graph.groups.length) return true;
+  // Class/ER compound DAGs still obey real-edge path bounds. State-region
+  // rank constraints and cycle reversal need their own geometry checks.
+  if (graph.groups.length && !graph.nodes.every(node => node.shape === "compartment")) return true;
   const across = graph.direction === "TB" || graph.direction === "BT";
   const sizes = new Map(graph.nodes.map(node => [node.id, across ? node.height : node.width]));
   const flow = graph.edges.filter(edge => edge.from !== edge.to);
@@ -544,9 +545,10 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       const margin = result[FIT_SPACING] ?? options.margin ?? 1;
       const horizontal = result.layout.direction === "LR" || result.layout.direction === "RL";
       const compartmentCaptions = horizontal && graph.nodes.every(node => node.shape === "compartment");
+      const regionCaptions = horizontal && graph.groups?.some(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]);
       options[GLYPH_DIAGRAM_WORK]?.layout(result.layout);
       const raw = await layoutGlyphGraph(result.layout, { ...options, direction: result.layout.direction,
-        margin, ranksep: Math.max((options.ranksep ?? 4) + (horizontal ? 0 : 2), ...edges.map(edge =>
+        margin: regionCaptions && options.margin === undefined ? 0 : margin, ranksep: regionCaptions ? options.ranksep ?? 4 : Math.max((options.ranksep ?? 4) + (horizontal ? 0 : 2), ...edges.map(edge =>
           horizontal ? glyphDiagramText(edge.label!, options.charset).length + (compartmentCaptions ? 3 : 4) : 4)),
         // Compartment rank spacing already holds the caption and its moats;
         // adding a label dummy reserves that width twice and can overflow a valid fit.
@@ -554,7 +556,9 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
           || !result.layout.ports.some(port => port.edgeId === edge.id && port.end === "from" && port.trunk)).map(edge => edge.id) });
       const repaired = routeAttempt({ raw, adjusted: true, nodesep: options.nodesep ?? 4, ranksep: options.ranksep ?? 4, margin },
         options.overflow === "expand" ? Math.max(result.width, raw.width) : result.width,
-        options.overflow === "expand" ? Math.max(result.height, raw.height) : result.height, true, options[GLYPH_DIAGRAM_WORK]);
+        // A top/bottom return needs an exterior row even when the expanded
+        // viewport exactly equals the compound engine's box extent.
+        options.overflow === "expand" ? Math.max(result.height, raw.height + (regionCaptions ? 2 : 0)) : result.height, true, options[GLYPH_DIAGRAM_WORK]);
       return repaired.okay && !dropsEdgeLabel(repaired, options) ? repaired : result;
     }
     first = await keepCaptions(first);

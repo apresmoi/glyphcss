@@ -99,7 +99,7 @@ async function renderCli(input: string | GlyphGraph, options: GlyphDiagramCliOpt
     const header = body.match(/^[\w-]+/)?.[0] ?? "";
     if (header === "sequenceDiagram") {
       const result = await renderGlyphSequence(body, { ...common, title });
-      const preamble = body !== input ? [{ code: "mermaid-ignored", message: "Sequence preamble metadata and initialization are inert; use --title to set a title." }] : [];
+      const preamble = body !== input ? [{ code: "mermaid-degraded", message: "Sequence preamble metadata and initialization are inert; use --title to set a title." }] : [];
       return withIgnored({ ...result, report: { ...result.report, ledger: [...preamble, ...result.report.ledger] } }, ["direction", "engine", "nodesep", "ranksep", "detail"]);
     }
     // The public root entry adapts gitGraph to ./lanes, retaining its source

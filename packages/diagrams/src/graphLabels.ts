@@ -1,5 +1,6 @@
+import { glyphDiagramStateDividers } from "./stateFrame";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER } from "./presentation";
-import { GLYPH_DIAGRAM_BRANCH_LABEL, GLYPH_DIAGRAM_ROUTE_TOUCH, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
+import { GLYPH_DIAGRAM_BRANCH_LABEL, GLYPH_DIAGRAM_ROUTE_TOUCH, GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
 import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
 import { glyphDiagramGroupRects, type GlyphDiagramLayout } from "./pipeline";
 import { glyphDiagramLoopGeometry } from "./loop";
@@ -27,9 +28,15 @@ export function glyphDiagramGraphLabels(layout: GlyphDiagramLayout, routing: Gly
       x: Math.floor((rect.x0 + rect.x1) / 2), y: rect.y0, priority: 1, maxWidth: rect.x1 - rect.x0 - 1 });
   }
   const counts = new Map<string, number>();
-  const borders = [...drawn.values()].flatMap(rect => [
+  const borders = [...drawn].filter(([id]) => !(layout.groups.find(group => group.id === id) as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]).flatMap(([, rect]) => [
     { ...rect, y1: rect.y0 }, { ...rect, y0: rect.y1 }, { ...rect, x1: rect.x0 }, { ...rect, x0: rect.x1 },
   ]);
+  for (const divider of glyphDiagramStateDividers(layout, drawn)) {
+    const outer = drawn.get(divider.parent);
+    if (outer && divider.valid) borders.push(divider.vertical
+      ? { x0: divider.position, x1: divider.position, y0: outer.y0 + 1, y1: outer.y1 - 1 }
+      : { x0: outer.x0 + 1, x1: outer.x1 - 1, y0: divider.position, y1: divider.position });
+  }
   for (const route of routing.routes) for (const cell of route.cells) {
     const key = `${cell.x},${cell.y}`;
     counts.set(key, (counts.get(key) ?? 0) + 1);

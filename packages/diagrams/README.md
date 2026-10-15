@@ -160,7 +160,7 @@ Both `classDiagram` and `erDiagram` use the existing graph pipeline. Executable 
 
 Relationship captions never overwrite group borders, including an endpoint's own namespace. With `autoDirection: true`, compartment diagrams compare both orientations after reserving captions, preferring the lower maximum fraction of the width/height budget when words, captions and route quality survive. Horizontal caption repair reserves width once in the rank gap. The shared cell canvas still folds double-width CJK characters to `?`, with a `label-folded` ledger entry; this is a known text-width limitation in both targets.
 
-**Proposed markers — user sign-off pending.** These are new endpoint decisions, not approved shape-family changes. `triangle` uses `△` for inheritance/realization; composition/aggregation use `◆`/`◇`. ER uses a border mark plus its adjacent route cell: `┼┼` exactly one, `┼○` zero-or-one, a crow's foot plus `┼` one-or-many, and a crow's foot plus `○` zero-or-many. The foot is `>` on a left border, `<` on a right border, `v` on a top border, and `^` on a bottom border. The adjacent mark always lies outward along the connection. ASCII uses `^`, `*`, `o` for UML markers and `+`/`o` for ER bars/circles. Existing `●`/`✕` flowchart endpoints remain unchanged. The adapter logs `relation-markers` so a host can expose this pending visual choice. See the task report and verbatim target captures for the complete proposal.
+`triangle` uses `△` for inheritance/realization; composition/aggregation use `◆`/`◇`. ER uses a border mark plus its adjacent route cell: `┼┼` exactly one, `┼○` zero-or-one, a crow's foot plus `┼` one-or-many, and a crow's foot plus `○` zero-or-many. The foot is `>` on a left border, `<` on a right border, `v` on a top border, and `^` on a bottom border. The adjacent mark always lies outward along the connection. ASCII uses `^`, `*`, `o` for UML markers and `+`/`o` for ER bars/circles. Existing `●`/`✕` flowchart endpoints remain unchanged.
 
 ## Output options
 
@@ -398,3 +398,7 @@ graph TD;
         │     │
         └─────┘
 ```
+
+A flowchart/graph header without direction defaults to `TB`. Mermaid header aliases `classDiagram-v2` and `flowchart-elk` use the class and flowchart readers. Both log `mermaid-degraded` (`layout-substitution`) for their native compartment/Dagre layout. Existing `stateDiagram-v2`, `block-beta` and `architecture-beta` variants retain their readers. Charts and diagrams share browser-free `@glyphcss/core/mermaid` preprocessing; configuration stays inert with the common `mermaid-degraded` code.
+
+Labelled concurrent states try a perpendicular orientation when no direction override is supplied. At 72 columns the documented Num/Caps/Scroll Lock example uses horizontal transitions and stacked regions, preserving all six event captions. Region routes stay in their own corridors; dashed dividers, rather than invisible region-box borders, constrain captions. Explicit direction/auto-direction options remain authoritative.

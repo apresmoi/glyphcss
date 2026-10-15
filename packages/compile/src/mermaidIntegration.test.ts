@@ -28,7 +28,7 @@ describe("one Mermaid CLI entry", () => {
   });
 
   it.each([
-    ["graph", "flowchart"], ["stateDiagram", "stateDiagram"], ["stateDiagram-v2", "stateDiagram"], ["block", "block"], ["block-beta", "block"],
+    ["graph", "flowchart"], ["flowchart-elk", "flowchart"], ["classDiagram-v2", "classDiagram"], ["stateDiagram", "stateDiagram"], ["stateDiagram-v2", "stateDiagram"], ["block", "block"], ["block-beta", "block"],
     ["architecture", "architecture"], ["architecture-beta", "architecture"], ["xychart", "xychart"], ["xychart-beta", "xychart"], ["sankey", "sankey"], ["sankey-beta", "sankey"],
     ["radar", "radar"], ["radar-beta", "radar"], ["treemap", "treemap"], ["treemap-beta", "treemap"], ["packet", "packet"], ["packet-beta", "packet"],
   ])("routes the %s header alias", async (alias, type) => {

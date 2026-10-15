@@ -10,6 +10,10 @@ Pure math, shared types, parsers (OBJ/MTL/glTF/GLB/STL/VOX), mesh ops, cameras a
 - `project()` / `math/projection.ts` was removed; use each camera's own `.project()`.
 - Renaming a core export updates every importing package in the same PR, with no alias.
 
+## `./mermaid` subpath
+
+- Shared browser-free preamble normalization, comment/directive spans and single-pass HTML/Mermaid entity decoding for charts/diagrams. Grammar tokenizers and ledger policy stay in callers; no root re-export.
+
 ## `./three` subpath
 
 - Three-compatible adapter names and units (`Vector3`, `Euler`, `Object3D`, `PerspectiveCamera`, `OrthographicCamera`, `DirectionalLight`, `AmbientLight`), in radians, Y-up, with Three frustum semantics. It has no Three.js dependency.

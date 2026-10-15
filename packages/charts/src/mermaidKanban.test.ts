@@ -225,7 +225,7 @@ describe("Mermaid kanban", () => {
     expect(board.columns[4]!.items[2]!.id).toBe("id3");
     expect(board.columns[5]!.items[0]!.id).toBe("id3");
     expect(features(examples[2]!.source)).toContain("kanban columns wrapped");
-    expect(glyphChartFromMermaid(examples[2]!.source).ledger).toContainEqual(expect.objectContaining({ code: "mermaid-ignored", detail: expect.objectContaining({ feature: "kanban.ticketBaseUrl" }) }));
+    expect(glyphChartFromMermaid(examples[2]!.source).ledger).toContainEqual(expect.objectContaining({ code: "mermaid-degraded", detail: expect.objectContaining({ feature: "kanban.ticketBaseUrl" }) }));
   });
 
   it("uses grammar-aware comments while preserving bracket literals and quoted metadata", () => {

@@ -130,8 +130,8 @@ describe("Task 7 Mermaid syntax and native marks", () => {
     const parsed = parse(withComment);
     expect(parsed.marks).toEqual(baseline.marks);
     expect(parsed.scales).toEqual(baseline.scales);
-    expect(parsed.ledger.filter((e) => e.code !== "mermaid-ignored")).toEqual(baseline.ledger);
-    expect(parsed.ledger.filter((e) => e.code === "mermaid-ignored")).toHaveLength(comment.includes("init:") ? 1 : 0);
+    expect(parsed.ledger.filter((e) => !(e.code === "mermaid-degraded" && e.message.startsWith("Kept ")))).toEqual(baseline.ledger);
+    expect(parsed.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept "))).toHaveLength(comment.includes("init:") ? 1 : 0);
     for (const target of ["chat", "web"] as const) expect(renderGlyphChartMermaid(withComment, { ...options, target }).text).toBe(renderGlyphChartMermaid(source, { ...options, target }).text);
   });
   it("uses grouped horizontal bars for whole-cell radar, preserving every axis and series", () => {
@@ -336,7 +336,7 @@ describe("Task 7 Mermaid syntax and native marks", () => {
     expect(chart.title).toBe("Portfolio");
     expect(rows.map((d) => d.parent)).toEqual(["", "0", "1", "1", "0", "4", "4", "", "7", "7"]);
     expect(rows.find((d) => d.label === "Phones")?.value).toBe(50);
-    expect(chart.ledger.filter((e) => e.code === "mermaid-ignored")).toHaveLength(4);
+    expect(chart.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept "))).toHaveLength(4);
     expect(parse(task7Examples[5]!.source).marks[0]!.data).toHaveLength(8);
   });
   it("squarifies by value with exact area, no overlaps and a real nested rectangle painter", () => {
@@ -435,7 +435,7 @@ showLegend false`);
     expect(dst.x.getHours()).toBe(0); expect(dst.x.getDate()).toBe(31);
     expect(dst.x.getTime() - dst.x0.getTime()).toBe(47 * 3600000);
     const inert = parse('gantt\ntopAxis\ndisplayMode compact\nweekday monday\ntodayMarker stroke:#0f0,stroke-width:5px\nA :2025-01-01, 1d\nclick a call alert("no")');
-    expect(inert.ledger.filter((e) => e.code === "mermaid-ignored")).toHaveLength(5);
+    expect(inert.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept "))).toHaveLength(5);
   });
   it("degrades incomplete/extreme data and renders empty declarations without throwing", () => {
     for (const source of [

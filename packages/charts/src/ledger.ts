@@ -260,7 +260,7 @@ export function ledgerMermaidDegraded(opts: { readonly feature: string; readonly
 }
 
 export function ledgerMermaidIgnored(opts: { readonly feature: string; readonly replacement?: string }): GlyphChartLedgerEntry {
-  return entry("mermaid-ignored", `Kept "${opts.feature}" inert and used ${opts.replacement ?? "the chart defaults"}.`, { ...opts });
+  return entry("mermaid-degraded", `Kept "${opts.feature}" inert and used ${opts.replacement ?? "the chart defaults"}.`, { ...opts });
 }
 
 export function ledgerTreemapOmitted(opts: { readonly label: string; readonly reason: string }): GlyphChartLedgerEntry {

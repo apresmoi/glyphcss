@@ -443,7 +443,11 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
           : { width: widen, height: Math.max(0, room.reach - nodesep), labelpos: "c" }, edge.id);
       } else {
         const labelWidth = options[GLYPH_DIAGRAM_EDGE_LABEL_ROOM]?.includes(edge.id) ? glyphDiagramText(edge.label ?? "", options.charset).length : 0;
-        const room = labelWidth ? { width: labelWidth + 2, height: 3, labelpos: "c" } : {};
+        // Region captions sit over a horizontal run: ranksep already supplies
+        // the two side moats, unlike ordinary label dummies.
+        const regionCaption = !across && includedGroups.some(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]
+          && group.members.includes(edge.from) && group.members.includes(edge.to));
+        const room = labelWidth ? { width: Math.max(1, labelWidth + (regionCaption ? -2 : 2)), height: 3, labelpos: "c" } : {};
         const frame = (edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME];
         // Panels keep only their own endpoints; absent region peers must not
         // become phantom Dagre nodes that move the remaining boxes.

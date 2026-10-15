@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker } from "./presentation";
 import { renderGlyphMermaidGit } from "./mermaidGitRender";
 import { glyphParseMermaid } from "./mermaid";
@@ -49,7 +50,8 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
   let opts = resolvedOptions(options);
   const parsed = typeof input === "string" ? glyphParseMermaid(input) : { graph: glyphGraphFromJson(input), notes: [] };
   if ("lanes" in parsed && parsed.lanes) return renderGlyphMermaidGit(parsed.graph, parsed.lanes, parsed.notes, opts);
-  if ((parsed.graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_ADAPTIVE] && options.autoDirection === undefined && options.direction === undefined) opts = { ...opts, autoDirection: true };
+  if (((parsed.graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_ADAPTIVE]
+    || parsed.graph.edges.some(edge => edge.label) && parsed.graph.groups?.some(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION])) && options.autoDirection === undefined && options.direction === undefined) opts = { ...opts, autoDirection: true };
   const block = glyphTryRenderMermaidBlock(parsed.graph, parsed.notes, opts);
   if (block) return block;
   const original = canonicalizeGlyphGraph(parsed.graph);

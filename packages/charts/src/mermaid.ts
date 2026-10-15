@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_ENTITY, decodeGlyphMermaidEntities, stripGlyphMermaidPreamble, skipGlyphMermaidComment, glyphMermaidContent } from "@glyphcss/core/mermaid";
 import type { GlyphChartDatum, GlyphChartMark, GlyphChartRenderOptions, GlyphChartResult, GlyphChartScaleOptions, GlyphChartSpec } from "./types";
 import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import { ledgerMermaidDegraded, ledgerMermaidIgnored, type GlyphChartLedgerEntry } from "./ledger";
@@ -29,12 +30,7 @@ function label(raw: string): string {
     catch { text = text.slice(1, -1).replace(/""/g, '"').replace(/\\(["\\])/g, "$1"); }
   }
   if (text.startsWith("`") && text.endsWith("`")) text = text.slice(1, -1);
-  const entities: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
-  return text.replace(/&(#x[\da-f]+|#\d+|amp|lt|gt|quot|apos|nbsp);/gi, (original, key: string) => {
-    if (!key.startsWith("#")) return entities[key.toLowerCase()] ?? original;
-    const value = key[1]?.toLowerCase() === "x" ? parseInt(key.slice(2), 16) : Number(key.slice(1));
-    return value > 0 && value <= 0x10ffff && !(value >= 0xd800 && value <= 0xdfff) ? String.fromCodePoint(value) : original;
-  }).replace(/<br\s*\/?\s*>|[\r\n\t]+/gi, " ");
+  return decodeGlyphMermaidEntities(text).replace(/<br\s*\/?\s*>|[\r\n\t]+/gi, " ");
 }
 function numeric(raw: string): number {
   const value = Number(raw.trim());
@@ -113,15 +109,15 @@ function ignoredConfiguration(source: string, kind: string, ledger: GlyphChartLe
 
 /** Preserve quoted CSV fields, bracket lists and entities while removing only real comments/directives. */
 function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): { body: string; title?: string } {
-  source = source.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n");
+  const preamble = stripGlyphMermaidPreamble(source);
+  source = preamble.body;
   let title: string | undefined;
-  source = source.replace(/^\s*---\s*\n([\s\S]*?)\n---\s*(?:\n|$)/, (_, front: string) => {
-    title = /^title\s*:\s*(.+)$/m.exec(front)?.[1];
+  if (preamble.frontmatter !== undefined) {
+    title = /^title\s*:\s*(.+)$/m.exec(preamble.frontmatter)?.[1];
     ledger.push(ledgerMermaidIgnored({ feature: "frontmatter configuration" }));
-    const config = /^config[ \t]*:([\s\S]*)/m.exec(front);
+    const config = /^config[ \t]*:([\s\S]*)/m.exec(preamble.frontmatter);
     if (config) ignoredConfiguration(config[1]!, kind, ledger);
-    return "";
-  });
+  }
   let body = "", quoted = false, depth = 0;
   for (let i = 0; i < source.length; i++) {
     const char = source[i]!;
@@ -133,13 +129,13 @@ function clean(source: string, ledger: GlyphChartLedgerEntry[], kind: string): {
     const comment = !quoted && (!csv || /(?:^|\n)[ \t]*$/.test(body)) && /^[ \t]*%%/.exec(source.slice(i));
     if (comment) {
       i += comment[0].length - 2;
+      const end = skipGlyphMermaidComment(source, i, syntax);
       if (source.startsWith("%%{", i)) {
-        const end = source.indexOf("}%%", i + 3);
-        if (end < 0) syntax("Unclosed Mermaid directive.");
         ledger.push(ledgerMermaidIgnored({ feature: "initialization directive" }));
-        ignoredConfiguration(source.slice(i, end), kind, ledger);
-        body += " "; i = end + 2;
-      } else { const end = source.indexOf("\n", i); i = end < 0 ? source.length : end - 1; }
+        ignoredConfiguration(source.slice(i, end + 1), kind, ledger);
+        body += " ";
+      }
+      i = end;
       continue;
     }
     if (!quoted && !csv && depth === 0 && (/(?:^|\n|;)\s*$/.test(body) || /^pie(?:\s+showData)?\s+$/i.test(body))) {
@@ -217,9 +213,9 @@ function statements(body: string): string[] {
     if (!quote) {
       if (char === "[" || char === "{") depth++;
       if (char === "]" || char === "}") depth--;
-      if (char === "&") {
-        const entity = /^&(?:#x[\da-f]+|#\d+|\w+);/i.exec(body.slice(i));
-        if (entity) { current += entity[0]; i += entity[0].length - 1; continue; }
+      if (char === "&" || char === "#") {
+        const entity = GLYPH_MERMAID_ENTITY.exec(body.slice(i));
+        if (entity?.index === 0) { current += entity[0]; i += entity[0].length - 1; continue; }
       }
       if (depth === 0 && (char === ";" || char === "\n")) {
         if (current.trim()) parts.push(current.trim());
@@ -267,7 +263,7 @@ export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec { r
 
 function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpec {
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
-  const prefix = source.replace(/^\uFEFF/, "").replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
+  const prefix = glyphMermaidContent(stripGlyphMermaidPreamble(source).body, syntax);
   const hashPrefix = prefix.replace(/^(?:\s|#[^\n]*(?:\n|$)|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
   const hashKind = /^[\w-]+/.exec(hashPrefix)?.[0]?.toLowerCase() ?? "";
   const declared = /^[\w-]+/.exec(HASH_COMMENT_TYPES.has(hashKind) ? hashPrefix : prefix)?.[0];

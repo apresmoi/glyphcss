@@ -260,7 +260,7 @@ describe("Mermaid timeline and packet", () => {
       { kind: "section", text: 'Draft [; quote "' },
       { kind: "period", text: 'Click [draft "', events: ["Style hair; Class reunion & friends", "LinkStyle notes { ready"] },
     ] });
-    expect(spec.ledger.filter((e) => e.code === "mermaid-ignored").map((e) => e.detail?.feature)).toContain("initialization directive");
+    expect(spec.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept ")).map((e) => e.detail?.feature)).toContain("initialization directive");
     expect(render(examples[3]!.source, "chat").text).not.toContain("unbalanced");
   });
 

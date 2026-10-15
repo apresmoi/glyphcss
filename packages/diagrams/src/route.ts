@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramError } from "./validate";
 import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRects, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
@@ -158,7 +159,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   // Mirrors `paint.ts`'s own group-rect computation exactly (same helper),
   // so the ring this pays extra to cross is the same rectangle the painter
   // rings with dots.
-  const groupRects = [...glyphDiagramGroupRects(layout, { cols, rows }).values()];
+  const groupRects = [...glyphDiagramGroupRects(layout, { cols, rows })].filter(([id]) => !(layout.groups.find(group => group.id === id) as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]).map(([, rect]) => rect);
   // A direction whose axis matches ANY guarded rect's forbidden axis at `p`
   // pays `ringParallel` — see `GLYPH_DIAGRAM_ROUTE_COSTS`'s own doc for why
   // this is a cost, not a hard block, and why it is high enough to never be
@@ -200,9 +201,21 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   // places beside the loop can never be taken by a transit routed after it.
   const geometries = loopGeometries(layout);
   const loopLabels = geometries.flatMap((g) => g.label ? [{ ...g.label, x0: g.label.x0 - 1, x1: g.label.x1 + 1 }] : []);
-  const obstacles = [...(options.obstacles ?? []), ...loopLabels];
+  const commonObstacles = [...(options.obstacles ?? []), ...loopLabels];
+  const regionRects = glyphDiagramGroupRects(layout, { cols, rows });
   for (const edge of ordered) {
     if (edge.invisible) continue;
+    // Concurrent siblings own independent routing corridors. A return must
+    // not escape through another region merely to avoid its own caption.
+    const region = layout.groups.filter(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]
+      && group.members.includes(edge.from) && group.members.includes(edge.to)).sort((a, b) => a.members.length - b.members.length)[0];
+    const room = region && regionRects.get(region.id);
+    const obstacles = room ? [...commonObstacles,
+      { x0: 0, x1: cols - 1, y0: 0, y1: room.y0 - 1 },
+      { x0: 0, x1: cols - 1, y0: room.y1 + 1, y1: rows - 1 },
+      { x0: 0, x1: room.x0 - 1, y0: 0, y1: rows - 1 },
+      { x0: room.x1 + 1, x1: cols - 1, y0: 0, y1: rows - 1 },
+    ] : commonObstacles;
     // Fitting discards a canvas after its first failed edge; routing the rest
     // cannot make that gutter feasible. Final-output routing keeps every failure.
     if (options.stopOnFailure && unroutable.length) break;

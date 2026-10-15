@@ -10,6 +10,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@glyphcss/core/mermaid": resolve(__dirname, "../core/src/mermaid/index.ts"),
       // Point at source so tests work without a prior `pnpm build:packages`
       // (CI installs from a frozen lockfile then runs tests; dist/ would be empty).
       "@glyphcss/core": resolve(__dirname, "../core/src/index.ts"),

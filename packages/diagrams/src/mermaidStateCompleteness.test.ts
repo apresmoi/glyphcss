@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { glyphParseMermaid } from "./mermaid";
+import { routeGlyphGraphEdges } from "./route";
 import { renderGlyphDiagram } from "./render";
 import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
 import { glyphDiagramStateDividers } from "./stateFrame";
@@ -115,7 +116,7 @@ describe("state syntax completeness", () => {
       const result = await renderGlyphDiagram(example.source, { target, width: 72, height: example.height });
       for (const route of result.routes.filter(route => (route.edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME])) {
         const ports = result.layout.ports.filter(port => port.edgeId === route.edge.id);
-        expect(new Set([...route.cells, ...ports.map(port => port.anchor)].map(cell => cell.x)).size, example.name).toBe(1);
+        expect(new Set([...route.cells, ...ports.map(port => port.anchor)].map(cell => cell[result.layout.direction === "LR" || result.layout.direction === "RL" ? "y" : "x"])).size, example.name).toBe(1);
       }
       expect(glyphDiagramRouteQuality(result.layout, result.routes)).toMatchObject({ crossings: 0, fakeFrames: 0 });
     }
@@ -159,6 +160,27 @@ describe("state syntax completeness", () => {
       expect([layout.nodes, layout.ports, layout.width, layout.height]).toEqual([pruned.nodes, pruned.ports, pruned.width, pruned.height]);
     }
   });
+  it("keeps blocked region transitions out of concurrent siblings", async () => {
+    const { graph } = parse("state Parallel {\n A --> B\n --\n C --> D\n}");
+    const layout = await layoutGlyphGraph(graph, { ranksep: 8 });
+    const bounds = { cols: layout.width + 10, rows: layout.height + 10 };
+    const region = layout.groups.find(group => group.members.includes("A") && (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION])!;
+    const rect = glyphDiagramGroupRects(layout, bounds).get(region.id)!;
+    const from = layout.nodes.find(node => node.id === "A")!, to = layout.nodes.find(node => node.id === "B")!;
+    const y = Math.floor((from.y1 + to.y0) / 2);
+    const result = routeGlyphGraphEdges(layout, { width: bounds.cols, height: bounds.rows,
+      obstacles: [{ x0: rect.x0, x1: rect.x1, y0: y, y1: y }] });
+    expect(result.unroutable).toContain(layout.edges.find(edge => edge.from === "A" && edge.to === "B")!.id);
+  });
+  it.each(["chat", "web"] as const)("retains every t9 caption through skill fitting in %s", async target => {
+    for (const example of examples) {
+      const result = await renderGlyphDiagram(example.source, { target, width: 72, height: 24, autoDirection: true, detail: "faithful", overflow: "expand" });
+      expect(result.canvas.cols, example.name).toBe(72);
+      expect(result.pages, example.name).toHaveLength(1);
+      expect(result.report.ledger.filter(note => ["label-dropped", "label-abbreviated", "word-cut", "unroutable"].includes(note.code)), example.name).toEqual([]);
+      expect(glyphDiagramRouteQuality(result.layout, result.routes), example.name).toMatchObject({ crossings: 0, fakeFrames: 0 });
+    }
+  });
   it("renders every example in both real target defaults and writes the requested artifacts", async () => {
     const outputs: string[] = [], html: string[] = [];
     for (const example of examples) {
@@ -173,7 +195,8 @@ describe("state syntax completeness", () => {
             .sort((a, b) => (a as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]!.index - (b as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]!.index);
           for (let index = 1; index < regions.length; index++) {
             const before = rects.get(regions[index - 1]!.id)!, after = rects.get(regions[index]!.id)!;
-            expect(before.x1, `${example.name}/${target} authored region order`).toBeLessThan(after.x0);
+            const horizontal = result.layout.direction === "LR" || result.layout.direction === "RL";
+            expect(horizontal ? before.y1 : before.x1, `${example.name}/${target} authored region order`).toBeLessThan(horizontal ? after.y0 : after.x0);
           }
         }
         for (const edge of result.layout.edges) for (const end of ["from", "to"] as const) {
@@ -203,7 +226,7 @@ describe("state syntax completeness", () => {
         const quality = glyphDiagramRouteQuality(result.layout, result.routes);
         expect(quality.crossings, `${example.name}/${target} crossings`).toBe(0);
         expect(quality.fakeFrames, `${example.name}/${target} fake frames`).toBe(0);
-        expect(result.report.ledger.filter(note => ["word-cut", "split-panel-dropped", "unroutable", "group-member-list"].includes(note.code)), `${example.name}/${target}`).toEqual([]);
+        expect(result.report.ledger.filter(note => ["word-cut", "label-dropped", "label-abbreviated", "split-panel-dropped", "unroutable", "group-member-list"].includes(note.code)), `${example.name}/${target}`).toEqual([]);
         for (const page of result.pages) {
           expect(page.text.split("\n").every(line => Array.from(line).length <= 72)).toBe(true);
         }

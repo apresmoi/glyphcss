@@ -1,10 +1,11 @@
+import { stripGlyphMermaidPreamble } from "@glyphcss/core/mermaid";
 import { labelText, skipMermaidComment } from "./mermaidText";
 import { glyphDiagramError } from "./validate";
 
 /** Keep indentation and quoted newlines; configuration remains data, never code. */
 export function glyphMermaidTreeDocument(source: string, singleQuotes = true): { body: string; config: string } {
-  let body = source.replace(/^\uFEFF/, ""), config = "";
-  body = body.replace(/^\s*---\s*\r?\n([\s\S]*?)\r?\n---\s*(?:\r?\n|$)/, (_, value: string) => { config += value; return ""; });
+  const { body, frontmatter } = stripGlyphMermaidPreamble(source);
+  let config = frontmatter ?? "";
   let text = "", quote = "";
   for (let i = 0; i < body.length; i++) {
     const char = body[i]!;

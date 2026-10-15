@@ -184,7 +184,7 @@ describe("Mermaid chart reader", () => {
     const chart = spec(examples[9]!.source);
     expect(chart.title).toBe("Browser share");
     expect(chart.description).toBe("Browsers\nShare by browser");
-    expect(chart.ledger.map((e) => e.code)).toEqual(["mermaid-ignored", "mermaid-ignored", "mermaid-ignored"]);
+    expect(chart.ledger.map((e) => e.code)).toEqual(["mermaid-degraded", "mermaid-degraded", "mermaid-degraded"]);
     expect(chart.ledger[1]?.detail?.feature).toBe("pie.donutHole");
     expect(() => spec('pie\nclick A "javascript:alert(1)"\n"A":1')).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_SYNTAX" }));
     expect(spec('pie\n"A %% literal; &amp; B": 1 %% ignored').marks[0]!.data[0]).toEqual({ label: "A %% literal; & B", value: 1 });
@@ -211,7 +211,7 @@ describe("Mermaid chart reader", () => {
     const body = kind === "pie" ? 'pie\n"A": 1\n"B": 2' : 'sankey\nA,B,2';
     const source = `---\nconfig:\n  ${kind}:\n    ${key}: ${value}\n---\n${body}`;
     const chart = spec(source);
-    expect(chart.ledger).toContainEqual(expect.objectContaining({ code: "mermaid-ignored", detail: { feature: `${kind}.${key}`, replacement: expect.stringContaining(replacement) } }));
+    expect(chart.ledger).toContainEqual(expect.objectContaining({ code: "mermaid-degraded", detail: { feature: `${kind}.${key}`, replacement: expect.stringContaining(replacement) } }));
     expect(renderGlyphChartMermaid(source, options).text).toBe(renderGlyphChartMermaid(body, options).text);
     const directive = `%%{init: {'${kind}': {'${key}': '${value}'}}}%%\n${body}`;
     expect(spec(directive).ledger).toContainEqual(expect.objectContaining({ detail: { feature: `${kind}.${key}`, replacement: expect.stringContaining(replacement) } }));
@@ -275,4 +275,14 @@ describe("Mermaid chart reader", () => {
     writeFileSync(join(dir, "t2.txt"), text);
     expect(text.match(/RENDER \(72 columns\)/g)).toHaveLength(renderedExamples.length);
   });
+});
+
+it("shares the full diagrams entity decoder, including Mermaid names and single-pass escapes", () => {
+  const rows = glyphChartFromMermaid('pie\n"&copy; #copy; #35; &amp;copy; &#92;": 1').marks[0]!.data;
+  expect(rows).toEqual([{ label: "© © # &copy; \\", value: 1 }]);
+  const source = '\uFEFF---\r\ntitle: "&copy;"\r\nconfig:\r\n theme: dark\r\n---\r\n%% comment\r\n%%{init: {\r\n}}%%\r\npie\r\n"A": 1';
+  const parsed = glyphChartFromMermaid(source);
+  expect(parsed.title).toBe("©");
+  expect(parsed.ledger).toHaveLength(2);
+  expect(parsed.ledger.every(entry => entry.code === "mermaid-degraded")).toBe(true);
 });

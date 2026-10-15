@@ -1,3 +1,4 @@
+import { stripGlyphMermaidPreamble } from "@glyphcss/core/mermaid";
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdge, GlyphGraphGroup, GlyphGraphNode } from "./types";
 import { glyphDiagramError, validateGlyphGraph } from "./validate";
 import { GLYPH_MERMAID_ENTITY, labelText, skipMermaidComment } from "./mermaidText";
@@ -48,10 +49,9 @@ export function glyphParseMermaidStructured(source: string, kind: string): { gra
   const notes: GlyphDiagramLedgerEntry[] = [];
   const note = (kind: string, message: string) => { if (!notes.some(n => n.detail?.kind === kind)) notes.push(ledgerMermaidDegraded({ kind, message })); };
   source = source.replace(/^\uFEFF/, "");
-  if (/^\s*---\s*\n/.test(source)) {
-    source = source.replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "");
-    note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
-  }
+  const preamble = stripGlyphMermaidPreamble(source);
+  source = preamble.body;
+  if (preamble.frontmatter !== undefined) note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
   if (/%%\{/.test(source)) note("configuration", "Mermaid configuration is inert; render options control the diagram.");
   source = source.replace(/^\s*accDescr\s*\{[\s\S]*?\}/gm, "accDescr: inert");
   const parts = statements(source, family === "C4" || family === "REQUIREMENT", fail);

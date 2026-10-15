@@ -1,3 +1,4 @@
+import { stripGlyphMermaidPreamble, glyphMermaidContent } from "@glyphcss/core/mermaid";
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdge, GlyphGraphEdgeStyle, GlyphGraphEdgeHead, GlyphGraphGroup, GlyphGraphNode, GlyphGraphNodeShape } from "./types";
 import { glyphDiagramError, validateGlyphGraph } from "./validate";
 import { labelText, skipMermaidComment, GLYPH_MERMAID_ENTITY } from "./mermaidText";
@@ -247,29 +248,33 @@ export function glyphParseMermaid(source: string): { graph: GlyphGraph; notes: G
   const note = (kind: string, message: string) => { if (!notes.some(entry => entry.detail?.kind === kind)) notes.push(ledgerMermaidDegraded({ kind, message })); };
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
   source = source.replace(/^\uFEFF/, "");
-  if (/^\s*---\s*\n/.test(source)) {
-    source = source.replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "");
-    note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
-  }
+  const preamble = stripGlyphMermaidPreamble(source);
+  source = preamble.body;
+  if (preamble.frontmatter !== undefined) note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
   // Identify the grammar before tokenizing its body: an unsupported kind's
   // delimiters need not obey flowchart syntax to earn its named rejection.
-  const prefix = source.replace(/^\uFEFF/, "").replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
+  const prefix = glyphMermaidContent(source, syntax);
   const declaredKind = /^[\w-]+/.exec(prefix)?.[0];
   if (declaredKind && /^(?:block(?:-beta)?|architecture(?:-beta)?|requirementDiagram|C4(?:Context|Container|Component|Dynamic|Deployment))$/.test(declaredKind)) return glyphParseMermaidStructured(originalSource, declaredKind);
   if (declaredKind?.toLowerCase() === "gitgraph") return glyphParseMermaidGit(originalSource);
-  if (declaredKind === "classDiagram" || declaredKind === "erDiagram") return glyphParseMermaidClassEr(originalSource, declaredKind === "erDiagram");
+  if (declaredKind === "classDiagram" || declaredKind === "classDiagram-v2" || declaredKind === "erDiagram") return glyphParseMermaidClassEr(originalSource, declaredKind === "erDiagram");
   if (declaredKind === "mindmap") return glyphParseMermaidMindmap(originalSource);
   if (declaredKind === "stateDiagram" || declaredKind === "stateDiagram-v2") return glyphParseMermaidState(originalSource);
-  if (declaredKind && declaredKind !== "flowchart" && declaredKind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${declaredKind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${declaredKind} is not supported; use flowchart or graph.`);
+  if (declaredKind === "flowchart-elk") {
+    source = source.slice(0, source.length - prefix.length) + prefix.replace(/^flowchart-elk\b/, "flowchart");
+    note("layout-substitution", "Mermaid flowchart-elk uses the native Dagre layout instead of ELK.");
+  }
+  if (declaredKind && declaredKind !== "flowchart-elk" && declaredKind !== "flowchart" && declaredKind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${declaredKind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${declaredKind} is not supported; use flowchart or graph.`);
+  if (/%%\{/.test(source)) note("configuration", "Mermaid configuration is inert; render options control the diagram.");
   const parts = statements(source.replace(/^\uFEFF/, ""));
   const header = parts.shift();
   if (!header) syntax("Mermaid source is empty.");
   const kind = /^[\w-]+/.exec(header)?.[0];
   if (!kind) syntax("Expected a flowchart or graph declaration.");
   if (kind !== "flowchart" && kind !== "graph") glyphDiagramError(`GLYPH_MERMAID_UNSUPPORTED_${kind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`, `Mermaid ${kind} is not supported; use flowchart or graph.`);
-  const declaration = /^(?:flowchart|graph)\s+(TB|TD|LR|BT|RL)(?:\s+([\s\S]+))?$/.exec(header);
+  const declaration = /^(?:flowchart|graph)(?:\s+(TB|TD|LR|BT|RL)(?:\s+([\s\S]+))?)?$/.exec(header);
   if (!declaration) syntax("Use flowchart/graph with direction TB, TD, LR, BT, or RL.");
-  const direction = (declaration[1] === "TD" ? "TB" : declaration[1]) as GlyphGraphDirection;
+  const direction = (declaration[1] === "TD" ? "TB" : declaration[1] ?? "TB") as GlyphGraphDirection;
   if (declaration[2]) parts.unshift(declaration[2]);
   const nodes = new Map<string, GlyphGraphNode>();
   const edges: GlyphGraphEdge[] = [];

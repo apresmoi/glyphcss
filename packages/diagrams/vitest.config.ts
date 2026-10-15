@@ -11,6 +11,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@glyphcss/core/mermaid": resolve(__dirname, "../core/src/mermaid/index.ts"),
       "glyphcss": resolve(__dirname, "../glyphcss/src/index.ts"),
       "@glyphcss/core": resolve(__dirname, "../core/src/index.ts"),
     },

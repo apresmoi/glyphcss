@@ -194,7 +194,7 @@ describe("Mermaid journey", () => {
     expect(bars(source).map((b) => [b.task, b.actors])).toEqual([
       ["Read; review & approve [", 'Me, QA "lead'], ['Quote " and brace {', "Me"],
     ]);
-    expect(spec.ledger.filter((e) => e.code === "mermaid-ignored").map((e) => e.detail?.feature)).toEqual(["frontmatter configuration", "chart.width", "initialization directive"]);
+    expect(spec.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept ")).map((e) => e.detail?.feature)).toEqual(["frontmatter configuration", "chart.width", "initialization directive"]);
   });
 
   it("preserves directive-like and colon-bearing task names", () => {
@@ -204,7 +204,7 @@ describe("Mermaid journey", () => {
       ["ClassDef meetup", 2, "Me"], ["LinkStyle review", 1, "Me"],
       ["Click: button", 3, "Me"], ["Style: hair", 4, "Me"], ["Class: reunion", 5, "Me"], ['Click button [draft "', 3, "Me"],
     ]);
-    expect(parse(source).ledger.filter((e) => e.code === "mermaid-ignored")).toEqual([]);
+    expect(parse(source).ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept "))).toEqual([]);
   });
 
   it("strips journey hash comments and repairs empty scores through the existing score ledger", () => {
@@ -237,7 +237,7 @@ describe("Mermaid journey", () => {
     const spec = parse(source), data = JSON.stringify(spec.marks) + JSON.stringify(spec.scales);
     for (const name of ["Click button", "Style hair", "Class reunion"]) expect(data).toContain(name);
     if (["xychart", "quadrantChart", "gantt", "radar"].includes(kind)) expect(data).toContain("ClassDef meetup");
-    expect(spec.ledger.filter((e) => e.code === "mermaid-ignored")).toEqual([]);
+    expect(spec.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept "))).toEqual([]);
     for (const target of ["chat", "web"] as const) {
       const result = renderExample(source, target);
       expect(result.text.split("\n").every((row) => [...row].length === 72)).toBe(true);
@@ -281,7 +281,7 @@ click a call handler() href "https://example.com"`;
     exampleHeights.set(source, { chat: 6, web: 6 });
     const spec = parse(source);
     expect(spec.ledger).toEqual(glyphChartFromMermaid(bare).ledger);
-    expect(spec.ledger.filter((e) => e.code === "mermaid-ignored" && e.detail?.feature === (kind === "gantt" ? "click" : "classDef"))).toHaveLength(2);
+    expect(spec.ledger.filter((e) => e.code === "mermaid-degraded" && e.message.startsWith("Kept ") && e.detail?.feature === (kind === "gantt" ? "click" : "classDef"))).toHaveLength(2);
     for (const target of ["chat", "web"] as const) {
       const result = renderExample(source, target);
       expect(result.text).toBe(renderGlyphChartMermaid(bare, { target, width: 72, height: 6 }).text);

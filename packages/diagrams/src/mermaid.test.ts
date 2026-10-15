@@ -165,7 +165,7 @@ describe("Mermaid flowchart adapter", () => {
 
   it.each([
     "sequenceDiagram", "usecaseDiagram", "pie", "gantt",
-    "zenuml", "classDiagram-v2", "journey", "timeline", "C4",
+    "zenuml", "classDiagram-v3", "journey", "timeline", "C4",
     "quadrantChart", "xychart-beta",
     "sankey-beta", "packet-beta", "kanban", "radar-beta", "treemap-beta",
   ])("rejects %s by its exact kind name", (kind) => {

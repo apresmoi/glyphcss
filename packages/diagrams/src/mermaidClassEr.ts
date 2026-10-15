@@ -1,3 +1,4 @@
+import { stripGlyphMermaidPreamble } from "@glyphcss/core/mermaid";
 import type { GlyphGraph, GlyphGraphDirection, GlyphGraphEdge, GlyphGraphEdgeHead, GlyphGraphGroup, GlyphGraphNode } from "./types";
 import { glyphDiagramError, validateGlyphGraph } from "./validate";
 import { GLYPH_MERMAID_ENTITY, labelText, skipMermaidComment } from "./mermaidText";
@@ -74,14 +75,17 @@ export function glyphParseMermaidClassEr(source: string, er: boolean): { graph: 
   const syntax = (message: string): never => glyphDiagramError(er ? "GLYPH_MERMAID_ER_SYNTAX" : "GLYPH_MERMAID_CLASS_SYNTAX", message);
   const notes: GlyphDiagramLedgerEntry[] = [];
   const note = (kind: string, message: string) => { if (!notes.some(entry => entry.detail?.kind === kind)) notes.push(ledgerMermaidDegraded({ kind, message })); };
-  if (/^\s*---\s*\n/.test(source)) {
-    source = source.replace(/^\s*---\s*\n[\s\S]*?\n---\s*(?:\n|$)/, "");
-    note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
-  }
+  const preamble = stripGlyphMermaidPreamble(source);
+  source = preamble.body;
+  if (preamble.frontmatter !== undefined) note("frontmatter", "Mermaid frontmatter is inert; render options control the diagram.");
   if (/%%\{/.test(source)) note("configuration", "Mermaid configuration is inert; render options control the diagram.");
   source = source.replace(/^\s*accDescr\s*\{[\s\S]*?\}/gm, "accDescr: inert");
   const parts = statements(source.replace(/^\uFEFF/, ""), er, syntax);
-  const header = parts.shift() ?? "";
+  let header = parts.shift() ?? "";
+  if (!er && /^classDiagram-v2\b/.test(header)) {
+    header = header.replace(/^classDiagram-v2\b/, "classDiagram");
+    note("layout-substitution", "Mermaid classDiagram-v2 uses the native compartment and Dagre layout.");
+  }
   const kind = er ? "erDiagram" : "classDiagram";
   if (!header.startsWith(kind)) syntax(`Expected ${kind}.`);
   if (header.slice(kind.length).trim()) parts.unshift(header.slice(kind.length).trim());
@@ -242,6 +246,5 @@ export function glyphParseMermaidClassEr(source: string, er: boolean): { graph: 
   if (!nodes.size) { node(kind); note("empty-diagram", "An empty diagram uses one named rectangle."); }
   const output: GlyphGraphNode[] = [...nodes.values()].map(record => ({ id: record.id, label: [record.label, ...record.annotations].join("\n"), shape: "compartment", compartments: !er && record.fields.length && record.methods.length ? [record.fields, record.methods] : [record.fields.length ? record.fields : record.methods], ...(record.group ? { group: record.group } : {}) }));
   const kept: GlyphGraphGroup[] = [...groups.values()].filter(group => group.members.length).map(group => ({ ...group }));
-  note("relation-markers", "Class and ER relation ends use proposed compact glyphs pending visual sign-off.");
   return { graph: validateGlyphGraph({ nodes: output, edges, direction, ...(kept.length ? { groups: kept } : {}) }), notes };
 }
