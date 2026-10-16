@@ -27,6 +27,8 @@ export interface GlyphChartLabelCandidate {
   readonly text: string;
   readonly priority?: number;
   readonly maxWidth?: number;
+  /** A spatial caption must retain its complete text and anchor, or be dropped with a note. */
+  readonly fixed?: boolean;
   /** Hint forwarded to `abbreviateChartText` — see its own doc. */
   readonly numeric?: boolean;
   /**
@@ -243,6 +245,18 @@ export function glyphChartLabelLayout(
     if (c.y < 0 || c.y + scale - 1 >= rows) {
       dropped.push(c.id);
       ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "there was no room for it within the viewport's own height" }));
+      continue;
+    }
+    if (c.fixed) {
+      const text = chartText(c.text, opts.charset, { ledger, role });
+      const rect = rectFor(c.x, c.y, text.length * scale, scale);
+      if (rect.x0 < 0 || rect.x1 >= cols || obstacles.some(o => overlaps(o, rect))) {
+        dropped.push(c.id);
+        ledger.push(ledgerLabelDropped({ role, text: c.text, reason: "there was no room at its fixed anchor" }));
+      } else {
+        placed.push({ id: c.id, x: rect.x0, y: c.y, text, abbreviated: false, scale });
+        obstacles.push(rect);
+      }
       continue;
     }
     // `c.maxWidth`/`cols` are COLUMN budgets in the FINAL (scaled)

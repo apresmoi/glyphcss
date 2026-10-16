@@ -1,4 +1,4 @@
-import { GLYPH_CHART_RADAR } from "./radar";
+import { GLYPH_CHART_RADAR_CAPTION_RADIUS, GLYPH_CHART_RADAR } from "./radar";
 import { GLYPH_CHART_GANTT, GLYPH_CHART_GANTT_TICKS, glyphGanttTickGranularity, type GlyphChartGanttRow } from "./gantt";
 import { GLYPH_CHART_JOURNEY, type GlyphChartJourneyRow } from "./journey";
 import { formatLinearTick } from "./scales";
@@ -45,7 +45,7 @@ export function journey(parts: string[], common: Common, r: Reader): GlyphChartM
   } as GlyphChartMermaidSpec;
 }
 
-export function radar(parts: string[], common: Common, r: Reader, summary = false): GlyphChartMermaidSpec {
+export function radar(parts: string[], common: Common, r: Reader, summary = false, grid: "all" | "outer" = "all"): GlyphChartMermaidSpec {
   const axes: { id: string; label: string }[] = [], curves: { id: string; label: string; values: string[] }[] = [];
   let min = 0, max: number | undefined, ticks = 5, polygon = false, legend = true;
   const ledger = common.ledger as GlyphChartLedgerEntry[];
@@ -118,26 +118,18 @@ export function radar(parts: string[], common: Common, r: Reader, summary = fals
   const point = (index: number, radius: number, count = axes.length) => { const angle = 2 * Math.PI * index / count; return { x: Math.sin(angle) * radius, y: Math.cos(angle) * radius }; };
   const line = (data: GlyphChartDatum[], name?: string) => glyphChartLine(data, channels, { color: name ? undefined : "#7a7f8a", ...(name ? { name } : {}) });
   if (axes.length) {
-    for (let i = 1; i <= ticks; i++) {
+    if (grid === "outer" && ticks > 1) ledger.push(ledgerMermaidDegraded({ feature: "radar inner graticules", replacement: "outer contour and all axis spokes" }));
+    for (let i = grid === "outer" ? Math.max(1, ticks) : 1; i <= ticks; i++) {
       const n = polygon ? axes.length : 256;
       marks.push(line(Array.from({ length: n + 1 }, (_, k) => point(k, i / ticks, n))));
     }
-    axes.forEach((a, i) => { marks.push(line([{ x: 0, y: 0 }, point(i, 1)])); captions.push({ ...point(i, 1.18), label: a.label }); });
+    axes.forEach((a, i) => { marks.push(line([{ x: 0, y: 0 }, point(i, 1)])); captions.push({ ...point(i, GLYPH_CHART_RADAR_CAPTION_RADIUS), label: a.label }); });
     const magnitude = Math.max(1, Math.abs(min), Math.abs(max));
     const radius = (value: number) => Math.max(0, Math.min(1, (value / magnitude - min / magnitude) / (max! / magnitude - min / magnitude)));
-    const vertices = new Map<string, { x: number; y: number; label: string }>();
     values.forEach((v, index) => {
       const points = v.map((value, i) => point(i, radius(value)));
       marks.push(line([...points, points[0]!], seriesName(index)));
-      const marker = seriesName(index).split(":")[0]!;
-      for (const p of points) {
-        const key = `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
-        const previous = vertices.get(key);
-        if (previous) { if (!previous.label.split("/").includes(marker)) previous.label += `/${marker}`; }
-        else vertices.set(key, { ...p, label: marker });
-      }
     });
-    captions.push(...vertices.values());
   }
   if (captions.length) marks.push(glyphChartText(captions, channels));
   ledger.push(ledgerMermaidDegraded({ feature: "radar tick labels", replacement: "unlabeled graticules; interior numbers omitted to avoid curve collisions" }));

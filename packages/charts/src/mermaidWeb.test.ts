@@ -167,12 +167,12 @@ it("samples inner circular rings densely on the dot lattice without cell-sized s
   expect(ring.some(({ a }) => a.x !== Math.round(a.x) && a.y !== Math.round(a.y))).toBe(true);
 });
 
-it("uses one solid native line style for each radar curve at every angle", () => {
+it("uses native series styles for monochrome radar and solid lines with color", () => {
   const source = "radar\naxis N,E,S,W\nticks 0\ncurve a{4,3,5,2}, b{3,4,2,5}, c{2,5,4,3}, d{5,2,3,4}\nmax 5";
   for (const colorEnabled of [true, false]) {
-    const { calls, ledger } = radarPaint(source, 96, 32, 0.5859375, colorEnabled);
+    const { calls, canvas } = radarPaint(source, 96, 32, 0.5859375, colorEnabled);
     expect(calls.slice(4).length).toBeGreaterThanOrEqual(16);
-    expect(new Set(calls.slice(4).map((c) => c.options?.style))).toEqual(new Set(["solid"]));
-    expect(ledger.some((e) => e.message.includes("double"))).toBe(false);
+    expect(new Set(calls.slice(4, 20).map((c) => c.options?.style))).toEqual(new Set(colorEnabled ? ["solid"] : ["solid", "dashed", "dotted", "double"]));
+    expect(canvas.report.ledger.some((message) => message.includes("double"))).toBe(!colorEnabled);
   }
 });

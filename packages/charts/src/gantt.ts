@@ -69,13 +69,16 @@ export function layoutGlyphGantt(spec: GlyphChartGanttSpec, layout: GlyphChartLa
     naturalY += scale;
   });
   const space = glyphChartRowSpacing(naturalY, layout.xAxisLineRow, boundaries, scale);
-  let y = layout.plot.y0, sections = 0;
+  let y = layout.plot.y0, sections = 0, contentEnd = layout.plot.y0;
   for (const row of authored) {
     if (row.section && sections++ > 0) y += scale;
     const rowY = space(y);
-    const fits = rowY + scale - 1 < layout.xAxisLineRow;
+    // A section without room for its first task would become the final row,
+    // detaching the time axis from the last task that actually fits.
+    const fits = rowY + (row.section ? 2 : 1) * scale - 1 < layout.xAxisLineRow;
     bands.set(row.key, fits ? [rowY, rowY + scale - 1] : [-scale, -1]);
     if (fits) {
+      contentEnd = rowY + scale;
       const indent = row.section ? 0 : 2 * scale;
       const statusSpace = statusWidth ? statusWidth + 2 * scale : 0;
       const width = row.section ? layout.cols : Math.max(0, layout.plot.x0 - indent - statusSpace);
@@ -92,5 +95,16 @@ export function layoutGlyphGantt(spec: GlyphChartGanttSpec, layout: GlyphChartLa
     } else ledger.push(ledgerMermaidDegraded({ feature: "Gantt row outside the viewport", replacement: "an omitted complete row", row: row.label }));
     y += scale;
   }
-  return { ...layout, gantt: true, yTicks: ticks, horizontalBarBands: bands };
+  // The spacing helper leaves indivisible/capped surplus below content. The
+  // time axis belongs to the placed rows, so move all lower chrome with it.
+  const spare = layout.xAxisLineRow - contentEnd;
+  const afterPlot = (row: number) => row >= layout.xAxisLineRow ? row - spare : row;
+  return {
+    ...layout, gantt: true, yTicks: ticks, horizontalBarBands: bands,
+    plot: { ...layout.plot, y1: contentEnd }, xAxisLineRow: contentEnd,
+    xAxisLabelRow: afterPlot(layout.xAxisLabelRow), xAxisTitleRow: afterPlot(layout.xAxisTitleRow),
+    yAxisTitleRow: afterPlot(layout.yAxisTitleRow), cellKeyRow: afterPlot(layout.cellKeyRow),
+    titleRow: layout.titleRow === null ? null : afterPlot(layout.titleRow),
+    legend: layout.legend?.row === undefined ? layout.legend : { ...layout.legend, row: afterPlot(layout.legend.row) },
+  };
 }

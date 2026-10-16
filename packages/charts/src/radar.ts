@@ -2,6 +2,7 @@ import type { GlyphChartPlotRect, GlyphChartSpec } from "./types";
 import type { GlyphChartResolvedScales } from "./scales";
 
 // The ordinary line/text marks share one radial metric; shallow copies retain it.
+export const GLYPH_CHART_RADAR_CAPTION_RADIUS = 1.18;
 export const GLYPH_CHART_RADAR = Symbol("glyph-chart-radar");
 export type GlyphChartRadarSpec = GlyphChartSpec & { readonly [GLYPH_CHART_RADAR]?: true };
 

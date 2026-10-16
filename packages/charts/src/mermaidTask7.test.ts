@@ -233,14 +233,13 @@ describe("Task 7 Mermaid syntax and native marks", () => {
     const result = renderGlyphChartMermaid(source, { ...options, target: "web", color: "none" });
     expect(result.text).not.toMatch(/3\.33|6\.67/);
     const chart = parse(source), labels = chart.marks.filter((m) => m.type === "text").flatMap((m) => m.data) as { label: string }[];
-    expect(labels.filter((d) => d.label === "A")).toHaveLength(5);
-    expect(labels.filter((d) => d.label === "B")).toHaveLength(5);
-    const plotRows = result.text.split("\n").slice(1, -1).join("\n");
-    expect(plotRows.match(/A/g)).toHaveLength(5); expect(plotRows.match(/B/g)).toHaveLength(5);
+    expect(labels.map((d) => d.label)).toEqual(["Code", "Docs", "Tests", "Design", "Ops"]);
+    expect(result.text).toContain("⠠⠤⠤ A: Team A");
+    expect(result.text).toContain("⠠⠄⠤ B: Team B");
     expect(result.report.ledger.some((e) => e.detail?.feature === "radar tick labels")).toBe(true);
     expect(result.report.ledger.filter((e) => /label-(?:dropped|abbreviated)/.test(e.code))).toEqual([]);
     const coincident = parse('radar\naxis X,Y,Z\ncurve a{1,2,3},b{1,2,3}');
-    expect(coincident.marks.filter((m) => m.type === "text").flatMap((m) => m.data).filter((d) => (d as { label: string }).label === "A/B")).toHaveLength(3);
+    expect(coincident.marks.filter((m) => m.type === "text").flatMap((m) => m.data).map((d) => (d as { label: string }).label)).toEqual(["X", "Y", "Z"]);
   });
   it("logs inert treemap value configuration explicitly", () => {
     const source = '---\nconfig:\n  treemap:\n    showValues: false\n    valueFormat: "$,.2f"\n---\ntreemap\n"Leaf": 1234';

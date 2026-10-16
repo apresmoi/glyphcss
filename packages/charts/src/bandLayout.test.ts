@@ -169,7 +169,8 @@ describe("content-sized band layouts", () => {
   it.each([1, 2, 3])("keeps scaled Gantt bands and chrome adjacent at textScale %i", (textScale) => {
     const r = renderGlyphChartMermaid(examples[0]!.source, { target: "web", width: 144, height: 80, textScale });
     // Compact seven rows plus two extra blank rows at each of the two task gaps.
-    expect(r.build.plot.y1).toBe(11 * textScale);
+    const first = r.text.split("\n").findIndex((line) => line.trim());
+    expect(r.build.plot.y1 - first).toBe(11 * textScale);
   });
   it.each(examples.slice(1, 9).filter(({ name }) => name !== "Horizontal XY lines"))("keeps $name's drawing independent of spare height", ({ source }) => {
     for (const target of ["chat", "web"] as const) {
@@ -177,9 +178,19 @@ describe("content-sized band layouts", () => {
       if (source.startsWith("radar") && target === "web") continue;
       const short = renderGlyphChartMermaid(source, { target, width: 72, height: 24 });
       const tall = renderGlyphChartMermaid(source, { target, width: 72, height: 40 });
-      expect(tall.text.split("\n").slice(0, 24).join("\n")).toBe(short.text);
-      expect(tall.text.split("\n").slice(24).every((line) => !line.trim())).toBe(true);
-      expect(short.text.split("\n").findIndex((line) => line.trim())).toBe(0);
+      const compactWeb = target === "web" && /^(journey|timeline|packet|kanban)\b/.test(source);
+      if (compactWeb) {
+        const content = (text: string) => { const lines = text.split("\n"); return lines.slice(lines.findIndex((line) => line.trim()), lines.reduce((last, line, row) => line.trim() ? row + 1 : last, 0)).join("\n"); };
+        expect(content(tall.text)).toBe(content(short.text));
+        for (const result of [short, tall]) {
+          const lines = result.text.split("\n"), first = lines.findIndex((line) => line.trim()), last = lines.reduce((last, line, row) => line.trim() ? row : last, 0);
+          expect(Math.abs(first - (lines.length - last - 1))).toBeLessThanOrEqual(1);
+        }
+      } else {
+        expect(tall.text.split("\n").slice(0, 24).join("\n")).toBe(short.text);
+        expect(tall.text.split("\n").slice(24).every((line) => !line.trim())).toBe(true);
+        expect(short.text.split("\n").findIndex((line) => line.trim())).toBe(0);
+      }
     }
   });
   it.each([24, 40])("keeps native horizontal bars, axis, legend and bottom title together at height %i", (height) => {

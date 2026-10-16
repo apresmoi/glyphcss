@@ -1,3 +1,4 @@
+import { GLYPH_CHART_WRAP_LEGEND } from "./layout";
 import { GLYPH_MERMAID_ENTITY, decodeGlyphMermaidEntities, stripGlyphMermaidPreamble, skipGlyphMermaidComment, glyphMermaidContent } from "@glyphcss/core/mermaid";
 import type { GlyphChartDatum, GlyphChartMark, GlyphChartRenderOptions, GlyphChartResult, GlyphChartScaleOptions, GlyphChartSpec } from "./types";
 import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
@@ -261,7 +262,11 @@ const emptyMark = () => glyphChartText([{ x: 0, y: 0, label: "" }], TEXT_CHANNEL
 /** Tolerant Mermaid chart reader. Other grammars are rejected before their body is tokenized. */
 export function glyphChartFromMermaid(source: string): GlyphChartMermaidSpec { return parseChart(source, false); }
 
-function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpec {
+function parseChart(source: string, radarSummary: boolean, radarGrid?: GlyphChartRenderOptions["radarGrid"]): GlyphChartMermaidSpec {
+  return { ...readChart(source, radarSummary, radarGrid), [GLYPH_CHART_WRAP_LEGEND]: true } as GlyphChartMermaidSpec;
+}
+
+function readChart(source: string, radarSummary: boolean, radarGrid?: GlyphChartRenderOptions["radarGrid"]): GlyphChartMermaidSpec {
   if (typeof source !== "string") syntax("Mermaid source must be a string.");
   const prefix = glyphMermaidContent(stripGlyphMermaidPreamble(source).body, syntax);
   const hashPrefix = prefix.replace(/^(?:\s|#[^\n]*(?:\n|$)|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
@@ -322,7 +327,7 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   if (kind === "kanban") return kanban(content, common, { label, syntax });
   if (kind === "timeline") return timeline(content, common, { label, syntax });
   if (kind.startsWith("packet")) return packet(content, common, { label, syntax });
-  if (kind.startsWith("radar")) return radar(content, common, { label, numeric, syntax, splitList }, radarSummary);
+  if (kind.startsWith("radar")) return radar(content, common, { label, numeric, syntax, splitList }, radarSummary, radarGrid);
   let categories: string[] | undefined, xDomain: number[] | undefined, yDomain: number[] | undefined;
   let xTitle = "", yTitle = "";
   const series: { type: "bar" | "line"; name?: string; points: { value: number; label: string }[] }[] = [];
@@ -360,6 +365,19 @@ function parseChart(source: string, radarSummary: boolean): GlyphChartMermaidSpe
   const firstSeries = series.find((s) => s.points.length);
   if (!categories && !xDomain && firstSeries) xDomain = [1, firstSeries.points.length];
   const transpose = horizontal;
+  if (series.length > 1 && series.some(s => !s.name)) {
+    const names = new Set(series.flatMap(s => s.name ? [s.name] : []));
+    const counts = new Map<string, number>();
+    for (const s of series) {
+      if (s.name) continue;
+      const base = s.type === "bar" ? "Bar" : "Line";
+      let n = (counts.get(base) ?? 0) + 1;
+      let name = series.filter(other => other.type === s.type).length === 1 ? base : `${base} ${n}`;
+      while (names.has(name)) name = `${base} ${++n}`;
+      counts.set(base, n); names.add(name); s.name = name;
+    }
+    degrade("unnamed XY series", "mark-type names in the native series legend");
+  }
   for (const s of series) {
     if (!s.points.length) continue;
     const data = s.points.map((p, i) => {
@@ -470,7 +488,7 @@ function sankey(body: string, ledger: GlyphChartLedgerEntry[], title?: string): 
 /** Render through the ordinary mark pipeline and retain adaptation notes in both result.report and build.report. */
 export function renderGlyphChartMermaid(source: string, options: GlyphChartRenderOptions = {}): GlyphChartResult {
   const charset = options.charset ?? GLYPH_CHART_TARGET_DEFAULTS[options.target ?? "web"].charset;
-  const spec = parseChart(source, charset === "box" || charset === "ascii");
+  const spec = parseChart(source, charset === "box" || charset === "ascii", options.radarGrid);
   const flowList = spec.ledger.some((entry) => entry.detail?.fallback === "flow-list");
   const result = renderGlyphChart(spec, flowList && options.height === undefined ? { ...options, height: Math.max(3, spec.marks[0]!.data.length) } : options);
   const report = { ...result.report, ledger: [...spec.ledger, ...result.report.ledger] };

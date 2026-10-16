@@ -284,6 +284,10 @@ export interface GlyphChartRenderOptions {
   /** Default `"web"` — the bare `renderGlyphChart(x)` call renders for the web target. */
   readonly target?: GlyphChartTarget;
   readonly charset?: GlyphChartCharset;
+  /** Mermaid radar only: retain all rings (default), or only the outermost authored ring; spokes remain. */
+  readonly radarGrid?: "all" | "outer";
+  /** Mermaid radar polygons only: native lines (default), or whole-cell • ○ × + edges; first series wins shared cells. */
+  readonly radarSeries?: "line" | "cells";
   readonly color?: GlyphChartColorMode;
   readonly width?: number;
   readonly height?: number;

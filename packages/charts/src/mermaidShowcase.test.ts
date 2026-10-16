@@ -41,7 +41,12 @@ describe("Mermaid showcase layouts", () => {
       expect(lines).toHaveLength(example.height);
       expect(lines.every((line) => [...line].length === 72)).toBe(true);
       for (const label of example.labels) expect(result.text).toContain(label);
-      expect(lines.at(-1)!.trim()).not.toBe("");
+      if (example.type === "gantt") {
+        const lastTask = lines.findIndex((line) => line.includes("Go live"));
+        expect(result.build.plot.y1).toBe(lastTask + 1);
+        expect(lines[lastTask + 2]!.trim()).not.toBe("");
+        expect(lines.slice(lastTask + 3).every((line) => !line.trim())).toBe(true);
+      } else expect(lines.at(-1)!.trim()).not.toBe("");
       const thinned = result.report.ledger.filter((entry) => entry.code === "ticks-thinned");
       expect(thinned.map((entry) => entry.detail)).toEqual(example.type === "gantt" ? [{ axis: "x", shown: 5, stride: 2, total: 10 }] : []);
       expect(result.report.ledger.filter((entry) => /omitted|outside the viewport|label-(dropped|abbreviated)/.test(entry.message + entry.code))).toEqual([]);
@@ -180,7 +185,10 @@ describe("Mermaid showcase layouts", () => {
       for (const label of example.labels) expect(result.text).toContain(label);
       expect(result.report.ledger.filter((entry) => /omitted|outside the viewport/.test(entry.message))).toEqual([]);
       const tall = renderGlyphChartMermaid(example.source, { target: "web", width, height: 96 }).text.split("\n");
-      expect(tall.reduce((last, line, row) => line.trim() ? row : last, -1)).toBeLessThan(40);
+      const first = tall.findIndex((line) => line.trim());
+      const last = tall.reduce((last, line, row) => line.trim() ? row : last, -1);
+      expect(last - first).toBeLessThan(40);
+      expect(Math.abs(first - (tall.length - last - 1))).toBeLessThanOrEqual(1);
     }
     const compactHeight = { gantt: 17, journey: 14, timeline: 19 }[type]!;
     const compact = renderGlyphChartMermaid(example.source, { target: "chat", width: 72, height: compactHeight });

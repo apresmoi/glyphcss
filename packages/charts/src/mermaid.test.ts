@@ -67,13 +67,13 @@ describe("Mermaid chart reader", () => {
     expect(bars.marks.map((mark) => mark.data.map((d) => (d as { x: number }).x))).toEqual([[-10,10], [-10,0,10]]);
   });
 
-  it("starts omitted or title-only x axes at one, without falsely naming unnamed legend entries", () => {
+  it("starts omitted or title-only x axes at one and names mixed series in the legend", () => {
     for (const axis of ['', 'x-axis Time\n']) {
       const chart = spec(`xychart\n${axis}line [1,2]\nbar "Named" [1,2,3]`);
       expect(chart.marks.map((mark) => mark.data.map((d) => (d as { x: number }).x))).toEqual([[1,2], [1,1.5,2]]);
       expect(chart.scales?.x?.domain).toEqual([1,2]);
-      expect(chart.marks.map((mark) => mark.options?.name)).toEqual([undefined, "Named"]);
-      expect(chart.ledger).toEqual([]);
+      expect(chart.marks.map((mark) => mark.options?.name)).toEqual(["Line", "Named"]);
+      expect(chart.ledger).toEqual([expect.objectContaining({ code: "mermaid-degraded" })]);
       expect(renderGlyphChartMermaid(`xychart\n${axis}line [1,2]\nbar "Named" [1,2,3]`, options).text).toContain("Named");
     }
   });

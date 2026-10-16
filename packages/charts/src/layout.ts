@@ -8,6 +8,7 @@
  * space and axes squeezing into what's left.
  */
 
+import { GLYPH_CHART_RADAR, type GlyphChartRadarSpec } from "./radar";
 import { GLYPH_CHART_GANTT, layoutGlyphGantt, type GlyphChartGanttSpec } from "./gantt";
 import { timeFormat } from "d3-time-format";
 import { cellFillValues, cellSigned } from "./heatmap";
@@ -102,6 +103,8 @@ export type { GlyphChartPlotRect } from "./types";
 
 export interface GlyphChartLegendItem {
   readonly label: string;
+  /** Display caption when a radar cell symbol replaces the generated series prefix. */
+  readonly text?: string;
   readonly color?: string;
 }
 
@@ -110,7 +113,11 @@ export interface GlyphChartLegendItem {
  * `"title"`) — the four corner placements paint inside `layout.plot` at
  * paint time (no row reserved, so no fixed row to record here).
  */
+// Source readers can retain verbose legends without changing native chart defaults.
+export const GLYPH_CHART_WRAP_LEGEND = Symbol("glyph-chart-wrap-legend");
+
 export interface GlyphChartLegendLayout {
+  readonly columns?: number;
   readonly placement: GlyphChartLegendPlacement;
   readonly items: readonly GlyphChartLegendItem[];
   readonly row?: number;
@@ -463,6 +470,7 @@ export function layoutGlyphChart(
    * (every `+= textScale`/`-= textScale` below is `+= 1`/`-= 1` there).
    */
   textScale = 1,
+  radarCells = false,
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
@@ -561,10 +569,21 @@ export function layoutGlyphChart(
   // is already a key of `seriesColors` (a `SERIES_COLORS[i % …]` fallback
   // here was previously unreachable dead code).
   const seriesColors = chartSeriesColors(marks);
-  const items = names.map((label) => ({ label, color: seriesColors.get(label)! }));
+  const items = names.map((label) => ({ label, color: seriesColors.get(label)!, ...(radarCells && (spec as GlyphChartRadarSpec)[GLYPH_CHART_RADAR] ? { text: label.replace(/^(?:[A-Z]|S\d+): /, "") } : {}) }));
   const reserveBottomLegend = (): boolean => {
     const legendWide = cols >= 12 && rows - top - 3 * textScale > 2 * textScale;
-    if (legendWide) { legend = { placement: "bottom", row: bottom - textScale + 1, items }; bottom -= textScale; }
+    if (legendWide) {
+      const itemWidth = Math.max(1, ...items.map((item) => chartText(item.text ?? item.label, charset).length + 5)) * textScale;
+      const capacity = Math.max(1, Math.min(items.length, Math.floor(cols / itemWidth)));
+      const count = Math.ceil(items.length / capacity);
+      const columns = Math.ceil(items.length / count);
+      const legendRows = count * textScale;
+      // Preserve plot room on short canvases; the ordinary label ledger owns unavoidable abbreviation.
+      const wrap = (spec as GlyphChartSpec & { [GLYPH_CHART_WRAP_LEGEND]?: boolean })[GLYPH_CHART_WRAP_LEGEND]
+        && rows - top - legendRows > 4 * textScale;
+      legend = { placement: "bottom", row: bottom - (wrap ? legendRows : textScale) + 1, items, ...(wrap && count > 1 ? { columns } : {}) };
+      bottom -= wrap ? legendRows : textScale;
+    }
     return legendWide;
   };
   // A funnel's stage labels already carry the same identity a legend
@@ -586,7 +605,7 @@ export function layoutGlyphChart(
       // entry clear of the title text itself); degrades to "bottom" with a
       // ledger entry when there's no title row at all, or the entries
       // plainly can't fit beside it.
-      const entriesWidth = items.reduce((w, it) => w + it.label.length + 3, 0);
+      const entriesWidth = items.reduce((w, it) => w + (it.text ?? it.label).length + 3, 0);
       const fits = titleRow !== null && cols >= 12 && entriesWidth <= cols - (resolvedTitle.text?.length ?? 0) - 2;
       if (fits) {
         legend = { placement: "title", row: titleRow!, items };
