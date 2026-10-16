@@ -2,212 +2,422 @@
   {
     "type": "flowchart",
     "owner": "diagrams",
-    "source": "flowchart LR\n A[Input] --> B[Output]",
+    "source": "flowchart TB\n subgraph intake[Order intake]\n  cart([Cart ready]) --> stock{In stock?}\n  stock -->|yes| reserve[Reserve items]\n  stock -.->|no| wait[Wait list]\n end\n subgraph fulfil[Order fulfilment]\n  charge[Take payment]\n  charge --> pack[Pack order]\n  pack --> ship([Dispatch])\n end\n reserve ==> charge\n wait -.-> notify[Notify buyer]\n ship -.-> receipt[Send receipt]",
     "labels": [
-      "Input",
-      "Output"
+      "Order intake",
+      "Cart ready",
+      "In stock?",
+      "Reserve",
+      "Wait list",
+      "Order fulfilment",
+      "Take payment",
+      "Pack order",
+      "Dispatch",
+      "Notify buyer",
+      "Send receipt"
     ],
-    "height": 7
+    "height": 44
   },
   {
     "type": "graph",
     "owner": "diagrams",
-    "source": "graph LR\n A[Input] --> B[Output]",
+    "source": "graph LR\n subgraph checks[Quality gate]\n  lint[Lint] --> gate{All green?}\n  unit[Unit tests] --> gate\n  audit[Audit] -.-> gate\n end\n gate -->|pass| stage[Stage]\n gate -->|fail| repair[Repair]\n stage ==> canary[Canary]\n canary --> promote[Promote]\n repair -.-> report[Failure report]",
     "labels": [
-      "Input",
-      "Output"
+      "Quality gate",
+      "Lint",
+      "Unit tests",
+      "Audit",
+      "All green?",
+      "Stage",
+      "Repair",
+      "Canary",
+      "Promote",
+      "Failure report"
     ],
-    "height": 7
+    "height": 31
   },
   {
     "type": "stateDiagram",
     "owner": "diagrams",
-    "source": "stateDiagram-v2\n [*] --> Ready\n Ready --> Done: finish\n Done --> [*]",
+    "source": "stateDiagram-v2\n [*] --> Draft\n Draft --> Payment: submit\n state Payment {\n  [*] --> Authorize\n  Authorize --> Check: response\n  state Check <<choice>>\n  Check --> Captured: approved\n  Check --> Declined: refused\n  Captured --> [*]\n  Declined --> [*]\n }\n note right of Authorize: Key per order\n Payment --> Packing: paid\n Packing --> Shipped: dispatch\n Shipped --> [*]",
     "labels": [
-      "Ready",
-      "Done",
-      "finish"
+      "Draft",
+      "Payment",
+      "Authorize",
+      "response",
+      "approved",
+      "refused",
+      "Captured",
+      "Declined",
+      "Key per order",
+      "Packing",
+      "Shipped",
+      "dispatch"
     ],
-    "height": 20
+    "height": 57
   },
   {
     "type": "sequenceDiagram",
     "owner": "diagrams",
-    "source": "sequenceDiagram\n participant A as Alice\n participant B as Bob\n A->>B: Hello\n B-->>A: Welcome",
+    "source": "sequenceDiagram\n title Place an order\n autonumber\n actor Buyer\n participant API\n participant Stock\n participant Bank\n Buyer->>+API: Submit cart\n API->>+Stock: Reserve items\n Stock-->>-API: Hold confirmed\n Note over API,Bank: One key per order\n API->>+Bank: Authorize payment\n alt approved\n  Bank-->>-API: Payment token\n  loop each parcel\n   API->>Stock: Queue shipment\n   Stock-->>API: Tracking code\n  end\n  API-->>Buyer: Order accepted\n else declined\n  Bank-->>API: Card declined\n  API-->>Buyer: Choose another card\n end\n deactivate API",
     "labels": [
-      "Alice",
-      "Bob",
-      "Hello",
-      "Welcome"
+      "Place an order",
+      "Buyer",
+      "API",
+      "Stock",
+      "Bank",
+      "Submit cart",
+      "Reserve items",
+      "Hold confirmed",
+      "One key per order",
+      "Authorize payment",
+      "Payment token",
+      "each parcel",
+      "Queue shipment",
+      "Tracking code",
+      "Order accepted",
+      "Card declined",
+      "Choose another card"
     ],
-    "height": 10
+    "height": 46
   },
   {
     "type": "classDiagram",
     "owner": "diagrams",
-    "source": "classDiagram\n class Order {\n +int count\n +submit()\n }",
+    "source": "classDiagram\n direction TB\n class Account {\n  +String email\n  +signIn() bool\n }\n class Buyer {\n  +String address\n  +checkout()\n }\n class Order {\n  +int number\n  +submit()\n }\n class Line {\n  +int quantity\n  +subtotal() Money\n }\n class Payment {\n  <<interface>>\n  +authorize() bool\n }\n class Card {\n  -String token\n  +authorize() bool\n }\n Account <|-- Buyer\n Buyer \"1\" --> \"*\" Order : places\n Order \"1\" *-- \"*\" Line : contains\n Buyer o-- Card : stores\n Card ..|> Payment\n Order ..> Payment : charges\n Line -- Payment : refunds\n Account .. Payment : audits",
     "labels": [
+      "Account",
+      "email",
+      "signIn",
+      "Buyer",
+      "address",
+      "checkout",
       "Order",
-      "count",
-      "submit"
+      "number",
+      "submit",
+      "Line",
+      "quantity",
+      "subtotal",
+      "Payment",
+      "authorize",
+      "Card",
+      "token",
+      "places",
+      "contains",
+      "stores",
+      "charges",
+      "refunds",
+      "audits"
     ],
-    "height": 11
+    "height": 56
   },
   {
     "type": "erDiagram",
     "owner": "diagrams",
-    "source": "erDiagram\n CUSTOMER ||--o{ ORDER : places",
+    "source": "erDiagram\n CUSTOMER {\n  int id PK\n  string email UK\n  string name\n }\n ORDER {\n  int id PK\n  int customer_id FK\n  date placed\n }\n LINE {\n  int order_id PK, FK\n  int product_id PK, FK\n  int quantity\n }\n PRODUCT {\n  int id PK\n  string sku UK\n  decimal price\n }\n PAYMENT {\n  int id PK\n  int order_id FK\n  string status\n }\n CUSTOMER ||--o{ ORDER : places\n ORDER ||--|{ LINE : contains\n PRODUCT ||--o{ LINE : appears\n ORDER ||--o| PAYMENT : settles",
     "labels": [
       "CUSTOMER",
       "ORDER",
-      "places"
+      "LINE",
+      "PRODUCT",
+      "PAYMENT",
+      "email",
+      "customer_id",
+      "quantity",
+      "product_id",
+      "price",
+      "status",
+      "places",
+      "contains",
+      "appears",
+      "settles"
     ],
-    "height": 12
+    "height": 50
   },
   {
     "type": "mindmap",
     "owner": "diagrams",
-    "source": "mindmap\n root((Plan))\n  Build\n  Review",
+    "source": "mindmap\n root((Portal launch))\n  Product\n   Search\n    Filters\n    Ranking\n   Checkout\n    Wallet\n    Receipts\n  Platform\n   Reliability\n    Backups\n    Alerts\n   Security\n    Roles\n    Audit\n  Growth\n   Onboarding\n    Tour\n    Emails\n   Analytics\n    Funnels\n    Cohorts",
     "labels": [
-      "Plan",
-      "Build",
-      "Review"
+      "Portal launch",
+      "Product",
+      "Search",
+      "Filters",
+      "Ranking",
+      "Checkout",
+      "Wallet",
+      "Receipts",
+      "Platform",
+      "Reliability",
+      "Backups",
+      "Alerts",
+      "Security",
+      "Roles",
+      "Audit",
+      "Growth",
+      "Onboarding",
+      "Tour",
+      "Emails",
+      "Analytics",
+      "Funnels",
+      "Cohorts"
     ],
-    "height": 11
+    "height": 58
   },
   {
     "type": "gitGraph",
     "owner": "diagrams",
-    "source": "gitGraph\n commit id: \"Start\"\n branch feature\n commit id: \"Work\"\n checkout main\n merge feature id: \"Ship\"",
+    "source": "gitGraph TB:\n commit id: \"Portal baseline\" tag: \"v1.0\"\n branch search\n commit id: \"Search index\"\n commit id: \"Rank results\"\n checkout main\n branch checkout\n commit id: \"Payment keys\"\n commit id: \"Receipt emails\"\n checkout main\n cherry-pick id: \"Payment keys\"\n merge search id: \"Ship search\"\n merge checkout id: \"Ship checkout\"\n commit id: \"Portal release\" tag: \"v1.1\" type: HIGHLIGHT",
     "labels": [
-      "Start",
-      "Work",
-      "Ship"
+      "Portal baseline",
+      "Search index",
+      "Rank results",
+      "Payment keys",
+      "Receipt emails",
+      "Ship search",
+      "Ship checkout",
+      "Portal release",
+      "v1.0",
+      "v1.1"
     ],
-    "height": 9
+    "height": 17
   },
   {
     "type": "block",
     "owner": "diagrams",
-    "source": "block-beta\n columns 2\n a[Input] b[Output]\n a --> b",
+    "source": "block-beta\n columns 3\n web[Web app] space mobile[Mobile app]\n block:Gateway:3\n  columns 3\n  auth[Auth] api[Order API] quota[Rate limit]\n end\n orders[(Orders)] queue[[Job queue]] cache[(Cache)]\n space worker[Worker] space\n web --> api\n mobile --> api\n api --> orders\n api --> queue\n worker --> queue\n worker --> cache",
     "labels": [
-      "Input",
-      "Output"
+      "Web app",
+      "Mobile app",
+      "Gateway",
+      "Auth",
+      "Order API",
+      "Rate limit",
+      "Orders",
+      "Job queue",
+      "Cache",
+      "Worker"
     ],
-    "height": 7
+    "height": 38
   },
   {
     "type": "architecture",
     "owner": "diagrams",
-    "source": "architecture-beta\n service a(server)[Worker]\n service b(database)[Store]\n a:R --> L:b",
+    "source": "architecture-beta\n group edge(cloud)[Edge]\n service browser(internet)[Browser] in edge\n service gateway(server)[Gateway] in edge\n group platform(cloud)[Commerce]\n service orders(server)[Orders] in platform\n service jobs(server)[Jobs] in platform\n service db(database)[Records] in platform\n service files(disk)[Receipts] in platform\n browser:R --> L:gateway\n gateway:R --> L:orders\n orders:B --> T:db\n orders:R --> L:jobs\n jobs:B --> T:files",
     "labels": [
-      "Worker",
-      "Store"
+      "Edge",
+      "Browser",
+      "Gateway",
+      "Commerce",
+      "Orders",
+      "Jobs",
+      "Records",
+      "Receipts"
     ],
-    "height": 7
+    "height": 32
   },
   {
     "type": "requirementDiagram",
     "owner": "diagrams",
-    "source": "requirementDiagram\n requirement safe {\n id: 1\n text: Keep records\n risk: low\n verifymethod: test\n }",
+    "source": "requirementDiagram\n requirement safe {\n  id: R1\n  text: No duplicate charge\n  risk: high\n  verifymethod: test\n }\n performanceRequirement fast {\n  id: R2\n  text: Checkout under 2s\n  risk: medium\n  verifymethod: analysis\n }\n functionalRequirement receipt {\n  id: R3\n  text: Email every receipt\n  risk: low\n  verifymethod: demonstration\n }\n element api {\n  type: service\n  docref: Order API\n }\n element suite {\n  type: test\n  docref: Payment tests\n }\n api - satisfies -> safe\n api - satisfies -> fast\n api - satisfies -> receipt\n suite - verifies -> safe\n suite - verifies -> receipt",
     "labels": [
-      "Keep",
-      "records"
+      "safe",
+      "No duplicate",
+      "charge",
+      "fast",
+      "Checkout under",
+      "receipt",
+      "Email every",
+      "api",
+      "Order API",
+      "suite",
+      "Payment tests",
+      "satisfies",
+      "verifies"
     ],
-    "height": 12
+    "height": 52
   },
   {
     "type": "C4Context",
     "owner": "diagrams",
-    "source": "C4Context\n System(api, \"API\", \"Service\")",
+    "source": "C4Context\n Person(buyer, \"Buyer\", \"Places orders\")\n Enterprise_Boundary(shop, \"Commerce\") {\n  System(portal, \"Portal\", \"Browse and buy\")\n  System(ops, \"Operations\", \"Fulfil orders\")\n }\n System_Ext(bank, \"Bank\", \"Card payments\")\n System_Ext(mail, \"Mail\", \"Delivery notices\")\n Rel(buyer, portal, \"Orders\")\n Rel(portal, bank, \"Charges\")\n Rel(portal, ops, \"Dispatches\")\n Rel(ops, mail, \"Notifies\")",
     "labels": [
-      "API",
-      "Service"
+      "Buyer",
+      "Commerce",
+      "Portal",
+      "Operations",
+      "Bank",
+      "Mail",
+      "Orders",
+      "Charges",
+      "Dispatches",
+      "Notifies"
     ],
-    "height": 9
+    "height": 65
   },
   {
     "type": "C4Container",
     "owner": "diagrams",
-    "source": "C4Container\n Container(api, \"API\", \"Service\")",
+    "source": "C4Container\n Person(buyer, \"Buyer\", \"Customer\")\n System_Boundary(shop, \"Portal\") {\n  Container(web, \"Web app\", \"React\", \"Cart and checkout\")\n  Container(api, \"Order API\", \"Node\", \"Order workflow\")\n  ContainerDb(db, \"Orders\", \"Postgres\", \"Purchase records\")\n  ContainerQueue(queue, \"Dispatch\", \"AMQP\", \"Shipment jobs\")\n }\n System_Ext(bank, \"Bank\", \"Payments\")\n Rel(buyer, web, \"Browses\")\n Rel(web, api, \"Submits\", \"HTTPS\")\n Rel(api, db, \"Stores\", \"SQL\")\n Rel(api, queue, \"Queues\")\n Rel(api, bank, \"Pays\")",
     "labels": [
-      "API",
-      "Service"
+      "Buyer",
+      "Portal",
+      "Web app",
+      "React",
+      "Order API",
+      "Node",
+      "Orders",
+      "Postgres",
+      "Dispatch",
+      "AMQP",
+      "Bank",
+      "Browses",
+      "Submits",
+      "Stores",
+      "Queues",
+      "Pays"
     ],
-    "height": 9
+    "height": 75
   },
   {
     "type": "C4Component",
     "owner": "diagrams",
-    "source": "C4Component\n Component(api, \"API\", \"Service\")",
+    "source": "C4Component\n Person(buyer, \"Buyer\", \"Customer\")\n Container_Boundary(api, \"Order API\") {\n  Component(handler, \"Checkout\", \"HTTP\", \"Accept cart\")\n  Component(policy, \"Policy\", \"Rules\", \"Check order\")\n  Component(repo, \"Repository\", \"SQL\", \"Save purchase\")\n }\n ContainerDb(db, \"Orders\", \"Postgres\")\n System_Ext(bank, \"Bank\", \"Payments\")\n Rel(buyer, handler, \"Submits\")\n Rel(handler, policy, \"Validates\")\n Rel(policy, repo, \"Persists\")\n Rel(repo, db, \"Writes\")\n Rel(policy, bank, \"Authorizes\")",
     "labels": [
-      "API",
-      "Service"
+      "Buyer",
+      "Order API",
+      "Checkout",
+      "HTTP",
+      "Policy",
+      "Rules",
+      "Repository",
+      "SQL",
+      "Orders",
+      "Postgres",
+      "Bank",
+      "Submits",
+      "Validates",
+      "Persists",
+      "Writes",
+      "Authorizes"
     ],
-    "height": 9
+    "height": 65
   },
   {
     "type": "C4Deployment",
     "owner": "diagrams",
-    "source": "C4Deployment\n Container(api, \"API\", \"Service\")",
+    "source": "C4Deployment\n Person(buyer, \"Buyer\", \"Customer\")\n Deployment_Node(cloud, \"Production\", \"Cloud\") {\n  Deployment_Node(edge, \"Edge\", \"CDN\") {\n   Container(web, \"Web app\", \"React\")\n  }\n  Deployment_Node(app, \"App cluster\", \"Linux\") {\n   Container(api, \"Order API\", \"Node\")\n   Container(worker, \"Worker\", \"Node\")\n  }\n  Deployment_Node(data, \"Data\", \"Managed\") {\n   ContainerDb(db, \"Orders\", \"Postgres\")\n  }\n }\n System_Ext(bank, \"Bank\", \"Payments\")\n Rel(buyer, web, \"Browses\")\n Rel(web, api, \"Calls\", \"HTTPS\")\n Rel(api, worker, \"Dispatches\")\n Rel(worker, db, \"Updates\")\n Rel(api, bank, \"Charges\")",
     "labels": [
-      "API",
-      "Service"
+      "Buyer",
+      "Production",
+      "Edge",
+      "Web app",
+      "App cluster",
+      "Order API",
+      "Worker",
+      "Data",
+      "Orders",
+      "Bank",
+      "Browses",
+      "Calls",
+      "Dispatches",
+      "Updates",
+      "Charges"
     ],
-    "height": 9
+    "height": 79
   },
   {
     "type": "C4Dynamic",
     "owner": "diagrams",
-    "source": "C4Dynamic\n Container(a, \"Client\", \"Web\")\n Container(b, \"API\", \"Service\")\n Rel(a, b, \"Call\")",
+    "source": "C4Dynamic\n Person(buyer, \"Buyer\", \"Customer\")\n System_Boundary(shop, \"Portal\") {\n  Container(web, \"Web app\", \"React\")\n  Container(api, \"Order API\", \"Node\")\n  ContainerDb(db, \"Orders\", \"Postgres\")\n }\n System_Ext(bank, \"Bank\", \"Payments\")\n Rel(buyer, web, \"Submit cart\")\n Rel(web, api, \"Place order\")\n Rel(api, bank, \"Authorize\")\n Rel(api, db, \"Save order\")\n Rel(api, web, \"Confirm\")\n Rel(web, buyer, \"Show receipt\")",
     "labels": [
-      "Client",
-      "API",
-      "Call"
+      "Buyer",
+      "Portal",
+      "Web app",
+      "Order API",
+      "Orders",
+      "Bank",
+      "Submit cart",
+      "Place order",
+      "Authorize",
+      "Save order",
+      "Confirm",
+      "Show receipt"
     ],
-    "height": 9
+    "height": 75
   },
   {
     "type": "pie",
     "owner": "charts",
-    "source": "pie title Pets\n \"Dogs\" : 60\n \"Cats\" : 40",
+    "source": "pie showData\n title Portal traffic by channel\n \"Search\" : 34\n \"Direct\" : 24\n \"Email\" : 18\n \"Partners\" : 12\n \"Social\" : 8\n \"Other\" : 4",
     "labels": [
-      "Dogs",
-      "Cats"
+      "Portal traffic",
+      "Search",
+      "Direct",
+      "Email",
+      "Partners",
+      "Social",
+      "Other"
     ],
-    "height": 14
+    "height": 24
   },
   {
     "type": "xychart",
     "owner": "charts",
-    "source": "xychart-beta\n x-axis [Jan, Feb, Mar]\n y-axis Sales 0 --> 10\n bar [3, 8, 5]",
+    "source": "xychart-beta\n title Portal orders and target\n x-axis [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct]\n y-axis \"Orders (k)\" 0 --> 100\n bar [28, 34, 43, 39, 52, 61, 58, 72, 81, 93]\n line [30, 36, 42, 48, 54, 60, 66, 72, 78, 84]",
     "labels": [
+      "Portal orders",
       "Jan",
       "Feb",
-      "Mar"
+      "Mar",
+      "Apr",
+      "May",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Oct",
+      "Orders"
     ],
-    "height": 12
+    "height": 24
   },
   {
     "type": "sankey",
     "owner": "charts",
-    "source": "sankey-beta\n Input,Build,6\n Input,Test,4",
+    "source": "sankey-beta\n Search,Browse,50\n Email,Checkout,30\n Direct,Checkout,20\n Browse,Paid,30\n Browse,Exit,20\n Checkout,Paid,40\n Checkout,Abandon,10",
     "labels": [
-      "Input",
-      "Build",
-      "Test"
+      "Search",
+      "Email",
+      "Direct",
+      "Browse",
+      "Checkout",
+      "Exit",
+      "Paid",
+      "Abandon"
     ],
-    "height": 11
+    "height": 25
   },
   {
     "type": "quadrantChart",
     "owner": "charts",
-    "source": "quadrantChart\n x-axis Effort --> Reach\n y-axis Cost --> Value\n Alpha: [0.25, 0.75]\n Beta: [0.75, 0.25]",
+    "source": "quadrantChart\n title Portal feature priorities\n x-axis Low effort --> High effort\n y-axis Low value --> High value\n quadrant-1 Plan\n quadrant-2 Build now\n quadrant-3 Later\n quadrant-4 Rethink\n Search: [0.22, 0.86]\n Login: [0.12, 0.64]\n Roles: [0.42, 0.72]\n Wallet: [0.72, 0.88]\n Mobile: [0.88, 0.62]\n Themes: [0.18, 0.28]\n Export: [0.38, 0.14]\n Chatbot: [0.76, 0.25]\n Badges: [0.56, 0.08]",
     "labels": [
-      "Alpha",
-      "Beta"
+      "Portal feature",
+      "Search",
+      "Login",
+      "Roles",
+      "Wallet",
+      "Mobile",
+      "Themes",
+      "Export",
+      "Chatbot",
+      "Badges",
+      "Plan",
+      "Build now",
+      "Later",
+      "Rethink"
     ],
-    "height": 15
+    "height": 28
   },
   {
     "type": "gantt",
@@ -232,14 +442,20 @@
   {
     "type": "radar",
     "owner": "charts",
-    "source": "radar-beta\n axis speed[Speed], cost[Cost], quality[Quality]\n curve a[Plan] {4, 3, 5}\n max 5",
+    "source": "radar-beta\n title Portal delivery options\n axis speed[Speed], cost[Cost], quality[Quality], safety[Safety], scale[Scale], support[Support]\n curve hosted[Hosted] {9, 6, 7, 8, 9, 8}\n curve custom[Custom] {4, 8, 9, 7, 6, 5}\n curve hybrid[Hybrid] {7, 7, 8, 9, 8, 7}\n min 0\n max 10\n graticule polygon\n ticks 2\n showLegend true",
     "labels": [
+      "Portal delivery",
       "Speed",
       "Cost",
       "Quality",
-      "Plan"
+      "Safety",
+      "Scale",
+      "Support",
+      "Hosted",
+      "Custom",
+      "Hybrid"
     ],
-    "height": 16
+    "height": 31
   },
   {
     "type": "treemap",

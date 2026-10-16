@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import GlyphDiagramsWorkbench from "./DiagramsWorkbench";
+import { glyphGraphFromMermaid } from "@glyphcss/diagrams";
 import { createGlyphDiagramsWorkbenchState } from "../../features/diagrams/model/diagramsWorkbenchState";
 import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../features/mermaid/model/presets";
 
@@ -63,10 +64,17 @@ describe("diagram Mermaid plain-source editing", () => {
       });
       editor.dispatchEvent(nativeEdit);
       expect(nativeEdit.defaultPrevented).toBe(false);
-      const original = preset.labels[0]!;
+      const original = preset.type === "requirementDiagram" ? "No duplicate charge" : preset.labels[0]!;
       const replacement = "Updated";
       const next = preset.source.replace(original, replacement);
       expect(next).not.toBe(preset.source);
+      if (preset.type === "requirementDiagram") {
+        const before = glyphGraphFromMermaid(preset.source);
+        const after = glyphGraphFromMermaid(next);
+        expect(after.nodes.map(node => node.id)).toEqual(before.nodes.map(node => node.id));
+        expect(after.edges).toEqual(before.edges);
+        expect(after.nodes.some(node => node.compartments?.flat().some(row => row.includes(replacement)))).toBe(true);
+      }
       await act(async () => {
         Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")!.set!.call(editor, next);
         editor.dispatchEvent(new Event("input", { bubbles: true }));

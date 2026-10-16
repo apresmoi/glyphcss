@@ -33,13 +33,13 @@ Root `AGENTS.md` applies.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.
 - Scenes, animations, listeners, observers, subscriptions, and requests each have one lifecycle owner and cleanup. Lazy demo loading must tolerate unmounts and React StrictMode effect replay.
 - Show only render, controls, presets, and exports. Feedback belongs on controls; unavailable controls are dimmed with an accessible reason, not hidden or explained inside the viewport.
-- Every glyph `<pre>` explicitly uses the render font token (Glyph Mono first) and `line-height: 1`. Live `.glyph-output` rules need greater specificity than glyphcss's injected two-class selector. Chat previews deliberately use the UI monospace font to reproduce paste behavior.
+- Every glyph `<pre>` uses the render font token (Glyph Mono first), `line-height: 1`. Live `.glyph-output` specificity exceeds glyphcss's injected two-class selector. Chat uses UI monospace to reproduce paste behavior.
 - Every glyph emitted by a canvas tier must exist in the Glyph Mono subset (`TargetPreview/glyphMonoCmap.test.ts`).
 - Copy ASCII/ANSI reads a separate logical render, never the dense preview grid or preview-only effects.
 - Diagrams: 2D; resize changes cells. Library owns wrap/spacing/direction; web expands and pans. Native options in exports; code HTML/TS/React/Vue, source Mermaid/JSON/Git log.
 - Charts keeps bindings above choices and compatible columns on type changes. 3D tables expose XYZ and retain metadata. Title once; brief metadata and reasons in tooltips.
 
-- Mermaid tiles load source into the rail and readers into the canvas. Ledgers stay in the rail; no second preview. Only flowchart/graph Mermaid uses guided fields; other headers use plain text without completions or masks. Edits re-render in both workbenches. Chart source is URL-optional; dim native controls while it owns the chart.
+- Mermaid: `features/mermaid/data/examples.json` holds showcases, separate from CLI smoke fixtures. Test both. Tiles load source into the rail/readers into the canvas; ledgers stay in the rail. Only flowchart/graph has guided fields; other headers use plain text. Preserve source when browsing JSON. Edits re-render. Chart source is URL-optional; dim native controls while it owns the chart.
 
 ## Verification
 
