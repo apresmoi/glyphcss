@@ -16,3 +16,7 @@ export type GlyphMermaidStateRegion = { readonly [GLYPH_MERMAID_STATE_REGION]?: 
  */
 export const GLYPH_MERMAID_STATE_FRAME = Symbol("Mermaid state frame endpoint");
 export type GlyphMermaidStateFrame = { readonly [GLYPH_MERMAID_STATE_FRAME]?: Partial<Record<"from" | "to", { readonly group: string; readonly nodes: readonly string[] }>> };
+
+/** Dagre dummy chains reserve corridors for long compartment relations. */
+export const GLYPH_DIAGRAM_EDGE_WAYPOINTS = Symbol("edge waypoints");
+export const GLYPH_DIAGRAM_COMPARTMENT_LANES = Symbol("compartment lanes");

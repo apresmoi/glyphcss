@@ -1,4 +1,4 @@
-import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
+import { GLYPH_DIAGRAM_EDGE_WAYPOINTS, GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramError } from "./validate";
 import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramGroupRects, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
@@ -319,10 +319,10 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
         || foreign(used.get(key(p))) || ringParallelCost(p, dir) > 0 || !isFree(p, dir, busState)) { busState = undefined; break; }
       busState = { ...p, dir, cost: i, estimate: i, order: i, parent: busState };
     }
-    const queue = new Queue(), best = new Map<string, number>();
-    let order = 0, found: State | undefined = busState;
-    const startCost = ringParallelCost(start, startDir);
-    const initial: State = { ...start, dir: startDir, cost: startCost, estimate: startCost + Math.abs(start.x - goal.x) + Math.abs(start.y - goal.y), order: order++ };
+    const guides = layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS]?.[edge.id]?.filter((_, i, points) => points.length > 1 && i % 2 === 1) ?? [];
+    // Dummy positions are mandatory only for the deterministic compartment
+    // candidate. Failed corridors fall back at the fitter, never at paint.
+    let found: State | undefined = guides.length ? undefined : busState;
     // Ignore bends and port direction for a cheap necessary connectivity check.
     // Earlier routes often enclose the target: no gutter can rescue that edge
     // unless it opens this component. Search from the target's usually small side.
@@ -346,25 +346,37 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
       }
       return false;
     };
-    if (!found && isFree(start, startDir) && isFree(goal, endDir) && connected()) {
-      queue.push(initial); best.set(`${key(initial)},${startDir}`, startCost);
-    }
-    let current: State | undefined;
-    while (!found && (current = queue.pop())) {
-      work?.take("expansions");
-      if (current.cost !== best.get(`${key(current)},${current.dir}`)) continue;
-      if (same(current, goal) && current.dir === endDir) { found = current; break; }
-      for (let dir = 0; dir < steps.length; dir++) {
-        if ((dir + 2) % 4 === current.dir || (!current.parent && dir !== startDir)) continue;
-        const p = { x: current.x + steps[dir]!.x, y: current.y + steps[dir]!.y };
-        if (same(p, goal) && dir !== endDir) continue;
-        if (!isFree(p, dir, current)) continue;
-        const cost = current.cost + 1 + (dir === current.dir ? 0 : options.bendCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.bend) + (foreign(used.get(key(p))) ? options.crossingCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.crossing : 0) + ringParallelCost(p, dir);
-        const stateKey = `${key(p)},${dir}`;
-        if (cost >= (best.get(stateKey) ?? Infinity)) continue;
-        best.set(stateKey, cost);
-        queue.push({ ...p, dir, cost, estimate: cost + Math.abs(p.x - goal.x) + Math.abs(p.y - goal.y), parent: current, order: order++ });
+    let seed: State | undefined;
+    for (const target of [...guides, goal]) {
+      const final = target === goal;
+      const queue = new Queue(), best = new Map<string, number>();
+      let order = 0;
+      const startCost = ringParallelCost(start, startDir);
+      const origin = seed ?? { ...start, dir: startDir, cost: startCost, estimate: startCost, order: order++ };
+      if (seed) found = undefined;
+      if (!found && isFree(origin, origin.dir) && (!final || isFree(goal, endDir)) && (guides.length || connected())) {
+        queue.push({ ...origin, estimate: origin.cost + Math.abs(origin.x - target.x) + Math.abs(origin.y - target.y) });
+        best.set(`${key(origin)},${origin.dir}`, origin.cost);
       }
+      let current: State | undefined;
+      while (!found && (current = queue.pop())) {
+        work?.take("expansions");
+        if (current.cost !== best.get(`${key(current)},${current.dir}`)) continue;
+        if (same(current, target) && (!final || current.dir === endDir)) { found = current; break; }
+        for (let dir = 0; dir < steps.length; dir++) {
+          if ((dir + 2) % 4 === current.dir || (!current.parent && dir !== startDir)) continue;
+          const p = { x: current.x + steps[dir]!.x, y: current.y + steps[dir]!.y };
+          if (final && same(p, goal) && dir !== endDir) continue;
+          if (!isFree(p, dir, current)) continue;
+          const cost = current.cost + 1 + (dir === current.dir ? 0 : options.bendCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.bend) + (foreign(used.get(key(p))) ? options.crossingCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.crossing : 0) + ringParallelCost(p, dir);
+          const stateKey = `${key(p)},${dir}`;
+          if (cost >= (best.get(stateKey) ?? Infinity)) continue;
+          best.set(stateKey, cost);
+          queue.push({ ...p, dir, cost, estimate: cost + Math.abs(p.x - target.x) + Math.abs(p.y - target.y), parent: current, order: order++ });
+        }
+      }
+      if (!found) break;
+      seed = found;
     }
     if (!found) { unroutable.push(edge.id); ledger.push(ledgerUnroutable({ edgeId: edge.id, reason: `no path was found from "${edge.from}" to "${edge.to}"` })); continue; }
     const cells: GlyphCanvasPoint[] = [];

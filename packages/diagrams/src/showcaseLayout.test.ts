@@ -17,7 +17,7 @@ describe.each([
   { target: "web" as const, width: 72 },
   { target: "web" as const, width: 96 },
 ])("showcase layout $target/$width", ({ target, width }) => {
-  it.each(presets)("renders the complete $type source (class remains an acceptance impasse)", async preset => {
+  it.each(presets)("renders the complete $type source", async preset => {
     const options = { target, width, height: width === 96 ? 32 : preset.height, nodesep: 4, ranksep: 4,
       autoDirection: true, overflow: target === "web" ? "expand" : "paginate" } as const;
     const sequence = preset.type === "sequenceDiagram";
@@ -26,14 +26,6 @@ describe.each([
     captures.push({ type: preset.type, source: preset.source, target: `${target}/${width}x${options.height}`, text: result.text, html: result.html, quality, ledger: result.report.ledger });
     expect(result.canvas.cols).toBe(width);
     if (!sequence) expect((result as GlyphDiagramResult).report.unroutable).toEqual([]);
-    if (preset.type === "classDiagram") {
-      // This checks retention, not acceptance: the website's existing zero-defect
-      // assertions remain red and the capture records every unresolved loss.
-      expect((result as GlyphDiagramResult).meta.nodes).toHaveLength(6);
-      expect((result as GlyphDiagramResult).pages.flatMap(page => page.routes)).toHaveLength(8);
-      expect(quality!.fakeFrames).toBeLessThanOrEqual(1);
-      return;
-    }
     for (const label of preset.labels) for (const word of label.split(/\s+/)) expect(result.text).toContain(word);
     if (quality) expect(quality).toMatchObject(clean);
   });

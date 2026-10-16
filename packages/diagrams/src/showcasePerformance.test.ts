@@ -24,7 +24,7 @@ const presets = [...examples.filter(p => p.owner === "diagrams").map(p => ({ ...
 // probe explosions even when a cache would conceal them in warm timings.
 const bounds: Record<string, readonly [number, number, number, number]> = {
   flowchart: [1, 50, 0, 0], graph: [1, 1, 0, 0], stateDiagram: [1, 26, 0, 0],
-  sequenceDiagram: [0, 0, 0, 0], classDiagram: [384, 196, 384, 196], erDiagram: [5, 3, 0, 0],
+  sequenceDiagram: [0, 0, 0, 0], classDiagram: [1, 1, 0, 0], erDiagram: [5, 3, 0, 0],
   mindmap: [1, 4, 0, 0], gitGraph: [0, 0, 0, 0], block: [40, 1, 1, 0], architecture: [1, 21, 0, 0],
   requirementDiagram: [24, 10, 0, 0], C4Context: [8, 24, 0, 0], C4Container: [12, 24, 0, 0],
   C4Component: [10, 24, 0, 0], C4Deployment: [6, 24, 0, 0], C4Dynamic: [16, 28, 0, 0],
@@ -56,7 +56,7 @@ it.each(presets)("bounds warm showcase work: $name", async preset => {
   expect(result.text).toBe(coldText);
   const limit = bounds[preset.name]!;
   for (const [i, count] of [coldRoutes, coldLayouts, routes, layouts].entries()) expect(count).toBeLessThanOrEqual(limit[i]!);
-  if (quality && preset.type !== "classDiagram" && preset.type !== "native") expect(quality).toMatchObject({
+  if (quality && preset.type !== "native") expect(quality).toMatchObject({
     wordCuts: 0, crossings: 0, fakeFrames: 0, droppedEdges: 0, droppedLabels: 0, pages: 1,
   });
 }, 120000);

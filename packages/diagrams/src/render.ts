@@ -1,4 +1,4 @@
-import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
+import { GLYPH_DIAGRAM_EDGE_WAYPOINTS, GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker } from "./presentation";
 import { renderGlyphMermaidGit } from "./mermaidGitRender";
 import { glyphParseMermaid } from "./mermaid";
@@ -159,7 +159,9 @@ export async function renderGlyphDiagram(input: GlyphGraph | string, options: Gl
       const dx = Math.floor((width - compact.width) / 2), dy = Math.floor((height - compact.height) / 2);
       const point = (p: { x: number; y: number }) => ({ x: p.x + dx, y: p.y + dy });
       const rect = (r: { x0: number; x1: number; y0: number; y1: number }) => ({ x0: r.x0 + dx, x1: r.x1 + dx, y0: r.y0 + dy, y1: r.y1 + dy });
-      layout = { ...compact.layout, nodes: compact.layout.nodes.map(n => ({ ...n, ...rect(n) })),
+      layout = { ...compact.layout,
+        ...(compact.layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS] ? { [GLYPH_DIAGRAM_EDGE_WAYPOINTS]: Object.fromEntries(Object.entries(compact.layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS]!).map(([id, points]) => [id, points.map(point)])) } : {}),
+        nodes: compact.layout.nodes.map(n => ({ ...n, ...rect(n) })),
         ports: compact.layout.ports.map(p => ({ ...p, anchor: point(p.anchor), escape: point(p.escape) })) };
       routing = { ...compact.routing, routes: compact.routing.routes.map(r => ({ ...r, cells: r.cells.map(point) })) };
       labels = { ...labels, placed: compact.labels.map(l => ({ ...l, ...point(l), ...rect(l) })) };

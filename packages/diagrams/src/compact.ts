@@ -1,4 +1,4 @@
-import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
+import { GLYPH_DIAGRAM_EDGE_WAYPOINTS, GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramGroupRects, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import { glyphDiagramLoopGeometry } from "./loop";
@@ -13,6 +13,7 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
   if (layout.groups.length && !regions) return { layout, routing, labels: [...labels], ...bounds };
   let nodes = [...layout.nodes], ports = [...layout.ports], routes = [...routing.routes], placed = [...labels];
   let width = bounds.width, height = bounds.height;
+  let waypoints = layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS];
   while (true) {
     const previousWidth = width, previousHeight = height;
     for (const axis of ["y", "x"] as const) {
@@ -82,6 +83,7 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
         prefix[i + 1] = shift;
       }
       const point = (p: GlyphCanvasPoint) => ({ ...p, [axis]: map[p[axis]]! });
+      if (waypoints) waypoints = Object.fromEntries(Object.entries(waypoints).map(([id, points]) => [id, points.map(point)]));
       nodes = nodes.map(node => {
         const rect = { ...node, [lo]: map[node[lo]]!, [hi]: map[node[hi]]! };
         return { ...rect, width: rect.x1 - rect.x0 + 1, height: rect.y1 - rect.y0 + 1 };
@@ -96,5 +98,5 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
     }
     if (width === previousWidth && height === previousHeight) break;
   }
-  return { layout: { ...layout, nodes, ports, width, height }, routing: { ...routing, routes }, labels: placed, width, height };
+  return { layout: { ...layout, ...(waypoints ? { [GLYPH_DIAGRAM_EDGE_WAYPOINTS]: waypoints } : {}), nodes, ports, width, height }, routing: { ...routing, routes }, labels: placed, width, height };
 }

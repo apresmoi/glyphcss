@@ -34,9 +34,9 @@ Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`
 
 ## Class/ER
 
-- `compartment`: rect/header/left `compartments: string[][]`. Measure/fit includes rows; omit empty sections. Ports avoid rules/corners.
-- `-` ids; spaced generics/ER backtick attributes. Literal typography; namespaces/groups, notes/rows, multiplicity/bracket captions (source first). Config/styles/URLs inert, logged. `GLYPH_MERMAID_{CLASS,ER}_SYNTAX`.
-- UML/ER heads preserve semantics. Auto-direction/caption-safe LR room once; `label-folded` for CJK.
+- `compartment`: rect/header/left `compartments: string[][]`; measure/fit rows, omit empty sections; ports off rules/corners.
+- `-` ids; spaced generics/ER backticks; literal typography; namespaces/groups/notes/rows; source-first bracket multiplicity. Config/styles/URLs inert/logged. `GLYPH_MERMAID_{CLASS,ER}_SYNTAX`.
+- UML/ER heads semantic; auto-direction; LR caption room once; CJK `label-folded`. Joined UML DAG: 1 clean caption-complete lane probe, else fallback.
 
 ## Block, architecture, requirement and C4
 

@@ -1,4 +1,5 @@
 import { glyphDiagramStateFramePorts } from "./stateFrame";
+import { GLYPH_DIAGRAM_COMPARTMENT_LANES, GLYPH_DIAGRAM_EDGE_WAYPOINTS } from "./layoutHints";
 import { GLYPH_MERMAID_BLOCK, GLYPH_MERMAID_ADAPTIVE, type GlyphMermaidBlockGraph } from "./mermaidStructured";
 import { glyphDiagramRepairRouting } from "./routingRepair";
 import { glyphDiagramNodeContent } from "./presentation";
@@ -51,6 +52,7 @@ function routeAttempt(candidate: Candidate, width: number, height: number, stopO
   const { raw, adjusted } = candidate;
   const { dx, dy } = glyphDiagramCenterOffset(raw, { width, height });
   const layout = glyphDiagramStateFramePorts({ ...raw,
+    ...(raw[GLYPH_DIAGRAM_EDGE_WAYPOINTS] ? { [GLYPH_DIAGRAM_EDGE_WAYPOINTS]: Object.fromEntries(Object.entries(raw[GLYPH_DIAGRAM_EDGE_WAYPOINTS]!).map(([id, points]) => [id, points.map(p => ({ x: p.x + dx, y: p.y + dy }))])) } : {}),
     nodes: raw.nodes.map(n => ({ ...n, x0: n.x0 + dx, x1: n.x1 + dx, y0: n.y0 + dy, y1: n.y1 + dy })),
     ports: raw.ports.map(p => ({ ...p, anchor: { x: p.anchor.x + dx, y: p.anchor.y + dy }, escape: { x: p.escape.x + dx, y: p.escape.y + dy } })),
   }, { cols: width, rows: height });
@@ -527,6 +529,24 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
     return { ...best, layout: { ...best.layout, ledger: [...best.layout.ledger, ...search.ledger] } };
   }
   async function searchAligned(): Promise<GlyphDiagramAttempt> {
+    // Dense flat compartment DAGs can keep the engine's reserved lanes in one
+    // deterministic probe. The existing fitter owns every rejected candidate.
+    if (!options[GLYPH_DIAGRAM_WORK]?.terminal && !graph.groups?.length
+      && graph.nodes.every(node => node.shape === "compartment") && !backEdgeIds(graph.nodes, graph.edges.map((edge, i) => ({ ...edge, id: edge.id ?? String(i) }))).size
+      && !graph.edges.some(edge => edge.from === edge.to)
+      && new Set(graph.edges.map(edge => edge.to)).size < graph.edges.length
+      && graph.edges.some(edge => edge.startHead === "triangle" || edge.endHead === "triangle")
+      && graph.edges.some(edge => graph.edges.some(next => next.from === edge.to))) {
+      const measured = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options,
+        [GLYPH_DIAGRAM_WORD_WIDTH]: options.labelWidth === undefined }));
+      options[GLYPH_DIAGRAM_WORK]?.layout(measured);
+      const raw = await layoutGlyphGraph(measured, { ...options, [GLYPH_DIAGRAM_COMPARTMENT_LANES]: true,
+        [GLYPH_DIAGRAM_EDGE_LABEL_ROOM]: measured.edges.filter(edge => edge.label).map(edge => edge.id) });
+      const probe = routeAttempt({ raw, adjusted: true, nodesep: options.nodesep ?? 4, ranksep: options.ranksep ?? 4, margin: options.margin ?? 1 },
+        options.width, options.overflow === "expand" ? Math.max(options.height, raw.height) : options.height, true, options[GLYPH_DIAGRAM_WORK]);
+      if (probe.okay && !cutsWords(probe, options.charset) && !dropsEdgeLabel(probe, options)
+        && readability(probe)[0] === 0 && readability(probe)[1] === 0) return probe;
+    }
     const cyclePaths = options[GLYPH_DIAGRAM_WORK]?.terminal ? undefined : glyphDiagramCyclePaths(measureGlyphGraph(graph, options));
     if (cyclePaths) {
       const longest = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramWords(glyphDiagramNodeContent(node, options), Infinity).map(word => word.length)));
