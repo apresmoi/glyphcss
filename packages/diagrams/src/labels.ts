@@ -156,7 +156,10 @@ export function glyphDiagramLabelLayout(candidates: readonly GlyphDiagramLabelCa
     const { x, y } = position;
     const result = { id: label.id, x, y, text, abbreviated, x0: x, y0: y, x1: x + text.length - 1, y1: y };
     for (const groupId of touchedGroups(result)) ledger.push(ledgerLabelNearForeignGroup({ role, text, groupId }));
-    placed.push(result); occupy(result);
+    placed.push(result);
+    // A frame title and the caption immediately above it must not read as
+    // one stacked phrase. Reserve the title's moat before placing edges.
+    occupy(role === "group label" ? { x0: result.x0 - 1, x1: result.x1 + 1, y0: result.y0 - 1, y1: result.y1 + 1 } : result);
   }
   return { placed, dropped, ledger };
 }

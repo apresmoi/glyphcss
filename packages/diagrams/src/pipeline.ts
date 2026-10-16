@@ -269,7 +269,9 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       }
       return [...slots.entries()];
     };
+    // A shared exit would give a relation marker to every edge using it.
     const sharedFanSide = (slots: ReturnType<typeof slotsOn>) => slots.length > 1 && slots.some(([, connections]) => connections.length === 1) && slots.every(([, connections]) => connections.every(connection => connection.end === "from"
+      && !flow.some(edge => edge.id === connection.edgeId && edge.startHead && edge.startHead !== "none")
       && !back.has(connection.edgeId) && !pointIds.has(node.id)
       && !pointIds.has(flow.find(edge => edge.id === connection.edgeId)!.to)
       && flow.filter(edge => edge.from === node.id && edge.to === flow.find(edge => edge.id === connection.edgeId)!.to).length === 1

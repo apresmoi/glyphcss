@@ -1,0 +1,10 @@
+[
+  {
+    "name": "c4",
+    "source": "C4Context\n  title Payments context\n  Person(buyer, \"Buyer\", \"Places orders\")\n  System(shop, \"Shop\", \"Web storefront\")\n  System_Ext(psp, \"Card processor\", \"Charges cards\")\n  Rel(buyer, shop, \"Orders via\")\n  Rel(shop, psp, \"Charges with\")\n"
+  },
+  {
+    "name": "class",
+    "source": "classDiagram\n  class Order {\n    +id: string\n    +submit()\n  }\n  class LineItem {\n    +qty: int\n  }\n  class Payment\n  class CardPayment\n  Order \"1\" *-- \"many\" LineItem\n  Order --> Payment\n  Payment <|-- CardPayment\n"
+  }
+]

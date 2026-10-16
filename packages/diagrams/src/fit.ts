@@ -1,4 +1,6 @@
 import { glyphDiagramStateFramePorts } from "./stateFrame";
+import { GLYPH_MERMAID_BLOCK, GLYPH_MERMAID_ADAPTIVE, type GlyphMermaidBlockGraph } from "./mermaidStructured";
+import { glyphDiagramRepairRouting } from "./routingRepair";
 import { glyphDiagramNodeContent } from "./presentation";
 import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame, GLYPH_DIAGRAM_WORD_WIDTH } from "./layoutHints";
 import { glyphDiagramError } from "./validate";
@@ -95,9 +97,41 @@ function dropsEdgeLabel(result: GlyphDiagramAttempt, options: GlyphDiagramFitOpt
   return glyphDiagramGraphLabels(result.layout, result.routing, { ...options, width: result.width, height: result.height }).dropped.length > 0;
 }
 
+// Cache only complete clean fits. Failed or budget-limited searches must still
+// contribute their work and ledger to the current render.
+const cleanFits = new Map<string, GlyphDiagramAttempt>();
+const MAX_CLEAN_FITS = 32;
+function copyFit<T>(value: T): T {
+  if (!value || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(copyFit) as T;
+  return Object.fromEntries(Reflect.ownKeys(value).map(key => [key, copyFit((value as Record<PropertyKey, unknown>)[key])])) as T;
+}
+
 /** Resolve geometry in cells; output encoding and font metrics never enter this search. */
 export async function fitGlyphGraph(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
   validateGlyphDiagramLayoutOptions(options);
+  const work = options[GLYPH_DIAGRAM_WORK];
+  // Symbol hints distinguish authored grids, state frames and marker policy;
+  // JSON's default omission of them would reuse the wrong geometry.
+  const key = JSON.stringify([graph, { ...options, [GLYPH_DIAGRAM_WORK]: undefined }], (_key, value) =>
+    value && typeof value === "object" && !Array.isArray(value)
+      ? Object.fromEntries(Reflect.ownKeys(value).map(key => [typeof key === "symbol" ? `@${String(key)}` : key, value[key]])) : value);
+  const cached = !work?.limited && !work?.terminal ? cleanFits.get(key) : undefined;
+  if (cached) {
+    cleanFits.delete(key); cleanFits.set(key, cached);
+    return copyFit(cached);
+  }
+  const result = await fitUncached(graph, options);
+  if (!work?.limited && !work?.terminal && result.okay && !cutsWords(result, options.charset)
+    && !dropsEdgeLabel(result, options) && !readability(result)[0] && !readability(result)[1]
+    && !result.layout.ledger.some(entry => entry.code === "fit-search-limited")) {
+    cleanFits.set(key, copyFit(result));
+    if (cleanFits.size > MAX_CLEAN_FITS) cleanFits.delete(cleanFits.keys().next().value!);
+  }
+  return result;
+}
+
+async function fitUncached(graph: GlyphGraph, options: GlyphDiagramFitOptions): Promise<GlyphDiagramAttempt> {
   options = { ...options, [GLYPH_DIAGRAM_FAN_GAP]: true };
   const nested = Math.max(0, ...glyphDiagramGroupDepths(glyphDiagramGroupParents(graph.groups ?? [])).values()) > 0;
   if (!nested) return fitAligned(graph, options);
@@ -513,6 +547,64 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
       }
     }
     let initial = await fitOnce(graph, options, search, !options[GLYPH_DIAGRAM_WORK]?.terminal);
+    // Compare caption-complete whole-word geometry before an overflowing
+    // orientation spends the shared budget on spacing and exterior gutters.
+    // Compound frames cannot use the flat snake's row wrapping.
+    if (!options[GLYPH_DIAGRAM_WORK]?.terminal && options.autoDirection
+      && (!initial.okay || dropsEdgeLabel(initial, options))
+      && (graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_ADAPTIVE]) {
+      const longest = Math.max(1, ...graph.nodes.flatMap(node => glyphDiagramWords(glyphDiagramNodeContent(node, options), Infinity).map(word => word.length)));
+      const natural = Math.max(longest, ...graph.nodes.flatMap(node => glyphDiagramNodeContent(node, options).split("\n").map(line => line.length)));
+      const widths = options.labelWidth === undefined ? [...new Set([natural, Math.max(longest, Math.min(18, natural)), longest])] : [options.labelWidth];
+      const geometry = new Set<string>();
+      const attempts = new Map<string, GlyphDiagramAttempt>();
+      const candidates: { raw: GlyphDiagramLayout; margin: number; room?: readonly string[]; captions: string[]; measured: GlyphDiagramReservedGraph }[] = [];
+      const add = async (measured: GlyphDiagramReservedGraph, margin: number, captions: string[], room?: readonly string[]) => {
+        const key = JSON.stringify([measured, margin, room]);
+        if (geometry.has(key)) return;
+        options[GLYPH_DIAGRAM_WORK]?.layout(measured);
+        const raw = await layoutGlyphGraph(measured, { ...options, margin, [GLYPH_DIAGRAM_EDGE_LABEL_ROOM]: room });
+        geometry.add(key);
+        if (raw.width <= options.width) candidates.push({ raw, margin, room, captions, measured });
+      };
+      for (const direction of [initial.layout.direction, perpendicular[initial.layout.direction]]) for (const labelWidth of widths) {
+        const measured = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options, direction, labelWidth }));
+        const captions = measured.edges.filter(edge => edge.label).map(edge => edge.id);
+        for (const margin of [...new Set([options.margin ?? 1, 0])]) {
+          await add(measured, margin, captions);
+          await add(measured, margin, captions, captions);
+        }
+      }
+      for (const grow of options.overflow === "expand" ? [false, true] : [false]) {
+        // The first acceptable growing layout must also be the shortest.
+        // Geometry is cheap to order; routing every taller alternative is not.
+        const pool = [...candidates].filter(candidate => grow || candidate.raw.height <= options.height);
+        while (pool.length) {
+          if (grow) pool.sort((a, b) => a.raw.height - b.raw.height);
+          const { raw, margin, room, captions, measured } = pool.shift()!;
+          const height = grow ? Math.max(options.height, raw.height + 2) : options.height;
+          const key = JSON.stringify([raw, options.width, height]);
+          let probe = attempts.get(key);
+          if (!probe) {
+            probe = routeAttempt({ raw, adjusted: true, nodesep: options.nodesep ?? 4, ranksep: options.ranksep ?? 4, margin },
+              options.width, height, true, options[GLYPH_DIAGRAM_WORK]);
+            attempts.set(key, probe);
+          }
+          const missing = probe.okay ? glyphDiagramGraphLabels(probe.layout, probe.routing, { ...options, width: probe.width, height: probe.height }).dropped : [];
+          if (room === undefined && missing.length && missing.length < captions.length) {
+            const count = candidates.length;
+            // A selective caption reservation can be shorter than reserving
+            // every edge; retain it before choosing an expanded canvas.
+            await add(measured, margin, captions,
+              missing.filter(id => id.startsWith("edge:")).map(id => id.slice(5)));
+            const added = candidates.slice(count).filter(candidate => grow || candidate.raw.height <= options.height);
+            pool.unshift(...added);
+          }
+          if (probe.okay && !cutsWords(probe, options.charset) && !missing.length
+            && readability(probe)[0] === 0 && readability(probe)[1] === 0) return glyphDiagramStraightenPorts(probe, options);
+        }
+      }
+    }
     // A complete, crossing-free cycle already beats a failed ordinary placement.
     // Repeating the wrapping search cannot improve that rejected initial route.
     if (cycle && (!initial.okay || compareScore(readability(cycle), readability(initial)) < 0)) return cycle;
@@ -561,24 +653,48 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
         options.overflow === "expand" ? Math.max(result.height, raw.height + (regionCaptions ? 2 : 0)) : result.height, true, options[GLYPH_DIAGRAM_WORK]);
       return repaired.okay && !dropsEdgeLabel(repaired, options) ? repaired : result;
     }
+    const repairRouting = (result: GlyphDiagramAttempt) => !options[GLYPH_DIAGRAM_WORK]?.limited
+      && (graph.nodes.every(node => node.shape === "compartment") || (graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_BLOCK])
+      ? glyphDiagramRepairRouting(result, options, Boolean((graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_BLOCK])) : result;
     first = await keepCaptions(first);
+    if (first.okay && graph.nodes.every(node => node.shape === "compartment")
+      && (readability(first)[0]! > 0 || readability(first)[1]! > 0)) {
+      // A return around a compartment needs two escape cells outside its
+      // border. Trade empty sibling spacing for that gutter, then reroute.
+      const directions = options.autoDirection ? [perpendicular[first.layout.direction], first.layout.direction] : [first.layout.direction];
+      const labelWidth = options.labelWidth ?? Math.max(1, ...graph.nodes.flatMap(node =>
+        [node.label, ...(node.compartments ?? []).flat()].flatMap(line => line.split("\n").map(row => row.length))));
+      for (const direction of directions) for (const align of [undefined, "UR"] as const) {
+        const measured = reserveGlyphGraphPorts(measureGlyphGraph(graph, { ...options, direction, labelWidth }));
+        options[GLYPH_DIAGRAM_WORK]?.layout(measured);
+        const raw = await layoutGlyphGraph(measured, { ...options, margin: 3, nodesep: 1, [GLYPH_DIAGRAM_DAGRE_ALIGN]: align } as GlyphDiagramLayoutOptions);
+        if (raw.width > options.width || options.overflow !== "expand" && raw.height > options.height) continue;
+        let probe = routeAttempt({ raw, adjusted: true, nodesep: 1, ranksep: options.ranksep ?? 4, margin: 3 },
+          options.width, options.overflow === "expand" ? Math.max(options.height, raw.height) : options.height, true, options[GLYPH_DIAGRAM_WORK]);
+        probe = await keepCaptions(glyphDiagramRepairRouting(probe, options));
+        if (probe.okay && probe.width <= options.width && !cutsWords(probe, options.charset) && !dropsEdgeLabel(probe, options)
+          && readability(probe)[0] === 0 && readability(probe)[1] === 0) return probe;
+      }
+    }
     if (options.autoDirection && (graph.nodes.every(node => node.shape === "compartment")
-      || (graph.groups?.length && dropsEdgeLabel(first, options)))) {
+      || (graph.groups?.length && (dropsEdgeLabel(first, options) || first.width > options.width)))) {
       // Compartment heights and group frames can leave no caption corridor.
       // Compare orientations after reservation before accepting a geometric fit.
       const alternative = await keepCaptions(await fitOnce(graph, { ...options, direction: perpendicular[first.layout.direction], autoDirection: false }, search));
       const pressure = (result: GlyphDiagramAttempt) => Math.max(result.layout.width / options.width, result.layout.height / options.height);
       if (alternative.okay && !cutsWords(alternative, options.charset) && !dropsEdgeLabel(alternative, options)
         && readability(alternative)[0]! <= readability(first)[0]! && readability(alternative)[1]! <= readability(first)[1]!
-        && (!first.okay || dropsEdgeLabel(first, options) || pressure(alternative) < pressure(first))) {
+        && (!first.okay || dropsEdgeLabel(first, options)
+          || alternative.width <= options.width && first.width > options.width
+          || pressure(alternative) < pressure(first) && alternative.width <= first.width)) {
         first = alternative;
-        if (readability(first)[0] === 0 && readability(first)[1] === 0) return glyphDiagramStraightenPorts(first, options);
+        if (readability(first)[0] === 0 && readability(first)[1] === 0) return repairRouting(glyphDiagramStraightenPorts(first, options));
       }
     }
     const folded = glyphDiagramFoldTail(first, options);
-    if (folded !== first && !cutsWords(folded, options.charset)) return glyphDiagramStraightenPorts(folded, options);
+    if (folded !== first && !cutsWords(folded, options.charset)) return repairRouting(glyphDiagramStraightenPorts(folded, options));
     if (first.okay && !cutsWords(first, options.charset)
-      && (first.layout.groups.length || first.layout.ledger.some(entry => entry.code === "layout-wrapped"))) return glyphDiagramStraightenPorts(first, options);
+      && (first.layout.groups.length || first.layout.ledger.some(entry => entry.code === "layout-wrapped"))) return repairRouting(glyphDiagramStraightenPorts(first, options));
     let best = folded;
     if (first.layout.nodes.length === 1) return first;
     if (!first.okay || cutsWords(first, options.charset) || readability(first)[0]! > 0 || readability(first)[1]! > 0) {
@@ -634,7 +750,7 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
         && !dropsEdgeLabel(result, options)) best = result;
     }
     const tail = glyphDiagramFoldTail(best, options);
-    best = glyphDiagramStraightenPorts(tail, options);
+    best = repairRouting(glyphDiagramStraightenPorts(tail, options));
     return search.ledger.length ? { ...best, layout: { ...best.layout, ledger: [...best.layout.ledger, ...search.ledger] } } : best;
   }
 }

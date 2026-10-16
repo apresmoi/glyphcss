@@ -38,7 +38,15 @@ export function glyphParseMermaidGit(source: string): { graph: GlyphGraph; notes
   // Reserve authored ids before allocating deterministic substitutes for Mermaid's random ids.
   const reserved = new Set(parts.flatMap(part => /^commit\b|^merge\b/.test(part) ? [...part.matchAll(/\bid\s*:\s*("(?:\\.|[^"\\])*"|'[^']*'|[^\s:]+)/g)].map(m => labelText(m[1]!)) : []));
   let serial = 0;
-  const generated = () => { let id: string; do { id = `commit-${++serial}`; } while (ids.has(id) || reserved.has(id)); return id; };
+  const generated = () => {
+    let id: string;
+    do {
+      let hash = 2166136261;
+      for (const char of `${current}\0${++serial}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+      id = (hash >>> 0).toString(16).padStart(8, "0").slice(0, 7);
+    } while (ids.has(id) || reserved.has(id));
+    return id;
+  };
   const showBranches = setting("showBranches") !== "false", showLabels = setting("showCommitLabel") !== "false";
   if (config.trim()) note("git-config", "GitGraph reads only scalar branch-name, order and visibility settings; styling, rotation, parallel placement and other configuration are inert.");
   if (!showBranches) note("git-hidden-branches", "Branch names are hidden; history connectors remain to preserve ancestry.");

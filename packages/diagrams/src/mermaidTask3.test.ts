@@ -82,7 +82,10 @@ describe("Mermaid gitGraph", () => {
     const rows = result.text.split("\n"), index = rows.findIndex(row => row.includes("feature"));
     const column = rows[index]!.indexOf("*");
     expect(column).toBe(rows.find(row => row.includes("seed"))!.indexOf("*") + 2);
-    expect(rows[index - 1]![column]).toBe("╮");
+    const connector = rows.slice(0, index).map(row => row[column]).lastIndexOf("╮");
+    expect(connector).toBeGreaterThanOrEqual(0);
+    expect(rows.slice(connector + 1, index).every(row => row[column] === "│")).toBe(true);
+    expect(rows.slice(0, connector).every(row => row[column] === " ")).toBe(true);
   });
   it.each(["trunk # comment", '"trunk" # comment', "'trunk' # comment"])("strips YAML scalar comments from %s", async name => {
     const source = `---\nconfig:\n  gitGraph:\n    mainBranchName: ${name}\n    showBranches: true # names remain\n    showCommitLabel: false # ids hidden\n---\ngitGraph TB:\ncommit id:seed; branch dev; commit id:work; checkout trunk; merge dev id:done`;
@@ -94,7 +97,11 @@ describe("Mermaid gitGraph", () => {
     expect(hash.lanes!.dag.nodes[0]!.marks).toContain("trunk # literal");
   });
   it("reserves later explicit ids before generating ids", () => {
-    expect(git('commit; commit id:"commit-1"').lanes!.dag.nodes.map(n => n.id)).toEqual(["commit-1", "commit-2"]);
+    const first = git("commit").lanes!.dag.nodes[0]!.id;
+    const second = git("commit; commit").lanes!.dag.nodes[0]!.id;
+    expect(first).toMatch(/^[0-9a-f]{7}$/);
+    expect(second).not.toBe(first);
+    expect(git(`commit; commit id:"${first}"`).lanes!.dag.nodes.map(n => n.id)).toEqual([first, second]);
   });
   it("reads YAML mainBranchName and visibility before frontmatter is discarded", () => {
     const p = glyphParseMermaid('---\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n    showCommitLabel: false\n---\ngitGraph\ncommit id:"a"\nbranch dev\ncommit\ncheckout trunk\nmerge dev');
@@ -102,7 +109,8 @@ describe("Mermaid gitGraph", () => {
   });
   it("preserves quoted punctuation, comments and collision-free generated ids", () => {
     const p = git('commit id:"commit-1" tag:"v; %% a" %% comment\ncommit\nbranch "merge"\ncommit id:"third"');
-    expect(p.lanes!.dag.nodes.map(n => n.id)).toEqual(["third", "commit-2", "commit-1"]);
+    const generated = git("commit").lanes!.dag.nodes[0]!.id;
+    expect(p.lanes!.dag.nodes.map(n => n.id)).toEqual(["third", generated, "commit-1"]);
     expect(p.lanes!.dag.nodes[2]!.marks).toContain("tag: v; %% a");
   });
   it.each(['checkout missing', 'commit id:"x"; commit id:"x"', 'commit; merge main', 'commit; cherry-pick id:"missing"', 'commit type:BAD', 'commit; branch dev; commit id:"b"; checkout main; commit; merge dev id:"m"; branch fix; commit; cherry-pick id:"m"'])('tags invalid input: %s', body => {
