@@ -6,6 +6,7 @@ export default defineConfig({
     // glyphcss's custom-element exports need HTMLElement while loading.
     environment: "happy-dom",
     include: ["src/**/*.test.ts"],
+    setupFiles: ["./src/test/eventLoop.ts"],
     // Fit searches take 1-4 s each; work bounds (fitWork, fitAlignment) catch slowdowns, not the clock.
     testTimeout: 30_000,
   },
