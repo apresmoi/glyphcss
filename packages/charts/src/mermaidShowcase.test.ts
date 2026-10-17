@@ -46,10 +46,17 @@ describe("Mermaid showcase layouts", () => {
         expect(result.build.plot.y1).toBe(lastTask + 1);
         expect(lines[lastTask + 2]!.trim()).not.toBe("");
         expect(lines.slice(lastTask + 3).every((line) => !line.trim())).toBe(true);
+      } else if (["journey", "timeline"].includes(example.type)) {
+        const title = lines.findIndex((line) => line.trim());
+        expect(lines[title + 1]!.trim()).toBe("");
+        const last = lines.reduce((last, line, row) => line.trim() ? row : last, -1);
+        const trailing = example.type === "journey" ? (target === "chat" ? 6 : 3) : (target === "chat" ? 4 : 2);
+        expect(lines.length - last - 1).toBe(trailing);
+        expect(lines.slice(last + 1).every((line) => !line.trim())).toBe(true);
       } else expect(lines.at(-1)!.trim()).not.toBe("");
       const thinned = result.report.ledger.filter((entry) => entry.code === "ticks-thinned");
       expect(thinned.map((entry) => entry.detail)).toEqual(example.type === "gantt" ? [{ axis: "x", shown: 5, stride: 2, total: 10 }] : []);
-      expect(result.report.ledger.filter((entry) => /omitted|outside the viewport|label-(dropped|abbreviated)/.test(entry.message + entry.code))).toEqual([]);
+      expect(result.report.ledger.filter((entry) => /omitted|outside the viewport|label-(dropped|abbreviated)/.test(entry.message + entry.code))).toEqual(["packet", "kanban"].includes(example.type) ? [expect.objectContaining({ code: "title-gap-omitted", detail: { cols: 72, rows: example.height } })] : []);
     });
 
     it.each(["journey", "timeline"])(`centres the complete %s body independently of its title in ${target}`, (type) => {
@@ -142,12 +149,12 @@ describe("Mermaid showcase layouts", () => {
 
     it(`balances kanban lane heights before minimizing total wraps in ${target}`, () => {
       const example = preset("kanban"), automatic = renderGlyphChartMermaid(example.source, { target, width: 72, color: "none" });
-      expect(automatic.text.split("\n")).toHaveLength(20);
+      expect(automatic.text.split("\n")).toHaveLength(21);
       const result = render(example, target);
       expect(result.text).toContain("Audit log");
       for (const id of [241, 242, 243, 238, 239, 235, 236, 231, 232]) expect(result.text).toContain(`#${id}`);
       expect(result.text.match(/High/g)).toHaveLength(6);
-      expect(result.report.ledger).toEqual([]);
+      expect(result.report.ledger).toEqual([expect.objectContaining({ code: "title-gap-omitted" })]);
     });
   }
 

@@ -63,7 +63,8 @@ describe("final cleanup 2", () => {
         expect(lines[row]!.indexOf(task)).toBeGreaterThanOrEqual(2);
         expect(lines[row]!.slice(result.build.plot.x0).trim()).not.toBe("");
       }
-      expect(lines[build - 1]?.trim()).toBe("Release plan");
+      expect(lines[build - 2]?.trim()).toBe("Release plan");
+      expect(lines[build - 1]?.trim()).toBe("");
       expect(lines[build + 1]).toContain("Design");
       expect(lines[build + 2]).toContain("Code");
       expect(lines[ship + 1]).toContain("Test");

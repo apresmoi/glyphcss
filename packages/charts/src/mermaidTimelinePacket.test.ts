@@ -159,17 +159,18 @@ describe("Mermaid timeline and packet", () => {
       { kind: "period", text: "2006", events: ["Twitter"] },
     ] });
     const rows = trimmed(examples[0]!.source);
-    expect(rows).toHaveLength(6);
-    expect(rows[2]).toMatch(/^                            2004 +│ - Facebook$/);
-    expect(rows[3]).toMatch(/^ +│ - Google$/);
-    expect(rows[4]).toMatch(/^ +│ - YouTube$/);
-    expect(rows[5]).toMatch(/^                            2006 +│ - Twitter$/);
+    expect(rows).toHaveLength(7);
+    expect(rows[3]).toMatch(/^                            2004 +│ - Facebook$/);
+    expect(rows[4]).toMatch(/^ +│ - Google$/);
+    expect(rows[5]).toMatch(/^ +│ - YouTube$/);
+    expect(rows[6]).toMatch(/^                            2006 +│ - Twitter$/);
   });
 
   it("centres the section table, indents periods and separates sections once", () => {
     for (const target of ["chat", "web"] as const) {
       const rows = render(examples[1]!.source, target).text.split("\n").map((row) => row.trimEnd());
-      expect(rows.slice(1)).toEqual([
+      expect(rows[1]!.trim()).toBe("");
+      expect(rows.slice(2)).toEqual([
         "  Before launch │ - Discover the problem",
         "",
         "Design",
@@ -281,20 +282,20 @@ describe("Mermaid timeline and packet", () => {
   it("renders 32 bits per row with complete absolute decimal ticks and sharp cell borders", () => {
     for (const target of ["chat", "web"] as const) {
       const rows = render(examples[5]!.source, target).text.split("\n");
-      expect(rows[1]!.trim()).toBe("1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3");
-      expect(rows[2]!.trim()).toBe("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1");
-      expect(rows[3]!.trim()).toBe("┌" + "─".repeat(31) + "┬" + "─".repeat(31) + "┐");
-      expect(rows[5]!.trim()).toBe("└" + "─".repeat(31) + "┴" + "─".repeat(31) + "┘");
-      expect(rows[4]).toContain("Source Port");
-      expect(rows[4]).toContain("Destination Port");
-      expect(rows[6]!.trim()).toBe("3 3 3 3 3 3 3 3 4 4 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5 5 5 6 6 6 6");
+      expect(rows[2]!.trim()).toBe("1 1 1 1 1 1 1 1 1 1 2 2 2 2 2 2 2 2 2 2 3 3");
+      expect(rows[3]!.trim()).toBe("0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1");
+      expect(rows[4]!.trim()).toBe("┌" + "─".repeat(31) + "┬" + "─".repeat(31) + "┐");
+      expect(rows[6]!.trim()).toBe("└" + "─".repeat(31) + "┴" + "─".repeat(31) + "┘");
+      expect(rows[5]).toContain("Source Port");
+      expect(rows[5]).toContain("Destination Port");
+      expect(rows[7]!.trim()).toBe("3 3 3 3 3 3 3 3 4 4 4 4 4 4 4 4 4 4 5 5 5 5 5 5 5 5 5 5 6 6 6 6");
     }
   });
 
   it("uses numbered keys for narrow fields, including multi-digit keys, without losing labels", () => {
     const result = render(examples[7]!.source, "chat"), rows = result.text.split("\n");
-    expect(rows[4]!.trim()).toBe("│1│2│3│4│5│6│7│8│9│1│                 Reserved                  │");
-    expect(rows[5]!.trim()).toMatch(/^│ │ │ │ │ │ │ │ │ │0│ +│$/);
+    expect(rows[5]!.trim()).toBe("│1│2│3│4│5│6│7│8│9│1│                 Reserved                  │");
+    expect(rows[6]!.trim()).toMatch(/^│ │ │ │ │ │ │ │ │ │0│ +│$/);
     expect(result.text).toContain("10. [9] Acknowledge");
     for (const word of ["Enable", "Interrupt", "Ready", "Fault", "Busy", "Retry", "Write", "Read", "Reset", "Acknowledge"]) expect(result.text).toContain(word);
     expect(result.report.ledger.filter((e) => e.detail?.feature === "packet label wider than its cell")).toHaveLength(10);
@@ -309,7 +310,7 @@ describe("Mermaid timeline and packet", () => {
     expect(result.text).toContain("Final checksum");
     expect(result.report.ledger.filter((e) => e.detail?.feature === "packet label wider than its cell" || e.detail?.word)).toEqual([]);
     const rows = result.text.split("\n");
-    expect(rows[3]!.slice(19, 28)).toBe("┬───────┬");
+    expect(rows[4]!.slice(19, 28)).toBe("┬───────┬");
   });
 
   it("retains packet label punctuation, forced breaks and metadata; ignores configuration", () => {
@@ -330,8 +331,9 @@ describe("Mermaid timeline and packet", () => {
     const result = render(examples[10]!.source, "chat"), rows = result.text.split("\n");
     expect(rows[0]).toContain("documented timeline");
     expect(rows[1]).toContain("two title rows");
-    expect(rows[2]).toContain("A section heading");
-    expect(rows[3]).toContain("without breaking words");
+    expect(rows[2]!.trim()).toBe("");
+    expect(rows[3]).toContain("A section heading");
+    expect(rows[4]).toContain("without breaking words");
     expect(result.text).toContain("afterwards");
     expect(result.text).toContain("Keep every fitting word");
     expect(result.text).not.toContain("WW");

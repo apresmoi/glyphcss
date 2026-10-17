@@ -959,12 +959,11 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
       }
       lastRow = row;
 
-      // The disc's own edge column AT the anchor's row — solved from the
-      // exact ellipse test `paintArc`'s fill loop uses, so the leader's
-      // first cell is genuinely adjacent to that row's own disc ink rather
-      // than the disc's widest point (which is usually a different row).
       const outRow = Math.max(plot.y0, Math.min(plot.y1, c.anchorRow));
-      const dyFrac = ry > 0 ? (outRow - cy) / ry : 0;
+      // A displaced callout can bend toward the wider middle of the disc.
+      // Start outside the widest row crossed by the whole leader.
+      const nearestRow = Math.max(Math.min(outRow, row), Math.min(Math.max(outRow, row), cy));
+      const dyFrac = ry > 0 ? (nearestRow - cy) / ry : 0;
       const edgeDx = Math.sqrt(Math.max(0, 1 - dyFrac * dyFrac)) * rx;
       const discEdgeCol = side === "right" ? Math.floor(cx + edgeDx) : Math.ceil(cx - edgeDx);
       const outCol = discEdgeCol + sign * GLYPH_CHART_ARC_CALLOUT_DISC_GAP;
@@ -1723,7 +1722,7 @@ export function paintGlyphChart(
       const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
       if (sankeyLayout) paintSankeyLines(guarded, layout.plot, sankeyLayout, groups, opts.colorEnabled, ledger);
     }
-    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale);
+    else if (mark.type === "funnel") paintFunnelMark(guarded, layout.plot, groups, opts.colorEnabled, ledger, textScale, layout.titleRow === null || layout.titleRow >= layout.plot.y0 || layout.plot.y0 - layout.titleRow < 2 * textScale);
     else if (mark.type === "area") {
       // One call per mark, not per series: a stack's silhouette is the edge
       // of ALL its layers together. An unstacked area whose boundary LINE

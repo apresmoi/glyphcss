@@ -752,7 +752,7 @@ const GLYPH_CHART_FUNNEL_MIN_WIDTH = 8;
  * given (never re-sorted: a "not monotone" stage renders in place and is
  * reported). Stage identity is by row, so two stages sharing a label stay two.
  */
-export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
+export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, groups: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1, reserveTopAir = true): void {
   const rawStages = groups.map((g) => ({ name: g.name ?? String(g.rows[0]?.index ?? 0), value: numeric(g.rows[0]?.y), styleIndex: g.styleIndex, color: g.color }));
   if (rawStages.length === 0) return;
   const plotWidth = plot.x1 - plot.x0 + 1;
@@ -786,7 +786,7 @@ export function paintFunnelMark(canvas: GlyphCanvas, plot: GlyphChartPlotRect, g
   // title and the legend, the rest lengthen the waists and the slopes evenly, leftovers going to the
   // slopes from the top so the taper reads as one shape.
   let spare = plotHeight - rowsFor(n, slopeRows, gapRows);
-  const top = spare > 0 ? 1 : 0;
+  const top = spare > 0 && reserveTopAir ? 1 : 0;
   spare -= top + (spare > 1 ? 1 : 0);
   const slots = n > 1 && slopeRows > 0 ? 2 * n - 1 : n;
   const even = Math.floor(spare / slots);

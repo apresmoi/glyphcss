@@ -1,4 +1,4 @@
-import { GLYPH_CHART_WRAP_LEGEND } from "./layout";
+import { GLYPH_CHART_ENDPOINT_LABELS, GLYPH_CHART_WRAP_LEGEND } from "./layout";
 import { GLYPH_MERMAID_ENTITY, decodeGlyphMermaidEntities, stripGlyphMermaidPreamble, skipGlyphMermaidComment, glyphMermaidContent } from "@glyphcss/core/mermaid";
 import type { GlyphChartDatum, GlyphChartMark, GlyphChartRenderOptions, GlyphChartResult, GlyphChartScaleOptions, GlyphChartSpec } from "./types";
 import { glyphChartArc, glyphChartBar, glyphChartDot, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
@@ -437,7 +437,7 @@ function quadrant(parts: string[], common: Common, degrade: Degrade): GlyphChart
   }
   if (captions.length) marks.push(glyphChartText(points.length ? captions : captions.map((caption) => ({ ...caption, y: Number(caption.y) > 0.5 ? 0.75 : 0.25 })), TEXT_CHANNELS));
   const endpoint = (names: string[]) => (value: number | string | Date) => Number(value) === 0 ? names[0] ?? "" : Number(value) === 1 ? names[1] ?? "" : "";
-  return { ...common, marks, scales: { x: { domain: [0, 1], nice: false }, y: { domain: [0, 1], nice: false } }, axes: { x: { title: "", tickMarks: false, ticks: xNames.length ? 2 : 0, format: endpoint(xNames) }, y: { title: "", tickMarks: false, ticks: yNames.length ? 2 : 0, format: endpoint(yNames) } }, legend: false };
+  return { ...common, [GLYPH_CHART_ENDPOINT_LABELS]: true, marks, scales: { x: { domain: [0, 1], nice: false }, y: { domain: [0, 1], nice: false } }, axes: { x: { title: "", tickMarks: false, ticks: xNames.length ? 2 : 0, format: endpoint(xNames) }, y: { title: "", tickMarks: false, ticks: yNames.length ? 2 : 0, format: endpoint(yNames) } }, legend: false } as GlyphChartMermaidSpec;
 }
 
 function sankey(body: string, ledger: GlyphChartLedgerEntry[], title?: string): GlyphChartMermaidSpec {

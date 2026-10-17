@@ -8,6 +8,8 @@
  * space and axes squeezing into what's left.
  */
 
+import { layoutSankeyGraph } from "./flowMarks";
+import { glyphChartTitleGap } from "./rowSpacing";
 import { GLYPH_CHART_RADAR, type GlyphChartRadarSpec } from "./radar";
 import { GLYPH_CHART_GANTT, layoutGlyphGantt, type GlyphChartGanttSpec } from "./gantt";
 import { timeFormat } from "d3-time-format";
@@ -17,7 +19,7 @@ import { abbreviateChartText, chartText, glyphChartLabelLayout } from "./labels"
 import { hasZeroAnchoredMark } from "./scales";
 import { resolveGlyphChartTickFormat, type GlyphChartResolvedTickFormat } from "./tickFormat";
 import {
-  ledgerAxisTitleStacked, ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped,
+  ledgerAxisTitleGapOmitted, ledgerAxisTitleStacked, ledgerLegendDropped, ledgerLegendPlacementDegraded, ledgerTickDuplicateDropped,
   ledgerTicksThinned, ledgerTitleDropped, type GlyphChartLedgerEntry,
 } from "./ledger";
 import type { GlyphChartResolvedMark } from "./resolve";
@@ -44,7 +46,10 @@ function formatAxisTicks(ticks: readonly GlyphChartTick[], fmt: GlyphChartResolv
   return ticks.map((t, i) => ({ ...t, label: fmt.apply(t.value, i, values) })).filter((t) => t.label !== "");
 }
 
-/** `title: string` is `{ text, align: "center", position: "top" }` — byte-identical to before this option existed. */
+// Reader annotations survive spec copies without adding a native axis option.
+export const GLYPH_CHART_ENDPOINT_LABELS = Symbol("glyph-chart-endpoint-labels");
+
+/** `title: string` is `{ text, align: "center", position: "top" }`. */
 export interface GlyphChartResolvedTitle {
   readonly text: string | null;
   readonly align: GlyphChartTitleAlign;
@@ -209,6 +214,7 @@ function axisTicks(
   // rows, x labels need only their own width plus a gap, and thinning keeps
   // the first category.
   flush = false,
+  startCol?: number,
 ): GlyphChartLayoutTick[] {
   const rowGap = flush ? 0 : 1;
   let sorted = raw.map((t) => ({ ...t, cell: toCell(t.fraction) })).sort((a, b) => a.cell - b.cell);
@@ -300,7 +306,7 @@ function axisTicks(
     // this drop-vs-abbreviate policy.
     const numeric = !band && !format?.isCallback && typeof t.value === "number";
     const label = glyphChartLabelLayout([{
-      id: `${axis}:${String(t.value)}`, x: axis === "x" ? t.cell : Math.floor(slot / 2), y: axis === "x" ? labelRow : t.cell,
+      id: `${axis}:${String(t.value)}`, x: axis === "x" ? (startCol !== undefined && t.fraction === 0 ? startCol + Math.floor(abbreviateChartText(t.label, Math.floor(slot / textScale), charset, numeric).text.length * textScale / 2) : t.cell) : Math.floor(slot / 2), y: axis === "x" ? labelRow : t.cell,
       text: t.label, maxWidth: slot, numeric, role: `${axis}-axis label`,
       // Only for a candidate ALREADY treated as numeric AND under a
       // CUSTOM format — a band/callback tick stays on the category-style
@@ -638,6 +644,34 @@ export function layoutGlyphChart(
   let xTicks: GlyphChartLayoutTick[] = [];
   let yTicks: GlyphChartLayoutTick[] = [];
 
+  const reserveTitleGap = (minimumRows: number) => {
+    if (titleRow === null) return;
+    // A proportional Sankey can lose a small flow even above its row-count
+    // floor. Let its own planner veto whitespace that would hide data.
+    const groups = chartSeries(marks).filter(({ mark }) => mark.type === "sankey");
+    if (groups.length && bottom - top + 1 >= minimumRows + textScale) {
+      const rect = { x0: 0, x1: cols - 1, y0: top, y1: bottom };
+      const before = layoutSankeyGraph(groups, rect, charset, [], textScale);
+      const after = layoutSankeyGraph(groups, { ...rect, y1: bottom - textScale }, charset, [], textScale);
+      const keepsNodes = before?.nodes.every((node) => node.height <= 0 || after?.nodes.some((next) => next.id === node.id && next.height > 0));
+      const keepsFlows = before?.bands.every((band) => after?.bands.some((next) => next.source === band.source && next.target === band.target && next.value === band.value && next.folded === band.folded && (!band.targetRowRange || next.targetRowRange)));
+      if (!keepsNodes || !keepsFlows) minimumRows = Infinity;
+    }
+    const gap = glyphChartTitleGap(bottom - top + 1, minimumRows, textScale, cols, rows, ledger);
+    if (resolvedTitle.position === "top") {
+      top += gap;
+      if (yAxisTitleRow >= 0 && yTitleAt === "top") yAxisTitleRow += gap;
+    } else {
+      bottom -= gap;
+      if (xAxisLabelRow >= 0) xAxisLabelRow -= gap;
+      if (xAxisTitleRow >= 0) xAxisTitleRow -= gap;
+      if (yAxisTitleRow >= 0 && yTitleAt === "bottom") yAxisTitleRow -= gap;
+      if (cellKeyRow >= 0) cellKeyRow -= gap;
+      if (legend?.placement === "bottom" && legend.row !== undefined) legend = { ...legend, row: legend.row - gap };
+    }
+  };
+  if (!cartesian) reserveTitleGap(Math.max(4 * textScale, ...marks.filter(({ mark }) => mark.type === "funnel" || mark.type === "sankey").map(({ rows }) => rows.length * textScale)));
+
   if (cartesian && rows - top >= 3 && cols >= 4) {
     // y-axis gutter width and the y-tick ladder are computed by this same
     // closure twice below — once PROVISIONALLY (to size the column gutter
@@ -792,11 +826,25 @@ export function layoutGlyphChart(
     const ganttRows = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT];
     const bandRows = scales.y.type === "band" && horizontalBarGroupRows > 0
       && marks.every(({ mark }) => mark.type === "line" || mark.type === "text" || mark.type === "rule" || mark.type === "bar" && mark.options?.orientation === "horizontal");
+    const sections = ganttRows?.filter((row) => row.section).length ?? 0;
+    let minimumRows = ganttRows
+      ? (ganttRows.length + Math.max(0, sections - 1)) * textScale + 1
+      : scales.y.type === "band"
+        ? scales.y.domain.length * Math.max(textScale, horizontalBarGroupRows) + (xAxisLine ? 1 : 0)
+        : 4 * textScale;
+    const groupedRows = minimumRows + Math.max(0, scales.y.domain.length - 1) * textScale;
+    if (bandRows && bottom - top + 1 >= groupedRows) minimumRows = groupedRows;
+    reserveTitleGap(minimumRows);
+    if (yAxisTitleRow >= 0 && yTitleAt === "top") {
+      // Optional whitespace must not displace an authored task/category.
+      if (bottom - top + 1 >= minimumRows + textScale) top += textScale;
+      else ledger.push(ledgerAxisTitleGapOmitted({ cols, rows }));
+    }
     if (ganttRows || bandRows) {
       const sections = ganttRows?.filter((row) => row.section).length ?? 0;
       const count = scales.y.domain.length;
       const contentRows = ganttRows
-        ? (ganttRows.length + Math.max(0, sections - 1) + Math.max(0, ganttRows.filter((row) => !row.section).length - 1) * 2) * textScale
+        ? (ganttRows.length + Math.max(0, sections - 1) + Math.max(0, ganttRows.length - 1) * 2) * textScale
         : count * Math.max(textScale, horizontalBarGroupRows) + Math.max(0, count - 1) * textScale;
       const fittedBottom = Math.min(bottom, top + Math.max(1, contentRows) - 1 + (ganttRows || xAxisLine ? 1 : 0));
       const spare = bottom - fittedBottom;
@@ -923,7 +971,7 @@ export function layoutGlyphChart(
       : scales.y.type === "time" ? yTicksRaw.filter((t) => isDateBoundaryTick(t.value)).map((t) => t.value)
       : [],
     );
-    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat, textScale, scales.x.bandFlush);
+    xTicks = axisTicks(xTicksRaw, (f) => plotForTicks.x0 + Math.round(f * (plotWidth - 1)), "x", cols, rows, xAxisLabelRow, cols, scales.x.type === "band", charset, ledger, xPriority, xTickCount, scales.x.type === "time", xTickFormat, textScale, scales.x.bandFlush, (spec as GlyphChartSpec & { [GLYPH_CHART_ENDPOINT_LABELS]?: boolean })[GLYPH_CHART_ENDPOINT_LABELS] ? yAxisCol : undefined);
     // `yLabelWidth * textScale`: `axisTicks`' own `maxWidth` is a COLUMN
     // budget (its `slot` is fed straight into `glyphChartLabelLayout`,
     // which now divides a candidate's `maxWidth` by `scale` to recover the

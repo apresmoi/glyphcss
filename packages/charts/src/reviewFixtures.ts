@@ -143,7 +143,15 @@
  *     "Radar category labels:web" hash changes: aspect-correct precise radial
  *     lines, denser circle rings and solid curve/legend strokes. Native
  *     goodSpecs fixtures, chat radar and Gantt bars stay unchanged.
+ * 18. (`labelSpacing.test.ts`) Top y-axis titles gain a scaled blank row
+ *     when plot rows permit it. Only auto-title goodSpecs[32] changes in
+ *     the native parent fixtures; its line retains every input point.
+ *     solidSubcell also refreshes energyArea (auto y title); radarCells
+ *     refreshes only native[32] and the titled XY/Gantt source fixtures.
+ *     Gantt surplus now separates headers from tasks as well as tasks.
  */
+/** Chart title spacing refreshes titled native[25]/[26], all titled Mermaid
+ * fixtures, and quadrant endpoint labels; every other parent entry is exact. */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import type { GlyphChartMark, GlyphChartRenderOptions, GlyphChartSpec } from "./types";
 
