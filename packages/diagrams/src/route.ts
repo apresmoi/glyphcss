@@ -154,7 +154,27 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   const cols = options.width ?? layout.width, rows = options.height ?? layout.height;
   if (![cols, rows].every((v) => Number.isInteger(v) && v > 0)) glyphDiagramError("bad-size", "Routing bounds must be positive integers.");
   if ([options.bendCost, options.crossingCost, options.ringParallelCost].some((v) => v !== undefined && (!Number.isFinite(v) || v < 0))) glyphDiagramError("bad-options", "Routing costs must be finite nonnegative numbers.");
-  const used = new Map<string, { axis: number; point: GlyphCanvasPoint; owners: Set<string> }>();
+  // Keep sparse routing available for hand-built layouts with enormous bounds.
+  const dense = cols * rows <= 1_048_576 && layout.ports.every(port => Number.isInteger(port.escape.x) && Number.isInteger(port.escape.y));
+  const numericKeys = Number.isSafeInteger(cols * rows * 4) && layout.ports.every(port => Number.isInteger(port.escape.x) && Number.isInteger(port.escape.y));
+  const cellKey = (x: number, y: number) => numericKeys ? y * cols + x : `${x},${y}`;
+  type UsedCell = { axis: number; point: GlyphCanvasPoint; owners: Set<string> };
+  const used = new Map<number | string, UsedCell>();
+  const usedGrid = dense ? new Array<UsedCell | undefined>(cols * rows) : undefined;
+  // Neighbours outside the canvas must not alias the next/previous row.
+  const usedAt = (x: number, y: number) => x < 0 || y < 0 || x >= cols || y >= rows ? undefined : usedGrid ? usedGrid[y * cols + x] : used.get(cellKey(x, y));
+  const nodeMask = dense ? new Uint8Array(cols * rows) : undefined;
+  const obstacleMask = dense ? new Uint8Array(cols * rows) : undefined;
+  const ringMask = dense ? new Uint8Array(cols * rows) : undefined;
+  const markRect = (mask: Uint8Array, rect: GlyphDiagramRect, flag: number, pad = 0) => {
+    const x0 = Math.max(0, Math.ceil(rect.x0 - pad)), x1 = Math.min(cols - 1, Math.floor(rect.x1 + pad));
+    const y0 = Math.max(0, Math.ceil(rect.y0 - pad)), y1 = Math.min(rows - 1, Math.floor(rect.y1 + pad));
+    for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) mask[y * cols + x]! |= flag;
+  };
+  if (nodeMask) for (const node of layout.nodes) {
+    markRect(nodeMask, node, 1);
+    markRect(nodeMask, node, 2, NODE_CLEARANCE);
+  }
   const routes: GlyphDiagramRoute[] = [], unroutable: string[] = [], ledger: GlyphDiagramLedgerEntry[] = [];
   // Mirrors `paint.ts`'s own group-rect computation exactly (same helper),
   // so the ring this pays extra to cross is the same rectangle the painter
@@ -164,8 +184,18 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   // pays `ringParallel` — see `GLYPH_DIAGRAM_ROUTE_COSTS`'s own doc for why
   // this is a cost, not a hard block, and why it is high enough to never be
   // preferred over a real detour.
-  const ringParallelCost = (p: GlyphCanvasPoint, dir: number): number =>
-    groupRects.some((r) => { const axis = ringParallelBlockAxis(p, r); return axis === 2 || axis === dir % 2; })
+  if (ringMask) for (const rect of groupRects) {
+    for (let y = Math.max(0, Math.ceil(rect.y0 - GLYPH_DIAGRAM_GROUP_CLEARANCE_RING)); y <= Math.min(rows - 1, rect.y1 + GLYPH_DIAGRAM_GROUP_CLEARANCE_RING); y++) {
+      for (let x = Math.max(0, Math.ceil(rect.x0 - GLYPH_DIAGRAM_GROUP_CLEARANCE_RING)); x <= Math.min(cols - 1, rect.x1 + GLYPH_DIAGRAM_GROUP_CLEARANCE_RING); x++) {
+        const axis = ringParallelBlockAxis({ x, y }, rect);
+        if (axis !== undefined) ringMask[y * cols + x]! |= axis === 2 ? 3 : 1 << axis;
+      }
+    }
+  }
+  const ringParallelCost = (x: number, y: number, dir: number): number =>
+    (ringMask && x >= 0 && y >= 0 && x < cols && y < rows
+      ? (ringMask[y * cols + x]! & (1 << (dir % 2))) !== 0
+      : groupRects.some((r) => { const axis = ringParallelBlockAxis({ x, y }, r); return axis === 2 || axis === dir % 2; }))
       ? options.ringParallelCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.ringParallel : 0;
   const ports = new Map(layout.edges.map((e) => [e.id, layout.ports.filter((p) => p.edgeId === e.id)]));
   const trunkCounts = new Map<string, number>();
@@ -203,6 +233,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
   const loopLabels = geometries.flatMap((g) => g.label ? [{ ...g.label, x0: g.label.x0 - 1, x1: g.label.x1 + 1 }] : []);
   const commonObstacles = [...(options.obstacles ?? []), ...loopLabels];
   const regionRects = glyphDiagramGroupRects(layout, { cols, rows });
+  if (obstacleMask) for (const rect of commonObstacles) markRect(obstacleMask, rect, 1);
   for (const edge of ordered) {
     if (edge.invisible) continue;
     // Concurrent siblings own independent routing corridors. A return must
@@ -241,38 +272,60 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     const trunks = [from.trunk, to.trunk].filter((trunk): trunk is string => !!trunk);
     const family = new Map(trunks.map(trunk => [trunk, new Set(layout.ports.filter(port => port.trunk === trunk).map(port => port.edgeId))]));
     const sharedExits = new Set(layout.ports.filter(port => port.end === "from" && port.nodeId === from.nodeId && same(port.escape, from.escape)).map(port => port.edgeId));
-    const foreign = (cell: ReturnType<typeof used.get>) => {
-      if (!cell) return false;
-      // Different style buses share only the short exit stub, then keep separate lanes.
-      if (sharedExits.size > 1 && Math.abs(cell.point.x - from.escape.x) + Math.abs(cell.point.y - from.escape.y) <= PORT_LANE_LENGTH
-        && [...cell.owners].every(id => sharedExits.has(id))) return false;
-      return ![...family.values()].some(owners => [...cell.owners].every(id => owners.has(id)));
+    const foreignCells = new Map<UsedCell, boolean>();
+    const families = [...family.values()];
+    const allOwnersIn = (cell: UsedCell, owners: Set<string>) => {
+      for (const id of cell.owners) if (!owners.has(id)) return false;
+      return true;
     };
-    // Obstacles and earlier routes stay fixed throughout this edge's A*.
-    // Cache their cell/axis checks; only turning depends on the prior state.
+    const foreign = (cell: UsedCell | undefined): boolean => {
+      if (!cell) return false;
+      const cached = foreignCells.get(cell);
+      if (cached !== undefined) return cached;
+      // Earlier routes and their owner sets do not change during this edge.
+      const shared = sharedExits.size > 1 && Math.abs(cell.point.x - start.x) + Math.abs(cell.point.y - start.y) <= PORT_LANE_LENGTH
+        && allOwnersIn(cell, sharedExits);
+      const blocked = !shared && !families.some(owners => allOwnersIn(cell, owners));
+      foreignCells.set(cell, blocked);
+      return blocked;
+    };
+    const laneMask = dense ? new Uint8Array(cols * rows) : undefined;
+    if (laneMask) for (const lane of otherLanes) {
+      for (let y = Math.ceil(lane.y - PORT_LANE_CLEARANCE); y <= Math.floor(lane.y + PORT_LANE_CLEARANCE); y++) {
+        const dx = PORT_LANE_CLEARANCE - Math.abs(y - lane.y);
+        markRect(laneMask, { x0: lane.x - dx, x1: lane.x + dx, y0: y, y1: y }, 1);
+      }
+    }
+    const staticBlocked = (x: number, y: number) => {
+      if (!nodeMask || !obstacleMask || !laneMask || x < 0 || y < 0 || x >= cols || y >= rows) {
+        const p = { x, y };
+        return blockedByNodes(p, layout, start, goal) || obstacles.some(r => inside(p, r)) || blockedByPortLanes(p, otherLanes);
+      }
+      const id = y * cols + x, node = nodeMask[id]!;
+      return (node & 1) !== 0 || ((node & 2) !== 0 && !(x === start.x && y === start.y) && !(x === goal.x && y === goal.y))
+        || obstacleMask[id] !== 0 || laneMask[id] !== 0 || (room !== undefined && (x <= room.x0 - 1 || x >= room.x1 + 1 || y <= room.y0 - 1 || y >= room.y1 + 1));
+    };
+    // 0 means unknown; axes + 1 distinguishes a cached blocked cell.
+    const freeGrid = dense ? new Uint8Array(cols * rows) : undefined;
     const freeCells = new Map<number, number>();
-    const isFree = (p: GlyphCanvasPoint, dir: number, previous?: State): boolean => {
-      if (p.x < 0 || p.y < 0 || p.x >= cols || p.y >= rows) return false;
+    const isFree = (x: number, y: number, dir: number, previous?: State): boolean => {
+      if (x < 0 || y < 0 || x >= cols || y >= rows) return false;
       const axis = dir % 2;
-      const cellKey = key(p);
-      const crossing = used.get(cellKey);
-      const blocked = foreign(crossing);
-      if (previous && previous.dir !== dir && (blocked || foreign(used.get(key(previous))))) return false;
-      const cacheKey = p.y * cols + p.x;
-      const cached = freeCells.get(cacheKey);
-      if (cached !== undefined) return (cached & (1 << axis)) !== 0;
+      if (previous && previous.dir !== dir && (foreign(usedAt(x, y)) || foreign(usedAt(previous.x, previous.y)))) return false;
+      const id = y * cols + x;
+      const cached = freeGrid ? freeGrid[id]! - 1 : freeCells.get(id);
+      if (cached !== undefined && cached >= 0) return (cached & (1 << axis)) !== 0;
       let freeAxes = 0;
-      if (!blockedByNodes(p, layout, start, goal)
-        && !obstacles.some(r => inside(p, r))
-        && !blockedByPortLanes(p, otherLanes)) {
+      if (!staticBlocked(x, y)) {
         freeAxes = 3;
-        if (blocked) freeAxes &= crossing!.axis === 2 ? 0 : ~(1 << crossing!.axis);
+        const crossing = usedAt(x, y);
+        if (foreign(crossing)) freeAxes &= crossing!.axis === 2 ? 0 : ~(1 << crossing!.axis);
         for (const step of steps) {
-          const neighbour = used.get(key({ x: p.x + step.x, y: p.y + step.y }));
+          const neighbour = usedAt(x + step.x, y + step.y);
           if (foreign(neighbour)) freeAxes &= neighbour!.axis === 2 ? 0 : ~(1 << neighbour!.axis);
         }
       }
-      freeCells.set(cacheKey, freeAxes);
+      if (freeGrid) freeGrid[id] = freeAxes + 1; else freeCells.set(id, freeAxes);
       return (freeAxes & (1 << axis)) !== 0;
     };
     // Use the same branch corridor for every member of a star, from either end.
@@ -291,8 +344,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
           cross <= Math.max(stem.escape[transverse], ...peers.map(p => p[transverse])); cross++) {
           work?.take("expansions");
           const p = { ...start, [along]: bus, [transverse]: cross };
-          if (blockedByNodes(p, layout, start, goal) || obstacles.some(rect => inside(p, rect))
-            || blockedByPortLanes(p, otherLanes) || foreign(used.get(key(p)))) { clear = false; break; }
+          if (staticBlocked(p.x, p.y) || foreign(usedAt(p.x, p.y))) { clear = false; break; }
         }
         if (clear) break;
       }
@@ -316,7 +368,7 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
       const move = prev ? { x: p.x - prev.x, y: p.y - prev.y } : next ? { x: next.x - p.x, y: next.y - p.y } : outward;
       const dir = steps.findIndex(step => same(step, move));
       if (dir < 0 || (i === 0 && dir !== startDir) || (i === busPoints.length - 1 && dir !== endDir)
-        || foreign(used.get(key(p))) || ringParallelCost(p, dir) > 0 || !isFree(p, dir, busState)) { busState = undefined; break; }
+        || foreign(usedAt(p.x, p.y)) || ringParallelCost(p.x, p.y, dir) > 0 || !isFree(p.x, p.y, dir, busState)) { busState = undefined; break; }
       busState = { ...p, dir, cost: i, estimate: i, order: i, parent: busState };
     }
     const guides = layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS]?.[edge.id]?.filter((_, i, points) => points.length > 1 && i % 2 === 1) ?? [];
@@ -328,20 +380,22 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     // unless it opens this component. Search from the target's usually small side.
     const connected = (): boolean => {
       if (!options.stopOnFailure || !used.size) return true;
-      const visited = new Set<number>(), pending = [goal];
-      visited.add(goal.y * cols + goal.x);
+      const visited = dense ? new Uint8Array(cols * rows) : undefined;
+      const sparseVisited = new Set<number>();
+      const goalId = goal.y * cols + goal.x, pending: (number | GlyphCanvasPoint)[] = [dense ? goalId : goal];
+      if (visited) visited[goalId] = 1; else sparseVisited.add(goalId);
       while (pending.length) {
         work?.take("expansions");
-        const point = pending.pop()!;
-        if (same(point, start)) return true;
+        const point = pending.pop()!, x = typeof point === "number" ? point % cols : point.x, y = typeof point === "number" ? Math.floor(point / cols) : point.y;
+        if (x === start.x && y === start.y) return true;
         for (let dir = 0; dir < steps.length; dir++) {
-          const next = { x: point.x + steps[dir]!.x, y: point.y + steps[dir]!.y };
-          if (next.x < 0 || next.y < 0 || next.x >= cols || next.y >= rows) continue;
-          const id = next.y * cols + next.x;
-          // A* checks the destination's movement axis; a predecessor may
-          // arrive on the other axis and turn here. Keep that possibility.
-          if (visited.has(id) || !isFree(point, dir) || (!isFree(next, 0) && !isFree(next, 1))) continue;
-          visited.add(id); pending.push(next);
+          const nx = x + steps[dir]!.x, ny = y + steps[dir]!.y;
+          if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+          const next = ny * cols + nx;
+          // Preserve the predecessor's axis check and the original DFS order.
+          if ((visited ? visited[next] : sparseVisited.has(next)) || !isFree(x, y, dir) || (!isFree(nx, ny, 0) && !isFree(nx, ny, 1))) continue;
+          if (visited) visited[next] = 1; else sparseVisited.add(next);
+          pending.push(dense ? next : { x: nx, y: ny });
         }
       }
       return false;
@@ -349,30 +403,35 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     let seed: State | undefined;
     for (const target of [...guides, goal]) {
       const final = target === goal;
-      const queue = new Queue(), best = new Map<string, number>();
+      const queue = new Queue(), best = new Map<number | string, number>();
+      const bestGrid = dense ? new Float64Array(cols * rows * 4).fill(Infinity) : undefined;
+      const stateKey = (x: number, y: number, dir: number) => numericKeys ? (y * cols + x) * 4 + dir : `${x},${y},${dir}`;
+      const bestAt = (x: number, y: number, dir: number) => bestGrid ? bestGrid[(y * cols + x) * 4 + dir]! : best.get(stateKey(x, y, dir)) ?? Infinity;
+      const remember = (x: number, y: number, dir: number, cost: number) => {
+        if (bestGrid) bestGrid[(y * cols + x) * 4 + dir] = cost; else best.set(stateKey(x, y, dir), cost);
+      };
       let order = 0;
-      const startCost = ringParallelCost(start, startDir);
+      const startCost = ringParallelCost(start.x, start.y, startDir);
       const origin = seed ?? { ...start, dir: startDir, cost: startCost, estimate: startCost, order: order++ };
       if (seed) found = undefined;
-      if (!found && isFree(origin, origin.dir) && (!final || isFree(goal, endDir)) && (guides.length || connected())) {
+      if (!found && isFree(origin.x, origin.y, origin.dir) && (!final || isFree(goal.x, goal.y, endDir)) && (guides.length || connected())) {
         queue.push({ ...origin, estimate: origin.cost + Math.abs(origin.x - target.x) + Math.abs(origin.y - target.y) });
-        best.set(`${key(origin)},${origin.dir}`, origin.cost);
+        remember(origin.x, origin.y, origin.dir, origin.cost);
       }
       let current: State | undefined;
       while (!found && (current = queue.pop())) {
         work?.take("expansions");
-        if (current.cost !== best.get(`${key(current)},${current.dir}`)) continue;
+        if (current.cost !== bestAt(current.x, current.y, current.dir)) continue;
         if (same(current, target) && (!final || current.dir === endDir)) { found = current; break; }
         for (let dir = 0; dir < steps.length; dir++) {
           if ((dir + 2) % 4 === current.dir || (!current.parent && dir !== startDir)) continue;
-          const p = { x: current.x + steps[dir]!.x, y: current.y + steps[dir]!.y };
-          if (final && same(p, goal) && dir !== endDir) continue;
-          if (!isFree(p, dir, current)) continue;
-          const cost = current.cost + 1 + (dir === current.dir ? 0 : options.bendCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.bend) + (foreign(used.get(key(p))) ? options.crossingCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.crossing : 0) + ringParallelCost(p, dir);
-          const stateKey = `${key(p)},${dir}`;
-          if (cost >= (best.get(stateKey) ?? Infinity)) continue;
-          best.set(stateKey, cost);
-          queue.push({ ...p, dir, cost, estimate: cost + Math.abs(p.x - target.x) + Math.abs(p.y - target.y), parent: current, order: order++ });
+          const x = current.x + steps[dir]!.x, y = current.y + steps[dir]!.y;
+          if (final && x === goal.x && y === goal.y && dir !== endDir) continue;
+          if (!isFree(x, y, dir, current)) continue;
+          const cost = current.cost + 1 + (dir === current.dir ? 0 : options.bendCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.bend) + (foreign(usedAt(x, y)) ? options.crossingCost ?? GLYPH_DIAGRAM_ROUTE_COSTS.crossing : 0) + ringParallelCost(x, y, dir);
+          if (cost >= bestAt(x, y, dir)) continue;
+          remember(x, y, dir, cost);
+          queue.push({ x, y, dir, cost, estimate: cost + Math.abs(x - target.x) + Math.abs(y - target.y), parent: current, order: order++ });
         }
       }
       if (!found) break;
@@ -388,9 +447,11 @@ export function routeGlyphGraphEdges(layout: GlyphDiagramLayout, options: GlyphD
     cells.forEach((point, i) => {
       const a = cells[Math.max(0, i - 1)]!, b = cells[Math.min(cells.length - 1, i + 1)]!;
       const axis = a.x === b.x ? 0 : a.y === b.y ? 1 : 2;
-      const previous = used.get(key(point));
-      used.set(key(point), { point, axis: previous && previous.axis !== axis ? 2 : axis,
-        owners: new Set([...(previous?.owners ?? []), edge.id]) });
+      const previous = usedAt(point.x, point.y);
+      const cell = { point, axis: previous && previous.axis !== axis ? 2 : axis,
+        owners: new Set([...(previous?.owners ?? []), edge.id]) };
+      used.set(cellKey(point.x, point.y), cell);
+      if (usedGrid) usedGrid[point.y * cols + point.x] = cell;
     });
   }
   return { routes, unroutable, ledger };

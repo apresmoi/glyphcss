@@ -1,0 +1,284 @@
+[
+  {
+    "name": "fan/TB/full",
+    "hash": "ab74e6d4f358605d52949de0a2b1a09ee19de387178667840e84c49f4680d760",
+    "work": 490,
+    "workHash": "b73e17cf31ebfdf01f0647b14527038d2ba39f7b9591eeb2756e8759ef7e5874"
+  },
+  {
+    "name": "fan/TB/probe",
+    "hash": "ab74e6d4f358605d52949de0a2b1a09ee19de387178667840e84c49f4680d760",
+    "work": 490,
+    "workHash": "b73e17cf31ebfdf01f0647b14527038d2ba39f7b9591eeb2756e8759ef7e5874"
+  },
+  {
+    "name": "fan/LR/full",
+    "hash": "785a5cadebe57d58279b4a372b4f25f0a403a2909553fb3b5f3267621dcd6dad",
+    "work": 412,
+    "workHash": "e616d4fe202e7a6c521e17d2db608a339e2812e9ba15e9e14376e8b6915e7560"
+  },
+  {
+    "name": "fan/LR/probe",
+    "hash": "785a5cadebe57d58279b4a372b4f25f0a403a2909553fb3b5f3267621dcd6dad",
+    "work": 412,
+    "workHash": "e616d4fe202e7a6c521e17d2db608a339e2812e9ba15e9e14376e8b6915e7560"
+  },
+  {
+    "name": "fan/BT/full",
+    "hash": "85e186c7430be8864e5b6ba01780dd2e4402bfc23b7973fe2db987633c9e8999",
+    "work": 490,
+    "workHash": "b73e17cf31ebfdf01f0647b14527038d2ba39f7b9591eeb2756e8759ef7e5874"
+  },
+  {
+    "name": "fan/BT/probe",
+    "hash": "85e186c7430be8864e5b6ba01780dd2e4402bfc23b7973fe2db987633c9e8999",
+    "work": 490,
+    "workHash": "b73e17cf31ebfdf01f0647b14527038d2ba39f7b9591eeb2756e8759ef7e5874"
+  },
+  {
+    "name": "fan/RL/full",
+    "hash": "8e28776649c46dc37b3f1147a3133fc565941a87d20185cdc5857f29f06b8104",
+    "work": 412,
+    "workHash": "e616d4fe202e7a6c521e17d2db608a339e2812e9ba15e9e14376e8b6915e7560"
+  },
+  {
+    "name": "fan/RL/probe",
+    "hash": "8e28776649c46dc37b3f1147a3133fc565941a87d20185cdc5857f29f06b8104",
+    "work": 412,
+    "workHash": "e616d4fe202e7a6c521e17d2db608a339e2812e9ba15e9e14376e8b6915e7560"
+  },
+  {
+    "name": "groups/TB/full",
+    "hash": "69b70662af650f2d7ab75d5da9ea3afd3cc2bf1d673841a0d259f9f06a2bc499",
+    "work": 84,
+    "workHash": "f8ff5929e69f322fe0fcc45c600a3b0e8fef4fbffbf21b07694b913171878cbe"
+  },
+  {
+    "name": "groups/TB/probe",
+    "hash": "69b70662af650f2d7ab75d5da9ea3afd3cc2bf1d673841a0d259f9f06a2bc499",
+    "work": 1266,
+    "workHash": "a5548bbe4508f7608babdb8737fb15881fa26f6bcc2f6fe5aa197ed0d1e56ef8"
+  },
+  {
+    "name": "groups/LR/full",
+    "hash": "605bb77a2cc745adb8df9f18119c02eccb74298d6b383727afadb4c5cb03238c",
+    "work": 41,
+    "workHash": "a339531a531eaddf168872bd01170f53a936235badbad90ad9a2141eaafe6c01"
+  },
+  {
+    "name": "groups/LR/probe",
+    "hash": "605bb77a2cc745adb8df9f18119c02eccb74298d6b383727afadb4c5cb03238c",
+    "work": 71,
+    "workHash": "901a08c75edc53a42c4e8fadede4537df27efdfdfa7fef369977cf8b377c5696"
+  },
+  {
+    "name": "groups/BT/full",
+    "hash": "ac5d4c8843ee1c36e87efceee081dfd1b2f21da45ded5f9b08f9c62f7bb5e8de",
+    "work": 84,
+    "workHash": "f8ff5929e69f322fe0fcc45c600a3b0e8fef4fbffbf21b07694b913171878cbe"
+  },
+  {
+    "name": "groups/BT/probe",
+    "hash": "ac5d4c8843ee1c36e87efceee081dfd1b2f21da45ded5f9b08f9c62f7bb5e8de",
+    "work": 1299,
+    "workHash": "eea37e563de1072048de73553a62981bb6d8b7a97a2d759cffda0d743973b091"
+  },
+  {
+    "name": "groups/RL/full",
+    "hash": "85fe9907f46ca0bf6e539d39a07215f6cc87ca12d68217e5b00fe08bf5d878fe",
+    "work": 41,
+    "workHash": "a339531a531eaddf168872bd01170f53a936235badbad90ad9a2141eaafe6c01"
+  },
+  {
+    "name": "groups/RL/probe",
+    "hash": "85fe9907f46ca0bf6e539d39a07215f6cc87ca12d68217e5b00fe08bf5d878fe",
+    "work": 1277,
+    "workHash": "a2715ce086cd1de25bab9941c5e3d7481a4bb44d4159fc872e779adafb95789e"
+  },
+  {
+    "name": "cycle/TB/full",
+    "hash": "1833baf0511ecc817d2d3ed90a2764613a0647644d413d971b6d7c5e68c27724",
+    "work": 256,
+    "workHash": "b71f728dd13adf50bdcbe8e830e05f8bcbb88e4ca10222ae48290a9439d25bb0"
+  },
+  {
+    "name": "cycle/TB/probe",
+    "hash": "1833baf0511ecc817d2d3ed90a2764613a0647644d413d971b6d7c5e68c27724",
+    "work": 1039,
+    "workHash": "69063cf920df825eaf43ab9b595b91f31c756d845fdc159b7859e1e4d2672713"
+  },
+  {
+    "name": "cycle/LR/full",
+    "hash": "89f68127a6d6b08fc0d390b125ae012ec6141e176fd63d3e5d4694e96a01b933",
+    "work": 268,
+    "workHash": "de974cb065de0b2f9eba184c1799aefdbeaaa324187fabd4307a06c66e17118e"
+  },
+  {
+    "name": "cycle/LR/probe",
+    "hash": "89f68127a6d6b08fc0d390b125ae012ec6141e176fd63d3e5d4694e96a01b933",
+    "work": 1017,
+    "workHash": "27b9ef11ec8a97a4416b6cab42fc807c0e89fc9ef03a12955558d54f532dc0d2"
+  },
+  {
+    "name": "cycle/BT/full",
+    "hash": "9a26c3c19bd8a70a6cf95ed8032e94923df6cc4deb19b53dffaa5aba4d19b2c9",
+    "work": 256,
+    "workHash": "b71f728dd13adf50bdcbe8e830e05f8bcbb88e4ca10222ae48290a9439d25bb0"
+  },
+  {
+    "name": "cycle/BT/probe",
+    "hash": "9a26c3c19bd8a70a6cf95ed8032e94923df6cc4deb19b53dffaa5aba4d19b2c9",
+    "work": 979,
+    "workHash": "552a762389ac3e4dac4cc5e4f85ea502e465e9d3f3d52c25291328d49df79264"
+  },
+  {
+    "name": "cycle/RL/full",
+    "hash": "7d3a433692088581c24a1ca9bf1c28c9f126e06c805a7202a52d1496a1453cc6",
+    "work": 266,
+    "workHash": "15302e8e95b1617d3a0eb6ad2e01ec1f560ecfedf8599a15885fdd390554f785"
+  },
+  {
+    "name": "cycle/RL/probe",
+    "hash": "7d3a433692088581c24a1ca9bf1c28c9f126e06c805a7202a52d1496a1453cc6",
+    "work": 1625,
+    "workHash": "a7822b50a34e6f1c49ec747e0133b9dd70bc293170c98d73033f9fa165f62d50"
+  },
+  {
+    "name": "mixed/TB/full",
+    "hash": "4f1278f0dcfc22ee92725760a0269bda926427ca38fd9128475141291ed1e04b",
+    "work": 2179,
+    "workHash": "422e63f2f409daa54fc88dde51925a0c4a54a9ae34dc9b557423731ceb1cf456"
+  },
+  {
+    "name": "mixed/TB/probe",
+    "hash": "4f1278f0dcfc22ee92725760a0269bda926427ca38fd9128475141291ed1e04b",
+    "work": 4584,
+    "workHash": "b739c883b8965c00442977a8055ec90377704fb0995425f015217911b670229f"
+  },
+  {
+    "name": "mixed/LR/full",
+    "hash": "240dc5ece476151a2214ec44bcb1833fe51b48fc1bc2279ed97d00bf9ab52d23",
+    "work": 2597,
+    "workHash": "3b42823c1bb5317c8fafc3c763c60b0c8398840419922aa966e1f07748bce385"
+  },
+  {
+    "name": "mixed/LR/probe",
+    "hash": "240dc5ece476151a2214ec44bcb1833fe51b48fc1bc2279ed97d00bf9ab52d23",
+    "work": 4006,
+    "workHash": "f7d240b4d71d706baf176f9dc6bf97255e109f31d1792e6ba694dda3453fd930"
+  },
+  {
+    "name": "mixed/BT/full",
+    "hash": "8deeb99454968721cc7a00d887c31191f6f0ffab8d44c29db111d0238ea9b198",
+    "work": 964,
+    "workHash": "2e97b1f063a7a63582f1c16723a5fd2fde869cedfeb5053eb1db2375cb46a73e"
+  },
+  {
+    "name": "mixed/BT/probe",
+    "hash": "8deeb99454968721cc7a00d887c31191f6f0ffab8d44c29db111d0238ea9b198",
+    "work": 2309,
+    "workHash": "f2b51c947d5038c57ada76af5038500a27ac8062252542798fd7a9d0b0577e1c"
+  },
+  {
+    "name": "mixed/RL/full",
+    "hash": "2889b043c4c0f02a2b8d9bd2f0f93ee97d4deca57201ea2a1ff0d2c77a87cd1f",
+    "work": 857,
+    "workHash": "0861e95d7cf04c07dc6bd9a9391bca7dc47b1cb8e1d0162e136b3d7fd9be464f"
+  },
+  {
+    "name": "mixed/RL/probe",
+    "hash": "2889b043c4c0f02a2b8d9bd2f0f93ee97d4deca57201ea2a1ff0d2c77a87cd1f",
+    "work": 3844,
+    "workHash": "6137c1cc3ae27290a4db51b67a8f376a4255c72d5a0e694c22685f58db2c0a78"
+  },
+  {
+    "name": "state/TB/full",
+    "hash": "0d45f3928cfe90e488828575ee25276ec5cf4574e857bf43f8298f21aa9b0d95",
+    "work": 249,
+    "workHash": "a4957a2b65387b44f787edcdc6e99a96f4fa8e0d382572e0cff3cc87bb380c3b"
+  },
+  {
+    "name": "state/TB/probe",
+    "hash": "0d45f3928cfe90e488828575ee25276ec5cf4574e857bf43f8298f21aa9b0d95",
+    "work": 2942,
+    "workHash": "870cdb5b8c39137b9f8ec2a58fc70b7cf0bcdda12ffd210e7c542764761a7be2"
+  },
+  {
+    "name": "state/LR/full",
+    "hash": "239ba44124683c3c6e60f78f9b6614e9b9bfe3936f3781a6f81c15152de03fc3",
+    "work": 249,
+    "workHash": "a4957a2b65387b44f787edcdc6e99a96f4fa8e0d382572e0cff3cc87bb380c3b"
+  },
+  {
+    "name": "state/LR/probe",
+    "hash": "239ba44124683c3c6e60f78f9b6614e9b9bfe3936f3781a6f81c15152de03fc3",
+    "work": 3288,
+    "workHash": "9241a4cf7c00315b5ca395681c1f4cbdba9f2cf56be71255ec6912a51463e8bb"
+  },
+  {
+    "name": "state/BT/full",
+    "hash": "8778718b82a59b9037d8c89f884fbb042ab94b6fa81052ec153fc4d9c864606d",
+    "work": 249,
+    "workHash": "a4957a2b65387b44f787edcdc6e99a96f4fa8e0d382572e0cff3cc87bb380c3b"
+  },
+  {
+    "name": "state/BT/probe",
+    "hash": "8778718b82a59b9037d8c89f884fbb042ab94b6fa81052ec153fc4d9c864606d",
+    "work": 5147,
+    "workHash": "7a57b393b7a5be1e7abeedae08cf61ea658909aca6d299581d8333ab6bfe4de8"
+  },
+  {
+    "name": "state/RL/full",
+    "hash": "804d844f4437ab4ea63d151b6930302505c8914b400384f5f2072d0da6212110",
+    "work": 249,
+    "workHash": "a4957a2b65387b44f787edcdc6e99a96f4fa8e0d382572e0cff3cc87bb380c3b"
+  },
+  {
+    "name": "state/RL/probe",
+    "hash": "804d844f4437ab4ea63d151b6930302505c8914b400384f5f2072d0da6212110",
+    "work": 2871,
+    "workHash": "620797fa5d3b40417b03d6de4ae487a16f49d1badc9eb640b20420957c1c0f6d"
+  },
+  {
+    "name": "fractional obstacle",
+    "hash": "e3b1bd07f3ac5ad32ead87b78d0a235cb1d1080b8889dc4ca67202134f1272b9",
+    "work": 494,
+    "workHash": "9c4ce0af342d877dc2cd5be8886eb305b5a6c11612613c2e005621631711c323"
+  },
+  {
+    "name": "blocked",
+    "hash": "57d60df281845989db3cbfc9cdba41264fb56fe3ed4bec9e0bffeb37f80ea3db",
+    "work": 516,
+    "workHash": "48dfb5db73fd5c94a7a4edfda229992a009fbda823ab760aa102f6918b99d91e"
+  },
+  {
+    "name": "sparse",
+    "hash": "238cb2c50709e136ba5a3d987fd18b5eceb1c145d37d791e8eaa403b727f6043",
+    "work": 627,
+    "workHash": "b5386ffb21d6268c3175b90aa5287274cf8abbf1face5b15560ed1ef70c26f75"
+  },
+  {
+    "name": "unsafe numeric bounds",
+    "hash": "9521667a19e47d3f60b2c8fe20e3af9c9575d0a69b55dcc8372ab308c7144bef",
+    "work": 676,
+    "workHash": "c412b36141fc5e66adbdb5416159f7a907da3f022593cf454cc9c9954e6c00f4"
+  },
+  {
+    "name": "zero costs",
+    "hash": "238cb2c50709e136ba5a3d987fd18b5eceb1c145d37d791e8eaa403b727f6043",
+    "work": 321,
+    "workHash": "4503de7caaa3a442b7bcdef8e3be1a94285d156aefde976e7512d12fb4f031e3"
+  },
+  {
+    "name": "row boundary",
+    "hash": "f99567542684e0e6bfb1e0486c8513ff56a7f30985008b14afb853af6e7d8997",
+    "work": 8,
+    "workHash": "6eb6259dc7416debdc4eb5c7758c7b7847d94d36639f2039238c4067466f5bd5"
+  },
+  {
+    "name": "fractional ports",
+    "hash": "10db9b03d4bffa45a91a91c89acc6429315c516bb52352e5d249e1e378b5d957",
+    "work": 8,
+    "workHash": "6eb6259dc7416debdc4eb5c7758c7b7847d94d36639f2039238c4067466f5bd5"
+  }
+]
