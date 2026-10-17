@@ -1,0 +1,39 @@
+{
+  "quadrant": "quadrantChart\n  title Next fixes\n  x-axis Low effort --> High effort\n  y-axis Low impact --> High impact\n  quadrant-1 Plan\n  quadrant-2 Do now\n  quadrant-3 Later\n  quadrant-4 Skip\n  Docs: [0.22, 0.78]\n  Cache: [0.72, 0.68]\n  Theme: [0.25, 0.2]\n  Rewrite: [0.7, 0.25]\n",
+  "radar": "radar-beta\n title Hosted delivery profile\n axis speed[Speed], cost[Cost], quality[Quality], safety[Safety], scale[Scale], support[Support]\n curve hosted[Hosted] {9, 6, 7, 8, 9, 8}\n min 0\n max 10\n graticule polygon\n ticks 2\n showLegend false\n",
+  "traffic": {
+    "title": "From visits to signups",
+    "marks": [
+      {
+        "type": "sankey",
+        "data": [
+          {
+            "from": "Search",
+            "to": "Site",
+            "value": 48
+          },
+          {
+            "from": "Social",
+            "to": "Site",
+            "value": 24
+          },
+          {
+            "from": "Site",
+            "to": "Read",
+            "value": 54
+          },
+          {
+            "from": "Site",
+            "to": "Signup",
+            "value": 18
+          }
+        ],
+        "channels": {
+          "source": "from",
+          "target": "to",
+          "value": "value"
+        }
+      }
+    ]
+  }
+}

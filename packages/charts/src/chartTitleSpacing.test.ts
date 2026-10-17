@@ -7,13 +7,14 @@ import { resolveGlyphChartSpec } from "./resolve";
 import { layoutSankeyGraph } from "./flowMarks";
 import { glyphChartSankey } from "./spec";
 import parent from "./fixtures/chartTitleSpacingParent.json";
+import gallery from "./fixtures/galleryExamples.json";
 import { renderGlyphChart } from "./render";
 import { goodSpecs } from "./reviewFixtures";
 import type { GlyphChartSpec } from "./types";
 
-const readExample = (name: string) => readFileSync(`../../glyphcss-diagrams/examples/${name}`, "utf8");
-const quadrant = readExample("quadrant.mmd"), radar = readExample("radar.mmd");
-const traffic = JSON.parse(readExample("traffic.json")) as GlyphChartSpec;
+// Copies of the skill README gallery sources, which live in a separate repository.
+const quadrant = gallery.quadrant, radar = gallery.radar;
+const traffic = gallery.traffic as GlyphChartSpec;
 const examples = JSON.parse(readFileSync("src/fixtures/mermaidExamples.json", "utf8")) as { name: string; source: string; height?: number }[];
 const presets = JSON.parse(readFileSync("../../website/src/features/mermaid/data/examples.json", "utf8")) as { type: string; source: string; height?: number }[];
 const catalog = [
