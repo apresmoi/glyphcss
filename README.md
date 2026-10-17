@@ -1,9 +1,14 @@
-<h1>
+<h1 align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.png">
     <img alt="glyphcss" src="assets/wordmark-light.png" width="440">
   </picture>
 </h1>
+
+<p align="center">
+  <strong>3D meshes, charts, diagrams and maps rendered as text in the DOM.</strong><br>
+  <a href="https://glyphcss.com">Website</a> · <a href="#installation">Install</a> · <a href="#packages">Packages</a> · <a href="https://glyphcss.com/gallery/">Gallery</a> · <a href="https://github.com/apresmoi/glyphcss-diagrams">Agent skill</a> · <a href="LICENSE">MIT license</a>
+</p>
 
 ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace character grid in a single `<pre>`. No WebGL, no canvas, no per-polygon DOM.
 
