@@ -100,6 +100,7 @@ function GlyphDiagramsWorkbenchInner({
     setCodeOpen,
     snippets,
     thumbnails,
+    trayRef,
   } = view;
 
   const exportActions = (
@@ -340,7 +341,12 @@ function GlyphDiagramsWorkbenchInner({
           <GlyphDiagramsDock state={state} dispatch={dispatch} />
         </Dock>
       </InstrumentBody>
-      <PresetTray id="diagrams-presets-panel" label="Diagram presets" open={mobilePanel === "presets"}>
+      <PresetTray
+        id="diagrams-presets-panel"
+        label="Diagram presets"
+        open={mobilePanel === "presets"}
+        sectionRef={trayRef}
+      >
         {GLYPH_DIAGRAMS_TRAY.map((entry, index) => {
           const key = `${entry.kind}:${entry.preset.id}`;
           const previous = GLYPH_DIAGRAMS_TRAY[index - 1];
@@ -360,6 +366,7 @@ function GlyphDiagramsWorkbenchInner({
               type="button"
               className="synth-tile"
               key={key}
+              data-thumbnail-key={key}
               title={`Apply “${entry.preset.label}”`}
               aria-label={`Apply ${entry.kind === "mermaid" ? "Mermaid " : ""}${entry.preset.label}`}
               onClick={() =>
@@ -375,7 +382,7 @@ function GlyphDiagramsWorkbenchInner({
               }
             >
               <span className="synth-tile-scene diagrams-tile-preview" aria-hidden="true">
-                <pre>{thumbnails[key] ?? ""}</pre>
+                <pre aria-busy={thumbnails[key] === undefined}>{thumbnails[key] ?? ""}</pre>
               </span>
               <span className="synth-tile-label">{entry.preset.label}</span>
             </button>,

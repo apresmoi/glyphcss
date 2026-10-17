@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { glyphDiagramsTrayThumbnails } from "./useDiagramsWorkbenchInner";
+import { glyphDiagramsTrayThumbnails } from "./useDiagramsTrayThumbnails";
 import { GLYPH_DIAGRAMS_TRAY } from "../../../features/diagrams/model/diagramsWorkbenchState";
 
 vi.mock("@glyphcss/core", () => import("../../../../../packages/core/src/index"));
