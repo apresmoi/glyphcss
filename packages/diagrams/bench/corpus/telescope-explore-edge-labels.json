@@ -1,0 +1,31 @@
+{
+  "sha256": "d114c9802bb873f01cf86d6e63d6c61b6b1c4a39a35a904bd667cf84b4a6765c",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 2,
+          "description": "Render three smaller telescope diagrams",
+          "toolResultErrorCodes": []
+        },
+        {
+          "renderIndex": 1,
+          "description": "Debug the branching diagram render",
+          "toolResultErrorCodes": [
+            "GLYPH_SKILL_UNFIT"
+          ]
+        }
+      ]
+    }
+  ]
+}

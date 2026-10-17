@@ -787,3 +787,11 @@
   background: var(--gc-surface);
   font-family: var(--gc-font-render);
 }
+
+.root :global(.diagrams-mermaid-notes) {
+  flex: 0 0 auto;
+  max-height: 140px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}

@@ -7,6 +7,7 @@ const valid = {
 };
 
 export const glyphSequenceBadFixtures: readonly { id: string; value: unknown }[] = [
+  { id: "bad-sequence", value: { ...valid, title: 42 } },
   { id: "bad-sequence", value: { ...valid, surprise: true } },
   { id: "empty-participants", value: { ...valid, participants: [] } },
   { id: "bad-participant", value: { ...valid, participants: [{ id: " ", label: "bad" }] } },
@@ -21,6 +22,8 @@ export const glyphSequenceBadFixtures: readonly { id: string; value: unknown }[]
   { id: "bad-frame", value: { ...valid, frames: [{ kind: "alt", from: 0, to: 0, branches: [{ kind: "else" }] }] } },
   { id: "bad-frame-branch", value: { ...valid, frames: [{ kind: "alt", from: 0, to: 0, branches: [{ kind: "else", at: 2 }] }] } },
   { id: "bad-note", value: { ...valid, notes: [{ text: "n", over: [], at: 0 }] } },
+  { id: "bad-note", value: { ...valid, notes: [{ text: "n", over: ["a"], at: 0, placement: "above" }] } },
+  { id: "bad-note", value: { ...valid, notes: [{ text: "n", over: ["a", "b"], at: 0, placement: "left" }] } },
   { id: "unknown-participant", value: { ...valid, notes: [{ text: "n", over: ["ghost"], at: 0 }] } },
   { id: "bad-note-range", value: { ...valid, notes: [{ text: "n", over: ["a"], at: 5 }] } },
 ];

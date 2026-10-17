@@ -87,6 +87,10 @@ export function ledgerLabelAbbreviated(opts: { readonly role: string; readonly b
   return entry("label-abbreviated", `Abbreviated the ${opts.role} from "${opts.before}" to "${opts.after}" to fit.`, { ...opts });
 }
 
+export function ledgerLabelFolded(opts: { readonly role: string; readonly before: string; readonly after: string }): GlyphChartLedgerEntry {
+  return entry("label-folded", `Replaced unsupported characters in the ${opts.role} from "${opts.before}" to "${opts.after}".`, { ...opts });
+}
+
 export function ledgerLabelDropped(opts: { readonly role: string; readonly text: string; readonly reason: string }): GlyphChartLedgerEntry {
   return entry("label-dropped", `Dropped the ${opts.role} "${opts.text}" — ${opts.reason}.`, { ...opts });
 }
@@ -253,4 +257,20 @@ export function ledgerSeriesShadeRepeat(opts: { readonly repeated: string; reado
 export function chartLedgerEntryFromCanvasMessage(raw: string): GlyphChartLedgerEntry {
   const match = /cell \((\d+), (\d+)\)/.exec(raw);
   return ledgerDoubleDiagonalSolid({ col: match ? Number(match[1]) : 0, row: match ? Number(match[2]) : 0 });
+}
+
+export function ledgerMermaidDegraded(opts: { readonly feature: string; readonly replacement: string; readonly [key: string]: unknown }): GlyphChartLedgerEntry {
+  return entry("mermaid-degraded", `Rendered "${opts.feature}" as ${opts.replacement}.`, { ...opts });
+}
+
+export function ledgerMermaidIgnored(opts: { readonly feature: string; readonly replacement?: string }): GlyphChartLedgerEntry {
+  return entry("mermaid-degraded", `Kept "${opts.feature}" inert and used ${opts.replacement ?? "the chart defaults"}.`, { ...opts });
+}
+
+export function ledgerTreemapOmitted(opts: { readonly label: string; readonly reason: string }): GlyphChartLedgerEntry {
+  return entry("treemap-omitted", `Omitted treemap content "${opts.label}" because of ${opts.reason}.`, { ...opts });
+}
+
+export function ledgerBarIntervalCollapsed(opts: { readonly row: number }): GlyphChartLedgerEntry {
+  return entry("bar-interval-collapsed", "Rendered a sub-cell horizontal interval as a one-cell event marker.", { ...opts });
 }

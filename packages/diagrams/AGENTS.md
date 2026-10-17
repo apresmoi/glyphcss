@@ -1,66 +1,78 @@
-# @glyphcss/diagrams — agent guide
+# Diagrams
 
-2D diagrams as cell text: graphs (Mermaid `flowchart`/`graph` or JSON), sequences and lane DAGs. No scene-object or camera API. Root rules in `../../AGENTS.md` apply.
+No scene/ELK.
 
-## Pipeline
+## Sequence (`./sequence`)
 
-Adapters → `GlyphGraph` → measure → reserve ports → layout (dagre) → center → route → paint on a fresh canvas. `renderGlyphDiagram` owns cell-budget fitting and reuses its accepted layout/routes for paint; bare call defaults to `target: "web"`.
+Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`. Mermaid order; JSON: dividers → openings → notes.
 
-## 2D entry points
+### Contracts
 
-- Root: camera-free 2D text. Never imports glyphcss's scene/rasterizer or elkjs (`./elk` is a stub).
-- `./sequence` and `./lanes`: own IR/pipeline (`GlyphSequence`/`GlyphLaneDag`, never `GlyphGraph`), isolated from each other and root — `color.ts` (below) is the one shared exception.
-
-## Sequence diagrams (`./sequence`)
-
-No layout problem: order is authored, time runs downward, and geometry is a function of label lengths (no dagre, A*, or ranks). Pipeline: validate → column layout → row layout → paint, composed by `renderGlyphSequence`. The IR (`types.ts`) is domain-agnostic: no `service`/`endpoint`/`request`/`http` vocabulary; self-ness and direction derive from `from`/`to`; every frame/branch `kind` renders VERBATIM.
-
-### Invariants
-
-- A frame boxes its messages: label in the top border, dashed branch dividers, sides `1 + depth` outside its lifelines and around inner boxes. Columns make room for frames and self-labels. A note is a 3-row floating bar clamped on-canvas.
-- A message crossing an unrelated lifeline paints a 4-way junction glyph, never a silent gap. Self-messages get their own 3-row loop (tee→dash→corner, corner→arrowhead), never a zero-width arrow. Every glyph paints with whole-cell `canvas.text`, never `canvas.line()` (braille/blocks rasterise that at sub-cell dots).
-- Degrade: (1) one shrinking cap (floor 3) abbreviates participants and WRAPS messages (cutting only an over-long word); leftover width un-wraps, cheapest first; a frame label fills its box; cuts are logged; (2) page by TIME at a message boundary, repeating the header per panel, when height doesn't fit (`overflow: "expand"` grows instead); a cut frame reopens under its current branch at full width, and panels centre on the whole sequence's ink. Both logged; still-too-wide at the floor logs `sequence-layout-overflow`.
+- Frames: top captions; dashed dividers; sides `1 + depth` past lifelines. Notes: 3 rows; side notes reserve lane gaps/frame room. Repeat title; options override.
+- Lifeline crossings: 4-way; self: 3-row loops. `canvas.text`, never `canvas.line()`.
+- Degrade: cap 3 → abbreviate participants/notes → wrap messages/log → page by time, repeated headers (`expand` grows). Too wide: `sequence-layout-overflow`.
+- Mermaid: activations inert; side notes, autonumber, title; cross/open → solid/dashed. par/and, critical/option, break frames; branches require matching frames. rect inert; box declarations only. `GLYPH_SEQUENCE_MERMAID_SYNTAX`.
 
 ### Don't
 
-- Don't hardcode Mermaid's `alt`/`else`/`opt`/`loop`, or allow `-` in a Mermaid participant id. Don't split a page inside a row-group.
+- No hardcoded frame kinds or in-group paging.
 
-## Lane DAGs (`./lanes`)
+## Lanes (`./lanes`)
 
-Git is the familiar instance, not the vocabulary (no `commit`/`sha`/`branch`/`ref`/`author`; `marks` are opaque tags). `nodes` is NEWEST FIRST; every parent must occur LATER (`bad-parent-order`, the cycle-free proof). Pipeline: optional git-log adapter → validate → lane rows → lane cap → paint, composed by `renderGlyphLaneDag`.
+`nodes`: newest first, parents later (`bad-parent-order`). Git-log/Mermaid → validate → rows → cap → paint.
 
-### Invariants
+### Contracts
 
-- Lane allocation is the one new algorithm: assign on first appearance, keep while unresolved, FREE on merge for reuse — stops a long history drifting rightward.
-- One node row (`*` + `[id  ](marks)  label`; `ids` defaults on for a git-log string, off for an object) per node; merges join on a connector row ABOVE their node (git's `|/`), branches leave on one BELOW — never a spacer row.
-- `truncated: true` marks `nodes` as a window: an absent parent is older history (all other rules still hold for present ids), the git adapter always sets it. Lanes still open after the last node get a dashed `continuation` row (`hop.v`, `:` on ascii) and log `lane-history-continues`; it stays with its neighbouring node when paging.
-- `order: "oldest-first"` renders the INVERSION (`invert.ts`: reversed, parents become children) through the same layout, so connector semantics are unchanged (`continuesFrom` keeps a node on its ORIGINAL first parent's lane, not the leftmost arriving one); the window cut becomes `incoming` lanes under a leading continuation row. The IR is always newest first.
-- `overflow: "expand"` is one page of full height, same width. Label cuts log ONE `label-abbreviated` summary per render, counted across pages.
-- `applyGlyphLaneCap`'s `cap` is a TOTAL column budget (dense + one shared overflow column) — collapsing fewer than two lanes saves nothing; a collapsed node keeps its row/label, only its lane position, logged as `lane-cap-collapsed`. Degrade order: lane-cap → pagination (never splitting a node from its connectors or continuation) → content truncation (`label-abbreviated`).
-- Connector corners reuse the tier's own square junction glyphs (`┌┐└┘├┤`), never new arc glyphs in glyphcss's shared tables.
+- Row/node: `* [id  ](marks)  label`; git-log ids default on. Merge above, branch below. Web Mermaid spends spare height on ≤2 stem rows/gap; others stay compact.
+- `truncated: true` permits absent older parents; open lanes end dashed (`continuation`, `lane-history-continues`).
+- `oldest-first` inverts; `continuesFrom` keeps original first-parent lane.
+- Label cuts: one `label-abbreviated` summary/render.
+- Lane cap: total columns; collapse keeps row/label (`lane-cap-collapsed`). Degrade cap → page (node+connectors) → truncate.
+
+- gitGraph → lanes: tags/types/provenance text; pick parent = head. Generated ids: stable 7-digit hex; avoid collisions. TB/LR oldest-first, BT newest-first; log LR/config fallback. Lanes: main/unordered/numeric; mainBranchOrder overrides. Scalar name/order/visibility; strip YAML comments. `GLYPH_MERMAID_GIT_SYNTAX`.
+- Mindmap → LR undirected tree: indent stack/uneven dedents/repeats; literal apostrophes. Families: bang/cloud/default rounded; hex rect. Icons/classes/config inert; plain markdown; log fallbacks. `GLYPH_MERMAID_MINDMAP_SYNTAX`.
+
+## Class/ER
+
+- `compartment`: rect/header/left `compartments: string[][]`; measure/fit rows, omit empty sections; ports off rules/corners.
+- `-` ids; spaced generics/ER backticks; literal typography; namespaces/groups/notes/rows; source-first bracket multiplicity. Config/styles/URLs inert/logged. `GLYPH_MERMAID_{CLASS,ER}_SYNTAX`.
+- UML/ER heads semantic; auto-direction; LR caption room once; CJK `label-folded`. Joined UML DAG: 1 clean caption-complete lane probe, else fallback.
+
+## Block, architecture, requirement and C4
+
+- Structured: tolerant; inert directives/assets; named errors. C4: whole-word orientations/captions before gutters; prefer width, then height; explicit direction wins.
+- Block hints: recursive grids; span N = N columns + N−1 gaps; inset 2. Words → fewer columns (`block-row-wrap`) → fitter for crowding/height/>256 (`block-layout`). Empty/spaces: blank/title + `block-empty`; JSON nonempty. Arrows: asymmetric + tag.
+- Architecture: icon tags (`database` → `[db]`), junction `+`; first source side guides direction. Ports/alignment/group edges approximate/logged; self-loop → rounded.
+- Requirements: compartments/fields/seven relations; plain markdown. C4: person rounded, Db cylinder, Queue rect, Ext marker; stereotypes; boundary groups; dynamic relation order. Index/style/layout/title/assets inert.
 
 ## Colour
 
-`nodeColor`/`edgeColor`, `laneColor`, `participantColor` take `string | ((item) => string)`, resolved once per item and checked against `bad-color` through `color.ts`, the ONE shared implementation. Root keeps a flat default; lanes/participants cycle the palette by index. `color: "none"` stays byte-identical — colour is never the only way to tell two things apart.
+`string | ((item) => string)`, once/item (`bad-color`). Lanes/participants cycle. `none`: byte-identical; never sole cue.
 
-## Invariants
+## Contracts
 
-- `GLYPH_DIAGRAM_VALIDATION_RULES` backs runtime/schema, every rule with its own repair hint. `report.ledger` is `GlyphDiagramLedgerEntry[]` `{ code, message, detail? }`.
-- `unroutable` describes final output only; a layout that doesn't fit is `layout-overflow`, never `routing-attempt`. Malformed JSON is `GLYPH_DIAGRAM_BAD_JSON`; `engine: "elk"` is `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
-- Mermaid `classDef`/`class`/`style`/`click`/`linkStyle`/`%%` are inert, never executed.
-- A loop starts at its authored-first node: canonical nodes keep authored order; a loop dagre ranks backwards is re-laid out with back edges reversed.
-- Never cut words while a whole-word fit exists. Exhaust the authored direction first (whole-word wraps, snake (`snake.ts`, LR only), in-viewport repair, expand taller at the same width), then the perpendicular under `autoDirection`, then cut words.
-- Fit uses measured labels, ports and routes, never node/edge-count cutoffs or viewport presets. Search distinct wraps and independent gaps; return edges may need widening. `autoDirection` permits the perpendicular; all modes fit before semantic degradation.
-- `overflow: "paginate"` (default) keeps exact requested canvas dimensions. `"expand"` explicitly permits a connected canvas beyond those dimensions, with `layout-expanded` diagnostics. Ladder after fitting fails: decoration → duplicates → leaf clusters → split; never decoration once it fits, except explicit `simplified`.
-- Paint order: routes → junctions → node fills → target-border arrowheads → labels; an edge label touches its own route or is dropped. Text/HTML/ANSI are separate exits, each page carrying its `canvas`.
+- Ledger: `{ code, message, detail? }`; inert config: `mermaid-degraded`.
+- `unroutable`: final output; non-fitting: `layout-overflow`, never `routing-attempt`. JSON: `GLYPH_DIAGRAM_BAD_JSON`; ELK: `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
+- Mermaid: shared `@glyphcss/core/mermaid` preprocessing; grammar scanners. `classDiagram-v2`/`flowchart-elk`: normalise/log native layout; bare flow/graph: TB. `mermaidShapes.ts`; assets inert, `mermaid-degraded`. Diamonds: measured/painted, never text/meta; source/graph parity. Clean fits keep markers; troubled fits drop all if better (`diamond-markers-dropped`), even faithful; authored/state glyphs survive. Heads: `types.ts`; bidirectional: one edge; invisible: layout only. Log syntax fallbacks. Parse once; metadata by link id.
+- Styles/interactions/comments inert; classDiagram `class` declares nodes. Folding: `label-folded`; blank rows: no text/ledger. Loops reserve blank rows too. Wrapped labels: `edge-row:` + JSON `[edgeId, rowIndex]`; own ids/colours. Compaction floor: connections, not loops.
+- `stateDiagram` → graph IR. Start/end: one glyph `point` per scope/region; `kind` is informational. Choice: diamond.
+- Points: glyph; k ports need 2k-1 transverse cells. Equal heads share bars/tips; mixed: own ports. Exit junctions on glyph row. LR snake: two-column padding. Self-edge: `point-loop`.
+- Composites: empty → state; concurrent: one frame edge/rank-only peers; others: start/first in, end/last out. Ports clear captions/dividers (≥2); align frame/root units. Self: `state-composite-loop`; sole point → rounded (`state-point-loop`).
+- Labelled regions: perpendicular fit; caption room once. Confine region routes; only drawn borders/dividers block captions and penalize routes.
+- States: reused ids → `state-shared`; equal groups: `parent`. Quotes after `state` only. `--`: scoped markers/dividers, no rings; authored regions across flow. Symbols: copies, not JSON. Omit/log empty regions. Notes → rows (composite → first child); fork/join → rounded. Nested direction/styles/config inert. Log fallbacks; bad notes/separators: named errors.
+- Self-edges: 4-cell loops: `e` (TB/BT), `s` (LR/RL). Dagre dummy only if needed. Wrap at `loopLabelWidth`, one cell past loop; include in frames/snake.
+- Loops start authored-first. Flat LR: spine/top return/feeders below targets; stack joins by column, reserve clearance, rewrap, merge bottom centres. Side joins exit laterally; margin 0 before Dagre. Validate options; other cycles: Dagre/snake.
+- Share borders before cuts/splits; wrap after `+/:`; split hyphens beyond width; log `word-cut`.
+- Fit caps: 256 expansions/128 gutters/384 routes; shared 2,500,000 units; charge sparse/nested Dagre; no resets/partial probes. Reuse routes. Exhaustion: fit/panels + captions (`render-work-limited`). Cache ≤32 clean fits; clone, key symbols/options; bypass terminal/limited work. Grow shortest first.
+- Whole words; balance tall wraps; crowded sources: gap 1. Compact ports/routes/loops/frames/moats; region gaps ≥2. Score words/crossings/frames/bends/detours/length; probes cannot add crossings/fake frames/dropped edges.
+- Snakes: occupied bands, straight turns past loops. Repair after gaps: upper band, loop room, margin 0, reroute. Fold flat TB/BT tails/suffixes LR before expansion (no loops/points); keep LR/RL siblings. Same-style fan trunks/ports; mixed/parallel/point/frame links keep lanes. Marked source heads never share ports. Feeders beside targets; no edge-owned bus.
+- Fan captions: own stems/entries; vertical fan-ins shift ≤1, centre ports. Reserve missing captions, then two margin-0 probes. Block/compartment repair: ≤96 probes/3 passes/shared budget; facing ports first; stop at clean, then captions. Block polish reduces bends.
+- `overflow: "paginate"` keeps exact size; `"expand"` grows (`layout-expanded`). Failed fit: decoration → duplicates → leaves → split; fitted decoration survives except optional diamond markers or `simplified`.
+- Frame-entry: nearer first. Paint routes/junctions/fills/heads/labels. Frame-title moat: 1. Captions: moat 1; else touch/drop (loops: 1 past). Dotted hops continuous.
 
 ## Don't
 
-- Don't reuse a canvas across renders/panels — re-registering a route can't erase its old glyphs. Don't hide an unroutable edge under a later box fill; log `unroutable`, paint no transit.
-- Don't assign reserved port slots in lexical order — dagre reorders siblings; use the laid-out transverse order. Don't use a flat compaction floor — it's per graph (`max(3, widest fan + 1)`), stepped down from caller spacing.
-- Don't move fitting into consumers, use font scaling, or accept a node bounding box without testing centered routes. Deduplicate candidates before layout; reject immovable port collisions before searching for outer routing space.
-- Don't split Mermaid statements on `;` inside quotes, `-. text .->`/`|label|` spans, or decode entities/escapes in two passes.
-
-## Gate tests
-
-Every `src/**/*.test.ts` plus `packages/compile/src/diagramCli.test.ts`. Run `pnpm --filter @glyphcss/diagrams test`/`build`. API and usage: `README.md`.
+- Don't reuse canvases or hide unroutable edges under fills; log `unroutable`.
+- Ports: sibling order. Buses share exit stubs only; keep loop slots.
+- Fit here; no font scaling. Deduplicate first.
+- No loop widening. Preserve quoted/edge/state-caption `;`.

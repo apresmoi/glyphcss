@@ -1,0 +1,91 @@
+[
+  {
+    "name": "Pie title, showData and decimal values",
+    "source": "pie showData title Pets\n\"Dogs\" : 45.5\n\"Cats\" : 32.25\n\"Birds\" : 22.25"
+  },
+  {
+    "name": "XY categories, named bar and line, point labels",
+    "source": "xychart-beta\n title \"Quarterly sales\"\n x-axis Quarter [Q1, Q2, Q3, Q4]\n y-axis Revenue 10 --> 50\n bar \"Sales\" [12, 25, 32, 42]\n line \"Goal\" [15, 25 \"Launch\", 35, 45 \"Peak\"]"
+  },
+  {
+    "name": "XY numeric ranges and signed decimal values",
+    "source": "xychart\n title Temperatures\n x-axis Hour 0 --> 12\n y-axis Celsius -5 --> 10\n line [+1.3, .6, 2.4, -.34]"
+  },
+  {
+    "name": "XY horizontal native bars and lines",
+    "source": "xychart horizontal\n title \"Regional sales\"\n x-axis [East, West, North]\n y-axis Units\n bar [10, 18, 14]\n line [12, 16, 15]"
+  },
+  {
+    "name": "Sankey quoted commas and escaped quotes",
+    "source": "sankey-beta\n\"Coal, mined\",Power,40\n\"Gas \"\"clean\"\"\",Power,60\n\nPower,Homes,70\nPower,Industry,30"
+  },
+  {
+    "name": "Sankey cyclic graph fallback",
+    "source": "sankey\nA,B,8\nB,C,5\nC,A,3",
+    "height": 5
+  },
+  {
+    "name": "Quadrant axes, captions and points",
+    "source": "quadrantChart\n title \"Campaign priorities\"\n x-axis Low Reach --> High Reach\n y-axis Low Engagement --> High Engagement\n quadrant-1 Expand\n quadrant-2 Promote\n quadrant-3 Reassess\n quadrant-4 Improve\n Campaign A: [0.3, 0.6]\n Campaign B: [0.45, 0.23]\n Campaign C: [0.67, 0.69]\n Campaign D: [0.78, 0.2]"
+  },
+  {
+    "name": "Quadrant direct and class styling with precedence",
+    "source": "quadrantChart\n title \"Styled priorities\"\n x-axis Effort\n y-axis Value\n quadrant-1 Plan\n quadrant-2 Do\n quadrant-3 Delegate\n quadrant-4 Delete\n Alpha:::hot: [0.22, 0.72] radius: 12\n Beta:::hot: [0.72, 0.22] color: #00ff33, stroke-color: #10f0f0, stroke-width: 5px\n classDef hot color: #f30, radius: 10"
+  },
+  {
+    "name": "Quadrant captions without points",
+    "source": "quadrantChart\n title Decisions\n quadrant-1 Plan\n quadrant-2 Do\n quadrant-3 Delegate\n quadrant-4 Delete",
+    "height": 12
+  },
+  {
+    "name": "Frontmatter, inert directives, comments and accessibility",
+    "source": "---\ntitle: Browser share\nconfig:\n  pie:\n    donutHole: 0.4\n---\n%%{init: {\n \"theme\": \"dark\"\n}}%%\npie\naccTitle: Browsers\naccDescr {\nShare by browser\n}\n\"Chrome\": 65 %% comment\n\"Safari\": 20\n\"Other\": 15"
+  },
+  {
+    "name": "XY minimal optional axes",
+    "source": "xychart\nline [+1.3, .6, 2.4, -.34]"
+  },
+  {
+    "name": "Sankey multiline CSV labels",
+    "source": "sankey\n\"Solar\nroof\",Grid,12\nGrid,Homes,12"
+  },
+  {
+    "name": "Pie empty data",
+    "source": "pie title Empty",
+    "height": 5
+  },
+  {
+    "name": "XY single category",
+    "source": "xychart\nx-axis [Only]\nbar [5]"
+  },
+  {
+    "name": "Quadrant free-text title punctuation",
+    "source": "quadrantChart\ntitle Cost [USD \"\nP: [0.2,0.3]",
+    "height": 12
+  },
+  {
+    "name": "XY unequal series use their own numeric x spacing",
+    "source": "xychart\n title Independent spacing\n x-axis Time 0 --> 10\n y-axis Value 0 --> 4\n line \"Short\" [1,2]\n line \"Long\" [1,3,4]",
+    "height": 16
+  },
+  {
+    "name": "XY horizontal line, category axis and point label",
+    "source": "xychart horizontal\n title Regional trend\n x-axis Region [East, West, North]\n y-axis Units 0 --> 20\n line \"Sales\" [10,18 \"Peak\",14]",
+    "height": 16
+  },
+  {
+    "name": "XY horizontal numeric line with signed values",
+    "source": "xychart horizontal\n title Numeric horizontal trend\n x-axis Hour 0 --> 10\n y-axis Value -5 --> 5\n line [1,-2,3]",
+    "height": 16
+  },
+  {
+    "name": "Pie configuration limitations are feature-specific",
+    "source": "---\nconfig:\n  pie:\n    textPosition: 0.5\n    legendPosition: left\n    donutHole: 0.4\n    highlightSlice: hover\n---\npie title Configuration stays inert\n\"A\": 1\n\"B\": 2",
+    "height": 16
+  },
+  {
+    "name": "Sankey configuration limitations are feature-specific",
+    "source": "---\nconfig:\n  sankey:\n    nodeAlignment: right\n    nodeColors: {A: \"red\"}\n    linkColor: gradient\n    labelStyle: outlined\n    nodeWidth: 20\n    nodePadding: 16\n    showValues: false\n    prefix: USD\n    suffix: TWh\n    width: 800\n    height: 400\n---\nsankey\nA,B,2",
+    "height": 8
+  }
+]

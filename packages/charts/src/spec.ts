@@ -35,6 +35,11 @@ export function glyphChartBar(data: GlyphChartMark["data"], channels?: GlyphChar
   return mark("bar", data, channels, options);
 }
 
+/** Flat hierarchy records; branch values are derived from their children. */
+export function glyphChartTreemap(data: GlyphChartMark["data"], channels: GlyphChartChannels = { id: "id", parent: "parent", value: "value", label: "label" }, options?: GlyphChartMarkOptions): GlyphChartMark {
+  return mark("treemap", data, channels, options);
+}
+
 export function glyphChartDot(data: GlyphChartMark["data"], channels?: GlyphChartChannels, options?: GlyphChartMarkOptions): GlyphChartMark {
   return mark("dot", data, channels, options);
 }

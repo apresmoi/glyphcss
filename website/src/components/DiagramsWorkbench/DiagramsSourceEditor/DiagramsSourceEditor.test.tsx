@@ -452,7 +452,7 @@ describe("DiagramsSourceEditor", () => {
     const select = Array.from(container.querySelectorAll<HTMLSelectElement>("select.diagrams-editor-choice-select"))
       .find((el) => Array.from(el.options).some((o) => o.textContent!.startsWith("Rectangle")))!;
     const labels = Array.from(select.options).map((o) => o.textContent!.split("   ")[0]);
-    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cylinder"]);
+    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cylinder", "Point"]);
     expect(Array.from(select.options)[2]!.textContent).toContain("<D>"); // the live preview rides in the option text
     await act(async () => {
       select.value = select.options[2]!.value;

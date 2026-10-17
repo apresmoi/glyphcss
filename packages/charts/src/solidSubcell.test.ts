@@ -1,3 +1,4 @@
+// Named-line fixtures g11/g26 include the approved separator correction (reviewFixtures exception 16).
 /**
  * `regionFill` follow-ups:
  *

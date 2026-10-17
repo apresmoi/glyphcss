@@ -1,0 +1,11 @@
+ a) empty 3D box (the galaxy, ~30 kpc wide)
+        │
+ b) fill with stars ──▶ each paper adds its part (discs, bar, arms, young stars)
+        │
+ c) paint colours  ──▶ each star type gets its colour; younger and bluer outward
+        │
+ d) fill with dust ──▶ the 3 maps, blended where they meet
+        │
+ e) shine light through it ──▶ dust dims and reddens the light, and scatters some of it
+        │
+ f) camera ──▶ photo from Earth, from above, from the side

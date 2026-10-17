@@ -1,0 +1,797 @@
+{
+  "flowchart": {
+    "hash": null,
+    "labels": [
+      "Cart",
+      "Dispatch",
+      "In",
+      "Notify",
+      "Pack",
+      "Reserve",
+      "Send",
+      "Take",
+      "Wait",
+      "buyer",
+      "items",
+      "list",
+      "order",
+      "payment",
+      "ready",
+      "receipt",
+      "stock?"
+    ],
+    "nodes": [
+      "cart",
+      "charge",
+      "notify",
+      "pack",
+      "receipt",
+      "reserve",
+      "ship",
+      "stock",
+      "wait"
+    ],
+    "edges": [
+      "edge:[\"cart\",\"stock\",\"\",\"solid\",0]:0",
+      "edge:[\"charge\",\"pack\",\"\",\"solid\",0]:0",
+      "edge:[\"pack\",\"ship\",\"\",\"solid\",0]:0",
+      "edge:[\"reserve\",\"charge\",\"\",\"thick\",0]:0",
+      "edge:[\"ship\",\"receipt\",\"\",\"dotted\",0]:0",
+      "edge:[\"stock\",\"reserve\",\"yes\",\"solid\",0]:0",
+      "edge:[\"stock\",\"wait\",\"no\",\"dotted\",0]:0",
+      "edge:[\"wait\",\"notify\",\"\",\"dotted\",0]:0"
+    ]
+  },
+  "graph": {
+    "hash": "37dcbc1f82cc5d9e79558991de027fb6df0151af942dc28e4d9595b3ec4cd830",
+    "labels": [
+      "All",
+      "Lint",
+      "Unit",
+      "fail",
+      "pass"
+    ],
+    "nodes": [
+      "audit",
+      "canary",
+      "gate",
+      "lint",
+      "promote",
+      "repair",
+      "report",
+      "stage",
+      "unit"
+    ],
+    "edges": [
+      "edge:[\"audit\",\"gate\",\"\",\"dotted\",0]:0",
+      "edge:[\"canary\",\"promote\",\"\",\"solid\",0]:0",
+      "edge:[\"gate\",\"repair\",\"fail\",\"solid\",0]:0",
+      "edge:[\"gate\",\"stage\",\"pass\",\"solid\",0]:0",
+      "edge:[\"lint\",\"gate\",\"\",\"solid\",0]:0",
+      "edge:[\"repair\",\"report\",\"\",\"dotted\",0]:0",
+      "edge:[\"stage\",\"canary\",\"\",\"thick\",0]:0",
+      "edge:[\"unit\",\"gate\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "stateDiagram": {
+    "hash": null,
+    "labels": [
+      "Authorize",
+      "Captured",
+      "Declined",
+      "Draft",
+      "Key",
+      "Note:",
+      "Packing",
+      "Shipped",
+      "order",
+      "per",
+      "◆",
+      "◉",
+      "●"
+    ],
+    "nodes": [
+      "Authorize",
+      "Captured",
+      "Check",
+      "Declined",
+      "Draft",
+      "Packing",
+      "Shipped",
+      "[*]:end",
+      "[*]:end:Payment",
+      "[*]:start",
+      "[*]:start:Payment"
+    ],
+    "edges": [
+      "edge:[\"Authorize\",\"Check\",\"response\",\"solid\",0]:0",
+      "edge:[\"Captured\",\"[*]:end:Payment\",\"\",\"solid\",0]:0",
+      "edge:[\"Check\",\"Captured\",\"approved\",\"solid\",0]:0",
+      "edge:[\"Check\",\"Declined\",\"refused\",\"solid\",0]:0",
+      "edge:[\"Declined\",\"[*]:end:Payment\",\"\",\"solid\",0]:0",
+      "edge:[\"Draft\",\"[*]:start:Payment\",\"submit\",\"solid\",0]:0",
+      "edge:[\"Packing\",\"Shipped\",\"dispatch\",\"solid\",0]:0",
+      "edge:[\"Shipped\",\"[*]:end\",\"\",\"solid\",0]:0",
+      "edge:[\"[*]:end:Payment\",\"Packing\",\"paid\",\"solid\",0]:0",
+      "edge:[\"[*]:start\",\"Draft\",\"\",\"solid\",0]:0",
+      "edge:[\"[*]:start:Payment\",\"Authorize\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "sequenceDiagram": {
+    "hash": "ea4f561e2668016a379bf0a1e97de409650c82d44d938877780bfac8ee7bb795"
+  },
+  "classDiagram": {
+    "hash": "824df0727e8f6455368295dfbc65f1cad7b62722581c823db6df60c59b23e5fd",
+    "labels": [
+      "<<interface>>",
+      "Account",
+      "Buyer",
+      "Card",
+      "Line",
+      "Order",
+      "Payment",
+      "[*]",
+      "[1]",
+      "audits",
+      "charges",
+      "contains",
+      "places",
+      "refunds",
+      "stores"
+    ],
+    "nodes": [
+      "Account",
+      "Buyer",
+      "Card",
+      "Line",
+      "Order",
+      "Payment"
+    ],
+    "edges": [
+      "edge:[\"Account\",\"Buyer\",\"\",\"solid\",0,\"triangle\",\"none\",null]:0",
+      "edge:[\"Account\",\"Payment\",\"audits\",\"dotted\",0,\"none\",\"none\",null]:0",
+      "edge:[\"Buyer\",\"Card\",\"stores\",\"solid\",0,\"open-diamond\",\"none\",null]:0",
+      "edge:[\"Buyer\",\"Order\",\"[1] places [*]\",\"solid\",0,\"none\",\"arrow\",null]:0",
+      "edge:[\"Card\",\"Payment\",\"\",\"dotted\",0,\"none\",\"triangle\",null]:0",
+      "edge:[\"Line\",\"Payment\",\"refunds\",\"solid\",0,\"none\",\"none\",null]:0",
+      "edge:[\"Order\",\"Line\",\"[1] contains [*]\",\"solid\",0,\"filled-diamond\",\"none\",null]:0",
+      "edge:[\"Order\",\"Payment\",\"charges\",\"dotted\",0,\"none\",\"arrow\",null]:0"
+    ]
+  },
+  "erDiagram": {
+    "hash": "c1b5d4dfcdf8bc720002f17c7e04c9127dfdbed708315ab8fdacc551c00cbbe1",
+    "labels": [
+      "CUSTOMER",
+      "LINE",
+      "ORDER",
+      "PAYMENT",
+      "PRODUCT",
+      "appears",
+      "contains",
+      "places",
+      "settles"
+    ],
+    "nodes": [
+      "CUSTOMER",
+      "LINE",
+      "ORDER",
+      "PAYMENT",
+      "PRODUCT"
+    ],
+    "edges": [
+      "edge:[\"CUSTOMER\",\"ORDER\",\"places\",\"solid\",0,\"er-one\",\"er-zero-many\",null]:0",
+      "edge:[\"ORDER\",\"LINE\",\"contains\",\"solid\",0,\"er-one\",\"er-many\",null]:0",
+      "edge:[\"ORDER\",\"PAYMENT\",\"settles\",\"solid\",0,\"er-one\",\"er-zero-one\",null]:0",
+      "edge:[\"PRODUCT\",\"LINE\",\"appears\",\"solid\",0,\"er-one\",\"er-zero-many\",null]:0"
+    ]
+  },
+  "mindmap": {
+    "hash": "d6e32e0bf6d29cf8caeaebb095fb59ca7da90ca176d644afbe2e60ac4914feea",
+    "labels": [
+      "Analytics",
+      "Checkout",
+      "Growth",
+      "Onboarding",
+      "Platform",
+      "Portal",
+      "Product",
+      "Reliability",
+      "Search",
+      "Security",
+      "launch"
+    ],
+    "nodes": [
+      "mindmap:0",
+      "mindmap:1",
+      "mindmap:12",
+      "mindmap:15",
+      "mindmap:16",
+      "mindmap:19",
+      "mindmap:2",
+      "mindmap:5",
+      "mindmap:8",
+      "mindmap:9"
+    ],
+    "edges": [
+      "edge:[\"mindmap:0\",\"mindmap:1\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:0\",\"mindmap:15\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:0\",\"mindmap:8\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:1\",\"mindmap:2\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:1\",\"mindmap:5\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:12\",\"mindmap:13\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:15\",\"mindmap:16\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:15\",\"mindmap:19\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:16\",\"mindmap:17\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:19\",\"mindmap:20\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:2\",\"mindmap:3\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:5\",\"mindmap:6\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:8\",\"mindmap:12\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:8\",\"mindmap:9\",\"\",\"undirected\",0,null,\"none\",null]:0",
+      "edge:[\"mindmap:9\",\"mindmap:10\",\"\",\"undirected\",0,null,\"none\",null]:0"
+    ]
+  },
+  "gitGraph": {
+    "hash": "7e3e3dfb7fd636874482428703ba39c2d932e8de64763c6dd6c5c07bb5999f4f",
+    "terminalHash": "413ca6224a3aa8a7fe574df713e26781d91d29ec22f6bde82dcdad33fc41f6e1",
+    "labels": [
+      "4634a00",
+      "HIGHLIGHT",
+      "Payment",
+      "Portal",
+      "Rank",
+      "Receipt",
+      "Search",
+      "Ship",
+      "baseline",
+      "checkout",
+      "cherry-pick:",
+      "emails",
+      "index",
+      "keys",
+      "main",
+      "merge",
+      "release",
+      "results",
+      "search",
+      "tag:",
+      "v1.0",
+      "v1.1"
+    ],
+    "nodes": [],
+    "edges": []
+  },
+  "block": {
+    "hash": "76bbe91c0049f50c1b577ce2430d2483cc250efd7de82113ebe22dad1e11f8c7",
+    "labels": [
+      "API",
+      "Auth",
+      "Cache",
+      "Job",
+      "Mobile",
+      "Order",
+      "Orders",
+      "Rate",
+      "Web",
+      "Worker",
+      "app",
+      "limit",
+      "queue"
+    ],
+    "nodes": [
+      "api",
+      "auth",
+      "cache",
+      "mobile",
+      "orders",
+      "queue",
+      "quota",
+      "web",
+      "worker"
+    ],
+    "edges": [
+      "edge:[\"api\",\"orders\",\"\",\"solid\",0]:0",
+      "edge:[\"api\",\"queue\",\"\",\"solid\",0]:0",
+      "edge:[\"mobile\",\"api\",\"\",\"solid\",0]:0",
+      "edge:[\"web\",\"api\",\"\",\"solid\",0]:0",
+      "edge:[\"worker\",\"cache\",\"\",\"solid\",0]:0",
+      "edge:[\"worker\",\"queue\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "architecture": {
+    "hash": "9ad695b500d4ce415b5e779a63cab771eb416ebce3ca079b9d706e3f06517611",
+    "labels": [
+      "Jobs",
+      "[db]"
+    ],
+    "nodes": [
+      "browser",
+      "db",
+      "files",
+      "gateway",
+      "jobs",
+      "orders"
+    ],
+    "edges": [
+      "edge:[\"browser\",\"gateway\",\"\",\"solid\",0,\"none\",\"arrow\",null]:0",
+      "edge:[\"gateway\",\"orders\",\"\",\"solid\",0,\"none\",\"arrow\",null]:0",
+      "edge:[\"jobs\",\"files\",\"\",\"solid\",0,\"none\",\"arrow\",null]:0",
+      "edge:[\"orders\",\"db\",\"\",\"solid\",0,\"none\",\"arrow\",null]:0",
+      "edge:[\"orders\",\"jobs\",\"\",\"solid\",0,\"none\",\"arrow\",null]:0"
+    ]
+  },
+  "requirementDiagram": {
+    "hash": "a3435ff069699d1aab00e21d610211c6fc8f204b869f06ae1f06610804045d41",
+    "labels": [
+      "<<element>>",
+      "<<functionalRequirement>>",
+      "<<performanceRequirement>>",
+      "<<requirement>>",
+      "api",
+      "fast",
+      "receipt",
+      "safe",
+      "satisfies",
+      "suite",
+      "verifies"
+    ],
+    "nodes": [
+      "api",
+      "fast",
+      "receipt",
+      "safe",
+      "suite"
+    ],
+    "edges": [
+      "edge:[\"api\",\"fast\",\"satisfies\",\"dotted\",0]:0",
+      "edge:[\"api\",\"receipt\",\"satisfies\",\"dotted\",0]:0",
+      "edge:[\"api\",\"safe\",\"satisfies\",\"dotted\",0]:0",
+      "edge:[\"suite\",\"receipt\",\"verifies\",\"dotted\",0]:0",
+      "edge:[\"suite\",\"safe\",\"verifies\",\"dotted\",0]:0"
+    ]
+  },
+  "C4Context": {
+    "hash": "dfa53e518f0ac2f31ad275e6263f01b9a17fd10b29311ef0ce16e3bcd962cc9c",
+    "labels": [
+      "Bank",
+      "Browse",
+      "Buyer",
+      "Card",
+      "Charges",
+      "Fulfil",
+      "Mail",
+      "Places",
+      "Portal",
+      "and",
+      "buy",
+      "notices",
+      "orders"
+    ],
+    "nodes": [
+      "bank",
+      "buyer",
+      "mail",
+      "ops",
+      "portal"
+    ],
+    "edges": [
+      "edge:[\"buyer\",\"portal\",\"Orders\",\"solid\",0]:0",
+      "edge:[\"ops\",\"mail\",\"Notifies\",\"solid\",0]:0",
+      "edge:[\"portal\",\"bank\",\"Charges\",\"solid\",0]:0",
+      "edge:[\"portal\",\"ops\",\"Dispatches\",\"solid\",0]:0"
+    ]
+  },
+  "C4Container": {
+    "hash": null,
+    "labels": [
+      "API",
+      "Bank",
+      "Buyer",
+      "Cart",
+      "Customer",
+      "Node",
+      "Order",
+      "Payments",
+      "React",
+      "Web",
+      "[person]",
+      "[system,",
+      "and",
+      "app",
+      "checkout",
+      "workflow"
+    ],
+    "nodes": [
+      "api",
+      "bank",
+      "buyer",
+      "web"
+    ],
+    "edges": [
+      "edge:[\"api\",\"bank\",\"Pays\",\"solid\",0]:0",
+      "edge:[\"api\",\"db\",\"Stores [SQL]\",\"solid\",0]:0",
+      "edge:[\"buyer\",\"web\",\"Browses\",\"solid\",0]:0",
+      "edge:[\"web\",\"api\",\"Submits [HTTPS]\",\"solid\",0]:0"
+    ]
+  },
+  "C4Component": {
+    "hash": null,
+    "labels": [
+      "Accept",
+      "Bank",
+      "Buyer",
+      "Check",
+      "Checkout",
+      "Customer",
+      "HTTP",
+      "Orders",
+      "Payments",
+      "Policy",
+      "Postgres",
+      "Repository",
+      "Rules",
+      "SQL",
+      "Save",
+      "[component]",
+      "[container",
+      "[person]",
+      "[system,",
+      "cart",
+      "db]",
+      "external]",
+      "order",
+      "purchase"
+    ],
+    "nodes": [
+      "bank",
+      "buyer",
+      "db",
+      "handler",
+      "policy",
+      "repo"
+    ],
+    "edges": [
+      "edge:[\"buyer\",\"handler\",\"Submits\",\"solid\",0]:0",
+      "edge:[\"handler\",\"policy\",\"Validates\",\"solid\",0]:0",
+      "edge:[\"policy\",\"bank\",\"Authorizes\",\"solid\",0]:0",
+      "edge:[\"policy\",\"repo\",\"Persists\",\"solid\",0]:0",
+      "edge:[\"repo\",\"db\",\"Writes\",\"solid\",0]:0"
+    ]
+  },
+  "C4Deployment": {
+    "hash": null,
+    "labels": [
+      "API",
+      "Bank",
+      "Buyer",
+      "Customer",
+      "Node",
+      "Order",
+      "Orders",
+      "Payments",
+      "Postgres",
+      "React",
+      "Web",
+      "Worker",
+      "[container",
+      "[container]",
+      "[person]",
+      "[system,",
+      "app",
+      "db]",
+      "external]"
+    ],
+    "nodes": [
+      "api",
+      "bank",
+      "buyer",
+      "db",
+      "web",
+      "worker"
+    ],
+    "edges": [
+      "edge:[\"api\",\"bank\",\"Charges\",\"solid\",0]:0",
+      "edge:[\"api\",\"worker\",\"Dispatches\",\"solid\",0]:0",
+      "edge:[\"buyer\",\"web\",\"Browses\",\"solid\",0]:0",
+      "edge:[\"web\",\"api\",\"Calls [HTTPS]\",\"solid\",0]:0",
+      "edge:[\"worker\",\"db\",\"Updates\",\"solid\",0]:0"
+    ]
+  },
+  "C4Dynamic": {
+    "hash": "39398416b7492aac183ab1600275f67ee7597ae4618168296f869a21dca644b9",
+    "labels": [
+      "3:",
+      "5:",
+      "API",
+      "Authorize",
+      "Bank",
+      "Buyer",
+      "Confirm",
+      "Node",
+      "Order",
+      "Orders",
+      "React",
+      "Web",
+      "app",
+      "db]"
+    ],
+    "nodes": [
+      "api",
+      "bank",
+      "buyer",
+      "db",
+      "web"
+    ],
+    "edges": [
+      "edge:[\"api\",\"bank\",\"3: Authorize\",\"solid\",0]:0",
+      "edge:[\"api\",\"db\",\"4: Save order\",\"solid\",0]:0",
+      "edge:[\"api\",\"web\",\"5: Confirm\",\"solid\",0]:0",
+      "edge:[\"buyer\",\"web\",\"1: Submit cart\",\"solid\",0]:0",
+      "edge:[\"web\",\"api\",\"2: Place order\",\"solid\",0]:0",
+      "edge:[\"web\",\"buyer\",\"6: Show receipt\",\"solid\",0]:0"
+    ]
+  },
+  "native/chain": {
+    "hash": "0a3fec123f8e9ee2d107fa74bcadc57282405fb352317cf43b2fec5855ea1983",
+    "labels": [
+      "Input",
+      "Parse",
+      "Render"
+    ],
+    "nodes": [
+      "input",
+      "parse",
+      "render"
+    ],
+    "edges": [
+      "edge:[\"input\",\"parse\",\"\",\"solid\",0]:0",
+      "edge:[\"parse\",\"render\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/diamond": {
+    "hash": "658580c99f94625d6801dbc43872d60e5eb70dd3bc6b4a79f92a7f87e6581c7a",
+    "labels": [
+      "Done",
+      "Ready?",
+      "Request",
+      "Wait",
+      "Work",
+      "no",
+      "yes"
+    ],
+    "nodes": [
+      "check",
+      "done",
+      "request",
+      "wait",
+      "work"
+    ],
+    "edges": [
+      "edge:[\"check\",\"wait\",\"no\",\"solid\",0]:0",
+      "edge:[\"check\",\"work\",\"yes\",\"solid\",0]:0",
+      "edge:[\"request\",\"check\",\"\",\"solid\",0]:0",
+      "edge:[\"wait\",\"done\",\"\",\"solid\",0]:0",
+      "edge:[\"work\",\"done\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/fan-out": {
+    "hash": "3b952cc09d770f2536abf6d9f900990104ed844511acfe13cbf42d9ba4ba4232",
+    "labels": [
+      "Code",
+      "Docs",
+      "Review",
+      "Task",
+      "Test"
+    ],
+    "nodes": [
+      "code",
+      "docs",
+      "review",
+      "task",
+      "test"
+    ],
+    "edges": [
+      "edge:[\"code\",\"review\",\"\",\"solid\",0]:0",
+      "edge:[\"docs\",\"review\",\"\",\"solid\",0]:0",
+      "edge:[\"task\",\"code\",\"\",\"solid\",0]:0",
+      "edge:[\"task\",\"docs\",\"\",\"solid\",0]:0",
+      "edge:[\"task\",\"test\",\"\",\"solid\",0]:0",
+      "edge:[\"test\",\"review\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/cycle": {
+    "hash": "9a117710bff8fa80c8537ba153de5f1d8288622831348925162412cce0da6ac6",
+    "labels": [
+      "Build",
+      "Check",
+      "Plan",
+      "retry"
+    ],
+    "nodes": [
+      "build",
+      "check",
+      "plan"
+    ],
+    "edges": [
+      "edge:[\"build\",\"check\",\"\",\"solid\",0]:0",
+      "edge:[\"check\",\"plan\",\"retry\",\"dotted\",0]:0",
+      "edge:[\"plan\",\"build\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/subgraph": {
+    "hash": "a6827e10dd22244e5b6a5309982342516ba12c13df0ef75e579cf58f62f4dcea",
+    "labels": [
+      "Agent",
+      "Input",
+      "Output",
+      "Tools"
+    ],
+    "nodes": [
+      "agent",
+      "input",
+      "output",
+      "tools"
+    ],
+    "edges": [
+      "edge:[\"agent\",\"tools\",\"\",\"solid\",0]:0",
+      "edge:[\"input\",\"agent\",\"\",\"solid\",0]:0",
+      "edge:[\"tools\",\"output\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/langgraph": {
+    "hash": "10b71d6b93c2cbf65967fce20c03e217b0c64a9b1881c721ef3b859ab26dd93a",
+    "labels": [
+      "__end__",
+      "__start__",
+      "agent",
+      "tools"
+    ],
+    "nodes": [
+      "__end__",
+      "__start__",
+      "agent",
+      "tools"
+    ],
+    "edges": [
+      "edge:[\"__start__\",\"agent\",\"\",\"solid\",0]:0",
+      "edge:[\"agent\",\"__end__\",\"__end__\",\"dotted\",0]:0",
+      "edge:[\"agent\",\"tools\",\"\",\"solid\",0]:0",
+      "edge:[\"tools\",\"agent\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/crew": {
+    "hash": "94c6efaae985c28da0f732c44a4dc2fe4f2d34411b3840ada6b23830d83558fb",
+    "labels": [
+      "revise"
+    ],
+    "nodes": [
+      "manager",
+      "request",
+      "researcher",
+      "result",
+      "review",
+      "writer"
+    ],
+    "edges": [
+      "edge:[\"manager\",\"researcher\",\"\",\"solid\",0]:0",
+      "edge:[\"request\",\"manager\",\"\",\"solid\",0]:0",
+      "edge:[\"researcher\",\"writer\",\"\",\"solid\",0]:0",
+      "edge:[\"review\",\"result\",\"approved\",\"solid\",0]:0",
+      "edge:[\"review\",\"writer\",\"revise\",\"dotted\",0]:0",
+      "edge:[\"writer\",\"review\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/agent-guardrail": {
+    "hash": "e64b18bc74b8b18b3e05ceb2d5b15e74600cc5dd9c76ff4030cb785680e7209d",
+    "labels": [
+      "retry"
+    ],
+    "nodes": [
+      "answer",
+      "coder",
+      "guard",
+      "memory",
+      "researcher",
+      "supervisor",
+      "tools",
+      "user"
+    ],
+    "edges": [
+      "edge:[\"coder\",\"memory\",\"\",\"solid\",0]:0",
+      "edge:[\"guard\",\"answer\",\"ok\",\"solid\",0]:0",
+      "edge:[\"guard\",\"supervisor\",\"retry\",\"dotted\",0]:0",
+      "edge:[\"memory\",\"guard\",\"\",\"solid\",0]:0",
+      "edge:[\"researcher\",\"tools\",\"\",\"solid\",0]:0",
+      "edge:[\"supervisor\",\"coder\",\"\",\"solid\",0]:0",
+      "edge:[\"supervisor\",\"researcher\",\"\",\"solid\",0]:0",
+      "edge:[\"tools\",\"guard\",\"\",\"solid\",0]:0",
+      "edge:[\"user\",\"supervisor\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/transformer-block": {
+    "hash": "c90b931dc69464390a469a9cf7507700e195af894bd8ba373236796b036a173d",
+    "labels": [
+      "&",
+      "1",
+      "2",
+      "K",
+      "Q",
+      "V"
+    ],
+    "nodes": [
+      "k",
+      "lin1",
+      "lin2",
+      "norm1",
+      "norm2",
+      "q",
+      "sdpa",
+      "v"
+    ],
+    "edges": [
+      "edge:[\"k\",\"sdpa\",\"\",\"solid\",0]:0",
+      "edge:[\"lin1\",\"lin2\",\"\",\"solid\",0]:0",
+      "edge:[\"lin2\",\"norm2\",\"\",\"solid\",0]:0",
+      "edge:[\"norm1\",\"lin1\",\"\",\"solid\",0]:0",
+      "edge:[\"q\",\"sdpa\",\"\",\"solid\",0]:0",
+      "edge:[\"sdpa\",\"norm1\",\"\",\"solid\",0]:0",
+      "edge:[\"v\",\"sdpa\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/rag-pipeline": {
+    "hash": "bf39a9d9461543627c86189c646d5acfc401ed34a8bf255d8996225d8215e6da",
+    "labels": [
+      "+",
+      "Query"
+    ],
+    "nodes": [
+      "docs",
+      "generate",
+      "index",
+      "prep",
+      "qembed",
+      "query",
+      "rerank",
+      "retrieve"
+    ],
+    "edges": [
+      "edge:[\"docs\",\"prep\",\"\",\"solid\",0]:0",
+      "edge:[\"index\",\"retrieve\",\"\",\"solid\",0]:0",
+      "edge:[\"prep\",\"index\",\"\",\"solid\",0]:0",
+      "edge:[\"qembed\",\"retrieve\",\"\",\"solid\",0]:0",
+      "edge:[\"query\",\"qembed\",\"\",\"solid\",0]:0",
+      "edge:[\"rerank\",\"generate\",\"\",\"solid\",0]:0",
+      "edge:[\"retrieve\",\"rerank\",\"\",\"solid\",0]:0"
+    ]
+  },
+  "native/event-queue": {
+    "hash": "a2b9669c0b0fa93e84977e13d0ce0d2ca878b2eb437cb76603d41ae66fbf412e",
+    "labels": [
+      "Dead",
+      "OK?",
+      "no",
+      "svc"
+    ],
+    "nodes": [
+      "dlq",
+      "doneA",
+      "doneB",
+      "ok1",
+      "ok2",
+      "orders",
+      "payments",
+      "producer",
+      "queue"
+    ],
+    "edges": [
+      "edge:[\"ok1\",\"dlq\",\"no\",\"solid\",0]:0",
+      "edge:[\"ok1\",\"doneA\",\"yes\",\"solid\",0]:0",
+      "edge:[\"ok2\",\"dlq\",\"no\",\"solid\",0]:0",
+      "edge:[\"ok2\",\"doneB\",\"yes\",\"solid\",0]:0",
+      "edge:[\"orders\",\"ok1\",\"\",\"solid\",0]:0",
+      "edge:[\"payments\",\"ok2\",\"\",\"solid\",0]:0",
+      "edge:[\"producer\",\"queue\",\"\",\"solid\",0]:0",
+      "edge:[\"queue\",\"orders\",\"\",\"solid\",0]:0",
+      "edge:[\"queue\",\"payments\",\"\",\"solid\",0]:0"
+    ]
+  }
+}

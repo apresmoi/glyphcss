@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { GLYPH_CANVAS_TIERS } from "glyphcss";
 import { renderGlyphDiagram } from "./render";
+import { computeGlyphDiagramQuality } from "./quality";
 import { glyphGraphFromMermaid } from "./mermaid";
 import { glyphDiagramRectsOverlap } from "./labels";
 import { paintGlyphDiagram } from "./paint";
@@ -18,7 +19,7 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     expect(r.pages).toHaveLength(1);
     expect(r.routes).toHaveLength(graph.edges.length);
     expect(r.report.unroutable).toEqual([]);
-    expect(r.report.ledger).toEqual([]);
+    expect(r.report.ledger.map(entry => entry.code)).toEqual([...(name === "diamond" || name === "cycle" ? ["budget-compaction"] : []), ]);
     expect(r.layout.nodes).toHaveLength(graph.nodes.length);
     for (const route of r.routes) {
       for (const p of route.cells) expect(r.layout.nodes.some((n) => inside(p, n)), route.edge.id).toBe(false);
@@ -30,6 +31,9 @@ for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph", "langgra
     const segments = r.routes.map((route) => route.cells.slice(1).map((b, i) => ({ a: route.cells[i]!, b, horizontal: b.y === route.cells[i]!.y })));
     for (let a = 0; a < segments.length; a++) for (let b = a + 1; b < segments.length; b++) for (const p of segments[a]!) for (const q of segments[b]!) {
       if (p.horizontal !== q.horizontal) continue;
+      const shared = r.layout.ports.some(port => port.edgeId === r.routes[a]!.edge.id && port.trunk
+        && r.layout.ports.some(other => other.edgeId === r.routes[b]!.edge.id && other.trunk === port.trunk));
+      if (shared && (p.horizontal ? p.a.y === q.a.y : p.a.x === q.a.x)) continue;
       if (p.horizontal && Math.max(Math.min(p.a.x, p.b.x), Math.min(q.a.x, q.b.x)) <= Math.min(Math.max(p.a.x, p.b.x), Math.max(q.a.x, q.b.x))) expect(Math.abs(p.a.y - q.a.y)).toBeGreaterThanOrEqual(2);
       if (!p.horizontal && Math.max(Math.min(p.a.y, p.b.y), Math.min(q.a.y, q.b.y)) <= Math.min(Math.max(p.a.y, p.b.y), Math.max(q.a.y, q.b.y))) expect(Math.abs(p.a.x - q.a.x)).toBeGreaterThanOrEqual(2);
     }
@@ -193,6 +197,16 @@ it.each(["agent-guardrail", "rag-pipeline", "subgraph", "transformer-block", "cr
     expect(boundaryCellsChecked).toBeGreaterThan(0);
   },
 );
+it("agent-guardrail: clearing the Workers entry corridor preserves whole labels", async () => {
+  const r = await renderGlyphDiagram(fixture("agent-guardrail"), { target: "web" });
+  const quality = computeGlyphDiagramQuality(r, { width: 96, height: 32 });
+  expect(r.pages).toHaveLength(1);
+  expect(quality.wordCuts).toBe(0);
+  expect(quality.crossings).toBeLessThanOrEqual(2);
+  expect(quality.droppedEdges).toBe(0);
+  expect(quality.droppedLabels).toBe(0);
+  expect(collinearViolations(r).violations).toEqual([]);
+});
 // `agent-supervisor` and `event-queue` are the two shipped fixtures where
 // this is PROVEN structurally unavoidable, not merely untried: every
 // alternative route for the one offending edge in each (`supervisor ->
@@ -311,8 +325,9 @@ it("reserves both side capacities before centering ports and canonicalizes every
   const graph = glyphGraphFromMermaid("graph TB; Z --> H; H --> A & B & C & D & E & F");
   const reserved = reserveGlyphGraphPorts(measureGlyphGraph(graph));
   const hub = reserved.nodes.find((n) => n.id === "H")!;
-  expect(hub.width).toBe(13);
-  expect(reserved.ports.find((p) => p.nodeId === "H" && p.end === "to")!.offset).toBe(6);
+  expect(hub.width).toBe(5);
+  expect(new Set(reserved.ports.filter(port => port.nodeId === "H" && port.end === "from").map(port => port.offset))).toEqual(new Set([2]));
+  expect(reserved.ports.find((p) => p.nodeId === "H" && p.end === "to")!.offset).toBe(2);
   const canonical = canonicalizeGlyphGraph({ ...graph, groups: [{ id: "z", members: ["Z", "H"] }, { id: "a", members: ["B", "A"] }] });
   // Nodes keep their authored order: it decides where a loop starts.
   expect(canonical.nodes.map((node) => node.id)).toEqual(graph.nodes.map((node) => node.id));
@@ -331,7 +346,7 @@ it.each(["box", "ascii"] as const)("%s painter distinguishes a real merge from a
   const vertical = Array.from({ length: 7 }, (_, y) => ({ x: 5, y: y + 1 }));
   const first = { id: "a", from: "left", to: "right", style: "undirected" as const };
   const second = { id: "b", from: "top", to: "bottom", style: "undirected" as const };
-  const layout = { nodes: [], edges: [first, second], ports: [], groups: [], direction: "TB" as const, width: 12, height: 10, ledger: [] };
+  const layout = { nodes: [], edges: [first, second], ports: [], groups: [], direction: "TB" as const, loops: [], width: 12, height: 10, ledger: [] };
   const crossing = paintGlyphDiagram(layout, { routes: [{ edge: first, cells: horizontal }, { edge: second, cells: vertical }], unroutable: [], ledger: [] }, { width: 12, height: 10, charset });
   expect(crossing.canvas.grid.char[4 * 12 + 5]).toBe(GLYPH_CANVAS_TIERS[charset].hop.h);
   expect(crossing.ledger).toEqual([]);

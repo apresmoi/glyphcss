@@ -6,7 +6,8 @@
  * disagree.
  */
 
-import { validateFiniteData } from "./validate";
+import { resolveTreemapRows } from "./treemap";
+import { ISO_DATE_PATTERN, timeValue, validateFiniteData } from "./validate";
 import { materializeGlyphChartMarkRows } from "./channels";
 import { applyGlyphChartTransform } from "./transforms";
 import { resolveFunnelRows, resolveSankeyRows } from "./flowMarks";
@@ -17,10 +18,12 @@ export interface GlyphChartResolvedMark {
   /** Populated for every mark type except `rule`. */
   readonly rows: readonly GlyphChartMarkRow[];
   /** Populated only for `rule` marks: raw positions along `mark.options.axis`. */
-  readonly ruleValues?: readonly number[];
+  readonly ruleValues?: readonly (number | Date)[];
 }
 
-function resolveRuleValues(mark: GlyphChartMark): number[] {
+const ISO_RULE_DATE = new RegExp(ISO_DATE_PATTERN);
+
+function resolveRuleValues(mark: GlyphChartMark): (number | Date)[] {
   // `glyphChartRule` stores its values directly as `mark.data` (numbers);
   // a hand-built rule mark may instead carry record data with a channel
   // named for its own axis (e.g. `channels.y` for an axis:"y" rule).
@@ -29,11 +32,12 @@ function resolveRuleValues(mark: GlyphChartMark): number[] {
   }
   const axis = mark.options?.axis ?? "y";
   const rows = materializeGlyphChartMarkRows({ ...mark, channels: { x: mark.channels.x, y: mark.channels.y } });
-  return rows.map((r) => Number(axis === "x" ? r.x : r.y)).filter(Number.isFinite);
+  return rows.map((r) => axis === "x" ? r.x : r.y).map((v) => v instanceof Date ? v : typeof v === "string" && ISO_RULE_DATE.test(v) ? timeValue(v) : Number(v)).filter((v) => v instanceof Date ? Number.isFinite(v.getTime()) : Number.isFinite(v));
 }
 
 export function resolveGlyphChartSpec(spec: GlyphChartSpec): GlyphChartResolvedMark[] {
   return spec.marks.map((mark) => {
+    if (mark.type === "treemap") return { mark, rows: resolveTreemapRows(mark) };
     if (mark.type === "rule") {
       return { mark, rows: [], ruleValues: resolveRuleValues(mark) };
     }

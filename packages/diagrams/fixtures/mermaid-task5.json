@@ -1,0 +1,862 @@
+[
+  {
+    "name": "block-grid-spans-spaces",
+    "source": "block-beta\ncolumns 3\na[Alpha]:2 space\nb[Beta] c[Gamma]:2",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Gamma"
+    ]
+  },
+  {
+    "name": "block-nested",
+    "source": "block\ncolumns 2\nblock:Group:2\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four]",
+    "labels": [
+      "Group",
+      "One",
+      "Two",
+      "Three",
+      "Four"
+    ]
+  },
+  {
+    "name": "block-auto-arrows",
+    "source": "block\ncolumns auto\na[Input] space b[Output]\na -- \"data\" --> b",
+    "labels": [
+      "Input",
+      "Output",
+      "data"
+    ]
+  },
+  {
+    "name": "block-row-wrap",
+    "source": "block\ncolumns 8\na[Alpha] b[Beta] c[Gamma] d[Delta] e[Epsilon] f[Zeta] g[Eta] h[Theta]",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Gamma",
+      "Delta",
+      "Epsilon",
+      "Zeta",
+      "Eta",
+      "Theta"
+    ]
+  },
+  {
+    "name": "block-shapes-1",
+    "source": "block\ncolumns 2\nn0[Rect] n1(Round) n2([Stadium]) n3[[Subroutine]]",
+    "labels": []
+  },
+  {
+    "name": "block-shapes-2",
+    "source": "block\ncolumns 2\nn0[(Store)] n1((Circle)) n2>Flag] n3{Choice}",
+    "labels": []
+  },
+  {
+    "name": "block-shapes-3",
+    "source": "block\ncolumns 2\nn0{{Hex}} n1[/Lean/] n2[\\Lean\\] n3[/Trap\\]",
+    "labels": []
+  },
+  {
+    "name": "block-shapes-4",
+    "source": "block\ncolumns 2\nn0[\\Trap/] n1(((Double)))",
+    "labels": []
+  },
+  {
+    "name": "block-arrow-1",
+    "source": "block\na<[\"Move\"]>(right):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-arrow-2",
+    "source": "block\na<[\"Move\"]>(left):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-arrow-3",
+    "source": "block\na<[\"Move\"]>(up):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-arrow-4",
+    "source": "block\na<[\"Move\"]>(down):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-arrow-5",
+    "source": "block\na<[\"Move\"]>(x):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-arrow-6",
+    "source": "block\na<[\"Move\"]>(y):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-arrow-7",
+    "source": "block\na<[\"Move\"]>(x, down):2",
+    "labels": [
+      "Move"
+    ]
+  },
+  {
+    "name": "block-labelled-links",
+    "source": "block\ncolumns 3\na[A] space b[B]\nc[C] space d[D]\na -. \"send\" .-> b\nc == \"copy\" ==> d",
+    "labels": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "send",
+      "copy"
+    ]
+  },
+  {
+    "name": "architecture-group-icons",
+    "source": "architecture-beta\ngroup api(cloud)[API]\nservice a(server)[Worker] in api\nservice b(database)[Store] in api\na:R --> L:b",
+    "labels": [
+      "API",
+      "[server]",
+      "Worker",
+      "[db]",
+      "Store"
+    ]
+  },
+  {
+    "name": "architecture-nested",
+    "source": "architecture-beta\ngroup outer(cloud)[Cloud]\ngroup inner(server)[API] in outer\nservice a(server)[Job] in inner\nservice b(disk)[Disk] in outer\na{group}:B --> T:b",
+    "labels": [
+      "Cloud",
+      "API",
+      "Job",
+      "Disk"
+    ]
+  },
+  {
+    "name": "architecture-junction",
+    "source": "architecture-beta\nservice a(internet)[Client]\njunction j\nservice b(server)[Worker]\na:R -- L:j\nj:R --> L:b",
+    "labels": [
+      "Client",
+      "Worker"
+    ]
+  },
+  {
+    "name": "architecture-bidirectional",
+    "source": "architecture\nservice a(logos:aws)[API]\nservice b(cloud)[Peer]\na:R <--> L:b\nalign row a b",
+    "labels": [
+      "[logos:aws]",
+      "API",
+      "Peer"
+    ]
+  },
+  {
+    "name": "requirement-requirement",
+    "source": "requirementDiagram\nrequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "R1",
+      "Keep records",
+      "High",
+      "Test",
+      "suite",
+      "spec",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-functionalRequirement",
+    "source": "requirementDiagram\nfunctionalRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "R1",
+      "Keep records",
+      "High",
+      "Test",
+      "suite",
+      "spec",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-interfaceRequirement",
+    "source": "requirementDiagram\ninterfaceRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "R1",
+      "Keep records",
+      "High",
+      "Test",
+      "suite",
+      "spec",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-performanceRequirement",
+    "source": "requirementDiagram\nperformanceRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "R1",
+      "Keep records",
+      "High",
+      "Test",
+      "suite",
+      "spec",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-physicalRequirement",
+    "source": "requirementDiagram\nphysicalRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "R1",
+      "Keep records",
+      "High",
+      "Test",
+      "suite",
+      "spec",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-designConstraint",
+    "source": "requirementDiagram\ndesignConstraint safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "R1",
+      "Keep records",
+      "High",
+      "Test",
+      "suite",
+      "spec",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-edge-contains",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- contains - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "contains"
+    ]
+  },
+  {
+    "name": "requirement-edge-copies",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- copies - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "copies"
+    ]
+  },
+  {
+    "name": "requirement-edge-derives",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- derives - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "derives"
+    ]
+  },
+  {
+    "name": "requirement-edge-satisfies",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- satisfies - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "satisfies"
+    ]
+  },
+  {
+    "name": "requirement-edge-verifies",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- verifies - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-edge-refines",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- refines - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "refines"
+    ]
+  },
+  {
+    "name": "requirement-edge-traces",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- traces - suite",
+    "labels": [
+      "spec",
+      "suite",
+      "traces"
+    ]
+  },
+  {
+    "name": "c4-C4Context",
+    "source": "C4Context\nPerson(p,\"Reader\")\nSystem(s,\"Portal\")\nRel(p,s,\"Uses\",\"HTTPS\")\nUpdateLayoutConfig($c4ShapeInRow=\"2\")",
+    "labels": [
+      "Reader",
+      "Portal",
+      "Uses",
+      "HTTPS"
+    ]
+  },
+  {
+    "name": "c4-C4Container",
+    "source": "C4Container\nPerson(p,\"Reader\")\nSystem(s,\"Portal\")\nRel(p,s,\"Uses\",\"HTTPS\")\nUpdateLayoutConfig($c4ShapeInRow=\"2\")",
+    "labels": [
+      "Reader",
+      "Portal",
+      "Uses",
+      "HTTPS"
+    ]
+  },
+  {
+    "name": "c4-C4Component",
+    "source": "C4Component\nPerson(p,\"Reader\")\nSystem(s,\"Portal\")\nRel(p,s,\"Uses\",\"HTTPS\")\nUpdateLayoutConfig($c4ShapeInRow=\"2\")",
+    "labels": [
+      "Reader",
+      "Portal",
+      "Uses",
+      "HTTPS"
+    ]
+  },
+  {
+    "name": "c4-C4Dynamic",
+    "source": "C4Dynamic\nPerson(p,\"Reader\")\nSystem(s,\"Portal\")\nRel(p,s,\"Uses\",\"HTTPS\")\nUpdateLayoutConfig($c4ShapeInRow=\"2\")",
+    "labels": [
+      "Reader",
+      "Portal",
+      "Uses",
+      "HTTPS"
+    ]
+  },
+  {
+    "name": "c4-C4Deployment",
+    "source": "C4Deployment\nDeployment_Node(host,\"Host\") {\nContainer(app,\"App\",\"JS\")\nContainerDb(db,\"Store\",\"SQL\")\n}\nRel(app,db,\"Reads\",\"TCP\")",
+    "labels": [
+      "Host",
+      "App",
+      "Store",
+      "Reads",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-element-Person",
+    "source": "C4Component\nPerson(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-Person_Ext",
+    "source": "C4Component\nPerson_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-System",
+    "source": "C4Component\nSystem(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-System_Ext",
+    "source": "C4Component\nSystem_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-SystemDb",
+    "source": "C4Component\nSystemDb(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-SystemDb_Ext",
+    "source": "C4Component\nSystemDb_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-SystemQueue",
+    "source": "C4Component\nSystemQueue(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-SystemQueue_Ext",
+    "source": "C4Component\nSystemQueue_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-Container",
+    "source": "C4Component\nContainer(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-Container_Ext",
+    "source": "C4Component\nContainer_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ContainerDb",
+    "source": "C4Component\nContainerDb(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ContainerDb_Ext",
+    "source": "C4Component\nContainerDb_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ContainerQueue",
+    "source": "C4Component\nContainerQueue(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ContainerQueue_Ext",
+    "source": "C4Component\nContainerQueue_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-Component",
+    "source": "C4Component\nComponent(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-Component_Ext",
+    "source": "C4Component\nComponent_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ComponentDb",
+    "source": "C4Component\nComponentDb(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ComponentDb_Ext",
+    "source": "C4Component\nComponentDb_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ComponentQueue",
+    "source": "C4Component\nComponentQueue(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-element-ComponentQueue_Ext",
+    "source": "C4Component\nComponentQueue_Ext(a,\"Example\")",
+    "labels": [
+      "Example"
+    ]
+  },
+  {
+    "name": "c4-boundaries",
+    "source": "C4Deployment\nEnterprise_Boundary(org,\"Org\") {\nNode_L(host,\"Host\") {\nContainer(app,\"App\",\"JS\")\n}\n}\nSystemDb_Ext(db,\"Store\")\nRel(app,db,\"Reads\",\"SQL\")",
+    "labels": [
+      "Org",
+      "Host",
+      "App",
+      "Store",
+      "Reads"
+    ]
+  },
+  {
+    "name": "c4-dynamic-order",
+    "source": "C4Dynamic\nComponent(a,\"Client\")\nComponent(b,\"Worker\")\nRelIndex(99,a,b,\"First\")\nRel(b,a,\"Next\",\"RPC\")",
+    "labels": [
+      "Client",
+      "Worker",
+      "1: First",
+      "2: Next"
+    ]
+  },
+  {
+    "name": "c4-relation-BiRel",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nBiRel(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_U",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_U(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_Up",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_Up(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_D",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_D(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_Down",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_Down(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_L",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_L(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_Left",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_Left(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_R",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_R(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_Right",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_Right(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "c4-relation-Rel_Back",
+    "source": "C4Context\nSystem(a,\"Alpha\")\nSystem(b,\"Beta\")\nRel_Back(a,b,\"Uses\",\"TCP\")",
+    "labels": [
+      "Alpha",
+      "Beta",
+      "Uses",
+      "TCP"
+    ]
+  },
+  {
+    "name": "requirement-direction-TB",
+    "source": "requirementDiagram\ndirection TB\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "suite",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-direction-BT",
+    "source": "requirementDiagram\ndirection BT\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "suite",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-direction-LR",
+    "source": "requirementDiagram\ndirection LR\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "suite",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-direction-RL",
+    "source": "requirementDiagram\ndirection RL\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "labels": [
+      "safe",
+      "suite",
+      "verifies"
+    ]
+  },
+  {
+    "name": "requirement-method-Analysis",
+    "source": "requirementDiagram\nrequirement safe {\nrisk: Low\nverifymethod: Analysis\n}",
+    "labels": [
+      "safe",
+      "Low",
+      "Analysis"
+    ]
+  },
+  {
+    "name": "requirement-method-Inspection",
+    "source": "requirementDiagram\nrequirement safe {\nrisk: Medium\nverifymethod: Inspection\n}",
+    "labels": [
+      "safe",
+      "Medium",
+      "Inspection"
+    ]
+  },
+  {
+    "name": "requirement-method-Demonstration",
+    "source": "requirementDiagram\nrequirement safe {\nrisk: High\nverifymethod: Demonstration\n}",
+    "labels": [
+      "safe",
+      "High",
+      "Demonstration"
+    ]
+  },
+  {
+    "name": "requirement-markdown-styles",
+    "source": "requirementDiagram\nrequirement reader safety:::blue {\ntext: \"**Keep** _records_\"\n}\nelement test_suite {\n}\ntest_suite - verifies -> reader safety\nreader safety:::blue\nclassDef blue fill:blue\nstyle test_suite fill:red",
+    "labels": [
+      "reader safety",
+      "Keep records",
+      "test_suite",
+      "verifies"
+    ]
+  },
+  {
+    "name": "architecture-port-L",
+    "source": "architecture-beta\nservice a(server)[Alpha]\nservice b(cloud)[Beta]\na:L <-- R:b",
+    "labels": [
+      "Alpha",
+      "Beta"
+    ]
+  },
+  {
+    "name": "architecture-port-R",
+    "source": "architecture-beta\nservice a(server)[Alpha]\nservice b(cloud)[Beta]\na:R <-- R:b",
+    "labels": [
+      "Alpha",
+      "Beta"
+    ]
+  },
+  {
+    "name": "architecture-port-T",
+    "source": "architecture-beta\nservice a(server)[Alpha]\nservice b(cloud)[Beta]\na:T <-- R:b",
+    "labels": [
+      "Alpha",
+      "Beta"
+    ]
+  },
+  {
+    "name": "architecture-port-B",
+    "source": "architecture-beta\nservice a(server)[Alpha]\nservice b(cloud)[Beta]\na:B <-- R:b",
+    "labels": [
+      "Alpha",
+      "Beta"
+    ]
+  },
+  {
+    "name": "c4-boundary-Boundary",
+    "source": "C4Deployment\nBoundary(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-Enterprise_Boundary",
+    "source": "C4Deployment\nEnterprise_Boundary(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-System_Boundary",
+    "source": "C4Deployment\nSystem_Boundary(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-Container_Boundary",
+    "source": "C4Deployment\nContainer_Boundary(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-Deployment_Node",
+    "source": "C4Deployment\nDeployment_Node(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-Node",
+    "source": "C4Deployment\nNode(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-Node_L",
+    "source": "C4Deployment\nNode_L(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-boundary-Node_R",
+    "source": "C4Deployment\nNode_R(host,\"Host\") {\nContainer(app,\"App\")\n}",
+    "labels": [
+      "Host",
+      "App"
+    ]
+  },
+  {
+    "name": "c4-named-args",
+    "source": "C4Component\nContainer(a,\"API\",$descr=\"Serves data\",$techn=\"JS\",$link=\"https://example.test\")\nContainerDb(b,\"Store\",$techn=\"SQL\")\nRel(a,b,\"Reads\",$techn=\"TCP\")",
+    "labels": [
+      "API",
+      "Serves data",
+      "JS",
+      "Store",
+      "SQL",
+      "Reads",
+      "TCP"
+    ]
+  },
+  {
+    "name": "block-label-wrap-first",
+    "source": "block\ncolumns 4\na[Alpha beta gamma] b[B] c[C] d[D]",
+    "labels": [
+      "Alpha beta",
+      "gamma"
+    ]
+  },
+  {
+    "name": "block-nested-multilevel",
+    "source": "block\ncolumns 2\nblock:Outer:2\ncolumns 2\nblock:Inner:2\na[One] b[Two]\nend\nc[Three] d[Four]\nend\ne[Five] f[Six]",
+    "labels": [
+      "Outer",
+      "Inner",
+      "One",
+      "Two",
+      "Three",
+      "Four",
+      "Five",
+      "Six"
+    ]
+  },
+  {
+    "name": "block-empty",
+    "source": "block",
+    "labels": []
+  },
+  {
+    "name": "block-space-only",
+    "source": "block\nspace:3",
+    "labels": []
+  },
+  {
+    "name": "block-space-only-title",
+    "source": "block-beta\ncolumns 3\nspace:3",
+    "labels": [
+      "Empty grid"
+    ],
+    "options": {
+      "title": "Empty grid"
+    }
+  },
+  {
+    "name": "block-nested-local-columns",
+    "source": "block\ncolumns 2\nblock:Outer:2\ncolumns 3\nblock:Inner:3\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four] g[Seven]\nend\ne[Five] f[Six]",
+    "labels": [
+      "Outer",
+      "Inner",
+      "One",
+      "Two",
+      "Three",
+      "Four",
+      "Five",
+      "Six",
+      "Seven"
+    ]
+  }
+]

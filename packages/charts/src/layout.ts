@@ -8,6 +8,8 @@
  * space and axes squeezing into what's left.
  */
 
+import { GLYPH_CHART_RADAR, type GlyphChartRadarSpec } from "./radar";
+import { GLYPH_CHART_GANTT, layoutGlyphGantt, type GlyphChartGanttSpec } from "./gantt";
 import { timeFormat } from "d3-time-format";
 import { cellFillValues, cellSigned } from "./heatmap";
 import { chartSeries, chartSeriesColors } from "./series";
@@ -38,7 +40,8 @@ import type {
 function formatAxisTicks(ticks: readonly GlyphChartTick[], fmt: GlyphChartResolvedTickFormat | undefined): readonly GlyphChartTick[] {
   if (!fmt) return ticks;
   const values = ticks.map((t) => t.value);
-  return ticks.map((t, i) => ({ ...t, label: fmt.apply(t.value, i, values) }));
+  // Empty formatter labels hide ticks; they are not space-driven omissions.
+  return ticks.map((t, i) => ({ ...t, label: fmt.apply(t.value, i, values) })).filter((t) => t.label !== "");
 }
 
 /** `title: string` is `{ text, align: "center", position: "top" }` — byte-identical to before this option existed. */
@@ -100,6 +103,8 @@ export type { GlyphChartPlotRect } from "./types";
 
 export interface GlyphChartLegendItem {
   readonly label: string;
+  /** Display caption when a radar cell symbol replaces the generated series prefix. */
+  readonly text?: string;
   readonly color?: string;
 }
 
@@ -108,18 +113,26 @@ export interface GlyphChartLegendItem {
  * `"title"`) — the four corner placements paint inside `layout.plot` at
  * paint time (no row reserved, so no fixed row to record here).
  */
+// Source readers can retain verbose legends without changing native chart defaults.
+export const GLYPH_CHART_WRAP_LEGEND = Symbol("glyph-chart-wrap-legend");
+
 export interface GlyphChartLegendLayout {
+  readonly columns?: number;
   readonly placement: GlyphChartLegendPlacement;
   readonly items: readonly GlyphChartLegendItem[];
   readonly row?: number;
 }
 
 export interface GlyphChartLayout {
+  readonly mermaidStructure?: import("./mermaidStructure").GlyphChartMermaidStructureLayout;
+  readonly journey?: import("./journey").GlyphChartJourneyLayout;
   readonly cols: number;
   readonly rows: number;
   readonly plot: GlyphChartPlotRect;
   readonly xTicks: readonly GlyphChartLayoutTick[];
   readonly yTicks: readonly GlyphChartLayoutTick[];
+  readonly gantt?: boolean;
+  readonly horizontalBarBands: ReadonlyMap<string, readonly [number, number]>;
   readonly titleRow: number | null;
   /** `null` when there's no title text at all (distinct from `titleRow === null`, which can also mean "dropped for lack of room"). */
   readonly titleText: string | null;
@@ -457,9 +470,12 @@ export function layoutGlyphChart(
    * (every `+= textScale`/`-= textScale` below is `+= 1`/`-= 1` there).
    */
   textScale = 1,
+  radarCells = false,
 ): GlyphChartLayout {
   let top = 0;
   let bottom = rows - 1;
+  const horizontalSeries = chartSeries(marks).filter(({ mark }) => mark.type === "bar" && mark.options?.orientation === "horizontal");
+  const horizontalBarGroupRows = textScale * horizontalSeries.reduce((max, entry) => Math.max(max, horizontalSeries.filter(({ mark }) => mark === entry.mark).length), 0);
 
   // A spec made only of `arc`/`text` marks has no cartesian x/y axis to
   // show at all (a pie chart's own radius fills the whole rect) — skipping
@@ -467,7 +483,7 @@ export function layoutGlyphChart(
   // ticks against a meaningless default [0,1] domain, is what keeps a
   // donut chart from wasting a third of a small viewport on an axis nobody
   // reads. Computed early (packet item 6 needs it to gate axis titles too).
-  const NON_CARTESIAN_MARK_TYPES = ["arc", "text", "sankey", "funnel"];
+  const NON_CARTESIAN_MARK_TYPES = ["arc", "text", "sankey", "funnel", "treemap"];
   const cartesian = marks.some(({ mark }) => !NON_CARTESIAN_MARK_TYPES.includes(mark.type));
 
   const xAxisOpts = spec.axes?.x;
@@ -553,10 +569,21 @@ export function layoutGlyphChart(
   // is already a key of `seriesColors` (a `SERIES_COLORS[i % …]` fallback
   // here was previously unreachable dead code).
   const seriesColors = chartSeriesColors(marks);
-  const items = names.map((label) => ({ label, color: seriesColors.get(label)! }));
+  const items = names.map((label) => ({ label, color: seriesColors.get(label)!, ...(radarCells && (spec as GlyphChartRadarSpec)[GLYPH_CHART_RADAR] ? { text: label.replace(/^(?:[A-Z]|S\d+): /, "") } : {}) }));
   const reserveBottomLegend = (): boolean => {
     const legendWide = cols >= 12 && rows - top - 3 * textScale > 2 * textScale;
-    if (legendWide) { legend = { placement: "bottom", row: bottom - textScale + 1, items }; bottom -= textScale; }
+    if (legendWide) {
+      const itemWidth = Math.max(1, ...items.map((item) => chartText(item.text ?? item.label, charset).length + 5)) * textScale;
+      const capacity = Math.max(1, Math.min(items.length, Math.floor(cols / itemWidth)));
+      const count = Math.ceil(items.length / capacity);
+      const columns = Math.ceil(items.length / count);
+      const legendRows = count * textScale;
+      // Preserve plot room on short canvases; the ordinary label ledger owns unavoidable abbreviation.
+      const wrap = (spec as GlyphChartSpec & { [GLYPH_CHART_WRAP_LEGEND]?: boolean })[GLYPH_CHART_WRAP_LEGEND]
+        && rows - top - legendRows > 4 * textScale;
+      legend = { placement: "bottom", row: bottom - (wrap ? legendRows : textScale) + 1, items, ...(wrap && count > 1 ? { columns } : {}) };
+      bottom -= wrap ? legendRows : textScale;
+    }
     return legendWide;
   };
   // A funnel's stage labels already carry the same identity a legend
@@ -578,7 +605,7 @@ export function layoutGlyphChart(
       // entry clear of the title text itself); degrades to "bottom" with a
       // ledger entry when there's no title row at all, or the entries
       // plainly can't fit beside it.
-      const entriesWidth = items.reduce((w, it) => w + it.label.length + 3, 0);
+      const entriesWidth = items.reduce((w, it) => w + (it.text ?? it.label).length + 3, 0);
       const fits = titleRow !== null && cols >= 12 && entriesWidth <= cols - (resolvedTitle.text?.length ?? 0) - 2;
       if (fits) {
         legend = { placement: "title", row: titleRow!, items };
@@ -644,7 +671,7 @@ export function layoutGlyphChart(
     // this package sweeps. Kept in its now-correct (interval-counting)
     // form because it is the more honest formula for what this variable is
     // actually named, not because a wrong seed would change the result.
-    const yZeroAnchored = scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
+    const yZeroAnchored = yAxisOpts?.ticks !== 0 && scales.y.type !== "band" && scales.y.type !== "time" && hasZeroAnchoredMark(marks);
     // The minimum y-tick row spacing generalizes from `2` (a scale-1 label
     // row + a blank gap row, `axisTicks`'s own y-collision rule) to
     // `textScale + 1` — see that function's own matching comment.
@@ -657,7 +684,7 @@ export function layoutGlyphChart(
       // thinning, which still applies underneath either path). Band ticks
       // ignore `count` entirely (`buildBand`'s own `ticks()`), so they're
       // excluded too.
-      const yTicksFitted = scales.y.type === "band" || yAxisOpts?.ticks !== undefined
+      const yTicksFitted = yRowBudget === 0 ? [] : scales.y.type === "band" || yAxisOpts?.ticks !== undefined
         ? scales.y.ticks(yRowBudget)
         : fitTicksToRowSpacing((n) => scales.y.ticks(n), yRowBudget, top, bottomForFit, yMinRowSpacing);
       let yTicksRaw: readonly GlyphChartTick[] = formatAxisTicks(
@@ -670,7 +697,12 @@ export function layoutGlyphChart(
         const zeroLabel = yTickFormat ? yTickFormat.apply(0, yTicksRaw.length, [...yTicksRaw.map((t) => t.value), 0]) : scales.y.format(0);
         yTicksRaw = [...yTicksRaw, { value: 0, fraction: scales.y.toFraction(0), label: zeroLabel }];
       }
-      const yLabelWidth = Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
+      const ganttRows = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT];
+      const ganttStatusWidth = Math.max(0, ...(ganttRows ?? []).map((row) => row.status?.length ?? 0));
+      const ganttLabelWidth = Math.max(1, ...(ganttRows ?? []).filter((row) => !row.section).map((row) => chartText(row.label, charset).length + 2 + (ganttStatusWidth ? ganttStatusWidth + 2 : 0)));
+      const yLabelWidth = ganttRows && ganttStatusWidth
+        ? Math.min(Math.max(1, Math.floor(cols / 2)), ganttLabelWidth)
+        : Math.min(Math.max(1, Math.floor(cols / 4)), yTicksRaw.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.y.type !== "band" && typeof t.value === "number").text.length), 1));
       // The gutter reserves `yLabelWidth * textScale` COLUMNS — each
       // character of a right-aligned y-tick label now occupies `textScale`
       // columns once painted via `canvas.text({ scale: textScale })`.
@@ -756,6 +788,30 @@ export function layoutGlyphChart(
     // the plot, put the drawn rule one row past the plot's own y=0 row,
     // floating every bar/area a full row off the line meant to anchor them.
 
+    // Fixed-height bands spend spare canvas rows after all chrome, never between content and its axis.
+    const ganttRows = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT];
+    const bandRows = scales.y.type === "band" && horizontalBarGroupRows > 0
+      && marks.every(({ mark }) => mark.type === "line" || mark.type === "text" || mark.type === "rule" || mark.type === "bar" && mark.options?.orientation === "horizontal");
+    if (ganttRows || bandRows) {
+      const sections = ganttRows?.filter((row) => row.section).length ?? 0;
+      const count = scales.y.domain.length;
+      const contentRows = ganttRows
+        ? (ganttRows.length + Math.max(0, sections - 1) + Math.max(0, ganttRows.filter((row) => !row.section).length - 1) * 2) * textScale
+        : count * Math.max(textScale, horizontalBarGroupRows) + Math.max(0, count - 1) * textScale;
+      const fittedBottom = Math.min(bottom, top + Math.max(1, contentRows) - 1 + (ganttRows || xAxisLine ? 1 : 0));
+      const spare = bottom - fittedBottom;
+      if (spare > 0) {
+        const afterPlot = (row: number) => row > bottom ? row - spare : row;
+        xAxisLabelRow = afterPlot(xAxisLabelRow);
+        xAxisTitleRow = afterPlot(xAxisTitleRow);
+        yAxisTitleRow = afterPlot(yAxisTitleRow);
+        if (titleRow !== null) titleRow = afterPlot(titleRow);
+        if (legend?.row !== undefined) legend = { ...legend, row: afterPlot(legend.row) };
+        if (cellKeyRow >= 0) cellKeyRow = afterPlot(cellKeyRow);
+        bottom = fittedBottom;
+      }
+    }
+
     // The FINAL gutter/tick fit, against the now fully-reserved `bottom` —
     // see `computeYGutter`'s own comment above for why this must be a
     // second, later call rather than reusing the provisional one.
@@ -793,22 +849,17 @@ export function layoutGlyphChart(
       ? fractionToRow(plotForTicks, zeroFraction)
       : plotForTicks.y1;
 
-    // A band category's tick fraction is otherwise an independent
-    // continuous-fraction computation (`scale.ticks()`'s own `bandwidth/2`
-    // center) that rounds to a row on its OWN, unrelated to `bandRowRange`'s
-    // integer partition of the same plot — the two can (and, pre-fix,
-    // measurably did — review finding 2) disagree about which row a
-    // category's band actually occupies. Re-deriving each band tick's
-    // fraction from `bandPartitionRowRange`'s own chunk centre guarantees
-    // the label always lands inside (at the centre of) the exact rows
-    // `bandRowRange` paints, by construction rather than by coincidence.
+    // Integer row geometry owns both marks and ticks: horizontal labels
+    // name the first series row; heatmap labels name the chunk centre.
     if (scales.y.type === "band") {
       const total = scales.y.domain.length;
       yTicksRaw = yTicksRaw.map((t) => {
         const index = scales.y.domain.indexOf(String(t.value));
         if (index < 0 || total === 0) return t;
-        const [chunkTop, chunkBottom] = bandPartitionRowRange(bandCategoryPlot(plotForTicks, xAxisLine), total, total - 1 - index);
-        const center = Math.round((chunkTop + chunkBottom) / 2);
+        const [chunkTop, chunkBottom] = horizontalBarGroupRows
+          ? horizontalBarRowRange(scales.y, plotForTicks, t.value, horizontalBarGroupRows, textScale, xAxisLine)!
+          : bandPartitionRowRange(bandCategoryPlot(plotForTicks, xAxisLine), total, total - 1 - index);
+        const center = horizontalBarGroupRows ? chunkTop : Math.round((chunkTop + chunkBottom) / 2);
         const fraction = plotHeight > 1 ? (plotForTicks.y1 - center) / (plotHeight - 1) : t.fraction;
         return { ...t, fraction };
       });
@@ -831,7 +882,7 @@ export function layoutGlyphChart(
     // set of tick VALUES `scale.ticks(n)` returns) stays the same across
     // every web Density, mirroring the y budget's `yMinRowSpacing` above.
     const xTickCountProvisional = xAxisOpts?.ticks ?? Math.max(2, Math.floor(plotWidth / (6 * textScale)));
-    const provisionalXTicks = formatAxisTicks(scales.x.ticks(xTickCountProvisional), xTickFormat);
+    const provisionalXTicks = formatAxisTicks(xTickCountProvisional === 0 ? [] : scales.x.ticks(xTickCountProvisional), xTickFormat);
     const measuredXLabelWidth = provisionalXTicks.reduce((w, t) => Math.max(w, abbreviateChartText(t.label, cols, charset, scales.x.type !== "band" && typeof t.value === "number").text.length), 1);
     const xTickCount = xAxisOpts?.ticks ?? Math.max(2, Math.min(xTickCountProvisional, Math.floor(plotWidth / (measuredXLabelWidth * textScale + 1))));
     let xTicksRaw = integerOnlyTicks(
@@ -878,7 +929,7 @@ export function layoutGlyphChart(
     // which now divides a candidate's `maxWidth` by `scale` to recover the
     // character budget) — `yLabelWidth` itself stays a raw character count
     // (the y gutter's own `yAxisCol` derivation multiplies it the same way).
-    yTicks = axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale, scales.y.bandFlush);
+    yTicks = (spec as GlyphChartGanttSpec)[GLYPH_CHART_GANTT] ? [] : axisTicks(yTicksRaw, (f) => plotForTicks.y1 - Math.round(f * (plotHeight - 1)), "y", cols, rows, 0, yLabelWidth * textScale, scales.y.type === "band", charset, ledger, yPriority, yRowBudget, scales.y.type === "time", yTickFormat, textScale, scales.y.bandFlush);
   }
 
   const plot: GlyphChartPlotRect = {
@@ -894,12 +945,15 @@ export function layoutGlyphChart(
     y1: xAxisLineRow >= 0 ? Math.max(top, bottom) : bottom,
   };
 
-  return {
+  return layoutGlyphGantt(spec, {
     cols,
     rows,
     plot,
     xTicks,
     yTicks,
+    horizontalBarBands: new Map(horizontalBarGroupRows && scales.y.type === "band"
+      ? scales.y.domain.map((value) => [String(value), horizontalBarRowRange(scales.y, plot, value, horizontalBarGroupRows, textScale, xAxisLine)!])
+      : []),
     titleRow,
     titleText: resolvedTitle.text,
     titleAlign: resolvedTitle.align,
@@ -922,7 +976,7 @@ export function layoutGlyphChart(
     xAxisTitleRow,
     xAxisTitleAt: xTitleAt,
     yAxisTitleRow,
-  };
+  }, textScale, charset, ledger);
 }
 
 export function fractionToCol(plot: GlyphChartPlotRect, fraction: number): number {
@@ -1078,6 +1132,23 @@ export function bandRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlo
   const index = scale.domain.indexOf(String(value));
   if (index < 0 || total === 0) return undefined;
   return bandPartitionRowRange(bandCategoryPlot(plot, axisLine), total, total - 1 - index);
+}
+
+/** Bars and labels share one integer layout; rounding each category independently can consume the last separator. */
+export function horizontalBarRowRange(scale: GlyphChartResolvedScale, plot: GlyphChartPlotRect, value: unknown, groupRows: number, gap: number, axisLine = true): readonly [number, number] | undefined {
+  const band = bandRowRange(scale, plot, value, axisLine);
+  if (!band) return undefined;
+  const categoryPlot = bandCategoryPlot(plot, axisLine), total = scale.domain.length;
+  const used = total * groupRows + (total - 1) * gap;
+  const height = categoryPlot.y1 - categoryPlot.y0 + 1;
+  if (used <= height) {
+    const visual = total - 1 - scale.domain.indexOf(String(value));
+    const top = categoryPlot.y0 + Math.floor((height - used) / 2) + visual * (groupRows + gap);
+    return [top, top + groupRows - 1];
+  }
+  const rows = Math.min(groupRows, band[1] - band[0] + 1);
+  const top = band[0] + Math.floor((band[1] - band[0] + 1 - rows) / 2);
+  return [top, top + rows - 1];
 }
 
 /**

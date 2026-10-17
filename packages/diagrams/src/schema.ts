@@ -1,6 +1,6 @@
 import type { GlyphGraph } from "./types";
 import {
-  GLYPH_DIAGRAM_VALIDATION_RULES, GLYPH_GRAPH_DIRECTIONS, GLYPH_GRAPH_EDGE_STYLES, GLYPH_GRAPH_NODE_SHAPES,
+  GLYPH_DIAGRAM_VALIDATION_RULES, GLYPH_GRAPH_DIRECTIONS, GLYPH_GRAPH_EDGE_STYLES, GLYPH_GRAPH_NODE_SHAPES, GLYPH_GRAPH_EDGE_HEADS,
   glyphDiagramRepairHint, glyphGraphIntegrityFailure, type GlyphDiagramValidationRuleId,
 } from "./validate";
 
@@ -47,22 +47,26 @@ export function glyphDiagramJsonSchema(): GlyphDiagramJsonSchema {
         items: {
           type: "object", required: ["id", "label"], additionalProperties: false,
           properties: {
-            id: ID_SCHEMA, label: { type: "string" }, kind: { type: "string" }, group: ID_SCHEMA, shape: { enum: GLYPH_GRAPH_NODE_SHAPES },
+            id: ID_SCHEMA, label: { type: "string" }, kind: { type: "string" }, group: ID_SCHEMA, shape: { enum: GLYPH_GRAPH_NODE_SHAPES }, compartments: { type: "array", items: { type: "array", items: { type: "string" } } },
           },
+          dependentSchemas: { compartments: { required: ["shape"], properties: { shape: { const: "compartment" } } } },
+          // A point is drawn as its label's first character, so a blank label leaves it nothing to draw (runtime: `bad-node`).
+          if: { required: ["shape"], properties: { shape: { const: "point" } } },
+          then: { properties: { label: { pattern: "\\S" } } },
         },
       },
       edges: {
         type: "array",
         items: {
           type: "object", required: ["from", "to"], additionalProperties: false,
-          properties: { id: ID_SCHEMA, from: ID_SCHEMA, to: ID_SCHEMA, label: { type: "string" }, style: { enum: GLYPH_GRAPH_EDGE_STYLES }, priority: { type: "number" } },
+          properties: { id: ID_SCHEMA, from: ID_SCHEMA, to: ID_SCHEMA, label: { type: "string" }, style: { enum: GLYPH_GRAPH_EDGE_STYLES }, priority: { type: "number" }, startHead: { enum: GLYPH_GRAPH_EDGE_HEADS }, endHead: { enum: GLYPH_GRAPH_EDGE_HEADS }, invisible: { type: "boolean" } },
         },
       },
       groups: {
         type: "array",
         items: {
           type: "object", required: ["id", "members"], additionalProperties: false,
-          properties: { id: ID_SCHEMA, label: { type: "string" }, members: { type: "array", items: ID_SCHEMA } },
+          properties: { id: ID_SCHEMA, label: { type: "string" }, members: { type: "array", items: ID_SCHEMA }, parent: ID_SCHEMA },
         },
       },
       direction: { enum: GLYPH_GRAPH_DIRECTIONS },

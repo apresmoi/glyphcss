@@ -29,6 +29,92 @@ function headerLine(text: string): string {
 }
 
 describe("renderGlyphSequence", () => {
+  it("renders autonumber labels, including the second number after a frame boundary", async () => {
+    const result = await renderGlyphSequence("sequenceDiagram\nautonumber\nA->>B: ask\nopt maybe\nB-->>A: reply\nend", { target: "chat", width: 60, height: 20 });
+    expect(result.text).toContain("1. ask");
+    expect(result.text).toContain("2. reply");
+  });
+
+  it.each([["par", "and"], ["critical", "option"], ["break", undefined]])("renders Mermaid %s with its kind verbatim", async (kind, branch) => {
+    const result = await renderGlyphSequence(`sequenceDiagram\n${kind} first\nA->>B: x\n${branch ? `${branch} second\nB->>A: y\n` : ""}end`, { target: "chat", width: 60, height: 20 });
+    expect(result.text).toContain(`${kind} first`);
+    if (branch) expect(result.text).toContain(`${branch} second`);
+    expect(result.text).toContain("┌");
+    expect(result.text).toContain("┘");
+  });
+
+  it.each(["left", "right"])("renders Note %s of X on that side of the lifeline", async (side) => {
+    const result = await renderGlyphSequence(`sequenceDiagram\nparticipant X\nNote ${side} of X: hello\nX->>X: done`, { target: "chat", width: 60, height: 20 });
+    const lines = result.text.split("\n");
+    const x = lines.find((line) => line.trim() === "X")!.indexOf("X");
+    const noteLine = lines.find((line) => line.includes("note  hello"))!;
+    if (side === "left") expect(noteLine.indexOf("note  hello") + "note  hello".length).toBeLessThan(x);
+    else expect(noteLine.indexOf("note  hello")).toBeGreaterThan(x);
+    expect(result.text).toContain("done");
+    expect(result.report.ledger).toEqual([]);
+  });
+
+  it("keeps side notes inside their frame and fits or reports their label cuts", async () => {
+    const source = "sequenceDiagram\npar work\nNote left of A: left note\nNote right of B: right note\nA->>B: x\nend";
+    const wide = await renderGlyphSequence(source, { target: "chat", width: 80, height: 24 });
+    const lines = wide.text.split("\n");
+    const border = lines.find((line) => line.includes("par work"))!;
+    for (const label of ["note  left note", "note  right note"]) {
+      const row = lines.find((line) => line.includes(label))!;
+      expect(row.indexOf(label)).toBeGreaterThan(border.indexOf("┌"));
+      expect(row.indexOf(label) + label.length).toBeLessThan(border.lastIndexOf("┐"));
+    }
+    const narrow = await renderGlyphSequence(source, { target: "chat", width: 40, height: 24 });
+    expect(narrow.canvas.cols).toBe(40);
+    expect(narrow.report.ledger.some((entry) => entry.code === "label-abbreviated")).toBe(true);
+    expect(narrow.text).toContain("┌");
+    expect(narrow.text).toContain("┐");
+    const overflow = await renderGlyphSequence(source, { target: "chat", width: 20, height: 24 });
+    expect(overflow.report.ledger.some((entry) => entry.code === "sequence-layout-overflow")).toBe(true);
+  });
+
+  it.each(["->>+B: call\nB-->>-A: reply", "->>B: call\nactivate B\ndeactivate B\nB-->>A: reply"])("activation syntax leaves existing drawing unchanged: %s", async (tail) => {
+    const options = { target: "chat", width: 40, height: 16 } as const;
+    const actual = await renderGlyphSequence(`sequenceDiagram\nA${tail}`, options);
+    const plain = await renderGlyphSequence("sequenceDiagram\nA->>B: call\nB-->>A: reply", options);
+    expect(actual.text).toBe(plain.text);
+  });
+
+  it.each(["rect rgb(0,0,0)\nA->>B: hi\nend", "box Team\nparticipant A\nparticipant B\nend\nA->>B: hi"])("inert grouping leaves existing drawing unchanged: %s", async (body) => {
+    const options = { target: "chat", width: 40, height: 12 } as const;
+    expect((await renderGlyphSequence(`sequenceDiagram\n${body}`, options)).text).toBe((await renderGlyphSequence("sequenceDiagram\nA->>B: hi", options)).text);
+  });
+
+  it.each(["-x", "--x", "-)", "--)"])("renders %s like the existing solid/dashed arrow", async (op) => {
+    const options = { target: "chat", width: 40, height: 12 } as const;
+    const actual = await renderGlyphSequence(`sequenceDiagram\nA${op}B: hi`, options);
+    const expected = await renderGlyphSequence(`sequenceDiagram\nA${op.startsWith("--") ? "-->>" : "->>"}B: hi`, options);
+    expect(actual.text).toBe(expected.text);
+    expect(actual.text).toContain("▶");
+  });
+
+  it("paints the parsed title above actors and allows the render option to override it", async () => {
+    const source = "sequenceDiagram\ntitle Hello\nactor A\nA->>B: hi";
+    const result = await renderGlyphSequence(source, { target: "chat", width: 40, height: 12 });
+    expect(headerLine(result.text).trim()).toBe("Hello");
+    expect(result.meta.description).toContain("Hello.");
+    const overridden = await renderGlyphSequence(source, { target: "chat", width: 40, height: 12, title: "Custom" });
+    expect(headerLine(overridden.text).trim()).toBe("Custom");
+    expect(overridden.text).not.toContain("Hello");
+    expect(overridden.text).toContain("o");
+  });
+
+  it("rejects an invalid title option instead of falling back to the source title", async () => {
+    await expect(renderGlyphSequence("sequenceDiagram\ntitle Hello\nA->>B: hi", { title: null as unknown as string })).rejects.toMatchObject({ code: "bad-options" });
+  });
+
+  it("repeats titles across pages and reports cuts on narrow titles", async () => {
+    const result = await renderGlyphSequence("sequenceDiagram\ntitle A very long title\nA->>B: one\nA->>B: two\nA->>B: three", { target: "chat", width: 16, height: 8 });
+    expect(result.pages.length).toBeGreaterThan(1);
+    for (const page of result.pages) expect(headerLine(page.text)).toContain("A very long");
+    expect(result.report.ledger.some((entry) => entry.code === "label-abbreviated" && entry.detail?.role === "title")).toBe(true);
+  });
+
   it("renders every participant label in the header and every line padded to the requested width", async () => {
     const result = await renderGlyphSequence(LOGIN, { target: "chat", width: 60, height: 24 });
     const lines = result.text.split("\n");

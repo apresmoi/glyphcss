@@ -1,0 +1,52 @@
+[
+  {
+    "name": "Concurrent markers and external edges",
+    "source": "stateDiagram-v2\n[*] --> Active\nstate Active {\n [*] --> Read\n Read --> [*]\n --\n [*] --> Write\n Write --> [*]\n}\nActive --> Done",
+    "height": 31
+  },
+  {
+    "name": "Three regions and first-last fallback",
+    "source": "stateDiagram-v2\nstate Parallel {\n A --> B\n --\n C --> D\n --\n E --> F\n}\nReady --> Parallel\nParallel --> Done",
+    "height": 32
+  },
+  {
+    "name": "Nested composite in a region",
+    "source": "stateDiagram-v2\nstate Outer {\n state Inner {\n  [*] --> Work\n  Work --> [*]\n }\n --\n [*] --> Wait\n Wait --> [*]\n}",
+    "height": 28
+  },
+  {
+    "name": "Left and right notes",
+    "source": "stateDiagram-v2\nstate \"Review\" as A\nnote right of A\n Keep all words\n and both lines.\nend note\nA --> B : next\nnote left of B : Save the result.",
+    "height": 14
+  },
+  {
+    "name": "Fork and join",
+    "source": "stateDiagram-v2\nstate split <<fork>>\nstate merge <<join>>\n[*] --> split\nsplit --> Read\nsplit --> Write\nRead --> merge\nWrite --> merge\nmerge --> [*]",
+    "height": 26
+  },
+  {
+    "name": "Choice and state descriptions",
+    "source": "stateDiagram-v2\nstate c <<choice>>\nstate \"Check input\" as A\nA : Validate fields\n[*] --> A\nA --> c\nc --> Yes : valid\nc --> No : invalid",
+    "height": 20
+  },
+  {
+    "name": "Direction comments and inert classes",
+    "source": "---\nconfig:\n theme: dark\n---\n%%{init: {'theme':'forest'}}%%\nstateDiagram\ndirection LR\nclassDef hot fill:red\nclass A, B hot\n[*]:::hot --> A:::hot\nA --> B %% trailing comment\nB --> [*]:::hot\n%% ignored --> node",
+    "height": 5
+  },
+  {
+    "name": "Nested direction and composite note",
+    "source": "stateDiagram-v2\nstate Parent {\n direction LR\n A --> B\n}\nnote right of Parent : Inner work\nParent --> End",
+    "height": 24
+  },
+  {
+    "name": "Composite restart",
+    "source": "stateDiagram-v2\nstate Worker {\n [*] --> Run\n Run --> [*]\n}\nWorker --> Worker : restart",
+    "height": 25
+  },
+  {
+    "name": "Mermaid documented concurrency example",
+    "source": "stateDiagram-v2\n    [*] --> Active\n    state Active {\n        [*] --> NumLockOff\n        NumLockOff --> NumLockOn : EvNumLockPressed\n        NumLockOn --> NumLockOff : EvNumLockPressed\n        --\n        [*] --> CapsLockOff\n        CapsLockOff --> CapsLockOn : EvCapsLockPressed\n        CapsLockOn --> CapsLockOff : EvCapsLockPressed\n        --\n        [*] --> ScrollLockOff\n        ScrollLockOff --> ScrollLockOn : EvScrollLockPressed\n        ScrollLockOn --> ScrollLockOff : EvScrollLockPressed\n    }",
+    "height": 31
+  }
+]

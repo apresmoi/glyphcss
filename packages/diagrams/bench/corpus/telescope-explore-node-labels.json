@@ -1,0 +1,24 @@
+{
+  "sha256": "485d9ee9e89bee2b2801aa033afcc5d84a19e827ab2b627f8017285643fa2226",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render branching diagram with commands in nodes",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

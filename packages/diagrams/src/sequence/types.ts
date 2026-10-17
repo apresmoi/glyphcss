@@ -37,8 +37,8 @@ export interface GlyphSequenceMessage {
 }
 
 /**
- * A divider inside a frame, drawn just before message index `at` — Mermaid's
- * `else`. `kind` is rendered verbatim like the frame's own.
+ * A divider inside a frame, drawn just before message index `at`.
+ * `kind` is rendered verbatim like the frame's own.
  */
 export interface GlyphSequenceFrameBranch {
   readonly kind: string;
@@ -50,9 +50,8 @@ export interface GlyphSequenceFrameBranch {
  * A labelled box enclosing an inclusive, 0-based range of `messages`
  * indices, with optional dividers (`branches`) splitting it into segments.
  * `kind` is rendered verbatim and never interpreted — the Mermaid adapter
- * passes its own keywords (`"alt"`, `"opt"`, `"loop"`, and `"else"` for a
- * branch) straight through, and a JSON caller may use any other keyword the
- * same way. The box spans the participants its messages touch.
+ * passes its frame/branch keywords straight through; JSON callers may use
+ * any other keyword the same way. The box spans the participants touched.
  */
 export interface GlyphSequenceFrame {
   readonly kind: string;
@@ -72,9 +71,12 @@ export interface GlyphSequenceNote {
   readonly text: string;
   readonly over: readonly string[];
   readonly at: number;
+  /** Default centers over the lanes; left/right sit beside one lane. */
+  readonly placement?: "left" | "right";
 }
 
 export interface GlyphSequence {
+  readonly title?: string;
   readonly participants: readonly GlyphSequenceParticipant[];
   readonly messages: readonly GlyphSequenceMessage[];
   readonly frames?: readonly GlyphSequenceFrame[];

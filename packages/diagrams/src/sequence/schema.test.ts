@@ -29,6 +29,12 @@ describe("sequence JSON Schema and runtime parity", () => {
     expect(validateGlyphSequence(json)).toEqual(base);
   });
 
+  it.each(["left", "right"])("retains a title and %s note placement in runtime/schema round trips", (placement) => {
+    const input = { ...base, title: "Hello", notes: [{ text: "n", over: ["a"], at: 0, placement }] };
+    expect(validate(input), JSON.stringify(validate.errors)).toBe(true);
+    expect(validateGlyphSequence(input)).toEqual(input);
+  });
+
   it.each(glyphSequenceBadFixtures)("rejects $id in both the runtime and Ajv", ({ id, value }) => {
     expect(() => validateGlyphSequence(value)).toThrow(expect.objectContaining({ code: id }));
     expect(validate(value), JSON.stringify(validate.errors)).toBe(false);

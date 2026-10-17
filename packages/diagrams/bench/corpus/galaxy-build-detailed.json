@@ -1,0 +1,24 @@
+{
+  "sha256": "d7ae3ef94dcb238005e53fb80518bd2bb447b9af3d41dad559bafbdbe9267649",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render diagram part 1: what is baked",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

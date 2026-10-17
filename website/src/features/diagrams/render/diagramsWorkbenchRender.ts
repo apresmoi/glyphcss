@@ -32,6 +32,7 @@ export type GlyphDiagramsWorkbenchRender =
       text: string;
       ansi?: string;
       meta: { readonly description: string };
+      ledger?: readonly { readonly code: string; readonly message: string }[];
       /** Mirrors `chartsWorkbenchRender.ts`'s own field — see its doc
        *  (CHARTS-RESEARCH `DIAGNOSIS-target-matrix.md` C4). */
       charsetDowngraded?: true;
@@ -161,7 +162,11 @@ export async function renderGlyphDiagramsWorkbenchState(
     const options = glyphDiagramsWorkbenchRenderOptions(state, viewportPx);
     const downgraded = chatCharsetDowngrade(options);
     const charsetDowngraded = downgraded !== options;
-    const result = await renderGlyphDiagram(graph, downgraded);
+    // Source carries grid, lane, state and adaptation metadata absent from JSON.
+    const result = await renderGlyphDiagram(
+      state.sourceKind === "mermaid" && !state.layout.direction ? state.mermaid : graph,
+      downgraded,
+    );
     const text = canvasPagesToText(result.pages);
     const isHtml = result.html !== undefined;
     return {
@@ -171,6 +176,7 @@ export async function renderGlyphDiagramsWorkbenchState(
       isHtml,
       ansi: result.text.includes("\x1b[") ? result.text : undefined,
       meta: result.meta,
+      ledger: result.report.ledger,
       ...(charsetDowngraded ? { charsetDowngraded: true as const } : {}),
       ...glyphDiagramsWorkbenchHotspots(result.pages),
     };
@@ -206,7 +212,7 @@ export async function renderGlyphDiagramsWorkbenchSequenceState(
     const downgraded = chatCharsetDowngradeSequence(options);
     const charsetDowngraded = downgraded !== options;
     const result: GlyphSequenceResult = await renderGlyphSequence(
-      buildGlyphDiagramsWorkbenchSequence(state),
+      state.sequence.sourceKind === "mermaid" ? state.sequence.mermaid : buildGlyphDiagramsWorkbenchSequence(state),
       downgraded,
     );
     const text = canvasPagesToText(result.pages);
@@ -218,6 +224,7 @@ export async function renderGlyphDiagramsWorkbenchSequenceState(
       isHtml,
       ansi: result.text.includes("\x1b[") ? result.text : undefined,
       meta: { description: result.meta.description },
+      ledger: result.report.ledger,
       ...(charsetDowngraded ? { charsetDowngraded: true as const } : {}),
     };
   } catch (error) {
@@ -258,6 +265,7 @@ export async function renderGlyphDiagramsWorkbenchLanesState(
       isHtml,
       ansi: result.text.includes("\x1b[") ? result.text : undefined,
       meta: { description: result.meta.description },
+      ledger: result.report.ledger,
       ...(charsetDowngraded ? { charsetDowngraded: true as const } : {}),
     };
   } catch (error) {

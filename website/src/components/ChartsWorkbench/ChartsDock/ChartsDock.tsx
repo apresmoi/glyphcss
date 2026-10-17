@@ -432,6 +432,19 @@ export function ChartsDock({
     if (z3dAxisFolder) is3d ? z3dAxisFolder.show() : z3dAxisFolder.hide();
   }, [z3dAxisFolder, is3d]);
 
+  useEffect(() => {
+    for (const folder of [chart, scales, axes]) {
+      if (!folder) continue;
+      const disabled = state.mermaid !== undefined;
+      folder.domElement.inert = disabled;
+      folder.domElement.classList.toggle("charts-mermaid-disabled", disabled);
+      folder.domElement.setAttribute("aria-disabled", String(disabled));
+      folder.domElement.title = disabled
+        ? "Edit Mermaid source to change chart content; Output controls remain available."
+        : "";
+    }
+  }, [chart, scales, axes, state.mermaid]);
+
   // View folder (3D only, packet C3) — hidden entirely in 2D mode, the same
   // `.hide()`/`.show()` idiom the Terminal folder below already uses for
   // its own target gating. `is3d` itself is hoisted above (the Charset

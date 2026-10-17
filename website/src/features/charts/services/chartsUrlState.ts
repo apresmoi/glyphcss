@@ -841,6 +841,9 @@ function validateChartsWorkbenchState(value: unknown): ChartsWorkbenchState | nu
   const cleanEffect3d = validateChartsEffect3d(value.effect3d) ?? CHARTS_WORKBENCH_DEFAULT_EFFECT3D;
 
   return {
+    ...(typeof value.mermaid === "string" && new TextEncoder().encode(value.mermaid).length <= CHARTS_CUSTOM_MAX_BYTES
+      ? { mermaid: value.mermaid }
+      : {}),
     marks: cleanMarks,
     nextMarkId,
     controls: cleanControls,

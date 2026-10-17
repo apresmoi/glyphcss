@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../features/mermaid/model/presets";
 import { diagramsSourceSnippets } from "../../features/diagrams/model/diagramsSourceAid";
 import {
   type GlyphDiagramsWorkbenchState,
@@ -99,6 +100,7 @@ function GlyphDiagramsWorkbenchInner({
     setCodeOpen,
     snippets,
     thumbnails,
+    trayRef,
   } = view;
 
   const exportActions = (
@@ -200,6 +202,23 @@ function GlyphDiagramsWorkbenchInner({
               highlight={hovered}
             />
           </div>
+          {((state.form === "graph" &&
+            state.graphSource?.kind === "builtin" &&
+            state.graphSource.presetId.startsWith("mermaid-")) ||
+            state.form === "sequence") &&
+            currentRendered?.ok &&
+            Boolean(currentRendered.ledger?.length) && (
+              <details className="diagrams-mermaid-notes">
+                <summary>Adaptation notes ({currentRendered.ledger!.length})</summary>
+                <ul>
+                  {currentRendered.ledger!.map((entry, index) => (
+                    <li key={index}>
+                      {entry.code}: {entry.message}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
         </InstrumentRail>
         <InstrumentMain>
           {/* Search + Random, floating over the viewport — the SAME overlay
@@ -212,7 +231,7 @@ function GlyphDiagramsWorkbenchInner({
               loadedTitle={
                 state.graphSource?.kind === "remote"
                   ? state.graphSource.title
-                  : (GLYPH_DIAGRAM_WORKBENCH_PRESETS.find(
+                  : ([...GLYPH_DIAGRAM_WORKBENCH_PRESETS, ...GLYPH_MERMAID_DIAGRAM_PRESETS].find(
                       (p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId,
                     )?.label ?? "")
               }
@@ -322,7 +341,12 @@ function GlyphDiagramsWorkbenchInner({
           <GlyphDiagramsDock state={state} dispatch={dispatch} />
         </Dock>
       </InstrumentBody>
-      <PresetTray id="diagrams-presets-panel" label="Diagram presets" open={mobilePanel === "presets"}>
+      <PresetTray
+        id="diagrams-presets-panel"
+        label="Diagram presets"
+        open={mobilePanel === "presets"}
+        sectionRef={trayRef}
+      >
         {GLYPH_DIAGRAMS_TRAY.map((entry, index) => {
           const key = `${entry.kind}:${entry.preset.id}`;
           const previous = GLYPH_DIAGRAMS_TRAY[index - 1];
@@ -342,20 +366,23 @@ function GlyphDiagramsWorkbenchInner({
               type="button"
               className="synth-tile"
               key={key}
+              data-thumbnail-key={key}
               title={`Apply “${entry.preset.label}”`}
-              aria-label={`Apply ${entry.preset.label}`}
+              aria-label={`Apply ${entry.kind === "mermaid" ? "Mermaid " : ""}${entry.preset.label}`}
               onClick={() =>
                 dispatch(
-                  entry.kind === "sequence"
-                    ? { type: "apply-sequence-preset", id: entry.preset.id }
-                    : entry.kind === "lanes"
-                      ? { type: "apply-lanes-preset", id: entry.preset.id }
-                      : { type: "apply-preset", id: entry.preset.id },
+                  entry.kind === "mermaid"
+                    ? { type: "apply-mermaid-preset", id: entry.preset.id }
+                    : entry.kind === "sequence"
+                      ? { type: "apply-sequence-preset", id: entry.preset.id }
+                      : entry.kind === "lanes"
+                        ? { type: "apply-lanes-preset", id: entry.preset.id }
+                        : { type: "apply-preset", id: entry.preset.id },
                 )
               }
             >
               <span className="synth-tile-scene diagrams-tile-preview" aria-hidden="true">
-                <pre>{thumbnails[key] ?? ""}</pre>
+                <pre aria-busy={thumbnails[key] === undefined}>{thumbnails[key] ?? ""}</pre>
               </span>
               <span className="synth-tile-label">{entry.preset.label}</span>
             </button>,

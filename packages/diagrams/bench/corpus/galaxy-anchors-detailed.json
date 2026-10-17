@@ -1,0 +1,24 @@
+{
+  "sha256": "0f6512ae16d5ac0854ce4bd59417ce9fbb458858d59aae6be1c842b8c7824ecd",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render the anchors overview diagram",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

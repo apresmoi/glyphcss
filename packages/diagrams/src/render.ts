@@ -1,13 +1,21 @@
-import { glyphGraphFromMermaid } from "./mermaid";
+import { GLYPH_DIAGRAM_EDGE_WAYPOINTS, GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
+import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker } from "./presentation";
+import { renderGlyphMermaidGit } from "./mermaidGitRender";
+import { glyphParseMermaid } from "./mermaid";
+import { glyphTryRenderMermaidBlock } from "./mermaidBlockRender";
+import { GLYPH_MERMAID_ADAPTIVE, type GlyphMermaidBlockGraph } from "./mermaidStructured";
 import { glyphGraphFromJson } from "./adapters";
 import { glyphDiagramError, glyphDiagramRepairHint, parseGlyphDiagramJson } from "./validate";
-import { canonicalizeGlyphGraph } from "./pipeline";
+import { canonicalizeGlyphGraph, glyphDiagramFoldLabel, glyphDiagramWords } from "./pipeline";
 import { paintGlyphDiagram } from "./paint";
 import { glyphDiagramDropDecoration, glyphDiagramMergeDuplicates, glyphDiagramCollapseLeaves, splitGlyphGraph } from "./degrade";
-import { fitGlyphGraph, type GlyphDiagramAttempt } from "./fit";
-import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, type GlyphDiagramLedgerEntry } from "./ledger";
+import { fitGlyphGraph, glyphDiagramDecorationScore, type GlyphDiagramAttempt } from "./fit";
+import { dedupeGlyphDiagramLedger, ledgerBudgetStage, ledgerDiamondMarkersDropped, ledgerLabelFolded, ledgerDetailFaithful, ledgerLayoutExpanded, ledgerLayoutOverflow, ledgerRoutingAttempt, ledgerSplitPanelDropped, ledgerUnroutable, ledgerWordsCut, type GlyphDiagramLedgerEntry } from "./ledger";
 import type { GlyphGraph } from "./types";
 import type { GlyphDiagramRenderOptions, GlyphDiagramResult, GlyphDiagramTarget, GlyphDiagramCharset, GlyphDiagramColorMode } from "./renderTypes";
+import { glyphDiagramGraphLabels } from "./graphLabels";
+import { glyphDiagramCompactGeometry } from "./compact";
+import { GLYPH_DIAGRAM_WORK, GlyphDiagramWork } from "./work";
 
 // Mirrors `@glyphcss/charts`' `GLYPH_CHART_TARGET_DEFAULTS` for contract
 // consistency across the two packages — braille is the default wherever a
@@ -39,54 +47,127 @@ function resolvedOptions(options: GlyphDiagramRenderOptions) {
   return result;
 }
 export async function renderGlyphDiagram(input: GlyphGraph | string, options: GlyphDiagramRenderOptions = {}): Promise<GlyphDiagramResult> {
-  const opts = resolvedOptions(options);
-  const original = canonicalizeGlyphGraph(typeof input === "string" ? glyphGraphFromMermaid(input) : glyphGraphFromJson(input));
+  let opts = resolvedOptions(options);
+  const parsed = typeof input === "string" ? glyphParseMermaid(input) : { graph: glyphGraphFromJson(input), notes: [] };
+  if ("lanes" in parsed && parsed.lanes) return renderGlyphMermaidGit(parsed.graph, parsed.lanes, parsed.notes, opts);
+  if (((parsed.graph as GlyphMermaidBlockGraph)[GLYPH_MERMAID_ADAPTIVE]
+    || parsed.graph.edges.some(edge => edge.label) && parsed.graph.groups?.some(group => (group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION])) && options.autoDirection === undefined && options.direction === undefined) opts = { ...opts, autoDirection: true };
+  const block = glyphTryRenderMermaidBlock(parsed.graph, parsed.notes, opts);
+  if (block) return block;
+  const original = canonicalizeGlyphGraph(parsed.graph);
   let graph: GlyphGraph = options.direction ? { ...original, direction: options.direction } : original;
-  const ledger: GlyphDiagramLedgerEntry[] = [], unroutable = new Set<string>();
-  const attempt = (candidate: GlyphGraph): Promise<GlyphDiagramAttempt> => fitGlyphGraph(candidate, opts);
+  let diamondMarkers = graph.nodes.filter(node => glyphDiagramHasDiamondMarker(node)).map(node => node.id);
+  let drawDiamondMarkers = true;
+  const ledger: GlyphDiagramLedgerEntry[] = parsed.notes, unroutable = new Set<string>();
+  const work = new GlyphDiagramWork(original, opts.width, opts.height);
+  const attempt = async (candidate: GlyphGraph, markers = drawDiamondMarkers): Promise<GlyphDiagramAttempt> => {
+    const presentation = { ...opts, [GLYPH_DIAGRAM_DIAMOND_MARKER]: markers, [GLYPH_DIAGRAM_WORK]: work };
+    if (!work.terminal && !work.canLayout(candidate)) {
+      work.limited = true; work.terminal = true;
+      // An unfunded first layout has no geometry to retain. A boundary panel
+      // supplies the normal attempt shape; only the complete split is painted.
+      return { ...await fitGlyphGraph(splitGlyphGraph(candidate)[0]!, presentation), okay: false };
+    }
+    const result = await fitGlyphGraph(candidate, presentation);
+    // A budget exhausted before splitting is still part of the render's work.
+    ledger.push(...result.layout.ledger.filter(entry => entry.code === "fit-search-limited"));
+    return result;
+  };
   // Ports outside the viewport indicate size overflow, not failed routing.
   const overflowOrRoutingAttempt = (current: GlyphDiagramAttempt, stage: "degrade" | "split"): GlyphDiagramLedgerEntry[] =>
     current.fits
       ? current.routing.unroutable.map((id) => ledgerRoutingAttempt({ edgeId: id, stage }))
       : [ledgerLayoutOverflow({ stage, layoutWidth: current.layout.width, layoutHeight: current.layout.height, requestedWidth: opts.width, requestedHeight: opts.height })];
+  // The title is folded where it is painted; the fold is reported here, with every other label's.
+  if (options.title && glyphDiagramFoldLabel(options.title, opts.charset) !== options.title.split(/\r?\n/).map((line) => line.trimEnd()).join("\n")) ledger.push(ledgerLabelFolded({ role: "title", owner: "diagram", before: options.title, after: glyphDiagramFoldLabel(options.title, opts.charset) }));
   let current = await attempt(graph);
+  if (diamondMarkers.length && !work.limited) {
+    const score = glyphDiagramDecorationScore(current, opts);
+    // Clean fits retain their approved look. A troubled fit tries the smallest
+    // decoration loss before removing shapes or semantic captions, even in faithful mode.
+    if (score.slice(0, 5).some(value => value > 0)) {
+      const candidate = await attempt(graph, false);
+      const plainScore = glyphDiagramDecorationScore(candidate, opts);
+      const difference = plainScore.findIndex((value, i) => value !== score[i]);
+      if (difference >= 0 && plainScore[difference]! < score[difference]!) {
+        drawDiamondMarkers = false; current = candidate;
+        ledger.push(ledgerDiamondMarkersDropped(diamondMarkers));
+        diamondMarkers = [];
+      }
+    }
+  }
   if (current.adjusted) ledger.push(ledgerBudgetStage("compaction"));
   if (opts.detail === "simplified" || !current.okay) {
     ledger.push(...overflowOrRoutingAttempt(current, "degrade"));
-    if (opts.detail !== "faithful") {
+    if (opts.detail !== "faithful" && !work.limited) {
       // Gated on `!current.okay`: running decoration unconditionally threw
       // away labels and shapes on diagrams compaction had already rescued.
       if (opts.detail === "simplified" || !current.okay) {
         ledger.push(ledgerBudgetStage("decoration"));
+        if (diamondMarkers.length) {
+          drawDiamondMarkers = false;
+          ledger.push(ledgerDiamondMarkersDropped(diamondMarkers));
+          diamondMarkers = [];
+        }
         graph = glyphDiagramDropDecoration(graph); current = await attempt(graph);
-        if (!current.okay) {
+        if (!current.okay && !work.limited) {
           const merged = glyphDiagramMergeDuplicates(graph); graph = merged.graph;
           ledger.push(ledgerBudgetStage("duplicates"), ...merged.ledger); current = await attempt(graph);
         }
-        if (!current.okay) {
+        if (!current.okay && !work.limited) {
           const collapsed = glyphDiagramCollapseLeaves(graph); graph = collapsed.graph;
           ledger.push(ledgerBudgetStage("leaf-clusters"), ...collapsed.ledger); current = await attempt(graph);
         }
       }
-    } else ledger.push(ledgerDetailFaithful());
+    } else if (opts.detail === "faithful") ledger.push(ledgerDetailFaithful());
   }
   const attempts = [current];
   if (!current.okay) {
     ledger.push(...overflowOrRoutingAttempt(current, "split"), ledgerBudgetStage("split"));
     attempts.length = 0;
+    work.terminal = work.limited;
     for (const panel of splitGlyphGraph(graph)) attempts.push(await attempt(panel));
   }
+  ledger.push(...work.ledger());
   const pages = attempts.map(({ layout, routing, fits, width, height }, index) => {
-    if (width > opts.width || height > opts.height) ledger.push(ledgerLayoutExpanded({ requestedWidth: opts.width, requestedHeight: opts.height, canvasWidth: width, canvasHeight: height }));
     if (!fits) {
       // A too-small viewport cannot legally show a partial box or a dangling clipped transit.
       ledger.push(ledgerSplitPanelDropped({ panel: index + 1, requestedWidth: opts.width, requestedHeight: opts.height, nodes: layout.nodes.map((n) => n.id) }));
       layout.edges.forEach((e) => { unroutable.add(e.id); ledger.push(ledgerUnroutable({ edgeId: e.id, reason: "it's too large for the viewport" })); });
-      layout = { ...layout, nodes: [], edges: [], groups: [], ports: [] }; routing = { routes: [], unroutable: [], ledger: [] };
+      layout = { ...layout, nodes: [], edges: [], groups: [], ports: [], loops: [] }; routing = { routes: [], unroutable: [], ledger: [] };
     }
     routing.unroutable.forEach((id) => unroutable.add(id));
     ledger.push(...layout.ledger, ...routing.ledger);
-    const painted = paintGlyphDiagram(layout, routing, { ...opts, width, height });
+    // A word the layout had to break across lines is a fidelity loss the reader cannot otherwise see: every node's drawn rows
+    // and every loop label's rows are compared with the words that were written.
+    const broken = (label: string, lines: readonly string[]) => {
+      const shown = new Set(lines.flatMap(line => glyphDiagramWords(line)));
+      // The whole label is folded once, as it was when measured, then its words are compared.
+      return glyphDiagramFoldLabel(label, opts.charset).split(/\s+/).filter(Boolean)
+        .filter(word => glyphDiagramWords(word).some(piece => !shown.has(piece)));
+    };
+    const cut = [
+      ...layout.nodes.filter((node) => node.shape !== "point").map((node) => ({ id: node.id, words: broken([node.label, ...(node.compartments ?? []).flat()].join("\n"), node.lines) })),
+      ...layout.loops.map((loop) => ({ id: `${loop.nodeId} loop`, words: broken(layout.edges.find((e) => e.id === loop.edgeId)?.label ?? "", loop.lines) })),
+    ].filter((entry) => entry.words.length > 0);
+    if (cut.length) ledger.push(ledgerWordsCut({ nodes: cut }));
+    let labels = glyphDiagramGraphLabels(layout, routing, { ...opts, width, height });
+    if (fits && routing.unroutable.length === 0) {
+      const compact = glyphDiagramCompactGeometry(layout, routing, labels.placed, { width, height });
+      // Keep the caller's canvas size; only expanded canvases shrink back toward the requested budget.
+      width = Math.max(opts.width, compact.width); height = Math.max(opts.height, compact.height);
+      const dx = Math.floor((width - compact.width) / 2), dy = Math.floor((height - compact.height) / 2);
+      const point = (p: { x: number; y: number }) => ({ x: p.x + dx, y: p.y + dy });
+      const rect = (r: { x0: number; x1: number; y0: number; y1: number }) => ({ x0: r.x0 + dx, x1: r.x1 + dx, y0: r.y0 + dy, y1: r.y1 + dy });
+      layout = { ...compact.layout,
+        ...(compact.layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS] ? { [GLYPH_DIAGRAM_EDGE_WAYPOINTS]: Object.fromEntries(Object.entries(compact.layout[GLYPH_DIAGRAM_EDGE_WAYPOINTS]!).map(([id, points]) => [id, points.map(point)])) } : {}),
+        nodes: compact.layout.nodes.map(n => ({ ...n, ...rect(n) })),
+        ports: compact.layout.ports.map(p => ({ ...p, anchor: point(p.anchor), escape: point(p.escape) })) };
+      routing = { ...compact.routing, routes: compact.routing.routes.map(r => ({ ...r, cells: r.cells.map(point) })) };
+      labels = { ...labels, placed: compact.labels.map(l => ({ ...l, ...point(l), ...rect(l) })) };
+    }
+    const painted = paintGlyphDiagram(layout, routing, { ...opts, width, height, labelLayout: labels });
+    if (width > opts.width || height > opts.height) ledger.push(ledgerLayoutExpanded({ requestedWidth: opts.width, requestedHeight: opts.height, canvasWidth: width, canvasHeight: height }));
     ledger.push(...painted.ledger);
     return painted;
   });

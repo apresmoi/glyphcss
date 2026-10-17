@@ -1,0 +1,13 @@
+flowchart LR
+  K[One camera] --> I[Sky from Sun]
+  K --> F[Face-on]
+  K --> S[Edge-on]
+  I --> N[vs NASA sky]
+  I --> Q[vs Gaia counts]
+  F --> A[vs 6 analogues]
+  N --> L[Score]
+  Q --> L
+  A --> L
+  L --> O[GPU search]
+  O --> K
+  O --> B[Ledger + star]

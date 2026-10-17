@@ -1,0 +1,25 @@
+ INPUTS (papers + measurements)              WHAT IT BECOMES
+ ─────────────────────────────               ───────────────
+ Bland-Hawthorn & Gerhard 2016  ─┐
+   thin/thick discs (fixed v8)   │
+ Robin 2003  disc hole           ├──▶  STARS   bar · thin · thick
+ Reid 2019   spiral arms         │             young layer · arms
+ Bennett & Bovy  Sun height      │
+ Galaxia  ages ──────────────────┼──▶  COLORS  per population + age gradient
+          star mix per pop. (v8) ┘     STAR MIX for Gaia counts
+
+ Edenhofer 2024  local, 4 pc    ─┐
+ Vergely 2022    to 5 kpc        ├──▶  DUST    one 3D field, each source
+ Drimmel 2001 × FIRE texture     │            where it's best, smooth hand-offs,
+   (far, calibrated to local)    ┘            continued above/below the disc
+ CCM89  dust colour law (A0 ref, v8)
+
+                     STARS + COLORS + DUST
+                              │
+                              ▼
+                   ONE 3D GALAXY (one object)
+                              │
+          render: dimming + scattering (v8, tuned to SKIRT)
+                              │
+                              ▼
+                         ONE CAMERA

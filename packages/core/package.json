@@ -38,12 +38,20 @@
       "types": "./dist/three.d.ts",
       "import": "./dist/three.js",
       "require": "./dist/three.cjs"
+    },
+    "./mermaid": {
+      "types": "./dist/mermaid.d.ts",
+      "import": "./dist/mermaid.js",
+      "require": "./dist/mermaid.cjs"
     }
   },
   "typesVersions": {
     "*": {
       "three": [
         "dist/three.d.ts"
+      ],
+      "mermaid": [
+        "dist/mermaid.d.ts"
       ]
     }
   },

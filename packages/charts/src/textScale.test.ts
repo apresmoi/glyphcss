@@ -1,3 +1,4 @@
+// Historical fixtures 11/26 include the approved legend-gap correction (reviewFixtures exception 16).
 /**
  * `options.textScale` (AGENTS.md's "Charts" "Density" paragraph) — the
  * web-only affordance that keeps chart TEXT (title, axis titles, tick

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "order-branches",
+    "source": "flowchart LR\n  order[New order] --> validate[Validate cart]\n  validate --> stock{In stock?}\n  stock -->|yes| charge[Charge card]\n  stock -->|no| backorder[Backorder]\n  backorder --> notify[Email customer]\n  charge --> paid{Paid?}\n  paid -->|no| retry[Retry payment]\n  retry --> charge\n  paid -->|yes| pack[Pack box]\n  pack --> ship[Ship]\n  ship --> done[Delivered]"
+  },
+  {
+    "id": "order-paid-loop",
+    "source": "flowchart LR\n  order[New order] --> validate[Validate cart]\n  validate --> stock{In stock?}\n  stock -->|yes| charge[Charge card]\n  stock -->|no| backorder[Backorder]\n  backorder --> notify[Email customer]\n  charge --> paid{Paid?}\n  paid -->|no| retry[Retry payment]\n  retry --> charge\n  paid -->|yes| pack[Pack box]\n  pack --> ship[Ship]\n  ship --> done[Delivered]\npaid -->|again| paid"
+  },
+  {
+    "id": "order-opening-branch-loop",
+    "source": "flowchart LR\n  order[New order] --> validate[Validate cart]\n  validate --> stock{In stock?}\n  stock -->|yes| charge[Charge card]\n  stock -->|no| backorder[Backorder]\n  backorder --> notify[Email customer]\n  charge --> paid{Paid?}\n  paid -->|no| retry[Retry payment]\n  retry --> charge\n  paid -->|yes| pack[Pack box]\n  pack --> ship[Ship]\n  ship --> done[Delivered]\nbackorder -->|remind| backorder"
+  },
+  {
+    "id": "three-row-south-loop",
+    "source": "flowchart LR\nA[A identifier id] --> B[B identifier id] --> C[C identifier id] --> D[D identifier id] --> E[E identifier id] --> F[F identifier id] --> G[G identifier id]\nE -->|retry| E"
+  },
+  {
+    "id": "reflected-loop-overhang",
+    "source": "flowchart LR\nA[A identifier] --> B[B identifier] --> C[C identifier] --> D[D identifier<br/>tall<br/>row<br/>member<br/>end] --> E[E identifier] --> F[F identifier] --> G[G identifier]\nE -->|retry after manual review| E"
+  },
+  {
+    "id": "order-stock-loop",
+    "source": "flowchart LR\n  order[New order] --> validate[Validate cart]\n  validate --> stock{In stock?}\n  stock -->|yes| charge[Charge card]\n  stock -->|no| backorder[Backorder]\n  backorder --> notify[Email customer]\n  charge --> paid{Paid?}\n  paid -->|no| retry[Retry payment]\n  retry --> charge\n  paid -->|yes| pack[Pack box]\n  pack --> ship[Ship]\n  ship --> done[Delivered]\nstock -->|review| stock"
+  }
+]

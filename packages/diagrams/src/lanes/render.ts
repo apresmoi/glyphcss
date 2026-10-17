@@ -13,7 +13,11 @@ export type GlyphLaneTarget = "chat" | "terminal" | "web";
 export type GlyphLaneCharset = GlyphCanvasTierName;
 export type GlyphLaneColorMode = "none" | "ansi16" | "ansi256" | "truecolor" | "css";
 
+/** Internal source-adapter hint; not part of the public lane options. */
+export const GLYPH_LANE_FIXED_LANES = Symbol("fixed lanes");
+
 export interface GlyphLaneRenderOptions {
+  readonly [GLYPH_LANE_FIXED_LANES]?: ReadonlyMap<string, number>;
   readonly target?: GlyphLaneTarget;
   readonly charset?: GlyphLaneCharset;
   readonly color?: GlyphLaneColorMode;
@@ -144,7 +148,7 @@ export async function renderGlyphLaneDag(input: GlyphLaneDag | string, options: 
 
   const oldestFirst = opts.order === "oldest-first";
   const inverted = oldestFirst ? invertGlyphLaneDag(dag) : undefined;
-  const natural = inverted ? layoutGlyphLaneRows(inverted.dag, { incoming: inverted.incoming, continuesFrom: inverted.continuesFrom }) : layoutGlyphLaneRows(dag);
+  const natural = layoutGlyphLaneRows(inverted?.dag ?? dag, { ...inverted, laneOf: options[GLYPH_LANE_FIXED_LANES] });
   const outside = glyphLaneOutsideParents(dag);
   const naturalColumns = natural.maxLane + 1;
   // Shrink the lane cap only until the lane area leaves at least this much

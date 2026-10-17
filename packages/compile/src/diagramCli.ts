@@ -1,4 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
+import { renderGlyphChartMermaid } from "@glyphcss/charts";
+import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
 import {
   glyphGraphFromJson, parseGlyphDiagramJson, renderGlyphDiagram,
   type GlyphDiagramRenderOptions, type GlyphGraph,
@@ -16,6 +18,10 @@ export const GLYPH_DIAGRAM_CLI_HELP = `glyphcss diagram <file.mmd|graph.json> [o
   --engine dagre  --nodesep N  --ranksep N
   --title TEXT  --detail auto|faithful|balanced|simplified
   -o, --out FILE
+
+  Mermaid: all supported diagram and chart headers dispatch automatically.
+  Graph spacing/direction flags are inert for charts, sequences and gitGraph;
+  --title is diagram-only; ignored options are recorded on stderr.
 
   Output: ANSI when stdout is a TTY, plain text when piped, unless --color
   overrides it. CSS colour emits HTML. Fidelity ledger entries go to stderr.
@@ -66,10 +72,41 @@ export function parseGlyphDiagramArgs(argv: readonly string[]): { file?: string;
 
 interface GlyphDiagramCliResult { readonly text: string; readonly html?: string; readonly report: { readonly ledger: readonly { readonly code: string; readonly message: string }[] } }
 
-function renderCli(input: string | GlyphGraph, options: GlyphDiagramCliOptions, output: { readonly isTTY: boolean; readonly vars?: Readonly<Record<string, string | undefined>> }): Promise<GlyphDiagramCliResult> {
+function mermaidBody(source: string): string {
+  return source.replace(/^\uFEFF/, "")
+    .replace(/^\s*---\s*\r?\n[\s\S]*?\r?\n---\s*(?:\r?\n|$)/, "")
+    .replace(/^(?:\s|%%\{[\s\S]*?\}%%|%%[^\n]*(?:\n|$))*/, "");
+}
+
+async function renderCli(input: string | GlyphGraph, options: GlyphDiagramCliOptions, output: { readonly isTTY: boolean; readonly vars?: Readonly<Record<string, string | undefined>> }): Promise<GlyphDiagramCliResult> {
   const target = options.target ?? "terminal";
   const color = options.color ?? (output.isTTY ? undefined : "none");
-  return renderGlyphDiagram(input, { ...options, target, color, env: output.vars });
+  const { direction, engine, nodesep, ranksep, title, detail, ...shared } = options;
+  const common = { ...shared, target, color, env: output.vars };
+  const withIgnored = (result: GlyphDiagramCliResult, keys: readonly (keyof GlyphDiagramCliOptions)[]): GlyphDiagramCliResult => ({
+    ...result,
+    report: { ...result.report, ledger: [...result.report.ledger, ...keys.filter(key => options[key] !== undefined).map(key => ({
+      code: "mermaid-option-ignored", message: `--${key} does not apply to this Mermaid type; the native renderer controls its layout.`,
+    }))] },
+  });
+  if (typeof input === "string") {
+    try {
+      return withIgnored(renderGlyphChartMermaid(input, { ...common, detail }), ["direction", "engine", "nodesep", "ranksep", "title"]);
+    } catch (error) {
+      if ((error as { code?: string }).code !== "GLYPH_MERMAID_NOT_CHART_TYPE") throw error;
+    }
+    const body = mermaidBody(input);
+    const header = body.match(/^[\w-]+/)?.[0] ?? "";
+    if (header === "sequenceDiagram") {
+      const result = await renderGlyphSequence(body, { ...common, title });
+      const preamble = body !== input ? [{ code: "mermaid-degraded", message: "Sequence preamble metadata and initialization are inert; use --title to set a title." }] : [];
+      return withIgnored({ ...result, report: { ...result.report, ledger: [...preamble, ...result.report.ledger] } }, ["direction", "engine", "nodesep", "ranksep", "detail"]);
+    }
+    // The public root entry adapts gitGraph to ./lanes, retaining its source
+    // ledger and ordering; parsing a graph first would discard that adapter.
+    if (header.toLowerCase() === "gitgraph") return withIgnored(await renderGlyphDiagram(input, { ...common, title }), ["direction", "engine", "nodesep", "ranksep", "detail"]);
+  }
+  return renderGlyphDiagram(input, { ...common, direction, engine, nodesep, ranksep, title, detail });
 }
 
 export async function resolveGlyphDiagramCliOutput(

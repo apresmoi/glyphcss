@@ -13,13 +13,15 @@ import type { GlyphGraph, GlyphGraphNodeShape } from "./types";
  * cell `layout.nodes[0]`'s own rectangle names, never a fixed offset, so
  * this stays correct across a label-width change.
  */
-const SHAPE_OUTLINES: Readonly<Record<GlyphGraphNodeShape, {
+// `point` has no outline: it is only its glyph (see stateRender.test.ts).
+const SHAPE_OUTLINES: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, {
   readonly corners: readonly [string, string, string, string]; // TL, TR, BL, BR
   readonly topRule: string;
   readonly bottomRule: string;
   readonly sideLeft: string;
   readonly sideRight: string;
 }>> = {
+  compartment: { corners: ["┌", "┐", "└", "┘"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   rect: { corners: ["┌", "┐", "└", "┘"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   rounded: { corners: ["╭", "╮", "╰", "╯"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   stadium: { corners: ["◜", "◝", "◟", "◞"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
@@ -31,7 +33,7 @@ const SHAPE_OUTLINES: Readonly<Record<GlyphGraphNodeShape, {
 };
 
 describe("box-charset node shape outlines match the approved catalogue", () => {
-  for (const [shape, expected] of Object.entries(SHAPE_OUTLINES) as [GlyphGraphNodeShape, (typeof SHAPE_OUTLINES)[GlyphGraphNodeShape]][]) {
+  for (const [shape, expected] of Object.entries(SHAPE_OUTLINES) as [GlyphGraphNodeShape, (typeof SHAPE_OUTLINES)[keyof typeof SHAPE_OUTLINES]][]) {
     it(`${shape} paints the catalogue's own corners, rules and sides`, async () => {
       const graph: GlyphGraph = { direction: "TB", nodes: [{ id: "n", label: "Node", shape }], edges: [] };
       const result = await renderGlyphDiagram(graph, { charset: "box", target: "chat", width: 30, height: 8 });
@@ -40,7 +42,7 @@ describe("box-charset node shape outlines match the approved catalogue", () => {
       const at = (x: number, y: number) => result.canvas.grid.char[y * result.canvas.grid.cols + x];
       expect([at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1)]).toEqual(expected.corners);
       for (let x = x0 + 1; x < x1; x++) { expect(at(x, y0)).toBe(expected.topRule); expect(at(x, y1)).toBe(expected.bottomRule); }
-      for (let y = y0 + 1; y < y1; y++) { expect(at(x0, y)).toBe(expected.sideLeft); expect(at(x1, y)).toBe(expected.sideRight); }
+      for (let y = y0 + 1; y < y1; y++) { expect(at(x0, y)).toBe(node.separators?.includes(y - y0 - 1) ? "├" : expected.sideLeft); expect(at(x1, y)).toBe(node.separators?.includes(y - y0 - 1) ? "┤" : expected.sideRight); }
       // `subroutine`'s nested inset frame sits one cell inside each side —
       // a separate mechanism from the outline table above (AGENTS.md's
       // own "Don't reuse a canvas" note aside, this is the one shape whose
@@ -71,7 +73,8 @@ describe("box-charset node shape outlines match the approved catalogue", () => {
   });
 
   it("ascii keeps its pre-existing 7-bit fallback per shape, unaffected by the box-charset catalogue above", async () => {
-    const ascii: Readonly<Record<GlyphGraphNodeShape, readonly [string, string, string, string]>> = {
+    const ascii: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, readonly [string, string, string, string]>> = {
+      compartment: ["+", "+", "+", "+"],
       rect: ["+", "+", "+", "+"], rounded: ["(", ")", "(", ")"], stadium: ["(", ")", "(", ")"],
       cylinder: ["+", "+", "+", "+"], circle: ["(", ")", "(", ")"], diamond: ["/", "\\", "\\", "/"],
       asymmetric: [">", "]", ">", "]"], subroutine: ["+", "+", "+", "+"],

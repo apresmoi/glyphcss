@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -27,12 +27,15 @@ let cliPath = "";
 let cliBuild = "";
 
 beforeAll(async () => {
-  cliBuild = await mkdtemp(join(process.cwd(), ".glyph-cli-build-"));
+  cliBuild = await mkdtemp(join(tmpdir(), "glyph-cli-build-"));
   // `--dts false`: the test only needs runnable JS. The package's tsup config
   // turns declarations on, and a DTS build resolves workspace types from each
   // sibling's `dist/` — which does not exist in a fresh checkout, so CI (and any
   // clean clone) failed here while a local run passed off stale build output.
   await execute("pnpm", ["exec", "tsup", "src/cli.ts", "--format", "esm", "--out-dir", cliBuild, "--clean", "false", "--no-dts"], { cwd: process.cwd() });
+  // The emitted CLI keeps external dependencies; resolve them from this package.
+  await symlink(join(process.cwd(), "node_modules"), join(cliBuild, "node_modules"), "junction");
+  await writeFile(join(cliBuild, "package.json"), '{"type":"module"}');
   cliPath = join(cliBuild, "cli.js");
 });
 afterAll(async () => { if (cliBuild) await rm(cliBuild, { recursive: true, force: true }); });

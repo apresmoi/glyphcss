@@ -13,8 +13,11 @@ const apply = (text: string, caret: number, snip: ReturnType<typeof diagramsSour
 };
 
 describe("diagramsSourceAid — the shape legend matches the renderer's own shape list", () => {
-  it("covers every GlyphGraphNodeShape exactly once, and offers on the Mermaid tab only what the adapter parses", () => {
-    expect([...DIAGRAMS_SHAPE_CATALOGUE.map((s) => s.shape)].sort()).toEqual([...GLYPH_GRAPH_NODE_SHAPES].sort());
+  it("covers every user-pickable shape exactly once, and offers on the Mermaid tab only what the adapter parses", () => {
+    // Compartment is a structured class/ER variant; the workbench shape picker
+    // offers outlines and does not author member rows.
+    expect([...DIAGRAMS_SHAPE_CATALOGUE.map((s) => s.shape)].sort()).toEqual(GLYPH_GRAPH_NODE_SHAPES.filter((shape) => shape !== "compartment").sort());
+    expect(DIAGRAMS_SHAPE_CATALOGUE.some((s) => s.shape === "compartment")).toBe(false);
     for (const entry of DIAGRAMS_SHAPE_CATALOGUE) {
       const graph = glyphGraphFromJson({ nodes: [{ id: "n", label: "L", shape: entry.shape }], edges: [], direction: "TB" });
       expect(graph.nodes[0]!.shape).toBe(entry.shape);

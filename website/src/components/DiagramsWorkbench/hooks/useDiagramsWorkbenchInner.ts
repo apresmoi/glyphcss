@@ -1,6 +1,5 @@
+import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../../features/mermaid/model/presets";
 import { type GlyphGraph, renderGlyphDiagram } from "@glyphcss/diagrams";
-import { glyphLaneDagFromGitLog, renderGlyphLaneDag, validateGlyphLaneDag } from "@glyphcss/diagrams/lanes";
-import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { DIAGRAMS_REMOTE_GRAPH_INDEX } from "../../../features/diagrams/data/remoteGraphIndex";
 import { diagramsGraphSourceKey, randomDiagramsGraphPick } from "../../../features/diagrams/model/diagramsRandomGraph";
@@ -20,7 +19,6 @@ import {
   generateGlyphDiagramsWorkbenchSnippets,
   GLYPH_DIAGRAM_WORKBENCH_PRESETS,
   GLYPH_DIAGRAMS_FORMS,
-  GLYPH_DIAGRAMS_TRAY,
   GLYPH_LANES_WORKBENCH_PRESETS,
   GLYPH_SEQUENCE_WORKBENCH_PRESETS,
   type GlyphDiagramsWorkbenchControls,
@@ -52,50 +50,7 @@ import { useViewportPan } from "../../../hooks/useViewportPan";
 import { flashButtonState } from "../controllerHelpers";
 import { type DiagramsSourceEditorHandle } from "../DiagramsSourceEditor";
 import { type MobilePanel } from "../types";
-
-type GlyphDiagramsTrayThumbnails = Readonly<Record<string, string>>;
-// Tray previews depend only on the target, yet the large presets each cost
-// hundreds of milliseconds of layout search at 60 x 24. Rendering them on
-// every mount blocked the main thread for seconds on slow machines.
-const trayThumbnailCache = new Map<GlyphDiagramsWorkbenchControls["target"], Promise<GlyphDiagramsTrayThumbnails>>();
-export function glyphDiagramsTrayThumbnails(
-  target: GlyphDiagramsWorkbenchControls["target"],
-): Promise<GlyphDiagramsTrayThumbnails> {
-  let thumbnails = trayThumbnailCache.get(target);
-  if (!thumbnails) {
-    thumbnails = renderGlyphDiagramsTrayThumbnails(target);
-    trayThumbnailCache.set(target, thumbnails);
-  }
-  return thumbnails;
-}
-function renderGlyphDiagramsTrayThumbnails(
-  target: GlyphDiagramsWorkbenchControls["target"],
-): Promise<GlyphDiagramsTrayThumbnails> {
-  return Promise.all(
-    GLYPH_DIAGRAMS_TRAY.map(async (entry) => {
-      const key = `${entry.kind}:${entry.preset.id}`;
-      try {
-        if (entry.kind === "sequence") {
-          return [
-            key,
-            (await renderGlyphSequence(entry.preset.source, { target, width: 60, height: 24 })).text,
-          ] as const;
-        }
-        if (entry.kind === "lanes") {
-          const dag =
-            entry.preset.sourceKind === "gitlog"
-              ? glyphLaneDagFromGitLog(entry.preset.source)
-              : validateGlyphLaneDag(JSON.parse(entry.preset.source));
-          return [key, (await renderGlyphLaneDag(dag, { target, width: 60, height: 24 })).text] as const;
-        }
-        const preset = entry.preset;
-        return [key, (await renderGlyphDiagram(preset.source, { target, width: 60, height: 24 })).text] as const;
-      } catch {
-        return [key, "Preview unavailable"] as const;
-      }
-    }),
-  ).then((pairs) => Object.fromEntries(pairs));
-}
+import { useDiagramsTrayThumbnails } from "./useDiagramsTrayThumbnails";
 
 export function useDiagramsWorkbenchInner({
   initialState,
@@ -141,8 +96,6 @@ export function useDiagramsWorkbenchInner({
     viewportPx: ElementPixelSize | undefined;
     result: GlyphDiagramsWorkbenchRender;
   } | null>(null);
-
-  const [thumbnails, setThumbnails] = useState<Readonly<Record<string, string>>>({});
 
   const preRef = useRef<HTMLPreElement | null>(null);
 
@@ -202,6 +155,7 @@ export function useDiagramsWorkbenchInner({
   );
 
   const isPending = rendered === null;
+  const { thumbnails, trayRef } = useDiagramsTrayThumbnails(state.controls.target, !isPending);
   const hasError = rendered !== null && !rendered.ok;
 
   const isViewportStale = isPending || hasError;
@@ -417,30 +371,16 @@ export function useDiagramsWorkbenchInner({
     state.form === "graph"
       ? state.graphSource?.kind === "remote"
         ? state.graphSource.title
-        : GLYPH_DIAGRAM_WORKBENCH_PRESETS.find(
+        : [...GLYPH_DIAGRAM_WORKBENCH_PRESETS, ...GLYPH_MERMAID_DIAGRAM_PRESETS].find(
             (p) => state.graphSource?.kind === "builtin" && p.id === state.graphSource.presetId,
           )?.label
       : state.form === "sequence"
-        ? GLYPH_SEQUENCE_WORKBENCH_PRESETS.find((p) => p.id === state.sequence.presetId)?.label
+        ? [...GLYPH_SEQUENCE_WORKBENCH_PRESETS, ...GLYPH_MERMAID_DIAGRAM_PRESETS].find(
+            (p) => p.id === state.sequence.presetId,
+          )?.label
         : GLYPH_LANES_WORKBENCH_PRESETS.find((p) => p.id === state.lanes.presetId)?.label;
 
   const railTitle = loadedLabel ? `${formLabel} · ${loadedLabel}` : formLabel;
-
-  useEffect(() => {
-    let current = true;
-    // The tray carries EVERY form's presets at once, keyed per preset rather
-    // than by index into one form's list. Gating the list on the ACTIVE form
-    // was circular: the form defaults to `graph`, so a sequence preset could
-    // only be reached by finding the Dock's Form toggle FIRST — which is
-    // exactly the "there is no preset of sequence" report. Picking a tile is
-    // what switches the form (`apply-sequence-preset` sets `form`).
-    void glyphDiagramsTrayThumbnails(state.controls.target).then((thumbnails) => {
-      if (current) setThumbnails(thumbnails);
-    });
-    return () => {
-      current = false;
-    };
-  }, [state.controls.target]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -708,5 +648,6 @@ export function useDiagramsWorkbenchInner({
     setCodeOpen,
     snippets,
     thumbnails,
+    trayRef,
   };
 }

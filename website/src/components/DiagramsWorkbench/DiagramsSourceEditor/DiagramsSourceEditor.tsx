@@ -25,8 +25,9 @@
  * participant or a git-log parent. Both insert through `replaceSelection`,
  * so browser undo covers them like any keystroke.
  *
- * Editing is GUIDED, always (the user's own ask: "single way of editing,
- * always guided"): `diagramsSourceSlots.ts`'s slot map masks the text. The
+ * Flowchart/graph Mermaid, JSON and git-log editing is guided by
+ * `diagramsSourceSlots.ts`. Other Mermaid declarations stay plain text:
+ * flowchart fields cannot describe their syntax. For guided sources, the
  * caret may only rest inside a slot (a stray click is redirected to the
  * nearest one), Tab/Shift+Tab and Enter walk the slots, typing and deleting
  * are refused wherever they would touch structure (a native `beforeinput`
@@ -61,6 +62,7 @@
  * preset, a tab switch, a remote load) cancels any pending commit and is
  * adopted as-is — the outside world wins over a draft it never saw.
  */
+import { glyphMermaidContent, stripGlyphMermaidPreamble } from "@glyphcss/core/mermaid";
 import type { GlyphGraphNodeShape } from "@glyphcss/diagrams";
 import {
   forwardRef,
@@ -151,6 +153,20 @@ export interface DiagramsSourceEditorHandle {
   selectItem(item: DiagramsSourceItem): boolean;
 }
 
+/** Only the flowchart grammar has a structured Mermaid field editor. */
+function isFlowchartSource(source: string): boolean {
+  try {
+    const { body } = stripGlyphMermaidPreamble(source);
+    const content = glyphMermaidContent(body, (message) => {
+      throw new Error(message);
+    });
+    return /^(?:flowchart|graph)(?=\s|;|$)/.test(content);
+  } catch {
+    // An unfinished directive is a plain-text draft until its header is known.
+    return false;
+  }
+}
+
 function lineStartOffset(text: string, line: number): number {
   let offset = 0;
   for (let i = 1; i < line; i++) {
@@ -222,7 +238,14 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
     const [, setScrollTick] = useState(0);
     const [refusal, setRefusal] = useState<{ readonly reason: string; readonly at: number } | null>(null);
     const refusalTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const tokens = useMemo(() => tokenizeDiagramsSource(dialect, draft), [dialect, draft]);
+    const guided = dialect !== "mermaid" || isFlowchartSource(draft);
+    const tokens = useMemo(
+      () =>
+        guided
+          ? tokenizeDiagramsSource(dialect, draft)
+          : draft.split("\n").map((text) => [{ kind: "text" as const, text }]),
+      [dialect, draft, guided],
+    );
     const lineCount = tokens.length;
     const diagnostic = useMemo(
       () => (error ? locateDiagramsSourceError(form, dialect, draft, error) : null),
@@ -233,9 +256,10 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
     // source does not parse (`error` is the last render's failure; the
     // locator places it on the CURRENT draft).
     const slots = useMemo(() => {
+      if (!guided) return [];
       const masked = diagramsSourceSlots(form, dialect, draft);
       return diagnostic ? diagramsSourceRepairSlots(masked, draft, errorLine ?? "all") : masked;
-    }, [form, dialect, draft, diagnostic, errorLine]);
+    }, [form, dialect, draft, diagnostic, errorLine, guided]);
     const activeSlot = diagramsSourceSlotAt(slots, caret[0], caret[1]);
     // The fields of the item the pointer is over on the render — marked here,
     // never on the diagram, which stays pure ink.
@@ -306,8 +330,8 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
       onSelectionChangeRef.current?.(selectedItem); // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [selectedKey]);
     // The native `beforeinput` guard (below) runs outside React's render, so it reads the latest of these through refs.
-    const guardRef = useRef({ slots, dialect });
-    guardRef.current = { slots, dialect };
+    const guardRef = useRef({ slots, dialect, guided });
+    guardRef.current = { slots, dialect, guided };
     const refuse = (reason: string) => {
       setRefusal({ reason, at: Date.now() });
       if (refusalTimer.current !== null) clearTimeout(refusalTimer.current);
@@ -331,6 +355,10 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
       if (value !== committedRef.current) {
         committedRef.current = value;
         setDraft(value);
+        setCompletion(null);
+        setChoices(null);
+        setMenuOpen(false);
+        setRefusal(null);
         if (timerRef.current !== null) {
           clearTimeout(timerRef.current);
           timerRef.current = null;
@@ -375,7 +403,10 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
       };
     };
     const refreshCompletion = (next: string, caret: number) => {
-      const context = diagramsSourceCompletionContext(dialect, next, caret);
+      const context =
+        dialect === "mermaid" && !isFlowchartSource(next)
+          ? null
+          : diagramsSourceCompletionContext(dialect, next, caret);
       const items = context ? diagramsSourceCompletions(ids, context.prefix) : [];
       if (!context || items.length === 0) {
         setCompletion(null);
@@ -468,7 +499,7 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
     };
     const insertSnippet = (snippet: DiagramsSourceSnippet) => {
       const el = textareaRef.current;
-      if (!el) return;
+      if (!el || !guided) return;
       setMenuOpen(false);
       setCompletion(null);
       el.focus();
@@ -543,7 +574,8 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
       const el = textareaRef.current;
       if (!el) return;
       const onBeforeInput = (event: InputEvent) => {
-        const { slots: current, dialect: currentDialect } = guardRef.current;
+        const { slots: current, dialect: currentDialect, guided: currentGuided } = guardRef.current;
+        if (!currentGuided) return;
         if (event.isComposing || event.inputType === "insertCompositionText" || event.inputType.startsWith("history"))
           return;
         const from = el.selectionStart,
@@ -700,7 +732,7 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
 
     const onKeyDown = (event: ReactKeyboardEvent<HTMLTextAreaElement>) => {
       const el = event.currentTarget;
-      if (event.nativeEvent.isComposing) return;
+      if (!guided || event.nativeEvent.isComposing) return;
       if (completion) {
         // The completion list owns these keys while it is open; Escape here
         // only closes it (a second Escape then arms the Tab release below).
@@ -873,72 +905,89 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
     const editorHeight = textareaRef.current?.clientHeight ?? 0;
     // Below the field when it sits in the upper half, above it otherwise — inside the editor box either way.
     const choicesBelow = choiceAnchor ? choiceAnchor.top < editorHeight / 2 : true;
-    const helpText = refusal
-      ? null
-      : diagnostic
-        ? `${errorLine !== undefined ? `Line ${errorLine} is free to edit until it parses` : "Nothing parses yet — every line is free to edit until it does"}`
-        : activeSlot
-          ? (activeSlot.kind === "cycle" ? ` · ${CYCLE_HOW}` : "") +
-            " · Tab next field · Enter next field · Escape then Tab leaves the editor"
-          : "Click a field to edit it · Tab moves between fields · dashed fields are choices with a ▾ list · Insert adds statements";
+    const helpText = !guided
+      ? "Plain text Mermaid source · edits update the preview"
+      : refusal
+        ? null
+        : diagnostic
+          ? `${errorLine !== undefined ? `Line ${errorLine} is free to edit until it parses` : "Nothing parses yet — every line is free to edit until it does"}`
+          : activeSlot
+            ? (activeSlot.kind === "cycle" ? ` · ${CYCLE_HOW}` : "") +
+              " · Tab next field · Enter next field · Escape then Tab leaves the editor"
+            : "Click a field to edit it · Tab moves between fields · dashed fields are choices with a ▾ list · Insert adds statements";
     return (
       <div className="diagrams-editor-wrap">
-        <div className="diagrams-editor-tools" role="toolbar" aria-label="Insert">
-          <span className="diagrams-editor-tools-label" aria-hidden="true">
-            Insert
-          </span>
-          {groupLabel && (
-            <div
-              className="diagrams-editor-menu"
-              onBlur={(event) => {
-                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Escape") {
-                  event.stopPropagation();
-                  setMenuOpen(false);
-                  menuTriggerRef.current?.focus();
-                }
-              }}
-            >
+        {guided && (
+          <div className="diagrams-editor-tools" role="toolbar" aria-label="Insert">
+            <span className="diagrams-editor-tools-label" aria-hidden="true">
+              Insert
+            </span>
+            {groupLabel && (
+              <div
+                className="diagrams-editor-menu"
+                onBlur={(event) => {
+                  if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setMenuOpen(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") {
+                    event.stopPropagation();
+                    setMenuOpen(false);
+                    menuTriggerRef.current?.focus();
+                  }
+                }}
+              >
+                <button
+                  type="button"
+                  ref={menuTriggerRef}
+                  className={`diagrams-editor-tool${menuOpen ? " is-active" : ""}`}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  aria-controls={menuId}
+                  onClick={() => setMenuOpen((open) => !open)}
+                >
+                  + {groupLabel} ▾
+                </button>
+                {menuOpen && (
+                  <div className="diagrams-editor-shapes" role="menu" id={menuId} aria-label={`${groupLabel} shapes`}>
+                    {grouped.map((snippet) =>
+                      tile(
+                        {
+                          value: snippet.id,
+                          label: snippet.label,
+                          syntax: snippet.title,
+                          shape: snippet.shape,
+                        },
+                        {
+                          role: "menuitem",
+                          title: snippet.title,
+                          onPick: () => insertSnippet(snippet),
+                        },
+                      ),
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {plain.map((snippet) => (
               <button
                 type="button"
-                ref={menuTriggerRef}
-                className={`diagrams-editor-tool${menuOpen ? " is-active" : ""}`}
-                aria-haspopup="menu"
-                aria-expanded={menuOpen}
-                aria-controls={menuId}
-                onClick={() => setMenuOpen((open) => !open)}
+                key={snippet.id}
+                className="diagrams-editor-tool"
+                title={`Add: ${snippet.title}`}
+                onClick={() => insertSnippet(snippet)}
               >
-                + {groupLabel} ▾
+                + {snippet.label}
               </button>
-              {menuOpen && (
-                <div className="diagrams-editor-shapes" role="menu" id={menuId} aria-label={`${groupLabel} shapes`}>
-                  {grouped.map((snippet) =>
-                    tile(
-                      { value: snippet.id, label: snippet.label, syntax: snippet.title, shape: snippet.shape },
-                      { role: "menuitem", title: snippet.title, onPick: () => insertSnippet(snippet) },
-                    ),
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          {plain.map((snippet) => (
-            <button
-              type="button"
-              key={snippet.id}
-              className="diagrams-editor-tool"
-              title={`Add: ${snippet.title}`}
-              onClick={() => insertSnippet(snippet)}
-            >
-              + {snippet.label}
-            </button>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
         <div
           className={`diagrams-editor diagrams-editor--${dialect}`}
-          style={{ "--diagrams-editor-gutter": `${gutterChars + 2}ch` } as CSSProperties}
+          style={
+            {
+              "--diagrams-editor-gutter": `${gutterChars + 2}ch`,
+            } as CSSProperties
+          }
         >
           <div className="diagrams-editor-gutter" aria-hidden="true" ref={gutterRef}>
             {tokens.map((_, index) => (
@@ -993,7 +1042,7 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
             aria-label={label}
             aria-describedby={diagnostic ? `${errorId} ${helpId}` : helpId}
             aria-invalid={diagnostic ? true : undefined}
-            aria-autocomplete="list"
+            aria-autocomplete={guided ? "list" : "none"}
             aria-expanded={completion !== null || choices !== null}
             aria-controls={completion ? listId : choices !== null ? choicesId : undefined}
             aria-activedescendant={
@@ -1029,7 +1078,10 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
               role="listbox"
               id={listId}
               aria-label="Matching ids"
-              style={{ top: completion.top + DIAGRAMS_EDITOR_LINE_PX, left: completion.left }}
+              style={{
+                top: completion.top + DIAGRAMS_EDITOR_LINE_PX,
+                left: completion.left,
+              }}
             >
               {completion.items.map((item, index) => (
                 <li
@@ -1162,13 +1214,13 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
          *  flashes, else the repair note, else the field under the caret and
          *  the keys that matter for it, else (nothing focused yet) how to start. */}
         <p className="diagrams-readout diagrams-editor-help" id={helpId} role="status">
-          {refusal ? (
+          {refusal && guided ? (
             <span className="diagrams-editor-refusal" key={refusal.at}>
               {refusal.reason}
             </span>
           ) : (
             <>
-              {diagnostic && (
+              {diagnostic && guided && (
                 <span className="diagrams-editor-repair-note">
                   {helpText}
                   {activeSlot ? " · " : ""}
@@ -1179,7 +1231,7 @@ export const DiagramsSourceEditor = forwardRef<DiagramsSourceEditorHandle, Diagr
                   {activeSlot.role === "repair" ? "Repairing this line" : `Editing ${activeSlot.role}`}
                 </span>
               )}
-              {!diagnostic && helpText}
+              {(!diagnostic || !guided) && helpText}
             </>
           )}
         </p>

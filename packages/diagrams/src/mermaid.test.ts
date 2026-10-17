@@ -2,10 +2,41 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { glyphGraphFromMermaid } from "./mermaid";
+import { renderGlyphDiagram } from "./render";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, "../fixtures", `${name}.mmd`), "utf8");
 
 describe("Mermaid flowchart adapter", () => {
+  const tierOneShapes = [
+    ["[(text)]", "cylinder"], ["[/text/]", "rect"], ["[\\text\\]", "rect"],
+    ["[/text\\]", "rect"], ["[\\text/]", "rect"], ["{{text}}", "rect"], ["(((text)))", "circle"],
+  ] as const;
+
+  it.each(tierOneShapes)("parses %s with a clean label and the existing %s shape", (syntax, shape) => {
+    expect(glyphGraphFromMermaid(`flowchart LR; A${syntax} --> B`).nodes[0]).toEqual({ id: "A", label: "text", shape });
+  });
+
+  it.each(tierOneShapes)("renders %s like an explicitly authored %s", async (syntax, shape) => {
+    const options = { target: "chat", width: 40, height: 12 } as const;
+    const actual = await renderGlyphDiagram(`flowchart LR; A${syntax} --> B`, options);
+    const expected = await renderGlyphDiagram({ direction: "LR", nodes: [{ id: "A", label: "text", shape }, { id: "B", label: "B" }], edges: [{ from: "A", to: "B", style: "solid" }] }, options);
+    expect(actual.text).toBe(expected.text);
+    expect(actual.text).toContain("text");
+  });
+
+  it("protects quoted delimiters and semicolons in tier-1 shapes", () => {
+    expect(glyphGraphFromMermaid('flowchart LR; A[/"a/] b; c"\\] --> B').nodes[0]!.label).toBe("a/] b; c");
+  });
+
+  it("keeps each bidirectional connection as one edge through sets and chains", () => {
+    const graph = glyphGraphFromMermaid("flowchart LR; A & B <-->|both| C --> D");
+    expect(graph.edges).toEqual([
+      { from: "A", to: "C", style: "solid", label: "both", startHead: "arrow" },
+      { from: "B", to: "C", style: "solid", label: "both", startHead: "arrow" },
+      { from: "C", to: "D", style: "solid" },
+    ]);
+  });
+
   it.each(["chain", "diamond", "fan-out", "cycle", "subgraph", "langgraph", "six-port"])("accepts the %s fixture unchanged", (name) => {
     const source = fixture(name);
     const graph = glyphGraphFromMermaid(source);
@@ -133,10 +164,10 @@ describe("Mermaid flowchart adapter", () => {
   });
 
   it.each([
-    "sequenceDiagram", "stateDiagram", "stateDiagram-v2", "erDiagram", "pie", "gantt", "mindmap",
-    "gitgraph", "classDiagram", "classDiagram-v2", "journey", "timeline", "C4", "C4Context", "C4Container",
-    "C4Component", "C4Dynamic", "C4Deployment", "requirementDiagram", "quadrantChart", "xychart-beta",
-    "block-beta", "sankey-beta", "packet-beta", "architecture-beta", "kanban", "radar-beta", "treemap-beta",
+    "sequenceDiagram", "usecaseDiagram", "pie", "gantt",
+    "zenuml", "classDiagram-v3", "journey", "timeline", "C4",
+    "quadrantChart", "xychart-beta",
+    "sankey-beta", "packet-beta", "kanban", "radar-beta", "treemap-beta",
   ])("rejects %s by its exact kind name", (kind) => {
     // Mutation: silently accept/skip an unsupported header -> this named gate fails.
     expect(() => glyphGraphFromMermaid(`${kind}\nA`)).toThrow(expect.objectContaining({ code: `GLYPH_MERMAID_UNSUPPORTED_${kind.toUpperCase().replace(/[^A-Z0-9]/g, "_")}` }));
@@ -156,36 +187,21 @@ describe("Mermaid flowchart adapter", () => {
     expect(graph.edges).toEqual([{ from: "A", to: "B", style: "solid", label: "a|b" }]);
   });
 
-  // Mutation: the edge-text span's "-." opener has no statement-boundary
-  // terminator, so an unsupported "-.-" (Mermaid's real dotted-undirected
-  // link, which this package does not parse) scans forward across the
-  // newline and absorbs the NEXT statement's own "-. text .->" as its
-  // closing delimiter -- producing a wrong graph (a deleted node, a
-  // fabricated edge) instead of a syntax error. This asserts one of the two
-  // acceptable outcomes and never the wrong-graph one.
-  it("either parses or raises a tagged syntax error for an unsupported '-.-' link followed by a real '-. text .->' edge, never a wrong graph", () => {
-    const source = "graph TD\n  start --> check\n  check -.- cache\n  check -. retry .-> start\n  check --> done\n";
-    let graph: ReturnType<typeof glyphGraphFromMermaid> | undefined;
-    let error: unknown;
-    try {
-      graph = glyphGraphFromMermaid(source);
-    } catch (caught) {
-      error = caught;
-    }
-    if (error) {
-      expect(error).toMatchObject({ code: "GLYPH_MERMAID_SYNTAX" });
-    } else {
-      expect(graph!.nodes.map((node) => node.id).sort()).toEqual(["cache", "check", "done", "start"]);
-      expect(graph!.edges).toContainEqual({ from: "check", to: "cache", style: "undirected" });
-    }
+  it("keeps dotted open links separate from following labelled transitions", () => {
+    const graph = glyphGraphFromMermaid("graph TD\nstart --> check\ncheck -.- cache\ncheck -. retry .-> start\ncheck --> done");
+    expect(graph.nodes.map(node => node.id).sort()).toEqual(["cache", "check", "done", "start"]);
+    expect(graph.edges).toEqual([
+      { from: "start", to: "check", style: "solid" },
+      { from: "check", to: "cache", style: "dotted", endHead: "none" },
+      { from: "check", to: "start", style: "dotted", label: "retry" },
+      { from: "check", to: "done", style: "solid" },
+    ]);
   });
-
-  // Mutation: the specific "Missing \".->\"" diagnostic (naming the exact
-  // offending statement) regresses to the generic "Unclosed quoted label,
-  // node shape, edge text, or edge label" message, which no longer says
-  // which statement or which operator is at fault.
-  it.each(["graph LR; A -.- B", "graph LR; A -..- B", "graph LR; A -. text .- B"])("keeps the specific \"Missing \\\".->\\\"\" diagnostic for the unsupported dotted operator in %j", (source) => {
-    expect(() => glyphGraphFromMermaid(source)).toThrow(/Missing "\.->"/);
+  it.each(["-.-", "-..-", "-. text .-"])("accepts the dotted open link %s without a head", operator => {
+    expect(glyphGraphFromMermaid(`graph LR; A ${operator} B`).edges[0]).toMatchObject({ style: "dotted", endHead: "none" });
+  });
+  it("keeps a specific diagnostic for an unclosed dotted text span", () => {
+    expect(() => glyphGraphFromMermaid("graph LR; A -. missing terminator\nB --> C")).toThrow(/Missing "\.->"/);
   });
 });
 

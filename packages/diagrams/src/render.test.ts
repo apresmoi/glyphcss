@@ -7,11 +7,8 @@ import { glyphGraphFromMermaid } from "./mermaid";
 import { GLYPH_CANVAS_TIERS, GLYPH_CANVAS_QUADRANT_GLYPHS } from "glyphcss";
 
 const fixture = (name: string) => readFileSync(resolve(__dirname, `../fixtures/${name}.mmd`), "utf8");
-// 80x32 exercises the plain-fit path with generous headroom — every one of
-// these five fixtures renders with an EMPTY ledger there (no degrade-ladder
-// rung ever engages), so this loop is the baseline layout/paint check with
-// no compaction/decoration in the picture at all. It stays distinct from
-// the loop below.
+// 80x32 checks baseline layout/paint with generous headroom; cycle
+// straightening and diamond fitting still report their adjustments.
 for (const name of ["chain", "diamond", "fan-out", "cycle", "subgraph"]) for (const charset of ["box", "ascii"] as const) {
   it(`${name} ${charset} matches its checked-in cell snapshot`, async () => {
     const options = { target: "chat" as const, width: 80, height: 32, charset };

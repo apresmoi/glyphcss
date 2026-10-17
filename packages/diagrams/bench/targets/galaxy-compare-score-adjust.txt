@@ -1,0 +1,36 @@
+            ┌────────────────────────────────────┐
+            │            3D GALAXY               │
+            │  (knobs: brightness, dust, camera) │
+            └──────────────────┬─────────────────┘
+                               ▼
+                            CAMERA
+                 ┌─────────────┼─────────────┐
+                 ▼             ▼             ▼
+            Earth photo    Top photo     Side photo
+              │     │          │          (look only,
+              │     │          │           not scored)
+              ▼     ▼          ▼
+   REAL ▶   NASA   Gaia     6 similar
+            sky    star     galaxies
+            photo  counts   (DESI survey)
+              │     │          │
+              ▼     ▼          ▼
+   CHECK ▶ brightness  stars   rings: brightness,
+           colours,    per     colour, arm
+           dust edges  patch   contrast, bulge size
+              │     │          │
+              └─────┴────┬─────┘
+                         ▼
+                   ┌───────────┐
+                   │   SCORE   │  one number, lower = closer
+                   └─────┬─────┘
+                         ▼
+                ┌──────────────────┐
+                │    GPU SEARCH    │  try new knobs ×1000s
+                │ 8 restarts ×400  │  keep the better ones
+                └───┬──────────┬───┘
+                    │          │
+       adjust knobs │          │ best found
+         ┌──────────┘          ▼
+         ▼                  LEDGER ──▶ you pick ★
+     back to 3D GALAXY

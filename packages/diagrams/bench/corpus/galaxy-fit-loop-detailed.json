@@ -1,0 +1,24 @@
+{
+  "sha256": "76e8a3fac9a76566dcb8bd7e7f09f58044a95d2f8af9a417160611ddd1e25c8f",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render the fitting-loop diagram",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

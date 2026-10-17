@@ -127,6 +127,9 @@ importers:
 
   packages/charts:
     dependencies:
+      '@glyphcss/core':
+        specifier: workspace:^
+        version: link:../core
       d3-array:
         specifier: ^3.2.4
         version: 3.2.4
@@ -265,6 +268,9 @@ importers:
       '@dagrejs/dagre':
         specifier: ^3.1.1
         version: 3.1.1
+      '@glyphcss/core':
+        specifier: workspace:^
+        version: link:../core
       elkjs:
         specifier: ^0.11.0
         version: 0.11.1

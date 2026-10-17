@@ -9,7 +9,7 @@ import { glyphDiagramPaletteColor, resolveGlyphDiagramColor } from "../color";
 import { diagramLedgerEntryFromCanvasMessage, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "../ledger";
 import type { GlyphLaneRow } from "./layout";
 import type { GlyphLaneNode } from "./types";
-import type { GlyphLaneRenderOptions } from "./render";
+import { GLYPH_LANE_FIXED_LANES, type GlyphLaneRenderOptions } from "./render";
 
 const { n: N, e: E, s: S, w: W } = GLYPH_CANVAS_DIRECTION_BITS;
 
@@ -27,7 +27,7 @@ export interface GlyphLanePaintResult {
 }
 
 function rowContent(node: GlyphLaneNode, ids: boolean): string {
-  return [...(ids ? [node.id] : []), ...(node.marks?.length ? [`(${node.marks.join(", ")})`] : []), node.label].join("  ");
+  return [...(ids ? [node.id] : []), ...(node.marks?.length ? [`(${node.marks.join(", ")})`] : []), node.label].filter(part => part !== "").join("  ");
 }
 
 /** The two maps `laneColor` resolution reads: the node a lane is waiting for (set by a continuation row) and the last node to occupy it. */
@@ -113,6 +113,13 @@ export function paintGlyphLaneDag(
 ): GlyphLanePaintResult {
   const charset: GlyphCanvasTierName = options.charset ?? "box";
   const colored = options.color !== "none";
+  if (options.target === "web" && options[GLYPH_LANE_FIXED_LANES] && bodyHeight > 1 && bodyHeight < options.height) {
+    // Keep connector events in order, spending at most two blank rows per
+    // interval on continuous lane stems rather than enlarging the markers.
+    const spreadHeight = Math.min(options.height, bodyHeight + 2 * (bodyHeight - 1));
+    rows = rows.map((row, i) => ({ ...row, top: Math.floor(i * (spreadHeight - 1) / (bodyHeight - 1)) }));
+    bodyHeight = spreadHeight;
+  }
   const canvasRows = Math.max(bodyHeight, options.height);
   const canvas = createGlyphCanvas({ cols: width, rows: canvasRows, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset];
@@ -162,12 +169,19 @@ export function paintGlyphLaneDag(
   const lx = (lane: number): number => laneX(lane) + padX;
   rows = rows.map((row) => ({ ...row, top: row.top + padY }));
 
-  for (const row of rows) {
+  for (const [index, row] of rows.entries()) {
+    advanceColorState(state, row);
+    const next = rows[index + 1];
+    const continuing = row.type === "node" ? [...row.passthroughLanes, ...(row.node.parents.length ? [row.lane] : [])]
+      : row.type === "continuation" ? row.lanes
+      : [...row.untouchedLanes, ...row.passthroughLanes, ...row.branchLanes, ...(row.hubContinues ? [row.hubLane] : [])];
+    if (next) for (let y = row.top + 1; y < next.top; y++) for (const lane of continuing) {
+      canvas.text(lx(lane), y, [tier.straight.v], { color: laneColorFor(lane) });
+    }
     if (row.type === "node") {
       // Owner set BEFORE resolving this row's own colour — a `laneColor`
       // function override for row.lane itself must see the node landing in
       // it now, not whatever occupied that column previously.
-      advanceColorState(state, row);
       const rowColor = laneColorFor(row.lane);
       for (const lane of row.passthroughLanes) canvas.text(lx(lane), row.top, [tier.straight.v], { color: laneColorFor(lane) });
       canvas.text(lx(row.lane), row.top, ["*"], { color: rowColor });
@@ -178,7 +192,6 @@ export function paintGlyphLaneDag(
       continue;
     }
     if (row.type === "continuation") {
-      advanceColorState(state, row);
       for (const lane of row.lanes) canvas.text(lx(lane), row.top, [tier.hop.v], { color: laneColorFor(lane) });
       continue;
     }
@@ -186,7 +199,6 @@ export function paintGlyphLaneDag(
     // — seed them with the hub's own node (set on the node row directly
     // above, per this function's own doc above) before any colour below
     // resolves them; a lane's later node row overwrites this.
-    advanceColorState(state, row);
     for (const lane of row.untouchedLanes) canvas.text(lx(lane), row.top, [tier.straight.v], { color: laneColorFor(lane) });
     for (const lane of row.passthroughLanes) canvas.text(lx(lane), row.top, [tier.junction[N | E | S | W]!], { color: laneColorFor(lane) });
 
@@ -210,7 +222,7 @@ export function paintGlyphLaneDag(
     // and its E/W toward each touched lane combine into one junction glyph.
     const bits = new Map<number, number>();
     const add = (lane: number, mask: number): void => { bits.set(lane, (bits.get(lane) ?? 0) | mask); };
-    add(row.hubLane, N | (row.hubContinues ? S : 0));
+    add(row.hubLane, (row.hubStarts ? 0 : N) | (row.hubContinues ? S : 0));
     for (const lane of touched) if (lane !== row.hubLane) add(row.hubLane, lane > row.hubLane ? E : W);
     // A touched lane BETWEEN the hub and a further-out lane also carries the
     // horizontal run PASSING THROUGH its own cell, so it needs both E and W

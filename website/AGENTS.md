@@ -1,16 +1,16 @@
 # website — agent guide
 
-Astro + Starlight documentation and interactive workbenches. Not published. The root `AGENTS.md` applies.
+Root `AGENTS.md` applies.
 
 ## Ownership and composition
 
-- `src/pages/` holds thin Astro routes. Compose `SiteLayout`, `WorkbenchLayout`, `ExampleLayout`, or `ContentLayout` from `src/layouts/`; page-specific rendering and browser setup belong to components and features.
-- `src/components/Name/Name.tsx` is the main component; `index.ts` contains explicit named/type exports for its public surface. Small private children, hooks, types, and helpers stay beside their owner. A complex child gets its own matching folder, main file, and barrel. Import another component owner through its public barrel; never use wildcard exports or old-path compatibility wrappers.
+- `src/pages/` holds thin Astro routes composed from `src/layouts/` (`SiteLayout`, `WorkbenchLayout`, `ExampleLayout`, `ContentLayout`); rendering/browser setup belong to components/features.
+- `src/components/Name/Name.tsx` is the main component; `index.ts` contains explicit named/type exports for its public surface. Small private children, hooks, types, and helpers stay beside their owner. Complex children get a matching folder, main file, and barrel. Import another component owner through its public barrel; never use wildcard exports or old-path compatibility wrappers.
 - Components use React. `.astro` files belong only in pages, layouts, and `src/integrations/{astro,starlight}/` adapters. Starlight Search stays in its Astro adapter and is passed to the shared `SiteHeader` as a slot.
-- `src/hooks/` contains reusable React lifecycle/measurement hooks. A feature-specific hook stays with that feature or its component. Dock context hooks remain private to Dock.
+- `src/hooks/` holds reusable React lifecycle/measurement hooks; feature hooks stay with their feature or component. Dock context hooks stay private.
 - `src/utils/` contains pure, reusable transformations; `src/services/` owns shared browser I/O, lifecycle, rendering integration, and exports. Neither imports UI.
 - `src/features/<feature>/model/` owns state, types, codecs, and pure transformations. `services/` owns browser and network I/O; `render/`, `export/`, `data/`, and `providers/` exist where needed. Feature code must not import components. Shared controls must not import workbenches or feature catalogs.
-- `src/content.config.ts` remains Astro's content-registration entry. `services/glyph-scene/` owns the former demo runtime; components mount and dispose it. There is no `src/lib` or standalone gallery runtime.
+- `src/content.config.ts` is Astro's content entry. `services/glyph-scene/` owns the demo runtime; components mount/dispose it. No `src/lib` or standalone gallery runtime.
 - `src/content/docs/**` is public documentation; update it with user-visible package changes.
 
 ## Styling and shared UI
@@ -31,18 +31,20 @@ Astro + Starlight documentation and interactive workbenches. Not published. The 
 - Fresh `/maps` starts at zero tilt and bearing; shared links retain their saved pose.
 - Preserve existing URLs, serialized state versions, dataset identifiers, rendering results, and export contents during UI refactors. URL state is append-only: new fields are optional, malformed fields degrade to absent, and only incompatible reshapes bump a version prefix. Shipped dataset IDs are frozen; renames require an alias map.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.
-- Each mounted scene, animation, listener, observer, subscription, or request has one lifecycle owner and cleanup. Lazy demo loading must tolerate unmounts and React StrictMode effect replay.
+- Scenes, animations, listeners, observers, subscriptions, and requests need one lifecycle owner and cleanup. Lazy demos tolerate unmounts and React StrictMode replay.
 - Show only render, controls, presets, and exports. Feedback belongs on controls; unavailable controls are dimmed with an accessible reason, not hidden or explained inside the viewport.
-- Every glyph `<pre>` explicitly uses the render font token (Glyph Mono first) and `line-height: 1`. Live `.glyph-output` rules need greater specificity than glyphcss's injected two-class selector. Chat previews deliberately use the UI monospace font to reproduce paste behavior.
+- Every glyph `<pre>` uses the render font token (Glyph Mono first), `line-height: 1`. Live `.glyph-output` specificity exceeds glyphcss's injected two-class selector. Chat uses UI monospace to reproduce paste behavior.
 - Every glyph emitted by a canvas tier must exist in the Glyph Mono subset (`TargetPreview/glyphMonoCmap.test.ts`).
 - Copy ASCII/ANSI reads a separate logical render, never the dense preview grid or preview-only effects.
-- Diagrams: 2D only. Resize changes cells, never font size/density. Library owns wrapping, spacing and Auto direction; web opts into expansion and pans without scrollbars. Exports use the same native options. Code: HTML/TypeScript/React/Vue. Source: Mermaid/JSON/Git log.
-- Charts keeps bindings above chart choices and preserves compatible columns on type changes. Table-based 3D charts expose XYZ fields and retain About/source metadata. Show the title once; keep metadata brief with descriptions and disabled reasons in tooltips.
+- Diagrams: 2D; resize changes cells. Library owns wrap/spacing/direction; web expands/pans. Native export options; code HTML/TS/React/Vue, source Mermaid/JSON/Git log. Tray thumbnails follow the main render: visible tiles, one per idle task, cached per target/preset; cleanup cancels queued work.
+- Charts keeps bindings above choices and compatible columns on type changes. 3D tables expose XYZ and retain metadata. Title once; brief metadata and reasons in tooltips.
+
+- Mermaid: showcases in `features/mermaid/data/examples.json`, separate from CLI smoke fixtures; test both. Tiles load source into the rail and readers into the canvas; ledgers stay in the rail. Guided fields only for flowchart/graph; other headers use plain text. JSON browsing preserves source; edits re-render. Chart source is URL-optional; dim native controls while it owns the chart.
 
 ## Verification
 
 - `pnpm --filter @glyphcss/website check` audits ownership, imports, runtime cycles, inline presentation, tokens, and formatting. `format` formats; `test:architecture` tests rules with invalid fixtures. No violation baselines or wildcard exemptions.
 - During owner changes, run focused behavior/style checks, then `pnpm test && pnpm build`. Preserve every assertion; update moved imports and stylesheet ownership.
 - Vitest: 2 workers (avoids starvation), `Europe/Berlin` set before forks (calendar snapshots; runtime uses the caller's zone), one event-loop yield per test (frees happy-dom WeakRef DOM; keep the retention test).
-- Browser-check desktop/mobile renders, keyboard controls, long content, URL restoration, copy/download exports, docs search, and renderer cleanup. Await readiness/rendered content, never fixed sleeps.
+- Browser-check desktop/mobile, keyboard, long content, URL restore, exports, search, cleanup. Await content, never fixed sleeps.
 - Astro dev/build must not share active caches. Stop only owned dev before the final standard build; restart afterward.

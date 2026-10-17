@@ -44,9 +44,13 @@
  * `"none"`, which never touches the ANSI encoder at all.
  */
 
+import { fitGlyphGanttTicks } from "./gantt";
 import {
   createGlyphCanvas, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, encodeGlyphCanvasText, nearestAnsiCanvasColor,
 } from "glyphcss";
+import { layoutGlyphMermaidStructure } from "./mermaidStructure";
+import { layoutGlyphJourney } from "./journey";
+import { centerGlyphChartRows } from "./centerRows";
 import { heatmapFit, isHeatmap } from "./heatmap";
 import { layoutGlyphChart, resolveGlyphChartLegendOption, seriesNames } from "./layout";
 import { chartLedgerEntryFromCanvasMessage, ledgerRegionFillSolidRefused } from "./ledger";
@@ -78,9 +82,8 @@ interface GlyphChartTargetDefaults {
   readonly color: GlyphChartColorMode;
   /**
    * Column-width / row-height ratio for THIS target's own monospace grid —
-   * fed to `createGlyphCanvas({ cellAspect })`, which only `arcRadii` reads
-   * (`paint.ts`'s "Arc shape and callouts" doc); no other painter, tier
-   * table, junction resolver or encoder consults it (grepped, and pinned by
+   * fed to `createGlyphCanvas({ cellAspect })`, read by arc radii and radar radial
+   * fitting; no tier table, junction resolver or encoder consults it (grepped, and pinned by
    * `render.byteIdentity.test.ts`'s per-target non-arc fixtures). `web`:
    * `0.5859375` = 1200/2048 em, Glyph Mono's OWN measured advance
    * (`fontTools` on `website/public/fonts/glyph-mono.woff2`) at the chart
@@ -179,7 +182,7 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   const target: GlyphChartTarget = options.target ?? "web";
   const defaults = GLYPH_CHART_TARGET_DEFAULTS[target];
   const width = options.width ?? defaults.width;
-  const height = options.height ?? defaults.height;
+  let height = options.height ?? defaults.height;
   validateGlyphChartRenderSize(width, height);
   const charset: GlyphChartCharset = options.charset ?? defaults.charset;
   const color: GlyphChartColorMode = options.color ?? defaults.color;
@@ -192,15 +195,19 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   validateGlyphChartCellRamp(options.cellRamp, charset);
 
   const marks = resolveGlyphChartSpec(spec);
-  const scales = resolveGlyphChartScales(marks, spec.scales);
+  const resolvedScales = resolveGlyphChartScales(marks, spec.scales);
+  const scales = { ...resolvedScales, x: fitGlyphGanttTicks(spec, resolvedScales.x) };
 
   const ledger: GlyphChartLedgerEntry[] = [];
   const legendOption = resolveGlyphChartLegendOption(spec.legend, options.legend);
   // A heatmap lays out twice: once at the full budget to learn how much
   // plot it gets, then shrunk to the grid its square cells need.
   const heatmap = isHeatmap(marks) && scales.x.type === "band" && scales.y.type === "band";
-  let cols = width, rows = height;
-  let layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, heatmap ? [] : ledger, charset, legendOption, textScale);
+  const rowLayout = layoutGlyphJourney(spec, width, options.height, textScale, charset, ledger)
+    ?? layoutGlyphMermaidStructure(spec, width, options.height, textScale, charset, ledger);
+  if (rowLayout) height = rowLayout.rows;
+  let cols = width, rows = rowLayout?.rows ?? height;
+  let layout = rowLayout ?? layoutGlyphChart(spec, marks, scales, cols, rows, detail, heatmap ? [] : ledger, charset, legendOption, textScale, options.radarSeries === "cells");
   if (heatmap) {
     // Chrome rows and the y gutter can shift once the budget shrinks (an
     // auto axis title needs 20 rows), so the fit repeats until it settles.
@@ -208,10 +215,12 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
       const fit = heatmapFit(layout, scales);
       if (!fit || (fit.cols === cols && fit.rows === rows)) break;
       cols = fit.cols; rows = fit.rows;
-      layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, [], charset, legendOption, textScale);
+      layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, [], charset, legendOption, textScale, options.radarSeries === "cells");
     }
-    layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, ledger, charset, legendOption, textScale);
+    layout = layoutGlyphChart(spec, marks, scales, cols, rows, detail, ledger, charset, legendOption, textScale, options.radarSeries === "cells");
   }
+
+  if (target === "web") layout = centerGlyphChartRows(layout, textScale);
 
   const canvas = createGlyphCanvas({ cols, rows, tier: charset, cellAspect });
   // The ANSI encoder's non-empty env flags also determine whether colour
@@ -224,11 +233,11 @@ export function buildGlyphChart(input: GlyphChartInput, options: GlyphChartRende
   // only the colour-carrying exits read; its ledger is the same paint's and
   // is discarded. A repaint, not a post-paint glyph swap: swapping needs a
   // per-cell record of which region painted each cell and what overwrote it.
-  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale, shades: options.shades, cellRamp: options.cellRamp }, ledger);
+  paintGlyphChart(canvas, spec, marks, scales, layout, { colorEnabled, textScale, shades: options.shades, cellRamp: options.cellRamp, radarSeries: options.radarSeries }, ledger);
   let colorCanvas = canvas;
   if (regionFill.fill === "solid") {
     colorCanvas = createGlyphCanvas({ cols, rows, tier: charset, cellAspect });
-    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid", shades: options.shades, cellRamp: options.cellRamp }, []);
+    paintGlyphChart(colorCanvas, spec, marks, scales, layout, { colorEnabled, textScale, regionFill: "solid", shades: options.shades, cellRamp: options.cellRamp, radarSeries: options.radarSeries }, []);
   } else if (options.regionFill === "solid" && regionFill.reason !== "no-region-mark") {
     ledger.push(ledgerRegionFillSolidRefused({ reason: regionFill.reason, explanation: regionFill.message, ...(regionFill.colliding ? { colliding: regionFill.colliding } : {}) }));
   }

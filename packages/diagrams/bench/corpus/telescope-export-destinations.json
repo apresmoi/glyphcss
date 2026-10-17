@@ -1,0 +1,24 @@
+{
+  "sha256": "fe95b1c3b50945f0f80f81c51d0873a2285af664860c92531736d72aa0c2fb03",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render the proposed two-destination diagram",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

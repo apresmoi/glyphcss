@@ -1,0 +1,11 @@
+stateDiagram-v2
+    [*] --> Pending
+    Pending --> Paid : payment received
+    Pending --> Cancelled : timeout
+    Paid --> Paid : partial refund
+    Paid --> Shipped : dispatch
+    Paid --> Refunded : refund
+    Shipped --> Delivered : confirmed
+    Delivered --> [*]
+    Cancelled --> [*]
+    Refunded --> [*]

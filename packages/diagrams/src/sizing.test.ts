@@ -239,15 +239,18 @@ it.each([
 it("detects translation-invariant protected lane collisions before routing", async () => {
   const { layoutGlyphGraph } = await import("./pipeline");
   const { glyphDiagramHasRoutingClearance } = await import("./route");
-  const graph = glyphGraphFromMermaid(readFileSync("fixtures/langgraph.mmd", "utf8"));
+  const graph = glyphGraphFromMermaid(readFileSync("fixtures/six-port.mmd", "utf8"));
   const tight = await layoutGlyphGraph(graph, { direction: "LR", nodesep: 3, ranksep: 3 });
-  expect(glyphDiagramHasRoutingClearance(tight)).toBe(false);
-  const roomy = await layoutGlyphGraph(graph, { direction: "LR", nodesep: 4, ranksep: 4 });
+  expect(glyphDiagramHasRoutingClearance(tight)).toBe(true);
+  const escape = tight.ports[0]!.escape;
+  const blocked = { ...tight, nodes: [...tight.nodes, { ...tight.nodes[0]!, id: "obstacle", x0: escape.x, x1: escape.x + 4, y0: escape.y, y1: escape.y + 2 }] };
+  expect(glyphDiagramHasRoutingClearance(blocked)).toBe(false);
+  const roomy = await layoutGlyphGraph(graph, { direction: "LR", nodesep: 5, ranksep: 5 });
   expect(glyphDiagramHasRoutingClearance(roomy)).toBe(true);
   const shifted = {
-    ...tight,
-    nodes: tight.nodes.map(node => ({ ...node, x0: node.x0 + 20, x1: node.x1 + 20, y0: node.y0 + 10, y1: node.y1 + 10 })),
-    ports: tight.ports.map(port => ({ ...port, anchor: { x: port.anchor.x + 20, y: port.anchor.y + 10 }, escape: { x: port.escape.x + 20, y: port.escape.y + 10 } })),
+    ...blocked,
+    nodes: blocked.nodes.map(node => ({ ...node, x0: node.x0 + 20, x1: node.x1 + 20, y0: node.y0 + 10, y1: node.y1 + 10 })),
+    ports: blocked.ports.map(port => ({ ...port, anchor: { x: port.anchor.x + 20, y: port.anchor.y + 10 }, escape: { x: port.escape.x + 20, y: port.escape.y + 10 } })),
   };
   expect(glyphDiagramHasRoutingClearance(shifted)).toBe(false);
 });

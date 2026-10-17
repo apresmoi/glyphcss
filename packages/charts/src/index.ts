@@ -13,6 +13,7 @@ export {
   glyphChartRule,
   glyphChartSankey,
   glyphChartFunnel,
+  glyphChartTreemap,
   glyphChartPlot,
   normalizeGlyphChartInput,
 } from "./spec";
@@ -97,3 +98,6 @@ export type {
   GlyphChartYAxisOptions,
   GlyphChartYAxisTitleAt,
 } from "./types";
+
+export { glyphChartFromMermaid, renderGlyphChartMermaid } from "./mermaid";
+export type { GlyphChartMermaidSpec, GlyphChartMermaidError, GlyphChartMermaidErrorCode } from "./mermaid";

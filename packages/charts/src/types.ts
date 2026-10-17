@@ -21,7 +21,8 @@ export type GlyphChartMarkType =
   | "text"
   | "rule"
   | "sankey"
-  | "funnel";
+  | "funnel"
+  | "treemap";
 
 /** One data record a mark's channels read fields from. */
 export type GlyphChartDatum = Record<string, unknown>;
@@ -38,6 +39,11 @@ export type GlyphChartChannelValue =
   | readonly unknown[];
 
 export interface GlyphChartChannels {
+  /** Horizontal bar interval start; x is its end. Omit for a zero baseline. */
+  readonly x0?: GlyphChartChannelValue;
+  /** Treemap node identity and parent identity (null/empty for roots). */
+  readonly id?: GlyphChartChannelValue;
+  readonly parent?: GlyphChartChannelValue;
   readonly x?: GlyphChartChannelValue;
   readonly y?: GlyphChartChannelValue;
   readonly fill?: GlyphChartChannelValue;
@@ -55,6 +61,8 @@ export interface GlyphChartChannels {
 
 /** Mark-specific extras that don't fit the shared channel vocabulary. */
 export interface GlyphChartMarkOptions {
+  /** Bar direction; horizontal reads x as value and y as category. */
+  readonly orientation?: "vertical" | "horizontal";
   /** `arc`: fraction of the outer radius carved out for a donut hole. */
   readonly innerRadius?: number;
   /**
@@ -119,6 +127,9 @@ export interface GlyphChartScaleOptions {
 
 /** One materialised data row after channel resolution (and, if present, transform application). */
 export interface GlyphChartMarkRow {
+  readonly x0?: unknown;
+  /** Treemap parent node id; x is the node id and y its value. */
+  readonly parent?: string;
   readonly x: unknown;
   readonly y: unknown;
   /** Present only after a `stack` transform: the segment's baseline and top, replacing plain `y` for painting. */
@@ -273,6 +284,10 @@ export interface GlyphChartRenderOptions {
   /** Default `"web"` — the bare `renderGlyphChart(x)` call renders for the web target. */
   readonly target?: GlyphChartTarget;
   readonly charset?: GlyphChartCharset;
+  /** Mermaid radar only: retain all rings (default), or only the outermost authored ring; spokes remain. */
+  readonly radarGrid?: "all" | "outer";
+  /** Mermaid radar polygons only: native lines (default), or whole-cell • ○ × + edges; first series wins shared cells. */
+  readonly radarSeries?: "line" | "cells";
   readonly color?: GlyphChartColorMode;
   readonly width?: number;
   readonly height?: number;

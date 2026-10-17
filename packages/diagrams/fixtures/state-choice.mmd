@@ -1,0 +1,9 @@
+stateDiagram-v2
+    direction LR
+    state check <<choice>>
+    [*] --> Validate
+    Validate --> check
+    check --> Accepted : valid
+    check --> Rejected : invalid
+    Accepted --> [*]
+    Rejected --> [*]

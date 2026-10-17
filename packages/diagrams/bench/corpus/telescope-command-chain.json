@@ -1,0 +1,24 @@
+{
+  "sha256": "19067960d60e94d6087540a73aa78bd6459ef44380eced22d6eef2bda82ded5a",
+  "renders": [
+    {
+      "options": {
+        "width": 72,
+        "height": 24,
+        "target": "chat",
+        "charset": "box",
+        "color": "none",
+        "autoDirection": true,
+        "detail": "faithful",
+        "overflow": "expand"
+      },
+      "invocations": [
+        {
+          "renderIndex": 1,
+          "description": "Render three smaller telescope diagrams",
+          "toolResultErrorCodes": []
+        }
+      ]
+    }
+  ]
+}

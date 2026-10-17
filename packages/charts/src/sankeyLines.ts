@@ -99,7 +99,7 @@ export function paintSankeyLines(canvas: GlyphCanvas, plot: GlyphChartPlotRect, 
     if (!b.folded) inflow.set(b.target, (inflow.get(b.target) ?? 0) + b.value);
   }
   const nodeValue = (id: string) => Math.max(inflow.get(id) ?? 0, outflow.get(id) ?? 0);
-  const nodeLabel = (id: string) => chartText(`${id} ${formatLinearTick(nodeValue(id))}`, tier);
+  const nodeLabel = (id: string) => chartText(`${id} ${formatLinearTick(nodeValue(id))}`, tier, { ledger, role: "sankey node label" });
 
   // Gutters for the outer columns' labels, a quarter of the plot at most.
   const plotWidth = plot.x1 - plot.x0 + 1;

@@ -1,11 +1,15 @@
+import { glyphDiagramStateDividers } from "./stateFrame";
+import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
+import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramDiamondGlyph } from "./presentation";
 import { createGlyphCanvas, GLYPH_CANVAS_TIERS, encodeGlyphCanvasText, encodeGlyphCanvasAnsi, encodeGlyphCanvasHtml, type GlyphCanvasDirection, type GlyphCanvasTierName } from "glyphcss";
+import { glyphDiagramGraphLabels } from "./graphLabels";
 import { resolveGlyphDiagramColor, resolveGlyphDiagramColorOption } from "./color";
-import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelCandidate } from "./labels";
-import { diagramLedgerEntryFromCanvasMessage, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
-import { glyphDiagramGroupRect, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
+import { glyphDiagramLabelLayout, glyphDiagramRectsOverlap, type GlyphDiagramLabelLayoutResult } from "./labels";
+import { diagramLedgerEntryFromCanvasMessage, ledgerMermaidDegraded, ledgerGroupMemberList, ledgerRouteConflict, type GlyphDiagramLedgerEntry } from "./ledger";
+import { glyphDiagramGroupRects, glyphDiagramPointCell, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
 import type { GlyphDiagramRoutingResult } from "./route";
 import type { GlyphDiagramPage, GlyphDiagramRenderOptions } from "./renderTypes";
-import type { GlyphGraphNodeShape } from "./types";
+import type { GlyphGraphNodeShape, GlyphGraphEdgeHead } from "./types";
 
 /**
  * Node-SHAPE outline glyphs — a diagram-local vocabulary (mirrors
@@ -88,7 +92,7 @@ const DEFAULT_GRAPH_NODE_COLOR = "#38bdf8";
 const DEFAULT_GRAPH_EDGE_COLOR = "#94a3b8";
 
 /** Always paints into fresh storage: re-registering a route cannot erase its old canvas glyphs. */
-export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number }): GlyphDiagramPage & { ledger: GlyphDiagramLedgerEntry[]; unsupportedGlyphs: string[] } {
+export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiagramRoutingResult, options: GlyphDiagramRenderOptions & { width: number; height: number; labelLayout?: GlyphDiagramLabelLayoutResult }): GlyphDiagramPage & { ledger: GlyphDiagramLedgerEntry[]; unsupportedGlyphs: string[] } {
   const charset = options.charset ?? "box", canvas = createGlyphCanvas({ cols: options.width, rows: options.height, tier: charset });
   const tier = GLYPH_CANVAS_TIERS[charset], colored = options.color !== "none";
   const color = colored ? DEFAULT_GRAPH_EDGE_COLOR : null, accent = colored ? DEFAULT_GRAPH_NODE_COLOR : null;
@@ -109,8 +113,22 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   // `nodeColor`/`edgeColor` (a per-node/per-edge function) has nothing to
   // resolve them against; scope stays exactly the two options this form
   // documents.
-  const labelColors = new Map<string, string | null>();
   const ledger: GlyphDiagramLedgerEntry[] = [], obstacles: GlyphDiagramRect[] = [...layout.nodes];
+  // User-approved relation ends: UML △ ◆ ◇ and ER ┼┼ ┼○ ┼> ○> (feet point at
+  // the border). Changing a glyph here is a visual-language change.
+  const paintMarker = (head: GlyphGraphEdgeHead, at: { x: number; y: number }, side: GlyphCanvasDirection, color: string | null) => {
+    const ascii = charset === "ascii";
+    const glyph = head === "circle" ? ascii ? "o" : "●" : head === "cross" ? ascii ? "x" : "✕"
+      : head === "triangle" ? ascii ? "^" : "△" : head === "filled-diamond" ? ascii ? "*" : "◆"
+      : head === "open-diamond" ? ascii ? "o" : "◇"
+      : head === "er-many" || head === "er-zero-many" ? ({ n: "v", s: "^", e: "<", w: ">" }[side])
+      : ascii ? "+" : "┼";
+    canvas.text(at.x, at.y, [glyph], { color });
+    if (head.startsWith("er-")) {
+      const delta = { n: [0, -1], s: [0, 1], e: [1, 0], w: [-1, 0] }[side]!;
+      canvas.text(at.x + delta[0]!, at.y + delta[1]!, [head === "er-zero-one" || head === "er-zero-many" ? ascii ? "o" : "○" : ascii ? "+" : "┼"], { color });
+    }
+  };
   const count = new Map<string, number>(), routeCells = new Set<string>();
   for (const route of routing.routes) for (const p of route.cells) { const k = `${p.x},${p.y}`; count.set(k, (count.get(k) ?? 0) + 1); routeCells.add(k); obstacles.push({ x0: p.x, y0: p.y, x1: p.x, y1: p.y }); }
   // Every route cell's own local travel axis, independent of edge style —
@@ -131,23 +149,12 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   });
   for (const route of routing.routes) { canvas.edge(route.edge.id, route.edge); canvas.route(route.edge.id, route.cells); }
   canvas.resolveJunctions();
-  // Style only exclusive straight cells, preserving the resolver's corner and crossing verdicts.
-  // REVIEW-diagrams-fanout-opus.md P3-1: the dotted phase used to key off the
-  // cell's raw index in `route.cells`, which also counts every CORNER cell
-  // (undrawable — no straight `axis`) that the run happens to pass through.
-  // A short, corner-heavy route could land its two eligible cells on
-  // consecutive odd indices and paint zero dots (`cycle.mmd`'s "retry" edge:
-  // both eligible cells fell on odd indices and painted two blanks, no dot,
-  // over its whole six-cell run). `dotPhase` instead counts only the cells
-  // this loop actually draws, so the alternation is dot-blank-dot-blank
-  // along the run regardless of how many corners sit between them. The
-  // route's two ENDPOINTS are drawable too — the escape cell touching the
-  // node border, and the final cell touching the target arrowhead — each
-  // has only one neighbour, so `axis` is now derived from whichever single
-  // neighbour exists there instead of requiring both.
+  // The hop glyph is already dashed; blanking alternate cells breaks short elbows and stubs.
   for (const route of routing.routes) {
     const routeColor = routeColors.get(route.edge.id)!;
-    let dotPhase = 0;
+    const side = layout.ports.find((port) => port.edgeId === route.edge.id && port.end === "from")?.side;
+    const singleAxis = side === "n" || side === "s" ? "v" : "h";
+
     // The route's own LAST drawable cell sits flush against the arrowhead
     // `canvas.arrowhead` paints at the port's anchor, one cell further in —
     // whatever phase the alternation happens to land on there is invisible
@@ -163,8 +170,9 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       const axis = prev && next ? (prev.x === next.x ? "v" : prev.y === next.y ? "h" : undefined)
         : prev ? (prev.x === p.x ? "v" : "h")
         : next ? (next.x === p.x ? "v" : "h")
-        : undefined;
-      let glyph = canvas.grid.char[p.y * canvas.cols + p.x]!;
+        : singleAxis;
+      // Junction resolution has no neighbour from which to infer a one-cell segment.
+      let glyph = route.cells.length === 1 ? tier.straight[singleAxis] : canvas.grid.char[p.y * canvas.cols + p.x]!;
       // A dotted EDGE uses the axis-oriented `hop` glyph (`╌`/`╎`), never the
       // isotropic `dot` a group boundary rings itself with — USER FEEDBACK,
       // verbatim: "some of the lines that are dotted are hard to understand
@@ -173,30 +181,24 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       // broken rule" (tiers.ts's own doc, reused here rather than invented)
       // and, unlike a round dot, tells a horizontal run from a vertical one
       // on sight — the direction cue the isotropic dot could never give.
-      if (axis && route.edge.style === "dotted") { glyph = dotPhase % 2 ? " " : tier.hop[axis]; dotPhase++; lastDotted = { x: p.x, y: p.y, axis }; }
+      if (axis && route.edge.style === "dotted") { glyph = tier.hop[axis]; lastDotted = { x: p.x, y: p.y, axis }; }
       if (axis && route.edge.style === "thick") glyph = tier.double[axis];
       canvas.text(p.x, p.y, [glyph], { color: routeColor });
     });
     if (lastDotted) canvas.text(lastDotted.x, lastDotted.y, [tier.hop[lastDotted.axis]], { color: routeColor });
   }
-  const candidates: GlyphDiagramLabelCandidate[] = [];
-  // Populated only for a group that actually gets a drawn dotted ring below
-  // (never a group that degraded to a plain member-list caption) — an edge
-  // label has nothing to stay clear of where there is no boundary painted.
-  const drawnGroupRects = new Map<string, GlyphDiagramRect>();
+  const groupRects = glyphDiagramGroupRects(layout, { cols: canvas.cols, rows: canvas.rows });
   for (const group of layout.groups) {
+    if ((group as GlyphMermaidStateRegion)[GLYPH_MERMAID_STATE_REGION]) continue;
     const nodes = layout.nodes.filter((n) => group.members.includes(n.id));
     if (!nodes.length) continue;
-    const rect = glyphDiagramGroupRect(nodes, { cols: canvas.cols, rows: canvas.rows })!;
+    const rect = groupRects.get(group.id)!;
     const unrelatedInside = layout.nodes.some((node) => !group.members.includes(node.id) && glyphDiagramRectsOverlap(node, rect));
     const partialOverlap = layout.groups.some((other) => other.id !== group.id && group.members.some((id) => other.members.includes(id)) && !group.members.every((id) => other.members.includes(id)) && !other.members.every((id) => group.members.includes(id)));
     if (unrelatedInside || partialOverlap) {
-      candidates.push({ id: `group:${group.id}`, text: `${group.label ?? group.id}: ${nodes.map((node) => node.label).join(", ")}`, x: Math.floor(canvas.cols / 2), y: rect.y0, priority: 1 });
-      labelColors.set(`group:${group.id}`, accent);
       ledger.push(ledgerGroupMemberList({ groupId: group.id, reason: "unrelated-nodes" }));
       continue;
     }
-    drawnGroupRects.set(group.id, rect);
     // Group boundaries are annotation, never opaque routing obstacles; gaps preserve any route crossing the enclosure.
     // USER FEEDBACK, verbatim: "some of the lines that are dotted are hard
     // to understand on what is the direction — I think that because we
@@ -259,8 +261,71 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       if (collinear) continue;
       canvas.text(x, y, [tier.dot], { color });
     }
-    if (group.label) { candidates.push({ id: `group:${group.id}`, text: group.label, x: Math.floor((rect.x0 + rect.x1) / 2), y: rect.y0, priority: 1, maxWidth: rect.x1 - rect.x0 - 1 }); labelColors.set(`group:${group.id}`, accent); }
+
   }
+  // Region sub-groups reserve independent compound layout space; only their
+  // shared divider is visible, using the same hop rule as sequence frames.
+  for (const divider of glyphDiagramStateDividers(layout, groupRects)) {
+    const outer = groupRects.get(divider.parent);
+    if (!outer) continue;
+    if (!divider.valid) {
+      ledger.push(ledgerMermaidDegraded({ kind: "state-region-divider", message: "Overlapping region bounds cannot carry a divider; region membership remains in metadata." }));
+      continue;
+    }
+    const { vertical, position } = divider;
+    for (let along = (vertical ? outer.y0 : outer.x0) + 1; along < (vertical ? outer.y1 : outer.x1); along++) {
+      const x = vertical ? position : along, y = vertical ? along : position;
+      if (obstacles.some(rect => glyphDiagramRectsOverlap(rect, { x0: x, x1: x, y0: y, y1: y }))) continue;
+      canvas.text(x, y, [vertical ? tier.hop.v : tier.hop.h], { color });
+    }
+  }
+  // A point is only its glyph. Exits leave through a bar of junctions on the glyph's own row or column; several entries
+  // meet in a bar one cell further out and reach the glyph through one arrowhead, so every edge's last cell is joined
+  // to the glyph by cells that are drawn. Bits: 1 n, 2 e, 4 s, 8 w.
+  const pointEntries = new Map<string, number>();
+  for (const port of layout.ports) {
+    const edge = layout.edges.find((e) => e.id === port.edgeId)!;
+    if (edge.invisible || (edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end]) continue;
+    if (port.end === "to" && edge.from !== edge.to && layout.nodes.find((n) => n.id === port.nodeId)?.shape === "point") pointEntries.set(port.nodeId, (pointEntries.get(port.nodeId) ?? 0) + 1);
+  }
+  const POINT_FLOW = {
+    TB: { inward: { x: 0, y: 1 }, entry: 1, exit: 4, plus: 2, minus: 8, from: "s", to: "n" },
+    BT: { inward: { x: 0, y: -1 }, entry: 4, exit: 1, plus: 2, minus: 8, from: "n", to: "s" },
+    LR: { inward: { x: 1, y: 0 }, entry: 8, exit: 2, plus: 4, minus: 1, from: "e", to: "w" },
+    RL: { inward: { x: -1, y: 0 }, entry: 2, exit: 8, plus: 4, minus: 1, from: "w", to: "e" },
+  } as const;
+  const paintPoint = (node: GlyphDiagramLayout["nodes"][number], nodeColor: string | null) => {
+    const flow = POINT_FLOW[layout.direction], glyph = glyphDiagramPointCell(node, layout.direction), across = layout.direction === "TB" || layout.direction === "BT";
+    const crossOf = (p: { x: number; y: number }) => across ? p.x : p.y;
+    const at = (cross: number, along: { x: number; y: number }) => across ? { x: cross, y: along.y } : { x: along.x, y: cross };
+    const anchors = (side: string) => layout.ports.filter((p) => !(layout.edges.find(e => e.id === p.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[p.end] && p.nodeId === node.id && p.side === side && !layout.edges.find(e => e.id === p.edgeId)!.invisible && layout.edges.find((e) => e.id === p.edgeId)!.from !== layout.edges.find((e) => e.id === p.edgeId)!.to).map((p) => crossOf(p.anchor)).sort((a, b) => a - b);
+    // A bar over `cross` coordinates, each of which has a line leaving it on the `side` bit; `stem` adds a line on one more cell.
+    const bar = (crosses: readonly number[], along: { x: number; y: number }, side: number, stem?: { cross: number; bit: number }) => {
+      for (let c = crosses[0]!; c <= crosses[crosses.length - 1]!; c++) {
+        const mask = (c > crosses[0]! ? flow.minus : 0) | (c < crosses[crosses.length - 1]! ? flow.plus : 0) | (crosses.includes(c) ? side : 0) | (stem?.cross === c ? stem.bit : 0);
+        const cell = at(c, along);
+        canvas.text(cell.x, cell.y, [tier.junction[mask]!], { color: nodeColor });
+      }
+    };
+    const exits = anchors(flow.from);
+    if (exits.length > 1) bar(exits, glyph, flow.exit);
+    const entries = anchors(flow.to);
+    if (entries.length > 1) {
+      const arrow = { x: glyph.x - flow.inward.x, y: glyph.y - flow.inward.y }, barAt = { x: arrow.x - flow.inward.x, y: arrow.y - flow.inward.y };
+      bar(entries, barAt, flow.entry, { cross: crossOf(glyph), bit: flow.exit });
+      const routed = layout.ports.filter((p) => p.nodeId === node.id && p.end === "to" && !(layout.edges.find(edge => edge.id === p.edgeId)! as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.to).map((p) => routing.routes.find((r) => r.edge.id === p.edgeId)).filter((r) => r !== undefined);
+      const heads = routed.map((r) => r.edge.endHead ?? (r.edge.style === "undirected" ? "none" : "arrow"));
+      const shared = heads.every((head) => head === heads[0]);
+      // Only equal heads can share a tip. Mixed heads stay at their own entry ports.
+      const head = shared ? heads[0] : "none";
+      const color = routed.length ? edgeAccentColors.get(routed[0]!.edge.id)! : nodeColor;
+      if (head === "arrow") canvas.arrowhead(arrow.x, arrow.y, flow.from, { color });
+      else if (head && head !== "none") paintMarker(head, arrow, flow.from, color);
+      else canvas.text(arrow.x, arrow.y, [tier.junction[flow.entry | flow.exit]!], { color });
+    }
+    // The glyph itself is the node's label, folded and charset-picked at measure time.
+    if (node.lines[0]) canvas.text(glyph.x, glyph.y, [node.lines[0]], { color: nodeColor });
+  };
   for (const node of layout.nodes) {
     const { x0, y0, x1, y1 } = node;
     const nodeColor = nodeColors.get(node.id)!;
@@ -271,6 +336,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     // the border glyphs carry the box on their own. `shade: 0` still CLAIMS
     // the footprint, which is what keeps routes out of a node's interior.
     canvas.fillRect(x0, y0, x1, y1, { fill: { shade: 0 }, bg: null });
+    if (node.shape === "point") { paintPoint(node, nodeColor); continue; }
     // Every edge and corner is painted cell-by-cell through `canvas.text`
     // rather than `canvas.line()` — a per-shape RULE glyph (`circle`'s
     // `◠`/`◡`) has no `canvas.line()` equivalent, and going per-cell
@@ -285,55 +351,77 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     for (let x = x0 + 1; x < x1; x++) { canvas.text(x, y0, [topRule], { color: nodeColor }); canvas.text(x, y1, [bottomRule], { color: nodeColor }); }
     for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [sideLeft], { color: nodeColor }); canvas.text(x1, y, [sideRight], { color: nodeColor }); }
     ([[x0, y0], [x1, y0], [x0, y1], [x1, y1]] as const).forEach(([x, y], i) => canvas.text(x, y, [corners[i]!], { color: nodeColor }));
+    const labelTop = y0 + Math.floor((node.height - node.lines.length) / 2);
+    for (const row of node.separators ?? []) canvas.text(x0, labelTop + row, [tier.junction[7]! + tier.straight.h.repeat(node.width - 2) + tier.junction[13]!], { color: nodeColor });
     if (node.shape === "subroutine") for (let y = y0 + 1; y < y1; y++) { canvas.text(x0 + 1, y, [tier.straight.v], { color: nodeColor }); canvas.text(x1 - 1, y, [tier.straight.v], { color: nodeColor }); }
+  }
+  // A frame has no opaque node border. Restore its attachment cell after the
+  // dotted enclosure yields to the route, so an outgoing stem touches it.
+  for (const port of layout.ports) {
+    const edge = layout.edges.find(edge => edge.id === port.edgeId)!;
+    if (!(edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[port.end]
+      || !routing.routes.some(route => route.edge.id === edge.id)) continue;
+    canvas.text(port.anchor.x, port.anchor.y, [port.side === "n" || port.side === "s" ? tier.straight.v : tier.straight.h], { color: routeColors.get(edge.id)! });
+  }
+  const exits = new Set<string>();
+  for (const port of layout.ports) if (port.end === "from" && port.trunk && routing.routes.some(route => route.edge.id === port.edgeId)) {
+    const key = `${port.anchor.x},${port.anchor.y}`;
+    if (exits.has(key)) continue;
+    exits.add(key);
+    const mask = { n: 11, e: 7, s: 14, w: 13 }[port.side];
+    canvas.text(port.anchor.x, port.anchor.y, [tier.junction[mask]!], { color: nodeColors.get(port.nodeId)! });
   }
   // Borders own the node footprint; tips replace their reserved target cell
   // after the border fill so they touch the target without entering its label.
-  for (const route of routing.routes) {
-    if (route.edge.style === "undirected") continue;
-    const port = layout.ports.find((p) => p.edgeId === route.edge.id && p.end === "to")!;
+  for (const route of routing.routes) for (const end of ["from", "to"] as const) {
+    const head = end === "from" ? route.edge.startHead ?? "none" : route.edge.endHead ?? (route.edge.style === "undirected" ? "none" : "arrow");
+    const port = layout.ports.find((p) => p.edgeId === route.edge.id && p.end === end);
+    if (!port) continue;
+    const frameEnd = (route.edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.[end];
+    if (head === "none") {
+      if (!frameEnd && end === "to" && (pointEntries.get(port.nodeId) ?? 0) === 1) {
+        const flow = POINT_FLOW[layout.direction];
+        canvas.text(port.anchor.x, port.anchor.y, [tier.junction[flow.entry | flow.exit]!], { color: routeColors.get(route.edge.id)! });
+      }
+      continue;
+    }
+    if (!frameEnd && end === "to" && (pointEntries.get(port.nodeId) ?? 0) > 1) {
+      const heads = routing.routes.filter((r) => r.edge.to === port.nodeId).map((r) => r.edge.endHead ?? (r.edge.style === "undirected" ? "none" : "arrow"));
+      if (heads.every((value) => value === heads[0])) continue;
+    }
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
-    canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color: edgeAccentColors.get(route.edge.id)! });
+    const color = edgeAccentColors.get(route.edge.id)!;
+    if (head === "arrow") canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color });
+    else paintMarker(head, port.anchor, port.side, color);
   }
-  for (const route of routing.routes) if (route.edge.label) {
-    const mid = route.cells[Math.floor(route.cells.length / 2)]!;
-    // USER FEEDBACK, verbatim: "the label of retry shouldn't be near
-    // workers, it should be from the other side of the workers box,
-    // otherwise its confusing" — an edge label landing next to a group
-    // NEITHER of its own endpoints belongs to reads as annotating that
-    // group. Only a group this edge doesn't touch at all counts as
-    // foreign; a group the edge enters or leaves is legitimately close to
-    // its own label.
-    const avoid = layout.groups
-      .filter((group) => drawnGroupRects.has(group.id) && !group.members.includes(route.edge.from) && !group.members.includes(route.edge.to))
-      .map((group) => ({ groupId: group.id, rect: drawnGroupRects.get(group.id)! }));
-    candidates.push({ id: `edge:${route.edge.id}`, text: route.edge.label, x: mid.x, y: mid.y, route: route.cells, maxWidth: Math.min(24, canvas.cols), priority: route.edge.priority, avoid });
-    labelColors.set(`edge:${route.edge.id}`, edgeAccentColors.get(route.edge.id)!);
-  }
-  if (options.title) { candidates.push({ id: "title", text: options.title, x: Math.floor(canvas.cols / 2), y: 0, priority: Infinity }); labelColors.set("title", accent); }
-  // REVIEW-diagrams-fanout-opus.md P3-1: `glyphDiagramLabelLayout` only
-  // rejects literal overlap, so a label candidate immediately touching a
-  // node's own border (distance 0, not overlap) was never excluded —
-  // `cycle.mmd`'s short "retry" edge landed its label flush against the
-  // Check box (`└───────┘retry`) while every longer route's own label
-  // happened to land far enough from a node border by the geometry alone.
-  // A label must still be free to sit exactly one cell from its OWN route
-  // (that's the whole placement rule, `label.route`'s distance-1 check
-  // above), so only NODE rects get the one-cell pad here, never the route
-  // point-obstacles a label is required to touch.
-  const labelObstacles: GlyphDiagramRect[] = [...layout.nodes.map((n) => ({ x0: n.x0 - 1, y0: n.y0 - 1, x1: n.x1 + 1, y1: n.y1 + 1 })),
-    ...routing.routes.flatMap((route) => route.cells.map((p) => ({ x0: p.x, y0: p.y, x1: p.x, y1: p.y })))];
-  const labels = glyphDiagramLabelLayout(candidates, { charset, viewport: { cols: canvas.cols, rows: canvas.rows }, obstacles: labelObstacles });
-  labels.placed.forEach((label) => canvas.text(label.x, label.y, [label.text], { color: labelColors.get(label.id) ?? accent }));
+  const labels = options.labelLayout ?? glyphDiagramGraphLabels(layout, routing, options);
+  labels.placed.forEach(label => {
+    const edgeId = label.id.startsWith("edge:") ? label.id.slice(5)
+      : label.id.startsWith("edge-row:") ? (JSON.parse(label.id.slice(9)) as [string, number])[0] : undefined;
+    canvas.text(label.x, label.y, [label.text], { color: edgeId === undefined ? accent : edgeAccentColors.get(edgeId) ?? accent });
+  });
   ledger.push(...labels.ledger);
   // A node owns its interior label slot; external labels see the entire node as an obstacle.
   for (const node of layout.nodes) {
+    if (node.shape === "point") continue;
     const innerWidth = node.width - 2 - (node.shape === "subroutine" ? 2 : 0);
     const top = node.y0 + Math.floor((node.height - node.lines.length) / 2);
     const nodeColor = nodeColors.get(node.id)!;
     node.lines.forEach((line, i) => {
+      if (node.separators?.includes(i)) return;
+      if (node.shape === "compartment" && i > (node.separators?.[0] ?? Infinity)) {
+        if (line) canvas.text(node.x0 + 2, top + i, [line], { color: nodeColor });
+        return;
+      }
       const result = glyphDiagramLabelLayout([{ id: node.id, text: line, x: Math.floor(innerWidth / 2), y: 0 }], { charset, viewport: { cols: innerWidth, rows: 1 }, obstacles: [] });
-      for (const label of result.placed) canvas.text(node.x0 + 1 + (node.shape === "subroutine" ? 1 : 0) + label.x, top + i, [label.text], { color: nodeColor });
+      // Measurement includes the marker in its wrapped rows; its identity is presentation state, never label text.
+      const marker = node[GLYPH_DIAGRAM_DIAMOND_MARKER] && i === 0 ? glyphDiagramDiamondGlyph(charset) : "";
+      for (const label of result.placed) {
+        const x = node.x0 + 1 + (node.shape === "subroutine" ? 1 : 0) + label.x;
+        if (marker) canvas.text(x, top + i, [marker], { color: nodeColor });
+        const text = label.text.slice(marker.length);
+        if (text) canvas.text(x + marker.length, top + i, [text], { color: nodeColor });
+      }
       ledger.push(...result.ledger);
     });
   }

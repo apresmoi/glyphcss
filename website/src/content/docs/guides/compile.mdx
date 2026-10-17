@@ -335,3 +335,12 @@ voice, since that family reads `originW` even in the 2D branch. Check
 volumetric or carve/xray patch (with no `program`) exports through the
 [interactive export](#interactive-export) instead, which ships and evaluates
 the live effect runtime rather than a baked approximation.
+
+
+## Mermaid diagrams and charts
+
+`glyphcss diagram example.mmd --target chat --width 72` accepts every supported
+Mermaid diagram or chart header. It dispatches to the public diagram, sequence,
+lane or chart pipeline and keeps source adaptation notes on stderr. See the
+[supported syntax and workbench examples](/guides/diagrams/#one-mermaid-cli).
+`glyphcss chart spec.json` remains the JSON chart entry, including `--3d`.

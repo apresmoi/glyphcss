@@ -27,7 +27,9 @@ export const GLYPH_DIAGRAM_DEGRADE_STAGES = ["compaction", "decoration", "duplic
 export function glyphDiagramCompactionFloor(graph: GlyphGraph): number {
   const degree = new Map<string, { out: number; in: number }>();
   for (const node of graph.nodes) degree.set(node.id, { out: 0, in: 0 });
+  // A self-edge hangs a loop on its node's own side; it is not a connection that crowds the flow sides this floor is about.
   for (const edge of graph.edges) {
+    if (edge.from === edge.to) continue;
     const from = degree.get(edge.from); if (from) from.out++;
     const to = degree.get(edge.to); if (to) to.in++;
   }
@@ -37,12 +39,19 @@ export function glyphDiagramCompactionFloor(graph: GlyphGraph): number {
 }
 export function glyphDiagramWithinBudget(graph: GlyphGraph): boolean { return graph.nodes.length <= GLYPH_DIAGRAM_BUDGET.nodes && graph.edges.length <= GLYPH_DIAGRAM_BUDGET.edges; }
 export function glyphDiagramDropDecoration(graph: GlyphGraph): GlyphGraph {
-  return { ...graph, nodes: graph.nodes.map(({ shape: _shape, ...node }) => node), edges: graph.edges.map(({ label: _label, ...edge }) => ({ ...edge, style: edge.style === "undirected" ? "undirected" : "solid" })), groups: graph.groups?.map(({ label: _label, ...group }) => group) };
+  const semantic = new Set(graph.nodes.filter(node => node.shape === "compartment").map(node => node.id));
+  return { ...graph, nodes: graph.nodes.map(({ shape, ...node }) => shape === "compartment" ? { ...node, shape } : node),
+    edges: graph.edges.map(edge => {
+      if (semantic.has(edge.from) || semantic.has(edge.to)) return edge;
+      const { label: _label, ...plain } = edge;
+      return { ...plain, style: edge.style === "undirected" ? "undirected" : "solid" };
+    }), groups: graph.groups?.map(({ label: _label, ...group }) => group) };
 }
 export function glyphDiagramMergeDuplicates(graph: GlyphGraph): { graph: GlyphGraph; ledger: GlyphDiagramLedgerEntry[] } {
   const seen = new Map<string, string>(), ledger: GlyphDiagramLedgerEntry[] = [];
   const edges = canonicalizeGlyphGraph(graph).edges.filter((edge) => {
-    const key = JSON.stringify([edge.from, edge.to, edge.style === "undirected"]);
+    const semantic = graph.nodes.some(node => node.shape === "compartment" && (node.id === edge.from || node.id === edge.to));
+    const key = JSON.stringify([edge.from, edge.to, semantic ? [edge.style, edge.label] : edge.style === "undirected", edge.startHead, edge.endHead, edge.invisible]);
     const prior = seen.get(key);
     if (prior !== undefined) { ledger.push(ledgerDuplicateEdgeMerged({ edgeId: edge.id, into: prior })); return false; }
     seen.set(key, edge.id); return true;
@@ -52,11 +61,12 @@ export function glyphDiagramMergeDuplicates(graph: GlyphGraph): { graph: GlyphGr
 export function glyphDiagramCollapseLeaves(graph: GlyphGraph): { graph: GlyphGraph; ledger: GlyphDiagramLedgerEntry[] } {
   const clusters = new Map<string, string[]>(), ledger: GlyphDiagramLedgerEntry[] = [];
   for (const node of graph.nodes) {
+    if (node.shape === "compartment") continue;
     const incoming = graph.edges.filter((e) => e.to === node.id);
     if (incoming.length !== 1 || graph.edges.some((e) => e.from === node.id)) continue;
     // Group membership is semantic; collapse only siblings from the same explicit group set.
     const groups = (graph.groups ?? []).filter((g) => g.members.includes(node.id)).map((g) => g.id).sort();
-    const key = JSON.stringify([incoming[0]!.from, groups, node.group ?? ""]);
+    const key = JSON.stringify([incoming[0]!.from, groups, node.group ?? "", incoming[0]!.startHead, incoming[0]!.endHead, incoming[0]!.invisible]);
     clusters.set(key, [...(clusters.get(key) ?? []), node.id]);
   }
   let result = graph;
@@ -79,10 +89,15 @@ export function glyphDiagramCollapseLeaves(graph: GlyphGraph): { graph: GlyphGra
 export function splitGlyphGraph(graph: GlyphGraph): GlyphGraph[] {
   const canonical = canonicalizeGlyphGraph(graph), panels: GlyphGraph[] = [];
   const covered = new Set<string>();
-  const subset = (ids: Set<string>, edges: GlyphGraph["edges"]): GlyphGraph => ({
-    direction: graph.direction, nodes: canonical.nodes.filter((n) => ids.has(n.id)), edges,
-    groups: canonical.groups?.map((g) => ({ ...g, members: g.members.filter((id) => ids.has(id)) })).filter((g) => g.members.length),
-  });
+  const subset = (ids: Set<string>, edges: GlyphGraph["edges"]): GlyphGraph => {
+    const kept = canonical.groups?.map((g) => ({ ...g, members: g.members.filter((id) => ids.has(id)) })).filter((g) => g.members.length);
+    // A group whose parent lost every member here is no longer inside anything.
+    return {
+      direction: graph.direction, nodes: canonical.nodes.filter((n) => ids.has(n.id)), edges,
+      groups: kept?.map(({ parent, ...g }) => parent !== undefined && kept.some((other) => other.id === parent) ? { ...g, parent } : g),
+    };
+  };
+
   for (const edge of canonical.edges) {
     const ids = new Set([edge.from, edge.to]);
     ids.forEach((id) => covered.add(id)); panels.push(subset(ids, [edge]));

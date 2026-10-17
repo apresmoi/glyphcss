@@ -1,0 +1,262 @@
+[
+  {
+    "name": "git-attributes",
+    "source": "gitGraph TB:\n  commit id: \"seed\" tag: \"v0\"\n  branch \"feature one\" order: 2\n  commit id: \"undo\" type: REVERSE\n  switch main\n  commit id: \"release\" type: HIGHLIGHT\n  merge \"feature one\" id: \"joined\" tag: \"v1\" type: NORMAL",
+    "labels": [
+      "seed",
+      "tag: v0",
+      "undo",
+      "REVERSE",
+      "release",
+      "HIGHLIGHT",
+      "joined",
+      "tag: v1",
+      "feature one",
+      "main"
+    ],
+    "laneOrder": [
+      [
+        "seed",
+        "release",
+        "joined"
+      ],
+      [
+        "undo"
+      ]
+    ]
+  },
+  {
+    "name": "git-cherry-picks",
+    "source": "gitGraph TB:\n  commit id: \"base\"\n  branch dev\n  commit id: \"fix\"\n  checkout main\n  commit id: \"work\"\n  cherry-pick id: \"fix\"\n  merge dev id: \"merge\"\n  branch backport\n  commit id: \"ready\"\n  cherry-pick id: \"merge\" parent: \"fix\"",
+    "labels": [
+      "base",
+      "fix",
+      "work",
+      "cherry-pick: fix",
+      "merge",
+      "ready",
+      "cherry-pick: merge parent: fix"
+    ]
+  },
+  {
+    "name": "git-LR",
+    "source": "gitGraph LR:\n  commit id: \"start\"\n  branch dev\n  commit id: \"feature\"\n  checkout main\n  commit id: \"prepare\"\n  merge dev id: \"finish\"",
+    "labels": [
+      "start",
+      "feature",
+      "prepare",
+      "finish",
+      "merge"
+    ],
+    "laneOrder": [
+      [
+        "start",
+        "prepare",
+        "finish"
+      ],
+      [
+        "feature"
+      ]
+    ]
+  },
+  {
+    "name": "git-BT",
+    "source": "gitGraph BT:\n  commit id: \"start\"\n  branch dev\n  commit id: \"feature\"\n  checkout main\n  commit id: \"prepare\"\n  merge dev id: \"finish\"",
+    "labels": [
+      "start",
+      "feature",
+      "prepare",
+      "finish",
+      "merge"
+    ],
+    "laneOrder": [
+      [
+        "start",
+        "prepare",
+        "finish"
+      ],
+      [
+        "feature"
+      ]
+    ]
+  },
+  {
+    "name": "git-init-options",
+    "source": "%%{init: {'gitGraph': {'mainBranchName': 'trunk', 'mainBranchOrder': 2, 'showBranches': false, 'showCommitLabel': false, 'parallelCommits': true, 'rotateCommitLabel': false}, 'theme': 'forest'}}%%\ngitGraph\n  commit id: \"seed\" tag: \"v0\"\n  branch dev order: 1\n  commit id: \"work\" type: HIGHLIGHT\n  checkout trunk\n  merge dev id: \"release\"",
+    "labels": [
+      "tag: v0",
+      "HIGHLIGHT",
+      "merge"
+    ]
+  },
+  {
+    "name": "git-frontmatter",
+    "source": "---\nconfig:\n  gitGraph:\n    mainBranchName: trunk # root branch\n    showBranches: true # keep names\n    showCommitLabel: true # keep ids\n---\ngitGraph TB:\n  commit id: \"seed\"\n  branch \"merge\"\n  commit id: \"work\"\n  switch trunk\n  merge \"merge\" id: \"done\" type: HIGHLIGHT tag: \"v2\"",
+    "labels": [
+      "seed",
+      "work",
+      "done",
+      "trunk",
+      "HIGHLIGHT",
+      "tag: v2"
+    ],
+    "laneOrder": [
+      [
+        "seed",
+        "done"
+      ],
+      [
+        "work"
+      ]
+    ]
+  },
+  {
+    "name": "mindmap-tree",
+    "source": "mindmap\n  root((Plan))\n    a[Build]\n      Tests\n    b(Ship)\n      Review",
+    "labels": [
+      "Plan",
+      "Build",
+      "Tests",
+      "Ship",
+      "Review"
+    ],
+    "rowOrder": [
+      [
+        "Build",
+        "Ship"
+      ]
+    ]
+  },
+  {
+    "name": "mindmap-shapes",
+    "source": "mindmap\n  root[Shapes]\n    a))Bang((\n    b)Cloud(\n    c{{Hexagon}}",
+    "labels": [
+      "Shapes",
+      "Bang",
+      "Cloud",
+      "Hexagon"
+    ],
+    "rowOrder": [
+      [
+        "Bang",
+        "Cloud",
+        "Hexagon"
+      ]
+    ]
+  },
+  {
+    "name": "mindmap-markdown-assets",
+    "source": "---\nconfig:\n  layout: tidy-tree\n  mindmap:\n    colorBy: depth\n---\nmindmap\n  root((\"`**Research** plan`\"))::icon(fa fa-book):::large urgent\n    a[\"`Read *sources*\nthen discuss`\"]\n      ::icon(mdi mdi-book)\n      :::urgent large\n        Evidence\n      Questions\n    Reader's notes; next steps",
+    "labels": [
+      "Research",
+      "Read",
+      "sources",
+      "then",
+      "discuss",
+      "Evidence",
+      "Questions",
+      "Reader's",
+      "notes;",
+      "next",
+      "steps"
+    ],
+    "rowOrder": [
+      [
+        "Read",
+        "Reader's"
+      ],
+      [
+        "Evidence",
+        "Questions"
+      ]
+    ]
+  },
+  {
+    "name": "git-branch-order",
+    "source": "gitGraph TB:\n  commit id: \"seed\"\n  branch late order: 3\n  commit id: \"late\"\n  checkout main\n  branch early order: 1\n  commit id: \"early\"\n  checkout main\n  branch free\n  commit id: \"free\"\n  checkout main\n  commit id: \"finish\"",
+    "labels": [
+      "seed",
+      "late",
+      "early",
+      "free",
+      "finish"
+    ],
+    "laneOrder": [
+      [
+        "seed",
+        "finish"
+      ],
+      [
+        "free"
+      ],
+      [
+        "early"
+      ],
+      [
+        "late"
+      ]
+    ]
+  },
+  {
+    "name": "git-main-order",
+    "source": "---\nconfig:\n  gitGraph:\n    mainBranchName: trunk\n    mainBranchOrder: 2 # move main after early\n---\ngitGraph TB:\n  commit id: \"seed\"\n  branch late order: 3\n  commit id: \"late\"\n  checkout trunk\n  branch early order: 1\n  commit id: \"early\"\n  checkout trunk\n  branch free\n  commit id: \"free\"\n  checkout trunk\n  commit id: \"finish\"",
+    "labels": [
+      "seed",
+      "late",
+      "early",
+      "free",
+      "finish",
+      "trunk"
+    ],
+    "laneOrder": [
+      [
+        "free"
+      ],
+      [
+        "early"
+      ],
+      [
+        "seed",
+        "finish"
+      ],
+      [
+        "late"
+      ]
+    ]
+  },
+  {
+    "name": "mindmap-apostrophes",
+    "source": "mindmap\n  Root\n    'Tis a plan %% ordinary apostrophe\n    We 'ship' soon\n    Reader's notes",
+    "labels": [
+      "Root",
+      "'Tis a plan",
+      "We 'ship' soon",
+      "Reader's notes"
+    ],
+    "rowOrder": [
+      [
+        "'Tis a plan",
+        "We 'ship' soon",
+        "Reader's notes"
+      ]
+    ]
+  },
+  {
+    "name": "git-branch-only",
+    "source": "gitGraph TB:\n  commit id:seed\n  branch dev\n  commit id:feature",
+    "labels": [
+      "seed",
+      "feature",
+      "main",
+      "dev"
+    ],
+    "laneOrder": [
+      [
+        "seed"
+      ],
+      [
+        "feature"
+      ]
+    ]
+  }
+]

@@ -1,3 +1,4 @@
+import { GLYPH_MERMAID_CHART_PRESETS } from "../../features/mermaid/model/presets";
 import { CHARTS_3D_REMOTE_DATASET_INDEX } from "../../features/charts/data/chart3dRemoteIndex";
 import { type ChartsWorkbenchState, CHART_PRESETS } from "../../features/charts/model/chartsSpec";
 import { CHARTS_3D_DATASETS } from "../../features/charts/model/chartsWorkbenchState";
@@ -42,7 +43,11 @@ function ChartsWorkbenchInner({
   initialNotice?: string;
   initialRemoteRef?: string;
 }) {
-  const view = useChartsWorkbenchInner({ initialState, initialNotice, initialRemoteRef });
+  const view = useChartsWorkbenchInner({
+    initialState,
+    initialNotice,
+    initialRemoteRef,
+  });
   if (!view) return null;
   const {
     is3d,
@@ -93,6 +98,7 @@ function ChartsWorkbenchInner({
     snippets,
     thumbnails,
     thumbnails3d,
+    mermaidThumbnails,
     togglePanel,
   } = view;
 
@@ -198,6 +204,31 @@ function ChartsWorkbenchInner({
             notice={datasetNotice}
             renderError={!rendered.ok ? rendered.error : undefined}
           />
+          {state.mermaid !== undefined && (
+            <div className="charts-mermaid-source">
+              <label htmlFor="charts-mermaid-source">Mermaid source</label>
+              <textarea
+                id="charts-mermaid-source"
+                aria-label="Mermaid source"
+                className="charts-mark-data"
+                spellCheck={false}
+                value={state.mermaid}
+                onChange={(event) => dispatch({ type: "edit-mermaid-source", value: event.target.value })}
+              />
+              {rendered.ok && rendered.report.ledger.length > 0 && (
+                <details>
+                  <summary>Adaptation notes ({rendered.report.ledger.length})</summary>
+                  <ul>
+                    {rendered.report.ledger.map((entry, index) => (
+                      <li key={index}>
+                        {entry.code}: {entry.message}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
           <div className="charts-marks-section">
             {state.marks.map((mark, index) => (
               <ChartsMarkCard
@@ -322,7 +353,11 @@ function ChartsWorkbenchInner({
               id="charts-export-panel"
               className={mobilePanel === "export" ? "is-mobile-open" : ""}
               snippets={snippets ?? {}}
-              formats={EXPORT_FORMATS}
+              formats={
+                state.mermaid !== undefined
+                  ? [...EXPORT_FORMATS.filter((format) => format.id !== "json"), { id: "mermaid", label: "Mermaid" }]
+                  : EXPORT_FORMATS
+              }
               defaultFormat="typescript"
               unavailableReason={
                 state.dimension === "3d"
@@ -360,6 +395,24 @@ function ChartsWorkbenchInner({
           >
             <span className="synth-tile-scene charts-tile-preview" aria-hidden="true">
               <pre>{thumbnails[index]}</pre>
+            </span>
+            <span className="synth-tile-label">{preset.label}</span>
+          </button>
+        ))}
+        <div className="charts-tray-3d-divider" role="separator" aria-label="Mermaid presets">
+          Mermaid
+        </div>
+        {GLYPH_MERMAID_CHART_PRESETS.map((preset, index) => (
+          <button
+            type="button"
+            className="synth-tile"
+            key={preset.id}
+            title={`Apply “${preset.label}”`}
+            aria-label={`Apply Mermaid ${preset.label}`}
+            onClick={() => dispatch({ type: "apply-mermaid-preset", id: preset.id })}
+          >
+            <span className="synth-tile-scene charts-tile-preview" aria-hidden="true">
+              <pre>{mermaidThumbnails[index]}</pre>
             </span>
             <span className="synth-tile-label">{preset.label}</span>
           </button>

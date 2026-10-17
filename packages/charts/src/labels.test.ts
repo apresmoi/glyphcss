@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { glyphChartLabelLayout } from "./labels";
+import { chartText, glyphChartLabelLayout } from "./labels";
+import type { GlyphChartLedgerEntry } from "./ledger";
+
+describe("chartText folding notes", () => {
+  it.each(["ascii", "box", "blocks", "braille"] as const)("reports unsupported graphemes on %s without changing the fold", (charset) => {
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const before = "東京 👩‍💻 e\u0301";
+    const after = chartText(before, charset);
+    expect(chartText(before, charset, { ledger, role: "label" })).toBe(after);
+    expect(after).toBe("?? ? e");
+    expect(ledger).toEqual([expect.objectContaining({ code: "label-folded", detail: { role: "label", before, after } })]);
+  });
+
+  it("reports ASCII substitutions but preserves supported box text and ignores trailing space", () => {
+    const ledger: GlyphChartLedgerEntry[] = [];
+    const note = { ledger, role: "label" };
+    expect(chartText("Café · µ…", "box", note)).toBe("Café · µ…");
+    expect(chartText("plain  ", "box", note)).toBe("plain");
+    expect(ledger).toEqual([]);
+    expect(chartText("Café · µ…", "ascii", note)).toBe("Cafe - u...");
+    expect(ledger).toEqual([expect.objectContaining({ code: "label-folded", detail: { role: "label", before: "Café · µ…", after: "Cafe - u..." } })]);
+  });
+
+  it("does not repeat a note when the same label is measured again", () => {
+    const ledger: GlyphChartLedgerEntry[] = [];
+    for (let i = 0; i < 3; i++) chartText("東京", "box", { ledger, role: "label" });
+    expect(ledger).toHaveLength(1);
+  });
+});
 
 describe("glyphChartLabelLayout", () => {
   // Gate: "labels never overflow the viewport; a designed long label is

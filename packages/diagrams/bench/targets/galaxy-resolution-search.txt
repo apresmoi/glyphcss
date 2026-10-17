@@ -1,0 +1,2 @@
+quarter-res search  →  half-res refine  →  full-res bake
+ (seconds/restart)      (best few only)      (once)

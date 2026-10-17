@@ -83,7 +83,7 @@ describe("locateDiagramsSourceError — placing the error on a line", () => {
     expect(locateDiagramsSourceError("graph", "mermaid", source, realFailure("graph", "mermaid", source)).line).toBe(3);
   });
   it("Mermaid: an unsupported diagram kind lands on the declaration line, past comments and blank lines", () => {
-    const source = "%% a comment\n\nclassDiagram\n  A <|-- B";
+    const source = "%% a comment\n\ngantt\n  title Schedule";
     const failure = realFailure("graph", "mermaid", source);
     expect(failure.code).toMatch(/^GLYPH_MERMAID_UNSUPPORTED_/);
     expect(locateDiagramsSourceError("graph", "mermaid", source, failure).line).toBe(3);

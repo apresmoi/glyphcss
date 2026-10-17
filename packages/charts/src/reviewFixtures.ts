@@ -131,9 +131,18 @@
  * with the mark itself; every later fixture key was renumbered down by one,
  * its value unchanged.
  *
- * A NEW divergence found outside these fifteen is a real regression, not a
- * sixteenth exception to wave through — add it here, with its own dedicated
+ * A NEW divergence found outside these listed exceptions is a real regression, not a
+ * blanket exception to wave through — add it here, with its own dedicated
  * test, only when it is a genuinely deliberate change.
+ * 16. (`paint.ts`, Mermaid task 7) Line legend swatches retain three ink
+ *     cells plus one genuinely blank cell before their labels in every tier.
+ *     Only named-line fixtures 11 and 26 changed; captured HEAD's painter
+ *     first, verified it against the historical bytes/hashes, then refreshed
+ *     only swatch cells. Region/vertical-bar geometry stays byte-identical.
+ * 17. (`mermaidWeb.test.ts`, C-WEB) Only finalFix2Parent's
+ *     "Radar category labels:web" hash changes: aspect-correct precise radial
+ *     lines, denser circle rings and solid curve/legend strokes. Native
+ *     goodSpecs fixtures, chat radar and Gantt bars stay unchanged.
  */
 import { glyphChartArc, glyphChartArea, glyphChartBar, glyphChartCell, glyphChartDot, glyphChartFunnel, glyphChartLine, glyphChartRule, glyphChartSankey, glyphChartText } from "./spec";
 import type { GlyphChartMark, GlyphChartRenderOptions, GlyphChartSpec } from "./types";

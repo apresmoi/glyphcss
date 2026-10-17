@@ -3,6 +3,8 @@ export type * from "./renderTypes";
 export * from "./validate";
 export * from "./schema";
 export { glyphGraphFromMermaid } from "./mermaid";
+export { glyphGraphFromMermaidState, glyphMermaidStateNotes, GLYPH_DIAGRAM_STATE_START_KIND, GLYPH_DIAGRAM_STATE_END_KIND, GLYPH_DIAGRAM_STATE_CHOICE_KIND } from "./mermaidState";
+export type { GlyphDiagramLoop } from "./loop";
 export { glyphGraphFromJson } from "./adapters";
 export * from "./pipeline";
 export * from "./route";

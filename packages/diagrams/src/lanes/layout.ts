@@ -45,6 +45,8 @@ export interface GlyphLaneConnectorRow {
   readonly hubLane: number;
   /** Whether `hubLane` itself continues below this row: always above a node, and below one only when the node has a parent. */
   readonly hubContinues: boolean;
+  /** A fixed destination column can begin here when every arriving lane is elsewhere. */
+  readonly hubStarts?: boolean;
   /** Lanes merging INTO `hubLane` on this row; freed immediately after. */
   readonly mergeLanes: readonly number[];
   /** Newly allocated lanes branching OUT of `hubLane` on this row; active from this row on. */
@@ -71,6 +73,8 @@ export interface GlyphLaneContinuationRow {
 export type GlyphLaneRow = GlyphLaneNodeRow | GlyphLaneConnectorRow | GlyphLaneContinuationRow;
 
 export interface GlyphLaneLayoutOptions {
+  /** Source-owned lane identity survives chronological inversion (Mermaid branches). */
+  readonly laneOf?: ReadonlyMap<string, number>;
   /**
    * Lanes that already wait for `id` before the first row, one entry per
    * absent parent (`source` is that absent parent's id) — pre-opens them
@@ -105,8 +109,14 @@ export function layoutGlyphLaneRows(dag: GlyphLaneDag, options: GlyphLaneLayoutO
   let top = 0;
   let maxLane = -1;
 
-  const allocateLane = (): number => {
-    const free = lanes.indexOf(null);
+  // Reserve identity columns even before their first node. Auxiliary ancestry
+  // connections may reuse only columns beyond them, never another branch's.
+  const fixedCount = options.laneOf ? Math.max(-1, ...options.laneOf.values()) + 1 : 0;
+  for (let i = 0; i < fixedCount; i++) { lanes.push(null); source.push(null); }
+  const allocateLane = (id?: string): number => {
+    const fixed = id === undefined ? undefined : options.laneOf?.get(id);
+    if (fixed !== undefined && lanes[fixed] === null) return fixed;
+    const free = lanes.indexOf(null, fixedCount);
     if (free !== -1) return free;
     lanes.push(null);
     source.push(null);
@@ -133,12 +143,12 @@ export function layoutGlyphLaneRows(dag: GlyphLaneDag, options: GlyphLaneLayoutO
     const activeBefore = lanes.map((v, i) => (v !== null ? i : -1)).filter((i) => i >= 0);
 
     const wanted = options.continuesFrom?.get(node.id);
-    const primaryLane = arriving.length ? (arriving.find((i) => source[i] === wanted) ?? arriving[0]!) : allocateLane();
+    const primaryLane = options.laneOf?.get(node.id) ?? (arriving.length ? (arriving.find((i) => source[i] === wanted) ?? arriving[0]!) : allocateLane());
     const mergeLanes = arriving.filter((i) => i !== primaryLane);
     laneOf.set(node.id, primaryLane);
     maxLane = Math.max(maxLane, primaryLane, ...mergeLanes);
 
-    const connector = (touched: readonly number[], active: readonly number[], fields: Pick<GlyphLaneConnectorRow, "hubContinues" | "mergeLanes" | "branchLanes">): void => {
+    const connector = (touched: readonly number[], active: readonly number[], fields: Pick<GlyphLaneConnectorRow, "hubContinues" | "hubStarts" | "mergeLanes" | "branchLanes">): void => {
       const spanMin = Math.min(...touched), spanMax = Math.max(...touched);
       const other = active.filter((i) => !touched.includes(i));
       rows.push({
@@ -148,18 +158,22 @@ export function layoutGlyphLaneRows(dag: GlyphLaneDag, options: GlyphLaneLayoutO
       top++;
     };
     if (mergeLanes.length > 0) {
-      connector([primaryLane, ...mergeLanes], activeBefore, { hubContinues: true, mergeLanes, branchLanes: [] });
+      connector([primaryLane, ...mergeLanes], activeBefore, { hubContinues: true, ...(!arriving.includes(primaryLane) ? { hubStarts: true } : {}), mergeLanes, branchLanes: [] });
       for (const laneIndex of mergeLanes) lanes[laneIndex] = null;
     }
     const activeAtNode = activeBefore.filter((i) => !mergeLanes.includes(i));
     rows.push({ type: "node", top, node, lane: primaryLane, passthroughLanes: activeAtNode.filter((i) => i !== primaryLane) });
     top++;
 
-    const [firstParent, ...restParents] = node.parents;
+    // Prefer the same branch in either reading direction. Without a same-
+    // branch successor, carry this line to the next node's merge row instead
+    // of borrowing an occupied branch column or creating a needless detour.
+    const firstParent = (options.laneOf && node.parents.find(id => options.laneOf!.get(id) === primaryLane)) ?? node.parents[0];
+    const restParents = node.parents.filter(id => id !== firstParent);
     lanes[primaryLane] = firstParent ?? null;
     source[primaryLane] = node.id;
     const branchLanes = restParents.map((parentId) => {
-      const laneIndex = allocateLane();
+      const laneIndex = allocateLane(parentId);
       lanes[laneIndex] = parentId;
       source[laneIndex] = node.id;
       maxLane = Math.max(maxLane, laneIndex);

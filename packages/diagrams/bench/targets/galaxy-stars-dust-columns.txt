@@ -1,0 +1,27 @@
+   STARS (papers)                      DUST (maps)
+   ──────────────                      ───────────
+   Discs ···· Bland-Hawthorn 2016      Near ··· Edenhofer 2024
+   Bar ······ Galaxia                  Mid ···· Vergely 2022
+   Arms ····· Reid 2019                Far ···· Drimmel 2001
+   Hole ····· Robin 2003                  │
+   Sun ······ Bennett & Bovy 2019         │
+        │                                 │
+        ▼                                 │
+   Paint colours ··· Galaxia              │
+        │                                 │
+        └──────────────┬──────────────────┘
+                       ▼
+              ┌─────────────────┐
+              │   3D  GALAXY    │
+              └────────┬────────┘
+                       ▼
+              Shine light through
+              (dust dims, reddens
+               and scatters)
+              CCM89 · SKIRT
+                       ▼
+              ┌─────────────────┐
+              │     CAMERA      │
+              └──┬─────┬─────┬──┘
+                 ▼     ▼     ▼
+              Earth   Top   Side

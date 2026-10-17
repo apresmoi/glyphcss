@@ -1,3 +1,4 @@
+// Historical fixtures 11/26 include the approved legend-gap correction (reviewFixtures exception 16).
 /**
  * `axes.{x,y}.format` (AGENTS.md's "Charts" "Axes") — named presets
  * (`GLYPH_CHART_TICK_FORMAT_PRESETS`, `tickFormat.ts`), a raw TS/JS callback

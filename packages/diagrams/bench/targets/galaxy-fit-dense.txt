@@ -1,0 +1,20 @@
+            ONE CAMERA
+     ┌──────────┼──────────┐
+     ▼          ▼          ▼
+ sky from     face-on    edge-on
+ the Sun        │        (look only)
+  │    │        │
+  ▼    ▼        ▼
+ NASA  Gaia   6 analogue
+ sky   counts galaxies (rings, colors, arms)
+  │    │        │
+  └────┴──┬─────┘
+          ▼
+        SCORE  ──▶  GPU search (8 restarts × 400 rounds, low res)
+          ▲                │
+          └── new knobs ◀──┘
+                           │
+                           ▼
+              ledger ─▶ you pick ★ ─▶ repo code + research log
+                                  ─▶ checks: Gaia held-out half, SKIRT
+                                  ─▶ high-res bake (your approval)

@@ -44,6 +44,7 @@ export function glyphSequenceJsonSchema(): GlyphSequenceJsonSchema {
     $comment: "Register GLYPH_SEQUENCE_JSON_SCHEMA_KEYWORDS with Ajv for duplicate-id, endpoint-reference, and range validation. Standard JSON Schema checks structure only.",
     type: "object", required: ["participants", "messages"], additionalProperties: false,
     properties: {
+      title: { type: "string" },
       participants: {
         type: "array", minItems: 1,
         items: {
@@ -78,7 +79,8 @@ export function glyphSequenceJsonSchema(): GlyphSequenceJsonSchema {
         type: "array",
         items: {
           type: "object", required: ["text", "over", "at"], additionalProperties: false,
-          properties: { text: { type: "string" }, over: { type: "array", minItems: 1, items: ID_SCHEMA }, at: { type: "integer", minimum: 0 } },
+          properties: { text: { type: "string" }, over: { type: "array", minItems: 1, items: ID_SCHEMA }, at: { type: "integer", minimum: 0 }, placement: { enum: ["left", "right"] } },
+          if: { required: ["placement"] }, then: { properties: { over: { maxItems: 1 } } },
         },
       },
     },

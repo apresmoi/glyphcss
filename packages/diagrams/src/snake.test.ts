@@ -9,6 +9,7 @@ import { measureGlyphGraph } from "./pipeline";
 import { renderGlyphDiagram } from "./render";
 import { glyphDiagramSnakeLayout } from "./snake";
 import { routeGlyphGraphEdges } from "./route";
+import { glyphDiagramRouteQuality } from "./routeQuality";
 
 const deploy = `flowchart LR
   push[Push] --> ci[Run tests]
@@ -16,8 +17,8 @@ const deploy = `flowchart LR
   ok -->|yes| build[Build image]
   ok -->|no| fix[Fix code]
   fix --> push
-  build --> staging[Deploy staging]
-  staging --> prod[Deploy prod]`;
+  build --> staging[Deploy staging environment]
+  staging --> prod[Deploy prod cluster]`;
 const order = `flowchart LR
   order[New order] --> validate[Validate cart]
   validate --> stock{In stock?}
@@ -101,12 +102,15 @@ describe("snake layout", () => {
   });
 
   it("sizes each row gap on its own, never buying rows with a detour or a lost label", async () => {
-    // Mutations: uniform gaps only -> the Backorder-to-Charge gap pads to 3;
+    // Mutations: uniform gaps only -> the Retry-to-Ship gap pads to 3;
     // drop the route-shape gate -> the deploy wrap line detours up the left;
     // drop the label check -> a squeezed drop loses its "no".
-    const r = await renderGlyphDiagram(order, { ...chat, height: 30 });
+    const r = await renderGlyphDiagram(order, { ...chat, overflow: "expand" });
     const at = (id: string) => r.layout.nodes.find((n) => n.id === id)!;
-    expect(at("charge").y0 - at("backorder").y1 - 1).toBe(1);
+    expect(at("ship").y0 - at("retry").y1 - 1).toBe(1);
+    for (const [from, to] of [["backorder", "order"], ["order", "charge"], ["charge", "retry"]]) {
+      expect(at(to!).y0 - at(from!).y1 - 1).toBe(3);
+    }
     for (const label of ["yes", "no"]) expect(r.text).toContain(label);
     const d = await renderGlyphDiagram(deploy, { ...chat, height: 30 });
     const wrap = d.routes.find((route) => route.edge.id.includes('"build","staging"'))!;
@@ -130,4 +134,23 @@ describe("snake layout", () => {
     const short = measureGlyphGraph(glyphGraphFromMermaid("flowchart LR\n  a --> b"), { direction: "LR" });
     expect(glyphDiagramSnakeLayout(short, { width: 20, gap: 4, margin: 1, branchGap: 3, rowGap: 3 })).toBeUndefined();
   });
+});
+
+// Plain rectangles exercise the same geometry as class/ER compartments.
+it.each(["chat", "web"] as const)("keeps three-row returns from enclosing a middle box: %s", async target => {
+  const graph = { direction: "LR" as const, nodes: [..."ABCDEFG"].map(id => ({ id, label: `${id} identifier id` })),
+    edges: [..."ABCDEF"].map((from, i) => ({ from, to: "BCDEFG"[i]! })) };
+  const result = await renderGlyphDiagram(graph, { target, width: 72 });
+  expect(result.pages).toHaveLength(1);
+  expect(result.report.ledger.find(entry => entry.code === "layout-wrapped")?.detail?.rows).toBe(3);
+  expect(result.routes).toHaveLength(6);
+  expect(result.report.unroutable).toEqual([]);
+  expect(result.report.ledger.filter(entry => ["word-cut", "label-dropped"].includes(entry.code))).toEqual([]);
+  const quality = glyphDiagramRouteQuality(result.layout, result.routes);
+  expect(quality).toMatchObject({ crossings: 0, fakeFrames: 0 });
+  for (const [from, to] of [["C", "D"], ["F", "G"]]) {
+    const route = result.routes.find(route => route.edge.from === from && route.edge.to === to)!;
+    expect(quality.edges.find(edge => edge.edgeId === route.edge.id)!.bends, `${from}→${to}`).toBe(0);
+    expect(new Set(route.cells.map(cell => cell.x)).size, `${from}→${to} vertical`).toBe(1);
+  }
 });

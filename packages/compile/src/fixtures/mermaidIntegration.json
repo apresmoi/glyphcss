@@ -1,0 +1,290 @@
+[
+  {
+    "type": "flowchart",
+    "owner": "diagrams",
+    "source": "flowchart LR\n A[Input] --> B[Output]",
+    "labels": [
+      "Input",
+      "Output"
+    ],
+    "height": 7
+  },
+  {
+    "type": "graph",
+    "owner": "diagrams",
+    "source": "graph LR\n A[Input] --> B[Output]",
+    "labels": [
+      "Input",
+      "Output"
+    ],
+    "height": 7
+  },
+  {
+    "type": "stateDiagram",
+    "owner": "diagrams",
+    "source": "stateDiagram-v2\n [*] --> Ready\n Ready --> Done: finish\n Done --> [*]",
+    "labels": [
+      "Ready",
+      "Done",
+      "finish"
+    ],
+    "height": 20
+  },
+  {
+    "type": "sequenceDiagram",
+    "owner": "diagrams",
+    "source": "sequenceDiagram\n participant A as Alice\n participant B as Bob\n A->>B: Hello\n B-->>A: Welcome",
+    "labels": [
+      "Alice",
+      "Bob",
+      "Hello",
+      "Welcome"
+    ],
+    "height": 10
+  },
+  {
+    "type": "classDiagram",
+    "owner": "diagrams",
+    "source": "classDiagram\n class Order {\n +int count\n +submit()\n }",
+    "labels": [
+      "Order",
+      "count",
+      "submit"
+    ],
+    "height": 11
+  },
+  {
+    "type": "erDiagram",
+    "owner": "diagrams",
+    "source": "erDiagram\n CUSTOMER ||--o{ ORDER : places",
+    "labels": [
+      "CUSTOMER",
+      "ORDER",
+      "places"
+    ],
+    "height": 12
+  },
+  {
+    "type": "mindmap",
+    "owner": "diagrams",
+    "source": "mindmap\n root((Plan))\n  Build\n  Review",
+    "labels": [
+      "Plan",
+      "Build",
+      "Review"
+    ],
+    "height": 11
+  },
+  {
+    "type": "gitGraph",
+    "owner": "diagrams",
+    "source": "gitGraph\n commit id: \"Start\"\n branch feature\n commit id: \"Work\"\n checkout main\n merge feature id: \"Ship\"",
+    "labels": [
+      "Start",
+      "Work",
+      "Ship"
+    ],
+    "height": 9
+  },
+  {
+    "type": "block",
+    "owner": "diagrams",
+    "source": "block-beta\n columns 2\n a[Input] b[Output]\n a --> b",
+    "labels": [
+      "Input",
+      "Output"
+    ],
+    "height": 7
+  },
+  {
+    "type": "architecture",
+    "owner": "diagrams",
+    "source": "architecture-beta\n service a(server)[Worker]\n service b(database)[Store]\n a:R --> L:b",
+    "labels": [
+      "Worker",
+      "Store"
+    ],
+    "height": 7
+  },
+  {
+    "type": "requirementDiagram",
+    "owner": "diagrams",
+    "source": "requirementDiagram\n requirement safe {\n id: 1\n text: Keep records\n risk: low\n verifymethod: test\n }",
+    "labels": [
+      "Keep",
+      "records"
+    ],
+    "height": 12
+  },
+  {
+    "type": "C4Context",
+    "owner": "diagrams",
+    "source": "C4Context\n System(api, \"API\", \"Service\")",
+    "labels": [
+      "API",
+      "Service"
+    ],
+    "height": 9
+  },
+  {
+    "type": "C4Container",
+    "owner": "diagrams",
+    "source": "C4Container\n Container(api, \"API\", \"Service\")",
+    "labels": [
+      "API",
+      "Service"
+    ],
+    "height": 9
+  },
+  {
+    "type": "C4Component",
+    "owner": "diagrams",
+    "source": "C4Component\n Component(api, \"API\", \"Service\")",
+    "labels": [
+      "API",
+      "Service"
+    ],
+    "height": 9
+  },
+  {
+    "type": "C4Deployment",
+    "owner": "diagrams",
+    "source": "C4Deployment\n Container(api, \"API\", \"Service\")",
+    "labels": [
+      "API",
+      "Service"
+    ],
+    "height": 9
+  },
+  {
+    "type": "C4Dynamic",
+    "owner": "diagrams",
+    "source": "C4Dynamic\n Container(a, \"Client\", \"Web\")\n Container(b, \"API\", \"Service\")\n Rel(a, b, \"Call\")",
+    "labels": [
+      "Client",
+      "API",
+      "Call"
+    ],
+    "height": 9
+  },
+  {
+    "type": "pie",
+    "owner": "charts",
+    "source": "pie title Pets\n \"Dogs\" : 60\n \"Cats\" : 40",
+    "labels": [
+      "Dogs",
+      "Cats"
+    ],
+    "height": 14
+  },
+  {
+    "type": "xychart",
+    "owner": "charts",
+    "source": "xychart-beta\n x-axis [Jan, Feb, Mar]\n y-axis Sales 0 --> 10\n bar [3, 8, 5]",
+    "labels": [
+      "Jan",
+      "Feb",
+      "Mar"
+    ],
+    "height": 12
+  },
+  {
+    "type": "sankey",
+    "owner": "charts",
+    "source": "sankey-beta\n Input,Build,6\n Input,Test,4",
+    "labels": [
+      "Input",
+      "Build",
+      "Test"
+    ],
+    "height": 11
+  },
+  {
+    "type": "quadrantChart",
+    "owner": "charts",
+    "source": "quadrantChart\n x-axis Effort --> Reach\n y-axis Cost --> Value\n Alpha: [0.25, 0.75]\n Beta: [0.75, 0.25]",
+    "labels": [
+      "Alpha",
+      "Beta"
+    ],
+    "height": 15
+  },
+  {
+    "type": "gantt",
+    "owner": "charts",
+    "source": "gantt\n dateFormat YYYY-MM-DD\n section Release\n Build :a, 2026-01-01, 2d\n Test :after a, 1d",
+    "labels": [
+      "Build",
+      "Test"
+    ],
+    "height": 8
+  },
+  {
+    "type": "radar",
+    "owner": "charts",
+    "source": "radar-beta\n axis speed[Speed], cost[Cost], quality[Quality]\n curve a[Plan] {4, 3, 5}\n max 5",
+    "labels": [
+      "Speed",
+      "Cost",
+      "Quality",
+      "Plan"
+    ],
+    "height": 16
+  },
+  {
+    "type": "treemap",
+    "owner": "charts",
+    "source": "treemap-beta\n \"Team\"\n  \"Build\": 6\n  \"Test\": 4",
+    "labels": [
+      "Build",
+      "Test"
+    ],
+    "height": 10
+  },
+  {
+    "type": "journey",
+    "owner": "charts",
+    "source": "journey\n title Release\n section Work\n Build: 4: Alice\n Test: 5: Bob",
+    "labels": [
+      "Build",
+      "Test",
+      "Alice",
+      "Bob"
+    ],
+    "height": 6
+  },
+  {
+    "type": "timeline",
+    "owner": "charts",
+    "source": "timeline\n title Release\n section Work\n Monday : Build\n Tuesday : Test",
+    "labels": [
+      "Monday",
+      "Tuesday",
+      "Build",
+      "Test"
+    ],
+    "height": 6
+  },
+  {
+    "type": "packet",
+    "owner": "charts",
+    "source": "packet-beta\n 0-7: \"Header\"\n 8-31: \"Payload\"",
+    "labels": [
+      "Header",
+      "Payload"
+    ],
+    "height": 6
+  },
+  {
+    "type": "kanban",
+    "owner": "charts",
+    "source": "kanban\n todo[Todo]\n  a[Build]\n done[Done]\n  b[Test]",
+    "labels": [
+      "Todo",
+      "Done",
+      "Build",
+      "Test"
+    ],
+    "height": 9
+  }
+]

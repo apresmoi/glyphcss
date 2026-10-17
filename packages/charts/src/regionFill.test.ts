@@ -1,3 +1,4 @@
+// Historical fixtures 11/26 include the approved legend-gap correction (reviewFixtures exception 16).
 /**
  * CHARTS-RESEARCH `DIAGNOSIS-solid-colour-fills.md`: a region mark's fill is
  * SOLID where colour already tells its series apart, and textured everywhere

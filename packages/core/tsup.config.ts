@@ -2,6 +2,7 @@ import { defineConfig } from "tsup";
 
 export default defineConfig({
   entry: {
+    mermaid: "src/mermaid/index.ts",
     index: "src/index.ts",
     three: "src/three/index.ts",
   },

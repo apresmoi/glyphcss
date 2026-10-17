@@ -13,6 +13,7 @@
  * "tiers are tables, painters are dumb" discipline one level up.
  */
 
+import { GLYPH_CHART_RADAR_CAPTION_RADIUS, GLYPH_CHART_RADAR, fitGlyphRadarScales, type GlyphChartRadarSpec } from "./radar";
 import { GLYPH_CANVAS_DIRECTION_BITS, GLYPH_CANVAS_TIERS, type GlyphCanvas, type GlyphCanvasLineStyle, type GlyphCanvasPoint } from "glyphcss";
 import {
   bandColRange,
@@ -27,8 +28,9 @@ import {
   type GlyphChartPlotRect,
 } from "./layout";
 import { abbreviateChartText, chartText, glyphChartLabelLayout, type GlyphChartLabelCandidate, type GlyphChartObstacleRect } from "./labels";
-import { ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
+import { ledgerBarIntervalCollapsed, ledgerEmptyTotal, ledgerLabelDropped, ledgerLegendDropped, ledgerLegendOverlapsMarks, ledgerMarkColorUnused, ledgerMermaidDegraded, ledgerSeriesDodgeDegraded, ledgerSliceDropped, type GlyphChartLedgerEntry } from "./ledger";
 import { layoutSankeyGraph, paintFunnelMark } from "./flowMarks";
+import { paintTreemap } from "./treemap";
 import { paintSankeyLines } from "./sankeyLines";
 import { cellRange, cellRampLevel, heatmapRamp } from "./heatmap";
 import { formatLinearTick } from "./scales";
@@ -39,6 +41,8 @@ import type { GlyphChartCharset, GlyphChartMarkRow, GlyphChartSpec } from "./typ
 
 /** See `shadeFor`'s own doc (the "orchestration" section below). */
 const GLYPH_CHART_CELL_MIN_INK_SHADE = 0.15;
+const GLYPH_CHART_RADAR_LABEL_GAP = 1;
+const GLYPH_CHART_RADAR_SERIES_GLYPHS = ["•", "○", "×", "+"] as const;
 
 /** A region fill after `resolveGlyphChartRegionFill` has decided it — never `"auto"`. */
 export type GlyphChartResolvedRegionFill = "solid" | "texture";
@@ -56,6 +60,7 @@ export interface GlyphChartPaintOptions {
   readonly shades?: readonly string[];
   /** The render's `cellRamp` option: an unsigned heatmap's value ramp. */
   readonly cellRamp?: readonly string[];
+  readonly radarSeries?: "line" | "cells";
   /**
    * Web-only `textScale` affordance (AGENTS.md's "Charts" "Density"
    * paragraph) — forwarded to `canvas.text({ scale })` for every chart-level
@@ -143,6 +148,38 @@ export function barBandColRange(scale: GlyphChartResolvedScale, plot: GlyphChart
 const FULL_BLOCK = "█";
 const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
 
+function paintHorizontalBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>, textScale: number): void {
+  for (const row of rows) {
+    const start = scaleToCol(scales.x, layout.plot, row.x0 ?? 0);
+    const end = scaleToCol(scales.x, layout.plot, row.x);
+    const band = layout.horizontalBarBands.get(String(row.y)) ?? bandRowRange(scales.y, layout.plot, row.y, layout.xAxisLine);
+    const center = band ? Math.round((band[0] + band[1]) / 2) : scaleToRow(scales.y, layout.plot, row.y);
+    let range: readonly [number, number] = band ?? [center, center];
+    if (start === end) {
+      if (row.x0 !== undefined && Number(row.x) !== Number(row.x0)) {
+        ledger.push(ledgerBarIntervalCollapsed({ row: row.index }));
+        const eventRow = band ? Math.min(band[1], band[0] + dodge.index * textScale) : center;
+        canvas.text(start, eventRow, [seriesDot(canvas.tier, 0)], { color });
+      }
+      continue;
+    }
+    const cap = textScale * dodge.count;
+    if (range[1] - range[0] + 1 > cap) range = [range[0], range[0] + cap - 1];
+    if (dodge.count > 1) range = dodgeColRange(range, dodge.index, dodge.count, ledger, degraded);
+    // Scheduled/table rows must stay distinct even at line-height: 1 with no spare rows.
+    const halfHeight = (layout.gantt || layout.journey) && GLYPH_CANVAS_TIERS[canvas.tier].subcell && glyph === FULL_BLOCK;
+    const x0 = Math.max(layout.plot.x0, Math.min(start, end) + (end > start ? 1 : 0));
+    const x1 = Math.min(layout.plot.x1, Math.max(start, end) - (end < start ? 1 : 0));
+    const height = range[1] - range[0] + 1;
+    let top = halfHeight ? range[1] - Math.ceil(height / 2) + 1 : range[0];
+    if (halfHeight && height % 2) {
+      fillRegionShade(canvas, x0, Math.max(layout.plot.y0, top), x1, Math.min(layout.plot.y1, top), LOWER_EIGHTHS[3]!, color);
+      top++;
+    }
+    fillRegionShade(canvas, x0, Math.max(layout.plot.y0, top), x1, Math.min(layout.plot.y1, range[1]), glyph, color);
+  }
+}
+
 /**
  * A bar's cell span is `(baseline, value]` — NOT `[0, value]` clamped to
  * "above" — so a negative value (mixed-sign honesty gate) draws BELOW the
@@ -163,6 +200,7 @@ const LOWER_EIGHTHS = "▁▂▃▄▅▆▇";
  * (`░▒▓`), `ascii`'s `#`, negative bars (no lower-anchored glyph hangs from
  * a cell's top) and stack segments keep whole cells.
  */
+
 function paintBar(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, glyph: string, dodge: { readonly index: number; readonly count: number }, ledger: GlyphChartLedgerEntry[], degraded: Set<number>, textScale: number): void {
   const baselineRow = scaleToRow(scales.y, layout.plot, 0);
   const fallbackWidth = Math.max(1, Math.round((layout.plot.x1 - layout.plot.x0 + 1) / Math.max(1, rows.length) * 0.7));
@@ -948,7 +986,7 @@ function paintArcCallouts(canvas: GlyphCanvas, plot: GlyphChartPlotRect, slices:
       }
 
       const full = `${c.name} · ${c.pct}%`;
-      const fullFolded = chartText(full, canvas.tier);
+      const fullFolded = chartText(full, canvas.tier, { ledger, role: "pie callout" });
       const maxWidthChars = Math.max(1, Math.floor(maxWidthCols / textScale));
       let text: string;
       if (fullFolded.length <= maxWidthChars) {
@@ -1098,7 +1136,7 @@ function paintGrid(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
  * canvas" / "sub-cell data marks, whole-cell axes"), and `canvas.text()`
  * never rasterises sub-cell regardless of tier.
  */
-function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean, textScale = 1): void {
+function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale = 1): void {
   if (!layout.hasCartesianAxes) return;
   const tier = GLYPH_CANVAS_TIERS[canvas.tier];
   const yTickRows = new Set(layout.yTicks.map((t) => t.cell));
@@ -1165,9 +1203,12 @@ function paintAxes(canvas: GlyphCanvas, layout: GlyphChartLayout, colorEnabled: 
     const x = layout.xAxisTitleAt === "start" ? layout.plot.x0
       : layout.xAxisTitleAt === "end" ? Math.max(layout.plot.x0, layout.plot.x1 - titleCols + 1)
       : Math.max(layout.plot.x0, layout.plot.x0 + Math.floor((width - titleCols) / 2));
+    // Axis titles use the canvas fold directly, without chartText's extra ASCII substitutions.
+    chartText(layout.xAxisTitle, "box", { ledger, role: "x-axis title" });
     canvas.text(x, layout.xAxisTitleRow, [layout.xAxisTitle], { color: xColor, scale: textScale });
   }
   if (layout.yAxisTitle) {
+    chartText(layout.yAxisTitle, "box", { ledger, role: "y-axis title" });
     canvas.text(0, layout.yAxisTitleRow, [layout.yAxisTitle], { color: yColor, scale: textScale });
   }
 }
@@ -1214,9 +1255,27 @@ function strokeClipPlot(plot: GlyphChartPlotRect, subcell: boolean, width: 1 | 2
  * own `options.strokeWidth`, forwarded to `canvas.line()` — see
  * `strokeClipPlot`'s doc for why width 2/3 clips against a tighter rect.
  */
-function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid", width: 1 | 2 | 3 = 1): void {
-  const points = rows
-    .map((r) => ({ x: scaleToCol(scales.x, layout.plot, r.x), y: scaleToRow(scales.y, layout.plot, r.y) }));
+/** Categorical overlays must follow the bar/label row, rather than the old continuous band centre. */
+function markRow(layout: GlyphChartLayout, scales: GlyphChartResolvedScales, value: unknown, exact = false): number {
+  return layout.horizontalBarBands.get(String(value))?.[0]
+    ?? (exact ? scaleToRowExact : scaleToRow)(scales.y, layout.plot, value);
+}
+
+function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], color: string | null, style: GlyphCanvasLineStyle = "solid", width: 1 | 2 | 3 = 1, exact = false, sparse = false): void {
+  let points = rows
+    .map((r) => ({ x: (exact ? scaleToColExact : scaleToCol)(scales.x, layout.plot, r.x), y: markRow(layout, scales, r.y, exact) }));
+  // Tiny sampled-circle segments restart the dotted tier before its first gap.
+  // Coalesce only monochrome guides so the existing tier can expose that gap.
+  if (sparse && points.length > 2) {
+    const sampled = [points[0]!];
+    let distance = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1]!, b = points[i]!;
+      distance += Math.hypot(2 * (b.x - a.x), 4 * (b.y - a.y));
+      if (distance >= 4 || i === points.length - 1) { sampled.push(b); distance = 0; }
+    }
+    points = sampled;
+  }
   const clipPlot = strokeClipPlot(layout.plot, GLYPH_CANVAS_TIERS[canvas.tier].subcell, width);
   for (let i = 0; i < points.length - 1; i++) {
     const a = points[i]!, b = points[i + 1]!;
@@ -1224,6 +1283,40 @@ function paintLine(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphC
     const clipped = clipSegmentToPlot(a, b, clipPlot);
     if (!clipped) continue;
     canvas.line(clipped[0], clipped[1], { color, style, width });
+  }
+}
+
+/** Walk cell boundaries instead of sampling: even a short visit to a slope cell gets ink. */
+function paintRadarCells(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, rows: readonly GlyphChartMarkRow[], glyph: string, color: string | null, occupied: Set<number>): void {
+  const stamp = (x: number, y: number) => {
+    if (x < layout.plot.x0 || x > layout.plot.x1 || y < layout.plot.y0 || y > layout.plot.y1) return;
+    const key = y * canvas.cols + x;
+    if (occupied.has(key)) return;
+    occupied.add(key);
+    canvas.text(x, y, [glyph], { color });
+  };
+  for (let i = 1; i < rows.length; i++) {
+    const point = (row: GlyphChartMarkRow) => ({ x: scaleToColExact(scales.x, layout.plot, row.x), y: markRow(layout, scales, row.y, true) });
+    const a = point(rows[i - 1]!), b = point(rows[i]!);
+    if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) continue;
+    const clipped = clipSegmentToPlot(a, b, layout.plot);
+    if (!clipped) continue;
+    const [from, to] = clipped, dx = to.x - from.x, dy = to.y - from.y;
+    let x = Math.round(from.x), y = Math.round(from.y);
+    const sx = Math.sign(dx), sy = Math.sign(dy);
+    const stepX = dx === 0 ? Infinity : 1 / Math.abs(dx), stepY = dy === 0 ? Infinity : 1 / Math.abs(dy);
+    let nextX = dx === 0 ? Infinity : (x + sx * 0.5 - from.x) / dx;
+    let nextY = dy === 0 ? Infinity : (y + sy * 0.5 - from.y) / dy;
+    stamp(x, y);
+    while (Math.min(nextX, nextY) <= 1) {
+      if (Math.abs(nextX - nextY) < 1e-10) {
+        // A corner belongs to both neighbouring cells as well as the diagonal.
+        stamp(x + sx, y); stamp(x, y + sy);
+        x += sx; y += sy; nextX += stepX; nextY += stepY;
+      } else if (nextX < nextY) { x += sx; nextX += stepX; }
+      else { y += sy; nextY += stepY; }
+      stamp(x, y);
+    }
   }
 }
 
@@ -1289,9 +1382,10 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
   const subcell = GLYPH_CANVAS_TIERS[canvas.tier].subcell;
   const glyph = seriesDot(canvas.tier, styleIndex);
   for (const row of rows) {
-    if (subcell) {
+    // Milestones are authored events: use the existing whole-cell point vocabulary.
+    if (subcell && !layout.gantt) {
       const col = scaleToColExact(scales.x, layout.plot, row.x);
-      const r = scaleToRowExact(scales.y, layout.plot, row.y);
+      const r = markRow(layout, scales, row.y, true);
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
       // Clip by the mark's actual DESTINATION cell — the same dot-lattice
       // rounding `paintSubcellDot`/the canvas independently perform — never
@@ -1308,9 +1402,9 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
       continue;
     }
     const col = scaleToCol(scales.x, layout.plot, row.x);
-    const r = scaleToRow(scales.y, layout.plot, row.y);
+    const r = markRow(layout, scales, row.y);
     if (!Number.isFinite(col) || !Number.isFinite(r) || col < layout.plot.x0 || col > layout.plot.x1 || r < layout.plot.y0 || r > layout.plot.y1) continue;
-    canvas.text(col, r, [glyph], { color });
+    canvas.text(col, r, [layout.gantt ? seriesDot(canvas.tier, 0) : glyph], { color });
   }
 }
 
@@ -1320,10 +1414,10 @@ function paintDot(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphCh
 // means a rule's own footprint never depends on `width` (`canvas.ts`'s
 // whole-cell path only substitutes a heavier glyph), so `strokeClipPlot`'s
 // margin is never needed here.
-function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, values: readonly number[], axis: "x" | "y", color: string | null, width: 1 | 2 | 3 = 1): void {
+function paintRule(canvas: GlyphCanvas, layout: GlyphChartLayout, scales: GlyphChartResolvedScales, values: readonly (number | Date)[], axis: "x" | "y", color: string | null, width: 1 | 2 | 3 = 1): void {
   for (const v of values) {
     if (axis === "y") {
-      const row = scaleToRow(scales.y, layout.plot, v);
+      const row = markRow(layout, scales, v);
       if (row < layout.plot.y0 || row > layout.plot.y1) continue;
       // A rule landing on the axis LINE's own row (now possible since B1's
       // fix folded that row into the plot — see `layoutGlyphChart`'s
@@ -1372,14 +1466,15 @@ function guardCoord(markType: string, painter: string, values: readonly number[]
 /**
  * The SOLID canvas's cell-ownership rule: a write that names no `bg` takes
  * the WHOLE cell, background included. The canvas keeps `bg` apart from the
- * glyph (omitted leaves it untouched), and only the sub-cell compositor
- * (`paintSolidRegions`) sets one, for a two-colour cell. Every later write
+ * glyph (omitted leaves it untouched); the sub-cell compositor
+ * (`paintSolidRegions`) uses it for a two-colour cell. Every later write
  * over such a cell (a legend swatch or name, another mark's block, a line)
  * used to keep that cell's second colour behind its own glyph: a blue `█`
  * swatch over an orange background, and the same under a rect's whole run.
  * Here a write owns the cell it writes, so no background outlives its glyph;
- * `paintSolidCellBackgrounds` then gives each `█` its own ink. The texture
- * canvas writes no `bg` anywhere, so it never takes this wrapper.
+ * `paintSolidCellBackgrounds` then gives each `█` its own ink. Texture
+ * regions do not need this wrapper; crossing bar strokes retain their
+ * underlay through `barOverlayCanvas` on either fill path.
  */
 function solidOwnedCanvas(canvas: GlyphCanvas): GlyphCanvas {
   return {
@@ -1388,6 +1483,26 @@ function solidOwnedCanvas(canvas: GlyphCanvas): GlyphCanvas {
     line: (a, b, lineOpts = {}) => canvas.line(a, b, { ...lineOpts, bg: lineOpts.bg === undefined ? null : lineOpts.bg }),
     text: (x, y, lines, textOpts = {}) => canvas.text(x, y, lines, { ...textOpts, bg: textOpts.bg === undefined ? null : textOpts.bg }),
   };
+}
+
+/** Full bar cells remain behind a crossing stroke; other whole-cell writes
+ * still own their backgrounds. Restrict this to actual stroke coverage. */
+function barOverlayCanvas(canvas: GlyphCanvas): GlyphCanvas {
+  return { ...canvas, line: (a, b, options = {}) => {
+    const beneath: [number, string][] = [];
+    const pad = options.width ?? 1;
+    for (let y = Math.max(0, Math.floor(Math.min(a.y, b.y)) - pad); y <= Math.min(canvas.rows - 1, Math.ceil(Math.max(a.y, b.y)) + pad); y++) {
+      for (let x = Math.max(0, Math.floor(Math.min(a.x, b.x)) - pad); x <= Math.min(canvas.cols - 1, Math.ceil(Math.max(a.x, b.x)) + pad); x++) {
+        const i = y * canvas.cols + x;
+        // Consecutive segments can touch the same cell. Carry its existing
+        // underlay too, or the second segment would erase the first's repair.
+        const color = canvas.grid.char[i] === "█" ? canvas.grid.color[i] : canvas.bg[i];
+        if (color && color !== options.color) beneath.push([i, color]);
+      }
+    }
+    canvas.line(a, b, options);
+    for (const [i, color] of beneath) if (canvas.grid.color[i] === options.color) canvas.bg[i] = color;
+  } };
 }
 
 function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
@@ -1429,15 +1544,15 @@ function guardedCanvas(canvas: GlyphCanvas, markType: string): GlyphCanvas {
  * silently erasing it (CHARTS-RESEARCH B1's row folded into the plot is
  * exactly the row a `bottom-*`/tall `top-*` legend would otherwise reach).
  *
- * `textScale` (AGENTS.md's "Charts" "Density") reserves an `s`-row-tall band
- * per entry — `canvas.text`'s own `scale`-row pitch — with a `3*s`-wide
- * swatch gutter, exactly the `3 * textScale` the bottom-placed legend's own
- * `swatchGutter` uses, so entries never crowd tighter than a scale-2 swatch's
- * own `2x2` box needs. Every expression below reduces to the pre-`textScale`
- * one at `textScale === 1` (`3*1 === 3`, `floor(plotHeight/1) === plotHeight`,
- * …), so this is byte-identical there.
+ * Text and fixed gaps scale together. Line swatches reserve three ink
+ * cells plus a genuinely blank separator; region swatches retain their
+ * existing three-cell gutter.
  */
-function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[]): void {
+function lineSwatch(entry: ChartSeries | undefined): boolean {
+  return !entry || !["arc", "dot", "funnel", "bar", "area", "cell"].includes(entry.mark.type);
+}
+
+function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend: GlyphChartLegendLayout, series: readonly ChartSeries[], colorEnabled: boolean, ledger: GlyphChartLedgerEntry[], textScale: number, fill: GlyphChartResolvedRegionFill, shades?: readonly string[], solidLines = false, radarCells = false): void {
   const { plot } = layout;
   const plotWidth = plot.x1 - plot.x0 + 1;
   const maxRow = layout.xAxisLineRow === plot.y1 ? plot.y1 - 1 : plot.y1;
@@ -1453,15 +1568,17 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
   if (legend.items.length > items.length) {
     ledger.push(ledgerLegendDropped({ series: legend.items.length - items.length, cols: plotWidth, rows: plotHeight }));
   }
-  const swatchGutterCols = 3 * textScale;
-  const maxTextWidth = Math.max(1, Math.floor((plotWidth - 2) / textScale));
+
   let covered = 0;
   for (let i = 0; i < items.length; i++) {
     const item = items[i]!;
     const row = isBottom ? maxRow - items.length * textScale + 1 + i * textScale : plot.y0 + i * textScale;
-    const { text, dropped } = abbreviateChartText(item.label, maxTextWidth, canvas.tier, false);
+    const entry = series.find((s) => s.name === item.label);
+    const swatchGutterCols = (lineSwatch(entry) ? 4 : 3) * textScale;
+    const maxTextWidth = Math.max(1, Math.floor((plotWidth - swatchGutterCols) / textScale));
+    const { text, dropped } = abbreviateChartText(item.text ?? item.label, maxTextWidth, canvas.tier, false, undefined, undefined, { ledger, role: "legend label" });
     if (dropped || !text) continue;
-    // `swatchGutterCols` (not `2 * textScale`) so a LINE-style swatch (the
+    // The wider line gutter lets a LINE-style swatch (the
     // trailing `else` below) has room for the same styled run the bottom
     // legend paints (`paint.ts`'s own label-phase swatch, `swatchX ..
     // label.x - 1`) — a single-cell `canvas.line(p, p)` degenerates to one
@@ -1476,7 +1593,6 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
         if (canvas.grid.char[rr * canvas.cols + c] !== " ") covered++;
       }
     }
-    const entry = series.find((s) => s.name === item.label);
     const color = colorEnabled ? item.color ?? null : null;
     const styleIdx = entry ? (entry.mark.type === "arc" ? entry.shadeIndex! : entry.styleIndex) : i;
     // `total` mirrors the mark's own paint-time count — the number of
@@ -1484,13 +1600,15 @@ function paintCornerLegend(canvas: GlyphCanvas, layout: GlyphChartLayout, legend
     // the legend swatch always picks the same table (compact-vs-extended
     // ASCII) the plot itself painted with.
     const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
-    if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: textScale });
+    if (radarCells) canvas.text(startCol, row, [GLYPH_CHART_RADAR_SERIES_GLYPHS[i % 4]!], { color, scale: textScale });
+    else if (entry?.mark.type === "arc") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) paintSubcellDot(canvas, startCol, row, color);
     else if (entry?.mark.type === "dot") canvas.text(startCol, row, [seriesDot(canvas.tier, styleIdx)], { color, scale: textScale });
     else if (entry?.mark.type === "funnel") canvas.text(startCol, row, [canvas.tier === "ascii" ? "#" : "█"], { color, scale: textScale });
     else if (entry?.mark.type === "bar" || entry?.mark.type === "area") canvas.text(startCol, row, [regionFillGlyph(canvas.tier, entry.styleIndex, shadeTotal, fill, shades)], { color, scale: textScale });
     else if (entry?.mark.type === "cell") canvas.text(startCol, row, [seriesShade(canvas.tier, 0)], { color, scale: textScale });
-    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 1), y: row }, { color, style: SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+    else canvas.line({ x: startCol, y: row }, { x: Math.max(startCol, textCol - 2), y: row }, { color, style: solidLines ? "solid" : SERIES_STYLES[styleIdx % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+    if (lineSwatch(entry)) canvas.text(textCol - 1, row, [" "], { color });
     canvas.text(textCol, row, [text], { color, scale: textScale });
   }
   if (covered > 0) ledger.push(ledgerLegendOverlapsMarks({ placement: legend.placement, covered }));
@@ -1507,6 +1625,9 @@ export function paintGlyphChart(
   opts: GlyphChartPaintOptions,
   ledger: GlyphChartLedgerEntry[],
 ): void {
+  const radial = (spec as GlyphChartRadarSpec)[GLYPH_CHART_RADAR] === true;
+  const radarCells = radial && opts.radarSeries === "cells";
+  scales = fitGlyphRadarScales(spec, scales, layout.plot, canvas.cellAspect);
   // Web-only affordance — see `GlyphChartPaintOptions.textScale`'s own doc.
   // Default `1`, so every `scale: textScale` forwarded below is `scale: 1`
   // (canvas.text's own byte-identical default) when the caller never set it.
@@ -1515,6 +1636,33 @@ export function paintGlyphChart(
   const shades = opts.shades;
   if (fill === "solid") canvas = solidOwnedCanvas(canvas);
   const series = chartSeries(marks, ledger, shades?.length);
+  if (radarCells) ledger.push(ledgerMermaidDegraded({ feature: "radar cell edges", replacement: "whole-cell • ○ × + edges, cycling after four series; first-declared series wins shared cells" }));
+  if (radial && !opts.colorEnabled) ledger.push(ledgerMermaidDegraded({ feature: "radar monochrome guides", replacement: radarCells ? "dotted native graticules and spokes behind whole-cell series symbols" : "dotted native graticules and spokes behind the series line styles" }));
+  if (layout.mermaidStructure) {
+    // Same inclusive OR masks as treemap borders: ordinary line() overwrites junctions.
+    const borders = new Map<number, number>();
+    const edge = (x: number, y: number, mask: number) => {
+      const key = y * canvas.cols + x;
+      borders.set(key, (borders.get(key) ?? 0) | mask);
+    };
+    for (const { from, to } of layout.mermaidStructure.lines) {
+      if (from.y === to.y) for (let x = from.x; x <= to.x; x++) edge(x, from.y, (x > from.x ? 8 : 0) | (x < to.x ? 2 : 0));
+      else for (let y = from.y; y <= to.y; y++) edge(from.x, y, (y > from.y ? 1 : 0) | (y < to.y ? 4 : 0));
+    }
+    for (const [key, mask] of borders) canvas.text(key % canvas.cols, Math.floor(key / canvas.cols), [GLYPH_CANVAS_TIERS[canvas.tier].junction[mask]!]);
+    for (const label of layout.mermaidStructure.labels) canvas.text(label.x, label.y, [label.text], { scale: textScale });
+    return;
+  }
+  if (layout.journey) {
+    for (const entry of series) {
+      const rows = entry.rows.filter((row) => layout.horizontalBarBands.has(String(row.y)));
+      const glyph = regionFillGlyph(canvas.tier, entry.styleIndex, series.length, fill, shades);
+      paintHorizontalBar(canvas, layout, scales, rows, resolveSeriesColor(entry, opts.colorEnabled), glyph, { index: 0, count: 1 }, ledger, new Set(), textScale);
+    }
+    for (const label of layout.journey.labels) canvas.text(label.x, label.y, [label.text], { scale: textScale });
+    return;
+  }
+
   const fillValues = marks.filter((m) => m.mark.type === "cell").flatMap((m) => m.rows.map((r) => numeric(r.fill))).filter(Number.isFinite);
   const lo = Math.min(0, ...fillValues), hi = Math.max(0, ...fillValues);
   const cellSigned = lo < 0 && hi > 0;
@@ -1569,7 +1717,8 @@ export function paintGlyphChart(
   for (const { mark, rows: resolvedRows } of marks) {
     const groups = series.filter((s) => s.mark === mark);
     const guarded = guardedCanvas(canvas, mark.type);
-    if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill, shades);
+    if (mark.type === "treemap") paintTreemap(guarded, layout.plot, resolvedRows, groups[0] ? resolveSeriesColor(groups[0], opts.colorEnabled) : null, ledger, textScale);
+    else if (mark.type === "arc") paintArc(guarded, layout, groups, mark.options?.innerRadius ?? 0, opts.colorEnabled, ledger, resolvedRows.length, mark.options?.labels ?? "callout", textScale, fill, shades);
     else if (mark.type === "sankey") {
       const sankeyLayout = layoutSankeyGraph(groups, layout.plot, canvas.tier, ledger, textScale);
       if (sankeyLayout) paintSankeyLines(guarded, layout.plot, sankeyLayout, groups, opts.colorEnabled, ledger);
@@ -1594,7 +1743,8 @@ export function paintGlyphChart(
       const { rows, styleIndex } = group;
       const color = resolveSeriesColor(group, opts.colorEnabled);
       const glyph = regionFillGlyph(canvas.tier, styleIndex, groups.length, fill, shades);
-      if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
+      if (mark.type === "bar" && mark.options?.orientation === "horizontal") paintHorizontalBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
+      else if (mark.type === "bar" && solidSubcell) solidBars.push(...solidBarLayers(layout, scales, rows, color, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale));
       else if (mark.type === "bar") paintBar(guarded, layout, scales, rows, color, glyph, { index: i, count: groups.length }, ledger, dodgeDegraded, textScale);
       if (mark.type === "cell") {
         // `chartSeries` skips this mark's own `mark-color-unused` check
@@ -1625,14 +1775,19 @@ export function paintGlyphChart(
   // ONE column a mark actually touches may show sub-cell ink on the axis
   // row under braille/blocks; `paintGrid`'s own faint gridlines still
   // paint first, so marks correctly sit on top of them either way.
-  paintAxes(canvas, layout, opts.colorEnabled, textScale);
+  paintAxes(canvas, layout, opts.colorEnabled, ledger, textScale);
+  const radarOccupied = new Set<number>();
+  let radarSeriesIndex = 0;
   for (const entry of series) {
     const { mark, rows, styleIndex } = entry;
     const color = resolveSeriesColor(entry, opts.colorEnabled);
     const style = opts.colorEnabled ? "solid" : SERIES_STYLES[styleIndex % SERIES_STYLES.length]!;
-    const guarded = guardedCanvas(canvas, mark.type);
+    const guarded = guardedCanvas(mark.type === "line" && opts.colorEnabled && GLYPH_CANVAS_TIERS[canvas.tier].subcell
+      && marks.some(entry => entry.mark.type === "bar") ? barOverlayCanvas(canvas) : canvas, mark.type);
     const width = resolveStrokeWidth(mark.options);
-    if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, style, width);
+    if (radarCells && mark.type === "line" && entry.name !== undefined) {
+      paintRadarCells(guarded, layout, scales, rows, GLYPH_CHART_RADAR_SERIES_GLYPHS[radarSeriesIndex++ % 4]!, color, radarOccupied);
+    } else if (mark.type === "line") paintLine(guarded, layout, scales, rows, color, radial && entry.name === undefined && !opts.colorEnabled ? "dotted" : style, width, radial, radial && entry.name === undefined && !opts.colorEnabled);
     // An UNSTACKED area's boundaries carry the same monochrome series
     // vocabulary as lines: its series' fills overlap, so a later fill can
     // hide an earlier series and the line is what still shows it. A STACKED
@@ -1690,15 +1845,22 @@ export function paintGlyphChart(
       }
     }
     const priority = isTitleRow ? 90 : 50;
-    const slot = Math.max(1, Math.floor(regionWidth / layout.legend.items.length));
+    const columns = layout.legend.columns ?? layout.legend.items.length;
+    const slot = Math.max(1, Math.floor(regionWidth / columns));
     // The swatch itself paints at `scale: textScale` too (legend "names +
     // swatches" both scale, AGENTS.md's "Charts" "Density" paragraph), so
     // its own gutter before the label scales the same way the original
     // flat 3-column gutter did at `textScale === 1`.
-    const swatchGutter = 3 * textScale;
     for (let i = 0; i < layout.legend.items.length; i++) {
       const item = layout.legend.items[i]!;
-      candidates.push({ id: `legend:${i}`, x: regionStart + i * slot + Math.floor(slot / 2), y: legendRow, text: item.label, maxWidth: Math.max(1, slot - swatchGutter), priority, role: "legend label", scale: textScale });
+      const entry = series.find((s) => s.name === item.label);
+      const swatchGutter = (lineSwatch(entry) ? 4 : 3) * textScale;
+      const maxWidth = Math.max(1, slot - swatchGutter);
+      const column = i % columns;
+      const anchor = regionStart + column * slot + Math.floor(slot / 2);
+      const halfLabel = Math.floor(Math.min(chartText(item.text ?? item.label, canvas.tier).length * textScale, maxWidth) / 2);
+      const x = lineSwatch(entry) ? Math.max(anchor, regionStart + column * slot + swatchGutter + halfLabel) : anchor;
+      candidates.push({ id: `legend:${i}`, x, y: legendRow + Math.floor(i / columns) * textScale, text: item.text ?? item.label, maxWidth, priority, role: "legend label", scale: textScale });
     }
   }
   let textIndex = 0;
@@ -1721,19 +1883,39 @@ export function paintGlyphChart(
   const annotating = marks.some(({ mark }) => mark.type !== "text");
   const inkFree = (start: number, row: number, length: number): boolean => {
     if (row < layout.plot.y0 || row > layout.plot.y1 || row === layout.xAxisLineRow) return false;
-    if (start < layout.plot.x0 || start + length - 1 > layout.plot.x1) return false;
-    for (let x = start; x < start + length; x++) if (canvas.grid.char[row * canvas.cols + x] !== " ") return false;
+    if (start < (radial ? 0 : layout.plot.x0) || start + length - 1 > (radial ? canvas.cols - 1 : layout.plot.x1)) return false;
+    if (radial) {
+      for (let y = Math.max(0, row - GLYPH_CHART_RADAR_LABEL_GAP); y <= Math.min(canvas.rows - 1, row + GLYPH_CHART_RADAR_LABEL_GAP); y++) {
+        for (let x = Math.max(0, start - GLYPH_CHART_RADAR_LABEL_GAP); x <= Math.min(canvas.cols - 1, start + length - 1 + GLYPH_CHART_RADAR_LABEL_GAP); x++) if (canvas.ink[y * canvas.cols + x]) return false;
+      }
+    } else for (let x = start; x < start + length; x++) if (canvas.grid.char[row * canvas.cols + x] !== " ") return false;
     return true;
   };
-  const labelSpot = (col: number, r: number, text: string): { readonly x: number; readonly y: number } => {
+  const radialEndpoints = radial ? marks.filter(({ mark }) => mark.type === "text").flatMap(({ rows }) => rows.map(row => ({
+    x: scaleToColExact(scales.x, layout.plot, Number(row.x) / GLYPH_CHART_RADAR_CAPTION_RADIUS),
+    y: markRow(layout, scales, Number(row.y) / GLYPH_CHART_RADAR_CAPTION_RADIUS, true),
+  }))) : [];
+  const labelSpot = (col: number, r: number, text: string, endpoint?: GlyphCanvasPoint): { readonly x: number; readonly y: number } | undefined => {
     if (!annotating) return { x: col, y: r };
     const length = [...text].length, half = Math.floor(length / 2);
     const spots = [
+      ...(radial ? [{ start: col - half, y: r }] : []),
       { start: col - half, y: r - 1 }, { start: col - half, y: r + 1 },
       { start: col - 1 - length, y: r }, { start: col + 2, y: r },
     ];
-    const free = spots.find((spot) => inkFree(spot.start, spot.y, length));
+    const nearestOwnSpoke = (spot: { start: number; y: number }) => {
+      if (!endpoint) return true;
+      const x = spot.start + (length - 1) / 2;
+      const distance = (p: GlyphCanvasPoint) => ((x - p.x) * canvas.cellAspect) ** 2 + (spot.y - p.y) ** 2;
+      return radialEndpoints.every(p => distance(endpoint) <= distance(p) + 1e-8);
+    };
+    if (endpoint) {
+      const starts = [Math.floor(endpoint.x) + 2, Math.ceil(endpoint.x) - 1 - length, Math.max(0, Math.min(canvas.cols - length, col - half))];
+      for (const dy of [0, -1, 1, -2, 2]) for (const start of starts) spots.push({ start, y: r + dy });
+    }
+    const free = spots.find((spot) => nearestOwnSpoke(spot) && inkFree(spot.start, spot.y, length));
     if (free) return { x: free.start + half, y: free.y };
+    if (radial) return undefined;
     return { x: col, y: r - 1 >= layout.plot.y0 ? r - 1 : r };
   };
   for (const { mark, rows } of marks) {
@@ -1744,15 +1926,37 @@ export function paintGlyphChart(
       const label = row.label !== undefined ? String(row.label) : row.y !== undefined ? String(row.y) : "";
       if (!label) continue;
       const col = scaleToCol(scales.x, layout.plot, row.x);
-      const r = row.y !== undefined ? scaleToRow(scales.y, layout.plot, row.y) : layout.plot.y0;
+      const r = row.y !== undefined ? markRow(layout, scales, row.y) : layout.plot.y0;
       if (!Number.isFinite(col) || !Number.isFinite(r)) continue;
       const id = `text:${textIndex++}`;
       textColors.set(id, textColor);
-      candidates.push({ id, ...labelSpot(col, r, label), text: label, priority: 10, role: "data label" });
+      const endpoint = radial ? {
+        x: scaleToColExact(scales.x, layout.plot, Number(row.x) / GLYPH_CHART_RADAR_CAPTION_RADIUS),
+        y: markRow(layout, scales, Number(row.y) / GLYPH_CHART_RADAR_CAPTION_RADIUS, true),
+      } : undefined;
+      // Generic row-wide collision nudges can put a caption beside a different spoke.
+      // Radar captions choose only local, own-spoke positions, then stay fixed or drop.
+      const spot = labelSpot(col, r, radial ? chartText(label, canvas.tier, { ledger, role: "data label" }) : label, endpoint);
+      if (!spot) {
+        ledger.push(ledgerLabelDropped({ role: "data label", text: label, reason: "there was no room beside its own spoke endpoint" }));
+        continue;
+      }
+      candidates.push({ id, ...spot, text: label, priority: 10, role: "data label", ...(radial ? { fixed: true } : {}) });
     }
   }
 
   const obstacles: GlyphChartObstacleRect[] = [];
+  if (radial) {
+    // Chrome and fixed captions share a collision pass; reserve the ink gap there too.
+    for (let y = 0; y < canvas.rows; y++) {
+      for (let x = 0; x < canvas.cols; x++) {
+        if (!canvas.ink[y * canvas.cols + x]) continue;
+        const start = x;
+        while (x + 1 < canvas.cols && canvas.ink[y * canvas.cols + x + 1]) x++;
+        obstacles.push({ x0: start - GLYPH_CHART_RADAR_LABEL_GAP, x1: x + GLYPH_CHART_RADAR_LABEL_GAP, y0: y - GLYPH_CHART_RADAR_LABEL_GAP, y1: y + GLYPH_CHART_RADAR_LABEL_GAP });
+      }
+    }
+  }
   const { placed, ledger: labelLedger } = glyphChartLabelLayout(candidates, {
     obstacles,
     charset: canvas.tier,
@@ -1769,10 +1973,11 @@ export function paintGlyphChart(
       // The swatch itself paints at `label.scale` too (AGENTS.md's
       // "Charts" "Density" — legend "names + swatches" both scale), so its
       // own gutter matches the candidate's own `swatchGutter` above.
-      const swatchX = Math.max(0, label.x - 3 * label.scale);
+      const swatchX = Math.max(0, label.x - (lineSwatch(entry) ? 4 : 3) * label.scale);
       // See `paintCornerLegend`'s own doc on `shadeTotal`.
       const shadeTotal = entry ? series.filter((s) => s.mark === entry.mark).length : 1;
-      if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: label.scale });
+      if (radarCells) guardedLabels.text(swatchX, label.y, [GLYPH_CHART_RADAR_SERIES_GLYPHS[i % 4]!], { color, scale: label.scale });
+      else if (entry?.mark.type === "arc") guardedLabels.text(swatchX, label.y, [regionFillGlyph(canvas.tier, entry.shadeIndex!, shadeTotal, fill, shades)], { color, scale: label.scale });
       else if (entry?.mark.type === "dot" && GLYPH_CANVAS_TIERS[canvas.tier].subcell) {
         // Under braille/blocks the plot itself paints a 2x2 dot cluster
         // (CHARTS-RESEARCH diagnosis B6b), never the whole-cell "● × + ◆"
@@ -1799,14 +2004,15 @@ export function paintGlyphChart(
       else if (entry?.mark.type === "cell") guardedLabels.text(swatchX, label.y, [seriesShade(canvas.tier, 0)], { color, scale: label.scale });
       // A line-style swatch (`canvas.line`) has no `textScale` analogue —
       // stays a single row regardless of `label.scale`.
-      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 1), y: label.y }, { color, style: SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+      else guardedLabels.line({ x: swatchX, y: label.y }, { x: Math.max(swatchX, label.x - 2), y: label.y }, { color, style: radial && opts.colorEnabled ? "solid" : SERIES_STYLES[i % 4], width: entry ? resolveStrokeWidth(entry.mark.options) : 1 });
+      if (lineSwatch(entry)) guardedLabels.text(label.x - 1, label.y, [" "], { color });
       guardedLabels.text(label.x, label.y, [label.text], { color, scale: label.scale });
     } else if (textColors.has(label.id)) {
       guardedLabels.text(label.x, label.y, [label.text], { color: textColors.get(label.id)!, scale: label.scale });
     } else guardedLabels.text(label.x, label.y, [label.text], { scale: label.scale });
   }
   if (layout.legend && layout.legend.row === undefined) {
-    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill, shades);
+    paintCornerLegend(guardedLabels, layout, layout.legend, series, opts.colorEnabled, ledger, textScale, fill, shades, radial && opts.colorEnabled, radarCells);
   }
   if (layout.cellKeyRow >= 0) {
     const cellColor = series.find((s) => s.mark.type === "cell");

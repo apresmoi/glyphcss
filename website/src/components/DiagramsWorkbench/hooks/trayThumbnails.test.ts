@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { glyphDiagramsTrayThumbnails } from "./useDiagramsWorkbenchInner";
+import { glyphDiagramsTrayThumbnails } from "./useDiagramsTrayThumbnails";
 import { GLYPH_DIAGRAMS_TRAY } from "../../../features/diagrams/model/diagramsWorkbenchState";
 
 vi.mock("@glyphcss/core", () => import("../../../../../packages/core/src/index"));
@@ -17,5 +17,6 @@ describe("glyphDiagramsTrayThumbnails", () => {
     expect(Object.keys(thumbnails)).toHaveLength(GLYPH_DIAGRAMS_TRAY.length);
     expect(Object.values(thumbnails)).not.toContain("Preview unavailable");
     await terminal;
-  }, 30_000);
+    // 72 cold renders: about 15 s locally, two to three times that on CI runners.
+  }, 120_000);
 });

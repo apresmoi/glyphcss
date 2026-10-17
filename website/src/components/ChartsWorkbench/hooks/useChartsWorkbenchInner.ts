@@ -1,5 +1,11 @@
+import { GLYPH_MERMAID_CHART_PRESETS } from "../../../features/mermaid/model/presets";
 import { charts3dFitsForState } from "../../../features/charts/model/charts3dFields";
-import { type GlyphChartSeriesPreviewEntry, glyphChartSeriesPreview, renderGlyphChart } from "@glyphcss/charts";
+import {
+  type GlyphChartSeriesPreviewEntry,
+  glyphChartSeriesPreview,
+  renderGlyphChart,
+  renderGlyphChartMermaid,
+} from "@glyphcss/charts";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { chartsMarkTypeBase } from "../../../features/charts/model/chartsMarkData";
 import {
@@ -131,7 +137,17 @@ export function useChartsWorkbenchInner({
   // non-web 3D export bar's Download-SVG `disabled` state).
   const rendered = useMemo(
     () => renderChartsWorkbenchState(state, viewportPx),
-    [state.marks, state.scales, state.axes, state.chart, state.style, state.controls, state.terminal, viewportPx],
+    [
+      state.mermaid,
+      state.marks,
+      state.scales,
+      state.axes,
+      state.chart,
+      state.style,
+      state.controls,
+      state.terminal,
+      viewportPx,
+    ],
   );
 
   // The viewport's own content: the CURRENT render when it's valid, else
@@ -392,6 +408,23 @@ export function useChartsWorkbenchInner({
       CHART_PRESETS.map(
         (preset) => renderGlyphChart(preset.spec, { target: state.controls.target, width: 24, height: 8 }).text,
       ),
+    [state.controls.target],
+  );
+
+  const mermaidThumbnails = useMemo(
+    () =>
+      GLYPH_MERMAID_CHART_PRESETS.map((preset) => {
+        try {
+          return renderGlyphChartMermaid(preset.source, {
+            target: state.controls.target,
+            color: "none",
+            width: 72,
+            height: preset.height,
+          }).text;
+        } catch {
+          return "Preview unavailable";
+        }
+      }),
     [state.controls.target],
   );
 
@@ -895,7 +928,7 @@ export function useChartsWorkbenchInner({
     : (remoteLoadingTitle ??
       (activeDatasetId ? findChartsDataset(activeDatasetId)?.title : undefined) ??
       (state.data.source?.kind === "remote" ? state.data.source.title : undefined) ??
-      "");
+      (state.mermaid !== undefined ? `Mermaid · ${state.chart.title}` : ""));
   return {
     is3d,
     chart3dResolvedLive,
@@ -945,6 +978,7 @@ export function useChartsWorkbenchInner({
     snippets,
     thumbnails,
     thumbnails3d,
+    mermaidThumbnails,
     togglePanel,
   };
 }

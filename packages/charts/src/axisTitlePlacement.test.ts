@@ -1,3 +1,4 @@
+// Historical fixtures 11/26 include the approved legend-gap correction (reviewFixtures exception 16).
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";

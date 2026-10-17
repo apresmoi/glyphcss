@@ -1,3 +1,4 @@
+import { glyphSequenceAuthoredOrder, orderGlyphSequenceItem } from "./authoredOrder";
 import type { GlyphSequence, GlyphSequenceParticipantShape, GlyphSequenceMessageStyle } from "./types";
 import { glyphDiagramError } from "../validate";
 
@@ -16,12 +17,12 @@ export function parseGlyphSequenceJson(json: string): unknown {
 
 export const GLYPH_SEQUENCE_PARTICIPANT_SHAPES: readonly GlyphSequenceParticipantShape[] = ["lane", "actor"];
 export const GLYPH_SEQUENCE_MESSAGE_STYLES: readonly GlyphSequenceMessageStyle[] = ["solid", "dashed"];
-export const GLYPH_SEQUENCE_KEYS = ["participants", "messages", "frames", "notes"];
+export const GLYPH_SEQUENCE_KEYS = ["participants", "messages", "frames", "notes", "title"];
 export const GLYPH_SEQUENCE_PARTICIPANT_KEYS = ["id", "label", "kind", "shape"];
 export const GLYPH_SEQUENCE_MESSAGE_KEYS = ["id", "from", "to", "label", "style"];
 export const GLYPH_SEQUENCE_FRAME_KEYS = ["kind", "label", "from", "to", "branches"];
 export const GLYPH_SEQUENCE_FRAME_BRANCH_KEYS = ["kind", "label", "at"];
-export const GLYPH_SEQUENCE_NOTE_KEYS = ["text", "over", "at"];
+export const GLYPH_SEQUENCE_NOTE_KEYS = ["text", "over", "at", "placement"];
 
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -67,7 +68,7 @@ export function glyphSequenceIntegrityFailure(sequence: GlyphSequence): GlyphSeq
 }
 
 export function validateGlyphSequence(input: unknown): GlyphSequence {
-  if (!object(input) || !keys(input, GLYPH_SEQUENCE_KEYS) || !Array.isArray(input.messages)) glyphDiagramError("bad-sequence", "A sequence requires participants and messages arrays, and only participants/messages/frames/notes fields.");
+  if (!object(input) || !keys(input, GLYPH_SEQUENCE_KEYS) || !Array.isArray(input.messages) || !optional(input, "title", string)) glyphDiagramError("bad-sequence", "A sequence requires participants/messages arrays and supported optional frames/notes/title fields.");
   if (!Array.isArray(input.participants) || input.participants.length === 0) glyphDiagramError("empty-participants", "A sequence requires at least one participant.");
   for (const [index, participant] of input.participants.entries()) {
     if (!object(participant) || !keys(participant, GLYPH_SEQUENCE_PARTICIPANT_KEYS) || !identifier(participant.id) || !string(participant.label)
@@ -94,22 +95,25 @@ export function validateGlyphSequence(input: unknown): GlyphSequence {
     if (!Array.isArray(input.notes)) glyphDiagramError("bad-note", "notes must be an array.");
     for (const [index, note] of input.notes.entries()) {
       if (!object(note) || !keys(note, GLYPH_SEQUENCE_NOTE_KEYS) || !string(note.text) || !Array.isArray(note.over) || note.over.length === 0
-        || !note.over.every(identifier) || !nonNegativeInt(note.at)) glyphDiagramError("bad-note", `note[${index}] requires text, a non-empty "over" array of participant ids, and an integer "at".`);
+        || !note.over.every(identifier) || !nonNegativeInt(note.at)
+        || !optional(note, "placement", (value) => member(value, ["left", "right"]))
+        || (note.placement !== undefined && note.over.length !== 1)) glyphDiagramError("bad-note", `note[${index}] requires text, a non-empty "over" array, integer "at", and optional left/right placement for one participant.`);
     }
   }
   const sequence = input as unknown as GlyphSequence;
   const failure = glyphSequenceIntegrityFailure(sequence);
   if (failure) glyphDiagramError(failure.code, failure.message);
   return {
+    ...(sequence.title === undefined ? {} : { title: sequence.title }),
     participants: sequence.participants.map((p) => ({ ...p })),
     messages: sequence.messages.map((m) => ({ ...m })),
-    ...(sequence.frames === undefined ? {} : { frames: sequence.frames.map((f) => ({ ...f, ...(f.branches ? { branches: f.branches.map((b) => ({ ...b })) } : {}) })) }),
-    ...(sequence.notes === undefined ? {} : { notes: sequence.notes.map((n) => ({ ...n, over: [...n.over] })) }),
+    ...(sequence.frames === undefined ? {} : { frames: sequence.frames.map((f) => orderGlyphSequenceItem({ ...f, ...(f.branches ? { branches: f.branches.map((b) => orderGlyphSequenceItem({ ...b }, glyphSequenceAuthoredOrder(b))) } : {}) }, glyphSequenceAuthoredOrder(f))) }),
+    ...(sequence.notes === undefined ? {} : { notes: sequence.notes.map((n) => orderGlyphSequenceItem({ ...n, over: [...n.over] }, glyphSequenceAuthoredOrder(n))) }),
   };
 }
 
 const REPAIR_HINTS: Readonly<Record<GlyphSequenceValidationRuleId, string>> = {
-  "bad-sequence": "Pass { participants, messages, frames?, notes? }; remove unsupported top-level fields.",
+  "bad-sequence": "Pass { participants, messages, frames?, notes?, title? }; title must be a string.",
   "empty-participants": "Add at least one participant with an id and label.",
   "bad-participant": `Use a non-empty id, a string label; kind is an optional informational string, shape is optional ${GLYPH_SEQUENCE_PARTICIPANT_SHAPES.join(" / ")}.`,
   "duplicate-participant-id": "Give every participant a unique id.",
@@ -119,7 +123,7 @@ const REPAIR_HINTS: Readonly<Record<GlyphSequenceValidationRuleId, string>> = {
   "bad-frame": "Use frames: [{ kind, label?, from, to, branches? }], with from/to as message indices and branches as [{ kind, label?, at }].",
   "bad-frame-range": "Use an inclusive from <= to within the message array's index range.",
   "bad-frame-branch": "Give each branch an \"at\" between the frame's from and to + 1, in ascending order.",
-  "bad-note": "Use notes: [{ text, over: [participantId, ...], at }].",
+  "bad-note": "Use notes: [{ text, over: [participantId, ...], at, placement? }]; left/right placement requires one participant.",
   "bad-note-range": "Use an \"at\" between 0 and the message count, inclusive.",
   "bad-options": "Use the documented target, charset, color, and title options.",
   "bad-size": "Pass positive integer width and height, or omit them.",
