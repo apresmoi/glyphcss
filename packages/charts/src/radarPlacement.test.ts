@@ -7,7 +7,7 @@ import { layoutGlyphChart } from "./layout";
 import { GLYPH_CHART_TARGET_DEFAULTS } from "./render";
 
 const labels = ["Speed", "Cost", "Quality", "Safety", "Scale", "Support"];
-const source = (ticks = 2, grid = "polygon", series = "4,8,9,7,6,5") => `radar-beta\naxis speed[Speed], cost[Cost], quality[Quality], safety[Safety], scale[Scale], support[Support]\ncurve custom[Custom] {${series}}\nmin 0\nmax 10\ngraticule ${grid}\nticks ${ticks}\nshowLegend false`;
+const source = (ticks = 2, grid = "polygon", series = "4,8,9,7,6,5") => `radar-beta\naxis speed["Speed"], cost["Cost"], quality["Quality"], safety["Safety"], scale["Scale"], support["Support"]\ncurve custom["Custom"] {${series}}\nmin 0\nmax 10\ngraticule ${grid}\nticks ${ticks}\nshowLegend false`;
 
 function assertSpokeLabels(input: string, names: string[], width: number, height: number, target: "chat" | "web") {
   const spec = glyphChartFromMermaid(input);

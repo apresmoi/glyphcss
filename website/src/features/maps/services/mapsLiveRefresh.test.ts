@@ -312,6 +312,10 @@ describe("a hidden tab spends nothing", () => {
 
 describe("satellites move without a network", () => {
   it("propagates on a tick with no further request, and the object set never changes", async () => {
+    // Propagating the recorded elements at the real clock drops objects that
+    // decay out of SGP4's range on some days; pin an instant inside the
+    // capture's epoch window, as mapsLiveSatellites.test.ts does.
+    vi.setSystemTime(new Date("2026-09-10T22:00:00Z"));
     const { h, controller, sources } = harness();
     controller.setEnabled("satellites", true);
     await settle();

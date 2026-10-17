@@ -253,14 +253,20 @@ console.log(result.text);
 |---|---|
 | `->>+`, `-->>-`, `activate X`, `deactivate X` | Accepted; activation bars and activation state are ignored |
 | `Note left of X: text`, `Note right of X: text` | Three-row note beside X; reserves space and reports label cuts |
-| `autonumber` | Message labels become `1. text`, `2. text`, …; custom starts/increments reject |
+| `autonumber [start [step]]` | Message labels use the authored start/increment (defaults: 1 and 1) |
 | `par` / `and`, `critical` / `option`, `break` … `end` | Frames/dividers render their kinds verbatim; `and` requires `par`, `option` requires `critical` |
 | `rect colour` … `end` | Inert grouping; no frame or background colour |
 | `box description` … `end` | Inert grouping around participant/actor declarations; no box |
 | `title text`, `title: text` | Diagram title |
 | `-x`, `-)`, `--x`, `--)` | Existing solid/dashed directed arrows; cross/open heads are normalized |
+| YAML frontmatter, multiline `%%{init}%%` | Inert configuration, logged as `mermaid-degraded` |
+| `participant X @{"type":"database","alias":"DB"} as Store` | Hyphenated ids and optional space before `@{}`; external alias wins; type stays in informational `kind`, existing lane header replaces the specialized symbol (logged) |
+| `create participant`, `create actor`, `destroy` | Declarations/aliases retained; full lifelines replace lifetime endpoints (logged) |
+| Half-arrows, including reverse forms | Existing solid/dashed arrows preserve direction; half heads are approximated (logged) |
+| `A->>()B`, `A()->>B`, `A()->>()B` | Existing lifeline attachment replaces central connections (logged) |
+| `link A: label @ URL`, `links A: {…}` | Inert menus/URLs (logged); never fetched or executed |
 
-Unsupported statements and malformed blocks reject with `GLYPH_SEQUENCE_MERMAID_SYNTAX` naming the offending construct. Activation, box and rect omissions above are intentional adapter approximations.
+Unsupported statements and malformed blocks reject with `GLYPH_SEQUENCE_MERMAID_SYNTAX` naming the offending construct. Activation, box and rect omissions above are intentional adapter approximations. Sequence adapter notes accompany source renders and the original parsed IR object; JSON serialization does not retain those internal notes.
 
 ## Lane DAGs (`@glyphcss/diagrams/lanes`)
 
@@ -410,3 +416,5 @@ Block attachment repair also checks clean routes for needless detours; Mobile ap
 `src/showcaseLayout.test.ts` captures every approved diagram preset at chat/72, web/72 and web/96×32, including the complete six-class showcase. Flat acyclic compartment graphs with joins and inheritance/realization try one deterministic layered candidate before the bounded fitter: short branches use their earliest legal rank and share one order with long-edge dummy chains, long relations follow their reserved corridors, and exterior lanes count toward the bounds. Ports follow the adjacent corridor; lateral landings avoid crowded rank-facing sides and compartment rules. Caption dummies reserve one row in vertical layouts. A complete, whole-word candidate without crossings, false frames or missing captions returns immediately; rejected candidates use the existing fitting/repair ladder. The smaller class trial retains distinct composition/association ports and side landings.
 
 Complete fits without word cuts, missing captions, crossings or false frames enter a 32-entry least-recently-used cache. Keys include layout options and internal symbol hints; stored and returned geometry are separate copies. Terminal and work-limited renders bypass the cache. Rendering still paints a fresh canvas. `src/showcasePerformance.test.ts` bounds cold and warm routing/layout calls for every Mermaid and native graph preset; optional `GLYPH_PERF_CAPTURE` records warm medians without a clock-based test assertion. The dense class showcase requires one cold layout/routing call and zero warm calls, with the same quality acceptance as the other showcases.
+
+Mermaid 12.2 labels accept `</br>` wherever `<br>` is recognized. ER left-side `o{` cardinalities and endpoint `:::class` attachments retain their existing relationship heads; classes remain inert. Repeated gitGraph commit ids keep every authored commit: later occurrences receive deterministic collision-free internal ids and an `id: …` text annotation, with `mermaid-degraded` (`git-duplicate-id`). References resolve to the latest occurrence. This preserves ancestry rather than overwriting an earlier commit as Mermaid's database does. All other git ids and renders retain their existing behavior.

@@ -12,8 +12,8 @@ import { scaleToColExact, scaleToRowExact } from "./layout";
 import type { GlyphChartRenderOptions } from "./types";
 
 const labels = ["Speed", "Cost", "Quality", "Safety", "Scale", "Support"];
-const axes = "axis speed[Speed], cost[Cost], quality[Quality], safety[Safety], scale[Scale], support[Support]";
-const curves = ["curve hosted[Hosted]{9,6,7,8,9,8}", "curve custom[Custom]{4,8,9,7,6,5}", "curve hybrid[Hybrid]{7,7,8,9,8,7}"];
+const axes = "axis speed[\"Speed\"], cost[\"Cost\"], quality[\"Quality\"], safety[\"Safety\"], scale[\"Scale\"], support[\"Support\"]";
+const curves = ["curve hosted[\"Hosted\"]{9,6,7,8,9,8}", "curve custom[\"Custom\"]{4,8,9,7,6,5}", "curve hybrid[\"Hybrid\"]{7,7,8,9,8,7}"];
 const source = `radar-beta\n${axes}\n${curves.join("\n")}\nmax 10\ngraticule polygon\nticks 2`;
 const options = { target: "chat", charset: "braille", width: 72, height: 24, radarGrid: "outer", radarSeries: "cells" } as const;
 const glyphs = ["•", "○", "×", "+"];
@@ -54,7 +54,7 @@ it("paints whole-cell series over braille guides, with symbol legends and no red
 });
 
 it("keeps the declared first series in shared cells, including identically named curves", () => {
-  const same = `radar\n${axes}\ncurve one[Plan]{9,6,7,8,9,8}\ncurve two[Plan]{9,6,7,8,9,8}\nmax 10`;
+  const same = `radar\n${axes}\ncurve one["Plan"]{9,6,7,8,9,8}\ncurve two["Plan"]{9,6,7,8,9,8}\nmax 10`;
   const result = renderGlyphChartMermaid(same, options);
   const plot = result.build.plot;
   const marks = result.build.canvas.grid.char.filter((_, index) => {
@@ -68,7 +68,7 @@ it("keeps the declared first series in shared cells, including identically named
 });
 
 it("cycles all four symbols in the plot and every legend placement", () => {
-  const five = `radar\naxis North,East,South,West\n${[2,4,6,8,10].map((v,i) => `curve s${i}[P${i}]{${[v,v,v,v]}}`).join("\n")}\nmax 10`;
+  const five = `radar\naxis North,East,South,West\n${[2,4,6,8,10].map((v,i) => `curve s${i}["P${i}"]{${[v,v,v,v]}}`).join("\n")}\nmax 10`;
   for (const legend of ["bottom", "title", "top-left", "top-right", "bottom-left", "bottom-right"] as const) {
     const result = renderGlyphChartMermaid(`---\ntitle: Plans\n---\n${five}`, { ...options, width: 96, height: 40, legend: { placement: legend } });
     for (const [i, name] of Array.from({ length: 5 }, (_, i) => `P${i}`).entries()) {

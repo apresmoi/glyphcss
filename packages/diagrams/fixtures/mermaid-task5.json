@@ -1,7 +1,7 @@
 [
   {
     "name": "block-grid-spans-spaces",
-    "source": "block-beta\ncolumns 3\na[Alpha]:2 space\nb[Beta] c[Gamma]:2",
+    "source": "block-beta\ncolumns 3\na[\"Alpha\"]:2 space\nb[\"Beta\"] c[\"Gamma\"]:2",
     "labels": [
       "Alpha",
       "Beta",
@@ -10,7 +10,7 @@
   },
   {
     "name": "block-nested",
-    "source": "block\ncolumns 2\nblock:Group:2\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four]",
+    "source": "block\ncolumns 2\nblock:Group:2\ncolumns 2\na[\"One\"] b[\"Two\"]\nend\nc[\"Three\"] d[\"Four\"]",
     "labels": [
       "Group",
       "One",
@@ -21,7 +21,7 @@
   },
   {
     "name": "block-auto-arrows",
-    "source": "block\ncolumns auto\na[Input] space b[Output]\na -- \"data\" --> b",
+    "source": "block\ncolumns auto\na[\"Input\"] space b[\"Output\"]\na -- \"data\" --> b",
     "labels": [
       "Input",
       "Output",
@@ -30,7 +30,7 @@
   },
   {
     "name": "block-row-wrap",
-    "source": "block\ncolumns 8\na[Alpha] b[Beta] c[Gamma] d[Delta] e[Epsilon] f[Zeta] g[Eta] h[Theta]",
+    "source": "block\ncolumns 8\na[\"Alpha\"] b[\"Beta\"] c[\"Gamma\"] d[\"Delta\"] e[\"Epsilon\"] f[\"Zeta\"] g[\"Eta\"] h[\"Theta\"]",
     "labels": [
       "Alpha",
       "Beta",
@@ -44,22 +44,22 @@
   },
   {
     "name": "block-shapes-1",
-    "source": "block\ncolumns 2\nn0[Rect] n1(Round) n2([Stadium]) n3[[Subroutine]]",
+    "source": "block\ncolumns 2\nn0[\"Rect\"] n1(\"Round\") n2([\"Stadium\"]) n3[[\"Subroutine\"]]",
     "labels": []
   },
   {
     "name": "block-shapes-2",
-    "source": "block\ncolumns 2\nn0[(Store)] n1((Circle)) n2>Flag] n3{Choice}",
+    "source": "block\ncolumns 2\nn0[(\"Store\")] n1((\"Circle\")) n2>\"Flag\"] n3{\"Choice\"}",
     "labels": []
   },
   {
     "name": "block-shapes-3",
-    "source": "block\ncolumns 2\nn0{{Hex}} n1[/Lean/] n2[\\Lean\\] n3[/Trap\\]",
+    "source": "block\ncolumns 2\nn0{{\"Hex\"}} n1[/\"Lean\"/] n2[\\\"Lean\"\\] n3[/\"Trap\"\\]",
     "labels": []
   },
   {
     "name": "block-shapes-4",
-    "source": "block\ncolumns 2\nn0[\\Trap/] n1(((Double)))",
+    "source": "block\ncolumns 2\nn0[\\\"Trap\"/] n1(((\"Double\")))",
     "labels": []
   },
   {
@@ -113,7 +113,7 @@
   },
   {
     "name": "block-labelled-links",
-    "source": "block\ncolumns 3\na[A] space b[B]\nc[C] space d[D]\na -. \"send\" .-> b\nc == \"copy\" ==> d",
+    "source": "block\ncolumns 3\na[\"A\"] space b[\"B\"]\nc[\"C\"] space d[\"D\"]\na -. \"send\" .-> b\nc == \"copy\" ==> d",
     "labels": [
       "A",
       "B",
@@ -163,7 +163,7 @@
   },
   {
     "name": "requirement-requirement",
-    "source": "requirementDiagram\nrequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\nrequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: \"test\"\ndocref: \"spec\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "R1",
@@ -177,7 +177,7 @@
   },
   {
     "name": "requirement-functionalRequirement",
-    "source": "requirementDiagram\nfunctionalRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\nfunctionalRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: \"test\"\ndocref: \"spec\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "R1",
@@ -191,7 +191,7 @@
   },
   {
     "name": "requirement-interfaceRequirement",
-    "source": "requirementDiagram\ninterfaceRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\ninterfaceRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: \"test\"\ndocref: \"spec\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "R1",
@@ -205,7 +205,7 @@
   },
   {
     "name": "requirement-performanceRequirement",
-    "source": "requirementDiagram\nperformanceRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\nperformanceRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: \"test\"\ndocref: \"spec\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "R1",
@@ -219,7 +219,7 @@
   },
   {
     "name": "requirement-physicalRequirement",
-    "source": "requirementDiagram\nphysicalRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\nphysicalRequirement safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: \"test\"\ndocref: \"spec\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "R1",
@@ -233,7 +233,7 @@
   },
   {
     "name": "requirement-designConstraint",
-    "source": "requirementDiagram\ndesignConstraint safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: test\ndocref: spec\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\ndesignConstraint safe {\nid: R1\ntext: \"Keep records\"\nrisk: High\nverifymethod: Test\n}\nelement suite {\ntype: \"test\"\ndocref: \"spec\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "R1",
@@ -247,7 +247,7 @@
   },
   {
     "name": "requirement-edge-contains",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- contains - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- contains - suite",
     "labels": [
       "spec",
       "suite",
@@ -256,7 +256,7 @@
   },
   {
     "name": "requirement-edge-copies",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- copies - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- copies - suite",
     "labels": [
       "spec",
       "suite",
@@ -265,7 +265,7 @@
   },
   {
     "name": "requirement-edge-derives",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- derives - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- derives - suite",
     "labels": [
       "spec",
       "suite",
@@ -274,7 +274,7 @@
   },
   {
     "name": "requirement-edge-satisfies",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- satisfies - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- satisfies - suite",
     "labels": [
       "spec",
       "suite",
@@ -283,7 +283,7 @@
   },
   {
     "name": "requirement-edge-verifies",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- verifies - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- verifies - suite",
     "labels": [
       "spec",
       "suite",
@@ -292,7 +292,7 @@
   },
   {
     "name": "requirement-edge-refines",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- refines - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- refines - suite",
     "labels": [
       "spec",
       "suite",
@@ -301,7 +301,7 @@
   },
   {
     "name": "requirement-edge-traces",
-    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: test\n}\nspec <- traces - suite",
+    "source": "requirementDiagram\nrequirement spec {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nspec <- traces - suite",
     "labels": [
       "spec",
       "suite",
@@ -622,7 +622,7 @@
   },
   {
     "name": "requirement-direction-TB",
-    "source": "requirementDiagram\ndirection TB\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\ndirection TB\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "suite",
@@ -631,7 +631,7 @@
   },
   {
     "name": "requirement-direction-BT",
-    "source": "requirementDiagram\ndirection BT\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\ndirection BT\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "suite",
@@ -640,7 +640,7 @@
   },
   {
     "name": "requirement-direction-LR",
-    "source": "requirementDiagram\ndirection LR\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\ndirection LR\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "suite",
@@ -649,7 +649,7 @@
   },
   {
     "name": "requirement-direction-RL",
-    "source": "requirementDiagram\ndirection RL\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: test\n}\nsuite - verifies -> safe",
+    "source": "requirementDiagram\ndirection RL\nrequirement safe {\nid: R1\n}\nelement suite {\ntype: \"test\"\n}\nsuite - verifies -> safe",
     "labels": [
       "safe",
       "suite",
@@ -804,7 +804,7 @@
   },
   {
     "name": "block-label-wrap-first",
-    "source": "block\ncolumns 4\na[Alpha beta gamma] b[B] c[C] d[D]",
+    "source": "block\ncolumns 4\na[\"Alpha beta gamma\"] b[\"B\"] c[\"C\"] d[\"D\"]",
     "labels": [
       "Alpha beta",
       "gamma"
@@ -812,7 +812,7 @@
   },
   {
     "name": "block-nested-multilevel",
-    "source": "block\ncolumns 2\nblock:Outer:2\ncolumns 2\nblock:Inner:2\na[One] b[Two]\nend\nc[Three] d[Four]\nend\ne[Five] f[Six]",
+    "source": "block\ncolumns 2\nblock:Outer:2\ncolumns 2\nblock:Inner:2\na[\"One\"] b[\"Two\"]\nend\nc[\"Three\"] d[\"Four\"]\nend\ne[\"Five\"] f[\"Six\"]",
     "labels": [
       "Outer",
       "Inner",
@@ -846,7 +846,7 @@
   },
   {
     "name": "block-nested-local-columns",
-    "source": "block\ncolumns 2\nblock:Outer:2\ncolumns 3\nblock:Inner:3\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four] g[Seven]\nend\ne[Five] f[Six]",
+    "source": "block\ncolumns 2\nblock:Outer:2\ncolumns 3\nblock:Inner:3\ncolumns 2\na[\"One\"] b[\"Two\"]\nend\nc[\"Three\"] d[\"Four\"] g[\"Seven\"]\nend\ne[\"Five\"] f[\"Six\"]",
     "labels": [
       "Outer",
       "Inner",

@@ -167,7 +167,7 @@
   {
     "type": "gitGraph",
     "owner": "diagrams",
-    "source": "gitGraph TB:\n commit id: \"Portal baseline\" tag: \"v1.0\"\n branch search\n commit id: \"Search index\"\n commit id: \"Rank results\"\n checkout main\n branch checkout\n commit id: \"Payment keys\"\n commit id: \"Receipt emails\"\n checkout main\n cherry-pick id: \"Payment keys\"\n merge search id: \"Ship search\"\n merge checkout id: \"Ship checkout\"\n commit id: \"Portal release\" tag: \"v1.1\" type: HIGHLIGHT",
+    "source": "gitGraph TB:\n commit id: \"Portal baseline\" tag: \"v1.0\"\n branch search\n commit id: \"Search index\"\n commit id: \"Rank results\"\n checkout main\n branch \"checkout\"\n commit id: \"Payment keys\"\n commit id: \"Receipt emails\"\n checkout main\n cherry-pick id: \"Payment keys\"\n merge search id: \"Ship search\"\n merge \"checkout\" id: \"Ship checkout\"\n commit id: \"Portal release\" tag: \"v1.1\" type: HIGHLIGHT",
     "labels": [
       "Portal baseline",
       "Search index",
@@ -185,7 +185,7 @@
   {
     "type": "block",
     "owner": "diagrams",
-    "source": "block-beta\n columns 3\n web[Web app] space mobile[Mobile app]\n block:Gateway:3\n  columns 3\n  auth[Auth] api[Order API] quota[Rate limit]\n end\n orders[(Orders)] queue[[Job queue]] cache[(Cache)]\n space worker[Worker] space\n web --> api\n mobile --> api\n api --> orders\n api --> queue\n worker --> queue\n worker --> cache",
+    "source": "block-beta\n columns 3\n web[\"Web app\"] space mobile[\"Mobile app\"]\n block:Gateway:3\n  columns 3\n  auth[\"Auth\"] api[\"Order API\"] quota[\"Rate limit\"]\n end\n orders[(\"Orders\")] queue[[\"Job queue\"]] cache[(\"Cache\")]\n space worker[\"Worker\"] space\n web --> api\n mobile --> api\n api --> orders\n api --> queue\n worker --> queue\n worker --> cache",
     "labels": [
       "Web app",
       "Mobile app",
@@ -219,7 +219,7 @@
   {
     "type": "requirementDiagram",
     "owner": "diagrams",
-    "source": "requirementDiagram\n requirement safe {\n  id: R1\n  text: No duplicate charge\n  risk: high\n  verifymethod: test\n }\n performanceRequirement fast {\n  id: R2\n  text: Checkout under 2s\n  risk: medium\n  verifymethod: analysis\n }\n functionalRequirement receipt {\n  id: R3\n  text: Email every receipt\n  risk: low\n  verifymethod: demonstration\n }\n element api {\n  type: service\n  docref: Order API\n }\n element suite {\n  type: test\n  docref: Payment tests\n }\n api - satisfies -> safe\n api - satisfies -> fast\n api - satisfies -> receipt\n suite - verifies -> safe\n suite - verifies -> receipt",
+    "source": "requirementDiagram\n requirement safe {\n  id: R1\n  text: \"No duplicate charge\"\n  risk: high\n  verifymethod: test\n }\n performanceRequirement fast {\n  id: R2\n  text: \"Checkout under 2s\"\n  risk: medium\n  verifymethod: analysis\n }\n functionalRequirement receipt {\n  id: R3\n  text: \"Email every receipt\"\n  risk: low\n  verifymethod: demonstration\n }\n element api {\n  type: \"service\"\n  docref: \"Order API\"\n }\n element suite {\n  type: \"test\"\n  docref: \"Payment tests\"\n }\n api - satisfies -> safe\n api - satisfies -> fast\n api - satisfies -> receipt\n suite - verifies -> safe\n suite - verifies -> receipt",
     "labels": [
       "safe",
       "No duplicate",
@@ -442,7 +442,7 @@
   {
     "type": "radar",
     "owner": "charts",
-    "source": "radar-beta\n title Portal delivery options\n axis speed[Speed], cost[Cost], quality[Quality], safety[Safety], scale[Scale], support[Support]\n curve hosted[Hosted] {9, 6, 7, 8, 9, 8}\n curve custom[Custom] {4, 8, 9, 7, 6, 5}\n curve hybrid[Hybrid] {7, 7, 8, 9, 8, 7}\n min 0\n max 10\n graticule polygon\n ticks 2\n showLegend true",
+    "source": "radar-beta\n title Portal delivery options\n axis speed[\"Speed\"], cost[\"Cost\"], quality[\"Quality\"], safety[\"Safety\"], scale[\"Scale\"], support[\"Support\"]\n curve hosted[\"Hosted\"] {9, 6, 7, 8, 9, 8}\n curve custom[\"Custom\"] {4, 8, 9, 7, 6, 5}\n curve hybrid[\"Hybrid\"] {7, 7, 8, 9, 8, 7}\n min 0\n max 10\n graticule polygon\n ticks 2\n showLegend true",
     "labels": [
       "Portal delivery",
       "Speed",

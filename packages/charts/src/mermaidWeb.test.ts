@@ -21,10 +21,10 @@ const glyphChartFromMermaid: typeof parseMermaid = (source) => { sources.add(sou
 const renderGlyphChartMermaid: typeof renderMermaid = (source, options) => { sources.add(source); return renderMermaid(source, options); };
 const examples = [
   { name: "gantt preset", source: "gantt\n dateFormat YYYY-MM-DD\n section Release\n Build :a, 2026-01-01, 2d\n Test :after a, 1d" },
-  { name: "radar preset", source: "radar-beta\n axis speed[Speed], cost[Cost], quality[Quality]\n curve a[Plan] {4, 3, 5}\n max 5" },
+  { name: "radar preset", source: "radar-beta\n axis speed[\"Speed\"], cost[\"Cost\"], quality[\"Quality\"]\n curve a[\"Plan\"] {4, 3, 5}\n max 5" },
   { name: "quadrantChart preset", source: "quadrantChart\n x-axis Effort --> Reach\n y-axis Cost --> Value\n Alpha: [0.25, 0.75]\n Beta: [0.75, 0.25]" },
   { name: "xychart preset", source: "xychart-beta\n x-axis [Jan, Feb, Mar]\n y-axis Sales 0 --> 10\n bar [3, 8, 5]" },
-  { name: "radar polygon", source: "radar-beta\n axis North, East, South, West\n curve a[Plan] {4, 3, 5, 2}, b[Goal] {3, 4, 2, 5}\n max 5\n graticule polygon" },
+  { name: "radar polygon", source: "radar-beta\n axis North, East, South, West\n curve a[\"Plan\"] {4, 3, 5, 2}, b[\"Goal\"] {3, 4, 2, 5}\n max 5\n graticule polygon" },
 ];
 const modes = [{ target: "chat", width: 72, height: 24 }, { target: "web", width: 96, height: 32 }, { target: "web", width: 72, height: 24 }] as const;
 const hash = (text: string) => createHash("sha256").update(text).digest("hex");

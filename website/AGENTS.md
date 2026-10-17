@@ -39,7 +39,7 @@ Root `AGENTS.md` applies.
 - Diagrams: 2D; resize changes cells. Library owns wrap/spacing/direction; web expands/pans. Native export options; code HTML/TS/React/Vue, source Mermaid/JSON/Git log. Tray thumbnails follow the main render: visible tiles, one per idle task, cached per target/preset; cleanup cancels queued work.
 - Charts keeps bindings above choices and compatible columns on type changes. 3D tables expose XYZ and retain metadata. Title once; brief metadata and reasons in tooltips.
 
-- Mermaid: showcases in `features/mermaid/data/examples.json`, separate from CLI smoke fixtures; test both. Tiles load source into the rail and readers into the canvas; ledgers stay in the rail. Guided fields only for flowchart/graph; other headers use plain text. JSON browsing preserves source; edits re-render. Chart source is URL-optional; dim native controls while it owns the chart.
+- Mermaid: `features/mermaid/data/examples.json`; separate CLI smoke fixtures. Test showcases with pinned Mermaid 12.2 parser (dev only). Tiles load source into rail/readers into canvas; ledgers in rail. Guided fields: flowchart/graph only. JSON preserves source; edits re-render. Chart source URL-optional; dim native controls while it owns chart.
 
 ## Verification
 
