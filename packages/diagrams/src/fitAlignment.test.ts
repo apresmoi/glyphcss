@@ -61,7 +61,7 @@ describe("Dagre alignment is a private fit dimension", () => {
     expect(computeGlyphDiagramQuality(result, { width: 60, height: 24 }).wordCuts).toBe(0);
     expect(alignments().every(align => align === undefined)).toBe(true);
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("ed4757e6bdd04a45136ee40352ab5a5b6b268922a5b9ecbe317413ee6fba18db");
+      .toBe("f5249673ff4962cd835927223b55200ac420b23e92a19bdca97966e18f87660b");
   });
 
   it("recognizes a folded multiline default as a whole-word fit", async () => {

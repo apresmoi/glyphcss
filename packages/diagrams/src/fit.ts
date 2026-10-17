@@ -628,7 +628,7 @@ async function fitAligned(graph: GlyphGraph, options: GlyphDiagramFitOptions): P
     // A complete, crossing-free cycle already beats a failed ordinary placement.
     // Repeating the wrapping search cannot improve that rejected initial route.
     if (cycle && (!initial.okay || compareScore(readability(cycle), readability(initial)) < 0)) return cycle;
-    if (options[GLYPH_DIAGRAM_WORK]?.terminal) return initial;
+    if (options[GLYPH_DIAGRAM_WORK]?.terminal) return keepCaptions(initial);
     // A closed return corridor is a geometry failure, not a wrapping failure.
     // Try the same labels with BK alignment and one extra cell on either gap
     // before exhaustively wrapping/cutting them. Failed probes remain cached

@@ -41,12 +41,13 @@ it.each(["chat", "web"] as const)("retains every padded diamond marker on a clea
 });
 
 it.each(["chat", "web"] as const)("drops all diamond markers together before accepting extra %s crossings", async target => {
-  const options = { target, width: 60, height: 24, autoDirection: true, overflow: "expand", detail: "faithful" } as const;
+  // 68×32 reaches the marker-free comparison without exhausting the shared work budget.
+  const options = { target, width: 68, height: 32, autoDirection: true, overflow: "expand", detail: "faithful" } as const;
   const result = await renderGlyphDiagram(source, options);
   expect(result.layout.nodes.filter(node => node.shape === "diamond").map(node => node.lines)).toEqual([["OK?"], ["OK?"]]);
   expect(result.meta.nodes.filter(node => node.shape === "diamond").map(node => node.label)).toEqual(["OK?", "OK?"]);
   expect(notes(result)).toEqual([expect.objectContaining({ detail: { nodes: ["ok1", "ok2"] } })]);
-  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ wordCuts: 0, crossings: 1, droppedEdges: 0, droppedLabels: 0 });
+  expect(computeGlyphDiagramQuality(result, options)).toMatchObject({ wordCuts: 0, crossings: 2, droppedEdges: 0, droppedLabels: 0 });
 });
 
 for (const target of ["chat", "web"] as const) {

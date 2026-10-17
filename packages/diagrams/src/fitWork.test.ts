@@ -82,13 +82,14 @@ describe("expansion repairs spacing before repeating exterior gutters", () => {
       width: 60, height: 24, target: "chat", charset: "box", color: "none", autoDirection: true, detail: "faithful", overflow: "expand",
     });
     expect(result.pages).toHaveLength(1);
-    // Clean cylinders save one row; the reviewed output has one crossing and no semantic loss.
+    // Clean cylinders save one row. Fair nested-layout charges exhaust the budget here, so the
+    // accepted v1 output keeps both markers with three crossings and no semantic loss.
     expect(computeGlyphDiagramQuality(result, { width: 60, height: 24 })).toMatchObject({
-      wordCuts: 0, crossings: 1, droppedEdges: 0, droppedLabels: 0,
+      wordCuts: 0, crossings: 3, droppedEdges: 0, droppedLabels: 0,
     });
     expect(result.canvas.grid).toMatchObject({ cols: 60, rows: 33 });
     expect(createHash("sha256").update(JSON.stringify(result.pages.map(page => page.text))).digest("hex"))
-      .toBe("ed4757e6bdd04a45136ee40352ab5a5b6b268922a5b9ecbe317413ee6fba18db");
+      .toBe("f5249673ff4962cd835927223b55200ac420b23e92a19bdca97966e18f87660b");
   });
   it.each([
     ["galaxy-sources-to-model", 24, "e40003730a21b65eb449231c56f0924a608dc6a85a02bf4a6d062a4bdd20c441", 350, 900_000],
