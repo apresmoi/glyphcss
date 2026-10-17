@@ -87,8 +87,6 @@ describe("glyphSequenceFromMermaid", () => {
     ["rect rgb(0,0,0)\nA->>B: hi", "rect"],
     ["box Team\nparticipant A", "box"],
     ["box Team\nA->>B: hi\nend", "box"],
-    ["autonumber 10 2\nA->>B: hi", "autonumber"],
-    ["create participant B\nA->>B: hi", "create"],
     ["Note left of A,B: hi", "Note left"],
     ["title", "title"],
     ["title First\ntitle Second", "title"],

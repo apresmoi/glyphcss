@@ -1,6 +1,6 @@
 import { glyphSequenceAuthoredOrder, orderGlyphSequenceItem } from "./authoredOrder";
 import type { GlyphCanvas, GlyphCanvasTierName } from "glyphcss";
-import { glyphSequenceFromMermaid } from "./mermaid";
+import { glyphSequenceFromMermaid, glyphSequenceMermaidNotes } from "./mermaid";
 import { glyphDiagramError } from "../validate";
 import { parseGlyphSequenceJson, glyphSequenceRepairHint, validateGlyphSequence } from "./validate";
 import { glyphSequenceFrameExtents, layoutGlyphSequenceColumns, layoutGlyphSequenceRows, type GlyphSequenceFrameExtent } from "./layout";
@@ -111,9 +111,10 @@ function panelSequence(sequence: GlyphSequence, extents: readonly GlyphSequenceF
 }
 
 export async function renderGlyphSequence(input: GlyphSequence | string, options: GlyphSequenceRenderOptions = {}): Promise<GlyphSequenceResult> {
-  const sequence = validateGlyphSequence(typeof input === "string" ? glyphSequenceFromMermaid(input) : input);
+  const parsed = typeof input === "string" ? glyphSequenceFromMermaid(input) : input;
+  const sequence = validateGlyphSequence(parsed);
   const opts = resolvedOptions({ ...options, title: options.title === undefined ? sequence.title : options.title });
-  const ledger: GlyphDiagramLedgerEntry[] = [];
+  const ledger: GlyphDiagramLedgerEntry[] = [...glyphSequenceMermaidNotes(parsed)];
 
   const cols = layoutGlyphSequenceColumns(sequence, { charset: opts.charset, maxWidth: opts.width });
   ledger.push(...cols.ledger);

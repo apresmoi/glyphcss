@@ -20,6 +20,7 @@
   "devDependencies": {
     "@astrojs/compiler": "3.0.1",
     "happy-dom": "^20.7.0",
+    "mermaid": "12.2.0",
     "postcss": "8.5.8",
     "prettier": "3.6.2",
     "prettier-plugin-astro": "0.14.1",

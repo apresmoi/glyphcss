@@ -1,0 +1,87 @@
+[
+  {
+    "name": "gitgraph / Customizing main branch name",
+    "type": "gitgraph",
+    "source": "---\nconfig:\n  logLevel: 'debug'\n  theme: 'base'\n  gitGraph:\n    showBranches: true\n    showCommitLabel: true\n    mainBranchName: 'MetroLine1'\n---\n      gitGraph\n        commit id:\"NewYork\"\n        commit id:\"Dallas\"\n        branch MetroLine2\n        commit id:\"LosAngeles\"\n        commit id:\"Chicago\"\n        commit id:\"Houston\"\n        branch MetroLine3\n        commit id:\"Phoenix\"\n        commit type: HIGHLIGHT id:\"Denver\"\n        commit id:\"Boston\"\n        checkout MetroLine1\n        commit id:\"Atlanta\"\n        merge MetroLine3\n        commit id:\"Miami\"\n        commit id:\"Washington\"\n        merge MetroLine2 tag:\"MY JUNCTION\"\n        commit id:\"Boston\"\n        commit id:\"Detroit\"\n        commit type:REVERSE id:\"SanFrancisco\""
+  },
+  {
+    "name": "sequenceDiagram / The previous appearance",
+    "type": "sequenceDiagram",
+    "source": "---\nconfig:\n  theme: default\n  look: classic\n---\nsequenceDiagram\n  autonumber\n  actor Customer\n  participant Web as Web app\n  participant API as API gateway\n  participant Bank\n  Customer->>Web: Place order\n  Web->>API: POST /orders\n  activate API\n  API->>Bank: Authorise payment\n  Bank-->>API: Approved\n  API-->>Web: 201 Created\n  deactivate API\n  Web-->>Customer: Order confirmed\n  Note over Customer,Bank: One order, one transaction"
+  },
+  {
+    "name": "sequenceDiagram / Boundary",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice@{ \"type\" : \"boundary\" }\n    participant Bob\n    Alice->>Bob: Request from boundary\n    Bob->>Alice: Response to boundary"
+  },
+  {
+    "name": "sequenceDiagram / Control",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice@{ \"type\" : \"control\" }\n    participant Bob\n    Alice->>Bob: Control request\n    Bob->>Alice: Control response"
+  },
+  {
+    "name": "sequenceDiagram / Entity",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice@{ \"type\" : \"entity\" }\n    participant Bob\n    Alice->>Bob: Entity request\n    Bob->>Alice: Entity response"
+  },
+  {
+    "name": "sequenceDiagram / Database",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice@{ \"type\" : \"database\" }\n    participant Bob\n    Alice->>Bob: DB query\n    Bob->>Alice: DB result"
+  },
+  {
+    "name": "sequenceDiagram / Collections",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice@{ \"type\" : \"collections\" }\n    participant Bob\n    Alice->>Bob: Collections request\n    Bob->>Alice: Collections response"
+  },
+  {
+    "name": "sequenceDiagram / Queue",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice@{ \"type\" : \"queue\" }\n    participant Bob\n    Alice->>Bob: Queue message\n    Bob->>Alice: Queue response"
+  },
+  {
+    "name": "sequenceDiagram / External Alias Syntax",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant API@{ \"type\": \"boundary\" } as Public API\n    actor DB@{ \"type\": \"database\" } as User Database\n    participant Svc@{ \"type\": \"control\" } as Auth Service\n    API->>Svc: Authenticate\n    Svc->>DB: Query user\n    DB-->>Svc: User data\n    Svc-->>API: Token"
+  },
+  {
+    "name": "sequenceDiagram / Inline Alias Syntax",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant API@{ \"type\": \"boundary\", \"alias\": \"Public API\" }\n    participant Auth@{ \"type\": \"control\", \"alias\": \"Auth Service\" }\n    participant DB@{ \"type\": \"database\", \"alias\": \"User Database\" }\n    API->>Auth: Login request\n    Auth->>DB: Query user\n    DB-->>Auth: User data\n    Auth-->>API: Access token"
+  },
+  {
+    "name": "sequenceDiagram / Alias Precedence",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant API@{ \"type\": \"boundary\", \"alias\": \"Internal Name\" } as External Name\n    participant DB@{ \"type\": \"database\", \"alias\": \"Internal DB\" } as External DB\n    API->>DB: Query\n    DB-->>API: Result"
+  },
+  {
+    "name": "sequenceDiagram / Actor Creation and Destruction (v10.3.0+)",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    Alice->>Bob: Hello Bob, how are you ?\n    Bob->>Alice: Fine, thank you. And you?\n    create participant Carl\n    Alice->>Carl: Hi Carl!\n    create actor D as Donald\n    Carl->>D: Hi!\n    destroy Carl\n    Alice-xCarl: We are too many\n    destroy Bob\n    Bob->>Alice: I agree"
+  },
+  {
+    "name": "sequenceDiagram / Basic Syntax",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice\n    participant John\n    Alice->>()John: Hello John\n    Alice()->>John: How are you?\n    John()->>()Alice: Great!"
+  },
+  {
+    "name": "sequenceDiagram / Actor Menus",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice\n    participant John\n    link Alice: Dashboard @ https://dashboard.contoso.com/alice\n    link Alice: Wiki @ https://wiki.contoso.com/alice\n    link John: Dashboard @ https://dashboard.contoso.com/john\n    link John: Wiki @ https://wiki.contoso.com/john\n    Alice->>John: Hello John, how are you?\n    John-->>Alice: Great!\n    Alice-)John: See you later!"
+  },
+  {
+    "name": "sequenceDiagram / Advanced Menu Syntax",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\n    participant Alice\n    participant John\n    links Alice: {\"Dashboard\": \"https://dashboard.contoso.com/alice\", \"Wiki\": \"https://wiki.contoso.com/alice\"}\n    links John: {\"Dashboard\": \"https://dashboard.contoso.com/john\", \"Wiki\": \"https://wiki.contoso.com/john\"}\n    Alice->>John: Hello John, how are you?\n    John-->>Alice: Great!\n    Alice-)John: See you later!"
+  },
+  {
+    "name": "entityRelationshipDiagram / Classes",
+    "type": "entityRelationshipDiagram",
+    "source": "erDiagram\n    CAR {\n        string registrationNumber\n        string make\n        string model\n    }\n    PERSON {\n        string firstName\n        string lastName\n        int age\n    }\n    PERSON:::foo ||--|| CAR : owns\n    PERSON o{--|| HOUSE:::bar : has\n\n    classDef foo stroke:#f00\n    classDef bar stroke:#0f0\n    classDef foobar stroke:#00f"
+  },
+  {
+    "name": "entityRelationshipDiagram / Default class",
+    "type": "entityRelationshipDiagram",
+    "source": "erDiagram\n    CAR {\n        string registrationNumber\n        string make\n        string model\n    }\n    PERSON {\n        string firstName\n        string lastName\n        int age\n    }\n    PERSON:::foo ||--|| CAR : owns\n    PERSON o{--|| HOUSE:::bar : has\n\n    classDef default fill:#f9f,stroke-width:4px\n    classDef foo stroke:#f00\n    classDef bar stroke:#0f0\n    classDef foobar stroke:#00f"
+  }
+]

@@ -35,6 +35,7 @@ export function glyphParseMermaidGit(source: string): { graph: GlyphGraph; notes
   const branchOrder = new Map<string, number | undefined>([[current, Number(setting("mainBranchOrder") ?? 0)]]);
   const commits: (GlyphLaneNode & { branch: string })[] = [];
   const ids = new Set<string>();
+  const authoredIds = new Map<string, string>();
   // Reserve authored ids before allocating deterministic substitutes for Mermaid's random ids.
   const reserved = new Set(parts.flatMap(part => /^commit\b|^merge\b/.test(part) ? [...part.matchAll(/\bid\s*:\s*("(?:\\.|[^"\\])*"|'[^']*'|[^\s:]+)/g)].map(m => labelText(m[1]!)) : []));
   let serial = 0;
@@ -51,9 +52,15 @@ export function glyphParseMermaidGit(source: string): { graph: GlyphGraph; notes
   if (config.trim()) note("git-config", "GitGraph reads only scalar branch-name, order and visibility settings; styling, rotation, parallel placement and other configuration are inert.");
   if (!showBranches) note("git-hidden-branches", "Branch names are hidden; history connectors remain to preserve ancestry.");
   const commit = (attrs: Record<string, string>, parents: string[], marks: string[] = [], pick = false) => {
-    const id = pick ? generated() : attrs.id ?? generated();
-    if (ids.has(id)) syntax(`Duplicate commit id "${id}".`);
+    let id = pick ? generated() : attrs.id ?? generated();
+    if (ids.has(id)) {
+      const authored = id;
+      id = generated();
+      marks.unshift(`id: ${authored}`);
+      note("git-duplicate-id", "Repeated commit ids keep distinct history nodes with deterministic internal ids and the authored id as text.");
+    }
     ids.add(id);
+    if (!pick && attrs.id !== undefined) authoredIds.set(attrs.id, id);
     const type = attrs.type ?? "NORMAL";
     if (!["NORMAL", "REVERSE", "HIGHLIGHT"].includes(type)) syntax(`Unknown commit type "${type}".`);
     if (type !== "NORMAL") { marks.push(type); note("git-types", "Commit types use text annotations beside the existing lane marker."); }
@@ -67,10 +74,13 @@ export function glyphParseMermaidGit(source: string): { graph: GlyphGraph; notes
     const head = branches.get(current);
     if (op === "commit") { commit(attributes(rest), head ? [head] : []); continue; }
     if (op === "cherry-pick") {
-      const attrs = attributes(rest), picked = commits.find(n => n.id === attrs.id);
+      const attrs = attributes(rest);
+      const pickedId = authoredIds.get(attrs.id!) ?? attrs.id;
+      const parent = authoredIds.get(attrs.parent!) ?? attrs.parent;
+      const picked = commits.find(n => n.id === pickedId);
       if (!picked || !head || picked.branch === current) syntax("cherry-pick needs an existing commit from another branch and a current head.");
-      if (picked.parents.length > 1 && (!attrs.parent || !picked.parents.includes(attrs.parent))) syntax("Cherry-picking a merge needs an immediate parent id.");
-      commit(attrs, [head], [`cherry-pick: ${picked.id}${attrs.parent ? ` parent: ${attrs.parent}` : ""}`], true);
+      if (picked.parents.length > 1 && (!parent || !picked.parents.includes(parent))) syntax("Cherry-picking a merge needs an immediate parent id.");
+      commit(attrs, [head], [`cherry-pick: ${picked.id}${parent ? ` parent: ${parent}` : ""}`], true);
       note("git-cherry-pick", "Cherry-pick provenance uses text; only the current head is an ancestry parent."); continue;
     }
     const token = TOKEN.exec(rest);

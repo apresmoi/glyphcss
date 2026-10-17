@@ -14,7 +14,7 @@ export function labelText(input: string, literalQuotes = false): string {
   // markup here; an entity-escaped angle bracket (e.g. "&lt;p&gt;") is plain
   // text and survives to the decode below. Styling, links, and Mermaid click
   // statements never become DOM or code.
-  text = text.replace(/<br\s*\/?\s*>/gi, "\n").replace(/<\/?(?:p|b|strong|i|em|span)(?:\s[^>]*?)?\s*>/gi, "");
+  text = text.replace(/<\/?br\s*\/?\s*>/gi, "\n").replace(/<\/?(?:p|b|strong|i|em|span)(?:\s[^>]*?)?\s*>/gi, "");
   text = decodeGlyphMermaidEntities(text, quoted);
   // "&nbsp;" decodes to a plain space; trim it (and any other edge
   // whitespace) at the label's ends.

@@ -1,0 +1,252 @@
+[
+  {
+    "name": "half arrow -|\\",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA-|\\B: signal"
+  },
+  {
+    "name": "half arrow --|\\",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA--|\\B: signal"
+  },
+  {
+    "name": "half arrow -|/",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA-|/B: signal"
+  },
+  {
+    "name": "half arrow --|/",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA--|/B: signal"
+  },
+  {
+    "name": "half arrow /|-",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA/|-B: signal"
+  },
+  {
+    "name": "half arrow /|--",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA/|--B: signal"
+  },
+  {
+    "name": "half arrow \\\\-",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA\\\\-B: signal"
+  },
+  {
+    "name": "half arrow \\\\--",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA\\\\--B: signal"
+  },
+  {
+    "name": "half arrow -\\\\",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA-\\\\B: signal"
+  },
+  {
+    "name": "half arrow --\\\\",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA--\\\\B: signal"
+  },
+  {
+    "name": "half arrow -//",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA-//B: signal"
+  },
+  {
+    "name": "half arrow --//",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA--//B: signal"
+  },
+  {
+    "name": "half arrow //-",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA//-B: signal"
+  },
+  {
+    "name": "half arrow //--",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA//--B: signal"
+  },
+  {
+    "name": "participant boundary",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant API-gw @{\"type\":\"boundary\",\"alias\":\"Inline\"} as Public API\nactor DB@{\"type\":\"database\",\"alias\":\"User Database\"}\nAPI-gw-->>DB: hello"
+  },
+  {
+    "name": "participant control",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant API-gw @{\"type\":\"control\",\"alias\":\"Inline\"} as Public API\nactor DB@{\"type\":\"database\",\"alias\":\"User Database\"}\nAPI-gw-->>DB: hello"
+  },
+  {
+    "name": "participant entity",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant API-gw @{\"type\":\"entity\",\"alias\":\"Inline\"} as Public API\nactor DB@{\"type\":\"database\",\"alias\":\"User Database\"}\nAPI-gw-->>DB: hello"
+  },
+  {
+    "name": "participant database",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant API-gw @{\"type\":\"database\",\"alias\":\"Inline\"} as Public API\nactor DB@{\"type\":\"database\",\"alias\":\"User Database\"}\nAPI-gw-->>DB: hello"
+  },
+  {
+    "name": "participant collections",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant API-gw @{\"type\":\"collections\",\"alias\":\"Inline\"} as Public API\nactor DB@{\"type\":\"database\",\"alias\":\"User Database\"}\nAPI-gw-->>DB: hello"
+  },
+  {
+    "name": "participant queue",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant API-gw @{\"type\":\"queue\",\"alias\":\"Inline\"} as Public API\nactor DB@{\"type\":\"database\",\"alias\":\"User Database\"}\nAPI-gw-->>DB: hello"
+  },
+  {
+    "name": "central A->>()B",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA->>()B: hi"
+  },
+  {
+    "name": "central A()->>B",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA()->>B: hi"
+  },
+  {
+    "name": "central A()->>()B",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nA()->>()B: hi"
+  },
+  {
+    "name": "autonumber 10 2",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nautonumber 10 2\nA->>B: one\nB-->>A: two"
+  },
+  {
+    "name": "autonumber 5",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nautonumber 5\nA->>B: one\nB-->>A: two"
+  },
+  {
+    "name": "autonumber 0 3",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nautonumber 0 3\nA->>B: one\nB-->>A: two"
+  },
+  {
+    "name": "link inert",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant A\nparticipant B\nlink A: Dashboard @ https://example.test\nA->>B: hello"
+  },
+  {
+    "name": "links inert",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant A\nparticipant B\nlinks A: {\"Dashboard\":\"https://example.test\"}\nA->>B: hello"
+  },
+  {
+    "name": "inert frontmatter and multiline init",
+    "type": "sequenceDiagram",
+    "source": "---\nconfig:\n  theme: dark\n---\n%%{init: {\n \"theme\": \"forest\"\n}}%%\nsequenceDiagram\nA->>B: hi"
+  },
+  {
+    "name": "create actor and destroy",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant A\ncreate actor B as Bee\nA->>B: hello\ndestroy B\nB-->>A: bye"
+  },
+  {
+    "name": "duplicate commit ids",
+    "type": "gitgraph",
+    "source": "gitGraph\ncommit id:\"same\"\ncommit id:\"same\"\ncommit id:\"tail\""
+  },
+  {
+    "name": "ER left zero-many and classes",
+    "type": "entityRelationshipDiagram",
+    "source": "erDiagram\nPERSON:::foo o{--|| HOUSE:::bar : has"
+  },
+  {
+    "name": "flowchart <br>",
+    "type": "flowchart",
+    "source": "flowchart LR\nA[\"one<br>two\"] -->|three<br>four| B"
+  },
+  {
+    "name": "flowchart </br>",
+    "type": "flowchart",
+    "source": "flowchart LR\nA[\"one</br>two\"] -->|three</br>four| B"
+  },
+  {
+    "name": "stateDiagram <br>",
+    "type": "stateDiagram",
+    "source": "stateDiagram-v2\nA: one<br>two\nA --> B: three<br>four"
+  },
+  {
+    "name": "stateDiagram </br>",
+    "type": "stateDiagram",
+    "source": "stateDiagram-v2\nA: one</br>two\nA --> B: three</br>four"
+  },
+  {
+    "name": "classDiagram <br>",
+    "type": "classDiagram",
+    "source": "classDiagram\nclass A {\n +one<br>two\n}"
+  },
+  {
+    "name": "classDiagram </br>",
+    "type": "classDiagram",
+    "source": "classDiagram\nclass A {\n +one</br>two\n}"
+  },
+  {
+    "name": "pie <br>",
+    "type": "pie",
+    "source": "pie\n\"one<br>two\": 3\n\"other\": 2"
+  },
+  {
+    "name": "pie </br>",
+    "type": "pie",
+    "source": "pie\n\"one</br>two\": 3\n\"other\": 2"
+  },
+  {
+    "name": "timeline <br>",
+    "type": "timeline",
+    "source": "timeline\n2026 : one<br>two"
+  },
+  {
+    "name": "timeline </br>",
+    "type": "timeline",
+    "source": "timeline\n2026 : one</br>two"
+  },
+  {
+    "name": "packet <br>",
+    "type": "packet",
+    "source": "packet-beta\n0-15: \"one<br>two\""
+  },
+  {
+    "name": "packet </br>",
+    "type": "packet",
+    "source": "packet-beta\n0-15: \"one</br>two\""
+  },
+  {
+    "name": "kanban <br>",
+    "type": "kanban",
+    "source": "kanban\n  Todo\n    a[\"one<br>two\"]"
+  },
+  {
+    "name": "kanban </br>",
+    "type": "kanban",
+    "source": "kanban\n  Todo\n    a[\"one</br>two\"]"
+  },
+  {
+    "name": "scalar YAML participant metadata",
+    "type": "sequenceDiagram",
+    "source": "sequenceDiagram\nparticipant A @{\ntype: database\nalias: 'Store, primary'\n}\nparticipant B @{type: boundary, alias: \"Public API\"}\nA->>B: hi"
+  },
+  {
+    "name": "latest duplicate git reference",
+    "type": "gitgraph",
+    "source": "gitGraph\ncommit id:\"base\"\nbranch left\ncommit id:\"same\"\ncheckout main\nbranch right\ncommit id:\"same\"\ncheckout main\ncherry-pick id:\"same\""
+  },
+  {
+    "name": "spaced ER o{ -- ||",
+    "type": "entityRelationshipDiagram",
+    "source": "erDiagram\nPERSON:::foo o{ -- || HOUSE:::bar : has"
+  },
+  {
+    "name": "spaced ER o{ .. ||",
+    "type": "entityRelationshipDiagram",
+    "source": "erDiagram\nPERSON:::foo o{ .. || HOUSE:::bar : has"
+  }
+]

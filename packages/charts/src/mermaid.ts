@@ -31,7 +31,7 @@ function label(raw: string): string {
     catch { text = text.slice(1, -1).replace(/""/g, '"').replace(/\\(["\\])/g, "$1"); }
   }
   if (text.startsWith("`") && text.endsWith("`")) text = text.slice(1, -1);
-  return decodeGlyphMermaidEntities(text).replace(/<br\s*\/?\s*>|[\r\n\t]+/gi, " ");
+  return decodeGlyphMermaidEntities(text).replace(/<\/?br\s*\/?\s*>|[\r\n\t]+/gi, " ");
 }
 function numeric(raw: string): number {
   const value = Number(raw.trim());
