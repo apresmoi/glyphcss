@@ -2,29 +2,39 @@
 
 Geographic data as text: a static bake pipeline and the interactive `createGlyphMap` widget.
 
-A fresh 60 × 20 bake of the bundled [sample grid](fixtures/sample-region.asc), a synthetic terrain fixture, using the quick start below:
+Zürich, the Limmat and Lake Zürich — © OpenStreetMap contributors, via the bundled OpenFreeMap [z12 fixture](fixtures/openfreemap/z12-2145-1434.mvt); 80 × 30, north up, `:` marks water.
 
 ```text
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~~~~.........~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~~.....:::::.....~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~...:::::::::::::....~~~~~~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~...::::------------:::::.............~~~~~~~~~
-~~~~~~~~~~~~...::::---==============-----::::......~~~~~~~~~
-~~~~~~~~~....::::---===++++++++++++++++===---::....~~~~~~~~~
-~~~~~.....:::::---===++++++***********++++==--::...~~~~~~~~~
-~~~~....::::-----===+++++*******##*******+++=--::..~~~~~~~~~
-~~~...:::::-----===+++++*****########****+++==-::..~~~~~~~~~
-~~~...:::::-----===+++++*****#########****+++=-::..~~~~~~~~~
-~~~....:::::----====+++++*****#######****+++==-::..~~~~~~~~~
-~~~~.....::::----====+++++*************++++==--::..~~~~~~~~~
-~~~~~~~.....::::---===++++++++****+++++++==---::...~~~~~~~~~
-~~~~~~~~~~....::::---====+++++++++++====---::::....~~~~~~~~~
-~~~~~~~~~~~~~...::::----========-----:::::.........~~~~~~~~~
-~~~~~~~~~~~~~~~...::::-------:::::.......~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~~...:::::::::....~~~~~~~~~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~~~............~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-~~~~~~~~~~~~~~~~~~~~.......~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+          \\ \\\  :/  /  ▔---▕--▔/\\  \\/ \\       ‾‾▔--\       ▔|/--_          
+            \//‾-__ //       ▕ ::/ \   \\  \        \    \_     /\/   -__   ____
+\           /  //  ‾▔        \ :/   \\  \--▔\      ▕/      ‾▔--/ \__-----\-▔    
+ \\       // :/  : /--______ |::/   _\      \/----//               \            
+  \\     // //    //___/    ‾‾‾‾/▔-‾  \\     \                     \\           
+-_  \    -__/   /////         ::       \      \                      _          
+____\--▔/ :‾▔▔--/-‾           ::        ‾\    \                       ▔-/       
+‾    \ / //   /               :          ▏    /\                        /       
+     \/_ /    \\              ::        //   //                        ▏        
+     ///‾‾\:    \\            ::       \▏ ▔/_/                         -_       
+   ////:  \\\ :   \\          ::        \  /| ‾▔-\__                     ▔|     
+-_\///     --‾  :   \\         ::        /\  \\     ‾---___-\\            |     
+  \\\  _-▔‾   \  :::  \        ::/      //    \\             ▔-_          ▏     
+ :  \/‾       \\       \\     :::\\\ _-▔        \\\             ‾‾-\      \     
+  _-▔          \        \\    : :_|-\              \\          _-/‾\\      \    
+//       \\     \       : \/----▔‾\\_/              /\       _▔      \      \   
+/        \\      \      __-‾   :::: \      ---___  //\   __-‾         \\_   /\  
+        //\\      \   _-  ::::::::::\\   //      ‾--__\//                ‾--_\\ 
+     _-▔‾| \\      _-▔  :::::::::::::\\_/            ‾▔-_                   ‾▔\ 
+  -▔‾   -▏_ \    _-   ::::::::::::::::\                ▏ ‾▔\               _// \
+//      ▕  ‾\\/▔/    ::::::::::::::::::\               \    \_          __-▔    
+/       ▕    \  |    :::::::::::::::::: \               \     ‾\_   __-▔        
+        ▕    ▕  |   :::::::::::::::::::: \               \\     ‾---_        _-‾
+        ▕     ▏ ▕  :::::::::::::::::::::: \               \\  _--▔ \‾▔---▔▔‾‾\\ 
+         \    | ▕   ::::::::::::::::::::: \\                -▔     _\ ▔---______
+         \▏   | ▕  : ::::::::::::::::::::  \                \ _--▔‾             
+          ▏   ▕ ▕  ::::::::::::::::::::::   \               /\\                 
+          ▏    ▏ ▏ ::::::::::::::::::::::    \\           _// \\                
+          |    ▏ ▏:::::::::::::::::::::::     \       --▔‾      \               
+          |    |/  ::::::::::::::::::::::::    \\ _-▔‾           \              
 ```
 
 ## Install
@@ -37,59 +47,52 @@ Import `@glyphcss/maps` in browsers; `@glyphcss/maps/node` re-exports it and add
 
 ## Quick start
 
-### Bake a region
+### Render Zürich
 
-Run this as a Node ES module after installation; the fixture ships with the package. Replace its path with your own georeferenced `.asc` or `.asc.gz` grid for real survey data.
+Run in a browser module through your bundler. Serve the package's bundled `fixtures/` directory at `./fixtures/` beside the page; this example loads only the local z12 tile linked above, with no online tile service. Use a monospace font with 8 × 16 px cells for the framing shown.
 
 ```js
-import { fileURLToPath } from "node:url";
 import {
-  loadGlyphMapSource, glyphMapBounds, sampleGlyphMapField,
-  classifyGlyphMapField, glyphMapBreaks, compileGlyphMap,
-} from "@glyphcss/maps/node";
+  createGlyphMap, glyphMapMercator, glyphMapOpenFreeMapProvider,
+  glyphMapOpenMapTilesFeatureFilter,
+} from "@glyphcss/maps";
 
-const source = await loadGlyphMapSource({
-  path: fileURLToPath(new URL(
-    "../fixtures/sample-region.asc", import.meta.resolve("@glyphcss/maps/node"),
-  )),
-  id: "sample-region-fixture-v1",
+const source = glyphMapOpenFreeMapProvider({
+  tileUrl: "./fixtures/openfreemap/z{z}-{x}-{y}.mvt",
+  minZoom: 12, maxZoom: 12,
+  layers: ["water", "transportation"],
 });
-const view = glyphMapBounds({ ...source.bounds, cols: 60, rows: 20 });
-const field = await sampleGlyphMapField(source, view, { sampler: "max" });
-const bands = classifyGlyphMapField(field, glyphMapBreaks([
-  0, 250, 500, 750, 1000, 1500, 2000,
-]));
-const { html, css } = compileGlyphMap(bands, { ramp: "~.:-=+*#" });
-console.log(html);
-```
-
-The `<pre>` contains every row shown above. Embed `html` and any returned `css` in a page; the baked output needs no JavaScript.
-
-### Mount the widget
-
-Run in a browser module through your bundler. This self-contained example draws the sample region's footprint without a tile service.
-
-```js
-import { createGlyphMap, glyphMapEquirectangular } from "@glyphcss/maps";
-
 const host = document.createElement("div");
-host.style.cssText = "width: 640px; height: 320px";
+host.style.cssText = "width: 640px; height: 480px";
 document.body.append(host);
 const map = createGlyphMap(host, {
-  view: { center: [-8.5, 41], span: 4, cols: 80, rows: 40 },
-  projection: glyphMapEquirectangular(),
-  tilt: 0,
-  layers: [{
-    type: "fill", color: "#69b5a4",
-    source: { features: [{ geometryType: "polygon", rings: [[
-      [-10, 40], [-7, 40], [-7, 42], [-10, 42], [-10, 40],
-    ]] }] },
-  }],
+  view: { center: [8.547, 47.367], span: 0.04, cols: 80, rows: 30 },
+  projection: glyphMapMercator(), tilt: 0, bearing: 0,
+  scene: {
+    useColors: false,
+    ambientLight: { intensity: 2 / 9 },
+    directionalLight: { direction: [0, 0, 1], intensity: 0 },
+  },
+  layers: [
+    { type: "fill", source, sourceLayer: "water",
+      filter: glyphMapOpenMapTilesFeatureFilter({
+        geometry: "polygon", classes: ["lake", "river"],
+      }) },
+    { type: "line", source, sourceLayer: "transportation",
+      filter: glyphMapOpenMapTilesFeatureFilter({
+        geometry: "line", excludeBrunnel: ["tunnel"],
+        classes: ["motorway", "trunk", "primary", "secondary", "tertiary"],
+      }) },
+  ],
 });
-map.addMarker({ at: [-8.5, 41], label: "Sample region" });
 await map.idle();
-// Call map.destroy() when your component unmounts.
+console.log(map.scene.output.textContent);
+// Display map.getAttributions(); call map.destroy() when unmounting.
 ```
+
+The widget's settled `<pre>` produces the text above directly: water polygons as `fill`, major streets as `line`, and no terrain or extrusions. Minor roads, paths and railways are omitted to keep this small grid readable. Display the credits returned by `map.getAttributions()` alongside an embedded map.
+
+For static raster baking, use `loadGlyphMapSource` → `sampleGlyphMapField` → `classifyGlyphMapField` → `compileGlyphMap`; the returned `{ html, css }` needs no runtime JavaScript. The bundled [sample grid](fixtures/sample-region.asc) is synthetic terrain, not a city map.
 
 ## What it does
 
