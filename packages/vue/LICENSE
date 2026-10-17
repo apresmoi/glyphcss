@@ -1,0 +1,55 @@
+MIT License
+
+Copyright (c) 2025 Layoutit
+Copyright (c) 2026 apresmoi
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+NOTE ON THIRD-PARTY DATA
+
+The grant above covers this repository's own SOURCE CODE, including every
+package published from `packages/`. It does not cover third-party data files
+vendored under `website/public/data/`, which carry their own terms:
+
+  website/public/data/submarine-cables/
+      TeleGeography Submarine Cable Map, licensed CC BY-NC-SA 3.0 —
+      ATTRIBUTION, SHARE-ALIKE and NON-COMMERCIAL. Not MIT. See that
+      directory's own LICENSE and README.md. Commercial use of that data
+      requires a licence from TeleGeography; deleting the directory (and the
+      `ds-cables` row in
+      `website/src/components/MapsWorkbench/mapsDatasets.ts`) removes it
+      completely, and no published package depends on either.
+
+  website/public/data/datacenters/, website/public/data/dams/
+      Derived from OpenStreetMap, licensed ODbL 1.0 — attribution and
+      share-alike on the data. "© OpenStreetMap contributors",
+      https://www.openstreetmap.org/copyright
+
+  website/public/data/natural-earth/, and the country/place/vector tile
+  pyramids beside them
+      Natural Earth — public domain.
+
+  website/public/data/geo-tiles/
+      NOAA NCEI ETOPO1 — public domain (a US federal work).
+
+No file under `packages/` carries any of these terms: the datasets above are
+consumed only by the documentation site, through `@glyphcss/maps`' ordinary
+public API, and the packages contain none of the data.
