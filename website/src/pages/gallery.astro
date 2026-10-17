@@ -1,6 +1,9 @@
 ---
 import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { GalleryWorkbench } from "../components/GalleryWorkbench";
+// The client-only workbench mounts the shared demo markup; Astro only emits
+// that CSS for pages that render GlyphDemo on the server, so import it here.
+import "../components/GlyphDemo";
 const title = "Gallery — the ASCII render playground | glyphcss";
 const description =
   "Drop in OBJ · glTF · GLB · STL · .vox and tune camera, density, shading, and effects live — then export the render. The glyphcss playground.";
