@@ -367,16 +367,16 @@ There are no per-polygon DOM elements and no CSS `matrix3d`. Hotspot overlays up
 
 | Package | npm name | Description |
 |---|---|---|
-| `@glyphcss/core` | `@glyphcss/core` | Pure math: Vec3, Polygon, scene, camera, mesh ops, parsers. Zero browser globals. |
-| `glyphcss` | `glyphcss` | ASCII rasteriser + vanilla custom elements + imperative `createGlyphScene` API. |
-| `@glyphcss/react` | `@glyphcss/react` | React components, hooks, and controls. |
-| `@glyphcss/vue` | `@glyphcss/vue` | Vue 3 mirror of the React package. |
-| `@glyphcss/effects` | `@glyphcss/effects` | Reusable spatial effect definitions; framework-agnostic and clock-free. |
-| `@glyphcss/fonts` | `@glyphcss/fonts` | Font/text to extruded polygon-mesh generation. |
-| `@glyphcss/compile` | `@glyphcss/compile` | Static compiler, CLI, Vite plugin, and Node API. |
-| [`@glyphcss/charts`](packages/charts) | `@glyphcss/charts` | Declarative charts rendered as ASCII, box characters, or braille. |
-| [`@glyphcss/diagrams`](packages/diagrams) | `@glyphcss/diagrams` | Mermaid and graph diagrams, sequences, and branching histories rendered as text. |
-| `@glyphcss/maps` | `@glyphcss/maps` | Geographic data → glyphcss: projections, elevation tiles, a relief mesh, and the interactive `createGlyphMap` widget with a MapLibre-shaped layer vocabulary. |
+| [`@glyphcss/core`](packages/core/README.md) | `@glyphcss/core` | Pure math: Vec3, Polygon, scene, camera, mesh ops, parsers. Zero browser globals. |
+| [`glyphcss`](packages/glyphcss/README.md) | `glyphcss` | ASCII rasteriser + vanilla custom elements + imperative `createGlyphScene` API. |
+| [`@glyphcss/react`](packages/react/README.md) | `@glyphcss/react` | React components, hooks, and controls. |
+| [`@glyphcss/vue`](packages/vue/README.md) | `@glyphcss/vue` | Vue 3 mirror of the React package. |
+| [`@glyphcss/effects`](packages/effects/README.md) | `@glyphcss/effects` | Reusable spatial effect definitions; framework-agnostic and clock-free. |
+| [`@glyphcss/fonts`](packages/fonts/README.md) | `@glyphcss/fonts` | Font/text to extruded polygon-mesh generation. |
+| [`@glyphcss/compile`](packages/compile/README.md) | `@glyphcss/compile` | Static compiler, CLI, Vite plugin, and Node API. |
+| [`@glyphcss/charts`](packages/charts/README.md) | `@glyphcss/charts` | Declarative charts rendered as ASCII, box characters, or braille. |
+| [`@glyphcss/diagrams`](packages/diagrams/README.md) | `@glyphcss/diagrams` | Mermaid and graph diagrams, sequences, and branching histories rendered as text. |
+| [`@glyphcss/maps`](packages/maps/README.md) | `@glyphcss/maps` | Geographic data → glyphcss: projections, elevation tiles, a relief mesh, and the interactive `createGlyphMap` widget with a MapLibre-shaped layer vocabulary. |
 
 ## License
 
