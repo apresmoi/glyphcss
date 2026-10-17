@@ -17,5 +17,6 @@ describe("glyphDiagramsTrayThumbnails", () => {
     expect(Object.keys(thumbnails)).toHaveLength(GLYPH_DIAGRAMS_TRAY.length);
     expect(Object.values(thumbnails)).not.toContain("Preview unavailable");
     await terminal;
-  }, 30_000);
+    // 72 cold renders: about 15 s locally, two to three times that on CI runners.
+  }, 120_000);
 });
