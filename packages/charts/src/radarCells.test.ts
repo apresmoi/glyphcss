@@ -35,7 +35,8 @@ it("preserves pre-change text and HTML hashes across every native fixture, targe
     });
   }
   expect(hashes).toEqual(baseline);
-});
+  // Renders every fixture 24 times; the CI runner takes about 9 s.
+}, 30_000);
 
 it("paints whole-cell series over braille guides, with symbol legends and no redundant prefixes", () => {
   const result = renderGlyphChartMermaid(source, options);
