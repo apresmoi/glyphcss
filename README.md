@@ -1,4 +1,9 @@
-# glyphcss
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/wordmark-dark.png">
+    <img alt="glyphcss" src="assets/wordmark-light.png" width="440">
+  </picture>
+</h1>
 
 ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace character grid in a single `<pre>`. No WebGL, no canvas, no per-polygon DOM.
 

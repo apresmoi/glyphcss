@@ -1,6 +1,11 @@
 > **Status: pre-1.0. APIs may still change before a stable 1.0 release.**
 
-# glyphcss
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/apresmoi/glyphcss/main/assets/wordmark-dark.png">
+    <img alt="glyphcss" src="https://raw.githubusercontent.com/apresmoi/glyphcss/main/assets/wordmark-light.png" width="440">
+  </picture>
+</h1>
 
 An **ASCII polygon-mesh renderer for the DOM**. glyphcss projects 3D meshes to 2D and rasterizes them as monospace text inside a single `<pre>` element — no WebGL, no canvas, no per-polygon DOM nodes. Loads OBJ, glTF, GLB, MagicaVoxel `.vox`, and STL files.
 
