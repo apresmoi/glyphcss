@@ -1,4 +1,4 @@
-import { glyphChartRowSpacing } from "./rowSpacing";
+import { glyphChartRowSpacing, glyphChartTitleGap } from "./rowSpacing";
 import { chartText } from "./labels";
 import { ledgerMermaidDegraded, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartLayout } from "./layout";
@@ -81,6 +81,13 @@ export function layoutGlyphJourney(spec: GlyphChartJourneySpec, cols: number, he
     content = true;
   }
   if (!authored.length) { if (width >= 8 && maxRows >= y + 1) add(0, y, "No tasks"); else note("journey empty caption outside the viewport", { columns: width }); y++; }
+  const gap = title ? glyphChartTitleGap(height ?? Infinity, y * scale, scale, cols, height ?? (y + 1) * scale, ledger) : 0;
+  if (gap) {
+    for (const label of labels) if (label.y >= scale) label.y += gap;
+    for (const [id, [top, bottom]] of horizontalBarBands) horizontalBarBands.set(id, [top + gap, bottom + gap]);
+    for (let i = 0; i < boundaries.length; i++) boundaries[i]! += gap;
+    y += gap / scale;
+  }
   const rows = height ?? Math.max(scale, y * scale);
   const space = glyphChartRowSpacing(y * scale, height, boundaries, scale);
   for (const label of labels) label.y = space(label.y);

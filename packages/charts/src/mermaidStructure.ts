@@ -1,4 +1,4 @@
-import { glyphChartRowSpacing } from "./rowSpacing";
+import { glyphChartRowSpacing, glyphChartTitleGap } from "./rowSpacing";
 import { chartText } from "./labels";
 import { ledgerMermaidDegraded, type GlyphChartLedgerEntry } from "./ledger";
 import type { GlyphChartLayout } from "./layout";
@@ -162,6 +162,15 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
   const rawTitle = typeof input.title === "string" ? input.title : input.title?.text;
   const title = rawTitle ? wrap(rawTitle, width, "title") : [];
   if (title.length) group(title.length, "title", () => title.forEach((text, i) => add(Math.floor((width - text.length) / 2), y + i, text)));
+  const separateTitle = () => {
+    const gap = title.length ? glyphChartTitleGap(height ?? Infinity, y * scale, scale, cols, height ?? (y + 1) * scale, ledger) : 0;
+    if (gap) {
+      for (const label of labels) if (label.y >= title.length * scale) label.y += gap;
+      for (const segment of lines) { segment.from.y += gap; segment.to.y += gap; }
+      y += gap / scale;
+    }
+    return gap;
+  };
   if (source.kind === "timeline") {
     const indent = Math.min(2, Math.max(0, width - 1)), contentWidth = width - indent;
     const periods = source.rows.filter((row) => row.kind === "period");
@@ -200,10 +209,11 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
       if (row !== source.rows.at(-1)) boundaries.push(y * scale);
       content = true;
     }
-    const space = glyphChartRowSpacing(y * scale, height, boundaries, scale);
+    if (!source.rows.length) group(1, "empty caption", () => wrap("No periods", width, "caption").forEach((s, i) => add(0, y + i, s)));
+    const gap = separateTitle();
+    const space = glyphChartRowSpacing(y * scale, height, boundaries.map((row) => row + gap), scale);
     for (const label of labels) label.y = space(label.y);
     for (const segment of lines) { segment.from.y = space(segment.from.y); segment.to.y = space(segment.to.y); }
-    if (!source.rows.length) group(1, "empty caption", () => wrap("No periods", width, "caption").forEach((s, i) => add(0, y + i, s)));
   } else if (source.kind === "kanban") {
     const rect = (x: number, top: number, w: number, h: number) => {
       line(x, top, x + w - 1, top); line(x, top + h - 1, x + w - 1, top + h - 1);
@@ -385,6 +395,7 @@ export function layoutGlyphMermaidStructure(input: StructuredSpec, cols: number,
     group(keyRows.length, "key", () => keyRows.forEach((s, i) => add(x, y + i, s)));
     if (!source.fields.length) { const text = wrap("No fields", width, "caption"); group(Math.max(1, text.length), "empty caption", () => text.forEach((s, i) => add(0, y + i, s))); }
   }
+  if (source.kind !== "timeline") separateTitle();
   if (source.kind === "timeline") {
     const body = labels.filter((label) => !title.length || label.y >= title.length * scale);
     const right = Math.max(0, ...body.map((label) => label.x / scale + label.text.length), ...lines.map((line) => Math.max(line.from.x, line.to.x) / scale + 1));

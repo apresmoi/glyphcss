@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   chartLedgerEntryFromCanvasMessage,
   ledgerDoubleDiagonalSolid,
+  ledgerAxisTitleGapOmitted,
   ledgerEmptyTotal,
   ledgerLabelAbbreviated,
   ledgerLabelFolded,
@@ -15,9 +16,12 @@ import {
   ledgerTickDuplicateDropped,
   ledgerTicksThinned,
   ledgerTitleDropped,
+  ledgerTitleGapOmitted,
 } from "./ledger";
 
 const SAMPLES = [
+  ledgerTitleGapOmitted({ cols: 48, rows: 6 }),
+  ledgerAxisTitleGapOmitted({ cols: 48, rows: 6 }),
   ledgerTicksThinned({ axis: "x", shown: 7, total: 13, stride: 2, band: false }),
   ledgerTicksThinned({ axis: "y", shown: 3, total: 8, stride: 3, band: true }),
   ledgerTickDuplicateDropped({ axis: "x", label: "12 PM" }),

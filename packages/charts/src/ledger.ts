@@ -43,6 +43,14 @@ export function ledgerAxisTitleStacked(opts: { readonly cols: number; readonly r
   return entry("axis-title-stacked", `Gave the y-axis title its own row below the x-axis title — they don't fit side by side in ${opts.cols}×${opts.rows}.`, { ...opts });
 }
 
+export function ledgerAxisTitleGapOmitted(opts: { readonly cols: number; readonly rows: number }): GlyphChartLedgerEntry {
+  return entry("axis-title-gap-omitted", `Omitted the blank row below the y-axis title to preserve plot rows in ${opts.cols}×${opts.rows}.`, { ...opts });
+}
+
+export function ledgerTitleGapOmitted(opts: { readonly cols: number; readonly rows: number }): GlyphChartLedgerEntry {
+  return entry("title-gap-omitted", `Omitted the blank row beside the chart title to preserve content in ${opts.cols}×${opts.rows}.`, { ...opts });
+}
+
 export function ledgerLegendDropped(opts: { readonly series: number; readonly cols: number; readonly rows: number }): GlyphChartLedgerEntry {
   return entry("legend-dropped", `Dropped the legend to fit the chart in ${opts.cols}×${opts.rows}.`, { ...opts });
 }

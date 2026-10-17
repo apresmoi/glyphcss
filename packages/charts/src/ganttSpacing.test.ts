@@ -52,7 +52,10 @@ describe("Gantt content-sized axis", () => {
       const top = occupied[0]!.row, bottom = height - occupied.at(-1)!.row - 1;
       if (target === "web") expect(Math.abs(top - bottom)).toBeLessThanOrEqual(1);
       else expect(top).toBe(0);
-      if (height === 40) expect(occupied.at(-1)!.row - top + 1).toBeLessThan(height);
+      if (height === 40) {
+        expect(occupied.at(-1)!.row - top + 1).toBe(height);
+        expect(lines[top + 1]!.trim()).toBe("");
+      }
       expect(result.build.resolved.charset).toBe(target === "chat" ? "box" : "braille");
     });
   }

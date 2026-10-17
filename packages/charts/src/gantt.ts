@@ -64,7 +64,7 @@ export function layoutGlyphGantt(spec: GlyphChartGanttSpec, layout: GlyphChartLa
   const boundaries: number[] = [];
   let naturalY = layout.plot.y0, sectionCount = 0;
   authored.forEach((row, i) => {
-    if (i > 0 && !authored[i - 1]!.section) boundaries.push(naturalY);
+    if (i > 0) boundaries.push(naturalY);
     if (row.section && sectionCount++ > 0) naturalY += scale;
     naturalY += scale;
   });
@@ -75,7 +75,8 @@ export function layoutGlyphGantt(spec: GlyphChartGanttSpec, layout: GlyphChartLa
     const rowY = space(y);
     // A section without room for its first task would become the final row,
     // detaching the time axis from the last task that actually fits.
-    const fits = rowY + (row.section ? 2 : 1) * scale - 1 < layout.xAxisLineRow;
+    const end = row.section ? space(y + scale) + scale - 1 : rowY + scale - 1;
+    const fits = end < layout.xAxisLineRow;
     bands.set(row.key, fits ? [rowY, rowY + scale - 1] : [-scale, -1]);
     if (fits) {
       contentEnd = rowY + scale;

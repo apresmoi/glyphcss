@@ -168,9 +168,9 @@ describe("content-sized band layouts", () => {
   });
   it.each([1, 2, 3])("keeps scaled Gantt bands and chrome adjacent at textScale %i", (textScale) => {
     const r = renderGlyphChartMermaid(examples[0]!.source, { target: "web", width: 144, height: 80, textScale });
-    // Compact seven rows plus two extra blank rows at each of the two task gaps.
+    // Compact seven rows, title air, and two blank rows at each authored boundary.
     const first = r.text.split("\n").findIndex((line) => line.trim());
-    expect(r.build.plot.y1 - first).toBe(11 * textScale);
+    expect(r.build.plot.y1 - first).toBe(16 * textScale);
   });
   it.each(examples.slice(1, 9).filter(({ name }) => name !== "Horizontal XY lines"))("keeps $name's drawing independent of spare height", ({ source }) => {
     for (const target of ["chat", "web"] as const) {
@@ -205,9 +205,10 @@ describe("content-sized band layouts", () => {
     expect(lines[r.build.plot.y1 + 1]).toContain("0");
     expect(lines[r.build.plot.y1 + 2]).toContain("Value");
     expect(lines[r.build.plot.y1 + 2]).toContain("Category");
-    expect(title).toBe(r.build.plot.y1 + 4);
+    expect(title).toBe(r.build.plot.y1 + 5);
     expect(lines.slice(title + 1).every((line) => !line.trim())).toBe(true);
-    expect(lines[title - 1]).toContain("Count");
+    expect(lines[title - 1]!.trim()).toBe("");
+    expect(lines[title - 2]).toContain("Count");
   });
 });
 
