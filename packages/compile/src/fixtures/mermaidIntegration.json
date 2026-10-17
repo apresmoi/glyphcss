@@ -89,7 +89,7 @@
   {
     "type": "block",
     "owner": "diagrams",
-    "source": "block-beta\n columns 2\n a[Input] b[Output]\n a --> b",
+    "source": "block-beta\n columns 2\n a[\"Input\"] b[\"Output\"]\n a --> b",
     "labels": [
       "Input",
       "Output"
@@ -109,7 +109,7 @@
   {
     "type": "requirementDiagram",
     "owner": "diagrams",
-    "source": "requirementDiagram\n requirement safe {\n id: 1\n text: Keep records\n risk: low\n verifymethod: test\n }",
+    "source": "requirementDiagram\n requirement safe {\n id: 1\n text: \"Keep records\"\n risk: low\n verifymethod: test\n }",
     "labels": [
       "Keep",
       "records"
@@ -222,7 +222,7 @@
   {
     "type": "radar",
     "owner": "charts",
-    "source": "radar-beta\n axis speed[Speed], cost[Cost], quality[Quality]\n curve a[Plan] {4, 3, 5}\n max 5",
+    "source": "radar-beta\n axis speed[\"Speed\"], cost[\"Cost\"], quality[\"Quality\"]\n curve a[\"Plan\"] {4, 3, 5}\n max 5",
     "labels": [
       "Speed",
       "Cost",

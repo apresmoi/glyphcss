@@ -22,7 +22,7 @@ export interface GlyphChartMermaidStructureLayout {
   readonly lines: readonly { from: Point; to: Point }[];
 }
 const statement = (part: string): string => part.startsWith('"') ? JSON.parse(part) as string : part;
-const textLabel = (raw: string, r: Reader) => r.label(raw.replace(/<br\s*\/?\s*>/gi, "\uE000")).replace(/\uE000/g, "\n");
+const textLabel = (raw: string, r: Reader) => r.label(raw.replace(/<\/?br\s*\/?\s*>/gi, "\uE000")).replace(/\uE000/g, "\n");
 function spec(common: Common, structure: Structure): GlyphChartMermaidSpec {
   const labels = structure.kind === "kanban" ? structure.columns.flatMap((column) => [column.text, ...column.items.map((item) => item.text)]) : structure.kind === "timeline" ? structure.rows.flatMap((row) => row.kind === "section" ? [row.text] : [row.text, ...row.events]) : structure.fields.map((field) => field.text);
   return { ...common, [GLYPH_CHART_MERMAID_STRUCTURE]: structure, legend: false,

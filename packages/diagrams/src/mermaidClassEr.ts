@@ -35,7 +35,8 @@ function statements(source: string, er: boolean, fail: (message: string) => neve
     if (char === "[") square++;
     if (char === "]") square--;
     const relationLabel = /(?:--|\.\.)[\s\S]*:/.test(current);
-    const rightCardinality = er && /(?:--|\.\.|(?:optionally )?to)\s*[o|]$/.test(current);
+    const rightCardinality = er && (/(?:--|\.\.|(?:optionally )?to)\s*[o|]$/.test(current)
+      || /[o|]$/.test(current) && /^[ \t]*(?:--|\.\.|(?:optionally )?to)/.test(source.slice(i + 1)));
     if (!square && !relationLabel && char === "{" && !rightCardinality) { current += char; flush(); continue; }
     if (!square && !relationLabel && char === "}" && !(er && /^[o|]/.test(source.slice(i + 1)))) { flush(); parts.push("}"); continue; }
     if (!square && /[\n\r;]/.test(char)) flush(); else current += char;

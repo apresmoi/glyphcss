@@ -113,7 +113,17 @@ describe("Mermaid gitGraph", () => {
     expect(p.lanes!.dag.nodes.map(n => n.id)).toEqual(["third", generated, "commit-1"]);
     expect(p.lanes!.dag.nodes[2]!.marks).toContain("tag: v; %% a");
   });
-  it.each(['checkout missing', 'commit id:"x"; commit id:"x"', 'commit; merge main', 'commit; cherry-pick id:"missing"', 'commit type:BAD', 'commit; branch dev; commit id:"b"; checkout main; commit; merge dev id:"m"; branch fix; commit; cherry-pick id:"m"'])('tags invalid input: %s', body => {
+  it("accepts Mermaid's repeated commit ids as distinct annotated history nodes", () => {
+    const p = git('commit id:"x"; commit id:"x"');
+    const [later, first] = p.lanes!.dag.nodes;
+    expect(p.lanes!.dag.nodes).toHaveLength(2);
+    expect(later!.id).not.toBe("x");
+    expect(first!.id).toBe("x");
+    expect(later!.parents).toEqual(["x"]);
+    expect(later!.marks).toContain("id: x");
+    expect(p.notes.some(n => n.detail?.kind === "git-duplicate-id")).toBe(true);
+  });
+  it.each(['checkout missing', 'commit; merge main', 'commit; cherry-pick id:"missing"', 'commit type:BAD', 'commit; branch dev; commit id:"b"; checkout main; commit; merge dev id:"m"; branch fix; commit; cherry-pick id:"m"'])('tags invalid input: %s', body => {
     expect(() => git(body)).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_GIT_SYNTAX" }));
   });
 });

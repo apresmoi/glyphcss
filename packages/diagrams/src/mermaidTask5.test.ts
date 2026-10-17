@@ -31,7 +31,7 @@ describe("Mermaid block grids", () => {
     expect(glyphGraphFromMermaid("block\nblock\nX\nend").groups?.[0]?.members).toEqual(["X"]);
   });
   it.each(["chat", "web"] as const)("keeps unequal-label spans on equal columns in %s", async target => {
-    const result = await renderGlyphDiagram("block-beta\ncolumns 3\na[Alpha]:2 space\nb[Beta] c[Gamma]:2", { target, width: 72 });
+    const result = await renderGlyphDiagram("block-beta\ncolumns 3\na[\"Alpha\"]:2 space\nb[\"Beta\"] c[\"Gamma\"]:2", { target, width: 72 });
     const node = (id: string) => result.layout.nodes.find(n => n.id === id)!;
     const [a, b, c] = [node("a"), node("b"), node("c")];
     const gap = c.x0 - b.x1 - 1;
@@ -43,7 +43,7 @@ describe("Mermaid block grids", () => {
     expect(result.report.ledger).toEqual([]);
   });
   it.each(["chat", "web"] as const)("keeps nested frames within their allocated span bounds in %s", async target => {
-    const result = await renderGlyphDiagram("block\ncolumns 2\nblock:Group:2\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four]", { target, width: 72 });
+    const result = await renderGlyphDiagram("block\ncolumns 2\nblock:Group:2\ncolumns 2\na[\"One\"] b[\"Two\"]\nend\nc[\"Three\"] d[\"Four\"]", { target, width: 72 });
     const node = (id: string) => result.layout.nodes.find(n => n.id === id)!;
     const frame = glyphDiagramGroupRects(result.layout, { cols: 72, rows: result.canvas.rows }).get("Group")!;
     expect(frame.x0).toBe(node("c").x0);
@@ -63,7 +63,7 @@ describe("Mermaid block grids", () => {
     expect(result.report.ledger).toEqual([]);
   });
   it.each(["chat", "web"] as const)("keeps recursive spans, rows and frame insets at default %s height", async target => {
-    const result = await renderGlyphDiagram("block\ncolumns 2\nblock:Outer:2\ncolumns 2\nblock:Inner:2\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four]\nend\ne[Five] f[Six]", { target, width: 72 });
+    const result = await renderGlyphDiagram("block\ncolumns 2\nblock:Outer:2\ncolumns 2\nblock:Inner:2\ncolumns 2\na[\"One\"] b[\"Two\"]\nend\nc[\"Three\"] d[\"Four\"]\nend\ne[\"Five\"] f[\"Six\"]", { target, width: 72 });
     const frames = glyphDiagramGroupRects(result.layout, { cols: 72, rows: result.canvas.rows });
     const outer = frames.get("Outer")!, inner = frames.get("Inner")!;
     const node = (id: string) => result.layout.nodes.find(n => n.id === id)!;
@@ -94,7 +94,7 @@ describe("Mermaid block grids", () => {
     expect(result.report.ledger).toEqual([]);
   });
   it.each(["chat", "web"] as const)("uses each nested grid's own column count in %s", async target => {
-    const result = await renderGlyphDiagram("block\ncolumns 2\nblock:Outer:2\ncolumns 3\nblock:Inner:3\ncolumns 2\na[One] b[Two]\nend\nc[Three] d[Four] g[Seven]\nend\ne[Five] f[Six]", { target, width: 72 });
+    const result = await renderGlyphDiagram("block\ncolumns 2\nblock:Outer:2\ncolumns 3\nblock:Inner:3\ncolumns 2\na[\"One\"] b[\"Two\"]\nend\nc[\"Three\"] d[\"Four\"] g[\"Seven\"]\nend\ne[\"Five\"] f[\"Six\"]", { target, width: 72 });
     const frames = glyphDiagramGroupRects(result.layout, { cols: 72, rows: result.canvas.rows });
     const outer = frames.get("Outer")!, inner = frames.get("Inner")!;
     const node = (id: string) => result.layout.nodes.find(n => n.id === id)!;
@@ -109,7 +109,7 @@ describe("Mermaid block grids", () => {
     expect(result.report.ledger).toEqual([]);
   });
   it("wraps whole label words before reducing the authored column count", async () => {
-    const result = await renderGlyphDiagram("block\ncolumns 4\na[Alpha beta gamma] b[B] c[C] d[D]", { target: "chat", width: 72 });
+    const result = await renderGlyphDiagram("block\ncolumns 4\na[\"Alpha beta gamma\"] b[\"B\"] c[\"C\"] d[\"D\"]", { target: "chat", width: 72 });
     expect(new Set(result.layout.nodes.map(node => node.y0)).size).toBe(1);
     expect(new Set(result.layout.nodes.map(node => node.width)).size).toBe(1);
     expect(result.layout.nodes.find(node => node.id === "a")!.lines).toEqual(["Alpha beta", "gamma"]);
@@ -150,7 +150,7 @@ describe("Mermaid block grids", () => {
     expect(g.edges).toMatchObject([{ from: "a", to: "b", label: "hi; there" }, { style: "dotted" }, { style: "thick" }, { style: "undirected" }]);
   });
   it("wraps overwide rows before cutting words and logs the actual loss", async () => {
-    const result = await renderGlyphDiagram('block\ncolumns 8\na[Alpha] b[Beta] c[Gamma] d[Delta] e[Epsilon] f[Zeta] g[Eta] h[Theta]', { target: "chat", width: 72 });
+    const result = await renderGlyphDiagram("block\ncolumns 8\na[\"Alpha\"] b[\"Beta\"] c[\"Gamma\"] d[\"Delta\"] e[\"Epsilon\"] f[\"Zeta\"] g[\"Eta\"] h[\"Theta\"]", { target: "chat", width: 72 });
     expect(new Set(result.layout.nodes.map(n => n.y0)).size).toBeGreaterThan(1);
     expect(result.report.ledger.some(n => n.detail?.kind === "block-row-wrap")).toBe(true);
     expect(result.report.ledger.some(n => n.code === "word-cut")).toBe(false);
@@ -189,7 +189,7 @@ describe("Mermaid requirements", () => {
     expect(g.nodes[1]?.compartments).toEqual([["type: suite", "docref: https://example.test/a;b"]]);
   });
   it.each(["contains", "copies", "derives", "satisfies", "verifies", "refines", "traces"])("retains %s in either arrow orientation", label => {
-    const nodes = 'requirement a {\nid: 1\n}\nelement b {\ntype: test\n}';
+    const nodes = 'requirement a {\nid: 1\n}\nelement b {\ntype: "test"\n}';
     for (const relation of [`a - ${label} -> b`, `b <- ${label} - a`]) {
       expect(glyphGraphFromMermaid(`requirementDiagram\n${nodes}\n${relation}`).edges[0]).toMatchObject({ from: "a", to: "b", label });
     }
@@ -258,26 +258,26 @@ it("protects frontmatter, entity semicolons, quoted comments and inert configura
 
 it("does not invoke colour callbacks during rejected block-grid probes", async () => {
   let nodes = 0, edges = 0;
-  const result = await renderGlyphDiagram('block\ncolumns 2\na[Alpha] b[Beta]\na -- "lengthy caption" --> b', { target: "web", width: 72, nodeColor: () => { nodes++; return "#ff0000"; }, edgeColor: () => { edges++; return "#0000ff"; } });
+  const result = await renderGlyphDiagram("block\ncolumns 2\na[\"Alpha\"] b[\"Beta\"]\na -- \"lengthy caption\" --> b", { target: "web", width: 72, nodeColor: () => { nodes++; return "#ff0000"; }, edgeColor: () => { edges++; return "#0000ff"; } });
   expect(result.text).toContain("lengthy caption");
   expect(nodes).toBe(2); expect(edges).toBe(1);
   expect(result.report.ledger.some(n => n.detail?.kind === "block-layout")).toBe(true);
 });
 
 it("keeps unquoted multiword requirement names and strips only their markdown presentation", () => {
-  const graph = glyphGraphFromMermaid('requirementDiagram\nrequirement reader safety {\ntext: _Keep_ records\n}\nelement test suite {\n}\ntest suite - verifies -> reader safety');
+  const graph = glyphGraphFromMermaid("requirementDiagram\nrequirement reader safety {\ntext: \"_Keep_ records\"\n}\nelement test suite {\n}\ntest suite - verifies -> reader safety");
   expect(graph.nodes.map(n => n.id)).toEqual(["reader safety", "test suite"]);
   expect(graph.nodes[0]?.compartments).toEqual([["text: Keep records"]]);
   expect(graph.edges[0]).toMatchObject({ from: "test suite", to: "reader safety" });
 });
 
 it("retains block label updates at declared edge endpoints", () => {
-  const g = glyphGraphFromMermaid('block\na b[Old]\na --> b[New]');
+  const g = glyphGraphFromMermaid("block\na b[\"Old\"]\na --> b[\"New\"]");
   expect(g.nodes).toEqual([{ id: "a", label: "a" }, { id: "b", label: "New", shape: "rect" }]);
 });
 
 it("keeps shared block render option validation, simplified detail and height expansion", async () => {
-  const source = 'block\ncolumns 1\na(Alpha) b(Beta) c(Gamma)';
+  const source = "block\ncolumns 1\na(\"Alpha\") b(\"Beta\") c(\"Gamma\")";
   await expect(renderGlyphDiagram(source, { engine: "elk" })).rejects.toMatchObject({ code: "GLYPH_DIAGRAM_ELK_NOT_INSTALLED" });
   await expect(renderGlyphDiagram(source, { labelWidth: 0 })).rejects.toMatchObject({ code: "bad-options" });
   const expanded = await renderGlyphDiagram(source, { target: "chat", width: 72, height: 8, overflow: "expand" });
