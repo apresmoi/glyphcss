@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { queryObjects } from "node:v8";
+import { setImmediate } from "node:timers/promises";
 vi.hoisted(async () => {
   const { Window } = await import("happy-dom");
   const window = new Window({ url: "http://localhost/charts" });
@@ -57,9 +58,16 @@ describe("ChartsWorkbench mount retention", () => {
 
   // Counting live DOM instances forces GC without a heap-size threshold or a
   // Node heap flag. A detached preview also retains its ancestor workbench.
+  // V8 keeps WeakRef targets alive until the current job ends; on a loaded
+  // runner one event-loop turn is sometimes not enough, so allow a few turns.
+  // A strongly retained mount never drops, however many turns pass.
+  const settledCount = async () => {
+    for (let turn = 0; turn < 10 && queryObjects(window.HTMLPreElement) !== baseline; turn++) await setImmediate();
+    return queryObjects(window.HTMLPreElement);
+  };
   for (let cycle = 0; cycle < 8; cycle++) {
-    it(`releases the previous mount before cycle ${cycle + 1}`, () => {
-      expect(queryObjects(window.HTMLPreElement)).toBe(baseline);
+    it(`releases the previous mount before cycle ${cycle + 1}`, async () => {
+      expect(await settledCount()).toBe(baseline);
       const container = document.createElement("div");
       document.body.append(container);
       const root = createRoot(container);
@@ -72,7 +80,7 @@ describe("ChartsWorkbench mount retention", () => {
       }
     });
   }
-  it("releases the last mount", () => {
-    expect(queryObjects(window.HTMLPreElement)).toBe(baseline);
+  it("releases the last mount", async () => {
+    expect(await settledCount()).toBe(baseline);
   });
 });
