@@ -380,11 +380,13 @@ function foldTail(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions,
 
 /** One pass in flow order: a moved parent can straighten its children next. */
 export function glyphDiagramStraightenPorts(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions): GlyphDiagramAttempt {
+  const vertical = result.layout.direction === "TB" || result.layout.direction === "BT";
+  // Let vertical point chains repair box-centre rounding offsets; horizontal
+  // point layouts retain their established geometry.
   if (!result.okay || result.layout.loops.length
-    || ((result.layout.groups.length || result.layout.nodes.some(node => node.shape === "point"))
+    || ((result.layout.groups.length || !vertical && result.layout.nodes.some(node => node.shape === "point"))
       && !result.layout.edges.some(edge => (edge as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]))
     || options[GLYPH_DIAGRAM_WORK]?.terminal) return result;
-  const vertical = result.layout.direction === "TB" || result.layout.direction === "BT";
   const reverse = result.layout.direction === "BT" || result.layout.direction === "RL";
   const axis = vertical ? "x" : "y", low = vertical ? "x0" : "y0", high = vertical ? "x1" : "y1";
   const start = vertical ? "y0" : "x0", end = vertical ? "y1" : "x1";
