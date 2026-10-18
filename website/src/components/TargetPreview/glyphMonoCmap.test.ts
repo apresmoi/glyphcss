@@ -113,3 +113,12 @@ describe("Glyph Mono covers approved cloud, bang and hexagon outlines", () => {
     expect(glyphMonoCmapMissingGlyphs(required, complete)).toEqual([cp]);
   });
 });
+
+// The selected catalogue art, including semantic markers, must stay in the shipped font.
+describe("Glyph Mono covers catalogue shapes", () => {
+  const required = new Set(Array.from("┌┐└┘├┤┬┴│─╭╮╰╯◠◡╱╲◇╔╗╚╝═║╳●○━").map(glyph => glyph.codePointAt(0)!));
+  const available = new Set(cmapData.codepoints);
+  it("contains every selected outline and marker", () => {
+    expect(glyphMonoCmapMissingGlyphs(required, available)).toEqual([]);
+  });
+});

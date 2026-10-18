@@ -1,3 +1,4 @@
+import { glyphDiagramCatalogueArt, glyphDiagramCatalogueShape } from "./catalogueShapes";
 import { glyphDiagramStateDividers } from "./stateFrame";
 import { GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion, GLYPH_MERMAID_STATE_FRAME, type GlyphMermaidStateFrame } from "./layoutHints";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramDiamondGlyph } from "./presentation";
@@ -31,6 +32,8 @@ import type { GlyphGraphNodeShape, GlyphGraphEdgeHead } from "./types";
  * here must be present in the website's own Glyph Mono subset
  * (`website/src/components/TargetPreview/glyphMonoCmap.test.ts`).
  *
+ * Catalogue defaults and their ASCII transliterations live in
+ * `catalogueShapes.ts`: shared with measurement so multi-row art cannot clip.
  * Additional approved shapes: cloud uses round corners and scalloped rules;
  * bang uses star corners and alternating diagonals; hexagon uses slanted
  * corners and ❬/❭ sides (U+276C/U+276D) on every interior row.
@@ -348,6 +351,20 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     // the footprint, which is what keeps routes out of a node's interior.
     canvas.fillRect(x0, y0, x1, y1, { fill: { shade: 0 }, bg: null });
     if (node.shape === "point") { paintPoint(node, nodeColor); continue; }
+    if (glyphDiagramCatalogueShape(node.shape)) {
+      const art = glyphDiagramCatalogueArt(node.shape, node.lines, charset, node.width, node.height);
+      art.rows.forEach((row, y) => canvas.text(x0, y0 + y, [row], { color: nodeColor }));
+      // The footprint owns inset contours and external labels; bridge only blank
+      // side padding so ports reach the art without replacing its identity glyph.
+      for (const port of layout.ports.filter(port => port.nodeId === node.id && routing.routes.some(route => route.edge.id === port.edgeId))) {
+        const row = art.rows[port.anchor.y - y0];
+        if (!row) continue;
+        const from = port.side === "w" ? 0 : row.trimEnd().length;
+        const to = port.side === "w" ? row.search(/\S/) : node.width;
+        for (let x = from; x < to; x++) canvas.text(x0 + x, port.anchor.y, [tier.straight.h], { color: nodeColor });
+      }
+      continue;
+    }
     // Every edge and corner is painted cell-by-cell through `canvas.text`
     // rather than `canvas.line()` — a per-shape RULE glyph (`circle`'s
     // `◠`/`◡`) has no `canvas.line()` equivalent, and going per-cell
@@ -374,16 +391,16 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       || !routing.routes.some(route => route.edge.id === edge.id)) continue;
     canvas.text(port.anchor.x, port.anchor.y, [port.side === "n" || port.side === "s" ? tier.straight.v : tier.straight.h], { color: routeColors.get(edge.id)! });
   }
-  const hexagons = new Set(layout.nodes.filter(node => node.shape === "hexagon").map(node => node.id));
+  const preservedOutlines = new Set(layout.nodes.filter(node => node.shape === "hexagon" || glyphDiagramCatalogueShape(node.shape)).map(node => node.id));
   const exits = new Set<string>();
-  for (const port of layout.ports) if (port.end === "from" && port.trunk && !hexagons.has(port.nodeId) && routing.routes.some(route => route.edge.id === port.edgeId)) {
+  for (const port of layout.ports) if (port.end === "from" && port.trunk && !preservedOutlines.has(port.nodeId) && routing.routes.some(route => route.edge.id === port.edgeId)) {
     const key = `${port.anchor.x},${port.anchor.y}`;
     if (exits.has(key)) continue;
     exits.add(key);
     const mask = { n: 11, e: 7, s: 14, w: 13 }[port.side];
     canvas.text(port.anchor.x, port.anchor.y, [tier.junction[mask]!], { color: nodeColors.get(port.nodeId)! });
   }
-  // Hexagon sides keep their silhouette; heads use the adjacent escape cell,
+  // Approved silhouettes keep their outline; heads use the adjacent escape cell,
   // already protected by the router's port lanes. Other shapes keep border tips.
   for (const route of routing.routes) for (const end of ["from", "to"] as const) {
     const head = end === "from" ? route.edge.startHead ?? "none" : route.edge.endHead ?? (route.edge.style === "undirected" ? "none" : "arrow");
@@ -403,7 +420,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     }
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
     const color = edgeAccentColors.get(route.edge.id)!;
-    const at = hexagons.has(port.nodeId) ? port.escape : port.anchor;
+    const at = preservedOutlines.has(port.nodeId) ? port.escape : port.anchor;
     if (head === "arrow") canvas.arrowhead(at.x, at.y, opposite[port.side], { color });
     else paintMarker(head, at, port.side, color);
   }
@@ -416,7 +433,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
   ledger.push(...labels.ledger);
   // A node owns its interior label slot; external labels see the entire node as an obstacle.
   for (const node of layout.nodes) {
-    if (node.shape === "point") continue;
+    if (node.shape === "point" || glyphDiagramCatalogueShape(node.shape)) continue;
     const innerWidth = node.width - 2 - (node.shape === "subroutine" ? 2 : 0);
     const top = node.y0 + Math.floor((node.height - node.lines.length) / 2);
     const nodeColor = nodeColors.get(node.id)!;

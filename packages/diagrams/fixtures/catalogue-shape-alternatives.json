@@ -1,0 +1,364 @@
+[
+  {
+    "id": "doc-3",
+    "shape": "doc",
+    "name": "alternating wave",
+    "rows": 3,
+    "cols": 7,
+    "glyphMonoAdditions": [],
+    "drawing": "┌─────┐\n│ Doc │\n╰◡◠◡◠◡╯",
+    "ascii": "+-----+\n| Doc |\n+~~~~~+"
+  },
+  {
+    "id": "docs-2",
+    "shape": "docs",
+    "name": "multi-document - 3",
+    "rows": 5,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "  ┌──────┐\n ┌──────┐│\n┌──────┐│┘\n│ Docs │┘\n╰◡◡◡◡◡◡╯",
+    "ascii": "  +------+\n +------+|\n+------+|+\n| Docs |+\n+~~~~~~+"
+  },
+  {
+    "id": "docs-3",
+    "shape": "docs",
+    "name": "compact stack cue",
+    "rows": 3,
+    "cols": 9,
+    "glyphMonoAdditions": [],
+    "drawing": "┌──────┐┐\n│ Docs ││\n╰◡◡◡◡◡◡╯┘",
+    "ascii": "+------++\n| Docs ||\n+~~~~~~++"
+  },
+  {
+    "id": "st-rect-2",
+    "shape": "st-rect",
+    "name": "stacked boxes - 3",
+    "rows": 5,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "  ┌──────┐\n ┌──────┐│\n┌──────┐│┘\n│ Data │┘\n└──────┘",
+    "ascii": "  +------+\n +------+|\n+------+|+\n| Data |+\n+------+"
+  },
+  {
+    "id": "st-rect-3",
+    "shape": "st-rect",
+    "name": "compact stack cue",
+    "rows": 3,
+    "cols": 9,
+    "glyphMonoAdditions": [],
+    "drawing": "┌──────┐┐\n│ Data ││\n└──────┘┘",
+    "ascii": "+------++\n| Data ||\n+------++"
+  },
+  {
+    "id": "notch-rect-2",
+    "shape": "notch-rect",
+    "name": "stepped card",
+    "rows": 3,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": " ┌─────┐\n┌┘Card │\n└──────┘",
+    "ascii": " +-----+\n++Card |\n+------+"
+  },
+  {
+    "id": "lin-rect-2",
+    "shape": "lin-rect",
+    "name": "shaded left strip",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌─┬──────┐\n│░│ Node │\n└─┴──────┘",
+    "ascii": "+-+------+\n|.| Node |\n+-+------+"
+  },
+  {
+    "id": "lean-r-2",
+    "shape": "lean-r",
+    "name": "tight lean right",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "  ╱──────╱\n ╱ Node ╱\n╱──────╱",
+    "ascii": "  /------/\n / Node /\n/------/"
+  },
+  {
+    "id": "lean-l-2",
+    "shape": "lean-l",
+    "name": "tight lean left",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "╲──────╲\n ╲ Node ╲\n  ╲──────╲",
+    "ascii": "\\------\\\n \\ Node \\\n  \\------\\"
+  },
+  {
+    "id": "trap-t-2",
+    "shape": "trap-t",
+    "name": "stepped wide top",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────┐\n└┐ Node ┌┘\n └──────┘",
+    "ascii": "+--------+\n++ Node ++\n +------+"
+  },
+  {
+    "id": "trap-b-2",
+    "shape": "trap-b",
+    "name": "stepped wide bottom",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": " ┌──────┐\n┌┘ Node └┐\n└────────┘",
+    "ascii": " +------+\n++ Node ++\n+--------+"
+  },
+  {
+    "id": "delay-2",
+    "shape": "delay",
+    "name": "arc right cap",
+    "rows": 3,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "┌──────◝\n│ Node │\n└──────◞",
+    "ascii": "+------)\n| Node |\n+------)"
+  },
+  {
+    "id": "bow-rect-2",
+    "shape": "bow-rect",
+    "name": "stepped concave sides",
+    "rows": 5,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "┌──────┐\n└┐    ┌┘\n │Node│\n┌┘    └┐\n└──────┘",
+    "ascii": "+------+\n++    ++\n |Node|\n++    ++\n+------+"
+  },
+  {
+    "id": "tri-2",
+    "shape": "tri",
+    "name": "label-sized triangle",
+    "rows": 5,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "   ╱╲\n  ╱  ╲\n ╱    ╲\n╱ Node ╲\n────────",
+    "ascii": "   /\\\n  /  \\\n /    \\\n/ Node \\\n--------"
+  },
+  {
+    "id": "tri-3",
+    "shape": "tri",
+    "name": "triangle marker",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────┐\n│ △ Node │\n└────────┘",
+    "ascii": "+--------+\n| ^ Node |\n+--------+"
+  },
+  {
+    "id": "flip-tri-2",
+    "shape": "flip-tri",
+    "name": "label-sized inverted triangle",
+    "rows": 5,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "────────\n╲ Node ╱\n ╲    ╱\n  ╲  ╱\n   ╲╱",
+    "ascii": "--------\n\\ Node /\n \\    /\n  \\  /\n   \\/"
+  },
+  {
+    "id": "flip-tri-3",
+    "shape": "flip-tri",
+    "name": "inverted triangle marker",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────┐\n│ ▽ Node │\n└────────┘",
+    "ascii": "+--------+\n| v Node |\n+--------+"
+  },
+  {
+    "id": "flag-2",
+    "shape": "flag",
+    "name": "banner without arrowhead",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────╲\n│ Banner │\n└────────╱",
+    "ascii": "+--------\\\n| Banner |\n+--------/"
+  },
+  {
+    "id": "dbl-circ-2",
+    "shape": "dbl-circ",
+    "name": "nested round contours",
+    "rows": 5,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "╭────────╮\n│╭──────╮│\n││ Node ││\n│╰──────╯│\n╰────────╯",
+    "ascii": "+--------+\n|+------+|\n|| Node ||\n|+------+|\n+--------+"
+  },
+  {
+    "id": "cross-circ-2",
+    "shape": "cross-circ",
+    "name": "ellipse with summary mark",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "◜◠◠◠◠◠◠◠◠◝\n│ ╳ Node │\n◟◡◡◡◡◡◡◡◡◞",
+    "ascii": "(~~~~~~~~)\n| x Node |\n(~~~~~~~~)"
+  },
+  {
+    "id": "fr-circ-2",
+    "shape": "fr-circ",
+    "name": "frame around ellipse",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────┐\n│( Node )│\n└────────┘",
+    "ascii": "+--------+\n|( Node )|\n+--------+"
+  },
+  {
+    "id": "f-circ-2",
+    "shape": "f-circ",
+    "name": "larger junction",
+    "rows": 1,
+    "cols": 6,
+    "glyphMonoAdditions": [
+      "U+2B24"
+    ],
+    "drawing": "⬤ Node",
+    "ascii": "* Node"
+  },
+  {
+    "id": "sm-circ-2",
+    "shape": "sm-circ",
+    "name": "small start ring",
+    "rows": 1,
+    "cols": 6,
+    "glyphMonoAdditions": [],
+    "drawing": "◦ Node",
+    "ascii": "o Node"
+  },
+  {
+    "id": "h-cyl-2",
+    "shape": "h-cyl",
+    "name": "lens right end",
+    "rows": 3,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "┌──────╮\n│ Data )\n└──────╯",
+    "ascii": "+------+\n| Data )\n+------+"
+  },
+  {
+    "id": "datastore-2",
+    "shape": "datastore",
+    "name": "heavy open store",
+    "rows": 3,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "━━━━━━━━\n  Data\n━━━━━━━━",
+    "ascii": "--------\n  Data\n--------"
+  },
+  {
+    "id": "bucket-2",
+    "shape": "bucket",
+    "name": "bucket with rim seam",
+    "rows": 4,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "╭────────╮\n├────────┤\n╲  Data  ╱\n ╰──────╯",
+    "ascii": "+--------+\n+--------+\n\\  Data  /\n +------+"
+  },
+  {
+    "id": "text-2",
+    "shape": "text",
+    "name": "padded text",
+    "rows": 3,
+    "cols": 6,
+    "glyphMonoAdditions": [],
+    "drawing": "      \n Node \n      ",
+    "ascii": "      \n Node \n      "
+  },
+  {
+    "id": "fork-2",
+    "shape": "fork",
+    "name": "labelled heavy bar",
+    "rows": 2,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "━━━━━━━━\n  Node",
+    "ascii": "--------\n  Node"
+  },
+  {
+    "id": "fork-3",
+    "shape": "fork",
+    "name": "solid bar",
+    "rows": 2,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "████████\n  Node",
+    "ascii": "########\n  Node"
+  },
+  {
+    "id": "brace-2",
+    "shape": "brace",
+    "name": "comment - left rail",
+    "rows": 3,
+    "cols": 6,
+    "glyphMonoAdditions": [],
+    "drawing": "╷\n│ Note\n╵",
+    "ascii": "+\n| Note\n+"
+  },
+  {
+    "id": "brace-3",
+    "shape": "brace",
+    "name": "literal brace",
+    "rows": 1,
+    "cols": 6,
+    "glyphMonoAdditions": [],
+    "drawing": "{ Note",
+    "ascii": "{ Note"
+  },
+  {
+    "id": "brace-r-2",
+    "shape": "brace-r",
+    "name": "literal right brace",
+    "rows": 1,
+    "cols": 6,
+    "glyphMonoAdditions": [],
+    "drawing": "Note }",
+    "ascii": "Note }"
+  },
+  {
+    "id": "braces-2",
+    "shape": "braces",
+    "name": "literal paired braces",
+    "rows": 1,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": "{ Note }",
+    "ascii": "{ Note }"
+  },
+  {
+    "id": "console-2",
+    "shape": "console",
+    "name": "compact terminal",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────┐\n│ $ Node │\n└────────┘",
+    "ascii": "+--------+\n| $ Node |\n+--------+"
+  },
+  {
+    "id": "person-2",
+    "shape": "person",
+    "name": "previous actor with label",
+    "rows": 3,
+    "cols": 8,
+    "glyphMonoAdditions": [],
+    "drawing": " ●\n╱│╲ User\n╱ ╲",
+    "ascii": " *\n/|\\ User\n/ \\"
+  },
+  {
+    "id": "person-3",
+    "shape": "person",
+    "name": "boxed actor marker",
+    "rows": 3,
+    "cols": 10,
+    "glyphMonoAdditions": [],
+    "drawing": "┌────────┐\n│ ○ User │\n└────────┘",
+    "ascii": "+--------+\n| o User |\n+--------+"
+  }
+]
