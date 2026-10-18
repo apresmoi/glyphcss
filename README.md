@@ -12,7 +12,7 @@
 
 ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace character grid in a single `<pre>`. No WebGL, no canvas, no per-polygon DOM.
 
-<img src="assets/banner.webp" alt="An apple, a castle, a house and the Colosseum rendered as coloured text by glyphcss, each spinning on its vertical axis" width="100%">
+![glyphcss — ETOPO1 world topography rasterised to ASCII](assets/banner.png)
 
 Loads OBJ, glTF, GLB, STL, and MagicaVoxel `.vox` files. Supports wireframe, solid, voxel, and ink render modes with swappable glyph palettes.
 
