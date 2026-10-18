@@ -21,7 +21,7 @@ export function parseGlyphDiagramJson(json: string): unknown {
 }
 
 export const GLYPH_GRAPH_DIRECTIONS: readonly GlyphGraphDirection[] = ["TB", "LR", "BT", "RL"];
-export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point", "compartment"];
+export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point", "compartment", "cloud", "bang", "hexagon"];
 export const GLYPH_GRAPH_EDGE_STYLES: readonly GlyphGraphEdgeStyle[] = ["solid", "dotted", "thick", "undirected"];
 export const GLYPH_GRAPH_EDGE_HEADS: readonly GlyphGraphEdgeHead[] = ["arrow", "circle", "cross", "none", "triangle", "filled-diamond", "open-diamond", "er-one", "er-zero-one", "er-many", "er-zero-many"];
 export const GLYPH_GRAPH_KEYS = ["nodes", "edges", "groups", "direction"];

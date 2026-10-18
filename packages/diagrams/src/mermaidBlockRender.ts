@@ -1,5 +1,5 @@
 import { GLYPH_MERMAID_BLOCK, type GlyphMermaidBlockGraph, type GlyphMermaidBlockGrid } from "./mermaidStructured";
-import { measureGlyphGraph, validateGlyphDiagramLayoutOptions, glyphDiagramPortOffsets, glyphDiagramWords, type GlyphDiagramLayout, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort, type GlyphDiagramRect, GLYPH_DIAGRAM_GROUP_PAD } from "./pipeline";
+import { measureGlyphGraph, validateGlyphDiagramLayoutOptions, glyphDiagramPortOffsets, glyphDiagramNodePortSide, glyphDiagramWords, type GlyphDiagramLayout, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort, type GlyphDiagramRect, GLYPH_DIAGRAM_GROUP_PAD } from "./pipeline";
 import { GLYPH_DIAGRAM_GROUP_BOUNDS } from "./layoutHints";
 import { routeGlyphGraphEdges } from "./route";
 import { paintGlyphDiagram } from "./paint";
@@ -119,7 +119,7 @@ export function glyphTryRenderMermaidBlock(graph: GlyphMermaidBlockGraph, notes:
     else if (to.x1 < from.x0 && from.y0 <= to.y1 && to.y0 <= from.y1) { side = "w"; other = "e"; }
     else if (from.y1 < to.y0) { side = "s"; other = "n"; }
     else { side = "n"; other = "s"; }
-    desired.push({ edgeId: edge.id, nodeId: from.id, end: "from", side }, { edgeId: edge.id, nodeId: to.id, end: "to", side: other });
+    desired.push({ edgeId: edge.id, nodeId: from.id, end: "from", side: glyphDiagramNodePortSide(from, side) }, { edgeId: edge.id, nodeId: to.id, end: "to", side: glyphDiagramNodePortSide(to, other) });
   }
   const ports: GlyphDiagramPositionedPort[] = [];
   for (const node of nodes) for (const side of ["n", "e", "s", "w"] as const) {

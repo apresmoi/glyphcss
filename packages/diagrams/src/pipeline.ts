@@ -213,6 +213,12 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
 }
 const sides: Record<GlyphGraph["direction"], readonly [GlyphCanvasDirection, GlyphCanvasDirection]> = { TB: ["s", "n"], BT: ["n", "s"], LR: ["e", "w"], RL: ["w", "e"] };
 
+/** Approved ornate outlines attach on interior rows, leaving their rules intact. */
+export function glyphDiagramNodePortSide(node: GlyphGraphNode, side: GlyphCanvasDirection): GlyphCanvasDirection {
+  return node.shape === "cloud" || node.shape === "bang" || node.shape === "hexagon"
+    ? side === "n" ? "w" : side === "s" ? "e" : side : side;
+}
+
 /** Preserve slot order/spacing while keeping side ports off compartment rules and corners. */
 export function glyphDiagramPortOffsets(node: GlyphDiagramMeasuredNode, side: GlyphCanvasDirection, desired: readonly number[]): number[] | undefined {
   if (node.shape !== "compartment" || side === "n" || side === "s") return [...desired];
@@ -247,7 +253,12 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
   // Closing edges use transverse ports, not the flow sides.
   const backSide = loopSide === "e" ? "w" : "n";
   const pointIds = new Set(measured.nodes.filter((node) => node.shape === "point").map((node) => node.id));
-  const edgeSide = (edge: GlyphDiagramEdge, end: "from" | "to") => back.has(edge.id) && !pointIds.has(end === "from" ? edge.from : edge.to) ? backSide : end === "from" ? fromSide : toSide;
+  const edgeSide = (edge: GlyphDiagramEdge, end: "from" | "to") => {
+    const node = measured.nodes.find(node => node.id === edge[end])!;
+    const side = glyphDiagramNodePortSide(node, back.has(edge.id) && !pointIds.has(edge[end]) ? backSide : end === "from" ? fromSide : toSide);
+    // Ornate nodes keep their east side for loops; flow ports need separate slots.
+    return glyphDiagramNodePortSide(node, "s") === "e" && side === "e" && measured.loops.some(loop => loop.nodeId === node.id) ? "w" : side;
+  };
   const nodes = measured.nodes.map((node) => {
     let width = node.width, height = node.height;
     // A point has no border to keep ports off its corners: k ports need 2k - 1 cells. Along the flow it also holds what its
@@ -292,9 +303,10 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       const entries = flow.filter((e) => e.to === node.id && !(e as GlyphMermaidStateFrame)[GLYPH_MERMAID_STATE_FRAME]?.to).length, along = entries === 0 ? 1 : entries === 1 ? 2 : 3;
       if (loopSide === "e") height = Math.max(height, along); else width = Math.max(width, along);
     }
-    const loops = glyphDiagramLoopSlots(measured.loops.filter((loop) => loop.nodeId === node.id), loopSide);
+    const nodeLoopSide = glyphDiagramNodePortSide(node, loopSide);
+    const loops = glyphDiagramLoopSlots(measured.loops.filter((loop) => loop.nodeId === node.id), nodeLoopSide);
     if (node.shape === "compartment") {
-      if (loopSide === "e") height = Math.max(height, loops.length); else width = Math.max(width, loops.length);
+      if (nodeLoopSide === "e") height = Math.max(height, loops.length); else width = Math.max(width, loops.length);
     }
     const desired = (side: GlyphCanvasDirection) => {
       const slots = slotsOn(side), count = sharedFanSide(slots) ? Math.min(1, slots.length) : slots.length;
@@ -303,7 +315,7 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
     };
     const loopDesired = loops.slots.flatMap(slot => [slot.exit, slot.entry]);
     if (node.shape === "compartment") while ((["e", "w"] as const).some(side => !glyphDiagramPortOffsets({ ...node, height }, side, desired(side)))
-      || !glyphDiagramPortOffsets({ ...node, height }, loopSide, loopDesired)) height++;
+      || !glyphDiagramPortOffsets({ ...node, height }, nodeLoopSide, loopDesired)) height++;
     for (const side of ["n", "e", "s", "w"] as const) {
       const slots = slotsOn(side);
       const offsets = glyphDiagramPortOffsets({ ...node, height }, side, desired(side))!;
@@ -311,9 +323,9 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
         nodeId: node.id, side, offset: offsets[sharedFanSide(slots) ? 0 : index]!,
         ...(connections.length > 1 || sharedFanSide(slots) ? { trunk: key } : {}) })));
     }
-    if (loopSide === "e") height = Math.max(height, loops.length); else width = Math.max(width, loops.length);
-    const loopOffsets = glyphDiagramPortOffsets({ ...node, height }, loopSide, loopDesired)!;
-    loops.slots.forEach((slot, i) => ports.push({ edgeId: slot.edgeId, nodeId: node.id, end: "from", side: loopSide, offset: loopOffsets[2 * i]! }, { edgeId: slot.edgeId, nodeId: node.id, end: "to", side: loopSide, offset: loopOffsets[2 * i + 1]! }));
+    if (nodeLoopSide === "e") height = Math.max(height, loops.length); else width = Math.max(width, loops.length);
+    const loopOffsets = glyphDiagramPortOffsets({ ...node, height }, nodeLoopSide, loopDesired)!;
+    loops.slots.forEach((slot, i) => ports.push({ edgeId: slot.edgeId, nodeId: node.id, end: "from", side: nodeLoopSide, offset: loopOffsets[2 * i]! }, { edgeId: slot.edgeId, nodeId: node.id, end: "to", side: nodeLoopSide, offset: loopOffsets[2 * i + 1]! }));
     return { ...node, width, height };
   });
   for (const edge of flow) for (const end of ["from", "to"] as const) {
@@ -685,7 +697,7 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
   }
   const compartmentLanes = options[GLYPH_DIAGRAM_COMPARTMENT_LANES] && !includedGroups.length && !reserved.loops.length && !back.size && nodes.every(node => node.shape === "compartment");
   let planned = reserved.ports.map(port => {
-    if (backSides.has(port.edgeId) && byId.get(port.nodeId)!.shape !== "point") return { ...port, side: backSides.get(port.edgeId)! };
+    if (backSides.has(port.edgeId) && byId.get(port.nodeId)!.shape !== "point") return { ...port, side: glyphDiagramNodePortSide(byId.get(port.nodeId)!, backSides.get(port.edgeId)!) };
     if (compartmentLanes) {
       const edge = reserved.edges.find(edge => edge.id === port.edgeId)!;
       const points = g.edge({ v: edge.from, w: edge.to, name: edge.id }).points as GlyphCanvasPoint[];

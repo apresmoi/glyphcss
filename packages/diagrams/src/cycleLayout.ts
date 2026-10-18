@@ -1,5 +1,5 @@
 import { glyphDiagramNodeText } from "./presentation";
-import { backEdgeIds, glyphDiagramWrap, glyphDiagramPortOffsets, GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramPositionedPort } from "./pipeline";
+import { backEdgeIds, glyphDiagramWrap, glyphDiagramPortOffsets, glyphDiagramNodePortSide, GLYPH_DIAGRAM_DIRECTIONS, type GlyphDiagramEdge, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramPositionedPort } from "./pipeline";
 import type { GlyphCanvasDirection, GlyphCanvasTierName } from "glyphcss";
 
 interface GlyphDiagramCyclePaths {
@@ -55,7 +55,7 @@ export function glyphDiagramCyclePaths(measured: GlyphDiagramMeasuredGraph): Gly
 /** Keep a cycle's forward path in one row, side paths below it, and its return above. */
 export function glyphDiagramCycleLayout(measured: GlyphDiagramMeasuredGraph, options: { width: number; gap: number; margin: number; labelWidth?: number; charset?: GlyphCanvasTierName },
   paths = glyphDiagramCyclePaths(measured)): GlyphDiagramLayout | undefined {
-  if (!paths) return undefined;
+  if (!paths || measured.nodes.some(node => glyphDiagramNodePortSide(node, "n") !== "n")) return undefined;
   const { spine, band, feederIds, back, forward } = paths;
   const main = new Set(spine);
   const feeders = measured.nodes.filter(node => feederIds.has(node.id));

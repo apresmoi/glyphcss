@@ -1,6 +1,6 @@
 # Diagrams
 
-No scene/ELK. Labels: `</br>` wherever `<br>` works.
+No scene/ELK. Labels: `</br>` = `<br>`.
 
 ## Sequence (`./sequence`)
 
@@ -26,7 +26,7 @@ Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`
 - Lane cap: total columns; collapse keeps row/label (`lane-cap-collapsed`). Degrade cap → page (node+connectors) → truncate.
 
 - gitGraph → lanes: tags/types/provenance text; pick parent=head. Ids: stable 7-digit hex; avoid collisions; duplicate authored ids → distinct nodes + id text/log. TB/LR oldest-first, BT newest-first; log LR/config fallback. Lanes: main/unordered/numeric; mainBranchOrder overrides. Scalar name/order/visibility; strip YAML comments. `GLYPH_MERMAID_GIT_SYNTAX`.
-- Mindmap: LR tree; uneven dedents/repeats/apostrophes. Bang/cloud/default rounded; hex rect. Icons/classes/config inert; plain markdown/log fallbacks. `GLYPH_MERMAID_MINDMAP_SYNTAX`.
+- Mindmap: LR tree; uneven dedents/repeats/apostrophes. Native cloud/bang/hexagon; rounded default. Icons/classes/config inert; markdown plain/logged. `GLYPH_MERMAID_MINDMAP_SYNTAX`.
 
 ## Class/ER
 
@@ -47,16 +47,17 @@ Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`
 
 ## Contracts
 
+- Cloud/bang/hexagon: e/w; phase after corner; hex ❬❭/<> persist; heads outside.
 - Ledger: `{ code, message, detail? }`; inert config: `mermaid-degraded`.
 - `unroutable`: final output; non-fitting: `layout-overflow`, never `routing-attempt`. JSON: `GLYPH_DIAGRAM_BAD_JSON`; ELK: `GLYPH_DIAGRAM_ELK_NOT_INSTALLED`.
-- Mermaid: `@glyphcss/core/mermaid` preprocessing + grammar scanners. `classDiagram-v2`/`flowchart-elk`: normalise/log layout; bare flow/graph: TB. `mermaidShapes.ts`; inert assets, `mermaid-degraded`. Diamonds: measured/painted, not text/meta; source/graph parity. Clean: keep markers; troubled: drop all if better (`diamond-markers-dropped`), even faithful; keep authored/state glyphs. Heads: `types.ts`; bidirectional: one edge; invisible: layout only. Log fallbacks. Parse once; metadata by link id.
+- Mermaid: core prep/scan. `classDiagram-v2`/`flowchart-elk` normalise/log; bare flow/graph TB. `mermaidShapes.ts`; assets inert/log `mermaid-degraded`. Diamonds measure/paint, not text/meta; source/graph parity. Keep clean markers; troubled drop all if better (`diamond-markers-dropped`), even faithful; authored/state glyphs stay. `types.ts` heads; bidirectional one edge; invisible layout-only. Log fallbacks; parse once; link-id meta.
 - Styles/interactions/comments inert; classDiagram `class` declares nodes. `label-folded`; blank rows: no text/ledger; loops reserve them. Wrapped labels: `edge-row:` + JSON `[edgeId, rowIndex]`; own ids/colours. Compaction floor: connections, not loops.
-- `stateDiagram` → graph IR. Start/end: one glyph `point` per scope/region; `kind` is informational. Choice: diamond.
+- `stateDiagram` → graph IR. Start/end: one glyph `point` per scope/region; `kind`: informational. Choice: diamond.
 - Points: glyph; k ports need 2k-1 transverse cells. Equal heads share bars/tips; mixed: own ports. Exit junctions on glyph row. LR snake: two-column padding. Self-edge: `point-loop`.
 - Composites: empty → state; concurrent: one frame edge/rank-only peers; others: start/first in, end/last out. Ports clear captions/dividers (≥2); align frame/root units. Self: `state-composite-loop`; sole point → rounded (`state-point-loop`).
 - Labelled regions: perpendicular fit; caption room once. Confine routes; drawn borders/dividers block captions and penalize routes.
 - States: reused ids → `state-shared`; equal groups: `parent`. Quotes after `state` only. `--`: scoped markers/dividers, no rings; authored regions across flow. Symbols: copies, not JSON. Omit/log empty regions. Notes → rows (composite → first child); fork/join → rounded. Nested direction/styles/config inert. Log fallbacks; bad notes/separators: named errors.
-- Self-edges: 4-cell loops: `e` (TB/BT), `s` (LR/RL). Dagre dummy only if needed. Wrap at `loopLabelWidth`, one cell past loop; include in frames/snake.
+- Self-edges: 4-cell loops: `e` (TB/BT or ornate), `s` (other LR/RL). Dagre dummy only if needed. Wrap at `loopLabelWidth`, one cell past loop; include in frames/snake.
 - Loops authored-first. Flat LR: spine/top return/feeders below targets; stack joins by column, reserve clearance, rewrap, merge bottom centres. Side joins exit laterally; margin 0 before Dagre. Other cycles: Dagre/snake.
 - Share borders before cuts/splits; wrap after `+/:`; split hyphens beyond width; log `word-cut`.
 - Fit caps: 256 expansions/128 gutters/384 routes; shared 2,500,000 units; charge sparse/nested Dagre; no resets/partial probes. Reuse routes. Exhaustion: fit/panels + captions (`render-work-limited`). Cache ≤32 clean fits; clone, key symbols/options; bypass terminal/limited work. Grow shortest first.

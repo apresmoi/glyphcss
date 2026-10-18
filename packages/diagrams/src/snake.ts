@@ -1,5 +1,5 @@
 import type { GlyphCanvasDirection } from "glyphcss";
-import { GLYPH_DIAGRAM_DIRECTIONS, backEdgeIds, glyphDiagramPointCell, glyphDiagramPortOffsets, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort } from "./pipeline";
+import { GLYPH_DIAGRAM_DIRECTIONS, backEdgeIds, glyphDiagramPointCell, glyphDiagramPortOffsets, glyphDiagramNodePortSide, type GlyphDiagramLayout, type GlyphDiagramMeasuredGraph, type GlyphDiagramMeasuredNode, type GlyphDiagramPositionedNode, type GlyphDiagramPositionedPort } from "./pipeline";
 import { ledgerLayoutWrapped } from "./ledger";
 import { glyphDiagramLoopGeometry, glyphDiagramLoopSlots, type GlyphDiagramLoopSlot } from "./loop";
 
@@ -31,7 +31,8 @@ const gapAt = (gap: number | readonly number[], row: number) => typeof gap === "
  * hang under its anchor.
  */
 export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, options: GlyphDiagramSnakeOptions): GlyphDiagramLayout | undefined {
-  if (measured.direction !== "LR" || measured.groups.length > 0) return undefined;
+  if (measured.direction !== "LR" || measured.groups.length > 0
+    || measured.loops.some(loop => glyphDiagramNodePortSide(measured.nodes.find(node => node.id === loop.nodeId)!, "s") !== "s")) return undefined;
   const { width, gap, margin, branchGap, rowGap, reverseRows } = options;
   const order = new Map(measured.nodes.map((node, i) => [node.id, i]));
   const back = backEdgeIds(measured.nodes, measured.edges);
@@ -102,7 +103,7 @@ export function glyphDiagramSnakeLayout(measured: GlyphDiagramMeasuredGraph, opt
     };
     const placed = place(spine, anchor, measured.nodes, sizes, overhang, between, lead, loopDepth, turnOffset, { width, margin, gap, branchGap, rowGap, reverseRows }, pitch);
     if (!placed) return undefined;
-    const sides = portSides(flow, placed.rects, pointIds);
+    const sides = portSides(flow, placed.rects, pointIds).map(port => ({ ...port, side: glyphDiagramNodePortSide(measured.nodes.find(node => node.id === port.nodeId)!, port.side) }));
     const grown = growForPorts(measured, sizes, sides, loopsOf);
     if (grown) { sizes = grown; continue; }
     const ports = [...straightenDrops(flow, anchor, assignPorts(measured, sides, placed.rects, loopsOf), placed.rects, loopsOf), ...loopPorts(measured, placed.rects, loopsOf)];

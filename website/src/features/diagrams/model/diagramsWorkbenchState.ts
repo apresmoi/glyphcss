@@ -1098,6 +1098,9 @@ export function glyphDiagramsWorkbenchMermaid(graph: GlyphGraph): string {
   const shapes = {
     rect: ["[", "]"],
     rounded: ["(", ")"],
+    cloud: ['@{shape:cloud,label:', '}'],
+    bang: ['@{shape:bang,label:', '}'],
+    hexagon: ["{{", "}}"],
     diamond: ["{", "}"],
     circle: ["((", "))"],
     subroutine: ["[[", "]]"],

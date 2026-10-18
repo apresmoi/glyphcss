@@ -98,3 +98,18 @@ describe("Glyph Mono cmap covers every glyph the canvas tiers can emit", () => {
     expect(missing).toContain(0x203e);
   });
 });
+
+// Shape-local glyphs do not live in GLYPH_CANVAS_TIERS. Keep the approved
+// outlines in this font gate too; source font/cmap must change together.
+describe("Glyph Mono covers approved cloud, bang and hexagon outlines", () => {
+  const required = new Set(Array.from("╭╮╰╯◠◡╱╲*❬❭│─").map(glyph => glyph.codePointAt(0)!));
+  const available = new Set(cmapData.codepoints);
+  it("contains every approved outline codepoint", () => {
+    expect(glyphMonoCmapMissingGlyphs(required, available).map(cp => `U+${cp.toString(16).toUpperCase()}`)).toEqual([]);
+  });
+  it.each(Array.from(required))("detects missing outline codepoint %i (mutation)", cp => {
+    const complete = new Set([...available, ...required]);
+    complete.delete(cp);
+    expect(glyphMonoCmapMissingGlyphs(required, complete)).toEqual([cp]);
+  });
+});

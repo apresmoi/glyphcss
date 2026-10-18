@@ -62,6 +62,9 @@ export const DIAGRAMS_SHAPE_CATALOGUE: readonly {
   { shape: "asymmetric", label: "Asymmetric", open: ">", close: "]", mermaid: true },
   { shape: "cylinder", label: "Cylinder", open: "[(", close: ")]", mermaid: false },
   { shape: "point", label: "Point", open: "", close: "", mermaid: false },
+  { shape: "cloud", label: "Cloud", open: '@{shape:cloud,label:', close: '}', mermaid: true },
+  { shape: "bang", label: "Bang", open: '@{shape:bang,label:', close: '}', mermaid: true },
+  { shape: "hexagon", label: "Hexagon", open: "{{", close: "}}", mermaid: true },
 ];
 
 const selectWord = (body: string, word: string): readonly [number, number] => {

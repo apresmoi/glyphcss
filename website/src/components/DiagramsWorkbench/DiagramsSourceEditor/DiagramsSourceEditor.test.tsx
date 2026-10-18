@@ -176,7 +176,7 @@ describe("DiagramsSourceEditor", () => {
     expect(trigger.textContent).toBe("+ Node ▾");
     await act(async () => trigger.click());
     const items = Array.from(container.querySelectorAll<HTMLButtonElement>("[role='menuitem']"));
-    expect(items.map((i) => i.querySelector(".diagrams-editor-shape-syntax")!.textContent)).toEqual(["id[Label]", "id(Label)", "id{Label}", "id((Label))", "id([Label])", "id[[Label]]", "id>Label]", ]);
+    expect(items.map((i) => i.querySelector(".diagrams-editor-shape-syntax")!.textContent)).toEqual(["id[Label]", "id(Label)", "id{Label}", "id((Label))", "id([Label])", "id[[Label]]", "id>Label]", "id@{shape:cloud,label:Label}", "id@{shape:bang,label:Label}", "id{{Label}}", ]);
     expect(items[2]!.querySelector(".diagrams-editor-shape-preview")!.textContent).toBe(previews.diamond);
     await act(async () => items[2]!.click());
     expect(textarea().value).toBe("flowchart LR\n  a --> b\n  from --> to\n  id{Label}");
@@ -311,7 +311,7 @@ describe("DiagramsSourceEditor", () => {
     // value, and that changing it rewrites BOTH brackets as one edit.
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="shape choices"]')!;
     const labels = Array.from(select.options).map((o) => o.textContent!.split("   ")[0]);
-    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric"]);
+    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cloud", "Bang", "Hexagon"]);
     expect(select.value).toBe(select.options[0]!.value); // the held shape is the current one
     expect(Array.from(select.options)[1]!.textContent).toContain("(Label)"); // its syntax rides in the option text
     expect(Array.from(select.options)[1]!.textContent).toContain("( R )");   // and so does the live preview
@@ -452,7 +452,7 @@ describe("DiagramsSourceEditor", () => {
     const select = Array.from(container.querySelectorAll<HTMLSelectElement>("select.diagrams-editor-choice-select"))
       .find((el) => Array.from(el.options).some((o) => o.textContent!.startsWith("Rectangle")))!;
     const labels = Array.from(select.options).map((o) => o.textContent!.split("   ")[0]);
-    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cylinder", "Point"]);
+    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cylinder", "Point", "Cloud", "Bang", "Hexagon"]);
     expect(Array.from(select.options)[2]!.textContent).toContain("<D>"); // the live preview rides in the option text
     await act(async () => {
       select.value = select.options[2]!.value;

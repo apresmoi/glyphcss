@@ -40,7 +40,7 @@ describe("GlyphGraph validation and JSON adapter", () => {
 
   it("requires finite edge priorities and supported node shapes, including from JavaScript", () => {
     for (const priority of [NaN, Infinity, -Infinity]) expect(() => validateGlyphGraph({ ...valid, edges: [{ ...valid.edges[0], priority }] })).toThrow(expect.objectContaining({ code: "bad-edge" }));
-    expect(() => validateGlyphGraph({ ...valid, nodes: [{ id: "a", label: "A", shape: "hexagon" }] })).toThrow(expect.objectContaining({ code: "bad-node" }));
+    expect(() => validateGlyphGraph({ ...valid, nodes: [{ id: "a", label: "A", shape: "unknown-shape" }] })).toThrow(expect.objectContaining({ code: "bad-node" }));
   });
 
   it("rejects unknown group members and duplicate membership separately", () => {

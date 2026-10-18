@@ -87,7 +87,7 @@ const SHAPES: readonly { open: string; close: string | readonly string[]; shape:
   { open: "[(", close: ")]", shape: "cylinder" },
   { open: "[/", close: ["/]", "\\]"], shape: "rect" },
   { open: "[\\", close: ["\\]", "/]"], shape: "rect" },
-  { open: "{{", close: "}}", shape: "rect" },
+  { open: "{{", close: "}}", shape: "hexagon" },
   { open: "([", close: "])", shape: "stadium" },
   { open: "((", close: "))", shape: "circle" },
   { open: "[[", close: "]]", shape: "subroutine" },
@@ -166,7 +166,7 @@ export class GlyphMermaidStatement {
       label = labelText(this.until(candidate.close));
       shape = candidate.shape;
       declared = true; labelDeclared = true;
-      const fallback = candidate.open === "{{" ? "hex" : candidate.open === "(((" ? "dbl-circ" : candidate.open === "[/" ? this.closedWith === "\\]" ? "trap-b" : "lean-r" : candidate.open === "[\\" ? this.closedWith === "/]" ? "trap-t" : "lean-l" : undefined;
+      const fallback = candidate.open === "(((" ? "dbl-circ" : candidate.open === "[/" ? this.closedWith === "\\]" ? "trap-b" : "lean-r" : candidate.open === "[\\" ? this.closedWith === "/]" ? "trap-t" : "lean-l" : undefined;
       if (fallback) this.note(`shape:${fallback}`, `Rendered Mermaid ${fallback} with the approved ${shape} family.`);
       break;
     }

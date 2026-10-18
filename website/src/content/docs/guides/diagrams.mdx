@@ -51,3 +51,12 @@ flags do not apply to charts, sequences or Git histories; the CLI logs ignored
 flags on stderr. Chart titles come from source; `--title` is diagram-only.
 Unknown headers and malformed syntax preserve the reader's named errors.
 Space limits can still omit labels or paginate: inspect the ledger and output.
+
+Cloud, bang and hexagon nodes are available in JSON (`shape: "cloud"`,
+`"bang"`, `"hexagon"`) and the workbench shape menus. Mermaid mindmaps use
+`)Maps(`, `))Fonts((` and `{{Meshes}}`; flowcharts use `@{shape: cloud}`,
+`@{shape: bang}`, and `{{Meshes}}` (or `hex`, `hexagon`, `prepare`). These
+shapes keep the normal label footprint and attach edges on interior side
+rows. Box/blocks/braille hexagons use ❬/❭ sides (U+276C/U+276D), covered
+by Glyph Mono at regular and bold weights. ASCII uses round caps,
+star-corner zigzags and `<`/`>` hexagon sides.

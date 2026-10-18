@@ -1,5 +1,5 @@
 export type GlyphGraphDirection = "TB" | "LR" | "BT" | "RL";
-export type GlyphGraphNodeShape = "rect" | "rounded" | "diamond" | "circle" | "subroutine" | "asymmetric" | "stadium" | "cylinder" | "point" | "compartment";
+export type GlyphGraphNodeShape = "rect" | "rounded" | "diamond" | "circle" | "subroutine" | "asymmetric" | "stadium" | "cylinder" | "point" | "compartment" | "cloud" | "bang" | "hexagon";
 export type GlyphGraphEdgeStyle = "solid" | "dotted" | "thick" | "undirected";
 
 export interface GlyphGraphNode {

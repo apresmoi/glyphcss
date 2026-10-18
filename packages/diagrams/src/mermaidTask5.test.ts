@@ -133,7 +133,7 @@ describe("Mermaid block grids", () => {
     }
     await expect(renderGlyphDiagram({ nodes: [], edges: [], direction: "TB" })).rejects.toMatchObject({ code: "empty-nodes" });
   });
-  it.each([["[Rect]", "rect"], ["(Round)", "rounded"], ["([Stadium])", "stadium"], ["[[Sub]]", "subroutine"], ["[(Db)]", "cylinder"], ["((Circle))", "circle"], [">Flag]", "asymmetric"], ["{Choice}", "diamond"], ["{{Hex}}", "rect"], ["[/Lean/]", "rect"], ["[\\Lean\\]", "rect"], ["[/Trap\\]", "rect"], ["[\\Trap/]", "rect"], ["(((Double)))", "circle"]])("retains block shape %s as %s", (shape, expected) => {
+  it.each([["[Rect]", "rect"], ["(Round)", "rounded"], ["([Stadium])", "stadium"], ["[[Sub]]", "subroutine"], ["[(Db)]", "cylinder"], ["((Circle))", "circle"], [">Flag]", "asymmetric"], ["{Choice}", "diamond"], ["{{Hex}}", "hexagon"], ["[/Lean/]", "rect"], ["[\\Lean\\]", "rect"], ["[/Trap\\]", "rect"], ["[\\Trap/]", "rect"], ["(((Double)))", "circle"]])("retains block shape %s as %s", (shape, expected) => {
     const g = glyphGraphFromMermaid(`block\na${shape}\nb`);
     expect(g.nodes[0]?.shape).toBe(expected); expect(g.nodes[1]?.id).toBe("b");
   });

@@ -28,8 +28,12 @@ import type { GlyphGraphNodeShape, GlyphGraphEdgeHead } from "./types";
  * `ascii`) falls back to the plain default below: `tier.junction`'s
  * quadrant corners, `tier.straight.h` rules, `tier.straight.v` sides —
  * exactly what every shape drew before this table existed. Every glyph
- * here is confirmed present in the website's own Glyph Mono subset
- * (`website/src/components/TargetPreview/glyphMonoCmap.json`).
+ * here must be present in the website's own Glyph Mono subset
+ * (`website/src/components/TargetPreview/glyphMonoCmap.test.ts`).
+ *
+ * Additional approved shapes: cloud uses round corners and scalloped rules;
+ * bang uses star corners and alternating diagonals; hexagon uses slanted
+ * corners and ❬/❭ sides (U+276C/U+276D) on every interior row.
  *
  * Approved against a rendered catalogue of candidate node shapes (user
  * review, ~90 candidates). Four families, by weight/outline: SHARP
@@ -47,6 +51,7 @@ import type { GlyphGraphNodeShape, GlyphGraphEdgeHead } from "./types";
 interface GlyphDiagramShapeGlyphs {
   /** [top-left, top-right, bottom-left, bottom-right]. */
   readonly corners: readonly [string, string, string, string];
+  /** A repeating rule pattern, phased from the first cell after the corner. */
   readonly topRule?: string;
   readonly bottomRule?: string;
   readonly sideLeft?: string;
@@ -54,6 +59,9 @@ interface GlyphDiagramShapeGlyphs {
 }
 const NODE_SHAPE_GLYPHS_BOX_LIKE: Readonly<Partial<Record<GlyphGraphNodeShape, GlyphDiagramShapeGlyphs>>> = {
   rounded: { corners: ["╭", "╮", "╰", "╯"] },
+  cloud: { corners: ["╭", "╮", "╰", "╯"], topRule: "◠", bottomRule: "◡" },
+  bang: { corners: ["*", "*", "*", "*"], topRule: "╱╲", bottomRule: "╲╱" },
+  hexagon: { corners: ["╱", "╲", "╲", "╱"], sideLeft: "❬", sideRight: "❭" },
   stadium: { corners: ["◜", "◝", "◟", "◞"] },
   cylinder: { corners: ["◜", "◝", "◟", "◞"] },
   circle: { corners: ["◜", "◝", "◟", "◞"], topRule: "◠", bottomRule: "◡" },
@@ -73,6 +81,9 @@ const NODE_SHAPE_GLYPHS_BOX_LIKE: Readonly<Partial<Record<GlyphGraphNodeShape, G
 const NODE_SHAPE_GLYPHS: Readonly<Record<GlyphCanvasTierName, Readonly<Partial<Record<GlyphGraphNodeShape, GlyphDiagramShapeGlyphs>>>>> = {
   ascii: {
     rounded: { corners: ["(", ")", "(", ")"] },
+    cloud: { corners: ["(", ")", "(", ")"] },
+    bang: { corners: ["*", "*", "*", "*"], topRule: "/\\", bottomRule: "\\/" },
+    hexagon: { corners: ["/", "\\", "\\", "/"], sideLeft: "<", sideRight: ">" },
     stadium: { corners: ["(", ")", "(", ")"] },
     circle: { corners: ["(", ")", "(", ")"] },
     diamond: { corners: ["/", "\\", "\\", "/"] },
@@ -348,7 +359,7 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     const corners = glyphs?.corners ?? [tier.junction[6]!, tier.junction[12]!, tier.junction[3]!, tier.junction[9]!];
     const topRule = glyphs?.topRule ?? tier.straight.h, bottomRule = glyphs?.bottomRule ?? tier.straight.h;
     const sideLeft = glyphs?.sideLeft ?? tier.straight.v, sideRight = glyphs?.sideRight ?? tier.straight.v;
-    for (let x = x0 + 1; x < x1; x++) { canvas.text(x, y0, [topRule], { color: nodeColor }); canvas.text(x, y1, [bottomRule], { color: nodeColor }); }
+    for (let x = x0 + 1; x < x1; x++) { canvas.text(x, y0, [topRule[(x - x0 - 1) % topRule.length]!], { color: nodeColor }); canvas.text(x, y1, [bottomRule[(x - x0 - 1) % bottomRule.length]!], { color: nodeColor }); }
     for (let y = y0 + 1; y < y1; y++) { canvas.text(x0, y, [sideLeft], { color: nodeColor }); canvas.text(x1, y, [sideRight], { color: nodeColor }); }
     ([[x0, y0], [x1, y0], [x0, y1], [x1, y1]] as const).forEach(([x, y], i) => canvas.text(x, y, [corners[i]!], { color: nodeColor }));
     const labelTop = y0 + Math.floor((node.height - node.lines.length) / 2);
@@ -363,16 +374,17 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
       || !routing.routes.some(route => route.edge.id === edge.id)) continue;
     canvas.text(port.anchor.x, port.anchor.y, [port.side === "n" || port.side === "s" ? tier.straight.v : tier.straight.h], { color: routeColors.get(edge.id)! });
   }
+  const hexagons = new Set(layout.nodes.filter(node => node.shape === "hexagon").map(node => node.id));
   const exits = new Set<string>();
-  for (const port of layout.ports) if (port.end === "from" && port.trunk && routing.routes.some(route => route.edge.id === port.edgeId)) {
+  for (const port of layout.ports) if (port.end === "from" && port.trunk && !hexagons.has(port.nodeId) && routing.routes.some(route => route.edge.id === port.edgeId)) {
     const key = `${port.anchor.x},${port.anchor.y}`;
     if (exits.has(key)) continue;
     exits.add(key);
     const mask = { n: 11, e: 7, s: 14, w: 13 }[port.side];
     canvas.text(port.anchor.x, port.anchor.y, [tier.junction[mask]!], { color: nodeColors.get(port.nodeId)! });
   }
-  // Borders own the node footprint; tips replace their reserved target cell
-  // after the border fill so they touch the target without entering its label.
+  // Hexagon sides keep their silhouette; heads use the adjacent escape cell,
+  // already protected by the router's port lanes. Other shapes keep border tips.
   for (const route of routing.routes) for (const end of ["from", "to"] as const) {
     const head = end === "from" ? route.edge.startHead ?? "none" : route.edge.endHead ?? (route.edge.style === "undirected" ? "none" : "arrow");
     const port = layout.ports.find((p) => p.edgeId === route.edge.id && p.end === end);
@@ -391,8 +403,9 @@ export function paintGlyphDiagram(layout: GlyphDiagramLayout, routing: GlyphDiag
     }
     const opposite: Record<GlyphCanvasDirection, GlyphCanvasDirection> = { n: "s", s: "n", e: "w", w: "e" };
     const color = edgeAccentColors.get(route.edge.id)!;
-    if (head === "arrow") canvas.arrowhead(port.anchor.x, port.anchor.y, opposite[port.side], { color });
-    else paintMarker(head, port.anchor, port.side, color);
+    const at = hexagons.has(port.nodeId) ? port.escape : port.anchor;
+    if (head === "arrow") canvas.arrowhead(at.x, at.y, opposite[port.side], { color });
+    else paintMarker(head, at, port.side, color);
   }
   const labels = options.labelLayout ?? glyphDiagramGraphLabels(layout, routing, options);
   labels.placed.forEach(label => {

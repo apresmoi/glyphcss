@@ -266,20 +266,20 @@
   {
     "name": "shape hex",
     "source": "flowchart LR; A@{ shape: hex, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "hex"
+    "shape": "hexagon",
+    "fallbackKind": null
   },
   {
     "name": "shape hexagon",
     "source": "flowchart LR; A@{ shape: hexagon, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "hex"
+    "shape": "hexagon",
+    "fallbackKind": null
   },
   {
     "name": "shape prepare",
     "source": "flowchart LR; A@{ shape: prepare, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "hex"
+    "shape": "hexagon",
+    "fallbackKind": null
   },
   {
     "name": "shape trap-b",
@@ -368,8 +368,8 @@
   {
     "name": "shape bang",
     "source": "flowchart LR; A@{ shape: bang, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "bang"
+    "shape": "bang",
+    "fallbackKind": null
   },
   {
     "name": "shape browser",
@@ -410,8 +410,8 @@
   {
     "name": "shape cloud",
     "source": "flowchart LR; A@{ shape: cloud, label: \"Read item\" } --> B[Done]",
-    "shape": "rounded",
-    "fallbackKind": "cloud"
+    "shape": "cloud",
+    "fallbackKind": null
   },
   {
     "name": "shape delay",
