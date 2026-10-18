@@ -1,3 +1,4 @@
+import { glyphDiagramCatalogueShape } from "./catalogueShapes";
 import { GLYPH_DIAGRAM_EDGE_WAYPOINTS, GLYPH_MERMAID_STATE_REGION, type GlyphMermaidStateRegion } from "./layoutHints";
 import type { GlyphCanvasPoint } from "glyphcss";
 import { glyphDiagramGroupRects, type GlyphDiagramLayout, type GlyphDiagramRect } from "./pipeline";
@@ -26,7 +27,7 @@ export function glyphDiagramCompactGeometry(layout: GlyphDiagramLayout, routing:
         for (let i = rect[lo]; i <= rect[hi]; i++) protectedSlices.add(i);
       };
       for (const node of nodes) {
-        if (regions || !vertical || node.shape === "point") protect(node);
+        if (regions || !vertical || node.shape === "point" || glyphDiagramCatalogueShape(node.shape)) protect(node);
         else {
           protectedSlices.add(node.y0); protectedSlices.add(node.y1);
           const top = node.y0 + Math.floor((node.height - node.lines.length) / 2);

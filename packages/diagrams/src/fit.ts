@@ -1,3 +1,4 @@
+import { glyphDiagramCatalogueShape } from "./catalogueShapes";
 import { glyphDiagramStateFramePorts } from "./stateFrame";
 import { GLYPH_DIAGRAM_COMPARTMENT_LANES, GLYPH_DIAGRAM_EDGE_WAYPOINTS } from "./layoutHints";
 import { GLYPH_MERMAID_BLOCK, GLYPH_MERMAID_ADAPTIVE, type GlyphMermaidBlockGraph } from "./mermaidStructured";
@@ -188,7 +189,7 @@ function minimumFootprintFits(graph: GlyphDiagramReservedGraph, width: number, h
 
 /** Trade unused source widths for the tallest source label before cutting it. */
 function balanceSources(graph: GlyphDiagramReservedGraph, options: GlyphDiagramFitOptions): GlyphDiagramReservedGraph | undefined {
-  if (graph.groups.length || graph.loops.length || graph.nodes.some(node => node.shape === "point")
+  if (graph.groups.length || graph.loops.length || graph.nodes.some(node => node.shape === "point" || glyphDiagramCatalogueShape(node.shape))
     || (graph.direction !== "TB" && graph.direction !== "BT") || options.labelWidth !== undefined) return;
   const sources = graph.nodes.filter(node => !graph.edges.some(edge => edge.to === node.id));
   const tallest = [...sources].sort((a, b) => b.height - a.height)[0];
@@ -305,7 +306,7 @@ function foldTail(result: GlyphDiagramAttempt, options: GlyphDiagramFitOptions,
   let spare = result.width - margin - Math.min(chain[0]!.x0, result.width - margin - needed()) - needed();
   for (const node of [...chain].sort((a, b) => b.height - a.height)) {
     if (spare <= 0) break;
-    if (node.shape === "compartment") continue;
+    if (node.shape === "compartment" || glyphDiagramCatalogueShape(node.shape)) continue;
     const extra = node.shape === "subroutine" ? 6 : 4;
     const limit = Math.min(options.labelWidth ?? Infinity, node.width - extra + spare);
     const lines = glyphDiagramWrap(glyphDiagramNodeContent(node, options), limit);

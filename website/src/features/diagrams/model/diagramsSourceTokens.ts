@@ -149,7 +149,7 @@ function tokenizeMermaidLine(line: string): DiagramsSourceToken[] {
     }
     // The picker’s property shapes act as one opener, preserving the same
     // editable label and paired-closer contract as bracket shapes.
-    if (depth === 0 && lastKind === "id" && (match = /^@\{shape:(?:cloud|bang),label:/.exec(rest))) {
+    if (depth === 0 && lastKind === "id" && (match = /^@\{shape:[a-z][a-z-]*,label:/.exec(rest))) {
       depth++;
       push("punct", match[0]);
       continue;

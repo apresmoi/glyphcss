@@ -21,7 +21,7 @@ export function parseGlyphDiagramJson(json: string): unknown {
 }
 
 export const GLYPH_GRAPH_DIRECTIONS: readonly GlyphGraphDirection[] = ["TB", "LR", "BT", "RL"];
-export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point", "compartment", "cloud", "bang", "hexagon"];
+export const GLYPH_GRAPH_NODE_SHAPES: readonly GlyphGraphNodeShape[] = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cylinder", "point", "compartment", "cloud", "bang", "hexagon", "doc", "docs", "st-rect", "tag-doc", "notch-rect", "div-rect", "lin-rect", "tag-rect", "lean-r", "lean-l", "trap-t", "trap-b", "notch-pent", "delay", "bow-rect", "curv-trap", "tri", "flip-tri", "hourglass", "bolt", "flag", "dbl-circ", "cross-circ", "fr-circ", "f-circ", "sm-circ", "h-cyl", "lin-cyl", "datastore", "bucket", "text", "fork", "brace", "brace-r", "braces", "browser", "console", "person"];
 export const GLYPH_GRAPH_EDGE_STYLES: readonly GlyphGraphEdgeStyle[] = ["solid", "dotted", "thick", "undirected"];
 export const GLYPH_GRAPH_EDGE_HEADS: readonly GlyphGraphEdgeHead[] = ["arrow", "circle", "cross", "none", "triangle", "filled-diamond", "open-diamond", "er-one", "er-zero-one", "er-many", "er-zero-many"];
 export const GLYPH_GRAPH_KEYS = ["nodes", "edges", "groups", "direction"];

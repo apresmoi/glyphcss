@@ -140,7 +140,7 @@ describe("diagram workbench state and exports", () => {
   });
 
   it("Mermaid export represents every supported shape, edge style, group and quoted label", () => {
-    const shapes = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cloud", "bang", "hexagon"] as const;
+    const shapes = ["rect", "rounded", "diamond", "circle", "subroutine", "asymmetric", "stadium", "cloud", "bang", "hexagon", "doc", "docs", "st-rect", "tag-doc", "notch-rect", "div-rect", "lin-rect", "tag-rect", "lean-r", "lean-l", "trap-t", "trap-b", "notch-pent", "delay", "bow-rect", "curv-trap", "tri", "flip-tri", "hourglass", "bolt", "flag", "dbl-circ", "cross-circ", "fr-circ", "f-circ", "sm-circ", "h-cyl", "lin-cyl", "datastore", "bucket", "text", "fork", "brace", "brace-r", "braces", "browser", "console", "person"] as const;
     const graph = {
       direction: "LR" as const,
       nodes: shapes.map((shape, i) => ({ id: `node ${i}`, label: i === 0 ? 'A "quoted" label' : shape, shape })),

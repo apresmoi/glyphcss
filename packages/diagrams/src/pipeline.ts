@@ -1,3 +1,4 @@
+import { glyphDiagramCatalogueArt, glyphDiagramCatalogueShape } from "./catalogueShapes";
 import { glyphDiagramCompartmentOrder } from "./compartmentLayout";
 import { glyphDiagramStateFramePorts } from "./stateFrame";
 import { GLYPH_DIAGRAM_DIAMOND_MARKER, glyphDiagramHasDiamondMarker, glyphDiagramNodeText, type GlyphDiagramPresentationOptions } from "./presentation";
@@ -201,6 +202,10 @@ export function measureGlyphGraph(graph: GlyphGraph, options: GlyphDiagramLayout
       if (Array.from(folded.trim()).length > 1) ledger.push(ledgerLabelAbbreviated({ role: "node label", before: folded.trim(), after: glyph }));
       return { ...node, lines: [glyph], width: 1, height: 1 };
     }
+    if (glyphDiagramCatalogueShape(node.shape)) {
+      const art = glyphDiagramCatalogueArt(node.shape, lines, options.charset);
+      return { ...node, lines, width: art.width, height: art.height };
+    }
     return { ...node, [GLYPH_DIAGRAM_DIAMOND_MARKER]: marker, lines, ...(separators.length ? { separators } : {}), width: Math.max(5, ...lines.map((l) => l.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.x + extra)), height: lines.length + 2 + 2 * GLYPH_DIAGRAM_NODE_PAD.y };
   });
   // A loop's label wraps like a node's, so the fitter can trade its width for the room it takes.
@@ -215,27 +220,28 @@ const sides: Record<GlyphGraph["direction"], readonly [GlyphCanvasDirection, Gly
 
 /** Approved ornate outlines attach on interior rows, leaving their rules intact. */
 export function glyphDiagramNodePortSide(node: GlyphGraphNode, side: GlyphCanvasDirection): GlyphCanvasDirection {
-  return node.shape === "cloud" || node.shape === "bang" || node.shape === "hexagon"
+  return node.shape === "cloud" || node.shape === "bang" || node.shape === "hexagon" || glyphDiagramCatalogueShape(node.shape)
     ? side === "n" ? "w" : side === "s" ? "e" : side : side;
 }
 
 /** Preserve slot order/spacing while keeping side ports off compartment rules and corners. */
 export function glyphDiagramPortOffsets(node: GlyphDiagramMeasuredNode, side: GlyphCanvasDirection, desired: readonly number[]): number[] | undefined {
-  if (node.shape !== "compartment" || side === "n" || side === "s") return [...desired];
+  const catalogue = glyphDiagramCatalogueShape(node.shape) ? glyphDiagramCatalogueArt(node.shape, node.lines, "box", node.width, node.height) : undefined;
+  if ((!catalogue && node.shape !== "compartment") || side === "n" || side === "s") return [...desired];
   const top = Math.floor((node.height - node.lines.length) / 2);
   const rules = new Set((node.separators ?? []).map(row => top + row));
-  const available = Array.from({ length: node.height - 2 }, (_, i) => i + 1).filter(offset => !rules.has(offset));
+  const available = catalogue ? [...catalogue.portRows] : Array.from({ length: node.height - 2 }, (_, i) => i + 1).filter(offset => !rules.has(offset));
   // Backward bounds leave room for later slots before choosing the nearest legal row.
   const latest: number[] = [];
   for (let i = desired.length - 1; i >= 0; i--) {
-    const limit = i === desired.length - 1 ? node.height - 2 : latest[i + 1]! - (desired[i + 1]! - desired[i]!);
+    const limit = i === desired.length - 1 ? available[available.length - 1]! : latest[i + 1]! - (desired[i + 1]! - desired[i]!);
     const offset = [...available].reverse().find(offset => offset <= limit);
     if (offset === undefined) return undefined;
     latest[i] = offset;
   }
   const offsets: number[] = [];
   for (let i = 0; i < desired.length; i++) {
-    const limit = i === 0 ? 1 : offsets[i - 1]! + (desired[i]! - desired[i - 1]!);
+    const limit = i === 0 ? available[0]! : offsets[i - 1]! + (desired[i]! - desired[i - 1]!);
     const choices = available.filter(offset => offset >= limit && offset <= latest[i]!);
     choices.sort((a, b) => Math.abs(a - desired[i]!) - Math.abs(b - desired[i]!) || a - b);
     offsets.push(choices[0]!);
@@ -314,17 +320,26 @@ export function reserveGlyphGraphPorts(measured: GlyphDiagramMeasuredGraph): Gly
       return Array.from({ length: count }, (_, index) => Math.floor((length - 1 - 2 * (count - 1)) / 2) + 2 * index);
     };
     const loopDesired = loops.slots.flatMap(slot => [slot.exit, slot.entry]);
+    if (glyphDiagramCatalogueShape(node.shape)) {
+      if (nodeLoopSide === "e") height = Math.max(height, loops.length); else width = Math.max(width, loops.length);
+      let art = glyphDiagramCatalogueArt(node.shape, node.lines, "box", width, height);
+      width = art.width; height = art.height;
+      while ((["e", "w"] as const).some(side => !glyphDiagramPortOffsets({ ...node, width, height }, side, desired(side))) || !glyphDiagramPortOffsets({ ...node, width, height }, nodeLoopSide, loopDesired)) {
+        art = glyphDiagramCatalogueArt(node.shape, node.lines, "box", width, height + 1);
+        width = art.width; height = art.height;
+      }
+    }
     if (node.shape === "compartment") while ((["e", "w"] as const).some(side => !glyphDiagramPortOffsets({ ...node, height }, side, desired(side)))
       || !glyphDiagramPortOffsets({ ...node, height }, nodeLoopSide, loopDesired)) height++;
     for (const side of ["n", "e", "s", "w"] as const) {
       const slots = slotsOn(side);
-      const offsets = glyphDiagramPortOffsets({ ...node, height }, side, desired(side))!;
+      const offsets = glyphDiagramPortOffsets({ ...node, width, height }, side, desired(side))!;
       slots.forEach(([key, connections], index) => connections.forEach(connection => ports.push({ ...connection,
         nodeId: node.id, side, offset: offsets[sharedFanSide(slots) ? 0 : index]!,
         ...(connections.length > 1 || sharedFanSide(slots) ? { trunk: key } : {}) })));
     }
     if (nodeLoopSide === "e") height = Math.max(height, loops.length); else width = Math.max(width, loops.length);
-    const loopOffsets = glyphDiagramPortOffsets({ ...node, height }, nodeLoopSide, loopDesired)!;
+    const loopOffsets = glyphDiagramPortOffsets({ ...node, width, height }, nodeLoopSide, loopDesired)!;
     loops.slots.forEach((slot, i) => ports.push({ edgeId: slot.edgeId, nodeId: node.id, end: "from", side: nodeLoopSide, offset: loopOffsets[2 * i]! }, { edgeId: slot.edgeId, nodeId: node.id, end: "to", side: nodeLoopSide, offset: loopOffsets[2 * i + 1]! }));
     return { ...node, width, height };
   });
@@ -745,7 +760,11 @@ export async function layoutGlyphGraph(graph: GlyphGraph | GlyphDiagramReservedG
       const key = port.trunk ?? `${port.edgeId}:${port.end}`;
       slots.set(key, [...(slots.get(key) ?? []), port]);
     }
-    const ordered = [...slots.values()].sort((a, b) => transverse(a[0]!) - transverse(b[0]!) || compare(a[0]!.edgeId, b[0]!.edgeId));
+    // A catalogue loop owns the east side. Keep the displaced exits below
+    // all entries on the west side, so their return run cannot cut a feeder.
+    const loopedCatalogue = glyphDiagramCatalogueShape(node.shape) && reserved.loops.some(loop => loop.nodeId === node.id);
+    const ordered = [...slots.values()].sort((a, b) => (loopedCatalogue ? Number(a[0]!.end === "from") - Number(b[0]!.end === "from") : 0)
+      || transverse(a[0]!) - transverse(b[0]!) || compare(a[0]!.edgeId, b[0]!.edgeId));
     const reservedOffsets = ordered.map(slot => slot[0]!.offset).sort((a, b) => a - b);
     const centered = glyphDiagramPortOffsets(node, side, ordered.map((_, i) => Math.floor((length - 1 - 2 * (ordered.length - 1)) / 2) + 2 * i))!;
     ordered.forEach((slot, i) => slot.forEach(port => offsets.set(port, ports.some(port => back.has(port.edgeId) || compartmentLanes && reserved.ports.find(original => original.edgeId === port.edgeId && original.end === port.end)!.side !== port.side)

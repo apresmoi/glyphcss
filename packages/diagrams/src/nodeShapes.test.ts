@@ -1,3 +1,4 @@
+import type { GLYPH_DIAGRAM_CATALOGUE_SHAPES } from "./catalogueShapes";
 import { describe, expect, it } from "vitest";
 import { renderGlyphDiagram } from "./render";
 import type { GlyphGraph, GlyphGraphNodeShape } from "./types";
@@ -14,7 +15,7 @@ import type { GlyphGraph, GlyphGraphNodeShape } from "./types";
  * this stays correct across a label-width change.
  */
 // `point` has no outline: it is only its glyph (see stateRender.test.ts).
-const SHAPE_OUTLINES: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, {
+const SHAPE_OUTLINES: Readonly<Record<Exclude<GlyphGraphNodeShape, "point" | typeof GLYPH_DIAGRAM_CATALOGUE_SHAPES[number]>, {
   readonly corners: readonly [string, string, string, string]; // TL, TR, BL, BR
   readonly topRule: string;
   readonly bottomRule: string;
@@ -76,7 +77,7 @@ describe("box-charset node shape outlines match the approved catalogue", () => {
   });
 
   it("ascii keeps its pre-existing 7-bit fallback per shape, unaffected by the box-charset catalogue above", async () => {
-    const ascii: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, readonly [string, string, string, string]>> = {
+    const ascii: Readonly<Record<Exclude<GlyphGraphNodeShape, "point" | typeof GLYPH_DIAGRAM_CATALOGUE_SHAPES[number]>, readonly [string, string, string, string]>> = {
       cloud: ["(", ")", "(", ")"], bang: ["*", "*", "*", "*"], hexagon: ["/", "\\", "\\", "/"],
       compartment: ["+", "+", "+", "+"],
       rect: ["+", "+", "+", "+"], rounded: ["(", ")", "(", ")"], stadium: ["(", ")", "(", ")"],
