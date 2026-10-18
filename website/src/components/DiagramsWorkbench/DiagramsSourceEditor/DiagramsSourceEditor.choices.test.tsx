@@ -167,7 +167,8 @@ describe("DiagramsSourceEditor — every choice, driven", () => {
           expect(parses(source.dialect, after), `${label} must still parse`).toBe(true);
         }
       }
-    });
+      // A full remount per option across the whole shape catalogue: seconds locally, far longer on CI.
+    }, 30_000);
 
     it(`${source.name}: a long run of choices never writes outside a choice field`, async () => {
       // The defect needed the text to have MOVED once already: a write that
