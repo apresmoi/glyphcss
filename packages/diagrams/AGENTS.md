@@ -1,6 +1,6 @@
 # Diagrams
 
-No scene/ELK. Labels: `</br>` wherever `<br>` works.
+No scene/ELK; `</br>` = `<br>`.
 
 ## Sequence (`./sequence`)
 
@@ -52,7 +52,7 @@ Validate → columns → rows → paint. `from`/`to`: direction; verbatim `kind`
 - Mermaid: `@glyphcss/core/mermaid` preprocessing + grammar scanners. `classDiagram-v2`/`flowchart-elk`: normalise/log layout; bare flow/graph: TB. `mermaidShapes.ts`; inert assets, `mermaid-degraded`. Diamonds: measured/painted, not text/meta; source/graph parity. Clean: keep markers; troubled: drop all if better (`diamond-markers-dropped`), even faithful; keep authored/state glyphs. Heads: `types.ts`; bidirectional: one edge; invisible: layout only. Log fallbacks. Parse once; metadata by link id.
 - Styles/interactions/comments inert; classDiagram `class` declares nodes. `label-folded`; blank rows: no text/ledger; loops reserve them. Wrapped labels: `edge-row:` + JSON `[edgeId, rowIndex]`; own ids/colours. Compaction floor: connections, not loops.
 - `stateDiagram` → graph IR. Start/end: one glyph `point` per scope/region; `kind` is informational. Choice: diamond.
-- Points: glyph; k ports need 2k-1 transverse cells. Equal heads share bars/tips; mixed: own ports. Exit junctions on glyph row. LR snake: two-column padding. Self-edge: `point-loop`.
+- Points: k ports need 2k-1 transverse cells. Equal heads share bars/tips; mixed keep ports. Exits on glyph row. LR snake: pad 2; self: `point-loop`. Shift nodes to straighten jogged edges in vertical point chains too.
 - Composites: empty → state; concurrent: one frame edge/rank-only peers; others: start/first in, end/last out. Ports clear captions/dividers (≥2); align frame/root units. Self: `state-composite-loop`; sole point → rounded (`state-point-loop`).
 - Labelled regions: perpendicular fit; caption room once. Confine routes; drawn borders/dividers block captions and penalize routes.
 - States: reused ids → `state-shared`; equal groups: `parent`. Quotes after `state` only. `--`: scoped markers/dividers, no rings; authored regions across flow. Symbols: copies, not JSON. Omit/log empty regions. Notes → rows (composite → first child); fork/join → rounded. Nested direction/styles/config inert. Log fallbacks; bad notes/separators: named errors.
