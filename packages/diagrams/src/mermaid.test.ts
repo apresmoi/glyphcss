@@ -9,7 +9,7 @@ const fixture = (name: string) => readFileSync(resolve(__dirname, "../fixtures",
 describe("Mermaid flowchart adapter", () => {
   const tierOneShapes = [
     ["[(text)]", "cylinder"], ["[/text/]", "rect"], ["[\\text\\]", "rect"],
-    ["[/text\\]", "rect"], ["[\\text/]", "rect"], ["{{text}}", "rect"], ["(((text)))", "circle"],
+    ["[/text\\]", "rect"], ["[\\text/]", "rect"], ["{{text}}", "hexagon"], ["(((text)))", "circle"],
   ] as const;
 
   it.each(tierOneShapes)("parses %s with a clean label and the existing %s shape", (syntax, shape) => {

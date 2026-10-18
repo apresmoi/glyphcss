@@ -89,7 +89,7 @@ describe("Mermaid flowchart v11 acceptance", () => {
 
   it("logs one fallback per canonical shape kind, including aliases", () => {
     const source = "flowchart LR; A@{shape: hex}; B@{shape: hexagon}; C{{Classic}}; D@{shape: doc}; E@{shape: document}";
-    expect(glyphMermaidNotes(source).map(note => note.detail?.kind)).toEqual(["shape:hex", "shape:doc"]);
+    expect(glyphMermaidNotes(source).map(note => note.detail?.kind)).toEqual([]);
     expect(glyphMermaidNotes("flowchart LR; A@{shape: rect}; B@{shape: proc}")).toEqual([]);
     expect(glyphMermaidNotes(example("icon"))).toContainEqual(expect.objectContaining({ detail: { kind: "shape:icon" } }));
     expect(glyphMermaidNotes(example("image"))).toContainEqual(expect.objectContaining({ detail: { kind: "shape:image" } }));

@@ -51,3 +51,28 @@ flags do not apply to charts, sequences or Git histories; the CLI logs ignored
 flags on stderr. Chart titles come from source; `--title` is diagram-only.
 Unknown headers and malformed syntax preserve the reader's named errors.
 Space limits can still omit labels or paginate: inspect the ledger and output.
+
+Cloud, bang and hexagon nodes are available in JSON (`shape: "cloud"`,
+`"bang"`, `"hexagon"`) and the workbench shape menus. Mermaid mindmaps use
+`)Maps(`, `))Fonts((` and `{{Meshes}}`; flowcharts use `@{shape: cloud}`,
+`@{shape: bang}`, and `{{Meshes}}` (or `hex`, `hexagon`, `prepare`). These
+shapes keep the normal label footprint and attach edges on interior side
+rows. Box/blocks/braille hexagons use ❬/❭ sides (U+276C/U+276D), covered
+by Glyph Mono at regular and bold weights. ASCII uses round caps,
+star-corner zigzags and `<`/`>` hexagon sides.
+
+The shape picker also includes the approved catalogue defaults: documents and
+stacks (`doc`, `docs`, `st-rect`, `tag-doc`), cards and rails (`notch-rect`,
+`div-rect`, `lin-rect`, `tag-rect`), silhouettes (`lean-r`, `lean-l`, `trap-t`,
+`trap-b`, `notch-pent`, `delay`, `bow-rect`, `curv-trap`, `tri`, `flip-tri`,
+`hourglass`, `bolt`, `flag`), circles (`dbl-circ`, `cross-circ`, `fr-circ`,
+`f-circ`, `sm-circ`), storage (`h-cyl`, `lin-cyl`, `datastore`, `bucket`),
+`text`, `fork`, `brace`, `brace-r`, `braces`, `browser`, `console` and `person`.
+Use these names in JSON or Mermaid `N@{shape: doc, label: "Read item"}`.
+Source editing, Mermaid export and shared URLs preserve them.
+
+Box, blocks and braille use the reviewed first kept candidate; ASCII uses its
+approved fallback. Multi-row silhouettes reserve the full footprint and side
+connections preserve outlines. The unlabeled fork keeps its bar/stub; a label
+appears below the stub. Other kept candidates are recorded alternatives.
+`lin-doc`, `win-pane`, `sl-rect` and `folder` keep their existing logged fallbacks.

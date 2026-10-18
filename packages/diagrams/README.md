@@ -120,6 +120,8 @@ console.log(result.text);
 | JSON sequence | Participants, messages, frames, notes → `./sequence` |
 | JSON lane DAG / git log | Newest-first nodes with older parents, or git-log text → `./lanes` |
 
+Node shapes include rectangles, rounded boxes, diamonds, circles, cylinders, clouds, bangs and hexagons, plus 38 Mermaid catalogue shapes such as `doc`, `tri`, `datastore` and `person`. Set them with JSON `shape` or Mermaid `A@{shape: doc}`.
+
 ## Targets and sizes
 
 | Target | Default cells (columns × rows) | Charset | Color |

@@ -176,7 +176,7 @@ describe("DiagramsSourceEditor", () => {
     expect(trigger.textContent).toBe("+ Node ▾");
     await act(async () => trigger.click());
     const items = Array.from(container.querySelectorAll<HTMLButtonElement>("[role='menuitem']"));
-    expect(items.map((i) => i.querySelector(".diagrams-editor-shape-syntax")!.textContent)).toEqual(["id[Label]", "id(Label)", "id{Label}", "id((Label))", "id([Label])", "id[[Label]]", "id>Label]", ]);
+    expect(items.map((i) => i.querySelector(".diagrams-editor-shape-syntax")!.textContent)).toEqual(["id[Label]", "id(Label)", "id{Label}", "id((Label))", "id([Label])", "id[[Label]]", "id>Label]", "id@{shape:cloud,label:Label}", "id@{shape:bang,label:Label}", "id{{Label}}", "id@{shape:doc,label:Label}", "id@{shape:docs,label:Label}", "id@{shape:st-rect,label:Label}", "id@{shape:tag-doc,label:Label}", "id@{shape:notch-rect,label:Label}", "id@{shape:div-rect,label:Label}", "id@{shape:lin-rect,label:Label}", "id@{shape:tag-rect,label:Label}", "id@{shape:lean-r,label:Label}", "id@{shape:lean-l,label:Label}", "id@{shape:trap-t,label:Label}", "id@{shape:trap-b,label:Label}", "id@{shape:notch-pent,label:Label}", "id@{shape:delay,label:Label}", "id@{shape:bow-rect,label:Label}", "id@{shape:curv-trap,label:Label}", "id@{shape:tri,label:Label}", "id@{shape:flip-tri,label:Label}", "id@{shape:hourglass,label:Label}", "id@{shape:bolt,label:Label}", "id@{shape:flag,label:Label}", "id@{shape:dbl-circ,label:Label}", "id@{shape:cross-circ,label:Label}", "id@{shape:fr-circ,label:Label}", "id@{shape:f-circ,label:Label}", "id@{shape:sm-circ,label:Label}", "id@{shape:h-cyl,label:Label}", "id@{shape:lin-cyl,label:Label}", "id@{shape:datastore,label:Label}", "id@{shape:bucket,label:Label}", "id@{shape:text,label:Label}", "id@{shape:fork,label:Label}", "id@{shape:brace,label:Label}", "id@{shape:brace-r,label:Label}", "id@{shape:braces,label:Label}", "id@{shape:browser,label:Label}", "id@{shape:console,label:Label}", "id@{shape:person,label:Label}"]);
     expect(items[2]!.querySelector(".diagrams-editor-shape-preview")!.textContent).toBe(previews.diamond);
     await act(async () => items[2]!.click());
     expect(textarea().value).toBe("flowchart LR\n  a --> b\n  from --> to\n  id{Label}");
@@ -311,7 +311,7 @@ describe("DiagramsSourceEditor", () => {
     // value, and that changing it rewrites BOTH brackets as one edit.
     const select = container.querySelector<HTMLSelectElement>('select[aria-label="shape choices"]')!;
     const labels = Array.from(select.options).map((o) => o.textContent!.split("   ")[0]);
-    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric"]);
+    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cloud", "Bang", "Hexagon", "doc", "docs", "st-rect", "tag-doc", "notch-rect", "div-rect", "lin-rect", "tag-rect", "lean-r", "lean-l", "trap-t", "trap-b", "notch-pent", "delay", "bow-rect", "curv-trap", "tri", "flip-tri", "hourglass", "bolt", "flag", "dbl-circ", "cross-circ", "fr-circ", "f-circ", "sm-circ", "h-cyl", "lin-cyl", "datastore", "bucket", "text", "fork", "brace", "brace-r", "braces", "browser", "console", "person"]);
     expect(select.value).toBe(select.options[0]!.value); // the held shape is the current one
     expect(Array.from(select.options)[1]!.textContent).toContain("(Label)"); // its syntax rides in the option text
     expect(Array.from(select.options)[1]!.textContent).toContain("( R )");   // and so does the live preview
@@ -452,7 +452,7 @@ describe("DiagramsSourceEditor", () => {
     const select = Array.from(container.querySelectorAll<HTMLSelectElement>("select.diagrams-editor-choice-select"))
       .find((el) => Array.from(el.options).some((o) => o.textContent!.startsWith("Rectangle")))!;
     const labels = Array.from(select.options).map((o) => o.textContent!.split("   ")[0]);
-    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cylinder", "Point"]);
+    expect(labels).toEqual(["Rectangle", "Rounded", "Decision", "Circle", "Stadium", "Subroutine", "Asymmetric", "Cylinder", "Point", "Cloud", "Bang", "Hexagon", "doc", "docs", "st-rect", "tag-doc", "notch-rect", "div-rect", "lin-rect", "tag-rect", "lean-r", "lean-l", "trap-t", "trap-b", "notch-pent", "delay", "bow-rect", "curv-trap", "tri", "flip-tri", "hourglass", "bolt", "flag", "dbl-circ", "cross-circ", "fr-circ", "f-circ", "sm-circ", "h-cyl", "lin-cyl", "datastore", "bucket", "text", "fork", "brace", "brace-r", "braces", "browser", "console", "person"]);
     expect(Array.from(select.options)[2]!.textContent).toContain("<D>"); // the live preview rides in the option text
     await act(async () => {
       select.value = select.options[2]!.value;

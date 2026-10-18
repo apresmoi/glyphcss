@@ -1,3 +1,4 @@
+import type { GLYPH_DIAGRAM_CATALOGUE_SHAPES } from "./catalogueShapes";
 import { describe, expect, it } from "vitest";
 import { renderGlyphDiagram } from "./render";
 import type { GlyphGraph, GlyphGraphNodeShape } from "./types";
@@ -14,13 +15,16 @@ import type { GlyphGraph, GlyphGraphNodeShape } from "./types";
  * this stays correct across a label-width change.
  */
 // `point` has no outline: it is only its glyph (see stateRender.test.ts).
-const SHAPE_OUTLINES: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, {
+const SHAPE_OUTLINES: Readonly<Record<Exclude<GlyphGraphNodeShape, "point" | typeof GLYPH_DIAGRAM_CATALOGUE_SHAPES[number]>, {
   readonly corners: readonly [string, string, string, string]; // TL, TR, BL, BR
   readonly topRule: string;
   readonly bottomRule: string;
   readonly sideLeft: string;
   readonly sideRight: string;
 }>> = {
+  cloud: { corners: ["╭", "╮", "╰", "╯"], topRule: "◠", bottomRule: "◡", sideLeft: "│", sideRight: "│" },
+  bang: { corners: ["*", "*", "*", "*"], topRule: "╱╲", bottomRule: "╲╱", sideLeft: "│", sideRight: "│" },
+  hexagon: { corners: ["╱", "╲", "╲", "╱"], topRule: "─", bottomRule: "─", sideLeft: "❬", sideRight: "❭" },
   compartment: { corners: ["┌", "┐", "└", "┘"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   rect: { corners: ["┌", "┐", "└", "┘"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
   rounded: { corners: ["╭", "╮", "╰", "╯"], topRule: "─", bottomRule: "─", sideLeft: "│", sideRight: "│" },
@@ -41,7 +45,7 @@ describe("box-charset node shape outlines match the approved catalogue", () => {
       const { x0, y0, x1, y1 } = node;
       const at = (x: number, y: number) => result.canvas.grid.char[y * result.canvas.grid.cols + x];
       expect([at(x0, y0), at(x1, y0), at(x0, y1), at(x1, y1)]).toEqual(expected.corners);
-      for (let x = x0 + 1; x < x1; x++) { expect(at(x, y0)).toBe(expected.topRule); expect(at(x, y1)).toBe(expected.bottomRule); }
+      for (let x = x0 + 1; x < x1; x++) { expect(at(x, y0)).toBe(expected.topRule[(x - x0 - 1) % expected.topRule.length]); expect(at(x, y1)).toBe(expected.bottomRule[(x - x0 - 1) % expected.bottomRule.length]); }
       for (let y = y0 + 1; y < y1; y++) { expect(at(x0, y)).toBe(node.separators?.includes(y - y0 - 1) ? "├" : expected.sideLeft); expect(at(x1, y)).toBe(node.separators?.includes(y - y0 - 1) ? "┤" : expected.sideRight); }
       // `subroutine`'s nested inset frame sits one cell inside each side —
       // a separate mechanism from the outline table above (AGENTS.md's
@@ -73,7 +77,8 @@ describe("box-charset node shape outlines match the approved catalogue", () => {
   });
 
   it("ascii keeps its pre-existing 7-bit fallback per shape, unaffected by the box-charset catalogue above", async () => {
-    const ascii: Readonly<Record<Exclude<GlyphGraphNodeShape, "point">, readonly [string, string, string, string]>> = {
+    const ascii: Readonly<Record<Exclude<GlyphGraphNodeShape, "point" | typeof GLYPH_DIAGRAM_CATALOGUE_SHAPES[number]>, readonly [string, string, string, string]>> = {
+      cloud: ["(", ")", "(", ")"], bang: ["*", "*", "*", "*"], hexagon: ["/", "\\", "\\", "/"],
       compartment: ["+", "+", "+", "+"],
       rect: ["+", "+", "+", "+"], rounded: ["(", ")", "(", ")"], stadium: ["(", ")", "(", ")"],
       cylinder: ["+", "+", "+", "+"], circle: ["(", ")", "(", ")"], diamond: ["/", "\\", "\\", "/"],

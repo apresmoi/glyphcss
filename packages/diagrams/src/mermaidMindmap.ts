@@ -4,9 +4,9 @@ import { labelText } from "./mermaidText";
 import { ledgerMermaidDegraded, type GlyphDiagramLedgerEntry } from "./ledger";
 import { glyphMermaidTreeDocument, glyphMermaidTreeStatements } from "./mermaidTreeText";
 
-const SHAPES: readonly [string, string, GlyphGraphNodeShape, string?][] = [
-  ["((", "))", "circle"], ["))", "((", "rounded", "bang"],
-  [")", "(", "rounded", "cloud"], ["{{", "}}", "rect", "hexagon"],
+const SHAPES: readonly [string, string, GlyphGraphNodeShape][] = [
+  ["((", "))", "circle"], ["))", "((", "bang"],
+  [")", "(", "cloud"], ["{{", "}}", "hexagon"],
   ["(", ")", "rounded"], ["[", "]", "rect"],
 ];
 function syntax(message: string): never { return glyphDiagramError("GLYPH_MERMAID_MINDMAP_SYNTAX", message); }
@@ -45,7 +45,6 @@ export function glyphParseMermaidMindmap(source: string): { graph: GlyphGraph; n
       const candidate = SHAPES.find(([open]) => text.startsWith(open, offset));
       if (!candidate || !text.endsWith(candidate[1])) syntax(`Unclosed mindmap shape: ${text}`);
       label = text.slice(offset + candidate[0].length, -candidate[1].length); shape = candidate[2];
-      if (candidate[3]) note(`mindmap-${candidate[3]}`, `Mindmap ${candidate[3]} uses the approved ${shape} family.`);
     }
     if (/"`/.test(label)) note("markdown", "Markdown strings render as plain text with line wrapping.");
     label = labelText(label);

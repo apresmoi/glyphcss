@@ -130,7 +130,10 @@ function mermaidSlots(line: string, lineStart: number, form: GlyphDiagramsFormId
             ? "participant id"
             : prev?.kind === "keyword" && prev.text === "over"
               ? "note participant"
-              : !sequence && next?.kind === "punct" && "[({>".includes(next.text) && next.start === token.end
+              : !sequence &&
+                  next?.kind === "punct" &&
+                  ("[({>".includes(next.text) || MERMAID_SHAPES.some((s) => s.open === next.text)) &&
+                  next.start === token.end
                 ? "node id"
                 : prev?.kind === "arrow" || next?.kind === "arrow"
                   ? sequence
@@ -164,7 +167,12 @@ function mermaidSlots(line: string, lineStart: number, form: GlyphDiagramsFormId
       continue;
     }
     // A node shape: the opener bracket run right after an id, cycled together with its closer.
-    if (token.kind === "punct" && prev?.kind === "id" && "[({>".includes(token.text) && !sequence) {
+    if (
+      token.kind === "punct" &&
+      prev?.kind === "id" &&
+      ("[({>".includes(token.text) || MERMAID_SHAPES.some((s) => s.open === token.text)) &&
+      !sequence
+    ) {
       let openEnd = i;
       while (words[openEnd + 1]?.kind === "punct" && "[({".includes(words[openEnd + 1]!.text)) openEnd++;
       const opener = words

@@ -1,4 +1,4 @@
-import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramPortOffsets, type GlyphDiagramPositionedPort } from "./pipeline";
+import { GLYPH_DIAGRAM_DIRECTIONS, glyphDiagramPortOffsets, glyphDiagramNodePortSide, type GlyphDiagramPositionedPort } from "./pipeline";
 import { glyphDiagramFakeFrames, glyphDiagramRouteQuality } from "./routeQuality";
 import { glyphDiagramGraphLabels } from "./graphLabels";
 import { routeGlyphGraphEdges } from "./route";
@@ -50,6 +50,7 @@ export function glyphDiagramRepairRouting(initial: GlyphDiagramAttempt, options:
       const move = (port: GlyphDiagramPositionedPort, side: GlyphDiagramPositionedPort["side"]) => {
         if (side === port.side) return port;
         const node = before.layout.nodes.find(node => node.id === port.nodeId)!;
+        if (glyphDiagramNodePortSide(node, side) !== side) return;
         const other = pair.find(other => other !== port)!;
         const length = side === "n" || side === "s" ? node.width : node.height;
         const peers = before.layout.ports.filter(peer => peer.nodeId === node.id && peer.edgeId !== edge.id && peer.side === side);

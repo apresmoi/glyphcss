@@ -26,128 +26,128 @@
   {
     "name": "shape notch-rect",
     "source": "flowchart LR; A@{ shape: notch-rect, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "notch-rect"
+    "shape": "notch-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape card",
     "source": "flowchart LR; A@{ shape: card, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "notch-rect"
+    "shape": "notch-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape notched-rectangle",
     "source": "flowchart LR; A@{ shape: notched-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "notch-rect"
+    "shape": "notch-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape brace",
     "source": "flowchart LR; A@{ shape: brace, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "brace"
+    "shape": "brace",
+    "fallbackKind": null
   },
   {
     "name": "shape brace-l",
     "source": "flowchart LR; A@{ shape: brace-l, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "brace"
+    "shape": "brace",
+    "fallbackKind": null
   },
   {
     "name": "shape comment",
     "source": "flowchart LR; A@{ shape: comment, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "brace"
+    "shape": "brace",
+    "fallbackKind": null
   },
   {
     "name": "shape brace-r",
     "source": "flowchart LR; A@{ shape: brace-r, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "brace-r"
+    "shape": "brace-r",
+    "fallbackKind": null
   },
   {
     "name": "shape braces",
     "source": "flowchart LR; A@{ shape: braces, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "braces"
+    "shape": "braces",
+    "fallbackKind": null
   },
   {
     "name": "shape lean-r",
     "source": "flowchart LR; A@{ shape: lean-r, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "lean-r"
+    "shape": "lean-r",
+    "fallbackKind": null
   },
   {
     "name": "shape in-out",
     "source": "flowchart LR; A@{ shape: in-out, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "lean-r"
+    "shape": "lean-r",
+    "fallbackKind": null
   },
   {
     "name": "shape lean-right",
     "source": "flowchart LR; A@{ shape: lean-right, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "lean-r"
+    "shape": "lean-r",
+    "fallbackKind": null
   },
   {
     "name": "shape lean-l",
     "source": "flowchart LR; A@{ shape: lean-l, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "lean-l"
+    "shape": "lean-l",
+    "fallbackKind": null
   },
   {
     "name": "shape lean-left",
     "source": "flowchart LR; A@{ shape: lean-left, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "lean-l"
+    "shape": "lean-l",
+    "fallbackKind": null
   },
   {
     "name": "shape out-in",
     "source": "flowchart LR; A@{ shape: out-in, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "lean-l"
+    "shape": "lean-l",
+    "fallbackKind": null
   },
   {
     "name": "shape doc",
     "source": "flowchart LR; A@{ shape: doc, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "doc"
+    "shape": "doc",
+    "fallbackKind": null
   },
   {
     "name": "shape document",
     "source": "flowchart LR; A@{ shape: document, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "doc"
+    "shape": "doc",
+    "fallbackKind": null
   },
   {
     "name": "shape tri",
     "source": "flowchart LR; A@{ shape: tri, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tri"
+    "shape": "tri",
+    "fallbackKind": null
   },
   {
     "name": "shape extract",
     "source": "flowchart LR; A@{ shape: extract, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tri"
+    "shape": "tri",
+    "fallbackKind": null
   },
   {
     "name": "shape triangle",
     "source": "flowchart LR; A@{ shape: triangle, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tri"
+    "shape": "tri",
+    "fallbackKind": null
   },
   {
     "name": "shape fork",
     "source": "flowchart LR; A@{ shape: fork, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "fork"
+    "shape": "fork",
+    "fallbackKind": null
   },
   {
     "name": "shape join",
     "source": "flowchart LR; A@{ shape: join, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "fork"
+    "shape": "fork",
+    "fallbackKind": null
   },
   {
     "name": "shape lin-doc",
@@ -164,38 +164,38 @@
   {
     "name": "shape notch-pent",
     "source": "flowchart LR; A@{ shape: notch-pent, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "notch-pent"
+    "shape": "notch-pent",
+    "fallbackKind": null
   },
   {
     "name": "shape loop-limit",
     "source": "flowchart LR; A@{ shape: loop-limit, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "notch-pent"
+    "shape": "notch-pent",
+    "fallbackKind": null
   },
   {
     "name": "shape notched-pentagon",
     "source": "flowchart LR; A@{ shape: notched-pentagon, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "notch-pent"
+    "shape": "notch-pent",
+    "fallbackKind": null
   },
   {
     "name": "shape flip-tri",
     "source": "flowchart LR; A@{ shape: flip-tri, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "flip-tri"
+    "shape": "flip-tri",
+    "fallbackKind": null
   },
   {
     "name": "shape flipped-triangle",
     "source": "flowchart LR; A@{ shape: flipped-triangle, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "flip-tri"
+    "shape": "flip-tri",
+    "fallbackKind": null
   },
   {
     "name": "shape manual-file",
     "source": "flowchart LR; A@{ shape: manual-file, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "flip-tri"
+    "shape": "flip-tri",
+    "fallbackKind": null
   },
   {
     "name": "shape sl-rect",
@@ -218,170 +218,170 @@
   {
     "name": "shape trap-t",
     "source": "flowchart LR; A@{ shape: trap-t, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-t"
+    "shape": "trap-t",
+    "fallbackKind": null
   },
   {
     "name": "shape inv-trapezoid",
     "source": "flowchart LR; A@{ shape: inv-trapezoid, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-t"
+    "shape": "trap-t",
+    "fallbackKind": null
   },
   {
     "name": "shape manual",
     "source": "flowchart LR; A@{ shape: manual, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-t"
+    "shape": "trap-t",
+    "fallbackKind": null
   },
   {
     "name": "shape trapezoid-top",
     "source": "flowchart LR; A@{ shape: trapezoid-top, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-t"
+    "shape": "trap-t",
+    "fallbackKind": null
   },
   {
     "name": "shape docs",
     "source": "flowchart LR; A@{ shape: docs, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "docs"
+    "shape": "docs",
+    "fallbackKind": null
   },
   {
     "name": "shape documents",
     "source": "flowchart LR; A@{ shape: documents, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "docs"
+    "shape": "docs",
+    "fallbackKind": null
   },
   {
     "name": "shape st-doc",
     "source": "flowchart LR; A@{ shape: st-doc, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "docs"
+    "shape": "docs",
+    "fallbackKind": null
   },
   {
     "name": "shape stacked-document",
     "source": "flowchart LR; A@{ shape: stacked-document, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "docs"
+    "shape": "docs",
+    "fallbackKind": null
   },
   {
     "name": "shape hex",
     "source": "flowchart LR; A@{ shape: hex, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "hex"
+    "shape": "hexagon",
+    "fallbackKind": null
   },
   {
     "name": "shape hexagon",
     "source": "flowchart LR; A@{ shape: hexagon, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "hex"
+    "shape": "hexagon",
+    "fallbackKind": null
   },
   {
     "name": "shape prepare",
     "source": "flowchart LR; A@{ shape: prepare, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "hex"
+    "shape": "hexagon",
+    "fallbackKind": null
   },
   {
     "name": "shape trap-b",
     "source": "flowchart LR; A@{ shape: trap-b, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-b"
+    "shape": "trap-b",
+    "fallbackKind": null
   },
   {
     "name": "shape priority",
     "source": "flowchart LR; A@{ shape: priority, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-b"
+    "shape": "trap-b",
+    "fallbackKind": null
   },
   {
     "name": "shape trapezoid",
     "source": "flowchart LR; A@{ shape: trapezoid, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-b"
+    "shape": "trap-b",
+    "fallbackKind": null
   },
   {
     "name": "shape trapezoid-bottom",
     "source": "flowchart LR; A@{ shape: trapezoid-bottom, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "trap-b"
+    "shape": "trap-b",
+    "fallbackKind": null
   },
   {
     "name": "shape bow-rect",
     "source": "flowchart LR; A@{ shape: bow-rect, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "bow-rect"
+    "shape": "bow-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape bow-tie-rectangle",
     "source": "flowchart LR; A@{ shape: bow-tie-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "bow-rect"
+    "shape": "bow-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape stored-data",
     "source": "flowchart LR; A@{ shape: stored-data, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "bow-rect"
+    "shape": "bow-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape tag-doc",
     "source": "flowchart LR; A@{ shape: tag-doc, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tag-doc"
+    "shape": "tag-doc",
+    "fallbackKind": null
   },
   {
     "name": "shape tagged-document",
     "source": "flowchart LR; A@{ shape: tagged-document, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tag-doc"
+    "shape": "tag-doc",
+    "fallbackKind": null
   },
   {
     "name": "shape tag-rect",
     "source": "flowchart LR; A@{ shape: tag-rect, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tag-rect"
+    "shape": "tag-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape tag-proc",
     "source": "flowchart LR; A@{ shape: tag-proc, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tag-rect"
+    "shape": "tag-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape tagged-process",
     "source": "flowchart LR; A@{ shape: tagged-process, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tag-rect"
+    "shape": "tag-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape tagged-rectangle",
     "source": "flowchart LR; A@{ shape: tagged-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "tag-rect"
+    "shape": "tag-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape text",
     "source": "flowchart LR; A@{ shape: text, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "text"
+    "shape": "text",
+    "fallbackKind": null
   },
   {
     "name": "shape bang",
     "source": "flowchart LR; A@{ shape: bang, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "bang"
+    "shape": "bang",
+    "fallbackKind": null
   },
   {
     "name": "shape browser",
     "source": "flowchart LR; A@{ shape: browser, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "browser"
+    "shape": "browser",
+    "fallbackKind": null
   },
   {
     "name": "shape console",
     "source": "flowchart LR; A@{ shape: console, label: \"Read item\" } --> B[Done]",
-    "shape": "rect",
-    "fallbackKind": "console"
+    "shape": "console",
+    "fallbackKind": null
   },
   {
     "name": "shape folder",
@@ -410,26 +410,26 @@
   {
     "name": "shape cloud",
     "source": "flowchart LR; A@{ shape: cloud, label: \"Read item\" } --> B[Done]",
-    "shape": "rounded",
-    "fallbackKind": "cloud"
+    "shape": "cloud",
+    "fallbackKind": null
   },
   {
     "name": "shape delay",
     "source": "flowchart LR; A@{ shape: delay, label: \"Read item\" } --> B[Done]",
-    "shape": "rounded",
-    "fallbackKind": "delay"
+    "shape": "delay",
+    "fallbackKind": null
   },
   {
     "name": "shape half-rounded-rectangle",
     "source": "flowchart LR; A@{ shape: half-rounded-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "rounded",
-    "fallbackKind": "delay"
+    "shape": "delay",
+    "fallbackKind": null
   },
   {
     "name": "shape person",
     "source": "flowchart LR; A@{ shape: person, label: \"Read item\" } --> B[Done]",
-    "shape": "rounded",
-    "fallbackKind": "person"
+    "shape": "person",
+    "fallbackKind": null
   },
   {
     "name": "shape stadium",
@@ -464,86 +464,86 @@
   {
     "name": "shape f-circ",
     "source": "flowchart LR; A@{ shape: f-circ, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "f-circ"
+    "shape": "f-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape filled-circle",
     "source": "flowchart LR; A@{ shape: filled-circle, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "f-circ"
+    "shape": "f-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape junction",
     "source": "flowchart LR; A@{ shape: junction, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "f-circ"
+    "shape": "f-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape sm-circ",
     "source": "flowchart LR; A@{ shape: sm-circ, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "sm-circ"
+    "shape": "sm-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape small-circle",
     "source": "flowchart LR; A@{ shape: small-circle, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "sm-circ"
+    "shape": "sm-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape start",
     "source": "flowchart LR; A@{ shape: start, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "sm-circ"
+    "shape": "sm-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape dbl-circ",
     "source": "flowchart LR; A@{ shape: dbl-circ, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "dbl-circ"
+    "shape": "dbl-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape double-circle",
     "source": "flowchart LR; A@{ shape: double-circle, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "dbl-circ"
+    "shape": "dbl-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape fr-circ",
     "source": "flowchart LR; A@{ shape: fr-circ, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "fr-circ"
+    "shape": "fr-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape framed-circle",
     "source": "flowchart LR; A@{ shape: framed-circle, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "fr-circ"
+    "shape": "fr-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape stop",
     "source": "flowchart LR; A@{ shape: stop, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "fr-circ"
+    "shape": "fr-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape cross-circ",
     "source": "flowchart LR; A@{ shape: cross-circ, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "cross-circ"
+    "shape": "cross-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape crossed-circle",
     "source": "flowchart LR; A@{ shape: crossed-circle, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "cross-circ"
+    "shape": "cross-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape summary",
     "source": "flowchart LR; A@{ shape: summary, label: \"Read item\" } --> B[Done]",
-    "shape": "circle",
-    "fallbackKind": "cross-circ"
+    "shape": "cross-circ",
+    "fallbackKind": null
   },
   {
     "name": "shape diam",
@@ -572,14 +572,14 @@
   {
     "name": "shape hourglass",
     "source": "flowchart LR; A@{ shape: hourglass, label: \"Read item\" } --> B[Done]",
-    "shape": "diamond",
-    "fallbackKind": "hourglass"
+    "shape": "hourglass",
+    "fallbackKind": null
   },
   {
     "name": "shape collate",
     "source": "flowchart LR; A@{ shape: collate, label: \"Read item\" } --> B[Done]",
-    "shape": "diamond",
-    "fallbackKind": "hourglass"
+    "shape": "hourglass",
+    "fallbackKind": null
   },
   {
     "name": "shape cyl",
@@ -608,56 +608,56 @@
   {
     "name": "shape h-cyl",
     "source": "flowchart LR; A@{ shape: h-cyl, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "h-cyl"
+    "shape": "h-cyl",
+    "fallbackKind": null
   },
   {
     "name": "shape das",
     "source": "flowchart LR; A@{ shape: das, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "h-cyl"
+    "shape": "h-cyl",
+    "fallbackKind": null
   },
   {
     "name": "shape horizontal-cylinder",
     "source": "flowchart LR; A@{ shape: horizontal-cylinder, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "h-cyl"
+    "shape": "h-cyl",
+    "fallbackKind": null
   },
   {
     "name": "shape lin-cyl",
     "source": "flowchart LR; A@{ shape: lin-cyl, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "lin-cyl"
+    "shape": "lin-cyl",
+    "fallbackKind": null
   },
   {
     "name": "shape disk",
     "source": "flowchart LR; A@{ shape: disk, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "lin-cyl"
+    "shape": "lin-cyl",
+    "fallbackKind": null
   },
   {
     "name": "shape lined-cylinder",
     "source": "flowchart LR; A@{ shape: lined-cylinder, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "lin-cyl"
+    "shape": "lin-cyl",
+    "fallbackKind": null
   },
   {
     "name": "shape bucket",
     "source": "flowchart LR; A@{ shape: bucket, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "bucket"
+    "shape": "bucket",
+    "fallbackKind": null
   },
   {
     "name": "shape datastore",
     "source": "flowchart LR; A@{ shape: datastore, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "datastore"
+    "shape": "datastore",
+    "fallbackKind": null
   },
   {
     "name": "shape data-store",
     "source": "flowchart LR; A@{ shape: data-store, label: \"Read item\" } --> B[Done]",
-    "shape": "cylinder",
-    "fallbackKind": "datastore"
+    "shape": "datastore",
+    "fallbackKind": null
   },
   {
     "name": "shape fr-rect",
@@ -692,26 +692,26 @@
   {
     "name": "shape div-rect",
     "source": "flowchart LR; A@{ shape: div-rect, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "div-rect"
+    "shape": "div-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape div-proc",
     "source": "flowchart LR; A@{ shape: div-proc, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "div-rect"
+    "shape": "div-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape divided-process",
     "source": "flowchart LR; A@{ shape: divided-process, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "div-rect"
+    "shape": "div-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape divided-rectangle",
     "source": "flowchart LR; A@{ shape: divided-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "div-rect"
+    "shape": "div-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape win-pane",
@@ -734,56 +734,56 @@
   {
     "name": "shape lin-rect",
     "source": "flowchart LR; A@{ shape: lin-rect, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "lin-rect"
+    "shape": "lin-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape lin-proc",
     "source": "flowchart LR; A@{ shape: lin-proc, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "lin-rect"
+    "shape": "lin-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape lined-process",
     "source": "flowchart LR; A@{ shape: lined-process, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "lin-rect"
+    "shape": "lin-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape lined-rectangle",
     "source": "flowchart LR; A@{ shape: lined-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "lin-rect"
+    "shape": "lin-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape shaded-process",
     "source": "flowchart LR; A@{ shape: shaded-process, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "lin-rect"
+    "shape": "lin-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape st-rect",
     "source": "flowchart LR; A@{ shape: st-rect, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "st-rect"
+    "shape": "st-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape processes",
     "source": "flowchart LR; A@{ shape: processes, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "st-rect"
+    "shape": "st-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape procs",
     "source": "flowchart LR; A@{ shape: procs, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "st-rect"
+    "shape": "st-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape stacked-rectangle",
     "source": "flowchart LR; A@{ shape: stacked-rectangle, label: \"Read item\" } --> B[Done]",
-    "shape": "subroutine",
-    "fallbackKind": "st-rect"
+    "shape": "st-rect",
+    "fallbackKind": null
   },
   {
     "name": "shape odd",
@@ -794,50 +794,50 @@
   {
     "name": "shape bolt",
     "source": "flowchart LR; A@{ shape: bolt, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "bolt"
+    "shape": "bolt",
+    "fallbackKind": null
   },
   {
     "name": "shape com-link",
     "source": "flowchart LR; A@{ shape: com-link, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "bolt"
+    "shape": "bolt",
+    "fallbackKind": null
   },
   {
     "name": "shape lightning-bolt",
     "source": "flowchart LR; A@{ shape: lightning-bolt, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "bolt"
+    "shape": "bolt",
+    "fallbackKind": null
   },
   {
     "name": "shape curv-trap",
     "source": "flowchart LR; A@{ shape: curv-trap, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "curv-trap"
+    "shape": "curv-trap",
+    "fallbackKind": null
   },
   {
     "name": "shape curved-trapezoid",
     "source": "flowchart LR; A@{ shape: curved-trapezoid, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "curv-trap"
+    "shape": "curv-trap",
+    "fallbackKind": null
   },
   {
     "name": "shape display",
     "source": "flowchart LR; A@{ shape: display, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "curv-trap"
+    "shape": "curv-trap",
+    "fallbackKind": null
   },
   {
     "name": "shape flag",
     "source": "flowchart LR; A@{ shape: flag, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "flag"
+    "shape": "flag",
+    "fallbackKind": null
   },
   {
     "name": "shape paper-tape",
     "source": "flowchart LR; A@{ shape: paper-tape, label: \"Read item\" } --> B[Done]",
-    "shape": "asymmetric",
-    "fallbackKind": "flag"
+    "shape": "flag",
+    "fallbackKind": null
   },
   {
     "name": "icon",

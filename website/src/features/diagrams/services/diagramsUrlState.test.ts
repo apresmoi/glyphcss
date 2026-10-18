@@ -31,6 +31,13 @@ describe("diagramsUrlState — round trip", () => {
     expect(await decodeDiagramsUrlState(raw)).toEqual(state);
   });
 
+  it.each(["cloud", "bang", "hexagon", "doc", "docs", "st-rect", "tag-doc", "notch-rect", "div-rect", "lin-rect", "tag-rect", "lean-r", "lean-l", "trap-t", "trap-b", "notch-pent", "delay", "bow-rect", "curv-trap", "tri", "flip-tri", "hourglass", "bolt", "flag", "dbl-circ", "cross-circ", "fr-circ", "f-circ", "sm-circ", "h-cyl", "lin-cyl", "datastore", "bucket", "text", "fork", "brace", "brace-r", "braces", "browser", "console", "person"] as const)("round-trips %s graph nodes", async shape => {
+    let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), { type: "set-editor", editor: "json" });
+    const graph = { nodes: [{ id: "n", label: "Node", shape }], edges: [], direction: "LR" };
+    state = reduceGlyphDiagramsWorkbenchState(state, { type: "edit-source", value: JSON.stringify(graph) });
+    expect(await decodeDiagramsUrlState(await encodeDiagramsUrlState(state))).toEqual(state);
+  });
+
   it("round-trips a JSON edit carrying every graph field (kind/group/shape/style/priority included)", async () => {
     let state = reduceGlyphDiagramsWorkbenchState(createGlyphDiagramsWorkbenchState(), {
       type: "set-editor",

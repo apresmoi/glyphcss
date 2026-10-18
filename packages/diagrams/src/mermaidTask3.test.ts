@@ -135,7 +135,7 @@ describe("Mermaid mindmap", () => {
     expect(g.nodes.map(n => n.label)).toEqual(["Root", "A", "B", "C", "D"]);
     expect(g.edges.map(e => [e.from, e.to, e.endHead])).toEqual([["mindmap:0", "mindmap:1", "none"], ["mindmap:1", "mindmap:2", "none"], ["mindmap:1", "mindmap:3", "none"], ["mindmap:0", "mindmap:4", "none"]]);
   });
-  it.each([['[Square]', 'rect'], ['(Rounded)', 'rounded'], ['((Circle))', 'circle'], ['))Bang((', 'rounded'], [')Cloud(', 'rounded'], ['{{Hexagon}}', 'rect']])("maps %s into an approved family", (shape, family) => {
+  it.each([['[Square]', 'rect'], ['(Rounded)', 'rounded'], ['((Circle))', 'circle'], ['))Bang((', 'bang'], [')Cloud(', 'cloud'], ['{{Hexagon}}', 'hexagon']])("maps %s into an approved family", (shape, family) => {
     expect(mind(`root${shape}`).nodes[0]!.shape).toBe(family);
   });
   it("keeps repeated text nodes distinct and uses shape contents as labels", () => {
@@ -173,9 +173,9 @@ describe("Mermaid mindmap", () => {
   it("keeps semicolons and shape-looking suffixes in quoted labels", () => {
     expect(mind('Root; planning\n  child["literal )) text :::class"]').nodes.map(n => n.label)).toEqual(["Root; planning", "literal )) text :::class"]);
   });
-  it("logs shape/layout/markdown/config approximations", () => {
+  it("logs only layout/markdown/config approximations for supported shapes", () => {
     const p = glyphParseMermaid('---\nconfig:\n  layout: tidy-tree\n---\nmindmap\n  root(("`**Plan**`"))\n    x))Bang((\n    y)Cloud(\n    z{{Hex}}');
-    expect(p.notes.map(n => n.detail?.kind)).toEqual(expect.arrayContaining(["mindmap-config", "mindmap-bang", "mindmap-cloud", "mindmap-hexagon", "markdown", "mindmap-layout"]));
+    expect(p.notes.map(n => n.detail?.kind)).toEqual(expect.arrayContaining(["mindmap-config", "markdown", "mindmap-layout"]));
   });
   it.each(['Root\nOther', 'root[open', ''])('tags invalid structure: %s', source => {
     expect(() => mind(source)).toThrow(expect.objectContaining({ code: "GLYPH_MERMAID_MINDMAP_SYNTAX" }));
