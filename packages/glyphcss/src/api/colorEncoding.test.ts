@@ -730,3 +730,50 @@ describe("createGlyphScene — colorEncoding reaches a per-mesh detail layer's b
     host.remove();
   });
 });
+
+describe("atlas DOM commit", () => {
+  it("writes each atlas pre once as text and preserves the HTML-parser DOM bytes", async () => {
+    const host = makeDiv();
+    const scene = createGlyphScene(host, {
+      cols: 32, rows: 16, mode: "solid", useColors: true, doubleSided: true,
+      colorEncoding: "atlas", atlasPalette: ["#802020"],
+      camera: createGlyphOrthographicCamera({ zoom: 50 }), ...FLAT_LIGHTING,
+    });
+    scene.add(flatQuad("#802020"));
+    scene.add(flatQuad("#802020"), { density: 2 });
+    await flushAtlasRenders();
+    const pres = [...host.querySelectorAll("pre")];
+    expect(pres.length).toBe(2);
+    const html = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!;
+    const text = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!;
+    const writes = pres.map((pre) => {
+      const counts = { html: 0, text: 0 };
+      Object.defineProperty(pre, "innerHTML", { configurable: true, get: html.get, set(value) { counts.html++; html.set!.call(this, value); } });
+      Object.defineProperty(pre, "textContent", { configurable: true, get: text.get, set(value) { counts.text++; text.set!.call(this, value); } });
+      return counts;
+    });
+    try {
+      scene.rerender();
+      for (let i = 0; i < pres.length; i++) {
+        expect(writes[i]).toEqual({ html: 0, text: 1 });
+        const pre = pres[i]!;
+        const legacy = pre.cloneNode(false) as HTMLPreElement;
+        legacy.innerHTML = pre.textContent!;
+        expect(pre.outerHTML).toBe(legacy.outerHTML);
+        expect(pre.childNodes.length).toBe(1);
+        expect(pre.firstChild!.nodeType).toBe(Node.TEXT_NODE);
+      }
+      writes.forEach((counts) => { counts.html = 0; counts.text = 0; });
+      scene.setOptions({ colorEncoding: "spans" });
+      await flushRenders();
+      for (let i = 0; i < pres.length; i++) {
+        expect(writes[i]!.html).toBeGreaterThan(0);
+        expect(writes[i]!.text).toBe(0);
+        expect(pres[i]!.querySelector("span")).not.toBeNull();
+      }
+    } finally {
+      for (const pre of pres) { Reflect.deleteProperty(pre, "innerHTML"); Reflect.deleteProperty(pre, "textContent"); }
+      scene.destroy(); host.remove();
+    }
+  });
+});

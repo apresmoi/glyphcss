@@ -2527,7 +2527,7 @@ export function createGlyphScene(
     const oldHotspots = plan.hotspots.map(({ el }) => ({ el, style: el.getAttribute("style") }));
     try {
       for (const entry of plan.writes) {
-        if (options.useColors) entry.pre.innerHTML = entry.encoded;
+        if (options.useColors && !entry.atlas) entry.pre.innerHTML = entry.encoded;
         else entry.pre.textContent = entry.encoded;
         // Same transaction as the text it describes: a node never carries the
         // atlas font stack while holding span-encoded text, or vice versa.
