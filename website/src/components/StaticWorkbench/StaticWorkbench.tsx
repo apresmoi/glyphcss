@@ -3,6 +3,7 @@ import styles from "./StaticWorkbench.module.css";
 interface Render {
   title: string;
   text: string;
+  html: string;
   source?: string;
 }
 
@@ -31,9 +32,7 @@ export function StaticWorkbench({
   const render = (entry: Render) => (
     <section key={entry.title}>
       <h3>{entry.title}</h3>
-      <pre className={styles.render} data-static-render>
-        {entry.text}
-      </pre>
+      <pre className={styles.render} data-static-render dangerouslySetInnerHTML={{ __html: entry.html }} />
       {entry.source && (
         <details>
           <summary>Mermaid / JSON source</summary>

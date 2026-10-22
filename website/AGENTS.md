@@ -28,8 +28,8 @@ Root `AGENTS.md` applies.
 
 ## Behavioral contracts
 
-- Workbenches retain headings and build-time ASCII fallback slots; builds check galleries from preset corpora.
-- Fresh `/maps` starts at zero tilt and bearing; shared links retain their saved pose.
+- Keep workbench headings and static text/spans (CSS colour, same text). Builds check preset galleries; maps use bundled ETOPO1.
+- Fresh `/maps` uses zero tilt/bearing; shared links keep their pose.
 - Preserve existing URLs, serialized state versions, dataset identifiers, rendering results, and export contents during UI refactors. URL state is append-only: new fields are optional, malformed fields degrade to absent, and only incompatible reshapes bump a version prefix. Shipped dataset IDs are frozen; renames require an alias map.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.
 - Scenes, animations, listeners, observers, subscriptions, and requests need one lifecycle owner and cleanup. Lazy demos tolerate unmounts and React StrictMode replay.

@@ -12,7 +12,7 @@ export async function staticDiagrams() {
   for (const preset of GLYPH_MERMAID_DIAGRAM_PRESETS) {
     const options = {
       target: "web",
-      color: "none",
+      color: "css",
       charset: "box",
       width: 96,
       height: preset.height,
@@ -21,7 +21,10 @@ export async function staticDiagrams() {
     const result = await (preset.type === "sequenceDiagram"
       ? renderGlyphSequence(preset.source, options)
       : renderGlyphDiagram(preset.source, options));
-    examples.push({ title: preset.label, source: preset.source, text: result.text });
+    examples.push({ title: preset.label, source: preset.source, text: result.text, html: result.html! });
   }
-  return { initial: { title: state.diagram.title, source: state.mermaid, text: initial.text }, examples };
+  return {
+    initial: { title: state.diagram.title, source: state.mermaid, text: initial.text, html: initial.display },
+    examples,
+  };
 }
