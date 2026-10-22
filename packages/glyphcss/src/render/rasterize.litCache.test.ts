@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Polygon } from "@glyphcss/core";
+import { cubePolygons, type Polygon } from "@glyphcss/core";
 import { createGlyphOrthographicCamera } from "../api/createGlyphCamera";
 import { buildRasterizeContext } from "../api/rasterizeContext";
 import { rasterize } from "./rasterize";
@@ -37,4 +37,29 @@ describe("lit-cache byte identity", () => {
   it("exercises a quantization collision whose first triangle changes the colour", () => {
     expect(render(false, "spans")).not.toBe(render(true, "spans"));
   });
+});
+
+it("keeps shadowed glyph and colour bytes identical in spans and atlas", () => {
+  const cube = cubePolygons({ center: [0, 0, 2], size: 2, color: "#9a73ce" });
+  const ground: Polygon[] = [];
+  for (let x = -5; x < 5; x++) {
+    ground.push({ vertices: [[x, -5, 0], [x + 1, -5, 0], [x + 1, 5, 0], [x, 5, 0]], color: x % 2 ? "#b38652" : "#77b39c" });
+  }
+  const polygons = [...cube, ...ground];
+  for (const colorEncoding of ["spans", "atlas"] as const) {
+    const render = (opacity: number) => rasterize(buildRasterizeContext({
+      camera: createGlyphOrthographicCamera({ rotX: 55, rotY: 30, zoom: 170 }),
+      grid: { cols: 40, rows: 24, cellAspect: 2 }, polygons,
+      mode: "solid", doubleSided: true, useColors: true, colorEncoding,
+      ambientLight: { intensity: 0.23 },
+      directionalLight: { direction: [0.3, -0.2, 1], intensity: 0.8 },
+      atlasPalette: ["#302014", "#806040", "#a08050", "#708050", "#80b090", "#705090"],
+      shadow: { opacity, lift: 0.05, color: "#192e45" },
+      castShadowFlags: polygons.map((_, i) => i < cube.length),
+      receiveShadowFlags: polygons.map((_, i) => i >= cube.length),
+    }));
+    const shadowed = render(0.73);
+    expect(shadowed).not.toBe(render(0));
+    expect(shadowed).toMatchSnapshot(colorEncoding);
+  }
 });
