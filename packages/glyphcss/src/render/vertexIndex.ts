@@ -70,6 +70,8 @@ export interface GlyphVertexIndex {
    * Holes until a pass fills them.
    */
   readonly proj: ([number, number, number, number?] | undefined)[];
+  /** Factory-only storage: custom project() results remain owned by the caller. */
+  reusableProj?: ([number, number, number, number?] | undefined)[];
   /** Pass generation each slot's tuple was filled in. */
   readonly stamp: Int32Array;
   /** Current pass generation; bumped by {@link beginGlyphVertexPass}. */

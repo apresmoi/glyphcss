@@ -64,3 +64,21 @@ it("keeps indexed and unindexed renders byte-identical to public project calls",
     }
   }
 });
+
+it("does not reuse tuples owned by a custom camera on the same indexed mesh", () => {
+  const camera = createGlyphOrthographicCamera({ zoom: 200 });
+  const tuple = Object.freeze([8, 5, 0]) as unknown as [number, number, number];
+  const custom = { ...camera, project: () => tuple };
+  const polygons: Polygon[] = [];
+  for (let x = 0; x < 8; x++) {
+    polygons.push({ vertices: [[x, 0, 0], [x + 1, 0, 0], [x + 1, 1, 0], [x, 1, 0]], color: "#abcdef" });
+  }
+  const render = (c: typeof camera, p = polygons) => rasterize(buildRasterizeContext({
+    camera: c, polygons: p, grid: { cols: 32, rows: 16, cellAspect: 2 }, mode: "solid", useColors: true, doubleSided: true,
+  }));
+  const reference = render(camera, polygons.map((p) => ({ ...p, vertices: p.vertices.map((v) => [...v] as Vec3) })));
+  render(custom); render(custom); // materialize the shared index with foreign tuples
+  expect(render(camera)).toBe(reference);
+  expect(tuple).toEqual([8, 5, 0]);
+  expect(render(custom)).toBe(render(custom));
+});

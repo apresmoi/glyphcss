@@ -2445,6 +2445,7 @@ function rasterizeSolid(
   const vertexSlots = vertexIndex === null ? null : vertexIndex.slots;
   const vertexPositions = vertexIndex === null ? null : vertexIndex.positions;
   const vertexProj = vertexIndex === null ? null : vertexIndex.proj;
+  const reusableVertexProj = projectInto && vertexIndex !== null ? (vertexIndex.reusableProj ??= []) : null;
   const vertexStamp = vertexIndex === null ? null : vertexIndex.stamp;
   // ── Pre-projection cull runs (`RasterizeContextOptions.cullChunks`) ─────
   // The three rules, and why each is exact, live on
@@ -2591,7 +2592,7 @@ function rasterizeSolid(
         // rather than writing an undefined fourth slot into a double array.
         if (vertexStamp![slot] !== vertexGen) {
           vertexProj![slot] = projectInto
-            ? projectInto(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics, vertexProj![slot] ?? [0, 0, 0])
+            ? projectInto(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics, reusableVertexProj![slot] ??= [0, 0, 0])
             : camera.project(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics);
           vertexStamp![slot] = vertexGen;
         }
