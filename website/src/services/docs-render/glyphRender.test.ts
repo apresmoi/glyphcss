@@ -14,7 +14,13 @@ import { renderGlyphDiagram } from "@glyphcss/diagrams";
 import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
 import { renderGlyphLaneDag } from "@glyphcss/diagrams/lanes";
 import { renderGlyphChart, renderGlyphChartMermaid } from "@glyphcss/charts";
-import { normalizeGlyphDocsSource, renderGlyphDocs, type GlyphDocsRenderInput } from "./glyphRender";
+import { renderGlyphChart3d, glyphChartSurface } from "@glyphcss/charts/3d";
+import {
+  fitGlyphDocsOutput,
+  normalizeGlyphDocsSource,
+  renderGlyphDocs,
+  type GlyphDocsRenderInput,
+} from "./glyphRender";
 
 // Compile the real Astro adapter without loading the site's routing integrations
 // into Vitest. CSS is checked separately by the website's style audit.
@@ -110,6 +116,21 @@ const fixtures: GlyphDocsRenderInput[] = [
   },
   { kind: "diagram", source: 'gitGraph TB:\n commit id: "Start"\n commit id: "Ship"', options },
   { kind: "chart", source: [2, 5, 3], options },
+  {
+    kind: "chart-3d",
+    source: {
+      type: "surface",
+      args: [
+        {
+          z: [
+            [0, 1],
+            [1, 2],
+          ],
+        },
+      ],
+    },
+    options,
+  },
   { kind: "chart-mermaid", source: 'pie\n "Docs" : 3\n "Code" : 7', options },
 ];
 
@@ -125,6 +146,12 @@ it.each(fixtures)("uses the real $kind renderer and keeps source-dependent text"
       break;
     case "lanes":
       expected = await renderGlyphLaneDag(input.source, input.options);
+      break;
+    case "chart-3d":
+      expected = renderGlyphChart3d(
+        glyphChartSurface(...(input.source as { type: "surface"; args: Parameters<typeof glyphChartSurface> }).args),
+        input.options,
+      );
       break;
     case "chart":
       expected = renderGlyphChart(input.source, input.options);
@@ -189,7 +216,7 @@ it("renders dedented source in a closed disclosure without template whitespace",
   expect(markup.querySelector("figcaption")).toBeNull();
   const result = await renderGlyphDocs({ kind: "sequence", source });
   expect(result.text).toBe((await renderGlyphSequence(expected, { target: "chat", color: "none" })).text);
-  expect(markup.querySelector("pre.glyph-docs-output")?.textContent).toBe(result.text);
+  expect(markup.querySelector("pre.glyph-docs-output")?.textContent).toBe(fitGlyphDocsOutput(result).text);
 });
 
 it.each(fixtures)("keeps $kind CSS output byte-identical to plain text", async (input) => {
@@ -205,19 +232,21 @@ it.each(fixtures)("keeps $kind CSS output byte-identical to plain text", async (
   expect(parseMarkup(colored.html!).textContent).toBe(plain.text);
 });
 
-const docs = resolve("src/content/docs/diagrams");
-const pages = readdirSync(docs)
-  .filter((name) => name.endsWith(".mdx"))
-  .map((name) => {
-    const content = readFileSync(resolve(docs, name), "utf8");
-    const inputs = [
-      ...content.matchAll(/kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g),
-    ].map(
-      (match) =>
-        ({ kind: match[1], source: JSON.parse(match[2]!), options: JSON.parse(match[3]!) }) as GlyphDocsRenderInput,
-    );
-    return { name, content, inputs };
-  });
+const pages = ["diagrams", "charts"].flatMap((section) => {
+  const docs = resolve(`src/content/docs/${section}`);
+  return readdirSync(docs)
+    .filter((name) => name.endsWith(".mdx"))
+    .map((name) => {
+      const content = readFileSync(resolve(docs, name), "utf8");
+      const inputs = [
+        ...content.matchAll(/kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g),
+      ].map(
+        (match) =>
+          ({ kind: match[1], source: JSON.parse(match[2]!), options: JSON.parse(match[3]!) }) as GlyphDocsRenderInput,
+      );
+      return { name: `${section}/${name}`, content, inputs };
+    });
+});
 
 it.each(pages)("validates metadata and renders every source in $name", async ({ content, inputs }) => {
   const description = content.match(/^description: (.*)$/m)?.[1];
@@ -233,7 +262,8 @@ it.each(pages)("validates metadata and renders every source in $name", async ({ 
     const container = await AstroContainer.create();
     const markup = parseMarkup(await container.renderToString(GlyphRender, { props: input }));
     const pre = markup.querySelector("pre.glyph-docs-output");
-    expect(pre?.textContent).toBe(result.html ? parseMarkup(result.html).textContent : result.text);
+    const fitted = fitGlyphDocsOutput(result);
+    expect(pre?.textContent).toBe(fitted.html ? parseMarkup(fitted.html).textContent : fitted.text);
     expect(markup.querySelector("pre.glyph-docs-source")?.textContent).toBe(
       typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2),
     );
@@ -251,9 +281,66 @@ it.each(fixtures)("emits real $kind output inside a static pre through Astro", a
     const expected = await renderGlyphDocs(props);
     const pre = markup.querySelector("pre.glyph-docs-output");
     expect(pre).not.toBeNull();
-    expect(pre!.textContent).toBe(expected.html ? parseMarkup(expected.html).textContent : expected.text);
+    const fitted = fitGlyphDocsOutput(expected);
+    expect(pre!.textContent).toBe(fitted.html ? parseMarkup(fitted.html).textContent : fitted.text);
     expect(markup.querySelector(".glyph-docs-source")).toBeNull();
     expect(markup.querySelector("script")).toBeNull();
     expect(pre!.querySelector("pre")).toBeNull();
   }
+});
+
+it("fits documentation boxes to ink without removing interior rows, background ink, or scaled text space", () => {
+  const result = {
+    text: "    \n A  \n    \n B  \n    ",
+    html: '    \n <span style="color:#00ff00">A</span>  \n    \n B  \n    ',
+  };
+  const fitted = fitGlyphDocsOutput(result);
+  expect(fitted.text).toBe(" A  \n    \n B  ");
+  expect(parseMarkup(fitted.html!).textContent).toBe(fitted.text);
+  expect(fitGlyphDocsOutput(result, 2)).toBe(result);
+  const background = { text: "  \n A", html: '<span style="background:#ff0000">  </span>\n A' };
+  expect(fitGlyphDocsOutput(background)).toEqual(background);
+  expect(fitGlyphDocsOutput({ text: "\u2800\nA\n " }).text).toBe("A");
+});
+
+it("covers all native marks, Mermaid chart families, and headless 3D constructors in the Charts section", () => {
+  const inputs = pages.filter((page) => page.name.startsWith("charts/")).flatMap((page) => page.inputs);
+  const native = inputs
+    .filter((input) => input.kind === "chart")
+    .flatMap((input) => {
+      const source = input.source;
+      if (!source || Array.isArray(source)) return [];
+      return "marks" in source ? source.marks.map((mark) => mark.type) : "type" in source ? [source.type] : [];
+    });
+  expect([...new Set(native)].sort()).toEqual([
+    "arc",
+    "area",
+    "bar",
+    "cell",
+    "dot",
+    "funnel",
+    "line",
+    "rule",
+    "sankey",
+    "text",
+    "treemap",
+  ]);
+  const mermaid = inputs
+    .filter((input) => input.kind === "chart-mermaid")
+    .map((input) => input.source.split(/[\s\n]/)[0]!.replace(/-beta$/, ""));
+  expect([...new Set(mermaid)].sort()).toEqual([
+    "gantt",
+    "journey",
+    "kanban",
+    "packet",
+    "pie",
+    "quadrantChart",
+    "radar",
+    "sankey",
+    "timeline",
+    "treemap",
+    "xychart",
+  ]);
+  const threeD = inputs.filter((input) => input.kind === "chart-3d").map((input) => input.source.type);
+  expect(threeD.sort()).toEqual(["bars", "line", "parametric", "scatter", "surface"]);
 });

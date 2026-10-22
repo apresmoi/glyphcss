@@ -1,6 +1,8 @@
 .root {
   margin: 1.5rem 0;
   min-width: 0;
+  width: fit-content;
+  max-width: 100%;
 }
 .root :global(.glyph-docs-output) {
   font-family: var(--gc-font-render);
@@ -15,4 +17,18 @@
 .root :global(.glyph-docs-output span) {
   font: inherit;
   letter-spacing: inherit;
+}
+
+.targets {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--gc-space-3);
+}
+.targets > section {
+  min-width: 0;
+}
+@media (max-width: 50rem) {
+  .targets {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

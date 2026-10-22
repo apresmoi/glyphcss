@@ -1,6 +1,7 @@
 ---
 import styles from "./GlyphRender.module.css";
 import {
+  fitGlyphDocsOutput,
   normalizeGlyphDocsSource,
   renderGlyphDocs,
   type GlyphDocsRenderInput,
@@ -9,16 +10,20 @@ import {
 type Props = GlyphDocsRenderInput & { showSource?: boolean };
 const { showSource = true, ...input } = Astro.props;
 const result = await renderGlyphDocs(input);
+const output = fitGlyphDocsOutput(
+  result,
+  "textScale" in (input.options ?? {}) ? (input.options as { textScale?: number }).textScale : 1,
+);
 const source =
   typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2);
 ---
 
 <figure class={styles.root} data-glyph-render={JSON.stringify(input)} aria-label="Rendered example">
   {
-    result.html ? (
-      <pre class="glyph-docs-output" set:html={result.html} />
+    output.html ? (
+      <pre class="glyph-docs-output" set:html={output.html} />
     ) : (
-      <pre class="glyph-docs-output">{result.text}</pre>
+      <pre class="glyph-docs-output">{output.text}</pre>
     )
   }
   {

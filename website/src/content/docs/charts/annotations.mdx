@@ -1,0 +1,28 @@
+---
+title: "Text labels and rule annotations on terminal charts"
+description: Annotate charts with text labels and horizontal or vertical rules. Compose marks in paint order, name threshold lines, and retain readable axis scales.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `glyphChartText(data, { x, y, label })` for labels and `glyphChartRule(values, options?)` for reference lines. Rules default to horizontal (`axis: "y"`); `axis: "x"` makes them vertical.
+
+## Label a release against a target
+
+The example is an illustrative latency series in milliseconds. Paint the rule first, then the data and the label.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "rule", "data": [50], "channels": {}, "options": {"axis": "y", "name": "Target"}}, {"type": "line", "data": [{"day": 1, "ms": 42}, {"day": 2, "ms": 46}, {"day": 3, "ms": 60}, {"day": 4, "ms": 44}, {"day": 5, "ms": 38}], "channels": {"x": "day", "y": "ms"}, "options": {"name": "Latency"}}, {"type": "text", "data": [{"day": 3, "ms": 65, "note": "Release"}], "channels": {"x": "day", "y": "ms", "label": "note"}}], "legend": false}} options={{"target": "web", "width": 60, "height": 18}} />
+
+```ts
+import { glyphChartLine, glyphChartText, glyphChartRule, glyphChartPlot } from "@glyphcss/charts";
+const spec = glyphChartPlot({
+  marks: [
+    glyphChartRule([50], { name: "Target", strokeWidth: 2 }),
+    glyphChartLine([42, 46, 60, 44, 38]),
+    glyphChartText([{ day: 2, ms: 65, note: "Release" }], { x: "day", y: "ms", label: "note" }),
+  ],
+  legend: false,
+});
+```
+
+Numeric-array line x coordinates start at zero. Record coordinates use the values you supply. Keep annotations within an explicit domain if they must stay visible; leave enough cells around labels and inspect render notes for fitting changes. Use `axes.x.grid` or `axes.y.grid` for repeated tick-aligned guides rather than adding many rule marks.

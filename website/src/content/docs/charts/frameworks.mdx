@@ -1,0 +1,104 @@
+---
+title: "Text charts in vanilla JavaScript, React, and Vue"
+description: Embed native chart specs in vanilla JavaScript, React, and Vue with the direct cell renderer. Display plain text or CSS color and preserve monospace metrics.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+2D charts use `@glyphcss/charts` directly. They do not need React/Vue scene bindings. Install the package, render synchronously, and replace the `<pre>` text when your data changes.
+
+```sh
+npm install @glyphcss/charts
+```
+
+## Vanilla JavaScript
+
+```html
+<pre id="chart" class="order-chart"></pre>
+```
+
+```ts
+import { renderGlyphChart } from "@glyphcss/charts";
+const host = document.querySelector<HTMLPreElement>("#chart")!;
+try {
+  host.textContent = renderGlyphChart([18, 24, 21, 35, 42], {
+    target: "web", color: "none", width: 60, height: 12,
+  }).text;
+} catch (error) {
+  host.textContent = error instanceof Error ? error.message : String(error);
+}
+```
+
+## React
+
+```tsx
+import { useMemo } from "react";
+import { renderGlyphChart } from "@glyphcss/charts";
+const defaultValues = [18, 24, 21, 35, 42];
+
+export function GlyphOrderChart({ values = defaultValues }) {
+  const text = useMemo(() => {
+    try {
+      return renderGlyphChart(values, { target: "web", color: "none", width: 60, height: 12 }).text;
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+  }, [values]);
+  return <pre className="order-chart">{text}</pre>;
+}
+```
+
+Replace the values array when data changes so memoization can observe it.
+
+## Vue
+
+```vue
+<script setup lang="ts">
+import { computed } from "vue";
+import { renderGlyphChart } from "@glyphcss/charts";
+const props = withDefaults(defineProps<{ values?: number[] }>(), {
+  values: () => [18, 24, 21, 35, 42],
+});
+const text = computed(() => {
+  try {
+    return renderGlyphChart(props.values, { target: "web", color: "none", width: 60, height: 12 }).text;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+});
+</script>
+<template><pre class="order-chart">{{ text }}</pre></template>
+```
+
+## Shared font rules
+
+Apply this stylesheet in each application. Load Glyph Mono separately, or use another font with complete charset coverage. Keep `line-height: 1` so adjacent glyph rows align.
+
+```css
+.order-chart {
+  font-family: "Glyph Mono", ui-monospace, monospace;
+  font-size: 13px;
+  line-height: 1;
+  white-space: pre;
+  overflow: auto;
+}
+```
+
+<GlyphRender kind="chart" source={[18, 24, 21, 35, 42]} options={{"target": "web", "width": 60, "height": 12, "color": "none"}} />
+
+## CSS color and static output
+
+Use `color: "css"` for `result.html`. It is an escaped span fragment; assign it inside a `<pre>`, not as a whole HTML document.
+
+```ts
+import { renderGlyphChart } from "@glyphcss/charts";
+const host = document.querySelector<HTMLPreElement>("#chart")!;
+const result = renderGlyphChart([18, 24, 21, 35, 42], {
+  target: "web", color: "css", width: 60, height: 12,
+});
+host.innerHTML = result.html!;
+```
+
+React uses `<pre className="order-chart" dangerouslySetInnerHTML={{ __html: html }} />`; Vue uses `<pre class="order-chart" v-html="html" />`. Obtain `html` from the renderer, and never concatenate unescaped data into its fragment.
+
+For responsive charts, measure available columns and rows, then re-render with those cell budgets. Own and disconnect any `ResizeObserver` in the component lifecycle. At build time, emit text or HTML without hydration, as these docs do. Use the [3D guide](/charts/3d/) for chart scene objects and [diagram framework examples](/diagrams/frameworks/) for asynchronous diagram rendering.

@@ -1,0 +1,25 @@
+---
+title: "Text funnel charts for conversion stages"
+description: Chart conversion stages with funnel marks, stage labels, and relative percentages. Keep declared order and understand square-root widths and thin-stage notes.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `glyphChartFunnel(data, { stage?, value?, name?, color? })`. The workbench's illustrative conversion funnel below uses benchmark-shaped counts, not observations from a particular store.
+
+<GlyphRender kind="chart" source={{"type": "funnel", "data": [{"stage": "Visits", "count": 10000}, {"stage": "Product Views", "count": 4000}, {"stage": "Add to Cart", "count": 1000}, {"stage": "Checkout", "count": 400}, {"stage": "Purchase", "count": 260}], "channels": {"stage": "stage", "value": "count"}}} options={{"target": "chat", "width": 60, "height": 20}} />
+
+```ts
+import { glyphChartFunnel, renderGlyphChart } from "@glyphcss/charts";
+const result = renderGlyphChart(glyphChartFunnel([
+  { stage: "Visits", count: 10000 }, { stage: "Product Views", count: 4000 },
+  { stage: "Add to Cart", count: 1000 }, { stage: "Checkout", count: 400 },
+  { stage: "Purchase", count: 260 },
+], { stage: "stage", value: "count" }), { target: "chat", width: 60, height: 20 });
+```
+
+Stages keep their declared order. Values must be finite and nonnegative; a bare number array uses its indices as stage names. Labels show values and percentages relative to the first stage when it is positive.
+
+Widths follow square roots of stage values to keep late stages readable. They are not a linear width scale. Growing stages report `funnel-not-monotone`; very small stages can become one-cell stubs (`funnel-thin-stage`). More height keeps stages from folding together. An all-zero funnel reports `empty-total`.
+
+Funnels reject Cartesian scales and transforms. Use [bar charts](/charts/bar/) when readers need direct comparisons of lengths on a numeric axis.

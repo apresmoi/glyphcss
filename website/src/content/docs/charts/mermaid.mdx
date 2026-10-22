@@ -1,0 +1,60 @@
+---
+title: "Mermaid charts as ASCII and braille text"
+description: Render Mermaid pie, XY, Sankey, quadrant, radar, and treemap charts as text. Compare source and output, read adaptation notes, and find schedule chart guides.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`renderGlyphChartMermaid(source, options?)` supports `pie`, `xychart`/`xychart-beta`, `sankey`/`sankey-beta`, `quadrantChart`, `gantt`, `radar`/`radar-beta`, `treemap`/`treemap-beta`, `journey`, `timeline`, `packet`/`packet-beta`, and `kanban`.
+
+Every example below is rendered at build time from the source in its collapsed disclosure. Use the [schedule and journey guide](/charts/mermaid-schedules/) and [packet and kanban guide](/charts/mermaid-structures/) for the remaining families.
+
+```ts
+import { renderGlyphChartMermaid, glyphChartFromMermaid } from "@glyphcss/charts";
+const source = `pie
+ "Docs": 25
+ "Code": 75`;
+const result = renderGlyphChartMermaid(source, { target: "chat", width: 60, height: 14 });
+const spec = glyphChartFromMermaid(source);
+console.log(result.text, result.report.ledger, spec);
+```
+
+## Pie
+
+<GlyphRender kind="chart-mermaid" source={"pie showData title Project hours\n \"Code\": 60\n \"Docs\": 25\n \"Tests\": 15"} options={{"target": "chat", "width": 60, "height": 14}} />
+
+## XY charts
+
+Categories or numeric ranges drive bar and line marks. `horizontal` swaps their axes. `xychart-beta` is also accepted.
+
+<GlyphRender kind="chart-mermaid" source={"xychart\n title Weekly orders\n x-axis [Mon, Tue, Wed, Thu, Fri]\n y-axis Orders 0 --> 50\n bar [18, 24, 21, 35, 42]\n line [20, 25, 30, 35, 40]"} options={{"target": "chat", "width": 60, "height": 18}} />
+
+## Sankey
+
+Rows are CSV source, target, value. Quoted fields can contain commas. Cycles adapt to a flow list with notes; native Sankey rejects cycles.
+
+<GlyphRender kind="chart-mermaid" source={"sankey-beta\nSolar,Grid,40\nGas,Grid,60\nGrid,Homes,70\nGrid,Industry,30"} options={{"target": "chat", "width": 60, "height": 20}} />
+
+## Quadrant priorities
+
+Coordinates run from 0 to 1. Endpoint captions replace the corresponding numeric endpoint ticks.
+
+<GlyphRender kind="chart-mermaid" source={"quadrantChart\n title Campaign priorities\n x-axis Low Reach --> High Reach\n y-axis Low Engagement --> High Engagement\n quadrant-1 Expand\n quadrant-2 Promote\n quadrant-3 Reassess\n quadrant-4 Improve\n Campaign A: [0.3, 0.6]\n Campaign B: [0.7, 0.25]"} options={{"target": "chat", "width": 68, "height": 22}} />
+
+## Radar comparisons
+
+Braille and blocks use polygon lines; box and ASCII adapt radar curves to grouped bars. `radarGrid: "outer"` keeps only the outer contour and spokes. `radarSeries: "cells"` uses whole-cell symbol edges instead of native lines.
+
+<GlyphRender kind="chart-mermaid" source={"radar-beta\n title Delivery options\n axis speed[\"Speed\"], cost[\"Cost\"], quality[\"Quality\"], safety[\"Safety\"]\n curve hosted[\"Hosted\"] {9, 6, 7, 8}\n curve custom[\"Custom\"] {4, 8, 9, 7}\n min 0\n max 10\n graticule polygon\n ticks 2\n showLegend true"} options={{"target": "web", "width": 60, "height": 26}} />
+
+## Treemap
+
+Indentation defines hierarchy; leaf values follow colons. Preserve the nesting when copying source.
+
+<GlyphRender kind="chart-mermaid" source={"treemap-beta\n title Engineering budget\n \"Product\"\n  \"Portal\": 28\n  \"Mobile\": 22\n \"Platform\"\n  \"Cloud\": 24\n  \"Security\": 16"} options={{"target": "chat", "width": 60, "height": 18}} />
+
+## Adaptation and errors
+
+Mermaid themes, browser actions, and configuration can remain inert; read `mermaid-degraded` entries for the actual replacement. `label-folded` identifies unsupported characters changed before wrapping. These are text layouts, so pixel-based Mermaid styling does not transfer directly.
+
+Invalid source throws `GLYPH_MERMAID_SYNTAX`; a header belonging to another diagram family throws `GLYPH_MERMAID_NOT_CHART_TYPE`. Use [Diagrams](/diagrams/overview/) for flowcharts, sequences, and other node/edge syntax. The [CLI](/charts/cli/) accepts Mermaid through `glyphcss diagram`, not `glyphcss chart`.
