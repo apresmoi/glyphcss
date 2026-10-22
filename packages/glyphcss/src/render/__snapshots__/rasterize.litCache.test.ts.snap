@@ -1,0 +1,77 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete atlas bytes 1`] = `
+"                                
+                                
+                                
+                 
+                 
+                                
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                                
+                                "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete atlas bytes 2`] = `
+"                                
+                                
+                                
+                 
+                 
+                                
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                                
+                                "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete spans bytes 1`] = `
+"                                
+                                
+                                
+        <span style="color:#716b64">+*+*+</span> <span style="color:#716b64">+*+*+*+*+*</span>        
+        <span style="color:#716b64">***+*</span> <span style="color:#716b64">*+***+***+</span>        
+                                
+        <span style="color:#716b64">*+*+*</span> <span style="color:#716b64">*+*+*+*+*+</span>        
+        <span style="color:#716b64">+*+*+</span> <span style="color:#716b64">+*+*+*+*+*</span>        
+        <span style="color:#482456">***+*</span> <span style="color:#482456">*+***+***+</span>        
+        <span style="color:#482456">+*+*+</span> <span style="color:#482456">+*+*+*+*+*</span>        
+        <span style="color:#482456">*+*+*</span> <span style="color:#482456">*+*+*+*+*+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+        <span style="color:#104b4f">***+*</span> <span style="color:#104b4f">*+***+***+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+                                
+                                "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete spans bytes 2`] = `
+"                                
+                                
+                                
+        <span style="color:#716b65">+*+*+</span> <span style="color:#716b65">+*+*+*+*+*</span>        
+        <span style="color:#716b65">***+*</span> <span style="color:#716b65">*+***+***+</span>        
+                                
+        <span style="color:#716b65">*+*+*</span> <span style="color:#716b65">*+*+*+*+*+</span>        
+        <span style="color:#716b65">+*+*+</span> <span style="color:#716b65">+*+*+*+*+*</span>        
+        <span style="color:#482456">***+*</span> <span style="color:#482456">*+***+***+</span>        
+        <span style="color:#482456">+*+*+</span> <span style="color:#482456">+*+*+*+*+*</span>        
+        <span style="color:#482456">*+*+*</span> <span style="color:#482456">*+*+*+*+*+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+        <span style="color:#104b4f">***+*</span> <span style="color:#104b4f">*+***+***+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+                                
+                                "
+`;

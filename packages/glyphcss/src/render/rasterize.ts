@@ -2372,9 +2372,10 @@ function rasterizeSolid(
   // base colors (palette buckets) and the shaded output is an 8-bit RGB hex
   // string, so per-triangle `hexToRgb` parsing + `toHex2` formatting is the
   // bulk of the color cost (≈doubles rasterize time at high poly counts).
-  // Key on (color, intensity quantized to 8 bits) — lossless for 8-bit
-  // output — and reuse the formatted string across all triangles that match.
-  const litCache = new Map<string, string>();
+  // Keep the first triangle's exact tint in each quantized bucket. Splitting
+  // color and intensity avoids allocating a composite key per triangle without
+  // changing which triangle populates the bucket (including shadow keys).
+  const litCache = new Map<string, string[]>();
 
   // Per-cell texture sampling: when a polygon carries a texture + UVs and its
   // sampler is available, the rasterizer samples the texture per cell (the
@@ -2759,8 +2760,9 @@ function rasterizeSolid(
           // Cache key: base color + intensity quantized to 0..255. Two triangles
           // with the same base and intensity-to-8-bits produce identical output.
           const q = (avgKey * 255) | 0;
-          const cacheKey = `${baseColor}:${q}`;
-          let cached = litCache.get(cacheKey);
+          let byIntensity = litCache.get(baseColor);
+          if (byIntensity === undefined) litCache.set(baseColor, byIntensity = []);
+          let cached = byIntensity[q];
           if (cached === undefined) {
             const triRgb = hexToRgb(baseColor); // memoized internally
             const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
@@ -2770,7 +2772,7 @@ function rasterizeSolid(
             const litG = Math.min(255, triRgb[1] * tintG);
             const litB = Math.min(255, triRgb[2] * tintB);
             cached = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
-            litCache.set(cacheKey, cached);
+            byIntensity[q] = cached;
           }
           litColor = cached;
         }
@@ -4054,7 +4056,7 @@ interface ScanFillShadowCtx {
   ambientIntensity: number;
   shadowColorRgb: [number, number, number];
   shadowColorHex: string;
-  litCache: Map<string, string>;
+  litCache: Map<string, string[]>;
 }
 
 /** Per-cell texture sampling context for one triangle (see {@link RasterizeContext.textureSamplers}). */
@@ -4589,8 +4591,11 @@ function scanFillTriangle(
               if (cellColor !== null && effectiveOpacity > 0) {
                 // Color shadowing follows the same rule: only the direct
                 // contribution is blended toward the shadow color.
-                const shadowKey = `shadow:${cellColor}:${Math.round(effectiveOpacity * 255)}`;
-                let shadowedColor = sh.litCache.get(shadowKey);
+                const shadowKey = `shadow:${cellColor}`;
+                const q = Math.round(effectiveOpacity * 255);
+                let byOpacity = sh.litCache.get(shadowKey);
+                if (byOpacity === undefined) sh.litCache.set(shadowKey, byOpacity = []);
+                let shadowedColor = byOpacity[q];
                 if (shadowedColor === undefined) {
                   const orig = hexToRgb(cellColor);
                   const sc = sh.shadowColorRgb;
@@ -4598,7 +4603,7 @@ function scanFillTriangle(
                   const g = Math.round(orig[1] * (1 - effectiveOpacity) + sc[1] * effectiveOpacity);
                   const b = Math.round(orig[2] * (1 - effectiveOpacity) + sc[2] * effectiveOpacity);
                   shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-                  sh.litCache.set(shadowKey, shadowedColor);
+                  byOpacity[q] = shadowedColor;
                 }
                 cellColor = shadowedColor;
               }
