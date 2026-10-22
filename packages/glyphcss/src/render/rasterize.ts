@@ -11,11 +11,12 @@ import {
   encodeGlyphBuffers,
   encodeGlyphBuffersDual,
   hasGlyphOutsideFontAtlas,
+  histogramGlyphAtlasGrid,
   isGlyphAtlasEncodable,
 } from "./cells";
 import type { CellGrid } from "./cells";
 import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
-import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
+import { resolveGlyphAtlasHistogramResolver, resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 import { beginGlyphVertexPass, resolveGlyphVertexIndex } from "./vertexIndex";
 
 /**
@@ -4968,10 +4969,14 @@ function solidBufToString(
     const fontAtlas = scene.fontAtlas;
     const potentialOk = wireframeGlyphs === undefined
       || isWireframePaletteAtlasEncodable(wireframeGlyphs, scene.glyphPalette, scene.wireframeJunctions, fontAtlas);
+    const resolveHistogram = potentialOk ? resolveGlyphAtlasHistogramResolver(scene.atlasPalette) : undefined;
+    const histogram = resolveHistogram ? histogramGlyphAtlasGrid(glyphBuf, colorBuf, cols, rows, fontAtlas) : undefined;
     if (!potentialOk) {
       scene.atlasGlyphFallback = true;
-    } else if (isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, undefined, fontAtlas)) {
-      const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
+    } else if (resolveHistogram ? histogram !== undefined : isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, undefined, fontAtlas)) {
+      const palette = resolveHistogram
+        ? resolveHistogram(histogram!)
+        : resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
       if (palette && palette.length > 0 && palette.length <= fontAtlas.maxPaletteSize) {
         scene.atlasEncoded = true;
         return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette, fontAtlas);

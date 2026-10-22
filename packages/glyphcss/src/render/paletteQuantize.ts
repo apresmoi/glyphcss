@@ -454,6 +454,18 @@ export function resolveGlyphAtlasPaletteInput(
   return (input as GlyphAtlasPaletteSource).resolveGlyphAtlasPalette(char, color, n);
 }
 
+type HistogramResolver = (frame: Map<number, number>) => readonly string[] | undefined;
+const histogramResolvers = new WeakMap<GlyphAtlasPaletteSource, {
+  resolve: GlyphAtlasPaletteSource["resolveGlyphAtlasPalette"]; histogram: HistogramResolver;
+}>();
+
+// Only an unmodified built-in source can consume a prevalidated histogram.
+// Wrappers and custom sources must still observe their original grid callback.
+export function resolveGlyphAtlasHistogramResolver(input: GlyphAtlasPaletteInput): HistogramResolver | undefined {
+  const entry = histogramResolvers.get(input as GlyphAtlasPaletteSource);
+  return entry && entry.resolve === (input as GlyphAtlasPaletteSource).resolveGlyphAtlasPalette ? entry.histogram : undefined;
+}
+
 export interface GlyphAtlasPaletteQuantizerOptions {
   /**
    * The font atlas whose `maxPaletteSize` bounds this quantizer. Defaults to
@@ -614,7 +626,51 @@ export function createGlyphAtlasPaletteQuantizer(
     generation += 1;
   }
 
-  return {
+  const resolveHistogram: HistogramResolver = (frame) => {
+    // A blank grid contributes nothing and must not close the latch: an
+    // off-screen detail layer would otherwise pin the whole transaction to
+    // whatever palette existed before the frame that actually has colour.
+    if (frame.size === 0) return latched ?? hexPalette;
+
+    for (const [packed, count] of frame) {
+      pending.set(packed, (pending.get(packed) ?? 0) + count);
+      windowCells += count;
+      if (packedPalette.length > 0) {
+        let d = driftMemo.get(packed);
+        if (d === undefined) {
+          const idx = nearestPaletteIndex(packedPalette, packed);
+          d = idx < 0 ? Infinity : redmeanDistanceSq(packedPalette[idx]!, packed);
+          driftMemo.set(packed, d);
+        }
+        if (d > driftThreshold2) driftCells += count;
+      }
+    }
+
+    // Ingest above always runs — a latched transaction still pools every
+    // output's colours, so the window a later repool trains on is complete.
+    // Only the DECISION is latched.
+    if (latched !== undefined) return latched;
+
+    if (hexPalette === undefined) {
+      repool();
+    } else if (!(driftCells > 0 && driftCells >= windowCells * (baselineDrift + driftFraction))) {
+      // The palette is doing no worse than it did on the colours it was
+      // built for. Nothing to come back for.
+      repoolDeferred = false;
+    } else if (now() - lastRepoolAt >= refreshMs) {
+      repool();
+    } else {
+      // Drift says repool, the clock says not yet — and nothing schedules a
+      // second look. Record it; `repoolDeferredMs` is how a driver learns to
+      // ask again. The floor itself is unchanged: this window's colours stay
+      // pooled and the repool, when it comes, still trains on them.
+      repoolDeferred = true;
+    }
+    if (inTransaction) latched = hexPalette;
+    return hexPalette;
+  };
+
+  const quantizer: GlyphAtlasPaletteQuantizer = {
     get palette(): readonly string[] | undefined {
       return hexPalette;
     },
@@ -645,48 +701,9 @@ export function createGlyphAtlasPaletteQuantizer(
       repoolDeferred = false;
     },
     resolveGlyphAtlasPalette(char, color, n) {
-      const frame = histogramGridColors(char, color, n);
-      // A blank grid contributes nothing and must not close the latch: an
-      // off-screen detail layer would otherwise pin the whole transaction to
-      // whatever palette existed before the frame that actually has colour.
-      if (frame.size === 0) return latched ?? hexPalette;
-
-      for (const [packed, count] of frame) {
-        pending.set(packed, (pending.get(packed) ?? 0) + count);
-        windowCells += count;
-        if (packedPalette.length > 0) {
-          let d = driftMemo.get(packed);
-          if (d === undefined) {
-            const idx = nearestPaletteIndex(packedPalette, packed);
-            d = idx < 0 ? Infinity : redmeanDistanceSq(packedPalette[idx]!, packed);
-            driftMemo.set(packed, d);
-          }
-          if (d > driftThreshold2) driftCells += count;
-        }
-      }
-
-      // Ingest above always runs — a latched transaction still pools every
-      // output's colours, so the window a later repool trains on is complete.
-      // Only the DECISION is latched.
-      if (latched !== undefined) return latched;
-
-      if (hexPalette === undefined) {
-        repool();
-      } else if (!(driftCells > 0 && driftCells >= windowCells * (baselineDrift + driftFraction))) {
-        // The palette is doing no worse than it did on the colours it was
-        // built for. Nothing to come back for.
-        repoolDeferred = false;
-      } else if (now() - lastRepoolAt >= refreshMs) {
-        repool();
-      } else {
-        // Drift says repool, the clock says not yet — and nothing schedules a
-        // second look. Record it; `repoolDeferredMs` is how a driver learns to
-        // ask again. The floor itself is unchanged: this window's colours stay
-        // pooled and the repool, when it comes, still trains on them.
-        repoolDeferred = true;
-      }
-      if (inTransaction) latched = hexPalette;
-      return hexPalette;
+      return resolveHistogram(histogramGridColors(char, color, n));
     },
   };
+  histogramResolvers.set(quantizer, { resolve: quantizer.resolveGlyphAtlasPalette, histogram: resolveHistogram });
+  return quantizer;
 }
