@@ -12,11 +12,16 @@ const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   site: 'https://glyphcss.com',
+  redirects: {
+    '/guides/diagrams/': '/diagrams/overview/',
+  },
   devToolbar: { enabled: false },
   vite: {
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: [
+        { find: /^@glyphcss\/diagrams\/sequence$/, replacement: repoPath('../packages/diagrams/src/sequence/index.ts') },
+        { find: /^@glyphcss\/diagrams\/lanes$/, replacement: repoPath('../packages/diagrams/src/lanes/index.ts') },
         {
           find: /^@glyphcss\/core$/,
           replacement: repoPath('../packages/core/src/index.ts'),
@@ -108,10 +113,63 @@ export default defineConfig({
             { label: 'Color Encoding', slug: 'guides/color-encoding' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
             { label: 'Density & Detail', slug: 'guides/density' },
-            { label: 'Responsive Diagrams', slug: 'guides/diagrams' },
             { label: 'Glyph Effects', slug: 'guides/effects' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
-            { label: 'Coding agents', slug: 'guides/coding-agents' },
+          ],
+        },
+        {
+          label: 'Diagrams',
+          items: [
+            { label: 'Overview', slug: 'diagrams/overview' },
+            { label: 'Flowcharts', slug: 'diagrams/flowcharts' },
+            { label: 'Sequence diagrams', slug: 'diagrams/sequence' },
+            { label: 'State diagrams', slug: 'diagrams/state' },
+            { label: 'Class diagrams', slug: 'diagrams/class' },
+            { label: 'Entity relationships', slug: 'diagrams/er' },
+            { label: 'Mindmaps', slug: 'diagrams/mindmap' },
+            { label: 'Git history & lanes', slug: 'diagrams/gitgraph' },
+            { label: 'Block diagrams', slug: 'diagrams/block' },
+            { label: 'Architecture diagrams', slug: 'diagrams/architecture' },
+            { label: 'Requirements', slug: 'diagrams/requirements' },
+            { label: 'C4 diagrams', slug: 'diagrams/c4' },
+            { label: 'Options & sizing', slug: 'diagrams/options' },
+            { label: 'Node shapes', slug: 'diagrams/shapes' },
+            { label: 'CLI', slug: 'diagrams/cli' },
+            { label: 'JSON & schema', slug: 'diagrams/json' },
+            { label: 'Vanilla, React & Vue', slug: 'diagrams/frameworks' },
+            { label: 'Troubleshooting', slug: 'diagrams/troubleshooting' },
+            { label: 'Comparison', slug: 'diagrams/comparison' },
+          ],
+        },
+        {
+          label: 'Charts',
+          items: [
+            { label: 'Overview', slug: 'charts/overview' },
+            { label: 'Spec reference', slug: 'charts/spec' },
+            { label: 'Line & area', slug: 'charts/line-area' },
+            { label: 'Bar charts', slug: 'charts/bar' },
+            { label: 'Scatter plots', slug: 'charts/scatter' },
+            { label: 'Pie & donut', slug: 'charts/arc' },
+            { label: 'Heatmaps', slug: 'charts/cell' },
+            { label: 'Text & rule annotations', slug: 'charts/annotations' },
+            { label: 'Sankey flows', slug: 'charts/sankey' },
+            { label: 'Funnels', slug: 'charts/funnel' },
+            { label: 'Treemaps', slug: 'charts/treemap' },
+            { label: 'Mermaid charts', slug: 'charts/mermaid' },
+            { label: 'Gantt, journey & timeline', slug: 'charts/mermaid-schedules' },
+            { label: 'Packet & kanban', slug: 'charts/mermaid-structures' },
+            { label: 'Charsets, color & targets', slug: 'charts/targets' },
+            { label: '3D charts', slug: 'charts/3d' },
+            { label: 'CLI', slug: 'charts/cli' },
+            { label: 'Vanilla, React & Vue', slug: 'charts/frameworks' },
+            { label: 'Troubleshooting', slug: 'charts/troubleshooting' },
+          ],
+        },
+        {
+          label: 'Coding agents',
+          items: [
+            { label: 'Overview', slug: 'guides/coding-agents' },
+            { label: 'Install by host', slug: 'coding-agents/install' },
           ],
         },
         {

@@ -1,0 +1,77 @@
+---
+title: Mermaid and JSON diagrams as ASCII text
+description: Install @glyphcss/diagrams and render Mermaid or JSON as text for chat, terminals, and web pages, with real examples and links to each diagram family.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`@glyphcss/diagrams` turns Mermaid source and JSON data into monospace text.
+It measures labels, lays out nodes, routes connections, and paints character cells.
+It needs no scene, canvas element, or WebGL context.
+
+## Install and render a flowchart
+
+```sh
+npm i @glyphcss/diagrams
+```
+
+```ts
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
+
+const result = await renderGlyphDiagram(
+  "flowchart LR; Input --> Parse --> Render",
+  { target: "chat", width: 48, height: 9 },
+);
+console.log(result.text);
+```
+
+<GlyphRender kind="diagram" source={"flowchart LR; Input --> Parse --> Render"} options={{"target": "chat", "width": 48, "height": 9}} showSource={false} />
+
+## Choose a target
+
+Targets set default cell budgets, character sets, and color encodings.
+A cell is one monospace character position; width counts columns and height counts rows.
+These previews use explicit compact sizes and `color: "none"` so terminal escape codes do not appear in HTML.
+
+| Target | Default columns × rows | Charset | Color |
+| --- | --- | --- | --- |
+| `chat` | 72 × 24 | `box` | `none` |
+| `terminal` | 80 × 24 | `braille` | `truecolor` |
+| `web` (API default) | 96 × 32 | `braille` | `css` |
+
+### Chat
+
+<GlyphRender kind="diagram" source={"flowchart LR; Request --> Reply"} options={{"target": "chat", "width": 40, "height": 7, "color": "none"}} />
+
+### Terminal
+
+<GlyphRender kind="diagram" source={"flowchart LR; Request --> Reply"} options={{"target": "terminal", "width": 48, "height": 7, "color": "none"}} />
+
+### Web
+
+<GlyphRender kind="diagram" source={"flowchart LR; Request --> Reply"} options={{"target": "web", "width": 56, "height": 9, "color": "css"}} />
+
+Diagram borders use whole cells in every charset. Targets do not change a diagram into a raster image.
+
+## Choose the entry point
+
+| Input | Import and function |
+| --- | --- |
+| Mermaid graph families, including gitGraph; JSON graph | `@glyphcss/diagrams`: `renderGlyphDiagram` |
+| Mermaid sequence; JSON sequence | `@glyphcss/diagrams/sequence`: `renderGlyphSequence` |
+| JSON lane DAG; git-log text | `@glyphcss/diagrams/lanes`: `renderGlyphLaneDag` |
+
+Every renderer returns `text`, optional `html`, `pages`, `meta`, and `report`.
+The **fidelity report** describes adaptations made while reading and fitting the source.
+Its `ledger` is a list of `{ code, message, detail? }` entries. Read it when labels,
+shapes, or panel boundaries differ from your source.
+
+## Where to go next
+
+- Explore [flowcharts](/diagrams/flowcharts/), [sequences](/diagrams/sequence/), or [JSON input](/diagrams/json/).
+- Tune [options and sizing](/diagrams/options/) and compare [node shapes](/diagrams/shapes/).
+- Edit a live example in the [diagrams workbench](/diagrams/).
+- Render files with the [CLI](/diagrams/cli/).
+- Embed output in [vanilla JavaScript, React, or Vue](/diagrams/frameworks/).
+- Install [glyphcss-diagrams](/coding-agents/install/) for diagrams in coding-agent conversations.
+- Compare [glyphcss, beautiful-mermaid, and mermaid-ascii](/diagrams/comparison/).

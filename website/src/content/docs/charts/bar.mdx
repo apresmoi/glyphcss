@@ -1,0 +1,38 @@
+---
+title: "ASCII bar charts: categories, groups, and intervals"
+description: Render vertical and horizontal bar charts with category scales, grouped series, and floating intervals. Map channels correctly and retain a zero baseline.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`glyphChartBar(data, channels?, options?)` defaults to vertical bars. The following sales-channel counts are illustrative.
+
+## Vertical categories
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"channel": "Search", "orders": 42}, {"channel": "Direct", "orders": 28}, {"channel": "Email", "orders": 18}], "channels": {"x": "channel", "y": "orders"}}], "scales": {"x": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 16}} />
+
+## Horizontal categories
+
+Horizontal bars swap the channel roles: x is the numeric value and y is the category. Use a band y scale.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"channel": "Search", "orders": 42}, {"channel": "Direct", "orders": 28}, {"channel": "Email", "orders": 18}], "channels": {"x": "orders", "y": "channel"}, "options": {"orientation": "horizontal"}}], "scales": {"y": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 12}} />
+
+```ts
+import { glyphChartBar, renderGlyphChart } from "@glyphcss/charts";
+const mark = glyphChartBar([
+  { channel: "Search", orders: 42 },
+  { channel: "Direct", orders: 28 },
+  { channel: "Email", orders: 18 },
+], { x: "orders", y: "channel" }, { orientation: "horizontal" });
+const result = renderGlyphChart({ marks: [mark], scales: { y: { type: "band" } } }, { target: "chat" });
+```
+
+Bind `fill` to a category for grouped series. For stacked vertical bars set `transform: { kind: "stack" }` on the mark. Narrow grouped bands can overlap; check `series-dodge-degraded` in render notes.
+
+## Floating intervals
+
+Use `x0` for the start and `x` for the end of a horizontal interval. These bars do not require a zero baseline. Horizontal bars take materialized rows and reject transforms.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"task": "Build", "start": 1, "end": 4}, {"task": "Test", "start": 4, "end": 6}, {"task": "Ship", "start": 6, "end": 7}], "channels": {"x0": "start", "x": "end", "y": "task"}, "options": {"orientation": "horizontal"}}], "scales": {"y": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 12}} />
+
+Intervals narrower than one cell become event dots and report `bar-interval-collapsed`. Use [Mermaid Gantt](/charts/mermaid-schedules/#gantt-schedules) for calendar dates and dependencies.

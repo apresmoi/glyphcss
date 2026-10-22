@@ -1,0 +1,43 @@
+---
+title: Mermaid gitGraph and JSON lane diagrams
+description: Render Mermaid gitGraph, git-log text, and JSON lane DAGs as monospace branching history with commits, merges, labels, ordering, and pagination.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Mermaid `gitGraph` goes through `renderGlyphDiagram`. Direct lane JSON and git-log text use `renderGlyphLaneDag` from `@glyphcss/diagrams/lanes`.
+
+## Branch and merge
+
+<GlyphRender kind="diagram" source={"gitGraph TB:\n commit id: \"Start\"\n branch feature\n commit id: \"Search\"\n checkout main\n commit id: \"Docs\"\n merge feature id: \"Ship\""} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Tags and commit annotations
+
+<GlyphRender kind="diagram" source={"gitGraph BT:\n commit id: \"Baseline\" tag: \"v1.0\"\n commit id: \"Fix\" type: REVERSE\n commit id: \"Release\" tag: \"v1.1\" type: HIGHLIGHT"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- `commit`, `branch`, `checkout`, `merge`, and `cherry-pick` build the history. Tags, types, and authored IDs become text annotations.
+- `TB` and `LR` read oldest-first; `BT` reads newest-first. `LR` uses the vertical lane layout and reports the adaptation.
+- Mermaid commit IDs become stable internal hexadecimal IDs; duplicate authored IDs still create distinct nodes and retain their authored text.
+- Lane ordering configuration is adapted where supported; unused configuration and visual settings are reported.
+- Direct lane options include `order: "newest-first" | "oldest-first"` and `ids`. IDs default on for git-log strings and off for lane objects.
+- Lane objects must list newest nodes first, with parents later. Set `truncated: true` for a window with missing older parents; continuation strokes mark the boundary.
+- A narrow canvas can collapse lanes while retaining rows and labels. Pagination keeps each node with its connectors; expansion grows height at the same width.
+
+## Read a repository log
+
+```sh
+npm i -D @glyphcss/diagrams
+git log --pretty=format:'%h|%p|%d|%s' > history.txt
+```
+
+```ts
+import { readFile } from "node:fs/promises";
+import { renderGlyphLaneDag } from "@glyphcss/diagrams/lanes";
+const source = await readFile("history.txt", "utf8");
+const result = await renderGlyphLaneDag(source, { target: "chat" });
+console.log(result.text);
+```
+
+The [JSON reference](/diagrams/json/#lanes-json) shows the equivalent lane structure.

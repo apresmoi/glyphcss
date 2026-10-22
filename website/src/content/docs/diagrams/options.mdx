@@ -1,0 +1,115 @@
+---
+title: ASCII diagram options, sizing, and overflow
+description: Choose text diagram targets, character sets, color, cell budgets, overflow, direction, detail, and titles, with generated examples and report guidance.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+All three diagram renderers accept `target`, `charset`, `color`, `width`, `height`,
+`overflow`, and `title`. Graph-only layout options do not apply to sequences or lanes.
+
+## Targets and character sets
+
+`target` chooses defaults; explicit options override them. See the [target table](/diagrams/overview/#choose-a-target).
+`charset` accepts `ascii`, `box`, `blocks`, or `braille`. Borders remain whole-cell;
+ASCII replaces special outlines and folds unsupported label characters.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Read[Read order] --> Save[(Orders)]"} options={{"target": "chat", "charset": "ascii", "width": 48, "height": 9}} />
+
+<GlyphRender kind="diagram" source={"flowchart LR; Read[Read order] --> Save[(Orders)]"} options={{"target": "chat", "charset": "box", "width": 48, "height": 9}} />
+
+## Color encodings
+
+| `color` | Result |
+| --- | --- |
+| `none` | Plain `text`, no color escapes |
+| `ansi16` | ANSI text using 16 colors |
+| `ansi256` | ANSI text using 256 colors |
+| `truecolor` | ANSI text using RGB colors |
+| `css` | Escaped HTML in `html`, with colored spans |
+
+Use `text` for text-only hosts and `html` for browser color. Do not put ANSI text into HTML.
+`nodeColor` and `edgeColor` override graph colors; `participantColor` overrides sequence colors;
+`laneColor` overrides lane colors. Each accepts a color string or item callback, and has no effect with `color: "none"`.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Check --> Ship"} options={{"target": "web", "color": "css", "nodeColor": "#00cccc", "edgeColor": "#cc9900", "width": 48, "height": 9}} />
+
+## Width and height
+
+`width` and `height` are positive integer cell budgets, not pixels. A fixed font size
+makes available columns approximately host width divided by character advance, and rows
+approximately host height divided by line height. Re-render when those counts change.
+Resize changes layout; it does not shrink the font or alter density.
+
+### Paginate for fixed output
+
+`overflow: "paginate"` is the default. Graph pages keep the requested dimensions.
+When fitting fails, the renderer can simplify or split the graph. A budget too small
+for even one node can yield an empty panel and a report entry; inspect the output.
+Sequences paginate by time and repeat headers. Lane pages keep nodes with their connectors.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Receive[Receive order] --> Validate[Validate payment] --> Dispatch[Dispatch parcel]"} options={{"target": "chat", "width": 28, "height": 8, "detail": "faithful", "overflow": "paginate"}} />
+
+### Expand for a pannable host
+
+`overflow: "expand"` lets graphs grow to a connected canvas. Read actual dimensions
+from `result.canvas.grid.cols` and `.rows`, then let the host pan or scroll.
+Sequences and lanes expand their height at the requested width; they can still be too wide.
+The workbench uses expansion for web diagrams. Expansion can still fall back to splitting
+when the bounded fitting search cannot find a usable layout.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Receive[Receive order] --> Validate[Validate payment] --> Dispatch[Dispatch parcel]"} options={{"target": "chat", "width": 28, "height": 8, "detail": "faithful", "overflow": "expand"}} />
+
+## Direction and automatic direction
+
+Graphs accept `direction: "TB" | "LR" | "BT" | "RL"` to override their source direction.
+`autoDirection: true` permits a perpendicular orientation during fitting. Omit it to keep
+the source orientation in ordinary flowcharts. Structured Mermaid readers may enable
+adaptive orientation by default; C4 respects an explicit direction.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Build --> Test --> Ship"} options={{"target": "chat", "direction": "TB", "width": 28, "height": 14}} />
+
+## Detail levels
+
+| `detail` | Graph behavior |
+| --- | --- |
+| `auto` (also the omitted behavior) | Fit first, then reduce decoration, merge duplicates, collapse leaves, and split as needed |
+| `balanced` | Currently follows the same graph path as `auto` |
+| `faithful` | Skip decoration/duplicate/leaf reductions; fitting and splitting remain possible |
+| `simplified` | Start decoration reduction even when the initial layout fits |
+
+Faithful output can still wrap labels, lose optional diamond markers, or split.
+It is not a promise that arbitrary input fits an arbitrary grid.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Start{Ready?} --> Work[Process order]"} options={{"target": "chat", "width": 48, "height": 11, "detail": "faithful"}} />
+
+<GlyphRender kind="diagram" source={"flowchart LR; Start{Ready?} --> Work[Process order]"} options={{"target": "chat", "width": 48, "height": 11, "detail": "simplified"}} />
+
+## Titles and spacing
+
+`title` adds a rendered title and overrides sequence/lane source titles. Graph spacing options are
+`nodesep`, `ranksep`, `margin`, `labelWidth` (default 18), `loopLabelWidth` (default 24),
+and `frameInset` (default true). `nodesep` and `ranksep` default to 4 and require integers
+of at least 3. `margin` defaults to 1 and accepts nonnegative integers; label-width options
+require positive integers. Width limits wrap labels; frame inset pads nested group boundaries.
+The default layout engine is `dagre`. The `elk` option names a reserved adapter that is
+currently unavailable; use `dagre`. The CLI exposes only `dagre`.
+
+<GlyphRender kind="diagram" source={"flowchart LR; Queue --> Worker"} options={{"target": "chat", "width": 48, "height": 9, "title": "Order processing", "nodesep": 3, "ranksep": 3}} />
+
+## Read the fidelity report
+
+A fidelity report explains how the result differs from the input. `report.ledger` holds
+entries with a stable `code`, readable `message`, and optional structured `detail`.
+The examples above expose these as **Render notes** when present.
+
+```ts
+for (const { code, message } of result.report.ledger) {
+  console.warn(`${code}: ${message}`);
+}
+console.log(result.pages.length);
+```
+
+`meta` retains source identities. `report.unsupportedGlyphs` lists unsupported characters;
+graph results also expose `report.unroutable`. Common adaptation codes and remedies are in
+[troubleshooting](/diagrams/troubleshooting/).

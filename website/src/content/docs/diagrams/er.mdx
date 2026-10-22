@@ -1,0 +1,23 @@
+---
+title: Mermaid entity relationship diagrams as text
+description: Render Mermaid ER diagrams as monospace text with entity attributes, primary and foreign keys, relationship labels, and crow-foot cardinality heads.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `erDiagram` with `renderGlyphDiagram`. Entity attributes occupy compartments; relationship endpoints carry cardinality symbols.
+
+## Customer orders
+
+<GlyphRender kind="diagram" source={"erDiagram\n CUSTOMER ||--o{ ORDER : places"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Attributes and keys
+
+<GlyphRender kind="diagram" source={"erDiagram\n ORDER {\n int id PK\n int buyer_id FK\n }\n LINE {\n int order_id PK, FK\n int quantity\n }\n ORDER ||--|{ LINE : contains"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Entity declarations can include typed attribute rows and `PK`, `FK`, or `UK` markers. Backtick identifiers and comments in attribute syntax remain text.
+- `||`, `o|`, `|{`, and `o{` encode one, zero-or-one, one-or-more, and zero-or-more endpoints. Crow-foot heads carry the distinction without color.
+- Solid/dotted relationships and captions are adapted to graph edges. Attributes are displayed, not validated as database types.
+- Styles and URLs are inert. Wide attribute lists need more columns or rows; use [faithful detail](/diagrams/options/#detail-levels) to retain identities before splitting.

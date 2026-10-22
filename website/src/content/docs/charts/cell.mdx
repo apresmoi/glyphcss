@@ -1,0 +1,31 @@
+---
+title: "ASCII heatmaps with cell marks and color ramps"
+description: Build compact heatmaps with band scales and numeric fill channels. Read unsigned and diverging ramps, customize cellRamp, and size cells to category grids.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`glyphChartCell(data, { x, y, fill })` maps a numeric fill value to a ramp. Set both scales to band for a flush heatmap grid.
+
+## Seasonal city temperatures
+
+This excerpt uses January, April, July, and October values from the workbench's 1991–2020 monthly city-temperature dataset, in °C. Positive and negative values produce a diverging ramp with a blank at zero.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "cell", "data": [{"city": "Seattle", "month": "Jan", "temperature": 6.0}, {"city": "Seattle", "month": "Apr", "temperature": 10.7}, {"city": "Seattle", "month": "Jul", "temperature": 19.5}, {"city": "Seattle", "month": "Oct", "temperature": 12.1}, {"city": "Phoenix", "month": "Jan", "temperature": 13.8}, {"city": "Phoenix", "month": "Apr", "temperature": 22.9}, {"city": "Phoenix", "month": "Jul", "temperature": 35.3}, {"city": "Phoenix", "month": "Oct", "temperature": 25.2}, {"city": "Chicago", "month": "Jan", "temperature": -3.8}, {"city": "Chicago", "month": "Apr", "temperature": 9.8}, {"city": "Chicago", "month": "Jul", "temperature": 24.1}, {"city": "Chicago", "month": "Oct", "temperature": 12.1}], "channels": {"x": "month", "y": "city", "fill": "temperature"}}], "scales": {"x": {"type": "band"}, "y": {"type": "band"}}}} options={{"target": "chat", "width": 60, "height": 14}} />
+
+```ts
+import { glyphChartCell, renderGlyphChart } from "@glyphcss/charts";
+const result = renderGlyphChart({
+  marks: [glyphChartCell([
+    { month: "Jan", city: "Seattle", temperature: 6.0 },
+    { month: "Jul", city: "Seattle", temperature: 19.5 },
+    { month: "Jan", city: "Phoenix", temperature: 13.8 },
+    { month: "Jul", city: "Phoenix", temperature: 35.3 },
+  ], { x: "month", y: "city", fill: "temperature" })],
+  scales: { x: { type: "band" }, y: { type: "band" } },
+}, { target: "web", width: 60, height: 14 });
+```
+
+Cell-only plots with two band scales fit an integer grid of `2k × k` cells and can shrink the requested canvas to that grid. Unsigned heatmaps use a nonblank ramp and a range key. A signed heatmap reserves blank only for zero.
+
+Use render option `cellRamp: [".", ":", "+", "#"]` to replace an unsigned ramp, lightest first. Signed ramps stay gain/loss ramps. Mark `options.color` sets one ink color or `[lossColor, gainColor]`; it does not replace the numeric fill channel. See [targets and colors](/charts/targets/).

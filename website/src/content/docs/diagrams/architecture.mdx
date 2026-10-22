@@ -1,0 +1,24 @@
+---
+title: Mermaid architecture diagrams as text
+description: Render Mermaid architecture and architecture-beta diagrams as text with services, groups, junctions, directional ports, and explicit adaptation notes.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Pass `architecture` or `architecture-beta` source to `renderGlyphDiagram`. Services become labelled nodes and icon names become text tags.
+
+## Connect an API to storage
+
+<GlyphRender kind="diagram" source={"architecture-beta\n service api(server)[Order API]\n service db(database)[Orders]\n api:R --> L:db"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Group services
+
+<GlyphRender kind="diagram" source={"architecture-beta\n group cloud(cloud)[Production]\n service api(server)[API] in cloud\n service jobs(server)[Jobs] in cloud\n service files(disk)[Receipts] in cloud\n api:R --> L:jobs\n jobs:B --> T:files"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Declare `service id(icon)[Label]`, `group id(icon)[Label]`, and membership with `in groupId`.
+- Connections use side prefixes such as `api:R --> L:db`. The first source side guides the initial layout direction.
+- Junctions become `+` nodes. Database icons become tags such as `[db]`; external icon assets do not load.
+- Port sides, alignment, group-edge attachment, and self-loops are approximated where needed and recorded in the report.
+- The result is a text graph, so icon artwork and exact Mermaid positioning are not preserved. Use explicit [direction and cell budgets](/diagrams/options/) to tune it.

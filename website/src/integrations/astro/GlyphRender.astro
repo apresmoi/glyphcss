@@ -1,0 +1,53 @@
+---
+import styles from "./GlyphRender.module.css";
+import {
+  fitGlyphDocsOutput,
+  normalizeGlyphDocsSource,
+  renderGlyphDocs,
+  type GlyphDocsRenderInput,
+} from "../../services/docs-render/glyphRender";
+
+type Props = GlyphDocsRenderInput & { showSource?: boolean };
+const { showSource = true, ...input } = Astro.props;
+const result = await renderGlyphDocs(input);
+const output = fitGlyphDocsOutput(
+  result,
+  "textScale" in (input.options ?? {}) ? (input.options as { textScale?: number }).textScale : 1,
+);
+const source =
+  typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2);
+---
+
+<figure class={styles.root} data-glyph-render={JSON.stringify(input)} aria-label="Rendered example">
+  {
+    output.html ? (
+      <pre class="glyph-docs-output" set:html={output.html} />
+    ) : (
+      <pre class="glyph-docs-output">{output.text}</pre>
+    )
+  }
+  {
+    showSource && (
+      <details>
+        <summary>Source</summary>
+        <pre class="glyph-docs-source" set:text={source} />
+      </details>
+    )
+  }
+  {
+    result.report.ledger.length > 0 && (
+      <details>
+        <>
+          <summary>Render notes</summary>
+          <ul>
+            {result.report.ledger.map((entry) => (
+              <li>
+                <code>{entry.code}</code>: {entry.message}
+              </li>
+            ))}
+          </ul>
+        </>
+      </details>
+    )
+  }
+</figure>

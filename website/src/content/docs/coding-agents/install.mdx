@@ -1,0 +1,167 @@
+---
+title: Install the coding-agent skills
+description: Install glyphcss-diagrams for Claude Code, Codex, Copilot, Factory Droid, Pi, or other agents, and add the separate glyphcss CLI skill for 3D models.
+---
+
+## Diagrams and charts
+
+The [glyphcss-diagrams repository](https://github.com/apresmoi/glyphcss-diagrams)
+ships **one skill**, `glyphcss-diagrams`, for both diagrams and charts. It bundles
+its renderers and requires **Node.js 22+** where the agent runs commands. Rendering
+needs no dependency installation, API key, or Glyphcss library checkout.
+
+Choose one route per host to avoid duplicate installations. After installing,
+restart the host or start a new session, then ask: “Use glyphcss-diagrams to chart
+2, 4, 3, 8 directly in chat.” See the [overview](/guides/coding-agents/) to choose
+between this skill and the [3D CLI skill](#3d-cli-skill).
+
+### Claude Code
+
+With Claude Code installed, add the marketplace, install, and inspect the plugin:
+
+```sh
+claude plugin marketplace add apresmoi/glyphcss-diagrams
+claude plugin install glyphcss-diagrams@glyphcss-diagrams
+claude plugin details glyphcss-diagrams@glyphcss-diagrams
+```
+
+The explicit skill command inside Claude Code is `/glyphcss-diagrams:glyphcss-diagrams`.
+
+### Codex
+
+With a Codex CLI that includes `codex plugin`, run:
+
+```sh
+codex plugin marketplace add apresmoi/glyphcss-diagrams
+codex plugin add glyphcss-diagrams@glyphcss-diagrams
+codex plugin list --marketplace glyphcss-diagrams
+```
+
+The repository includes a Codex marketplace and plugin manifest pointing at
+`./skills/`. Supported desktop clients also show the marketplace in their plugin
+directory. For clients without these CLI commands, use the [portable installer](#cursor-opencode-and-other-hosts).
+See [OpenAI's plugin packaging documentation](https://developers.openai.com/plugins/build/plugins).
+
+### Any agent via the skills CLI
+
+```sh
+npx skills add apresmoi/glyphcss-diagrams
+```
+
+Select `glyphcss-diagrams` and the hosts you use. Available hosts depend on the
+[skills CLI](https://skills.sh); this installs a standalone skill rather than a
+native plugin for every provider.
+
+### GitHub Copilot CLI
+
+Copilot uses the Claude-compatible marketplace:
+
+```sh
+copilot plugin marketplace add apresmoi/glyphcss-diagrams
+copilot plugin install glyphcss-diagrams@glyphcss-diagrams
+copilot skill list
+```
+
+### Factory Droid
+
+```sh
+droid plugin marketplace add https://github.com/apresmoi/glyphcss-diagrams
+droid plugin install glyphcss-diagrams@glyphcss-diagrams --scope user
+droid plugin list --scope user
+```
+
+### Pi
+
+The repository's `package.json` lists the skill as a Pi package:
+
+```sh
+pi install https://github.com/apresmoi/glyphcss-diagrams
+pi list
+```
+
+Run `/reload` in an existing Pi session. Its explicit skill command is
+`/skill:glyphcss-diagrams`.
+
+### Cursor, OpenCode, and other hosts
+
+Use the portable installer from a local checkout. Choose a provider from the table
+and replace `grok` in the final command; the complete example installs for Grok:
+
+```sh
+test -d glyphcss-diagrams/.git || git clone https://github.com/apresmoi/glyphcss-diagrams.git
+cd glyphcss-diagrams
+node install.mjs --provider grok
+```
+
+| Provider | Global skills directory |
+| --- | --- |
+| `cursor` | `~/.cursor/skills` |
+| `opencode` | `$XDG_CONFIG_HOME/opencode/skills`, or `~/.config/opencode/skills` |
+| `agents` or `grok` | `~/.agents/skills` |
+| `agy` | `~/.gemini/antigravity-cli/skills` |
+| `antigravity` | `~/.gemini/config/skills` (IDE / Antigravity 2.0) |
+| `codex` | `$CODEX_HOME/skills`, or `~/.codex/skills` |
+| `claude` | `$CLAUDE_CONFIG_DIR/skills`, or `~/.claude/skills` |
+
+Cursor and OpenCode also discover the shared `agents` directory. For another host
+or a project-local installation, replace `--provider grok` with
+`--dest /absolute/path/to/skills`. Append `--copy` for independent copies or when
+directory symlinks are unavailable. Symlink installs require the checkout to stay
+at its original location.
+
+For Kiro, import the [skill folder URL](https://github.com/apresmoi/glyphcss-diagrams/tree/main/skills/glyphcss-diagrams).
+Provider details, updates, and removal are in the repository's
+[installation guide](https://github.com/apresmoi/glyphcss-diagrams/blob/main/docs/installation.md).
+
+## 3D CLI skill
+
+The separate `glyphcss` skill drives [`@glyphcss/compile`](/guides/compile/).
+For Claude Code, run this from your project to install the CLI, add the skill,
+and render a cube:
+
+```sh
+npm i -g @glyphcss/compile
+mkdir -p .claude/skills/glyphcss
+curl -sS https://glyphcss.com/skill.md -o .claude/skills/glyphcss/SKILL.md
+glyphcss cube --auto-center
+```
+
+Other hosts can place the same [SKILL.md](/skill.md) in their own skill directory
+under `glyphcss/SKILL.md`. It is also bundled at
+`node_modules/@glyphcss/compile/SKILL.md` in a local package installation.
+For an ad hoc render without a global CLI install:
+
+```sh
+npx @glyphcss/compile cube --auto-center
+```
+
+## Troubleshooting
+
+### The skill does not trigger
+
+- Start a new session after installation. Confirm that the host lists `glyphcss-diagrams`.
+- Name the skill explicitly: “Use glyphcss-diagrams to draw Request → Agent → Answer.” Claude Code and Pi also have explicit commands above.
+- Choose one installation route per host. Check the destination if you used the portable installer; Antigravity CLI and IDE use different directories.
+- Check Node.js is 22+ on the machine executing the renderer. The 3D skill additionally needs the `glyphcss` CLI or an `npx @glyphcss/compile` invocation.
+
+### Output wraps in a narrow chat pane
+
+Keep the result in a fenced code block so spaces survive. Ask the agent to render
+at a smaller width in character cells, or split a large diagram into an overview
+and detail panels with shared connection points. The skill normally uses a
+72-column chat budget; JSON line, area, and bar charts start at 48 × 16 cells.
+A supplied host budget takes precedence. A tool subprocess's terminal size does
+not measure the chat pane.
+
+Ask for a rerender rather than trimming text or deleting connections. For crowded
+charts, split the data into complete smaller charts while preserving values,
+units, order, and series. See [diagram sizing](/diagrams/options/) and
+[chart troubleshooting](/charts/troubleshooting/).
+
+### Braille or borders do not align
+
+Chat and terminal fonts are chosen by the receiving application. Ask for
+`--charset ascii` if braille or box drawing misaligns; `box` is another option
+when only braille is affected. Use a monospace font with the required glyphs.
+For web embeds, load Glyph Mono or a compatible font and use `white-space: pre`
+and `line-height: 1`. Plain chat output should not contain ANSI escapes.

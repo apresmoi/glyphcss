@@ -1,0 +1,61 @@
+---
+title: "ASCII and braille charts for chat, terminals, and the web"
+description: Render chart specs and Mermaid as monospace text with @glyphcss/charts. Start with a line chart, compare targets, and find mark, CLI, and framework guides.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`@glyphcss/charts` draws charts into a cell canvas and returns text or escaped HTML spans. Display the result in a monospace `<pre>`; no browser is needed to generate a static chart.
+
+## Install and render a chart
+
+```sh
+npm install @glyphcss/charts
+```
+
+```ts
+import { glyphChartLine, glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";
+
+const spec = glyphChartPlot({
+  title: "Daily orders",
+  marks: [glyphChartLine([18, 24, 21, 35, 42, 39, 48], {}, { name: "Orders" })],
+});
+const result = renderGlyphChart(spec, {
+  target: "chat", width: 60, height: 16,
+});
+console.log(result.text);
+```
+
+<GlyphRender kind="chart" source={{"title": "Daily orders", "marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}]}} options={{"target": "chat", "width": 60, "height": 16}} />
+
+A bare number array also works: `renderGlyphChart([18, 24, 21])` creates one line mark. Use a spec when marks share axes, scales, or a title.
+
+## Compare the three targets
+
+These previews use the same data at 26 × 10 cells. Terminal color is shown with CSS here; the terminal API default is ANSI truecolor. Chat uses plain box drawing, while terminal and web use braille.
+
+import styles from '../../../integrations/astro/GlyphRender.module.css';
+
+<div className={styles.targets}>
+<section>
+<h3>Chat · box</h3>
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 26, "height": 10, "color": "none"}} />
+</section>
+<section>
+<h3>Terminal · braille</h3>
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "terminal", "width": 26, "height": 10, "color": "css"}} />
+</section>
+<section>
+<h3>Web · braille</h3>
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "web", "width": 26, "height": 10, "color": "css"}} />
+</section>
+</div>
+
+## Choose your next step
+
+- Learn the [spec, channels, scales, and axes](/charts/spec/).
+- Try [line and area](/charts/line-area/), [bars](/charts/bar/), or [scatter plots](/charts/scatter/).
+- Render [Mermaid charts](/charts/mermaid/) or explore [3D charts](/charts/3d/).
+- Edit data in the [charts workbench](/charts/), render files with the [CLI](/charts/cli/), or embed charts in [vanilla JavaScript, React, and Vue](/charts/frameworks/).
+- Install [glyphcss-diagrams](/coding-agents/install/) for charts in coding-agent conversations.
+- For nodes, edges, and message exchanges, use the [Diagrams section](/diagrams/overview/).

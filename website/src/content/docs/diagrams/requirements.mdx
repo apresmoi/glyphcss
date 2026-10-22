@@ -1,0 +1,24 @@
+---
+title: Mermaid requirement diagrams as text
+description: Render Mermaid requirements as text compartments with IDs, risk, verification methods, elements, and labelled requirement relationships for traceability.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Pass `requirementDiagram` source to `renderGlyphDiagram`. Fields become compartment rows and relations become labelled edges.
+
+## Connect an implementation to a requirement
+
+<GlyphRender kind="diagram" source={"requirementDiagram\n requirement safe {\n id: R1\n text: \"No duplicate charge\"\n risk: high\n verifymethod: test\n }\n element api {\n type: service\n docref: \"Order API\"\n }\n api - satisfies -> safe"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Record verification
+
+<GlyphRender kind="diagram" source={"requirementDiagram\n performanceRequirement fast {\n id: R2\n text: \"Checkout under 2s\"\n risk: medium\n verifymethod: analysis\n }\n element suite {\n type: test\n docref: \"Load tests\"\n }\n suite - verifies -> fast"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Requirement declarations include `requirement`, `functionalRequirement`, `interfaceRequirement`, `performanceRequirement`, `physicalRequirement`, and `designConstraint`.
+- Fields include `id`, `text`, `risk`, and `verifymethod`. Elements include `type` and `docref`.
+- Relations are `contains`, `copies`, `derives`, `satisfies`, `verifies`, `refines`, and `traces`.
+- Markdown is reduced to plain text; styles and external assets are inert and reported.
+- Long field text wraps inside compartments. Give detailed requirements more rows and inspect [render notes](/diagrams/options/#read-the-fidelity-report) before sharing.

@@ -1,0 +1,108 @@
+---
+title: "3D text charts: surfaces, scatter, bars, and lines"
+description: Render 3D surfaces, scatter plots, parametric grids, bars, and lines headlessly as text, or mount chart scene objects with glyphcss for an interactive view.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Import 3D constructors from `@glyphcss/charts/3d`. All five mark families can render headlessly with `renderGlyphChart3d(mark, options)`; the examples below are build-time monospace text, not images.
+
+```sh
+npm install @glyphcss/charts glyphcss
+```
+
+## Surface
+
+`glyphChartSurface({ z: number[][] }, channels?, options?)` takes a row-major grid. It also accepts long records with x/y/z field channels. Grid channels can supply x column positions and y row positions.
+
+```ts
+import { glyphChartSurface, renderGlyphChart3d } from "@glyphcss/charts/3d";
+const mark = glyphChartSurface({ z: [[0, 1, 0], [1, 3, 1], [0, 1, 0]] });
+const result = renderGlyphChart3d(mark, {
+  target: "web", charset: "blocks", style: "solid", color: "css", width: 60, height: 24,
+});
+```
+
+<GlyphRender kind="chart-3d" source={{"type": "surface", "args": [{"z": [[0, 1, 0], [1, 3, 1], [0, 1, 0]]}]}} options={{"target": "web", "width": 60, "height": 24, "charset": "blocks", "style": "solid"}} />
+
+The collapsed source for these 3D previews is the documentation adapter's `{ type, args }` descriptor: `args` are the arguments passed to the named constructor. It is not the public chart JSON format.
+
+## Scatter
+
+`glyphChartScatter3d(records, channels?, options?)` defaults to x/y/z fields. Optional channels are categorical `series`, continuous `color` (mutually exclusive with series), and numeric `size`. `markerSize` controls the base object-space marker half-size.
+
+```ts
+import { glyphChartScatter3d } from "@glyphcss/charts/3d";
+const mark = glyphChartScatter3d([
+  { x: 1, y: 1, z: 1 }, { x: 2, y: 3, z: 2 }, { x: 3, y: 2, z: 4 },
+], {}, { markerSize: 0.07 });
+```
+
+<GlyphRender kind="chart-3d" source={{"type": "scatter", "args": [[{"x": 1, "y": 1, "z": 1}, {"x": 2, "y": 3, "z": 2}, {"x": 3, "y": 2, "z": 4}], {}, {"markerSize": 0.07}]}} options={{"target": "web", "width": 60, "height": 24, "charset": "blocks"}} />
+
+## Parametric surfaces
+
+`glyphChartParametric3d({ x, y, z, value? }, options?)` takes equally shaped coordinate grids. The optional value grid drives color independently of z. `wrapU` joins the last column to the first; `wrapV` joins the last row to the first.
+
+```ts
+import { glyphChartParametric3d } from "@glyphcss/charts/3d";
+const mark = glyphChartParametric3d({
+  x: [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]],
+  y: [[-1, -1, -1], [0, 0, 0], [1, 1, 1]],
+  z: [[0, 1, 0], [1, 0, 1], [0, 1, 0]],
+});
+```
+
+<GlyphRender kind="chart-3d" source={{"type": "parametric", "args": [{"x": [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], "y": [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], "z": [[0, 1, 0], [1, 0, 1], [0, 1, 0]]}]}} options={{"target": "web", "width": 60, "height": 24, "charset": "braille"}} />
+
+For curved examples, `glyphChart3dSphereGrid(radius?, rows?, cols?)` and `glyphChart3dTorusGrid(majorRadius?, minorRadius?, rows?, cols?)` generate coordinate grids. Enable the appropriate wrap options for the intended seam connections.
+
+## Bars
+
+`glyphChartBars3d(records, channels?, options?)` uses numeric x/y positions and z heights. Optional `xLabel`/`yLabel` channels provide labels. `barWidth` is a fraction of nearest-neighbor spacing (default 0.7).
+
+```ts
+import { glyphChartBars3d } from "@glyphcss/charts/3d";
+const mark = glyphChartBars3d([
+  { x: 0, y: 0, z: 2 }, { x: 1, y: 0, z: 4 },
+  { x: 0, y: 1, z: 3 }, { x: 1, y: 1, z: 5 },
+]);
+```
+
+<GlyphRender kind="chart-3d" source={{"type": "bars", "args": [[{"x": 0, "y": 0, "z": 2}, {"x": 1, "y": 0, "z": 4}, {"x": 0, "y": 1, "z": 3}, {"x": 1, "y": 1, "z": 5}]]}} options={{"target": "web", "width": 60, "height": 24, "charset": "blocks"}} />
+
+## Line
+
+`glyphChartLine3d(points, options?)` accepts `[x, y, z]` triples or named series `{ name?, color?, points }`. Each series needs at least two points. `glyphChart3dLorenzAttractor(steps?, dt?)` generates a longer trajectory.
+
+```ts
+import { glyphChartLine3d } from "@glyphcss/charts/3d";
+const mark = glyphChartLine3d([[0, 0, 0], [1, 0, 1], [1, 1, 2], [0, 1, 3], [-1, 1, 4]]);
+```
+
+<GlyphRender kind="chart-3d" source={{"type": "line", "args": [[[0, 0, 0], [1, 0, 1], [1, 1, 2], [0, 1, 3], [-1, 1, 4]]]}} options={{"target": "web", "width": 60, "height": 24, "charset": "braille"}} />
+
+## Static rendering, color, and camera
+
+`renderGlyphChart3d` returns `text`, optional CSS `html`, `object`, `resolved`, and `report`. It uses the same headless `compileScene` pipeline as scene objects. Braille defaults to wireframe; other charsets default to solid. Explicit styles are `solid`, `wireframe`, and `ink`.
+
+Mark options include `aspect`, `axes` (x/y/z), and `guides`. Surface, scatter, parametric, and bars support named colorscales `viridis`, `cividis`, `magma`, `greys`, or custom hex anchors, plus band counts. Line series use their own colors.
+
+Camera render options include `rotX`, `rotY` in degrees, optional `zoom`, or a `mat` rotation matrix. Do not combine Euler rotations with a matrix. Omit zoom for auto-fit. Pass `result.resolved.camera` back as `camera` to reproduce a static frame.
+
+## Scene objects
+
+```ts
+import { createGlyphScene, createGlyphOrthographicCamera } from "glyphcss";
+import { glyphChartSurface, glyphChartObject } from "@glyphcss/charts/3d";
+
+const host = document.querySelector<HTMLElement>("#chart")!;
+const camera = createGlyphOrthographicCamera({ rotX: 30, rotY: -35, zoom: 100 });
+const scene = createGlyphScene(host, { camera, cols: 80, rows: 30, mode: "solid" });
+const object = glyphChartObject(glyphChartSurface({ z: [[0, 1], [1, 2]] }));
+scene.addObject(object);
+scene.rerender();
+// Call scene.destroy() when this view is removed.
+```
+
+The scene renders DOM text in a `<pre>`. Mount and dispose it with your framework lifecycle, and use [controls](/components/glyph-controls/) for an interactive camera. Static charts need no mounted scene. The [chart CLI](/charts/cli/) supports surface JSON with `--3d`; the other 3D constructors use JavaScript.

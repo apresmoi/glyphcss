@@ -1,0 +1,136 @@
+---
+title: "Chart spec reference: marks, channels, scales, and axes"
+description: Build a GlyphChartSpec with marks, channels, scales, axes, transforms, legends, and sizing. Validate JSON and use tick formats verified against the API.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`glyphChartPlot({ marks, scales?, axes?, title?, description?, legend? })` returns a plain `GlyphChartSpec`. `renderGlyphChart(input, options?)` accepts that spec, one mark, an array of marks, or a number array.
+
+## Spec and mark shape
+
+```ts
+import { glyphChartBar, glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";
+
+const spec = glyphChartPlot({
+  marks: [glyphChartBar([
+    { quarter: "Q1", revenue: 12000 },
+    { quarter: "Q2", revenue: 18000 },
+    { quarter: "Q3", revenue: 16000 },
+  ], { x: "quarter", y: "revenue" }, { name: "Revenue", color: "#38bdf8" })],
+  scales: { x: { type: "band" }, y: { type: "linear", domain: [0, 20000], nice: false } },
+  axes: {
+    x: { title: "Quarter", ticks: 3, titleAt: "center" },
+    y: { title: "USD", ticks: 4, grid: true, format: { preset: "currency", decimals: 0 } },
+  },
+  title: { text: "Quarterly revenue", align: "left", position: "top" },
+  description: "Illustrative revenue in US dollars.",
+  legend: false,
+});
+const result = renderGlyphChart(spec, { target: "web", width: 60, height: 24 });
+```
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"quarter": "Q1", "revenue": 12000}, {"quarter": "Q2", "revenue": 18000}, {"quarter": "Q3", "revenue": 16000}], "channels": {"x": "quarter", "y": "revenue"}, "options": {"name": "Revenue", "color": "#38bdf8"}}], "scales": {"x": {"type": "band"}, "y": {"type": "linear", "domain": [0, 20000], "nice": false}}, "axes": {"x": {"title": "Quarter", "ticks": 3, "titleAt": "center"}, "y": {"title": "USD", "ticks": 4, "grid": true, "format": {"preset": "currency", "decimals": 0}}}, "title": {"text": "Quarterly revenue", "align": "left", "position": "top"}, "description": "Illustrative revenue in US dollars.", "legend": false}} options={{"target": "web", "width": 60, "height": 24}} />
+
+Each mark has `type`, nonempty `data`, `channels`, and optional `transform` and `options`. Constructors return this same shape. Put transforms beside `channels`, not inside `options`.
+
+| Spec field | Meaning |
+| --- | --- |
+| `marks` | Array of composed marks. Supported types: line, area, bar, dot, arc, cell, text, rule, sankey, funnel, treemap. |
+| `scales.x`, `scales.y` | Shared `type`, `domain`, and `nice` settings. |
+| `axes.x`, `axes.y` | Axis titles, ticks, lines, grid, and formatting. `axes.color` sets a shared color. |
+| `title` | String, or `{ text, align?, position? }`. Align: left/center/right; position: top/bottom. |
+| `description` | Text exposed through `result.meta.description`. Supply accessible prose separately in your UI. |
+| `legend` | Boolean or `{ placement }`. See placements below. |
+
+## Channels and mark options
+
+A channel is a field-name string, `(datum, index) => value`, or a parallel array of values. Function channels are JavaScript-only. For numeric arrays, Cartesian marks infer index/value coordinates; horizontal bars infer value/index.
+
+| Channel | Use |
+| --- | --- |
+| `x`, `y` | Coordinates; record-based Cartesian marks need both. Arc values use `y`. |
+| `fill`, `stroke` | Series identity; `cell.fill` carries the numeric heatmap value. Use `options.color` for literal colors. |
+| `label` | Text labels and slice names. |
+| `x0` | Start of a horizontal bar interval, with `x` as its end. |
+| `source`, `target`, `value` | Sankey endpoints and flow magnitude. |
+| `stage`, `value` | Funnel stage name and magnitude. |
+| `id`, `parent`, `value`, `label` | Treemap hierarchy, leaf magnitude, and displayed name. |
+
+Mark `options` supports `name`, `color`, `strokeWidth` (1, 2, or 3), `orientation` (vertical/horizontal bars), `innerRadius` (arc hole fraction, 0 inclusive to 1 exclusive), `labels` (arc callout/legend-only), and `axis` (rule x/y). Arbitrary size, shape, or curve options are unsupported.
+
+Most constructors take `(data, channels?, options?)`. Exceptions: `glyphChartRule(values, options?)`; `glyphChartSankey(data, { source, target, value, name?, color? })`; `glyphChartFunnel(data, { stage?, value?, name?, color? })`.
+
+## Scales
+
+- `type`: `linear`, `log`, `sqrt`, `time`, `band`, or `ordinal`.
+- `domain`: numeric endpoints, time endpoints (`Date` or ISO strings), or ordered categorical values.
+- `nice`: boolean controlling domain rounding.
+- Bar and area domains include zero, except floating intervals. An explicit domain that excludes their zero baseline rejects with `bar-domain-excludes-zero`.
+- A log domain must stay on one side of zero. Mixed numeric and categorical x coordinates reject with `mixed-x-scale`.
+- Sankey, funnel, and treemap marks have no x/y scales; explicit scale settings and transforms are rejected.
+
+## Axes and tick formats
+
+Both axes accept `title`, `ticks` (requested count), `tickMarks`, `line`, `grid`, `color`, and `format`. `line: false` hides the axis line and tick marks while retaining labels and title. `ticks: 0` hides tick labels. Layout can thin requested ticks to avoid collisions.
+
+Field-name channels supply automatic axis titles when space allows. Use `title: ""` to suppress them. `axes.x.titleAt` is `start`, `center`, or `end`; `axes.y.titleAt` is `top` or `bottom`. Tight layouts can omit or stack title rows, with render notes.
+
+`format` accepts a preset name, a parameter object, or `(value, index, ticks) => string` in JavaScript. It changes axis ticks, not pie percentages or funnel labels.
+
+| Presets | Parameters |
+| --- | --- |
+| `auto`, `number`, `si`, `compact`, `integer`, `scientific` | None. `auto` is the default. |
+| `percent` | Optional `of` (default 1; use 100 for values already in 0–100). |
+| `currency` | Optional `symbol` (default `$`) and `decimals` (default 2). |
+| `decimals` | Required `places`. |
+| `date`, `year`, `month`, `day`, `time` | None. |
+| `template` | Required `pattern`, for example `"{value} ms"`. |
+
+## Transforms
+
+A mark takes one `transform: { kind, n?, by?, reduce? }`. It runs after channel resolution and before scales. These are small built-in transforms, not the full Observable Plot API.
+
+| Kind | Behavior |
+| --- | --- |
+| `bin` | Equal-width bins over numeric x; y becomes count. `n` defaults to 10. |
+| `stack` | Rows stack in input order at each x; `by` does not change stack order. |
+| `group` | Aggregate y for each distinct x; `reduce` defaults to sum. |
+| `normalize` | Divide y by the largest absolute y in each `by` group; default grouping uses fill, or all rows without fill. |
+| `window` | Reduce a window around each row, using input order; `n` defaults to 3 and `reduce` to mean. Sort data first. |
+
+`reduce` accepts `mean`, `sum`, `min`, or `max`. `by` uses resolved rows (for example `"fill"`), not arbitrary original record fields. `n` must be a positive integer. Horizontal bars and structural marks do not support transforms.
+
+```ts
+import { glyphChartLine } from "@glyphcss/charts";
+const smoothed = {
+  ...glyphChartLine([18, 24, 21, 35, 42, 39, 48]),
+  transform: { kind: "window" as const, n: 3, reduce: "mean" as const },
+};
+```
+
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "transform": {"kind": "window", "n": 3, "reduce": "mean"}}} options={{"target": "chat", "width": 60, "height": 16}} />
+
+## Legends, color, and size
+
+`legend: true` uses bottom placement; `false` suppresses it. Object placements are `bottom`, `top-left`, `top-right`, `bottom-left`, `bottom-right`, or `title`. Corner legends occupy plot cells. Title placement can fall back to bottom when it cannot fit. Render-option `legend` overrides the spec.
+
+`options.name` names a mark's series. `options.color` takes a canonical lowercase `#rrggbb` or an array cycling through its series (arc: slices; sankey: source nodes; funnel: stages; cell: ramp ink or loss/gain colors). Axis colors use the same hex format.
+
+Render `width` and `height` are positive integer cell budgets, not pixels. `target`, `charset`, `color`, `detail`, `cellAspect`, `textScale`, `regionFill`, `shades`, `cellRamp`, `env`, `radarGrid`, and `radarSeries` are render options, not spec fields. See [targets and color](/charts/targets/) for their values and defaults.
+
+## JSON Schema and validation
+
+```ts
+import { glyphChartJsonSchema, validateGlyphChartSpec, renderGlyphChart } from "@glyphcss/charts";
+
+const spec = { marks: [{ type: "line" as const, data: [3, 5, 4], channels: {} }] };
+validateGlyphChartSpec(spec); // Returns the spec, or throws an error with a code.
+const schema = glyphChartJsonSchema(); // Feed to your JSON Schema validator/editor.
+const result = renderGlyphChart(spec); // Also checks resolved data and layout constraints.
+console.log(schema, result.report.ledger);
+```
+
+Schema validation covers JSON structure; resolved channel values and graph/hierarchy constraints also need the renderer. Accessors, callback formats, and `Date` objects need JavaScript equivalents in JSON (field names/arrays, named formats, ISO strings).
+
+`buildGlyphChart(spec, options)` creates the canvas model; `encodeGlyphChart(build, "text" | "html")` encodes it. `renderGlyphChart` composes both and returns `text`, optional `html`, `build`, `meta`, and `report`. `renderGlyphChartJson(json, options)` returns a JSON string containing output or a tagged error.

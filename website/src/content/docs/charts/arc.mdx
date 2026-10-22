@@ -1,0 +1,33 @@
+---
+title: "Text pie charts and donut charts with arc marks"
+description: Create pie and donut charts with arc marks, slice labels, leader lines, and legends. Set innerRadius and preserve slice identity in monochrome output.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+`glyphChartArc(data, channels?, options?)` uses y as the slice magnitude and label as its name. Numeric arrays also work. The example shows an illustrative allocation of project hours.
+
+## Pie with callouts
+
+<GlyphRender kind="chart" source={{"type": "arc", "data": [{"part": "Code", "hours": 60}, {"part": "Docs", "hours": 25}, {"part": "Tests", "hours": 15}], "channels": {"y": "hours", "label": "part"}}} options={{"target": "chat", "width": 60, "height": 14}} />
+
+## Donut with a hole
+
+<GlyphRender kind="chart" source={{"type": "arc", "data": [{"part": "Code", "hours": 60}, {"part": "Docs", "hours": 25}, {"part": "Tests", "hours": 15}], "channels": {"y": "hours", "label": "part"}, "options": {"innerRadius": 0.5}}} options={{"target": "chat", "width": 60, "height": 14}} />
+
+```ts
+import { glyphChartArc, renderGlyphChart } from "@glyphcss/charts";
+const result = renderGlyphChart(glyphChartArc([
+  { part: "Code", hours: 60 }, { part: "Docs", hours: 25 }, { part: "Tests", hours: 15 },
+], { y: "hours", label: "part" }, { innerRadius: 0.5 }), {
+  target: "chat", width: 60, height: 14,
+});
+```
+
+- `innerRadius` is a fraction in `[0, 1)`, not a pixel radius.
+- `labels: "callout"` is the default; `"legend-only"` suppresses the leader labels.
+- Negative values do not contribute and report `slice-dropped`; all-zero input reports `empty-total`.
+- `cellAspect` adjusts the width/height ratio used to shape the disc. Measure your display font when a circle appears stretched.
+- Narrow layouts may omit or abbreviate labels; inspect the report and increase width.
+
+For source-text input, see [Mermaid pie charts](/charts/mermaid/#pie).

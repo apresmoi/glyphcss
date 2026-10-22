@@ -1,0 +1,94 @@
+---
+title: Fix Mermaid text diagram errors and layout problems
+description: Diagnose Mermaid parser errors, invalid JSON, missing glyphs, crowded layouts, pagination, and font alignment in glyphcss text diagram output.
+---
+
+Start with the error's `code` or `result.report.ledger`. Parse and validation failures
+are different from successful renders that needed layout adaptations.
+
+## Parser and JSON errors
+
+| Error code | What to check |
+| --- | --- |
+| `GLYPH_MERMAID_SYNTAX` | Flowchart statements, delimiters, labels, and edge syntax |
+| `GLYPH_MERMAID_UNSUPPORTED_<HEADER>` | The header is unsupported by this reader; choose the correct [entry point](/diagrams/overview/#choose-the-entry-point) |
+| `GLYPH_SEQUENCE_MERMAID_SYNTAX` | Sequence participant declarations, messages, and matched frame endings |
+| `GLYPH_MERMAID_CLASS_SYNTAX` | Class declarations, member braces, and relationships |
+| `GLYPH_MERMAID_ER_SYNTAX` | Entity attributes and cardinality syntax |
+| `GLYPH_MERMAID_MINDMAP_SYNTAX` | Mindmap indentation and node delimiters |
+| `GLYPH_MERMAID_GIT_SYNTAX` | Branch names, checkout, merge, and commit statements |
+| `GLYPH_MERMAID_BLOCK_SYNTAX` | Block grids, spans, and closing `end` statements |
+| `GLYPH_MERMAID_ARCHITECTURE_SYNTAX` | Service/group declarations and side-prefixed links |
+| `GLYPH_MERMAID_REQUIREMENT_SYNTAX` | Requirement braces, fields, and relations |
+| `GLYPH_MERMAID_C4_SYNTAX` | C4 declaration arguments, boundaries, and relationships |
+| `GLYPH_MERMAID_STATE_NOTE` | State note syntax and target state |
+| `GLYPH_MERMAID_STATE_CONCURRENCY` | State region separators and concurrent structure |
+| `GLYPH_DIAGRAM_BAD_JSON` | Malformed graph JSON text |
+| `GLYPH_SEQUENCE_BAD_JSON` | Malformed sequence JSON text |
+| `GLYPH_LANE_BAD_JSON` | Malformed lane JSON text |
+| `GLYPH_LANE_GIT_SYNTAX` | Expected `id|parents|decoration|subject`, one commit per line |
+| `GLYPH_DIAGRAM_ELK_NOT_INSTALLED` | The ELK adapter is reserved and unavailable; use `engine: "dagre"` |
+
+The CLI also dispatches Mermaid charts; chart parse errors retain their own tagged codes.
+Configuration, styles, clicks, and external assets are inert. `mermaid-degraded` entries
+explain a supported input whose appearance needed adaptation.
+
+## Validation failures
+
+- `bad-size`: supply positive integer columns and rows.
+- `bad-options` or `bad-color`: check option values and color strings against the API.
+- `duplicate-node-id`, `duplicate-edge-id`, or `unknown-node`: use unique IDs and valid endpoints.
+- `unknown-group` or `group-membership`: check group references, membership, and parent containment.
+- `point-loop`: a JSON point node cannot connect to itself.
+- `unknown-participant`, `bad-frame-range`, or `bad-note-range`: check sequence IDs and zero-based message indices.
+- `bad-parent-order`, `unknown-parent`, or `self-parent`: list lane nodes newest-first with older parents later; use `truncated: true` only for a real history window.
+
+The object renderers throw errors with a `code` property. JSON-string wrappers instead
+resolve to serialized `{ error, code, hint }` on failure; parse their result before checking it.
+The CLI exits 1 for failures and prints diagnostics to stderr.
+
+## When a diagram does not fit
+
+1. Read the report and inspect every page. A successful call can still have omitted or abbreviated content.
+2. Increase `width` or `height` in character cells. Long names need enough room for whole words.
+3. For graph families, try `autoDirection: true` or an explicit perpendicular `direction`.
+4. Use `overflow: "expand"` for a scrollable web host, or `"paginate"` for fixed chat/terminal panels.
+5. Choose `detail: "faithful"` when preserving identities matters more than compactness, or split the source into smaller diagrams.
+
+| Report code | Meaning and response |
+| --- | --- |
+| `layout-expanded` | The graph grew beyond the requested budget; use its actual dimensions |
+| `layout-overflow` | A graph did not fit during adaptation; inspect the final pages |
+| `unroutable` | A final edge could not be drawn; increase space or simplify connections |
+| `word-cut`, `label-abbreviated`, `label-folded` | Label text was split, shortened, or converted to the charset |
+| `render-work-limited` | The bounded fitting search stopped; reduce complexity or provide more room |
+| `sequence-layout-overflow` | Participants/messages exceeded the available sequence space |
+| `lane-cap-collapsed` | Lanes were collapsed to fit; provide more columns |
+| `lane-history-continues` | Older lane history lies outside the supplied window |
+| `mermaid-option-ignored` | A CLI flag does not apply to the dispatched renderer |
+
+## Fonts and alignment
+
+Web output needs a true monospace font and `line-height: 1`. Use the bundled Glyph Mono
+font for special outlines and junctions; declaring its name in CSS requires loading the font.
+The website loads it centrally. Your application must serve a font file or use a fallback.
+
+```css
+.diagram pre {
+  font-family: "Glyph Mono", ui-monospace, monospace;
+  line-height: 1;
+  white-space: pre;
+  overflow: auto;
+}
+```
+
+Chat and terminal output use the receiving application's fonts. Some chat fonts misalign
+braille, junctions, or the ❬/❭ hexagon sides. Put the text in a fenced code block and use
+`target: "chat"`; if needed, choose `charset: "ascii"`. Keep labels short when fallback fonts
+change character widths. Do not scale the font to hide a layout overflow.
+
+## Missing colors or unexpected HTML
+
+Use `color: "none"` for plain text. ANSI encodings belong in a compatible terminal;
+CSS encoding belongs in HTML. `html` contains escaped span markup for the inside of a `<pre>`; provide that outer element.
+Piping CLI output disables color unless overridden; choosing `--out` does not select HTML.

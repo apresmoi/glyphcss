@@ -1,0 +1,61 @@
+---
+title: "Render chart JSON from the command line"
+description: Use glyphcss chart to render JSON specs as terminal or chat text. Set dimensions and color, write output files, and render 3D surfaces with camera options.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+The `glyphcss` executable comes from `@glyphcss/compile`. Its `chart` subcommand reads JSON, not Mermaid.
+
+## Install and render from a clean directory
+
+```sh
+npm init -y
+npm install @glyphcss/compile
+cat > chart.json <<'JSON'
+{"marks":[{"type":"line","data":[18,24,21,35,42,39,48],"channels":{}}]}
+JSON
+npx glyphcss chart chart.json --target chat --width 60 --height 12
+npx glyphcss chart chart.json --target terminal --color ansi256 --width 60 --height 12 --out chart.ansi
+cat > surface.json <<'JSON'
+{"data":{"z":[[0,1,0],[1,3,1],[0,1,0]]}}
+JSON
+npx glyphcss chart surface.json --3d --charset braille --camera 30,-35 --style wireframe --width 60 --height 24
+```
+
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}}} options={{"target": "chat", "width": 60, "height": 12}} />
+
+## Flags
+
+| Flag | Accepted values / behavior |
+| --- | --- |
+| `--target` | `chat`, `terminal`, `web`; CLI default is terminal. |
+| `--charset` | `ascii`, `box`, `blocks`, `braille`. |
+| `--color` | `none`, `ansi16`, `ansi256`, `truecolor`, `css`. |
+| `--width`, `--height` | Positive integer columns and rows. |
+| `-o`, `--out` | Write the emitted text to a file. |
+| `--3d` | Read a surface spec `{ data, channels?, options? }`. |
+| `--camera` | `rotX,rotY[,zoom]`, degrees and optional zoom; requires `--3d`. Omit for auto-fit. |
+| `--style` | `solid`, `wireframe`, `ink`; requires `--3d`. Default follows charset. |
+| `-h`, `--help` | Print usage. |
+
+Output defaults to ANSI on a TTY and plain text when piped; `--color` overrides this choice. The CLI forwards `NO_COLOR` and `FORCE_COLOR`. It writes text even for `--color css`; use the JavaScript API's `result.html` when you need colored HTML.
+
+Adaptation notes go to stderr as `glyphcss: <code>: <message>`. Failures retain tagged rule codes and exit 1. Keep stderr when diagnosing missing labels or invalid data.
+
+## Mermaid chart files
+
+Use the separate `diagram` dispatcher for Mermaid charts. It preserves source adaptation notes and accepts supported chart headers alongside diagram headers.
+
+```sh
+npm init -y
+npm install @glyphcss/compile
+cat > orders.mmd <<'MERMAID'
+xychart
+  x-axis [Mon, Tue, Wed]
+  bar [18, 24, 21]
+MERMAID
+npx glyphcss diagram orders.mmd --target chat --width 60 --height 12
+```
+
+See [diagram CLI flags](/diagrams/cli/). Only the `chart` subcommand supports `--3d`.
