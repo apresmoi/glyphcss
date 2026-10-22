@@ -1,0 +1,19 @@
+.root {
+  margin: 1.5rem 0;
+  min-width: 0;
+}
+.root figcaption {
+  font-weight: bold;
+}
+.root :global(.glyph-docs-output),
+.root :global(.glyph-docs-output pre) {
+  font-family: var(--gc-font-render);
+  line-height: 1;
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.root[data-target="chat"] :global(.glyph-docs-output),
+.root[data-target="chat"] :global(.glyph-docs-output pre) {
+  font-family: var(--gc-font-ui);
+}

@@ -16,6 +16,8 @@ export default defineConfig({
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: [
+        { find: /^@glyphcss\/diagrams\/sequence$/, replacement: repoPath('../packages/diagrams/src/sequence/index.ts') },
+        { find: /^@glyphcss\/diagrams\/lanes$/, replacement: repoPath('../packages/diagrams/src/lanes/index.ts') },
         {
           find: /^@glyphcss\/core$/,
           replacement: repoPath('../packages/core/src/index.ts'),
@@ -108,10 +110,32 @@ export default defineConfig({
             { label: 'Color Encoding', slug: 'guides/color-encoding' },
             { label: 'Render Modes', slug: 'guides/render-modes' },
             { label: 'Density & Detail', slug: 'guides/density' },
-            { label: 'Responsive Diagrams', slug: 'guides/diagrams' },
             { label: 'Glyph Effects', slug: 'guides/effects' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
             { label: 'Coding agents', slug: 'guides/coding-agents' },
+          ],
+        },
+        {
+          label: 'Diagrams',
+          items: [
+            { label: 'Overview', slug: 'diagrams/overview' },
+            { label: 'Flowcharts', slug: 'diagrams/flowcharts' },
+            { label: 'Sequence diagrams', slug: 'diagrams/sequence' },
+            { label: 'State diagrams', slug: 'diagrams/state' },
+            { label: 'Class diagrams', slug: 'diagrams/class' },
+            { label: 'Entity relationships', slug: 'diagrams/er' },
+            { label: 'Mindmaps', slug: 'diagrams/mindmap' },
+            { label: 'Git history & lanes', slug: 'diagrams/gitgraph' },
+            { label: 'Block diagrams', slug: 'diagrams/block' },
+            { label: 'Architecture diagrams', slug: 'diagrams/architecture' },
+            { label: 'Requirements', slug: 'diagrams/requirements' },
+            { label: 'C4 diagrams', slug: 'diagrams/c4' },
+            { label: 'Options & sizing', slug: 'diagrams/options' },
+            { label: 'Node shapes', slug: 'diagrams/shapes' },
+            { label: 'CLI', slug: 'diagrams/cli' },
+            { label: 'JSON & schema', slug: 'diagrams/json' },
+            { label: 'Vanilla, React & Vue', slug: 'diagrams/frameworks' },
+            { label: 'Troubleshooting', slug: 'diagrams/troubleshooting' },
           ],
         },
         {

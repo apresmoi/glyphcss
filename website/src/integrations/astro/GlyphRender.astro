@@ -1,0 +1,49 @@
+---
+import styles from "./GlyphRender.module.css";
+import { renderGlyphDocs, type GlyphDocsRenderInput } from "../../services/docs-render/glyphRender";
+
+type Props = GlyphDocsRenderInput & { showSource?: boolean };
+const { showSource = true, ...input } = Astro.props;
+const result = await renderGlyphDocs(input);
+const source = typeof input.source === "string" ? input.source : JSON.stringify(input.source, null, 2);
+---
+
+<figure class={styles.root} data-glyph-render={JSON.stringify(input)} data-target={input.options?.target ?? "chat"}>
+  <figcaption>Source and rendered output</figcaption>
+  {
+    showSource && (
+      <>
+        <>
+          <div>Source</div>
+          <pre class="glyph-docs-source">
+            <code>{source}</code>
+          </pre>
+        </>
+      </>
+    )
+  }
+  <div>Rendered output</div>
+  {
+    result.html ? (
+      <pre class="glyph-docs-output" set:html={result.html} />
+    ) : (
+      <pre class="glyph-docs-output">{result.text}</pre>
+    )
+  }
+  {
+    result.report.ledger.length > 0 && (
+      <details>
+        <>
+          <summary>Render notes</summary>
+          <ul>
+            {result.report.ledger.map((entry) => (
+              <li>
+                <code>{entry.code}</code>: {entry.message}
+              </li>
+            ))}
+          </ul>
+        </>
+      </details>
+    )
+  }
+</figure>

@@ -1,0 +1,24 @@
+---
+title: Mermaid block diagrams as monospace text
+description: Render Mermaid block and block-beta diagrams as text with column grids, nested blocks, spans, spaces, connections, and responsive layout adaptations.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Pass `block` or `block-beta` source to `renderGlyphDiagram`. Column hints guide the layout while the fitter keeps labels readable.
+
+## Place services in columns
+
+<GlyphRender kind="diagram" source={"block-beta\n columns 3\n web[\"Web app\"] api[\"Order API\"] db[(\"Orders\")]\n web --> api\n api --> db"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Nest a spanning block
+
+<GlyphRender kind="diagram" source={"block-beta\n columns 2\n block:Gateway:2\n columns 2\n auth[\"Auth\"] quota[\"Rate limit\"]\n end\n queue[\"Jobs\"] worker[\"Worker\"]\n queue --> worker"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- `columns N` sets a grid. `:N` spans that many columns, including the gaps between them.
+- `block:Name ... end` nests a grid. `space` reserves blank cells; spaces and empty block input are supported.
+- Labels, shapes, and arrows become graph elements. Styling and external assets are inert.
+- Crowded grids may wrap to fewer columns (`block-row-wrap`) or use the general fitter (`block-layout`). Column positions are hints rather than fixed pixel coordinates.
+- Large or tall blocks can paginate. Expansion and explicit direction are available through [render options](/diagrams/options/).

@@ -156,6 +156,7 @@ Other helpers and exported types: [root exports](https://github.com/apresmoi/gly
 
 ## Links
 
+- [Diagrams documentation](https://glyphcss.com/diagrams/overview/)
 - [Diagrams workbench](https://glyphcss.com/diagrams)
 - [Agent skill](https://github.com/apresmoi/glyphcss-diagrams)
 - [Main glyphcss package](https://www.npmjs.com/package/glyphcss)
