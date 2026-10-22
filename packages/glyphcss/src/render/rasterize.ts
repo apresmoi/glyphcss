@@ -4748,10 +4748,6 @@ function rasterizeObjectExit(
   exitDepthBuf: Float64Array,
 ): void {
   const projScratch: [number, number, number, number?][] = [];
-  const projectInto = resolveGlyphProjectInto(camera);
-  // Keep unindexed storage separate: projScratch can also reference indexed
-  // slots, which must stay intact for later polygons in this pass.
-  const unindexedProj: [number, number, number, number?][] = [];
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
