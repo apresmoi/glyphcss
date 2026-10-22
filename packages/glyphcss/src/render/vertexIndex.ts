@@ -65,8 +65,8 @@ export interface GlyphVertexIndex {
   /** First occurrence of each distinct position, by slot. Projected directly. */
   readonly positions: Vec3[];
   /**
-   * Per-slot projected tuple — the camera's OWN return value, stored by
-   * reference and re-served for every later occurrence in the same pass.
+   * Per-slot projected tuple, re-served for later occurrences in a pass.
+   * Factory cameras refill it in place; custom cameras supply their own tuple.
    * Holes until a pass fills them.
    */
   readonly proj: ([number, number, number, number?] | undefined)[];

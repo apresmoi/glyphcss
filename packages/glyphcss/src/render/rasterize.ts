@@ -1,5 +1,5 @@
 import type { GlyphPolygonCullChunk, RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
-import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, resolveGlyphProjectInto, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
 import type { Polygon, PolyTextureWrapMode, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
@@ -2431,6 +2431,10 @@ function rasterizeSolid(
   // projection instead of re-projecting v0/v2 once per triangle (a quad fan
   // would otherwise project 6 corners for 4 unique verts).
   const projScratch: [number, number, number, number?][] = [];
+  const projectInto = resolveGlyphProjectInto(camera);
+  // Keep unindexed storage separate: projScratch can also reference indexed
+  // slots, which must stay intact for later polygons in this pass.
+  const unindexedProj: [number, number, number, number?][] = [];
   // Indexed vertex projection — see `render/vertexIndex.ts`. Hoisted out of the
   // polygon loop as plain locals because this is the hottest loop in the
   // renderer and a property read per vertex is not free.
@@ -2582,22 +2586,21 @@ function rasterizeSolid(
       && vertexOffsets[polyIdx + 1]! - vertexBase === verts.length) {
       for (let k = 0; k < verts.length; k++) {
         const slot = vertexSlots[vertexBase + k]!;
-        // The camera's OWN returned tuple is what gets stored and re-served —
-        // never a copy into a pre-shaped scratch row. An orthographic camera
-        // returns three elements and a perspective one four, so a fixed-shape
-        // row would have to carry `undefined` in its fourth slot, which turns
-        // what V8 keeps as a packed-double array into a boxed generic one and
-        // costs more on every `pa[0]` read downstream than the projection it
-        // saves (measured: the copy form was a 1% REGRESSION on the globe).
+        // Refill the camera's tuple in place; preserve its 3/4-element shape
+        // rather than writing an undefined fourth slot into a double array.
         if (vertexStamp![slot] !== vertexGen) {
-          vertexProj![slot] = camera.project(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics);
+          vertexProj![slot] = projectInto
+            ? projectInto(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics, vertexProj![slot] ?? [0, 0, 0])
+            : camera.project(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics);
           vertexStamp![slot] = vertexGen;
         }
         projScratch[k] = vertexProj![slot]!;
       }
     } else {
       for (let k = 0; k < verts.length; k++) {
-        projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
+        projScratch[k] = projectInto
+          ? projectInto(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics, unindexedProj[k] ??= [0, 0, 0])
+          : camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
       }
     }
     // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
@@ -4743,6 +4746,10 @@ function rasterizeObjectExit(
   exitDepthBuf: Float64Array,
 ): void {
   const projScratch: [number, number, number, number?][] = [];
+  const projectInto = resolveGlyphProjectInto(camera);
+  // Keep unindexed storage separate: projScratch can also reference indexed
+  // slots, which must stay intact for later polygons in this pass.
+  const unindexedProj: [number, number, number, number?][] = [];
   for (let polyIdx = 0; polyIdx < polygons.length; polyIdx++) {
     const poly = polygons[polyIdx]!;
     const verts = poly.vertices;
