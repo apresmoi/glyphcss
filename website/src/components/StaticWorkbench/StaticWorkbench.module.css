@@ -1,0 +1,51 @@
+.intro {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.root {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  padding: var(--gc-space-6);
+  background: var(--gc-surface);
+  color: var(--gc-text);
+  font-family: var(--gc-font-ui);
+  font-size: var(--gc-text-base);
+}
+.root section {
+  padding-block: var(--gc-space-4);
+  border-bottom: 1px solid var(--gc-rule);
+}
+.root p {
+  max-width: 80ch;
+  line-height: 1.6;
+}
+.root a,
+.root summary {
+  color: var(--gc-accent);
+}
+.root summary {
+  cursor: pointer;
+}
+.render,
+.source {
+  max-width: 100%;
+  overflow: auto;
+  padding: var(--gc-space-4);
+  background: var(--gc-surface-panel);
+}
+.render {
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-sm);
+  line-height: 1;
+}
+.source {
+  font-family: var(--gc-font-ui);
+  line-height: 1.5;
+}

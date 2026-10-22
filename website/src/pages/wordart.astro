@@ -1,11 +1,24 @@
 ---
 import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { WordArtWorkbench } from "../components/WordArtWorkbench";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticWordArt } from "../services/static-workbench/scenes";
+const snapshot = await staticWordArt();
+const heading = "WordArt";
 const title = "WordArt — 3D ASCII text from any font | glyphcss";
 const description =
   "Extrude any Google font into 3D text — gradients, block textures, bevels, warps — rasterised to ASCII in a single <pre>. Powered by glyphcss + @glyphcss/fonts.";
 ---
 
 <WorkbenchLayout title={title} description={description} path="/wordart/" image="/og/wordart.png">
-  <WordArtWorkbench client:only="react" />
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <WordArtWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench
+        heading={heading}
+        description={`${description} The static view uses the bundled font. Enable JavaScript to load the selected Google font and animate the text.`}
+        initial={snapshot}
+      />
+    </Fragment>
+  </WordArtWorkbench>
 </WorkbenchLayout>

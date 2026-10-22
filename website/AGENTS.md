@@ -4,7 +4,7 @@ Root `AGENTS.md` applies.
 
 ## Ownership and composition
 
-- `src/pages/` holds thin Astro routes composed from `src/layouts/` (`SiteLayout`, `WorkbenchLayout`, `ExampleLayout`, `ContentLayout`); rendering/browser setup belong to components/features.
+- `src/pages/` holds thin Astro routes composed from `src/layouts/`; rendering/browser setup belong to components/features.
 - `src/components/Name/Name.tsx` is the main component; `index.ts` contains explicit named/type exports for its public surface. Small private children, hooks, types, and helpers stay beside their owner. Complex children get a matching folder, main file, and barrel. Import another component owner through its public barrel; never use wildcard exports or old-path compatibility wrappers.
 - Components use React. `.astro` files belong only in pages, layouts, and `src/integrations/{astro,starlight}/` adapters. Starlight Search stays in its Astro adapter and is passed to the shared `SiteHeader` as a slot.
 - `src/hooks/` holds reusable React lifecycle/measurement hooks; feature hooks stay with their feature or component. Dock context hooks stay private.
@@ -28,6 +28,7 @@ Root `AGENTS.md` applies.
 
 ## Behavioral contracts
 
+- Workbenches retain headings and build-time ASCII fallback slots; builds check galleries from preset corpora.
 - Fresh `/maps` starts at zero tilt and bearing; shared links retain their saved pose.
 - Preserve existing URLs, serialized state versions, dataset identifiers, rendering results, and export contents during UI refactors. URL state is append-only: new fields are optional, malformed fields degrade to absent, and only incompatible reshapes bump a version prefix. Shipped dataset IDs are frozen; renames require an alias map.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.

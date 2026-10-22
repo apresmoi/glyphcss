@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/copy-skill.mjs && astro dev --port 4323",
-    "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs",
+    "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs && node scripts/check-static-workbenches.mjs",
     "preview": "astro preview --port 4323",
     "test": "vitest run --passWithNoTests",
     "test:e2e": "node e2e/diagrams-editor.mjs",
@@ -15,7 +15,8 @@
     "format": "node scripts/checks/format.mjs --write",
     "test:architecture": "node --test scripts/checks/architecture.test.mjs",
     "test:e2e:layout": "node e2e/workbench-layout.mjs",
-    "test:e2e:diagrams-resize": "node e2e/diagrams-resize.mjs"
+    "test:e2e:diagrams-resize": "node e2e/diagrams-resize.mjs",
+    "test:static": "node scripts/check-static-workbenches.mjs"
   },
   "devDependencies": {
     "@astrojs/compiler": "3.0.1",

@@ -1,11 +1,26 @@
 ---
 import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { DiagramsWorkbench } from "../components/DiagramsWorkbench";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticDiagrams } from "../features/diagrams/render/staticDiagrams";
+const snapshot = await staticDiagrams();
+const heading = "Diagrams";
 const title = "Diagrams — ASCII graphs | glyphcss";
 const description =
-  "Render Mermaid flowcharts, LangGraph agents and JSON graphs as ASCII, box-drawing, block and braille diagrams for chat, terminal and web.";
+  "Turn Mermaid or JSON into ASCII, box-drawing, block and braille text diagrams for chat, terminal and web.";
 ---
 
 <WorkbenchLayout title={title} description={description} path="/diagrams/">
-  <DiagramsWorkbench client:only="react" />
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <DiagramsWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench
+        heading={heading}
+        description={description}
+        initial={snapshot.initial}
+        examples={snapshot.examples}
+        kind="diagram"
+      />
+    </Fragment>
+  </DiagramsWorkbench>
 </WorkbenchLayout>

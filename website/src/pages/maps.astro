@@ -1,11 +1,24 @@
 ---
 import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { MapsWorkbench } from "../components/MapsWorkbench";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticMap } from "../services/static-workbench/scenes";
+const snapshot = await staticMap();
+const heading = "Maps";
 const title = "Maps — ASCII terrain renderer | glyphcss";
 const description =
   "Real ETOPO1 terrain rendered as colored ASCII — pan and zoom across equirectangular, Mercator and globe projections, built on glyphcss.";
 ---
 
 <WorkbenchLayout title={title} description={description} path="/maps/" image="/og/maps.png">
-  <MapsWorkbench client:only="react" />
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <MapsWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench
+        heading={heading}
+        description={`${description} The static view shows synthetic sample terrain. Enable JavaScript to explore the live map and its tile providers.`}
+        initial={snapshot}
+      />
+    </Fragment>
+  </MapsWorkbench>
 </WorkbenchLayout>

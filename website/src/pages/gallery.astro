@@ -4,11 +4,24 @@ import { GalleryWorkbench } from "../components/GalleryWorkbench";
 // The client-only workbench mounts the shared demo markup; Astro only emits
 // that CSS for pages that render GlyphDemo on the server, so import it here.
 import "../components/GlyphDemo";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticGallery } from "../services/static-workbench/scenes";
+const snapshot = await staticGallery();
+const heading = "Gallery";
 const title = "Gallery — the ASCII render playground | glyphcss";
 const description =
   "Drop in OBJ · glTF · GLB · STL · .vox and tune camera, density, shading, and effects live — then export the render. The glyphcss playground.";
 ---
 
 <WorkbenchLayout title={title} description={description} path="/gallery/" image="/og/gallery.png">
-  <GalleryWorkbench client:only="react" />
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <GalleryWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench
+        heading={heading}
+        description={`${description} The static view shows the Tetrahedron preset; the interactive gallery opens a random model.`}
+        initial={snapshot}
+      />
+    </Fragment>
+  </GalleryWorkbench>
 </WorkbenchLayout>
