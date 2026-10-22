@@ -232,20 +232,23 @@ it.each(fixtures)("keeps $kind CSS output byte-identical to plain text", async (
   expect(parseMarkup(colored.html!).textContent).toBe(plain.text);
 });
 
-const pages = ["diagrams", "charts"].flatMap((section) => {
-  const docs = resolve(`src/content/docs/${section}`);
-  return readdirSync(docs)
-    .filter((name) => name.endsWith(".mdx"))
-    .map((name) => {
-      const content = readFileSync(resolve(docs, name), "utf8");
-      const inputs = [
-        ...content.matchAll(/kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g),
-      ].map(
-        (match) =>
-          ({ kind: match[1], source: JSON.parse(match[2]!), options: JSON.parse(match[3]!) }) as GlyphDocsRenderInput,
-      );
-      return { name: `${section}/${name}`, content, inputs };
-    });
+const pages = [
+  ...["diagrams", "charts"].flatMap((section) =>
+    readdirSync(resolve(`src/content/docs/${section}`))
+      .filter((name) => name.endsWith(".mdx"))
+      .map((name) => `${section}/${name}`),
+  ),
+  "guides/coding-agents.mdx",
+  "coding-agents/install.mdx",
+].map((name) => {
+  const content = readFileSync(resolve("src/content/docs", name), "utf8");
+  const inputs = [
+    ...content.matchAll(/kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g),
+  ].map(
+    (match) =>
+      ({ kind: match[1], source: JSON.parse(match[2]!), options: JSON.parse(match[3]!) }) as GlyphDocsRenderInput,
+  );
+  return { name, content, inputs };
 });
 
 it.each(pages)("validates metadata and renders every source in $name", async ({ content, inputs }) => {

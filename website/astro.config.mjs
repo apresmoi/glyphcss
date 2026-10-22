@@ -115,7 +115,6 @@ export default defineConfig({
             { label: 'Density & Detail', slug: 'guides/density' },
             { label: 'Glyph Effects', slug: 'guides/effects' },
             { label: 'Compiling to Static', slug: 'guides/compile' },
-            { label: 'Coding agents', slug: 'guides/coding-agents' },
           ],
         },
         {
@@ -139,6 +138,7 @@ export default defineConfig({
             { label: 'JSON & schema', slug: 'diagrams/json' },
             { label: 'Vanilla, React & Vue', slug: 'diagrams/frameworks' },
             { label: 'Troubleshooting', slug: 'diagrams/troubleshooting' },
+            { label: 'Comparison', slug: 'diagrams/comparison' },
           ],
         },
         {
@@ -163,6 +163,13 @@ export default defineConfig({
             { label: 'CLI', slug: 'charts/cli' },
             { label: 'Vanilla, React & Vue', slug: 'charts/frameworks' },
             { label: 'Troubleshooting', slug: 'charts/troubleshooting' },
+          ],
+        },
+        {
+          label: 'Coding agents',
+          items: [
+            { label: 'Overview', slug: 'guides/coding-agents' },
+            { label: 'Install by host', slug: 'coding-agents/install' },
           ],
         },
         {
