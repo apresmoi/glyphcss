@@ -2,18 +2,17 @@
   margin: 1.5rem 0;
   min-width: 0;
 }
-.root figcaption {
-  font-weight: bold;
-}
-.root :global(.glyph-docs-output),
-.root :global(.glyph-docs-output pre) {
+.root :global(.glyph-docs-output) {
   font-family: var(--gc-font-render);
+  font-size: var(--gc-text-base);
   line-height: 1;
+  letter-spacing: normal;
+  font-weight: 400;
   white-space: pre;
   overflow-x: auto;
   max-width: 100%;
 }
-.root[data-target="chat"] :global(.glyph-docs-output),
-.root[data-target="chat"] :global(.glyph-docs-output pre) {
-  font-family: var(--gc-font-ui);
+.root :global(.glyph-docs-output span) {
+  font: inherit;
+  letter-spacing: inherit;
 }

@@ -7,12 +7,14 @@ import { transform } from "@astrojs/compiler";
 import { build } from "esbuild";
 import { expect, it } from "vitest";
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
+import postcss from "postcss";
+import { readCss } from "../../test/styles";
 
 import { renderGlyphDiagram } from "@glyphcss/diagrams";
 import { renderGlyphSequence } from "@glyphcss/diagrams/sequence";
 import { renderGlyphLaneDag } from "@glyphcss/diagrams/lanes";
 import { renderGlyphChart, renderGlyphChartMermaid } from "@glyphcss/charts";
-import { renderGlyphDocs, type GlyphDocsRenderInput } from "./glyphRender";
+import { normalizeGlyphDocsSource, renderGlyphDocs, type GlyphDocsRenderInput } from "./glyphRender";
 
 // Compile the real Astro adapter without loading the site's routing integrations
 // into Vitest. CSS is checked separately by the website's style audit.
@@ -59,6 +61,33 @@ function parseMarkup(html: string) {
   template.innerHTML = html;
   return template.content;
 }
+
+it("uses the workbench's Glyph Mono cell metrics for every target and inherits them into color spans", () => {
+  const sheet = postcss.parse(readCss(resolve("src/integrations/astro/GlyphRender.module.css")));
+  const output: Record<string, string> = {};
+  const spans: Record<string, string> = {};
+  sheet.walkRules((rule) => {
+    if (rule.selector === ".root .glyph-docs-output") {
+      rule.walkDecls((decl) => {
+        output[decl.prop] = decl.value;
+      });
+    }
+    if (rule.selector === ".root .glyph-docs-output span") {
+      rule.walkDecls((decl) => {
+        spans[decl.prop] = decl.value;
+      });
+    }
+    expect(rule.selector).not.toContain("data-target");
+  });
+  expect(output).toMatchObject({
+    "font-family": '"Glyph Mono", ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace',
+    "font-size": "13px",
+    "line-height": "1",
+    "letter-spacing": "normal",
+    "white-space": "pre",
+  });
+  expect(spans).toMatchObject({ font: "inherit", "letter-spacing": "inherit" });
+});
 
 const options = { target: "chat" as const, color: "none" as const, width: 48, height: 12 };
 const fixtures: GlyphDocsRenderInput[] = [
@@ -108,11 +137,14 @@ it.each(fixtures)("uses the real $kind renderer and keeps source-dependent text"
   expect(actual.text.trim().length).toBeGreaterThan(0);
 });
 
-it("defaults to plain chat output, honors options, and preserves escaped CSS HTML", async () => {
+it("defaults to CSS color with identical plain text, honors options, and preserves escaped HTML", async () => {
   const source = "flowchart LR; Input --> Output";
-  expect((await renderGlyphDocs({ kind: "diagram", source })).text).toBe(
-    (await renderGlyphDiagram(source, { target: "chat", color: "none" })).text,
-  );
+  const resultDefault = await renderGlyphDocs({ kind: "diagram", source });
+  const expectedDefault = await renderGlyphDiagram(source, { target: "chat", color: "css" });
+  expect(resultDefault.html).toBe(expectedDefault.html);
+  expect(resultDefault.html).toContain('<span style="color:');
+  expect(parseMarkup(resultDefault.html!).textContent).toBe(resultDefault.text);
+  expect(resultDefault.text).toBe((await renderGlyphDiagram(source, { target: "chat", color: "none" })).text);
   const input: GlyphDocsRenderInput = {
     kind: "diagram",
     source: {
@@ -129,6 +161,48 @@ it("defaults to plain chat output, honors options, and preserves escaped CSS HTM
   await expect(renderGlyphDocs({ kind: "diagram", source, options: { color: "truecolor" } })).rejects.toThrow(
     "none or css",
   );
+});
+
+it.each([
+  [
+    "\n\n    sequenceDiagram\n      participant Browser\n      Browser->>API: Request\n  \n",
+    "sequenceDiagram\n  participant Browser\n  Browser->>API: Request",
+  ],
+  ["\r\n\tflowchart LR\r\n\t\tA --> B\r\n", "flowchart LR\n\tA --> B"],
+  ["\n  \n", ""],
+  ["sequenceDiagram\n  participant Browser", "sequenceDiagram\n  participant Browser"],
+])("dedents source without removing intentional nesting", (source, expected) => {
+  expect(normalizeGlyphDocsSource(source)).toBe(expected);
+});
+
+it("renders dedented source in a closed disclosure without template whitespace", async () => {
+  const source =
+    "\n    sequenceDiagram\n      participant Browser\n      participant API\n      Browser->>API: Request\n    ";
+  const expected = "sequenceDiagram\n  participant Browser\n  participant API\n  Browser->>API: Request";
+  const container = await AstroContainer.create();
+  const markup = parseMarkup(await container.renderToString(GlyphRender, { props: { kind: "sequence", source } }));
+  const pre = markup.querySelector("pre.glyph-docs-source")!;
+  expect(pre.textContent).toBe(expected);
+  expect(pre.closest("details")?.hasAttribute("open")).toBe(false);
+  expect(pre.closest("details")?.querySelector("summary")?.textContent).toBe("Source");
+  expect(markup.querySelector("figure")?.firstElementChild?.matches("pre.glyph-docs-output")).toBe(true);
+  expect(markup.querySelector("figcaption")).toBeNull();
+  const result = await renderGlyphDocs({ kind: "sequence", source });
+  expect(result.text).toBe((await renderGlyphSequence(expected, { target: "chat", color: "none" })).text);
+  expect(markup.querySelector("pre.glyph-docs-output")?.textContent).toBe(result.text);
+});
+
+it.each(fixtures)("keeps $kind CSS output byte-identical to plain text", async (input) => {
+  const plain = await renderGlyphDocs({
+    ...input,
+    options: { ...input.options, color: "none" },
+  } as GlyphDocsRenderInput);
+  const colored = await renderGlyphDocs({
+    ...input,
+    options: { ...input.options, color: "css" },
+  } as GlyphDocsRenderInput);
+  expect(colored.html).toBeDefined();
+  expect(parseMarkup(colored.html!).textContent).toBe(plain.text);
 });
 
 const docs = resolve("src/content/docs/diagrams");
@@ -160,8 +234,8 @@ it.each(pages)("validates metadata and renders every source in $name", async ({ 
     const markup = parseMarkup(await container.renderToString(GlyphRender, { props: input }));
     const pre = markup.querySelector("pre.glyph-docs-output");
     expect(pre?.textContent).toBe(result.html ? parseMarkup(result.html).textContent : result.text);
-    expect(markup.querySelector(".glyph-docs-source code")?.textContent).toBe(
-      typeof input.source === "string" ? input.source : JSON.stringify(input.source, null, 2),
+    expect(markup.querySelector("pre.glyph-docs-source")?.textContent).toBe(
+      typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2),
     );
   }
 });

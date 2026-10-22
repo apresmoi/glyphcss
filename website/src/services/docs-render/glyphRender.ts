@@ -35,6 +35,14 @@ export type GlyphDocsRenderInput =
       options?: GlyphChartRenderOptions;
     };
 
+export function normalizeGlyphDocsSource(source: string): string {
+  const lines = source.replace(/\r\n?/g, "\n").split("\n");
+  while (lines.length && !lines[0]!.trim()) lines.shift();
+  while (lines.length && !lines.at(-1)!.trim()) lines.pop();
+  const indent = Math.min(...lines.filter((line) => line.trim()).map((line) => line.match(/^[\t ]*/)![0].length));
+  return lines.map((line) => (line.trim() ? line.slice(indent) : "")).join("\n");
+}
+
 export async function renderGlyphDocs(input: GlyphDocsRenderInput) {
   // Documentation is a web surface: CSS carries color without putting ANSI
   // escape codes in the page. Explicit ANSI choices must fail visibly.
@@ -43,19 +51,28 @@ export async function renderGlyphDocs(input: GlyphDocsRenderInput) {
   }
   const options = {
     target: "chat" as const,
-    color: "none" as const,
+    color: "css" as const,
     ...input.options,
   };
   switch (input.kind) {
     case "diagram":
-      return renderGlyphDiagram(input.source, options);
+      return renderGlyphDiagram(
+        typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : input.source,
+        options,
+      );
     case "sequence":
-      return renderGlyphSequence(input.source, options);
+      return renderGlyphSequence(
+        typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : input.source,
+        options,
+      );
     case "lanes":
-      return renderGlyphLaneDag(input.source, options);
+      return renderGlyphLaneDag(
+        typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : input.source,
+        options,
+      );
     case "chart":
       return renderGlyphChart(input.source, options);
     case "chart-mermaid":
-      return renderGlyphChartMermaid(input.source, options);
+      return renderGlyphChartMermaid(normalizeGlyphDocsSource(input.source), options);
   }
 }

@@ -11,6 +11,9 @@ const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   site: 'https://glyphcss.com',
+  redirects: {
+    '/guides/diagrams/': '/diagrams/overview/',
+  },
   devToolbar: { enabled: false },
   vite: {
     resolve: {
