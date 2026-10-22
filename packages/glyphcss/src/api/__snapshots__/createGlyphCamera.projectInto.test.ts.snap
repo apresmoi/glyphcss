@@ -1,3 +1,0 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
-
-exports[`preserves baseline projection bits across camera modes and mutations 1`] = `"5874990e9b7948305b908d2e000eeb728e17f24830b2be6cbe0c3fb27525647d"`;

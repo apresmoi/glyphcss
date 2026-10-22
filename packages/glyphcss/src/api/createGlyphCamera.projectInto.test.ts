@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { expect, it } from "vitest";
 import type { Polygon, Vec3 } from "@glyphcss/core";
 import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, resolveGlyphProjectInto } from "./createGlyphCamera";
@@ -6,10 +5,18 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, resolveGly
 import { buildRasterizeContext } from "./rasterizeContext";
 import { rasterize } from "../render/rasterize";
 
-// Frozen before the allocation refactor: IEEE bytes preserve signed zero and
-// exact doubles, unlike rounded numeric tolerances or JSON stringification.
-it("preserves baseline projection bits across camera modes and mutations", () => {
-  const hash = createHash("sha256");
+// The public project is main's allocating code, untouched; the in-place path
+// must reproduce its IEEE bytes (signed zero, NaN, exact doubles). Compared on
+// the same machine rather than against a stored hash: V8's sin/cos can differ
+// in the last bit between platforms, so a frozen digest only held on one OS.
+const projectionBytes = (p: readonly (number | undefined)[]) => {
+  const bytes = Buffer.alloc(8 * (p.length + 1));
+  bytes.writeDoubleLE(p.length, 0);
+  p.forEach((n, k) => bytes.writeDoubleLE(n!, (k + 1) * 8));
+  return bytes;
+};
+
+it("matches public project bits across camera modes and mutations", () => {
   for (const mode of ["ortho", "css", "legacy", "eye"] as const) {
     const camera = mode === "ortho" ? createGlyphOrthographicCamera() : createGlyphPerspectiveCamera();
     camera.perspective = mode === "legacy" ? 0 : 700;
@@ -27,14 +34,9 @@ it("preserves baseline projection bits across camera modes and mutations", () =>
       const out: [number, number, number, number?] = [1, 2, 3, 4];
       const into = resolveGlyphProjectInto(camera)!;
       expect(into(v, 53, 29, 1.9, i % 3 ? undefined : { cellWidth: 7.3, cellHeight: 15.1, centerCol: 9, centerRow: 12 }, out)).toBe(out);
-      expect(out).toEqual(result);
-      const bytes = Buffer.alloc(8 * (result.length + 1));
-      bytes.writeDoubleLE(result.length, 0);
-      result.forEach((n, k) => bytes.writeDoubleLE(n!, (k + 1) * 8));
-      hash.update(bytes);
+      expect(projectionBytes(out).equals(projectionBytes(result))).toBe(true);
     }
   }
-  expect(hash.digest("hex")).toMatchSnapshot();
 });
 
 it("keeps indexed and unindexed renders byte-identical to public project calls", () => {
