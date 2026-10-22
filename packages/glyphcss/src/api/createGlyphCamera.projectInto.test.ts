@@ -82,3 +82,22 @@ it("does not reuse tuples owned by a custom camera on the same indexed mesh", ()
   expect(tuple).toEqual([8, 5, 0]);
   expect(render(custom)).toBe(render(custom));
 });
+
+it("projects an in-place-mutated polygon without overwriting shared indexed slots", () => {
+  const camera = createGlyphOrthographicCamera({ zoom: 300, rotX: 30, rotY: 20 });
+  const at = (x: number, y: number): Vec3 => [x / 6 - 0.5, y / 6 - 0.5, Math.cos(x + y) * 0.05];
+  const polygons: Polygon[] = [];
+  for (let y = 0; y < 6; y++) for (let x = 0; x < 6; x++) {
+    polygons.push({ vertices: [at(x, y), at(x + 1, y), at(x + 1, y + 1), at(x, y + 1)], color: x % 2 ? "#a357db" : "#3fb950" });
+  }
+  const render = (p: Polygon[]) => rasterize(buildRasterizeContext({
+    camera, polygons: p, grid: { cols: 48, rows: 28, cellAspect: 2 }, mode: "solid", useColors: true, doubleSided: true,
+  }));
+  render(polygons); render(polygons); // second sight builds the shared vertex index
+  // A vertex-count change takes this one polygon off the index mid-pass; every
+  // later polygon still reads the shared slots it neighbours.
+  const v = polygons[14]!.vertices;
+  polygons[14] = { ...polygons[14]!, vertices: [v[0]!, v[1]!, v[2]!, v[3]!, at(2.5, 2.9)] };
+  const fresh = polygons.map((p) => ({ ...p, vertices: p.vertices.map((u) => [...u] as Vec3) }));
+  expect(render(polygons)).toBe(render(fresh));
+});
