@@ -95,7 +95,7 @@ import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
-import { stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
 import { glyphMapAsciiLabel, stampGlyphMapPoint, stampGlyphMapPointLabel, GLYPH_MAP_POINT_RAMP } from "./point";
 import { glyphMapMarchContourMosaic, type GlyphMapContourSampleGrid, type GlyphMapContourSegment } from "./contourGeometry";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
@@ -459,6 +459,8 @@ export interface GlyphMapLineLayer {
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
   readonly color?: string;
+  /** @experimental Local border-glyph comparison; affects glyph choice only. */
+  readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
   /**
@@ -5947,7 +5949,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const verts: GlyphMapStrokeVertex[] = groundElevationAt
             ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows)
             : run.map(([lon, lat]) => vertexAt(lon, lat));
-          stampGlyphMapPolyline(grid, verts, { color });
+          stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy });
           }
         }
       }

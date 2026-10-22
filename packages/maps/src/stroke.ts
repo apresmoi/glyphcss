@@ -123,6 +123,8 @@
  */
 import { inkGlyphForTangent } from "glyphcss";
 import type { CellGrid } from "glyphcss";
+import { glyphMapExperimentalStrokeGlyph, type GlyphMapStrokeGlyphSample, type GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
+export type { GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
 
 /**
  * Iterations of slack either side of the analytically-derived walk bound in
@@ -168,6 +170,8 @@ export interface GlyphMapStrokeVertex {
 
 export interface GlyphMapStampOptions {
   readonly color?: string;
+  /** @experimental Local border-glyph exploration. Omit for byte-identical oriented ink. */
+  readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** Extra FLAT depth allowance, in world depth units. Default `0` — a draped stroke lies on the surface, and a flat constant cannot be right at two zoom levels at once anyway (see this file's doc for the 0.03 that was). */
   readonly depthBias?: number;
   /** Overrides {@link GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE}. */
@@ -329,6 +333,8 @@ export function stampGlyphMapPolyline(
   const curvatureScale = opts.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE;
   const requireSurface = opts.requireSurface ?? false;
   const onInk = opts.onInk;
+  const strategy = opts.experimentalGlyphStrategy;
+  const samples = strategy && strategy !== "baseline" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
 
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];
@@ -400,7 +406,11 @@ export function stampGlyphMapPolyline(
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;
+      if (samples) samples.set(idx, { col: colI, row: rowI, subCol, subRow, dx: dCol, dy: dRow });
     }
+  }
+  if (samples) {
+    for (const [idx, sample] of samples) grid.char[idx] = glyphMapExperimentalStrokeGlyph(strategy!, sample, samples, grid.cols);
   }
 }
 
