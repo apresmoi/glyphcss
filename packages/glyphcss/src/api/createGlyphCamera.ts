@@ -391,6 +391,7 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     center: (opts.center ?? [0.5, 0.5]) as [number, number],
   };
 
+  const projectScratch: ProjectedVertex = [0, 0, 0];
   const projectInto: ProjectInto = (v, cols, rows, cellAspect, metrics, out) => {
     const { cellPxW, cellPxH, centerCol, centerRow } =
       resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
@@ -554,7 +555,11 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       return (state.distance - r[2]) - NEAR;
     },
     project(v, cols, rows, cellAspect, metrics) {
-      return projectInto(v, cols, rows, cellAspect, metrics, [0, 0, 0]);
+      // Project into scratch, return a fresh literal: callers outside the
+      // rasterizer (maps drapes every stroke sample) keep the packed-double
+      // tuple a literal allocates, not one grown and re-typed in place.
+      const p = projectInto(v, cols, rows, cellAspect, metrics, projectScratch);
+      return [p[0], p[1], p[2], p[3]];
     },
   };
   projectors.set(camera, { project: camera.project, into: projectInto });
@@ -575,6 +580,7 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     center: (opts.center ?? [0.5, 0.5]) as [number, number],
   };
 
+  const projectScratch: ProjectedVertex = [0, 0, 0];
   const projectInto: ProjectInto = (v, cols, rows, cellAspect, metrics, out) => {
     const { cellPxW, cellPxH, centerCol, centerRow } =
       resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
@@ -633,7 +639,9 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     // Orthographic projection has no eye, so nothing is ever near-clipped.
     eyeDepth(_v) { return Number.POSITIVE_INFINITY; },
     project(v, cols, rows, cellAspect, metrics) {
-      return projectInto(v, cols, rows, cellAspect, metrics, [0, 0, 0]);
+      // See the perspective camera's `project`.
+      const p = projectInto(v, cols, rows, cellAspect, metrics, projectScratch);
+      return [p[0], p[1], p[2]];
     },
   };
   projectors.set(camera, { project: camera.project, into: projectInto });
