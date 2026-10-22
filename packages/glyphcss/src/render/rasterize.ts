@@ -1,5 +1,5 @@
 import type { GlyphPolygonCullChunk, RasterizeContext, TemporalHistory } from "../api/rasterizeContext";
-import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
+import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera, resolveGlyphProjectInto, type GlyphCamera, type GlyphProjectionMetrics } from "../api/createGlyphCamera";
 import type { Polygon, PolyTextureWrapMode, Vec2, Vec3, TextureSampler } from "@glyphcss/core";
 import { sampleTexel, polygonTexture } from "@glyphcss/core";
 import { getWireframeGlyphs } from "./ramps";
@@ -11,11 +11,12 @@ import {
   encodeGlyphBuffers,
   encodeGlyphBuffersDual,
   hasGlyphOutsideFontAtlas,
+  histogramGlyphAtlasGrid,
   isGlyphAtlasEncodable,
 } from "./cells";
 import type { CellGrid } from "./cells";
 import { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, isGlyphInFontAtlas, type GlyphFontAtlas } from "./fontAtlas";
-import { resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
+import { resolveGlyphAtlasHistogramResolver, resolveGlyphAtlasPaletteInput } from "./paletteQuantize";
 import { beginGlyphVertexPass, resolveGlyphVertexIndex } from "./vertexIndex";
 
 /**
@@ -2372,9 +2373,10 @@ function rasterizeSolid(
   // base colors (palette buckets) and the shaded output is an 8-bit RGB hex
   // string, so per-triangle `hexToRgb` parsing + `toHex2` formatting is the
   // bulk of the color cost (≈doubles rasterize time at high poly counts).
-  // Key on (color, intensity quantized to 8 bits) — lossless for 8-bit
-  // output — and reuse the formatted string across all triangles that match.
-  const litCache = new Map<string, string>();
+  // Keep the first triangle's exact tint in each quantized bucket. Splitting
+  // color and intensity avoids allocating a composite key per triangle without
+  // changing which triangle populates the bucket (including shadow keys).
+  const litCache = new Map<string, string[]>();
 
   // Per-cell texture sampling: when a polygon carries a texture + UVs and its
   // sampler is available, the rasterizer samples the texture per cell (the
@@ -2430,6 +2432,10 @@ function rasterizeSolid(
   // projection instead of re-projecting v0/v2 once per triangle (a quad fan
   // would otherwise project 6 corners for 4 unique verts).
   const projScratch: [number, number, number, number?][] = [];
+  const projectInto = resolveGlyphProjectInto(camera);
+  // Keep unindexed storage separate: projScratch can also reference indexed
+  // slots, which must stay intact for later polygons in this pass.
+  const unindexedProj: [number, number, number, number?][] = [];
   // Indexed vertex projection — see `render/vertexIndex.ts`. Hoisted out of the
   // polygon loop as plain locals because this is the hottest loop in the
   // renderer and a property read per vertex is not free.
@@ -2439,6 +2445,7 @@ function rasterizeSolid(
   const vertexSlots = vertexIndex === null ? null : vertexIndex.slots;
   const vertexPositions = vertexIndex === null ? null : vertexIndex.positions;
   const vertexProj = vertexIndex === null ? null : vertexIndex.proj;
+  const reusableVertexProj = projectInto && vertexIndex !== null ? (vertexIndex.reusableProj ??= []) : null;
   const vertexStamp = vertexIndex === null ? null : vertexIndex.stamp;
   // ── Pre-projection cull runs (`RasterizeContextOptions.cullChunks`) ─────
   // The three rules, and why each is exact, live on
@@ -2581,22 +2588,21 @@ function rasterizeSolid(
       && vertexOffsets[polyIdx + 1]! - vertexBase === verts.length) {
       for (let k = 0; k < verts.length; k++) {
         const slot = vertexSlots[vertexBase + k]!;
-        // The camera's OWN returned tuple is what gets stored and re-served —
-        // never a copy into a pre-shaped scratch row. An orthographic camera
-        // returns three elements and a perspective one four, so a fixed-shape
-        // row would have to carry `undefined` in its fourth slot, which turns
-        // what V8 keeps as a packed-double array into a boxed generic one and
-        // costs more on every `pa[0]` read downstream than the projection it
-        // saves (measured: the copy form was a 1% REGRESSION on the globe).
+        // Refill the camera's tuple in place; preserve its 3/4-element shape
+        // rather than writing an undefined fourth slot into a double array.
         if (vertexStamp![slot] !== vertexGen) {
-          vertexProj![slot] = camera.project(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics);
+          vertexProj![slot] = projectInto
+            ? projectInto(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics, reusableVertexProj![slot] ??= [0, 0, 0])
+            : camera.project(vertexPositions![slot]!, cols, rows, cellAspect, scaledMetrics);
           vertexStamp![slot] = vertexGen;
         }
         projScratch[k] = vertexProj![slot]!;
       }
     } else {
       for (let k = 0; k < verts.length; k++) {
-        projScratch[k] = camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
+        projScratch[k] = projectInto
+          ? projectInto(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics, unindexedProj[k] ??= [0, 0, 0])
+          : camera.project(verts[k]! as Vec3, cols, rows, cellAspect, scaledMetrics);
       }
     }
     // Fan-triangulate: (v[0], v[i], v[i+1]) for i in [1, N-2].
@@ -2759,8 +2765,9 @@ function rasterizeSolid(
           // Cache key: base color + intensity quantized to 0..255. Two triangles
           // with the same base and intensity-to-8-bits produce identical output.
           const q = (avgKey * 255) | 0;
-          const cacheKey = `${baseColor}:${q}`;
-          let cached = litCache.get(cacheKey);
+          let byIntensity = litCache.get(baseColor);
+          if (byIntensity === undefined) litCache.set(baseColor, byIntensity = []);
+          let cached = byIntensity[q];
           if (cached === undefined) {
             const triRgb = hexToRgb(baseColor); // memoized internally
             const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
@@ -2770,7 +2777,7 @@ function rasterizeSolid(
             const litG = Math.min(255, triRgb[1] * tintG);
             const litB = Math.min(255, triRgb[2] * tintB);
             cached = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
-            litCache.set(cacheKey, cached);
+            byIntensity[q] = cached;
           }
           litColor = cached;
         }
@@ -4054,7 +4061,7 @@ interface ScanFillShadowCtx {
   ambientIntensity: number;
   shadowColorRgb: [number, number, number];
   shadowColorHex: string;
-  litCache: Map<string, string>;
+  litCache: Map<string, string[]>;
 }
 
 /** Per-cell texture sampling context for one triangle (see {@link RasterizeContext.textureSamplers}). */
@@ -4589,8 +4596,11 @@ function scanFillTriangle(
               if (cellColor !== null && effectiveOpacity > 0) {
                 // Color shadowing follows the same rule: only the direct
                 // contribution is blended toward the shadow color.
-                const shadowKey = `shadow:${cellColor}:${Math.round(effectiveOpacity * 255)}`;
-                let shadowedColor = sh.litCache.get(shadowKey);
+                const shadowKey = `shadow:${cellColor}`;
+                const q = Math.round(effectiveOpacity * 255);
+                let byOpacity = sh.litCache.get(shadowKey);
+                if (byOpacity === undefined) sh.litCache.set(shadowKey, byOpacity = []);
+                let shadowedColor = byOpacity[q];
                 if (shadowedColor === undefined) {
                   const orig = hexToRgb(cellColor);
                   const sc = sh.shadowColorRgb;
@@ -4598,7 +4608,7 @@ function scanFillTriangle(
                   const g = Math.round(orig[1] * (1 - effectiveOpacity) + sc[1] * effectiveOpacity);
                   const b = Math.round(orig[2] * (1 - effectiveOpacity) + sc[2] * effectiveOpacity);
                   shadowedColor = `#${toHex2(r)}${toHex2(g)}${toHex2(b)}`;
-                  sh.litCache.set(shadowKey, shadowedColor);
+                  byOpacity[q] = shadowedColor;
                 }
                 cellColor = shadowedColor;
               }
@@ -4956,10 +4966,14 @@ function solidBufToString(
     const fontAtlas = scene.fontAtlas;
     const potentialOk = wireframeGlyphs === undefined
       || isWireframePaletteAtlasEncodable(wireframeGlyphs, scene.glyphPalette, scene.wireframeJunctions, fontAtlas);
+    const resolveHistogram = potentialOk ? resolveGlyphAtlasHistogramResolver(scene.atlasPalette) : undefined;
+    const histogram = resolveHistogram ? histogramGlyphAtlasGrid(glyphBuf, colorBuf, cols, rows, fontAtlas) : undefined;
     if (!potentialOk) {
       scene.atlasGlyphFallback = true;
-    } else if (isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, undefined, fontAtlas)) {
-      const palette = resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
+    } else if (resolveHistogram ? histogram !== undefined : isGlyphAtlasEncodable(glyphBuf, colorBuf, cols, rows, undefined, fontAtlas)) {
+      const palette = resolveHistogram
+        ? resolveHistogram(histogram!)
+        : resolveGlyphAtlasPaletteInput(scene.atlasPalette, glyphBuf, colorBuf, cols * rows);
       if (palette && palette.length > 0 && palette.length <= fontAtlas.maxPaletteSize) {
         scene.atlasEncoded = true;
         return encodeGlyphAtlas(glyphBuf, colorBuf, cols, rows, palette, fontAtlas);

@@ -169,6 +169,46 @@ function rotateVec3Voxcss(v: Vec3, rotXDeg: number, rotYDeg: number): Vec3 {
   return [rx, ry2, rz2];
 }
 
+// In-place twins of the rotate helpers for the rasterizer's projectInto. The
+// public project keeps the allocating originals: writing doubles into a fresh
+// [0, 0, 0] re-types the array and cost maps' per-sample drape more than the
+// allocation it saved. createGlyphCamera.projectInto.test pins both to the
+// same bits.
+function rotateVec3VoxcssInto(v: Vec3, rotXDeg: number, rotYDeg: number, out: Vec3): Vec3 {
+  // Axis-swap: world[0]→CSS Y, world[1]→CSS X, world[2]→CSS Z.
+  const cx = v[1];
+  const cy = v[0];
+  const cz = v[2];
+
+  // Step 2: CSS rotate(rotY deg) = rotateZ(rotY).
+  // RotZ(θ): (x,y,z) → (x·cosθ − y·sinθ, x·sinθ + y·cosθ, z)
+  if (rotYDeg !== trigRotY) {
+    const rotYR = rotYDeg * DEG;
+    trigCosY = Math.cos(rotYR);
+    trigSinY = Math.sin(rotYR);
+    trigRotY = rotYDeg;
+  }
+  const cosY = trigCosY, sinY = trigSinY;
+  const rx = cx * cosY - cy * sinY;
+  const ry = cx * sinY + cy * cosY;
+  const rz = cz;
+
+  // Step 3: rotateX(rotX deg).
+  // RotX(θ): (x,y,z) → (x, y·cosθ − z·sinθ, y·sinθ + z·cosθ)
+  if (rotXDeg !== trigRotX) {
+    const rotXR = rotXDeg * DEG;
+    trigCosX = Math.cos(rotXR);
+    trigSinX = Math.sin(rotXR);
+    trigRotX = rotXDeg;
+  }
+  const cosX = trigCosX, sinX = trigSinX;
+  const ry2 = ry * cosX - rz * sinX;
+  const rz2 = ry * sinX + rz * cosX;
+
+  out[0] = rx; out[1] = ry2; out[2] = rz2;
+  return out;
+}
+
 /**
  * Apply a pre-built 9-element row-major 3×3 rotation matrix to a world-space
  * vector.  Mirrors `project_ortho` in glyphcss.c: the SAME axis-swap
@@ -192,6 +232,17 @@ function rotateVec3WithMat(v: Vec3, mat: number[]): Vec3 {
     mat[3] * vx + mat[4] * vy + mat[5] * vz,
     mat[6] * vx + mat[7] * vy + mat[8] * vz,
   ];
+}
+
+function rotateVec3WithMatInto(v: Vec3, mat: number[], out: Vec3): Vec3 {
+  // Axis-swap identical to glyphcss.c project_ortho line 99.
+  const vx = v[1];
+  const vy = v[0];
+  const vz = v[2];
+  out[0] = mat[0] * vx + mat[1] * vy + mat[2] * vz;
+  out[1] = mat[3] * vx + mat[4] * vy + mat[5] * vz;
+  out[2] = mat[6] * vx + mat[7] * vy + mat[8] * vz;
+  return out;
 }
 
 export interface GlyphCamera {
@@ -278,6 +329,18 @@ export interface GlyphCamera {
    * return `+Infinity` (never clipped).
    */
   eyeDepth(v: Vec3): number;
+}
+
+type ProjectedVertex = [number, number, number, number?];
+type ProjectInto = (v: Vec3, cols: number, rows: number, cellAspect: number,
+  metrics: GlyphProjectionMetrics | undefined, out: ProjectedVertex) => ProjectedVertex;
+const projectors = new WeakMap<GlyphCamera, { project: GlyphCamera["project"]; into: ProjectInto }>();
+
+// Factory cameras keep their public shape. A custom/overridden project method
+// must still be called, so only the unchanged factory method can opt in.
+export function resolveGlyphProjectInto(camera: GlyphCamera): ProjectInto | undefined {
+  const entry = projectors.get(camera);
+  return entry?.project === camera.project ? entry.into : undefined;
 }
 
 export interface GlyphPerspectiveCameraOptions {
@@ -379,7 +442,123 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
     center: (opts.center ?? [0.5, 0.5]) as [number, number],
   };
 
-  return {
+  const projectInto: ProjectInto = (v, cols, rows, cellAspect, metrics, out) => {
+    const { cellPxW, cellPxH, centerCol, centerRow } =
+      resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
+
+    out[0] = v[0] - state.target[0];
+    out[1] = v[1] - state.target[1];
+    out[2] = v[2] - state.target[2];
+    const shifted = out as Vec3;
+    const r = (state.useMat && state.mat)
+      ? rotateVec3WithMatInto(shifted, state.mat, shifted)
+      : rotateVec3VoxcssInto(shifted, state.rotX, state.rotY, shifted);
+
+    // Legacy eyeMode takes precedence over `perspective`.
+    if (state.eyeMode) {
+      // Eye-at-origin first-person projection.
+      // `target` is the eye position; rz2 < 0 means in front of the eye.
+      // Perspective scale: objects at depth -d project at scale focal/d.
+      const NEAR = 0.001;
+      if (r[2] >= -NEAR) {
+        out[0] = NaN;
+        out[1] = NaN;
+        out[2] = r[2];
+        out[3] = NaN;
+        if (out.length !== 4) out.length = 4;
+        return out;
+      }
+      // Perspective scale in world units. state.focal is the reference depth
+      // (distance of the "screen plane" from the eye).
+      const perspScale = state.focal / -r[2];
+      // world→screen-px: multiply by zoom (px/world), then divide by cell size.
+      const screenPxX = r[0] * perspScale * state.zoom;
+      const screenPxY = r[1] * perspScale * state.zoom;
+      const col = centerCol + screenPxX / cellPxW * state.stretch * state.fovScale;
+      const row = centerRow + screenPxY / cellPxH * state.fovScale;
+      // zbuf = -1/r[2]: screen-space-linear (r[2] < 0 in front; nearer → larger).
+      out[0] = col;
+      out[1] = row;
+      out[2] = r[2];
+      out[3] = -1 / r[2];
+      if (out.length !== 4) out.length = 4;
+      return out;
+    }
+
+    if (state.perspective > 0) {
+      // voxcss / CSS-perspective parity projection.
+      //
+      // Reproduces exactly what the browser does for polycss: the camera
+      // transform `translateZ(-distance) scale(zoom / BASE_TILE) rotateX rotate
+      // translate3d(-target)` followed by the container's CSS
+      // `perspective: P` (which applies `P / (P − z)` about the centre).
+      //
+      // CSS `scale()` is a 2D scale: it scales screen X/Y, but not Z. Polycss
+      // authors geometry at BASE_TILE px/world-unit, then applies
+      // `scale(zoom / BASE_TILE)`, so X/Y become world*zoom while Z remains
+      // world*BASE_TILE for the perspective denominator.
+      const P = state.perspective;
+      const cssX = r[0] * state.zoom;
+      const cssY = r[1] * state.zoom;
+      const cssZ = r[2] * BASE_TILE - state.distance;
+      const denom = P - cssZ;
+      // Near plane at `P/100` (not ~0): keeps `perspScale = P/denom` bounded so
+      // near-clipped triangles don't jitter. Geometry nearer than this is
+      // clipped, matching how CSS hides geometry past the perspective origin.
+      const NEAR = P * PERSPECTIVE_NEAR_FRACTION;
+      if (denom < NEAR) {
+        out[0] = NaN;
+        out[1] = NaN;
+        out[2] = cssZ;
+        out[3] = NaN;
+        if (out.length !== 4) out.length = 4;
+        return out;
+      }
+      const perspScale = P / denom;
+      const col = centerCol + (cssX * perspScale) / cellPxW * state.stretch * state.fovScale;
+      const row = centerRow + (cssY * perspScale) / cellPxH * state.fovScale;
+      // zbuf = 1/denom: affine in screen space, so barycentric interpolation
+      // is exact. Nearer (larger cssZ → smaller denom) → larger 1/denom, so
+      // the renderer's `pixelDepth > depthBuf` keeps the nearer surface.
+      out[0] = col;
+      out[1] = row;
+      out[2] = cssZ;
+      out[3] = 1 / denom;
+      if (out.length !== 4) out.length = 4;
+      return out;
+    }
+
+    // Perspective projection (orthographic when distance is very large).
+    // rz2 is in world units; distance is in world units.
+    // perspective scale = distance / (distance - rz2), same derivation as a
+    // pinhole camera at depth `distance` looking toward +Z.
+    const NEAR = 0.001;
+    const denom = state.distance - r[2];
+    if (denom < NEAR) {
+      out[0] = NaN;
+      out[1] = NaN;
+      out[2] = r[2];
+      out[3] = NaN;
+      if (out.length !== 4) out.length = 4;
+      return out;
+    }
+    const perspScale = state.distance / denom;
+
+    // world→screen-px→char-cell
+    const screenPxX = r[0] * perspScale * state.zoom;
+    const screenPxY = r[1] * perspScale * state.zoom;
+    const col = centerCol + screenPxX / cellPxW * state.stretch * state.fovScale;
+    const row = centerRow + screenPxY / cellPxH * state.fovScale;
+    // zbuf = 1/denom: screen-space-linear (nearer → smaller denom → larger).
+    out[0] = col;
+    out[1] = row;
+    out[2] = r[2];
+    out[3] = 1 / denom;
+    if (out.length !== 4) out.length = 4;
+    return out;
+  };
+
+  const camera: GlyphCamera = {
     kind: "perspective",
     get center(): [number, number] { return state.center; },
     set center(v: [number, number]) { state.center = v; },
@@ -506,6 +685,8 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       return [col, row, r[2], 1 / denom];
     },
   };
+  projectors.set(camera, { project: camera.project, into: projectInto });
+  return camera;
 }
 
 export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptions = {}): GlyphOrthographicCameraHandle {
@@ -522,7 +703,33 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     center: (opts.center ?? [0.5, 0.5]) as [number, number],
   };
 
-  return {
+  const projectInto: ProjectInto = (v, cols, rows, cellAspect, metrics, out) => {
+    const { cellPxW, cellPxH, centerCol, centerRow } =
+      resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
+
+    out[0] = v[0] - state.target[0];
+    out[1] = v[1] - state.target[1];
+    out[2] = v[2] - state.target[2];
+    const shifted = out as Vec3;
+    // Branch: use the matrix path (quaternion trackball, no pole singularity)
+    // or the Euler path (backward-compatible default).
+    const r = (state.useMat && state.mat)
+      ? rotateVec3WithMatInto(shifted, state.mat, shifted)
+      : rotateVec3VoxcssInto(shifted, state.rotX, state.rotY, shifted);
+
+    // Orthographic: no perspective divide.
+    const screenPxX = r[0] * state.zoom;
+    const screenPxY = r[1] * state.zoom;
+    const col = centerCol + screenPxX / cellPxW * state.fovScale;
+    const row = centerRow + screenPxY / cellPxH * state.fovScale;
+    out[0] = col;
+    out[1] = row;
+    out[2] = r[2];
+    if (out.length !== 3) out.length = 3;
+    return out;
+  };
+
+  const camera: GlyphCamera = {
     kind: "orthographic",
     get center(): [number, number] { return state.center; },
     set center(v: [number, number]) { state.center = v; },
@@ -576,6 +783,8 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
       return [col, row, r[2]];
     },
   };
+  projectors.set(camera, { project: camera.project, into: projectInto });
+  return camera;
 }
 
 /**

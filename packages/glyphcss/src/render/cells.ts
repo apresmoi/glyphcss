@@ -867,6 +867,46 @@ export function isGlyphAtlasEncodable(
   return true;
 }
 
+/** Internal fused equivalent of structural eligibility plus histogramGridColors. */
+export function histogramGlyphAtlasGrid(
+  char: readonly string[], color: readonly (string | null)[],
+  cols: number, rows: number, atlas: GlyphFontAtlas,
+): Map<number, number> | undefined {
+  const n = cols * rows;
+  if (char.length < n || color.length < n) return undefined;
+  const histogram = new Map<number, number>();
+  const packedColors = new Map<string, number>();
+  let runColor: string | null = null, runPacked = 0, runCount = 0;
+  for (let i = 0; i < n; i++) {
+    const glyph = char[i];
+    if (glyph === " ") continue;
+    if (glyph !== undefined && !isGlyphInFontAtlas(glyph, atlas)) return undefined;
+    const c = color[i];
+    if (c === null || c === undefined) {
+      if (glyph !== undefined) return undefined;
+      continue;
+    }
+    if (c === runColor) { runCount++; continue; }
+    // Flush before opening the next run, preserving histogram insertion order
+    // across blanks and returning colours (the quantizer walks that order).
+    if (runCount > 0) histogram.set(runPacked, (histogram.get(runPacked) ?? 0) + runCount);
+    runCount = 0;
+    runColor = null;
+    let packed = packedColors.get(c);
+    if (packed === undefined) {
+      packed = packHexColor(c);
+      if (packed === undefined) {
+        if (glyph !== undefined) return undefined;
+        continue;
+      }
+      packedColors.set(c, packed);
+    }
+    runColor = c; runPacked = packed; runCount = 1;
+  }
+  if (runCount > 0) histogram.set(runPacked, (histogram.get(runPacked) ?? 0) + runCount);
+  return histogram;
+}
+
 /**
  * Whether ANY non-blank cell's glyph lacks an outline in `atlas` — the single
  * "glyph" failure reason {@link isGlyphAtlasEncodable} folds into one boolean
