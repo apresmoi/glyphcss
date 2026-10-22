@@ -8,6 +8,15 @@
   "types": "dist/index.d.ts",
   "keywords": ["glyphcss", "ascii", "3d", "mesh", "terminal", "dom", "custom-elements", "vanilla"],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/apresmoi/glyphcss.git",
+    "directory": "packages/glyphcss"
+  },
+  "bugs": {
+    "url": "https://github.com/apresmoi/glyphcss/issues"
+  },
+  "homepage": "https://glyphcss.com/",
   "files": [
     "dist"
   ],

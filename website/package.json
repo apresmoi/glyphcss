@@ -7,16 +7,18 @@
   "license": "MIT",
   "scripts": {
     "dev": "node scripts/copy-skill.mjs && astro dev --port 4323",
-    "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs && node scripts/check-static-workbenches.mjs",
+    "build": "node scripts/copy-skill.mjs && astro build && node scripts/generate-llms-txt.mjs && node scripts/check-static-workbenches.mjs && node scripts/check-page-images.mjs",
     "preview": "astro preview --port 4323",
-    "test": "vitest run --passWithNoTests",
+    "test": "node --test scripts/metadata.test.mjs scripts/layout-head.test.mjs && vitest run --passWithNoTests",
     "test:e2e": "node e2e/diagrams-editor.mjs",
     "check": "node scripts/checks/architecture.mjs && node scripts/checks/format.mjs",
     "format": "node scripts/checks/format.mjs --write",
     "test:architecture": "node --test scripts/checks/architecture.test.mjs",
     "test:e2e:layout": "node e2e/workbench-layout.mjs",
     "test:e2e:diagrams-resize": "node e2e/diagrams-resize.mjs",
-    "test:static": "node scripts/check-static-workbenches.mjs"
+    "test:static": "node scripts/check-static-workbenches.mjs",
+    "test:metadata": "node --test scripts/metadata.test.mjs scripts/layout-head.test.mjs",
+    "test:images": "node scripts/check-page-images.mjs"
   },
   "devDependencies": {
     "@astrojs/compiler": "3.0.1",

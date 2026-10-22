@@ -13,9 +13,9 @@ export function highlight(code: string, lang: string): string {
   return hljs.highlight(code, { language: lang }).value;
 }
 
-export const title = "glyphcss — turn 3D models into ASCII art (browser, React/Vue & terminal)";
+export const title = "glyphcss — 3D models, Mermaid diagrams and charts as text";
 export const description =
-  "Render 3D models (OBJ, glTF, GLB, STL, .vox) as ASCII art — in the browser, in React or Vue, or straight in your terminal. A three.js-style API with no WebGL and no canvas: just text in a single <pre>.";
+  "Render 3D models, Mermaid diagrams and data charts as ASCII text. Use JavaScript, React, Vue or the CLI for chat, terminal and web output.";
 export const siteUrl = "https://glyphcss.com";
 export const ogImage = `${siteUrl}/og.png`;
 
@@ -92,8 +92,9 @@ export const ldJson = {
   url: siteUrl,
   image: ogImage,
   keywords:
-    "ASCII art, 3D to ASCII, ASCII renderer, OBJ to ASCII, glTF, GLB, terminal 3D, ASCII art generator, three.js alternative, polycss",
+    "ASCII art, 3D models, OBJ to ASCII, glTF, Mermaid to ASCII, text diagrams, flowchart, sequence diagram, ASCII chart, terminal chart, braille chart, coding agents",
   offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
-  sameAs: ["https://github.com/apresmoi/glyphcss"],
+  codeRepository: "https://github.com/apresmoi/glyphcss",
+  sameAs: ["https://github.com/apresmoi/glyphcss", "https://www.npmjs.com/package/glyphcss"],
   publisher: { "@type": "Organization", name: "glyphcss", url: siteUrl },
 };

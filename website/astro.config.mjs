@@ -5,6 +5,7 @@ import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
+import { sitemapLastmod } from './scripts/metadata.mjs';
 
 /** @param {string} path */
 const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
@@ -59,15 +60,14 @@ export default defineConfig({
   },
   integrations: [
     react(),
-    sitemap(),
+    sitemap({ serialize: (item) => ({ ...item, lastmod: sitemapLastmod(item.url) }) }),
     starlight({
       title: 'glyphcss',
-      description: 'Render 3D models (OBJ, glTF, GLB, STL, .vox) as ASCII art — in the browser, React/Vue, or your terminal. A three.js-style API with no WebGL.',
+      description: 'Render 3D models, Mermaid diagrams and data charts as ASCII text. Use JavaScript, React, Vue or the CLI for chat, terminal and web output.',
+      lastUpdated: true,
+      routeMiddleware: './src/integrations/starlight/routeData.ts',
       head: [
         ...(process.env.NODE_ENV === 'production' ? analyticsHead : []),
-        // Social preview image for docs pages (Starlight emits og:title/description/url itself).
-        { tag: 'meta', attrs: { property: 'og:image', content: 'https://glyphcss.com/og.png' } },
-        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://glyphcss.com/og.png' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
       ],
       components: {

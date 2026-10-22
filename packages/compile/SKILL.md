@@ -1,15 +1,50 @@
 ---
 name: glyphcss
-description: Render a 3D mesh, a primitive shape (cube, sphere, icosahedron, torus, cone…), or custom polygons to ASCII art — in the terminal (truecolor ANSI) or as HTML. Use when asked to render, preview, or visualize a 3D model or shape as text/ASCII.
+description: Render 3D meshes, primitive shapes, Mermaid diagrams and data charts as text, ASCII, terminal ANSI or HTML with the glyphcss CLI. Use for 3D model previews, flowcharts, sequence diagrams, state diagrams, ER diagrams, Git graphs, bar charts, line charts and other Mermaid or JSON visualizations. For chat-sized charts and diagrams, prefer the dedicated glyphcss-diagrams agent skill.
 ---
 
-# glyphcss — render 3D to ASCII
+# glyphcss — render 3D, diagrams and charts as text
 
-`glyphcss` is a CLI that compiles 3D geometry to ASCII and prints it. In a
+`glyphcss` compiles 3D geometry, Mermaid diagrams and data charts to text. In a
 terminal it defaults to **truecolor ANSI**, so the output shows in color directly.
 
 Install once: `npm i -g @glyphcss/compile` (the command is `glyphcss`). Or run ad
 hoc with `npx @glyphcss/compile <args>`.
+
+## Render a diagram or Mermaid chart
+
+```sh
+npm install -g @glyphcss/compile
+printf '%s\n' 'flowchart LR; A[Input] --> B[Parse] --> C[Render]' > flow.mmd
+glyphcss diagram flow.mmd --target chat --width 48 --height 7
+```
+
+`glyphcss diagram` accepts `.mmd` Mermaid source or `.json` graph data. Mermaid
+chart headers, sequences and Git graphs dispatch to their matching renderers.
+Use `--color css -o diagram.html` for HTML. Graph layout options include
+`--direction TB|LR|BT|RL`, `--engine dagre`, `--nodesep N`, `--ranksep N`,
+`--title TEXT` and `--detail auto|faithful|balanced|simplified`. Inapplicable
+options are recorded on stderr. Diagrams are 2D only.
+
+## Render a data chart
+
+```sh
+npm install -g @glyphcss/compile
+printf '%s\n' '[3, 5, 2, 8, 6, 9, 4]' > values.json
+glyphcss chart values.json --target chat --charset braille --width 40 --height 8
+```
+
+`glyphcss chart` accepts JSON chart input. Use `glyphcss diagram chart.mmd` for
+Mermaid charts. Both subcommands accept `--target chat|terminal|web`,
+`--charset ascii|box|blocks|braille`, `--color none|ansi16|ansi256|truecolor|css`,
+`--width N`, `--height N` and `-o FILE`. They print adaptation notes on stderr.
+Only `chart` accepts `--3d` for a surface spec; `--camera rotX,rotY[,zoom]` and
+`--style solid|wireframe|ink` require `--3d`.
+
+For output sized for a conversation, use the dedicated
+[glyphcss-diagrams agent skill](https://github.com/apresmoi/glyphcss-diagrams),
+available as Claude Code and Codex plugins or through
+`npx skills add apresmoi/glyphcss-diagrams --global --skill glyphcss-diagrams`.
 
 ## Render a primitive shape
 

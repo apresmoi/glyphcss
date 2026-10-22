@@ -2,13 +2,7 @@ import { readFile } from "node:fs/promises";
 import { recenterPolygons, rotateVec3, type Polygon } from "@glyphcss/core";
 import { composeText, parseFont } from "@glyphcss/fonts";
 import { getGlyphEffect, GlyphFieldSynthEffect } from "@glyphcss/effects";
-import {
-  classifyGlyphMapField,
-  compileGlyphMap,
-  GlyphMapClassifiers,
-  glyphMapDecodeGeoTileInt16,
-  glyphMapGeoTileElevationAt,
-} from "@glyphcss/maps";
+import { GlyphMapClassifiers, glyphMapDecodeGeoTileInt16, glyphMapGlobe, glyphMapPolygons } from "@glyphcss/maps";
 import {
   buildCellGrid,
   compileScene,
@@ -26,7 +20,9 @@ import { DEFAULT_LOADER, findLoader } from "../../features/loaders/model/loaders
 import { SYNTH_PARAM_DEFAULTS } from "../../features/synth/model/urlState";
 import { WORD_ART_DEFAULTS } from "../../features/wordart/model/urlState";
 import { fitWordArtZoom } from "../../features/wordart/model/parameters";
-import { MAP_PALETTES } from "../../features/maps/model/config";
+import { paletteColorsFor } from "../../features/maps/model/config";
+import { MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
+import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
 
 function gridRender(grid: CellGrid) {
   return { text: gridText(grid), html: encodeGlyphBuffers(grid.char, grid.color, grid.cols, grid.rows, true) };
@@ -169,31 +165,43 @@ export async function staticMap() {
     source: manifest.source,
     sampler: manifest.sampler,
   });
-  // Sample quad centres, rather than treating the vertex grid as a cell-centred source.
-  const cols = 96,
-    rows = 24;
-  const values = Float32Array.from({ length: cols * rows }, (_, i) =>
-    glyphMapGeoTileElevationAt(
-      tile,
-      -180 + (((i % cols) + 0.5) * 360) / cols,
-      90 - ((Math.floor(i / cols) + 0.5) * 180) / rows,
-    ),
-  );
-  const field = {
-    bounds,
+  const defaults = MAPS_URL_DEFAULTS;
+  const projection = glyphMapGlobe({ exaggeration: defaults.exaggeration });
+  const pose = projection.cameraForCenter!(defaults.centerLon, defaults.centerLat);
+  const cols = 160,
+    rows = 72;
+  const camera = createGlyphOrthographicCamera({ ...pose, zoom: 1 });
+  // Fit the globe into the same virtual cell metrics compileScene uses.
+  const unitCamera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });
+  const unit = unitCamera.project([0, 1, 0], cols, rows, 2);
+  camera.zoom = (0.46 * Math.min(cols, rows * 2)) / Math.abs(unit[0] - cols / 2);
+  const polygons = glyphMapPolygons(tile, projection, {
+    color: paletteColorsFor(defaults.palette, GlyphMapClassifiers.etopo1V1),
+  });
+  const lon = (defaults.centerLon * Math.PI) / 180;
+  const lat = (defaults.centerLat * Math.PI) / 180;
+  const result = compileScene({
+    polygons,
+    camera,
     cols,
     rows,
-    values,
-    noData: new Uint8Array(values.length),
-    kind: "continuous" as const,
-    units: "metres",
-    min: Math.min(...values),
-    max: Math.max(...values),
-  };
-  const bands = classifyGlyphMapField(field, GlyphMapClassifiers.etopo1V1);
-  const ramp = " .:-=+*#%@";
-  const { html } = compileGlyphMap(bands, { ramp, water: "~", colors: MAP_PALETTES.terrain }, { mode: "inline" });
-  const chars = Array.from(bands.bands, (band) => (band === 0 ? "~" : ramp[band]!));
-  const text = Array.from({ length: rows }, (_, row) => chars.slice(row * cols, (row + 1) * cols).join("")).join("\n");
-  return { title: "Earth · NOAA ETOPO1 terrain", text, html: html.replace(/^<pre[^>]*>/, "").replace(/<\/pre>$/, "") };
+    mode: "solid",
+    useColors: true,
+    directionalLight: {
+      direction: [Math.cos(lat) * Math.cos(lon), Math.cos(lat) * Math.sin(lon), Math.sin(lat)],
+      intensity: DEFAULT_MAP_LIGHTING.lightIntensity,
+    },
+    ambientLight: { intensity: DEFAULT_MAP_LIGHTING.ambientIntensity },
+  });
+  if (!result.grid) throw new Error("Static map did not return a cell grid.");
+  // Keep water identifiable in uncoloured copies of this no-JavaScript render.
+  result.grid.char = result.grid.char.map((char, index) => {
+    const color = result.grid!.color[index];
+    if (!color || char === " ") return char;
+    const rgb = color.startsWith("#")
+      ? [1, 3, 5].map((start) => Number.parseInt(color.slice(start, start + 2), 16))
+      : color.match(/\d+/g)?.map(Number);
+    return rgb && rgb[2]! > rgb[0]! && rgb[2]! > rgb[1]! ? "~" : char;
+  });
+  return { title: "Earth · NOAA ETOPO1 terrain · default globe view", ...gridRender(result.grid) };
 }

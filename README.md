@@ -14,6 +14,42 @@ ASCII polygon-mesh renderer for the DOM — projects 3D meshes into a monospace 
 
 ![glyphcss — ETOPO1 world topography rasterised to ASCII](assets/banner.png)
 
+## Charts and diagrams in your coding agent
+
+Install the [glyphcss-diagrams agent skill](https://github.com/apresmoi/glyphcss-diagrams) to render Mermaid and data directly in chat. Choose one installation route; rendering requires Node.js 22+.
+
+```sh
+# Claude Code plugin
+claude plugin marketplace add apresmoi/glyphcss-diagrams && claude plugin install glyphcss-diagrams@glyphcss-diagrams
+# Codex plugin
+codex plugin marketplace add apresmoi/glyphcss-diagrams && codex plugin add glyphcss-diagrams@glyphcss-diagrams
+# Cross-agent skill
+npx skills add apresmoi/glyphcss-diagrams --global --skill glyphcss-diagrams
+```
+
+Real library output: `flowchart LR; A[Input] --> B[Parse] --> C[Render]` and a chart of `[3, 5, 2, 8, 6, 9, 4]`.
+
+```text
+                                                
+                                                
+        ┌───────┐  ┌───────┐  ┌────────┐        
+        │ Input │──▶ Parse │──▶ Render │        
+        └───────┘  └───────┘  └────────┘        
+                                                
+                                                
+```
+
+```text
+  │                              ⡠⡀     
+  │                  ⡠⣀        ⡠⠊ ⠘⢄    
+  │                 ⡰⠁ ⠑⠢⣀   ⡠⠊     ⠣⡀  
+5 ┤     ⢀⡠⡀        ⡜      ⠑⠢⠊        ⠘⢄ 
+  │  ⢀⡠⠒⠁ ⠈⠢⡀    ⢀⠎                    ⠣
+  │⠠⠒⠁      ⠈⠢⡀ ⢠⠊                      
+  └┬──────────⠈⠢⠃──────────┬───────────┬
+   0           2           4           6
+```
+
 Loads OBJ, glTF, GLB, STL, and MagicaVoxel `.vox` files. Supports wireframe, solid, voxel, and ink render modes with swappable glyph palettes.
 
 **Full documentation: [glyphcss.com](https://glyphcss.com)** — guides, component references, and the features not covered in this README.

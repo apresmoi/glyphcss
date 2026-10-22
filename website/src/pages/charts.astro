@@ -3,14 +3,20 @@ import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { ChartsWorkbench } from "../components/ChartsWorkbench";
 import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
 import { staticCharts } from "../features/charts/render/staticCharts";
+import { softwareApplication } from "../features/home/softwareApplication";
 const snapshot = await staticCharts();
 const heading = "Charts";
-const title = "Charts — ASCII data viz | glyphcss";
+const title = "ASCII charts for chat, terminal and web | glyphcss";
 const description =
-  "Turn Mermaid or JSON into ASCII, box-drawing, block and braille text charts for chat, terminal and web.";
+  "Render data and Mermaid charts as ASCII, block or braille text for chat, terminal and web. Explore presets, copy text, or use the JavaScript library and CLI.";
 ---
 
-<WorkbenchLayout title={title} description={description} path="/charts/">
+<WorkbenchLayout title={title} description={description} path="/charts/" image="/og/charts.png">
+  <script
+    slot="head"
+    type="application/ld+json"
+    set:html={JSON.stringify(softwareApplication("charts", description))}
+  />
   <StaticWorkbenchIntro heading={heading} description={description} />
   <ChartsWorkbench client:only="react">
     <Fragment slot="fallback">

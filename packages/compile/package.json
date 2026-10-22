@@ -1,7 +1,7 @@
 {
   "name": "@glyphcss/compile",
   "version": "0.3.1",
-  "description": "Compile 3D meshes to static glyphcss ASCII at build time — a Vite plugin, a CLI, and a Node API. Zero-runtime <pre> output for any static pipeline.",
+  "description": "Compile 3D meshes, Mermaid diagrams and data charts to text or HTML with the glyphcss CLI, Node API and Vite plugin.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -15,7 +15,10 @@
     "vite-plugin",
     "static",
     "ssg",
-    "cli"
+    "cli",
+    "diagram",
+    "chart",
+    "mermaid"
   ],
   "license": "MIT",
   "repository": {
@@ -26,7 +29,7 @@
   "bugs": {
     "url": "https://github.com/apresmoi/glyphcss/issues"
   },
-  "homepage": "https://github.com/apresmoi/glyphcss#readme",
+  "homepage": "https://glyphcss.com/",
   "files": [
     "dist",
     "SKILL.md"

@@ -72,6 +72,21 @@ describe("build-time workbench renders", () => {
   });
 
   it("keeps the ETOPO1 world coastline and elevation bands", async () => {
-    expect((await staticMap()).text).toMatchSnapshot();
+    const result = await staticMap();
+    expect(result.text).toMatchSnapshot();
+    expect(result.text.split("\n")).toHaveLength(72);
+    expect(result.text.split("\n").every((line) => line.length === 160)).toBe(true);
+    expect(result.text).toContain("~");
+    const window = new Window();
+    try {
+      window.document.body.innerHTML = result.html;
+      const colours = [...window.document.querySelectorAll("span")].map((span) =>
+        span.style.color.match(/\d+/g)!.map(Number),
+      );
+      expect(colours.some(([r, g, b]) => g! > r! && g! > b!), "terrain land palette").toBe(true);
+      expect(colours.some(([r, g, b]) => b! > r! && b! > g!), "terrain water palette").toBe(true);
+    } finally {
+      window.happyDOM.abort();
+    }
   });
 });

@@ -1,5 +1,7 @@
 # @glyphcss/diagrams
 
+[Workbench](https://glyphcss.com/diagrams/) · [Docs](https://glyphcss.com/diagrams/) · [Agent skill](https://github.com/apresmoi/glyphcss-diagrams)
+
 Diagrams as pure text for people and agents working in chat, terminals, and web apps, from Mermaid or JSON data.
 
 ## Real output
@@ -61,6 +63,18 @@ Git history · 48 × 8 cells
 ```sh
 npm install @glyphcss/diagrams
 ```
+
+## CLI
+
+The `glyphcss` command comes from `@glyphcss/compile`.
+
+```sh
+npm install -g @glyphcss/compile
+printf '%s\n' 'flowchart LR; A[Input] --> B[Parse] --> C[Render]' > flow.mmd
+glyphcss diagram flow.mmd --target chat --width 48 --height 7
+```
+
+Mermaid chart headers also dispatch through `glyphcss diagram`. Use `--color css -o diagram.html` for an HTML export. Adaptation notes are printed on stderr.
 
 ## Quick start
 
