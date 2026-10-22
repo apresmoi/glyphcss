@@ -1369,6 +1369,8 @@ export function useMapsWorkbench() {
                 source: vectorProvider,
                 color: borderColorRef.current,
                 density: borderDensityRef.current,
+                simplify: "vw" as const,
+                experimentalGlyphStrategy: "box" as const,
               },
             ]
           : []),
@@ -1633,6 +1635,8 @@ export function useMapsWorkbench() {
         source: vectorProvider,
         color: borderColor,
         density: borderDensity,
+        simplify: "vw",
+        experimentalGlyphStrategy: "box",
       });
     }
     map.scene.rerender();

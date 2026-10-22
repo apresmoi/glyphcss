@@ -51,9 +51,9 @@ export function glyphMapAreaThresholdDeg(epsilonEquatorDeg: number, latDeg: numb
  * one glyph cell at the given degrees-per-cell resolution — a vertex
  * displacement smaller than this is sub-cell and therefore invisible.
  * `degPerCell` is the SAME metric `glyphMapDegreesPerCell` (`provider.ts`)
- * computes for the raster LOD pyramid, reused here as a bake-time constant
- * per pyramid level rather than recomputed per live view (§13 slice 5: the
- * pyramid levels themselves ARE the discretized epsilon schedule).
+ * computes for the raster LOD pyramid. The bake pipeline uses a constant
+ * per pyramid level; opt-in widget lines use the live cell resolution,
+ * quantized by `createGlyphMapLineSimplifier` into cached zoom buckets.
  */
 export function glyphMapCellEpsilonDeg(degPerCell: number): number {
   return degPerCell / 2;
@@ -166,4 +166,29 @@ export function glyphMapSimplifyArcs(
   epsilonEquatorDeg: number,
 ): GlyphMapLonLat[][] {
   return arcs.map((arc) => glyphMapSimplifyArc(arc, epsilonEquatorDeg));
+}
+
+/** Widget-only VW cache; source identity keeps tile replacements independent. */
+export function createGlyphMapLineSimplifier(): (
+  line: readonly GlyphMapLonLat[], degPerCell: number,
+) => readonly GlyphMapLonLat[] {
+  const cache = new WeakMap<readonly GlyphMapLonLat[], Map<number, readonly GlyphMapLonLat[]>>();
+  return (line, degPerCell) => {
+    if (!(degPerCell > 0) || !Number.isFinite(degPerCell) || line.length <= 2) return line;
+    // Quarter-octaves avoid resimplifying during orbit or tiny zoom changes.
+    // Rounding down keeps epsilon within 0.42–0.5 of the current cell size.
+    const bucket = Math.floor(Math.log2(degPerCell) * 4) / 4;
+    let levels = cache.get(line);
+    if (!levels) { levels = new Map(); cache.set(line, levels); }
+    const cached = levels.get(bucket);
+    if (cached) return cached;
+    const simplified = glyphMapSimplifyArc(line, glyphMapCellEpsilonDeg(2 ** bucket));
+    const closed = line[0][0] === line[line.length - 1][0] && line[0][1] === line[line.length - 1][1];
+    // VW pins both endpoints; a closed ring has coincident endpoints and
+    // can collapse below a triangle. Keep it rather than silently cull it.
+    const result = closed && simplified.length < 4 ? line : simplified;
+    if (levels.size === 8) levels.delete(levels.keys().next().value!);
+    levels.set(bucket, result);
+    return result;
+  };
 }

@@ -16,6 +16,7 @@ Docs: `README.md` (package reference), `website/src/content/docs/maps/**` (user 
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable array identity).
 - Opt-in features are byte-identical when off, each with a test that goes red.
 - Experimental line `experimentalGlyphStrategy` changes glyphs only, after the original sampling/depth verdict; neighbour choices use only accepted cells of that polyline call. No added cells, colour changes, or cross-tile junction guarantee.
+- Line `simplify: "vw"` opts into the existing latitude-corrected VW at half a live output cell, quarter-octave zoom buckets cached by source-line identity (eight per line). Simplify before visibility clipping/draping; preserve endpoints and collapsed closed rings. Walk retains source detail. Omitted is byte-identical; no new cross-tile topology guarantee.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
 - `/maps` URL row lists are positional: append rows, never insert.

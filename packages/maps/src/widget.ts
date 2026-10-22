@@ -60,6 +60,7 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
+import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import {
   GLYPH_MAP_WALK_DRAG_DEG_PER_PX,
   GLYPH_MAP_WALK_HORIZON_TILT_DEG,
@@ -461,6 +462,8 @@ export interface GlyphMapLineLayer {
   readonly color?: string;
   /** @experimental Local border-glyph comparison; affects glyph choice only. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
+  /** Opt-in live Visvalingam–Whyatt thinning at half a cell, cached per zoom bucket. Omitted keeps source geometry unchanged. Disabled while walking. */
+  readonly simplify?: "vw";
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
   /**
@@ -5782,6 +5785,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function createLineLayerRuntime(layer: GlyphMapLineLayer): LineLayerRuntime {
     const color = layer.color;
+    const simplifyLine = layer.simplify === "vw" ? createGlyphMapLineSimplifier() : null;
     let source: GlyphMapVectorSource = layer.source;
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -5857,6 +5861,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
       const feats = isGlyphMapVectorProvider(source) ? activeFeatures : staticFeatures;
+      // Detail/overlay cells occupy a fraction of a base cell. Use their
+      // actual resolution, never their cropped grid width. Walk has no
+      // span-derived resolution, so retains full source detail.
+      const degPerCell = view.span / baseGrid.cols * Math.abs(cellToSceneGrid[0]);
       // Resolved ONCE per stamp, not per vertex: it walks the mounted layer
       // list, and a world view hands this loop tens of thousands of vertices.
       // `null` = no raster layer mounted, so the ground IS the datum and the
@@ -5927,10 +5935,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       };
       for (const feature of feats) {
         for (const ring of feature.rings) {
-          // Clip to the projection's visible side FIRST — see
-          // `visibleStrokeRuns`. A flat projection returns the ring by
-          // identity, so its stamped output is byte-identical to before.
-          for (const run of visibleStrokeRuns(ring, baseGrid)) {
+          const line = simplifyLine && walk === null ? simplifyLine(ring, degPerCell) : ring;
+          // Clip after thinning so limb intersections follow the retained
+          // segments; draping still samples the visible runs per cell.
+          for (const run of visibleStrokeRuns(line, baseGrid)) {
           // PER CELL, not per source vertex, wherever there is a ground to
           // read. `stampGlyphMapPolyline` walks a segment at one sample per
           // cell but interpolates DEPTH linearly between the vertices it was
