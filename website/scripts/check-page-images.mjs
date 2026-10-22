@@ -27,6 +27,13 @@ export function checkPageImages(dist, mutate = () => {}) {
       window.document.write(readFileSync(file, "utf8"));
       const document = window.document;
       mutate(document, route);
+      // Astro's static redirects are noindex navigation stubs, not shareable pages.
+      if (
+        document.querySelector('meta[http-equiv="refresh"]') &&
+        document.querySelector('meta[name="robots"][content="noindex"]') &&
+        document.querySelector('link[rel="canonical"]')
+      )
+        continue;
       const og = [...document.querySelectorAll('meta[property="og:image"]')];
       const twitter = [
         ...document.querySelectorAll('meta[name="twitter:image"]'),

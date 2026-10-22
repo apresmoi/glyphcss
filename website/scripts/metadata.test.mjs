@@ -12,7 +12,9 @@ import path from "node:path";
 import { test } from "node:test";
 import { cleanMarkdown, readDocs, sitemapLastmod } from "./metadata.mjs";
 import { checkPageImages } from "./check-page-images.mjs";
-import { docsPages, PAGES, templateHtml } from "./generate-og.mjs";
+import { docsPages, PAGES, socialPng, templateHtml } from "./generate-og.mjs";
+import { randomBytes } from "node:crypto";
+import sharp from "sharp";
 
 test("Markdown twins remove MDX wrappers and imports, preserving fenced/inline code verbatim", () => {
   const code =
@@ -119,6 +121,34 @@ test("OG checker rejects deleted files, shared cards and missing metadata (mutat
   }
 });
 
+test("OG checker excludes noindex static redirects while requiring metadata on ordinary pages", () => {
+  const dist = mkdtempSync(path.join(tmpdir(), "glyphcss-og-redirect-"));
+  try {
+    const file = path.join(dist, "index.html");
+    writeFileSync(
+      file,
+      '<meta http-equiv="refresh" content="0;url=/diagrams/overview/">' +
+        '<meta name="robots" content="noindex"><link rel="canonical" href="https://glyphcss.com/diagrams/overview/">',
+    );
+    assert.deepEqual(checkPageImages(dist), { count: 0, errors: [] });
+    for (const selector of [
+      'meta[http-equiv="refresh"]',
+      'meta[name="robots"]',
+      'link[rel="canonical"]',
+    ]) {
+      const result = checkPageImages(dist, (document) =>
+        document.querySelector(selector).remove(),
+      );
+      assert.match(
+        result.errors.join("\n"),
+        /expected one og:image and one twitter:image/,
+      );
+    }
+  } finally {
+    rmSync(dist, { recursive: true });
+  }
+});
+
 test("cards compose real render HTML at 1200×630 and have distinct output paths", () => {
   const html = templateHtml(
     PAGES.find((page) => page.slug === "diagrams"),
@@ -137,5 +167,36 @@ test("cards compose real render HTML at 1200×630 and have distinct output paths
       new URL("../src/pages/og-manifest.json.ts", import.meta.url),
       "utf8",
     ).includes('getCollection("docs")'),
+  );
+});
+
+test("docs subtitles preserve exact sidebar group labels", () => {
+  for (const section of ["API Reference", "Getting Started", "Coding agents"]) {
+    assert.equal(
+      docsPages([{ title: "Example", section, url: "/example/" }])[0].sub,
+      `${section} · glyphcss documentation`,
+    );
+  }
+});
+
+test("PNG compression produces cards below 150 KB and rejects oversized output", async () => {
+  const small = await sharp({
+    create: { width: 1200, height: 630, channels: 3, background: "#0d0f12" },
+  })
+    .png()
+    .toBuffer();
+  const png = await socialPng(small, "small");
+  assert.ok(png.length < 150 * 1024);
+  const metadata = await sharp(png).metadata();
+  assert.equal(metadata.width, 1200);
+  assert.equal(metadata.height, 630);
+  const noise = await sharp(randomBytes(1200 * 630 * 3), {
+    raw: { width: 1200, height: 630, channels: 3 },
+  })
+    .png()
+    .toBuffer();
+  await assert.rejects(
+    socialPng(noise, "oversized"),
+    /oversized: PNG exceeds 150 KB/,
   );
 });

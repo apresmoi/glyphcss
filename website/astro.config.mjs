@@ -1,4 +1,5 @@
 import { analyticsHead } from './src/config/analytics.mjs';
+import { docsSidebar } from './src/config/docsSidebar.mjs';
 // @ts-check
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
@@ -85,116 +86,7 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/apresmoi/glyphcss' },
       ],
       customCss: ['./src/integrations/starlight/starlight.css'],
-      sidebar: [
-        {
-          label: 'Getting Started',
-          items: [
-            { label: 'Introduction', slug: 'introduction' },
-            { label: 'Quickstart', slug: 'quickstart' },
-            { label: 'Core Concepts', slug: 'core-concepts' },
-          ],
-        },
-        {
-          label: 'Components',
-          items: [
-            { label: 'GlyphScene', slug: 'components/glyph-scene' },
-            { label: 'Cameras', slug: 'components/glyph-camera' },
-            { label: 'Controls', slug: 'components/glyph-controls' },
-            { label: 'GlyphHotspot', slug: 'components/glyph-hotspot' },
-          ],
-        },
-        {
-          label: 'Guides',
-          items: [
-            { label: 'Loading Meshes', slug: 'guides/meshes' },
-            { label: 'Creating Shapes', slug: 'guides/creating-shapes' },
-            { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
-            { label: 'Performance', slug: 'guides/performance' },
-            { label: 'Color Encoding', slug: 'guides/color-encoding' },
-            { label: 'Render Modes', slug: 'guides/render-modes' },
-            { label: 'Density & Detail', slug: 'guides/density' },
-            { label: 'Glyph Effects', slug: 'guides/effects' },
-            { label: 'Compiling to Static', slug: 'guides/compile' },
-          ],
-        },
-        {
-          label: 'Diagrams',
-          items: [
-            { label: 'Overview', slug: 'diagrams/overview' },
-            { label: 'Flowcharts', slug: 'diagrams/flowcharts' },
-            { label: 'Sequence diagrams', slug: 'diagrams/sequence' },
-            { label: 'State diagrams', slug: 'diagrams/state' },
-            { label: 'Class diagrams', slug: 'diagrams/class' },
-            { label: 'Entity relationships', slug: 'diagrams/er' },
-            { label: 'Mindmaps', slug: 'diagrams/mindmap' },
-            { label: 'Git history & lanes', slug: 'diagrams/gitgraph' },
-            { label: 'Block diagrams', slug: 'diagrams/block' },
-            { label: 'Architecture diagrams', slug: 'diagrams/architecture' },
-            { label: 'Requirements', slug: 'diagrams/requirements' },
-            { label: 'C4 diagrams', slug: 'diagrams/c4' },
-            { label: 'Options & sizing', slug: 'diagrams/options' },
-            { label: 'Node shapes', slug: 'diagrams/shapes' },
-            { label: 'CLI', slug: 'diagrams/cli' },
-            { label: 'JSON & schema', slug: 'diagrams/json' },
-            { label: 'Vanilla, React & Vue', slug: 'diagrams/frameworks' },
-            { label: 'Troubleshooting', slug: 'diagrams/troubleshooting' },
-            { label: 'Comparison', slug: 'diagrams/comparison' },
-          ],
-        },
-        {
-          label: 'Charts',
-          items: [
-            { label: 'Overview', slug: 'charts/overview' },
-            { label: 'Spec reference', slug: 'charts/spec' },
-            { label: 'Line & area', slug: 'charts/line-area' },
-            { label: 'Bar charts', slug: 'charts/bar' },
-            { label: 'Scatter plots', slug: 'charts/scatter' },
-            { label: 'Pie & donut', slug: 'charts/arc' },
-            { label: 'Heatmaps', slug: 'charts/cell' },
-            { label: 'Text & rule annotations', slug: 'charts/annotations' },
-            { label: 'Sankey flows', slug: 'charts/sankey' },
-            { label: 'Funnels', slug: 'charts/funnel' },
-            { label: 'Treemaps', slug: 'charts/treemap' },
-            { label: 'Mermaid charts', slug: 'charts/mermaid' },
-            { label: 'Gantt, journey & timeline', slug: 'charts/mermaid-schedules' },
-            { label: 'Packet & kanban', slug: 'charts/mermaid-structures' },
-            { label: 'Charsets, color & targets', slug: 'charts/targets' },
-            { label: '3D charts', slug: 'charts/3d' },
-            { label: 'CLI', slug: 'charts/cli' },
-            { label: 'Vanilla, React & Vue', slug: 'charts/frameworks' },
-            { label: 'Troubleshooting', slug: 'charts/troubleshooting' },
-          ],
-        },
-        {
-          label: 'Coding agents',
-          items: [
-            { label: 'Overview', slug: 'guides/coding-agents' },
-            { label: 'Install by host', slug: 'coding-agents/install' },
-          ],
-        },
-        {
-          label: 'Maps',
-          items: [
-            { label: 'Overview', slug: 'maps/overview' },
-            { label: 'Projections', slug: 'maps/projections' },
-            { label: 'Layers', slug: 'maps/layers' },
-            { label: 'Camera & Navigation', slug: 'maps/camera' },
-            { label: 'Terrain', slug: 'maps/terrain' },
-            { label: 'OpenStreetMap', slug: 'maps/openstreetmap' },
-          ],
-        },
-        {
-          label: 'API Reference',
-          items: [
-            { label: 'React API', slug: 'api/react' },
-            { label: 'Vue API', slug: 'api/vue' },
-            { label: 'HTML API', slug: 'api/html' },
-            { label: 'Headless API', slug: 'api/headless' },
-            { label: 'Three.js Parity API', slug: 'api/three-parity' },
-            { label: 'Core Types', slug: 'api/types' },
-          ],
-        },
-      ],
+      sidebar: docsSidebar,
     }),
   ],
 });

@@ -2,10 +2,8 @@
 //
 // Each image reuses the landing `og.png` template — dark canvas, the
 // `[ glyphcss ]` wordmark + a page-specific tagline on the left, and the
-// page's REAL glyphcss ASCII render on the right. We capture the render live
-// (Playwright → the running preview server) so effect layers (field-synth,
-// Matrix rain) bake into the still exactly as a visitor sees them; a static
-// `compileScene` can't evaluate a mounted effect.
+// page's REAL glyphcss ASCII render on the right. Build-time snapshots cover
+// docs and compact workbench examples; live captures cover animated effects.
 //
 // Prereq: run `pnpm --filter @glyphcss/website dev` (or a current preview) on port 4323.
 // Generate before the final build, which verifies every referenced card exists.
@@ -52,7 +50,7 @@ export const PAGES = [
     url: "/charts/",
     render: "charts",
     tagline: ["data to ", "ASCII charts"],
-    sub: "Line, donut and heatmap charts, rendered as blocks and braille text.",
+    sub: "Bar and donut charts, rendered as colourful block text.",
     foot: "glyphcss.com/charts",
   },
   {
@@ -239,6 +237,8 @@ async function capture(page, browser, snapshots, fonts) {
     deviceScaleFactor: 1,
   });
   let renders = snapshots[page.render];
+  if (page.render && !renders)
+    throw new Error(`Missing social render ${page.render}`);
   if (!renders) {
     await pg.goto(BASE + page.url, {
       waitUntil: "networkidle",
@@ -352,21 +352,26 @@ async function capture(page, browser, snapshots, fonts) {
   const file = path.resolve(OUT_DIR, page.output ?? `${page.slug}.png`);
   await mkdir(path.dirname(file), { recursive: true });
   const bytes = await el.screenshot();
-  await writeFile(
-    file,
-    await sharp(bytes)
-      .png({ compressionLevel: 9, palette: true, colours: 256 })
-      .toBuffer(),
-  );
+  const png = await socialPng(bytes, page.slug);
+  await writeFile(file, png);
   await pg.close();
   console.log(`  ✓ ${page.slug}.png  (${renders.length} real render(s))`);
+}
+
+export async function socialPng(bytes, slug) {
+  const png = await sharp(bytes)
+    .png({ compressionLevel: 9, palette: true, colours: 256 })
+    .toBuffer();
+  if (png.length > 150 * 1024)
+    throw new Error(`${slug}: PNG exceeds 150 KB (${png.length} bytes)`);
+  return png;
 }
 
 export function docsPages(docs) {
   return docs.map((doc) => ({
     ...doc,
     tagline: [doc.title, ""],
-    sub: `${doc.section.charAt(0).toUpperCase() + doc.section.slice(1)} · glyphcss documentation`,
+    sub: `${doc.section} · glyphcss documentation`,
     foot: `glyphcss.com${doc.url}`,
   }));
 }
