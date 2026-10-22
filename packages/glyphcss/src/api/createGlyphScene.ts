@@ -2520,7 +2520,9 @@ export function createGlyphScene(
     const writesPinnedBefore = new Map<HTMLPreElement, boolean>();
     for (const entry of plan.writes) writesPinnedBefore.set(entry.pre, isGlyphAtlasPinned(entry.pre));
     const outputNodes = new Set<HTMLPreElement>([pre, ...Array.from(detailLayers.values(), (layer) => layer.pre), ...Array.from(viewportOverlayLayers.values(), (layer) => layer.pre), ...plan.writes.map((entry) => entry.pre)]);
-    const outputs = Array.from(outputNodes, (node) => ({ node, html: node.innerHTML, text: node.textContent ?? "", style: node.getAttribute("style") }));
+    // Output setters replace children; retaining the old nodes avoids walking
+    // and serializing every span/text byte on successful frames.
+    const outputs = Array.from(outputNodes, (node) => ({ node, children: Array.from(node.childNodes), style: node.getAttribute("style") }));
     const oldDetails = new Map(detailLayers);
     const oldOverlays = new Map(viewportOverlayLayers);
     const oldRetained = retainedEffectOutputs;
@@ -2580,8 +2582,9 @@ export function createGlyphScene(
     } catch (error) {
       for (const state of outputs) {
         try {
-          if (committedOptions.useColors) state.node.innerHTML = state.html;
-          else state.node.textContent = state.text;
+          const fragment = host.ownerDocument!.createDocumentFragment();
+          for (const child of state.children) fragment.appendChild(child);
+          state.node.replaceChildren(fragment);
         } catch { /* preserve rollback progress */ }
         if (state.style === null) state.node.removeAttribute("style"); else state.node.setAttribute("style", state.style);
       }
