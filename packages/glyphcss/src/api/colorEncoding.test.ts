@@ -745,7 +745,7 @@ describe("atlas DOM commit", () => {
     const pres = [...host.querySelectorAll("pre")];
     expect(pres.length).toBe(2);
     const html = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!;
-    const text = Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!;
+    const text = Object.getOwnPropertyDescriptor(Element.prototype, "textContent")!;
     const writes = pres.map((pre) => {
       const counts = { html: 0, text: 0 };
       Object.defineProperty(pre, "innerHTML", { configurable: true, get: html.get, set(value) { counts.html++; html.set!.call(this, value); } });
@@ -757,7 +757,8 @@ describe("atlas DOM commit", () => {
       for (let i = 0; i < pres.length; i++) {
         expect(writes[i]).toEqual({ html: 0, text: 1 });
         const pre = pres[i]!;
-        const legacy = pre.cloneNode(false) as HTMLPreElement;
+        const legacy = document.createElement("pre");
+        for (const attr of pre.attributes) legacy.setAttribute(attr.name, attr.value);
         legacy.innerHTML = pre.textContent!;
         expect(pre.outerHTML).toBe(legacy.outerHTML);
         expect(pre.childNodes.length).toBe(1);
