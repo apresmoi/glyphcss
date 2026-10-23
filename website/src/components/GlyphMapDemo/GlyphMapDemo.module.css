@@ -7,7 +7,6 @@
   position: relative;
   height: 24rem;
   overflow: hidden;
-  touch-action: none;
 }
 
 .root .stage :global(.glyph-output) {
