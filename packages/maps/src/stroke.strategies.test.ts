@@ -96,6 +96,63 @@ describe("experimental map stroke glyphs", () => {
     expect(g.char[3 * 16 + 6]).toBe(" ");
   });
 
+  it("box follows the cell path instead of closing a loop between nearby bends", () => {
+    const g = grid();
+    // A serpentine visits all four cells of a 2x2 block, but never closes it.
+    stampGlyphMapPolyline(g, [
+      { col: 2.2, row: 2.2, depth: 0 }, { col: 3.2, row: 2.2, depth: 0 },
+      { col: 3.2, row: 3.2, depth: 0 }, { col: 2.2, row: 3.2, depth: 0 },
+    ], { experimentalGlyphStrategy: "box" });
+    expect([g.char[34], g.char[35], g.char[50], g.char[51]]).toEqual(["─", "┐", "─", "┘"]);
+  });
+
+  it("box collapses immediate backtracks before choosing corners", () => {
+    const g = grid();
+    stampGlyphMapPolyline(g, [
+      { col: 2.2, row: 2.2, depth: 0 }, { col: 3.2, row: 2.2, depth: 0 },
+      { col: 2.2, row: 2.2, depth: 0 }, { col: 2.2, row: 3.2, depth: 0 },
+      { col: 3.2, row: 3.2, depth: 0 },
+    ], { experimentalGlyphStrategy: "box" });
+    expect(g.char[34]).toBe("│");
+    expect(g.char[50]).toBe("└");
+    expect(g.char[51]).toBe("─");
+    // Coverage is retained, but an erased excursion has no joining arms.
+    expect(g.char[35]).toBe("·");
+  });
+
+  it.each([[[1.2, 1.2], [12.2, 1.2]], [[1.2, 1.2], [8.2, 8.2]]])("box keeps a straight or diagonal stroke connected", (start, end) => {
+    const g = grid();
+    stampGlyphMapPolyline(g, [start, end].map(([col, row]) => ({ col, row, depth: 0 })), { experimentalGlyphStrategy: "box" });
+    const inked = new Set(g.char.flatMap((c, i) => c === " " ? [] : [i]));
+    const reached = new Set<number>();
+    const todo = [Math.floor(start[1]) * g.cols + Math.floor(start[0])];
+    while (todo.length) {
+      const idx = todo.pop()!;
+      if (reached.has(idx) || !inked.has(idx)) continue;
+      reached.add(idx);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const col = idx % g.cols + dx, row = Math.floor(idx / g.cols) + dy;
+        if (col >= 0 && col < g.cols && row >= 0 && row < g.rows) todo.push(row * g.cols + col);
+      }
+    }
+    expect(inked.size).toBeGreaterThan(5);
+    expect(reached).toEqual(inked);
+  });
+
+  it("box joins two real crossing paths, without joining through a clipped break", () => {
+    const g = grid();
+    const separator = { col: NaN, row: NaN, depth: 0 };
+    stampGlyphMapPolyline(g, [
+      { col: 2.2, row: 2.2, depth: 0 }, { col: 6.2, row: 2.2, depth: 0 },
+      separator,
+      { col: 4.2, row: 1.2, depth: 0 }, { col: 4.2, row: 4.2, depth: 0 },
+    ], { experimentalGlyphStrategy: "box" });
+    expect(g.char[2 * 16 + 4]).toBe("┼");
+    expect(g.char[2 * 16 + 3]).toBe("─");
+    expect(g.char[3 * 16 + 4]).toBe("│");
+    expect(g.char[3 * 16 + 5]).toBe(" ");
+  });
+
   it("every strategy's emitted glyphs fit the existing colour-font atlas", () => {
     const atlas = new Set(atlasManifest.glyphs);
     for (const strategy of strategies) {

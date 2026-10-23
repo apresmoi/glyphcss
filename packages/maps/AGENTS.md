@@ -15,7 +15,8 @@ Docs: `README.md` (package reference), `website/src/content/docs/maps/**` (user 
 - Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable array identity).
 - Opt-in features are byte-identical when off, each with a test that goes red.
-- Experimental line `experimentalGlyphStrategy` changes glyphs only, after the original sampling/depth verdict; neighbour choices use only accepted cells of that polyline call. No added cells, colour changes, or cross-tile junction guarantee.
+- Experimental line `experimentalGlyphStrategy` changes glyphs only, after the original sampling/depth verdict. `box` joins ordered accepted cell paths, collapsing immediate revisits/backtracks; erased excursions keep a dot, and diagonals without an accepted staircase retain slashes. No added cells, colour changes, or cross-tile junction guarantee.
+- Stamp surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from an assumed half-cell centre. Depth forgiveness remains curvature plus measured elevation rise.
 - Line `simplify: "vw"` opts into the existing latitude-corrected VW at half a live output cell, quarter-octave zoom buckets cached by source-line identity (eight per line). Simplify before visibility clipping/draping; preserve endpoints and collapsed closed rings. Walk retains source detail. Omitted is byte-identical; no new cross-tile topology guarantee.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.

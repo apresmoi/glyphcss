@@ -41,14 +41,11 @@
  * and they want different treatments — one is corrected, one is bounded from
  * the depth buffer, and one can only be supplied by the caller that drapes:
  *
- * 1. A SAMPLING OFFSET, which is exactly computable and so is corrected
- *    rather than forgiven. `grid.depth[idx]` was sampled by the rasterizer
- *    at the cell CENTRE (`rasterize.ts`: `px = x + 0.5`); the stroke sits
- *    wherever inside that cell its own geometry puts it. On any tilted view
- *    a stroke lying flush on the surface therefore reads up to half a cell
- *    of depth away from it for no reason but that, so the surface's own
- *    local slope is used to evaluate it AT the stroke and the comparison is
- *    made there.
+ * 1. A SAMPLING OFFSET, corrected rather than forgiven. The solid rasterizer
+ *    samples depth at integer `(col, row)`, not at `(col + 0.5, row + 0.5)`.
+ *    A floor-indexed stroke lies up to one cell forward of that position.
+ *    Forward differences interpolate the surface toward its next samples;
+ *    a backward difference is used only where the forward sample is absent.
  * 2. FACETING, which is not computable from here and is what the allowance
  *    is for: the drape reads the terrain FIELD (bilinear over a tile's full
  *    vertex grid) while the terrain rasterizes from a COARSENED quad mesh
@@ -85,13 +82,10 @@
  * (`widget.strokeOcclusion.test.ts`).
  *
  * {@link GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE} has a bound behind it
- * rather than a tuning: for a locally quadratic surface BOTH remaining
- * errors are one EIGHTH of the second difference — a linear reconstruction
- * evaluated at most half a cell away departs by `f''·(1/2)²/2`, and a
- * chord's greatest departure from a parabola through its own endpoints is
- * `f''·L²/8` — and `0.25` is that doubled, because real relief is not
- * quadratic and a three-point second difference is itself a noisy estimate
- * of its curvature.
+ * rather than a tuning: a one-cell chord over a locally quadratic surface
+ * departs from it by at most one EIGHTH of its second difference
+ * (`f''·L²/8`). Forward interpolation and the terrain mesh's chord each
+ * carry that error; `0.25` covers both without forgiving a plane's slope.
  *
  * **Two allowances died here, and each one's premise is worth keeping
  * written down.** Both existed only because a `line` vertex used to be
@@ -123,7 +117,7 @@
  */
 import { inkGlyphForTangent } from "glyphcss";
 import type { CellGrid } from "glyphcss";
-import { glyphMapExperimentalStrokeGlyph, type GlyphMapStrokeGlyphSample, type GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
+import { glyphMapExperimentalStrokeGlyph, glyphMapStrokePathMasks, type GlyphMapStrokeGlyphSample, type GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
 export type { GlyphMapStrokeGlyphStrategy } from "./strokeGlyphs";
 
 /**
@@ -157,7 +151,7 @@ export interface GlyphMapStrokeVertex {
    * it.
    *
    * It exists because the two OTHER terms here are both statements about the
-   * DEPTH BUFFER (its half-cell sampling offset, corrected; its own second
+   * DEPTH BUFFER (its sampling offset, corrected; its own second
    * difference, forgiven) and neither can see the quantity that actually
    * separates a DRAPED stroke from the terrain under it: the ground's own
    * relief across the span the comparison reads from. Only the caller that
@@ -204,17 +198,16 @@ export interface GlyphMapStampOptions {
 
 /**
  * One axis of the surface's own screen-space depth slope at a cell, SIGNED
- * and in depth units per cell — the ordinary central difference, falling back
- * to whichever one-sided difference exists at an edge or beside an empty
- * cell.
+ * and in depth units per cell. Prefer the forward difference because the
+ * floor-indexed stroke is forward of the integer raster sample; fall back
+ * to the backward difference beside an edge or empty cell.
  *
  * This is no longer what the ALLOWANCE is built on (see {@link curvature});
  * it is what evaluates the surface AT the stroke's own sub-cell position, so
- * that the half cell between there and the cell centre `grid.depth` was
- * sampled at is corrected rather than forgiven.
+ * that the offset from the integer position `grid.depth` was sampled at is
+ * corrected rather than forgiven.
  */
 function surfaceSlope(d: number, back: number, forward: number): number {
-  if (Number.isFinite(back) && Number.isFinite(forward)) return (forward - back) / 2;
   if (Number.isFinite(forward)) return forward - d;
   if (Number.isFinite(back)) return d - back;
   return 0;
@@ -272,7 +265,7 @@ function curvature(d: number, back: number, forward: number): number {
  *
  * Lifted out of {@link stampGlyphMapPolyline}'s inner loop verbatim — the
  * sampling-offset CORRECTION (evaluate the surface where the stamp actually
- * is, not at the cell centre `grid.depth` was sampled at) and the
+ * is, not at the integer position `grid.depth` was sampled at) and the
  * second-difference ALLOWANCE (forgive the terrain's own faceting, never the
  * camera's foreshortening) are two different quantities and only the second
  * is an allowance. See this file's header.
@@ -302,7 +295,7 @@ export function glyphMapSurfaceOccludes(
   if (!Number.isFinite(surfaceDepth)) return false;
   const gx = surfaceSlope(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
   const gy = surfaceSlope(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
-  const atStroke = surfaceDepth + gx * (subCol - 0.5) + gy * (subRow - 0.5);
+  const atStroke = surfaceDepth + gx * subCol + gy * subRow;
   const cx = curvature(surfaceDepth, colI > 0 ? grid.depth[idx - 1] : NaN, colI < grid.cols - 1 ? grid.depth[idx + 1] : NaN);
   const cy = curvature(surfaceDepth, rowI > 0 ? grid.depth[idx - grid.cols] : NaN, rowI < grid.rows - 1 ? grid.depth[idx + grid.cols] : NaN);
   return atStroke - depth > allowance + curvatureScale * Math.hypot(cx, cy);
@@ -336,10 +329,13 @@ export function stampGlyphMapPolyline(
   const strategy = opts.experimentalGlyphStrategy;
   const samples = strategy && strategy !== "baseline" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
 
+  const paths: number[][] | null = strategy === "box" ? [] : null;
+  let path: number[] | null = null;
+  const breakPath = () => { path = null; };
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];
     const b = points[s + 1];
-    if (!Number.isFinite(a.col) || !Number.isFinite(a.row) || !Number.isFinite(b.col) || !Number.isFinite(b.row)) continue;
+    if (!Number.isFinite(a.col) || !Number.isFinite(a.row) || !Number.isFinite(b.col) || !Number.isFinite(b.row)) { breakPath(); continue; }
     const dCol = b.col - a.col;
     const dRow = b.row - a.row;
     const cells = Math.max(1, Math.ceil(Math.hypot(dCol, dRow)));
@@ -363,7 +359,7 @@ export function stampGlyphMapPolyline(
     let iFrom = 0;
     let iTo = cells;
     if (dCol === 0) {
-      if (a.col < 0 || a.col >= grid.cols) continue;
+      if (a.col < 0 || a.col >= grid.cols) { breakPath(); continue; }
     } else {
       const u0 = -a.col / dCol;
       const u1 = (grid.cols - a.col) / dCol;
@@ -373,7 +369,7 @@ export function stampGlyphMapPolyline(
       if (t < iTo) iTo = t;
     }
     if (dRow === 0) {
-      if (a.row < 0 || a.row >= grid.rows) continue;
+      if (a.row < 0 || a.row >= grid.rows) { breakPath(); continue; }
     } else {
       const u0 = -a.row / dRow;
       const u1 = (grid.rows - a.row) / dRow;
@@ -382,35 +378,44 @@ export function stampGlyphMapPolyline(
       if (f > iFrom) iFrom = f;
       if (t < iTo) iTo = t;
     }
-    if (iFrom > iTo) continue;
+    if (iFrom > iTo) { breakPath(); continue; }
     for (let i = iFrom; i <= iTo; i++) {
       const t = i / cells;
       const col = a.col + dCol * t;
       const row = a.row + dRow * t;
       const colI = Math.floor(col);
       const rowI = Math.floor(row);
-      if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) continue;
+      if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) { breakPath(); continue; }
       const idx = rowI * grid.cols + colI;
-      if (glyphMapForeignOwned(grid, idx)) continue;
+      if (glyphMapForeignOwned(grid, idx)) { breakPath(); continue; }
       const depth = a.depth + (b.depth - a.depth) * t;
       const subCol = col - colI;
       const subRow = row - rowI;
       const surfaceDepth = grid.depth[idx];
-      if (requireSurface && !Number.isFinite(surfaceDepth)) continue; // nothing rendered here — no surface to annotate
+      if (requireSurface && !Number.isFinite(surfaceDepth)) { breakPath(); continue; } // nothing rendered here — no surface to annotate
       // Correct the sampling offset, then forgive only the faceting — two
       // different quantities, and only the second one is an allowance. See
       // `glyphMapSurfaceOccludes`, which is that loop body verbatim.
       const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
-      if (glyphMapSurfaceOccludes(grid, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) continue;
+      if (glyphMapSurfaceOccludes(grid, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) { breakPath(); continue; }
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;
+      if (paths) {
+        if (!path) { path = []; paths.push(path); }
+        if (path.at(-1) !== idx) {
+          // A→B→A is an excursion, not two extra joining arms at A.
+          if (path.length >= 2 && path[path.length - 2] === idx) path.pop();
+          else path.push(idx);
+        }
+      }
       if (samples) samples.set(idx, { col: colI, row: rowI, subCol, subRow, dx: dCol, dy: dRow });
     }
   }
   if (samples) {
-    for (const [idx, sample] of samples) grid.char[idx] = glyphMapExperimentalStrokeGlyph(strategy!, sample, samples, grid.cols);
+    const masks = paths ? glyphMapStrokePathMasks(paths, grid.cols) : null;
+    for (const [idx, sample] of samples) grid.char[idx] = glyphMapExperimentalStrokeGlyph(strategy!, sample, samples, grid.cols, masks?.get(idx));
   }
 }
 
