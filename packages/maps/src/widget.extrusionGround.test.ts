@@ -165,10 +165,16 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
  * Terrain first, then the building — the same order `/maps` mounts them in,
  * and the order that makes `changedCells` mean "what the extrusion painted".
  */
-async function renderOverTerrain(groundM: number, tilt: number, feature: GlyphMapVectorFeature = building) {
+async function renderOverTerrain(groundM: number, tilt: number, feature: GlyphMapVectorFeature = building, datumPose = false) {
   const map = mount(tilt);
   map.addLayer({ type: "raster", id: "terrain", source: terrainProvider(groundM) });
-  await settle();
+  await map.idle();
+  if (datumPose) {
+    const projection = glyphMapGlobe({ exaggeration: 24 });
+    expect(map.scene.camera.target).toEqual(projection.project(CENTRE[0], CENTRE[1], groundM));
+    // Isolate planting parallax from the camera's newly ground-following pivot.
+    map.scene.camera.target = projection.project(CENTRE[0], CENTRE[1], 0);
+  }
   map.scene.rerender();
   const before = rows(map);
   map.addLayer({ type: "fill-extrusion", id: "buildings", source: { features: [feature] }, color: BUILDING_COLOR, heightProperty: "render_height" });
@@ -225,9 +231,9 @@ describe("createGlyphMap — a fill-extrusion stands on the terrain under it", (
     // displacement, and 400 m would put the building 2,000 rows off screen,
     // which is a true statement about 24x relief under a tilted camera and
     // not something this test can observe.
-    const flat = await renderOverTerrain(0, TILT);
-    const low = await renderOverTerrain(5, TILT);
-    const high = await renderOverTerrain(10, TILT);
+    const flat = await renderOverTerrain(0, TILT, building, true);
+    const low = await renderOverTerrain(5, TILT, building, true);
+    const high = await renderOverTerrain(10, TILT, building, true);
     const band = (cells: { row: number }[]) => ({ top: Math.min(...cells.map((c) => c.row)), bottom: Math.max(...cells.map((c) => c.row)) });
     const f = band(flat.changed), l = band(low.changed), h = band(high.changed);
 

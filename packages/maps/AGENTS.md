@@ -1,12 +1,12 @@
 # @glyphcss/maps agent guide
 
-Geographic data, relief meshes, vector layers and `createGlyphMap`. Root is browser-safe; `@glyphcss/maps/node` holds fs readers (never `gdal-async`). No React/Vue surface.
+Geographic data, relief meshes, vector layers and `createGlyphMap`. Root is browser-safe; `./node` holds fs readers (never `gdal-async`). No React/Vue API.
 
-Docs: `README.md`, `website/src/content/docs/maps/**`. Local rationale lives in code comments.
+Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 ## Invariants
 
-- Public API uses lat/lng and degrees; `GlyphMapView` is aspect-locked.
+- Public API uses lat/lng/degrees; views are aspect-locked. Camera pivots on drawn ground at `view.center` (same sampler/window as planting; datum fallback). `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering without changing the geographic view.
 - Branch on projection CAPABILITY (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
 - Crop, don't clamp: `project()` returns `NaN` outside its window. Sole exception: a `raster` elevation window clamps per vertex.
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
@@ -25,7 +25,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`. Local rationale lives in 
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); line palettes fall back to row colour. Shared arcs retain explicit line properties.
 - `/maps` URL row lists are positional: append rows, never insert.
-- No clock or refresh policy in the package; live data goes through `setLayerSource`.
+- Live data uses `setLayerSource`; no refresh clock.
 - Tests settle on `await map.idle()`, never timers or stability polls. Moving-camera probes advance frames to a pose. `vi.waitFor` gets an explicit timeout.
 
 ## Don't
@@ -41,17 +41,17 @@ Docs: `README.md`, `website/src/content/docs/maps/**`. Local rationale lives in 
 - Don't rebuild point layers on an unchanged sweep, create labels visible then hide them (the consumer's CSS transition flashes every label), or move one by remove+add. Compare tile identity, create at `opacity: 0`, move with `setAt`.
 - Don't give glyphcss shadows their default `lift` (0.05 = 318 km on the globe) or let terrain cast (256 texels across the Earth). A headlight key light shows no shadows at all.
 - Don't widen a positional URL tuple (`M`, `J`, `l`, `1`) or insert into a row list: a tuple's width is wire format. Add a new token, appended last.
-- Don't take an OSM schema's names, flags or ranks from its docs: read the vendored tiles. Lakes' `water_name` are lines, flags come as `0`/`1` or present-`true`, and `rank` counts 1 = most important.
+- Read OSM schemas from vendored tiles: `water_name` are lines, flags `0`/`1` or present-`true`, rank 1 is most important.
 - Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
 - Stub the metrics prototype for per-cell `unproject` tests: stubbing existing `<pre>`s misses the probe, whose 8x16 fallback disagrees with the render.
-- Don't gate an occlusion test on one road direction or with no ground source: a west-east road with no ground skips the drape path entirely and hid a real defect.
-- Known gaps: datum orbit pivot; `getMaxTilt` ignores base pitch; `temporalBlend` at nonzero bearing; stamps receive no shadows; contours below floored terrain; antimeridian single-cell fill loss.
+- Test occlusion in both road directions with a ground source: west-east without ground skips draping.
+- Known gaps: `getMaxTilt` ignores base pitch; `temporalBlend` at nonzero bearing; stamps receive no shadows; contours below floored terrain; antimeridian single-cell fill loss.
 
 ## Key gates (`src/`)
 
 - Projection/tiles: `chirality`, `parity`, `widget.backstopOcclusion`, `mesh.seaLevelBand`, `mesh.surfaceMedian`, `widget.reliefSurfaceBand`, `mesh.elevationWindow`, `widget.reliefWindow*`
 - Widget loop: `widget.motion`, `widget.extrusionWalls`, `widget.idle`, `widget.symbolRebuildFlash`, `widget.liveSource`
-- Camera: `widget.tiltPivot`, `widget.tiltGesture`, `widget.bearing`, `widget.transitionContinuity`, `widget.transitionAnchor`, `widget.touchGestures`
+- Camera: `widget.groundPivot`, `widget.tiltPivot`, `widget.tiltGesture`, `widget.bearing`, `widget.transitionContinuity`, `widget.transitionAnchor`, `widget.touchGestures`
 - Lighting: `widget.headlight`, `widget.sun`, `widget.shadow`
 - Walk: `widget.walk*`, `walkCollision`, `walk.entryGate`, `widget.sky`
 - Strokes/contours: `stroke`, `widget.strokeDrape`, `widget.strokeRelief`, `widget.strokeOcclusion`, `widget.contourElevation`, `widget.contourRelief`, `widget.contourFreshLoad`

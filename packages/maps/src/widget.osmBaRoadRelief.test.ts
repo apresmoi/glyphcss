@@ -144,8 +144,8 @@ for (const [cellW, cellH] of [[12, 14], [12 * 1200 / 2048, 12]]) {
       capture = true; map.scene.rerender(); capture = false;
       const z5 = terrain.loaded.get("curated_5_10_22.bin")!;
       if (process.env.GLYPH_MAP_BA_DEPTH_REPORT) {
-        // The inverse is at datum: this identifies the nearby terrain quad,
-        // not an independent measurement of the elevated stroke's lon/lat.
+        // The inverse reads the mounted terrain; it locates the ground quad
+        // near this stroke sample, not an independent source measurement.
         const sample = diagnostics.worst;
         if (sample === null) throw new Error("No on-screen road sample to report");
         const datumLonLat = map.unproject([sample.col, sample.row])!;
@@ -167,3 +167,50 @@ for (const [cellW, cellH] of [[12, 14], [12 * 1200 / 2048, 12]]) {
     });
   }
 }
+
+it("keeps near-ground BA roads visible at the evidence-2 ground pivot", async () => {
+  const host = document.createElement("div"); document.body.append(host); hosts.push(host);
+  const cellW = 12 * 1200 / 2048, cellH = 12;
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const e = this as HTMLElement, k = (parseFloat(e.style.fontSize) || 16) / 16;
+    const probe = e.tagName === "PRE" && e.style.visibility === "hidden";
+    const width = e === host ? COLS * cellW : probe ? cellW * k : 0;
+    const height = e === host ? ROWS * cellH : probe ? cellH * k * (e.textContent ?? "").split("\n").length : 0;
+    return { width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON: () => ({}) };
+  });
+  const terrain = terrainFixture();
+  const source = glyphMapOpenFreeMapProvider({ fetchTile: async (_url, z, x, y) => {
+    const bytes = readFileSync(path.join(root, `osm_${z}_${x}_${y}.pbf`));
+    return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  } });
+  // The vendored extract contains z13, so keep that real geometry at deep
+  // zoom rather than silently fetching an unvendored z14 tile.
+  const roads = { ...source, zooms: source.zooms.filter(level => level.z <= 13) };
+  const projection = glyphMapGlobe({ exaggeration: 24 });
+  const viewCenter = [-58.378402, -34.600165] as const;
+  const map = createGlyphMap(host, {
+    view: { center: viewCenter, span: 0.0017999435062305911, cols: COLS, rows: ROWS },
+    projection, tilt: 67, bearing: 37, snapPan: true,
+    layers: [{ id: "terrain", type: "raster", source: terrain.provider },
+      ...glyphMapOpenMapTilesLayers(roads, { include: ["omt-roads"], roadHierarchy: true,
+        lineOptions: { "omt-roads": { experimentalGlyphStrategy: "braille", simplify: "vw" } } })],
+  });
+  maps.push(map);
+  await map.idle();
+  const count = () => [...(map.scene.output.textContent ?? "").split("\n").slice(Math.floor(ROWS * 2 / 3)).join("")]
+    .filter(ch => ch >= "⠀" && ch <= "⣿").length;
+  const ground = count(), target = map.scene.camera.target;
+  const elev = tile.glyphMapGeoTileElevationAt(terrain.loaded.get("curated_5_10_22.bin")!, ...viewCenter);
+  expect(target).toEqual(projection.project(...viewCenter, elev));
+  map.scene.camera.target = projection.project(...viewCenter, 0);
+  map.scene.rerender();
+  const datum = count();
+  map.scene.camera.target = target;
+  map.scene.rerender();
+  if (process.env.GLYPH_MAP_BA_DEPTH_REPORT) console.log(JSON.stringify({ ground, datum, elev }));
+  expect(ground).toBeGreaterThan(50);
+  // This z13 extract does not reproduce the page's original near-half loss:
+  // the old pivot still sees roads elsewhere. Do not claim otherwise.
+  expect(datum).toBeGreaterThan(50);
+  expect(map.project(viewCenter).row).toBeCloseTo(ROWS / 2, 6);
+});

@@ -34,7 +34,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
+import { glyphMapGlobe } from "./projection";
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -157,16 +157,13 @@ function inkedCells(before: readonly string[], after: readonly string[]): { row:
 }
 
 /**
- * The row `(lon, lat)` reaches at elevation `elevM`, from public API only —
- * see this file's header for the derivation. The antipode probe recovers the
- * world origin's own row; the radial factor does the rest.
+ * Explicit elevations keep the datum and alternate-tier oracles independent
+ * of `map.project`, which now reads the mounted ground.
  */
 function groundRowFor(map: ReturnType<typeof createGlyphMap>, lon: number, lat: number, elevM: number): number {
-  const near = map.project([lon, lat]);
-  const far = map.project([lon + 180, -lat]);
-  const originRow = (near.row + far.row) / 2;
-  const k = 1 + (elevM / GLYPH_MAP_EARTH_RADIUS_M) * EXAGGERATION;
-  return originRow + k * (near.row - originRow);
+  const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
+  return map.scene.camera.project(projection.project(lon, lat, elevM), COLS, ROWS, CELL_H / CELL_W,
+    { cellWidth: CELL_W, cellHeight: CELL_H })[1];
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 150));
@@ -210,7 +207,7 @@ async function renderWithRoadOverGround(groundM: number): Promise<{
   return {
     map,
     inked: inkedCells(before, after),
-    datumRow: map.project([CENTRE[0], CENTRE[1]]).row,
+    datumRow: groundRowFor(map, CENTRE[0], CENTRE[1], 0),
     groundRow: groundRowFor(map, CENTRE[0], CENTRE[1], groundM),
   };
 }
@@ -436,6 +433,10 @@ describe("createGlyphMap — a draped stroke stays whole over a coarsened relief
     mounted.push(map);
     map.addLayer({ type: "raster", id: "terrain", source: ridgeProvider() });
     await settleFrames(map);
+    // Pin this mesh-occlusion fixture's existing raster phase independently
+    // of widget navigation. Ground-pivot gestures are tested separately.
+    map.scene.camera.target = glyphMapGlobe({ exaggeration: EXAGGERATION }).project(RIDGE_CENTRE[0], RIDGE_CENTRE[1], 0);
+    map.scene.rerender();
     const before = (map.scene.output.textContent ?? "").split("\n");
 
     map.addLayer({ type: "line", id: "borders", source: { features: [ridgeBorder] }, color: "#ff0000" });

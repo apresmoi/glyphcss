@@ -43,7 +43,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
+import { glyphMapGlobe } from "./projection";
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -184,13 +184,11 @@ function inkedCells(before: readonly string[], after: readonly string[]): { row:
   return out;
 }
 
-/** The row `(lon, lat)` reaches at elevation `elevM`, from public API only — see this file's header. */
+/** The row `(lon, lat)` reaches at elevation `elevM`, using the live camera and an explicit elevation. `map.project` now samples ground. */
 function groundRowFor(map: ReturnType<typeof createGlyphMap>, lon: number, lat: number, elevM: number): number {
-  const near = map.project([lon, lat]);
-  const far = map.project([lon + 180, -lat]);
-  const originRow = (near.row + far.row) / 2;
-  const k = 1 + (elevM / GLYPH_MAP_EARTH_RADIUS_M) * EXAGGERATION;
-  return originRow + k * (near.row - originRow);
+  const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
+  return map.scene.camera.project(projection.project(lon, lat, elevM), COLS, ROWS, CELL_H / CELL_W,
+    { cellWidth: CELL_W, cellHeight: CELL_H })[1];
 }
 
 /** The row/col glyphcss actually STAGED the marker element at — `(cell + 0.5) * cellSize` px. */
@@ -220,7 +218,7 @@ describe("createGlyphMap — a marker is anchored on the ground under it", () =>
     map.addLayer({ type: "symbol", id: "peaks", source: { features: [peakFeature] }, color: "#fbbf24", textProperty: "name" });
     await settleFrames(map);
 
-    const datumRow = map.project(PEAK).row;
+    const datumRow = groundRowFor(map, PEAK[0], PEAK[1], 0);
     const groundRow = groundRowFor(map, PEAK[0], PEAK[1], FINE_M);
     // The premise: at this framing the ground is genuinely somewhere else on
     // screen, and still on screen.
@@ -276,7 +274,7 @@ describe("createGlyphMap — a marker is anchored on the ground under it", () =>
     // The label's own row is a row the draped stroke actually inked.
     expect([...strokeRows].some((r) => Math.abs(r - cell.row) <= 1)).toBe(true);
     // ...and the datum's row is not.
-    const datumRow = Math.round(map.project(PEAK).row);
+    const datumRow = Math.round(groundRowFor(map, PEAK[0], PEAK[1], 0));
     expect([...strokeRows].some((r) => Math.abs(r - datumRow) <= 1)).toBe(false);
   });
 
@@ -288,7 +286,7 @@ describe("createGlyphMap — a marker is anchored on the ground under it", () =>
     await settleFrames(map);
 
     const groundRow = groundRowFor(map, PEAK[0], PEAK[1], FINE_M);
-    const datumRow = map.project(PEAK).row;
+    const datumRow = groundRowFor(map, PEAK[0], PEAK[1], 0);
     for (const selector of [".glyph-map-symbol", ".glyph-map-circle"]) {
       const cell = stagedCell(marker(host, selector));
       expect(Math.abs(cell.row - groundRow), selector).toBeLessThanOrEqual(1);

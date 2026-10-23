@@ -1981,10 +1981,11 @@ export interface GlyphMapHandle {
    * axis moves depth by a constant and col/row by nothing at all). The
    * "pivot at the camera's altitude" clause is therefore degenerate here and
    * the model reduces EXACTLY to "the surface point stays at screen centre",
-   * i.e. `camera.target = projection.project(lon, lat, 0)`. That is what a
-   * SHEET projection has always done, so one implementation serves both and
-   * the sheet path is untouched — a plane is the degenerate case of the same
-   * rule, and its `tilt` is still the total `camera.rotX`.
+   * i.e. `camera.target = projection.project(lon, lat, ground)`. Ground is
+   * the same windowed, triangle-sampled elevation used to plant features,
+   * including exaggeration through the projection. Without mounted ground
+   * it falls back to the datum. Both projection families share this rule;
+   * a sheet’s `tilt` is still the total `camera.rotX`.
    *
    * There is no third rotational degree of freedom being invented: composing
    * an extra `rotateX(tilt)` after `cameraForCenter`'s own rotation is
@@ -2199,7 +2200,9 @@ export interface GlyphMapHandle {
    * is not an error), so `await flyTo(...)` never hangs.
    */
   flyTo(target: GlyphMapFlyToTarget, opts?: GlyphMapFlyToOptions): Promise<void>;
+  /** Project the drawn ground (or datum where ground is unavailable) to grid cells. */
   project(lngLat: readonly [number, number]): GlyphMapProjectResult;
+  /** Invert the same ground surface as `project`; null where the local solve has no answer. */
   unproject(cell: readonly [number, number]): readonly [number, number] | null;
   addLayer(layer: GlyphMapLayer, beforeId?: string): string;
   /**
@@ -3270,11 +3273,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const t = camera.target;
       const screen = (v: Vec3) => camera.project(v, grid.cols, grid.rows, grid.cellAspect, grid);
       const origin = screen(t);
-      const eps = projection.centerForCamera ? 1e-3 : 1;
+      const ground = groundElevationSampler();
+      const eps = ground ? (projection.centerForCamera ? Math.min(1e-3, view.span / 1000) : 1e-6) : projection.centerForCamera ? 1e-3 : 1;
       const point = (x: number, y: number): Vec3 => {
-        if (!projection.centerForCamera) return [t[0] + x, t[1] + y, t[2]];
+        if (!projection.centerForCamera) {
+          if (!ground) return [t[0] + x, t[1] + y, t[2]];
+          const center = tryUnproject(projection, [t[0] + x, t[1] + y, t[2]]);
+          return center ? groundPoint(projection, center) : t;
+        }
         const center = projection.centerForCamera(camera.rotX - appliedTilt + x, camera.rotY + y);
-        return projection.project(center[0], center[1], 0);
+        return groundPoint(projection, center);
       };
       const a = screen(point(eps, 0)),
         b = screen(point(0, eps));
@@ -3322,10 +3330,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       camera.rotX = anchor.rotX + sx;
       camera.rotY = anchor.rotY + sy;
       renderedCenter = projection.centerForCamera(camera.rotX - appliedTilt, camera.rotY);
-      camera.target = projection.project(renderedCenter[0], renderedCenter[1], 0);
+      camera.target = groundPoint(projection, renderedCenter);
     } else {
-      camera.target = [anchor.target[0] + sx, anchor.target[1] + sy, anchor.target[2]];
-      renderedCenter = tryUnproject(projection, camera.target) ?? view.center;
+      const target: Vec3 = [anchor.target[0] + sx, anchor.target[1] + sy, anchor.target[2]];
+      renderedCenter = tryUnproject(projection, target) ?? view.center;
+      camera.target = groundElevationSampler() ? groundPoint(projection, renderedCenter) : target;
     }
     syncCameraBearing();
   }
@@ -3712,7 +3721,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /**
    * "Can the reader see the world at this lon/lat at all?" — the ONE near-side
    * predicate every POINT consumer in this file goes through: stroke run
-   * clipping, `unprojectSphere`, `project()`, marker and point-feature
+   * clipping, `unprojectSurface`, `project()`, marker and point-feature
    * hotspot sync, and a `fill-extrusion`'s wall cull.
    *
    * Off walk mode it is `projection.visible` and nothing else, byte for byte:
@@ -3824,7 +3833,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * ring vertex and stamped it with NO visibility test at all — the one
    * geometry path in this file that did not go through
    * `projection.visible`, which tile culling (`isBoundsVisible`), marker
-   * sync, point-feature hotspots and `unprojectSphere` all already consult.
+   * sync, point-feature hotspots and `unprojectSurface` all already consult.
    * An orthographic camera maps the FAR hemisphere onto the same screen
    * disc as the near one, so a far-side border landed inside the globe's
    * silhouette and read as lines drawn through the sphere. The depth test in
@@ -3915,7 +3924,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /**
    * The lon/lat points the VIEWPORT ITSELF is showing: a 3x3 screen sample
    * grid over the (padded) viewport, unprojected through the same
-   * `unprojectSphere`/`sheetUnprojector` inverse `map.unproject()` uses.
+   * `unprojectSurface`/`sheetUnprojector` inverse `map.unproject()` uses.
    * `isBoundsVisible`'s complement case reads these — a tile containing one
    * of them covers a point that is genuinely on screen, so accepting it is
    * a true positive by construction, never an over-approximation of the
@@ -3949,14 +3958,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * silently disable the complement.
    */
   function viewportGeoSamples(padCells: number, grid: ProjectionGrid): readonly (readonly [number, number])[] {
-    const orbit = isOrbitProjection();
-    const solveSheet = orbit ? null : sheetUnprojector(grid);
+    const solve = viewUnprojector(grid);
     const samples: (readonly [number, number])[] = [];
     for (let i = 0; i <= 2; i++) {
       const col = -padCells + ((grid.cols + 2 * padCells) * i) / 2;
       for (let j = 0; j <= 2; j++) {
         const row = -padCells + ((grid.rows + 2 * padCells) * j) / 2;
-        const lonLat = orbit ? unprojectSphere(col, row, grid) : (solveSheet ? solveSheet(col, row) : null);
+        const lonLat = solve(col, row);
         if (lonLat) samples.push(lonLat);
       }
     }
@@ -4102,7 +4110,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * The geographic box the camera can ACTUALLY see, for an ORBIT projection
    * (the globe — capability check, never `projection.id`), by unprojecting
    * a sample grid across the (padded) viewport through the same tilt-aware
-   * `unprojectSphere` `map.unproject()` itself uses. `view.center`/
+   * `unprojectSurface` `map.unproject()` itself uses. `view.center`/
    * `view.span` are not enough on their own: `computeZoomForSpan` samples
    * `span` along the MERIDIAN so zoom stays latitude-invariant, so a plain
    * `view.span`-based box under-covers longitude by up to `1 / cos(lat)`
@@ -4138,11 +4146,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const STEPS = 6; // 7x7 sample grid — cheap (candidateTileRange runs once per level per sweep, not per tile)
     let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
     let hits = 0;
+    const solve = viewUnprojector(grid);
     for (let i = 0; i <= STEPS; i++) {
       const col = -padCells + ((grid.cols + 2 * padCells) * i) / STEPS;
       for (let j = 0; j <= STEPS; j++) {
         const row = -padCells + ((grid.rows + 2 * padCells) * j) / STEPS;
-        const ll = unprojectSphere(col, row, grid);
+        const ll = solve(col, row);
         if (!ll) continue;
         hits++;
         west = Math.min(west, ll[0]);
@@ -4840,20 +4849,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       orbitRotation = { rotX, rotY };
       camera.rotX = rotX + pitch;
       camera.rotY = rotY;
-      // The PIVOT: the surface point under the view centre, not the globe's
-      // centre — `setTilt`'s doc for the model. At `pitch: 0` this is on the
-      // view axis, so it moves depth by a constant and col/row by nothing.
-      // Known gap: the pivot is the DATUM, not the drawn ground, so at city
-      // spans exaggerated terrain projects off the grid under a pitch.
-      // Targeting the ground moves every pinned pose and `centerForCamera`'s
-      // inversion, so it is an architectural change, not a tweak.
-      camera.target = projection.project(lon, lat, 0);
-    } else {
-      // A sheet's `camera.rotX` IS its pitch and is written by `setTilt`/
-      // construction, never here — the sheet pose is byte-identical to
-      // before this model existed.
-      camera.target = projection.project(lon, lat, 0);
     }
+    // Target the surface features actually stand on, so exaggerated relief
+    // cannot displace the geographic centre under pitch or bearing.
+    camera.target = groundPoint(projection, v.center);
     appliedTilt = pitch;
     camera.zoom = zoom;
     // The heading rides on TOP of the pose this just installed, and is
@@ -4866,7 +4865,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // ── project()/unproject() ────────────────────────────────────────────
 
   function project(lngLat: readonly [number, number]): GlyphMapProjectResult {
-    return projectOn(lngLat, projectionGrid());
+    return projectOn(lngLat, projectionGrid(), groundAt(lngLat));
   }
 
   /**
@@ -4908,7 +4907,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * `projection.unproject` THROWS for a strictly-interior `setProjection`
    * blend (`glyphMapProjectionTransition`'s own doc: "not generally
    * invertible"). Every caller of `unproject` — click-to-lonlat,
-   * `unprojectSheet` itself, contour field sampling (through the public
+   * `sheetUnprojector` itself, contour field sampling (through the public
    * `unproject()` wrapper) — must degrade to "no answer" for the
    * transition's duration rather than propagate that throw, per
    * `transition.ts`'s documented expectation. A `try`/`catch` here (rather
@@ -4929,7 +4928,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * three `camera.project` calls that then answers any number of cells with
    * two multiplies plus the projection's own `unproject`.
    *
-   * `unprojectSheet` (one cell) and the sun's per-cell night term (every
+   * `sheetUnprojector` (one cell) and the sun's per-cell night term (every
    * covered cell of every grid, on every render while the sun is on) share
    * this one implementation rather than each carrying its own copy of the
    * solve: hoisting the basis is what keeps a full-grid sweep from paying
@@ -4956,23 +4955,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
-  function unprojectSheet(col: number, row: number, grid: ProjectionGrid): readonly [number, number] | null {
-    const solve = sheetUnprojector(grid);
-    return solve ? solve(col, row) : null;
-  }
-
   /**
-   * Numeric (Newton) unproject for a projection navigated by camera orbit
-   * (the globe): the surface at `elev: 0` isn't a flat plane, so the linear
-   * `unprojectSheet` solve doesn't apply. `camera.project ∘ projection.project`
+   * Numeric (Newton) inverse of the globe or sampled ground. Neither is
+   * generally a flat plane, so the linear sheet inverse doesn't apply. `camera.project ∘ projection.project`
    * is smooth over the visible cap, so 2-unknown (lon, lat) Newton on a
    * finite-difference Jacobian converges in a handful of iterations — this
    * uses only PUBLIC `project`/`camera.project`, no camera-internal math.
    */
-  function unprojectSphere(col: number, row: number, grid: ProjectionGrid): readonly [number, number] | null {
+  function unprojectSurface(
+    col: number, row: number, grid: ProjectionGrid,
+    ground?: (lon: number, lat: number) => number,
+  ): readonly [number, number] | null {
     const centerForCamera = projection.centerForCamera;
-    if (!centerForCamera) return null;
-    let [lon, lat] = centerForCamera(camera.rotX, camera.rotY);
+    if (!ground && !centerForCamera) return null;
+    let [lon, lat] = ground ? (renderedCenter ?? view.center) : centerForCamera!(camera.rotX, camera.rotY);
+    const surface = (lon: number, lat: number): Vec3 => {
+      const elev = ground?.(lon, lat) ?? 0;
+      return projection.project(lon, lat, Number.isFinite(elev) ? elev : 0);
+    };
     // Start a hair OFF a pole. The (lon, lat) Jacobian's longitude column
     // vanishes at a pole — every longitude is the same point there — so a view
     // centred exactly on one starts Newton at a singular point, the first
@@ -4985,13 +4985,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const EPS = 1e-4;
     let converged = false;
     for (let i = 0; i < 12; i++) {
-      const p = projection.project(lon, lat, 0);
+      const p = surface(lon, lat);
       const [c0, r0] = camera.project(p, grid.cols, grid.rows, grid.cellAspect, grid);
       const dCol = col - c0, dRow = row - r0;
       if (Math.hypot(dCol, dRow) < 1e-4) { converged = true; break; }
-      const pLon = projection.project(lon + EPS, lat, 0);
+      const pLon = surface(lon + EPS, lat);
       const [cLon, rLon] = camera.project(pLon, grid.cols, grid.rows, grid.cellAspect, grid);
-      const pLat = projection.project(lon, lat + EPS, 0);
+      const pLat = surface(lon, lat + EPS);
       const [cLat, rLat] = camera.project(pLat, grid.cols, grid.rows, grid.cellAspect, grid);
       const j00 = (cLon - c0) / EPS, j10 = (rLon - r0) / EPS;
       const j01 = (cLat - c0) / EPS, j11 = (rLat - r0) / EPS;
@@ -5002,7 +5002,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       lon += dLon;
       lat = clamp(lat + dLat, -POLE_SAFE_LAT, POLE_SAFE_LAT);
     }
-    const world = projection.project(lon, lat, 0);
+    const world = surface(lon, lat);
     // Newton can settle on a residual local minimum (e.g. clamped at a pole)
     // for a screen point that has NO true corresponding surface point (one
     // that missed the sphere's silhouette entirely) — a converged final
@@ -5019,9 +5019,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return [lon, lat];
   }
 
+  function viewUnprojector(grid: ProjectionGrid): (col: number, row: number) => readonly [number, number] | null {
+    const ground = walk ? null : groundElevationSampler();
+    if (ground) {
+      if (!tryUnproject(projection, camera.target)) return () => null;
+      return (col, row) => unprojectSurface(col, row, grid, ground);
+    }
+    if (isOrbitProjection()) return (col, row) => unprojectSurface(col, row, grid);
+    return sheetUnprojector(grid) ?? (() => null);
+  }
+
   function unproject(cell: readonly [number, number]): readonly [number, number] | null {
-    const grid = projectionGrid();
-    return isOrbitProjection() ? unprojectSphere(cell[0], cell[1], grid) : unprojectSheet(cell[0], cell[1], grid);
+    return viewUnprojector(projectionGrid())(cell[0], cell[1]);
   }
 
   // ── Events ────────────────────────────────────────────────────────────
@@ -5116,6 +5125,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const groundChangeSyncs = new Set<() => void>();
   let groundChangeQueued = false;
   function notifyGroundChanged(): void {
+    if (!walk) {
+      // Mount and re-anchor in the same turn: no frame shows the newly drawn
+      // centre at the old datum offset. Keep the geographic view/URL exact.
+      const target = groundPoint(projection, renderedCenter ?? view.center);
+      if (target.some((v, i) => v !== camera.target[i])) {
+        restoreExactPanPose();
+        panAnchor = null;
+        camera.target = groundPoint(projection, view.center);
+        snapRenderedPan();
+        syncNearSide();
+      }
+    }
     if (groundChangeQueued || groundChangeSyncs.size === 0) return;
     groundChangeQueued = true;
     queueMicrotask(() => {
@@ -5451,6 +5472,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (disposed) return;
         floorTiles = tiles;
         floorHandles = tiles.flatMap((tile) => mountTile(tile, floorFraction ?? 1, "floor"));
+        notifyGroundChanged();
         scene.rerender();
       });
       return floorPromise;
@@ -5603,7 +5625,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             if (tile) { activeHandles.set(key, mountTile(tile, activeFraction, "fine")); mountedNow = true; }
           }
         }
-        if (mountedNow) { scene.rerender(); notifyGroundChanged(); }
+        if (mountedNow) { notifyGroundChanged(); scene.rerender(); }
 
         // Fallback is fetched and mounted as its OWN phase, awaited BEFORE
         // the fine tier's own fetch — not merged into one `Promise.all`
@@ -5627,8 +5649,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
               if (tile) fallbackHandles.set(key, mountTile(tile, fallbackFraction, "fallback"));
             }
           }
-          scene.rerender();
           notifyGroundChanged();
+          scene.rerender();
         }
 
         const missingFine = [...desired].filter((key) => !tileCache.has(key));
@@ -5671,10 +5693,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           }
         }
 
-        scene.rerender();
         // The mounted tile set is final for this update — anything standing
         // ON this terrain re-reads the ground it is planted on.
         notifyGroundChanged();
+        scene.rerender();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -5690,8 +5712,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       } else {
         disposeMeshes();
         staticHandles = mountTile(layer.source, 1, "fine");
-        scene.rerender();
         notifyGroundChanged();
+        scene.rerender();
       }
     }
 
@@ -5859,6 +5881,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const value = read(lon, lat);
       return Number.isFinite(value) ? value : 0;
     };
+  }
+
+  function groundAt(center: readonly [number, number]): number {
+    return markerGroundAt(groundElevationSampler(), center[0], center[1]);
+  }
+
+  function groundPoint(proj: GlyphMapProjection, center: readonly [number, number]): Vec3 {
+    return proj.project(center[0], center[1], groundAt(center));
   }
 
   /**
@@ -8780,9 +8810,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // frames would make a transition's very first frame lerp toward a
       // 180deg roll flip the camera never asked for.
       const { rotX, rotY } = orbitRotationFor(proj, lon, lat);
-      return { rotX: rotX + pitch, rotY, target: proj.project(lon, lat, 0), zoom, tilt: pitch };
+      return { rotX: rotX + pitch, rotY, target: groundPoint(proj, v.center), zoom, tilt: pitch };
     }
-    return { rotX: pitch, rotY: 0, target: proj.project(lon, lat, 0), zoom, tilt: pitch };
+    return { rotX: pitch, rotY: 0, target: groundPoint(proj, v.center), zoom, tilt: pitch };
   }
 
   /**
@@ -10151,7 +10181,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // Without this the pitch would keep swinging about the surface point
       // the gesture started on, and `view.center` would walk off the grid
       // again — the same displacement, one gesture at a time.
-      camera.target = projection.project(center[0], center[1], 0);
+      camera.target = groundPoint(projection, center);
       // The pivot moved, so the axis the heading turns about moved with it.
       syncCameraBearing();
     } else {
@@ -10185,7 +10215,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const lon = clamp(lonRaw, d.west, d.east);
       const lat = clamp(latRaw, d.south, d.north);
       view = { ...view, center: [lon, lat], bounds: undefined };
-      camera.target = projection.project(lon, lat, 0);
+      camera.target = groundPoint(projection, [lon, lat]);
       syncCameraBearing();
     }
     snapRenderedPan();
@@ -10478,7 +10508,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   /**
    * The client-coordinate origin of the col/row frame `camera.project` and
-   * `unprojectSphere`/`unprojectSheet` share.
+   * `unprojectSurface`/`sheetUnprojector` share.
    *
    * The same fallback ladder {@link projectionGrid} itself walks — the
    * output `<pre>` when it has been laid out, the host otherwise — because
@@ -10536,7 +10566,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (controlsDrag && origin) {
       const col = (fromX - origin.left) / grid.cellWidth;
       const row = (fromY - origin.top) / grid.cellHeight;
-      anchor = isOrbitProjection() ? unprojectSphere(col, row, grid) : unprojectSheet(col, row, grid);
+      anchor = viewUnprojector(grid)(col, row);
     }
     cancelCameraGlide();
     if (spanFactor !== 1) {
@@ -10582,7 +10612,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       let prevSx = 0, prevSy = 0, prevAskX = 0, prevAskY = 0;
       let bestResidual = Infinity, sinceBestX = 0, sinceBestY = 0;
       for (let pass = 0; pass <= GLYPH_MAP_TOUCH_ANCHOR_PASSES; pass++) {
-        const p = projectOn(anchor, grid);
+        const p = projectOn(anchor, grid, groundAt(anchor));
         if (!Number.isFinite(p.col) || !Number.isFinite(p.row)) break;
         const sx = origin.left + p.col * grid.cellWidth, sy = origin.top + p.row * grid.cellHeight;
         if (pass > 0) {
