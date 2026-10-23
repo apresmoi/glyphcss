@@ -9,11 +9,11 @@ Pass `stateDiagram` or `stateDiagram-v2` source to `renderGlyphDiagram`.
 
 ## Order lifecycle
 
-<GlyphRender kind="diagram" source={"stateDiagram-v2\n [*] --> Draft\n Draft --> Paid: pay\n Paid --> Shipped: dispatch\n Shipped --> [*]"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"stateDiagram-v2\n direction LR\n [*] --> Draft\n Draft --> Pending: submit\n Pending --> Paid: pay\n Pending --> Cancelled: cancel\n Paid --> Shipped: dispatch\n Paid --> Refunded: refund\n Shipped --> [*]"} options={{"target": "chat", "width": 92, "height": 19, "overflow": "expand"}} />
 
 ## Composite state
 
-<GlyphRender kind="diagram" source={"stateDiagram-v2\n [*] --> Checkout\n state Checkout {\n [*] --> Review\n Review --> Payment\n Payment --> [*]\n }\n Checkout --> Complete\n Complete --> [*]"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"stateDiagram-v2\n direction LR\n [*] --> Checkout\n state Checkout {\n [*] --> Review\n Review --> Payment\n Payment --> [*]\n }\n Checkout --> Complete\n Complete --> [*]"} options={{"target": "chat", "width": 72, "height": 17, "overflow": "expand"}} />
 
 ## Syntax and limits
 

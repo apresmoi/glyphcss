@@ -13,12 +13,20 @@ Mermaid chart headers also use their native chart renderer.
 
 ```sh
 npm i -D @glyphcss/compile
-printf 'flowchart LR; Input --> Parse --> Render\n' > example.mmd
-npx glyphcss diagram example.mmd --target chat --width 60 --height 12
+cat > example.mmd <<'EOF'
+flowchart LR
+ Push[Push commit] --> Build[Build app]
+ Build --> Test{Tests pass?}
+ Test -->|yes| Stage[Deploy staging]
+ Stage --> Smoke[Smoke tests]
+ Smoke --> Prod[Deploy prod]
+ Test -->|no| Fix[Fix build]
+EOF
+npx glyphcss diagram example.mmd --target chat --width 72 --height 19
 npx glyphcss diagram example.mmd --charset ascii --color none -o example.txt
 ```
 
-<GlyphRender kind="diagram" source={"flowchart LR; Input --> Parse --> Render"} options={{"target":"chat","width":60,"height":12}} showSource={false} />
+<GlyphRender kind="diagram" source={"flowchart LR\n Push[Push commit] --> Build[Build app]\n Build --> Test{Tests pass?}\n Test -->|yes| Stage[Deploy staging]\n Stage --> Smoke[Smoke tests]\n Smoke --> Prod[Deploy prod]\n Test -->|no| Fix[Fix build]"} options={{"target": "chat", "width": 72, "height": 19, "overflow": "expand"}} showSource={false} />
 
 Graph JSON uses the [graph format](/diagrams/json/#graph-json); direction defaults to `TB`
 when omitted. Sequence JSON and lane JSON use their Node APIs, not this subcommand.

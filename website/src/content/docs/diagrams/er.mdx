@@ -9,7 +9,7 @@ Use `erDiagram` with `renderGlyphDiagram`. Entity attributes occupy compartments
 
 ## Customer orders
 
-<GlyphRender kind="diagram" source={"erDiagram\n CUSTOMER ||--o{ ORDER : places"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"erDiagram\n CUSTOMER ||--o{ ORDER : places\n ORDER ||--|{ LINE : contains\n LINE }o--|| PRODUCT : references\n ORDER ||--o{ PAYMENT : receives\n PAYMENT ||--o| REFUND : reverses"} options={{"target": "chat", "width": 78, "height": 25, "overflow": "expand"}} />
 
 ## Attributes and keys
 

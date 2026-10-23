@@ -3,12 +3,16 @@ title: glyphcss vs beautiful-mermaid vs mermaid-ascii
 description: Compare documented diagram families, charts, text charsets, width fitting, agent integration, runtimes, and output formats across three Mermaid renderers.
 ---
 
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
 This compares `@glyphcss/diagrams` and `@glyphcss/charts` with
 [beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid#readme) and
 [mermaid-ascii](https://github.com/AlexanderGrooff/mermaid-ascii#readme).
 Competitor entries describe their public READMEs, checked on 23 October 2026.
 An empty cell means the README does not establish that feature, not that it is
 unsupported. Family support does not imply every Mermaid feature is reproduced.
+
+<GlyphRender kind="diagram" source={"flowchart LR\n Cart[Submit cart] --> Stock{In stock?}\n Stock -->|yes| Pay[Take payment]\n Pay --> Pack[Pack order]\n Pack --> Ship[Ship parcel]\n Ship --> Receipt[Send receipt]\n Stock -->|no| Notify[Notify buyer]\n Notify --> Wait[Join waitlist]"} options={{"target": "chat", "width": 72, "height": 23, "overflow": "expand"}} />
 
 ## Documented features
 

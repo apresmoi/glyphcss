@@ -11,7 +11,7 @@ Pass objects directly to renderers, or use the JSON-string wrappers below.
 
 ## Graph JSON
 
-<GlyphRender kind="diagram" source={{"direction": "LR", "nodes": [{"id": "api", "label": "Order API", "shape": "rounded"}, {"id": "db", "label": "Orders", "shape": "cylinder"}], "edges": [{"id": "save", "from": "api", "to": "db", "label": "stores"}]}} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={{"direction": "LR", "nodes": [{"id": "api", "label": "Order API", "shape": "rounded"}, {"id": "cache", "label": "Cache", "shape": "cylinder"}, {"id": "db", "label": "Orders", "shape": "cylinder"}, {"id": "queue", "label": "Job queue"}, {"id": "worker", "label": "Receipt worker"}, {"id": "files", "label": "Receipts", "shape": "cylinder"}], "edges": [{"id": "read", "from": "api", "to": "cache", "label": "reads"}, {"id": "save", "from": "api", "to": "db", "label": "stores"}, {"id": "enqueue", "from": "api", "to": "queue", "label": "enqueues"}, {"from": "queue", "to": "worker"}, {"from": "worker", "to": "files", "label": "writes"}]}} options={{"target": "chat", "width": 74, "height": 23, "overflow": "expand"}} />
 
 `renderGlyphDiagram(graph, options)` uses these fields:
 

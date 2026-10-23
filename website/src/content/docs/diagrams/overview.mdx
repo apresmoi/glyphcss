@@ -19,13 +19,19 @@ npm i @glyphcss/diagrams
 import { renderGlyphDiagram } from "@glyphcss/diagrams";
 
 const result = await renderGlyphDiagram(
-  "flowchart LR; Input --> Parse --> Render",
-  { target: "chat", width: 48, height: 9 },
+  `flowchart LR
+ Push[Push commit] --> Build[Build app]
+ Build --> Test{Tests pass?}
+ Test -->|yes| Stage[Deploy staging]
+ Stage --> Smoke[Smoke tests]
+ Smoke --> Prod[Deploy prod]
+ Test -->|no| Fix[Fix build]`,
+  { target: "chat", width: 72, height: 19, overflow: "expand" },
 );
 console.log(result.text);
 ```
 
-<GlyphRender kind="diagram" source={"flowchart LR; Input --> Parse --> Render"} options={{"target": "chat", "width": 48, "height": 9}} showSource={false} />
+<GlyphRender kind="diagram" source={"flowchart LR\n Push[Push commit] --> Build[Build app]\n Build --> Test{Tests pass?}\n Test -->|yes| Stage[Deploy staging]\n Stage --> Smoke[Smoke tests]\n Smoke --> Prod[Deploy prod]\n Test -->|no| Fix[Fix build]"} options={{"target": "chat", "width": 72, "height": 19, "overflow": "expand"}} showSource={false} />
 
 ## Choose a target
 
@@ -41,15 +47,15 @@ These previews use explicit compact sizes and `color: "none"` so terminal escape
 
 ### Chat
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request --> Reply"} options={{"target": "chat", "width": 40, "height": 7, "color": "none"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth[Check token] --> Reply[Return order]"} options={{"target": "chat", "width": 54, "height": 7, "color": "none"}} />
 
 ### Terminal
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request --> Reply"} options={{"target": "terminal", "width": 48, "height": 7, "color": "none"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth[Check token] --> Reply[Return order]"} options={{"target": "terminal", "width": 54, "height": 7, "color": "none"}} />
 
 ### Web
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request --> Reply"} options={{"target": "web", "width": 56, "height": 9, "color": "css"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth[Check token] --> Reply[Return order]"} options={{"target": "web", "width": 54, "height": 7, "color": "css"}} />
 
 Diagram borders use whole cells in every charset. Targets do not change a diagram into a raster image.
 

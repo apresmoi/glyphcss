@@ -9,7 +9,7 @@ Pass `architecture` or `architecture-beta` source to `renderGlyphDiagram`. Servi
 
 ## Connect an API to storage
 
-<GlyphRender kind="diagram" source={"architecture-beta\n service api(server)[Order API]\n service db(database)[Orders]\n api:R --> L:db"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"architecture-beta\n service api(server)[Order API]\n service db(database)[Orders]\n service queue(server)[Job queue]\n service worker(server)[Receipt worker]\n service files(disk)[Receipts]\n service mail(cloud)[Email gateway]\n api:R --> L:db\n api:R --> L:queue\n queue:R --> L:worker\n worker:R --> L:files\n worker:R --> L:mail"} options={{"target": "chat", "width": 78, "height": 22, "overflow": "expand"}} />
 
 ## Group services
 

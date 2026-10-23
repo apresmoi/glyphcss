@@ -14,9 +14,9 @@ All three diagram renderers accept `target`, `charset`, `color`, `width`, `heigh
 `charset` accepts `ascii`, `box`, `blocks`, or `braille`. Borders remain whole-cell;
 ASCII replaces special outlines and folds unsupported label characters.
 
-<GlyphRender kind="diagram" source={"flowchart LR; Read[Read order] --> Save[(Orders)]"} options={{"target": "chat", "charset": "ascii", "width": 48, "height": 9}} />
+<GlyphRender kind="diagram" source={"flowchart LR\n Read[Read order] --> Auth[Check access]\n Auth --> Cache{Cached?}\n Cache -->|yes| Reply[Return order]\n Cache -->|no| Load[(Orders)]\n Load --> Refresh[Refresh cache]"} options={{"target": "chat", "width": 72, "height": 18, "overflow": "expand", "charset": "ascii"}} />
 
-<GlyphRender kind="diagram" source={"flowchart LR; Read[Read order] --> Save[(Orders)]"} options={{"target": "chat", "charset": "box", "width": 48, "height": 9}} />
+<GlyphRender kind="diagram" source={"flowchart LR\n Read[Read order] --> Auth[Check access]\n Auth --> Cache{Cached?}\n Cache -->|yes| Reply[Return order]\n Cache -->|no| Load[(Orders)]\n Load --> Refresh[Refresh cache]"} options={{"target": "chat", "width": 72, "height": 18, "overflow": "expand", "charset": "box"}} />
 
 ## Color encodings
 
@@ -47,18 +47,20 @@ Resize changes layout; it does not shrink the font or alter density.
 When fitting fails, the renderer can simplify or split the graph. A budget too small
 for even one node can yield an empty panel and a report entry; inspect the output.
 Sequences paginate by time and repeat headers. Lane pages keep nodes with their connectors.
+This 32-column example keeps the labels whole and repeats boundary nodes across panels.
 
-<GlyphRender kind="diagram" source={"flowchart LR; Receive[Receive order] --> Validate[Validate payment] --> Dispatch[Dispatch parcel]"} options={{"target": "chat", "width": 28, "height": 8, "detail": "faithful", "overflow": "paginate"}} />
+<GlyphRender kind="diagram" source={"flowchart TB; Receive[Receive order] --> Validate[Validate payment] --> Dispatch[Dispatch parcel]"} options={{"target": "chat", "width": 32, "height": 9, "detail": "faithful", "overflow": "paginate"}} />
 
 ### Expand for a pannable host
 
 `overflow: "expand"` lets graphs grow to a connected canvas. Read actual dimensions
 from `result.canvas.grid.cols` and `.rows`, then let the host pan or scroll.
 Sequences and lanes expand their height at the requested width; they can still be too wide.
+The same 32-column example below grows vertically to keep the path connected.
 The workbench uses expansion for web diagrams. Expansion can still fall back to splitting
 when the bounded fitting search cannot find a usable layout.
 
-<GlyphRender kind="diagram" source={"flowchart LR; Receive[Receive order] --> Validate[Validate payment] --> Dispatch[Dispatch parcel]"} options={{"target": "chat", "width": 28, "height": 8, "detail": "faithful", "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"flowchart TB; Receive[Receive order] --> Validate[Validate payment] --> Dispatch[Dispatch parcel]"} options={{"target": "chat", "width": 32, "height": 9, "detail": "faithful", "overflow": "expand"}} />
 
 ## Direction and automatic direction
 
@@ -67,7 +69,7 @@ Graphs accept `direction: "TB" | "LR" | "BT" | "RL"` to override their source di
 the source orientation in ordinary flowcharts. Structured Mermaid readers may enable
 adaptive orientation by default; C4 respects an explicit direction.
 
-<GlyphRender kind="diagram" source={"flowchart LR; Build --> Test --> Ship"} options={{"target": "chat", "direction": "TB", "width": 28, "height": 14}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Build --> Test --> Ship"} options={{"target": "chat", "direction": "TB", "width": 28, "height": 19}} />
 
 ## Detail levels
 

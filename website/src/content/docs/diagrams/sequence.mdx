@@ -9,11 +9,11 @@ Import `renderGlyphSequence` from `@glyphcss/diagrams/sequence`, then pass sourc
 
 ## Request and response
 
-<GlyphRender kind="sequence" source={"sequenceDiagram\n participant Browser\n participant API\n Browser->>API: GET /orders\n API-->>Browser: 200 OK"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="sequence" source={"sequenceDiagram\n participant Buyer\n participant API\n participant Stock\n participant Pay\n participant Mail\n Buyer->>API: Place order\n API->>Stock: Reserve items\n Stock-->>API: Items held\n API->>Pay: Charge card\n Pay-->>API: Approved\n API->>Mail: Send receipt\n Mail-->>API: Queued\n API-->>Buyer: Order confirmed"} options={{"target": "chat", "width": 92, "height": 27, "overflow": "expand"}} />
 
 ## Alternative responses and notes
 
-<GlyphRender kind="sequence" source={"sequenceDiagram\n actor Buyer\n participant API\n Buyer->>API: Place order\n alt In stock\n API-->>Buyer: Confirmed\n else Sold out\n API-->>Buyer: Try later\n end\n Note over Buyer,API: Save the order number"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="sequence" source={"sequenceDiagram\n actor Buyer\n participant API\n Note right of API: Keep receipt\n Buyer->>API: Place order\n alt In stock\n API-->>Buyer: Confirmed\n else Sold out\n API-->>Buyer: Try later\n end"} options={{"target": "chat", "width": 64, "height": 19, "overflow": "expand"}} />
 
 ## Syntax and limits
 

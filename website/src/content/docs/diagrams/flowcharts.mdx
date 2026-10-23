@@ -9,11 +9,11 @@ Use `renderGlyphDiagram` from `@glyphcss/diagrams`. Both `flowchart` and `graph`
 
 ## Route an order
 
-<GlyphRender kind="diagram" source={"flowchart LR\n Cart --> Stock{In stock?}\n Stock -->|yes| Pay[Take payment]\n Stock -->|no| Notify[Notify buyer]"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"flowchart LR\n Cart[Submit cart] --> Stock{In stock?}\n Stock -->|yes| Pay[Take payment]\n Pay --> Pack[Pack order]\n Pack --> Ship[Ship parcel]\n Ship --> Receipt[Send receipt]\n Stock -->|no| Notify[Notify buyer]\n Notify --> Wait[Join waitlist]"} options={{"target": "chat", "width": 72, "height": 23, "overflow": "expand"}} />
 
 ## Group a processing pipeline
 
-<GlyphRender kind="diagram" source={"graph TB\n subgraph ingest[Ingestion]\n Upload --> Validate\n end\n Validate --> Store[(Orders)]\n Store -.-> Audit"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"graph LR\n subgraph ingest[Order ingestion]\n Upload[Upload batch] --> Validate[Validate rows]\n end\n Validate -->|valid| Store[(Orders)]\n Validate -->|invalid| Reject[Reject batch]\n Store -.-> Audit[Audit log]"} options={{"target": "chat", "width": 80, "height": 19, "overflow": "expand"}} />
 
 ## Syntax and limits
 

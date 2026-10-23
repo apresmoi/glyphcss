@@ -23,8 +23,14 @@ import { renderGlyphDiagram } from "@glyphcss/diagrams";
 
 const host = document.querySelector<HTMLPreElement>("#diagram")!;
 try {
-  const result = await renderGlyphDiagram("flowchart LR; Build --> Test --> Ship", {
-    target: "web", color: "none", width: 64, height: 16, overflow: "expand",
+  const result = await renderGlyphDiagram(`flowchart LR
+  Push[Push commit] --> Build[Build app]
+  Build --> Test{Tests pass?}
+  Test -->|yes| Stage[Deploy staging]
+  Stage --> Smoke[Smoke tests]
+  Smoke --> Prod[Deploy prod]
+  Test -->|no| Fix[Fix build]`, {
+    target: "web", color: "none", width: 72, height: 19, overflow: "expand",
   });
   host.textContent = result.text;
 } catch (error) {
@@ -38,12 +44,18 @@ try {
 import { useEffect, useState } from "react";
 import { renderGlyphDiagram } from "@glyphcss/diagrams";
 
-export function GlyphOrderDiagram({ source = "flowchart LR; Build --> Test --> Ship" }) {
+export function GlyphOrderDiagram({ source = `flowchart LR
+  Push[Push commit] --> Build[Build app]
+  Build --> Test{Tests pass?}
+  Test -->|yes| Stage[Deploy staging]
+  Stage --> Smoke[Smoke tests]
+  Smoke --> Prod[Deploy prod]
+  Test -->|no| Fix[Fix build]` }) {
   const [text, setText] = useState("");
   useEffect(() => {
     let active = true;
     renderGlyphDiagram(source, {
-      target: "web", color: "none", width: 64, height: 16, overflow: "expand",
+      target: "web", color: "none", width: 72, height: 19, overflow: "expand",
     }).then(
       result => { if (active) setText(result.text); },
       error => { if (active) setText(error instanceof Error ? error.message : String(error)); },
@@ -73,14 +85,20 @@ import { ref, watchEffect } from "vue";
 import { renderGlyphDiagram } from "@glyphcss/diagrams";
 
 const props = withDefaults(defineProps<{ source?: string }>(), {
-  source: "flowchart LR; Build --> Test --> Ship",
+  source: `flowchart LR
+  Push[Push commit] --> Build[Build app]
+  Build --> Test{Tests pass?}
+  Test -->|yes| Stage[Deploy staging]
+  Stage --> Smoke[Smoke tests]
+  Smoke --> Prod[Deploy prod]
+  Test -->|no| Fix[Fix build]`,
 });
 const text = ref("");
 watchEffect(onCleanup => {
   let active = true;
   onCleanup(() => { active = false; });
   renderGlyphDiagram(props.source, {
-    target: "web", color: "none", width: 64, height: 16, overflow: "expand",
+    target: "web", color: "none", width: 72, height: 19, overflow: "expand",
   }).then(
     result => { if (active) text.value = result.text; },
     error => { if (active) text.value = error instanceof Error ? error.message : String(error); },
@@ -101,7 +119,7 @@ watchEffect(onCleanup => {
 
 ## Rendered result
 
-<GlyphRender kind="diagram" source={"flowchart LR; Build --> Test --> Ship"} options={{"target": "web", "color": "none", "width": 64, "height": 16, "overflow": "expand"}} showSource={false} />
+<GlyphRender kind="diagram" source={"flowchart LR\n Push[Push commit] --> Build[Build app]\n Build --> Test{Tests pass?}\n Test -->|yes| Stage[Deploy staging]\n Stage --> Smoke[Smoke tests]\n Smoke --> Prod[Deploy prod]\n Test -->|no| Fix[Fix build]"} options={{"target": "web", "width": 72, "height": 19, "overflow": "expand", "color": "none"}} showSource={false} />
 
 ## Colored HTML
 

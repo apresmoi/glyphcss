@@ -9,7 +9,7 @@ Pass `requirementDiagram` source to `renderGlyphDiagram`. Fields become compartm
 
 ## Connect an implementation to a requirement
 
-<GlyphRender kind="diagram" source={"requirementDiagram\n requirement safe {\n id: R1\n text: \"No duplicate charge\"\n risk: high\n verifymethod: test\n }\n element api {\n type: service\n docref: \"Order API\"\n }\n api - satisfies -> safe"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"requirementDiagram\n requirement safe {\n id: R1\n text: \"No duplicate charge\"\n risk: high\n verifymethod: test\n }\n requirement audit {\n id: R2\n text: \"Record every refund\"\n risk: medium\n verifymethod: test\n }\n element api {\n type: service\n docref: \"Payment API\"\n }\n element suite {\n type: test\n docref: \"Retry tests\"\n }\n element ledger {\n type: service\n docref: \"Refund log\"\n }\n api - satisfies -> safe\n suite - verifies -> safe\n ledger - satisfies -> audit\n safe - traces -> audit"} options={{"target": "chat", "width": 88, "height": 34, "overflow": "expand"}} />
 
 ## Record verification
 

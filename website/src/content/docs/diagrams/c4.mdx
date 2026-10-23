@@ -11,7 +11,7 @@ not pixel-identical Mermaid C4 drawings.
 
 ## System context
 
-<GlyphRender kind="diagram" source={"C4Context\n Person(buyer, \"Buyer\")\n System(portal, \"Portal\", \"Order online\")\n Rel(buyer, portal, \"Places orders\")"} options={{"target": "chat", "width": 72, "height": 24, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"C4Context\n Person(buyer, \"Buyer\")\n System(portal, \"Order portal\", \"Online checkout\")\n System_Ext(pay, \"Payments\", \"Card processor\")\n System_Ext(ship, \"Shipping\", \"Parcel tracking\")\n System_Ext(mail, \"Email\", \"Order updates\")\n Rel(buyer, portal, \"Orders\")\n Rel(portal, pay, \"Charges\")\n Rel(portal, ship, \"Dispatches\")\n Rel(portal, mail, \"Notifies\")"} options={{"target": "chat", "width": 88, "height": 29, "overflow": "expand"}} />
 
 ## Containers
 

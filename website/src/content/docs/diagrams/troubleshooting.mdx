@@ -3,8 +3,12 @@ title: Fix Mermaid text diagram errors and layout problems
 description: Diagnose Mermaid parser errors, invalid JSON, missing glyphs, crowded layouts, pagination, and font alignment in glyphcss text diagram output.
 ---
 
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
 Start with the error's `code` or `result.report.ledger`. Parse and validation failures
 are different from successful renders that needed layout adaptations.
+
+<GlyphRender kind="diagram" source={"flowchart LR\n Error[Read error code] --> Parse{Parse failed?}\n Parse -->|yes| Syntax[Check syntax]\n Parse -->|no| Ledger[Read render notes]\n Ledger --> Size[Increase budget]\n Size --> Inspect[Inspect all pages]\n Syntax --> Retry[Render again]"} options={{"target": "chat", "width": 76, "height": 22, "overflow": "expand"}} />
 
 ## Parser and JSON errors
 

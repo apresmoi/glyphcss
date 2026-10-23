@@ -9,7 +9,7 @@ Pass `block` or `block-beta` source to `renderGlyphDiagram`. Column hints guide 
 
 ## Place services in columns
 
-<GlyphRender kind="diagram" source={"block-beta\n columns 3\n web[\"Web app\"] api[\"Order API\"] db[(\"Orders\")]\n web --> api\n api --> db"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+<GlyphRender kind="diagram" source={"block-beta\n columns 3\n web[\"Storefront\"] api[\"Order API\"] db[(\"Orders\")]\n queue[\"Job queue\"] worker[\"Receipt worker\"] mail[\"Email gateway\"]\n web --> api\n api --> db\n api --> queue\n queue --> worker\n worker --> mail"} options={{"target": "chat", "width": 72, "height": 17, "overflow": "expand"}} />
 
 ## Nest a spanning block
 
