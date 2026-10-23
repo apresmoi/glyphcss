@@ -181,3 +181,10 @@ it("exports the pan snapping selected on the page", () => {
   expect(build({ snapPan: true })).toContain("snapPan: true");
   expect(build({ snapPan: false })).not.toContain("snapPan:");
 });
+
+it("exports the OSM box lines, class palette, and live road hierarchy used by the page", async () => {
+  const { MAP_OSM_LINE_OPTIONS } = await import("../../features/maps/model/mapsOsm");
+  const code = build({ osm: { enabled: ["omt-roads"], densities: {}, anchors: {} } });
+  expect(code).toContain(`lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)}`);
+  expect(code).toContain("roadHierarchy: true");
+});

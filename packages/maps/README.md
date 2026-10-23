@@ -102,7 +102,7 @@ MapLibre-shaped layer names describe glyphcss rendering; this is not a MapLibre 
 |---|---|
 | `background` | CSS background colour. |
 | `raster` | Elevation tiles as a 3D relief mesh. |
-| `line` | Vector lines stamped into the text grid; opt-in `sharedArcs: true` deduplicates polygon boundaries before live `simplify: "vw"`. Experimental `box` glyphs join layer paths with depth-tested staircase corners. |
+| `line` | Vector lines stamped into the text grid; opt-in `sharedArcs: true` deduplicates polygon boundaries before live `simplify: "vw"`. Experimental `box` glyphs join layer paths with depth-tested staircase corners; tiny closed shapes become dots, open stubs never do. `colorProperty`/`colors` select per-feature line colours. |
 | `contour` | Elevation isolines, with optional labels. |
 | `fill` | Polygon meshes, draped or flat. |
 | `fill-extrusion` | Buildings and other extruded polygons. |

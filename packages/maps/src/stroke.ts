@@ -416,6 +416,9 @@ function stampTinyBoxShape(
   graph: GlyphMapBoxStrokeGraph,
 ): boolean {
   if (points.length < 2) return false;
+  // Open roads retain their path: a sub-cell stub must never become an island dot.
+  const start = points[0]!, end = points.at(-1)!;
+  if (start.col !== end.col || start.row !== end.row) return false;
   let minCol = Infinity,
     maxCol = -Infinity,
     minRow = Infinity,

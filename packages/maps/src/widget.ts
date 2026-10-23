@@ -60,7 +60,7 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
-import { createGlyphMapLineSimplifier, type GlyphMapLonLat } from "./vector/simplify";
+import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
 import {
   GLYPH_MAP_WALK_DRAG_DEG_PER_PX,
@@ -461,6 +461,11 @@ export interface GlyphMapLineLayer {
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
   readonly color?: string;
+  /** Per-feature palette, with the same fallback as fill layers. */
+  readonly colorProperty?: string;
+  readonly colors?: Readonly<Record<string, string>>;
+  /** Live output-grid resolution cut, after the static filter. Walking passes 0 (full detail). */
+  readonly filterAtResolution?: (feature: GlyphMapVectorFeature, degreesPerCell: number) => boolean;
   /** @experimental Border glyphs. Box joins all accepted layer paths and depth-tests added staircase corners. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** Opt-in live Visvalingam–Whyatt thinning at half a cell, cached per zoom bucket. Omitted keeps source geometry unchanged. Disabled while walking. */
@@ -5912,10 +5917,22 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function createLineLayerRuntime(layer: GlyphMapLineLayer): LineLayerRuntime {
-    const color = layer.color;
     const simplifyLine = layer.simplify === "vw" ? createGlyphMapLineSimplifier() : null;
     const sharedArcCache = layer.sharedArcs ? createGlyphMapSharedArcCache(layer.filter) : null;
-    const tileArcs = new WeakMap<import("./vector/types").GlyphMapVectorTile, readonly (readonly GlyphMapLonLat[])[]>();
+    // Explicit routes keep their properties; only polygon boundaries lose identity to topology.
+    const sharedFeatureCache = new WeakMap<readonly GlyphMapVectorFeature[], readonly GlyphMapVectorFeature[]>();
+    const sharedFeatures = (features: readonly GlyphMapVectorFeature[]): readonly GlyphMapVectorFeature[] => {
+      let selected = sharedFeatureCache.get(features);
+      if (!selected) {
+        selected = [
+          ...sharedArcCache!(features.filter(f => f.geometryType !== "line")).map(ring => ({ rings: [ring] })),
+          ...features.filter(f => f.geometryType === "line" && (!layer.filter || layer.filter(f))),
+        ];
+        sharedFeatureCache.set(features, selected);
+      }
+      return selected;
+    };
+    const tileArcs = new WeakMap<import("./vector/types").GlyphMapVectorTile, readonly GlyphMapVectorFeature[]>();
     let source: GlyphMapVectorSource = layer.source;
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -5964,7 +5981,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           if (disposed) return;
         }
         const feats: GlyphMapVectorFeature[] = [];
-        const arcs: (readonly GlyphMapLonLat[])[] = [];
+        const arcs: GlyphMapVectorFeature[] = [];
         for (const key of desired) {
           const tile = tileCache.get(key);
           if (!tile) continue;
@@ -5973,7 +5990,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             if (!cached) {
               const selected = Object.entries(tile.layers).flatMap(([name, list]) =>
                 !layer.sourceLayer || name === layer.sourceLayer ? list : []);
-              cached = sharedArcCache(selected);
+              cached = sharedFeatures(selected);
               tileArcs.set(tile, cached);
             }
             arcs.push(...cached);
@@ -5981,7 +5998,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
           }
         }
-        activeFeatures = sharedArcCache ? arcs.map(ring => ({ rings: [ring] })) : feats;
+        activeFeatures = sharedArcCache ? arcs : feats;
         scene.rerender();
       } finally {
         updateInFlight = false;
@@ -5996,7 +6013,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (isGlyphMapVectorProvider(source)) {
         await updateProvider(source);
       } else {
-        if (sharedArcCache) staticFeatures = sharedArcCache(source.features).map(ring => ({ rings: [ring] }));
+        if (sharedArcCache) staticFeatures = sharedFeatures(source.features);
         else staticFeatures = layer.filter ? source.features.filter(layer.filter) : source.features;
         scene.rerender();
       }
@@ -6078,6 +6095,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       };
       const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
       for (const feature of feats) {
+        if (layer.filterAtResolution && !layer.filterAtResolution(feature, walk === null ? degPerCell : 0)) continue;
+        const color = layer.colorProperty && layer.colors
+          ? layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color
+          : layer.color;
         for (const ring of feature.rings) {
           const line = simplifyLine && walk === null ? simplifyLine(ring, degPerCell) : ring;
           // Clip after thinning so limb intersections follow the retained

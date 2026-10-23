@@ -55,9 +55,28 @@ import {
   glyphMapOpenFreeMapProvider,
   glyphMapOpenMapTilesLayers,
   type GlyphMapLabelAnchor,
+  type GlyphMapOpenMapTilesLayersOptions,
   type GlyphMapVectorProvider,
   type GlyphMapVectorTile,
 } from "@glyphcss/maps";
+
+/** Shared with the code export so the exported map draws the same line stack. */
+export const MAP_OSM_LINE_OPTIONS = {
+  "omt-roads": {
+    experimentalGlyphStrategy: "box", simplify: "vw",
+    color: "#506981", colorProperty: "class",
+    colors: {
+      motorway: "#dbeafe", trunk: "#dbeafe", primary: "#dbeafe",
+      secondary: "#9fb6cf", rail: "#9fb6cf",
+      tertiary: "#7893af", transit: "#7893af", minor: "#506981",
+      service: "#394d63", track: "#394d63", path: "#394d63",
+    },
+  },
+  "omt-waterways": { experimentalGlyphStrategy: "box", simplify: "vw" },
+  // Shared arcs deduplicate polygon edges; explicit road/river routes have no shared polygon edges.
+  "omt-boundaries": { experimentalGlyphStrategy: "box", simplify: "vw", sharedArcs: true },
+  "omt-aeroways": { experimentalGlyphStrategy: "box", simplify: "vw" },
+} as const satisfies NonNullable<GlyphMapOpenMapTilesLayersOptions["lineOptions"]>;
 
 /** The card's rows, in the order the OpenMapTiles schema mapping declares them (ground → water → lines → buildings → labels). */
 export const MAP_OSM_SUBLAYERS = GLYPH_MAP_OPENMAPTILES_LAYERS.map((spec) => ({
@@ -321,6 +340,9 @@ export interface MapOsmLayerOptions {
 export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOptions) {
   return glyphMapOpenMapTilesLayers(source, {
     include: opts.enabled,
+    lineOptions: MAP_OSM_LINE_OPTIONS,
+    roadHierarchy: true,
+
     densities: Object.fromEntries(opts.enabled.map((id) => [id, opts.densities[id] ?? MAP_OSM_DEFAULT_DENSITY])),
     // Handed over whole, exactly as the densities are. Which entries mean
     // anything is `glyphMapOpenMapTilesLayers`' call: it drops a row that
@@ -516,7 +538,7 @@ export const MAP_OSM_ROW_SUMMARIES: Readonly<Record<string, string>> = {
     "Water as AREAS — oceans, lakes, ponds and wide rivers, each kind in its own blue (a swimming pool is not the blue of the Pacific).",
   "omt-waterways":
     "Rivers, streams and canals as LINES — the narrow water that is too thin to have an area of its own.",
-  "omt-roads": "The street and rail network as lines, from motorways down to footpaths.",
+  "omt-roads": "The street and rail network as joined lines: bright main roads first, dim local streets and paths as the output cells get smaller.",
   "omt-buildings":
     "Building footprints extruded to their real height, standing on the terrain under them, with textured facades and a tone of their own.",
   "omt-boundaries": "Administrative borders, drawn as lines.",

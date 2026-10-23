@@ -26,7 +26,7 @@ and that split matters more here than it does in a GPU renderer:
 |---|---|---|
 | `background` | The scene output's CSS background colour | `color`, `density` |
 | `raster` | A real 3D relief mesh from elevation tiles | see [below](#raster) |
-| `line` | A post-raster **stamp** into the cell grid | `source`, `sourceLayer`, `filter`, `color`, `padCells`, `density`, `simplify`, `sharedArcs` |
+| `line` | A post-raster **stamp** into the cell grid | `source`, `sourceLayer`, `filter`, `filterAtResolution`, `color`, `colorProperty`, `colors`, `padCells`, `density`, `simplify`, `sharedArcs` |
 | `contour` | A post-raster stamp, marched from an elevation field | see [below](#contour) |
 | `fill` | A draped or flat polygon mesh | see [below](#fill) |
 | `fill-extrusion` | An extruded polygon mesh with walls and a cap | see [below](#fill-extrusion) |
@@ -121,14 +121,22 @@ one graph per layer and frame, including coincident feature/tile endpoints.
 Diagonal steps add one staircase corner using the same depth and ownership
 tests; when both corners are blocked, both cells point into the hidden corner
 instead. Immediate backtracks
-collapse before joining. A ring or arc whose projected extent is under two
-cells becomes one depth-tested `·` at its geometry centroid. Larger paths
-drop cells left with no joined neighbour. Box depth tests read the surface
+collapse before joining. A closed ring whose projected extent is under two
+cells becomes one depth-tested `·` at its geometry centroid. Open lines retain
+their joined cells, including short stubs; unjoined cells restore the surface
+instead of leaving dots. Box depth tests read the surface
 before the layer wrote any ink; staircase corners cannot borrow cells from
 a separate path.
 
 Omitting these options leaves the default output unchanged. The `/maps`
-borders enable live VW, shared arcs, and `box`.
+borders enable live VW, shared arcs, and `box`. Its OpenStreetMap line rows
+also enable VW and `box`; only boundaries request shared polygon arcs.
+
+Lines accept `colorProperty` and `colors` with the same per-feature fallback
+as fills. `filterAtResolution(feature, degreesPerCell)` can make a live
+resolution cut after `filter`; it receives the actual overlay cell size
+and `0` while walking. Shared polygon arcs have no feature properties;
+explicit line features retain theirs.
 
 ## Appearance: `density`, `renderMode`, `glyphPalette`
 

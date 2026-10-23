@@ -266,17 +266,17 @@ describe("layer-wide box graph", () => {
     expect(g.char[3 * 16 + 2]).toBe("│");
   });
 
-  it("keeps tiny arcs and closed islands as single centroid dots", () => {
+  it("drops sub-cell open stubs but keeps closed islands as centroid dots", () => {
     const g = grid();
     g.char.fill("#"); g.color.fill("terrain"); g.depth.fill(-5);
     const graph = createGlyphMapBoxStrokeGraph();
-    // A tiny open arc has the same dot rule as a closed ring.
+    // A tiny open stub has no joined neighbour and restores the surface.
     stamp(g, [[5, 5], [5.4, 5.3]], graph);
     // A closed ring that fits inside cell (10,2).
     stamp(g, [[10, 2], [10.3, 2], [10.3, 2.3], [10, 2]], graph);
     finishGlyphMapBoxStrokeGraph(g, graph);
     expect([g.char[2 * 16 + 10], g.color[2 * 16 + 10]]).toEqual(["·", "gold"]);
-    expect([g.char[5 * 16 + 5], g.color[5 * 16 + 5], g.depth[5 * 16 + 5]]).toEqual(["·", "gold", 0]);
+    expect([g.char[5 * 16 + 5], g.color[5 * 16 + 5], g.depth[5 * 16 + 5]]).toEqual(["#", "terrain", -5]);
     expect(g.char.filter((c, i) => c !== "#" && i !== 2 * 16 + 10 && i !== 5 * 16 + 5)).toEqual([]);
   });
 
@@ -361,7 +361,7 @@ describe("tiny box shapes", () => {
       expect(g.depth[34]).toBe(0);
     },
   );
-  it("uses length weights for an open arc, independent of vertex density", () => {
+  it("keeps a short open road as a joined line, independent of vertex density", () => {
     const a = grid(),
       b = grid();
     const line = [
@@ -373,8 +373,8 @@ describe("tiny box shapes", () => {
       experimentalGlyphStrategy: "box",
     });
     expect(a.char).toEqual(b.char);
-    expect(a.char.filter((c) => c !== " ")).toEqual(["·"]);
-    expect(a.char[35]).toBe("·");
+    expect(a.char.filter((c) => c !== " ")).toEqual(["─", "─", "─"]);
+    expect(a.char.slice(34, 37).join("")).toBe("───");
   });
   it.each(["depth", "foreign", "surface"] as const)("depth-tests the centroid and respects %s rejection", (kind) => {
     const g = grid();
@@ -447,4 +447,14 @@ it("interpolates the tiny ring depth at its area centroid on a tilted plane", ()
   });
   expect(g.char[34]).toBe("·");
   expect(g.depth[34]).toBeCloseTo(41.25, 9);
+});
+
+it("joins a sub-two-cell open stub into the layer graph instead of stamping a dot", () => {
+  const g = grid(), graph = createGlyphMapBoxStrokeGraph();
+  stampGlyphMapPolyline(g, [{ col: 3.2, row: 1.2, depth: 0 }, { col: 3.2, row: 6.2, depth: 0 }], { experimentalGlyphStrategy: "box", boxGraph: graph });
+  stampGlyphMapPolyline(g, [{ col: 3.2, row: 3.2, depth: 0 }, { col: 4.6, row: 3.2, depth: 0 }], { experimentalGlyphStrategy: "box", boxGraph: graph });
+  finishGlyphMapBoxStrokeGraph(g, graph);
+  expect(g.char[3 * 16 + 3]).toBe("├");
+  expect(g.char[3 * 16 + 4]).toBe("─");
+  expect(g.char).not.toContain("·");
 });

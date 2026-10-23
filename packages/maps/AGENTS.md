@@ -1,6 +1,6 @@
 # @glyphcss/maps agent guide
 
-Geographic data → glyphcss: `source → sample → field → classify → bands → compile`, relief meshes, vector layers, and `createGlyphMap` (the interactive widget). Root entry is pure and browser-safe; `@glyphcss/maps/node` holds fs readers (never `gdal-async`). No React/Vue surface.
+Geographic data → glyphcss, relief meshes, vector layers and `createGlyphMap`. Root is browser-safe; `@glyphcss/maps/node` holds fs readers (never `gdal-async`). No React/Vue surface.
 
 Docs: `README.md`, `website/src/content/docs/maps/**`. Local rationale lives in code comments.
 
@@ -15,13 +15,14 @@ Docs: `README.md`, `website/src/content/docs/maps/**`. Local rationale lives in 
 - Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable array identity).
 - Opt-in features are byte-identical when off, each with a test that goes red.
-- `box` depth-tests against the pre-layer surface, never its own ink. Extents <2 cells become one geometry-centroid dot. Larger paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
+- `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one geometry-centroid dot; open stubs never become dots. Paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
 - `snapPan` is opt-in: camera pans use a cell lattice at fixed lens/tilt/bearing/grid; held views stay exact. Orbit uses a local tangent lattice. Zoom/tilt reset it; walking bypasses it. Renderer dithering stays screen-anchored.
 - Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per source feature set/tile, before live VW; explicit line features remain separate. Reversed edges share geometry; no snapping or noding of differently sampled edges. Tile replacements get fresh topology.
 - Stamp surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from an assumed half-cell centre. Depth forgiveness remains curvature plus measured elevation rise.
-- Line `simplify: "vw"` opts into the existing latitude-corrected VW at half a live output cell, quarter-octave zoom buckets cached by source-line/arc identity (eight per line). Simplify before visibility clipping/draping; preserve endpoints and collapsed closed rings. Walk retains source detail. Omitted is byte-identical; no new cross-tile topology guarantee.
+- Line `simplify: "vw"`: latitude-corrected VW at half a live cell, eight quarter-octave buckets per source line/arc. Simplify before clipping/draping; preserve endpoints and collapsed rings. Walk retains detail. Omitted is byte-identical; no cross-tile topology guarantee.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
+- OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); line palettes fall back to row colour. Shared arcs retain explicit line properties.
 - `/maps` URL row lists are positional: append rows, never insert.
 - No clock or refresh policy in the package; live data goes through `setLayerSource`.
 - Tests settle on `await map.idle()`, never timers or stability polls. Moving-camera probes advance frames to a pose. `vi.waitFor` gets an explicit timeout.
