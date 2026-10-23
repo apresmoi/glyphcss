@@ -5,17 +5,9 @@ description: Compare globe, equirectangular, Mercator, and orthographic ASCII ma
 
 import { GlyphMapDemo } from '../../../components/GlyphMapDemo';
 
-<GlyphMapDemo client:visible label="ETOPO1 terrain on a globe" projection={{ type: "globe", options: { exaggeration: 24 } }} />
+<GlyphMapDemo client:visible label="ETOPO1 terrain morphing between projections" projections={[{ label: "Globe", projection: { type: "globe", options: { exaggeration: 24 } }, span: 140 }, { label: "Equirectangular", projection: { type: "equirectangular", options: { exaggeration: 24 } }, span: 360 }, { label: "Mercator", projection: { type: "mercator", options: { exaggeration: 24 } }, span: 360 }, { label: "Orthographic", projection: { type: "orthographic", options: { exaggeration: 24 } }, span: 240 }]} />
 
-The same ETOPO1 terrain appears below in three projections. Drag to orbit the globe or pan a flat map.
-
-## Equirectangular
-
-<GlyphMapDemo client:visible label="ETOPO1 terrain in equirectangular projection" projection={{ type: "equirectangular", options: { exaggeration: 24 } }} tilt={0} controls={{ tilt: false }} />
-
-## Mercator
-
-<GlyphMapDemo client:visible label="ETOPO1 terrain in Mercator projection" projection={{ type: "mercator", options: { exaggeration: 24 } }} tilt={0} controls={{ tilt: false }} />
+Pick a projection to morph the same ETOPO1 terrain into it. Drag to orbit the globe or pan a flat map.
 
 ## Choose a projection
 

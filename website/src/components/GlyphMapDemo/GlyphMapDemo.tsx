@@ -2,17 +2,37 @@ import { useEffect, useRef, useState } from "react";
 import type { GlyphMapAttribution, GlyphMapHandle, GlyphMapLayer } from "@glyphcss/maps";
 import { MAP_PALETTES } from "../../features/maps/model/config";
 import { createOsmSource } from "../../features/maps/model/mapsOsm";
+import { ActionButton } from "../ActionButton";
 import { AttributionCredit } from "../AttributionCredit";
 import styles from "./GlyphMapDemo.module.css";
 import { loadBorders, loadTerrain } from "./loadProviders";
-import type { GlyphMapDemoLayer, GlyphMapDemoProps } from "./types";
+import type { GlyphMapDemoLayer, GlyphMapDemoProjection, GlyphMapDemoProps } from "./types";
 
 const DEFAULT_LAYERS: readonly GlyphMapDemoLayer[] = [{ type: "raster" }];
+const DEFAULT_PROJECTION: GlyphMapDemoProjection = { type: "globe", options: { exaggeration: 24 } };
+type MapsApi = typeof import("@glyphcss/maps");
+// Long enough to watch the surface unwrap; the library default is 600ms.
+const MORPH_MS = 1600;
+
+function createProjection(api: MapsApi, projection: GlyphMapDemoProjection) {
+  switch (projection.type) {
+    case "globe":
+      return api.glyphMapGlobe(projection.options);
+    case "equirectangular":
+      return api.glyphMapEquirectangular(projection.options);
+    case "mercator":
+      return api.glyphMapMercator(projection.options);
+    case "orthographic":
+      return api.glyphMapOrthographic(projection.options);
+  }
+}
 
 export function GlyphMapDemo(props: GlyphMapDemoProps) {
   const host = useRef<HTMLDivElement>(null);
   const [credits, setCredits] = useState<readonly GlyphMapAttribution[]>([]);
   const [status, setStatus] = useState("Loading terrain…");
+  const [active, setActive] = useState(0);
+  const live = useRef<{ map: GlyphMapHandle; api: MapsApi } | undefined>(undefined);
   useEffect(() => {
     let disposed = false;
     let map: GlyphMapHandle | undefined;
@@ -35,16 +55,7 @@ export function GlyphMapDemo(props: GlyphMapDemoProps) {
               },
             })
           : undefined;
-        const projection = props.projection ?? {
-          type: "globe",
-          options: { exaggeration: 24 },
-        };
-        const factories = {
-          globe: api.glyphMapGlobe,
-          equirectangular: api.glyphMapEquirectangular,
-          mercator: api.glyphMapMercator,
-          orthographic: api.glyphMapOrthographic,
-        };
+        const projection = props.projections?.[0]?.projection ?? props.projection ?? DEFAULT_PROJECTION;
         map = api.createGlyphMap(host.current, {
           view: {
             center: [0, 20],
@@ -53,7 +64,7 @@ export function GlyphMapDemo(props: GlyphMapDemoProps) {
             rows: 48,
             ...props.view,
           },
-          projection: factories[projection.type](projection.options),
+          projection: createProjection(api, projection),
           autoSize: true,
           controls: { drag: true, wheel: false, ...props.controls },
           tilt: props.tilt,
@@ -88,6 +99,8 @@ export function GlyphMapDemo(props: GlyphMapDemoProps) {
         for (const layer of layers) {
           if (layer.type === "markers") for (const marker of layer.markers) map.addMarker(marker);
         }
+        live.current = { map, api };
+        setActive(0);
         setCredits(map.getAttributions());
         await map.idle();
         if (!disposed && !missingOsm) setStatus("");
@@ -97,10 +110,12 @@ export function GlyphMapDemo(props: GlyphMapDemoProps) {
       });
     return () => {
       disposed = true;
+      live.current = undefined;
       map?.destroy();
     };
   }, [
     props.projection,
+    props.projections,
     props.view,
     props.tilt,
     props.bearing,
@@ -111,7 +126,31 @@ export function GlyphMapDemo(props: GlyphMapDemoProps) {
     props.keyLight,
   ]);
   return (
-    <figure className={`${styles.root} not-content`} aria-label={props.label ?? "Interactive Earth terrain map"}>
+    <figure
+      className={`${styles.root}${props.projections ? ` ${styles.compact}` : ""} not-content`}
+      aria-label={props.label ?? "Interactive Earth terrain map"}
+    >
+      {props.projections && (
+        <div className={styles.tabs} role="tablist">
+          {props.projections.map((tab, index) => (
+            <ActionButton
+              key={tab.label}
+              role="tab"
+              aria-selected={index === active}
+              className={index === active ? "is-active" : ""}
+              onClick={() => {
+                if (!live.current || index === active) return;
+                setActive(index);
+                const { map, api } = live.current;
+                void map.setProjection(createProjection(api, tab.projection), { durationMs: MORPH_MS });
+                if (tab.span !== undefined) void map.flyTo({ span: tab.span }, { durationMs: MORPH_MS });
+              }}
+            >
+              {tab.label}
+            </ActionButton>
+          ))}
+        </div>
+      )}
       <div ref={host} className={styles.stage} />
       {status && <p role="status">{status}</p>}
       {credits.length > 0 && (

@@ -13,7 +13,7 @@ import type {
   glyphMapOrthographic,
 } from "@glyphcss/maps";
 
-type Projection =
+export type GlyphMapDemoProjection =
   | { type: "globe"; options?: Parameters<typeof glyphMapGlobe>[0] }
   | {
       type: "equirectangular";
@@ -36,7 +36,9 @@ export type GlyphMapDemoLayer =
 /** Docs islands accept data only; providers and callbacks stay in the runtime. */
 export interface GlyphMapDemoProps {
   label?: string;
-  projection?: Projection;
+  projection?: GlyphMapDemoProjection;
+  /** Tabs that morph one map between projections; the first is shown initially. */
+  projections?: readonly { label: string; projection: GlyphMapDemoProjection; span?: number }[];
   view?: Partial<GlyphMapOptions["view"]>;
   tilt?: number;
   bearing?: number;

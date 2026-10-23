@@ -134,17 +134,18 @@ it.each(examples)("renders the actual $page example: $props.label", async ({ pro
   const host = await mount(props);
   await vi.waitFor(() => expect(create).toHaveBeenCalledOnce(), { timeout: 10000 });
   const map = create.mock.results[0]!.value as import("@glyphcss/maps").GlyphMapHandle;
+  const projection = props.projections?.[0]!.projection ?? props.projection!;
   await act(async () => { await map.idle(); });
   expect(host.querySelector("pre.glyph-output")!.textContent!.replace(/\s/g, "").length, requested.join("\n")).toBeGreaterThan(100);
   expect(host.querySelector("figure")?.getAttribute("aria-label")).toBe(props.label);
   expect(host.querySelector('[role="status"]')).toBeNull();
-  expect(map.getTilt()).toBeCloseTo(props.tilt ?? (props.projection?.type === "globe" ? 0 : 40));
+  expect(map.getTilt()).toBeCloseTo(props.tilt ?? (projection.type === "globe" ? 0 : 40));
   expect(map.getBearing()).toBe(props.bearing ?? 0);
   const options = create.mock.calls[0]![1];
-  expect(options.projection.id).toBe(({ globe: maps.glyphMapGlobe, equirectangular: maps.glyphMapEquirectangular, mercator: maps.glyphMapMercator, orthographic: maps.glyphMapOrthographic })[props.projection!.type]().id);
+  expect(options.projection.id).toBe(({ globe: maps.glyphMapGlobe, equirectangular: maps.glyphMapEquirectangular, mercator: maps.glyphMapMercator, orthographic: maps.glyphMapOrthographic })[projection.type]().id);
   expect(options.scene).toMatchObject(props.scene ?? {});
   expect(options.controls).toMatchObject(props.controls ?? {});
-  expect(options.projection.exaggeration).toBe(props.projection?.options?.exaggeration ?? 1);
+  expect(options.projection.exaggeration).toBe(projection.options?.exaggeration ?? 1);
   for (const credit of map.getAttributions()) expect(host.textContent).toContain(credit.name);
   const contour = options.layers?.find(layer => layer.type === "contour");
   if (contour) {
@@ -210,4 +211,33 @@ it("reports OSM tile failures even when the provider settles with empty tiles", 
   await vi.waitFor(() => expect(create).toHaveBeenCalledOnce(), { timeout: 10000 });
   await act(async () => { await create.mock.results[0]!.value.idle(); });
   expect(host.querySelector('[role="status"]')?.textContent).toContain("OpenStreetMap tiles could not be loaded");
+});
+
+it("morphs one map between projections from its tabs instead of mounting a map per projection", async () => {
+  vi.stubGlobal("fetch", fixtureFetch());
+  const create = vi.spyOn(maps, "createGlyphMap");
+  const host = await mount({
+    projections: [
+      { label: "Globe", projection: { type: "globe", options: { exaggeration: 24 } }, span: 140 },
+      { label: "Mercator", projection: { type: "mercator", options: { exaggeration: 24 } }, span: 360 },
+    ],
+  });
+  await vi.waitFor(() => expect(host.querySelectorAll('[role="tab"]')).toHaveLength(2), { timeout: 10000 });
+  await vi.waitFor(() => expect(create).toHaveBeenCalled(), { timeout: 10000 });
+  const map = create.mock.results.at(-1)!.value as import("@glyphcss/maps").GlyphMapHandle;
+  expect(create.mock.calls.at(-1)![1].projection.id).toBe(maps.glyphMapGlobe().id);
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+  expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["true", "false"]);
+  const setProjection = vi.spyOn(map, "setProjection");
+  const flyTo = vi.spyOn(map, "flyTo");
+  await act(async () => tabs[1]!.click());
+  expect(setProjection).toHaveBeenCalledOnce();
+  expect(setProjection.mock.calls[0]![0].id).toBe(maps.glyphMapMercator().id);
+  expect(setProjection.mock.calls[0]![1]!.durationMs).toBeGreaterThan(0);
+  expect(flyTo.mock.calls[0]![0]).toEqual({ span: 360 });
+  expect(tabs.map((tab) => tab.getAttribute("aria-selected"))).toEqual(["false", "true"]);
+  const mounted = create.mock.calls.length;
+  await act(async () => tabs[1]!.click());
+  expect(setProjection).toHaveBeenCalledOnce();
+  expect(create.mock.calls.length).toBe(mounted);
 });

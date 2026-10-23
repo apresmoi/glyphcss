@@ -5,9 +5,9 @@ description: Show real OpenStreetMap streets, water, and 3D buildings as ASCII w
 
 import { GlyphMapDemo } from '../../../components/GlyphMapDemo';
 
-<GlyphMapDemo client:visible label="OpenStreetMap streets and buildings in Zurich" view={{ center: [8.5144, 47.3909], span: 0.008 }} projection={{ type: "globe", options: { exaggeration: 1 } }} tilt={55} bearing={25} layers={[{ type: "background", color: "#131a20" }, { type: "osm", include: ["omt-landuse", "omt-water", "omt-roads", "omt-buildings", "omt-water-labels"] }]} />
+<GlyphMapDemo client:visible label="OpenStreetMap streets and buildings in Buenos Aires" view={{ center: [-58.3745, -34.6057], span: 0.016 }} projection={{ type: "globe", options: { exaggeration: 1 } }} tilt={55} bearing={25} sun={{ mode: "manual", date: 1797865200000 }} layers={[{ type: "background", color: "#131a20" }, { type: "osm", include: ["omt-landuse", "omt-water", "omt-roads", "omt-buildings", "omt-water-labels"] }]} />
 
-Zurich streets, water, and buildings stream from OpenFreeMap, the same provider used by the [maps workbench](/maps). Drag to explore. Tile loading requires a network connection; no API key is needed.
+Buenos Aires streets, water, and buildings stream from OpenFreeMap, the same provider used by the [maps workbench](/maps). Drag to explore. Tile loading requires a network connection; no API key is needed.
 
 ## Mount street layers
 
@@ -21,7 +21,7 @@ const osm = glyphMapOpenFreeMapProvider({
   onError: (error, tile) => console.warn(tile, error),
 });
 const map = createGlyphMap(host, {
-  view: { center: [8.5144, 47.3909], span: 0.008, cols: 100, rows: 48 },
+  view: { center: [-58.3745, -34.6057], span: 0.016, cols: 100, rows: 48 },
   projection: glyphMapGlobe(), tilt: 55, bearing: 25,
   layers: glyphMapOpenMapTilesLayers(osm, {
     include: ["omt-water", "omt-roads", "omt-buildings"],

@@ -3,6 +3,22 @@
   min-width: 0;
 }
 
+/* Tabbed maps morph in place, so a narrower centred stage reads as one object. */
+.compact {
+  width: min(100%, 36rem);
+  margin-inline: auto;
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--gc-space-3);
+  margin-bottom: var(--gc-space-2);
+  font-family: var(--gc-font-ui);
+  font-size: var(--gc-text-sm);
+}
+
 .stage {
   position: relative;
   height: 24rem;

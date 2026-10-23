@@ -37,7 +37,7 @@ Touch pinch and twist combine; a recognised tilt stays exclusive until release. 
 ## View and limits
 
 ```ts
-map.setView({ center: [8.54, 47.37], span: 0.06 });
+map.setView({ center: [-58.38, -34.6], span: 0.06 });
 map.fitBounds({ west: 5.9, east: 10.5, south: 45.8, north: 47.8 });
 const view = map.getView();
 const maxSpan = map.getMaxSpan();
@@ -64,7 +64,7 @@ const pose = [map.getTilt(), map.getBearing(), map.getMaxTilt()];
 ## Flights
 
 ```ts
-await map.flyTo({ center: [8.54, 47.37], span: 0.06 }, { durationMs: 1200 });
+await map.flyTo({ center: [-58.38, -34.6], span: 0.06 }, { durationMs: 1200 });
 await map.flyTo({ bounds: { west: 5.9, east: 10.5, south: 45.8, north: 47.8 } });
 await map.idle();
 const text = map.scene.output.textContent;
@@ -77,7 +77,7 @@ Change projections with [`setProjection`](/maps/projections/#animated-transition
 ## Street-level walk mode
 
 ```ts
-await map.flyTo({ center: [8.54, 47.375], span: 0.01 });
+await map.flyTo({ center: [-58.3816, -34.6037], span: 0.01 });
 await map.idle();
 map.setWalk({ eyeHeight: 1.7, far: 600 });
 const walk = map.getWalk();
