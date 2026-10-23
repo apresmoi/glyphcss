@@ -62,6 +62,22 @@ function cellCenteredFieldOf(tile: GlyphMapGeoTile): GlyphMapField {
 const EPS = 1e-6;
 
 describe("glyphMapGeoTileElevationAt", () => {
+  it("follows the relief's triangle fan across noncoplanar corners, with either sign and windowed vertices", () => {
+    const tile: GlyphMapGeoTile = {
+      bounds: { west: 0, east: 1, south: 0, north: 1 }, cols: 1, rows: 1,
+      elevation: Float32Array.of(0, 0, 0, 100), source: "saddle", sampler: "nearest",
+    };
+    // Both fan triangles meet at the NW–SE ridge: its midpoint is 50 m.
+    // The bilinear patch puts it at 25 m and pulls both interiors below it.
+    expect(glyphMapGeoTileElevationAt(tile, 0.5, 0.5)).toBe(50);
+    expect(glyphMapGeoTileElevationAt(tile, 0.75, 0.75)).toBe(25);
+    expect(glyphMapGeoTileElevationAt(tile, 0.25, 0.25)).toBe(25);
+    const inverted = { ...tile, elevation: Float32Array.of(0, 0, 0, -100) };
+    expect(glyphMapGeoTileElevationAt(inverted, 0.5, 0.5)).toBe(-50);
+    expect(glyphMapGeoTileElevationAt(tile, 0.5, 0.5, { maxElevation: 40 })).toBe(20);
+    expect(glyphMapGeoTileElevationAt(inverted, 0.5, 0.5, { minElevation: -40 })).toBe(-20);
+  });
+
   it("two tiles sharing a MERIDIAN agree exactly along it", () => {
     const west = tileAt(2, 4), east = tileAt(3, 4);
     const lonBoundary = west.bounds.east;
