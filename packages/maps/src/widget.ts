@@ -94,8 +94,8 @@ import {
 import { glyphMapProjectionTransition } from "./transition";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileElevationAt, glyphMapGeoTileElevationRange, glyphMapGeoTileVertexLonLat, splitGlyphMapGeoTileAtAntimeridian } from "./tile";
-import { glyphMapPolygons, glyphMapTerrainPolygons, localUpDirection } from "./mesh";
-import { createGlyphMapWaterCoverage, glyphMapWaterContains, type GlyphMapWaterCoverage } from "./waterTerrain";
+import { glyphMapPolygons, glyphMapTerrainPolygons, prepareGlyphMapTerrainPolygons, type GlyphMapTerrainWaterCache, localUpDirection } from "./mesh";
+import { prepareGlyphMapWaterCoverage, runGlyphMapWaterWork, glyphMapWaterContains, type GlyphMapWaterCoverage } from "./waterTerrain";
 import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource, GlyphMapVectorTile } from "./vector/types";
@@ -115,7 +115,7 @@ import {
   type GlyphMapSkyParams,
 } from "./sky";
 import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
-import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapLabelAnchorPoint, glyphMapPointHeatmap, glyphMapVectorMarkWalls, glyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapLabelAnchor, type GlyphMapVectorMesh, type GlyphMapVectorWall } from "./layers";
+import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapLabelAnchorPoint, glyphMapPointHeatmap, glyphMapVectorMarkWalls, prepareGlyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapLabelAnchor, type GlyphMapVectorMesh, type GlyphMapVectorWall } from "./layers";
 import type { Polygon } from "glyphcss";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
@@ -5248,16 +5248,46 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   const waterTerrainCoverage = new Map<GlyphMapFillLayer, readonly GlyphMapWaterCoverage[]>();
-  function setWaterTerrainCoverage(layer: GlyphMapFillLayer, coverage: readonly GlyphMapWaterCoverage[]): void {
+  let waterTerrainEpoch = 0;
+  function setWaterTerrainCoverage(layer: GlyphMapFillLayer, coverage: readonly GlyphMapWaterCoverage[], prepared?: readonly (() => void)[]): void {
     if (!coverage.length && !waterTerrainCoverage.has(layer)) return;
+    waterTerrainEpoch++;
     if (coverage.length) waterTerrainCoverage.set(layer, coverage);
     else waterTerrainCoverage.delete(layer);
     if (destroyed) return;
     // One synchronous transaction with the fill rebuild: no render sees
     // land-coloured terrain before the matching water geometry is installed.
-    for (const state of layerStates.values()) if (state.kind === "raster") state.runtime.reproject();
+    if (prepared) for (const install of prepared) install();
+    else for (const state of layerStates.values()) if (state.kind === "raster") state.runtime.reproject();
     notifyGroundChanged();
   }
+
+  async function prepareWaterTerrainCoverage(layer: GlyphMapFillLayer, coverage: readonly GlyphMapWaterCoverage[], valid: () => boolean): Promise<{ snapshot: readonly GlyphMapWaterCoverage[]; commit: () => boolean } | null> {
+    while (valid() && !destroyed) {
+      const epoch = waterTerrainEpoch;
+      const snapshot = [...waterTerrainCoverage.entries()].flatMap(([other, regions]) => other === layer ? coverage : regions);
+      if (!waterTerrainCoverage.has(layer)) snapshot.push(...coverage);
+      const rasters = [...layerStates.values()].flatMap(state => state.kind === "raster" ? [state.runtime] : []);
+      const prepared: { install: () => void; valid: () => boolean }[] = [];
+      for (const raster of rasters) {
+        const install = await raster.prepareWater(snapshot, valid);
+        if (!install) return null;
+        prepared.push(install);
+      }
+      if (!valid() || destroyed) return null;
+      if (epoch !== waterTerrainEpoch) continue;
+      // A mount/projection change while another raster prepared invalidates
+      // the transaction; no partial terrain or sampler snapshot is exposed.
+      if (prepared.some(part => !part.valid())) continue;
+      return { snapshot, commit: () => {
+        if (!valid() || destroyed || epoch !== waterTerrainEpoch || prepared.some(part => !part.valid())) return false;
+        setWaterTerrainCoverage(layer, coverage, prepared.map(part => part.install));
+        return true;
+      } };
+    }
+    return null;
+  }
+
 
   function waterTerrainSnapshot(): readonly GlyphMapWaterCoverage[] {
     return [...waterTerrainCoverage.values()].flat();
@@ -5278,6 +5308,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * change, only what each tile's geometry projects to.
      */
     reproject(): void;
+    prepareWater(coverage: readonly GlyphMapWaterCoverage[], valid: () => boolean): Promise<{ install: () => void; valid: () => boolean } | null>;
     /**
      * The GROUND elevation in metres under `(lon, lat)`, read from the tiles
      * this layer currently has MOUNTED — `NaN` where none covers the point.
@@ -5303,7 +5334,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * Same order, same answers; `groundElevationAt` is this with the
      * snapshot inlined.
      */
-    groundElevationReader(): (lon: number, lat: number) => number;
+    groundElevationReader(coverage?: readonly GlyphMapWaterCoverage[]): (lon: number, lat: number) => number;
     dispose(): void;
   }
 
@@ -5442,21 +5473,40 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * tiles of one level sunk by different amounts would tear along their
      * shared edge.
      */
+    const waterMeshes = new Map<GlyphMeshHandle, { tile: GlyphMapGeoTile; projection: GlyphMapProjection; options: Parameters<typeof glyphMapPolygons>[2]; cache: GlyphMapTerrainWaterCache }>();
+    let waterMeshRevision = 0;
     function mountTile(tile: GlyphMapGeoTile, fraction: ReliefFraction, tier: "fine" | "fallback" | "floor"): GlyphMeshHandle[] {
       const transform = meshTransform(layer, layer.density, glyphMapRasterDetailGroup(layerId, tier));
       const elevationBias = tierElevationBias(tier);
       const water = waterTerrainSnapshot();
-      return splitGlyphMapGeoTileAtAntimeridian(tile).map((part) =>
-        scene.add(
-          (water.length ? glyphMapTerrainPolygons : glyphMapPolygons)(
-            part,
-            projection,
-            fraction >= 1 ? { color, elevationBias, ...window } : { color, elevationBias, ...window, resolution: reliefResolution(part.cols, part.rows, fraction) },
-            water,
-          ),
-          transform,
-        ),
-      );
+      return splitGlyphMapGeoTileAtAntimeridian(tile).map(part => {
+        const options = fraction >= 1 ? { color, elevationBias, ...window } : { color, elevationBias, ...window, resolution: reliefResolution(part.cols, part.rows, fraction) };
+        const cache: GlyphMapTerrainWaterCache = new Map();
+        const polygons = water.length ? glyphMapTerrainPolygons(part, projection, options, water, cache) : glyphMapPolygons(part, projection, options);
+        const handle = scene.add(polygons, transform);
+        waterMeshes.set(handle, { tile: part, projection, options, cache });
+        waterMeshRevision++; waterTerrainEpoch++;
+        const dispose = handle.dispose;
+        handle.dispose = () => { waterMeshes.delete(handle); waterMeshRevision++; waterTerrainEpoch++; dispose(); };
+        return handle;
+      });
+    }
+
+    async function prepareWater(coverage: readonly GlyphMapWaterCoverage[], valid: () => boolean): Promise<{ install: () => void; valid: () => boolean } | null> {
+      while (valid() && !disposed) {
+        const revision = waterMeshRevision;
+        const prepared: [GlyphMeshHandle, Polygon[]][] = [];
+        for (const [handle, mesh] of waterMeshes) {
+          const polygons = await runGlyphMapWaterWork(prepareGlyphMapTerrainPolygons(mesh.tile, mesh.projection, mesh.options, coverage, mesh.cache), () => valid() && !disposed && revision === waterMeshRevision);
+          if (!polygons) break;
+          prepared.push([handle, polygons]);
+        }
+        if (!valid() || disposed) return null;
+        if (revision !== waterMeshRevision) continue;
+        const install = () => { for (const [handle, polygons] of prepared) handle.setPolygons(polygons); };
+        return { install, valid: () => !disposed && revision === waterMeshRevision };
+      }
+      return null;
     }
 
     /**
@@ -5819,8 +5869,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * extrusion planting) take one of these; `groundElevationAt` below is the
      * one-shot form and is exactly this with the snapshot inlined.
      */
-    function groundElevationReader(): (lon: number, lat: number) => number {
-      const coverage = waterTerrainSnapshot();
+    function groundElevationReader(coverage = waterTerrainSnapshot()): (lon: number, lat: number) => number {
       const landWindow = { minElevation: Math.max(0, window.minElevation ?? -Infinity), maxElevation: Math.max(0, window.maxElevation ?? Infinity) };
       const windowAt = (lon: number, lat: number) => {
         const region = coverage.find(c => glyphMapWaterContains(c.bounds, lon, lat));
@@ -5851,6 +5900,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       reproject,
       groundElevationAt,
       groundElevationReader,
+      prepareWater,
       dispose(): void {
         disposed = true;
         disposeMeshes();
@@ -5908,14 +5958,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * neighbours agree on their shared edge and which one answers is
    * unobservable).
    */
-  function groundElevationSampler(): ((lon: number, lat: number) => number) | null {
+  function groundElevationSampler(coverage?: readonly GlyphMapWaterCoverage[]): ((lon: number, lat: number) => number) | null {
     // A caller-supplied source WINS and needs no raster layer — see
     // `GlyphMapOptions.groundElevation`. Its `null` is this function's own
     // "no ground here" answer, NaN, so every consumer's existing non-finite
     // fallback covers it unchanged.
     const supplied = opts.groundElevation;
     if (supplied) return (lon, lat) => supplied(lon, lat) ?? NaN;
-    const read = rasterGroundElevationReader();
+    const read = rasterGroundElevationReader(coverage);
     if (!read) return null;
     return (lon, lat) => {
       const value = read(lon, lat);
@@ -5941,14 +5991,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * mosaic of its own as a last resort, and folding a not-yet-mounted tile
    * into the datum would drop its relief onto the datum instead.
    */
-  function rasterGroundElevationReader(): ((lon: number, lat: number) => number) | null {
+  function rasterGroundElevationReader(coverage?: readonly GlyphMapWaterCoverage[]): ((lon: number, lat: number) => number) | null {
     // Each layer's own reader is bound HERE, once, so a pass that asks many
     // questions re-walks neither the layer list nor any layer's mounted tile
     // set — see `groundElevationReader`.
     const readers: ((lon: number, lat: number) => number)[] = [];
     for (let i = layerOrder.length - 1; i >= 0; i--) {
       const state = layerStates.get(layerOrder[i]);
-      if (state?.kind === "raster") readers.push(state.runtime.groundElevationReader());
+      if (state?.kind === "raster") readers.push(state.runtime.groundElevationReader(coverage));
     }
     if (readers.length === 0) return null;
     return (lon, lat) => {
@@ -7049,7 +7099,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     sourceLayer?: string,
     filter?: GlyphMapFeatureFilter,
     featuresAreTheWholeInput = false,
-    commitWater?: (tiles: readonly GlyphMapVectorTile[]) => readonly GlyphMapVectorFeature[],
+    commitWater?: (tiles: readonly GlyphMapVectorTile[], valid: () => boolean) => Promise<{ commit: () => boolean } | null>,
   ): FeatureLayerRuntime {
     let source = initialSource;
     const cache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -7145,11 +7195,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // failed/empty transport response assert that an ocean tile is land.
       if (commitWater && tiles.some(tile => !tile)) return;
       if (maySkip && sameInputs(tiles)) return;
-      lastInputs = tiles;
       if (commitWater) {
-        rebuild(commitWater(tiles as GlyphMapVectorTile[]));
+        const valid = () => !disposed && source === current && request === revision;
+        while (valid()) {
+          const prepared = await commitWater(tiles as GlyphMapVectorTile[], valid);
+          if (!prepared || !valid()) return;
+          if (!prepared.commit()) continue;
+          lastInputs = tiles;
+          return;
+        }
         return;
       }
+      lastInputs = tiles;
       const selected = desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features));
       rebuild(filter ? selected.filter(filter) : selected);
     }
@@ -7160,9 +7217,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         source = next;
         cache.clear();
         lastInputs = null;
-        if (commitWater) { commitWater([]); rebuild([]); }
+        if (commitWater) { void commitWater([], () => true); rebuild([]); }
       },
-      dispose() { disposed = true; cache.clear(); lastInputs = null; if (commitWater) commitWater([]); rebuild([]); },
+      dispose() { disposed = true; cache.clear(); lastInputs = null; if (commitWater) void commitWater([], () => true); rebuild([]); },
     };
   }
 
@@ -7456,16 +7513,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      */
     const wantsDrape = drapeFor !== null && fillDrape !== "flat";
     function build(features: readonly GlyphMapVectorFeature[]): void {
-      lastFeatures = features;
-      // The mounted tile set moved: the walk collision index describes the
-      // OLD buildings and has to be thrown away. Rebuilt lazily on the next
-      // step, so a map that is not walking pays one assignment.
-      if (layer.type === "fill-extrusion") invalidateWalkCollision();
-      for (const handle of handles) handle.dispose();
-      handles = [];
-      culledAt = "";
-      wallHorizonDist = null;
-      horizonAnchor = null;
+      const steps = prepareBuild(features);
+      let next = steps.next();
+      while (!next.done) next = steps.next();
+      next.value();
+    }
+    function* prepareBuild(features: readonly GlyphMapVectorFeature[], coverage = waterTerrainSnapshot()): Generator<void, () => void> {
+      const buildProjection = projection;
       const variation = layer.type === "fill-extrusion" ? layer.colorVariation ?? 0 : 0;
       // `part` is the polygon GROUP's own anchor, and the variation is seeded
       // from it rather than from the feature: a real OSM pyramid emits every
@@ -7492,7 +7546,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // An extrusion takes ONE ground per rigid piece; a `fill` is a sheet of
       // ground and takes one per VERTEX (see `glyphMapVectorMesh`'s `drape`),
       // unless this layer asked for the flat datum overlay instead.
-      const groundAt = layer.type === "fill-extrusion" || wantsDrape ? groundElevationSampler() : null;
+      const groundAt = layer.type === "fill-extrusion" || wantsDrape ? groundElevationSampler(coverage) : null;
       // ONE PER BUILD, like `groundAt` itself. The reach is the view's own
       // degrees per output cell — the same number `reliefFractionForLevel`
       // sizes the relief quads by, which is what makes it the span across
@@ -7504,8 +7558,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const drapeReachDeg = (drapeView.span / Math.max(1, drapeView.cols)) * GLYPH_MAP_FILL_DRAPE_SUPPORT_CELLS;
       const drapeReachLon = drapeReachDeg / Math.max(1e-6, Math.cos((drapeView.center[1] * Math.PI) / 180));
       const drapeSagLift = drapeChordSagElevation(drapeView.center, drapeReachLon);
-      groundProbes = [];
-      builtOnTerrain = groundAt !== null;
+      const nextGroundProbes: typeof groundProbes = [];
+      const nextBuiltOnTerrain = groundAt !== null;
       /**
        * NOT memoized, measured rather than assumed: the sampler is a pure
        * function of `(lon, lat)`, so a shared vertex already answers the same
@@ -7526,7 +7580,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // the coarsened relief quads under it. See `GlyphMapFillDrapeFor`.
           if (drapeFor(feature) === "flat") return 0;
           const ground = groundAt(lon, lat);
-          groundProbes.push({ lon, lat, ground });
+          nextGroundProbes.push({ lon, lat, ground });
           // The lift rides ON TOP of the recorded probe, so a terrain change
           // is compared against the terrain and not against the lift.
           if (!Number.isFinite(ground)) return ground;
@@ -7540,13 +7594,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const probe = groundAt(lon + dLon * drapeReachLon, lat + dLat * drapeReachDeg);
             if (Number.isFinite(probe) && probe > highest) highest = probe;
           }
-          return highest + drapeSagLift + glyphMapTrueScaleElevation(GLYPH_MAP_DRAPE_LIFT_M, projection);
+          return highest + drapeSagLift + glyphMapTrueScaleElevation(GLYPH_MAP_DRAPE_LIFT_M, buildProjection);
         }
         : undefined;
-      outlineGeometry = [];
-      mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
+      const nextOutlineGeometry: typeof outlineGeometry = [];
+      const nextMesh = yield* prepareGlyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), buildProjection, {
         color,
-        onExtrusion: layer.type === "fill-extrusion" && layer.outline ? geometry => outlineGeometry.push(geometry) : undefined,
+        onExtrusion: layer.type === "fill-extrusion" && layer.outline ? geometry => nextOutlineGeometry.push(geometry) : undefined,
         // Both callbacks read the SAME two numbers, so they are resolved by
         // one helper: `heightProperty` and `baseOffsetProperty` are both
         // measured from the ground (see `baseOffsetProperty`'s own doc), and
@@ -7562,7 +7616,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // `line` vertex, a marker anchor and a draped `fill` cap already
           // take. `glyphMapVectorMesh`'s own `groundElevation` reads a
           // non-finite answer as "crop, don't clamp" and discards the group —
-          // right for a projection that cannot place a point, wrong for a
+          // right for a buildProjection that cannot place a point, wrong for a
           // caller saying it does not know — and `layers.ts`' `?? 0` does not
           // catch NaN, so a partial DEM used to delete every building outside
           // its own coverage (measured: 0 cells against 450).
@@ -7573,7 +7627,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // ground-change event for the life of the map.
           const sampled = groundAt(lon, lat);
           const ground = Number.isFinite(sampled) ? sampled : 0;
-          groundProbes.push({ lon, lat, ground });
+          nextGroundProbes.push({ lon, lat, ground });
           return ground;
         } : undefined,
         drape: drapeAt,
@@ -7585,16 +7639,30 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         baseOffset: layer.type === "fill-extrusion" ? (f) => extrusionBaseMetres(layer, f) : undefined,
         facade,
       });
-      const nearSide = mesh.walls.length ? nearSidePredicate() : undefined;
-      if (nearSide) glyphMapVectorMarkWalls(mesh, nearSide);
-      // The WHOLE mesh, once — the wall cull rides on `Polygon.hidden` from
-      // here on (see `syncWalls`), so this array is the identity the scene
-      // keeps for the life of the mount.
-      const polygons = [...mesh.polygons];
-      if (polygons.length && !unfilled) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
-      if (nearSide) culledAt = cameraCullKey();
-      scene.rerender();
+      return () => {
+        lastFeatures = features;
+        if (layer.type === "fill-extrusion") invalidateWalkCollision();
+        for (const handle of handles) handle.dispose();
+        handles = [];
+        culledAt = "";
+        wallHorizonDist = null;
+        horizonAnchor = null;
+        groundProbes = nextGroundProbes;
+        builtOnTerrain = nextBuiltOnTerrain;
+        outlineGeometry = nextOutlineGeometry;
+        mesh = nextMesh;
+        const nearSide = mesh.walls.length ? nearSidePredicate() : undefined;
+        if (nearSide) glyphMapVectorMarkWalls(mesh, nearSide);
+        // Keep one stable polygon array for the lifetime of the mount.
+        const polygons = [...mesh.polygons];
+        if (polygons.length && !unfilled) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
+        if (nearSide) culledAt = cameraCullKey();
+        // add/setPolygons already schedule the atomic water snapshot's render.
+        // A synchronous rerender here would charge that whole frame to commit.
+        if (layer.type !== "fill" || !layer.waterTerrain) scene.rerender();
+      };
     }
+
     /**
      * Re-plant this layer when — and only when — the ground actually moved.
      * Re-probing the recorded points costs one tile lookup per group and
@@ -7614,13 +7682,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         || (groundAt !== null && groundProbes.some((p) => groundAt(p.lon, p.lat) !== p.ground));
       if (moved) build(lastFeatures);
     }
-    const commitWater = layer.type === "fill" && layer.waterTerrain ? (tiles: readonly GlyphMapVectorTile[]): readonly GlyphMapVectorFeature[] => {
-      const coverage = tiles.map(tile => {
-        const features = Object.entries(tile.layers).filter(([name]) => !layer.sourceLayer || name === layer.sourceLayer).flatMap(([, features]) => features);
-        return createGlyphMapWaterCoverage(tile.bounds, layer.filter ? features.filter(layer.filter) : features);
-      });
-      setWaterTerrainCoverage(layer, coverage);
-      return coverage.flatMap(c => c.features);
+    const waterCoverageCache = new WeakMap<GlyphMapVectorTile, GlyphMapWaterCoverage>();
+    const commitWater = layer.type === "fill" && layer.waterTerrain ? async (tiles: readonly GlyphMapVectorTile[], valid: () => boolean): Promise<{ commit: () => boolean } | null> => {
+      if (!tiles.length) { setWaterTerrainCoverage(layer, []); return { commit: () => true }; }
+      const coverage: GlyphMapWaterCoverage[] = [];
+      for (const tile of tiles) {
+        let region = waterCoverageCache.get(tile);
+        if (!region) {
+          const features = Object.entries(tile.layers).filter(([name]) => !layer.sourceLayer || name === layer.sourceLayer).flatMap(([, features]) => features);
+          region = await runGlyphMapWaterWork(prepareGlyphMapWaterCoverage(tile.bounds, layer.filter ? features.filter(layer.filter) : features), valid);
+          if (!region) return null;
+          waterCoverageCache.set(tile, region);
+        }
+        coverage.push(region);
+      }
+      const transaction = await prepareWaterTerrainCoverage(layer, coverage, valid);
+      if (!transaction) return null;
+      const install = await runGlyphMapWaterWork(prepareBuild(coverage.flatMap(c => c.features), transaction.snapshot), valid);
+      return install ? { commit: () => {
+        if (!transaction.commit()) return false;
+        install();
+        return true;
+      } } : null;
     } : undefined;
     const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, commitWater !== undefined, commitWater);
     nearSideGeometrySyncs.add(syncWalls);

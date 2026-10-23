@@ -979,6 +979,14 @@ export function glyphMapVectorMarkWalls(
 
 /** @see GlyphMapVectorMesh */
 export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], projection: GlyphMapProjection, options: GlyphMapVectorMeshOptions = {}): GlyphMapVectorMesh {
+  const steps = prepareGlyphMapVectorMesh(features, projection, options);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+/** Internal cooperative builder; the synchronous API consumes the same steps. */
+export function* prepareGlyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], projection: GlyphMapProjection, options: GlyphMapVectorMeshOptions = {}): Generator<void, GlyphMapVectorMesh> {
   const out: Polygon[] = [];
   const walls: GlyphMapVectorWall[] = [];
   const project: Project = (lon, lat, elev) => projection.project(lon, lat, elev);
@@ -995,6 +1003,7 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
     const height = glyphMapTrueScaleElevation(heightMetres, projection);
     const baseOffset = glyphMapTrueScaleElevation(options.baseOffset?.(feature) ?? 0, projection);
     for (const group of groups) {
+      yield;
       const rings: LonLat[][] = [];
       for (let r = 0; r < group.length; r++) {
         const ring = openRing(group[r]);
@@ -1073,9 +1082,11 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
       const tris = earcut(flat, holeIndices, 2);
       const refined: Tri[] = [];
       for (let t = 0; t < tris.length; t += 3) {
+        if ((t & 63) === 0) yield;
         refineTriangle(refined, [capLonLat[tris[t]], capLonLat[tris[t + 1]], capLonLat[tris[t + 2]]], project, capElev, 0);
       }
       for (const tri of refined) {
+        yield;
         const elevA = capElevAt(tri[0][0], tri[0][1]);
         const elevB = capElevAt(tri[1][0], tri[1][1]);
         const elevC = capElevAt(tri[2][0], tri[2][1]);

@@ -6,12 +6,13 @@ import { glyphMapClipPolygonGroup } from "./vector/clip";
 type Point = readonly [number, number];
 type Ring = readonly Point[];
 interface Triangle { ring: Ring; bounds: GlyphMapBounds }
+interface Boundary { a: Point; b: Point; bounds: GlyphMapBounds }
 
 /** Internal snapshot: bounds describe successful tile coverage, not a feature's bbox. */
 export interface GlyphMapWaterCoverage {
   readonly bounds: GlyphMapBounds;
   readonly features: readonly GlyphMapVectorFeature[];
-  candidates(bounds: GlyphMapBounds): readonly Triangle[];
+  boundaries(bounds: GlyphMapBounds): readonly Boundary[];
   waterAt(lon: number, lat: number): boolean;
 }
 
@@ -19,7 +20,7 @@ export function glyphMapWaterContains(bounds: GlyphMapBounds, lon: number, lat: 
   return lon >= bounds.west && lon <= bounds.east && lat >= bounds.south && lat <= bounds.north;
 }
 
-function overlaps(a: GlyphMapBounds, b: GlyphMapBounds): boolean {
+export function glyphMapWaterOverlaps(a: GlyphMapBounds, b: GlyphMapBounds): boolean {
   return a.west < b.east && a.east > b.west && a.south < b.north && a.north > b.south;
 }
 
@@ -51,15 +52,7 @@ function hasArea(ring: Ring): boolean {
 }
 
 /** Convex subtraction retains disjoint convex fragments; holes need no special case. */
-function cut(subject: Ring, clip: Ring, bounds?: GlyphMapBounds): { inside: Ring; outside: Ring[] } {
-  if (bounds) {
-    let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
-    for (const [lon, lat] of subject) {
-      west = Math.min(west, lon); east = Math.max(east, lon);
-      south = Math.min(south, lat); north = Math.max(north, lat);
-    }
-    if (!overlaps({ west, east, south, north }, bounds)) return { inside: [], outside: [subject] };
-  }
+function cut(subject: Ring, clip: Ring): { inside: Ring; outside: Ring[] } {
   for (let i = 0; i < clip.length; i++) {
     const a = clip[i], b = clip[(i + 1) % clip.length];
     if (subject.every(p => cross(a, b, p) <= 0)) return { inside: [], outside: [subject] };
@@ -82,15 +75,32 @@ function boxRing(b: GlyphMapBounds): Ring {
 }
 
 export function createGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: readonly GlyphMapVectorFeature[]): GlyphMapWaterCoverage {
+  const steps = prepareGlyphMapWaterCoverage(bounds, input);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: readonly GlyphMapVectorFeature[]): Generator<void, GlyphMapWaterCoverage> {
   const features: GlyphMapVectorFeature[] = [];
   const triangles: Triangle[] = [];
+  const boundaries: Boundary[] = [];
   for (const feature of input) {
     if (feature.geometryType === "point" || feature.geometryType === "line") continue;
-    const polygons = (feature.polygons ?? feature.rings.map(ring => [ring]))
-      .flatMap(group => glyphMapClipPolygonGroup(group, bounds));
+    const polygons: (readonly Ring[])[] = [];
+    for (const group of feature.polygons ?? feature.rings.map(ring => [ring])) {
+      yield;
+      polygons.push(...glyphMapClipPolygonGroup(group, bounds));
+    }
     if (!polygons.length) continue;
     features.push({ ...feature, polygons, rings: polygons.flat() });
     for (const group of polygons) {
+      yield;
+      for (const ring of group) for (let i = 1; i < ring.length; i++) {
+        const a = ring[i - 1], b = ring[i];
+        if (a[0] === b[0] && a[1] === b[1]) continue;
+        boundaries.push({ a, b, bounds: { west: Math.min(a[0], b[0]), east: Math.max(a[0], b[0]), south: Math.min(a[1], b[1]), north: Math.max(a[1], b[1]) } });
+      }
       const points: Point[] = [], flat: number[] = [], holes: number[] = [];
       for (let i = 0; i < group.length; i++) {
         if (i) holes.push(points.length);
@@ -98,6 +108,7 @@ export function createGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: reado
       }
       const indices = earcut(flat, holes, 2);
       for (let i = 0; i < indices.length; i += 3) {
+        if ((i & 127) === 0) yield;
         const ring = indices.slice(i, i + 3).map(index => points[index]);
         const area = cross(ring[0], ring[1], ring[2]);
         if (area === 0) continue;
@@ -113,28 +124,85 @@ export function createGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: reado
   // index also bounds work for the permanent global terrain backstop.
   const size = Math.min(32, Math.max(1, Math.ceil(Math.sqrt(triangles.length / 8))));
   const bins: Triangle[][] = Array.from({ length: size * size }, () => []);
+  const edgeBins: Boundary[][] = Array.from({ length: size * size }, () => []);
   const x = (lon: number) => Math.min(size - 1, Math.max(0, Math.floor((lon - bounds.west) / (bounds.east - bounds.west) * size)));
   const y = (lat: number) => Math.min(size - 1, Math.max(0, Math.floor((lat - bounds.south) / (bounds.north - bounds.south) * size)));
   for (const triangle of triangles) {
+    yield;
     const b = triangle.bounds;
     for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) bins[row * size + col].push(triangle);
+  }
+  for (const edge of boundaries) {
+    yield;
+    const b = edge.bounds;
+    for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) edgeBins[row * size + col].push(edge);
   }
   return { bounds, features, waterAt(lon, lat) {
     const p: Point = [lon, lat];
     return bins[y(lat) * size + x(lon)].some(({ ring, bounds: b }) => glyphMapWaterContains(b, lon, lat)
       && cross(ring[0], ring[1], p) >= 0 && cross(ring[1], ring[2], p) >= 0 && cross(ring[2], ring[0], p) >= 0);
-  }, candidates(b) {
-    const found = new Set<Triangle>();
+  }, boundaries(b) {
+    const found = new Set<Boundary>();
     for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) {
-      for (const tri of bins[row * size + col]) if (overlaps(tri.bounds, b)) found.add(tri);
+      for (const edge of edgeBins[row * size + col]) if (edge.bounds.west <= b.east && edge.bounds.east >= b.west && edge.bounds.south <= b.north && edge.bounds.north >= b.south) found.add(edge);
     }
     return [...found];
   } };
 }
 
+/** Vertical decomposition uses shoreline segments, never triangulation ears. */
+function* partitionShore(subject: Ring, edges: readonly Boundary[], region: GlyphMapWaterCoverage): Generator<void, Ring[]> {
+  const outline: Boundary[] = subject.map((a, i) => ({ a, b: subject[(i + 1) % subject.length], bounds: region.bounds }));
+  const lines = [...outline, ...edges];
+  const west = Math.min(...subject.map(p => p[0])), east = Math.max(...subject.map(p => p[0]));
+  const xs = new Set([west, east]);
+  for (const { a, b } of edges) { if (a[0] > west && a[0] < east) xs.add(a[0]); if (b[0] > west && b[0] < east) xs.add(b[0]); }
+  // Ordering can change only at a segment endpoint or a true intersection.
+  for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) {
+    if ((j & 127) === 0) yield;
+    const { a, b } = lines[i], { a: c, b: d } = lines[j];
+    if (Math.max(a[0], b[0]) <= Math.min(c[0], d[0]) || Math.max(c[0], d[0]) <= Math.min(a[0], b[0])
+      || Math.max(a[1], b[1]) < Math.min(c[1], d[1]) || Math.max(c[1], d[1]) < Math.min(a[1], b[1])) continue;
+    const dx = b[0] - a[0], dy = b[1] - a[1], ex = d[0] - c[0], ey = d[1] - c[1];
+    const den = dx * ey - dy * ex;
+    if (den === 0) continue;
+    const t = ((c[0] - a[0]) * ey - (c[1] - a[1]) * ex) / den;
+    const u = ((c[0] - a[0]) * dy - (c[1] - a[1]) * dx) / den;
+    const x = a[0] + t * dx;
+    if (t > 0 && t < 1 && u > 0 && u < 1 && x > west && x < east) xs.add(x);
+  }
+  const stations = [...xs].sort((a, b) => a - b), result: Ring[] = [];
+  const at = (edge: Boundary, x: number) => edge.a[1] + (x - edge.a[0]) * (edge.b[1] - edge.a[1]) / (edge.b[0] - edge.a[0]);
+  for (let i = 1; i < stations.length; i++) {
+    yield;
+    const left = stations[i - 1], right = stations[i], x = (left + right) / 2;
+    if (x === left || x === right) continue;
+    const crossing = (edge: Boundary) => x > Math.min(edge.a[0], edge.b[0]) && x < Math.max(edge.a[0], edge.b[0]);
+    const limits = outline.filter(crossing).sort((a, b) => at(a, x) - at(b, x));
+    if (limits.length < 2) continue;
+    const low = limits[0], high = limits[limits.length - 1], lo = at(low, x), hi = at(high, x);
+    const hits = [low, ...edges.filter(e => crossing(e) && at(e, x) > lo && at(e, x) < hi), high].sort((a, b) => at(a, x) - at(b, x));
+    for (let j = 1; j < hits.length; j++) {
+      const a = hits[j - 1], b = hits[j], bottom = at(a, x), top = at(b, x);
+      if (top <= bottom || region.waterAt(x, (bottom + top) / 2)) continue;
+      const ring: Ring = [[left, at(a, left)], [right, at(a, right)], [right, at(b, right)], [left, at(b, left)]];
+      if (hasArea(ring)) result.push(ring);
+    }
+  }
+  return result;
+}
+
 /** null leaves a quad's original vertices, colours and winding byte-identical. */
-export function partitionGlyphMapWaterTerrain(bounds: GlyphMapBounds, coverage: readonly GlyphMapWaterCoverage[]): { ring: Ring; land: boolean }[] | null {
-  const relevant = coverage.filter(c => overlaps(bounds, c.bounds));
+export function partitionGlyphMapWaterTerrain(bounds: GlyphMapBounds, coverage: readonly GlyphMapWaterCoverage[]): WaterPiece[] | null {
+  const steps = partitionGlyphMapWaterTerrainSteps(bounds, coverage);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+type WaterPiece = { ring: Ring; land: boolean };
+export function* partitionGlyphMapWaterTerrainSteps(bounds: GlyphMapBounds, coverage: readonly GlyphMapWaterCoverage[]): Generator<void, WaterPiece[] | null> {
+  const relevant = coverage.filter(c => glyphMapWaterOverlaps(bounds, c.bounds));
   if (!relevant.length) return null;
   const nw: Point = [bounds.west, bounds.north], sw: Point = [bounds.west, bounds.south];
   const se: Point = [bounds.east, bounds.south], ne: Point = [bounds.east, bounds.north];
@@ -142,16 +210,30 @@ export function partitionGlyphMapWaterTerrain(bounds: GlyphMapBounds, coverage: 
   const result: { ring: Ring; land: boolean }[] = [];
   for (const region of relevant) {
     const next: Ring[] = [];
-    const triangles = region.candidates(bounds);
+    const edges = region.boundaries(bounds);
     for (const subject of remaining) {
       const { inside, outside } = cut(subject, boxRing(region.bounds));
       next.push(...outside);
-      let dry: Ring[] = inside.length ? [inside] : [];
-      for (const triangle of triangles) dry = dry.flatMap(piece => cut(piece, triangle.ring, triangle.bounds).outside);
-      result.push(...dry.map(ring => ({ ring, land: true })));
+      const dry: Ring[] = inside.length ? [inside] : [];
+      for (const ring of dry) result.push(...(yield* partitionShore(ring, edges, region)).map(ring => ({ ring, land: true })));
     }
     remaining = next;
   }
   result.push(...remaining.map(ring => ({ ring, land: false })));
   return result;
+}
+
+/** Cooperative preparation; cancellation is checked before every bounded step. */
+export async function runGlyphMapWaterWork<T>(work: Generator<void, T>, valid: () => boolean): Promise<T | undefined> {
+  let deadline = performance.now();
+  while (valid()) {
+    if (performance.now() >= deadline) {
+      await new Promise<void>(resolve => setTimeout(resolve, 0));
+      if (!valid()) return undefined;
+      deadline = performance.now() + 2;
+    }
+    const next = work.next();
+    if (next.done) return next.value;
+  }
+  return undefined;
 }

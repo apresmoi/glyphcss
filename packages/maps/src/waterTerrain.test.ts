@@ -1,6 +1,6 @@
-import { expect, it } from "vitest";
-import { createGlyphMapWaterCoverage, partitionGlyphMapWaterTerrain } from "./waterTerrain";
-import { glyphMapPolygons, glyphMapTerrainPolygons } from "./mesh";
+import { expect, it, vi } from "vitest";
+import { createGlyphMapWaterCoverage, partitionGlyphMapWaterTerrain, runGlyphMapWaterWork } from "./waterTerrain";
+import { glyphMapPolygons, glyphMapTerrainPolygons, prepareGlyphMapTerrainPolygons, type GlyphMapTerrainWaterCache } from "./mesh";
 import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 
@@ -51,4 +51,56 @@ it("keeps clipped globe vertices on the shared terrain triangles, avoiding T-jun
   const midpoint = nw.map((v, i) => (v + se[i]) / 2);
   const land = polygons.filter(p => p.color === "#00ff00");
   expect(land.flatMap(p => p.vertices).some(v => Math.hypot(...v.map((value, i) => value - midpoint[i])) < 1e-14)).toBe(true);
+});
+
+it("reuses unaffected cells by identity, and restores only the revoked footprint", () => {
+  const tile = { ...source, cols: 2, elevation: new Float32Array(6).fill(-1000) };
+  const cache: GlyphMapTerrainWaterCache = new Map();
+  const base = glyphMapTerrainPolygons(tile, projection, { color }, [], cache);
+  const west = createGlyphMapWaterCoverage({ ...bounds, east: 1 }, []);
+  const east = createGlyphMapWaterCoverage({ ...bounds, west: 1 }, []);
+  const first = glyphMapTerrainPolygons(tile, projection, { color }, [west], cache);
+  expect(first[first.length - 1]).toBe(base[1]);
+  const westPolygons = cache.get(0)!.polygons;
+  glyphMapTerrainPolygons(tile, projection, { color }, [west, east], cache);
+  expect(cache.get(0)!.polygons).toBe(westPolygons);
+  const restored = glyphMapTerrainPolygons(tile, projection, { color }, [west], cache);
+  expect(cache.get(0)!.polygons).toBe(westPolygons);
+  expect(restored[restored.length - 1]).toEqual(base[1]);
+});
+
+it("cooperative preparation matches synchronous geometry without exposing partial output", async () => {
+  const region = createGlyphMapWaterCoverage({ ...bounds, west: 1 }, []);
+  const work = prepareGlyphMapTerrainPolygons(source, projection, { color }, [region]);
+  const result = await runGlyphMapWaterWork(work, () => true);
+  expect(result).toEqual(glyphMapTerrainPolygons(source, projection, { color }, [region]));
+});
+
+it("yields before beginning work, and abandons a superseded preparation", async () => {
+  vi.useFakeTimers();
+  try {
+    let started = false, valid = true;
+    function* work() { started = true; yield; valid = false; yield; throw new Error("stale work resumed"); }
+    const pending = runGlyphMapWaterWork(work(), () => valid);
+    expect(started).toBe(false);
+    await vi.runAllTimersAsync();
+    expect(await pending).toBeUndefined();
+    expect(started).toBe(true);
+  } finally { vi.useRealTimers(); }
+});
+
+it("partitions crossing water features by their union, retaining their dry holes", () => {
+  const rectangle = (west: number, east: number, south: number, north: number) => [[west, south], [east, south], [east, north], [west, north], [west, south]] as const;
+  const features = [
+    { geometryType: "polygon" as const, rings: [rectangle(0, 1.5, 0, 1), rectangle(.2, .4, .2, .4)], polygons: [[rectangle(0, 1.5, 0, 1), rectangle(.2, .4, .2, .4)]] },
+    { geometryType: "polygon" as const, rings: [rectangle(1, 2, .5, 2)] },
+  ];
+  const coverage = createGlyphMapWaterCoverage(bounds, features);
+  const split = partitionGlyphMapWaterTerrain(bounds, [coverage])!;
+  const area = split.reduce((sum, { ring }) => sum + Math.abs(ring.reduce((v, p, i) => {
+    const q = ring[(i + 1) % ring.length]; return v + p[0] * q[1] - q[0] * p[1];
+  }, 0)) / 2, 0);
+  // Union water area = 1.5 + 1.5 - .25 - .04; complement = 1.29.
+  expect(area).toBeCloseTo(1.29, 12);
+  expect(split.every(piece => piece.land)).toBe(true);
 });

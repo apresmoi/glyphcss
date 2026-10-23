@@ -3,7 +3,7 @@ import { SURFACE_MEDIAN_STRIPS, surfaceMedianOfBlock } from "glyphcss";
 import type { GlyphMapProjection } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileVertexLonLat } from "./tile";
-import { partitionGlyphMapWaterTerrain, type GlyphMapWaterCoverage } from "./waterTerrain";
+import { partitionGlyphMapWaterTerrainSteps, glyphMapWaterOverlaps, type GlyphMapWaterCoverage } from "./waterTerrain";
 
 export interface GlyphMapPolygonsOptions {
   /** Per-quad color from the quad's representative elevation (see {@link GlyphMapPolygonsOptions.colorSample}). Omit for uncolored polygons (glyphcss's default gray). `undefined` from this callback also leaves a quad uncolored. */
@@ -465,8 +465,17 @@ export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProj
   return glyphMapTerrainPolygons(tile, projection, opts);
 }
 
-/** Internal widget path: cut every tier by the same committed water snapshot. */
-export function glyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProjection, opts: GlyphMapPolygonsOptions = {}, water: readonly GlyphMapWaterCoverage[] = []): Polygon[] {
+export type GlyphMapTerrainWaterCache = Map<number, { water: readonly GlyphMapWaterCoverage[]; polygons: Polygon[] }>;
+
+/** Internal widget path; cached cells depend only on intersecting tile identities. */
+export function glyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProjection, opts: GlyphMapPolygonsOptions = {}, water: readonly GlyphMapWaterCoverage[] = [], cache?: GlyphMapTerrainWaterCache): Polygon[] {
+  const steps = prepareGlyphMapTerrainPolygons(tile, projection, opts, water, cache);
+  let next = steps.next();
+  while (!next.done) next = steps.next();
+  return next.value;
+}
+
+export function* prepareGlyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProjection, opts: GlyphMapPolygonsOptions = {}, water: readonly GlyphMapWaterCoverage[] = [], cache?: GlyphMapTerrainWaterCache): Generator<void, Polygon[]> {
   const qCols = opts.resolution ? Math.min(tile.cols, Math.max(1, Math.round(opts.resolution.cols))) : tile.cols;
   const qRows = opts.resolution ? Math.min(tile.rows, Math.max(1, Math.round(opts.resolution.rows))) : tile.rows;
   const colAt = gridLineIndices(tile.cols, qCols);
@@ -485,26 +494,40 @@ export function glyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: Glyph
   const stripLo = intervals > 0 ? new Float64Array(intervals) : null;
   const stripHi = intervals > 0 ? new Float64Array(intervals) : null;
   const stripEnds = intervals > 0 ? new Float64Array(intervals * 2) : null;
-  const polygons: Polygon[] = [];
+  const result: Polygon[] = [];
   for (let r = 0; r < qRows; r++) {
     const row = rowAt[r];
     const rowNext = rowAt[r + 1];
     for (let c = 0; c < qCols; c++) {
       const col = colAt[c];
       const colNext = colAt[c + 1];
+      const cell = r * qCols + c;
+      const [west, north] = glyphMapGeoTileVertexLonLat(tile, col, row);
+      const [east, south] = glyphMapGeoTileVertexLonLat(tile, colNext, rowNext);
+      const relevant = water.filter(region => glyphMapWaterOverlaps({ west, east, south, north }, region.bounds));
+      const previous = cache?.get(cell);
+      if (previous && previous.water.length === relevant.length && previous.water.every((v, i) => v === relevant[i])) {
+        result.push(...previous.polygons);
+        if ((cell & 127) === 0) yield;
+        continue;
+      }
+      yield;
+      const polygons: Polygon[] = [];
+      const finish = () => { cache?.set(cell, { water: relevant, polygons }); result.push(...polygons); };
       const nw = projectVertex(tile, projection, col, row, bias, windowMin, windowMax);
       const sw = projectVertex(tile, projection, col, rowNext, bias, windowMin, windowMax);
       const se = projectVertex(tile, projection, colNext, rowNext, bias, windowMin, windowMax);
       const ne = projectVertex(tile, projection, colNext, row, bias, windowMin, windowMax);
-      if (!finite(nw.xyz) || !finite(sw.xyz) || !finite(se.xyz) || !finite(ne.xyz)) continue;
+      if (!finite(nw.xyz) || !finite(sw.xyz) || !finite(se.xyz) || !finite(ne.xyz)) { finish(); continue; }
       const elevation =
         stripLo === null || stripHi === null || stripEnds === null
           ? (nw.elev + sw.elev + se.elev + ne.elev) / 4
           : surfaceMedianElevation(tile, stripLo, stripHi, stripEnds, col, colNext, row, rowNext);
       const color = opts.color?.(elevation);
-      const pieces = water.length ? partitionGlyphMapWaterTerrain({ west: nw.lon, east: ne.lon, south: sw.lat, north: nw.lat }, water) : null;
+      const pieces = relevant.length ? yield* partitionGlyphMapWaterTerrainSteps({ west, east, south, north }, relevant) : null;
       if (pieces) {
         for (const { ring, land } of pieces) {
+          yield;
           // Clamp the original corners BEFORE interpolation, just like the
           // ground sampler. Splitting the NW-SE triangles preserves relief.
           const floor = land ? Math.max(0, windowMin) : windowMin;
@@ -536,6 +559,7 @@ export function glyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: Glyph
           if (pieceColor !== undefined) polygon.color = pieceColor;
           polygons.push(polygon);
         }
+        finish();
         continue;
       }
       const up = localUpDirection(projection, nw.lon, nw.lat, nw.placedElev);
@@ -546,7 +570,8 @@ export function glyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: Glyph
       const polygon: Polygon = { vertices };
       if (color !== undefined) polygon.color = color;
       polygons.push(polygon);
+      finish();
     }
   }
-  return polygons;
+  return result;
 }

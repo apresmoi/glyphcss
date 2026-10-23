@@ -211,3 +211,30 @@ it("real z0 open ocean remains water across the global terrain backstop", async 
   await map.idle(); map.scene.rerender();
   expect(colorAt(map, [-140, 0])).toBe("#1b3f66");
 });
+
+it("never renders new land authority before its matching water fill", async () => {
+  const tile = fixture(8, 136, 91);
+  let release!: (tile: GlyphMapVectorTile) => void;
+  const pending = new Promise<GlyphMapVectorTile>(resolve => { release = resolve; });
+  const map = mount(provider(tile, () => pending), true);
+  map.scene.rerender();
+  const frames: string[][] = [];
+  const capture = () => frames.push([colors(map)[38][68], colorAt(map, [12.55, 45.3])]);
+  // Observe each renderer write synchronously: happy-dom's MutationObserver
+  // coalesces microtasks and can hide an intermediate incomplete frame.
+  const setHTML = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML")!.set!;
+  const writes = vi.spyOn(Element.prototype, "innerHTML", "set").mockImplementation(function (this: Element, html: string) {
+    setHTML.call(this, html);
+    if (this === map.scene.output) capture();
+  });
+  capture();
+  try {
+    release(tile);
+    await map.idle();
+    map.scene.rerender();
+    capture();
+    expect(frames).toContainEqual([SEA, SEA]);
+    expect(frames).toContainEqual([LAND, "#1b3f66"]);
+    expect(frames.every(frame => frame[0] === SEA && frame[1] === SEA || frame[0] === LAND && frame[1] === "#1b3f66")).toBe(true);
+  } finally { writes.mockRestore(); }
+});
