@@ -2,7 +2,7 @@
  * The atlas font stack must never straddle a fallback frame.
  *
  * `colorEncoding: "atlas"` is a REQUEST. Any frame whose glyphs, colours or
- * palette the atlas can't carry — the pre-ready window, `charMode: "braille"`,
+ * palette the atlas can't carry — the pre-ready window, an uncovered glyph,
  * an exotic wireframe palette, an out-of-atlas field-synth ramp glyph — falls
  * back to the span encoder. Pinning `font-family: "GlyphCssAtlas", monospace`
  * on the strength of the OPTION therefore left those frames rendering in two
@@ -31,6 +31,7 @@ import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { GLYPH_FONT_ATLAS } from "../render/fontAtlas";
 import { ensureGlyphAtlasFontFaceStyles } from "../styles/styles";
 import type { Polygon } from "@glyphcss/core";
+import type { CellGrid } from "../render/cells";
 
 const FONT_FACE_STYLE_ID = "glyph-atlas-font-face";
 
@@ -41,6 +42,12 @@ const FLAT_LIGHTING = {
 
 function flatQuad(color: string): Polygon[] {
   return [{ vertices: [[-3, -3, 0], [-3, 3, 0], [3, 3, 0], [3, -3, 0]], color }];
+}
+
+function stampUncoveredRune(grid: CellGrid): void {
+  grid.char.fill("ᚡ");
+  grid.color.fill("#336699");
+  grid.char[0] = " ";
 }
 
 function makeDiv(): HTMLElement {
@@ -54,15 +61,14 @@ async function flushAtlasRenders(): Promise<void> {
   for (let i = 0; i < 6; i++) await Promise.resolve();
 }
 
-const ATLAS_PUA_END = GLYPH_FONT_ATLAS.puaStart + GLYPH_FONT_ATLAS.glyphCount * GLYPH_FONT_ATLAS.maxPaletteSize;
-
 /**
  * Is this code point in the atlas font's cmap? The atlas maps `U+0020` plus
- * its own PUA block and nothing else — the premise the whole finding rests on,
+ * its two PUA blocks and nothing else — the premise the whole finding rests on,
  * pinned against `build-atlas.py` by the first test below so it cannot rot.
  */
 function inAtlasCmap(codePoint: number): boolean {
-  return codePoint === 0x20 || (codePoint >= GLYPH_FONT_ATLAS.puaStart && codePoint < ATLAS_PUA_END);
+  return codePoint === 0x20 || (codePoint >= 0xe000 && codePoint <= 0xf8d7)
+    || (codePoint >= 0xf0000 && codePoint <= 0xf1d0f);
 }
 
 function atlasIsFirstInStack(el: HTMLElement): boolean {
@@ -182,9 +188,8 @@ describe("colorEncoding: \"atlas\" — one frame, one font", () => {
       cols: 40,
       rows: 16,
       mode: "wireframe",
-      // Braille dot patterns are deliberately outside the universal atlas, so
-      // this scene falls back on every frame however ready the font is.
-      charMode: "braille",
+      // This rune is outside the atlas on every frame, regardless of font readiness.
+      transformCells: stampUncoveredRune,
       useColors: true,
       colorEncoding: "atlas",
       atlasPalette: ["#336699"],
@@ -249,7 +254,7 @@ describe("colorEncoding: \"atlas\" — one frame, one font", () => {
       cols: 40,
       rows: 16,
       mode: "wireframe",
-      charMode: "braille",
+      transformCells: stampUncoveredRune,
       useColors: true,
       colorEncoding: "atlas",
       // No pinned palette: this is the pooled-quantizer path.
@@ -289,7 +294,7 @@ describe("colorEncoding: \"atlas\" — one frame, one font", () => {
     await flushAtlasRenders();
     expect(atlasIsFirstInStack(scene.output)).toBe(true);
 
-    scene.setOptions({ mode: "wireframe", charMode: "braille" });
+    scene.setOptions({ mode: "wireframe", transformCells: stampUncoveredRune });
     await flushAtlasRenders();
 
     expect(scene.output.innerHTML).toContain("<span");
@@ -378,7 +383,7 @@ describe("colorEncoding: \"atlas\" — the cell probe measures the font that pai
       camera: createGlyphOrthographicCamera({ zoom: 20 }),
       autoSize: true,
       mode: "wireframe",
-      charMode: "braille",
+      transformCells: stampUncoveredRune,
       useColors: true,
       colorEncoding: "atlas",
       atlasPalette: ["#336699"],

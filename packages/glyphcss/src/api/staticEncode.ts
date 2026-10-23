@@ -81,22 +81,23 @@ export function encodeGlyphAnsi(inner: string): string {
   }).join("\n");
 }
 
-/** Crop tokenized lines to the bounding box of their non-space glyphs. */
+/** Crop tokenized lines by code point: supplementary atlas PUA is one cell. */
 function cropLines(lines: Run[][]): Run[][] {
   let minCol = Infinity, maxCol = -1, minRow = Infinity, maxRow = -1;
   lines.forEach((runs, row) => {
     let col = 0;
     let has = false;
     for (const r of runs) {
-      for (let i = 0; i < r.text.length; i++) {
-        if (r.text[i] !== " ") {
+      const chars = [...r.text];
+      for (let i = 0; i < chars.length; i++) {
+        if (chars[i] !== " ") {
           const c = col + i;
           if (c < minCol) minCol = c;
           if (c > maxCol) maxCol = c;
           has = true;
         }
       }
-      col += r.text.length;
+      col += chars.length;
     }
     if (has) { if (row < minRow) minRow = row; if (row > maxRow) maxRow = row; }
   });
@@ -106,10 +107,11 @@ function cropLines(lines: Run[][]): Run[][] {
     const cropped: Run[] = [];
     let col = 0;
     for (const r of lines[row]) {
-      const start = col, end = col + r.text.length;
+      const chars = [...r.text];
+      const start = col, end = col + chars.length;
       col = end;
       const s = Math.max(start, minCol), e = Math.min(end, maxCol + 1);
-      if (e > s) cropped.push({ color: r.color, text: r.text.slice(s - start, e - start) });
+      if (e > s) cropped.push({ color: r.color, text: chars.slice(s - start, e - start).join("") });
     }
     out.push(cropped);
   }
@@ -144,10 +146,11 @@ export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows
       let col = 0;
       let has = false;
       for (const r of runs) {
-        for (let i = 0; i < r.text.length; i++) {
-          if (r.text[i] !== " ") { const c = col + i; if (c < minCol) minCol = c; if (c > maxCol) maxCol = c; has = true; }
+        const chars = [...r.text];
+        for (let i = 0; i < chars.length; i++) {
+          if (chars[i] !== " ") { const c = col + i; if (c < minCol) minCol = c; if (c > maxCol) maxCol = c; has = true; }
         }
-        col += r.text.length;
+        col += chars.length;
       }
       if (has) { if (row < minRow) minRow = row; if (row > maxRow) maxRow = row; }
     });
@@ -159,11 +162,12 @@ export function cropGlyphFrames(frameInners: string[]): { frames: string[]; rows
       const runs = frame[row] ?? [];
       let col = 0, line = "";
       for (const r of runs) {
-        const start = col, end = col + r.text.length;
+        const chars = [...r.text];
+        const start = col, end = col + chars.length;
         col = end;
         const s = Math.max(start, minCol), e = Math.min(end, maxCol + 1);
         if (e > s) {
-          const t = r.text.slice(s - start, e - start);
+          const t = chars.slice(s - start, e - start).join("");
           line += r.color !== null ? `<span style="color:${r.color}">${t}</span>` : t;
         }
       }
@@ -206,11 +210,12 @@ export function encodeStaticGlyphHtml(
     lines.forEach((runs, row) => {
       let col = 0;
       for (const r of runs) {
-        if (r.color !== null && r.text.length > 0) {
+        const cellCount = [...r.text].length;
+        if (r.color !== null && cellCount > 0) {
           const i = idxOf(r.color);
-          cells.push(`<s class="c${i}" style="grid-area:${row + 1}/${col + 1}/auto/span ${r.text.length}">${r.text}</s>`);
+          cells.push(`<s class="c${i}" style="grid-area:${row + 1}/${col + 1}/auto/span ${cellCount}">${r.text}</s>`);
         }
-        col += r.text.length;
+        col += cellCount;
       }
       if (col > cols) cols = col;
     });
