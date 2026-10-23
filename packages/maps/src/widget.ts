@@ -60,7 +60,7 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
-import { createGlyphMapExtrusionSurface, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
+import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
@@ -8493,6 +8493,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     scene.setViewportOverlayDensities(densities);
   }
 
+  let outlineMeshes: readonly (readonly Polygon[])[] = [];
+  let outlineTopology: ReturnType<typeof createGlyphMapExtrusionTopology> | undefined;
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
     if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
@@ -8539,14 +8541,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const s = layerStates.get(id);
         return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
       });
+      if (!outlined.length) { outlineMeshes = []; outlineTopology = undefined; }
       if (outlined.length && layerInfo?.viewport !== true) {
         const frozen = { ...g, depth: g.depth.slice() };
         const project = (world: Vec3): GlyphMapStrokeVertex => {
           const p = camera.project(world, cachedBaseGrid!.cols, cachedBaseGrid!.rows, cachedBaseGrid!.cellAspect, cachedBaseGrid!);
           return { ...glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid), depth: p[3] ?? p[2] };
         };
-        const polygons = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? s.runtime.polygons?.() ?? [] : []);
-        const surface = createGlyphMapExtrusionSurface(frozen, polygons, project, v => camera.eyeDepth(v));
+        const meshes = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? [s.runtime.polygons?.() ?? []] : []);
+        if (!outlineTopology || meshes.length !== outlineMeshes.length || meshes.some((p, i) => p !== outlineMeshes[i])) {
+          outlineMeshes = meshes;
+          outlineTopology = createGlyphMapExtrusionTopology(meshes.flat());
+        }
+        const pg = cachedBaseGrid!;
+        const frameKey = [g.cols, g.rows, pg.cols, pg.rows, pg.cellAspect, pg.cellWidth, pg.cellHeight, pg.centerCol, pg.centerRow,
+          ...cellToSceneGrid, camera.kind, camera.rotX, camera.rotY, ...camera.center, ...(camera.mat ?? []),
+          camera.useMat, camera.distance, camera.perspective, camera.zoom, camera.stretch, camera.fovScale,
+          ...camera.target, camera.eyeMode, camera.project, camera.eyeDepth];
+        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey);
         stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
       }
     } finally {

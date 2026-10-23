@@ -345,7 +345,8 @@ export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOp
   return glyphMapOpenMapTilesLayers(source, {
     include: opts.enabled,
     lineOptions: MAP_OSM_LINE_OPTIONS,
-    buildingOutline: "braille",
+    // Outlines are braille-only; box mode keeps the plain building fill.
+    ...(MAP_LINE_STRATEGY === "braille" ? { buildingOutline: "braille" as const } : {}),
     roadHierarchy: true,
 
     densities: Object.fromEntries(opts.enabled.map((id) => [id, opts.densities[id] ?? MAP_OSM_DEFAULT_DENSITY])),

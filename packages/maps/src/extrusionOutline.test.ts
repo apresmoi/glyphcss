@@ -1,6 +1,7 @@
 import { expect, it } from "vitest";
 import type { CellGrid, Polygon, Vec3 } from "glyphcss";
-import { createGlyphMapExtrusionSurface, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
+import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
+import * as reference from "./test/extrusionOutlineReference";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 const project = (v: Vec3) => ({ col:v[0],row:v[1],depth:v[2] });
 const eye = () => Infinity;
@@ -56,4 +57,55 @@ it("self surface reconstruction accepts a roof beside a depth discontinuity", ()
   const surface = createGlyphMapExtrusionSurface(frozen,[polygon],project,eye);
   stampGlyphMapExtrusionOutlines(g,[geometry],surface,project,eye,false);
   for (let row = 3; row <= 5; row++) expect(g.char[row*10+6]).toMatch(/[\u2801-\u28ff]/u);
+});
+
+it("replays identical frames and invalidates on camera, live/frozen depth, ink, ownership and visibility changes", () => {
+  const p = { ...polygon }, gs = [{ ...geometry, polygons: [p] }];
+  const topology = createGlyphMapExtrusionTopology([p]);
+  let offset = 0, key = 0;
+  const shifted = (v: Vec3) => ({ col: v[0] + offset, row: v[1], depth: v[2] });
+  const render = (live = grid(), frozen = { ...live, depth: live.depth.slice() }) => {
+    const expected = { ...live, char: live.char.slice(), color: live.color.slice(), depth: live.depth.slice() };
+    const old = reference.createGlyphMapExtrusionSurface(frozen, [p], shifted, eye);
+    reference.stampGlyphMapExtrusionOutlines(expected, gs, old, shifted, eye, false);
+    const surface = createGlyphMapExtrusionSurface(frozen, [p], shifted, eye, topology, [key]);
+    stampGlyphMapExtrusionOutlines(live, gs, surface, shifted, eye, false);
+    expect(live.char).toEqual(expected.char); expect(live.color).toEqual(expected.color); expect(live.depth).toEqual(expected.depth);
+    return live;
+  };
+  const first = render();
+  const surface = createGlyphMapExtrusionSurface(grid(), [p], shifted, eye, topology, [key]);
+  const replayed = grid();
+  expect(surface.replay!(replayed, gs, false)).toBe(true);
+  expect(replayed.char).toEqual(first.char); expect(replayed.depth).toEqual(first.depth);
+  offset = 2; key++; render();
+  render(grid(2));
+  render(grid(100), grid()); // Frozen surface is independent of subsequent live ink.
+  render(grid(100), grid(2));
+  render(grid(100), grid()); render(grid(200), grid());
+  const inked = grid(); inked.char.fill(" "); render(); render(inked);
+  const colored = grid(); colored.color.fill("#ff0000"); render(); render(colored);
+  const owned = grid(); owned.occluded = new Uint8Array(100).fill(1); render(); render(owned);
+  render();
+  p.hidden = true; render(); p.hidden = false; render();
+});
+
+it("keeps eye-plane-straddling bounds and unrelated small occluders identical to packet 11", () => {
+  const front: Polygon = { vertices: [[3,3,2], [3,4,2], [4,4,2], [4,3,2]] };
+  for (const eyeDepth of [eye, (v: Vec3) => v[0] - 3]) {
+    const g = grid(), expected = grid(), polygons = [polygon, front];
+    stampGlyphMapExtrusionOutlines(g, [geometry], createGlyphMapExtrusionSurface(grid(), polygons, project, eyeDepth), project, eyeDepth, true);
+    reference.stampGlyphMapExtrusionOutlines(expected, [geometry], reference.createGlyphMapExtrusionSurface(grid(), polygons, project, eyeDepth), project, eyeDepth, true);
+    expect(g.char).toEqual(expected.char); expect(g.depth).toEqual(expected.depth);
+  }
+});
+
+it("excludes incident planes independently of reconstructed depth, without excluding unrelated planes", () => {
+  const g = grid();
+  const own = createGlyphMapExtrusionSurface(g, [polygon], project, eye);
+  const depth = 1 - Number.EPSILON * 64;
+  expect(own.occludes(roof[0]!, roof[1]!)(2.25, 4, depth)).toBe(false);
+  const unrelated: Polygon = { vertices: [[2,3,2], [2,5,2], [3,5,2], [3,3,2]] };
+  const covered = createGlyphMapExtrusionSurface(g, [polygon, unrelated], project, eye);
+  expect(covered.occludes(roof[0]!, roof[1]!)(2.25, 4, depth)).toBe(true);
 });

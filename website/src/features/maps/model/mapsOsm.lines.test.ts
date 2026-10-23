@@ -25,11 +25,13 @@ it("opts every OSM line row into box/VW, and only boundaries into shared polygon
 
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
-it.each(["", "?lines=braille"])("opts /maps buildings into braille outlines with URL %s", async search => {
+it.each(["", "?lines=braille"])("outlines /maps buildings only in braille mode, URL %s", async search => {
   vi.stubGlobal("location", { search });
   vi.resetModules();
   const { mapOsmLayers, createOsmSource } = await import("./mapsOsm");
   const layers = mapOsmLayers(createOsmSource(), { enabled: ["omt-buildings", "omt-roads"], densities: {} });
-  expect(layers.find(l => l.type === "fill-extrusion")).toMatchObject({ outline: "braille", facade: true });
+  const buildings = layers.find(l => l.type === "fill-extrusion")!;
+  expect(buildings).toMatchObject({ facade: true });
+  expect((buildings as { outline?: string }).outline).toBe(search ? "braille" : undefined);
   expect(layers.find(l => l.type === "line")).toMatchObject({ experimentalGlyphStrategy: search ? "braille" : "box" });
 });
