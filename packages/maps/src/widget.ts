@@ -1777,6 +1777,8 @@ export type GlyphMapGroundElevation = (lon: number, lat: number) => number | nul
 export interface GlyphMapOptions {
   readonly view: GlyphMapView;
   readonly projection: GlyphMapProjection;
+  /** Quantize rendered pans to output cells; getView() retains the exact requested centre. Default false. Ignored while walking. */
+  readonly snapPan?: boolean;
   readonly layers?: readonly GlyphMapLayer[];
   /**
    * Where the ground comes from — YOUR own DEM, a constant, a service-backed
@@ -1925,6 +1927,9 @@ export interface GlyphMapHandle {
   /** The underlying scene this widget owns. Escape hatch for anything not modeled above (mesh finders, effect layers, direct camera reads). */
   readonly scene: GlyphSceneHandle;
   setView(view: Partial<GlyphMapView>): void;
+  /** Enable whole-cell rendered pans without rounding the held view. */
+  setSnapPan(enabled: boolean): void;
+  getSnapPan(): boolean;
   getView(): GlyphMapView;
   /**
    * The largest `view.span` this widget will currently accept — the live
@@ -3214,6 +3219,119 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   let orbitRotation: { readonly rotX: number; readonly rotY: number } | null = null;
 
+  let snapPan = opts.snapPan ?? false;
+  let renderedCenter: readonly [number, number] | null = null;
+  type PanPose = { rotX: number; rotY: number; target: Vec3; zoom: number };
+  let exactPanPose: PanPose | null = null;
+  type PanAnchor = PanPose & {
+    projection: GlyphMapProjection;
+    key: string;
+    center: readonly [number, number];
+    basis: readonly [number, number, number, number];
+  };
+  let panAnchor: PanAnchor | null = null;
+
+  function restoreExactPanPose(): void {
+    renderedCenter = null;
+    if (!exactPanPose) return;
+    Object.assign(camera, exactPanPose);
+    exactPanPose = null;
+    syncCameraBearing();
+  }
+
+  /** Freeze one cell lattice until the lens/orientation/grid changes. Navigation stays exact. */
+  function snapRenderedPan(measuredGrid?: ProjectionGrid): void {
+    if (!snapPan || walk) {
+      panAnchor = null;
+      return;
+    }
+    const grid = measuredGrid ?? projectionGrid();
+    exactPanPose = { rotX: camera.rotX, rotY: camera.rotY, target: camera.target, zoom: camera.zoom };
+    const key = [
+      view.span,
+      tiltRequest,
+      appliedTilt,
+      bearing,
+      grid.cols,
+      grid.rows,
+      grid.cellWidth,
+      grid.cellHeight,
+    ].join(",");
+    if (!panAnchor || panAnchor.projection !== projection || panAnchor.key !== key) {
+      const t = camera.target;
+      const screen = (v: Vec3) => camera.project(v, grid.cols, grid.rows, grid.cellAspect, grid);
+      const origin = screen(t);
+      const eps = projection.centerForCamera ? 1e-3 : 1;
+      const point = (x: number, y: number): Vec3 => {
+        if (!projection.centerForCamera) return [t[0] + x, t[1] + y, t[2]];
+        const center = projection.centerForCamera(camera.rotX - appliedTilt + x, camera.rotY + y);
+        return projection.project(center[0], center[1], 0);
+      };
+      const a = screen(point(eps, 0)),
+        b = screen(point(0, eps));
+      let ax = (a[0] - origin[0]) / eps,
+        ay = (a[1] - origin[1]) / eps;
+      let bx = (b[0] - origin[0]) / eps,
+        by = (b[1] - origin[1]) / eps;
+      // At the pole yaw has no surface displacement; use the meridian scale
+      // to retain a finite rotation lattice through a pole crossing.
+      if (Math.abs(ax * by - ay * bx) < 1e-12) {
+        bx = -ay;
+        by = ax;
+      }
+      panAnchor = { ...exactPanPose, projection, key, center: view.center, basis: [ax, ay, bx, by] };
+      return;
+    }
+    const anchor = panAnchor;
+    // Some sheets have centre-dependent scale. A fixed-span pan still uses
+    // the anchor's lens; otherwise even a snapped centre would resize terrain.
+    camera.zoom = anchor.zoom;
+    const [ax, ay, bx, by] = anchor.basis;
+    const det = ax * by - ay * bx;
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return;
+    let x: number, y: number;
+    if (projection.centerForCamera) {
+      x = camera.rotX - anchor.rotX;
+      y = camera.rotY - anchor.rotY;
+    } else {
+      x = camera.target[0] - anchor.target[0];
+      y = camera.target[1] - anchor.target[1];
+    }
+    const col = Math.round(ax * x + bx * y),
+      row = Math.round(ay * x + by * y);
+    const sx = (col * by - row * bx) / det,
+      sy = (row * ax - col * ay) / det;
+    if (col === 0 && row === 0) {
+      camera.rotX = anchor.rotX;
+      camera.rotY = anchor.rotY;
+      camera.target = anchor.target;
+      renderedCenter = anchor.center;
+      syncCameraBearing();
+      return;
+    }
+    if (projection.centerForCamera) {
+      camera.rotX = anchor.rotX + sx;
+      camera.rotY = anchor.rotY + sy;
+      renderedCenter = projection.centerForCamera(camera.rotX - appliedTilt, camera.rotY);
+      camera.target = projection.project(renderedCenter[0], renderedCenter[1], 0);
+    } else {
+      camera.target = [anchor.target[0] + sx, anchor.target[1] + sy, anchor.target[2]];
+      renderedCenter = tryUnproject(projection, camera.target) ?? view.center;
+    }
+    syncCameraBearing();
+  }
+
+  function setSnapPan(enabled: boolean): void {
+    restoreExactPanPose();
+    snapPan = enabled;
+    panAnchor = null;
+    syncCameraToView(view);
+    applyKeyLight();
+    syncNearSide();
+    scene.rerender();
+    scheduleTileUpdate();
+  }
+
   /**
    * The map's own camera — the one every framing, sweep, unproject and
    * stroke in this file projects through. `let`, not `const`, for exactly
@@ -3313,6 +3431,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     readonly appliedTilt: number;
     readonly bearing: number;
     readonly orbitRotation: { readonly rotX: number; readonly rotY: number } | null;
+    readonly panAnchor: PanAnchor | null;
+    readonly exactPanPose: PanPose | null;
+    readonly renderedCenter: readonly [number, number] | null;
+    readonly snapPan: boolean;
   } | null = null;
 
   /** The pitch floor/ceiling while walking: a neck's worth either side of the horizontal. */
@@ -3366,7 +3488,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * this needs.
    */
   function bearingUpAxis(): Vec3 | null {
-    const up = localUpDirection(projection, view.center[0], view.center[1], 0);
+    const center = renderedCenter ?? view.center;
+    const up = localUpDirection(projection, center[0], center[1], 0);
     if (!up) return null;
     const len = Math.hypot(up[0], up[1], up[2]);
     if (!(len > 0) || !Number.isFinite(len)) return null;
@@ -4688,6 +4811,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function syncCameraToView(v: GlyphMapView): void {
+    restoreExactPanPose();
     // Walk mode owns the whole pose — lens, position and orientation — and
     // shares only the pitch/heading state. There is no zoom-for-span to
     // compute and no pitch ceiling to derive from a synthetic altitude:
@@ -4727,6 +4851,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // rebuilt from it — a matrix left over from the previous centre would
     // turn about the wrong point (see `syncCameraBearing`).
     syncCameraBearing();
+    snapRenderedPan(grid);
   }
 
   // ── project()/unproject() ────────────────────────────────────────────
@@ -8784,6 +8909,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function applyProjectionFrame(from: GlyphMapProjection, to: GlyphMapProjection, t: number, fromFraming: CameraFraming): void {
+    exactPanPose = null; renderedCenter = null; panAnchor = null;
     // `anchor` is what ENGAGES the globe<->sheet UNWRAP path (transition.ts's
     // `GlyphMapProjectionTransitionOptions.anchor` doc): the surface is
     // anchored ON the view centre, which is exactly where the linearly-lerped
@@ -9595,11 +9721,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * the one motion loop. Two entry points, one model.
    */
   function applyTiltState(t: number): boolean {
+    restoreExactPanPose();
     tiltRequest = t;
     if (!isOrbitProjection()) {
       appliedTilt = clamp(tiltRequest, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT);
       camera.rotX = appliedTilt;
       syncCameraBearing();
+      snapRenderedPan();
       return false;
     }
     // Re-derive rotX AND the pivot from the CURRENT view center (not the drag
@@ -9631,6 +9759,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * the normalization is the whole of its domain handling.
    */
   function applyBearingState(b: number): void {
+    restoreExactPanPose();
     bearing = glyphMapNormalizeBearing(b);
     // WALKING, a heading is not a matrix change — it is a POSE change, and
     // this is the whole of the "it cannot be steered" defect.
@@ -9651,6 +9780,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // branch genuinely is matrix-only: it has no eye to move.)
     if (walk) { syncCameraToView(view); return; }
     syncCameraBearing();
+    snapRenderedPan();
   }
 
   function setBearing(b: number): void {
@@ -9704,6 +9834,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       bearing = restore.bearing;
       orbitRotation = restore.orbitRotation;
       camera = orthographicCamera;
+      panAnchor = restore.panAnchor; exactPanPose = restore.exactPanPose; renderedCenter = restore.renderedCenter;
+      if (snapPan !== restore.snapPan) { panAnchor = null; syncCameraToView(view); }
       scene.setOptions({ camera });
       applyKeyLight();
       syncNearSide();
@@ -9739,7 +9871,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     // A flight or a glide owns the position; a walker owns it from here.
     cancelCameraGlide();
-    walkRestore = { view, tiltRequest, appliedTilt, bearing, orbitRotation };
+    walkRestore = { view, tiltRequest, appliedTilt, bearing, orbitRotation, panAnchor, exactPanPose, renderedCenter, snapPan };
+    panAnchor = null; exactPanPose = null; renderedCenter = null;
     walk = resolved;
     if (!walkCamera) walkCamera = createGlyphPerspectiveCamera({});
     camera = walkCamera;
@@ -9890,6 +10023,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // from exactly where the surviving finger already is) would nudge the
     // centre by a few ulps for no reason at all.
     if (dxPx === 0 && dyPx === 0) return;
+    restoreExactPanPose();
     if (isOrbitProjection() && projection.cameraForCenter && projection.centerForCamera) {
       // Grab-and-drag semantics (verified against `centerForCamera`): drag
       // RIGHT must decrease centre longitude and drag DOWN must increase
@@ -9990,6 +10124,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       camera.target = projection.project(lon, lat, 0);
       syncCameraBearing();
     }
+    snapRenderedPan();
   }
 
   function applyDrag(dxPx: number, dyPx: number): void {
@@ -11109,6 +11244,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     scene: publicScene,
     setView,
     getView,
+    setSnapPan,
+    getSnapPan: () => snapPan,
     fitBounds,
     setTilt,
     getTilt,

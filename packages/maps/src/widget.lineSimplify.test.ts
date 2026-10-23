@@ -70,7 +70,7 @@ describe("live line VW simplification", () => {
     const map = mount({ simplify: "vw", density: 8, experimentalGlyphStrategy: "box" });
     await map.idle();
     expect(stamp.mock.calls.at(-1)![1]).toHaveLength(line.length);
-    expect(stamp.mock.calls.at(-1)![2]).toEqual({ color: undefined, experimentalGlyphStrategy: "box", boxGraph: { samples: expect.any(Map), paths: expect.any(Array), prior: expect.any(Map), islands: expect.any(Set) } });
+    expect(stamp.mock.calls.at(-1)![2]).toEqual({ color: undefined, experimentalGlyphStrategy: "box", boxGraph: { samples: expect.any(Map), paths: expect.any(Array), prior: expect.any(Map), islands: expect.any(Set), surface: expect.objectContaining({ depth: expect.any(Float64Array) }) } });
   });
 
   it("does not resimplify an unchanged source while orbiting", async () => {

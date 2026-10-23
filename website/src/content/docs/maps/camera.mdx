@@ -370,3 +370,16 @@ baseline.
 Calling `setWalk` again while already walking **reconfigures in place** — no
 restore, no re-capture. A `setProjection` while walking leaves walk mode instead
 of blending through it.
+
+### Whole-cell pans
+
+`createGlyphMap({ ..., snapPan: true })` holds tiny pans on one rendered
+cell lattice. Flat maps translate by whole output cells; globes quantize
+rotation on a local tangent lattice, so shapes near the limb can still change.
+The camera translation is exact on flat maps. The renderer’s screen-anchored
+shading dither can still change terrain glyphs during a whole-cell step.
+The held centre (`getView()` and shared links) stays exact. Zoom, tilt,
+bearing and grid changes start a new lattice without snapping that change.
+Walking bypasses snapping. Use `map.setSnapPan(boolean)` to toggle it.
+The `/maps` View folder enables **Snap pan** by default and saves the choice
+in shared links. Omission in the package keeps continuous pans.

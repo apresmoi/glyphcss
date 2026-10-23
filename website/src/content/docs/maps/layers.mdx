@@ -120,8 +120,11 @@ The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in
 one graph per layer and frame, including coincident feature/tile endpoints.
 Diagonal steps add one staircase corner using the same depth and ownership
 tests; when both corners are blocked, the slash remains. Immediate backtracks
-collapse before joining. A cell left with no joined neighbour is dropped, except
-an island smaller than a cell, which stays a dot.
+collapse before joining. A ring or arc whose projected extent is under two
+cells becomes one depth-tested `·` at its geometry centroid. Larger paths
+drop cells left with no joined neighbour. Box depth tests read the surface
+before the layer wrote any ink; staircase corners cannot borrow cells from
+a separate path.
 
 Omitting these options leaves the default output unchanged. The `/maps`
 borders enable live VW, shared arcs, and `box`.

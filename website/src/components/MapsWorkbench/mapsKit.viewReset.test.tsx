@@ -70,7 +70,7 @@ function baseInputs(over: Partial<ViewFolderInputs> = {}): ViewFolderInputs {
     centerLon: 0, centerLat: 0, span: 40, maxSpan: 360,
     tilt: 0, maxTilt: 85, bearing: 0,
     isOrbitProjection: true, lod: 3, degPerCell: 0.25,
-    onCenter: noop, onSpan: noop, onTilt: noop, onBearing: noop,
+    onCenter: noop, onSpan: noop, onTilt: noop, onBearing: noop, snapPan: true, onSnapPan: noop,
     ...over,
   };
 }
@@ -157,8 +157,8 @@ describe("View folder — where the reset lives", () => {
     // so nothing may be inserted between them (`useViewFolder`'s own doc).
     expect(n.indexOf("Bearing °")).toBe(n.indexOf("Tilt °") + 1);
     // The rejected shape was two extra rows. There are none — the folder is
-    // Center lon / Center lat / Span / Tilt / Bearing / LOD, as before.
-    expect(n).toEqual(["Center lon", "Center lat", "Span °", "Tilt °", "Bearing °", "LOD"]);
+    // Center lon / Center lat / Span / Tilt / Bearing / Snap pan / LOD.
+    expect(n).toEqual(["Center lon", "Center lat", "Span °", "Tilt °", "Bearing °", "Snap pan", "LOD"]);
     expect(host.querySelectorAll(".maps-view-reset").length).toBe(2);
   });
 

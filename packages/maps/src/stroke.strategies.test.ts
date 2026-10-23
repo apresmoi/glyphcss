@@ -102,6 +102,7 @@ describe("experimental map stroke glyphs", () => {
     stampGlyphMapPolyline(g, [
       { col: 2.2, row: 2.2, depth: 0 }, { col: 3.2, row: 2.2, depth: 0 },
       { col: 3.2, row: 3.2, depth: 0 }, { col: 2.2, row: 3.2, depth: 0 },
+      { col: 0.2, row: 3.2, depth: 0 },
     ], { experimentalGlyphStrategy: "box" });
     expect([g.char[34], g.char[35], g.char[50], g.char[51]]).toEqual(["─", "┐", "─", "┘"]);
   });
@@ -109,6 +110,7 @@ describe("experimental map stroke glyphs", () => {
   it("box collapses immediate backtracks before choosing corners", () => {
     const g = grid();
     stampGlyphMapPolyline(g, [
+      { col: 2.2, row: 0.2, depth: 0 },
       { col: 2.2, row: 2.2, depth: 0 }, { col: 3.2, row: 2.2, depth: 0 },
       { col: 2.2, row: 2.2, depth: 0 }, { col: 2.2, row: 3.2, depth: 0 },
       { col: 3.2, row: 3.2, depth: 0 },
@@ -232,11 +234,11 @@ describe("layer-wide box graph", () => {
       if (mode === "surface") { g.depth.fill(0); g.depth[2 * 16 + 3] = -Infinity; }
 
       if (mode === "foreign") { g.occluded = new Uint8Array(160); g.occluded[2 * 16 + 3] = 1; }
+      if (mode === "depth") g.depth[2 * 16 + 3] = 10;
       const graph = createGlyphMapBoxStrokeGraph();
-      stampGlyphMapPolyline(g, [{ col: 2.2, row: 2.2, depth: 0 }, { col: 3.2, row: 3.2, depth: 0 }], {
+      stampGlyphMapPolyline(g, [{ col: 2.2, row: 2.2, depth: 0 }, { col: 3.2, row: 3.2, depth: 0 }, { col: 5.2, row: 3.2, depth: 0 }], {
         experimentalGlyphStrategy: "box", depthCurvatureScale: 0, requireSurface: mode === "surface", boxGraph: graph,
       });
-      if (mode === "depth") g.depth[2 * 16 + 3] = 10;
       finishGlyphMapBoxStrokeGraph(g, graph);
       expect(g.char[2 * 16 + 3]).toBe(" ");
       expect(g.char[3 * 16 + 2]).toBe("└");
@@ -244,7 +246,7 @@ describe("layer-wide box graph", () => {
     const blocked = grid();
     blocked.occluded = new Uint8Array(160);
     blocked.occluded[2 * 16 + 3] = blocked.occluded[3 * 16 + 2] = 1;
-    const graph = stamp(blocked, [[2, 2], [3, 3]]);
+    const graph = stamp(blocked, [[2, 2], [3, 3], [5, 3]]);
     finishGlyphMapBoxStrokeGraph(blocked, graph);
     expect(blocked.char[2 * 16 + 2]).toBe("\\");
     expect(blocked.char[3 * 16 + 3]).toBe("\\");
@@ -262,18 +264,18 @@ describe("layer-wide box graph", () => {
     expect(g.char[3 * 16 + 2]).toBe("│");
   });
 
-  it("restores the ground under a lone non-island cell, but keeps a one-cell island ring as a dot", () => {
+  it("keeps tiny arcs and closed islands as single centroid dots", () => {
     const g = grid();
     g.char.fill("#"); g.color.fill("terrain"); g.depth.fill(-5);
     const graph = createGlyphMapBoxStrokeGraph();
-    // An open arc that never leaves cell (5,5): a sliver, not an island.
+    // A tiny open arc has the same dot rule as a closed ring.
     stamp(g, [[5, 5], [5.4, 5.3]], graph);
     // A closed ring that fits inside cell (10,2).
     stamp(g, [[10, 2], [10.3, 2], [10.3, 2.3], [10, 2]], graph);
     finishGlyphMapBoxStrokeGraph(g, graph);
     expect([g.char[2 * 16 + 10], g.color[2 * 16 + 10]]).toEqual(["·", "gold"]);
-    expect([g.char[5 * 16 + 5], g.color[5 * 16 + 5], g.depth[5 * 16 + 5]]).toEqual(["#", "terrain", -5]);
-    expect(g.char.filter((c, i) => c !== "#" && i !== 2 * 16 + 10)).toEqual([]);
+    expect([g.char[5 * 16 + 5], g.color[5 * 16 + 5], g.depth[5 * 16 + 5]]).toEqual(["·", "gold", 0]);
+    expect(g.char.filter((c, i) => c !== "#" && i !== 2 * 16 + 10 && i !== 5 * 16 + 5)).toEqual([]);
   });
 
   it("retains every joined baseline cell, drops lone slivers, rejects foreign cells, and reports added ink", () => {
@@ -337,4 +339,110 @@ it("box splits at genuinely missing cells without bridging an occluded gap", () 
   expect(graph.paths).toEqual([[34, 35], [37, 38]]);
   finishGlyphMapBoxStrokeGraph(g, graph);
   expect(g.char.slice(34, 39).join("")).toBe("── ──");
+});
+
+describe("tiny box shapes", () => {
+  it.each([false, true])(
+    "uses one area centroid dot for a tiny closed shape crossing cell boundaries (reversed=%s)",
+    (reversed) => {
+      const ring = [
+        { col: 2.2, row: 2.2, depth: 0 },
+        { col: 4.0, row: 2.2, depth: 0 },
+        { col: 2.2, row: 4.0, depth: 0 },
+        { col: 2.2, row: 2.2, depth: 0 },
+      ];
+      if (reversed) ring.reverse();
+      const g = grid();
+      stampGlyphMapPolyline(g, ring, { experimentalGlyphStrategy: "box", color: "gold" });
+      expect(g.char.flatMap((c, i) => (c === " " ? [] : [i, c]))).toEqual([2 * 16 + 2, "·"]);
+      expect(g.color[34]).toBe("gold");
+      expect(g.depth[34]).toBe(0);
+    },
+  );
+  it("uses length weights for an open arc, independent of vertex density", () => {
+    const a = grid(),
+      b = grid();
+    const line = [
+      { col: 2.8, row: 2.5, depth: 0 },
+      { col: 4.6, row: 2.5, depth: 0 },
+    ];
+    stampGlyphMapPolyline(a, line, { experimentalGlyphStrategy: "box" });
+    stampGlyphMapPolyline(b, [line[0]!, { col: 2.9, row: 2.5, depth: 0 }, { col: 3, row: 2.5, depth: 0 }, line[1]!], {
+      experimentalGlyphStrategy: "box",
+    });
+    expect(a.char).toEqual(b.char);
+    expect(a.char.filter((c) => c !== " ")).toEqual(["·"]);
+    expect(a.char[35]).toBe("·");
+  });
+  it.each(["depth", "foreign", "surface"] as const)("depth-tests the centroid and respects %s rejection", (kind) => {
+    const g = grid();
+    g.char.fill("#");
+    g.color.fill("terrain");
+    if (kind === "depth") g.depth.fill(10);
+    if (kind === "foreign") {
+      g.occluded = new Uint8Array(160);
+      g.occluded.fill(1);
+    }
+    const before = { char: [...g.char], color: [...g.color], depth: g.depth.slice() };
+    stampGlyphMapPolyline(
+      g,
+      [
+        { col: 2.8, row: 2.8, depth: 0 },
+        { col: 4.6, row: 4.6, depth: 0 },
+      ],
+      { experimentalGlyphStrategy: "box", requireSurface: kind === "surface", depthCurvatureScale: 0 },
+    );
+    expect(g.char).toEqual(before.char);
+    expect(g.color).toEqual(before.color);
+    expect(g.depth).toEqual(before.depth);
+  });
+  it("rasterizes an extent of exactly two cells", () => {
+    const g = grid();
+    stampGlyphMapPolyline(
+      g,
+      [
+        { col: 2.2, row: 2.2, depth: 0 },
+        { col: 4.2, row: 2.2, depth: 0 },
+      ],
+      { experimentalGlyphStrategy: "box" },
+    );
+    expect(g.char.slice(34, 37).join("")).toBe("───");
+  });
+});
+
+it("does not borrow a separate parallel path for a staircase corner", () => {
+  const g = grid(),
+    graph = createGlyphMapBoxStrokeGraph();
+  stampGlyphMapPolyline(
+    g,
+    [
+      { col: 3.2, row: 1.2, depth: 0 },
+      { col: 3.2, row: 3.2, depth: 0 },
+    ],
+    { experimentalGlyphStrategy: "box", boxGraph: graph },
+  );
+  stampGlyphMapPolyline(
+    g,
+    [
+      { col: 2.2, row: 2.2, depth: 0 },
+      { col: 3.2, row: 3.2, depth: 0 },
+      { col: 4.2, row: 4.2, depth: 0 },
+    ],
+    { experimentalGlyphStrategy: "box", boxGraph: graph },
+  );
+  finishGlyphMapBoxStrokeGraph(g, graph);
+  expect(g.char[2 * 16 + 3]).toBe("│");
+  expect(g.char[3 * 16 + 2]).toBe("└");
+});
+
+it("interpolates the tiny ring depth at its area centroid on a tilted plane", () => {
+  const g = grid();
+  for (let r = 0; r < 10; r++) for (let c = 0; c < 16; c++) g.depth[r * 16 + c] = 10 * c + 5 * r;
+  const p = (col: number, row: number) => ({ col, row, depth: 10 * col + 5 * row });
+  stampGlyphMapPolyline(g, [p(2.25, 2.25), p(3.75, 2.25), p(2.25, 3.75), p(2.25, 2.25)], {
+    experimentalGlyphStrategy: "box",
+    depthCurvatureScale: 0,
+  });
+  expect(g.char[34]).toBe("·");
+  expect(g.depth[34]).toBeCloseTo(41.25, 9);
 });

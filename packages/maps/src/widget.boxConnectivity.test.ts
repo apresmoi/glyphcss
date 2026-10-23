@@ -102,7 +102,7 @@ it.each([false, true])("keeps the real US–Mexico arc joined across rejected sa
   // Assert outside the render hook: rendering may recover from hook exceptions.
   expect(accepted.length).toBeGreaterThanOrEqual(10);
   // The formerly dotted horizontal run is solid with and without terrain.
-  expect(glyphs.slice(9 * COLS + 32, 9 * COLS + 35).join("")).toBe("┬──");
+  expect(glyphs.slice(9 * COLS + 32, 9 * COLS + 35).join("")).toBe("───");
   expect(accepted.map(idx => glyphs[idx]).join("")).not.toMatch(/[ ·]/);
   expect(paths).toHaveLength(1);
   expect(paths[0]!.filter(idx => accepted.includes(idx))).toEqual(accepted);

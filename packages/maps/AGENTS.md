@@ -2,11 +2,11 @@
 
 Geographic data → glyphcss: `source → sample → field → classify → bands → compile`, relief meshes, vector layers, and `createGlyphMap` (the interactive widget). Root entry is pure and browser-safe; `@glyphcss/maps/node` holds fs readers (never `gdal-async`). No React/Vue surface.
 
-Docs: `README.md` (package reference), `website/src/content/docs/maps/**` (user docs). Rationale for a specific rule lives in the comment next to its code.
+Docs: `README.md`, `website/src/content/docs/maps/**`. Local rationale lives in code comments.
 
 ## Invariants
 
-- Public API speaks lat/lng and degrees; `GlyphMapView` is aspect-locked.
+- Public API uses lat/lng and degrees; `GlyphMapView` is aspect-locked.
 - Branch on projection CAPABILITY (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
 - Crop, don't clamp: `project()` returns `NaN` outside its window. Sole exception: a `raster` elevation window clamps per vertex.
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
@@ -15,7 +15,8 @@ Docs: `README.md` (package reference), `website/src/content/docs/maps/**` (user 
 - Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable array identity).
 - Opt-in features are byte-identical when off, each with a test that goes red.
-- Line strategies keep sampling/depth verdicts. `box` joins adjacent accepted cells per layer/frame (gaps split paths), adds one depth-tested, unowned staircase corner per diagonal, collapses backtracks, and restores any unjoined cell unless it is a one-cell closed ring (island dot). Others add no cells.
+- `box` depth-tests against the pre-layer surface, never its own ink. Extents <2 cells become one geometry-centroid dot. Larger paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
+- `snapPan` is opt-in: camera pans use a cell lattice at fixed lens/tilt/bearing/grid; held views stay exact. Orbit uses a local tangent lattice. Zoom/tilt reset it; walking bypasses it. Renderer dithering stays screen-anchored.
 - Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per source feature set/tile, before live VW; explicit line features remain separate. Reversed edges share geometry; no snapping or noding of differently sampled edges. Tile replacements get fresh topology.
 - Stamp surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from an assumed half-cell centre. Depth forgiveness remains curvature plus measured elevation rise.
 - Line `simplify: "vw"` opts into the existing latitude-corrected VW at half a live output cell, quarter-octave zoom buckets cached by source-line/arc identity (eight per line). Simplify before visibility clipping/draping; preserve endpoints and collapsed closed rings. Walk retains source detail. Omitted is byte-identical; no new cross-tile topology guarantee.
@@ -42,7 +43,7 @@ Docs: `README.md` (package reference), `website/src/content/docs/maps/**` (user 
 - Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
 - Don't trust `stubMonospaceMetrics` when a test reads `unproject` per cell: it stubs existing `<pre>`s only, so glyphcss's probe falls back to 8x16 and the render disagrees with `unproject`. Stub the prototype.
 - Don't gate an occlusion test on one road direction or with no ground source: a west-east road with no ground skips the drape path entirely and hid a real defect.
-- Known gaps, not tunings: the orbit pivot is the datum (city-span terrain leaves the grid); `getMaxTilt` ignores the orbit base pitch; `temporalBlend` smears at nonzero bearing; stamps never receive shadows; a contour below a floored terrain is buried; single-cell fill loss at the antimeridian.
+- Known gaps: datum orbit pivot; `getMaxTilt` ignores base pitch; `temporalBlend` at nonzero bearing; stamps receive no shadows; contours below floored terrain; antimeridian single-cell fill loss.
 
 ## Key gates (`src/`)
 

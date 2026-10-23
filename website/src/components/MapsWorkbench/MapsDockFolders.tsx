@@ -30,6 +30,8 @@ export function MapsDockFolders(props: {
   onSpan: (v: number) => void;
   onTilt: (v: number) => void;
   onBearing: (v: number) => void;
+  snapPan: boolean;
+  onSnapPan: (on: boolean) => void;
   charMode: MapCharMode;
   charModeReason: string | null;
   wireframeJunctions: boolean;
@@ -72,6 +74,8 @@ export function MapsDockFolders(props: {
     onSpan: props.onSpan,
     onTilt: props.onTilt,
     onBearing: props.onBearing,
+    snapPan: props.snapPan,
+    onSnapPan: props.onSnapPan,
   });
 
   return (

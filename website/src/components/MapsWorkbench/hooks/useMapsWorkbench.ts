@@ -1078,6 +1078,10 @@ export function useMapsWorkbench() {
 
   const [sunHour, setSunHour] = useState(initial.sunHour);
 
+  const [snapPan, setSnapPan] = useState(initial.snapPan);
+  const snapPanRef = useRef(snapPan);
+  snapPanRef.current = snapPan;
+
   // ── Cast shadows, off by default. Whatever aims the key light above also
   //    casts them — the widget reads ONE `directionalLight.direction`, so
   //    there is nothing here to keep in step with the sun.
@@ -1328,6 +1332,7 @@ export function useMapsWorkbench() {
 
     const map = createGlyphMap(host, {
       view,
+      snapPan: snapPanRef.current,
       projection,
       autoSize: true,
       tilt,
@@ -2060,6 +2065,10 @@ export function useMapsWorkbench() {
     mapRef.current?.setShadow(shadows ? {} : null);
   }, [shadows]);
 
+  useEffect(() => {
+    mapRef.current?.setSnapPan(snapPan);
+  }, [snapPan]);
+
   // ── Lighting -> `scene.setOptions()`. ──────────────────────────────────
   //    `map.getKeyLightDirection()` is read FRESH here rather than cached:
   //    when the widget owns the direction — the sun on an orbit projection,
@@ -2263,6 +2272,7 @@ export function useMapsWorkbench() {
       ambientColor: lighting.ambientColor,
       sunMode,
       shadows,
+      snapPan,
       sunDay,
       sunHour,
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
@@ -2347,6 +2357,7 @@ export function useMapsWorkbench() {
     sunDay,
     sunHour,
     shadows,
+    snapPan,
     contourMinElevation,
     contourMaxElevation,
     terrainMinElevation,
@@ -2490,6 +2501,7 @@ export function useMapsWorkbench() {
         sunDay,
         sunHour,
         shadows,
+        snapPan,
         showTerrain,
         terrainDensity,
         terrainMinElevation,
@@ -2531,6 +2543,7 @@ export function useMapsWorkbench() {
       sunDay,
       sunHour,
       shadows,
+      snapPan,
       showTerrain,
       terrainDensity,
       terrainMinElevation,
@@ -2582,6 +2595,8 @@ export function useMapsWorkbench() {
     onSpanChange,
     onTilt,
     onBearing,
+    snapPan,
+    setSnapPan,
     charMode,
     charModeReason,
     wireframeJunctions,

@@ -176,3 +176,8 @@ describe("the snippet carries the scene the page actually builds", () => {
     expect(code).not.toMatch(/minElevation/);
   });
 });
+
+it("exports the pan snapping selected on the page", () => {
+  expect(build({ snapPan: true })).toContain("snapPan: true");
+  expect(build({ snapPan: false })).not.toContain("snapPan:");
+});

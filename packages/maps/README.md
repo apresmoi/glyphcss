@@ -120,7 +120,7 @@ MapLibre-shaped layer names describe glyphcss rendering; this is not a MapLibre 
 | OpenFreeMap / OpenMapTiles | Tile provider plus schema-aware layer presets and filters. |
 | Protomaps | PMTiles extract helper, layer presets and filters. |
 | Projections | Equirectangular, Mercator, globe, orthographic; adapter for d3 raw projections. |
-| Camera / gestures | Pan/orbit, zoom, tilt, bearing, flights and projection transitions; mouse and touch. |
+| Camera / gestures | Pan/orbit, zoom, tilt, bearing, flights and projection transitions; mouse and touch. Opt-in `snapPan` quantizes rendered pans to output cells while `getView()` stays exact; toggle with `setSnapPan`. |
 | Walk mode | Orbit-capable projections: perspective walking, collision and sky; enter with `map.setWalk({})`. |
 | Lighting | Real-sun lighting, camera-following key light and optional cast shadows. |
 

@@ -312,10 +312,12 @@ interface BoxSample extends GlyphMapStrokeGlyphSample {
 /** Frame-local accepted paths; never infer edges from neighbouring terrain ink. */
 export interface GlyphMapBoxStrokeGraph {
   readonly samples: Map<number, BoxSample>;
+  /** Depth belongs to the surface before this layer, never its own sub-cell stroke samples. */
+  surface?: CellGrid;
   readonly paths: number[][];
   /** What each inked cell held before the layer touched it, so a dropped lone cell restores it. */
   readonly prior: Map<number, readonly [string, string | null, number]>;
-  /** Lone cells that are a whole closed ring (an island smaller than a cell): the only lone cells kept. */
+  /** Tiny geometry centroids and one-cell closed rings survive as dots. */
   readonly islands: Set<number>;
 }
 
@@ -357,9 +359,12 @@ export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxS
             const col = corner % grid.cols, row = Math.floor(corner / grid.cols);
             const depth = (a.depth + b.depth) / 2, slack = (a.slack + b.slack) / 2;
             const options = b.options;
+            // A staircase may use its own path, but cannot borrow a neighbouring
+            // path's cell: that invents rungs between separate borders/coasts.
+            if (graph.samples.has(corner) && !original.has(corner)) continue;
             if (glyphMapForeignOwned(grid, corner)) continue;
             if (options.requireSurface && !Number.isFinite(grid.depth[corner])) continue;
-            if (glyphMapSurfaceOccludes(grid, col, row, 0.5, 0.5, depth,
+            if (glyphMapSurfaceOccludes(graph.surface ?? grid, col, row, 0.5, 0.5, depth,
               (options.depthBias ?? 0) + slack, options.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE)) continue;
             if (!graph.samples.has(corner)) {
               options.onInk?.(corner, grid.char[corner]!, grid.color[corner]!, dx, dy);
@@ -396,6 +401,101 @@ export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxS
   }
 }
 
+/** A centroid uses geometry weights, so source/drape subdivision cannot move it. */
+function stampTinyBoxShape(
+  grid: CellGrid,
+  points: readonly GlyphMapStrokeVertex[],
+  opts: GlyphMapStampOptions,
+  graph: GlyphMapBoxStrokeGraph,
+): boolean {
+  if (points.length < 2) return false;
+  let minCol = Infinity,
+    maxCol = -Infinity,
+    minRow = Infinity,
+    maxRow = -Infinity;
+  for (const p of points) {
+    if (!Number.isFinite(p.col) || !Number.isFinite(p.row) || !Number.isFinite(p.depth)) return false;
+    minCol = Math.min(minCol, p.col);
+    maxCol = Math.max(maxCol, p.col);
+    minRow = Math.min(minRow, p.row);
+    maxRow = Math.max(maxRow, p.row);
+  }
+  if (Math.max(maxCol - minCol, maxRow - minRow) >= 2) return false;
+  let weight = 0,
+    col = 0,
+    row = 0,
+    depth = 0,
+    slack = 0;
+  let area = 0,
+    areaCol = 0,
+    areaRow = 0,
+    areaDepth = 0,
+    areaSlack = 0;
+  const first = points[0]!,
+    last = points.at(-1)!;
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1]!,
+      b = points[i]!;
+    const length = Math.hypot(b.col - a.col, b.row - a.row);
+    weight += length;
+    col += ((a.col + b.col) / 2) * length;
+    row += ((a.row + b.row) / 2) * length;
+    depth += ((a.depth + b.depth) / 2) * length;
+    slack += (((a.slack ?? 0) + (b.slack ?? 0)) / 2) * length;
+    const cross = (a.col - first.col) * (b.row - first.row) - (b.col - first.col) * (a.row - first.row);
+    area += cross;
+    areaCol += ((first.col + a.col + b.col) * cross) / 3;
+    areaRow += ((first.row + a.row + b.row) * cross) / 3;
+    areaDepth += ((first.depth + a.depth + b.depth) * cross) / 3;
+    areaSlack += (((first.slack ?? 0) + (a.slack ?? 0) + (b.slack ?? 0)) * cross) / 3;
+  }
+  col = weight ? col / weight : first.col;
+  row = weight ? row / weight : first.row;
+  depth = weight ? depth / weight : first.depth;
+  slack = weight ? slack / weight : (first.slack ?? 0);
+  if (first.col === last.col && first.row === last.row && Math.abs(area) > 1e-12) {
+    col = areaCol / area;
+    row = areaRow / area;
+    depth = areaDepth / area + 0;
+    slack = areaSlack / area + 0;
+  }
+  const colI = Math.floor(col),
+    rowI = Math.floor(row),
+    idx = rowI * grid.cols + colI;
+  if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) return true;
+  if (glyphMapForeignOwned(grid, idx) || (opts.requireSurface && !Number.isFinite(grid.depth[idx]))) return true;
+  if (
+    glyphMapSurfaceOccludes(
+      graph.surface ?? grid,
+      colI,
+      rowI,
+      col - colI,
+      row - rowI,
+      depth,
+      (opts.depthBias ?? 0) + slack,
+      opts.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE,
+    )
+  )
+    return true;
+  opts.onInk?.(idx, grid.char[idx]!, grid.color[idx] ?? null, 0, 0);
+  rememberBoxCell(grid, graph, idx);
+  grid.color[idx] = opts.color ?? null;
+  grid.depth[idx] = depth;
+  graph.samples.set(idx, {
+    col: colI,
+    row: rowI,
+    subCol: col - colI,
+    subRow: row - rowI,
+    dx: 0,
+    dy: 0,
+    depth,
+    slack,
+    options: opts,
+  });
+  graph.islands.add(idx);
+  return true;
+}
+
 /**
  * Stamp one already-projected polyline (screen col/row + the pinned depth
  * metric per vertex) into `grid`. Walks each segment at roughly one sample
@@ -424,6 +524,12 @@ export function stampGlyphMapPolyline(
   const strategy = opts.experimentalGlyphStrategy;
   const graph = strategy === "box" ? opts.boxGraph ?? createGlyphMapBoxStrokeGraph() : null;
   const samples = strategy && strategy !== "baseline" && strategy !== "box" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
+  if (graph && !graph.surface) graph.surface = { ...grid, depth: grid.depth.slice() };
+  const surface = graph?.surface ?? grid;
+  if (graph && stampTinyBoxShape(grid, points, opts, graph)) {
+    if (!opts.boxGraph) finishGlyphMapBoxStrokeGraph(grid, graph);
+    return;
+  }
   const paths = graph?.paths;
   let path: number[] | null = null;
   const touched = graph ? new Set<number>() : null;
@@ -504,10 +610,16 @@ export function stampGlyphMapPolyline(
       // different quantities, and only the second one is an allowance. See
       // `glyphMapSurfaceOccludes`, which is that loop body verbatim.
       const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
-      if (glyphMapSurfaceOccludes(grid, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) {
+      if (glyphMapSurfaceOccludes(surface, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) {
         // Shared endpoints can fail against this layer's own earlier ink.
         // Reuse that accepted graph cell without changing the depth verdict.
         if (graph && ((s === 0 && i === 0) || (s === points.length - 2 && i === cells)) && graph.samples.has(idx)) connectBoxCell(idx);
+        continue;
+      }
+      // Multiple sub-cell samples can share one cell. Keep the nearer ink,
+      // while connectivity still follows this accepted surface path.
+      if (graph && (graph.samples.get(idx)?.depth ?? -Infinity) > depth) {
+        connectBoxCell(idx);
         continue;
       }
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);

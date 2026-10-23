@@ -8,7 +8,7 @@ import {
   mapTiltResetValue,
   mapTiltSliderRange,
 } from "../../../features/maps/model/mapsView";
-import { useFolder, useReadonlyText, useSlider, type DockController } from "../../Dock";
+import { useFolder, useReadonlyText, useSlider, useToggle, type DockController } from "../../Dock";
 
 // ── "View" folder — center/span/tilt (replaces DockCamera; see file doc).
 //    No "Jump to" quick-travel control — Places navigation was removed
@@ -31,6 +31,8 @@ export interface ViewFolderInputs {
   onSpan: (span: number) => void;
   onTilt: (tilt: number) => void;
   onBearing: (bearing: number) => void;
+  snapPan: boolean;
+  onSnapPan: (on: boolean) => void;
 }
 
 /*
@@ -129,6 +131,7 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
     title: "Face the map north-up again. A compass has one home on either projection.",
     onReset: () => onBearing(MAP_BEARING_HOME),
   });
+  useToggle(folder, "Snap pan", inputs.snapPan, inputs.onSnapPan);
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 
