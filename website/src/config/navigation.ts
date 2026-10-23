@@ -21,5 +21,6 @@ export function isSiteLinkActive(pathname: string, href: string): boolean {
       path !== "/" &&
       path !== "/bench"
     );
-  return path === href || path.startsWith(href + "/");
+  // Workbenches are single pages; /maps/*, /charts/* and /diagrams/* are docs under Usage.
+  return path === href;
 }
