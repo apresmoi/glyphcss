@@ -1,9 +1,14 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { demoSnippets } from "../../services/glyph-scene/demoSnippets";
+import { DEFAULT_TUNABLES, type Tunables } from "../../services/glyph-scene/types";
+import { ActionButton } from "../ActionButton";
+import { CodePanel } from "../CodePanel";
+import { GlyphDemoControls } from "./GlyphDemoControls";
 import styles from "./GlyphDemo.module.css";
 import { loadRuntime } from "./loadRuntime";
 export interface GlyphDemoProps {
   id: string;
-  /** Fill an existing positioned frame without the standalone demo border. */
+  /** Fill an existing positioned frame without standalone demo spacing. */
   embedded?: boolean;
   geometry?: "cuboctahedron" | "icosahedron" | "cube";
   /** URL of an OBJ / GLB / glTF / VOX mesh. Takes priority over `geometry`. */
@@ -13,7 +18,7 @@ export interface GlyphDemoProps {
   showStats?: boolean;
   /** Hide the code panel beneath the demo (landing hero, gallery). */
   noCode?: boolean;
-  /** Hide the lil-gui controls column (landing hero clean view). */
+  /** Hide the controls column (landing hero clean view). */
   noControls?: boolean;
   /** Auto-rotate the camera around Y from the moment the demo mounts. */
   autoRotate?: boolean;
@@ -53,14 +58,41 @@ export interface GlyphDemoProps {
 
 export function GlyphDemo(props: GlyphDemoProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const updateTuning = useRef<((partial: Partial<Tunables>) => void) | undefined>(undefined);
+  const [ready, setReady] = useState(false);
+  const [codeOpen, setCodeOpen] = useState(true);
+  const [tunables, setTunables] = useState<Tunables>(() => {
+    let defaults: Partial<Tunables> = {};
+    try {
+      defaults = JSON.parse(props.defaults || "{}");
+    } catch {}
+    return { ...DEFAULT_TUNABLES, geometry: props.geometry || "cuboctahedron", ...defaults };
+  });
   useEffect(() => {
     let disposed = false;
     let dispose: (() => void) | undefined;
     void loadRuntime().then(({ mountGlyphDemo }) => {
-      if (!disposed && ref.current) dispose = mountGlyphDemo(ref.current);
+      if (!disposed && ref.current) {
+        dispose = mountGlyphDemo(
+          ref.current,
+          props.noControls && props.noCode
+            ? undefined
+            : {
+                onReady: (update) => {
+                  updateTuning.current = update;
+                },
+                onChange: (next) => {
+                  if (disposed) return;
+                  setTunables(next);
+                  setReady(true);
+                },
+              },
+        );
+      }
     });
     return () => {
       disposed = true;
+      updateTuning.current = undefined;
       dispose?.();
     };
   }, []);
@@ -117,32 +149,39 @@ export function GlyphDemo(props: GlyphDemoProps) {
           </div>
           <div className="glyph-demo__loading">Loading…</div>
         </div>
-        {!noControls && <div className="glyph-demo__controls"></div>}
+        {!noControls && (
+          <GlyphDemoControls
+            id={id}
+            source={{ mesh, polygonsUrl }}
+            tunables={tunables}
+            controls={controls}
+            autoRotate={autoRotate}
+            ready={ready}
+            onChange={(partial) => updateTuning.current?.(partial)}
+          />
+        )}
       </div>
-      {!noCode && (
-        <div className="glyph-demo__code not-content">
-          <div className="glyph-demo__tabs">
-            <button className="glyph-demo__tab active" data-fw="vanilla">
-              Vanilla JS
-            </button>
-            <button className="glyph-demo__tab" data-fw="react">
-              React
-            </button>
-            <button className="glyph-demo__tab" data-fw="vue">
-              Vue
-            </button>
-          </div>
-          <pre className="glyph-demo__snippet" data-fw="vanilla">
-            <code></code>
-          </pre>
-          <pre className="glyph-demo__snippet glyph-demo__snippet--hidden" data-fw="react">
-            <code></code>
-          </pre>
-          <pre className="glyph-demo__snippet glyph-demo__snippet--hidden" data-fw="vue">
-            <code></code>
-          </pre>
-        </div>
-      )}
+      {!noCode &&
+        (codeOpen ? (
+          <CodePanel
+            id={`${id}-code`}
+            inline
+            title="Code"
+            className="not-content"
+            snippets={demoSnippets(tunables, { mesh, polygonsUrl })}
+            formats={[
+              { id: "vanilla", label: "JS" },
+              { id: "react", label: "React" },
+              { id: "vue", label: "Vue" },
+            ]}
+            defaultFormat="vanilla"
+            onClose={() => setCodeOpen(false)}
+          />
+        ) : (
+          <ActionButton aria-controls={`${id}-code`} aria-expanded={false} onClick={() => setCodeOpen(true)}>
+            Code
+          </ActionButton>
+        ))}
     </div>
   );
 }

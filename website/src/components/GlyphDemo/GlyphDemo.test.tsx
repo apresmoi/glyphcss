@@ -44,3 +44,109 @@ it('does not mount a runtime into a host removed before its lazy import resolves
   await act(async () => {});
   expect(runtime.mount).not.toHaveBeenCalled();
 });
+
+async function mount(props: Parameters<typeof GlyphDemo>[0]) {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  roots.push(root);
+  runtime.mount.mockImplementation((_element, observer) => {
+    if (observer) {
+      const state = { ...DEFAULT_TUNABLES, ...JSON.parse(props.defaults ?? '{}'), geometry: props.geometry ?? 'cuboctahedron' };
+      observer.onReady((partial: Partial<Tunables>) => {
+        Object.assign(state, partial);
+        observer.onChange({ ...state });
+      });
+      observer.onChange(state);
+    }
+    return runtime.dispose;
+  });
+  await act(async () => root.render(<GlyphDemo {...props} />));
+  return { host, root };
+}
+
+import { DEFAULT_TUNABLES, type Tunables } from '../../services/glyph-scene/types';
+import styles from './GlyphDemo.module.css';
+import sectionStyles from '../ControlSection/ControlSection.module.css';
+import sliderStyles from '../SliderRow/SliderRow.module.css';
+import selectStyles from '../BracketSelect/BracketSelect.module.css';
+import panelStyles from '../CodePanel/CodePanel.module.css';
+
+it('uses shared workbench controls and code for the apple, with no inapplicable geometry or period control', async () => {
+  const { host } = await mount({ id: 'apple', mesh: '/gallery/glb/apple.glb', defaults: '{"renderMode":"solid"}' });
+  expect(host.querySelector('fieldset')!.disabled).toBe(false);
+  expect(host.querySelector(`[class~="${sectionStyles.root}"]`)).not.toBeNull();
+  expect(host.querySelector(`[class~="${sliderStyles.track}"]`)).not.toBeNull();
+  expect(host.querySelector(`[class~="${selectStyles.root}"]`)).not.toBeNull();
+  expect(host.querySelector('aside')!.classList.contains(panelStyles.inline)).toBe(true);
+  expect(host.textContent).toContain('Mesh: apple.glb');
+  expect(host.querySelector('[aria-label="Geometry"]')).toBeNull();
+  expect(host.querySelector('[aria-label="Period (s)"]')).toBeNull();
+  expect(host.querySelector('.lil-gui, .glyph-demo__tabs, .glyph-demo__snippet')).toBeNull();
+  const select = host.querySelector<HTMLSelectElement>('[aria-label="Export format"]')!;
+  for (const framework of ['vanilla', 'react', 'vue']) {
+    act(() => { select.value = framework; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.querySelector('code')!.textContent).toContain('/gallery/glb/apple.glb');
+    expect(host.querySelector('code')!.textContent).not.toMatch(/cuboctahedron|resolveGeometry/);
+  }
+});
+
+it('updates built-in geometry, numeric settings, snippets, copy, and close/reopen through shared controls', async () => {
+  const { host } = await mount({ id: 'geometry' });
+  const geometry = host.querySelector<HTMLSelectElement>('[aria-label="Geometry"]')!;
+  act(() => { geometry.value = 'cube'; geometry.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(host.querySelector('code')!.textContent).toContain('resolveGeometry("cube", { size: 100 })');
+  const tilt = host.querySelector<HTMLInputElement>('[aria-label="Tilt"]')!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(tilt, '42'); tilt.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Tilt value"]')!.value).toBe('42');
+  expect(host.querySelector('code')!.textContent).toContain('rotX: 42');
+  const zoom = host.querySelector<HTMLInputElement>('[aria-label="Zoom"]')!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(zoom, '0.5'); zoom.dispatchEvent(new Event('input', { bubbles: true })); });
+  expect(host.querySelector<HTMLInputElement>('[aria-label="Zoom value"]')!.value).toBe('10');
+  expect(zoom.getAttribute('aria-valuetext')).toBe('10');
+  expect(host.querySelector('code')!.textContent).toContain('zoom: 10');
+  const write = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue();
+  const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent === text)!;
+  await act(async () => button('Copy code').click());
+  expect(write).toHaveBeenCalledWith(host.querySelector('code')!.textContent);
+  act(() => button('Close').click());
+  expect(host.querySelector('aside')).toBeNull();
+  act(() => button('Code').click());
+  expect(host.querySelector('code')!.textContent).toContain('resolveGeometry("cube"');
+  write.mockRestore();
+});
+
+it('preserves the embedded hero prop path without controls, code or a tuning observer', async () => {
+  const { host } = await mount({
+    id: 'hero-demo', embedded: true, noControls: true, noCode: true,
+    polygonsUrl: '/data/landing-earth.json', autoRotate: true, invertDrag: true,
+    pitchRange: null, noZoom: true, interactiveDownscale: 1, realSunLight: true,
+  });
+  const demo = host.querySelector('#hero-demo')!;
+  expect(demo.classList.contains(styles.embedded)).toBe(true);
+  expect(demo.getAttribute('data-polygons-url')).toBe('/data/landing-earth.json');
+  expect(demo.getAttribute('data-pitch-range')).toBe('none');
+  for (const attribute of ['auto-rotate', 'invert-drag', 'no-zoom', 'real-sun-light', 'interactive-downscale']) {
+    expect(demo.getAttribute(`data-${attribute}`)).toBe('1');
+  }
+  expect(host.querySelector('.glyph-demo__viewer')!.getAttribute('data-layout')).toBe('canvas-only');
+  expect(host.querySelector('fieldset, aside, button')).toBeNull();
+  expect(runtime.mount.mock.calls.at(-1)![1]).toBeUndefined();
+});
+
+it('honors explicit controls and polygon-source precedence over mesh and geometry', async () => {
+  const { host } = await mount({ id: 'polygons', polygonsUrl: '/earth.json', mesh: '/apple.glb', controls: '["geometry", "density", "lineHeight"]' });
+  expect(host.querySelector('[aria-label="Geometry"], [aria-label="Zoom"], [aria-label="Render mode"]')).toBeNull();
+  expect(host.querySelector('[aria-label="Density"]')).not.toBeNull();
+  expect(host.querySelector('[aria-label="Line height"]')).not.toBeNull();
+  expect(host.querySelector('code')!.textContent).toContain('fetch("/earth.json")');
+  expect(host.querySelector('code')!.textContent).not.toMatch(/apple.glb|cuboctahedron/);
+});
+
+it('ignores observer notifications after unmount', async () => {
+  const { root } = await mount({ id: 'removed-observer' });
+  const observer = runtime.mount.mock.calls.at(-1)![1];
+  await act(async () => root.render(null));
+  await act(async () => observer.onChange({ ...DEFAULT_TUNABLES, zoom: 99 }));
+  expect(runtime.dispose).toHaveBeenCalledOnce();
+});

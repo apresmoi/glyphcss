@@ -3,16 +3,9 @@
   min-height: 0;
 }
 
-/* GlyphDemo — interactive ASCII scene viewer with code panel + tuning bench.
- * Ported from poly-demo.css; glyph-specific additions preserved for the
- * flipbook viewport/strip/hit-layer/hotspot layer that doesn't exist in glyphcss. */
-
 :local(.root) {
   margin: 1.5rem 0;
-  border: 1px solid var(--sl-color-gray-5, rgba(var(--gc-text-rgb), 0.08));
-  border-radius: 12px;
-  overflow: hidden;
-  background: var(--gc-surface);
+  background: transparent;
   /* The <pre class="glyph-demo__strip"> has white-space: pre, giving it an
      intrinsic min-content equal to its widest rasterized frame. Without min-width:0
      here (and on the grid item chain below), the demo refuses to shrink below
@@ -28,6 +21,11 @@
   min-height: 320px;
   min-width: 0;
 }
+.root :global(.glyph-demo__viewer)[data-layout="two-col"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 240px);
+  gap: var(--gc-space-6);
+  align-items: center;
+}
 .root :global(.glyph-demo__viewer)[data-layout="canvas-only"] {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -37,7 +35,7 @@
   min-height: 320px;
   min-width: 0;
   overflow: hidden;
-  background: var(--gc-surface);
+  background: transparent;
 }
 
 /* ── Scene host (contains the public glyph-scene + hotspot layer) ───────── */
@@ -246,175 +244,45 @@
   font-weight: 700;
 }
 
-/* ── Controls panel ──────────────────────────────────────────────────────── */
-
-.root :global(.glyph-demo__controls) {
+.controls {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  /* lil-gui (240px) carries its own chrome; keep padding small and size the
-     column to contain the panel without clipping (240 + 2×10 = 260). */
-  padding: 10px;
-  background: var(--gc-surface);
-  border-left: 1px solid rgba(var(--gc-text-rgb), 0.06);
-  box-sizing: border-box;
-  flex: 0 0 auto;
-  min-width: 260px;
-  max-width: 260px;
-  font-family: var(--gc-font-ui);
-  font-size: 13px;
-  overflow-y: auto;
-  max-height: 460px;
-}
-.root :global(.glyph-demo__controls) :global(.lil-gui) {
-  width: 100%;
-}
-.root :global(.glyph-demo__controls) label {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  color: var(--gc-text);
-}
-.root :global(.glyph-demo__controls) :global(.range-heading) {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  color: var(--gc-text);
-}
-.root :global(.glyph-demo__controls) :global(.range-value) {
-  color: var(--gc-text);
-  font-weight: 600;
-}
-.root :global(.glyph-demo__controls) input[type="range"] {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 5px;
-  border-radius: 999px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-surface);
+  gap: var(--gc-space-4);
+  min-width: 0;
+  margin: 0;
   padding: 0;
-  outline: none;
+  border: 0;
+  font: var(--gc-text-sm) / 1.4 var(--gc-font-ui);
 }
-.root :global(.glyph-demo__controls) input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--gc-text);
-  border: 1px solid var(--gc-text);
-  cursor: pointer;
-}
-.root :global(.glyph-demo__controls) input[type="range"]::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: var(--gc-text);
-  border: 1px solid var(--gc-text);
-  cursor: pointer;
-}
-.root :global(.glyph-demo__controls) :global(.switch) {
+.section {
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
+  gap: var(--gc-space-2);
+  min-width: 0;
+}
+.numberRow {
+  grid-template-columns: 10ch minmax(0, 1fr) 6ch;
+}
+.selectRow {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  color: var(--gc-text);
-  font-size: 13px;
+  gap: var(--gc-space-2);
+  min-width: 0;
 }
-.root :global(.glyph-demo__controls) :global(.switch) input:not(:checked) + span {
-  color: var(--gc-success);
-}
-
-/* lil-gui panel — themed to match the glyphcss range-control palette */
-.root :global(.glyph-demo__controls) :global(.lil-gui) {
-  --background-color: var(--gc-surface);
-  --text-color: var(--gc-text);
-  --title-background-color: var(--gc-surface);
-  --title-text-color: var(--gc-text);
-  --widget-color: var(--gc-surface);
-  --hover-color: var(--gc-surface);
-  --focus-color: rgba(var(--gc-accent-rgb), 0.4);
-  --number-color: var(--gc-accent);
-  --string-color: var(--gc-text);
-  --font-size: 13px;
-  --input-font-size: 13px;
-  --font-family: Consolas, Monaco, "Andale Mono", "Ubuntu Mono", monospace;
-  --folder-indent: 8px;
-  border-radius: 8px;
-  border: 1px solid rgba(var(--gc-text-rgb), 0.06);
+.source {
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--gc-text-muted);
 }
-
-/* ── Code panel ──────────────────────────────────────────────────────────── */
-
-.root :global(.glyph-demo__code) {
-  border-top: 1px solid rgba(var(--gc-text-rgb), 0.06);
-  max-height: 300px;
-  overflow: auto;
-}
-
-.root :global(.glyph-demo__tabs) {
-  display: flex;
-  border-bottom: 1px solid rgba(var(--gc-text-rgb), 0.06);
-  background: var(--gc-surface);
-}
-
-.root :global(.glyph-demo__tab) {
-  background: none;
-  border: none;
-  color: var(--gc-success);
-  padding: var(--gc-space-2) var(--gc-space-4);
-  font-size: 13px;
-  font-family: var(--gc-font-ui);
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-}
-.root :global(.glyph-demo__tab):hover {
-  color: var(--gc-text);
-}
-.root :global(.glyph-demo__tab):global(.active) {
-  color: var(--gc-text);
-  border-bottom-color: var(--gc-accent);
-}
-
-.root :global(.glyph-demo__snippet) {
-  margin: 0 !important;
-  padding: 14px var(--gc-space-4) !important;
-  background: var(--gc-surface) !important;
-  border-radius: 0 !important;
-  font-size: 13px !important;
-  line-height: 1.5 !important;
-}
-.root :global(.glyph-demo__snippet--hidden) {
-  display: none;
-}
-.root :global(.glyph-demo__snippet) code {
-  font-family: var(--gc-font-ui) !important;
-  color: var(--gc-text) !important;
-  white-space: pre !important;
-  background: none !important;
-  padding: 0 !important;
-}
-
-/* ── Responsive ──────────────────────────────────────────────────────────── */
-
 @media (max-width: 768px) {
-  .root :global(.glyph-demo__viewer) {
+  .root :global(.glyph-demo__viewer)[data-layout="two-col"] {
     grid-template-columns: minmax(0, 1fr);
   }
-  .root :global(.glyph-demo__controls) {
-    max-width: none;
-    border-left: none;
-    border-top: 1px solid rgba(var(--gc-text-rgb), 0.06);
-    max-height: none;
-    flex-direction: row;
-    flex-wrap: wrap;
-  }
-  .root :global(.glyph-demo__controls) label {
-    flex: 1 1 45%;
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
   }
 }
 
@@ -435,4 +303,11 @@
   height: 100%;
   min-height: 0;
   background: transparent;
+}
+
+/* Docs snippets are short: size the panel to its code instead of the
+   workbenches' fixed 480px export pane. */
+.root :global(.gw-code-panel) {
+  height: auto;
+  max-height: 70vh;
 }
