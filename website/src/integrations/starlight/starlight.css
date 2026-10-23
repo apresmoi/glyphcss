@@ -469,3 +469,15 @@ mobile-starlight-toc .dropdown {
     padding-top: calc(var(--gc-control-height) + 2 * var(--gc-space-3));
   }
 }
+
+/* Starlight caps prose at 45rem; on large monitors that leaves wide tables
+   scrolling inside a narrow column next to empty space. */
+@media (min-width: 100rem) {
+  :root {
+    --sl-content-width: 56rem;
+  }
+}
+/* Long identifiers in reference tables wrap instead of forcing a scrollbar. */
+.sl-markdown-content :is(td, th) code {
+  overflow-wrap: anywhere;
+}
