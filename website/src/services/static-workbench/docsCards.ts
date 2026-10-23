@@ -29,11 +29,6 @@ export function cardFont(grid: Pick<SocialGrid, "cols" | "rows">) {
   return Math.min(CARD_PANEL.maxFont, CARD_PANEL.w / (grid.cols * 0.6), CARD_PANEL.h / grid.rows);
 }
 
-// Inked area on the card in px²: favours examples that are both rich and large.
-function cardScore(text: string, grid: SocialGrid) {
-  return text.replace(/[\s\u2800]/g, "").length * cardFont(grid) ** 2;
-}
-
 type DocsEntry = { id: string; body?: string; data: { title: string } };
 
 export async function socialDocsCards(entries: DocsEntry[]) {
@@ -42,22 +37,20 @@ export async function socialDocsCards(entries: DocsEntry[]) {
   for (const { id, body = "", data } of entries) {
     const slug = `docs/${id || "index"}`;
     const section = docsSidebar.find((group) => group.items.some((item) => item.slug === id))?.label ?? "Help";
-    let best: { grid: SocialGrid; score: number } | undefined;
-    for (const input of await glyphDocsExamples(body)) {
+    // Each page opens with its showcase example, so that is the card.
+    const [input] = await glyphDocsExamples(body);
+    if (input) {
       const output = fitGlyphDocsOutput(
         await renderGlyphDocs(input),
         "textScale" in (input.options ?? {}) ? (input.options as { textScale?: number }).textScale : 1,
       );
-      const grid = socialGrid(output);
-      const score = cardScore(output.text, grid);
-      if (!best || score > best.score) best = { grid, score };
+      renders[slug] = [socialGrid(output)];
     }
-    if (best) renders[slug] = [best.grid];
     manifest.push({
       slug,
       title: data.title,
       section,
-      render: best ? slug : DOCS_SECTION_RENDERS[section]!,
+      render: input ? slug : DOCS_SECTION_RENDERS[section]!,
       url: `/${id}/`,
     });
   }

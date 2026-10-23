@@ -11,11 +11,11 @@ export async function socialDiagram() {
     await renderGlyphDocs({
       kind: "diagram",
       source:
-        "flowchart TB; Start --> Check{Ready?}; Check -->|yes| Build; Check -->|no| Fix; Build --> Ship; Fix --> Ship",
+        "flowchart LR; Push[Push commit] --> Build[Build app]; Build --> Test{Tests pass?}; Test -->|yes| Stage[Deploy staging]; Stage --> Smoke[Smoke tests]; Smoke --> Prod[Deploy prod]; Test -->|no| Fix[Fix build]",
       options: {
         target: "web",
-        width: 64,
-        height: 40,
+        width: 72,
+        height: 19,
         charset: "box",
         overflow: "expand",
         nodeColor: "#69e0db",

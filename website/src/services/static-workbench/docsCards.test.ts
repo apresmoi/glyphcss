@@ -39,7 +39,7 @@ describe("social JSON endpoints", () => {
     for (const doc of manifest) expect(renders[doc.render], doc.slug).toBeDefined();
   });
 
-  it("uses one of the page's actual GlyphRender outputs, never smaller on the card than the first", async () => {
+  it("uses each page's first GlyphRender output, cropped and legible", async () => {
     let count = 0;
     for (const entry of readEntries()) {
       const inputs = await glyphDocsExamples(entry.body);
@@ -47,26 +47,22 @@ describe("social JSON endpoints", () => {
       count++;
       const doc = manifest.find((doc: { slug: string }) => doc.slug === `docs/${entry.id}`);
       expect(doc.render).toBe(doc.slug);
-      const grids = await Promise.all(
-        inputs.map(async (input) =>
-          socialGrid(
-            fitGlyphDocsOutput(
-              await renderGlyphDocs(input),
-              (input.options as { textScale?: number } | undefined)?.textScale ?? 1,
-            ),
-          ),
+      const first = socialGrid(
+        fitGlyphDocsOutput(
+          await renderGlyphDocs(inputs[0]!),
+          (inputs[0]!.options as { textScale?: number } | undefined)?.textScale ?? 1,
         ),
       );
       const [grid] = renders[doc.render];
-      expect(grids, entry.id).toContainEqual(grid);
-      expect(cardFont(grid), entry.id).toBeGreaterThanOrEqual(11);
+      expect(grid, entry.id).toEqual(first);
+      expect(cardFont(grid), entry.id).toBeGreaterThanOrEqual(10);
     }
     expect(count).toBeGreaterThan(35);
     expect(renders["docs/charts/bar"][0].html).toContain("Search");
     expect(renders["docs/charts/bar"]).not.toEqual(renders.charts);
   });
 
-  it("keeps workbench cards readable with one five-node flowchart and two bold charts", () => {
+  it("keeps workbench cards readable with one branching pipeline flowchart and two bold charts", () => {
     expect(renders.diagrams).toHaveLength(1);
     expect(renders.charts).toHaveLength(2);
     for (const key of ["diagrams", "charts"]) {
@@ -78,7 +74,7 @@ describe("social JSON endpoints", () => {
       }
     }
     const text = renders.diagrams[0].html.replace(/<[^>]*>/g, "");
-    for (const label of ["Start", "Ready?", "Build", "Fix", "Ship"]) expect(text).toContain(label);
+    for (const label of ["Push commit", "Tests pass?", "Deploy prod", "Fix build"]) expect(text).toContain(label);
     expect(renders.charts[0].html).toMatch(/[█▀▄▌▐]/);
     expect(renders.charts[0].html).not.toMatch(/[\u2801-\u28ff]/);
   });
