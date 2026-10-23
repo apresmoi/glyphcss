@@ -89,10 +89,7 @@ for (const strategy of ["box", "braille"] as const) {
     bypass = true; ink.clear(); map.scene.rerender(); const ceiling = new Set(ink);
     expect(loaded).toContain("14/3851/6772");
     expect(ceiling.size).toBeGreaterThan(1500);
-    // Braille reads its own prior ink, unlike box's pre-layer snapshot.
-    // One cell here is rejected only after neighbouring roads overwrite the
-    // relief's depths (diagnosed against the untouched terrain buffer).
-    // The BA gate above requires exact equality for both strategies.
-    expect([...ceiling].filter(idx => !actual.has(idx)).length).toBeLessThanOrEqual(strategy === "box" ? 0 : 1);
+    // Both strategies test against the relief as it stood before the layer.
+    expect([...ceiling].filter(idx => !actual.has(idx))).toEqual([]);
   });
 }

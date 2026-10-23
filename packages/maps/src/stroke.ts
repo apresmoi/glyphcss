@@ -166,6 +166,8 @@ export interface GlyphMapStampOptions {
   readonly color?: string;
   /** @experimental Local border-glyph exploration. Omit for byte-identical oriented ink. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
+  /** @internal The depth buffer as it stood before this layer stamped anything; occlusion reads it so a layer's own ink never hides the layer. Box keeps its own in `boxGraph`. */
+  readonly surface?: CellGrid;
   /** @internal One box graph shared by every run of a line layer, finalized after stamping. */
   readonly boxGraph?: GlyphMapBoxStrokeGraph;
   /** Extra FLAT depth allowance, in world depth units. Default `0` — a draped stroke lies on the surface, and a flat constant cannot be right at two zoom levels at once anyway (see this file's doc for the 0.03 that was). */
@@ -539,7 +541,7 @@ export function stampGlyphMapPolyline(
   const braille = strategy === "braille";
   const samples = strategy && strategy !== "baseline" && strategy !== "box" && !braille ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
   if (graph && !graph.surface) graph.surface = { ...grid, depth: grid.depth.slice() };
-  const surface = graph?.surface ?? grid;
+  const surface = graph?.surface ?? opts.surface ?? grid;
   if (graph && stampTinyBoxShape(grid, points, opts, graph)) {
     if (!opts.boxGraph) finishGlyphMapBoxStrokeGraph(grid, graph);
     return;

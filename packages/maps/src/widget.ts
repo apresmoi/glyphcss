@@ -6094,6 +6094,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         return { col: local.col, row: local.row, depth: p[3] ?? p[2], lon, lat, elev: groundElev };
       };
       const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
+      // Braille inks every cell it crosses at dot pitch; read relief from before
+      // this layer so one road's depth never occludes the next.
+      const surface = layer.experimentalGlyphStrategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
       for (const feature of feats) {
         if (layer.filterAtResolution && !layer.filterAtResolution(feature, walk === null ? degPerCell : 0)) continue;
         const color = layer.colorProperty && layer.colors
@@ -6122,7 +6125,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const verts: GlyphMapStrokeVertex[] = groundElevationAt
             ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows)
             : run.map(([lon, lat]) => vertexAt(lon, lat));
-          stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}) });
+          stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
           }
         }
       }

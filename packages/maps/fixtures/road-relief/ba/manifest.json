@@ -1,0 +1,205 @@
+{
+  "version": 2,
+  "format": "int16",
+  "byteOrder": "little-endian",
+  "elevationRange": {
+    "min": -10898,
+    "max": 8271,
+    "units": "metres"
+  },
+  "zooms": [
+    {
+      "z": 0,
+      "cols": 1,
+      "rows": 1,
+      "tileLonSpan": 360,
+      "tileLatSpan": 180,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 1,
+      "cols": 2,
+      "rows": 2,
+      "tileLonSpan": 180,
+      "tileLatSpan": 90,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 2,
+      "cols": 4,
+      "rows": 4,
+      "tileLonSpan": 90,
+      "tileLatSpan": 45,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 3,
+      "cols": 8,
+      "rows": 8,
+      "tileLonSpan": 45,
+      "tileLatSpan": 22.5,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 4,
+      "cols": 16,
+      "rows": 16,
+      "tileLonSpan": 22.5,
+      "tileLatSpan": 11.25,
+      "tileCols": 180,
+      "tileRows": 90
+    }
+  ],
+  "source": "etopo1",
+  "sampler": "nearest",
+  "attribution": [
+    {
+      "name": "NOAA NCEI (ETOPO1)",
+      "url": "https://www.ngdc.noaa.gov/mgg/global/",
+      "license": "Public domain",
+      "date": "2009"
+    }
+  ],
+  "curated": [
+    {
+      "name": "Switzerland",
+      "zoom": {
+        "z": 5,
+        "cols": 32,
+        "rows": 32,
+        "tileLonSpan": 11.25,
+        "tileLatSpan": 5.625,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": 5.9,
+        "east": 10.5,
+        "south": 45.8,
+        "north": 47.9
+      },
+      "tiles": [
+        "16_7"
+      ]
+    },
+    {
+      "name": "Switzerland",
+      "zoom": {
+        "z": 6,
+        "cols": 64,
+        "rows": 64,
+        "tileLonSpan": 5.625,
+        "tileLatSpan": 2.8125,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": 5.9,
+        "east": 10.5,
+        "south": 45.8,
+        "north": 47.9
+      },
+      "tiles": [
+        "33_14",
+        "33_15"
+      ]
+    },
+    {
+      "name": "Switzerland",
+      "zoom": {
+        "z": 7,
+        "cols": 128,
+        "rows": 128,
+        "tileLonSpan": 2.8125,
+        "tileLatSpan": 1.40625,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": 5.9,
+        "east": 10.5,
+        "south": 45.8,
+        "north": 47.9
+      },
+      "tiles": [
+        "66_29",
+        "67_29",
+        "66_30",
+        "67_30",
+        "66_31",
+        "67_31"
+      ]
+    },
+    {
+      "name": "Bahía Blanca (incl. Sierra de la Ventana)",
+      "zoom": {
+        "z": 5,
+        "cols": 32,
+        "rows": 32,
+        "tileLonSpan": 11.25,
+        "tileLatSpan": 5.625,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": -62.8,
+        "east": -61.2,
+        "south": -39.2,
+        "north": -37.7
+      },
+      "tiles": [
+        "10_22"
+      ]
+    },
+    {
+      "name": "Bahía Blanca (incl. Sierra de la Ventana)",
+      "zoom": {
+        "z": 6,
+        "cols": 64,
+        "rows": 64,
+        "tileLonSpan": 5.625,
+        "tileLatSpan": 2.8125,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": -62.8,
+        "east": -61.2,
+        "south": -39.2,
+        "north": -37.7
+      },
+      "tiles": [
+        "20_45",
+        "21_45"
+      ]
+    },
+    {
+      "name": "Bahía Blanca (incl. Sierra de la Ventana)",
+      "zoom": {
+        "z": 7,
+        "cols": 128,
+        "rows": 128,
+        "tileLonSpan": 2.8125,
+        "tileLatSpan": 1.40625,
+        "tileCols": 180,
+        "tileRows": 90
+      },
+      "bounds": {
+        "west": -62.8,
+        "east": -61.2,
+        "south": -39.2,
+        "north": -37.7
+      },
+      "tiles": [
+        "41_90",
+        "42_90",
+        "41_91",
+        "42_91"
+      ]
+    }
+  ]
+}
