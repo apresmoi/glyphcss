@@ -348,6 +348,7 @@ export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOp
     // Outlines are braille-only; box mode keeps the plain building fill.
     ...(MAP_LINE_STRATEGY === "braille" ? { buildingOutline: "braille" as const } : {}),
     roadHierarchy: true,
+    waterTerrain: true,
 
     densities: Object.fromEntries(opts.enabled.map((id) => [id, opts.densities[id] ?? MAP_OSM_DEFAULT_DENSITY])),
     // Handed over whole, exactly as the densities are. Which entries mean

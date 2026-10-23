@@ -1,0 +1,11 @@
+{
+  "water": "User-supplied real OpenFreeMap tiles, copied byte-for-byte from .explore/venice. Exact remote snapshot date was not supplied.",
+  "terrain": "Byte-for-byte copy of website/public/data/geo-tiles/4/8_3.bin (ETOPO1); int16 little-endian, 180x90 quads, bounds west=0 east=22.5 south=45 north=56.25.",
+  "attribution": "OpenStreetMap contributors (ODbL), OpenFreeMap, OpenMapTiles; ETOPO1 terrain.",
+  "sha256": {
+    "10_547_366.pbf": "4256f0605fe1b06e104466d0d091fd5ec41ab63e9b980abbe20fb97e9d76dd47",
+    "12_2188_1466.pbf": "6fc3eec4eee4d08b6ebd6c55498ee4220d40cf441bb97390bf3783df3ae85df0",
+    "8_136_91.pbf": "605ee4ba15187979b1760dd52a52100d0814e70ca0d1e315e3fd2a2af3eb8804",
+    "terrain-4-8-3.bin": "dccd06db8e51872aba75b93e4de111359528b2f295ad4bf2760ee7533f87077d"
+  }
+}

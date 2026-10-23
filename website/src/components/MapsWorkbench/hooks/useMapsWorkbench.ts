@@ -1848,6 +1848,8 @@ export function useMapsWorkbench() {
   //    widget's own sweep then streams whatever the current view is looking
   //    at, so there is nothing to preload and nowhere to fly to: enabling the
   //    card over the Pacific draws the Pacific.
+  //    The complete water row also owns land/sea classification inside its
+  //    committed tile coverage; removing it restores the DEM's sea colours.
   //
   //    `mapOsmLayers` hands back ready-to-mount layers whose `source` already
   //    carries the ODbL OpenStreetMap credit, so `map.getAttributions()`

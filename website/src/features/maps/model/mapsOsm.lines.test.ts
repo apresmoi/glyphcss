@@ -23,6 +23,14 @@ it("opts every OSM line row into box/VW, and only boundaries into shared polygon
   expect(roads.filterAtResolution!(minor, 0.04 / 139)).toBe(true);
 });
 
+it("lets only the mounted OSM water row decide terrain land versus sea", () => {
+  const layers = mapOsmLayers(createOsmSource(), { enabled: ["omt-water", "omt-roads"], densities: {} });
+  expect(layers.find(l => l.id === "omt-water")).toHaveProperty("waterTerrain", true);
+  expect(layers.find(l => l.id === "omt-roads")).not.toHaveProperty("waterTerrain");
+  expect(mapOsmLayers(createOsmSource(), { enabled: ["omt-roads"], densities: {} })
+    .every(l => !("waterTerrain" in l))).toBe(true);
+});
+
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
 it.each(["", "?lines=braille"])("outlines /maps buildings only in braille mode, URL %s", async search => {

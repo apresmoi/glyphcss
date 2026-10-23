@@ -162,6 +162,7 @@ export async function glyphMapPMTilesProvider(source: string | Source | GlyphMap
         z, x, y, bounds: tileBounds(z, x, y), source: opts.id ?? "protomaps-pmtiles", simplify: "mvt-source",
         attribution,
         layers: response ? glyphMapDecodeMVT(response.data, z, x, y, opts.layers) : {},
+        ...(!response ? { unavailable: true } : {}),
       };
     },
   };

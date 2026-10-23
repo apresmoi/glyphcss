@@ -579,6 +579,8 @@ const ROAD_CELL_LIMITS: Readonly<Record<string, number>> = {
 };
 
 export interface GlyphMapOpenMapTilesLayersOptions {
+  /** Opt the complete `omt-water` row into {@link GlyphMapFillLayer.waterTerrain}. Requires tiled, unfiltered water coverage. Default off. */
+  readonly waterTerrain?: boolean;
   /** Opt-in quiet fill and braille roof/corner edges on the omt-buildings row. */
   readonly buildingOutline?: GlyphMapFillExtrusionLayer["outline"];
   /** Opt-in class hierarchy on omt-roads, evaluated at the live output grid resolution; walking keeps all classes. */
@@ -707,6 +709,7 @@ export function glyphMapOpenMapTilesLayers(
       case "fill":
         out.push({
           type: "fill", ...common,
+          ...(opts.waterTerrain && spec.id === "omt-water" && opts.classes?.water === undefined ? { waterTerrain: true } : {}),
           ...(overridden || spec.colorProperty === undefined ? {} : { colorProperty: spec.colorProperty }),
           ...(overridden || spec.colors === undefined ? {} : { colors: spec.colors }),
           ...(spec.drape === undefined ? {} : { drape: spec.drape }),

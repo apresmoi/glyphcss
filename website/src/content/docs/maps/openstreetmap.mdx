@@ -38,6 +38,21 @@ for (const layer of glyphMapOpenMapTilesLayers(osm, {
 
 That is the whole setup. No API key, no registration, no account.
 
+When terrain is mounted, pass `waterTerrain: true` to `glyphMapOpenMapTilesLayers`
+to let the complete water row decide land versus sea. Inside loaded tile
+coverage, dry land uses at least the terrain ramp's 0 m land colour and stays
+at or above datum, preserving islands that a coarse DEM misses. Water polygons
+keep their existing drape; terrain is cut away beneath them, including the
+ocean. `/maps` enables this on its Water row; the package default stays off.
+
+The entire requested tile batch must succeed before its coverage and water
+geometry replace the previous snapshot. While tiles load or fail, the previous
+snapshot remains; outside that coverage the DEM still decides. A successful
+tile without water features means land. Failed tiles grant no authority and
+retry on the next sweep. Static collections and water rows narrowed to selected
+classes grant no authority through this option. Removing Water restores the
+DEM. The datum floor for dry land also overrides a negative terrain ceiling.
+
 ### The provider
 
 `glyphMapOpenFreeMapProvider(opts?)` mounts

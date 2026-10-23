@@ -971,3 +971,16 @@ it("opts building outlines in without changing the default row or other rows", (
     (_key, value) => typeof value === "function" ? value.toString() : value);
   expect(stable(outlined)).toBe(stable(defaults));
 });
+
+it("opts only the complete water row into terrain authority; narrowed water never grants it", () => {
+  const source = glyphMapOpenFreeMapProvider();
+  const defaults = glyphMapOpenMapTilesLayers(source);
+  const off = glyphMapOpenMapTilesLayers(source, { waterTerrain: false });
+  const stable = (layers: typeof defaults) => JSON.stringify(layers, (_key, value) => typeof value === "function" ? value.toString() : value);
+  expect(stable(off)).toBe(stable(defaults));
+  expect(defaults.every(layer => !("waterTerrain" in layer))).toBe(true);
+  const on = glyphMapOpenMapTilesLayers(source, { waterTerrain: true });
+  expect(on.filter(layer => "waterTerrain" in layer).map(layer => layer.id)).toEqual(["omt-water"]);
+  expect(glyphMapOpenMapTilesLayers(source, { waterTerrain: true, classes: { water: ["lake"] } })
+    .every(layer => !("waterTerrain" in layer))).toBe(true);
+});

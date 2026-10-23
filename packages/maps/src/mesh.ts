@@ -3,6 +3,7 @@ import { SURFACE_MEDIAN_STRIPS, surfaceMedianOfBlock } from "glyphcss";
 import type { GlyphMapProjection } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import { glyphMapGeoTileVertexLonLat } from "./tile";
+import { partitionGlyphMapWaterTerrain, type GlyphMapWaterCoverage } from "./waterTerrain";
 
 export interface GlyphMapPolygonsOptions {
   /** Per-quad color from the quad's representative elevation (see {@link GlyphMapPolygonsOptions.colorSample}). Omit for uncolored polygons (glyphcss's default gray). `undefined` from this callback also leaves a quad uncolored. */
@@ -84,10 +85,9 @@ export interface GlyphMapPolygonsOptions {
    *
    * Polders and lake beds read as sea because the DEM really is below 0 m
    * there, and no per-quad statistic can tell a polder from a lake bed at
-   * ~13 km per sample. Don't recolour terrain from OSM water (a cross-layer
-   * coupling that only works while that layer is on), and don't add a
-   * shallow below-datum LAND band: it repaints every shallow sea and estuary
-   * (the Rio de la Plata at -1 m) as land.
+   * ~13 km per sample. The widget's explicit `waterTerrain` opt-in instead
+   * uses complete vector water tile coverage; this standalone DEM path has
+   * no such authority and keeps its elevation classification.
    *
    * `"corner-mean"` exists for a caller that needs the DRAWN surface's own
    * centre height rather than the terrain's: `widget.ts`'s `heatmap` layer
@@ -462,6 +462,11 @@ export function localOrientation(projection: GlyphMapProjection, lon: number, la
  * is the same thing a coarser pyramid level already is.
  */
 export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProjection, opts: GlyphMapPolygonsOptions = {}): Polygon[] {
+  return glyphMapTerrainPolygons(tile, projection, opts);
+}
+
+/** Internal widget path: cut every tier by the same committed water snapshot. */
+export function glyphMapTerrainPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProjection, opts: GlyphMapPolygonsOptions = {}, water: readonly GlyphMapWaterCoverage[] = []): Polygon[] {
   const qCols = opts.resolution ? Math.min(tile.cols, Math.max(1, Math.round(opts.resolution.cols))) : tile.cols;
   const qRows = opts.resolution ? Math.min(tile.rows, Math.max(1, Math.round(opts.resolution.rows))) : tile.rows;
   const colAt = gridLineIndices(tile.cols, qCols);
@@ -492,11 +497,47 @@ export function glyphMapPolygons(tile: GlyphMapGeoTile, projection: GlyphMapProj
       const se = projectVertex(tile, projection, colNext, rowNext, bias, windowMin, windowMax);
       const ne = projectVertex(tile, projection, colNext, row, bias, windowMin, windowMax);
       if (!finite(nw.xyz) || !finite(sw.xyz) || !finite(se.xyz) || !finite(ne.xyz)) continue;
-      const color = opts.color?.(
+      const elevation =
         stripLo === null || stripHi === null || stripEnds === null
           ? (nw.elev + sw.elev + se.elev + ne.elev) / 4
-          : surfaceMedianElevation(tile, stripLo, stripHi, stripEnds, col, colNext, row, rowNext),
-      );
+          : surfaceMedianElevation(tile, stripLo, stripHi, stripEnds, col, colNext, row, rowNext);
+      const color = opts.color?.(elevation);
+      const pieces = water.length ? partitionGlyphMapWaterTerrain({ west: nw.lon, east: ne.lon, south: sw.lat, north: nw.lat }, water) : null;
+      if (pieces) {
+        for (const { ring, land } of pieces) {
+          // Clamp the original corners BEFORE interpolation, just like the
+          // ground sampler. Splitting the NW-SE triangles preserves relief.
+          const floor = land ? Math.max(0, windowMin) : windowMin;
+          const ceiling = land ? Math.max(0, windowMax) : windowMax;
+          const [a, b, c, d] = land
+            ? [nw, ne, sw, se].map(v => projection.project(v.lon, v.lat, Math.min(ceiling, Math.max(floor, v.elev)) + bias))
+            : [nw.xyz, ne.xyz, sw.xyz, se.xyz];
+          const vertices: Vec3[] = ring.map(([lon, lat]) => {
+            const x = (lon - nw.lon) / (ne.lon - nw.lon), y = (nw.lat - lat) / (nw.lat - sw.lat);
+            // Keep new vertices on the original projected triangle. A fresh
+            // globe projection would bow split edges away from their unsplit
+            // neighbours, opening T-junction cracks at water/tile boundaries.
+            return [0, 1, 2].map(axis => x >= y
+              ? a[axis] * (1 - x) + b[axis] * (x - y) + d[axis] * y
+              : a[axis] * (1 - y) + c[axis] * (y - x) + d[axis] * x) as Vec3;
+          });
+          if (vertices.some(v => !finite(v))) continue;
+          const up = localUpDirection(projection, ring[0][0], ring[0][1], 0);
+          // Convex clipping may retain collinear boundary points, so use the
+          // whole ring rather than assuming its first three define a face.
+          let normal: Vec3 = [0, 0, 0];
+          for (let i = 1; i + 1 < vertices.length; i++) {
+            const n = cross(sub(vertices[i], vertices[0]), sub(vertices[i + 1], vertices[0]));
+            normal = [normal[0] + n[0], normal[1] + n[1], normal[2] + n[2]];
+          }
+          if (up !== null && dot(normal, up) < 0) vertices.reverse();
+          const polygon: Polygon = { vertices };
+          const pieceColor = land ? opts.color?.(Math.max(0, elevation)) : color;
+          if (pieceColor !== undefined) polygon.color = pieceColor;
+          polygons.push(polygon);
+        }
+        continue;
+      }
       const up = localUpDirection(projection, nw.lon, nw.lat, nw.placedElev);
       const normal = cross(sub(sw.xyz, nw.xyz), sub(se.xyz, nw.xyz));
       const vertices: Vec3[] = up !== null && dot(normal, up) < 0

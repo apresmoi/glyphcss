@@ -66,8 +66,8 @@ describe("failure degrades quietly — that region simply has no data this frame
     });
     const tile = await p.loadTile(9, 1, 1);
     expect(tile.layers).toEqual({});
-    // Still a real, well-formed tile: bounds, source and credit intact, so a
-    // sweep caches a legitimate empty rather than a hole in its bookkeeping.
+    expect(tile.unavailable).toBe(true);
+    // Keep bounds and credits, while distinguishing failure from dry land.
     expect(tile.z).toBe(9);
     expect(tile.bounds.west).toBeCloseTo(-179.297, 3);
     expect(tile.attribution).toEqual(GLYPH_MAP_OPENFREEMAP_ATTRIBUTION);
@@ -77,14 +77,14 @@ describe("failure degrades quietly — that region simply has no data this frame
     const p = glyphMapOpenFreeMapProvider({
       fetchTile: async () => { throw Object.assign(new Error("The operation was aborted."), { name: "AbortError" }); },
     });
-    await expect(p.loadTile(14, 0, 0)).resolves.toMatchObject({ layers: {} });
+    await expect(p.loadTile(14, 0, 0)).resolves.toMatchObject({ layers: {}, unavailable: true });
   });
 
   it("returns an EMPTY tile on undecodable bytes rather than corrupting the layer", async () => {
     const p = glyphMapOpenFreeMapProvider({
       fetchTile: async () => new Uint8Array([0xff, 0xff, 0xff, 0xff, 0xff]).buffer,
     });
-    await expect(p.loadTile(3, 1, 1)).resolves.toMatchObject({ layers: {} });
+    await expect(p.loadTile(3, 1, 1)).resolves.toMatchObject({ layers: {}, unavailable: true });
   });
 
   it("reports every failure through onError instead of swallowing it silently", async () => {

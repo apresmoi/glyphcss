@@ -138,7 +138,7 @@ export function glyphMapOpenFreeMapProvider(opts: GlyphMapOpenFreeMapOptions = {
         return { ...base, layers: glyphMapDecodeMVT(bytes, z, x, y, opts.layers) };
       } catch (error) {
         opts.onError?.(error, { z, x, y });
-        return { ...base, layers: {} };
+        return { ...base, layers: {}, unavailable: true };
       }
     },
   };
