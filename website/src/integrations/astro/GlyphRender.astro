@@ -2,30 +2,40 @@
 import styles from "./GlyphRender.module.css";
 import {
   fitGlyphDocsOutput,
+  glyphDocsInkBounds,
   normalizeGlyphDocsSource,
   renderGlyphDocs,
   type GlyphDocsRenderInput,
 } from "../../services/docs-render/glyphRender";
 
-type Props = GlyphDocsRenderInput & { showSource?: boolean };
-const { showSource = true, ...input } = Astro.props;
+type Props = GlyphDocsRenderInput & { showSource?: boolean; caption?: string };
+const { showSource = true, caption, ...input } = Astro.props;
 const result = await renderGlyphDocs(input);
 const output = fitGlyphDocsOutput(
   result,
   "textScale" in (input.options ?? {}) ? (input.options as { textScale?: number }).textScale : 1,
 );
+const ink = glyphDocsInkBounds(output.text);
+const crop = `--ink-cols:${ink.cols};--ink-indent:${ink.indent}`;
 const source =
   typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2);
 ---
 
 <figure class={styles.root} data-glyph-render={JSON.stringify(input)} aria-label="Rendered example">
   {
-    output.html ? (
-      <pre class="glyph-docs-output" set:html={output.html} />
-    ) : (
-      <pre class="glyph-docs-output">{output.text}</pre>
+    (
+      <div class={styles.stage}>
+        <div class={styles.crop} style={crop}>
+          {output.html ? (
+            <pre class="glyph-docs-output" set:html={output.html} />
+          ) : (
+            <pre class="glyph-docs-output">{output.text}</pre>
+          )}
+        </div>
+      </div>
     )
   }
+  {caption && <figcaption>{caption}</figcaption>}
   {
     showSource && (
       <details>

@@ -1,6 +1,6 @@
 import { docsSidebar } from "../../config/docsSidebar.mjs";
 import { glyphDocsExamples } from "../docs-render/firstExample";
-import { fitGlyphDocsOutput, renderGlyphDocs } from "../docs-render/glyphRender";
+import { fitGlyphDocsOutput, glyphDocsInkBounds, renderGlyphDocs } from "../docs-render/glyphRender";
 
 export const DOCS_SECTION_RENDERS: Record<string, string> = {
   "Getting Started": "docs-start",
@@ -19,12 +19,8 @@ export const DOCS_SECTION_RENDERS: Record<string, string> = {
 export type SocialGrid = { html: string; cols: number; rows: number; indent: number };
 
 export function socialGrid(entry: { text: string; html?: string }): SocialGrid {
-  const lines = entry.text.split("\n");
   const html = entry.html ?? entry.text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  const inked = lines.filter((line) => /[^ \u2800]/.test(line));
-  const indent = Math.min(...inked.map((line) => [...line].findIndex((char) => char !== " " && char !== "\u2800")));
-  const width = Math.max(...inked.map((line) => [...line.replace(/[ \u2800]+$/, "")].length));
-  return { html, cols: Math.max(1, width - indent), rows: lines.length, indent: Number.isFinite(indent) ? indent : 0 };
+  return { html, ...glyphDocsInkBounds(entry.text) };
 }
 
 // The fitted font size the card panel gives a grid; mirrors generate-og.mjs.

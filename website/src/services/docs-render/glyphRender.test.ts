@@ -212,7 +212,9 @@ it("renders dedented source in a closed disclosure without template whitespace",
   expect(pre.textContent).toBe(expected);
   expect(pre.closest("details")?.hasAttribute("open")).toBe(false);
   expect(pre.closest("details")?.querySelector("summary")?.textContent).toBe("Source");
-  expect(markup.querySelector("figure")?.firstElementChild?.matches("pre.glyph-docs-output")).toBe(true);
+  const output = markup.querySelector("figure pre.glyph-docs-output")!;
+  expect(markup.querySelector("figure")?.firstElementChild?.contains(output)).toBe(true);
+  expect(output.parentElement?.getAttribute("style")).toMatch(/--ink-cols:\d+;--ink-indent:\d+/);
   expect(markup.querySelector("figcaption")).toBeNull();
   const result = await renderGlyphDocs({ kind: "sequence", source });
   expect(result.text).toBe((await renderGlyphSequence(expected, { target: "chat", color: "none" })).text);

@@ -127,3 +127,15 @@ export function fitGlyphDocsOutput(result: { text: string; html?: string }, text
   while (end > start && blank(end - 1)) end--;
   return { text: lines.slice(start, end).join("\n"), html: htmlLines?.slice(start, end).join("\n") };
 }
+
+// Inked column span of a render: renders pad to their target width, so callers
+// crop to `indent`..`indent + cols` to show the art without dead margins.
+export function glyphDocsInkBounds(text: string) {
+  const lines = text.split("\n");
+  const blank = /^[ \u2800]*$/;
+  const inked = lines.filter((line) => !blank.test(line));
+  if (!inked.length) return { indent: 0, cols: 1, rows: lines.length };
+  const indent = Math.min(...inked.map((line) => [...line].findIndex((char) => char !== " " && char !== "\u2800")));
+  const width = Math.max(...inked.map((line) => [...line.replace(/[ \u2800]+$/, "")].length));
+  return { indent, cols: Math.max(1, width - indent), rows: lines.length };
+}

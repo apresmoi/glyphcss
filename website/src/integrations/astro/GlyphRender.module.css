@@ -1,8 +1,28 @@
 .root {
   margin: 1.5rem 0;
   min-width: 0;
-  width: fit-content;
   max-width: 100%;
+}
+/* Renders sit on the page unframed and centred; the crop hides the margin
+   columns each render pads to its target width. */
+.stage {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.crop {
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-base);
+  width: calc(var(--ink-cols) * 1ch);
+  flex: none;
+  overflow: hidden;
+}
+.root .crop :global(.glyph-docs-output) {
+  margin: 0 0 0 calc(var(--ink-indent) * -1ch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
 }
 .root :global(.glyph-docs-output) {
   font-family: var(--gc-font-render);
@@ -11,8 +31,26 @@
   letter-spacing: normal;
   font-weight: 400;
   white-space: pre;
-  overflow-x: auto;
-  max-width: 100%;
+}
+.root > :global(details) {
+  margin-top: 0.75rem;
+}
+
+/* A catalogue of small renders, e.g. one per node shape. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: var(--gc-space-3);
+  margin: 1.5rem 0;
+}
+.grid > :global(figure) {
+  margin: 0;
+}
+.grid :global(figcaption) {
+  text-align: center;
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-sm);
+  margin-top: 0.4rem;
 }
 .root :global(.glyph-docs-output span) {
   font: inherit;
