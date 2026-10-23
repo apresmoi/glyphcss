@@ -311,3 +311,29 @@
   height: auto;
   max-height: 70vh;
 }
+
+/* Bracket checkbox, matching the workbench dock's boolean rows. */
+.toggle input[type="checkbox"] {
+  appearance: none;
+  width: 32px;
+  height: 16px;
+  margin: 0;
+  position: relative;
+  cursor: pointer;
+}
+.toggle input[type="checkbox"]::before {
+  content: "[ ]";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--gc-font-ui);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--gc-text-muted);
+}
+.toggle input[type="checkbox"]:checked::before {
+  content: "[x]";
+  color: var(--gc-accent);
+}

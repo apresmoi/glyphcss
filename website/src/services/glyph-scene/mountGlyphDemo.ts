@@ -1672,6 +1672,12 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
     // Orbit controls mutate the camera directly. Preserve that pose when a
     // geometry/stretch edit rebuilds the camera from the tunables.
     Object.assign(tunables, { zoom: camera.zoom, rotX: camera.rotX, rotY: camera.rotY }, partial);
+    if ("autoRotate" in partial) {
+      if (partial.autoRotate) startAutoRotate();
+      else stopAutoRotate();
+      publishTuning();
+      return;
+    }
     if ("geometry" in partial || "stretch" in partial) rebuildAll();
     else {
       setTunables(partial);
@@ -1747,7 +1753,10 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
     publishTuning();
   }
 
-  if (demoEl.getAttribute("data-auto-rotate") === "1") {
+  tunables.autoRotate = demoEl.getAttribute("data-auto-rotate") === "1";
+  // Drag-pause wiring is always installed because docs controls can switch
+  // the spin on after mount; the block keeps its locals out of the outer scope.
+  {
     // Pause the spin while the user is actively dragging so user input
     // doesn't fight the RAF tick. Resume after a short delay so a quick
     // release-and-grab doesn't restart the spin mid-gesture.
@@ -1777,7 +1786,7 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
     cleanups.push(() => {
       if (resumeTimer !== null) window.clearTimeout(resumeTimer);
     });
-    startAutoRotate();
+    if (tunables.autoRotate) startAutoRotate();
   }
   return () => {
     meshLoadToken += 1;

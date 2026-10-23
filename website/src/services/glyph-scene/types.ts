@@ -55,6 +55,8 @@ export interface Tunables {
   fontSize?: number;
   geometry: GeometryName;
   renderMode?: "wireframe" | "solid" | "ink";
+  /** Turntable spin; docs demos toggle it live from their controls. */
+  autoRotate?: boolean;
   featureEdges?: number;
   glyphPalette?: string;
   charMode?: "ascii" | "braille" | "halfblock" | "quadrant";

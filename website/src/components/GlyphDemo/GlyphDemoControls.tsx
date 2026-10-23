@@ -57,7 +57,7 @@ export function GlyphDemoControls({
     (row) =>
       keys.includes(row.control) &&
       !["density", "lineHeight"].includes(row.key) &&
-      (row.key !== "duration" || autoRotate),
+      (row.key !== "duration" || (tunables.autoRotate ?? autoRotate)),
   );
   const renderNumber = (row: (typeof numbers)[number]) => {
     const value = tunables[row.key];
@@ -143,9 +143,20 @@ export function GlyphDemoControls({
           {renderRows.map(renderNumber)}
         </ControlSection>
       )}
-      {cameraRows.length > 0 && (
+      {(cameraRows.length > 0 || autoRotate !== undefined) && (
         <ControlSection className={styles.section}>
           <InstrumentSectionHeading>Camera</InstrumentSectionHeading>
+          {autoRotate !== undefined && (
+            <label className={`${styles.selectRow} ${styles.toggle}`}>
+              <span>Auto-rotate</span>
+              <input
+                type="checkbox"
+                aria-label="Auto-rotate"
+                checked={tunables.autoRotate ?? autoRotate}
+                onChange={(event) => onChange({ autoRotate: event.target.checked })}
+              />
+            </label>
+          )}
           {cameraRows.map(renderNumber)}
         </ControlSection>
       )}
