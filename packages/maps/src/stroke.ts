@@ -339,7 +339,12 @@ function appendBoxCell(path: number[], idx: number): void {
 /** Finish once per layer, after every arc has contributed its accepted path. */
 export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxStrokeGraph): void {
   const paths: number[][] = [];
-  const slashes = new Map<number, string>();
+  const arms = new Map<number, number>();
+  const armToward = (from: number, to: number) => {
+    const dc = to % grid.cols - from % grid.cols;
+    const bit = dc > 0 ? 2 : dc < 0 ? 8 : to > from ? 4 : 1;
+    arms.set(from, (arms.get(from) ?? 0) | bit);
+  };
   for (const path of graph.paths) {
     const expanded: number[] = [];
     const original = new Set(path);
@@ -378,8 +383,10 @@ export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxS
             break;
           }
           if (!joined) {
-            const slash = dx * dy > 0 ? "\\" : "/";
-            slashes.set(prev, slash); slashes.set(idx, slash);
+            // No usable corner: both cells still point into the preferred one,
+            // so the step reads as a staircase with its corner hidden rather
+            // than a slash that joins nothing.
+            armToward(prev, corners[0]!); armToward(idx, corners[0]!);
           }
         }
       }
@@ -388,16 +395,16 @@ export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxS
     paths.push(expanded);
   }
   const masks = glyphMapStrokePathMasks(paths, grid.cols);
+  for (const [idx, arm] of arms) masks.set(idx, (masks.get(idx) ?? 0) | arm);
   for (const [idx, sample] of graph.samples) {
-    const slash = slashes.get(idx);
     // A cell with no joined neighbour is a fold-back remnant or a sliver
     // between hidden stretches; as a dot it reads as noise, not border.
-    if (!slash && !masks.get(idx) && !graph.islands.has(idx)) {
+    if (!masks.get(idx) && !graph.islands.has(idx)) {
       const [char, color, depth] = graph.prior.get(idx)!;
       grid.char[idx] = char; grid.color[idx] = color; grid.depth[idx] = depth;
       continue;
     }
-    grid.char[idx] = slash ?? glyphMapExperimentalStrokeGlyph("box", sample, graph.samples, grid.cols, masks.get(idx));
+    grid.char[idx] = glyphMapExperimentalStrokeGlyph("box", sample, graph.samples, grid.cols, masks.get(idx));
   }
 }
 

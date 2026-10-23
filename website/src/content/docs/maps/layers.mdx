@@ -119,7 +119,8 @@ arcs before tile clipping when source tiles need consistent simplification.
 The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in
 one graph per layer and frame, including coincident feature/tile endpoints.
 Diagonal steps add one staircase corner using the same depth and ownership
-tests; when both corners are blocked, the slash remains. Immediate backtracks
+tests; when both corners are blocked, both cells point into the hidden corner
+instead. Immediate backtracks
 collapse before joining. A ring or arc whose projected extent is under two
 cells becomes one depth-tested `·` at its geometry centroid. Larger paths
 drop cells left with no joined neighbour. Box depth tests read the surface

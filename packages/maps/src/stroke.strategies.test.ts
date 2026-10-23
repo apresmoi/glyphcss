@@ -228,7 +228,7 @@ describe("layer-wide box graph", () => {
     for (const idx of inked) { expect(g.color[idx]).toBe("gold"); expect(g.depth[idx]).toBe(0); }
   });
 
-  it("tries the other corner under depth/ownership occlusion and keeps a slash if both fail", () => {
+  it("tries the other corner under depth/ownership occlusion and points both cells at a blocked corner", () => {
     for (const mode of ["depth", "foreign", "surface"] as const) {
       const g = grid();
       if (mode === "surface") { g.depth.fill(0); g.depth[2 * 16 + 3] = -Infinity; }
@@ -248,8 +248,10 @@ describe("layer-wide box graph", () => {
     blocked.occluded[2 * 16 + 3] = blocked.occluded[3 * 16 + 2] = 1;
     const graph = stamp(blocked, [[2, 2], [3, 3], [5, 3]]);
     finishGlyphMapBoxStrokeGraph(blocked, graph);
-    expect(blocked.char[2 * 16 + 2]).toBe("\\");
-    expect(blocked.char[3 * 16 + 3]).toBe("\\");
+    // Preferred corner (2,3): (2,2) reaches east into it, (3,3) north into it.
+    expect(blocked.char[2 * 16 + 2]).toBe("─");
+    expect(blocked.char[3 * 16 + 3]).toBe("└");
+    expect(blocked.char.join("")).not.toMatch(/[\\/]/);
     expect(blocked.char[2 * 16 + 3]).toBe(" ");
     expect(blocked.char[3 * 16 + 2]).toBe(" ");
   });
