@@ -33,3 +33,13 @@ it('exports indexed polygons before mesh URLs in every framework', () => {
     expect(snippet).not.toMatch(/apple.glb|cuboctahedron|resolveGeometry|loadMesh/);
   }
 });
+
+it('carries a non-default character mode into every framework and omits the ascii default', () => {
+  const braille = demoSnippets({ ...DEFAULT_TUNABLES, charMode: 'braille' }, {});
+  expect(braille.vanilla).toContain('charMode: "braille"');
+  expect(braille.react).toContain('charMode="braille"');
+  expect(braille.vue).toContain('char-mode="braille"');
+  for (const snippet of Object.values(demoSnippets({ ...DEFAULT_TUNABLES, charMode: 'ascii' }, {}))) {
+    expect(snippet).not.toMatch(/char-?[mM]ode/);
+  }
+});

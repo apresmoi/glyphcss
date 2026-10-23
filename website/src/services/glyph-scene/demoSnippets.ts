@@ -26,6 +26,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
     .map(([key, value]) => `:${key.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`)}="${Number(value.toFixed(2))}"`)
     .join(" ");
   const mode = t.renderMode ?? "wireframe";
+  const charMode = t.charMode && t.charMode !== "ascii" ? t.charMode : undefined;
   const fontSize = t.fontSize ?? DEMO_BASE_FONT_SIZE / t.density;
   const indexedLoader = source.polygonsUrl
     ? [
@@ -62,7 +63,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
       "",
       'const host = document.getElementById("scene");',
       `const camera = createGlyphPerspectiveCamera({ ${cameraJs} });`,
-      `const scene = createGlyphScene(host, { camera, autoSize: true, mode: "${mode}" });`,
+      `const scene = createGlyphScene(host, { camera, autoSize: true, mode: "${mode}"${charMode ? `, charMode: "${charMode}"` : ""} });`,
       `scene.output.style.fontSize = "${fontSize}px";`,
       `scene.output.style.lineHeight = "${t.lineHeight}";`,
       "scene.fit();",
@@ -77,7 +78,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
       "export function App() {",
       "  return (",
       `    <GlyphPerspectiveCamera ${cameraReact}>`,
-      `      <GlyphScene mode="${mode}" autoSize style={{ width: "100%", height: "100%", fontSize: ${fontSize}, lineHeight: ${t.lineHeight} }}>`,
+      `      <GlyphScene mode="${mode}"${charMode ? ` charMode="${charMode}"` : ""} autoSize style={{ width: "100%", height: "100%", fontSize: ${fontSize}, lineHeight: ${t.lineHeight} }}>`,
       "        <GlyphOrbitControls drag wheel />",
       `        ${meshReact}`,
       "      </GlyphScene>",
@@ -93,7 +94,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
       "",
       "<template>",
       `  <GlyphPerspectiveCamera ${cameraVue}>`,
-      `    <GlyphScene mode="${mode}" auto-size :style="{ width: '100%', height: '100%', fontSize: '${fontSize}px', lineHeight: ${t.lineHeight} }">`,
+      `    <GlyphScene mode="${mode}"${charMode ? ` char-mode="${charMode}"` : ""} auto-size :style="{ width: '100%', height: '100%', fontSize: '${fontSize}px', lineHeight: ${t.lineHeight} }">`,
       "      <GlyphOrbitControls drag wheel />",
       `      ${meshVue}`,
       "    </GlyphScene>",
