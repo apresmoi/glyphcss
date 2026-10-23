@@ -104,3 +104,27 @@ it("partitions crossing water features by their union, retaining their dry holes
   expect(area).toBeCloseTo(1.29, 12);
   expect(split.every(piece => piece.land)).toBe(true);
 });
+
+
+it("keeps fully dry source triangles unsplit and drops fully wet ones", () => {
+  const dry = createGlyphMapWaterCoverage(bounds, []);
+  expect(partitionGlyphMapWaterTerrain(bounds, [dry])).toEqual([
+    { ring: [[0, 2], [0, 0], [2, 0]], land: true },
+    { ring: [[0, 2], [2, 0], [2, 2]], land: true },
+  ]);
+  const ring = [[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]] as const;
+  const wet = createGlyphMapWaterCoverage(bounds, [{ geometryType: "polygon", rings: [ring] }]);
+  expect(partitionGlyphMapWaterTerrain(bounds, [wet])).toEqual([]);
+});
+
+it("does not split a dry triangle for shoreline edges that only overlap its bbox", () => {
+  // The water lies strictly northeast of the shared NW-SE diagonal.
+  const ring = [[.6, 1.5], [.9, 1.5], [.9, 1.8], [.6, 1.8], [.6, 1.5]] as const;
+  const region = createGlyphMapWaterCoverage(bounds, [{ geometryType: "polygon", rings: [ring] }]);
+  const pieces = partitionGlyphMapWaterTerrain(bounds, [region])!;
+  expect(pieces).toContainEqual({ ring: [[0, 2], [0, 0], [2, 0]], land: true });
+  const area = pieces.reduce((sum, { ring }) => sum + Math.abs(ring.reduce((n, p, i) => {
+    const q = ring[(i + 1) % ring.length]; return n + p[0] * q[1] - q[0] * p[1];
+  }, 0)) / 2, 0);
+  expect(area).toBeCloseTo(4 - .3 * .3, 12);
+});

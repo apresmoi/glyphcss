@@ -152,6 +152,26 @@ export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: rea
 
 /** Vertical decomposition uses shoreline segments, never triangulation ears. */
 function* partitionShore(subject: Ring, edges: readonly Boundary[], region: GlyphMapWaterCoverage): Generator<void, Ring[]> {
+  let crossesSubject = false;
+  for (let edge = 0; edge < edges.length; edge++) {
+    if ((edge & 127) === 0) yield;
+    const { a, b } = edges[edge];
+    // Clip the segment to the convex subject, ignoring boundary-only contact.
+    let lo = 0, hi = 1;
+    for (let i = 0; i < subject.length; i++) {
+      const p = subject[i], q = subject[(i + 1) % subject.length];
+      const da = cross(p, q, a), db = cross(p, q, b);
+      if (da <= 0 && db <= 0) { hi = lo; break; }
+      if (da <= 0) lo = Math.max(lo, da / (da - db));
+      if (db <= 0) hi = Math.min(hi, da / (da - db));
+    }
+    if (lo < hi) { crossesSubject = true; break; }
+  }
+  if (!crossesSubject) {
+    const lon = subject.reduce((sum, p) => sum + p[0], 0) / subject.length;
+    const lat = subject.reduce((sum, p) => sum + p[1], 0) / subject.length;
+    return region.waterAt(lon, lat) ? [] : [subject];
+  }
   const outline: Boundary[] = subject.map((a, i) => ({ a, b: subject[(i + 1) % subject.length], bounds: region.bounds }));
   const lines = [...outline, ...edges];
   const west = Math.min(...subject.map(p => p[0])), east = Math.max(...subject.map(p => p[0]));

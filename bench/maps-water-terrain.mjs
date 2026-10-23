@@ -56,7 +56,13 @@ const baseline = process.argv
   ?.slice(11);
 const waterOff = process.argv.includes("--water=off");
 const workCosts = [];
-globalThis.__waterMeasure = (kind, ms) => workCosts.push({ kind, ms });
+const terrainCounts = new Map();
+globalThis.__waterGeometry = (tile, polygons) => terrainCounts.set(tile, polygons.reduce((n, p) => n + Math.max(0, p.vertices.length - 2), 0));
+let partitionCpuMs = 0;
+globalThis.__waterMeasure = (kind, ms) => {
+  if (kind === "partition-step") partitionCpuMs += ms;
+  else workCosts.push({ kind, ms });
+};
 const instrument = {
   name: "water-measure",
   setup(build) {
@@ -86,7 +92,25 @@ const instrument = {
             'const started = performance.now(); rebuild(filter ? selected.filter(filter) : selected); (globalThis as any).__waterMeasure("legacy-build-with-render",performance.now()-started);',
           );
         }
-        if (!baseline && args.path.endsWith("/waterTerrain.ts")) {
+        if (args.path.endsWith("/mesh.ts")) {
+          const start = contents.indexOf("export function* prepareGlyphMapTerrainPolygons");
+          const finish = contents.indexOf("  return result;", start);
+          if (start < 0 || finish < 0) throw new Error("Terrain instrumentation target missing");
+          contents = contents.slice(0, finish) + '(globalThis as any).__waterGeometry(tile,result);\n' + contents.slice(finish);
+        }
+        if (args.path.endsWith("/waterTerrain.ts")) {
+          contents = contents.replace("export function* partitionGlyphMapWaterTerrainSteps(", "function* unmeasuredPartitionGlyphMapWaterTerrainSteps(");
+          contents += `
+export function* partitionGlyphMapWaterTerrainSteps(...args: Parameters<typeof unmeasuredPartitionGlyphMapWaterTerrainSteps>): Generator<void, ReturnType<typeof unmeasuredPartitionGlyphMapWaterTerrainSteps> extends Generator<void, infer R> ? R : never> {
+  const steps = unmeasuredPartitionGlyphMapWaterTerrainSteps(...args);
+  for (;;) {
+    const started = performance.now();
+    const next = steps.next();
+    (globalThis as any).__waterMeasure("partition-step", performance.now() - started);
+    if (next.done) return next.value;
+    yield;
+  }
+}`;
           contents = contents.replace(
             "let deadline = performance.now();",
             "let deadline = performance.now(); let measuredStart = deadline;",
@@ -184,6 +208,7 @@ for (const [z, x, y] of [
         ["water"],
       ),
     };
+  terrainCounts.clear();
   let release;
   const pending = new Promise((r) => (release = r));
   const provider = {
@@ -237,6 +262,7 @@ for (const [z, x, y] of [
   );
   tasks.length = 0;
   workCosts.length = 0;
+  partitionCpuMs = 0;
   let probing = true,
     lastProbe = performance.now();
   const probe = () => {
@@ -312,18 +338,35 @@ for (const [z, x, y] of [
   map.scene.camera.rotY = rotY;
   renderTimes.sort((a, b) => a - b);
 
+  const terrainTriangles = [...terrainCounts.values()].reduce((n, count) => n + count, 0);
+  const initialWorkCosts = [...workCosts];
+  const initialPartitionMs = +partitionCpuMs.toFixed(2);
+  const bucketChanges = [];
+  for (const span of [1.1 * 2 ** .25, 1.1, 1.10001]) {
+    workCosts.length = 0;
+    partitionCpuMs = 0;
+    const started = performance.now();
+    map.setView({ span });
+    await map.idle();
+    bucketChanges.push({ span, wallMs: +(performance.now() - started).toFixed(2),
+      partitionMs: +partitionCpuMs.toFixed(2),
+      prepareCpuMs: +workCosts.filter(v => v.kind === "prepare-slice").reduce((n, v) => n + v.ms, 0).toFixed(2),
+      terrainTriangles: [...terrainCounts.values()].reduce((n, count) => n + count, 0),
+    });
+  }
   const commit = tasks.find((t) => t.kind === "tile-commit-turn").ms;
   const max = Math.max(...tasks.map((t) => t.ms));
   const costs = Object.fromEntries(
-    [...new Set(workCosts.map((v) => v.kind))].map((kind) => [
+    [...new Set(initialWorkCosts.map((v) => v.kind))].map((kind) => [
       kind,
-      +Math.max(
-        ...workCosts.filter((v) => v.kind === kind).map((v) => v.ms),
-      ).toFixed(2),
+      +initialWorkCosts.filter(v => v.kind === kind).reduce((max, v) => Math.max(max, v.ms), 0).toFixed(2),
     ]),
   );
   const row = {
     z,
+    terrainTriangles,
+    initialPartitionMs,
+    bucketChanges,
     costs,
     commitTurnMs: +commit.toFixed(2),
     maxTaskMs: +max.toFixed(2),
