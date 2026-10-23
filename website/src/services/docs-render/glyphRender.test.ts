@@ -18,6 +18,7 @@ import { renderGlyphChart3d, glyphChartSurface } from "@glyphcss/charts/3d";
 import {
   fitGlyphDocsOutput,
   normalizeGlyphDocsSource,
+  glyphDocsUsage,
   renderGlyphDocs,
   type GlyphDocsRenderInput,
 } from "./glyphRender";
@@ -231,16 +232,19 @@ it.each([
   expect(normalizeGlyphDocsSource(source)).toBe(expected);
 });
 
-it("renders dedented source in a closed disclosure without template whitespace", async () => {
+it("offers the dedented source to copy and the library call in a closed Code disclosure", async () => {
   const source =
     "\n    sequenceDiagram\n      participant Browser\n      participant API\n      Browser->>API: Request\n    ";
   const expected = "sequenceDiagram\n  participant Browser\n  participant API\n  Browser->>API: Request";
   const container = await createDocsContainer();
   const markup = parseMarkup(await container.renderToString(GlyphRender, { props: { kind: "sequence", source } }));
-  const pre = markup.querySelector("pre.glyph-docs-source")!;
-  expect(pre.textContent).toBe(expected);
-  expect(pre.closest("details")?.hasAttribute("open")).toBe(false);
-  expect(pre.closest("details")?.querySelector("summary")?.textContent).toBe("Source");
+  expect(markup.querySelector("button[data-copy]")?.getAttribute("data-copy")).toBe(expected);
+  const usage = markup.querySelector("pre.glyph-docs-usage")!;
+  expect(usage.closest("details")?.hasAttribute("open")).toBe(false);
+  expect(usage.closest("details")?.querySelector("summary")?.textContent).toBe("Code");
+  expect(usage.textContent).toBe(glyphDocsUsage({ kind: "sequence", source }));
+  expect(usage.textContent).toContain('await renderGlyphSequence(`\n' + expected + '\n`, {');
+  expect(markup.textContent).not.toContain("Render notes");
   const output = markup.querySelector("figure pre.glyph-docs-output")!;
   expect(markup.querySelector("figure")?.firstElementChild?.contains(output)).toBe(true);
   expect(output.parentElement?.getAttribute("style")).toMatch(/--ink-cols:\d+;--ink-indent:\d+/);
@@ -298,9 +302,10 @@ it.each(pages)("validates metadata and renders every source in $name", async ({ 
     const pre = markup.querySelector("pre.glyph-docs-output");
     const fitted = input.kind === "chart-3d" ? result : fitGlyphDocsOutput(result);
     expect(pre?.textContent).toBe(fitted.html ? parseMarkup(fitted.html).textContent : fitted.text);
-    expect(markup.querySelector("pre.glyph-docs-source")?.textContent).toBe(
+    expect(markup.querySelector("button[data-copy]")?.getAttribute("data-copy")).toBe(
       typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2),
     );
+    expect(markup.querySelector("pre.glyph-docs-usage")?.textContent).toBe(glyphDocsUsage(input));
   }
 });
 
@@ -318,7 +323,7 @@ it.each(fixtures)("emits real $kind output inside a static pre through Astro", a
     // 3D frames keep their full grid so dragging never changes the footprint.
     const fitted = input.kind === "chart-3d" ? expected : fitGlyphDocsOutput(expected);
     expect(pre!.textContent).toBe(fitted.html ? parseMarkup(fitted.html).textContent : fitted.text);
-    expect(markup.querySelector(".glyph-docs-source")).toBeNull();
+    expect(markup.querySelector("[data-copy], .glyph-docs-usage")).toBeNull();
     const island = markup.querySelector("astro-island");
     if (input.kind === "chart-3d") {
       expect(island?.getAttribute("client")).toBe("visible");
@@ -328,7 +333,8 @@ it.each(fixtures)("emits real $kind output inside a static pre through Astro", a
       expect(island?.querySelectorAll("pre.glyph-docs-output")).toHaveLength(1);
     } else {
       expect(island).toBeNull();
-      expect(markup.querySelector("script")).toBeNull();
+      // The render itself is static; the only script is the shared copy-button wiring.
+      expect(markup.querySelector("figure script")).toBeNull();
     }
     expect(pre!.querySelector("pre")).toBeNull();
   }

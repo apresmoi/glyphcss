@@ -32,8 +32,72 @@
   font-weight: 400;
   white-space: pre;
 }
-.root > :global(details) {
-  margin-top: 0.75rem;
+/* Copy and code sit under the render as bracket actions, like the workbenches. */
+.tools {
+  text-align: center;
+  margin-top: var(--gc-space-3);
+  font-family: var(--gc-font-ui);
+  font-size: var(--gc-text-sm);
+}
+.action {
+  display: inline;
+  margin: 0 var(--gc-space-2);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--gc-text-muted);
+  font: inherit;
+  cursor: pointer;
+  list-style: none;
+}
+.action::marker,
+.action::-webkit-details-marker {
+  display: none;
+  content: "";
+}
+.action::before {
+  content: "[ ";
+  white-space: pre;
+}
+.action::after {
+  content: " ]";
+  white-space: pre;
+}
+.action:hover,
+.code[open] > .action {
+  color: var(--gc-accent);
+}
+/* Inline, so the summary sits beside Copy and the open code drops below both. */
+.code {
+  display: inline;
+}
+.code > :global(pre) {
+  display: block;
+  margin-top: var(--gc-space-3);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: 1px solid var(--gc-rule);
+  background: var(--gc-surface-deep);
+  font-size: var(--gc-text-sm);
+  line-height: 1.5;
+  overflow-x: auto;
+  text-align: left;
+}
+.code :global(.hljs-keyword) {
+  color: var(--gc-accent);
+}
+.code :global(.hljs-string) {
+  color: var(--gc-warning);
+}
+.code :global(.hljs-number),
+.code :global(.hljs-literal) {
+  color: var(--gc-violet);
+}
+.code :global(.hljs-attr),
+.code :global(.hljs-property) {
+  color: var(--gc-orange);
+}
+.code :global(.hljs-title) {
+  color: var(--gc-success);
 }
 
 /* A catalogue of small renders, e.g. one per node shape. */

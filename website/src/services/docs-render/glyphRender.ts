@@ -148,3 +148,52 @@ export function glyphDocsInkBounds(text: string) {
   const width = Math.max(...inked.map((line) => [...line.replace(/[ \u2800]+$/, "")].length));
   return { indent, cols: Math.max(1, width - indent), rows: lines.length };
 }
+
+// Diagram renderers return promises; chart renderers return directly.
+const USAGE: Record<GlyphDocsRenderInput["kind"], [fn: string, from: string]> = {
+  diagram: ["await renderGlyphDiagram", "@glyphcss/diagrams"],
+  sequence: ["await renderGlyphSequence", "@glyphcss/diagrams/sequence"],
+  lanes: ["await renderGlyphLaneDag", "@glyphcss/diagrams/lanes"],
+  chart: ["renderGlyphChart", "@glyphcss/charts"],
+  "chart-mermaid": ["renderGlyphChartMermaid", "@glyphcss/charts"],
+  "chart-3d": ["renderGlyphChart3d", "@glyphcss/charts/3d"],
+};
+const CHART3D_BUILDERS = {
+  surface: "glyphChartSurface",
+  scatter: "glyphChartScatter3d",
+  parametric: "glyphChartParametric3d",
+  bars: "glyphChartBars3d",
+  line: "glyphChartLine3d",
+} as const;
+
+const jsLiteral = (value: unknown) => JSON.stringify(value, null, 2).replace(/"([A-Za-z_$][\w$]*)":/g, "$1:");
+
+// The library call that reproduces a docs render. `color: "css"` is the docs
+// page's own HTML choice, so the snippet leaves it to the reader's target.
+export function glyphDocsUsage(input: GlyphDocsRenderInput): string {
+  const [call, from] = USAGE[input.kind];
+  const fn = call.replace("await ", "");
+  const { color, ...rest } = (input.options ?? {}) as { color?: string };
+  const options = jsLiteral({ target: "chat", ...(color && color !== "css" ? { color } : {}), ...rest });
+  if (input.kind === "chart-3d") {
+    const builder = CHART3D_BUILDERS[input.source.type];
+    const args = input.source.args.map((arg) => jsLiteral(arg)).join(", ");
+    return [
+      `import { ${builder}, ${fn} } from "${from}";`,
+      "",
+      `const mark = ${builder}(${args});`,
+      `const { text } = ${fn}(mark, ${options});`,
+      "console.log(text);",
+    ].join("\n");
+  }
+  const source =
+    typeof input.source === "string"
+      ? `\`\n${normalizeGlyphDocsSource(input.source).replace(/[`\\]|\$\{/g, (match) => `\\${match}`)}\n\``
+      : jsLiteral(input.source);
+  return [
+    `import { ${fn} } from "${from}";`,
+    "",
+    `const { text } = ${call}(${source}, ${options});`,
+    "console.log(text);",
+  ].join("\n");
+}

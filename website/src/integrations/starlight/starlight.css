@@ -207,7 +207,10 @@ mobile-starlight-toc a::after {
   border-inline-start: 1px solid var(--gc-rule);
   color: var(--gc-text-muted);
 }
+/* Tables span the column, so short ones don't hug the left edge. */
 .sl-markdown-content table {
+  display: table;
+  width: 100%;
   overflow-wrap: normal;
   font-size: var(--gc-text-sm);
 }
