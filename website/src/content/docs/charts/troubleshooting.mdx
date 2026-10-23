@@ -11,10 +11,27 @@ Validation failures throw tagged errors. Layout adaptations succeed but add `res
 
 ```ts
 import { renderGlyphChart, validateGlyphChartSpec, glyphChartRepairHint } from "@glyphcss/charts";
-const spec = { marks: [{ type: "line" as const, data: [18, 24, 21], channels: {} }] };
+const spec = {
+  marks: [
+    {
+      type: "line" as const,
+      data: [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57],
+      channels: {},
+      options: { name: "Orders" },
+    },
+    {
+      type: "line" as const,
+      data: [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66],
+      channels: {},
+      options: { name: "Plan" },
+    },
+  ],
+  title: "Daily orders vs plan",
+  axes: { x: { title: "Day (index)" }, y: { title: "Orders" } },
+};
 try {
   validateGlyphChartSpec(spec);
-  const result = renderGlyphChart(spec, { target: "chat", width: 60, height: 12 });
+  const result = renderGlyphChart(spec, { target: "chat", width: 64, height: 18 });
   console.log(result.text);
   for (const entry of result.report.ledger) console.warn(entry.code, entry.message, entry.detail);
 } catch (error) {
@@ -24,6 +41,10 @@ try {
   }
 }
 ```
+
+This illustrative order series fits both its data and legend at 64 × 18 cells. Inspect the report before reducing the budget.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "charset": "blocks", "width": 64, "height": 18}} />
 
 Structural validation cannot resolve every accessor or hierarchy. Rendering performs the additional checks. Use [JSON Schema](/charts/spec/#json-schema-and-validation) in an editor, then render the actual data.
 

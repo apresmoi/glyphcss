@@ -7,17 +7,23 @@ import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
 
 Use `glyphChartSankey(data, { source, target, value, name?, color? })` for directed, positive-valued flows. The example is an illustrative energy balance; values use the same unit throughout.
 
-<GlyphRender kind="chart" source={{"type": "sankey", "data": [{"from": "Solar", "to": "Grid", "amount": 40}, {"from": "Gas", "to": "Grid", "amount": 60}, {"from": "Grid", "to": "Homes", "amount": 70}, {"from": "Grid", "to": "Industry", "amount": 30}], "channels": {"source": "from", "target": "to", "value": "amount"}}} options={{"target": "chat", "width": 60, "height": 20}} />
+<GlyphRender kind="chart" source={{"type": "sankey", "data": [{"from": "Solar", "to": "Grid", "amount": 30}, {"from": "Wind", "to": "Grid", "amount": 25}, {"from": "Gas", "to": "Grid", "amount": 45}, {"from": "Grid", "to": "Homes", "amount": 40}, {"from": "Grid", "to": "Shops", "amount": 20}, {"from": "Grid", "to": "Rail", "amount": 15}, {"from": "Grid", "to": "Industry", "amount": 25}], "channels": {"source": "from", "target": "to", "value": "amount"}}} options={{"target": "chat", "width": 72, "height": 24}} />
 
 ```ts
 import { glyphChartSankey, renderGlyphChart } from "@glyphcss/charts";
-const mark = glyphChartSankey([
-  { from: "Solar", to: "Grid", amount: 40 },
-  { from: "Gas", to: "Grid", amount: 60 },
-  { from: "Grid", to: "Homes", amount: 70 },
-  { from: "Grid", to: "Industry", amount: 30 },
-], { source: "from", target: "to", value: "amount" });
-const result = renderGlyphChart(mark, { target: "chat", width: 60, height: 20 });
+const mark = glyphChartSankey(
+  [
+    { from: "Solar", to: "Grid", amount: 30 },
+    { from: "Wind", to: "Grid", amount: 25 },
+    { from: "Gas", to: "Grid", amount: 45 },
+    { from: "Grid", to: "Homes", amount: 40 },
+    { from: "Grid", to: "Shops", amount: 20 },
+    { from: "Grid", to: "Rail", amount: 15 },
+    { from: "Grid", to: "Industry", amount: 25 },
+  ],
+  { source: "from", target: "to", value: "amount" },
+);
+const result = renderGlyphChart(mark, { target: "chat", width: 72, height: 24 });
 ```
 
 - Values must be finite and greater than zero. Native cyclic input rejects with `sankey-cycle`.

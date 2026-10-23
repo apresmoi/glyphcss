@@ -9,18 +9,27 @@ Use `glyphChartTreemap(data, channels?, options?)`. Its default channels are `{ 
 
 ## Engineering allocation
 
-These illustrative budget units form one root with three leaves. Branch totals come from children; assign magnitudes to leaves.
+These illustrative budget units form one root with three teams and six leaves. Branch totals come from children; assign magnitudes to leaves.
 
-<GlyphRender kind="chart" source={{"type": "treemap", "data": [{"id": "root", "parent": null, "label": "Engineering"}, {"id": "api", "parent": "root", "label": "API", "value": 40}, {"id": "web", "parent": "root", "label": "Web", "value": 35}, {"id": "ops", "parent": "root", "label": "Ops", "value": 25}], "channels": {"id": "id", "parent": "parent", "value": "value", "label": "label"}}} options={{"target": "chat", "width": 60, "height": 18}} />
+<GlyphRender kind="chart" source={{"type": "treemap", "data": [{"id": "root", "parent": null, "label": "Engineering"}, {"id": "Product", "parent": "root", "label": "Product"}, {"id": "Portal", "parent": "Product", "label": "Portal", "value": 22}, {"id": "Mobile", "parent": "Product", "label": "Mobile", "value": 18}, {"id": "Platform", "parent": "root", "label": "Platform"}, {"id": "Cloud", "parent": "Platform", "label": "Cloud", "value": 20}, {"id": "Security", "parent": "Platform", "label": "Security", "value": 15}, {"id": "Delivery", "parent": "root", "label": "Delivery"}, {"id": "CI", "parent": "Delivery", "label": "CI", "value": 13}, {"id": "QA", "parent": "Delivery", "label": "QA", "value": 12}], "channels": {"id": "id", "parent": "parent", "value": "value", "label": "label"}}} options={{"target": "chat", "width": 64, "height": 16}} />
 
 ```ts
 import { glyphChartTreemap, renderGlyphChart } from "@glyphcss/charts";
-const result = renderGlyphChart(glyphChartTreemap([
-  { id: "root", parent: null, label: "Engineering" },
-  { id: "api", parent: "root", label: "API", value: 40 },
-  { id: "web", parent: "root", label: "Web", value: 35 },
-  { id: "ops", parent: "root", label: "Ops", value: 25 },
-]), { target: "chat", width: 60, height: 18 });
+const result = renderGlyphChart(
+  glyphChartTreemap([
+    { id: "root", parent: null, label: "Engineering" },
+    { id: "Product", parent: "root", label: "Product" },
+    { id: "Portal", parent: "Product", label: "Portal", value: 22 },
+    { id: "Mobile", parent: "Product", label: "Mobile", value: 18 },
+    { id: "Platform", parent: "root", label: "Platform" },
+    { id: "Cloud", parent: "Platform", label: "Cloud", value: 20 },
+    { id: "Security", parent: "Platform", label: "Security", value: 15 },
+    { id: "Delivery", parent: "root", label: "Delivery" },
+    { id: "CI", parent: "Delivery", label: "CI", value: 13 },
+    { id: "QA", parent: "Delivery", label: "QA", value: 12 },
+  ]),
+  { target: "chat", width: 64, height: 16 },
+);
 ```
 
 Ids must be unique, parents must exist, and the hierarchy must be acyclic. Use null or an empty parent for roots. Leaves require finite, nonnegative values. Invalid hierarchy rejects with `treemap-hierarchy`.

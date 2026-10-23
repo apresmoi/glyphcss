@@ -22,23 +22,23 @@ Targets select defaults; explicit render options override them. The library defa
 | `blocks` | Filled regions and sub-cell boundaries using block glyphs. |
 | `braille` | Fine sub-cell lines and dots for terminal or web charts. Requires matching font coverage. |
 
-The same trend rendered with each charset:
+The same illustrative twelve-day order series and plan rendered with each charset:
 
 ### ASCII
 
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 60, "height": 10, "charset": "ascii"}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "ascii"}} />
 
 ### Box
 
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 60, "height": 10, "charset": "box"}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "box"}} />
 
 ### Blocks
 
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 60, "height": 10, "charset": "blocks"}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "blocks"}} />
 
 ### Braille
 
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 60, "height": 10, "charset": "braille"}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "braille"}} />
 
 Chat clients control their fonts and commonly lose braille alignment or ANSI escapes. Prefer box or ASCII when pasting into a conversation.
 

@@ -13,17 +13,17 @@ The `glyphcss` executable comes from `@glyphcss/compile`. Its `chart` subcommand
 npm init -y
 npm install @glyphcss/compile
 cat > chart.json <<'JSON'
-{"marks":[{"type":"line","data":[18,24,21,35,42,39,48],"channels":{}}]}
+{"marks":[{"type":"line","data":[18,24,21,35,42,39,48,44,38,52,61,57],"channels":{},"options":{"name":"Orders"}},{"type":"line","data":[30,32,34,38,44,46,50,52,54,58,64,66],"channels":{},"options":{"name":"Plan"}}],"title":"Daily orders vs plan","axes":{"x":{"title":"Day (index)"},"y":{"title":"Orders"}}}
 JSON
-npx glyphcss chart chart.json --target chat --width 60 --height 12
-npx glyphcss chart chart.json --target terminal --color ansi256 --width 60 --height 12 --out chart.ansi
+npx glyphcss chart chart.json --target chat --charset blocks --width 64 --height 18
+npx glyphcss chart chart.json --target terminal --color ansi256 --width 64 --height 18 --out chart.ansi
 cat > surface.json <<'JSON'
 {"data":{"z":[[0,1,0],[1,3,1],[0,1,0]]}}
 JSON
 npx glyphcss chart surface.json --3d --charset braille --camera 30,-35 --style wireframe --width 60 --height 24
 ```
 
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}}} options={{"target": "chat", "width": 60, "height": 12}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "charset": "blocks", "width": 64, "height": 18}} />
 
 ## Flags
 

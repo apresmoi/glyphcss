@@ -13,24 +13,33 @@ import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
 import { glyphChartBar, glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";
 
 const spec = glyphChartPlot({
-  marks: [glyphChartBar([
-    { quarter: "Q1", revenue: 12000 },
-    { quarter: "Q2", revenue: 18000 },
-    { quarter: "Q3", revenue: 16000 },
-  ], { x: "quarter", y: "revenue" }, { name: "Revenue", color: "#38bdf8" })],
+  marks: [
+    glyphChartBar(
+      [
+        { quarter: "25Q1", revenue: 12000 },
+        { quarter: "25Q2", revenue: 18000 },
+        { quarter: "25Q3", revenue: 16000 },
+        { quarter: "25Q4", revenue: 19500 },
+        { quarter: "26Q1", revenue: 17500 },
+        { quarter: "26Q2", revenue: 20000 },
+      ],
+      { x: "quarter", y: "revenue" },
+      { name: "Revenue", color: "#38bdf8" },
+    ),
+  ],
   scales: { x: { type: "band" }, y: { type: "linear", domain: [0, 20000], nice: false } },
   axes: {
-    x: { title: "Quarter", ticks: 3, titleAt: "center" },
+    x: { title: "Quarter", ticks: 6, titleAt: "center" },
     y: { title: "USD", ticks: 4, grid: true, format: { preset: "currency", decimals: 0 } },
   },
   title: { text: "Quarterly revenue", align: "left", position: "top" },
   description: "Illustrative revenue in US dollars.",
   legend: false,
 });
-const result = renderGlyphChart(spec, { target: "web", width: 60, height: 24 });
+const result = renderGlyphChart(spec, { target: "web", width: 72, height: 20 });
 ```
 
-<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"quarter": "Q1", "revenue": 12000}, {"quarter": "Q2", "revenue": 18000}, {"quarter": "Q3", "revenue": 16000}], "channels": {"x": "quarter", "y": "revenue"}, "options": {"name": "Revenue", "color": "#38bdf8"}}], "scales": {"x": {"type": "band"}, "y": {"type": "linear", "domain": [0, 20000], "nice": false}}, "axes": {"x": {"title": "Quarter", "ticks": 3, "titleAt": "center"}, "y": {"title": "USD", "ticks": 4, "grid": true, "format": {"preset": "currency", "decimals": 0}}}, "title": {"text": "Quarterly revenue", "align": "left", "position": "top"}, "description": "Illustrative revenue in US dollars.", "legend": false}} options={{"target": "web", "width": 60, "height": 24}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"quarter": "25Q1", "revenue": 12000}, {"quarter": "25Q2", "revenue": 18000}, {"quarter": "25Q3", "revenue": 16000}, {"quarter": "25Q4", "revenue": 19500}, {"quarter": "26Q1", "revenue": 17500}, {"quarter": "26Q2", "revenue": 20000}], "channels": {"x": "quarter", "y": "revenue"}, "options": {"name": "Revenue", "color": "#38bdf8"}}], "scales": {"x": {"type": "band"}, "y": {"type": "linear", "domain": [0, 20000], "nice": false}}, "axes": {"x": {"title": "Quarter", "ticks": 6, "titleAt": "center"}, "y": {"title": "USD", "ticks": 4, "grid": true, "format": {"preset": "currency", "decimals": 0}}}, "title": {"text": "Quarterly revenue", "align": "left", "position": "top"}, "description": "Illustrative revenue in US dollars.", "legend": false}} options={{"target": "web", "width": 72, "height": 20}} />
 
 Each mark has `type`, nonempty `data`, `channels`, and optional `transform` and `options`. Constructors return this same shape. Put transforms beside `channels`, not inside `options`.
 
@@ -109,7 +118,7 @@ const smoothed = {
 };
 ```
 
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "transform": {"kind": "window", "n": 3, "reduce": "mean"}}} options={{"target": "chat", "width": 60, "height": 16}} />
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "transform": {"kind": "window", "n": 3, "reduce": "mean"}}} options={{"target": "chat", "charset": "blocks", "width": 60, "height": 16}} />
 
 ## Legends, color, and size
 

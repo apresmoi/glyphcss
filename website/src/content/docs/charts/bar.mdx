@@ -9,13 +9,13 @@ import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
 
 ## Vertical categories
 
-<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"channel": "Search", "orders": 42}, {"channel": "Direct", "orders": 28}, {"channel": "Email", "orders": 18}], "channels": {"x": "channel", "y": "orders"}}], "scales": {"x": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 16}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"channel": "Search", "orders": 42, "month": "April"}, {"channel": "Direct", "orders": 34, "month": "April"}, {"channel": "Email", "orders": 24, "month": "April"}, {"channel": "Social", "orders": 18, "month": "April"}, {"channel": "Partner", "orders": 30, "month": "April"}, {"channel": "Ads", "orders": 22, "month": "April"}, {"channel": "Search", "orders": 55, "month": "May"}, {"channel": "Direct", "orders": 38, "month": "May"}, {"channel": "Email", "orders": 32, "month": "May"}, {"channel": "Social", "orders": 26, "month": "May"}, {"channel": "Partner", "orders": 36, "month": "May"}, {"channel": "Ads", "orders": 28, "month": "May"}], "channels": {"x": "channel", "y": "orders", "fill": "month"}}], "scales": {"x": {"type": "band"}}, "title": "Orders by sales channel"}} options={{"target": "chat", "width": 72, "height": 18}} />
 
 ## Horizontal categories
 
 Horizontal bars swap the channel roles: x is the numeric value and y is the category. Use a band y scale.
 
-<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"channel": "Search", "orders": 42}, {"channel": "Direct", "orders": 28}, {"channel": "Email", "orders": 18}], "channels": {"x": "orders", "y": "channel"}, "options": {"orientation": "horizontal"}}], "scales": {"y": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 12}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"channel": "Search", "orders": 42}, {"channel": "Direct", "orders": 28}, {"channel": "Email", "orders": 18}], "channels": {"x": "orders", "y": "channel"}, "options": {"orientation": "horizontal"}}], "scales": {"y": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 9}} />
 
 ```ts
 import { glyphChartBar, renderGlyphChart } from "@glyphcss/charts";
@@ -33,6 +33,6 @@ Bind `fill` to a category for grouped series. For stacked vertical bars set `tra
 
 Use `x0` for the start and `x` for the end of a horizontal interval. These bars do not require a zero baseline. Horizontal bars take materialized rows and reject transforms.
 
-<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"task": "Build", "start": 1, "end": 4}, {"task": "Test", "start": 4, "end": 6}, {"task": "Ship", "start": 6, "end": 7}], "channels": {"x0": "start", "x": "end", "y": "task"}, "options": {"orientation": "horizontal"}}], "scales": {"y": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 12}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "bar", "data": [{"task": "Build", "start": 1, "end": 4}, {"task": "Test", "start": 4, "end": 6}, {"task": "Ship", "start": 6, "end": 7}], "channels": {"x0": "start", "x": "end", "y": "task"}, "options": {"orientation": "horizontal"}}], "scales": {"y": {"type": "band"}}, "legend": false}} options={{"target": "chat", "width": 60, "height": 9}} />
 
 Intervals narrower than one cell become event dots and report `bar-interval-collapsed`. Use [Mermaid Gantt](/charts/mermaid-schedules/#gantt-schedules) for calendar dates and dependencies.

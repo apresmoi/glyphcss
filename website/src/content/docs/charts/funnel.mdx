@@ -7,15 +7,25 @@ import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
 
 Use `glyphChartFunnel(data, { stage?, value?, name?, color? })`. The workbench's illustrative conversion funnel below uses benchmark-shaped counts, not observations from a particular store.
 
-<GlyphRender kind="chart" source={{"type": "funnel", "data": [{"stage": "Visits", "count": 10000}, {"stage": "Product Views", "count": 4000}, {"stage": "Add to Cart", "count": 1000}, {"stage": "Checkout", "count": 400}, {"stage": "Purchase", "count": 260}], "channels": {"stage": "stage", "value": "count"}}} options={{"target": "chat", "width": 60, "height": 20}} />
+<GlyphRender kind="chart" source={{"type": "funnel", "data": [{"stage": "Visits", "count": 10000}, {"stage": "Product Views", "count": 6500}, {"stage": "Add to Cart", "count": 3200}, {"stage": "Shipping", "count": 2100}, {"stage": "Payment", "count": 1600}, {"stage": "Review", "count": 1400}, {"stage": "Purchase", "count": 1250}], "channels": {"stage": "stage", "value": "count"}}} options={{"target": "chat", "width": 72, "height": 23}} />
 
 ```ts
 import { glyphChartFunnel, renderGlyphChart } from "@glyphcss/charts";
-const result = renderGlyphChart(glyphChartFunnel([
-  { stage: "Visits", count: 10000 }, { stage: "Product Views", count: 4000 },
-  { stage: "Add to Cart", count: 1000 }, { stage: "Checkout", count: 400 },
-  { stage: "Purchase", count: 260 },
-], { stage: "stage", value: "count" }), { target: "chat", width: 60, height: 20 });
+const result = renderGlyphChart(
+  glyphChartFunnel(
+    [
+      { stage: "Visits", count: 10000 },
+      { stage: "Product Views", count: 6500 },
+      { stage: "Add to Cart", count: 3200 },
+      { stage: "Shipping", count: 2100 },
+      { stage: "Payment", count: 1600 },
+      { stage: "Review", count: 1400 },
+      { stage: "Purchase", count: 1250 },
+    ],
+    { stage: "stage", value: "count" },
+  ),
+  { target: "chat", width: 72, height: 23 },
+);
 ```
 
 Stages keep their declared order. Values must be finite and nonnegative; a bare number array uses its indices as stage names. Labels show values and percentages relative to the first stage when it is positive.
