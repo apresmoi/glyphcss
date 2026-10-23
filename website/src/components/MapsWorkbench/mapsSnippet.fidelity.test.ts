@@ -199,7 +199,7 @@ it("exports outline-only OSM buildings in the braille exploration", async () => 
     const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
     const code = buildMapsSnippet({ ...DEFAULTS, osm: { enabled: ["omt-buildings"], densities: {}, anchors: {} } });
     expect(code).toContain('buildingOutline: "braille"');
-    expect(code).toContain('.map(layer => layer.type === "fill-extrusion" ? { ...layer, fill: false } : layer)');
+    expect(code).toContain('.map(layer => layer.type === "fill-extrusion" ? { ...layer, fill: false, blank: true } : layer)');
   } finally {
     vi.unstubAllGlobals();
     vi.resetModules();

@@ -356,7 +356,7 @@ export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOp
     // keeps an untouched card's layer objects identical lives in ONE place
     // rather than being enforced here and re-checked there.
     textAnchors: Object.fromEntries(opts.enabled.map((id) => [id, opts.anchors?.[id] ?? MAP_OSM_DEFAULT_ANCHOR])),
-  }).map(layer => layer.type === "fill-extrusion" && MAP_LINE_STRATEGY === "braille" ? { ...layer, fill: false } : layer);
+  }).map(layer => layer.type === "fill-extrusion" && MAP_LINE_STRATEGY === "braille" ? { ...layer, fill: false, blank: true } : layer);
 }
 
 /** The card's one provenance row — every part of it read off the provider, so it cannot describe a source the page is not mounting. */

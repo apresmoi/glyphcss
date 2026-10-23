@@ -18,6 +18,7 @@ interface Triangle {
 interface ExtrusionSurface {
   owns(idx: number, own: ReadonlySet<Polygon>): boolean;
   occludes(a: Vec3, b: Vec3): (col: number, row: number, depth: number) => boolean;
+  blank?: (grid: CellGrid) => void;
   project?: (v: Vec3) => GlyphMapStrokeVertex;
   mayTouch?: (polygons: readonly Polygon[]) => boolean;
   replay?: (grid: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) => boolean;
@@ -26,6 +27,7 @@ interface ExtrusionSurface {
 
 interface StampCache {
   filledFaces?: ReadonlySet<Polygon>;
+  blankFaces?: ReadonlySet<Polygon>;
   key: readonly unknown[];
   accepted: Uint8Array;
   geometries: readonly GlyphMapExtrusionGeometry[];
@@ -118,6 +120,7 @@ export function createGlyphMapExtrusionSurface(
   topology = createGlyphMapExtrusionTopology(polygons),
   frameKey?: readonly unknown[],
   filledFaces?: ReadonlySet<Polygon>,
+  blankFaces?: ReadonlySet<Polygon>,
 ): ExtrusionSurface {
   const counts = new Uint32Array(grid.cols * grid.rows);
   const triangles: Triangle[] = [];
@@ -205,7 +208,7 @@ export function createGlyphMapExtrusionSurface(
       const cache = topology.stampCache;
       // A repeat render can reuse ink only after exact camera, mesh visibility,
       // geometry order and complete pre-outline surface equality. No hashes.
-      if (cache?.output && cache.filledFaces === filledFaces && cache.tilted === tilted && equal(frameKey, cache.key) &&
+      if (cache?.output && cache.filledFaces === filledFaces && cache.blankFaces === blankFaces && cache.tilted === tilted && equal(frameKey, cache.key) &&
           equal(accepted, cache.accepted) && equal(geometries, cache.geometries) &&
           equal(grid.depth, cache.frozen.depth) && equalOcclusion(grid.occluded, cache.frozen.occluded) &&
           equal(g.char, cache.input.char) && equal(g.color, cache.input.color) && equal(g.depth, cache.input.depth) &&
@@ -214,10 +217,26 @@ export function createGlyphMapExtrusionSurface(
         g.depth.set(cache.output.depth);
         return true;
       }
-      topology.stampCache = { filledFaces, key: frameKey, accepted, geometries, tilted, input: { ...copy(g), occluded: g.occluded?.slice() }, frozen: { depth: grid.depth.slice(), occluded: grid.occluded?.slice() } };
+      topology.stampCache = { filledFaces, blankFaces, key: frameKey, accepted, geometries, tilted, input: { ...copy(g), occluded: g.occluded?.slice() }, frozen: { depth: grid.depth.slice(), occluded: grid.occluded?.slice() } };
       return false;
     } : undefined,
     remember: frameKey ? g => { topology.stampCache!.output = copy(g); } : undefined,
+    blank: blankFaces?.size ? g => {
+      // Reuse the exact planes needed by the sub-cell edge test. A hull would
+      // fill courtyards and centroid sorting cannot order intersecting depths.
+      for (let idx = 0; idx < g.depth.length; idx++) {
+        if (offsets[idx] === offsets[idx + 1]) continue;
+        const col = idx % g.cols, row = Math.floor(idx / g.cols);
+        let nearest = -Infinity;
+        for (let i = offsets[idx]!; i < offsets[idx + 1]!; i++) {
+          const t = triangles[bins[i]!]!;
+          if (blankFaces.has(t.polygon)) nearest = Math.max(nearest, depthAt(t, col, row));
+        }
+        if (nearest > g.depth[idx]!) {
+          g.char[idx] = " "; g.color[idx] = null; g.depth[idx] = nearest;
+        }
+      }
+    } : undefined,
     project: projectOnce,
     mayTouch: polygons => {
       for (const id of topology.faceIds(polygons)) if (id === -1 || candidates[id] !== 0) return true;
@@ -286,6 +305,7 @@ export function stampGlyphMapExtrusionOutlines(
   tilted: boolean,
 ): void {
   if (surface.replay?.(grid, geometries, tilted)) return;
+  surface.blank?.(grid);
   project = surface.project ?? project;
   const visible = surface.mayTouch ? geometries.filter(g => surface.mayTouch!(g.polygons)) : geometries;
   const own = new Set<Polygon>();

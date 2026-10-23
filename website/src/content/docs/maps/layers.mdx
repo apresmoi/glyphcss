@@ -360,9 +360,17 @@ mesh is mounted or rasterized. Terrain and nearer building faces still hide
 roof rings and vertical corners. `fill` defaults to true and is ignored without
 braille outlines.
 
+Add `blank: true` with unfilled braille outlines to erase rear raster content
+inside the visible building faces. Face depth preserves nearer terrain, elevated
+roads and other nearer meshes; courtyards stay open. This skips lighting and
+solid glyph shading and reuses the outline pass's projected faces. The default
+is false, preserving the see-through outline output. Tiny faces still blank
+covered cells even when their footprint is too small for an outline. DOM symbol
+labels and circles remain overlays and are not erased by this cell mask.
+
 For OpenMapTiles, pass `buildingOutline: "braille"` to
 `glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export enable
-outlines without fill for buildings with `?lines=braille`; box mode retains
+blanked outlines without fill for buildings with `?lines=braille`; box mode retains
 the normal building fill.
 
 ## `symbol`

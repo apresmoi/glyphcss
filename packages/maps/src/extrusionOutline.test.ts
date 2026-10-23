@@ -145,3 +145,78 @@ it("changing which faces are filled invalidates replay", () => {
   const unfilled = createGlyphMapExtrusionSurface(grid(1), [polygon], project, eye, topology, [0], new Set());
   expect(unfilled.replay!(grid(1), gs, false)).toBe(false);
 });
+
+const blankSurface = (g: CellGrid, faces: readonly Polygon[] = [polygon], filled = new Set<Polygon>()) =>
+  createGlyphMapExtrusionSurface({...g,depth:g.depth.slice()}, faces, project, eye, undefined, undefined, filled, new Set(faces));
+
+it("blanks rear ink to spaces and null colours, keeps nearer terrain and elevated content, then stamps its own outline", () => {
+  const g = grid(0);
+  g.char[44] = "R"; // rear road
+  g.depth[45] = 2; g.char[45] = "B"; // nearer bridge or terrain
+  const surface = blankSurface(g);
+  stampGlyphMapExtrusionOutlines(g,[geometry],surface,project,eye,false);
+  expect(g.char[44]).toBe(" "); expect(g.color[44]).toBeNull(); expect(g.depth[44]).toBe(1);
+  expect(g.char[45]).toBe("B"); expect(g.depth[45]).toBe(2);
+  expect(g.char[11]).toBe("@"); expect(ink(g)).toBeGreaterThan(12);
+});
+
+it("blanking uses integer face samples, not a hull or the whole face bin", () => {
+  const g = grid(0), surface = blankSurface(g);
+  surface.blank!(g);
+  expect(g.char[22]).toBe("@"); // bbox bin, outside roof at (2,2)
+  for (let row = 3; row <= 6; row++) for (let col = 3; col <= 6; col++) expect(g.char[row*10+col]).toBe(" ");
+  const triangle: Polygon = {vertices:[[2,2,1],[2,7,1],[7,2,1]]};
+  const t = grid(0); blankSurface(t,[triangle]).blank!(t);
+  expect(t.char[33]).toBe(" "); expect(t.char[66]).toBe("@");
+});
+
+it("blanking preserves courtyards and concave notches", () => {
+  const rect = (l:number,t:number,r:number,b:number): Polygon => ({vertices:[[l,t,1],[l,b,1],[r,b,1],[r,t,1]]});
+  const courtyard = [rect(2,2,3,7),rect(6,2,7,7),rect(3,2,6,3),rect(3,6,6,7)];
+  const g = grid(0); blankSurface(g,courtyard).blank!(g);
+  expect(g.char[44]).toBe("@"); expect(g.char[42]).toBe(" ");
+  const notch = grid(0); blankSurface(notch,[rect(2,2,3,7),rect(3,6,7,7)]).blank!(notch);
+  expect(notch.char[44]).toBe("@"); expect(notch.char[64]).toBe(" ");
+});
+
+it("nearest face depth wins independently of building order, including crossing depth planes", () => {
+  const a: Polygon = {vertices:[[2,2,0],[2,7,0],[7,7,5],[7,2,5]]};
+  const b: Polygon = {vertices:[[2,2,5],[2,7,5],[7,7,0],[7,2,0]]};
+  const first = grid(0), second = grid(0);
+  blankSurface(first,[a,b]).blank!(first); blankSurface(second,[b,a]).blank!(second);
+  expect(first).toEqual(second); expect(first.depth[33]).toBe(4); expect(first.depth[36]).toBe(4);
+});
+
+it("blanking rejects hidden, back-facing and eye-behind faces, but covers sub-two-cell faces", () => {
+  for (const p of [{...polygon,hidden:true},{vertices:[...roof].reverse()}]) {
+    const g = grid(0); blankSurface(g,[p]).blank!(g); expect(g.char.every(c => c === "@")).toBe(true);
+  }
+  const g = grid(0);
+  createGlyphMapExtrusionSurface(g,[polygon],project,()=>-1,undefined,undefined,new Set(),new Set([polygon])).blank!(g);
+  expect(g.char.every(c => c === "@")).toBe(true);
+  const tiny: Polygon = {vertices:[[3.5,3.5,1],[3.5,4.5,1],[4.5,4.5,1],[4.5,3.5,1]]};
+  blankSurface(g,[tiny]).blank!(g); expect(g.char[44]).toBe(" ");
+});
+
+it("blanked replay includes spaces, colours and depth, and invalidates on opt-out and ink changes", () => {
+  const topology = createGlyphMapExtrusionTopology([polygon]), faces = new Set([polygon]), gs = [geometry];
+  const render = (blank?: ReadonlySet<Polygon>) => {
+    const g = grid(0);
+    const s = createGlyphMapExtrusionSurface({...g,depth:g.depth.slice()},[polygon],project,eye,topology,[0],undefined,blank);
+    stampGlyphMapExtrusionOutlines(g,gs,s,project,eye,false); return g;
+  };
+  const first = render(faces), again = render(faces);
+  expect(first).toEqual(again); expect(first.char[44]).toBe(" ");
+  expect(render().char[44]).toBe("@");
+  const changed = grid(0); changed.depth[44] = 2;
+  const surface = createGlyphMapExtrusionSurface({...changed,depth:changed.depth.slice()},[polygon],project,eye,topology,[0],undefined,faces);
+  expect(surface.replay!(changed,gs,false)).toBe(false);
+});
+
+it("only requested blank faces erase ink; ordinary filled surfaces keep their colour", () => {
+  const other: Polygon = {vertices:[[7,2,2],[7,7,2],[9,7,2],[9,2,2]]};
+  const g = grid(0);
+  const surface = createGlyphMapExtrusionSurface(g,[polygon,other],project,eye,undefined,undefined,new Set([other]),new Set([polygon]));
+  surface.blank!(g);
+  expect(g.char[44]).toBe(" "); expect(g.char[48]).toBe("@"); expect(g.color[48]).toBe("#94a3b8");
+});

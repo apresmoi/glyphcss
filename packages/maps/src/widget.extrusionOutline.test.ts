@@ -5,6 +5,7 @@ import { createHash } from "node:crypto";
 import { afterEach, expect, it, vi } from "vitest";
 import { GLYPH_FONT_ATLAS, isGlyphInFontAtlas } from "glyphcss";
 import { createGlyphMap, type GlyphMapFillExtrusionLayer } from "./widget";
+import * as extrusionOutline from "./extrusionOutline";
 import { glyphMapEquirectangular, glyphMapGlobe, glyphMapTrueScaleElevation } from "./projection";
 import type { GlyphMapVectorFeature } from "./vector/types";
 
@@ -16,7 +17,7 @@ function building(x = 0, y = 0, half = 0.001, height = 60): GlyphMapVectorFeatur
   const ring: [number, number][] = [[x-half,y-half],[x+half,y-half],[x+half,y+half],[x-half,y+half],[x-half,y-half]];
   return { geometryType: "polygon", rings: [ring], polygons: [[ring]], properties: { height, base: 20 } };
 }
-async function mount(outline: "braille" | null = "braille", tilt = 50, features = [building()], span = 0.012, density = 1, globeCenter?: [number,number], fill?: boolean) {
+async function mount(outline: "braille" | null = "braille", tilt = 50, features = [building()], span = 0.012, density = 1, globeCenter?: [number,number], fill?: boolean, blank?: boolean) {
   const host = document.createElement("div"); document.body.append(host); hosts.add(host);
   if (!vi.isMockFunction(Element.prototype.getBoundingClientRect)) vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function(this: Element) {
     const font = parseFloat((this as HTMLElement).style.fontSize) || 16;
@@ -31,7 +32,7 @@ async function mount(outline: "braille" | null = "braille", tilt = 50, features 
   const map = createGlyphMap(host, { view: { center:globeCenter ?? [0,0],span,cols,rows }, projection, tilt, groundElevation: () => 3 });
   mounted.push(map);
   const sceneAdd = vi.spyOn(map.scene, "add");
-  const layer: GlyphMapFillExtrusionLayer = { type:"fill-extrusion",source:{features},heightProperty:"height",baseOffsetProperty:"base",heightScale:2,color:"#94a3b8",density, ...(outline ? {outline} : {}), ...(fill === undefined ? {} : {fill}) };
+  const layer: GlyphMapFillExtrusionLayer = { type:"fill-extrusion",source:{features},heightProperty:"height",baseOffsetProperty:"base",heightScale:2,color:"#94a3b8",density, ...(outline ? {outline} : {}), ...(fill === undefined ? {} : {fill}), ...(blank === undefined ? {} : {blank}) };
   map.addLayer(layer);
   await map.idle();
   const logical = () => Array.from(host.querySelectorAll("pre")).map(p => p.textContent ?? "").join("\n");
@@ -161,4 +162,63 @@ it("fill omitted keeps the filled outline bytes, and false without outlines keep
   const ignored = await mount(null,50,[building()],0.012,1,undefined,false);
   expect(ignored.logical()).toBe(plain.logical());
   expect(ignored.sceneAdd).toHaveBeenCalled();
+});
+
+
+it("blank opt-out retains outline-only bytes; blank mode hides ground fill and road ink without a scene mesh", async () => {
+  const hollow = await mount("braille",50,[building()],0.012,1,undefined,false);
+  const explicit = await mount("braille",50,[building()],0.012,1,undefined,false,false);
+  expect(explicit.logical()).toBe(hollow.logical());
+  const solid = await mount("braille",50,[building()],0.012,1,undefined,false,true);
+  expect(solid.sceneAdd).not.toHaveBeenCalled();
+  for (const {map} of [hollow,solid]) {
+    map.addLayer({type:"fill",source:{features:[building(0,0,0.01)]},color:"#ffffff"});
+    map.addLayer({type:"line",source:{features:[{geometryType:"line",rings:[[[-0.01,0],[0.01,0]]],properties:{}}]},color:"#ff0000",experimentalGlyphStrategy:"braille"});
+    await map.idle();
+  }
+  const p = solid.project(0,0,120), row = Math.floor(p[1]), col = Math.floor(p[0]);
+  expect(hollow.logical().split("\n")[row]![col]).not.toBe(" ");
+  expect(solid.logical().split("\n")[row]![col]).toBe(" ");
+  expect(braille(solid.logical())).toBeGreaterThan(20);
+  const before = solid.logical(); solid.map.scene.rerender(); expect(solid.logical()).toBe(before);
+});
+
+it("blank is ignored without unfilled braille outlines", async () => {
+  for (const outline of [null,"braille"] as const) {
+    const before = await mount(outline);
+    const after = await mount(outline,50,[building()],0.012,1,undefined,true,true);
+    expect(after.logical()).toBe(before.logical());
+  }
+});
+
+it("blanks ground strokes in their viewport density grid and preserves the roof in the base grid", async () => {
+  const {map,logical} = await mount("braille",50,[building()],0.012,1,undefined,false,true);
+  map.addLayer({type:"line",density:1.7,source:{features:Array.from({length:9},(_,i) => ({geometryType:"line" as const,rings:[[[-0.01,(i-4)*0.00025],[0.01,(i-4)*0.00025]]],properties:{}}))},color:"#ff0000",experimentalGlyphStrategy:"braille"});
+  await map.idle();
+  const create = extrusionOutline.createGlyphMapExtrusionSurface;
+  let erased = 0, checked = false;
+  const hook = map.scene.getOptions().transformCells!;
+  // Inspect the frozen input at the factory and compare after the entire hook,
+  // so skipping the viewport mask cannot bypass the assertion.
+  let target: {char:string[];color:(string|null)[];depth:Float64Array} | undefined;
+  vi.spyOn(extrusionOutline,"createGlyphMapExtrusionSurface").mockImplementation((...args) => {
+    const surface = create(...args);
+    if (args[0].cols > cols) {
+      const g = args[0], copy = {...g,char:g.char.slice(),color:g.color.slice(),depth:g.depth.slice()};
+      surface.blank!(copy); erased += g.char.filter((c,i) => c !== " " && copy.char[i] === " ").length;
+      target = copy;
+    }
+    return surface;
+  });
+  try {
+    map.scene.setOptions({transformCells:(g,layer) => {
+      const result = hook(g,layer) ?? g;
+      if (layer?.viewport) {
+        expect(result.char).toEqual(target!.char); expect(result.depth).toEqual(target!.depth); checked = true;
+      }
+      return result;
+    }});
+    map.scene.rerender();
+    expect(checked).toBe(true); expect(erased).toBeGreaterThan(0); expect(braille(logical())).toBeGreaterThan(20);
+  } finally { map.scene.setOptions({transformCells:hook}); }
 });

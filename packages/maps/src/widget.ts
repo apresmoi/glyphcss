@@ -1197,6 +1197,8 @@ export interface GlyphMapFillExtrusionLayer {
   readonly outline?: "braille";
   /** With `outline: "braille"`, false skips scene meshes and draws only depth-tested edges. Default true; ignored without outlines. */
   readonly fill?: boolean;
+  /** With braille outlines and `fill: false`, blank the visible body using face depth. Default false. */
+  readonly blank?: boolean;
   readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
@@ -8529,6 +8531,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let outlineMeshes: readonly (readonly Polygon[])[] = [];
   let outlineTopology: ReturnType<typeof createGlyphMapExtrusionTopology> | undefined;
   let outlineFilledFaces: ReadonlySet<Polygon> | undefined;
+  let outlineBlankFaces: ReadonlySet<Polygon> | undefined;
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
     if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
@@ -8575,8 +8578,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const s = layerStates.get(id);
         return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
       });
-      if (!outlined.length) { outlineMeshes = []; outlineTopology = undefined; outlineFilledFaces = undefined; }
-      if (outlined.length && layerInfo?.viewport !== true) {
+      if (!outlined.length) { outlineMeshes = []; outlineTopology = undefined; outlineFilledFaces = undefined; outlineBlankFaces = undefined; }
+      const blanked = [...layerStates.values()].some(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
+        s.layer.outline === "braille" && s.layer.fill === false && s.layer.blank);
+      if (outlined.length && (layerInfo?.viewport !== true || blanked)) {
         const frozen = { ...g, depth: g.depth.slice() };
         const project = (world: Vec3): GlyphMapStrokeVertex => {
           const p = camera.project(world, cachedBaseGrid!.cols, cachedBaseGrid!.rows, cachedBaseGrid!.cellAspect, cachedBaseGrid!);
@@ -8589,14 +8594,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const filled = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
             !(s.layer.outline === "braille" && s.layer.fill === false) ? s.runtime.polygons?.() ?? [] : []);
           outlineFilledFaces = new Set(filled);
+          outlineBlankFaces = new Set([...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
+            s.layer.outline === "braille" && s.layer.fill === false && s.layer.blank ? s.runtime.polygons?.() ?? [] : []));
         }
         const pg = cachedBaseGrid!;
         const frameKey = [g.cols, g.rows, pg.cols, pg.rows, pg.cellAspect, pg.cellWidth, pg.cellHeight, pg.centerCol, pg.centerRow,
           ...cellToSceneGrid, camera.kind, camera.rotX, camera.rotY, ...camera.center, ...(camera.mat ?? []),
           camera.useMat, camera.distance, camera.perspective, camera.zoom, camera.stretch, camera.fovScale,
           ...camera.target, camera.eyeMode, camera.project, camera.eyeDepth];
-        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces);
-        stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
+        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces, outlineBlankFaces);
+        if (layerInfo?.viewport === true) surface.blank?.(g);
+        else stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
       }
     } finally {
       if (isDetail && cachedBaseCamera) {

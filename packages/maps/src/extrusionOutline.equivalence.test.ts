@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import * as outline from "./extrusionOutline";
 import * as reference from "./test/extrusionOutlineReference";
+import { blankGlyphMapExtrusionDepthPrototype } from "./test/extrusionBlankPrototype";
 import { createGlyphMap } from "./widget";
 import { glyphMapGlobe } from "./projection";
 import { glyphMapOpenFreeMapProvider } from "./vector/openfreemap";
@@ -19,7 +20,7 @@ const cols = 156, rows = 77, cellWidth = 12 * 1200 / 2048, cellHeight = 12;
 const maps: ReturnType<typeof createGlyphMap>[] = [];
 afterEach(() => { maps.splice(0).forEach(m => m.destroy()); vi.restoreAllMocks(); document.body.innerHTML = ""; });
 
-async function mount(fill?: boolean, tilt = 0) {
+async function mount(fill?: boolean, tilt = 0, blank = false, buildings = true) {
   const host = document.createElement("div"); document.body.append(host);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function(this: Element) {
     const e = this as HTMLElement, k = (parseFloat(e.style.fontSize) || 16) / 16;
@@ -38,9 +39,9 @@ async function mount(fill?: boolean, tilt = 0) {
     return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
   }});
   const layers = glyphMapOpenMapTilesLayers(source, {
-    include: ["omt-water", "omt-roads", "omt-buildings"], roadHierarchy: true,
+    include: buildings ? ["omt-water", "omt-roads", "omt-buildings"] : ["omt-water", "omt-roads"], roadHierarchy: true,
     lineOptions: { "omt-roads": { experimentalGlyphStrategy: "braille", simplify: "vw", color: "#506981" } },
-  }).map(l => l.type === "fill-extrusion" ? { ...l, outline: "braille" as const, ...(fill === undefined ? {} : {fill}) } : l);
+  }).map(l => l.type === "fill-extrusion" ? { ...l, outline: "braille" as const, ...(fill === undefined ? {} : {fill}), ...(blank ? {blank} : {}) } : l);
   const map = createGlyphMap(host, { view: { center, span: 0.012, cols, rows }, projection: glyphMapGlobe({ exaggeration: 24 }), tilt, layers });
   maps.push(map); await map.idle();
   expect(loaded.size).toBeGreaterThan(0);
@@ -166,3 +167,72 @@ it.skipIf(!process.env.GLYPH_MAP_OUTLINE_FILL_BENCH)("benchmarks filled versus u
   console.log("OUTLINE_FILL_BENCH " + JSON.stringify(report));
 // Two poses, three alternating rounds, two paths and 15 full logical renders each.
 }, 120_000);
+
+
+it.skipIf(!process.env.GLYPH_MAP_BLANK_BENCH)("compares separate depth raster and reused face bins over BA pan frames", async () => {
+  const create = outline.createGlyphMapExtrusionSurface;
+  let prototype = false, comparisons = 0;
+  vi.spyOn(outline, "createGlyphMapExtrusionSurface").mockImplementation((...args) => {
+    const surface = create(...args);
+    if (prototype && args[7]?.size) {
+      const blank = surface.blank!;
+      surface.blank = g => {
+        const before = process.env.GLYPH_MAP_BLANK_VERIFY ? {...g,char:g.char.slice(),color:g.color.slice(),depth:g.depth.slice()} : undefined;
+        blankGlyphMapExtrusionDepthPrototype(g,[...args[7]!],surface.project ?? args[2],args[3]);
+        if (before) {
+          blank(before); expect(g.char).toEqual(before.char); expect(g.color).toEqual(before.color); expect(g.depth).toEqual(before.depth); comparisons++;
+        }
+      };
+    }
+    return surface;
+  });
+  const results = [];
+  for (const tilt of [0,50]) {
+    const cases = [
+      {name:"water+roads",...(await mount(false,tilt,false,false))},
+      {name:"filled+outlined",...(await mount(true,tilt))},
+      {name:"outline-only",...(await mount(false,tilt))},
+      {name:"B separate depth",...(await mount(false,tilt,true))},
+      {name:"C face bins",...(await mount(false,tilt,true))},
+    ];
+    const rounds = Number(process.env.GLYPH_MAP_BLANK_ROUNDS ?? 3), count = Number(process.env.GLYPH_MAP_BLANK_FRAMES ?? 15);
+    for (let round = 0; round < rounds; round++) for (const entry of round % 2 ? [...cases].reverse() : cases) {
+      prototype = entry.name.startsWith("B ");
+      for (let i=0;i<3;i++) entry.map.setView({center:[center[0]-(i+1)*0.0003,center[1]]});
+      const frames = [];
+      for (let i=0;i<count;i++) {
+        const start = performance.now(); entry.map.setView({center:[center[0]+i*0.0003,center[1]]}); frames.push(performance.now()-start);
+      }
+      results.push({name:entry.name,tilt,round,frames});
+    }
+    cases.forEach(c => c.map.destroy());
+  }
+  const report = {grid:[cols,rows],tileZoom:13,rendersPerPan:1,comparisons,results};
+  writeFileSync(process.env.GLYPH_MAP_BLANK_REPORT ?? "/tmp/glyph-map-blank-bench.json",JSON.stringify(report,null,2));
+  console.log("BLANK_BENCH " + JSON.stringify(report));
+}, 120_000);
+
+
+it("blank bins equal an independent depth raster through BA pan, tilt and replacement", async () => {
+  const create = outline.createGlyphMapExtrusionSurface;
+  let checks = 0, covered = 0;
+  vi.spyOn(outline,"createGlyphMapExtrusionSurface").mockImplementation((...args) => {
+    const surface = create(...args), blank = surface.blank;
+    if (blank && args[7]?.size) surface.blank = g => {
+      const expected = {...g,char:g.char.slice(),color:g.color.slice(),depth:g.depth.slice()};
+      blankGlyphMapExtrusionDepthPrototype(expected,[...args[7]!],surface.project ?? args[2],args[3]);
+      blank(g);
+      expect(g.char).toEqual(expected.char); expect(g.color).toEqual(expected.color); expect(g.depth).toEqual(expected.depth);
+      covered += g.depth.filter((v,i) => v > args[0].depth[i]!).length; checks++;
+    };
+    return surface;
+  });
+  const {map} = await mount(false,0,true);
+  for (const tilt of [0,50]) {
+    map.setTilt(tilt); await map.idle();
+    for (let i=0;i<3;i++) map.setView({center:[center[0]+(i+1)*0.0003,center[1]]});
+  }
+  const features = glyphMapDecodeMVT(readFileSync(path.join(root,"osm_13_2767_4936.pbf")),13,2767,4936).building!;
+  map.setLayerSource("omt-buildings",{features:features.slice(0,3)}); await map.idle();
+  expect(checks).toBeGreaterThan(6); expect(covered).toBeGreaterThan(1000);
+});
