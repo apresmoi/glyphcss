@@ -17,16 +17,22 @@ npm install @glyphcss/charts
 import { glyphChartLine, glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";
 
 const spec = glyphChartPlot({
-  title: "Daily orders",
-  marks: [glyphChartLine([18, 24, 21, 35, 42, 39, 48], {}, { name: "Orders" })],
+  title: "Daily orders vs plan",
+  marks: [
+    glyphChartLine([18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], {}, { name: "Orders" }),
+    glyphChartLine([30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], {}, { name: "Plan" }),
+  ],
+  axes: { x: { title: "Day (index)" }, y: { title: "Orders" } },
 });
 const result = renderGlyphChart(spec, {
-  target: "chat", width: 60, height: 16,
+  target: "chat",
+  width: 64,
+  height: 18,
 });
 console.log(result.text);
 ```
 
-<GlyphRender kind="chart" source={{"title": "Daily orders", "marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}]}} options={{"target": "chat", "width": 60, "height": 16}} />
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "charset": "blocks", "width": 64, "height": 18}} />
 
 A bare number array also works: `renderGlyphChart([18, 24, 21])` creates one line mark. Use a spec when marks share axes, scales, or a title.
 
@@ -39,15 +45,15 @@ import styles from '../../../integrations/astro/GlyphRender.module.css';
 <div className={styles.targets}>
 <section>
 <h3>Chat · box</h3>
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 26, "height": 10, "color": "none"}} />
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 26, "height": 10, "color": "none"}} />
 </section>
 <section>
 <h3>Terminal · braille</h3>
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "terminal", "width": 26, "height": 10, "color": "css"}} />
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "terminal", "width": 26, "height": 10, "color": "css"}} />
 </section>
 <section>
 <h3>Web · braille</h3>
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "web", "width": 26, "height": 10, "color": "css"}} />
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "web", "width": 26, "height": 10, "color": "css"}} />
 </section>
 </div>
 

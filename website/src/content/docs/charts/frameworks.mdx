@@ -21,7 +21,7 @@ npm install @glyphcss/charts
 import { renderGlyphChart } from "@glyphcss/charts";
 const host = document.querySelector<HTMLPreElement>("#chart")!;
 try {
-  host.textContent = renderGlyphChart([18, 24, 21, 35, 42], {
+  host.textContent = renderGlyphChart([18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], {
     target: "web", color: "none", width: 60, height: 12,
   }).text;
 } catch (error) {
@@ -34,7 +34,7 @@ try {
 ```tsx
 import { useMemo } from "react";
 import { renderGlyphChart } from "@glyphcss/charts";
-const defaultValues = [18, 24, 21, 35, 42];
+const defaultValues = [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57];
 
 export function GlyphOrderChart({ values = defaultValues }) {
   const text = useMemo(() => {
@@ -57,7 +57,7 @@ Replace the values array when data changes so memoization can observe it.
 import { computed } from "vue";
 import { renderGlyphChart } from "@glyphcss/charts";
 const props = withDefaults(defineProps<{ values?: number[] }>(), {
-  values: () => [18, 24, 21, 35, 42],
+  values: () => [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57],
 });
 const text = computed(() => {
   try {
@@ -84,7 +84,7 @@ Apply this stylesheet in each application. Load Glyph Mono separately, or use an
 }
 ```
 
-<GlyphRender kind="chart" source={[18, 24, 21, 35, 42]} options={{"target": "web", "width": 60, "height": 12, "color": "none"}} />
+<GlyphRender kind="chart" source={[18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57]} options={{"target": "web", "width": 60, "height": 12, "color": "none"}} />
 
 ## CSS color and static output
 
@@ -93,7 +93,7 @@ Use `color: "css"` for `result.html`. It is an escaped span fragment; assign it 
 ```ts
 import { renderGlyphChart } from "@glyphcss/charts";
 const host = document.querySelector<HTMLPreElement>("#chart")!;
-const result = renderGlyphChart([18, 24, 21, 35, 42], {
+const result = renderGlyphChart([18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], {
   target: "web", color: "css", width: 60, height: 12,
 });
 host.innerHTML = result.html!;

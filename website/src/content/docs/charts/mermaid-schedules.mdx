@@ -11,7 +11,7 @@ Use `renderGlyphChartMermaid` for all three families. Omit render `height` to le
 
 Dates and `after` dependencies produce calendar intervals. Forward references are supported. Status tags such as `done`, `active`, and `crit` remain identifiable; milestones become dots when needed.
 
-<GlyphRender kind="chart-mermaid" source={"gantt\n title Portal release\n dateFormat YYYY-MM-DD\n axisFormat %b %d\n section Discovery\n Research :done, research, 2026-04-06, 3d\n Prototype :design, after research, 4d\n section Delivery\n API :active, api, after design, 5d\n Launch :milestone, after api, 0d"} options={{"target": "chat", "width": 72, "height": 20}} />
+<GlyphRender kind="chart-mermaid" source={"gantt\n title Portal release\n dateFormat YYYY-MM-DD\n axisFormat %b %d\n section Discovery\n Interviews :done, research, 2026-04-06, 3d\n Prototype :done, design, after research, 4d\n section Delivery\n API :active, api, after design, 5d\n Portal :portal, after design, 6d\n QA :crit, qa, after api portal, 3d\n section Rollout\n Preview :preview, after qa, 2d\n Training :training, after qa, 3d\n Launch :milestone, after preview training, 0d"} options={{"target": "chat", "width": 78}} />
 
 Calendar ticks use local dates and can coarsen to fit. Excluded days are not shaded; today/layout settings may remain inert with notes. Supply complete dates and task starts when their meaning matters; partial or missing dates can use logged epoch defaults.
 
@@ -19,12 +19,12 @@ Calendar ticks use local dates and can coarsen to fit. Excluded days are not sha
 
 Scores render as compact 0–5 bars with task and actor text, grouped by section. Out-of-range scores are clamped with notes.
 
-<GlyphRender kind="chart-mermaid" source={"journey\n title First order\n section Discover\n Find store: 4: Buyer\n Compare plans: 3: Buyer, Sales\n section Purchase\n Create account: 3: Buyer\n Pay: 2: Buyer, Payments\n Receipt: 5: Buyer"} options={{"target": "chat", "width": 68, "height": 20}} />
+<GlyphRender kind="chart-mermaid" source={"journey\n title First order\n section Discover\n Find store: 4: Buyer\n Compare plans: 3: Buyer, Sales\n section Purchase\n Create account: 3: Buyer\n Add to cart: 4: Buyer\n Pay: 2: Buyer, Payments\n section Follow up\n Receipt: 5: Buyer\n Track delivery: 4: Buyer, Support"} options={{"target": "chat", "width": 68}} />
 
 ## Timeline events
 
 Periods and events form a table in source order, rather than a quantitative time axis. Whitespace-followed colons split events; embedded times and URLs retain their colons.
 
-<GlyphRender kind="chart-mermaid" source={"timeline\n title Portal roadmap\n section Foundation\n April : Interviews : Prototype\n May : API beta\n section Delivery\n June : Private preview\n July : Public launch : Support training"} options={{"target": "chat", "width": 68, "height": 20}} />
+<GlyphRender kind="chart-mermaid" source={"timeline\n title Portal roadmap\n section Foundation\n April : Interviews : Prototype\n May : API beta : Team login\n section Delivery\n June : Private preview : Usage charts\n July : Public launch : Support training\n section Growth\n August : Billing export\n September : Regional rollout"} options={{"target": "chat", "width": 68}} />
 
 Long event text wraps on words. Narrow layouts can stack the event column. Increase width or inspect omission notes when a fixed size cannot retain all entries. For ownership lanes and dependencies without dates, see [Git history and lane diagrams](/diagrams/gitgraph/).
