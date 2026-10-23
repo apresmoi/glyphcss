@@ -1,0 +1,1 @@
+export { GlyphMapDemo } from "./GlyphMapDemo";

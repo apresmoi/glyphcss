@@ -484,3 +484,8 @@ mobile-starlight-toc .dropdown {
 .sl-markdown-content :is(td, th) code {
   overflow-wrap: anywhere;
 }
+/* The first column names the row; keep its identifier whole. */
+.sl-markdown-content td:first-child code {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}

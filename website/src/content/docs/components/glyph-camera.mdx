@@ -1,156 +1,90 @@
 ---
 title: GlyphCamera
-description: Perspective or orthographic camera handle shared by the renderer and hit layer.
+description: Choose orthographic or perspective cameras for ASCII scenes, tune rotation and zoom, and connect orbit controls in React, Vue, or vanilla JavaScript.
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { GlyphDemo } from '../../../components/GlyphDemo';
 
-`<GlyphCamera>` (alias for `<GlyphOrthographicCamera>`) is the outermost element in
-a glyphcss tree. Wrap `<GlyphScene>` inside it. The renderer and the hit layer both
-read from the same camera state — mutating `rotY` updates both simultaneously.
+<GlyphDemo client:load id="camera-demo" geometry="cube" defaults='{"renderMode":"solid","rotX":35,"perspective":8000}' controls='["scale","distance","rotX"]' autoRotate />
 
-## Props — orthographic (`GlyphCamera` / `GlyphOrthographicCamera`)
+Drag to orbit; change tilt, zoom, or distance. This perspective demo uses `perspective: 8000` to make foreshortening easier to see.
 
-| Prop | Type | Default | Description |
-|---|---|---|---|
-| `rotX` | `number` (degrees) | `65` | Tilt around X axis |
-| `rotY` | `number` (degrees) | `45` | Spin around Y axis |
-| `zoom` | `number` | `0.65` | CSS pixels per world unit |
-
-## Props — perspective (`GlyphPerspectiveCamera`)
-
-| Prop | Type | Default | Description |
-|---|---|---|---|
-| `rotX` | `number` (degrees) | `65` | Tilt around X axis |
-| `rotY` | `number` (degrees) | `45` | Spin around Y axis |
-| `zoom` | `number` | `0.65` | CSS pixels per world unit |
-| `distance` | `number` | `0` | Camera pull-back. CSS pixels with CSS perspective; world units only in legacy `perspective={0}` mode |
-| `perspective` | `number` | `32000` | CSS-perspective distance in virtual pixels (matches voxcss). Larger = flatter foreshortening; set `0` for legacy orbit projection |
-| `stretch` | `number` | `1.0` | Extra X scale on top of `cellAspect` |
-
-## Full examples
+## Choose a camera
 
 <Tabs syncKey="fw">
   <TabItem label="React">
 
 ```tsx
-import {
-  GlyphPerspectiveCamera,
-  GlyphOrthographicCamera,
-  GlyphScene,
-  GlyphMesh,
-  GlyphOrbitControls,
-} from "@glyphcss/react";
-import { octahedronPolygons } from "@glyphcss/core";
+import { GlyphCamera, GlyphPerspectiveCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
 
-const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
-
-// Perspective (foreshortened)
-export function PerspectiveExample() {
+export function Example() {
   return (
-    <GlyphPerspectiveCamera rotX={22} zoom={50} distance={3} stretch={0.95}>
-      <GlyphScene mode="solid" cols={100} rows={30}>
-        <GlyphOrbitControls />
-        <GlyphMesh polygons={octa} />
+    <GlyphPerspectiveCamera rotX={35} rotY={45} zoom={50}>
+      <GlyphScene mode="solid">
+        <GlyphMesh geometry="cube" />
+        <GlyphOrbitControls drag wheel />
       </GlyphScene>
     </GlyphPerspectiveCamera>
   );
 }
-
-// Orthographic — parallel lines stay parallel (isometric style)
-export function OrthoExample() {
-  return (
-    <GlyphOrthographicCamera rotX={35} zoom={50}>
-      <GlyphScene mode="solid" cols={100} rows={30}>
-        <GlyphOrbitControls />
-        <GlyphMesh polygons={octa} />
-      </GlyphScene>
-    </GlyphOrthographicCamera>
-  );
-}
+// Replace GlyphPerspectiveCamera with GlyphCamera for orthographic projection.
 ```
 
   </TabItem>
   <TabItem label="Vue">
 
 ```vue
-<template>
-  <component
-    :is="perspective ? GlyphPerspectiveCamera : GlyphOrthographicCamera"
-    :rot-x="perspective ? 22 : 35"
-    :zoom="50"
-    v-bind="perspective ? { distance: 3 } : {}"
-  >
-    <GlyphScene mode="solid" :cols="100" :rows="30">
-      <GlyphOrbitControls />
-      <GlyphMesh :polygons="octa" />
-    </GlyphScene>
-  </component>
-</template>
-
 <script setup lang="ts">
-import { ref } from "vue";
-import {
-  GlyphPerspectiveCamera,
-  GlyphOrthographicCamera,
-  GlyphScene,
-  GlyphMesh,
-  GlyphOrbitControls,
-} from "@glyphcss/vue";
-import { octahedronPolygons } from "@glyphcss/core";
-
-const perspective = ref(true);
-const octa = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
+import { GlyphCamera, GlyphPerspectiveCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/vue";
 </script>
+
+<template>
+  <GlyphPerspectiveCamera :rot-x="35" :rot-y="45" :zoom="50">
+    <GlyphScene mode="solid">
+      <GlyphMesh geometry="cube" />
+      <GlyphOrbitControls drag wheel />
+    </GlyphScene>
+  </GlyphPerspectiveCamera>
+</template>
 ```
 
   </TabItem>
   <TabItem label="Vanilla JS">
 
 ```ts
-import {
-  createGlyphPerspectiveCamera,
-  createGlyphOrthographicCamera,
-  createGlyphScene,
-} from "glyphcss";
-import { octahedronPolygons } from "@glyphcss/core";
+import { createGlyphPerspectiveCamera, createGlyphOrthographicCamera, createGlyphScene, createGlyphOrbitControls } from "glyphcss";
+import { cubePolygons } from "@glyphcss/core";
 
 const host = document.querySelector<HTMLElement>("#scene")!;
+const camera = createGlyphPerspectiveCamera({ rotX: 35, rotY: 45, zoom: 50 });
+const scene = createGlyphScene(host, { camera, mode: "solid" });
+scene.add(cubePolygons({ center: [0, 0, 0], size: 1 }));
+const controls = createGlyphOrbitControls(scene, { drag: true, wheel: true });
 
-// Camera constructed first, then passed into the scene
-const perspective = createGlyphPerspectiveCamera({
-  rotX: 22,
-  zoom: 50,
-  distance: 3,
-  stretch: 0.95,
-});
-const scene = createGlyphScene(host, { camera: perspective, mode: "solid" });
-
-scene.add(octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" }));
-
-// Switch to orthographic:
-const ortho = createGlyphOrthographicCamera({ rotX: 35, zoom: 50 });
-scene.setOptions({ camera: ortho });
-
-// Mutate camera state and re-render:
-perspective.rotY = 45;
-perspective.distance = 4;
+camera.rotY = 60;
 scene.rerender();
+scene.setOptions({ camera: createGlyphOrthographicCamera({ rotX: 35, zoom: 50 }) });
+
+// On unmount:
+// controls.destroy();
+// scene.destroy();
 ```
 
   </TabItem>
 </Tabs>
 
-## Notes
+`GlyphCamera` aliases `GlyphOrthographicCamera`: parallel lines stay parallel. `GlyphPerspectiveCamera` adds foreshortening. Wrap `GlyphScene` inside the camera in React/Vue; pass a camera handle to `createGlyphScene` in vanilla JS.
 
-- The default perspective camera matches polycss/voxcss: `distance: 0`, `perspective: 32000`, `zoom: 0.65`.
-- `rotX: 0` looks straight down the Z axis. Try `22` (degrees) for a slight downward
-  tilt that gives the mesh visual weight.
-- `stretch: 0.95` counteracts over-stretching from `cellAspect ≈ 2` on typical
-  monospace fonts. Leave at `1.0` if you tighten `line-height` instead.
-- Orthographic cameras ignore `distance` — use `zoom` to scale the mesh instead.
-- `GlyphCamera` is the ergonomic default alias for `GlyphOrthographicCamera`. Use it
-  for iso/diagrammatic scenes; use `GlyphPerspectiveCamera` explicitly for
-  character or walkthrough scenes.
-- Rotation units are **degrees**, matching voxcss/three.js. `rotX=65, rotY=45` is the
-  classic isometric-ish viewpoint. `zoom` is **CSS pixels per world unit**.
+## Options and defaults
+
+| Option | Default | Meaning |
+|---|---|---|
+| `rotX` | `65` | X rotation, degrees; `0` looks down Z |
+| `rotY` | `45` | Y rotation, degrees |
+| `zoom` | `0.65` | CSS pixels per world unit |
+| `distance` | `0` | Perspective pull-back: CSS pixels; world units when `perspective: 0` |
+| `perspective` | `32000` | Virtual-pixel perspective distance; larger looks flatter; `0` selects legacy orbit projection |
+| `stretch` | `1` | Perspective-only extra horizontal scale |
+
+Orthographic cameras use `rotX`, `rotY`, and `zoom`; `distance` has no effect. The renderer and hit layer share camera state. After mutating a vanilla camera, call `scene.rerender()`.

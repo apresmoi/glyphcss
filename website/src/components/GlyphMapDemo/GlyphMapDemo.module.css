@@ -1,0 +1,22 @@
+.root {
+  margin: var(--gc-space-4) 0;
+  min-width: 0;
+}
+
+.stage {
+  position: relative;
+  height: 24rem;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.root .stage :global(.glyph-output) {
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-xs);
+  line-height: 1;
+  cursor: grab;
+}
+
+.root .stage :global(.glyph-output):active {
+  cursor: grabbing;
+}

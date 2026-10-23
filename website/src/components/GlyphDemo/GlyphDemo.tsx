@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import type { GlyphEffects } from "@glyphcss/effects";
 import { demoSnippets } from "../../services/glyph-scene/demoSnippets";
-import { DEFAULT_TUNABLES, type Tunables } from "../../services/glyph-scene/types";
+import { DEFAULT_TUNABLES, type RuntimeEffectConfig, type Tunables } from "../../services/glyph-scene/types";
 import { ActionButton } from "../ActionButton";
 import { CodePanel } from "../CodePanel";
 import { GlyphDemoControls } from "./GlyphDemoControls";
@@ -15,6 +16,9 @@ export interface GlyphDemoProps {
   mesh?: string;
   controls?: string;
   defaults?: string;
+  /** Stock effect mounted by the demo runtime, which owns its clock and disposal. */
+  effect?: keyof typeof GlyphEffects;
+  effectParams?: RuntimeEffectConfig["params"];
   showStats?: boolean;
   /** Hide the code panel beneath the demo (landing hero, gallery). */
   noCode?: boolean;
@@ -71,25 +75,39 @@ export function GlyphDemo(props: GlyphDemoProps) {
   useEffect(() => {
     let disposed = false;
     let dispose: (() => void) | undefined;
-    void loadRuntime().then(({ mountGlyphDemo }) => {
-      if (!disposed && ref.current) {
-        dispose = mountGlyphDemo(
-          ref.current,
-          props.noControls && props.noCode
-            ? undefined
-            : {
-                onReady: (update) => {
-                  updateTuning.current = update;
+    void Promise.all([loadRuntime(), props.effect ? import("@glyphcss/effects") : undefined]).then(
+      ([{ mountGlyphDemo }, effects]) => {
+        if (!disposed && ref.current) {
+          dispose = mountGlyphDemo(
+            ref.current,
+            props.noControls && props.noCode
+              ? undefined
+              : {
+                  onReady: (update) => {
+                    updateTuning.current = update;
+                  },
+                  onChange: (next) => {
+                    if (disposed) return;
+                    setTunables(next);
+                    setReady(true);
+                  },
                 },
-                onChange: (next) => {
-                  if (disposed) return;
-                  setTunables(next);
-                  setReady(true);
-                },
-              },
-        );
-      }
-    });
+          );
+          if (props.effect && effects) {
+            const demo = ref.current as HTMLDivElement & {
+              glyphcssDemo: { configureEffect: (config: RuntimeEffectConfig) => void };
+            };
+            demo.glyphcssDemo.configureEffect({
+              effect: effects.GlyphEffects[props.effect],
+              params: props.effectParams ?? {},
+              blend: "replace",
+              paused: false,
+              timeScale: 1,
+            });
+          }
+        }
+      },
+    );
     return () => {
       disposed = true;
       updateTuning.current = undefined;
