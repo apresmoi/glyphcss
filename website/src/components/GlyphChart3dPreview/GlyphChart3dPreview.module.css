@@ -1,0 +1,25 @@
+.root {
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-base);
+  line-height: 1;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+.root:active {
+  cursor: grabbing;
+}
+.root :global(.glyph-docs-output) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: pre;
+}
+.hint {
+  margin: 0.5rem 0 0;
+  text-align: center;
+  font-family: var(--gc-font-ui);
+  font-size: var(--gc-text-sm);
+  color: var(--gc-text-muted);
+}

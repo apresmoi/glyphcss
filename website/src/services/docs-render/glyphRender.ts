@@ -39,6 +39,15 @@ function buildGlyphDocsChart3d(source: GlyphDocsChart3dSource) {
   }
 }
 
+export function resolveGlyphDocsChart3d(input: Extract<GlyphDocsRenderInput, { kind: "chart-3d" }>) {
+  if (input.options?.color && !["none", "css"].includes(input.options.color)) {
+    throw new TypeError("GlyphRender supports color none or css in HTML documentation.");
+  }
+  const mark = buildGlyphDocsChart3d(input.source);
+  const options: GlyphChart3dRenderOptions = { target: "chat", color: "css", ...input.options };
+  return { mark, options, result: renderGlyphChart3d(mark, options) };
+}
+
 export type GlyphDocsRenderInput =
   | {
       kind: "diagram";
@@ -107,7 +116,7 @@ export async function renderGlyphDocs(input: GlyphDocsRenderInput) {
         options,
       );
     case "chart-3d":
-      return renderGlyphChart3d(buildGlyphDocsChart3d(input.source), options);
+      return resolveGlyphDocsChart3d(input).result;
     case "chart":
       return renderGlyphChart(input.source, options);
     case "chart-mermaid":

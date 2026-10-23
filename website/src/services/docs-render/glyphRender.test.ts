@@ -30,7 +30,7 @@ const compiled = await transform(readFileSync(filename, "utf8"), {
   filename,
   internalURL: "astro/compiler-runtime",
   resultScopedSlot: true,
-  resolvePath: (path) => path,
+  resolvePath: async (path) => path,
 });
 const bundled = await build({
   stdin: { contents: compiled.code, loader: "ts", resolveDir: resolve("src/integrations/astro") },
@@ -39,6 +39,7 @@ const bundled = await build({
   outfile: "/tmp/glyph-docs-render-test.mjs",
   platform: "node",
   format: "esm",
+  jsx: "automatic",
   loader: { ".css": "empty" },
   plugins: [
     {
@@ -48,7 +49,7 @@ const bundled = await build({
           path: pathToFileURL(require.resolve(args.path)).href,
           external: true,
         }));
-        builder.onResolve({ filter: /^@glyphcss\// }, (args) => ({
+        builder.onResolve({ filter: /^(?:@glyphcss\/|glyphcss$|react(?:\/|$)|react-dom(?:\/|$))/ }, (args) => ({
           path: pathToFileURL(require.resolve(args.path)).href,
           external: true,
         }));
@@ -61,6 +62,34 @@ const bundled = await build({
 });
 const moduleUrl = `data:text/javascript;base64,${Buffer.from(bundled.outputFiles[0]!.text).toString("base64")}`;
 const GlyphRender = (await import(/* @vite-ignore */ moduleUrl)).default;
+
+const reactRendererBundle = await build({
+  stdin: { contents: 'export { default } from "@astrojs/react/server.js";', resolveDir: resolve(".") },
+  bundle: true,
+  write: false,
+  platform: "node",
+  format: "esm",
+  plugins: [{
+    name: "astro-react-renderer",
+    setup(builder) {
+      builder.onResolve({ filter: /^astro:react:opts$/ }, () => ({ path: "opts", namespace: "react-opts" }));
+      builder.onLoad({ filter: /.*/, namespace: "react-opts" }, () => ({ contents: "export default {};" }));
+      builder.onResolve({ filter: /^(?:react(?:\/|$)|react-dom(?:\/|$)|@astrojs\/internal-helpers\/)/ }, (args) => ({
+        path: pathToFileURL(require.resolve(args.path)).href,
+        external: true,
+      }));
+    },
+  }],
+});
+const rendererUrl = `data:text/javascript;base64,${Buffer.from(reactRendererBundle.outputFiles[0]!.text).toString("base64")}`;
+const reactRenderer = (await import(/* @vite-ignore */ rendererUrl)).default;
+
+async function createDocsContainer() {
+  const container = await AstroContainer.create();
+  container.addServerRenderer({ name: "@astrojs/react", renderer: reactRenderer });
+  container.addClientRenderer({ name: "@astrojs/react", entrypoint: "@astrojs/react/client.js" });
+  return container;
+}
 
 function parseMarkup(html: string) {
   const template = document.createElement("template");
@@ -206,7 +235,7 @@ it("renders dedented source in a closed disclosure without template whitespace",
   const source =
     "\n    sequenceDiagram\n      participant Browser\n      participant API\n      Browser->>API: Request\n    ";
   const expected = "sequenceDiagram\n  participant Browser\n  participant API\n  Browser->>API: Request";
-  const container = await AstroContainer.create();
+  const container = await createDocsContainer();
   const markup = parseMarkup(await container.renderToString(GlyphRender, { props: { kind: "sequence", source } }));
   const pre = markup.querySelector("pre.glyph-docs-source")!;
   expect(pre.textContent).toBe(expected);
@@ -264,10 +293,10 @@ it.each(pages)("validates metadata and renders every source in $name", async ({ 
     const result = await renderGlyphDocs(input);
     expect(result.text.trim(), JSON.stringify(input.source)).not.toBe("");
     if ("unroutable" in result.report) expect(result.report.unroutable, JSON.stringify(input.source)).toEqual([]);
-    const container = await AstroContainer.create();
+    const container = await createDocsContainer();
     const markup = parseMarkup(await container.renderToString(GlyphRender, { props: input }));
     const pre = markup.querySelector("pre.glyph-docs-output");
-    const fitted = fitGlyphDocsOutput(result);
+    const fitted = input.kind === "chart-3d" ? result : fitGlyphDocsOutput(result);
     expect(pre?.textContent).toBe(fitted.html ? parseMarkup(fitted.html).textContent : fitted.text);
     expect(markup.querySelector("pre.glyph-docs-source")?.textContent).toBe(
       typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2),
@@ -276,7 +305,7 @@ it.each(pages)("validates metadata and renders every source in $name", async ({ 
 });
 
 it.each(fixtures)("emits real $kind output inside a static pre through Astro", async (input) => {
-  const container = await AstroContainer.create();
+  const container = await createDocsContainer();
   for (const color of ["none", "css"] as const) {
     const props = { ...input, options: { ...input.options, color }, showSource: false } as GlyphDocsRenderInput & {
       showSource: boolean;
@@ -286,10 +315,21 @@ it.each(fixtures)("emits real $kind output inside a static pre through Astro", a
     const expected = await renderGlyphDocs(props);
     const pre = markup.querySelector("pre.glyph-docs-output");
     expect(pre).not.toBeNull();
-    const fitted = fitGlyphDocsOutput(expected);
+    // 3D frames keep their full grid so dragging never changes the footprint.
+    const fitted = input.kind === "chart-3d" ? expected : fitGlyphDocsOutput(expected);
     expect(pre!.textContent).toBe(fitted.html ? parseMarkup(fitted.html).textContent : fitted.text);
     expect(markup.querySelector(".glyph-docs-source")).toBeNull();
-    expect(markup.querySelector("script")).toBeNull();
+    const island = markup.querySelector("astro-island");
+    if (input.kind === "chart-3d") {
+      expect(island?.getAttribute("client")).toBe("visible");
+      expect(island?.getAttribute("component-export")).toBe("GlyphChart3dPreview");
+      // The server-rendered island IS the no-JS frame.
+      expect(island?.contains(pre)).toBe(true);
+      expect(island?.querySelectorAll("pre.glyph-docs-output")).toHaveLength(1);
+    } else {
+      expect(island).toBeNull();
+      expect(markup.querySelector("script")).toBeNull();
+    }
     expect(pre!.querySelector("pre")).toBeNull();
   }
 });
