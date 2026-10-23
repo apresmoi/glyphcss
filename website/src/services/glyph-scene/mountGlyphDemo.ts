@@ -108,7 +108,9 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
   const showHotspots = demoEl.getAttribute("data-no-hotspots") !== "1";
   function parseInteractiveDownscale(value: string | null): number {
     const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+    // Full resolution unless a demo opts in: a coarser drag frame reads as
+    // the model jumping in size the moment it is grabbed.
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
   }
   const interactiveDownscale = parseInteractiveDownscale(demoEl.getAttribute("data-interactive-downscale"));
 
