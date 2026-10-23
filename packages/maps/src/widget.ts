@@ -5475,10 +5475,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      */
     const waterMeshes = new Map<GlyphMeshHandle, { tile: GlyphMapGeoTile; projection: GlyphMapProjection; options: Parameters<typeof glyphMapPolygons>[2]; cache: GlyphMapTerrainWaterCache }>();
     let waterMeshRevision = 0;
+    const backstopCoverage = new WeakMap<GlyphMapWaterCoverage, GlyphMapWaterCoverage>();
+    function meshWaterCoverage(coverage: readonly GlyphMapWaterCoverage[], elevationBias: number): readonly GlyphMapWaterCoverage[] {
+      if (elevationBias === 0) return coverage;
+      // The tier sink already puts these faces below both DEM-draped lakes
+      // and datum ocean. Keep coverage flooring/colouring for loading holes,
+      // but never copy source-detail shores into a hidden backstop.
+      return coverage.map(region => {
+        let dry = backstopCoverage.get(region);
+        if (!dry) {
+          dry = { ...region, boundaries: () => [], waterAt: () => false };
+          backstopCoverage.set(region, dry);
+        }
+        return dry;
+      });
+    }
     function mountTile(tile: GlyphMapGeoTile, fraction: ReliefFraction, tier: "fine" | "fallback" | "floor"): GlyphMeshHandle[] {
       const transform = meshTransform(layer, layer.density, glyphMapRasterDetailGroup(layerId, tier));
       const elevationBias = tierElevationBias(tier);
-      const water = waterTerrainSnapshot();
+      const water = meshWaterCoverage(waterTerrainSnapshot(), elevationBias);
       return splitGlyphMapGeoTileAtAntimeridian(tile).map(part => {
         const options = fraction >= 1 ? { color, elevationBias, ...window } : { color, elevationBias, ...window, resolution: reliefResolution(part.cols, part.rows, fraction) };
         const cache: GlyphMapTerrainWaterCache = new Map();
@@ -5497,7 +5512,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const revision = waterMeshRevision;
         const prepared: [GlyphMeshHandle, Polygon[]][] = [];
         for (const [handle, mesh] of waterMeshes) {
-          const polygons = await runGlyphMapWaterWork(prepareGlyphMapTerrainPolygons(mesh.tile, mesh.projection, mesh.options, coverage, mesh.cache), () => valid() && !disposed && revision === waterMeshRevision);
+          const polygons = await runGlyphMapWaterWork(prepareGlyphMapTerrainPolygons(mesh.tile, mesh.projection, mesh.options, meshWaterCoverage(coverage, mesh.options?.elevationBias ?? 0), mesh.cache), () => valid() && !disposed && revision === waterMeshRevision);
           if (!polygons) break;
           prepared.push([handle, polygons]);
         }

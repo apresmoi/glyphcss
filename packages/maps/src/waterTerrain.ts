@@ -150,6 +150,39 @@ export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: rea
   } };
 }
 
+/** Adjacent convex pieces share one plane, so their union needs no extra face. */
+function* mergeConvexPieces(input: Ring[]): Generator<void, Ring[]> {
+  const pieces = new Set(input);
+  const edges = new Map<string, Ring>();
+  const key = (a: Point, b: Point) => `${a[0]},${a[1]}/${b[0]},${b[1]}`;
+  const register = (ring: Ring) => { for (let i = 0; i < ring.length; i++) edges.set(key(ring[i], ring[(i + 1) % ring.length]), ring); };
+  const remove = (ring: Ring) => { for (let i = 0; i < ring.length; i++) edges.delete(key(ring[i], ring[(i + 1) % ring.length])); pieces.delete(ring); };
+  for (const ring of input) { register(ring); yield; }
+  for (let ring of pieces) {
+    let merged = true;
+    while (merged) {
+      merged = false;
+      for (let i = 0; i < ring.length; i++) {
+        yield;
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        const neighbour = edges.get(key(b, a));
+        if (!neighbour || neighbour === ring) continue;
+        const j = neighbour.findIndex(p => p[0] === b[0] && p[1] === b[1]);
+        const union: Point[] = [];
+        for (let k = 1; k < ring.length; k++) union.push(ring[(i + 1 + k) % ring.length]);
+        for (let k = 1; k < neighbour.length; k++) union.push(neighbour[(j + 1 + k) % neighbour.length]);
+        if (union.some((p, k) => cross(p, union[(k + 1) % union.length], union[(k + 2) % union.length]) < 0)) continue;
+        remove(ring); remove(neighbour);
+        ring = union;
+        pieces.add(ring); register(ring);
+        merged = true;
+        break;
+      }
+    }
+  }
+  return [...pieces];
+}
+
 /** Vertical decomposition uses shoreline segments, never triangulation ears. */
 function* partitionShore(subject: Ring, edges: readonly Boundary[], region: GlyphMapWaterCoverage): Generator<void, Ring[]> {
   let crossesSubject = false;
@@ -193,6 +226,9 @@ function* partitionShore(subject: Ring, edges: readonly Boundary[], region: Glyp
   }
   const stations = [...xs].sort((a, b) => a - b), result: Ring[] = [];
   const at = (edge: Boundary, x: number) => edge.a[1] + (x - edge.a[0]) * (edge.b[1] - edge.a[1]) / (edge.b[0] - edge.a[0]);
+  // An endpoint elsewhere in the subject must not split an unchanged dry
+  // interval. The same two bounding segments define one convex trapezoid.
+  let previous = new Map<Boundary, Map<Boundary, Point[]>>();
   for (let i = 1; i < stations.length; i++) {
     yield;
     const left = stations[i - 1], right = stations[i], x = (left + right) / 2;
@@ -202,14 +238,21 @@ function* partitionShore(subject: Ring, edges: readonly Boundary[], region: Glyp
     if (limits.length < 2) continue;
     const low = limits[0], high = limits[limits.length - 1], lo = at(low, x), hi = at(high, x);
     const hits = [low, ...edges.filter(e => crossing(e) && at(e, x) > lo && at(e, x) < hi), high].sort((a, b) => at(a, x) - at(b, x));
+    const current = new Map<Boundary, Map<Boundary, Point[]>>();
     for (let j = 1; j < hits.length; j++) {
       const a = hits[j - 1], b = hits[j], bottom = at(a, x), top = at(b, x);
       if (top <= bottom || region.waterAt(x, (bottom + top) / 2)) continue;
-      const ring: Ring = [[left, at(a, left)], [right, at(a, right)], [right, at(b, right)], [left, at(b, left)]];
-      if (hasArea(ring)) result.push(ring);
+      const adjacent = previous.get(a)?.get(b);
+      const ring: Point[] = adjacent ?? [[left, at(a, left)], [right, at(a, right)], [right, at(b, right)], [left, at(b, left)]];
+      if (adjacent) { ring[1] = [right, at(a, right)]; ring[2] = [right, at(b, right)]; }
+      else if (hasArea(ring)) result.push(ring);
+      let upper = current.get(a);
+      if (!upper) current.set(a, upper = new Map());
+      upper.set(b, ring);
     }
+    previous = current;
   }
-  return result;
+  return yield* mergeConvexPieces(result);
 }
 
 /** null leaves a quad's original vertices, colours and winding byte-identical. */
