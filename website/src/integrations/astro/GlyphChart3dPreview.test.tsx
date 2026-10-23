@@ -46,7 +46,12 @@ it.each(inputs)("re-renders the $source.type frame at the dragged angle with the
   act(() => drag(surface, 60));
   await act(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
   const rotY = (result.resolved.camera.rotY ?? 0) + 30;
-  const expected = renderGlyphChart3d(mark, { ...options, camera: { rotX: result.resolved.camera.rotX ?? 0, rotY } });
+  const expected = renderGlyphChart3d(mark, {
+    ...options,
+    camera: { ...options.camera, rotX: result.resolved.camera.rotX ?? 0, rotY },
+  });
+  // The dragged frame keeps the build's zoom instead of refitting the angle.
+  expect(expected.resolved.camera.zoom).toBe(result.resolved.camera.zoom);
   expect(pre.innerHTML).toBe(glyphChart3dFrameHtml(expected));
   expect(pre.innerHTML).not.toBe(glyphChart3dFrameHtml(result));
   // Same grid at every angle: the frame's footprint never changes while orbiting.
