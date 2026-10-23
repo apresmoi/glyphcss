@@ -1,7 +1,6 @@
 import { heroRule } from "../../features/home/heroRule";
-import { howItWorksDiagram } from "../../features/home/howItWorks";
 import { AsciiArt } from "../AsciiArt";
-const compositions = { heroRule: heroRule(), howItWorksDiagram: howItWorksDiagram() };
+const compositions = { heroRule: heroRule() };
 export function HomeAsciiArt({
   factory,
   ...props

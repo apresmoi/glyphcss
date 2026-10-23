@@ -6,7 +6,9 @@ import { HomeAsciiArt } from "../components/HomeAsciiArt";
 import { FrameworkTabs } from "../components/FrameworkTabs";
 import { PackageVersion } from "../components/PackageVersion";
 import { GitHubStars } from "../components/GitHubStars";
+import GlyphRender from "../integrations/astro/GlyphRender.astro";
 import { title, description, ldJson, frameworkTabs } from "../features/home/content";
+import { homeDiagrams } from "../features/home/diagrams";
 ---
 
 <ContentLayout title={title} description={description} path="/">
@@ -35,14 +37,19 @@ import { title, description, ldJson, frameworkTabs } from "../features/home/cont
       light={JSON.stringify({ intensity: 1.1, ambient: 0.45 })}
     />
     <HomeAsciiArt client:load slot="rule" factory="heroRule" className="hero-rule" ariaLabel="divider" />
-    <HomeAsciiArt
-      client:load
-      slot="diagram"
-      factory="howItWorksDiagram"
-      className="stacking-art"
-      minCols={48}
-      ariaLabel="glyphcss render pipeline diagram"
-    />
+    <div slot="diagram" class="home-diagrams">
+      {
+        homeDiagrams.map(({ layout, input }) => (
+          <div class={`home-diagram-${layout}`}>
+            <GlyphRender
+              {...input}
+              showSource={false}
+              caption="Each render writes the text once per <pre>. Optional hotspots share the scene camera."
+            />
+          </div>
+        ))
+      }
+    </div>
     <FrameworkTabs slot="frameworks" tabs={frameworkTabs} client:load />
     <PackageVersion slot="version" client:load />
     <GitHubStars slot="stars" client:visible />
