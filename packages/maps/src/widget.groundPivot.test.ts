@@ -224,3 +224,26 @@ describe("drawn-ground camera pivot", () => {
     }
   });
 });
+
+describe("tilted globe pan", () => {
+  function pan(host: HTMLElement, dx: number, dy: number): void {
+    const init = { pointerId: 1, bubbles: true, button: 0 };
+    host.dispatchEvent(new PointerEvent("pointerdown", { ...init, clientX: 300, clientY: 300 }));
+    host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 300 + dx, clientY: 300 + dy }));
+    host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 300 + dx, clientY: 300 + dy }));
+  }
+  it.each([[0, 64, 60], [64, 0, 60], [0, -64, 60], [0, 64, 0], [64, 0, 0], [0, 64, 60, 90], [48, 32, 45, 30]])("moves the grabbed centre ground by the dragged pixels (%i, %i) at tilt %i, bearing %s", async (dx, dy, TILT, BEARING = 0) => {
+    const { map, host, done } = mount({
+      view: { center: CENTER, span: SPAN, cols: COLS, rows: ROWS }, projection: glyphMapGlobe(), tilt: TILT,
+    });
+    try {
+      map.setBearing(BEARING);
+      await map.idle();
+      const grabbed = map.getView().center;
+      pan(host, dx, dy);
+      const at = map.project(grabbed);
+      expect(at.col - COLS / 2).toBeCloseTo(dx / CELL_W, 0);
+      expect(at.row - ROWS / 2).toBeCloseTo(dy / CELL_H, 0);
+    } finally { done(); }
+  });
+});

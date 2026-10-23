@@ -10132,8 +10132,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // they can be read as navigation. Without this, turning the map 90
       // degrees and dragging right pans the view NORTH: the delta would be
       // spent on the axis the screen no longer shows it on.
-      const [dx, dy] = bearingDragDelta(dxPx, dyPx);
-      camera.rotY -= dx * degPerPx;
+      // GRAB compensation, so the ground under the hand follows it. A pitched
+      // camera foreshortens the ground along the screen's vertical by
+      // cos(tilt), so a screen pixel there covers 1/cos(tilt) of surface;
+      // that is undone BEFORE the heading, in screen space, where the pitch
+      // acts. A degree of longitude is cos(lat) of a degree of arc, so the
+      // east component is divided by it after. Without either, a 60-degree
+      // pitch dragged at half speed vertically and Buenos Aires at 82 %
+      // horizontally. Both cosines are floored so the horizon and the poles
+      // stay finite.
+      const pitchCos = Math.max(0.1, Math.cos((appliedTilt * Math.PI) / 180));
+      const latCos = Math.max(0.05, Math.cos((view.center[1] * Math.PI) / 180));
+      const [dx, dy] = bearingDragDelta(dxPx, dyPx / pitchCos);
+      camera.rotY -= (dx * degPerPx) / latCos;
       camera.rotX -= dy * degPerPx;
       // UNCLAMPED (was `clamp(trueRotX, 90 - 89.999, 90 + 89.999)`): that
       // clamp existed only to keep `centerForCamera`'s latitude away from
