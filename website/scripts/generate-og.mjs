@@ -5,7 +5,8 @@
 // page's REAL glyphcss ASCII render on the right. Build-time snapshots cover
 // docs and compact workbench examples; live captures cover animated effects.
 //
-// Prereq: run `pnpm --filter @glyphcss/website dev` (or a current preview) on port 4323.
+// Prereq: run `pnpm --filter @glyphcss/website dev` on port 4323 (or set OG_BASE); the
+// manifest and render endpoints it reads exist only in dev.
 // Generate before the final build, which verifies every referenced card exists.
 // Run:    node website/scripts/generate-og.mjs [slug ...]   (default: all)
 //
