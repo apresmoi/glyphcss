@@ -38,24 +38,19 @@ A bare number array also works: `renderGlyphChart([18, 24, 21])` creates one lin
 
 ## Compare the three targets
 
-These previews use the same data at 26 × 10 cells. Terminal color is shown with CSS here; the terminal API default is ANSI truecolor. Chat uses plain box drawing, while terminal and web use braille.
+These previews use the same data at 60 × 12 cells. Terminal color is shown with CSS here; the terminal API default is ANSI truecolor. Chat defaults to plain box drawing because chat fonts misalign braille; this preview passes `charset: "blocks"`, which most chat fonts also draw cleanly. Terminal and web use braille.
 
-import styles from '../../../integrations/astro/GlyphRender.module.css';
+### Chat · blocks
 
-<div className={styles.targets}>
-<section>
-<h3>Chat · box</h3>
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "width": 26, "height": 10, "color": "none"}} />
-</section>
-<section>
-<h3>Terminal · braille</h3>
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "terminal", "width": 26, "height": 10, "color": "css"}} />
-</section>
-<section>
-<h3>Web · braille</h3>
-<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "web", "width": 26, "height": 10, "color": "css"}} />
-</section>
-</div>
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "chat", "charset": "blocks", "width": 60, "height": 12, "color": "none"}} />
+
+### Terminal · braille
+
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "terminal", "width": 60, "height": 12, "color": "css"}} />
+
+### Web · braille
+
+<GlyphRender kind="chart" source={{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}} options={{"target": "web", "width": 60, "height": 12, "color": "css"}} />
 
 ## Choose your next step
 
