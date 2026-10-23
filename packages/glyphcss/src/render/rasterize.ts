@@ -4930,7 +4930,7 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
  *
  * The STRUCTURAL encodability test runs BEFORE the palette resolves, not
  * after. Resolving first means a permanently-unencodable grid (an out-of-atlas
- * ramp glyph, `charMode: "braille"`) still feeds the pooled quantizer, still
+ * ramp glyph) still feeds the pooled quantizer, still
  * repools on its refresh window, and still republishes `@font-palette-values`
  * for a palette no `<pre>` will ever reference.
  */

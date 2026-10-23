@@ -22,24 +22,26 @@ measurement this follows):
     "Source faces" below).
   - the wireframe THIN/NORMAL/CORE tiers of only the "default" and "ascii"
     palettes -- the two the spike's own viability table measured ("both
-    wireframe palettes"). The other 11 named palettes' wireframe tiers
-    (dots/lines/blocks/solid/stars/arrows/braille/runes/math/binary/hex) are
-    NOT in the universal atlas; a scene using one of them under `mode:
-    "wireframe"` falls back to the span encoder, same as any other
-    out-of-atlas glyph.
+    wireframe palettes"). Other palettes' tiers are not enumerated separately;
+    they work only when already covered by this union (including braille).
   - ink mode's fixed 10-glyph oriented set.
   - the wireframe-junctions 11-glyph box-drawing set.
 
-Deliberately EXCLUDED: `charMode: "braille"`/`"quadrant"`/`"halfblock"`
-glyphs. Braille's 255 dot-pattern glyphs and quadrant/halfblock's two-colour-
-per-cell encoding both need their own atlas design (two colours per code
-point, or a different PUA budget) -- out of scope for this foundation; those
-modes always render through the existing span encoder regardless of
-`colorEncoding`. Also excluded: the wireframe tiers of the 11 named palettes
-other than "default"/"ascii" (see above) -- a scene using one of those under
-`mode: "wireframe"` falls back to spans, same as any other out-of-atlas
-glyph. Neither exclusion is a source-face limitation; both are documented
-scope cuts and widening either is a scope decision, not a bug fix.
+The full Braille Patterns block U+2800..U+28FF (including blank U+2800)
+is in scope for text and single-colour wireframe `charMode: "braille"`.
+Quadrant/halfblock SOLID modes still need two colours per cell and use spans.
+Other named wireframe tiers remain out of scope unless already covered.
+
+PUA layout: keep the original sorted 212 glyphs (including 8 braille patterns)
+at U+E000 + slot * 212 + index, byte-identical for every existing glyph/slot.
+Append the remaining 248 braille patterns, sorted, at U+F0000 + slot * 248
++ extension index (Supplementary PUA-A, through U+F1D0F). Both blocks share
+30 CPAL slots. `extension` in atlas.json records the appended glyph offset
+and PUA start; no extension means the original single-block formula (ASCII).
+Encoded extension cells take two UTF-16 units / four UTF-8 bytes instead of
+one / three; grid cells remain BMP source glyphs and each encoded code point
+still paints one common advance. The font adds 248 outlines and 7,440 COLR
+bases; consumers must iterate output by code point, never UTF-16 index.
 
 Source faces: Menlo (`SRC`, a macOS system font -- NOT vendored, NOT
 redistributable; building this script therefore still requires running on a
@@ -47,8 +49,8 @@ Mac, or copying Menlo.ttc onto the build machine) is the primary source for
 every glyph it covers, resolved first and unchanged in effect from before
 this fallback mechanism existed. Menlo does not cover every glyph the scope
 above asks for (Futhark runes, several math/geometric symbols the "default"
-palette and the "runes"/"dots"/"braille" solid ramps use) -- those 22 glyphs
-resolve from two vendored, redistributable fallback faces under
+palette and the "runes"/"dots" solid ramps use, plus all 256 braille patterns)
+-- 270 glyphs resolve from two vendored, redistributable fallback faces under
 `sources/`, tried in order after Menlo: DejaVu Sans (`sources/dejavu/`,
 Bitstream Vera License) and Noto Sans Runic (`sources/noto-sans-runic/`, SIL
 Open Font License). A glyph in scope that resolves from NONE of the three
@@ -66,7 +68,9 @@ UPM) and then, only if it would still overflow, further shrinks it
 90%-of-advance x 90%-of-line-height box -- and unconditionally forces its
 `hmtx` advance to Menlo's own, exactly like every Menlo-sourced glyph
 already gets. A fallback outline that kept its native proportional advance
-would desync the character grid the moment it landed in a cell.
+would desync the character grid the moment it landed in a cell. Braille
+patterns share the full U+28FF outline's fitting box; fitting each pattern's
+ink independently would collapse left-only and right-only dots together.
 
 Every base glyph carries exactly ONE COLR layer (solid single colour) --
 verified in the spike as the cheapest possible COLR case, and a COLR-blind
@@ -75,8 +79,7 @@ fallback renders silent blanks instead of masquerading as correct output
 
 Usage: python3 build-atlas.py [ascii]
 Writes (all checked in):
-  default (no argument) -- the UNIVERSAL atlas, byte-identical to before the
-  `ascii` variant existed:
+  default (no argument) -- the UNIVERSAL atlas with stable original PUA addresses:
     atlas.json      -- metadata only; imported STATICALLY by ../../src/render/fontAtlas.ts
     atlas-font.json -- base64 WOFF2 only; imported LAZILY via ../../src/render/fontAtlasPayload.ts
   `ascii` -- the ASCII-ONLY variant (family "GlyphCssAtlasAscii"): printable
@@ -116,13 +119,10 @@ FALLBACK_SRCS = [
 # edges instead of touching or overflowing into a neighbour cell.
 FALLBACK_FIT_MARGIN = 0.90
 PUA_START = 0xE000
+EXTENDED_PUA_START = 0xF0000
+LEGACY_GLYPH_COUNT = 212
+UNIVERSAL_PALETTE_SIZE = 30
 BMP_PUA_SIZE = 0xF8FF - 0xE000 + 1  # 6400
-MAX_PALETTE_SIZE_CAP = 31  # bench/color-font-atlas.md: N=31 is the practical
-                           # ceiling for a single universal one-colour atlas.
-                           # The BMP PUA budget (glyph-count-dependent, see
-                           # `main()`) is the actual binding constraint today
-                           # (30 at 212 glyphs); this cap stays as the upper
-                           # bound it always was.
 FAMILY = "GlyphCssAtlas"
 
 ASCII_PRINTABLE = "".join(chr(c) for c in range(0x20, 0x7F))
@@ -187,6 +187,14 @@ def universal_glyph_set(available_cmaps):
     chars.update(JUNCTION_GLYPHS)
     chars.discard(" ")  # space is free (U+0020 direct, no colour layer, no PUA slot)
 
+    # Freeze the existing block's stride/order; new braille patterns must not
+    # shift any already-encoded glyph, including the eight original brailles.
+    legacy = sorted(chars, key=ord)
+    if len(legacy) != LEGACY_GLYPH_COUNT:
+        raise SystemExit("legacy atlas glyph count changed; preserve its PUA layout")
+    braille_extension = sorted(set(map(chr, range(0x2800, 0x2900))) - chars, key=ord)
+    chars.update(braille_extension)
+
     covered = set()
     for _, cmap in available_cmaps:
         covered.update(cmap.keys())
@@ -198,7 +206,7 @@ def universal_glyph_set(available_cmaps):
             f"covered by any source face ({names}): "
             + " ".join(f"{c!r}(U+{ord(c):04X})" for c in missing)
         )
-    return sorted(chars, key=ord)
+    return legacy + braille_extension
 
 
 def _import_fallback_glyph(ch, cp, fallback_faces, target_upem, target_advance, target_ascent, target_descent):
@@ -224,8 +232,15 @@ def _import_fallback_glyph(ch, cp, fallback_faces, target_upem, target_advance, 
 
         # Pass 1: measure the glyph's natural size in Menlo's UPM (em-square
         # scale only, no fit-to-advance shrink yet, no centering).
+        # Braille dots encode positions: fitting each mask's ink separately
+        # would center left-only and right-only dots on the SAME column.
+        # Fit every mask to the full eight-dot cell, keeping one transform.
+        bounds_rec = rec
+        if 0x2800 <= cp <= 0x28FF:
+            bounds_rec = DecomposingRecordingPen(glyphset)
+            glyphset[cmap[0x28FF]].draw(bounds_rec)
         em_bounds = BoundsPen(None)
-        rec.replay(TransformPen(em_bounds, (em_scale, 0, 0, em_scale, 0, 0)))
+        bounds_rec.replay(TransformPen(em_bounds, (em_scale, 0, 0, em_scale, 0, 0)))
         if em_bounds.bounds is None:
             # Blank outline (e.g. a mark with no ink of its own) -- still a
             # legitimate, if invisible, glyph.
@@ -260,7 +275,7 @@ def _import_fallback_glyph(ch, cp, fallback_faces, target_upem, target_advance, 
     raise SystemExit(f"atlas glyph {ch!r} (U+{cp:04X}) not found in Menlo or any vendored fallback face")
 
 
-def build_font(glyphs, palette_size, out_path, family=FAMILY):
+def build_font(glyphs, palette_size, out_path, family=FAMILY, extension=None):
     src = TTFont(SRC, fontNumber=0)
     src_cmap = src.getBestCmap()
     src_glyphs = src.getGlyphSet()
@@ -331,9 +346,16 @@ def build_font(glyphs, palette_size, out_path, family=FAMILY):
             glyf_source[base] = TTGlyphPen(None).glyph()
             metrics[base] = (advance, 0)
             color_layers[base] = [(shape_names[gi], ci)]
-            cp = PUA_START + ci * len(glyphs) + gi
-            if cp > 0xF8FF:
-                raise SystemExit(f"atlas overflows the BMP PUA (needs {cp:#x})")
+            if extension and gi >= extension["glyphOffset"]:
+                count = len(glyphs) - extension["glyphOffset"]
+                cp = extension["puaStart"] + ci * count + gi - extension["glyphOffset"]
+                limit = 0xFFFFD  # PUA-A excludes the plane's two noncharacters
+            else:
+                count = extension["glyphOffset"] if extension else len(glyphs)
+                cp = PUA_START + ci * count + gi
+                limit = 0xF8FF
+            if cp > limit:
+                raise SystemExit(f"atlas overflows its PUA block (needs {cp:#x})")
             cmap[cp] = base
             codepoints.append(cp)
 
@@ -382,26 +404,27 @@ def main():
     for path in FALLBACK_SRCS:
         available_cmaps.append((os.path.basename(path), TTFont(path).getBestCmap()))
 
+    extension = None
     if variant == "ascii":
         glyphs = ascii_glyph_set()
         family = f"{FAMILY}Ascii"
         prefix = "ascii-"
         # No 31 cap: it documented the universal atlas's budget division
         # (6400 / 212 = 30), not an engine limit -- see the module docstring.
-        cap = BMP_PUA_SIZE
+        max_palette_size = BMP_PUA_SIZE // len(glyphs)
     else:
         glyphs = universal_glyph_set(available_cmaps)
         family = FAMILY
         prefix = ""
-        cap = MAX_PALETTE_SIZE_CAP
+        extension = {"glyphOffset": LEGACY_GLYPH_COUNT, "puaStart": EXTENDED_PUA_START}
+        max_palette_size = UNIVERSAL_PALETTE_SIZE
     glyph_count = len(glyphs)
-    max_palette_size = min(cap, BMP_PUA_SIZE // glyph_count)
     if max_palette_size < 2:
         raise SystemExit(f"{variant} glyph set ({glyph_count}) leaves no room for a usable palette")
 
     out_dir = os.path.dirname(os.path.abspath(__file__))
     ttf_path = os.path.join(out_dir, "_atlas.ttf")
-    codepoints = build_font(glyphs, max_palette_size, ttf_path, family=family)
+    codepoints = build_font(glyphs, max_palette_size, ttf_path, family=family, extension=extension)
 
     font = TTFont(ttf_path)
     font.flavor = "woff2"
@@ -411,9 +434,9 @@ def main():
         woff2_bytes = fh.read()
     woff2_b64 = base64.b64encode(woff2_bytes).decode("ascii")
 
-    # TWO artifacts, deliberately: the metadata (small, ~1.8KB) is imported
+    # TWO artifacts, deliberately: the metadata (small, ~4KB) is imported
     # statically by `fontAtlas.ts` because the PUA encode/decode path needs it
-    # synchronously on every frame; the base64 WOFF2 (~49KB) is imported only
+    # synchronously on every frame; the base64 WOFF2 (~99KB) is imported only
     # through a dynamic `import()` so it never enters a consumer's main chunk
     # unless a scene actually turns `colorEncoding: "atlas"` on. Merging them
     # back into one file would put the payload back in every bundle -- the
@@ -426,6 +449,8 @@ def main():
         "maxPaletteSize": max_palette_size,
         "codepointRange": [min(codepoints), max(codepoints)],
     }
+    if extension:
+        manifest["extension"] = extension
     manifest_path = os.path.join(out_dir, f"{prefix}atlas.json")
     with open(manifest_path, "w") as fh:
         json.dump(manifest, fh, indent=1, ensure_ascii=False)

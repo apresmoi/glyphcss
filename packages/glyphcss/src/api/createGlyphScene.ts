@@ -2333,7 +2333,7 @@ export function createGlyphScene(
   // range (`build-atlas.py`: `cmap = {0x0020: "space"}`, needed because an
   // atlas-encoded grid writes blank cells as literal spaces and they must come
   // from the same face as the PUA cells). So on a frame that fell back to
-  // spans — the pre-ready window, `charMode: "braille"`, an exotic wireframe
+  // spans — the pre-ready window, an exotic wireframe
   // palette, an out-of-atlas field-synth ramp glyph — a pinned family resolves
   // that frame's SPACES from the atlas at the atlas's own advance and every
   // other character from the platform `monospace`. Two fonts, one grid.

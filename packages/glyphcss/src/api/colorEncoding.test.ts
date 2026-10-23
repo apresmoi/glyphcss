@@ -6,7 +6,7 @@ import { nearestPaletteIndex, packHexColor } from "../render/paletteQuantize";
 import { createGlyphScene } from "./createGlyphScene";
 import { createGlyphOrthographicCamera } from "./createGlyphCamera";
 import { GlyphEffectOutputChannel, defineGlyphEffect } from "./effects";
-import { GLYPH_FONT_ATLAS } from "../render/fontAtlas";
+import { GLYPH_FONT_ATLAS, decodeGlyphAtlasCodePoint } from "../render/fontAtlas";
 import { ensureGlyphAtlasFontFaceStyles } from "../styles/styles";
 
 function makeDiv(): HTMLElement {
@@ -220,7 +220,7 @@ describe("createGlyphScene — ascii-palette wireframe atlas-encodes determinist
 });
 
 describe("createGlyphScene — partially-covered wireframe palettes stay deterministically spans (no oscillation)", () => {
-  // Proof obligation 1 (F1): `runes`, `braille`, `blocks`, `stars`, `arrows`
+  // Proof obligation 1 (F1): `runes`, `blocks`, `stars`, `arrows`
   // and `math` each have at least one tier with a glyph the checked-in atlas
   // doesn't carry (verified against `assets/glyph-atlas/atlas.json`; see
   // AGENTS.md's `colorEncoding` section). Before the potential-set gate, a
@@ -232,7 +232,7 @@ describe("createGlyphScene — partially-covered wireframe palettes stay determi
   // partially-covered palette must land on spans, and NEVER flip to atlas
   // partway through — that is the "zero transitions" bar, not merely "mostly
   // spans".
-  const PARTIAL_PALETTES = ["runes", "braille", "blocks", "stars", "arrows", "math"];
+  const PARTIAL_PALETTES = ["runes", "blocks", "stars", "arrows", "math"];
 
   it.each(PARTIAL_PALETTES)("glyphPalette %s: every render is spans, with zero spans→atlas transitions", async (glyphPalette) => {
     const host = makeDiv();
@@ -274,18 +274,18 @@ describe("createGlyphScene — partially-covered wireframe palettes stay determi
 
 describe("rasterize — partially-covered wireframe palettes gate on the POTENTIAL glyph set, not the realized draw", () => {
   // Deterministic sibling of the describe block above, with the randomness
-  // that made three of its six palettes only PROBABILISTICALLY exercise the
+  // that made three of its five palettes only PROBABILISTICALLY exercise the
   // fix removed entirely: `Math.random()` is stubbed to always return `0`, so
   // `wireframeGlyphForCell` always draws index 0 of whichever tier this
   // fixture's flat-quad edges use ("normal", the default edge weight's tier).
-  // Index 0 of every one of these six palettes' `normal` tier IS in the
+  // Index 0 of every one of these five palettes' `normal` tier IS in the
   // atlas (verified against `assets/glyph-atlas/atlas.json`) — so a
   // REALIZED-only check (the pre-fix behavior `isGlyphAtlasEncodable` alone
   // implements) would find this exact draw encodable on EVERY render, 100%
   // of the time, not just probabilistically. The gate must still force
   // spans, because it looks at the palette's whole POTENTIAL set
   // (`thin ∪ normal ∪ core`), never just what got drawn.
-  const PARTIAL_PALETTES = ["runes", "braille", "blocks", "stars", "arrows", "math"];
+  const PARTIAL_PALETTES = ["runes", "blocks", "stars", "arrows", "math"];
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -476,7 +476,7 @@ describe("createGlyphScene — colorEncoding \"atlas\" end to end", () => {
     // only valid if quantization actually bounded the palette.
     const slots = codePoints
       .filter((cp) => cp >= GLYPH_FONT_ATLAS.puaStart)
-      .map((cp) => Math.floor((cp - GLYPH_FONT_ATLAS.puaStart) / GLYPH_FONT_ATLAS.glyphCount));
+      .map((cp) => decodeGlyphAtlasCodePoint(cp)!.paletteSlot);
     expect(Math.max(...slots)).toBeLessThan(GLYPH_FONT_ATLAS.maxPaletteSize);
     expect(new Set(slots).size).toBeGreaterThan(1); // genuinely multi-colour
 
@@ -527,7 +527,7 @@ function decodeAtlasSlots(html: string): (number | null)[] {
   for (const ch of html) {
     if (ch === "\n") continue;
     const cp = ch.codePointAt(0)!;
-    out.push(cp >= GLYPH_FONT_ATLAS.puaStart ? Math.floor((cp - GLYPH_FONT_ATLAS.puaStart) / GLYPH_FONT_ATLAS.glyphCount) : null);
+    out.push(cp >= GLYPH_FONT_ATLAS.puaStart ? decodeGlyphAtlasCodePoint(cp)!.paletteSlot : null);
   }
   return out;
 }
