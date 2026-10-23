@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { Window } from "happy-dom";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StaticWorkbench } from "../../components/StaticWorkbench";
+import { StaticWorkbenchRender } from "../../components/StaticWorkbench";
 import { staticGallery, staticLoader, staticMap, staticSynth, staticWordArt } from "./scenes";
 import { staticDiagrams } from "../../features/diagrams/render/staticDiagrams";
 import { staticCharts } from "../../features/charts/render/staticCharts";
@@ -11,11 +11,7 @@ function checkColoredText(entry: { title: string; text: string; html: string }, 
   const window = new Window();
   try {
     window.document.body.innerHTML = renderToStaticMarkup(
-      createElement(StaticWorkbench, {
-        heading: "Workbench",
-        description: "Static render",
-        initial: entry,
-      }),
+      createElement(StaticWorkbenchRender, { entry }),
     );
     const pre = window.document.querySelector("pre[data-static-render]")!;
     expect(pre.textContent).toBe(entry.text);

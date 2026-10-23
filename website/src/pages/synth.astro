@@ -14,7 +14,7 @@ const description =
   <StaticWorkbenchIntro heading={heading} description={description} />
   <SynthWorkbench client:only="react">
     <Fragment slot="fallback">
-      <StaticWorkbench heading={heading} description={description} initial={snapshot} />
+      <StaticWorkbench page="synth" heading={heading} description={description} initial={snapshot} />
     </Fragment>
   </SynthWorkbench>
 </WorkbenchLayout>

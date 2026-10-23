@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { GLYPH_MERMAID_DIAGRAM_PRESETS } from "../../features/mermaid/model/presets";
 import { diagramsSourceSnippets } from "../../features/diagrams/model/diagramsSourceAid";
 import {
@@ -30,18 +31,25 @@ import styles from "./DiagramsWorkbench.module.css";
 import { useDiagramsWorkbench } from "./hooks/useDiagramsWorkbench";
 import { useDiagramsWorkbenchInner } from "./hooks/useDiagramsWorkbenchInner";
 
-export default function GlyphDiagramsWorkbench({ initialState }: { initialState?: GlyphDiagramsWorkbenchState } = {}) {
+export default function GlyphDiagramsWorkbench({
+  initialState,
+  snapshot,
+}: { initialState?: GlyphDiagramsWorkbenchState; snapshot?: InstrumentSnapshot } = {}) {
   const view = useDiagramsWorkbench({ initialState });
   if (!view) return null;
   const { resolved, initialRemoteGraph } = view;
 
-  return <GlyphDiagramsWorkbenchInner initialState={resolved} initialRemoteGraph={initialRemoteGraph} />;
+  return (
+    <GlyphDiagramsWorkbenchInner snapshot={snapshot} initialState={resolved} initialRemoteGraph={initialRemoteGraph} />
+  );
 }
 
 function GlyphDiagramsWorkbenchInner({
+  snapshot,
   initialState,
   initialRemoteGraph,
 }: {
+  snapshot?: InstrumentSnapshot;
   readonly initialState: GlyphDiagramsWorkbenchState;
   readonly initialRemoteGraph?: {
     readonly ref: string;
@@ -219,6 +227,7 @@ function GlyphDiagramsWorkbenchInner({
                 </ul>
               </details>
             )}
+          {snapshot?.examples}
         </InstrumentRail>
         <InstrumentMain>
           {/* Search + Random, floating over the viewport — the SAME overlay
@@ -247,55 +256,59 @@ function GlyphDiagramsWorkbenchInner({
             />
           )}
           <InstrumentViewport inset className="diagrams-viewport" elementRef={diagramsViewportRef}>
-            <div
-              className="diagrams-preview"
-              ref={panViewportRef}
-              role="region"
-              aria-label="Diagram viewport"
-              aria-description={canPan ? "Drag to pan, or use arrow keys and Page Up or Page Down." : undefined}
-              tabIndex={canPan ? 0 : undefined}
-              data-pannable={canPan}
-              data-panning={isPanning}
-              aria-busy={isPending}
-              data-viewport-width={renderedViewportPx?.width}
-              data-viewport-height={renderedViewportPx?.height}
-            >
-              {/* The viewport holds only the render; feedback lives on the
-               *  buttons and in the rail. `is-stale` (a config error or a
-               *  layout still in flight) dims the LAST GOOD diagram instead
-               *  of collapsing the frame; `is-loading` (in flight only) also
-               *  pulses it — the page's own animation, never the render's. */}
-              <div
-                ref={panContentRef}
-                className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}${rendered?.ok && rendered.hotspots?.length ? " has-hotspots" : ""}`}
-              >
-                <TargetPreview
-                  ref={attachPre}
-                  style={previewStyle}
-                  target={state.controls.target}
-                  commandTitle="glyphcss diagram …"
-                  isHtml={Boolean(displayResult?.isHtml)}
-                  text={displayResult?.text ?? ""}
-                  html={displayResult?.isHtml ? displayResult.display : undefined}
-                  ansi={displayResult?.ansi}
-                  charsetDowngraded={displayResult?.charsetDowngraded}
-                  ariaLabel={state.diagram.title || "Diagram preview"}
-                  ariaDescription={displayResult?.meta.description}
-                />
-                {hotspotResult && (
-                  <DiagramsHotspotLayer
-                    pre={preEl}
-                    hotspots={hotspotResult.hotspots!}
-                    grid={hotspotResult.grid!}
-                    selected={selection}
-                    onSelect={(item) => {
-                      editorRef.current?.selectItem(item);
-                    }}
-                    onHover={setHovered}
-                  />
-                )}
-              </div>
-            </div>
+            {snapshot?.viewport ?? (
+              <>
+                <div
+                  className="diagrams-preview"
+                  ref={panViewportRef}
+                  role="region"
+                  aria-label="Diagram viewport"
+                  aria-description={canPan ? "Drag to pan, or use arrow keys and Page Up or Page Down." : undefined}
+                  tabIndex={canPan ? 0 : undefined}
+                  data-pannable={canPan}
+                  data-panning={isPanning}
+                  aria-busy={isPending}
+                  data-viewport-width={renderedViewportPx?.width}
+                  data-viewport-height={renderedViewportPx?.height}
+                >
+                  {/* The viewport holds only the render; feedback lives on the
+                   *  buttons and in the rail. `is-stale` (a config error or a
+                   *  layout still in flight) dims the LAST GOOD diagram instead
+                   *  of collapsing the frame; `is-loading` (in flight only) also
+                   *  pulses it — the page's own animation, never the render's. */}
+                  <div
+                    ref={panContentRef}
+                    className={`diagrams-grid-scroll${isViewportStale ? " is-stale" : ""}${isPending ? " is-loading" : ""}${rendered?.ok && rendered.hotspots?.length ? " has-hotspots" : ""}`}
+                  >
+                    <TargetPreview
+                      ref={attachPre}
+                      style={previewStyle}
+                      target={state.controls.target}
+                      commandTitle="glyphcss diagram …"
+                      isHtml={Boolean(displayResult?.isHtml)}
+                      text={displayResult?.text ?? ""}
+                      html={displayResult?.isHtml ? displayResult.display : undefined}
+                      ansi={displayResult?.ansi}
+                      charsetDowngraded={displayResult?.charsetDowngraded}
+                      ariaLabel={state.diagram.title || "Diagram preview"}
+                      ariaDescription={displayResult?.meta.description}
+                    />
+                    {hotspotResult && (
+                      <DiagramsHotspotLayer
+                        pre={preEl}
+                        hotspots={hotspotResult.hotspots!}
+                        grid={hotspotResult.grid!}
+                        selected={selection}
+                        onSelect={(item) => {
+                          editorRef.current?.selectItem(item);
+                        }}
+                        onHover={setHovered}
+                      />
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </InstrumentViewport>
           <InstrumentExportBar>
             <ActionButton onClick={resetView} disabled={!canPan}>
@@ -337,7 +350,11 @@ function GlyphDiagramsWorkbenchInner({
             />
           )}
         </InstrumentMain>
-        <Dock id="diagrams-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="diagrams-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <GlyphDiagramsDock state={state} dispatch={dispatch} />
         </Dock>
       </InstrumentBody>

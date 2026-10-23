@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type LoaderTab } from "../../features/loaders/export/loaderSnippets";
 import { type LiveEdits } from "../../features/loaders/model/liveEdits";
@@ -22,7 +23,7 @@ import { LoadersDock } from "./LoadersDock";
 import styles from "./LoadersWorkbench.module.css";
 import { LoaderThumb, LoaderTile } from "./LoaderTile";
 
-export default function LoadersWorkbench() {
+export default function LoadersWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot } = {}) {
   const [loaderId, setLoaderId] = useState<string>(() => readUrlParam("l") ?? DEFAULT_LOADER);
   const loader = findLoader(loaderId);
 
@@ -187,6 +188,7 @@ export default function LoadersWorkbench() {
                 <LoaderTile
                   key={`${loader.id}-${s.cols}x${s.rows}`}
                   loader={loader}
+                  staticRender={snapshot?.tiles?.[`${s.cols}x${s.rows}`]}
                   cols={s.cols}
                   rows={s.rows}
                   label={s.label}
@@ -215,7 +217,11 @@ export default function LoadersWorkbench() {
           </div>
         </InstrumentMain>
 
-        <Dock id="loaders-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="loaders-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <LoadersDock
             loader={loader}
             params={params}

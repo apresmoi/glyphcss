@@ -46,16 +46,16 @@ function meshRender(polygons: Polygon[], rotX: number, rotY: number) {
   return { text: gridText(result.grid), html: result.inner };
 }
 
-function fieldRender(layers: GlyphEffectLayerOptions[]) {
-  const cols = 80,
-    rows = 28,
-    count = cols * rows;
+function fieldRender(layers: GlyphEffectLayerOptions[], cols = 80, rows = 28) {
+  const count = cols * rows;
   const grid = buildCellGrid(new Array(count).fill(" "), new Array(count).fill(null), null, cols, rows);
   grid.shade = new Float32Array(count).fill(1);
   // The live plane supplies the same normalized UV domain to these flat effects.
   grid.surfaceUv = Float32Array.from({ length: count * 2 }, (_, index) => {
     const cell = Math.floor(index / 2);
-    return index % 2 === 0 ? (cell % cols) / (cols - 1) : 1 - Math.floor(cell / cols) / (rows - 1);
+    return index % 2 === 0
+      ? (cell % cols) / Math.max(1, cols - 1)
+      : 1 - Math.floor(cell / cols) / Math.max(1, rows - 1);
   });
   return gridRender(composeGlyphEffects(grid, layers));
 }
@@ -82,7 +82,7 @@ export function staticSynth() {
   };
 }
 
-export function staticLoader(id = DEFAULT_LOADER, time = 0) {
+export function staticLoader(id = DEFAULT_LOADER, time = 0, cols = 80, rows = 28) {
   const loader = findLoader(id);
   return {
     title: `${loader.label} at time ${time === 0 ? "zero" : time}`,
@@ -96,6 +96,8 @@ export function staticLoader(id = DEFAULT_LOADER, time = 0) {
           blend: layer.blend,
         };
       }),
+      cols,
+      rows,
     ),
   };
 }

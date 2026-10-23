@@ -6,6 +6,7 @@ import { DockWidgetsContext, useDockWidgets } from "./widgets";
 
 export interface DockProps {
   children?: ReactNode;
+  staticContent?: ReactNode;
   inline?: boolean;
   loading?: boolean;
   loadError?: string | null;
@@ -22,7 +23,7 @@ export interface DockProps {
  * `loading` and `loadError` render status notes below the GUI for model
  * loading feedback; this is Dock-level chrome rather than per-folder state.
  */
-export function Dock({ children, loading, loadError, className, id, inline = false }: DockProps) {
+export function Dock({ staticContent, children, loading, loadError, className, id, inline = false }: DockProps) {
   const { setWidget, portals } = useDockWidgets();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const gui = useGui(hostRef, { closeFolders: true });
@@ -31,10 +32,12 @@ export function Dock({ children, loading, loadError, className, id, inline = fal
       className={`${styles.root}${inline ? ` ${styles.inline}` : ""} dn-floating-controls${className ? ` ${className}` : ""}`}
       id={id}
     >
-      <div className="dn-lil-gui-host" ref={hostRef} />
+      <div className="dn-lil-gui-host" ref={hostRef}>
+        {staticContent !== undefined && <div className="lil-gui">{staticContent}</div>}
+      </div>
       <DockWidgetsContext.Provider value={setWidget}>
         <DockGuiContext.Provider value={gui}>
-          {children}
+          {staticContent === undefined && children}
           {portals}
         </DockGuiContext.Provider>
       </DockWidgetsContext.Provider>

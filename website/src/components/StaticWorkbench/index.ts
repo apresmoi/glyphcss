@@ -1,1 +1,1 @@
-export { StaticWorkbench, StaticWorkbenchIntro } from "./StaticWorkbench";
+export { StaticWorkbench, StaticWorkbenchIntro, StaticWorkbenchRender } from "./StaticWorkbench";
