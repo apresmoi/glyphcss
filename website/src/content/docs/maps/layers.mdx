@@ -120,7 +120,8 @@ The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in
 one graph per layer and frame, including coincident feature/tile endpoints.
 Diagonal steps add one staircase corner using the same depth and ownership
 tests; when both corners are blocked, the slash remains. Immediate backtracks
-collapse before joining, leaving dots for erased excursions.
+collapse before joining. A cell left with no joined neighbour is dropped, except
+an island smaller than a cell, which stays a dot.
 
 Omitting these options leaves the default output unchanged. The `/maps`
 borders enable live VW, shared arcs, and `box`.

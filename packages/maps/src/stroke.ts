@@ -313,10 +313,18 @@ interface BoxSample extends GlyphMapStrokeGlyphSample {
 export interface GlyphMapBoxStrokeGraph {
   readonly samples: Map<number, BoxSample>;
   readonly paths: number[][];
+  /** What each inked cell held before the layer touched it, so a dropped lone cell restores it. */
+  readonly prior: Map<number, readonly [string, string | null, number]>;
+  /** Lone cells that are a whole closed ring (an island smaller than a cell): the only lone cells kept. */
+  readonly islands: Set<number>;
 }
 
 export function createGlyphMapBoxStrokeGraph(): GlyphMapBoxStrokeGraph {
-  return { samples: new Map(), paths: [] };
+  return { samples: new Map(), paths: [], prior: new Map(), islands: new Set() };
+}
+
+function rememberBoxCell(grid: CellGrid, graph: GlyphMapBoxStrokeGraph, idx: number): void {
+  if (!graph.prior.has(idx)) graph.prior.set(idx, [grid.char[idx]!, grid.color[idx] ?? null, grid.depth[idx]!]);
 }
 
 function appendBoxCell(path: number[], idx: number): void {
@@ -355,6 +363,7 @@ export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxS
               (options.depthBias ?? 0) + slack, options.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE)) continue;
             if (!graph.samples.has(corner)) {
               options.onInk?.(corner, grid.char[corner]!, grid.color[corner]!, dx, dy);
+              rememberBoxCell(grid, graph, corner);
               grid.color[corner] = options.color ?? null;
               grid.depth[corner] = depth;
               graph.samples.set(corner, { col, row, subCol: 0.5, subRow: 0.5, dx, dy, depth, slack, options });
@@ -375,7 +384,15 @@ export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxS
   }
   const masks = glyphMapStrokePathMasks(paths, grid.cols);
   for (const [idx, sample] of graph.samples) {
-    grid.char[idx] = slashes.get(idx) ?? glyphMapExperimentalStrokeGlyph("box", sample, graph.samples, grid.cols, masks.get(idx));
+    const slash = slashes.get(idx);
+    // A cell with no joined neighbour is a fold-back remnant or a sliver
+    // between hidden stretches; as a dot it reads as noise, not border.
+    if (!slash && !masks.get(idx) && !graph.islands.has(idx)) {
+      const [char, color, depth] = graph.prior.get(idx)!;
+      grid.char[idx] = char; grid.color[idx] = color; grid.depth[idx] = depth;
+      continue;
+    }
+    grid.char[idx] = slash ?? glyphMapExperimentalStrokeGlyph("box", sample, graph.samples, grid.cols, masks.get(idx));
   }
 }
 
@@ -409,6 +426,7 @@ export function stampGlyphMapPolyline(
   const samples = strategy && strategy !== "baseline" && strategy !== "box" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
   const paths = graph?.paths;
   let path: number[] | null = null;
+  const touched = graph ? new Set<number>() : null;
   const breakPath = () => { path = null; };
   const connectBoxCell = (idx: number) => {
     if (!paths) return;
@@ -493,6 +511,7 @@ export function stampGlyphMapPolyline(
         continue;
       }
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
+      if (graph) { rememberBoxCell(grid, graph, idx); touched!.add(idx); }
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;
@@ -507,6 +526,10 @@ export function stampGlyphMapPolyline(
   }
   if (samples) {
     for (const [idx, sample] of samples) grid.char[idx] = glyphMapExperimentalStrokeGlyph(strategy!, sample, samples, grid.cols);
+  }
+  if (touched?.size === 1) {
+    const first = points[0], last = points[points.length - 1];
+    if (first && last && first.col === last.col && first.row === last.row) graph!.islands.add([...touched][0]!);
   }
   if (graph && !opts.boxGraph) finishGlyphMapBoxStrokeGraph(grid, graph);
 }

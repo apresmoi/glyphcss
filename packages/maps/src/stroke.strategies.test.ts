@@ -116,8 +116,8 @@ describe("experimental map stroke glyphs", () => {
     expect(g.char[34]).toBe("│");
     expect(g.char[50]).toBe("└");
     expect(g.char[51]).toBe("─");
-    // Coverage is retained, but an erased excursion has no joining arms.
-    expect(g.char[35]).toBe("·");
+    // An erased excursion has no joining arms, so it gives the cell back.
+    expect([g.char[35], g.color[35], g.depth[35]]).toEqual([" ", null, -Infinity]);
   });
 
   it.each([[[1.2, 1.2], [12.2, 1.2]], [[1.2, 1.2], [8.2, 8.2]]])("box keeps a straight or diagonal stroke connected", (start, end) => {
@@ -257,12 +257,26 @@ describe("layer-wide box graph", () => {
     const graph = stamp(g, [[2, 2], [3, 3], [2, 3], [2, 2], [2, 4]]);
     finishGlyphMapBoxStrokeGraph(g, graph);
     expect(g.char[2 * 16 + 3]).toBe(" ");
-    expect(g.char[3 * 16 + 3]).toBe("·");
+    expect(g.char[3 * 16 + 3]).toBe(" ");
     expect(g.char[2 * 16 + 2]).toBe("│");
     expect(g.char[3 * 16 + 2]).toBe("│");
   });
 
-  it("retains every baseline accepted cell, rejects foreign cells, and reports added ink", () => {
+  it("restores the ground under a lone non-island cell, but keeps a one-cell island ring as a dot", () => {
+    const g = grid();
+    g.char.fill("#"); g.color.fill("terrain"); g.depth.fill(-5);
+    const graph = createGlyphMapBoxStrokeGraph();
+    // An open arc that never leaves cell (5,5): a sliver, not an island.
+    stamp(g, [[5, 5], [5.4, 5.3]], graph);
+    // A closed ring that fits inside cell (10,2).
+    stamp(g, [[10, 2], [10.3, 2], [10.3, 2.3], [10, 2]], graph);
+    finishGlyphMapBoxStrokeGraph(g, graph);
+    expect([g.char[2 * 16 + 10], g.color[2 * 16 + 10]]).toEqual(["·", "gold"]);
+    expect([g.char[5 * 16 + 5], g.color[5 * 16 + 5], g.depth[5 * 16 + 5]]).toEqual(["#", "terrain", -5]);
+    expect(g.char.filter((c, i) => c !== "#" && i !== 2 * 16 + 10)).toEqual([]);
+  });
+
+  it("retains every joined baseline cell, drops lone slivers, rejects foreign cells, and reports added ink", () => {
     const make = () => {
       const g = grid();
       g.char.fill("#"); g.color.fill("terrain");
@@ -275,12 +289,15 @@ describe("layer-wide box graph", () => {
     stampGlyphMapPolyline(baseline, points, { color: "gold", depthCurvatureScale: 0 });
     stampGlyphMapPolyline(box, points, { color: "gold", experimentalGlyphStrategy: "box", depthCurvatureScale: 0, onInk: idx => calls.push(idx) });
     for (let i = 0; i < box.char.length; i++) {
-      if (baseline.color[i] === "gold") { expect(box.color[i]).toBe("gold"); expect(box.depth[i]).toBe(baseline.depth[i]); }
+      // Column 8 sits between a hidden and a foreign column: a lone sliver, so it gives the ground back.
+      if (i % 16 === 8) expect([box.char[i], box.color[i]]).toEqual(["#", "terrain"]);
+      else if (baseline.color[i] === "gold") { expect(box.color[i]).toBe("gold"); expect(box.depth[i]).toBe(baseline.depth[i]); }
       if (box.color[i] === "gold") expect(calls).toContain(i);
       else expect(box.char[i]).toBe("#");
       if (i % 16 === 7 || i % 16 === 9) expect(box.char[i]).toBe("#");
     }
-    expect(box.color.filter(c => c === "gold").length).toBeGreaterThan(baseline.color.filter(c => c === "gold").length);
+    // Staircase corners are ink the baseline never had.
+    expect(box.color.some((c, i) => c === "gold" && baseline.color[i] !== "gold")).toBe(true);
   });
 });
 
