@@ -33,5 +33,6 @@ it.each(["", "?lines=braille"])("outlines /maps buildings only in braille mode, 
   const buildings = layers.find(l => l.type === "fill-extrusion")!;
   expect(buildings).toMatchObject({ facade: true });
   expect((buildings as { outline?: string }).outline).toBe(search ? "braille" : undefined);
+  expect((buildings as { fill?: boolean }).fill).toBe(search ? false : undefined);
   expect(layers.find(l => l.type === "line")).toMatchObject({ experimentalGlyphStrategy: search ? "braille" : "box" });
 });

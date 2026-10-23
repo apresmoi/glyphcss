@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
 import { buildMapsSnippet, type MapsSnippetState } from "../../features/maps/export/snippets";
@@ -187,5 +187,21 @@ it("exports the OSM box lines, class palette, and live road hierarchy used by th
   const code = build({ osm: { enabled: ["omt-roads"], densities: {}, anchors: {} } });
   expect(code).toContain(`lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)}`);
   expect(code).toContain("roadHierarchy: true");
-  expect(code).toContain('buildingOutline: "braille"');
+  expect(code).not.toContain('buildingOutline: "braille"');
+  expect(code).not.toContain("fill: false");
+});
+
+
+it("exports outline-only OSM buildings in the braille exploration", async () => {
+  vi.stubGlobal("location", { search: "?lines=braille" });
+  vi.resetModules();
+  try {
+    const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
+    const code = buildMapsSnippet({ ...DEFAULTS, osm: { enabled: ["omt-buildings"], densities: {}, anchors: {} } });
+    expect(code).toContain('buildingOutline: "braille"');
+    expect(code).toContain('.map(layer => layer.type === "fill-extrusion" ? { ...layer, fill: false } : layer)');
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
 });

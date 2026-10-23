@@ -16,7 +16,7 @@ function building(x = 0, y = 0, half = 0.001, height = 60): GlyphMapVectorFeatur
   const ring: [number, number][] = [[x-half,y-half],[x+half,y-half],[x+half,y+half],[x-half,y+half],[x-half,y-half]];
   return { geometryType: "polygon", rings: [ring], polygons: [[ring]], properties: { height, base: 20 } };
 }
-async function mount(outline: "braille" | null = "braille", tilt = 50, features = [building()], span = 0.012, density = 1, globeCenter?: [number,number]) {
+async function mount(outline: "braille" | null = "braille", tilt = 50, features = [building()], span = 0.012, density = 1, globeCenter?: [number,number], fill?: boolean) {
   const host = document.createElement("div"); document.body.append(host); hosts.add(host);
   if (!vi.isMockFunction(Element.prototype.getBoundingClientRect)) vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function(this: Element) {
     const font = parseFloat((this as HTMLElement).style.fontSize) || 16;
@@ -30,7 +30,8 @@ async function mount(outline: "braille" | null = "braille", tilt = 50, features 
   const projection = globeCenter ? glyphMapGlobe({ exaggeration:24 }) : glyphMapEquirectangular({ exaggeration: 24 });
   const map = createGlyphMap(host, { view: { center:globeCenter ?? [0,0],span,cols,rows }, projection, tilt, groundElevation: () => 3 });
   mounted.push(map);
-  const layer: GlyphMapFillExtrusionLayer = { type:"fill-extrusion",source:{features},heightProperty:"height",baseOffsetProperty:"base",heightScale:2,color:"#94a3b8",density, ...(outline ? {outline} : {}) };
+  const sceneAdd = vi.spyOn(map.scene, "add");
+  const layer: GlyphMapFillExtrusionLayer = { type:"fill-extrusion",source:{features},heightProperty:"height",baseOffsetProperty:"base",heightScale:2,color:"#94a3b8",density, ...(outline ? {outline} : {}), ...(fill === undefined ? {} : {fill}) };
   map.addLayer(layer);
   await map.idle();
   const logical = () => Array.from(host.querySelectorAll("pre")).map(p => p.textContent ?? "").join("\n");
@@ -38,7 +39,7 @@ async function mount(outline: "braille" | null = "braille", tilt = 50, features 
     const world = projection.project(lon,lat,3 + glyphMapTrueScaleElevation(metres,projection));
     return map.scene.camera.project(world,cols,rows,2,{cellWidth:8,cellHeight:16});
   };
-  return { map,host,logical,project };
+  return { map,host,logical,project,sceneAdd };
 }
 const braille = (text: string) => [...text].filter(c => /[\u2801-\u28ff]/u.test(c)).length;
 
@@ -109,4 +110,55 @@ it("draws atlas-compatible boxes over the vendored OSM city tile on the globe", 
   for (const c of before.replace(/\n/g,"")) expect(isGlyphInFontAtlas(c),c).toBe(true);
   map.scene.rerender();
   expect(logical()).toBe(before);
+});
+
+
+it("unfilled buildings mount no mesh and keep their own roof ring and vertical corners", async () => {
+  const { map, logical, project, sceneAdd } = await mount("braille",50,[building()],0.012,1,undefined,false);
+  expect(sceneAdd).not.toHaveBeenCalled();
+  const before = logical();
+  expect(braille(before)).toBeGreaterThan(20);
+  expect(before).not.toContain(".");
+  const lines = before.split("\n");
+  const ring = building().rings[0]!;
+  for (let i = 0; i < 4; i++) {
+    const a = ring[i]!, b = ring[i+1]!;
+    const p = project((a[0]+b[0])/2,(a[1]+b[1])/2,120);
+    expect(lines[Math.floor(p[1])]![Math.floor(p[0])], `unfilled roof edge ${i}`).toMatch(/[\u2801-\u28ff]/u);
+  }
+  const p = project(-0.001,-0.001,75);
+  expect(lines[Math.floor(p[1])]![Math.floor(p[0])]).toMatch(/[\u2801-\u28ff]/u);
+  map.scene.rerender();
+  expect(logical()).toBe(before);
+  map.setView({center:[0.0002,0]}); await map.idle();
+  expect(sceneAdd).not.toHaveBeenCalled();
+  expect(braille(logical())).toBeGreaterThan(20);
+});
+
+it("nearer unfilled faces hide rear roof rings and vertical corners at tilt, in either feature order", async () => {
+  const rear = building(0,0.0008,0.0007,60);
+  const front = building(0,-0.0008,0.0015,250);
+  const alone = await mount("braille",60,[rear],0.012,1,undefined,false);
+  const a = await mount("braille",60,[rear,front],0.012,1,undefined,false);
+  const b = await mount("braille",60,[front,rear],0.012,1,undefined,false);
+  expect(a.logical()).toBe(b.logical());
+  for (const [lon,lat,height] of [[0,0.0001,120],[-0.0007,0.0001,75]]) {
+    const p = a.project(lon!,lat!,height!);
+    const at = (s: string) => s.split("\n")[Math.floor(p[1])]![Math.floor(p[0])];
+    expect(at(alone.logical())).toMatch(/[\u2801-\u28ff]/u);
+    expect(at(a.logical())).not.toMatch(/[\u2801-\u28ff]/u);
+  }
+  expect(a.sceneAdd).not.toHaveBeenCalled();
+});
+
+it("fill omitted keeps the filled outline bytes, and false without outlines keeps the original fill", async () => {
+  const omitted = await mount();
+  const filled = await mount("braille",50,[building()],0.012,1,undefined,true);
+  expect(filled.logical()).toBe(omitted.logical());
+  const html = Array.from(omitted.host.querySelectorAll("pre")).map(p => p.innerHTML).join("");
+  expect(createHash("sha256").update(html).digest("hex")).toBe("9be3f5972bc609e52396ba52139833b865f983f7bcb04e833ff27c249ba0f4a1");
+  const plain = await mount(null);
+  const ignored = await mount(null,50,[building()],0.012,1,undefined,false);
+  expect(ignored.logical()).toBe(plain.logical());
+  expect(ignored.sceneAdd).toHaveBeenCalled();
 });

@@ -14,8 +14,8 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Relief resolution is per pyramid LEVEL, never per tile. Non-target tiers are sunk by `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
 - Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable array identity).
-- Opt-in features are byte-identical when off, each with a failing mutation test.
-- Extrusion outlines: planted edges, quiet `.` first, footprint cutoff <2 cells. Freeze depth; exact planes exclude incident faces without bias. Immutable topology; replay needs exact camera, visibility and grid.
+- Opt-ins stay byte-identical off; mutation-test each.
+- Extrusion outlines: planted edges, quiet `.`, <2-cell footprint cutoff; frozen depth, unbiased nonincident planes. Immutable topology; exact camera/visibility/grid replay. Braille `fill: false`: occlusion faces, no scene mesh/depth ownership.
 - `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one geometry-centroid dot; open stubs never become dots. Paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
 - `snapPan` is opt-in: camera pans use a cell lattice at fixed lens/tilt/bearing/grid; held views stay exact. Orbit uses a local tangent lattice. Zoom/tilt reset it; walking bypasses it. Renderer dithering stays screen-anchored.
 - Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per source feature set/tile, before live VW; explicit line features remain separate. Reversed edges share geometry; no snapping or noding of differently sampled edges. Tile replacements get fresh topology.

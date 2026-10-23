@@ -109,3 +109,39 @@ it("excludes incident planes independently of reconstructed depth, without exclu
   const covered = createGlyphMapExtrusionSurface(g, [polygon, unrelated], project, eye);
   expect(covered.occludes(roof[0]!, roof[1]!)(2.25, 4, depth)).toBe(true);
 });
+
+
+it("unfilled roofs preserve terrain ink and still depth-test against terrain", () => {
+  const unrelated: Polygon = {vertices:[[8,8,1],[8,9,1],[9,9,1],[9,8,1]]};
+  for (const noFill of [new Set<Polygon>(), new Set([unrelated])]) for (const depth of [1, 2]) {
+    const g = grid(depth);
+    const surface = createGlyphMapExtrusionSurface(g, [polygon,unrelated], project, eye, undefined, undefined, noFill);
+    expect(surface.owns(3 * 10 + 3, new Set([polygon]))).toBe(false);
+    stampGlyphMapExtrusionOutlines(g, [geometry], surface, project, eye, false);
+    if (depth === 2) expect(ink(g)).toBe(0);
+    else expect(ink(g)).toBeGreaterThan(12);
+    expect(g.char[4 * 10 + 4]).toBe("@");
+  }
+});
+
+it("unfilled faces cannot substitute for sloping terrain in the frozen depth buffer", () => {
+  const g = grid();
+  for (let row = 0; row < 10; row++) for (let col = 0; col < 10; col++) g.depth[row*10+col] = col - 5.5;
+  // At integer (6,4) the roof is nearer; at its edge (6.25,4) terrain is nearer.
+  const lowRoof: Vec3[] = roof.map(v => [v[0],v[1],0.6]);
+  const p: Polygon = { vertices: lowRoof };
+  const unrelated: Polygon = {vertices:[[8,8,1],[8,9,1],[9,9,1],[9,8,1]]};
+  for (const filled of [new Set<Polygon>(), new Set([unrelated])]) {
+    const surface = createGlyphMapExtrusionSurface(g, [p,unrelated], project, eye, undefined, undefined, filled);
+    expect(surface.occludes(lowRoof[2]!, lowRoof[3]!)(6.25,4,0.6)).toBe(true);
+  }
+});
+
+it("changing which faces are filled invalidates replay", () => {
+  const topology = createGlyphMapExtrusionTopology([polygon]);
+  const gs = [geometry], g = grid(1);
+  const filled = createGlyphMapExtrusionSurface(g, [polygon], project, eye, topology, [0]);
+  stampGlyphMapExtrusionOutlines(g, gs, filled, project, eye, false);
+  const unfilled = createGlyphMapExtrusionSurface(grid(1), [polygon], project, eye, topology, [0], new Set());
+  expect(unfilled.replay!(grid(1), gs, false)).toBe(false);
+});

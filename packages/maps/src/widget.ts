@@ -1195,6 +1195,8 @@ const GLYPH_MAP_HEATMAP_SURFACE_LIFT_M = 10;
 export interface GlyphMapFillExtrusionLayer {
   /** Opt-in braille roof/corner outlines, quiet atlas-compatible fill, and a live two-cell footprint cutoff. Omitted preserves the original render. */
   readonly outline?: "braille";
+  /** With `outline: "braille"`, false skips scene meshes and draws only depth-tested edges. Default true; ignored without outlines. */
+  readonly fill?: boolean;
   readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
@@ -7242,6 +7244,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let handles: GlyphMeshHandle[] = [];
     let mesh: GlyphMapVectorMesh | null = null;
     let outlineGeometry: GlyphMapExtrusionGeometry[] = [];
+    const unfilled = layer.type === "fill-extrusion" && layer.outline === "braille" && layer.fill === false;
     /**
      * The camera state the mounted polygons were last culled against. The
      * wall cull is idempotent, so a repeated sync with an unmoved camera —
@@ -7426,7 +7429,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       };
       // Registered on the SCENE, not fetched: the tile is generated in plain JS
       // (see `glyphMapFacadeTexture`) and handed straight to the rasterizer.
-      const facade = layer.type === "fill-extrusion" ? resolveFacade(layer.facade) : undefined;
+      const facade = layer.type === "fill-extrusion" && !unfilled ? resolveFacade(layer.facade) : undefined;
       if (facade?.texture === GLYPH_MAP_FACADE_TEXTURE) ensureFacadeSampler();
       // Resolved ONCE per build, like `line`'s own per-stamp resolution: it
       // walks the mounted layer list. `null` = nothing can say where the
@@ -7537,7 +7540,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // here on (see `syncWalls`), so this array is the identity the scene
       // keeps for the life of the mount.
       const polygons = [...mesh.polygons];
-      if (polygons.length) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
+      if (polygons.length && !unfilled) handles.push(scene.add(polygons, meshTransform(layer, layer.density)));
       if (nearSide) culledAt = cameraCullKey();
       scene.rerender();
     }
@@ -8525,6 +8528,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   let outlineMeshes: readonly (readonly Polygon[])[] = [];
   let outlineTopology: ReturnType<typeof createGlyphMapExtrusionTopology> | undefined;
+  let outlineFilledFaces: ReadonlySet<Polygon> | undefined;
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
     if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
@@ -8571,7 +8575,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const s = layerStates.get(id);
         return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
       });
-      if (!outlined.length) { outlineMeshes = []; outlineTopology = undefined; }
+      if (!outlined.length) { outlineMeshes = []; outlineTopology = undefined; outlineFilledFaces = undefined; }
       if (outlined.length && layerInfo?.viewport !== true) {
         const frozen = { ...g, depth: g.depth.slice() };
         const project = (world: Vec3): GlyphMapStrokeVertex => {
@@ -8582,13 +8586,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (!outlineTopology || meshes.length !== outlineMeshes.length || meshes.some((p, i) => p !== outlineMeshes[i])) {
           outlineMeshes = meshes;
           outlineTopology = createGlyphMapExtrusionTopology(meshes.flat());
+          const filled = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
+            !(s.layer.outline === "braille" && s.layer.fill === false) ? s.runtime.polygons?.() ?? [] : []);
+          outlineFilledFaces = new Set(filled);
         }
         const pg = cachedBaseGrid!;
         const frameKey = [g.cols, g.rows, pg.cols, pg.rows, pg.cellAspect, pg.cellWidth, pg.cellHeight, pg.centerCol, pg.centerRow,
           ...cellToSceneGrid, camera.kind, camera.rotX, camera.rotY, ...camera.center, ...(camera.mat ?? []),
           camera.useMat, camera.distance, camera.perspective, camera.zoom, camera.stretch, camera.fovScale,
           ...camera.target, camera.eyeMode, camera.project, camera.eyeDepth];
-        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey);
+        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces);
         stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
       }
     } finally {

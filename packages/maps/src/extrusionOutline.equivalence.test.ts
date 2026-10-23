@@ -19,7 +19,7 @@ const cols = 156, rows = 77, cellWidth = 12 * 1200 / 2048, cellHeight = 12;
 const maps: ReturnType<typeof createGlyphMap>[] = [];
 afterEach(() => { maps.splice(0).forEach(m => m.destroy()); vi.restoreAllMocks(); document.body.innerHTML = ""; });
 
-async function mount() {
+async function mount(fill?: boolean, tilt = 0) {
   const host = document.createElement("div"); document.body.append(host);
   vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function(this: Element) {
     const e = this as HTMLElement, k = (parseFloat(e.style.fontSize) || 16) / 16;
@@ -40,8 +40,8 @@ async function mount() {
   const layers = glyphMapOpenMapTilesLayers(source, {
     include: ["omt-water", "omt-roads", "omt-buildings"], roadHierarchy: true,
     lineOptions: { "omt-roads": { experimentalGlyphStrategy: "braille", simplify: "vw", color: "#506981" } },
-  }).map(l => l.type === "fill-extrusion" ? { ...l, outline: "braille" as const } : l);
-  const map = createGlyphMap(host, { view: { center, span: 0.012, cols, rows }, projection: glyphMapGlobe({ exaggeration: 24 }), layers });
+  }).map(l => l.type === "fill-extrusion" ? { ...l, outline: "braille" as const, ...(fill === undefined ? {} : {fill}) } : l);
+  const map = createGlyphMap(host, { view: { center, span: 0.012, cols, rows }, projection: glyphMapGlobe({ exaggeration: 24 }), tilt, layers });
   maps.push(map); await map.idle();
   expect(loaded.size).toBeGreaterThan(0);
   return { map, host };
@@ -126,3 +126,43 @@ it.skipIf(!process.env.GLYPH_MAP_OUTLINE_BENCH)("benchmarks packet-11 and optimi
   console.log(JSON.stringify(report));
 // The optional single-render comparison doubles the CPU-heavy benchmark work.
 }, 60_000);
+
+
+it.skipIf(!process.env.GLYPH_MAP_OUTLINE_FILL_BENCH)("benchmarks filled versus unfilled 15-frame BA downtown pans", async () => {
+  const results = [];
+  const create = outline.createGlyphMapExtrusionSurface, stamp = outline.stampGlyphMapExtrusionOutlines;
+  let surfaceMs = 0, stampMs = 0, polygons = 0, geometries = 0;
+  vi.spyOn(outline, "createGlyphMapExtrusionSurface").mockImplementation((...args) => {
+    const start = performance.now();
+    polygons = Math.max(polygons, args[1].length);
+    const result = create(...args); surfaceMs += performance.now()-start; return result;
+  });
+  vi.spyOn(outline, "stampGlyphMapExtrusionOutlines").mockImplementation((...args) => {
+    const start = performance.now();
+    geometries = Math.max(geometries, args[1].length);
+    stamp(...args); stampMs += performance.now()-start;
+  });
+  for (const tilt of [0, 50]) {
+    const filled = await mount(), unfilled = await mount(false);
+    for (const {map} of [filled, unfilled]) { map.setTilt(tilt); await map.idle(); }
+    for (let round = 0; round < 3; round++) {
+      // Alternate order to distribute JIT/GC and thermal effects across both paths.
+      for (const fill of round % 2 ? [false, true] : [true, false]) {
+        const { map } = fill ? filled : unfilled;
+        for (let i = 0; i < 3; i++) map.setView({center:[center[0] - (i+1)*0.0003, center[1]]});
+        const frames: number[] = [];
+        surfaceMs = 0; stampMs = 0;
+        for (let i = 0; i < 15; i++) {
+          const start = performance.now();
+          map.setView({center:[center[0] + i*0.0003, center[1]]});
+          frames.push(performance.now() - start);
+        }
+        results.push({fill, tilt, round, surfaceMs:surfaceMs/15, stampMs:stampMs/15, msPerPan: frames.reduce((a,b) => a+b,0)/frames.length, frames});
+      }
+    }
+  }
+  const report = {grid:[cols,rows],tileZoom:13,rendersPerPan:1,polygons,geometries,results};
+  writeFileSync(process.env.GLYPH_MAP_OUTLINE_FILL_REPORT ?? "/tmp/glyph-map-outline-fill-bench.json", JSON.stringify(report,null,2));
+  console.log("OUTLINE_FILL_BENCH " + JSON.stringify(report));
+// Two poses, three alternating rounds, two paths and 15 full logical renders each.
+}, 120_000);

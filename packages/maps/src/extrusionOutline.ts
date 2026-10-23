@@ -25,6 +25,7 @@ interface ExtrusionSurface {
 }
 
 interface StampCache {
+  filledFaces?: ReadonlySet<Polygon>;
   key: readonly unknown[];
   accepted: Uint8Array;
   geometries: readonly GlyphMapExtrusionGeometry[];
@@ -116,6 +117,7 @@ export function createGlyphMapExtrusionSurface(
   eyeDepth: (v: Vec3) => number,
   topology = createGlyphMapExtrusionTopology(polygons),
   frameKey?: readonly unknown[],
+  filledFaces?: ReadonlySet<Polygon>,
 ): ExtrusionSurface {
   const counts = new Uint32Array(grid.cols * grid.rows);
   const triangles: Triangle[] = [];
@@ -190,7 +192,7 @@ export function createGlyphMapExtrusionSurface(
       }
     }
   }
-  const integerDepth = new Float64Array(grid.depth.length).fill(NaN);
+  const integerDepth = new Float64Array(grid.depth.length).fill(filledFaces?.size === 0 ? -Infinity : NaN);
   const equal = <T>(a: ArrayLike<T>, b: ArrayLike<T>) => {
     if (a.length !== b.length) return false;
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
@@ -203,7 +205,7 @@ export function createGlyphMapExtrusionSurface(
       const cache = topology.stampCache;
       // A repeat render can reuse ink only after exact camera, mesh visibility,
       // geometry order and complete pre-outline surface equality. No hashes.
-      if (cache?.output && cache.tilted === tilted && equal(frameKey, cache.key) &&
+      if (cache?.output && cache.filledFaces === filledFaces && cache.tilted === tilted && equal(frameKey, cache.key) &&
           equal(accepted, cache.accepted) && equal(geometries, cache.geometries) &&
           equal(grid.depth, cache.frozen.depth) && equalOcclusion(grid.occluded, cache.frozen.occluded) &&
           equal(g.char, cache.input.char) && equal(g.color, cache.input.color) && equal(g.depth, cache.input.depth) &&
@@ -212,7 +214,7 @@ export function createGlyphMapExtrusionSurface(
         g.depth.set(cache.output.depth);
         return true;
       }
-      topology.stampCache = { key: frameKey, accepted, geometries, tilted, input: { ...copy(g), occluded: g.occluded?.slice() }, frozen: { depth: grid.depth.slice(), occluded: grid.occluded?.slice() } };
+      topology.stampCache = { filledFaces, key: frameKey, accepted, geometries, tilted, input: { ...copy(g), occluded: g.occluded?.slice() }, frozen: { depth: grid.depth.slice(), occluded: grid.occluded?.slice() } };
       return false;
     } : undefined,
     remember: frameKey ? g => { topology.stampCache!.output = copy(g); } : undefined,
@@ -222,13 +224,14 @@ export function createGlyphMapExtrusionSurface(
       return false;
     },
     owns(idx: number, own: ReadonlySet<Polygon>): boolean {
+      if (filledFaces?.size === 0) return false;
       const depth = grid.depth[idx]!;
       if (!Number.isFinite(depth) || glyphMapForeignOwned(grid, idx)) return false;
       const col = idx % grid.cols, row = Math.floor(idx / grid.cols);
       const bin = idx;
       for (let i = offsets[bin]!; i < offsets[bin + 1]!; i++) {
         const t = triangles[bins[i]!]!;
-        if (!own.has(t.polygon)) continue;
+        if (!own.has(t.polygon) || (filledFaces && !filledFaces.has(t.polygon))) continue;
         const d = depthAt(t, col, row);
         if (Number.isFinite(d) && Math.abs(d - depth) <= roundoff(d, depth)) return true;
       }
@@ -252,7 +255,7 @@ export function createGlyphMapExtrusionSurface(
           buildingAtInteger = -Infinity;
           for (let i = offsets[bin]!; i < offsets[bin + 1]!; i++) {
             const t = triangles[bins[i]!]!;
-            buildingAtInteger = Math.max(buildingAtInteger, depthAt(t, ci, ri));
+            if (!filledFaces || filledFaces.has(t.polygon)) buildingAtInteger = Math.max(buildingAtInteger, depthAt(t, ci, ri));
           }
           integerDepth[idx] = buildingAtInteger;
         }
@@ -262,6 +265,8 @@ export function createGlyphMapExtrusionSurface(
           const d = depthAt(t, col, row);
           if (d - depth > roundoff(d, depth)) return true;
         }
+        // Only rasterized faces can own the frozen depth; unfilled buildings
+        // must not stand in for terrain at this integer sample.
         // When the frozen integer sample is a building, evaluate its actual
         // planes above; neighbouring samples may be on opposite sides of a roof.
         const frozen = grid.depth[idx]!;

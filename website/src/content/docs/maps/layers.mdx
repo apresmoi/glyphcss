@@ -355,9 +355,15 @@ building planes hide occluded edges, while incident faces accept their own edge
 without a depth bias. All glyphs fit the universal atlas. Omitted preserves the
 original output. Building outlines currently support braille only.
 
+Add `fill: false` alongside `outline: "braille"` for outlines only: no building
+mesh is mounted or rasterized. Terrain and nearer building faces still hide
+roof rings and vertical corners. `fill` defaults to true and is ignored without
+braille outlines.
+
 For OpenMapTiles, pass `buildingOutline: "braille"` to
 `glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export enable
-this for buildings, alongside either box or braille road strokes.
+outlines without fill for buildings with `?lines=braille`; box mode retains
+the normal building fill.
 
 ## `symbol`
 
