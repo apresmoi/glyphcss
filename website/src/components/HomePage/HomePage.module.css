@@ -96,9 +96,6 @@
   grid-template-columns: 1.2fr 1fr;
   gap: 20px;
   align-items: center;
-  background: linear-gradient(135deg, var(--gc-surface), var(--gc-surface));
-  border-radius: 12px;
-  border: 1px solid rgba(var(--gc-accent-rgb), 0.25);
   padding: 0px 40px;
   position: relative;
   /* Locked to glyphcss's hero-card height (~390px). */
@@ -131,8 +128,6 @@
   min-height: 0;
   padding: 0;
   overflow: hidden;
-  background: radial-gradient(circle at 30% 20%, var(--gc-surface) 0%, var(--gc-surface) 60%, var(--gc-surface) 100%);
-  border-color: var(--gc-rule);
   font-family: var(--gc-font-ui);
 }
 .root :global(.hero--ascii) :global(.hero-scene) {
@@ -457,19 +452,9 @@
 /* ── Install ────────────────────────────────────── */
 .root :global(.install) {
   margin-top: 30px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-radius: 0;
   padding: 28px;
   padding-bottom: 20px;
   font-family: var(--gc-font-ui);
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0px,
-    transparent 3px,
-    rgba(var(--gc-text-rgb), 0.008) 3px,
-    rgba(var(--gc-text-rgb), 0.008) 4px
-  );
 }
 .root :global(.install-list) {
   display: flex;
@@ -562,9 +547,6 @@
 /* ── How It Works ───────────────────────────────── */
 .root :global(.stacking) {
   margin-top: 30px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-radius: 0;
   padding: 28px;
   font-family: var(--gc-font-ui);
 }
@@ -572,26 +554,23 @@
   margin: var(--gc-space-3) 0 32px;
   width: 100%;
 }
-.root :global(.stacking-art) {
-  margin: 0;
-  font-family: var(--gc-font-ui);
-  font-size: 13px;
-  line-height: 1.55;
-  background: transparent;
-  padding: 0;
-  white-space: pre;
+.root :global(.home-diagram-wide) {
+  display: none;
 }
-.root :global(.art-dim) {
-  color: var(--gc-rule-strong);
+.root :global(.home-diagrams) :global(figcaption) {
+  margin-top: var(--gc-space-4);
+  color: var(--gc-text-muted);
+  font-size: var(--gc-text-sm);
+  line-height: 1.5;
+  text-align: center;
 }
-.root :global(.art-amber) {
-  color: var(--gc-text);
-}
-.root :global(.art-cyan) {
-  color: var(--gc-accent);
-}
-.root :global(.art-orange) {
-  color: var(--gc-orange);
+@media (min-width: 960px) {
+  .root :global(.home-diagram-wide) {
+    display: block;
+  }
+  .root :global(.home-diagram-narrow) {
+    display: none;
+  }
 }
 .root :global(.stacking-copy) p {
   font-family: var(--gc-font-ui);
@@ -612,18 +591,8 @@
 /* ── Getting Started ────────────────────────────── */
 .root :global(.getting-started) {
   margin-top: 30px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-radius: 0;
   padding: 28px;
   font-family: var(--gc-font-ui);
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0px,
-    transparent 3px,
-    rgba(var(--gc-text-rgb), 0.008) 3px,
-    rgba(var(--gc-text-rgb), 0.008) 4px
-  );
 }
 .root :global(.getting-lede) {
   margin-bottom: 20px;
@@ -798,9 +767,6 @@
   justify-content: center;
   gap: 0;
   padding: 14px 28px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-bottom: none;
   font-size: 11px;
   letter-spacing: 0.05em;
 }
@@ -904,9 +870,6 @@
   .root :global(.framework-tabpanel) code {
     white-space: pre-wrap;
     word-break: break-word;
-  }
-  .root :global(.stacking-art) {
-    font-size: 10px;
   }
   .root :global(.term-footer-bar) {
     flex-direction: column;
