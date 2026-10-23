@@ -2,6 +2,7 @@
 // Event-loop gaps are a Node surrogate, including GC/scheduling and rendering;
 // they are not browser Long Task API entries. Installation is timed separately.
 // --baseline=<git-ref> bundles the four changed implementation files at that ref.
+// --water=off removes the water row, matching the no-water control.
 import { createRequire } from "node:module";
 import { readFileSync, writeFileSync, mkdtempSync, rmSync } from "node:fs";
 import { execFileSync } from "node:child_process";
@@ -53,6 +54,7 @@ process.chdir(rootDir);
 const baseline = process.argv
   .find((arg) => arg.startsWith("--baseline="))
   ?.slice(11);
+const waterOff = process.argv.includes("--water=off");
 const workCosts = [];
 globalThis.__waterMeasure = (kind, ms) => workCosts.push({ kind, ms });
 const instrument = {
@@ -78,6 +80,10 @@ const instrument = {
           contents = contents.replace(
             "rebuild(commitWater(tiles as GlyphMapVectorTile[]));",
             'const started = performance.now(); rebuild(commitWater(tiles as GlyphMapVectorTile[])); (globalThis as any).__waterMeasure("sync-commit-with-render",performance.now()-started);',
+          );
+          contents = contents.replace(
+            "rebuild(filter ? selected.filter(filter) : selected);",
+            'const started = performance.now(); rebuild(filter ? selected.filter(filter) : selected); (globalThis as any).__waterMeasure("legacy-build-with-render",performance.now()-started);',
           );
         }
         if (!baseline && args.path.endsWith("/waterTerrain.ts")) {
@@ -212,10 +218,10 @@ for (const [z, x, y] of [
         classifier: api.glyphMapBreaks([0]),
         colors: ["#2a55a8", "#2f5a36"],
       },
-      ...api.glyphMapOpenMapTilesLayers(provider, {
+      ...(waterOff ? [] : api.glyphMapOpenMapTilesLayers(provider, {
         include: ["omt-water"],
         waterTerrain: true,
-      }),
+      })),
     ],
     scene: {
       mode: "solid",
@@ -287,8 +293,24 @@ for (const [z, x, y] of [
     throw new Error("Pointer drag did not move the map");
   if (!map.scene.output.textContent?.trim())
     throw new Error("No rendered map after commit");
-  if (!workCosts.some((item) => /install|sync-commit/.test(item.kind)))
+  if (
+    !waterOff &&
+    !workCosts.some((item) => /install|sync-commit|legacy-build/.test(item.kind))
+  )
     throw new Error("No successful tile commit measured");
+
+  // Isolate settled per-frame geometry cost from cooperative preparation and
+  // event-loop scheduling. Each sample changes the camera and renders once.
+  const renderTimes = [];
+  const rotY = map.scene.camera.rotY;
+  for (let i = 0; i < 35; i++) {
+    map.scene.camera.rotY = rotY + (i + 1) * 0.005;
+    const start = performance.now();
+    map.scene.rerender();
+    if (i >= 5) renderTimes.push(performance.now() - start);
+  }
+  map.scene.camera.rotY = rotY;
+  renderTimes.sort((a, b) => a - b);
 
   const commit = tasks.find((t) => t.kind === "tile-commit-turn").ms;
   const max = Math.max(...tasks.map((t) => t.ms));
@@ -307,6 +329,12 @@ for (const [z, x, y] of [
     maxTaskMs: +max.toFixed(2),
     over50msGaps: tasks.filter((t) => t.kind === "event-loop-gap" && t.ms > 50)
       .length,
+    settledRenderMs: {
+      samples: renderTimes.length,
+      median: +renderTimes[Math.floor(renderTimes.length / 2)].toFixed(2),
+      p95: +renderTimes[Math.ceil(renderTimes.length * 0.95) - 1].toFixed(2),
+      max: +renderTimes[renderTimes.length - 1].toFixed(2),
+    },
     top: tasks.sort((a, b) => b.ms - a.ms).slice(0, 5),
   };
   commits.push(row);
@@ -318,6 +346,7 @@ for (const [z, x, y] of [
 console.log(
   JSON.stringify({
     baseline: baseline ?? "working-tree",
+    water: waterOff ? "off" : "on",
     measurements: commits,
   }),
 );

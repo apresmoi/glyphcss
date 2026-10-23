@@ -1,0 +1,402 @@
+{
+  "environment": {
+    "node": "v22.23.2",
+    "platform": "darwin",
+    "arch": "arm64"
+  },
+  "method": "Offline happy-dom Venice fixture pointer drag; settled rendering uses 5 warm-up frames and 30 measured camera-changing renders per z. One process per variant. Node event-loop gaps are not Chromium Long Task API entries.",
+  "productionChange": false,
+  "runs": [
+    {
+      "baseline": "59740859",
+      "water": "on",
+      "measurements": [
+        {
+          "z": 8,
+          "costs": {
+            "legacy-build-with-render": 94.06
+          },
+          "commitTurnMs": 69.93,
+          "maxTaskMs": 95.79,
+          "over50msGaps": 2,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 6.14,
+            "p95": 25.23,
+            "max": 40.47
+          },
+          "top": [
+            {
+              "kind": "event-loop-gap",
+              "ms": 95.78599999999983
+            },
+            {
+              "kind": "tile-commit-turn",
+              "ms": 69.93258300000002
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 55.531875000000014
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 35.6836659999999
+            },
+            {
+              "kind": "frame",
+              "ms": 35.25095800000008
+            }
+          ]
+        },
+        {
+          "z": 10,
+          "costs": {
+            "legacy-build-with-render": 51.88
+          },
+          "commitTurnMs": 65.66,
+          "maxTaskMs": 65.66,
+          "over50msGaps": 1,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 4,
+            "p95": 5.11,
+            "max": 5.23
+          },
+          "top": [
+            {
+              "kind": "tile-commit-turn",
+              "ms": 65.65741600000001
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 52.10816599999998
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 41.11679200000026
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 13.61666699999978
+            },
+            {
+              "kind": "frame",
+              "ms": 13.558624999999665
+            }
+          ]
+        },
+        {
+          "z": 12,
+          "costs": {
+            "legacy-build-with-render": 26.9
+          },
+          "commitTurnMs": 31.24,
+          "maxTaskMs": 31.24,
+          "over50msGaps": 0,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 2.52,
+            "p95": 5.97,
+            "max": 6.53
+          },
+          "top": [
+            {
+              "kind": "tile-commit-turn",
+              "ms": 31.240584000000126
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 27.165542000000187
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 25.649875000000065
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 7.030499999999847
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 6.682625000000371
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "baseline": "b371177f",
+      "water": "on",
+      "measurements": [
+        {
+          "z": 8,
+          "costs": {
+            "install": 1.64
+          },
+          "commitTurnMs": 4.42,
+          "maxTaskMs": 50.11,
+          "over50msGaps": 1,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 4.14,
+            "p95": 5.3,
+            "max": 5.47
+          },
+          "top": [
+            {
+              "kind": "event-loop-gap",
+              "ms": 50.11212499999999
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 23.40216600000008
+            },
+            {
+              "kind": "frame",
+              "ms": 23.346250000000055
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 16.31483400000002
+            },
+            {
+              "kind": "frame",
+              "ms": 14.806749999999965
+            }
+          ]
+        },
+        {
+          "z": 10,
+          "costs": {
+            "install": 3.3
+          },
+          "commitTurnMs": 2.71,
+          "maxTaskMs": 69.52,
+          "over50msGaps": 1,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 10.96,
+            "p95": 14.93,
+            "max": 20.04
+          },
+          "top": [
+            {
+              "kind": "event-loop-gap",
+              "ms": 69.52087500000016
+            },
+            {
+              "kind": "input",
+              "ms": 11.329749999999876
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 11.235584000000017
+            },
+            {
+              "kind": "frame",
+              "ms": 11.202166999999918
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 11.139584000000013
+            }
+          ]
+        },
+        {
+          "z": 12,
+          "costs": {
+            "install": 1.1
+          },
+          "commitTurnMs": 2.1,
+          "maxTaskMs": 35.58,
+          "over50msGaps": 0,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 7.91,
+            "p95": 10.71,
+            "max": 10.93
+          },
+          "top": [
+            {
+              "kind": "event-loop-gap",
+              "ms": 35.58275000000003
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 19.510833999999704
+            },
+            {
+              "kind": "frame",
+              "ms": 16.311290999999983
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 11.52291699999978
+            },
+            {
+              "kind": "frame",
+              "ms": 11.47445800000014
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "baseline": "b371177f",
+      "water": "off",
+      "measurements": [
+        {
+          "z": 8,
+          "costs": {},
+          "commitTurnMs": 3.67,
+          "maxTaskMs": 9.85,
+          "over50msGaps": 0,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 1.2,
+            "p95": 1.78,
+            "max": 1.91
+          },
+          "top": [
+            {
+              "kind": "input",
+              "ms": 9.85141699999997
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 9.613833
+            },
+            {
+              "kind": "frame",
+              "ms": 9.501458999999954
+            },
+            {
+              "kind": "input",
+              "ms": 5.055583000000013
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 4.75366600000001
+            }
+          ]
+        },
+        {
+          "z": 10,
+          "costs": {},
+          "commitTurnMs": 2.43,
+          "maxTaskMs": 5.58,
+          "over50msGaps": 0,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 1.44,
+            "p95": 1.82,
+            "max": 1.86
+          },
+          "top": [
+            {
+              "kind": "input",
+              "ms": 5.579583999999841
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 5.460415999999896
+            },
+            {
+              "kind": "frame",
+              "ms": 5.432540999999901
+            },
+            {
+              "kind": "input",
+              "ms": 5.340291999999863
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 5.329500000000053
+            }
+          ]
+        },
+        {
+          "z": 12,
+          "costs": {},
+          "commitTurnMs": 1.56,
+          "maxTaskMs": 7.09,
+          "over50msGaps": 0,
+          "settledRenderMs": {
+            "samples": 30,
+            "median": 1.42,
+            "p95": 1.81,
+            "max": 2.09
+          },
+          "top": [
+            {
+              "kind": "input",
+              "ms": 7.087166000000252
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 7.0442910000001575
+            },
+            {
+              "kind": "frame",
+              "ms": 7.00683300000037
+            },
+            {
+              "kind": "event-loop-gap",
+              "ms": 5.25708399999985
+            },
+            {
+              "kind": "input",
+              "ms": 3.234542000000147
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rejectedPrototype": {
+    "rule": "Every overlapping terrain quad keeps its four vertices; nonpositive vertex positions use a floor 1 true metre below datum, and the quad colour uses max(0, representative elevation). Existing sampler and fill drape remain unchanged.",
+    "tests": 11,
+    "failed": 4,
+    "passed": 7,
+    "failureLog": "/tmp/packet18-prototype-tests.log",
+    "retainedInProduction": false,
+    "boundaryCounterexample": {
+      "terrainQuads": 1,
+      "coverage": "Only the eastern half of the quad is covered by a successful, empty water tile.",
+      "passed": [
+        "Original quad topology",
+        "Covered land colour"
+      ],
+      "failed": [
+        "Uncovered DEM colour",
+        "Uncovered DEM surface"
+      ],
+      "failureLog": "/tmp/packet18-boundary-tests.log"
+    }
+  },
+  "verification": {
+    "targeted": {
+      "command": "pnpm --filter @glyphcss/maps exec vitest run src/waterTerrain.test.ts src/widget.waterTerrain.test.ts src/mesh.elevationWindow.test.ts src/mesh.seaLevelBand.test.ts src/mesh.surfaceMedian.test.ts",
+      "passed": 44
+    },
+    "maps": {
+      "command": "pnpm --filter @glyphcss/maps test",
+      "filesPassed": 154,
+      "passed": 1508,
+      "skipped": 3
+    },
+    "website": {
+      "command": "pnpm --filter @glyphcss/website exec vitest run src/features/maps/model/mapsOsm.lines.test.ts src/components/MapsWorkbench/mapsSnippet.fidelity.test.ts",
+      "passed": 19
+    },
+    "packages": {
+      "command": "pnpm build:packages",
+      "result": "passed"
+    }
+  },
+  "uncertainties": [
+    "No browser run was performed. This small offline scene does not reproduce the Chromium workbench workload.",
+    "There is no accepted replacement implementation; the approximately 100 ms browser target is unresolved.",
+    "Failure of the 1 true-metre prototype does not prove every larger offset fails. No general offset proof was established."
+  ]
+}
