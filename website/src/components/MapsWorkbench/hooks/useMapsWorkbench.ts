@@ -57,6 +57,7 @@ import {
   type MapOsmAnchors,
   createOsmSource,
   MAP_OSM_DEFAULT_ANCHOR,
+  MAP_LINE_STRATEGY,
   MAP_OSM_DEFAULT_DENSITY,
   MAP_OSM_SUBLAYERS,
   mapOsmAnchorRecord,
@@ -1376,7 +1377,7 @@ export function useMapsWorkbench() {
                 density: borderDensityRef.current,
                 simplify: "vw" as const,
                 sharedArcs: true,
-                experimentalGlyphStrategy: "box" as const,
+                experimentalGlyphStrategy: MAP_LINE_STRATEGY,
               },
             ]
           : []),
@@ -1643,7 +1644,7 @@ export function useMapsWorkbench() {
         density: borderDensity,
         simplify: "vw",
         sharedArcs: true,
-        experimentalGlyphStrategy: "box",
+        experimentalGlyphStrategy: MAP_LINE_STRATEGY,
       });
     }
     map.scene.rerender();

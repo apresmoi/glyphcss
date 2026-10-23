@@ -521,6 +521,9 @@ function stampTinyBoxShape(
  * left untouched: the terrain (or any nearer mesh) occludes the line there,
  * exactly like a normal solid-mode depth test.
  */
+/** Unicode braille dot bits, row-major over the 2×4 cell. */
+const BRAILLE_DOTS = [0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80];
+
 export function stampGlyphMapPolyline(
   grid: CellGrid,
   points: readonly GlyphMapStrokeVertex[],
@@ -533,7 +536,8 @@ export function stampGlyphMapPolyline(
   const onInk = opts.onInk;
   const strategy = opts.experimentalGlyphStrategy;
   const graph = strategy === "box" ? opts.boxGraph ?? createGlyphMapBoxStrokeGraph() : null;
-  const samples = strategy && strategy !== "baseline" && strategy !== "box" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
+  const braille = strategy === "braille";
+  const samples = strategy && strategy !== "baseline" && strategy !== "box" && !braille ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
   if (graph && !graph.surface) graph.surface = { ...grid, depth: grid.depth.slice() };
   const surface = graph?.surface ?? grid;
   if (graph && stampTinyBoxShape(grid, points, opts, graph)) {
@@ -561,7 +565,8 @@ export function stampGlyphMapPolyline(
     if (!Number.isFinite(a.col) || !Number.isFinite(a.row) || !Number.isFinite(b.col) || !Number.isFinite(b.row)) { breakPath(); continue; }
     const dCol = b.col - a.col;
     const dRow = b.row - a.row;
-    const cells = Math.max(1, Math.ceil(Math.hypot(dCol, dRow)));
+    // Braille resolves 2×4 dots per cell, so it walks at dot pitch.
+    const cells = Math.max(1, Math.ceil(braille ? Math.hypot(dCol * 2, dRow * 4) : Math.hypot(dCol, dRow)));
     // BOUND the walk to the part of this segment that can reach the grid.
     //
     // The sample COUNT stays `cells` and every retained `i` computes exactly
@@ -634,7 +639,12 @@ export function stampGlyphMapPolyline(
       }
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       if (graph) { rememberBoxCell(grid, graph, idx); touched!.add(idx); }
-      grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
+      if (braille) {
+        const dot = BRAILLE_DOTS[Math.min(3, (subRow * 4) | 0) * 2 + Math.min(1, (subCol * 2) | 0)]!;
+        const prev = grid.char[idx]!.codePointAt(0)! - 0x2800;
+        const held = prev >= 0 && prev < 256 && grid.color[idx] === color ? prev : 0;
+        grid.char[idx] = String.fromCodePoint(0x2800 | held | dot);
+      } else grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;
       if (paths) {

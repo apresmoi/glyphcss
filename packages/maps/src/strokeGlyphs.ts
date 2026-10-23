@@ -1,5 +1,5 @@
 /** Experimental glyph selection; coverage and depth decisions belong to stroke.ts. */
-export type GlyphMapStrokeGlyphStrategy = "baseline" | "ascii" | "box" | "dots" | "bullets" | "dashdot" | "fine";
+export type GlyphMapStrokeGlyphStrategy = "baseline" | "ascii" | "box" | "dots" | "bullets" | "dashdot" | "fine" | "braille";
 
 export interface GlyphMapStrokeGlyphSample {
   readonly col: number;

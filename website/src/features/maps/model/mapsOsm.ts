@@ -60,10 +60,14 @@ import {
   type GlyphMapVectorTile,
 } from "@glyphcss/maps";
 
+/** Exploration only: `?lines=braille` previews braille map lines against the box default. */
+export const MAP_LINE_STRATEGY: "box" | "braille" =
+  typeof location !== "undefined" && new URLSearchParams(location.search).get("lines") === "braille" ? "braille" : "box";
+
 /** Shared with the code export so the exported map draws the same line stack. */
 export const MAP_OSM_LINE_OPTIONS = {
   "omt-roads": {
-    experimentalGlyphStrategy: "box", simplify: "vw",
+    experimentalGlyphStrategy: MAP_LINE_STRATEGY, simplify: "vw",
     color: "#506981", colorProperty: "class",
     colors: {
       motorway: "#dbeafe", trunk: "#dbeafe", primary: "#dbeafe",
@@ -72,10 +76,10 @@ export const MAP_OSM_LINE_OPTIONS = {
       service: "#394d63", track: "#394d63", path: "#394d63",
     },
   },
-  "omt-waterways": { experimentalGlyphStrategy: "box", simplify: "vw" },
+  "omt-waterways": { experimentalGlyphStrategy: MAP_LINE_STRATEGY, simplify: "vw" },
   // Shared arcs deduplicate polygon edges; explicit road/river routes have no shared polygon edges.
-  "omt-boundaries": { experimentalGlyphStrategy: "box", simplify: "vw", sharedArcs: true },
-  "omt-aeroways": { experimentalGlyphStrategy: "box", simplify: "vw" },
+  "omt-boundaries": { experimentalGlyphStrategy: MAP_LINE_STRATEGY, simplify: "vw", sharedArcs: true },
+  "omt-aeroways": { experimentalGlyphStrategy: MAP_LINE_STRATEGY, simplify: "vw" },
 } as const satisfies NonNullable<GlyphMapOpenMapTilesLayersOptions["lineOptions"]>;
 
 /** The card's rows, in the order the OpenMapTiles schema mapping declares them (ground → water → lines → buildings → labels). */
