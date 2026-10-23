@@ -3,13 +3,18 @@ import type { Node } from "@astrojs/compiler/types";
 import type { GlyphDocsRenderInput } from "./glyphRender";
 
 export async function firstGlyphDocsExample(body: string): Promise<GlyphDocsRenderInput | undefined> {
+  return (await glyphDocsExamples(body))[0];
+}
+
+export async function glyphDocsExamples(body: string): Promise<GlyphDocsRenderInput[]> {
   // Code samples describe components; only actual MDX examples belong on cards.
   const markup = body
     .replace(/^([ \t]*)(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1\2[ \t]*(?=\r?$)/gm, "")
     .replace(/(`+)[^\n]*?\1/g, "");
-  if (!markup.includes("<GlyphRender")) return;
+  if (!markup.includes("<GlyphRender")) return [];
   const { ast } = await parse(markup);
-  function first(node: Node): GlyphDocsRenderInput | undefined {
+  const found: GlyphDocsRenderInput[] = [];
+  function visit(node: Node) {
     if (node.type === "component" && node.name === "GlyphRender") {
       const input: Record<string, unknown> = {};
       for (const attribute of node.attributes) {
@@ -18,14 +23,11 @@ export async function firstGlyphDocsExample(body: string): Promise<GlyphDocsRend
         input[attribute.name] = attribute.kind === "quoted" ? attribute.value : JSON.parse(attribute.value);
       }
       if (!input.kind || input.source === undefined) throw new Error("GlyphRender requires kind and source.");
-      return input as GlyphDocsRenderInput;
+      found.push(input as GlyphDocsRenderInput);
+      return;
     }
-    if ("children" in node) {
-      for (const child of node.children) {
-        const result = first(child);
-        if (result) return result;
-      }
-    }
+    if ("children" in node) for (const child of node.children) visit(child);
   }
-  return first(ast);
+  visit(ast);
+  return found;
 }

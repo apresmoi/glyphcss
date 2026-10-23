@@ -82,17 +82,17 @@ export function staticSynth() {
   };
 }
 
-export function staticLoader() {
-  const loader = findLoader(DEFAULT_LOADER);
+export function staticLoader(id = DEFAULT_LOADER, time = 0) {
+  const loader = findLoader(id);
   return {
-    title: `${loader.label} at time zero`,
+    title: `${loader.label} at time ${time === 0 ? "zero" : time}`,
     ...fieldRender(
       loader.layers.map((layer) => {
         const effect = getGlyphEffect(layer.effectId);
         if (!effect) throw new Error(`Unknown loader effect: ${layer.effectId}`);
         return {
           effect: effect as GlyphEffectDefinition<GlyphEffectParamSchema, unknown>,
-          params: { ...layer.params, time: 0 },
+          params: { ...layer.params, time },
           blend: layer.blend,
         };
       }),
@@ -149,7 +149,7 @@ export async function staticWordArt() {
   return { title: "Glyph CSS in the bundled font", text: gridText(result.grid), html: result.inner };
 }
 
-export async function staticMap() {
+export async function staticMap(view: { centerLon?: number; centerLat?: number; cols?: number; rows?: number } = {}) {
   const base = "public/data/geo-tiles";
   const manifest = JSON.parse(await readFile(`${base}/manifest.json`, "utf8"));
   if (manifest.version !== 2 || manifest.format !== "int16" || manifest.byteOrder !== "little-endian") {
@@ -165,11 +165,10 @@ export async function staticMap() {
     source: manifest.source,
     sampler: manifest.sampler,
   });
-  const defaults = MAPS_URL_DEFAULTS;
+  const defaults = { ...MAPS_URL_DEFAULTS, ...view };
   const projection = glyphMapGlobe({ exaggeration: defaults.exaggeration });
   const pose = projection.cameraForCenter!(defaults.centerLon, defaults.centerLat);
-  const cols = 160,
-    rows = 72;
+  const { cols = 160, rows = 72 } = view;
   const camera = createGlyphOrthographicCamera({ ...pose, zoom: 1 });
   // Fit the globe into the same virtual cell metrics compileScene uses.
   const unitCamera = createGlyphOrthographicCamera({ rotX: 0, rotY: 0, zoom: 1 });

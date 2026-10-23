@@ -163,10 +163,11 @@ export const PAGES = [
 
 // Fit a monospace grid (cols × rows) into a pixel box. Monospace advance ≈
 // 0.6·fontSize; line box = fontSize (the render pre uses line-height == size).
+// Capped so a small diagram reads large instead of turning into a poster.
 function fitFont(cols, rows, box) {
   const byW = box.w / (cols * 0.6);
   const byH = box.h / rows;
-  return Math.max(3, Math.min(byW, byH));
+  return Math.max(3, Math.min(30, byW, byH));
 }
 
 const esc = (s) =>
@@ -181,7 +182,9 @@ export function templateHtml(page, renders, fonts = {}) {
           fitFont(render.cols, render.rows, { w: PANEL.w, h: tileHeight }) *
             100,
         ) / 100;
-      return `<div class="tile"><pre style="font-size:${font}px;line-height:${font}px">${render.html}</pre></div>`;
+      // Crop the blank margin columns a render pads to its target width.
+      const indent = render.indent ?? 0;
+      return `<div class="tile"><div class="crop" style="font-size:${font}px;width:${render.cols}ch"><pre style="font-size:1em;line-height:${font}px;margin-left:${-indent}ch">${render.html}</pre></div></div>`;
     })
     .join("");
   const [t0, t1] = page.tagline;
@@ -217,6 +220,7 @@ export function templateHtml(page, renders, fonts = {}) {
     width: ${PANEL.w}px; height: ${PANEL.h}px;
     display: flex; flex-direction: column; gap: 18px; z-index: 1; }
   .tile { width: 100%; height: ${tileHeight}px; display: flex; align-items: center; justify-content: center; }
+  .crop { overflow: hidden; font-family: "Glyph Mono", ui-monospace, monospace; }
   .stage pre { margin: 0; font-family: "Glyph Mono", ui-monospace, monospace;
     white-space: pre;
     color: #cfe9d8; text-shadow: 0 0 1px rgba(0,0,0,0.4); ${boost} }

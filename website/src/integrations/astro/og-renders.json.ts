@@ -1,11 +1,13 @@
 import { getCollection } from "astro:content";
-import { staticLoader, staticMap, staticSynth } from "../../services/static-workbench/scenes";
+import { staticSynth } from "../../services/static-workbench/scenes";
 import {
   socialBench,
   socialEarth,
   socialDiagram,
   socialCharts,
   socialDocsSections,
+  socialLoaders,
+  socialAgents,
 } from "../../services/static-workbench/socialRenders";
 import { socialDocsCards, socialGrid } from "../../services/static-workbench/docsCards";
 
@@ -16,9 +18,10 @@ export async function GET() {
     bench: [socialBench()],
     diagrams: [await socialDiagram()],
     charts: await socialCharts(),
-    maps: [socialGrid(await staticMap())],
+    agents: [await socialAgents()],
+    maps: [await socialEarth()],
     synth: [socialGrid(staticSynth())],
-    loaders: [socialGrid(staticLoader())],
+    loaders: socialLoaders(),
     ...socialDocsSections(),
     ...renders,
   });

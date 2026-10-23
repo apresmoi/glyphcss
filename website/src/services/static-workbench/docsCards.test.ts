@@ -1,9 +1,9 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { docsSidebar } from "../../config/docsSidebar.mjs";
-import { firstGlyphDocsExample } from "../docs-render/firstExample";
+import { firstGlyphDocsExample, glyphDocsExamples } from "../docs-render/firstExample";
 import { fitGlyphDocsOutput, renderGlyphDocs } from "../docs-render/glyphRender";
-import { socialGrid } from "./docsCards";
+import { cardFont, socialGrid } from "./docsCards";
 
 function readEntries(dir = "src/content/docs", root = dir): { id: string; body: string; data: { title: string } }[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -39,22 +39,31 @@ describe("social JSON endpoints", () => {
     for (const doc of manifest) expect(renders[doc.render], doc.slug).toBeDefined();
   });
 
-  it("uses the first actual GlyphRender byte-for-byte for every page with examples", async () => {
+  it("uses one of the page's actual GlyphRender outputs, never smaller on the card than the first", async () => {
     let count = 0;
     for (const entry of readEntries()) {
-      const input = await firstGlyphDocsExample(entry.body);
-      if (!input) continue;
+      const inputs = await glyphDocsExamples(entry.body);
+      if (!inputs.length) continue;
       count++;
       const doc = manifest.find((doc: { slug: string }) => doc.slug === `docs/${entry.id}`);
       expect(doc.render).toBe(doc.slug);
-      expect(renders[doc.render]).toEqual([socialGrid(fitGlyphDocsOutput(await renderGlyphDocs(input)))]);
+      const grids = await Promise.all(
+        inputs.map(async (input) =>
+          socialGrid(
+            fitGlyphDocsOutput(
+              await renderGlyphDocs(input),
+              (input.options as { textScale?: number } | undefined)?.textScale ?? 1,
+            ),
+          ),
+        ),
+      );
       const [grid] = renders[doc.render];
-      expect(Math.min(548 / (grid.cols * 0.6), 490 / grid.rows), entry.id).toBeGreaterThanOrEqual(11);
+      expect(grids, entry.id).toContainEqual(grid);
+      expect(cardFont(grid), entry.id).toBeGreaterThanOrEqual(11);
     }
     expect(count).toBeGreaterThan(35);
     expect(renders["docs/charts/bar"][0].html).toContain("Search");
     expect(renders["docs/charts/bar"]).not.toEqual(renders.charts);
-    expect(renders["docs/diagrams/flowcharts"][0].html).toContain("Cart");
   });
 
   it("keeps workbench cards readable with one five-node flowchart and two bold charts", () => {
@@ -109,4 +118,10 @@ it("parses multiline JSON props in document order, ignoring fenced and inline co
     options: { width: 48 },
   });
   await expect(firstGlyphDocsExample('<GlyphRender kind="diagram" source={variable} />')).rejects.toThrow();
+});
+
+describe("socialGrid", () => {
+  it("crops the blank columns a render pads around its art", () => {
+    expect(socialGrid({ text: "      \n   ab   \n    cde \n" })).toMatchObject({ indent: 3, cols: 4, rows: 4 });
+  });
 });

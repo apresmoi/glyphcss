@@ -1,10 +1,10 @@
-import { readFile } from "node:fs/promises";
-import { resolveGeometry, type Polygon, type Vec3 } from "@glyphcss/core";
+import { resolveGeometry, type Polygon } from "@glyphcss/core";
 import { compileScene, createGlyphOrthographicCamera } from "glyphcss";
 import { renderGlyphDocs } from "../docs-render/glyphRender";
 import { PRESETS } from "../../features/gallery/data/presetList";
 import { CHART_PRESETS } from "../../features/charts/model/chartsSpec";
 import { socialGrid } from "./docsCards";
+import { staticLoader, staticMap } from "./scenes";
 
 export async function socialDiagram() {
   return socialGrid(
@@ -59,17 +59,32 @@ export function socialDocsSections() {
   );
 }
 
+// Atlantic-centred so the card shows the Americas, Europe and Africa.
 export async function socialEarth() {
-  const data = JSON.parse(await readFile("public/data/landing-earth.json", "utf8")) as {
-    vertices: Vec3[];
-    colors: string[];
-    faces: { v: number[]; c: number }[];
-  };
-  const polygons: Polygon[] = data.faces.map((face) => ({
-    vertices: face.v.map((index) => data.vertices[index]!),
-    color: data.colors[face.c],
-  }));
-  return socialScene(polygons, 70, 0);
+  return socialGrid(await staticMap({ centerLon: -38, centerLat: -8, cols: 160, rows: 72 }));
+}
+
+export function socialLoaders() {
+  return ["rings", "matrix"].map((id) => socialGrid(staticLoader(id, 1.6)));
+}
+
+export async function socialAgents() {
+  return socialGrid(
+    await renderGlyphDocs({
+      kind: "diagram",
+      source:
+        "flowchart TB; You[You ask for a diagram] --> Agent[Coding agent]; Agent -->|loads| Skill[glyphcss skill]; Skill -->|Mermaid or JSON| CLI[glyphcss CLI]; CLI -->|aligned text| Chat[Diagram in chat]",
+      options: {
+        target: "web",
+        width: 64,
+        height: 40,
+        charset: "box",
+        overflow: "expand",
+        nodeColor: "#69e0db",
+        edgeColor: "#ffd166",
+      },
+    }),
+  );
 }
 
 export function socialBench() {
@@ -77,8 +92,9 @@ export function socialBench() {
 }
 
 function socialScene(polygons: Polygon[], rotX: number, rotY: number) {
-  const cols = 120,
-    rows = 60;
+  // A coarser grid keeps glyphs legible at card size.
+  const cols = 84,
+    rows = 42;
   const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom: 1 });
   const points = polygons.flatMap((polygon) => polygon.vertices.map((vertex) => camera.project(vertex, cols, rows, 2)));
   const xs = points.map((point) => point[0]);
