@@ -37,6 +37,7 @@ const pageBundle = await build({
         });
         return { contents: compiled.code, loader: "ts" };
       });
+      builder.onResolve({ filter: /^node:/ }, ({ path }) => ({ path, external: true }));
       builder.onResolve({ filter: /^[^./]/ }, async ({ path, pluginData }) => {
         if (pluginData?.resolved) return;
         const result = await builder.resolve(path, {
@@ -120,4 +121,19 @@ it("leaves landing sections unframed and switches diagram layouts without shrink
     ".root .home-diagram-wide:block:(min-width: 960px)",
     ".root .home-diagram-narrow:none:(min-width: 960px)",
   ]);
+});
+
+it("renders the wordmark as extruded star glyphs beside a real heading, without JavaScript", async () => {
+  const container = await AstroContainer.create();
+  container.addServerRenderer({ name: "@astrojs/react", renderer: reactRenderer });
+  container.addClientRenderer({ name: "@astrojs/react", entrypoint: "@astrojs/react/client.js" });
+  const html = await container.renderToString(HomeRoute, { request: new Request("https://glyphcss.com/") });
+  const page = document.createElement("template");
+  page.innerHTML = html;
+  expect(page.content.querySelector("h1")?.textContent).toBe("glyphcss");
+  const art = page.content.querySelector(".hero-wordmark pre");
+  expect(art?.closest("[aria-hidden='true']")).not.toBeNull();
+  expect(art?.textContent).toMatch(/★/);
+  expect(art?.innerHTML).toContain("#f97316");
+  expect(art?.innerHTML).toContain("#38bdf8");
 });

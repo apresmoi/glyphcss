@@ -3,6 +3,7 @@ import { highlight, installCmds } from "../../features/home/content";
 import styles from "./HomePage.module.css";
 export function HomePage({
   hero,
+  wordmark,
   rule,
   diagram,
   frameworks,
@@ -10,6 +11,7 @@ export function HomePage({
   version,
 }: {
   hero: ReactNode;
+  wordmark: ReactNode;
   rule: ReactNode;
   diagram: ReactNode;
   frameworks: ReactNode;
@@ -23,10 +25,10 @@ export function HomePage({
           {hero}
         </div>
         <div className="hero-overlay">
-          <h1 className="hero-wordmark" aria-label="glyphcss">
-            <span className="wm-a">glyph</span>
-            <span className="wm-b">css</span>
-          </h1>
+          <h1 className="hero-wordmark-title">glyphcss</h1>
+          <div className="hero-wordmark" aria-hidden="true">
+            {wordmark}
+          </div>
           <p className="hero-tag">
             <span className="hero-prompt">&gt;</span>
             Turn 3D models into ASCII art, rendered as text in a single

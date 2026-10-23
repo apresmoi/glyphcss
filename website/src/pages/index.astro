@@ -9,6 +9,8 @@ import { GitHubStars } from "../components/GitHubStars";
 import GlyphRender from "../integrations/astro/GlyphRender.astro";
 import { title, description, ldJson, frameworkTabs } from "../features/home/content";
 import { homeDiagrams } from "../features/home/diagrams";
+import { homeWordmark } from "../features/home/wordmark";
+const wordmark = await homeWordmark();
 ---
 
 <ContentLayout title={title} description={description} path="/">
@@ -36,6 +38,9 @@ import { homeDiagrams } from "../features/home/diagrams";
       realSunLight
       light={JSON.stringify({ intensity: 1.1, ambient: 0.45 })}
     />
+    <div slot="wordmark" style={`--ink-cols:${wordmark.cols};--ink-indent:${wordmark.indent}`}>
+      <pre set:html={wordmark.html} />
+    </div>
     <HomeAsciiArt client:load slot="rule" factory="heroRule" className="hero-rule" ariaLabel="divider" />
     <div slot="diagram" class="home-diagrams">
       {

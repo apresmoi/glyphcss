@@ -165,26 +165,35 @@
 
 /* same minmax(0, ...) guard for the demo's inner grid — without it, the
      strip's white-space: pre min-content leaks back through here too. */
+/* The real heading stays for search and screen readers; the extruded
+   wordmark beside it is the visible title. */
+.root :global(.hero-wordmark-title) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .root :global(.hero-wordmark) {
+  container-type: inline-size;
+  width: min(100%, 560px);
   margin: 0 0 14px;
-  padding: 0;
-  font-family: var(--gc-font-ui);
-  font-size: clamp(48px, 7vw, 88px);
+}
+.root :global(.hero-wordmark) pre {
+  margin: 0 0 0 calc(var(--ink-indent) * -1ch);
+  font-family: var(--gc-font-render);
+  /* Size the cells so the inked columns span the container exactly. */
+  font-size: calc(100cqw / (var(--ink-cols) * 0.6));
   line-height: 1;
-  letter-spacing: -2px;
-  font-weight: 900;
+  white-space: pre;
 }
-.root :global(.hero-wordmark) :global(.wm-a) {
-  color: var(--gc-orange);
-  text-shadow:
-    0 0 18px rgba(var(--gc-orange-rgb), 0.6),
-    0 0 4px var(--gc-surface);
-}
-.root :global(.hero-wordmark) :global(.wm-b) {
-  color: var(--gc-accent);
-  text-shadow:
-    0 0 18px rgba(var(--gc-accent-rgb), 0.6),
-    0 0 4px var(--gc-surface);
+.root :global(.hero-wordmark) > div {
+  width: calc(var(--ink-cols) * 1ch);
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--gc-font-render);
+  font-size: calc(100cqw / (var(--ink-cols) * 0.6));
 }
 .root :global(.hero-tag) {
   margin: 6px 0;
@@ -269,14 +278,6 @@
   font-family: var(--gc-font-ui);
   font-weight: 900;
   letter-spacing: -2px;
-}
-.root :global(.wm-a) {
-  color: var(--gc-orange);
-  text-shadow: 0 0 12px rgba(var(--gc-orange-rgb), 0.45);
-}
-.root :global(.wm-b) {
-  color: var(--gc-accent);
-  text-shadow: 0 0 12px rgba(var(--gc-accent-rgb), 0.45);
 }
 .root :global(.hero-copy) p {
   color: var(--gc-text);
