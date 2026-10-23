@@ -180,6 +180,8 @@
   width: min(100%, 560px);
   margin: 0 0 14px;
 }
+/* The leading indent is spaces (1ch), but star glyphs advance 0.6em, a touch
+   wider than Glyph Mono's 1ch, so the visible width is measured in em. */
 .root :global(.hero-wordmark) pre {
   margin: 0 0 0 calc(var(--ink-indent) * -1ch);
   font-family: var(--gc-font-render);
@@ -188,8 +190,32 @@
   line-height: 1;
   white-space: pre;
 }
+.root :global(.hero-wordmark) :global(.tw) {
+  animation: wordmark-twinkle 4s ease-in-out var(--tw-delay) infinite;
+}
+@keyframes wordmark-twinkle {
+  0%,
+  70%,
+  100% {
+    opacity: 1;
+    text-shadow: none;
+  }
+  80% {
+    opacity: 0.25;
+  }
+  88% {
+    opacity: 1;
+    color: #fff;
+    text-shadow: 0 0 6px currentColor;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .root :global(.hero-wordmark) :global(.tw) {
+    animation: none;
+  }
+}
 .root :global(.hero-wordmark) > div {
-  width: calc(var(--ink-cols) * 1ch);
+  width: calc(var(--ink-cols) * 0.6em);
   max-width: 100%;
   overflow: hidden;
   font-family: var(--gc-font-render);

@@ -14,6 +14,23 @@ const FACES = {
   css: { front: "#38bdf8", side: "#0e5a7e" },
 };
 
+// Wrap a deterministic sample of star cells so CSS can twinkle each on its
+// own delay. Seeded, so every build ships the same markup.
+function twinkle(html: string, share = 0.14) {
+  let seed = 7;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  return html.replace(
+    /(<span style="color:[^"]+">)([^<]+)(<\/span>)/g,
+    (_, open: string, run: string, close: string) => {
+      const cells = [...run].map((char) => {
+        if (char !== "★" || next() > share) return char;
+        return `<span class="tw" style="--tw-delay:${(next() * 4).toFixed(2)}s">${char}</span>`;
+      });
+      return open + cells.join("") + close;
+    },
+  );
+}
+
 export async function homeWordmark() {
   const bytes = await readFile("public/fonts/default.ttf");
   const font = parseFont(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
@@ -62,5 +79,5 @@ export async function homeWordmark() {
   const inked = lines.map((line, row) => (/\S/.test(line) ? row : -1)).filter((row) => row >= 0);
   const [first, last] = [inked[0]!, inked.at(-1)!];
   const text = lines.slice(first, last + 1).join("\n");
-  return { html: htmlLines.slice(first, last + 1).join("\n"), ...glyphDocsInkBounds(text) };
+  return { html: twinkle(htmlLines.slice(first, last + 1).join("\n")), ...glyphDocsInkBounds(text) };
 }

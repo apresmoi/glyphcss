@@ -136,4 +136,9 @@ it("renders the wordmark as extruded star glyphs beside a real heading, without 
   expect(art?.textContent).toMatch(/★/);
   expect(art?.innerHTML).toContain("#f97316");
   expect(art?.innerHTML).toContain("#38bdf8");
+  // Twinkling stars are plain spans animated by CSS, each on its own delay.
+  const twinkles = [...(art?.querySelectorAll(".tw") ?? [])];
+  expect(twinkles.length).toBeGreaterThan(20);
+  expect(twinkles.every((star) => star.textContent === "★")).toBe(true);
+  expect(new Set(twinkles.map((star) => (star as HTMLElement).style.getPropertyValue("--tw-delay"))).size).toBeGreaterThan(10);
 });
