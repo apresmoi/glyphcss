@@ -1,4 +1,4 @@
-/** Experimental comparison only; no coverage, colour, or depth decisions live here. */
+/** Experimental glyph selection; coverage and depth decisions belong to stroke.ts. */
 export type GlyphMapStrokeGlyphStrategy = "baseline" | "ascii" | "box" | "dots" | "bullets" | "dashdot" | "fine";
 
 export interface GlyphMapStrokeGlyphSample {
@@ -29,10 +29,7 @@ export function glyphMapExperimentalStrokeGlyph(
   const vertical = Math.abs(dx) < Math.abs(dy) * 0.41421356237;
   if (strategy === "box") {
     const junctions = ["", "│", "─", "└", "│", "│", "┌", "├", "─", "┘", "─", "┴", "┐", "┤", "┬", "┼"];
-    // A diagonal with no accepted intermediate cell must retain a slash:
-    // adding a staircase cell here would bypass coverage and depth testing.
-    if (pathMask < 0) return "·";
-    return junctions[pathMask] || (horizontal ? "─" : vertical ? "│" : dx * dy >= 0 ? "\\" : "/");
+    return junctions[pathMask] || "·";
   }
   const idx = row * cols + col;
   const n = samples.has(idx - cols);

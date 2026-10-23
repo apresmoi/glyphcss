@@ -9,6 +9,7 @@ describe("default /maps borders", () => {
     expect(layers).toHaveLength(2);
     for (const [options] of layers) {
       expect(options).toContain('simplify: "vw"');
+      expect(options).toContain("sharedArcs: true");
       expect(options).toContain('experimentalGlyphStrategy: "box"');
       expect(options).toContain("density: borderDensity");
     }

@@ -60,7 +60,8 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
-import { createGlyphMapLineSimplifier } from "./vector/simplify";
+import { createGlyphMapLineSimplifier, type GlyphMapLonLat } from "./vector/simplify";
+import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
 import {
   GLYPH_MAP_WALK_DRAG_DEG_PER_PX,
   GLYPH_MAP_WALK_HORIZON_TILT_DEG,
@@ -96,7 +97,7 @@ import type { GlyphMapProvider, GlyphMapProviderZoomLevel } from "./provider";
 import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD, glyphMapTargetLOD, type GlyphMapTileIndexRange, type GlyphMapTileRangeStrategy } from "./provider";
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
-import { stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
+import { createGlyphMapBoxStrokeGraph, finishGlyphMapBoxStrokeGraph, stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
 import { glyphMapAsciiLabel, stampGlyphMapPoint, stampGlyphMapPointLabel, GLYPH_MAP_POINT_RAMP } from "./point";
 import { glyphMapMarchContourMosaic, type GlyphMapContourSampleGrid, type GlyphMapContourSegment } from "./contourGeometry";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
@@ -460,10 +461,12 @@ export interface GlyphMapLineLayer {
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
   readonly filter?: GlyphMapFeatureFilter;
   readonly color?: string;
-  /** @experimental Local border-glyph comparison; affects glyph choice only. */
+  /** @experimental Border glyphs. Box joins all accepted layer paths and depth-tests added staircase corners. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** Opt-in live Visvalingam–Whyatt thinning at half a cell, cached per zoom bucket. Omitted keeps source geometry unchanged. Disabled while walking. */
   readonly simplify?: "vw";
+  /** Opt-in polygon boundary topology: deduplicate shared arcs per source/tile before live simplification. Exact source vertices must coincide. */
+  readonly sharedArcs?: boolean;
   /** Screen-space padding (output cells) a provider tile's bounds must be within to stay mounted. Default `2`. Ignored for a static (non-provider) source. */
   readonly padCells?: number;
   /**
@@ -5786,6 +5789,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function createLineLayerRuntime(layer: GlyphMapLineLayer): LineLayerRuntime {
     const color = layer.color;
     const simplifyLine = layer.simplify === "vw" ? createGlyphMapLineSimplifier() : null;
+    const sharedArcCache = layer.sharedArcs ? createGlyphMapSharedArcCache(layer.filter) : null;
+    const tileArcs = new WeakMap<import("./vector/types").GlyphMapVectorTile, readonly (readonly GlyphMapLonLat[])[]>();
     let source: GlyphMapVectorSource = layer.source;
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -5834,12 +5839,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           if (disposed) return;
         }
         const feats: GlyphMapVectorFeature[] = [];
+        const arcs: (readonly GlyphMapLonLat[])[] = [];
         for (const key of desired) {
           const tile = tileCache.get(key);
           if (!tile) continue;
-          for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
+          if (sharedArcCache) {
+            let cached = tileArcs.get(tile);
+            if (!cached) {
+              const selected = Object.entries(tile.layers).flatMap(([name, list]) =>
+                !layer.sourceLayer || name === layer.sourceLayer ? list : []);
+              cached = sharedArcCache(selected);
+              tileArcs.set(tile, cached);
+            }
+            arcs.push(...cached);
+          } else {
+            for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
+          }
         }
-        activeFeatures = feats;
+        activeFeatures = sharedArcCache ? arcs.map(ring => ({ rings: [ring] })) : feats;
         scene.rerender();
       } finally {
         updateInFlight = false;
@@ -5854,7 +5871,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (isGlyphMapVectorProvider(source)) {
         await updateProvider(source);
       } else {
-        staticFeatures = layer.filter ? source.features.filter(layer.filter) : source.features;
+        if (sharedArcCache) staticFeatures = sharedArcCache(source.features).map(ring => ({ rings: [ring] }));
+        else staticFeatures = layer.filter ? source.features.filter(layer.filter) : source.features;
         scene.rerender();
       }
     }
@@ -5933,6 +5951,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // datum, and it is exactly the projection this line now IS.
         return { col: local.col, row: local.row, depth: p[3] ?? p[2], lon, lat, elev: groundElev };
       };
+      const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
       for (const feature of feats) {
         for (const ring of feature.rings) {
           const line = simplifyLine && walk === null ? simplifyLine(ring, degPerCell) : ring;
@@ -5957,10 +5976,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const verts: GlyphMapStrokeVertex[] = groundElevationAt
             ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows)
             : run.map(([lon, lat]) => vertexAt(lon, lat));
-          stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy });
+          stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}) });
           }
         }
       }
+      if (boxGraph) finishGlyphMapBoxStrokeGraph(grid, boxGraph);
     }
 
     return {

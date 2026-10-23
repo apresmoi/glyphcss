@@ -166,6 +166,8 @@ export interface GlyphMapStampOptions {
   readonly color?: string;
   /** @experimental Local border-glyph exploration. Omit for byte-identical oriented ink. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
+  /** @internal One box graph shared by every run of a line layer, finalized after stamping. */
+  readonly boxGraph?: GlyphMapBoxStrokeGraph;
   /** Extra FLAT depth allowance, in world depth units. Default `0` — a draped stroke lies on the surface, and a flat constant cannot be right at two zoom levels at once anyway (see this file's doc for the 0.03 that was). */
   readonly depthBias?: number;
   /** Overrides {@link GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE}. */
@@ -301,6 +303,82 @@ export function glyphMapSurfaceOccludes(
   return atStroke - depth > allowance + curvatureScale * Math.hypot(cx, cy);
 }
 
+interface BoxSample extends GlyphMapStrokeGlyphSample {
+  readonly depth: number;
+  readonly slack: number;
+  readonly options: GlyphMapStampOptions;
+}
+
+/** Frame-local accepted paths; never infer edges from neighbouring terrain ink. */
+export interface GlyphMapBoxStrokeGraph {
+  readonly samples: Map<number, BoxSample>;
+  readonly paths: number[][];
+}
+
+export function createGlyphMapBoxStrokeGraph(): GlyphMapBoxStrokeGraph {
+  return { samples: new Map(), paths: [] };
+}
+
+function appendBoxCell(path: number[], idx: number): void {
+  if (path.at(-1) === idx) return;
+  // Collapse both sampled and staircase A→B→A excursions before making edges.
+  if (path.length >= 2 && path[path.length - 2] === idx) path.pop();
+  else path.push(idx);
+}
+
+/** Finish once per layer, after every arc has contributed its accepted path. */
+export function finishGlyphMapBoxStrokeGraph(grid: CellGrid, graph: GlyphMapBoxStrokeGraph): void {
+  const paths: number[][] = [];
+  const slashes = new Map<number, string>();
+  for (const path of graph.paths) {
+    const expanded: number[] = [];
+    const original = new Set(path);
+    for (let i = 0; i < path.length; i++) {
+      const idx = path[i]!;
+      if (i > 0) {
+        const prev = path[i - 1]!;
+        const a = graph.samples.get(prev)!, b = graph.samples.get(idx)!;
+        const dx = b.col - a.col, dy = b.row - a.row;
+        if (Math.abs(dx) === 1 && Math.abs(dy) === 1) {
+          const corners = [a.row * grid.cols + b.col, b.row * grid.cols + a.col];
+          // Prefer an existing path cell: the other choice can turn a
+          // sub-cell diagonal excursion into a spurious closed 2×2 loop.
+          corners.sort((x, y) => Number(original.has(y)) - Number(original.has(x)));
+          let joined = false;
+          for (const corner of corners) {
+            const col = corner % grid.cols, row = Math.floor(corner / grid.cols);
+            const depth = (a.depth + b.depth) / 2, slack = (a.slack + b.slack) / 2;
+            const options = b.options;
+            if (glyphMapForeignOwned(grid, corner)) continue;
+            if (options.requireSurface && !Number.isFinite(grid.depth[corner])) continue;
+            if (glyphMapSurfaceOccludes(grid, col, row, 0.5, 0.5, depth,
+              (options.depthBias ?? 0) + slack, options.depthCurvatureScale ?? GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE)) continue;
+            if (!graph.samples.has(corner)) {
+              options.onInk?.(corner, grid.char[corner]!, grid.color[corner]!, dx, dy);
+              grid.color[corner] = options.color ?? null;
+              grid.depth[corner] = depth;
+              graph.samples.set(corner, { col, row, subCol: 0.5, subRow: 0.5, dx, dy, depth, slack, options });
+            }
+            appendBoxCell(expanded, corner);
+            joined = true;
+            break;
+          }
+          if (!joined) {
+            const slash = dx * dy > 0 ? "\\" : "/";
+            slashes.set(prev, slash); slashes.set(idx, slash);
+          }
+        }
+      }
+      appendBoxCell(expanded, idx);
+    }
+    paths.push(expanded);
+  }
+  const masks = glyphMapStrokePathMasks(paths, grid.cols);
+  for (const [idx, sample] of graph.samples) {
+    grid.char[idx] = slashes.get(idx) ?? glyphMapExperimentalStrokeGlyph("box", sample, graph.samples, grid.cols, masks.get(idx));
+  }
+}
+
 /**
  * Stamp one already-projected polyline (screen col/row + the pinned depth
  * metric per vertex) into `grid`. Walks each segment at roughly one sample
@@ -327,11 +405,22 @@ export function stampGlyphMapPolyline(
   const requireSurface = opts.requireSurface ?? false;
   const onInk = opts.onInk;
   const strategy = opts.experimentalGlyphStrategy;
-  const samples = strategy && strategy !== "baseline" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
-
-  const paths: number[][] | null = strategy === "box" ? [] : null;
+  const graph = strategy === "box" ? opts.boxGraph ?? createGlyphMapBoxStrokeGraph() : null;
+  const samples = strategy && strategy !== "baseline" && strategy !== "box" ? new Map<number, GlyphMapStrokeGlyphSample>() : null;
+  const paths = graph?.paths;
   let path: number[] | null = null;
   const breakPath = () => { path = null; };
+  const connectBoxCell = (idx: number) => {
+    if (!paths) return;
+    const prev = path?.at(-1);
+    if (prev !== undefined) {
+      const dx = idx % grid.cols - prev % grid.cols;
+      const dy = Math.floor(idx / grid.cols) - Math.floor(prev / grid.cols);
+      if (Math.max(Math.abs(dx), Math.abs(dy)) > 1) breakPath();
+    }
+    if (!path) { path = []; paths.push(path); }
+    appendBoxCell(path, idx);
+  };
   for (let s = 0; s < points.length - 1; s++) {
     const a = points[s];
     const b = points[s + 1];
@@ -387,36 +476,39 @@ export function stampGlyphMapPolyline(
       const rowI = Math.floor(row);
       if (colI < 0 || colI >= grid.cols || rowI < 0 || rowI >= grid.rows) { breakPath(); continue; }
       const idx = rowI * grid.cols + colI;
-      if (glyphMapForeignOwned(grid, idx)) { breakPath(); continue; }
+      if (glyphMapForeignOwned(grid, idx)) continue;
       const depth = a.depth + (b.depth - a.depth) * t;
       const subCol = col - colI;
       const subRow = row - rowI;
       const surfaceDepth = grid.depth[idx];
-      if (requireSurface && !Number.isFinite(surfaceDepth)) { breakPath(); continue; } // nothing rendered here — no surface to annotate
+      if (requireSurface && !Number.isFinite(surfaceDepth)) continue; // nothing rendered here — no surface to annotate
       // Correct the sampling offset, then forgive only the faceting — two
       // different quantities, and only the second one is an allowance. See
       // `glyphMapSurfaceOccludes`, which is that loop body verbatim.
       const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
-      if (glyphMapSurfaceOccludes(grid, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) { breakPath(); continue; }
+      if (glyphMapSurfaceOccludes(grid, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) {
+        // Shared endpoints can fail against this layer's own earlier ink.
+        // Reuse that accepted graph cell without changing the depth verdict.
+        if (graph && ((s === 0 && i === 0) || (s === points.length - 2 && i === cells)) && graph.samples.has(idx)) connectBoxCell(idx);
+        continue;
+      }
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
       grid.color[idx] = color;
       grid.depth[idx] = depth;
       if (paths) {
-        if (!path) { path = []; paths.push(path); }
-        if (path.at(-1) !== idx) {
-          // A→B→A is an excursion, not two extra joining arms at A.
-          if (path.length >= 2 && path[path.length - 2] === idx) path.pop();
-          else path.push(idx);
-        }
+        // A rejected sample need not separate the next accepted CELL.
+        // Only a real grid gap (or an invalid run above) breaks connectivity.
+        connectBoxCell(idx);
+        graph!.samples.set(idx, { col: colI, row: rowI, subCol, subRow, dx: dCol, dy: dRow, depth, slack, options: opts });
       }
       if (samples) samples.set(idx, { col: colI, row: rowI, subCol, subRow, dx: dCol, dy: dRow });
     }
   }
   if (samples) {
-    const masks = paths ? glyphMapStrokePathMasks(paths, grid.cols) : null;
-    for (const [idx, sample] of samples) grid.char[idx] = glyphMapExperimentalStrokeGlyph(strategy!, sample, samples, grid.cols, masks?.get(idx));
+    for (const [idx, sample] of samples) grid.char[idx] = glyphMapExperimentalStrokeGlyph(strategy!, sample, samples, grid.cols);
   }
+  if (graph && !opts.boxGraph) finishGlyphMapBoxStrokeGraph(grid, graph);
 }
 
 // ── Contour (isoline) layers ───────────────────────────────────────────

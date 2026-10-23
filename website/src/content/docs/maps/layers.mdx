@@ -26,7 +26,7 @@ and that split matters more here than it does in a GPU renderer:
 |---|---|---|
 | `background` | The scene output's CSS background colour | `color`, `density` |
 | `raster` | A real 3D relief mesh from elevation tiles | see [below](#raster) |
-| `line` | A post-raster **stamp** into the cell grid | `source`, `sourceLayer`, `filter`, `color`, `padCells`, `density`, `simplify` |
+| `line` | A post-raster **stamp** into the cell grid | `source`, `sourceLayer`, `filter`, `color`, `padCells`, `density`, `simplify`, `sharedArcs` |
 | `contour` | A post-raster stamp, marched from an elevation field | see [below](#contour) |
 | `fill` | A draped or flat polygon mesh | see [below](#fill) |
 | `fill-extrusion` | An extruded polygon mesh with walls and a cap | see [below](#fill-extrusion) |
@@ -109,10 +109,21 @@ does not repeat simplification. Zooming in retains finer source detail.
 Endpoints stay fixed; closed rings that would collapse below a triangle
 retain their source geometry. Walking retains full source detail.
 
-Omitting `simplify` leaves output unchanged. This is display thinning of
-already resolved lines; bake shared arcs before clipping for consistent
-tile boundaries. It does not reconstruct shared topology across tiles.
-The `/maps` borders opt in and use the experimental `box` glyph strategy.
+`sharedArcs: true` also reconstructs polygon boundary topology per source
+feature set or tile: exact shared edges (in either direction) become one
+arc, split at junctions before VW. Junction endpoints stay fixed, and the
+arc geometry and zoom buckets are cached. Explicit line features keep their
+own paths. Differently sampled edges are not snapped together; bake shared
+arcs before tile clipping when source tiles need consistent simplification.
+
+The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in
+one graph per layer and frame, including coincident feature/tile endpoints.
+Diagonal steps add one staircase corner using the same depth and ownership
+tests; when both corners are blocked, the slash remains. Immediate backtracks
+collapse before joining, leaving dots for erased excursions.
+
+Omitting these options leaves the default output unchanged. The `/maps`
+borders enable live VW, shared arcs, and `box`.
 
 ## Appearance: `density`, `renderMode`, `glyphPalette`
 

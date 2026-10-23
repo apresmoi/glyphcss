@@ -1370,6 +1370,7 @@ export function useMapsWorkbench() {
                 color: borderColorRef.current,
                 density: borderDensityRef.current,
                 simplify: "vw" as const,
+                sharedArcs: true,
                 experimentalGlyphStrategy: "box" as const,
               },
             ]
@@ -1636,6 +1637,7 @@ export function useMapsWorkbench() {
         color: borderColor,
         density: borderDensity,
         simplify: "vw",
+        sharedArcs: true,
         experimentalGlyphStrategy: "box",
       });
     }
