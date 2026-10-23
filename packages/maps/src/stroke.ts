@@ -168,6 +168,8 @@ export interface GlyphMapStampOptions {
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** @internal The depth buffer as it stood before this layer stamped anything; occlusion reads it so a layer's own ink never hides the layer. Box keeps its own in `boxGraph`. */
   readonly surface?: CellGrid;
+  /** @internal Exact mesh-surface verdict for extrusion edges; reads the frozen pre-pass surface. */
+  readonly occludes?: (col: number, row: number, depth: number) => boolean;
   /** @internal One box graph shared by every run of a line layer, finalized after stamping. */
   readonly boxGraph?: GlyphMapBoxStrokeGraph;
   /** Extra FLAT depth allowance, in world depth units. Default `0` — a draped stroke lies on the surface, and a flat constant cannot be right at two zoom levels at once anyway (see this file's doc for the 0.03 that was). */
@@ -627,7 +629,7 @@ export function stampGlyphMapPolyline(
       // different quantities, and only the second one is an allowance. See
       // `glyphMapSurfaceOccludes`, which is that loop body verbatim.
       const slack = (a.slack ?? 0) + ((b.slack ?? 0) - (a.slack ?? 0)) * t;
-      if (glyphMapSurfaceOccludes(surface, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) {
+      if (opts.occludes ? opts.occludes(col, row, depth) : glyphMapSurfaceOccludes(surface, colI, rowI, subCol, subRow, depth, bias + slack, curvatureScale)) {
         // Shared endpoints can fail against this layer's own earlier ink.
         // Reuse that accepted graph cell without changing the depth verdict.
         if (graph && ((s === 0 && i === 0) || (s === points.length - 2 && i === cells)) && graph.samples.has(idx)) connectBoxCell(idx);

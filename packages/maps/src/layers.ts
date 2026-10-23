@@ -664,7 +664,18 @@ export function glyphMapVectorPolygons(features: readonly GlyphMapVectorFeature[
   return glyphMapVectorMesh(features, projection, options).polygons as Polygon[];
 }
 
+/** @internal Exact mesh-builder geometry retained only for opted-in building outlines. */
+export interface GlyphMapExtrusionGeometry {
+  readonly roof: readonly (readonly Vec3[])[];
+  readonly base: readonly (readonly Vec3[])[];
+  readonly roofEdges: readonly (readonly [Vec3, Vec3])[];
+  readonly polygons: readonly Polygon[];
+  readonly color?: string;
+}
+
 export interface GlyphMapVectorMeshOptions {
+  /** @internal Called after planting and height conversion, once per polygon group. */
+  readonly onExtrusion?: (geometry: GlyphMapExtrusionGeometry) => void;
   /**
    * This piece's colour. Called once per polygon GROUP, not once per feature,
    * and `part` is that group's own anchor (its outer ring's first vertex, as
@@ -1007,6 +1018,8 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
       const centre = ringMean(rings[0]);
       const base = (options.groundElevation?.(feature, centre[0], centre[1]) ?? 0) + baseOffset;
 
+      const groupStart = out.length;
+      const wallStart = walls.length;
       const bottom = rings.map((ring) => ring.map(([lon, lat]) => projection.project(lon, lat, base)));
       // `height === 0` reuses the bottom verbatim rather than reprojecting it;
       // a non-finite `height` (a feature whose height attribute isn't a number)
@@ -1230,6 +1243,15 @@ export function glyphMapVectorMesh(features: readonly GlyphMapVectorFeature[], p
             out.push(wall);
           }
         }
+      }
+      if (options.onExtrusion) {
+        // Wall refinement owns the boundary subdivisions; retain those very
+        // edges rather than drawing a chord through a curved roof.
+        const roofEdges = walls.slice(wallStart).filter(w => !w.cap).map(w => {
+          const v = out[w.polygon]!.vertices;
+          return [v[2]!, v[3]!] as const;
+        });
+        options.onExtrusion({ roof: top, base: bottom, roofEdges, polygons: out.slice(groupStart), color });
       }
     }
   }

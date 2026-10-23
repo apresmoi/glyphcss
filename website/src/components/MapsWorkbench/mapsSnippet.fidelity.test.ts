@@ -187,4 +187,5 @@ it("exports the OSM box lines, class palette, and live road hierarchy used by th
   const code = build({ osm: { enabled: ["omt-roads"], densities: {}, anchors: {} } });
   expect(code).toContain(`lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)}`);
   expect(code).toContain("roadHierarchy: true");
+  expect(code).toContain('buildingOutline: "braille"');
 });

@@ -60,6 +60,8 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
+import { createGlyphMapExtrusionSurface, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
+import type { GlyphMapExtrusionGeometry } from "./layers";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
 import {
@@ -1191,6 +1193,8 @@ const GLYPH_MAP_HEATMAP_RELIEF_HEIGHT_M = 1_000;
  */
 const GLYPH_MAP_HEATMAP_SURFACE_LIFT_M = 10;
 export interface GlyphMapFillExtrusionLayer {
+  /** Opt-in braille roof/corner outlines, quiet atlas-compatible fill, and a live two-cell footprint cutoff. Omitted preserves the original render. */
+  readonly outline?: "braille";
   readonly type: "fill-extrusion"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
   /** Narrows this layer to a subset of its source's features — see {@link GlyphMapFeatureFilter}. */
@@ -6948,6 +6952,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * rebuild that is not the tile set.
    */
   interface FeatureLayerRuntime {
+    /** @internal World-space mesh surfaces for exact building-outline occlusion. */
+    polygons?(): readonly Polygon[];
+    outlineGeometry?(): readonly GlyphMapExtrusionGeometry[];
     update(force?: boolean): Promise<void>;
     /**
      * Hand this runtime a NEW source — {@link GlyphMapHandle.setLayerSource}'s
@@ -7204,6 +7211,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function createMeshFeatureRuntime(layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer): FeatureLayerRuntime {
     let handles: GlyphMeshHandle[] = [];
     let mesh: GlyphMapVectorMesh | null = null;
+    let outlineGeometry: GlyphMapExtrusionGeometry[] = [];
     /**
      * The camera state the mounted polygons were last culled against. The
      * wall cull is idempotent, so a repeated sync with an unmoved camera —
@@ -7451,8 +7459,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           return highest + drapeSagLift + glyphMapTrueScaleElevation(GLYPH_MAP_DRAPE_LIFT_M, projection);
         }
         : undefined;
+      outlineGeometry = [];
       mesh = glyphMapVectorMesh(features.filter((f) => f.geometryType !== "point" && f.geometryType !== "line"), projection, {
         color,
+        onExtrusion: layer.type === "fill-extrusion" && layer.outline ? geometry => outlineGeometry.push(geometry) : undefined,
         // Both callbacks read the SAME two numbers, so they are resolved by
         // one helper: `heightProperty` and `baseOffsetProperty` are both
         // measured from the ground (see `baseOffsetProperty`'s own doc), and
@@ -7538,6 +7548,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return {
       update: runtime.update,
       setSource: runtime.setSource,
+      polygons: () => mesh?.polygons ?? [],
+      outlineGeometry: () => outlineGeometry,
       dispose() {
         nearSideGeometrySyncs.delete(syncWalls);
         groundChangeSyncs.delete(syncGround);
@@ -8523,6 +8535,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           state.runtime.stamp(g, cellToSceneGrid, cachedBaseGrid!, !isDetail);
         }
       }
+      const outlined = layerOrder.flatMap(id => {
+        const s = layerStates.get(id);
+        return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
+      });
+      if (outlined.length && layerInfo?.viewport !== true) {
+        const frozen = { ...g, depth: g.depth.slice() };
+        const project = (world: Vec3): GlyphMapStrokeVertex => {
+          const p = camera.project(world, cachedBaseGrid!.cols, cachedBaseGrid!.rows, cachedBaseGrid!.cellAspect, cachedBaseGrid!);
+          return { ...glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid), depth: p[3] ?? p[2] };
+        };
+        const polygons = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? s.runtime.polygons?.() ?? [] : []);
+        const surface = createGlyphMapExtrusionSurface(frozen, polygons, project, v => camera.eyeDepth(v));
+        stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
+      }
     } finally {
       if (isDetail && cachedBaseCamera) {
         camera.zoom = liveZoom;
@@ -8540,7 +8566,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // encoder's slower hook-safe path (measured 0.9 ms per render on a
     // 160x64 globe, ~35%). The live projection decides, and every site that
     // can change it re-syncs (`applyProjectionFrame`, `setSun`).
-    const shouldInstall = strokeLayerCount > 0 || (sunMode !== "off" && !isOrbitProjection());
+    const shouldInstall = strokeLayerCount > 0 || [...layerStates.values()].some(s => s.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline) || (sunMode !== "off" && !isOrbitProjection());
     const current = scene.getOptions().transformCells;
     if (shouldInstall && current !== composedTransformCells) {
       scene.setOptions({ transformCells: composedTransformCells });
@@ -8601,6 +8627,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         ? createMeshFeatureRuntime(layer)
         : layer.type === "heatmap" ? createHeatmapRuntime(layer) : createPointFeatureRuntime(layer);
       layerStates.set(id, { kind: "feature", layer, runtime });
+      if (layer.type === "fill-extrusion" && layer.outline) syncStrokeHookInstalled();
       const p = trackUpdate(runtime.update());
       if (!mapLoaded) initialLoadPromises.push(p);
     }
@@ -8644,6 +8671,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       strokeLayerCount--;
     }
     layerStates.delete(id);
+    if (state.kind === "feature" && state.layer.type === "fill-extrusion" && state.layer.outline) syncStrokeHookInstalled();
     const idx = layerOrder.indexOf(id);
     if (idx >= 0) layerOrder.splice(idx, 1);
     if (state.kind === "background") applyBackground();

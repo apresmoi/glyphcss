@@ -206,7 +206,7 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
   ].join("\n");
 
   const osmPreamble = state.osm
-    ? `\n// The OpenStreetMap stack — OpenFreeMap's planet (public, no API key),\n// mapped onto glyph layers by @glyphcss/maps' OpenMapTiles schema table.\nconst osmSource = glyphMapOpenFreeMapProvider();\nconst osmLayers = glyphMapOpenMapTilesLayers(osmSource, {\n  include: ${JSON.stringify(state.osm.enabled)},\n  densities: ${JSON.stringify(state.osm.densities)},\n  textAnchors: ${JSON.stringify(state.osm.anchors)},\n  lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)},\n  roadHierarchy: true,\n});\n`
+    ? `\n// The OpenStreetMap stack — OpenFreeMap's planet (public, no API key),\n// mapped onto glyph layers by @glyphcss/maps' OpenMapTiles schema table.\nconst osmSource = glyphMapOpenFreeMapProvider();\nconst osmLayers = glyphMapOpenMapTilesLayers(osmSource, {\n  include: ${JSON.stringify(state.osm.enabled)},\n  densities: ${JSON.stringify(state.osm.densities)},\n  textAnchors: ${JSON.stringify(state.osm.anchors)},\n  lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)},\n  roadHierarchy: true,\n  buildingOutline: "braille",\n});\n`
     : "";
 
   const imports = [

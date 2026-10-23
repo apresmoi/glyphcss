@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import type { GlyphMapLineLayer } from "@glyphcss/maps";
 import { MAP_OSM_LINE_OPTIONS, MAP_OSM_SUBLAYERS, createOsmSource, mapOsmLayers } from "./mapsOsm";
 
@@ -21,4 +21,15 @@ it("opts every OSM line row into box/VW, and only boundaries into shared polygon
   const minor = { geometryType: "line" as const, properties: { class: "minor" }, rings: [] };
   expect(roads.filterAtResolution!(minor, 0.06 / 139)).toBe(false);
   expect(roads.filterAtResolution!(minor, 0.04 / 139)).toBe(true);
+});
+
+
+afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+it.each(["", "?lines=braille"])("opts /maps buildings into braille outlines with URL %s", async search => {
+  vi.stubGlobal("location", { search });
+  vi.resetModules();
+  const { mapOsmLayers, createOsmSource } = await import("./mapsOsm");
+  const layers = mapOsmLayers(createOsmSource(), { enabled: ["omt-buildings", "omt-roads"], densities: {} });
+  expect(layers.find(l => l.type === "fill-extrusion")).toMatchObject({ outline: "braille", facade: true });
+  expect(layers.find(l => l.type === "line")).toMatchObject({ experimentalGlyphStrategy: search ? "braille" : "box" });
 });

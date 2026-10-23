@@ -579,6 +579,8 @@ const ROAD_CELL_LIMITS: Readonly<Record<string, number>> = {
 };
 
 export interface GlyphMapOpenMapTilesLayersOptions {
+  /** Opt-in quiet fill and braille roof/corner edges on the omt-buildings row. */
+  readonly buildingOutline?: GlyphMapFillExtrusionLayer["outline"];
   /** Opt-in class hierarchy on omt-roads, evaluated at the live output grid resolution; walking keeps all classes. */
   readonly roadHierarchy?: boolean;
   /** Line-only opt-ins keyed by spec id. Explicit colour overrides still replace a class palette. */
@@ -714,6 +716,7 @@ export function glyphMapOpenMapTilesLayers(
         out.push({
           type: "fill-extrusion", ...common,
           heightProperty: spec.heightProperty,
+          ...(spec.id === "omt-buildings" && opts.buildingOutline ? { outline: opts.buildingOutline } : {}),
           ...(spec.baseOffsetProperty === undefined ? {} : { baseOffsetProperty: spec.baseOffsetProperty }),
           ...(spec.facade === undefined ? {} : { facade: spec.facade }),
           ...(spec.colorVariation === undefined ? {} : { colorVariation: spec.colorVariation }),

@@ -347,6 +347,18 @@ value per face, so a block of them at eye height is two tones and a wedge:
 
 Both default off and are byte-identical there.
 
+`outline: "braille"` opts into braille roof rings and, when tilted, vertical
+corner edges at the mesh's planted base and roof heights. The body uses `.` so
+edges carry the shape. Only footprints spanning at least two projected cells get
+outlines; the cutoff follows zoom and output density. Scene depth and exact
+building planes hide occluded edges, while incident faces accept their own edge
+without a depth bias. All glyphs fit the universal atlas. Omitted preserves the
+original output. Building outlines currently support braille only.
+
+For OpenMapTiles, pass `buildingOutline: "braille"` to
+`glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export enable
+this for buildings, alongside either box or braille road strokes.
+
 ## `symbol`
 
 Text labels, mounted as DOM over the grid.
