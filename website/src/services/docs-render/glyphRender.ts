@@ -11,6 +11,7 @@ import {
   glyphChartBars3d,
   glyphChartLine3d,
   renderGlyphChart3d,
+  GLYPH_CHART_3D_DEFAULT_CAMERA,
   type GlyphChart3dRenderOptions,
 } from "@glyphcss/charts/3d";
 import { renderGlyphDiagram, type GlyphGraph, type GlyphDiagramRenderOptions } from "@glyphcss/diagrams";
@@ -44,7 +45,21 @@ export function resolveGlyphDocsChart3d(input: Extract<GlyphDocsRenderInput, { k
     throw new TypeError("GlyphRender supports color none or css in HTML documentation.");
   }
   const mark = buildGlyphDocsChart3d(input.source);
-  const options: GlyphChart3dRenderOptions = { target: "chat", color: "css", ...input.options };
+  const base: GlyphChart3dRenderOptions = { target: "chat", color: "css", ...input.options };
+  const { rotX, rotY } = { ...GLYPH_CHART_3D_DEFAULT_CAMERA, ...base.camera };
+  // Auto-fit picks a zoom per angle, so a dragged chart would grow and shrink.
+  // One zoom that fits every reachable angle keeps its size fixed while rotating.
+  const zoom =
+    base.camera?.zoom ??
+    Math.min(
+      ...[0, 30, 60, 90].flatMap((x) =>
+        Array.from(
+          { length: 24 },
+          (_, step) => renderGlyphChart3d(mark, { ...base, camera: { rotX: x, rotY: step * 15 } }).resolved.camera.zoom,
+        ),
+      ),
+    );
+  const options: GlyphChart3dRenderOptions = { ...base, camera: { ...base.camera, rotX, rotY, zoom } };
   return { mark, options, result: renderGlyphChart3d(mark, options) };
 }
 

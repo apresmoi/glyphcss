@@ -20,6 +20,7 @@ import {
   normalizeGlyphDocsSource,
   glyphDocsUsage,
   renderGlyphDocs,
+  resolveGlyphDocsChart3d,
   type GlyphDocsRenderInput,
 } from "./glyphRender";
 
@@ -180,7 +181,8 @@ it.each(fixtures)("uses the real $kind renderer and keeps source-dependent text"
     case "chart-3d":
       expected = renderGlyphChart3d(
         glyphChartSurface(...(input.source as { type: "surface"; args: Parameters<typeof glyphChartSurface> }).args),
-        input.options,
+        // Docs pin one rotation-safe zoom; the frame is otherwise the library's.
+        resolveGlyphDocsChart3d(input).options,
       );
       break;
     case "chart":
@@ -394,4 +396,19 @@ it("covers all native marks, Mermaid chart families, and headless 3D constructor
   ]);
   const threeD = inputs.filter((input) => input.kind === "chart-3d").map((input) => input.source.type);
   expect(threeD.sort()).toEqual(["bars", "line", "parametric", "scatter", "surface"]);
+});
+
+it("keeps a docs 3D chart at one zoom that fits every angle it can be dragged to", () => {
+  const input = { kind: "chart-3d", source: { type: "surface", args: [{ z: [[0, 1, 0], [1, 2, 1], [0, 1, 3]] }] } } as const;
+  const { mark, options } = resolveGlyphDocsChart3d(input as Extract<GlyphDocsRenderInput, { kind: "chart-3d" }>);
+  const zooms = new Set<number>();
+  for (const rotX of [0, 20, 55, 90]) {
+    for (let rotY = 0; rotY < 360; rotY += 37) {
+      const fixed = renderGlyphChart3d(mark, { ...options, camera: { ...options.camera, rotX, rotY } });
+      const fitted = renderGlyphChart3d(mark, { ...options, camera: { rotX, rotY } });
+      zooms.add(fixed.resolved.camera.zoom);
+      expect(fixed.resolved.camera.zoom).toBeLessThanOrEqual(fitted.resolved.camera.zoom * 1.15);
+    }
+  }
+  expect(zooms.size).toBe(1);
 });

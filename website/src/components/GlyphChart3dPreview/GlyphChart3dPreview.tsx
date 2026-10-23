@@ -37,8 +37,8 @@ export function GlyphChart3dPreview({
 
   function paint() {
     frame.current = 0;
-    // Omitting zoom/center refits each angle, so the chart never clips.
-    const camera = { rotX: angle.current.rotX, rotY: angle.current.rotY };
+    // The build resolves one zoom that fits every angle; keep it so the size holds.
+    const camera = { ...options.camera, rotX: angle.current.rotX, rotY: angle.current.rotY };
     setHtml(glyphChart3dFrameHtml(renderGlyphChart3d(mark, { ...options, camera })));
   }
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
