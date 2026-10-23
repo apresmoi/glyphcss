@@ -44,11 +44,16 @@
 .repository {
   justify-self: end;
 }
+/* An opaque strip over the sidebar's top padding, so nav links scrolling
+   underneath never show through the search control. */
 .search {
   position: fixed;
-  top: calc(var(--gc-header-height) + var(--gc-space-3));
-  left: var(--sl-sidebar-pad-x);
-  width: calc(var(--sl-sidebar-width) - 2 * var(--sl-sidebar-pad-x));
+  top: var(--gc-header-height);
+  left: 0;
+  box-sizing: border-box;
+  width: calc(var(--sl-sidebar-width) - 1px);
+  padding: var(--gc-space-3) var(--sl-sidebar-pad-x);
+  background: var(--sl-color-bg-sidebar);
 }
 .search :global(button[data-open-modal]) {
   width: 100%;
