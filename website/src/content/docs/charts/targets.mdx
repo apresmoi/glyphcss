@@ -70,8 +70,8 @@ These documentation previews display terminal examples with CSS color, since ANS
 - `width` and `height` are positive integer cell budgets. Increasing them changes layout and data resolution; changing CSS font size changes physical size.
 - `detail` accepts `auto`, `faithful`, `balanced`, or `simplified`; always inspect fitting notes rather than assuming every label survives a small budget.
 - `cellAspect` is column width divided by row height. It adjusts arc shaping; use measured monospace metrics when overriding it.
-- `textScale` is an integer at least 1 for web HTML text sizing. Plain text/ANSI and compiled exits ignore it. It reserves more cells for titles, ticks, and labels.
-- `regionFill` accepts `auto`, `solid`, or `texture`. Colored exits may use solid regions; plain text keeps textures. Indistinguishable solid series fall back to textures with a note.
+- `textScale` is an integer at least 1 for web HTML text sizing. Plain text/ANSI and compiled outputs ignore it. It reserves more cells for titles, ticks, and labels.
+- `regionFill` accepts `auto`, `solid`, or `texture`. Colored outputs may use solid regions; plain text keeps textures. Indistinguishable solid series fall back to textures with a note.
 - `shades` replaces series texture glyphs. `cellRamp` replaces unsigned heatmap ramp glyphs. Each must be a nonempty array of single visible characters; ASCII requires 7-bit characters.
 - Mermaid radar alone reads `radarGrid: "all" | "outer"` and `radarSeries: "line" | "cells"`.
 

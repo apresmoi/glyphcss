@@ -15,12 +15,13 @@ import { checkPageImages } from "./check-page-images.mjs";
 import { docsPages, PAGES, socialPng, templateHtml } from "./generate-og.mjs";
 import { randomBytes } from "node:crypto";
 import sharp from "sharp";
+import { ogGeneratorRoutes } from "../src/config/ogRoutes.mjs";
 
-test("Markdown twins remove MDX wrappers and imports, preserving fenced/inline code verbatim", () => {
+test("Markdown twins remove MDX wrappers and imports, preserving fenced/inline code verbatim", async () => {
   const code =
     '```tsx\nimport { GlyphMesh } from "@glyphcss/react";\n<GlyphMesh />\n```';
   const source = `---\ntitle: Hello\n---\nimport {\n Tabs, TabItem\n} from '@astrojs/starlight/components';\n<Tabs>\n<TabItem label="React">\nProse with \`<GlyphMesh>\` and \`import X\`.\n\n${code}\n</TabItem>\n</Tabs>\n`;
-  const result = cleanMarkdown(source);
+  const result = await cleanMarkdown(source);
   assert.ok(result.includes(code));
   assert.ok(result.includes("Prose with `<GlyphMesh>` and `import X`."));
   assert.ok(
@@ -29,7 +30,7 @@ test("Markdown twins remove MDX wrappers and imports, preserving fenced/inline c
       !result.includes("starlight/components"),
   );
   assert.equal(
-    cleanMarkdown("~~~jsx\n<Widget />\n~~~\n<Widget />"),
+    await cleanMarkdown("~~~jsx\n<Widget />\n~~~\n<Widget />"),
     "~~~jsx\n<Widget />\n~~~\n",
   );
 });
@@ -72,10 +73,10 @@ test("new docs sections and custom slugs are discovered without editing a catalo
   }
 });
 
-test("all source docs preserve every code fence in cleaned output", () => {
+test("all source docs preserve every code fence in cleaned output", async () => {
   for (const doc of readDocs()) {
     const fences = doc.source.match(/^```[^\n]*\n[\s\S]*?^```/gm) ?? [];
-    const cleaned = cleanMarkdown(doc.source);
+    const cleaned = await cleanMarkdown(doc.source);
     for (const code of fences)
       assert.ok(cleaned.includes(code), `${doc.slug}: changed code fence`);
   }
@@ -84,6 +85,98 @@ test("all source docs preserve every code fence in cleaned output", () => {
       Date.parse(sitemapLastmod("https://glyphcss.com/introduction/")),
     ),
   );
+});
+
+test("every real docs example retains its full source and rendered text without orphaned JSX", async () => {
+  let examples = 0;
+  for (const doc of readDocs()) {
+    const cleaned = await cleanMarkdown(doc.source);
+    const outsideCode = cleaned
+      .replace(/^(`{3,}|~{3,})[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, "")
+      .replace(/(`+)[^\n]*?\1/g, "");
+    assert.doesNotMatch(
+      outsideCode,
+      /<\/?[A-Z]|options=\{\{|source=\{|showSource=\{|\}\s*\/>/,
+      doc.slug,
+    );
+    const inputs = [
+      ...doc.source.matchAll(
+        /<GlyphRender kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g,
+      ),
+    ];
+    assert.equal(
+      inputs.length,
+      (doc.source.match(/<GlyphRender /g) ?? []).length,
+      `${doc.slug}: untested example`,
+    );
+    const sources = inputs.map((match) => JSON.parse(match[2]));
+    for (const source of sources) {
+      const expected =
+        typeof source === "string" ? source : JSON.stringify(source, null, 2);
+      assert.ok(
+        cleaned.includes(`\n${expected}\n`),
+        `${doc.slug}: lost source ${expected}`,
+      );
+    }
+    const outputs = [...cleaned.matchAll(/^```text\n([\s\S]*?)^```/gm)];
+    assert.equal(
+      outputs.length,
+      inputs.length,
+      `${doc.slug}: lost rendered output`,
+    );
+    for (const output of outputs)
+      assert.ok(output[1].trim(), `${doc.slug}: empty output`);
+    examples += inputs.length;
+  }
+  assert.ok(examples > 100, "The real docs examples must be exercised.");
+});
+
+test("JSX parsing balances nested objects, arrows, escaped strings, templates, and comments", async () => {
+  const source = [
+    "<GlyphRender",
+    '  kind="diagram"',
+    "  source={`",
+    "    flowchart LR",
+    '      A[Read ${"order"}] --> B[Save order]',
+    "  `}",
+    '  options={{target: "chat", width: 48, height: 9, title: "Braces } > \\\"", /* } /> */ overflow: "expand"}}',
+    "  showSource={false}",
+    "/>",
+    "After the example.",
+  ].join("\n");
+  const cleaned = await cleanMarkdown(source);
+  assert.match(
+    cleaned,
+    /```mermaid\nflowchart LR\n  A\[Read order\] --> B\[Save order\]\n```/,
+  );
+  assert.match(
+    cleaned,
+    /```text\n[\s\S]*Read order[\s\S]*Save order[\s\S]*\n```/,
+  );
+  assert.ok(cleaned.endsWith("After the example.\n"));
+  assert.doesNotMatch(cleaned, /GlyphRender|options=|showSource=/);
+  await assert.rejects(
+    cleanMarkdown('<GlyphRender kind="diagram" source={readFile()} />'),
+    /static literals/,
+  );
+});
+
+test("OG generator routes are available only to the dev server", () => {
+  for (const command of ["dev", "build", "preview", "sync"]) {
+    const routes = [];
+    ogGeneratorRoutes().hooks["astro:config:setup"]({
+      command,
+      injectRoute: (route) => routes.push(route),
+    });
+    assert.deepEqual(
+      routes.map((route) => route.pattern),
+      command === "dev" ? ["/og-manifest.json", "/og-renders.json"] : [],
+    );
+    for (const route of routes)
+      assert.ok(
+        readFileSync(route.entrypoint, "utf8").includes("function GET()"),
+      );
+  }
 });
 
 test("OG checker rejects deleted files, shared cards and missing metadata (mutation check)", () => {
@@ -164,7 +257,7 @@ test("cards compose real render HTML at 1200×630 and have distinct output paths
   assert.equal(PAGES.find((page) => page.slug === "charts").render, "charts");
   assert.ok(
     readFileSync(
-      new URL("../src/pages/og-manifest.json.ts", import.meta.url),
+      new URL("../src/integrations/astro/og-manifest.json.ts", import.meta.url),
       "utf8",
     ).includes('getCollection("docs")'),
   );

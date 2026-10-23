@@ -17,8 +17,8 @@ function readEntries(dir = "src/content/docs", root = dir): { id: string; body: 
 }
 
 vi.mock("astro:content", () => ({ getCollection: async () => readEntries() }));
-const { GET: manifestGET } = await import("../../pages/og-manifest.json");
-const { GET: rendersGET } = await import("../../pages/og-renders.json");
+const { GET: manifestGET } = await import("../../integrations/astro/og-manifest.json");
+const { GET: rendersGET } = await import("../../integrations/astro/og-renders.json");
 const manifest = await (await manifestGET()).json();
 const renders = await (await rendersGET()).json();
 

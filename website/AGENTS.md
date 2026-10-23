@@ -29,6 +29,7 @@ Root `AGENTS.md` applies.
 ## Behavioral contracts
 
 - Keep workbench headings and static text/spans (CSS colour, same text). Builds check preset galleries and unique local OG cards; maps use bundled ETOPO1. Generate cards before building; docs cards use their first GlyphRender through docs-render, or a colourful section render, with sidebar group labels.
+- Markdown twins include each GlyphRender source and plain-text output from docs-render. OG generator JSON routes are injected only in dev.
 - Fresh `/maps` uses zero tilt/bearing; shared links keep their pose.
 - Preserve existing URLs, serialized state versions, dataset identifiers, rendering results, and export contents during UI refactors. URL state is append-only: new fields are optional, malformed fields degrade to absent, and only incompatible reshapes bump a version prefix. Shipped dataset IDs are frozen; renames require an alias map.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.

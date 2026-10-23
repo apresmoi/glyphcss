@@ -35,7 +35,7 @@ for (const doc of docs) {
   sections.get(title).push(doc);
   const out = join(dist, "docs", `${doc.slug || "index"}.md`);
   mkdirSync(dirname(out), { recursive: true });
-  const body = cleanMarkdown(doc.source);
+  const body = await cleanMarkdown(doc.source);
   writeFileSync(out, `# ${doc.title}\n\n${body}`);
   full.push("---", "", `# ${doc.title}`, "", body, "");
 }

@@ -1,13 +1,13 @@
 import { getCollection } from "astro:content";
-import { staticLoader, staticMap, staticSynth } from "../services/static-workbench/scenes";
+import { staticLoader, staticMap, staticSynth } from "../../services/static-workbench/scenes";
 import {
   socialBench,
   socialEarth,
   socialDiagram,
   socialCharts,
   socialDocsSections,
-} from "../services/static-workbench/socialRenders";
-import { socialDocsCards, socialGrid } from "../services/static-workbench/docsCards";
+} from "../../services/static-workbench/socialRenders";
+import { socialDocsCards, socialGrid } from "../../services/static-workbench/docsCards";
 
 export async function GET() {
   const { renders } = await socialDocsCards(await getCollection("docs"));

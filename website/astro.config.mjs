@@ -1,5 +1,6 @@
 import { analyticsHead } from './src/config/analytics.mjs';
 import { docsSidebar } from './src/config/docsSidebar.mjs';
+import { ogGeneratorRoutes } from './src/config/ogRoutes.mjs';
 // @ts-check
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
@@ -65,6 +66,7 @@ export default defineConfig({
     },
   },
   integrations: [
+    ogGeneratorRoutes(),
     react(),
     sitemap({ serialize: (item) => ({ ...item, lastmod: sitemapLastmod(item.url) }) }),
     starlight({
