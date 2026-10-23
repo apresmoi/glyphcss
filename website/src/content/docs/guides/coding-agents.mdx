@@ -26,27 +26,27 @@ with the same Glyphcss libraries; the data and history are illustrative.
 
 ### Draw the request flow
 
-> Use glyphcss-diagrams to draw the request flow: Request → API → Response.
+> Use glyphcss-diagrams to draw the request flow: the client sends a request to the gateway, which checks the token; valid tokens reach the API, which reads the cache and falls back to the database; invalid tokens get a 401.
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request --> API --> Response"} options={{"target": "chat", "width": 48, "height": 7, "color": "none"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Client[Client] --> Gateway{Token valid?}; Gateway -->|yes| API[Orders API]; Gateway -->|no| Deny[Return 401]; API --> Cache[(Cache)]; API -.->|miss| DB[(Database)]"} options={{"target": "chat", "width": 72, "height": 14, "color": "none"}} />
 
-The reply contains a flowchart with the three labels and their connections.
+The reply contains a flowchart with the decision, both branches and the cache fallback.
 For ordered messages between participants, ask for a [sequence diagram](/diagrams/sequence/).
 
 ### Chart signups by month
 
-> Use glyphcss-diagrams to chart signups by month: Jan 12, Feb 18, Mar 15, Apr 27. Show the trend directly in chat.
+> Use glyphcss-diagrams to chart signups by month: Jan 12, Feb 18, Mar 15, Apr 27, May 31, Jun 29, Jul 38, Aug 44, Sep 41, Oct 52, Nov 58, Dec 66. Show the trend directly in chat.
 
-<GlyphRender kind="chart-mermaid" source={"xychart-beta\n title \"Monthly signups\"\n x-axis [Jan, Feb, Mar, Apr]\n y-axis \"Signups\" 0 --> 30\n line [12, 18, 15, 27]"} options={{"target": "chat", "charset": "braille", "width": 48, "height": 14, "color": "none"}} />
+<GlyphRender kind="chart-mermaid" source={"xychart-beta\n title \"Monthly signups\"\n x-axis [Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]\n y-axis \"Signups\" 0 --> 70\n line [12, 18, 15, 27, 31, 29, 38, 44, 41, 52, 58, 66]"} options={{"target": "chat", "charset": "braille", "width": 72, "height": 16, "color": "none"}} />
 
 The reply contains a labeled trend chart. Trends use braille by default in the
 skill; ask for ASCII if your chat font misaligns the dots.
 
 ### Show the git branches
 
-> Use glyphcss-diagrams to show the git branches: Start on main, Search on feature, Docs on main, then merge feature as Ship.
+> Use glyphcss-diagrams to show the git branches: Start on main; Search and Filters on feature; Docs on main; Fix on hotfix; merge hotfix, then merge feature as Ship.
 
-<GlyphRender kind="diagram" source={"gitGraph TB:\n commit id: \"Start\"\n branch feature\n commit id: \"Search\"\n checkout main\n commit id: \"Docs\"\n merge feature id: \"Ship\""} options={{"target": "chat", "width": 48, "height": 12, "color": "none"}} />
+<GlyphRender kind="diagram" source={"gitGraph TB:\n commit id: \"Start\"\n branch feature\n commit id: \"Search\"\n commit id: \"Filters\"\n checkout main\n commit id: \"Docs\"\n branch hotfix\n commit id: \"Fix\"\n checkout main\n merge hotfix id: \"Merge fix\"\n merge feature id: \"Ship\""} options={{"target": "chat", "width": 60, "height": 16, "color": "none"}} />
 
 The reply contains commit rows, branch lanes, and the merge. For an actual
 repository, ask the agent to read its git log; see [git history and lanes](/diagrams/gitgraph/).

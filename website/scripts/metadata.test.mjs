@@ -101,7 +101,7 @@ test("every real docs example retains its full source and rendered text without 
     );
     const inputs = [
       ...doc.source.matchAll(
-        /<GlyphRender kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g,
+        /<GlyphRender (?:caption="[^"]+" showSource={false} )?kind="([^"]+)" source={(.*?)} options={(.*?)}(?: showSource={false})? \/>/g,
       ),
     ];
     assert.equal(
@@ -118,6 +118,8 @@ test("every real docs example retains its full source and rendered text without 
         `${doc.slug}: lost source ${expected}`,
       );
     }
+    for (const [, caption] of doc.source.matchAll(/<GlyphRender caption="([^"]+)"/g))
+      assert.ok(cleaned.includes(`**${caption}**`), `${doc.slug}: lost caption ${caption}`);
     const outputs = [...cleaned.matchAll(/^```text\n([\s\S]*?)^```/gm)];
     assert.equal(
       outputs.length,

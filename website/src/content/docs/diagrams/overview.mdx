@@ -47,15 +47,15 @@ These previews use explicit compact sizes and `color: "none"` so terminal escape
 
 ### Chat
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth[Check token] --> Reply[Return order]"} options={{"target": "chat", "width": 54, "height": 7, "color": "none"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth{Token valid?}; Auth -->|yes| Load[Load order]; Load --> Reply[Return order]; Auth -->|no| Deny[Return 401]"} options={{"target": "chat", "width": 72, "height": 12, "color": "none"}} />
 
 ### Terminal
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth[Check token] --> Reply[Return order]"} options={{"target": "terminal", "width": 54, "height": 7, "color": "none"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth{Token valid?}; Auth -->|yes| Load[Load order]; Load --> Reply[Return order]; Auth -->|no| Deny[Return 401]"} options={{"target": "terminal", "width": 72, "height": 12, "color": "none"}} />
 
 ### Web
 
-<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth[Check token] --> Reply[Return order]"} options={{"target": "web", "width": 54, "height": 7, "color": "css"}} />
+<GlyphRender kind="diagram" source={"flowchart LR; Request[Order request] --> Auth{Token valid?}; Auth -->|yes| Load[Load order]; Load --> Reply[Return order]; Auth -->|no| Deny[Return 401]"} options={{"target": "web", "width": 72, "height": 12, "color": "css"}} />
 
 Diagram borders use whole cells in every charset. Targets do not change a diagram into a raster image.
 

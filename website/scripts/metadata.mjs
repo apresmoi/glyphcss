@@ -225,7 +225,7 @@ export async function cleanMarkdown(source) {
         for (const attribute of opening.attributes.properties) {
           if (!ts.isJsxAttribute(attribute))
             throw new Error("GlyphRender cannot spread props.");
-          if (!["kind", "source", "options"].includes(attribute.name.text))
+          if (!["kind", "source", "options", "caption"].includes(attribute.name.text))
             continue;
           const value = attribute.initializer;
           input[attribute.name.text] = literalValue(
@@ -248,7 +248,8 @@ export async function cleanMarkdown(source) {
           await renderGlyphDocs(input),
           input.options?.textScale,
         );
-        replacement = `\n\n${fenced(example, language)}\n\n${fenced(output.text, "text")}\n\n`;
+        const caption = input.caption ? `**${input.caption}**\n\n` : "";
+        replacement = `\n\n${caption}${fenced(example, language)}\n\n${fenced(output.text, "text")}\n\n`;
       }
     }
     if (replacement) cleaned += `\u0000${saved.push(replacement) - 1}\u0000`;
