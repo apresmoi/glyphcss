@@ -180,6 +180,64 @@ describe("drawn-ground camera pivot", () => {
     } finally { done(); }
   });
 
+  // Exaggerated hills cross one line of sight several times. The pivot must be
+  // the crossing the screen centre SHOWS: a hidden one recentred the view on
+  // ground you cannot see, and Ctrl-drag orbited it.
+  function hills(): GlyphMapGeoTile {
+    const cols = 128, rows = 128;
+    const bounds = { west: CENTER[0] - 0.02, east: CENTER[0] + 0.02, south: CENTER[1] - 0.02, north: CENTER[1] + 0.02 };
+    const elevation = new Float32Array((cols + 1) * (rows + 1));
+    for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) {
+      elevation[y * (cols + 1) + x] = 40 + 40 * Math.sin(x * 0.9) * Math.cos(y * 0.7);
+    }
+    return { bounds, cols, rows, elevation, source: "synthetic-hills", sampler: "custom" };
+  }
+
+  it.each([false, true])("pivots on the ground the centre shows, never a crossing hidden behind a hill (snapPan=%s)", async (snapPan) => {
+    const tile = hills();
+    const projection = glyphMapGlobe({ exaggeration: 24 });
+    const { map, host, done } = mount({
+      view: { center: CENTER, span: SPAN * 4, cols: COLS, rows: ROWS }, projection, tilt: 64, bearing: 31, snapPan,
+      layers: [{ type: "raster", source: tile }],
+    });
+    try {
+      await map.idle();
+      const camera = map.scene.camera;
+      const visible = () => {
+        const t = camera.target;
+        const o = camera.project(t, 0, 0, 1);
+        const rows = [0, 1, 2].map(j => camera.project([t[0] + +(j === 0), t[1] + +(j === 1), t[2] + +(j === 2)], 0, 0, 1).map((v, i) => v - o[i]!));
+        const col = [rows[0]![0]!, rows[1]![0]!, rows[2]![0]!], row = [rows[0]![1]!, rows[1]![1]!, rows[2]![1]!], depth = [rows[0]![2]!, rows[1]![2]!, rows[2]![2]!];
+        let axis = [col[1]! * row[2]! - col[2]! * row[1]!, col[2]! * row[0]! - col[0]! * row[2]!, col[0]! * row[1]! - col[1]! * row[0]!];
+        const n = Math.hypot(...axis) * Math.sign(axis[0]! * depth[0]! + axis[1]! * depth[1]! + axis[2]! * depth[2]!);
+        axis = axis.map(v => v / n);
+        // Longest run of sight samples (2 px apart) under the ground. The
+        // pivot search marches in 4 px steps, so a ridge thinner than one
+        // step may slip between them; anything longer is a hidden pivot.
+        let hidden = 0, run = 0;
+        for (let k = 1; k <= 300; k++) {
+          const s = (k * 2) / camera.zoom;
+          const p = [t[0] + axis[0]! * s, t[1] + axis[1]! * s, t[2] + axis[2]! * s] as const;
+          const [lon, lat] = projection.unproject(p as unknown as [number, number, number]);
+          const g = projection.project(lon, lat, glyphMapGeoTileElevationAt(tile, lon, lat));
+          run = Math.hypot(...p) < Math.hypot(...g) - 1e-12 ? run + 1 : 0;
+          hidden = Math.max(hidden, run);
+        }
+        return hidden;
+      };
+      const init = { pointerId: 4, bubbles: true, button: 0 };
+      for (let pass = 0; pass < 3; pass++) {
+        host.dispatchEvent(new PointerEvent("pointerdown", { ...init, clientX: 300, clientY: 700 }));
+        for (let i = 1; i <= 20; i++) {
+          host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 300 + 30 * i, clientY: 700 - 18 * i }));
+          expect(visible()).toBeLessThanOrEqual(2);
+        }
+        host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 900, clientY: 340 }));
+      }
+      await map.idle();
+    } finally { done(); }
+  });
+
   it("keeps sheet snap-pan targets on the ground and projection endpoints centred", async () => {
     const tile = terrain();
     const sheet = glyphMapEquirectangular({ exaggeration: 24 });

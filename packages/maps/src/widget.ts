@@ -6174,11 +6174,23 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * An orthographic image does not change when its target slides along the
    * view axis. Re-pivoting along local UP instead (`groundPoint` of the new
    * centre) shifts a pitched image by the height change times sin(tilt): a
-   * pan across a shore at 24× exaggeration hopped ~4 rows. The crossing
-   * nearest `from` is taken, so the pivot keeps to the ground it was on.
+   * pan across a shore at 24× exaggeration hopped ~4 rows.
+   *
+   * The crossing taken is the FIRST from the eye: the ground the screen
+   * centre actually shows. Exaggerated hills cross one sight several times,
+   * and the crossing nearest `from` was often a slope hidden behind a ridge
+   * or the ridge in front: the view recentred (tiles and all) on a point you
+   * cannot see, and Ctrl-drag orbited it. The march starts where the sight's
+   * footprint lies half a screen in front of `from` (or 9 km of relief above
+   * it, whichever is nearer): terrain beyond that is off-screen or would
+   * have to tower over the whole view to hide the centre.
+   *
    * `null` without a ground sampler (the datum is one height, nothing hops)
    * or without a crossing in reach; callers then keep `groundPoint`.
    */
+  /** How far in front of the pivot, in screen pixels, ground can hide the screen centre. */
+  const SIGHT_REACH_PX = 600;
+
   function groundOnSight(from: Vec3, linear: readonly number[]): { target: Vec3; center: readonly [number, number] } | null {
     if (!groundElevationSampler()) return null;
     const [a0, a1, a2, b0, b1, b2, c0, c1, c2] = linear as [number, number, number, number, number, number, number, number, number];
@@ -6198,28 +6210,37 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (!up) return NaN;
       return (p[0] - g[0]) * up[0] + (p[1] - g[1]) * up[1] + (p[2] - g[2]) * up[2];
     };
-    const f0 = above(0);
-    if (!Number.isFinite(f0)) return null;
-    let lo = 0, hi = NaN;
-    if (f0 !== 0) {
-      // Two CSS pixels of sight per step, a thousand pixels of reach each way.
-      const step = 2 / pixelsPerWorldUnit();
-      search: for (let k = 1; k <= 512; k++) {
-        for (const s of [-k * step, k * step]) {
-          const f = above(s);
-          if (Number.isFinite(f) && f > 0 !== f0 > 0) {
-            lo = s - Math.sign(s) * step;
-            hi = s;
-            break search;
-          }
-        }
+    const base = tryUnproject(projection, from);
+    const up = base && localUpDirection(projection, base[0], base[1], 0);
+    if (!base || !up) return null;
+    const upLen = Math.hypot(up[0], up[1], up[2]);
+    const cos = (ax * up[0] + ay * up[1] + az * up[2]) / upLen;
+    if (!(cos > 0.01)) return null;
+    const sin = Math.sqrt(Math.max(0, 1 - cos * cos));
+    const zoom = pixelsPerWorldUnit();
+    const h = groundAt(base);
+    const lift = projection.project(base[0], base[1], h + 9000), ground = projection.project(base[0], base[1], h);
+    const rise = Math.hypot(lift[0] - ground[0], lift[1] - ground[1], lift[2] - ground[2]);
+    const top = Math.min(SIGHT_REACH_PX / (zoom * sin * cos), rise / cos);
+    // Four CSS pixels of sight per step, never more than 1024 steps above
+    // `from`; the same step continues below it for a pan into a valley.
+    const step = Math.max(4 / zoom, top / 1024);
+    let lo = NaN, hi = NaN;
+    let prev = above(top);
+    for (let s = top - step; s >= -1024 * step; s -= step) {
+      const f = above(s);
+      if (Number.isFinite(f) && Number.isFinite(prev) && prev > 0 && f <= 0) {
+        lo = s + step;
+        hi = s;
+        break;
       }
-      if (Number.isNaN(hi)) return null;
-      for (let i = 0; i < 52; i++) {
-        const mid = (lo + hi) / 2;
-        if (above(mid) > 0 === f0 > 0) lo = mid;
-        else hi = mid;
-      }
+      prev = f;
+    }
+    if (Number.isNaN(hi)) return null;
+    for (let i = 0; i < 52; i++) {
+      const mid = (lo + hi) / 2;
+      if (above(mid) > 0) lo = mid;
+      else hi = mid;
     }
     const target = at(lo);
     const center = tryUnproject(projection, target);
