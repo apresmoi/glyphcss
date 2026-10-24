@@ -33,6 +33,8 @@ export interface ViewFolderInputs {
   onBearing: (bearing: number) => void;
   snapPan: boolean;
   onSnapPan: (on: boolean) => void;
+  compositorPan: boolean;
+  onCompositorPan: (on: boolean) => void;
 }
 
 /*
@@ -132,6 +134,7 @@ export function useViewFolder(parent: GUI | null, inputs: ViewFolderInputs): voi
     onReset: () => onBearing(MAP_BEARING_HOME),
   });
   useToggle(folder, "Snap pan", inputs.snapPan, inputs.onSnapPan);
+  useToggle(folder, "Compositor pan", inputs.compositorPan, inputs.onCompositorPan);
   useReadonlyText(folder, "LOD", `z${lod} · ${degPerCell.toFixed(3)}°/cell`);
 }
 

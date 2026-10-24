@@ -268,6 +268,7 @@ export interface MapsUrlState {
    */
   walk: boolean;
   snapPan: boolean;
+  compositorPan: boolean;
 
   /**
    * The DATASETS card's rows, as a bitfield over
@@ -815,6 +816,7 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // link ever shared describes, and what a reader expects a map link to be.
   walk: false,
   snapPan: true,
+  compositorPan: true,
   // The FROZEN omission sentinel, not the page's opening set — see
   // `MAPS_DATASET_MASK_LINK_DEFAULT`, which exists because the OSM card's
   // equivalent was once derived and rewrote a real shared link.
@@ -1253,6 +1255,7 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
     default: MAPS_URL_DEFAULTS.liveWindows,
   },
   { key: "snapPan", token: "2", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.snapPan },
+  { key: "compositorPan", token: "3", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.compositorPan },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";

@@ -69,6 +69,8 @@ export default function MapsWorkbench() {
     onBearing,
     snapPan,
     setSnapPan,
+    compositorPan,
+    setCompositorPan,
     charMode,
     charModeReason,
     wireframeJunctions,
@@ -218,6 +220,8 @@ export default function MapsWorkbench() {
             onBearing={onBearing}
             snapPan={snapPan}
             onSnapPan={setSnapPan}
+            compositorPan={compositorPan}
+            onCompositorPan={setCompositorPan}
             charMode={charMode}
             charModeReason={charModeReason}
             wireframeJunctions={wireframeJunctions}

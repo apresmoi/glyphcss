@@ -1,0 +1,118 @@
+{
+  "fixture": "vendored BA z13 water/roads/buildings, no terrain; 140x63 braille, tilt40, snapPan; 1px/move",
+  "featureCounts": {
+    "building": 5,
+    "transportation": 7631,
+    "water": 98
+  },
+  "samples": [
+    {
+      "projection": "sheet",
+      "compositorPan": false,
+      "jsMsPerMove": 22.450582959999984,
+      "handlerMsPerMove": 0.1365966600000047,
+      "transformOnlyMs": 0,
+      "transformOnlyMoves": 0,
+      "rendersPer100px": 100
+    },
+    {
+      "projection": "sheet",
+      "compositorPan": true,
+      "jsMsPerMove": 0.2994561600000452,
+      "handlerMsPerMove": 0.011127450000021782,
+      "transformOnlyMs": 0.016239808080861236,
+      "transformOnlyMoves": 99,
+      "rendersPer100px": 1
+    },
+    {
+      "projection": "globe",
+      "compositorPan": false,
+      "jsMsPerMove": 26.49620627000006,
+      "handlerMsPerMove": 0.09955367000002298,
+      "transformOnlyMs": 0,
+      "transformOnlyMoves": 0,
+      "rendersPer100px": 100
+    },
+    {
+      "projection": "globe",
+      "compositorPan": true,
+      "jsMsPerMove": 0.34547545000004903,
+      "handlerMsPerMove": 0.008157919999957812,
+      "transformOnlyMs": 0.013882181818226312,
+      "transformOnlyMoves": 99,
+      "rendersPer100px": 1
+    },
+    {
+      "projection": "sheet",
+      "compositorPan": false,
+      "jsMsPerMove": 21.73017830999994,
+      "handlerMsPerMove": 0.10006587000001672,
+      "transformOnlyMs": 0,
+      "transformOnlyMoves": 0,
+      "rendersPer100px": 100
+    },
+    {
+      "projection": "sheet",
+      "compositorPan": true,
+      "jsMsPerMove": 0.31741923000019595,
+      "handlerMsPerMove": 0.008390020000151708,
+      "transformOnlyMs": 0.013471020202217401,
+      "transformOnlyMoves": 99,
+      "rendersPer100px": 1
+    },
+    {
+      "projection": "globe",
+      "compositorPan": false,
+      "jsMsPerMove": 30.867738309999986,
+      "handlerMsPerMove": 0.17269958999995652,
+      "transformOnlyMs": 0,
+      "transformOnlyMoves": 0,
+      "rendersPer100px": 100
+    },
+    {
+      "projection": "globe",
+      "compositorPan": true,
+      "jsMsPerMove": 0.4055204200001572,
+      "handlerMsPerMove": 0.010133350000105566,
+      "transformOnlyMs": 0.016890989899136434,
+      "transformOnlyMoves": 99,
+      "rendersPer100px": 1
+    },
+    {
+      "projection": "sheet",
+      "compositorPan": false,
+      "jsMsPerMove": 29.72834696999991,
+      "handlerMsPerMove": 0.16849784999993062,
+      "transformOnlyMs": 0,
+      "transformOnlyMoves": 0,
+      "rendersPer100px": 100
+    },
+    {
+      "projection": "sheet",
+      "compositorPan": true,
+      "jsMsPerMove": 0.38816705000001095,
+      "handlerMsPerMove": 0.007832499999931315,
+      "transformOnlyMs": 0.011822777777772651,
+      "transformOnlyMoves": 99,
+      "rendersPer100px": 1
+    },
+    {
+      "projection": "globe",
+      "compositorPan": false,
+      "jsMsPerMove": 58.373572060000264,
+      "handlerMsPerMove": 0.17388169999994715,
+      "transformOnlyMs": 0,
+      "transformOnlyMoves": 0,
+      "rendersPer100px": 100
+    },
+    {
+      "projection": "globe",
+      "compositorPan": true,
+      "jsMsPerMove": 0.6234721100001479,
+      "handlerMsPerMove": 0.011507490000258257,
+      "transformOnlyMs": 0.019742868687017384,
+      "transformOnlyMoves": 99,
+      "rendersPer100px": 1
+    }
+  ]
+}

@@ -53,7 +53,7 @@ function baseInputs(over: Partial<ViewFolderInputs> = {}): ViewFolderInputs {
     centerLon: 0, centerLat: 0, span: 40, maxSpan: 360,
     tilt: 0, maxTilt: 85, bearing: 0,
     isOrbitProjection: true, lod: 3, degPerCell: 0.25,
-    onCenter: noop, onSpan: noop, onTilt: noop, onBearing: noop, snapPan: true, onSnapPan: noop,
+    onCenter: noop, onSpan: noop, onTilt: noop, onBearing: noop, snapPan: true, onSnapPan: noop, compositorPan: true, onCompositorPan: noop,
     ...over,
   };
 }
@@ -199,7 +199,7 @@ describe("View folder — Walk is not here", () => {
     const names = Array.from(host.querySelectorAll<HTMLElement>(".controller")).map(nameOf);
     expect(names).not.toContain("Walk");
     expect(names).not.toContain("Horizon");
-    expect(host.querySelectorAll("input[type=checkbox]").length).toBe(1);
+    expect(host.querySelectorAll("input[type=checkbox]").length).toBe(2);
     expect(names).toContain("Snap pan");
   });
 
@@ -226,3 +226,15 @@ describe("View folder — Snap pan", () => {
     expect(checkbox.checked).toBe(false);
   });
 });
+
+ it("routes the experimental compositor toggle", () => {
+    const onCompositorPan = vi.fn();
+    const host = render(baseInputs({ compositorPan: true, onCompositorPan }));
+    const row = Array.from(host.querySelectorAll<HTMLElement>(".controller")).find(el => nameOf(el) === "Compositor pan")!;
+    const checkbox = row.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+    expect(checkbox.checked).toBe(true);
+    act(() => { checkbox.click(); });
+    expect(onCompositorPan).toHaveBeenCalledWith(false);
+    act(() => { root!.render(<Harness inputs={baseInputs({ compositorPan: false, onCompositorPan })} />); });
+    expect(checkbox.checked).toBe(false);
+  });

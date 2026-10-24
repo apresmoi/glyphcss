@@ -179,6 +179,8 @@ describe("the snippet carries the scene the page actually builds", () => {
 
 it("exports the pan snapping selected on the page", () => {
   expect(build({ snapPan: true })).toContain("snapPan: true");
+  expect(build({ compositorPan: true })).toContain("compositorPan: true");
+  expect(build({ compositorPan: false })).not.toContain("compositorPan:");
   expect(build({ snapPan: false })).not.toContain("snapPan:");
 });
 

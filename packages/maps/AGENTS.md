@@ -1,24 +1,25 @@
 # @glyphcss/maps agent guide
 
-Geodata, relief, vectors and `createGlyphMap`. Browser-safe root; fs readers in `./node` (never `gdal-async`). No React/Vue API.
+`createGlyphMap` and geodata. Browser-safe; fs in `./node`, never `gdal-async`. No React/Vue API.
 
 Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 ## Invariants
 
-- Public API uses lat/lng/degrees; views are aspect-locked. Camera pivots on drawn ground at `view.center` (same sampler/window as planting; datum fallback). `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering without changing the geographic view.
-- Branch on projection CAPABILITY (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
-- Crop, don't clamp: `project()` returns `NaN` outside its window. Sole exception: a `raster` elevation window clamps per vertex.
+- Public API uses lat/lng/degrees; views are aspect-locked. Camera pivots on drawn ground at `view.center` (planting sampler/window; datum fallback). `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering without changing the geographic view.
+- Branch on capability (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
+- Crop, don't clamp: `project()` returns `NaN` outside its window. Except: `raster` elevation windows clamp per vertex.
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
 - Planting: `groundElevation`, else mounted raster tiles, else datum. NW–SE tile triangles clamp per vertex. Committed still water is level (lowest shore, ≥ datum); rivers max(terrain, datum). `null` means datum; `contour` is exempt.
 - Relief resolution is per pyramid LEVEL, never per tile. Non-target tiers are sunk by `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
-- Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
+- Scene writes precede `scene.rerender()`; no scene writes from input handlers; one motion loop/render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable identity).
-- Opt-ins stay byte-identical off; mutation-test each.
-- `waterTerrain`: atomic coverage/fill; outside DEM, dry ground/classification >=0. Indexed shores; convex merges per source triangle; backstops floor/colour only. Cutouts need no fill lift. Tile-identity cache, 2 ms cancellable prep; removal restores DEM.
+- Mutation-test opt-out byte identity.
+- `waterTerrain`: atomic coverage/fill; outside DEM dry ground/classification >=0. Indexed shores; convex merges/source triangle; floor/colour backstops. No cutout lift. Tile-identity cache, 2 ms cancellable prep; removal restores DEM.
 - Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells. DOM overlays.
 - `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one geometry-centroid dot; open stubs never become dots. Paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
-- `snapPan` is opt-in: camera pans use a cell lattice at fixed lens/tilt/bearing/grid; held views stay exact. Orbit uses a local tangent lattice. Zoom/tilt reset it; walking bypasses it. Renderer dithering stays screen-anchored.
+- `compositorPan`: opt-in ¼-grid overscan, fixed cells; translate scene/hide hotspots. Settle on release/rest/pose/layout changes; refresh at 80% margin/2° orbit. Rebase on render; public grid unchanged; no walk.
+- `snapPan`: opt-in cell lattice at fixed lens/tilt/bearing/grid; exact held view. Orbit: tangent lattice. Zoom/tilt reset; walk bypasses. Dither stays screen-anchored.
 - Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per source feature set/tile, before live VW; explicit line features remain separate. Reversed edges share geometry; no snapping or noding of differently sampled edges. Tile replacements get fresh topology.
 - Stamp surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from an assumed half-cell centre. Depth forgiveness remains curvature plus measured elevation rise.
 - Line `simplify: "vw"`: latitude-corrected VW at half a live cell, eight quarter-octave buckets per source line/arc. Simplify before clipping/draping; preserve endpoints and collapsed rings. Walk retains detail. Omitted is byte-identical; no cross-tile topology guarantee.
@@ -26,8 +27,8 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); line palettes fall back to row colour. Shared arcs retain explicit line properties.
 - `/maps` URL row lists are positional: append rows, never insert.
-- Live data uses `setLayerSource`; no refresh clock.
-- Tests await `map.idle()`, never timers/stability polls. Advance camera probes to a pose; give `vi.waitFor` an explicit timeout.
+- Live data: `setLayerSource`, no clock.
+- Tests await `map.idle()`, never timers/polls. Probe camera poses; set explicit `vi.waitFor` timeouts.
 
 ## Don't
 

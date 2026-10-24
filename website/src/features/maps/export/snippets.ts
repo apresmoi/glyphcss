@@ -70,6 +70,7 @@ export interface MapsSnippetState {
   readonly sunHour: number;
   readonly shadows: boolean;
   readonly snapPan?: boolean;
+  readonly compositorPan?: boolean;
 
   // ── Per-layer state ─────────────────────────────────────────────────────
   readonly showTerrain: boolean;
@@ -231,7 +232,7 @@ ${osmPreamble}
 const map = createGlyphMap(host, {
   view: { center: [${fmt(state.centerLon)}, ${fmt(state.centerLat)}], span: ${fmt(state.span)}, cols: 160, rows: 64 },
   projection: ${factory}(${projectionArgs}),
-  tilt: ${fmt(state.tilt)},${state.snapPan ? "\n  snapPan: true," : ""}${state.bearing === 0 ? "" : `\n  bearing: ${fmt(state.bearing)},`}${sunSource(state)}${state.shadows ? "\n  shadow: {}," : ""}
+  tilt: ${fmt(state.tilt)},${state.snapPan ? "\n  snapPan: true," : ""}${state.compositorPan ? "\n  compositorPan: true," : ""}${state.bearing === 0 ? "" : `\n  bearing: ${fmt(state.bearing)},`}${sunSource(state)}${state.shadows ? "\n  shadow: {}," : ""}
   autoSize: true,
   controls: { drag: true, wheel: true },
   layers: [

@@ -1807,6 +1807,8 @@ export interface GlyphMapOptions {
   readonly projection: GlyphMapProjection;
   /** Quantize rendered pans to output cells; getView() retains the exact requested centre. Default false. Ignored while walking. */
   readonly snapPan?: boolean;
+  /** Cache an overscanned text frame during one-finger/mouse pans and glide. Default false; ignored while walking. */
+  readonly compositorPan?: boolean;
   readonly layers?: readonly GlyphMapLayer[];
   /**
    * Where the ground comes from — YOUR own DEM, a constant, a service-backed
@@ -1958,6 +1960,8 @@ export interface GlyphMapHandle {
   /** Enable whole-cell rendered pans without rounding the held view. */
   setSnapPan(enabled: boolean): void;
   getSnapPan(): boolean;
+  setCompositorPan(enabled: boolean): void;
+  getCompositorPan(): boolean;
   getView(): GlyphMapView;
   /**
    * The largest `view.span` this widget will currently accept — the live
@@ -3250,6 +3254,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   let orbitRotation: { readonly rotX: number; readonly rotY: number } | null = null;
 
+  let compositorPan = opts.compositorPan ?? false;
   let snapPan = opts.snapPan ?? false;
   let renderedCenter: readonly [number, number] | null = null;
   type PanPose = { rotX: number; rotY: number; target: Vec3; zoom: number };
@@ -3648,14 +3653,137 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   });
   const projectionLayout = createGlyphMapProjectionLayout(host, scene.output);
   const setSceneOptions = scene.setOptions, fitScene = scene.fit;
+  const renderScene = scene.rerender, interactScene = scene.setInteracting;
+  const sceneElement = scene.output.parentElement!;
+  const hotspotElement = sceneElement.querySelector<HTMLElement>(".glyph-hotspot-layer")!;
+  type CompositorFrame = {
+    grid: ProjectionGrid; marginCols: number; marginRows: number;
+    center: readonly [number, number]; autoSize: boolean;
+    sceneStyle: string; hostOverflow: string; hotspotsDisplay: string;
+    target: Vec3; rotX: number; rotY: number; zoom: number;
+    projection: GlyphMapProjection; tilt: number; bearing: number; span: number;
+    hostWidth: number; hostHeight: number; originLeft: number; originTop: number;
+  };
+  let compositorFrame: CompositorFrame | null = null;
+  let compositorRender = false;
+  let panMotion = false;
+  let compositorSettle = false;
+  let compositorResizeObserver: ResizeObserver | null = null;
+  const compositorFonts = host.ownerDocument.fonts;
+  function invalidateCompositorLayout(): void {
+    const f = compositorFrame;
+    if (!f) return;
+    endCompositorPan();
+    if (f.autoSize) fitScene();
+    syncCameraToView(view);
+    applyKeyLight(); syncNearSide(); scene.rerender();
+  }
+  function watchCompositorLayout(): void {
+    if (typeof ResizeObserver !== "undefined" && !compositorResizeObserver) {
+      compositorResizeObserver = new ResizeObserver(() => {
+        const f = compositorFrame;
+        if (!f) return;
+        const box = host.getBoundingClientRect();
+        if (box.width !== f.hostWidth || box.height !== f.hostHeight) invalidateCompositorLayout();
+      });
+      compositorResizeObserver.observe(host);
+    }
+    compositorFonts?.addEventListener("loadingdone", invalidateCompositorLayout);
+    compositorFonts?.addEventListener("loadingerror", invalidateCompositorLayout);
+  }
+
+  function endCompositorPan(): void {
+    const f = compositorFrame;
+    if (!f) return;
+    compositorFrame = null;
+    camera.center = [...f.center];
+    sceneElement.style.cssText = f.sceneStyle;
+    host.style.overflow = f.hostOverflow;
+    hotspotElement.style.display = f.hotspotsDisplay;
+    setSceneOptions({ cols: f.grid.cols, rows: f.grid.rows, autoSize: f.autoSize });
+    projectionLayout.invalidate();
+    syncStrokeHookInstalled();
+  }
+
+  // Called by the base-cell hook for EVERY real render, including scene-owned
+  // microtask renders after a tile arrives. Such a render replaces the cache:
+  // retaining the old translation would apply the pan twice.
+  function captureCompositorFrame(): void {
+    const f = compositorFrame;
+    if (!f) return;
+    f.target = [...camera.target]; f.rotX = camera.rotX; f.rotY = camera.rotY;
+    f.zoom = camera.zoom;
+    sceneElement.style.transform = `translate(${-f.marginCols * f.grid.cellWidth}px, ${-f.marginRows * f.grid.cellHeight}px)`;
+  }
+
+  function renderCompositorPan(): boolean {
+    if (!compositorPan || walk || flight || projectionAnim || !panMotion || compositorSettle) return false;
+    let f = compositorFrame;
+    if (f && (f.projection !== projection || f.tilt !== appliedTilt || f.bearing !== bearing || f.span !== view.span || f.zoom !== camera.zoom)) {
+      endCompositorPan(); f = null;
+    }
+    if (!f) {
+      const grid = projectionGrid();
+      const marginCols = Math.max(1, Math.ceil(grid.cols / 4)), marginRows = Math.max(1, Math.ceil(grid.rows / 4));
+      const o = scene.getOptions();
+      const hostBox = host.getBoundingClientRect();
+      const outputBox = scene.output.getBoundingClientRect();
+      f = compositorFrame = {
+        grid, marginCols, marginRows, center: [...camera.center], autoSize: o.autoSize ?? false,
+        sceneStyle: sceneElement.style.cssText, hostOverflow: host.style.overflow, hotspotsDisplay: hotspotElement.style.display,
+        target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom,
+        projection, tilt: appliedTilt, bearing, span: view.span,
+        hostWidth: hostBox.width, hostHeight: hostBox.height,
+        originLeft: outputBox.left - hostBox.left, originTop: outputBox.top - hostBox.top,
+      };
+      const cols = grid.cols + 2 * marginCols, rows = grid.rows + 2 * marginRows;
+      // Freeze physical cell size; only the grid's extent grows. Explicit
+      // centres also preserve autoSize's host-centred (rather than grid-centred) framing.
+      camera.center = [(grid.centerCol + marginCols) / cols, (grid.centerRow + marginRows) / rows];
+      host.style.overflow = "hidden";
+      sceneElement.style.width = `${cols * grid.cellWidth}px`;
+      sceneElement.style.height = `${rows * grid.cellHeight}px`;
+      sceneElement.style.willChange = "transform";
+      // display:none wins over per-label visibility writes and blocks stale hit targets.
+      hotspotElement.style.display = "none";
+      setSceneOptions({ cols, rows, autoSize: false });
+      syncStrokeHookInstalled();
+    } else {
+      const grid = f.grid;
+      const p = camera.project(f.target, grid.cols, grid.rows, grid.cellAspect, grid);
+      const dx = (p[0] - grid.centerCol) * grid.cellWidth, dy = (p[1] - grid.centerRow) * grid.cellHeight;
+      // 2 degrees limits tangent-frame rotation error to ~3.5% of distance
+      // from the centre. Pixel margins alone cannot bound distortion at wide globe views.
+      const rotation = isOrbitProjection() ? Math.hypot(camera.rotX - f.rotX, camera.rotY - f.rotY) : 0;
+      if (Number.isFinite(dx) && Number.isFinite(dy) && rotation < 2 &&
+          Math.abs(dx) < f.marginCols * grid.cellWidth * 0.8 && Math.abs(dy) < f.marginRows * grid.cellHeight * 0.8) {
+        sceneElement.style.transform = `translate(${dx - f.marginCols * grid.cellWidth}px, ${dy - f.marginRows * grid.cellHeight}px)`;
+        return true;
+      }
+    }
+    applyKeyLight();
+    syncNearSide();
+    compositorRender = true;
+    try { scene.rerender(); } finally { compositorRender = false; }
+    return true;
+  }
+
+  scene.setInteracting = active => {
+    if (!compositorPan) interactScene(active);
+  };
+  scene.rerender = () => {
+    if (!compositorRender) endCompositorPan();
+    renderScene();
+  };
   scene.setOptions = options => {
     // Headlights update lighting options during camera motion without resizing.
     if ("cols" in options || "rows" in options || "cellAspect" in options || "autoSize" in options || "colorEncoding" in options || "fontAtlas" in options) {
+      endCompositorPan();
       projectionLayout.invalidate();
     }
     setSceneOptions(options);
   };
-  scene.fit = () => { projectionLayout.invalidate(); fitScene(); };
+  scene.fit = () => { endCompositorPan(); projectionLayout.invalidate(); fitScene(); };
 
   /**
    * Every mesh-backed layer's mount goes through here so the per-layer
@@ -3672,7 +3800,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // ── Screen-space geometry (absorbed from both pages' identical helper) ──
 
   /** Dimensions follow DOM/option changes, including scene-owned renders. */
-  function projectionGrid(): ProjectionGrid {
+  function projectionGrid(overscan = false): ProjectionGrid {
+    if (compositorFrame) {
+      const f = compositorFrame, g = f.grid;
+      return overscan ? { ...g, cols: g.cols + 2 * f.marginCols, rows: g.rows + 2 * f.marginRows,
+        centerCol: g.centerCol + f.marginCols, centerRow: g.centerRow + f.marginRows } : g;
+    }
     const o = scene.getOptions();
     const cols = o.cols ?? view.cols;
     const rows = o.rows ?? view.rows;
@@ -3721,7 +3854,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * else on the page records what it was before the gesture.
    */
   function labelGrid(grid: ProjectionGrid): { readonly scaleX: number; readonly scaleY: number; readonly cellWidth: number; readonly cellHeight: number } {
-    const base = scene.getBaseResolution();
+    const base = compositorFrame?.grid ?? scene.getBaseResolution();
     const scaleX = base.cols / grid.cols;
     const scaleY = base.rows / grid.rows;
     // A base cell is WIDER in cells and NARROWER in pixels by the same
@@ -8405,6 +8538,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   /** A pointer event's position in the live render grid's own cells, or `null` when the output has no laid-out box to measure against. */
   function pointerCell(e: { readonly clientX: number; readonly clientY: number }): { readonly col: number; readonly row: number } | null {
+    if (compositorFrame) {
+      const origin = touchOrigin()!, grid = projectionGrid();
+      return { col: (e.clientX - origin.left) / grid.cellWidth, row: (e.clientY - origin.top) / grid.cellHeight };
+    }
     const outputRect = scene.output.getBoundingClientRect();
     if (!(outputRect.width > 0) || !(outputRect.height > 0)) return null;
     const grid = projectionGrid();
@@ -8734,7 +8871,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
     const isDetail = !!layerInfo?.detail;
     if (!isDetail) {
-      cachedBaseGrid = projectionGrid();
+      captureCompositorFrame();
+      cachedBaseGrid = projectionGrid(true);
       cachedBaseCamera = { zoom: camera.zoom, center: camera.center, fovScale: camera.fovScale };
     }
     // Stamp into EVERY output grid the scene produces — the base grid AND
@@ -8820,7 +8958,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // encoder's slower hook-safe path (measured 0.9 ms per render on a
     // 160x64 globe, ~35%). The live projection decides, and every site that
     // can change it re-syncs (`applyProjectionFrame`, `setSun`).
-    const shouldInstall = strokeLayerCount > 0 || [...layerStates.values()].some(s => s.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline) || (sunMode !== "off" && !isOrbitProjection());
+    const shouldInstall = compositorFrame !== null || strokeLayerCount > 0 || [...layerStates.values()].some(s => s.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline) || (sunMode !== "off" && !isOrbitProjection());
     const current = scene.getOptions().transformCells;
     if (shouldInstall && current !== composedTransformCells) {
       scene.setOptions({ transformCells: composedTransformCells });
@@ -9326,7 +9464,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     motionRafId = requestAnimationFrame((now) => { motionRafId = null; motionStep(now, false); });
   }
 
-  function markMotionDirty(): void {
+  function markMotionDirty(pan = false): void {
+    panMotion = pan;
     motionDirty = true;
     requestMotionFrame();
   }
@@ -9354,6 +9493,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const easeInOutQuad = (u: number): number => (u < 0.5 ? 2 * u * u : 1 - ((-2 * u + 2) ** 2) / 2);
 
   function advanceFlight(now: number): void {
+    panMotion = false;
     const f = flight!;
     if (f.startTime === null) f.startTime = now;
     const u = f.duration <= 0 ? 1 : Math.min(1, (now - f.startTime) / f.duration);
@@ -9402,6 +9542,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const decay = Math.exp(-dt / GLYPH_MAP_GLIDE_TAU_MS);
       glideVx *= decay; glideVy *= decay;
       applyDragState(dx, dy);
+      panMotion = true;
+      if (Math.hypot(glideVx, glideVy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS) compositorSettle = true;
       emitViewChange("move");
       if (Math.hypot(glideVx, glideVy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS) { gliding = false; glideVx = 0; glideVy = 0; }
       moved = true;
@@ -9413,7 +9555,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // two compose instead of fighting over `camera`.
       advanceProjectionAnim(now);
       moved = true;
-    } else if (moved) {
+    } else if (moved && !renderCompositorPan()) {
+      endCompositorPan();
       // A drag/glide rotated the camera; a headlight has to follow it in the
       // SAME frame or it is just a dark side that moves one frame late.
       //
@@ -9440,6 +9583,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // Detail settles when MOTION stops, not when the pointer goes up: every
     // moving frame re-arms the 180ms debounce, so a glide or a flight fetches
     // once at rest instead of at every waypoint.
+    compositorSettle = false;
     if (moved) scheduleTileUpdate();
     if (motionActive()) requestMotionFrame();
   }
@@ -9810,6 +9954,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function setProjection(target: GlyphMapProjection, setOpts: GlyphMapSetProjectionOptions = {}): Promise<void> {
+    endCompositorPan();
     // A projection change LEAVES walk mode rather than blending through it:
     // a transition's intermediate projections are not generally invertible
     // and a sheet endpoint cannot express a walker's world at all (see
@@ -9975,7 +10120,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function getView(): GlyphMapView {
-    const o = scene.getOptions();
+    const o = compositorFrame?.grid ?? scene.getOptions();
     return { ...view, cols: o.cols ?? view.cols, rows: o.rows ?? view.rows };
   }
 
@@ -10123,6 +10268,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * it was left at and leaving is one assignment.
    */
   function setWalk(next: GlyphMapWalkOptions | null): void {
+    endCompositorPan();
     if (next === null) {
       if (!walk) return;
       const restore = walkRestore!;
@@ -10468,8 +10614,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // that the deferred frame cannot supersede, which is one full grid render
     // per pointer event (see `nearSideGeometrySyncs`). The wall cull rides the
     // frame, where it is free.
-    syncNearSideDom();
-    markMotionDirty();
+    if (!compositorFrame) syncNearSideDom();
+    markMotionDirty(true);
     emitViewChange("move");
   }
 
@@ -10738,6 +10884,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * rather than pinning to a guessed origin.
    */
   function touchOrigin(): { readonly left: number; readonly top: number } | null {
+    if (compositorFrame) {
+      // Input coordinates belong to the visible grid, not the translated
+      // overscan box (a second finger can arrive before the settling frame).
+      const h = host.getBoundingClientRect();
+      return { left: h.left + compositorFrame.originLeft, top: h.top + compositorFrame.originTop };
+    }
     const o = scene.output.getBoundingClientRect();
     if (o.width > 0 && o.height > 0) return { left: o.left, top: o.top };
     const h = host.getBoundingClientRect();
@@ -10908,6 +11060,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     doubleTapArmed = false;
     lastTapAt = 0;
     cancelCameraGlide();
+    if (compositorFrame) { compositorSettle = true; markMotionDirty(); }
   }
 
   /**
@@ -11166,6 +11319,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (tilting) e.preventDefault();
     // Grabbing the map stops it dead, from wherever it currently is.
     cancelCameraGlide();
+    if (compositorFrame) { compositorSettle = true; markMotionDirty(); }
     activePointerId = e.pointerId;
     lastClientX = e.clientX;
     lastClientY = e.clientY;
@@ -11309,6 +11463,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     if (activePointerId !== e.pointerId) return;
     activePointerId = null;
+    if (compositorPan && panMotion) { compositorSettle = true; markMotionDirty(); }
     gestureMode = "pan";
     tapZoomOnlyPointer = false;
     didDrag = false;
@@ -11401,6 +11556,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     didDrag = false;
     tapZoomOnlyPointer = false;
+    if (compositorPan && panMotion) { compositorSettle = true; markMotionDirty(); }
     scheduleTileUpdate();
   }
 
@@ -11476,6 +11632,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const blurTarget: EventTarget | null = host.ownerDocument?.defaultView ?? null;
   blurTarget?.addEventListener("blur", onWalkBlur);
 
+  if (compositorPan) watchCompositorLayout();
+
   // ── Initial mount ─────────────────────────────────────────────────────
 
   // A view can arrive from anywhere — a shared link's URL state, a saved
@@ -11549,6 +11707,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           syncWalkSkyLight();
         };
       }
+      if (key === "getBaseResolution") return () => {
+        const f = compositorFrame;
+        return f ? { cols: f.grid.cols, rows: f.grid.rows } : target.getBaseResolution();
+      };
+      if (key === "getOptions") return () => {
+        const o = target.getOptions(), f = compositorFrame;
+        return f ? { ...o, cols: f.grid.cols, rows: f.grid.rows, autoSize: f.autoSize } : o;
+      };
       return Reflect.get(target, key, receiver);
     },
   });
@@ -11560,6 +11726,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     getView,
     setSnapPan,
     getSnapPan: () => snapPan,
+    setCompositorPan(enabled) {
+      if (enabled) { interactScene(false); watchCompositorLayout(); }
+      compositorPan = enabled;
+      if (!enabled && compositorFrame) { endCompositorPan(); syncNearSide(); scene.rerender(); }
+    },
+    getCompositorPan: () => compositorPan,
     fitBounds,
     setTilt,
     getTilt,
@@ -11628,6 +11800,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (sunTimer !== null) { clearInterval(sunTimer); sunTimer = null; }
       if (tileUpdateTimer !== null) clearTimeout(tileUpdateTimer);
       if (wheelInteractingTimer !== null) clearTimeout(wheelInteractingTimer);
+      compositorResizeObserver?.disconnect();
+      compositorFonts?.removeEventListener("loadingdone", invalidateCompositorLayout);
+      compositorFonts?.removeEventListener("loadingerror", invalidateCompositorLayout);
+      endCompositorPan();
       host.style.touchAction = hostTouchAction;
       // The hover affordance is the one thing this widget writes on the
       // HOST's own style beside `touch-action`, so it is put back the same

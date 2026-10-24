@@ -32,6 +32,8 @@ export function MapsDockFolders(props: {
   onBearing: (v: number) => void;
   snapPan: boolean;
   onSnapPan: (on: boolean) => void;
+  compositorPan: boolean;
+  onCompositorPan: (on: boolean) => void;
   charMode: MapCharMode;
   charModeReason: string | null;
   wireframeJunctions: boolean;
@@ -76,6 +78,8 @@ export function MapsDockFolders(props: {
     onBearing: props.onBearing,
     snapPan: props.snapPan,
     onSnapPan: props.onSnapPan,
+    compositorPan: props.compositorPan,
+    onCompositorPan: props.onCompositorPan,
   });
 
   return (

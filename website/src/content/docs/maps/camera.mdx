@@ -390,3 +390,25 @@ bearing and grid changes start a new lattice without snapping that change.
 Walking bypasses snapping. Use `map.setSnapPan(boolean)` to toggle it.
 The `/maps` View folder enables **Snap pan** by default and saves the choice
 in shared links. Omission in the package keeps continuous pans.
+
+### Experimental compositor pan
+
+`createGlyphMap({ ..., compositorPan: true })` renders a quarter-view margin
+of extra cells and translates the text container during mouse or one-finger
+pans and inertial glide. Cell size stays fixed; base, detail, and stroke-overlay
+text move together. Labels, markers, circles, and other DOM hotspots hide until
+settle. Compass and minimap UI remain fixed.
+
+The cache refreshes at 80% of either margin. Globe pans approximate rotation
+with the screen displacement of the cached view centre and refresh after 2°
+of rotation, so features away from the centre can distort briefly. Refreshes
+can change screen-anchored shading dither. Tile arrivals may force earlier
+renders; unloaded tiles are not prefetched just for the extra margin.
+
+Release and glide rest restore the normal grid and render the actual view
+(with its existing `snapPan` lattice). Zoom, tilt, bearing, projection, resize,
+and font changes invalidate the cache. Walking bypasses it. With this option
+on, `scene.setInteracting` does not downscale the text.
+Use `map.setCompositorPan(boolean)` and `map.getCompositorPan()` at runtime.
+The package defaults off; `/maps` defaults **Compositor pan** on in the View
+folder and preserves the toggle in shared links.

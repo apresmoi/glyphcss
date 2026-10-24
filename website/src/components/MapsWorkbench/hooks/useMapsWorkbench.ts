@@ -1079,6 +1079,9 @@ export function useMapsWorkbench() {
 
   const [sunHour, setSunHour] = useState(initial.sunHour);
 
+  const [compositorPan, setCompositorPan] = useState(initial.compositorPan);
+  const compositorPanRef = useRef(compositorPan);
+  compositorPanRef.current = compositorPan;
   const [snapPan, setSnapPan] = useState(initial.snapPan);
   const snapPanRef = useRef(snapPan);
   snapPanRef.current = snapPan;
@@ -1334,6 +1337,7 @@ export function useMapsWorkbench() {
     const map = createGlyphMap(host, {
       view,
       snapPan: snapPanRef.current,
+      compositorPan: compositorPanRef.current,
       projection,
       autoSize: true,
       tilt,
@@ -1488,7 +1492,7 @@ export function useMapsWorkbench() {
       down.add(e.pointerId);
     };
     const onMove = (): void => {
-      if (down.size === 0 || dragging) return;
+      if (down.size === 0 || dragging || map.getCompositorPan()) return;
       dragging = true;
       map.scene.setInteracting(true);
       applyDensity(true);
@@ -2072,6 +2076,11 @@ export function useMapsWorkbench() {
     mapRef.current?.setSnapPan(snapPan);
   }, [snapPan]);
 
+  useEffect(() => {
+    mapRef.current?.setCompositorPan(compositorPan);
+    if (compositorPan) applyDensity(false);
+  }, [compositorPan]);
+
   // ── Lighting -> `scene.setOptions()`. ──────────────────────────────────
   //    `map.getKeyLightDirection()` is read FRESH here rather than cached:
   //    when the widget owns the direction — the sun on an orbit projection,
@@ -2276,6 +2285,7 @@ export function useMapsWorkbench() {
       sunMode,
       shadows,
       snapPan,
+      compositorPan,
       sunDay,
       sunHour,
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
@@ -2361,6 +2371,7 @@ export function useMapsWorkbench() {
     sunHour,
     shadows,
     snapPan,
+    compositorPan,
     contourMinElevation,
     contourMaxElevation,
     terrainMinElevation,
@@ -2505,6 +2516,7 @@ export function useMapsWorkbench() {
         sunHour,
         shadows,
         snapPan,
+        compositorPan,
         showTerrain,
         terrainDensity,
         terrainMinElevation,
@@ -2547,6 +2559,7 @@ export function useMapsWorkbench() {
       sunHour,
       shadows,
       snapPan,
+      compositorPan,
       showTerrain,
       terrainDensity,
       terrainMinElevation,
@@ -2599,7 +2612,9 @@ export function useMapsWorkbench() {
     onTilt,
     onBearing,
     snapPan,
+    compositorPan,
     setSnapPan,
+    setCompositorPan,
     charMode,
     charModeReason,
     wireframeJunctions,
