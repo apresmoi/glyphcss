@@ -1,0 +1,87 @@
+---
+title: Render Mermaid files with the glyphcss diagram CLI
+description: Install the glyphcss diagram CLI and render Mermaid or graph JSON files, with every supported flag, output piping, color behavior, and exit codes.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+The `diagram` subcommand ships in `@glyphcss/compile`. It accepts a `.mmd` Mermaid
+file or `.json` graph file. It dispatches sequences and gitGraph automatically;
+Mermaid chart headers also use their native chart renderer.
+
+## Install and render
+
+```sh
+npm i -D @glyphcss/compile
+cat > example.mmd <<'EOF'
+flowchart LR
+ Push[Push commit] --> Build[Build app]
+ Build --> Test{Tests pass?}
+ Test -->|yes| Stage[Deploy staging]
+ Stage --> Smoke[Smoke tests]
+ Smoke --> Prod[Deploy prod]
+ Test -->|no| Fix[Fix build]
+EOF
+npx glyphcss diagram example.mmd --target chat --width 72 --height 19
+npx glyphcss diagram example.mmd --charset ascii --color none -o example.txt
+```
+
+<GlyphRender kind="diagram" source={"flowchart LR\n Push[Push commit] --> Build[Build app]\n Build --> Test{Tests pass?}\n Test -->|yes| Stage[Deploy staging]\n Stage --> Smoke[Smoke tests]\n Smoke --> Prod[Deploy prod]\n Test -->|no| Fix[Fix build]"} options={{"target": "chat", "width": 72, "height": 19, "overflow": "expand"}} showSource={false} />
+
+Graph JSON uses the [graph format](/diagrams/json/#graph-json); direction defaults to `TB`
+when omitted. Sequence JSON and lane JSON use their Node APIs, not this subcommand.
+`diagram` is 2D-only. Mesh flags and `--3d` are unknown options.
+
+## Every flag
+
+| Flag | Values and behavior |
+| --- | --- |
+| `--target` | `chat`, `terminal` (CLI default), `web` |
+| `--charset` | `ascii`, `box`, `blocks`, `braille`; otherwise target default |
+| `--color` | `none`, `ansi16`, `ansi256`, `truecolor`, `css`; explicit encoding override |
+| `--width N` | Positive integer columns; otherwise target default |
+| `--height N` | Positive integer rows; otherwise target default |
+| `--direction` | `TB`, `LR`, `BT`, `RL`; graph direction override |
+| `--engine` | `dagre` only |
+| `--nodesep N` | Graph node separation in cells; integer ≥ 3, default 4 |
+| `--ranksep N` | Graph rank separation in cells; integer ≥ 3, default 4 |
+| `--title TEXT` | Diagram title; quote spaces |
+| `--detail` | `auto`, `faithful`, `balanced`, `simplified` |
+| `-o FILE`, `--out FILE` | Write output to a UTF-8 file |
+| `-h`, `--help` | Print help to stderr and exit successfully |
+
+The CLI does not expose API options such as `overflow`, `autoDirection`, `labelWidth`,
+`loopLabelWidth`, color callbacks, lane ordering, or ID visibility.
+
+## Piping and color
+
+```sh
+npm i -D @glyphcss/compile
+printf 'flowchart LR; Build --> Test --> Ship\n' > pipeline.mmd
+npx glyphcss diagram pipeline.mmd --target terminal | cat
+npx glyphcss diagram pipeline.mmd --target chat > pipeline.txt
+npx glyphcss diagram pipeline.mmd --target web --color css -o pipeline.html
+npx glyphcss diagram pipeline.mmd --direction TB --engine dagre --nodesep 3 --ranksep 3 --title 'Release pipeline' --detail faithful
+```
+
+A TTY uses the target's default color; redirected or piped stdout uses plain text
+unless `--color` overrides it. `NO_COLOR` and `FORCE_COLOR` follow the renderer's environment rules.
+`--color css` emits escaped span markup for the inside of a `<pre>`. `--out` alone does not select CSS.
+There is no stdin input or `-` input convention: save source to a `.mmd` or `.json` file first.
+
+## Diagnostics and exit codes
+
+- Output goes to stdout, with a final newline, or to `--out` without that added newline.
+- Each adaptation is printed to stderr as `glyphcss: <code>: <message>`.
+- A file write also prints `glyphcss: wrote <file>` to stderr.
+- Success exits 0, including renders with adaptation notes. Help exits 0. No arguments exits 1.
+- Invalid arguments, file errors, validation failures, and parse errors exit 1 and print the error to stderr.
+
+## Dispatch and ignored flags
+
+Graph direction, spacing, and engine flags do not apply to charts, sequences, or gitGraph.
+`--detail` applies to graphs and charts. `--title` applies to diagrams, including sequences
+and gitGraph; chart titles come from source. Ignored flags produce `mermaid-option-ignored`.
+
+Sequence frontmatter and initialization are inert and reported; use `--title` for its title.
+Unknown headers and malformed bodies retain their tagged errors. See [troubleshooting](/diagrams/troubleshooting/).

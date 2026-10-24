@@ -1,0 +1,26 @@
+---
+title: Mermaid sequence diagrams as text
+description: Render Mermaid sequence diagrams as monospace text with participants, request and response arrows, notes, alternatives, loops, and time-based panels.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Import `renderGlyphSequence` from `@glyphcss/diagrams/sequence`, then pass source and [shared render options](/diagrams/options/). The root graph renderer is not the sequence entry point.
+
+## Request and response
+
+<GlyphRender kind="sequence" source={"sequenceDiagram\n participant Buyer\n participant API\n participant Stock\n participant Pay\n participant Mail\n Buyer->>API: Place order\n API->>Stock: Reserve items\n Stock-->>API: Items held\n API->>Pay: Charge card\n Pay-->>API: Approved\n API->>Mail: Send receipt\n Mail-->>API: Queued\n API-->>Buyer: Order confirmed"} options={{"target": "chat", "width": 92, "height": 27, "overflow": "expand"}} />
+
+## Alternative responses and notes
+
+<GlyphRender kind="sequence" source={"sequenceDiagram\n actor Buyer\n participant API\n Note right of API: Keep receipt\n Buyer->>API: Place order\n alt In stock\n API-->>Buyer: Confirmed\n else Sold out\n API-->>Buyer: Try later\n end"} options={{"target": "chat", "width": 64, "height": 19, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Participant aliases use `participant API as Order service`; `actor` draws a stick figure.
+- Message endpoints control direction; solid and dashed message styles remain distinct. Self-messages draw a loop.
+- `loop`, `alt`/`else`, `opt`, `par`/`and`, `critical`/`option`, and `break` create frames with matched `end` statements.
+- Notes can sit over participants or left/right of one participant. `autonumber` supports start and step.
+- Activations, `rect`, and participant `box` styling are inert. Create/destroy syntax becomes full lifelines; half and central arrows become solid or dashed directed messages with notes in the report.
+- Pagination follows time and repeats participant headers and continuing frames. `overflow: "expand"` grows the height; too many participants can still produce `sequence-layout-overflow`.
+- See [sequence JSON](/diagrams/json/#sequence-json) for direct control over frames and note positions.

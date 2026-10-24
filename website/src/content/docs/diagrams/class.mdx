@@ -1,0 +1,24 @@
+---
+title: Mermaid class diagrams as ASCII text
+description: Render Mermaid class diagrams as text with member compartments, inheritance, aggregation, composition, associations, multiplicities, and namespaces.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `classDiagram` with `renderGlyphDiagram`. Class names, members, and relationship captions become text; the renderer does not execute methods.
+
+## Classes and inheritance
+
+<GlyphRender kind="diagram" source={"classDiagram\n class Account {\n +String email\n +signIn() bool\n }\n class Buyer {\n +checkout() Order\n }\n class Staff {\n +refund() bool\n }\n class Order {\n +String status\n +submit()\n }\n class Line {\n +int quantity\n }\n Account <|-- Buyer\n Account <|-- Staff\n Buyer --> Order : places\n Order \"1\" *-- \"*\" Line : contains"} options={{"target": "chat", "width": 78, "height": 30, "overflow": "expand"}} />
+
+## Composition and multiplicity
+
+<GlyphRender kind="diagram" source={"classDiagram\n class Order {\n +submit()\n }\n class Line {\n +int quantity\n }\n Order \"1\" *-- \"*\" Line : contains"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Braced member rows form compartments below the class header. Visibility markers and generic type text remain literal.
+- Inheritance and realization use triangle heads; aggregation and composition use open and filled diamonds.
+- Associations, dependencies, relationship labels, quoted multiplicities, namespaces, and notes are adapted into graph nodes, groups, and captions.
+- Class identifiers may contain hyphens. Spaced generic types are accepted.
+- Configuration, styles, and URLs are inert and reported. Cell budgets can wrap or omit captions: inspect the fidelity report and [increase the budget](/diagrams/options/).

@@ -1,0 +1,94 @@
+---
+title: ASCII diagram node shape catalogue
+description: Compare every supported diagram node shape with real text output, including Mermaid catalogue shapes, JSON names, compartments, and ASCII fallbacks.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+import GlyphRenderGrid from '../../../integrations/astro/GlyphRenderGrid.astro';
+
+Use a JSON node's `shape` field, or Mermaid's `N@{shape: doc, label: "Read item"}`.
+These examples use JSON so the exact public shape name appears beside its output.
+Shapes carry meaning through outlines, independent of color.
+
+## Basic and semantic shapes
+
+<GlyphRenderGrid>
+<GlyphRender caption="rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "rect", "shape": "rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="rounded" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "rounded", "shape": "rounded"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="diamond" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "diamond", "shape": "diamond"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="circle" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "circle", "shape": "circle"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="subroutine" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "subroutine", "shape": "subroutine"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="asymmetric" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "asymmetric", "shape": "asymmetric"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="stadium" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "stadium", "shape": "stadium"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="cylinder" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "cylinder", "shape": "cylinder"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="point" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "*", "shape": "point"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="compartment" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "compartment", "shape": "compartment", "compartments": [["+id: string"], ["+save()"]]}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="cloud" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "cloud", "shape": "cloud"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="bang" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "bang", "shape": "bang"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="hexagon" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "hexagon", "shape": "hexagon"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+</GlyphRenderGrid>
+
+## Mermaid catalogue shapes
+
+Catalogue names below work in JSON and in Mermaid shape metadata.
+
+<GlyphRenderGrid>
+<GlyphRender caption="doc" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "doc", "shape": "doc"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="docs" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "docs", "shape": "docs"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="st-rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "st-rect", "shape": "st-rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="tag-doc" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "tag-doc", "shape": "tag-doc"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="notch-rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "notch-rect", "shape": "notch-rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="div-rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "div-rect", "shape": "div-rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="lin-rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "lin-rect", "shape": "lin-rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="tag-rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "tag-rect", "shape": "tag-rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="lean-r" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "lean-r", "shape": "lean-r"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="lean-l" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "lean-l", "shape": "lean-l"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="trap-t" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "trap-t", "shape": "trap-t"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="trap-b" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "trap-b", "shape": "trap-b"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="notch-pent" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "notch-pent", "shape": "notch-pent"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="delay" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "delay", "shape": "delay"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="bow-rect" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "bow-rect", "shape": "bow-rect"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="curv-trap" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "curv-trap", "shape": "curv-trap"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="tri" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "tri", "shape": "tri"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="flip-tri" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "flip-tri", "shape": "flip-tri"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="hourglass" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "hourglass", "shape": "hourglass"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="bolt" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "bolt", "shape": "bolt"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="flag" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "flag", "shape": "flag"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="dbl-circ" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "dbl-circ", "shape": "dbl-circ"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="cross-circ" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "cross-circ", "shape": "cross-circ"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="fr-circ" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "fr-circ", "shape": "fr-circ"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="f-circ" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "f-circ", "shape": "f-circ"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="sm-circ" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "sm-circ", "shape": "sm-circ"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="h-cyl" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "h-cyl", "shape": "h-cyl"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="lin-cyl" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "lin-cyl", "shape": "lin-cyl"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="datastore" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "datastore", "shape": "datastore"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="bucket" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "bucket", "shape": "bucket"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="text" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "text", "shape": "text"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="fork" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "", "shape": "fork"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="brace" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "brace", "shape": "brace"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="brace-r" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "brace-r", "shape": "brace-r"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="braces" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "braces", "shape": "braces"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="browser" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "browser", "shape": "browser"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="console" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "console", "shape": "console"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+<GlyphRender caption="person" showSource={false} kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "person", "shape": "person"}], "edges": []}} options={{"target": "web", "color": "none", "width": 30, "height": 9, "overflow": "expand"}} />
+</GlyphRenderGrid>
+
+## ASCII and font compatibility
+
+`ascii` uses simpler outlines. Box, blocks, and braille hexagons use ❬ and ❭ sides;
+ASCII uses angle brackets. Clouds and bangs also have ASCII outlines.
+
+<GlyphRender kind="diagram" source={{"direction": "LR", "nodes": [{"id": "n", "label": "Decision", "shape": "hexagon"}], "edges": []}} options={{"target": "chat", "charset": "ascii", "width": 30, "height": 9}} />
+
+Use Glyph Mono for special glyphs in web output; chat uses the receiving application's font.
+See [fonts and fallbacks](/diagrams/troubleshooting/#fonts-and-alignment).
+
+## Adaptations and connection limits
+
+Catalogue shapes reserve their full footprint and attach edges away from seams.
+`point` draws the first character of its required nonempty label and cannot have a direct JSON self-edge. `fork` draws an
+unlabelled bar/stub; a supplied label goes below it. `compartment` accepts member rows.
+
+Mermaid names `lin-doc`, `win-pane`, `sl-rect`, and `folder` have logged adaptations;
+they are not additional JSON shape values. External icons and images are inert.
+Inspect render notes when [fitting](/diagrams/options/) changes an outline or label.

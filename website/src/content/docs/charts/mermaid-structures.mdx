@@ -1,0 +1,24 @@
+---
+title: "Mermaid packet headers and kanban boards as text"
+description: Render Mermaid packet bit fields and kanban boards as monospace text. Keep field ranges, card metadata, and lane structure visible without browser diagrams.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Both families use `renderGlyphChartMermaid(source, options)`. They share the chart target and color options but use structured layouts rather than numeric axes.
+
+## Packet bit fields
+
+Use absolute bit ranges; fields wrap across 32-bit rows with shared sharp borders. Vertical row keys show ascending decimal offsets.
+
+<GlyphRender kind="chart-mermaid" source={"packet-beta\n title Order event header\n 0-7: \"Version\"\n 8-15: \"Flags\"\n 16-31: \"Length\"\n 32-63: \"Request ID\"\n 64-95: \"Order ID\"\n 96-111: \"Region\"\n 112-127: \"Event type\"\n 128-159: \"Checksum\""} options={{"target": "chat", "width": 68}} />
+
+Narrow rows, overlapping/invalid ranges, inert config, and the 256-row limit produce render notes. Choose enough width for field names rather than relying on truncated labels.
+
+## Kanban lanes and cards
+
+Indent cards under lanes. Metadata can include assigned person, ticket, and priority; it wraps between complete items. Card URLs remain inert.
+
+<GlyphRender kind="chart-mermaid" source={"kanban\ntitle Portal sprint\n ready[Ready]\n  search[Search filters]@{ assigned: 'Mia', ticket: '241', priority: 'High' }\n  export[Billing export]@{ assigned: 'Noah', ticket: '246' }\n doing[In progress]\n  login[Team login]@{ assigned: 'Liam', ticket: '238' }\n  alerts[Usage alerts]@{ assigned: 'Ava', ticket: '243' }\n done[Done]\n  charts[Usage charts]@{ assigned: 'Mia', ticket: '235' }\n  audit[Audit log]@{ assigned: 'Liam', ticket: '231' }"} options={{"target": "chat", "width": 78}} />
+
+Preserve indentation and place the title outside lane data. Narrow boards can wrap lanes onto additional rows; read `report.ledger` for changes. Omit `height` for content-driven fitting. For graph-shaped workflows, use [flowcharts](/diagrams/flowcharts/) instead.

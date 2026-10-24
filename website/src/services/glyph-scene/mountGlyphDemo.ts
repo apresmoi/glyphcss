@@ -22,7 +22,6 @@ import {
   createGlyphScene,
   planePolygons,
 } from "glyphcss";
-import GUI from "lil-gui";
 import { computeGlyphAtlasAvailability } from "../rendering/glyphAtlasAvailability";
 import { defaultGlyphColorEncoding } from "../rendering/glyphColorEncodingDefault";
 import { getSolidWeightRamp } from "../rendering/weightedRamp";
@@ -50,12 +49,16 @@ import {
   type Tunables,
   DEFAULT_TUNABLES,
   DEMO_BASE_FONT_SIZE,
-  DEMO_GEOMETRY_SIZE,
 } from "./types";
 
 // ── Init per GlyphDemo instance ──────────────────────────────────────────
 
-export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
+export interface DemoTuningObserver {
+  onReady: (update: (partial: Partial<Tunables>) => void) => void;
+  onChange: (tunables: Tunables) => void;
+}
+
+export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver): (() => void) | undefined {
   if (demoEl.getAttribute("data-initialized")) return;
   demoEl.setAttribute("data-initialized", "1");
   const events = new AbortController();
@@ -66,13 +69,6 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
   const sceneHost = demoEl.querySelector(".glyph-demo__scene-host") as HTMLElement;
   const loadingEl = demoEl.querySelector(".glyph-demo__loading") as HTMLElement;
   const statsEl = demoEl.querySelector(".glyph-demo__stats") as HTMLElement;
-  const controlsEl = demoEl.querySelector(".glyph-demo__controls") as HTMLElement | null;
-  const codeEls: Record<string, HTMLElement | null> = {
-    vanilla: demoEl.querySelector('.glyph-demo__snippet[data-fw="vanilla"] code'),
-    react: demoEl.querySelector('.glyph-demo__snippet[data-fw="react"] code'),
-    vue: demoEl.querySelector('.glyph-demo__snippet[data-fw="vue"] code'),
-  };
-
   const initialGeometry = (demoEl.getAttribute("data-geometry") || "cuboctahedron") as GeometryName;
   const wantStats = demoEl.getAttribute("data-show-stats") === "1";
 
@@ -89,14 +85,6 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
 
   const tunables: Tunables = { ...DEFAULT_TUNABLES, geometry: initialGeometry, ...userDefaults };
 
-  let controlList: string[] = ["scale", "stretch", "distance", "rotX", "duration", "geometry"];
-  const controlsAttr = demoEl.getAttribute("data-controls");
-  if (controlsAttr) {
-    try {
-      controlList = JSON.parse(controlsAttr);
-    } catch {}
-  }
-
   // Decorative landing demos pass `interactive={false}`; honor that before
   // controls are built so the orbit handlers never attach in the first place.
   const interactiveAttr = demoEl.getAttribute("data-interactive");
@@ -108,7 +96,9 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
   const showHotspots = demoEl.getAttribute("data-no-hotspots") !== "1";
   function parseInteractiveDownscale(value: string | null): number {
     const parsed = Number(value);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
+    // Full resolution unless a demo opts in: a coarser drag frame reads as
+    // the model jumping in size the moment it is grabbed.
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
   }
   const interactiveDownscale = parseInteractiveDownscale(demoEl.getAttribute("data-interactive-downscale"));
 
@@ -309,12 +299,8 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
       wireframeJunctions: tunables.wireframeJunctions ?? false,
       hiddenLines: tunables.hiddenLines ?? "show",
       solidWeightRamp: tunables.solidWeightRamp ? (getSolidWeightRamp() ?? undefined) : undefined,
-      // Feature-detected site default (see glyphColorEncodingDefault.ts).
-      // GlyphDemo instances have no colorEncoding UI control ("never
-      // user-tunable" — see `atlasReason` below), so this is the only
-      // place a demo picks up the site default; an explicit
-      // `defaults='{"colorEncoding":...}'` prop still wins via `tunables`.
       colorEncoding: tunables.colorEncoding ?? defaultGlyphColorEncoding(),
+      colorTolerance: tunables.colorTolerance ?? 0,
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -592,7 +578,7 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
   // under-fills (a sphere lands at ~58% when targeting 82%). Projection scales
   // linearly with zoom, so we measure the cell extent at the current zoom and
   // scale to hit the target. Skipped for FPV / pinned-zoom demos.
-  function fitContentZoom(fill = 0.85): void {
+  function fitContentZoom(fill = tunables.fitFill ?? 0.85): void {
     if (hasExplicitZoom || controlState.dragMode === "fpv") return;
     const polys = geometry.polygons as Polygon[];
     if (!polys || polys.length === 0) return;
@@ -669,6 +655,7 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
         scene.fit();
         fitContentZoom();
         doRerender();
+        publishTuning();
       });
     });
     refitObserver.observe(sceneHost);
@@ -679,16 +666,42 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
   }
 
   // ── Hotspots ─────────────────────────────────────────────────────────────
+  const DOCS_HOTSPOT_AT: [number, number, number] = [50, 50, 50];
   // Two named hotspots anchored to vertex 0 and vertex 4 of the geometry.
   const hotspotLabels: Record<string, string> = { top: "vertex 0", side: "vertex 4" };
 
   let hotspotHandles: Array<{ id: string; handle: ReturnType<GlyphSceneHandle["addHotspot"]> }> = [];
+  let docsHotspotSelected = false;
 
   function rebuildHotspots(): void {
     for (const { handle } of hotspotHandles) handle.remove();
     hotspotHandles = [];
 
     if (!showHotspots) return;
+    if (demoEl.getAttribute("data-docs-hotspot") === "1") {
+      // A corner, not the centre: the centre projects to mid-screen at every angle.
+      const handle = scene.addHotspot({ id: "anchor", at: DOCS_HOTSPOT_AT, size: [14, 3] });
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "glyph-demo__hotspot-button";
+      const update = () => {
+        button.textContent = docsHotspotSelected ? "Selected" : "Select anchor";
+        button.setAttribute("aria-pressed", String(docsHotspotSelected));
+      };
+      button.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal: events.signal });
+      button.addEventListener(
+        "click",
+        () => {
+          docsHotspotSelected = !docsHotspotSelected;
+          update();
+        },
+        { signal: events.signal },
+      );
+      update();
+      handle.el.append(button);
+      hotspotHandles.push({ id: "anchor", handle });
+      return;
+    }
     if (geometry.vertices.length === 0) return;
 
     const topHandle = scene.addHotspot({ id: "top", at: geometry.vertices[0]!, size: [3, 2] }, () =>
@@ -747,6 +760,7 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
   type ControlsHandle = {
     destroy(): void;
     update(opts: { invert?: boolean | number; drag?: boolean; wheel?: boolean }): void;
+    addEventListener(type: "end", listener: () => void): void;
   };
   let controls: ControlsHandle | null = null;
 
@@ -780,6 +794,7 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
       // orbit (default) — pass through the pitch clamp.
       controls = createGlyphOrbitControls(scene, { ...commonOpts, pitchRange });
     }
+    if (tuning) controls.addEventListener("end", publishTuning);
   }
 
   buildControls();
@@ -956,7 +971,7 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     maybeFitContent();
     doRerender();
     loadingEl.style.display = "none";
-    updateCode();
+    publishTuning();
   }
 
   function rebuildAll(): void {
@@ -1349,6 +1364,9 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     if ("colorEncoding" in partial && partial.colorEncoding !== undefined) {
       sceneOpts.colorEncoding = partial.colorEncoding;
     }
+    if ("colorTolerance" in partial && partial.colorTolerance !== undefined) {
+      sceneOpts.colorTolerance = partial.colorTolerance;
+    }
     if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
 
     // `lineHeight` changes the measured cell size. createGlyphScene projects in
@@ -1670,102 +1688,27 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     getAtlasAvailability,
   };
 
-  // ── lil-gui ───────────────────────────────────────────────────────────────
-  const gui = controlsEl ? new GUI({ container: controlsEl, title: "Tuning", width: 240 }) : null;
-  const controlMakers: Record<string, () => void> = gui
-    ? {
-        scale: () => {
-          gui.add(tunables, "zoom", 0.5, 60, 0.5).name("zoom").listen().onChange(rebuildAll);
-        },
-        stretch: () => {
-          gui.add(tunables, "stretch", 0.5, 1.5, 0.01).onChange(rebuildAll);
-        },
-        distance: () => {
-          gui.add(tunables, "distance", 100, 100000, 100).name("perspective").onChange(rebuildAll);
-        },
-        rotX: () => {
-          gui.add(tunables, "rotX", 0, 180, 1).name("tilt (rotX)").onChange(rebuildAll);
-        },
-        duration: () => {
-          gui
-            .add(tunables, "duration", 1, 12, 0.25)
-            .name("duration (s)")
-            .onChange(() => {
-              /* no-op: JS autorotate uses tunables.duration directly */
-            });
-        },
-        density: () => {
-          gui
-            .add(tunables, "density", 0.5, 4, 0.1)
-            .name("density")
-            .onChange((v: number) => setTunables({ density: v }));
-        },
-        lineHeight: () => {
-          gui.add(tunables, "lineHeight", 0.5, 1.2, 0.01).name("line-height ×").onChange(rebuildAll);
-        },
-        geometry: () => {
-          gui.add(tunables, "geometry", ["cuboctahedron", "icosahedron", "cube"]).onChange(rebuildAll);
-        },
-      }
-    : {};
-  for (const key of controlList) controlMakers[key]?.();
-
-  // ── Code panel sync ───────────────────────────────────────────────────────
-  function updateCode(): void {
-    const t = tunables;
-    const mode = t.renderMode ?? "wireframe";
-    const rotY = t.rotY ?? camera.rotY;
-    if (codeEls.vanilla) {
-      codeEls.vanilla.textContent = [
-        'import { createGlyphCamera, createGlyphScene, createGlyphOrbitControls } from "glyphcss";',
-        'import { resolveGeometry } from "@glyphcss/core";',
-        "",
-        'const host = document.getElementById("scene")!;',
-        `const camera = createGlyphCamera({ rotX: ${t.rotX.toFixed(2)}, rotY: ${rotY.toFixed(2)}, zoom: ${t.zoom.toFixed(2)} });`,
-        "const scene = createGlyphScene(host, {",
-        "  camera,",
-        "  autoSize: true,",
-        `  mode: "${mode}",`,
-        "});",
-        "",
-        `scene.add(resolveGeometry("${t.geometry}", { size: ${DEMO_GEOMETRY_SIZE} }));`,
-        "createGlyphOrbitControls(scene, { drag: true, wheel: true });",
-      ].join("\n");
-    }
-    if (codeEls.react) {
-      codeEls.react.textContent = [
-        'import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh } from "@glyphcss/react";',
-        "",
-        "export function App() {",
-        "  return (",
-        `    <GlyphCamera rotX={${t.rotX.toFixed(2)}} rotY={${rotY.toFixed(2)}} zoom={${t.zoom.toFixed(2)}}>`,
-        `      <GlyphScene mode="${mode}" autoSize style={{ width: "100%", height: "100%" }}>`,
-        "        <GlyphOrbitControls drag wheel />",
-        `        <GlyphMesh geometry="${t.geometry}" size={${DEMO_GEOMETRY_SIZE}} />`,
-        "      </GlyphScene>",
-        "    </GlyphCamera>",
-        "  );",
-        "}",
-      ].join("\n");
-    }
-    if (codeEls.vue) {
-      codeEls.vue.textContent = [
-        "<template>",
-        `  <GlyphCamera :rot-x="${t.rotX.toFixed(2)}" :rot-y="${rotY.toFixed(2)}" :zoom="${t.zoom.toFixed(2)}">`,
-        `    <GlyphScene mode="${mode}" auto-size :style="{ width: '100%', height: '100%' }">`,
-        "      <GlyphOrbitControls drag wheel />",
-        `      <GlyphMesh geometry="${t.geometry}" :size="${DEMO_GEOMETRY_SIZE}" />`,
-        "    </GlyphScene>",
-        "  </GlyphCamera>",
-        "</template>",
-        "",
-        '<script setup lang="ts">',
-        'import { GlyphCamera, GlyphScene, GlyphOrbitControls, GlyphMesh } from "@glyphcss/vue";',
-        "</script>",
-      ].join("\n");
-    }
+  // Only the docs adapter subscribes; Gallery and the landing hero keep their
+  // existing lifecycle and do no React work from rendering or animation ticks.
+  function publishTuning(): void {
+    tuning?.onChange({ ...tunables, zoom: camera.zoom, rotX: camera.rotX, rotY: camera.rotY });
   }
-
+  tuning?.onReady((partial) => {
+    // Orbit controls mutate the camera directly. Preserve that pose when a
+    // geometry/stretch edit rebuilds the camera from the tunables.
+    Object.assign(tunables, { zoom: camera.zoom, rotX: camera.rotX, rotY: camera.rotY }, partial);
+    if ("autoRotate" in partial) {
+      if (partial.autoRotate) startAutoRotate();
+      else stopAutoRotate();
+      publishTuning();
+      return;
+    }
+    if ("geometry" in partial || "stretch" in partial) rebuildAll();
+    else {
+      setTunables(partial);
+      publishTuning();
+    }
+  });
   // ── Stats overlay ─────────────────────────────────────────────────────────
   if (wantStats) {
     statsEl.classList.add("active");
@@ -1786,23 +1729,6 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     };
     statsFrame = requestAnimationFrame(fpsTick);
   }
-
-  // ── Tabs ──────────────────────────────────────────────────────────────────
-  demoEl.querySelector(".glyph-demo__tabs")?.addEventListener(
-    "click",
-    (e) => {
-      const btn = (e.target as HTMLElement).closest(".glyph-demo__tab") as HTMLElement | null;
-      if (!btn) return;
-      const fw = btn.dataset.fw;
-      demoEl
-        .querySelectorAll(".glyph-demo__tab")
-        .forEach((t) => t.classList.toggle("active", (t as HTMLElement).dataset.fw === fw));
-      demoEl
-        .querySelectorAll(".glyph-demo__snippet")
-        .forEach((p) => p.classList.toggle("glyph-demo__snippet--hidden", (p as HTMLElement).dataset.fw !== fw));
-    },
-    { signal: events.signal },
-  );
 
   // ── Initial render ────────────────────────────────────────────────────────
   // Indexed-polygons URL (compact format used by the landing earth) takes
@@ -1849,10 +1775,13 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     maybeFitContent();
     doRerender();
     loadingEl.style.display = "none";
-    updateCode();
+    publishTuning();
   }
 
-  if (demoEl.getAttribute("data-auto-rotate") === "1") {
+  tunables.autoRotate = demoEl.getAttribute("data-auto-rotate") === "1";
+  // Drag-pause wiring is always installed because docs controls can switch
+  // the spin on after mount; the block keeps its locals out of the outer scope.
+  {
     // Pause the spin while the user is actively dragging so user input
     // doesn't fight the RAF tick. Resume after a short delay so a quick
     // release-and-grab doesn't restart the spin mid-gesture.
@@ -1882,7 +1811,7 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     cleanups.push(() => {
       if (resumeTimer !== null) window.clearTimeout(resumeTimer);
     });
-    startAutoRotate();
+    if (tunables.autoRotate) startAutoRotate();
   }
   return () => {
     meshLoadToken += 1;
@@ -1895,7 +1824,6 @@ export function mountGlyphDemo(demoEl: HTMLElement): (() => void) | undefined {
     configureEffect(null);
     controls?.destroy();
     fpvControl?.destroy();
-    gui?.destroy();
     geometry.dispose?.();
     scene.destroy();
     delete (demoEl as HTMLElement & { glyphcssDemo?: unknown }).glyphcssDemo;

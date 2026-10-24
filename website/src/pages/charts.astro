@@ -1,11 +1,33 @@
 ---
 import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { ChartsWorkbench } from "../components/ChartsWorkbench";
-const title = "Charts — ASCII data viz | glyphcss";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticCharts } from "../features/charts/render/staticCharts";
+import { softwareApplication } from "../features/home/softwareApplication";
+const snapshot = await staticCharts();
+const heading = "Charts";
+const title = "ASCII charts for chat, terminal and web | glyphcss";
 const description =
-  "A declarative, Observable-Plot-flavoured chart spec rendered as ASCII/box/braille output for chat, terminal and web, built on glyphcss.";
+  "Render data and Mermaid charts as ASCII, block or braille text for chat, terminal and web. Explore presets, copy text, or use the JavaScript library and CLI.";
 ---
 
-<WorkbenchLayout title={title} description={description} path="/charts/">
-  <ChartsWorkbench client:only="react" />
+<WorkbenchLayout title={title} description={description} path="/charts/" image="/og/charts.png">
+  <script
+    slot="head"
+    type="application/ld+json"
+    set:html={JSON.stringify(softwareApplication("charts", description))}
+  />
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <ChartsWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench
+        page="charts"
+        heading={heading}
+        description={`${description} The static view shows the Line preset; the interactive workbench opens a random dataset.`}
+        initial={snapshot.initial}
+        examples={snapshot.examples}
+        kind="chart"
+      />
+    </Fragment>
+  </ChartsWorkbench>
 </WorkbenchLayout>

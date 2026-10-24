@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { useState } from "react";
 import { GALLERY_EFFECT_OPTIONS } from "../../features/gallery/model/effects";
 import { GalleryCodePanel } from "./GalleryCodePanel";
@@ -20,9 +21,9 @@ import { CopySceneButton } from "./CopySceneButton";
 import styles from "./GalleryWorkbench.module.css";
 import { useGalleryWorkbench } from "./hooks/useGalleryWorkbench";
 
-export default function GalleryWorkbench() {
+export default function GalleryWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot } = {}) {
   const [codeOpen, setCodeOpen] = useState(false);
-  const view = useGalleryWorkbench();
+  const view = useGalleryWorkbench(snapshot ? "primitive-tetrahedron" : undefined);
   if (!view) return null;
   const {
     dropped,
@@ -98,22 +99,24 @@ export default function GalleryWorkbench() {
 
         <InstrumentMain>
           <InstrumentViewport elementRef={viewportRef}>
-            <GlyphScene
-              meshUrl={meshUrl}
-              selectedPreset={selectedPreset}
-              options={renderSceneOptions}
-              onCameraChange={handleCameraChange}
-              onAtlasAvailability={setAtlasReason}
-              onAnimationInfoChange={({ clips }) => {
-                setAnimationClips(clips);
-              }}
-              selectedAnimation={selectedAnimation}
-              animationPaused={sceneOptions.animationPaused}
-              animationTimeScale={sceneOptions.animationTimeScale}
-              effect={runtimeEffect}
-              semanticOutput={glyphOutput === "semantic" ? semanticScene : null}
-              onSemanticCellLineage={setSemanticCell}
-            />
+            {snapshot?.viewport ?? (
+              <GlyphScene
+                meshUrl={meshUrl}
+                selectedPreset={selectedPreset}
+                options={renderSceneOptions}
+                onCameraChange={handleCameraChange}
+                onAtlasAvailability={setAtlasReason}
+                onAnimationInfoChange={({ clips }) => {
+                  setAnimationClips(clips);
+                }}
+                selectedAnimation={selectedAnimation}
+                animationPaused={sceneOptions.animationPaused}
+                animationTimeScale={sceneOptions.animationTimeScale}
+                effect={runtimeEffect}
+                semanticOutput={glyphOutput === "semantic" ? semanticScene : null}
+                onSemanticCellLineage={setSemanticCell}
+              />
+            )}
           </InstrumentViewport>
           <InstrumentExportBar>
             <CopySceneButton />
@@ -148,7 +151,11 @@ export default function GalleryWorkbench() {
           <DropOverlay active={dropped.dropActive} />
         </InstrumentMain>
 
-        <Dock id="gallery-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="gallery-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <DockRendering
             renderMode={renderPresentation}
             semanticAvailable={semanticAvailable}

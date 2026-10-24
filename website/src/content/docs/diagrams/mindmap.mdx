@@ -1,0 +1,23 @@
+---
+title: Mermaid mindmaps as text trees
+description: Render indented Mermaid mindmaps as left-to-right text trees with rounded nodes, circles, clouds, bangs, and hexagons, plus supported syntax limits.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Pass `mindmap` source to `renderGlyphDiagram`. Indentation defines parentage; the adapter creates a left-to-right tree.
+
+## Plan a release
+
+<GlyphRender kind="diagram" source={"mindmap\n root(Release v2)\n  Checkout\n   Card payments\n   Order receipts\n  Operations\n   Backups\n   Error alerts\n  Rollout\n   Staff preview\n   Public launch"} options={{"target": "chat", "width": 66, "height": 26, "overflow": "expand"}} />
+
+## Choose node outlines
+
+<GlyphRender kind="diagram" source={"mindmap\n root(Portal)\n  )Cloud services(\n  ))Alerts((\n  {{Security}}"} options={{"target": "chat", "width": 64, "height": 16, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Rounded nodes are the default. Circle, cloud, bang, and hexagon delimiters select outlines.
+- Repeated labels are separate tree nodes. Uneven dedents and apostrophes are accepted.
+- Icons, classes, and configuration are inert. Markdown labels become plain text and the adaptation is reported.
+- Deep trees may become wide. Use `autoDirection`, more columns, or [pagination](/diagrams/options/) rather than shrinking the font.

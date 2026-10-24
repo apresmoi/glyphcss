@@ -1,79 +1,28 @@
 ---
 title: Performance
-description: Optimize 3D ASCII rendering performance by tuning grid density, interaction resolution, hotspot count, color spans, and animation in glyphcss.
+description: Tune ASCII grid density, interaction resolution, hotspot count, and color encoding; measure your own scenes instead of relying on fixed frame rates.
 ---
 
-## Cost dominator: grid cells, not polygons
+import { GlyphDemo } from '../../../components/GlyphDemo';
 
-The glyphcss renderer scales with **grid cells**, not polygon count. A 10k-triangle
-GLB and a unit cube cost the same per frame, because both rasterize into the same
-`cols × rows` `Uint8Array` stamp.
+<GlyphDemo hotspot={false} client:visible id="performance-demo" mesh="/gallery/glb/Octopus.glb" controls='["density"]' defaults='{"fitFill":0.98,"renderMode":"solid","density":1,"colorEncoding":"spans"}' showStats />
 
-Frame size:
-- 80×24 grid (~tiny): ~2,000 cells, < 1ms per frame
-- 160×48 grid (typical): ~7,500 cells, ~3ms per frame
-- 240×72 grid (large): ~17,000 cells, ~6ms per frame
+Drag while changing density; watch the cell count and FPS. Doubling density roughly quadruples cells. Geometry, shading, color runs, and browser painting also contribute; a cube and a complex model do not have identical costs.
 
-That cost is paid per render pass — one projection over all polygons plus one
-`textContent` assignment — and a pass runs only when the camera or scene actually
-changes. Between changes there is no work at all: the `<pre>` just sits there.
+## Keep gestures responsive
 
-Cost scales roughly with cell count, so it is **quadratic in density**: halving
-the cell size quadruples the cells. That is what `interactiveDownscale` exists
-for — render at `1/n` resolution while a control is dragging and restore full
-detail on release.
+```ts
+scene.setOptions({ interactiveDownscale: 2 });
+```
 
-## When to drop hotspot count
-
-The hit layer costs `O(hotspots)` per render pass — one projection and one
-inline-style assignment each. That is cheap, but it is paid on every pass, so a
-few hundred hotspots in one scene start to show.
-
-For "highlight every vertex" UIs, consider:
-- Group nearby vertices into one logical hotspot.
-- Render hotspots only for the front-facing hemisphere (skip backface verts).
-- Hide hotspots you do not need rather than mounting and re-projecting them.
+The bundled controls lower resolution during gestures and restore it on release. Custom controls call `scene.setInteracting(true)` / `false`.
 
 ## Spans, not just cells: `colorTolerance`
 
-Colored output is emitted as `<span>` runs, and span count — not cell count —
-is what gates frame rate for a busy, continuously-animating scene: the
-browser's own raster/paint/parse-HTML work over a large `<pre>` costs far
-more than the render pass that produces it. `colorTolerance` (default `0`,
-off) merges adjacent cells into one run while their colors stay within a
-redmean colour distance of each other, trading a little color fidelity for
-far fewer spans.
+<GlyphDemo hotspot={false} client:visible id="performance-colors" mesh="/gallery/glb/Watermelon.glb" controls='["colorTolerance"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans","colorTolerance":0}' showStats />
 
-The win depends entirely on scene content — it is a **1.2x–9.1x lever, not a
-flat multiplier** (measured unquantized→best across `bench/color-tolerance.md`'s
-six presets, excluding the already-flat Cube tiles case, which gains nothing
-at 1.0x by design). Flat, hard-edged output (per-face color, shade ramps,
-carved solids) wins enormously; smooth noisy fields win modestly because
-their spans are dominated by genuine per-cell colour variation no merge
-policy can invent coherence around; an already-flat scene gains nothing and,
-just as importantly, does not regress. Raising tolerance lowers span count on
-every real scene measured, but this is **observed behavior, not a guarantee**
-— see `bench/color-tolerance.md` for the measured six-preset table, the live
-FPS delta, and the (rare, small) counterexample where a larger tolerance can
-land the next run's anchor at a slightly worse starting color.
+Tolerance merges nearby color runs, trading fidelity for fewer spans. Default `0`: off; range `0–765`; try `24–128`. Semantic output ignores it. [Atlas encoding](/guides/color-encoding/) removes spans for compatible output.
 
-Set it on `<GlyphScene colorTolerance={...}>` / `<glyph-scene
-color-tolerance="...">`. Range is `0`–`765` (redmean, not `0`–`255` RGB) —
-`765` merges essentially everything, `24`–`128` is the useful band for most
-scenes.
-
-## Avoid steady-state JS
-
-If you find yourself reaching for `requestAnimationFrame` to update the scene
-every frame, stop. The single-write render pass is designed to make that
-unnecessary. Two
-recipes that come up:
-
-**"I want the scene to react to scroll position":** map scroll to `camera.rotY`
-(**degrees** — glyphcss uses degrees everywhere, not radians) and call
-`scene.rerender()`. Throttle to whatever frame rate the grid size affords; a
-coarse grid can take every scroll event, a dense one wants a debounce.
-
-**"I want a continuous color pulse on a hotspot":** put the pulse on the hotspot's
-`<div>` directly. The hotspot div is real DOM — an inline `transform` pulse
-on it works the same as any other CSS animation.
+- Use detail layers and hotspots sparingly: each adds per-render work.
+- Rerender when state changes; leave idle scenes idle.
+- Animate hotspot DOM with CSS when the mesh does not change.

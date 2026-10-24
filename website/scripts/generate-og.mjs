@@ -2,12 +2,12 @@
 //
 // Each image reuses the landing `og.png` template — dark canvas, the
 // `[ glyphcss ]` wordmark + a page-specific tagline on the left, and the
-// page's REAL glyphcss ASCII render on the right. We capture the render live
-// (Playwright → the running preview server) so effect layers (field-synth,
-// Matrix rain) bake into the still exactly as a visitor sees them; a static
-// `compileScene` can't evaluate a mounted effect.
+// page's REAL glyphcss ASCII render on the right. Build-time snapshots cover
+// docs and compact workbench examples; live captures cover animated effects.
 //
-// Prereq: `pnpm --filter @glyphcss/website build && astro preview --port 4323`.
+// Prereq: run `pnpm --filter @glyphcss/website dev` on port 4323 (or set OG_BASE); the
+// manifest and render endpoints it reads exist only in dev.
+// Generate before the final build, which verifies every referenced card exists.
 // Run:    node website/scripts/generate-og.mjs [slug ...]   (default: all)
 //
 // Output: website/public/og/<slug>.png  (1200×630)
@@ -15,6 +15,9 @@
 import { chromium } from "playwright";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import sharp from "sharp";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.resolve(__dirname, "../public/og");
@@ -22,10 +25,70 @@ const BASE = process.env.OG_BASE ?? "http://localhost:4323";
 
 const W = 1200;
 const H = 630;
-// Render panel on the right half of the canvas.
+// Render panel on the right half of the canvas. A lone render that reads
+// larger across the full width (wide, short diagrams) goes under the title in
+// WIDE_PANEL instead; mirrors cardLayout in docsCards.ts.
 const PANEL = { x: 600, y: 70, w: 548, h: 490 };
+const WIDE_PANEL = { x: 72, y: 236, w: 1056, h: 360 };
 
-const PAGES = [
+export const PAGES = [
+  {
+    slug: "home",
+    url: "/",
+    render: "home",
+    output: "../og.png",
+    tagline: ["3D models, diagrams ", "and charts as text"],
+    sub: "Real renders for the web, chat and terminal. JavaScript, React, Vue and CLI.",
+    foot: "glyphcss.com",
+  },
+  {
+    slug: "diagrams",
+    url: "/diagrams/",
+    render: "diagrams",
+    tagline: ["Mermaid to ", "ASCII diagrams"],
+    sub: "Flowcharts, sequences and graphs as text for chat, terminal and web.",
+    foot: "glyphcss.com/diagrams",
+  },
+  {
+    slug: "charts",
+    url: "/charts/",
+    render: "charts",
+    tagline: ["data to ", "ASCII charts"],
+    sub: "Bar and donut charts, rendered as colourful block text.",
+    foot: "glyphcss.com/charts",
+  },
+  {
+    slug: "maps",
+    url: "/maps/",
+    render: "maps",
+    tagline: ["real terrain, ", "ASCII maps"],
+    sub: "NOAA ETOPO1 elevations, globe projections and terrain colours in text.",
+    foot: "glyphcss.com/maps",
+  },
+  {
+    slug: "bench",
+    url: "/bench/",
+    render: "bench",
+    tagline: ["measure the ", "text renderer"],
+    sub: "Compare meshes, cell sizes and rendering performance in the browser.",
+    foot: "glyphcss.com/bench",
+  },
+  {
+    slug: "examples",
+    url: "/examples/",
+    render: "home",
+    tagline: ["explore ", "ASCII examples"],
+    sub: "Earth, maps, procedural cities and effects rendered as real text.",
+    foot: "glyphcss.com/examples",
+  },
+  {
+    slug: "examples-loaders",
+    url: "/examples/loaders/",
+    render: "loaders",
+    tagline: ["animated ", "ASCII loaders"],
+    sub: "Loading indicators made from stock glyphcss effects on a text grid.",
+    foot: "glyphcss.com/examples/loaders",
+  },
   {
     slug: "synth",
     url: "/synth",
@@ -103,30 +166,49 @@ const PAGES = [
 
 // Fit a monospace grid (cols × rows) into a pixel box. Monospace advance ≈
 // 0.6·fontSize; line box = fontSize (the render pre uses line-height == size).
+// Capped so a small diagram reads large instead of turning into a poster.
 function fitFont(cols, rows, box) {
   const byW = box.w / (cols * 0.6);
   const byH = box.h / rows;
-  return Math.max(3, Math.min(byW, byH));
+  return Math.max(3, Math.min(30, byW, byH));
 }
 
 const esc = (s) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
-function templateHtml(page, render) {
-  const font = Math.floor(fitFont(render.cols, render.rows, PANEL) * 100) / 100;
+export function templateHtml(page, renders, fonts = {}) {
+  const [only] = renders;
+  const wide =
+    renders.length === 1 &&
+    fitFont(only.cols, only.rows, WIDE_PANEL) >
+      fitFont(only.cols, only.rows, PANEL) * 1.2;
+  const panel = wide ? WIDE_PANEL : PANEL;
+  const tileHeight = (panel.h - 18 * (renders.length - 1)) / renders.length;
+  const tiles = renders
+    .map((render) => {
+      const font =
+        Math.floor(
+          fitFont(render.cols, render.rows, { w: panel.w, h: tileHeight }) *
+            100,
+        ) / 100;
+      // Crop the blank margin columns a render pads to its target width.
+      const indent = render.indent ?? 0;
+      return `<div class="tile"><div class="crop" style="font-size:${font}px;width:${render.cols}ch"><pre style="font-size:1em;line-height:${font}px;margin-left:${-indent}ch">${render.html}</pre></div></div>`;
+    })
+    .join("");
   const [t0, t1] = page.tagline;
   const boost = page.boost ? `filter: ${page.boost};` : "";
   return `<!doctype html><html><head><meta charset="utf-8">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
 <style>
+  @font-face { font-family: "Glyph Mono"; src: url(data:font/woff2;base64,${fonts.regular ?? ""}) format("woff2"); font-weight: 400; }
+  @font-face { font-family: "Glyph Mono"; src: url(data:font/woff2;base64,${fonts.bold ?? ""}) format("woff2"); font-weight: 700; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: ${W}px; height: ${H}px; }
   body {
     position: relative; overflow: hidden;
     background: #0d0f12;
-    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-family: "Glyph Mono", ui-monospace, monospace;
   }
   /* subtle vignette so the render never clips a hard edge */
   body::after {
@@ -138,119 +220,240 @@ function templateHtml(page, render) {
   .mark { font-size: 62px; font-weight: 700; letter-spacing: 0.01em; line-height: 1; }
   .mark .b { color: #f0531f; }
   .mark .n { color: #efe2c6; }
-  .tag { font-size: 33px; font-weight: 500; line-height: 1.18; color: #d8d2c4; }
+  .tag { font-size: ${page.section ? 27 : 33}px; font-weight: 400; line-height: 1.18; color: #d8d2c4; }
   .tag .k { color: #f0531f; }
   .sub { font-size: 20px; line-height: 1.5; color: #9a958a; max-width: 470px; }
   .foot { font-size: 18px; color: #6f6a60; margin-top: 8px; }
   .foot b { color: #b9b2a4; font-weight: 500; }
-  .stage { position: absolute; left: ${PANEL.x}px; top: ${PANEL.y}px;
-    width: ${PANEL.w}px; height: ${PANEL.h}px;
-    display: flex; align-items: center; justify-content: center; z-index: 1; }
-  .stage pre { margin: 0; font-family: "JetBrains Mono", ui-monospace, monospace;
-    font-size: ${font}px; line-height: ${font}px; white-space: pre;
+  .meta { display: flex; flex-direction: column; gap: 22px; }
+  .wide .left { top: 52px; height: auto; width: ${WIDE_PANEL.w}px; gap: 12px; }
+  .wide .mark { font-size: 48px; }
+  .wide .sub, .wide .foot { display: inline; font-size: 18px; margin: 0; }
+  .wide .meta { flex-direction: row; align-items: baseline; gap: 24px; }
+  .stage { position: absolute; left: ${panel.x}px; top: ${panel.y}px;
+    width: ${panel.w}px; height: ${panel.h}px;
+    display: flex; flex-direction: column; gap: 18px; z-index: 1; }
+  .tile { width: 100%; height: ${tileHeight}px; display: flex; align-items: center; justify-content: center; }
+  .crop { overflow: hidden; font-family: "Glyph Mono", ui-monospace, monospace; }
+  .stage pre { margin: 0; font-family: "Glyph Mono", ui-monospace, monospace;
+    white-space: pre;
     color: #cfe9d8; text-shadow: 0 0 1px rgba(0,0,0,0.4); ${boost} }
 </style></head>
-<body>
+<body${wide ? ' class="wide"' : ""}>
   <div class="left">
     <div class="mark"><span class="b">[</span><span class="n">&nbsp;glyphcss&nbsp;</span><span class="b">]</span></div>
     <div class="tag">${esc(t0)}<span class="k">${esc(t1)}</span></div>
-    <div class="sub">${esc(page.sub)}</div>
-    <div class="foot"><b>${page.foot}</b></div>
+    <div class="meta"><div class="sub">${esc(page.sub)}</div><div class="foot"><b>${esc(page.foot)}</b></div></div>
   </div>
-  <div class="stage"><pre>${render.html}</pre></div>
+  <div class="stage">${tiles}</div>
 </body></html>`;
 }
 
-async function capture(page, browser) {
-  const pg = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
-  await pg.goto(BASE + page.url, { waitUntil: "networkidle", timeout: 45000 });
-  if (page.inputFile) {
-    await pg.setInputFiles(
-      page.inputFile.selector,
-      path.resolve(__dirname, "..", page.inputFile.path),
-    );
-  }
-  await pg.waitForTimeout(page.settle);
-  const render = await pg.evaluate(() => {
-    const pres = [...document.querySelectorAll("pre")];
-    let best = null, bestLen = -1;
-    for (const p of pres) {
-      const len = (p.textContent || "").replace(/\s/g, "").length;
-      if (len > bestLen) { bestLen = len; best = p; }
+async function capture(page, browser, snapshots, fonts) {
+  const pg = await browser.newPage({
+    viewport: { width: 1440, height: 900 },
+    deviceScaleFactor: 1,
+  });
+  let renders = snapshots[page.render];
+  if (page.render && !renders)
+    throw new Error(`Missing social render ${page.render}`);
+  if (!renders) {
+    await pg.goto(BASE + page.url, {
+      waitUntil: "networkidle",
+      timeout: 45000,
+    });
+    if (page.inputFile) {
+      await pg.setInputFiles(
+        page.inputFile.selector,
+        path.resolve(__dirname, "..", page.inputFile.path),
+      );
     }
-    if (!best) return null;
-
-    // Walk the DOM into a grid of { ch, color } cells so we can crop the render
-    // to its content bounding box — the raw render is padded with blank cells
-    // (a small mesh in a big viewport), which would otherwise shrink it in the
-    // OG panel. Cropping makes each card fill its space.
-    const grid = [[]];
-    const walk = (node, color) => {
-      for (const n of node.childNodes) {
-        if (n.nodeType === 3) {
-          for (const ch of n.nodeValue) {
-            if (ch === "\n") grid.push([]);
-            else grid[grid.length - 1].push({ ch, color });
-          }
-        } else if (n.nodeType === 1) {
-          walk(n, n.style && n.style.color ? n.style.color : color);
+    await pg.waitForFunction(
+      () =>
+        [...document.querySelectorAll("pre")].some(
+          (pre) => (pre.textContent || "").replace(/\s/g, "").length > 30,
+        ),
+      null,
+      { timeout: 45000 },
+    );
+    if (page.settle) await pg.waitForTimeout(page.settle); // Select a visible phase of the animated effect.
+    const render = await pg.evaluate(() => {
+      const pres = [...document.querySelectorAll("pre")];
+      let best = null,
+        bestLen = -1;
+      for (const p of pres) {
+        const len = (p.textContent || "").replace(/\s/g, "").length;
+        if (len > bestLen) {
+          bestLen = len;
+          best = p;
         }
       }
-    };
-    walk(best, null);
-    while (grid.length && grid[grid.length - 1].length === 0) grid.pop();
+      if (!best) return null;
 
-    let minC = Infinity, maxC = -1, minR = Infinity, maxR = -1;
-    grid.forEach((row, r) => row.forEach((cell, c) => {
-      if (cell.ch !== " ") {
-        if (c < minC) minC = c;
-        if (c > maxC) maxC = c;
-        if (r < minR) minR = r;
-        if (r > maxR) maxR = r;
-      }
-    }));
-    if (maxC < 0) return null;
-    const PAD = 1;
-    minC = Math.max(0, minC - PAD); minR = Math.max(0, minR - PAD);
-    maxC += PAD; maxR += PAD;
-
-    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    let html = "";
-    for (let r = minR; r <= maxR; r++) {
-      const row = grid[r] || [];
-      let run = "", runColor;
-      const flush = () => {
-        if (!run) return;
-        html += runColor ? `<span style="color:${runColor}">${esc(run)}</span>` : esc(run);
-        run = "";
+      // Walk the DOM into a grid of { ch, color } cells so we can crop the render
+      // to its content bounding box — the raw render is padded with blank cells
+      // (a small mesh in a big viewport), which would otherwise shrink it in the
+      // OG panel. Cropping makes each card fill its space.
+      const grid = [[]];
+      const walk = (node, color) => {
+        for (const n of node.childNodes) {
+          if (n.nodeType === 3) {
+            for (const ch of n.nodeValue) {
+              if (ch === "\n") grid.push([]);
+              else grid[grid.length - 1].push({ ch, color });
+            }
+          } else if (n.nodeType === 1) {
+            walk(n, n.style && n.style.color ? n.style.color : color);
+          }
+        }
       };
-      for (let c = minC; c <= maxC; c++) {
-        const cell = row[c] || { ch: " ", color: null };
-        const col = cell.ch === " " ? null : cell.color;
-        if (col !== runColor) { flush(); runColor = col; }
-        run += cell.ch;
+      walk(best, null);
+      while (grid.length && grid[grid.length - 1].length === 0) grid.pop();
+
+      let minC = Infinity,
+        maxC = -1,
+        minR = Infinity,
+        maxR = -1;
+      grid.forEach((row, r) =>
+        row.forEach((cell, c) => {
+          if (cell.ch !== " ") {
+            if (c < minC) minC = c;
+            if (c > maxC) maxC = c;
+            if (r < minR) minR = r;
+            if (r > maxR) maxR = r;
+          }
+        }),
+      );
+      if (maxC < 0) return null;
+      const PAD = 1;
+      minC = Math.max(0, minC - PAD);
+      minR = Math.max(0, minR - PAD);
+      maxC += PAD;
+      maxR += PAD;
+
+      const esc = (s) =>
+        s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      let html = "";
+      for (let r = minR; r <= maxR; r++) {
+        const row = grid[r] || [];
+        let run = "",
+          runColor;
+        const flush = () => {
+          if (!run) return;
+          html += runColor
+            ? `<span style="color:${runColor}">${esc(run)}</span>`
+            : esc(run);
+          run = "";
+        };
+        for (let c = minC; c <= maxC; c++) {
+          const cell = row[c] || { ch: " ", color: null };
+          const col = cell.ch === " " ? null : cell.color;
+          if (col !== runColor) {
+            flush();
+            runColor = col;
+          }
+          run += cell.ch;
+        }
+        flush();
+        if (r < maxR) html += "\n";
       }
-      flush();
-      if (r < maxR) html += "\n";
-    }
-    return { html, cols: maxC - minC + 1, rows: maxR - minR + 1 };
+      return { html, cols: maxC - minC + 1, rows: maxR - minR + 1 };
+    });
+    if (!render) throw new Error(`no <pre> found on ${page.url}`);
+    renders = [render];
+  }
+  await pg.setContent(templateHtml(page, renders, fonts), {
+    waitUntil: "load",
   });
-  if (!render) throw new Error(`no <pre> found on ${page.url}`);
-  await pg.setContent(templateHtml(page, render), { waitUntil: "networkidle" });
-  await pg.waitForTimeout(500); // let the webfont settle
+  await pg.evaluate(() => document.fonts.ready);
   const el = await pg.$("body");
-  const file = path.join(OUT_DIR, `${page.slug}.png`);
-  await el.screenshot({ path: file, clip: { x: 0, y: 0, width: W, height: H } });
+  const file = path.resolve(OUT_DIR, page.output ?? `${page.slug}.png`);
+  await mkdir(path.dirname(file), { recursive: true });
+  const bytes = await el.screenshot();
+  const png = await socialPng(bytes, page.slug);
+  await writeFile(file, png);
   await pg.close();
-  console.log(`  ✓ ${page.slug}.png  (grid ${render.cols}×${render.rows})`);
+  console.log(`  ✓ ${page.slug}.png  (${renders.length} real render(s))`);
 }
 
-const want = process.argv.slice(2);
-const pages = want.length ? PAGES.filter((p) => want.includes(p.slug)) : PAGES;
-const browser = await chromium.launch();
-console.log(`Generating ${pages.length} OG image(s) → public/og/`);
-for (const p of pages) {
-  try { await capture(p, browser); }
-  catch (e) { console.error(`  ✗ ${p.slug}: ${e.message}`); }
+export async function socialPng(bytes, slug) {
+  const png = await sharp(bytes)
+    .png({ compressionLevel: 9, palette: true, colours: 256 })
+    .toBuffer();
+  if (png.length > 150 * 1024)
+    throw new Error(`${slug}: PNG exceeds 150 KB (${png.length} bytes)`);
+  return png;
 }
-await browser.close();
+
+export function docsPages(docs) {
+  return docs.map((doc) => ({
+    ...doc,
+    tagline: [doc.title, ""],
+    sub: `${doc.section} · glyphcss documentation`,
+    foot: `glyphcss.com${doc.url}`,
+  }));
+}
+
+async function main() {
+  const response = await fetch(`${BASE}/og-manifest.json`);
+  if (!response.ok)
+    throw new Error(`Docs collection manifest: HTTP ${response.status}`);
+  const all = [...PAGES, ...docsPages(await response.json())];
+  const want = process.argv.slice(2);
+  // Existing live-effect cards are already specific; regenerate them only on request.
+  const pages = want.length
+    ? all.filter((page) => want.includes(page.slug))
+    : all.filter(
+        (page) =>
+          page.render ||
+          !existsSync(path.resolve(OUT_DIR, page.output ?? `${page.slug}.png`)),
+      );
+  if (
+    !pages.length ||
+    want.some((slug) => !all.some((page) => page.slug === slug))
+  )
+    throw new Error("Unknown OG slug");
+  const renderResponse = await fetch(`${BASE}/og-renders.json`);
+  if (!renderResponse.ok)
+    throw new Error(`Real renders: HTTP ${renderResponse.status}`);
+  const snapshots = await renderResponse.json();
+  const fonts = Object.fromEntries(
+    await Promise.all(
+      [
+        ["regular", "glyph-mono.woff2"],
+        ["bold", "glyph-mono-bold.woff2"],
+      ].map(async ([key, file]) => [
+        key,
+        (
+          await readFile(path.resolve(__dirname, "../public/fonts", file))
+        ).toString("base64"),
+      ]),
+    ),
+  );
+  const browser = await chromium.launch();
+  let failures = 0;
+  console.log(`Generating ${pages.length} OG image(s) → public/og/`);
+  try {
+    for (const page of pages) {
+      try {
+        await capture(page, browser, snapshots, fonts);
+      } catch (error) {
+        failures++;
+        console.error(`  ✗ ${page.slug}: ${error.message}`);
+      }
+    }
+  } finally {
+    await browser.close();
+  }
+  if (failures) throw new Error(`${failures} OG card(s) failed`);
+}
+
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  main().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
+}

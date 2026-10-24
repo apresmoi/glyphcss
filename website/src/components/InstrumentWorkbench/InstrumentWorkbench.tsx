@@ -2,6 +2,15 @@ import { type HTMLAttributes, type ReactNode } from "react";
 import { classes } from "../../utils/classes/classes";
 import styles from "./InstrumentWorkbench.module.css";
 
+/** Server-only content supplied by the route fallback; absent from live workbenches. */
+export interface InstrumentSnapshot {
+  readonly viewport: ReactNode;
+  readonly controls: ReactNode;
+  readonly examples?: ReactNode;
+  readonly railControls?: ReactNode;
+  readonly tiles?: Readonly<Record<string, ReactNode>>;
+}
+
 export function InstrumentWorkbench({
   kind,
   className,

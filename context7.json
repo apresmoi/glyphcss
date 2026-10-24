@@ -1,0 +1,33 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "glyphcss \u2014 ASCII 3D models, diagrams and charts",
+  "description": "JavaScript libraries and CLI for rendering 3D models, Mermaid diagrams and data charts as monospace text in chat, terminals and the DOM, with React and Vue bindings.",
+  "folders": [
+    "website/src/content/docs",
+    "packages"
+  ],
+  "excludeFolders": [
+    "tests",
+    "test",
+    "__tests__",
+    "research",
+    "node_modules",
+    "dist",
+    "packages/*/src",
+    "packages/*/scripts",
+    "packages/*/fixtures",
+    "packages/*/examples"
+  ],
+  "excludeFiles": [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CHANGELOG.md",
+    "LICENSE.md"
+  ],
+  "rules": [
+    "Use @glyphcss/diagrams for text diagrams, @glyphcss/charts for charts, and glyphcss for 3D scenes.",
+    "Install @glyphcss/compile for the glyphcss diagram and glyphcss chart CLI commands.",
+    "Use the glyphcss-diagrams agent skill for chat-sized diagrams and charts.",
+    "Glyphcss renders monospace DOM text in a pre element. It does not require WebGL."
+  ]
+}

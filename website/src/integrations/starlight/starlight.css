@@ -207,7 +207,10 @@ mobile-starlight-toc a::after {
   border-inline-start: 1px solid var(--gc-rule);
   color: var(--gc-text-muted);
 }
+/* Tables span the column, so short ones don't hug the left edge. */
 .sl-markdown-content table {
+  display: table;
+  width: 100%;
   overflow-wrap: normal;
   font-size: var(--gc-text-sm);
 }
@@ -468,4 +471,21 @@ mobile-starlight-toc .dropdown {
   .sidebar-pane {
     padding-top: calc(var(--gc-control-height) + 2 * var(--gc-space-3));
   }
+}
+
+/* Starlight caps prose at 45rem; on large monitors that leaves wide tables
+   scrolling inside a narrow column next to empty space. */
+@media (min-width: 100rem) {
+  :root {
+    --sl-content-width: 56rem;
+  }
+}
+/* Long identifiers in reference tables wrap instead of forcing a scrollbar. */
+.sl-markdown-content :is(td, th) code {
+  overflow-wrap: anywhere;
+}
+/* The first column names the row; keep its identifier whole. */
+.sl-markdown-content td:first-child code {
+  white-space: nowrap;
+  overflow-wrap: normal;
 }

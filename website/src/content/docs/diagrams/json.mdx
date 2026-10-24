@@ -1,0 +1,109 @@
+---
+title: JSON diagram formats and validation schemas
+description: Build text diagrams from graph, sequence, and lane JSON, with rendered examples, field references, validation helpers, JSON Schema, and tagged errors.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Choose the data model that matches your diagram. Graphs describe spatial connections;
+sequences describe messages in time; lane DAGs describe ancestry. Unknown fields are rejected.
+Pass objects directly to renderers, or use the JSON-string wrappers below.
+
+## Graph JSON
+
+<GlyphRender kind="diagram" source={{"direction": "LR", "nodes": [{"id": "api", "label": "Order API", "shape": "rounded"}, {"id": "cache", "label": "Cache", "shape": "cylinder"}, {"id": "db", "label": "Orders", "shape": "cylinder"}, {"id": "queue", "label": "Job queue"}, {"id": "worker", "label": "Receipt worker"}, {"id": "files", "label": "Receipts", "shape": "cylinder"}], "edges": [{"id": "read", "from": "api", "to": "cache", "label": "reads"}, {"id": "save", "from": "api", "to": "db", "label": "stores"}, {"id": "enqueue", "from": "api", "to": "queue", "label": "enqueues"}, {"from": "queue", "to": "worker"}, {"from": "worker", "to": "files", "label": "writes"}]}} options={{"target": "chat", "width": 74, "height": 23, "overflow": "expand"}} />
+
+`renderGlyphDiagram(graph, options)` uses these fields:
+
+| Object | Fields |
+| --- | --- |
+| Graph | `nodes`, `edges`, `direction`; optional `groups` |
+| Node | Required `id`, `label`; optional `shape`, `kind`, `group`, `compartments` |
+| Edge | Required `from`, `to`; optional `id`, `label`, `style`, `priority`, `startHead`, `endHead`, `invisible` |
+| Group | Required `id`, `members`; optional `label`, `parent` |
+
+IDs must be unique in their collection. Edges and group members must reference known nodes.
+A node's named group must contain it. A group's parent must contain its members and cannot form a cycle.
+`compartments` is an array of string arrays for `shape: "compartment"`.
+`kind` is informational; it does not select an outline.
+
+Directions are `TB`, `LR`, `BT`, `RL`. `glyphGraphFromJson` and the renderer default an
+omitted direction to `TB`; `validateGlyphGraph` and the schema require it explicitly.
+Edge styles are `solid`, `dotted`, `thick`, `undirected`. Heads are `arrow`, `circle`,
+`cross`, `none`, `triangle`, `filled-diamond`, `open-diamond`, `er-one`, `er-zero-one`,
+`er-many`, `er-zero-many`. Invisible edges affect layout without painting.
+
+## Sequence JSON
+
+<GlyphRender kind="sequence" source={{"participants": [{"id": "client", "label": "Client"}, {"id": "api", "label": "API"}], "messages": [{"from": "client", "to": "api", "label": "GET /orders"}, {"from": "api", "to": "client", "label": "200 OK", "style": "dashed"}], "frames": [{"kind": "loop", "label": "Poll", "from": 0, "to": 1}], "notes": [{"text": "Read only", "over": ["client", "api"], "at": 0}]}} options={{"target": "chat", "width": 56, "height": 20, "overflow": "expand"}} />
+
+`renderGlyphSequence(sequence, options)` takes required `participants` and `messages`,
+plus optional `title`, `frames`, and `notes`.
+
+- Participants have `id`, `label`, optional informational `kind`, and `shape: "lane" | "actor"`.
+- Messages have `from`, `to`, optional `id`, `label`, and `style: "solid" | "dashed"`.
+- Frames have `kind`, optional `label`, inclusive zero-based message indices `from` and `to`, and optional `branches`.
+- Branches have `kind`, optional `label`, and `at`, in ascending order within the frame's range through `to + 1`.
+- Notes have `text`, participant IDs in `over`, and `at` before a message. `at: messages.length` places a final note. Optional `placement: "left" | "right"` positions it beside one participant.
+
+Frame kinds render verbatim. All participant references and index ranges are validated.
+
+## Lanes JSON
+
+<GlyphRender kind="lanes" source={{"nodes": [{"id": "ship", "label": "Release", "parents": ["fix", "docs"], "marks": ["v1.1"]}, {"id": "fix", "label": "Payment fix", "parents": ["start"]}, {"id": "docs", "label": "Documentation", "parents": ["start"]}, {"id": "start", "label": "Baseline", "parents": []}]}} options={{"target": "chat", "width": 56, "height": 14}} />
+
+`renderGlyphLaneDag(dag, options)` takes `nodes` and optional `truncated`.
+Each node has `id`, `label`, `parents` (older IDs), and optional `marks` (strings).
+
+Nodes must be newest-first and every present parent must occur later in the array.
+Self-parents and duplicate IDs fail validation. Missing parents are allowed only with
+`truncated: true`; this represents older history outside the supplied window.
+Use `order` to change display order without changing input order.
+
+## Validate and generate schemas
+
+```ts
+import {
+  glyphGraphFromJson,
+  validateGlyphGraph,
+  glyphDiagramJsonSchema,
+  GLYPH_DIAGRAM_JSON_SCHEMA_KEYWORDS,
+} from "@glyphcss/diagrams";
+
+const graph = glyphGraphFromJson({
+  nodes: [{ id: "input", label: "Input" }],
+  edges: [],
+});
+validateGlyphGraph(graph); // Returns the validated graph; throws a tagged error.
+const schema = glyphDiagramJsonSchema();
+```
+
+For sequences use `validateGlyphSequence`, `glyphSequenceJsonSchema`, and
+`GLYPH_SEQUENCE_JSON_SCHEMA_KEYWORDS` from `@glyphcss/diagrams/sequence`.
+For lanes use `validateGlyphLaneDag`, `glyphLaneDagJsonSchema`, and
+`GLYPH_LANE_JSON_SCHEMA_KEYWORDS` from `@glyphcss/diagrams/lanes`.
+
+Standard JSON Schema checks structure. Register the exported custom keywords with Ajv
+for relational checks such as unique IDs, valid endpoints, group membership, or parent order:
+
+```ts
+import Ajv from "ajv";
+import { glyphDiagramJsonSchema, GLYPH_DIAGRAM_JSON_SCHEMA_KEYWORDS } from "@glyphcss/diagrams";
+
+const ajv = new Ajv({ strict: false });
+for (const keyword of GLYPH_DIAGRAM_JSON_SCHEMA_KEYWORDS) ajv.addKeyword(keyword);
+const validate = ajv.compile(glyphDiagramJsonSchema());
+```
+
+## JSON-string wrappers
+
+| Import | Wrapper |
+| --- | --- |
+| `@glyphcss/diagrams` | `renderGlyphDiagramJson(json, options)` |
+| `@glyphcss/diagrams/sequence` | `renderGlyphSequenceJson(json, options)` |
+| `@glyphcss/diagrams/lanes` | `renderGlyphLaneDagJson(json, options)` |
+
+These return promises of serialized JSON output, not the normal result object.
+Use the object renderer when you need `canvas`, `pages`, or `report` as JavaScript values.
+Failures resolve to serialized `{ error, code, hint }` rather than rejecting.
+Malformed JSON has model-specific error codes listed in [troubleshooting](/diagrams/troubleshooting/).

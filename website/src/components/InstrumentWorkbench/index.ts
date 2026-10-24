@@ -8,3 +8,4 @@ export { InstrumentSectionHeading } from "./InstrumentSectionHeading";
 export { InstrumentViewport } from "./InstrumentViewport";
 export { InstrumentWorkbench } from "./InstrumentWorkbench";
 export { PresetTray } from "./PresetTray";
+export type { InstrumentSnapshot } from "./InstrumentWorkbench";

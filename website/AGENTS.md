@@ -4,7 +4,7 @@ Root `AGENTS.md` applies.
 
 ## Ownership and composition
 
-- `src/pages/` holds thin Astro routes composed from `src/layouts/` (`SiteLayout`, `WorkbenchLayout`, `ExampleLayout`, `ContentLayout`); rendering/browser setup belong to components/features.
+- `src/pages/` holds thin Astro routes composed from `src/layouts/`; rendering/browser setup belong to components/features.
 - `src/components/Name/Name.tsx` is the main component; `index.ts` contains explicit named/type exports for its public surface. Small private children, hooks, types, and helpers stay beside their owner. Complex children get a matching folder, main file, and barrel. Import another component owner through its public barrel; never use wildcard exports or old-path compatibility wrappers.
 - Components use React. `.astro` files belong only in pages, layouts, and `src/integrations/{astro,starlight}/` adapters. Starlight Search stays in its Astro adapter and is passed to the shared `SiteHeader` as a slot.
 - `src/hooks/` holds reusable React lifecycle/measurement hooks; feature hooks stay with their feature or component. Dock context hooks stay private.
@@ -28,7 +28,9 @@ Root `AGENTS.md` applies.
 
 ## Behavioral contracts
 
-- Fresh `/maps` starts at zero tilt and bearing; shared links retain their saved pose.
+- Keep workbench headings and static text/spans (CSS colour, same text). Builds check preset galleries and unique local OG cards; maps use bundled ETOPO1. Generate cards before building; docs cards use their first GlyphRender through docs-render, or a colourful section render, with sidebar group labels.
+- Markdown twins include each GlyphRender source and plain-text output from docs-render. OG generator JSON routes are injected only in dev.
+- Fresh `/maps` uses zero tilt/bearing; shared links keep their pose.
 - Preserve existing URLs, serialized state versions, dataset identifiers, rendering results, and export contents during UI refactors. URL state is append-only: new fields are optional, malformed fields degrade to absent, and only incompatible reshapes bump a version prefix. Shipped dataset IDs are frozen; renames require an alias map.
 - The landing version links to the npm registry's current `latest` release; show an honest package link if unavailable, never a hardcoded fallback version.
 - Scenes, animations, listeners, observers, subscriptions, and requests need one lifecycle owner and cleanup. Lazy demos tolerate unmounts and React StrictMode replay.

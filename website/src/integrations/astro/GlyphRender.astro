@@ -1,0 +1,77 @@
+---
+import styles from "./GlyphRender.module.css";
+import { highlightSnippet } from "../../components/CodePanel";
+import { GlyphChart3dPreview, glyphChart3dFrameHtml } from "../../components/GlyphChart3dPreview";
+import {
+  cropGlyphDocsRows,
+  fitGlyphDocsOutput,
+  glyphDocsInkBounds,
+  glyphDocsUsage,
+  normalizeGlyphDocsSource,
+  renderGlyphDocs,
+  resolveGlyphDocsChart3d,
+  type GlyphDocsRenderInput,
+} from "../../services/docs-render/glyphRender";
+
+type Props = GlyphDocsRenderInput & { showSource?: boolean; caption?: string };
+const { showSource = true, caption, ...input } = Astro.props;
+const chart3d = input.kind === "chart-3d" ? resolveGlyphDocsChart3d(input) : undefined;
+const result = chart3d?.result ?? (await renderGlyphDocs(input));
+const output = fitGlyphDocsOutput(
+  result,
+  "textScale" in (input.options ?? {}) ? (input.options as { textScale?: number }).textScale : 1,
+);
+const ink = glyphDocsInkBounds(output.text);
+const crop = `--ink-cols:${ink.cols};--ink-indent:${ink.indent}`;
+const source =
+  typeof input.source === "string" ? normalizeGlyphDocsSource(input.source) : JSON.stringify(input.source, null, 2);
+const usage = glyphDocsUsage(input);
+---
+
+<figure class={styles.root} data-glyph-render={JSON.stringify(input)} aria-label="Rendered example">
+  <div class={styles.stage}>
+    {
+      chart3d ? (
+        <GlyphChart3dPreview
+          client:visible
+          mark={chart3d.mark}
+          options={chart3d.options}
+          crop={chart3d.crop}
+          initialHtml={cropGlyphDocsRows(glyphChart3dFrameHtml(chart3d.result), chart3d.crop)}
+        />
+      ) : (
+        <div class={styles.crop} style={crop}>
+          {output.html ? (
+            <pre class="glyph-docs-output" set:html={output.html} />
+          ) : (
+            <pre class="glyph-docs-output">{output.text}</pre>
+          )}
+        </div>
+      )
+    }
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+  {
+    showSource && (
+      <div class:list={[styles.tools, "not-content"]}>
+        <button type="button" class={styles.action} data-copy={source} hidden set:text="Copy source" />
+        <details class={styles.code}>
+          <summary class={styles.action}>Code</summary>
+          <pre class="glyph-docs-usage" set:html={highlightSnippet(usage, "typescript")} />
+        </details>
+      </div>
+    )
+  }
+</figure>
+
+<script>
+  // Copy needs the clipboard API, so the button only appears once JS runs.
+  for (const button of document.querySelectorAll<HTMLButtonElement>("button[data-copy]")) {
+    button.hidden = false;
+    button.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(button.dataset.copy ?? "");
+      button.textContent = "Copied";
+      setTimeout(() => (button.textContent = "Copy source"), 1500);
+    });
+  }
+</script>

@@ -1,0 +1,33 @@
+---
+title: "Text labels and rule annotations on terminal charts"
+description: Annotate charts with text labels and horizontal or vertical rules. Compose marks in paint order, name threshold lines, and retain readable axis scales.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `glyphChartText(data, { x, y, label })` for labels and `glyphChartRule(values, options?)` for reference lines. Rules default to horizontal (`axis: "y"`); `axis: "x"` makes them vertical.
+
+## Label a release against a target
+
+The example is an illustrative latency series in milliseconds. Paint the rule first, then the data and the label.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "rule", "data": [50], "channels": {}, "options": {"axis": "y", "name": "Target"}}, {"type": "line", "data": [{"day": 1, "ms": 42}, {"day": 2, "ms": 44}, {"day": 3, "ms": 41}, {"day": 4, "ms": 46}, {"day": 5, "ms": 43}, {"day": 6, "ms": 60}, {"day": 7, "ms": 55}, {"day": 8, "ms": 47}, {"day": 9, "ms": 44}, {"day": 10, "ms": 40}, {"day": 11, "ms": 38}, {"day": 12, "ms": 39}], "channels": {"x": "day", "y": "ms"}, "options": {"name": "Latency"}}, {"type": "text", "data": [{"day": 6, "ms": 66, "note": "Release"}], "channels": {"x": "day", "y": "ms", "label": "note"}}], "legend": false, "title": "Checkout latency after release", "axes": {"x": {"title": "Day"}, "y": {"title": "Latency (ms)"}}, "scales": {"y": {"domain": [30, 70], "nice": false}}}} options={{"target": "web", "width": 64, "height": 20}} />
+
+```ts
+import { glyphChartLine, glyphChartText, glyphChartRule, glyphChartPlot } from "@glyphcss/charts";
+const spec = glyphChartPlot({
+  title: "Checkout latency after release",
+  scales: { y: { domain: [30, 70], nice: false } },
+  axes: { x: { title: "Day" }, y: { title: "Latency (ms)" } },
+  marks: [
+    glyphChartRule([50], { name: "Target", strokeWidth: 2 }),
+    glyphChartLine([42, 44, 41, 46, 43, 60, 55, 47, 44, 40, 38, 39], {
+      x: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+    }),
+    glyphChartText([{ day: 6, ms: 66, note: "Release" }], { x: "day", y: "ms", label: "note" }),
+  ],
+  legend: false,
+});
+```
+
+Numeric-array line x coordinates start at zero unless an explicit x channel overrides them. Record coordinates use the values you supply. Keep annotations within an explicit domain if they must stay visible; leave enough cells around labels and inspect render notes for fitting changes. Use `axes.x.grid` or `axes.y.grid` for repeated tick-aligned guides rather than adding many rule marks.

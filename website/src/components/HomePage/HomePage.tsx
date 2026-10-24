@@ -3,6 +3,7 @@ import { highlight, installCmds } from "../../features/home/content";
 import styles from "./HomePage.module.css";
 export function HomePage({
   hero,
+  wordmark,
   rule,
   diagram,
   frameworks,
@@ -10,6 +11,7 @@ export function HomePage({
   version,
 }: {
   hero: ReactNode;
+  wordmark: ReactNode;
   rule: ReactNode;
   diagram: ReactNode;
   frameworks: ReactNode;
@@ -23,10 +25,10 @@ export function HomePage({
           {hero}
         </div>
         <div className="hero-overlay">
-          <h1 className="hero-wordmark" aria-label="glyphcss">
-            <span className="wm-a">glyph</span>
-            <span className="wm-b">css</span>
-          </h1>
+          <h1 className="hero-wordmark-title">glyphcss</h1>
+          <div className="hero-wordmark" aria-hidden="true">
+            {wordmark}
+          </div>
           <p className="hero-tag">
             <span className="hero-prompt">&gt;</span>
             Turn 3D models into ASCII art, rendered as text in a single
@@ -120,23 +122,22 @@ export function HomePage({
           <span className="term-section-label">[ HOW IT WORKS ]</span>
         </div>
         <div className="stacking-copy">
-          <div className="stacking-diagram" aria-hidden="true">
-            {diagram}
-          </div>
+          <div className="stacking-diagram">{diagram}</div>
           <p>
             <span className="term-prompt-inline">&gt;</span>
-            glyphcss loads OBJ, glTF, GLB, STL, and VOX mesh files. Each scene renders into a single{" "}
-            <code>&lt;pre&gt;</code>: the rasteriser projects every polygon, fills a <code>cols × rows</code> character
-            grid, and writes one string to <code>textContent</code> per render. There are no per-polygon DOM nodes and
-            no <code>matrix3d</code>.
+            glyphcss loads OBJ, glTF, GLB, STL, and VOX mesh files. The rasteriser projects polygons through the scene
+            camera, fills a <code>cols × rows</code> character grid, and encodes text or colour spans. Each render
+            writes one string per <code>&lt;pre&gt;</code>: <code>textContent</code> for plain text, or{" "}
+            <code>innerHTML</code> for colour. Detail layers get their own <code>&lt;pre&gt;</code>. There are no
+            per-polygon DOM nodes and no <code>matrix3d</code>.
           </p>
           <p>
             <span className="term-prompt-inline">&gt;</span>
             Interactivity is opt-in and sparse: drop a <code>&lt;GlyphHotspot&gt;</code>
-            at any 3D anchor and glyphcss emits one absolutely-positioned
-            <code>&lt;div&gt;</code> over the projected cell. Real DOM events, real <code>:hover</code> styles, real{" "}
-            <code>role="button"</code>
-            accessibility — without one DOM node per polygon.
+            at any 3D anchor and glyphcss positions a DOM element over the cell projected through the same camera. Real
+            DOM events, real <code>:hover</code> styles, real <code>role="button"</code>
+            accessibility — without one DOM node per polygon. Rendering is demand-driven; controls and animation request
+            new renders.
           </p>
           <p className="stacking-actions">
             <a className="term-link-btn" href="/core-concepts">

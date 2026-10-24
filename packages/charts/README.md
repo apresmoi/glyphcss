@@ -1,5 +1,7 @@
 # @glyphcss/charts
 
+[Workbench](https://glyphcss.com/charts/) · [Docs](https://glyphcss.com/charts/) · [Agent skill](https://github.com/apresmoi/glyphcss-diagrams)
+
 Charts as pure text for people and agents working in chat, terminals, and web apps, from data or Mermaid source.
 
 ## Real output
@@ -71,6 +73,18 @@ Coal 40 █─┼━━━ 40 ━━━┼─█─┤         ├─█
 ```sh
 npm install @glyphcss/charts
 ```
+
+## CLI
+
+The `glyphcss` command comes from `@glyphcss/compile`.
+
+```sh
+npm install -g @glyphcss/compile
+printf '%s\n' '[3, 5, 2, 8, 6, 9, 4]' > values.json
+glyphcss chart values.json --target chat --charset braille --width 40 --height 8
+```
+
+For Mermaid chart source, use `glyphcss diagram chart.mmd --target chat`. Adaptation notes are printed on stderr.
 
 ## Quick start
 

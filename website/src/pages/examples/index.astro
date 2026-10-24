@@ -1,3 +1,13 @@
 ---
-return Astro.redirect("/examples/world/");
+import ContentLayout from "../../layouts/ContentLayout.astro";
 ---
+
+<ContentLayout
+  title="ASCII examples: 3D Earth, maps and effects | glyphcss"
+  description="Explore glyphcss examples: NOAA ETOPO1 Earth, isometric maps, procedural cities and animated text effects, rendered as monospace text in the browser."
+  path="/examples/"
+  image="/og/examples.png"
+>
+  <meta slot="head" http-equiv="refresh" content="0;url=/examples/world/" />
+  <p><a href="/examples/world/">Explore the ASCII Earth example.</a></p>
+</ContentLayout>

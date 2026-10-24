@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { GLYPH_MERMAID_CHART_PRESETS } from "../../features/mermaid/model/presets";
 import { CHARTS_3D_REMOTE_DATASET_INDEX } from "../../features/charts/data/chart3dRemoteIndex";
 import { type ChartsWorkbenchState, CHART_PRESETS } from "../../features/charts/model/chartsSpec";
@@ -26,19 +27,31 @@ import { EXPORT_FORMATS } from "./controllerHelpers";
 import { useChartsWorkbench } from "./hooks/useChartsWorkbench";
 import { useChartsWorkbenchInner } from "./hooks/useChartsWorkbenchInner";
 
-export default function ChartsWorkbench({ initialState }: { initialState?: ChartsWorkbenchState } = {}) {
+export default function ChartsWorkbench({
+  initialState,
+  snapshot,
+}: { initialState?: ChartsWorkbenchState; snapshot?: InstrumentSnapshot } = {}) {
   const view = useChartsWorkbench({ initialState });
   if (!view) return null;
   const { resolved, notice, remoteRef } = view;
 
-  return <ChartsWorkbenchInner initialState={resolved} initialNotice={notice} initialRemoteRef={remoteRef} />;
+  return (
+    <ChartsWorkbenchInner
+      snapshot={snapshot}
+      initialState={resolved}
+      initialNotice={notice}
+      initialRemoteRef={remoteRef}
+    />
+  );
 }
 
 function ChartsWorkbenchInner({
+  snapshot,
   initialState,
   initialNotice,
   initialRemoteRef,
 }: {
+  snapshot?: InstrumentSnapshot;
   initialState: ChartsWorkbenchState;
   initialNotice?: string;
   initialRemoteRef?: string;
@@ -248,79 +261,85 @@ function ChartsWorkbenchInner({
               />
             ))}
           </div>
+          {snapshot?.examples}
         </InstrumentRail>
         <InstrumentMain>
           <InstrumentViewport inset className="charts-viewport" elementRef={chartsViewportRef}>
-            <div className="charts-preview">
-              {isWeb3d ? (
-                // The live orbitable scene (web only, AGENTS.md's "Charts 3D"
-                // export boundary) — colour honoured through
-                // `chart3dSceneOptions` (`useColors`); the viewport itself
-                // never shows a note about an unsupported charset (C3 fix
-                // round 2 — that reason lives on the Dock's own dimmed
-                // Charset toggle instead, "the viewport holds only the
-                // render" below). `chart3dResolvedLive`, not `chart3dResolved`,
-                // supplies the mark — its own `shading: "auto"` resolution
-                // reads the LIVE scene's `useColors`, see that memo's doc.
-                chart3dResolvedLive.ok ? (
-                  <Charts3dViewport
-                    mark={chart3dResolvedLive.resolved.mark}
-                    camera={state.chart3d.camera}
-                    orbitMode={state.chart3d.orbitMode}
-                    charset={resolvedControls.charset}
-                    sceneOptions={chart3dSceneOptions}
-                    effectId={state.effect3d.effectId}
-                    effectTargetId={state.effect3d.targetId}
-                    onCameraChange={(camera) => dispatch({ type: "set-3d-camera", camera })}
-                    viewportRef={chart3dViewportRef}
-                    handleRef={chart3dViewportHandleRef}
-                  />
-                ) : (
-                  <div className="charts-3d-viewport charts-3d-error">{chart3dResolvedLive.error}</div>
-                )
-              ) : (
-                // The viewport holds only the render; feedback lives on the
-                // buttons and in the rail (the user's own words: "it
-                // shouldn't be in the rendering area — it moves the chart").
-                // While the live render is bad or a remote dataset is
-                // loading, this stays on the LAST GOOD render, dimmed
-                // (`is-stale`) — pulsing too (`is-loading`) only while
-                // something is actually in flight, so the frame never
-                // collapses or shifts. In 3D off `web`, this shows the SAME
-                // static frame `renderGlyphChart3d` produces for Copy.
-                <div
-                  className={`charts-grid-scroll${!is3d && isViewportStale ? " is-stale" : ""}${isRemoteLoading ? " is-loading" : ""}`}
-                >
-                  <TargetPreview
-                    ref={preRef}
-                    target={state.controls.target}
-                    commandTitle={is3d ? "glyphcss chart --3d …" : "glyphcss chart …"}
-                    isHtml={is3d ? Boolean(chart3dDisplay?.isHtml) : Boolean(displayRendered?.isHtml)}
-                    text={is3d ? (chart3dDisplay?.text ?? "") : (displayRendered?.text ?? "")}
-                    html={
-                      is3d
-                        ? chart3dDisplay?.isHtml
-                          ? chart3dDisplay.display
-                          : undefined
-                        : displayRendered?.isHtml
-                          ? displayRendered.display
-                          : undefined
-                    }
-                    ansi={is3d ? chart3dDisplay?.ansi : displayRendered?.ansi}
-                    charsetDowngraded={is3d ? false : displayRendered?.charsetDowngraded}
-                    style={is3d ? undefined : densityStyle}
-                    ariaLabel={
-                      (is3d ? chart3dResolved.ok && chart3dResolved.resolved.title : state.chart.title) ||
-                      "Chart preview"
-                    }
-                    ariaDescription={
-                      (is3d ? chart3dResolved.ok && chart3dResolved.resolved.description : state.chart.description) ||
-                      undefined
-                    }
-                  />
+            {snapshot?.viewport ?? (
+              <>
+                <div className="charts-preview">
+                  {isWeb3d ? (
+                    // The live orbitable scene (web only, AGENTS.md's "Charts 3D"
+                    // export boundary) — colour honoured through
+                    // `chart3dSceneOptions` (`useColors`); the viewport itself
+                    // never shows a note about an unsupported charset (C3 fix
+                    // round 2 — that reason lives on the Dock's own dimmed
+                    // Charset toggle instead, "the viewport holds only the
+                    // render" below). `chart3dResolvedLive`, not `chart3dResolved`,
+                    // supplies the mark — its own `shading: "auto"` resolution
+                    // reads the LIVE scene's `useColors`, see that memo's doc.
+                    chart3dResolvedLive.ok ? (
+                      <Charts3dViewport
+                        mark={chart3dResolvedLive.resolved.mark}
+                        camera={state.chart3d.camera}
+                        orbitMode={state.chart3d.orbitMode}
+                        charset={resolvedControls.charset}
+                        sceneOptions={chart3dSceneOptions}
+                        effectId={state.effect3d.effectId}
+                        effectTargetId={state.effect3d.targetId}
+                        onCameraChange={(camera) => dispatch({ type: "set-3d-camera", camera })}
+                        viewportRef={chart3dViewportRef}
+                        handleRef={chart3dViewportHandleRef}
+                      />
+                    ) : (
+                      <div className="charts-3d-viewport charts-3d-error">{chart3dResolvedLive.error}</div>
+                    )
+                  ) : (
+                    // The viewport holds only the render; feedback lives on the
+                    // buttons and in the rail (the user's own words: "it
+                    // shouldn't be in the rendering area — it moves the chart").
+                    // While the live render is bad or a remote dataset is
+                    // loading, this stays on the LAST GOOD render, dimmed
+                    // (`is-stale`) — pulsing too (`is-loading`) only while
+                    // something is actually in flight, so the frame never
+                    // collapses or shifts. In 3D off `web`, this shows the SAME
+                    // static frame `renderGlyphChart3d` produces for Copy.
+                    <div
+                      className={`charts-grid-scroll${!is3d && isViewportStale ? " is-stale" : ""}${isRemoteLoading ? " is-loading" : ""}`}
+                    >
+                      <TargetPreview
+                        ref={preRef}
+                        target={state.controls.target}
+                        commandTitle={is3d ? "glyphcss chart --3d …" : "glyphcss chart …"}
+                        isHtml={is3d ? Boolean(chart3dDisplay?.isHtml) : Boolean(displayRendered?.isHtml)}
+                        text={is3d ? (chart3dDisplay?.text ?? "") : (displayRendered?.text ?? "")}
+                        html={
+                          is3d
+                            ? chart3dDisplay?.isHtml
+                              ? chart3dDisplay.display
+                              : undefined
+                            : displayRendered?.isHtml
+                              ? displayRendered.display
+                              : undefined
+                        }
+                        ansi={is3d ? chart3dDisplay?.ansi : displayRendered?.ansi}
+                        charsetDowngraded={is3d ? false : displayRendered?.charsetDowngraded}
+                        style={is3d ? undefined : densityStyle}
+                        ariaLabel={
+                          (is3d ? chart3dResolved.ok && chart3dResolved.resolved.title : state.chart.title) ||
+                          "Chart preview"
+                        }
+                        ariaDescription={
+                          (is3d
+                            ? chart3dResolved.ok && chart3dResolved.resolved.description
+                            : state.chart.description) || undefined
+                        }
+                      />
+                    </div>
+                  )}
                 </div>
-              )}
-            </div>
+              </>
+            )}
           </InstrumentViewport>
           {/* Sibling of `<InstrumentViewport>`, exactly where `MapSearchBox`
            *  sits on `/maps` — the same overlay idiom, three controls in one
@@ -373,7 +392,11 @@ function ChartsWorkbenchInner({
             />
           )}
         </InstrumentMain>
-        <Dock id="charts-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="charts-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <ChartsDock
             state={state}
             dispatch={dispatch}

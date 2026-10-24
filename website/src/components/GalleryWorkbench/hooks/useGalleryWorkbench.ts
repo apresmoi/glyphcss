@@ -49,12 +49,14 @@ import {
 } from "../controllerHelpers";
 import { useResponsiveViewportZoomScale } from "./useResponsiveViewportZoomScale";
 
-export function useGalleryWorkbench() {
+export function useGalleryWorkbench(initialPresetId?: string) {
   const viewportRef = useRef<HTMLDivElement | null>(null);
 
   const responsiveZoomScale = useResponsiveViewportZoomScale(viewportRef);
 
-  const [initialPreset] = useState<PresetModel>(resolveInitialPreset);
+  const [initialPreset] = useState<PresetModel>(() =>
+    initialPresetId ? PRESETS.find((preset) => preset.id === initialPresetId)! : resolveInitialPreset(),
+  );
 
   // Sidebar options restored from the URL `scene` param (empty when absent).
   const [initialRouteSceneOptions] = useState(routeInitialSceneOptions);

@@ -1,7 +1,7 @@
 {
   "name": "@glyphcss/diagrams",
   "version": "0.3.1",
-  "description": "Mermaid flowcharts and graph data rendered as glyphcss cell diagrams for chat, terminal and web.",
+  "description": "Render Mermaid and JSON as ASCII and box-drawing diagrams for chat, terminals and web apps: flowcharts, sequences, states, ER and Git graphs.",
   "type": "module",
   "main": "dist/index.cjs",
   "module": "dist/index.js",
@@ -12,7 +12,20 @@
     "diagrams",
     "mermaid",
     "terminal",
-    "cli"
+    "cli",
+    "flowchart",
+    "sequence-diagram",
+    "state-diagram",
+    "er-diagram",
+    "gitgraph",
+    "ascii-diagram",
+    "text-diagram",
+    "box-drawing",
+    "mermaid-ascii",
+    "llm",
+    "agent",
+    "claude-code",
+    "codex"
   ],
   "license": "MIT",
   "repository": {
@@ -23,7 +36,7 @@
   "bugs": {
     "url": "https://github.com/apresmoi/glyphcss/issues"
   },
-  "homepage": "https://github.com/apresmoi/glyphcss#readme",
+  "homepage": "https://glyphcss.com/diagrams/",
   "files": [
     "dist"
   ],
