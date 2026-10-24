@@ -14,6 +14,10 @@ import { glyphMapOpenMapTilesLayers } from "./vector/openmaptiles";
 import { glyphMapDecodeMVT } from "./vector/pmtiles";
 import { glyphMapMercatorTileBounds } from "./vector/mercator";
 import * as outline from "./extrusionOutline";
+import * as topologyReference from "./test/extrusionTopology28Reference";
+import * as stroke from "./stroke";
+import { glyphMapVectorMesh } from "./layers";
+import type { GlyphMapExtrusionGeometry } from "./layers";
 
 const root = path.resolve(__dirname, "../fixtures/road-relief/ba");
 const golden = path.resolve(__dirname, "test/outlineGolden26.json");
@@ -122,42 +126,153 @@ it("matches HEAD e5f7d714 in EVERY grid and field over BA pan and walk look fram
   expect(actual).toEqual(JSON.parse(readFileSync(golden, "utf8")));
 }, 60_000);
 
-it.skipIf(!process.env.GLYPH_OUTLINE_BENCH)("measures single-render BA pan and walk frames without capture overhead", async () => {
+type Mode = "pan" | "bearing" | "walk" | "venice";
+const modes: Mode[] = ["pan", "bearing", "walk", "venice"];
+function packet28Frame(map: ReturnType<typeof createGlyphMap>, mode: Mode, i: number) {
+  if (mode === "bearing" || mode === "walk") map.setBearing(15 + i * 7);
+  else if (mode === "venice") map.setView({ center: [12.3376 + i * 0.002, 45.4394] });
+  else frame(map, false, i);
+}
+
+it("retains d9a9c976 grids through extended pan, bearing, walk, Venice and mid-sequence building rebuild", async () => {
+  const actual: Record<string, ReturnType<typeof fingerprint>[][]> = {};
+  let compilations = 0;
+  const compile = outline.createGlyphMapExtrusionTopology;
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => { compilations++; return compile(...args); });
+  for (const mode of modes) {
+    const { map, host } = await mount(mode === "walk", mode === "venice");
+    if (mode === "bearing") { map.setTilt(50); await map.idle(); }
+    const hook = map.scene.getOptions().transformCells!;
+    let capture: ReturnType<typeof fingerprint>[] | undefined;
+    map.scene.setOptions({ transformCells: (g, layer) => {
+      const out = hook(g, layer) ?? g;
+      capture?.push(fingerprint(out, layer?.viewport ? "viewport" : layer?.detail ? "detail" : "base"));
+      return out;
+    }});
+    const frames = actual[mode] = [] as ReturnType<typeof fingerprint>[][];
+    for (let i = 0; i < 24; i++) {
+      if (i === 12 && mode !== "venice") {
+        const before = compilations;
+        const file = path.resolve(root, "osm_13_2767_4936.pbf");
+        const features = glyphMapDecodeMVT(readFileSync(file), 13, 2767, 4936).building!;
+        expect(features.length).toBeGreaterThan(0);
+        map.setLayerSource("omt-buildings", { features: features.slice(0, 100) }); await map.idle();
+        expect(compilations).toBeGreaterThan(before);
+      }
+      capture = []; packet28Frame(map, mode, i); frames.push(capture);
+      expect(capture.filter(g => g.kind === "base")).toHaveLength(1);
+      expect(capture).toHaveLength(host.querySelectorAll("pre.glyph-output").length);
+      capture = undefined;
+    }
+    map.destroy(); maps.splice(maps.indexOf(map), 1); host.remove();
+  }
+  const file = path.resolve(__dirname, "test/outlineGolden28.json");
+  if (process.env.CAPTURE_PACKET28) writeFileSync(file, JSON.stringify(actual, null, 2) + "\n");
+  expect(actual).toEqual(JSON.parse(readFileSync(file, "utf8")));
+}, 120_000);
+
+// The supplied Venice tile has no buildings. Its real water rings still
+// exercise large, irregular topology; no synthetic buildings enter the golden.
+function veniceTopologyInput(): Parameters<typeof outline.createGlyphMapExtrusionTopology> {
+  const features = glyphMapDecodeMVT(readFileSync(path.resolve(__dirname, "../fixtures/openfreemap/venice/12_2188_1466.pbf")), 12, 2188, 1466).water!;
+  const geometries: GlyphMapExtrusionGeometry[] = [];
+  const mesh = glyphMapVectorMesh(features, glyphMapGlobe({ exaggeration: 24 }), { height: () => 10, onExtrusion: g => geometries.push(g) });
+  expect(mesh.polygons.length).toBeGreaterThan(100);
+  return [mesh.polygons, geometries];
+}
+
+it("deep-compares every compiled topology field with the frozen d9a9c976 compiler on BA and Venice", async () => {
+  const compile = outline.createGlyphMapExtrusionTopology;
+  const data = (t: ReturnType<typeof compile>) => {
+    const { vertexId, incidentFaces, prepare, ...fields } = t;
+    return fields;
+  };
+  let checks = 0;
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => {
+    const actual = compile(...args), expected = topologyReference.createGlyphMapExtrusionTopology(...args);
+    expect(data(actual)).toEqual(data(expected));
+    for (const v of actual.vertices) expect(actual.vertexId(v)).toBe(expected.vertexId(v));
+    for (let i = 0; i < actual.edgeVertices.length; i += 2) {
+      const a = actual.vertices[actual.edgeVertices[i]]!, b = actual.vertices[actual.edgeVertices[i + 1]]!;
+      expect([...actual.incidentFaces(a, b)]).toEqual([...expected.incidentFaces(a, b)]);
+    }
+    checks++; return actual;
+  });
+  for (const venice of [false, true]) {
+    if (venice) { outline.createGlyphMapExtrusionTopology(...veniceTopologyInput()); continue; }
+    const { map, host } = await mount(false, venice);
+    map.destroy(); maps.splice(maps.indexOf(map), 1); host.remove();
+  }
+  expect(checks).toBeGreaterThanOrEqual(2);
+}, 120_000);
+
+it.skipIf(!process.env.GLYPH_OUTLINE_BENCH)("measures packet-28 single-render sequences and isolated topology compile", async () => {
   const profiler = process.env.GLYPH_OUTLINE_PROFILE ? new Session() : undefined;
   profiler?.connect();
   const post = (method: string) => new Promise<any>((resolve, reject) => profiler!.post(method, (err, result) => err ? reject(err) : resolve(result)));
-  let surfaceMs = 0, stampMs = 0;
+  let surfaceMs = 0, stampMs = 0, roadMs = 0;
   const create = outline.createGlyphMapExtrusionSurface, stamp = outline.stampGlyphMapExtrusionOutlines;
+  let latest: Parameters<typeof outline.createGlyphMapExtrusionTopology> | undefined;
+  const compile = outline.createGlyphMapExtrusionTopology, polyline = stroke.stampGlyphMapPolyline;
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => { latest = args; return compile(...args); });
+  vi.spyOn(stroke, "stampGlyphMapPolyline").mockImplementation((...args) => {
+    if (args[2]?.occludes) return polyline(...args);
+    const start = performance.now(); polyline(...args); roadMs += performance.now() - start;
+  });
   vi.spyOn(outline, "createGlyphMapExtrusionSurface").mockImplementation((...args) => {
     const start = performance.now(); const out = create(...args); surfaceMs += performance.now() - start; return out;
   });
   vi.spyOn(outline, "stampGlyphMapExtrusionOutlines").mockImplementation((...args) => {
     const start = performance.now(); stamp(...args); stampMs += performance.now() - start;
   });
-  const results = [];
-  for (const walk of [false, true]) {
-    const { map, host } = await mount(walk);
-    // Pilot/warmup uses the exact measured sequence before collecting rounds.
-    for (let i = 0; i < 12; i++) frame(map, walk, i);
-    if (profiler && walk) { await post("Profiler.enable"); await post("Profiler.start"); }
+  const results = [], topology = [];
+  for (const mode of modes) {
+    const { map, host } = await mount(mode === "walk", mode === "venice");
+    if (mode === "bearing") { map.setTilt(50); await map.idle(); }
+    const input = mode === "venice" ? veniceTopologyInput() : latest!;
+    if (process.env.GLYPH_TOPOLOGY_PROFILE && mode === "pan") {
+      const session = new Session(); session.connect();
+      const call = (method: string) => new Promise<any>((resolve, reject) => session.post(method, (err, result) => err ? reject(err) : resolve(result)));
+      await call("Profiler.enable"); await call("Profiler.start");
+      for (let i = 0; i < 30; i++) compile(...input);
+      const { profile } = await call("Profiler.stop"); session.disconnect();
+      writeFileSync(process.env.GLYPH_TOPOLOGY_PROFILE, JSON.stringify(profile));
+    }
+    // Same exact compiler/input for pilot and measured rounds; alternate order.
+    for (let round = -2; round < 5; round++) {
+      let before = 0, after = 0;
+      const run = (old: boolean) => {
+        const start = performance.now();
+        const out = (old ? topologyReference.createGlyphMapExtrusionTopology : compile)(...input);
+        expect(out.polygons.length).toBeGreaterThan(0);
+        const ms = performance.now() - start;
+        if (old) before = ms; else after = ms;
+      };
+      if (round % 2) { run(true); run(false); } else { run(false); run(true); }
+      if (round >= 0) topology.push({ mode, round, faces: input[0].length, geometries: input[1]?.length, before, after });
+    }
+    for (let i = 0; i < 12; i++) packet28Frame(map, mode, i);
+    if (profiler) { await post("Profiler.enable"); await post("Profiler.start"); }
     for (let round = 0; round < 3; round++) {
-      const frames: { total: number; surface: number; stamp: number }[] = [];
+      const frames: { total: number; surface: number; stamp: number; road: number }[] = [];
       for (let i = 0; i < 12; i++) {
-        surfaceMs = 0; stampMs = 0; const start = performance.now(); frame(map, walk, i);
-        frames.push({ total: performance.now() - start, surface: surfaceMs, stamp: stampMs });
+        surfaceMs = 0; stampMs = 0; roadMs = 0;
+        const start = performance.now(); packet28Frame(map, mode, i);
+        frames.push({ total: performance.now() - start, surface: surfaceMs, stamp: stampMs, road: roadMs });
       }
       const mean = (key: keyof typeof frames[number]) => frames.reduce((sum, f) => sum + f[key], 0) / frames.length;
-      results.push({ mode: walk ? "walk" : "pan", round, total: mean("total"), surface: mean("surface"), stamp: mean("stamp"), frames });
+      results.push({ mode, round, total: mean("total"), surface: mean("surface"), stamp: mean("stamp"), road: mean("road"), frames });
     }
-    if (profiler && walk) {
+    if (profiler) {
       const { profile } = await post("Profiler.stop");
-      writeFileSync(process.env.GLYPH_OUTLINE_PROFILE!, JSON.stringify(profile)); profiler.disconnect();
+      writeFileSync(process.env.GLYPH_OUTLINE_PROFILE! + "." + mode + ".cpuprofile", JSON.stringify(profile));
     }
     map.destroy(); maps.splice(maps.indexOf(map), 1); host.remove();
   }
-  writeFileSync(process.env.GLYPH_OUTLINE_BENCH!, JSON.stringify({ grid: [cols, rows], rendersPerFrame: 1, results }, null, 2) + "\n");
+  profiler?.disconnect();
+  writeFileSync(process.env.GLYPH_OUTLINE_BENCH!, JSON.stringify({ grid: [cols, rows], rendersPerFrame: 1, results, topology }, null, 2) + "\n");
   console.log(JSON.stringify(results.map(({ frames, ...r }) => r)));
-}, 120_000);
+}, 180_000);
 
 // Captured on packet 26 before changing ground reads; lagoon water exercises
 // the still-water first-hit branch that the BA street view cannot establish.

@@ -63,62 +63,119 @@ const grow32 = (a: Int32Array<ArrayBuffer>, n: number) => {
 
 /** Coordinate and identity lookups belong to compilation, never the numeric frame walk. */
 export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], geometries: readonly GlyphMapExtrusionGeometry[] = []) {
-  const coordinates = new Map<number, Map<number, Map<number, number>>>();
-  const ids = new WeakMap<Vec3, number>();
+  let capacity = 64;
+  let vertexCount = 0;
+  for (const p of polygons) vertexCount += p.vertices.length;
+  while (capacity < vertexCount * 2) capacity *= 2;
+  let slots = new Int32Array(capacity), mask = capacity - 1;
+  const bits = new Float64Array(3), words = new Uint32Array(bits.buffer);
   const vertices: Vec3[] = [], faces: number[][] = [];
+  // Map's SameValueZero semantics include NaN and collapse signed zero.
+  const same = (a: number, b: number) => a === b || (a !== a && b !== b);
+  const hash = (v: Vec3) => {
+    bits[0] = v[0] || 0; bits[1] = v[1] || 0; bits[2] = v[2] || 0;
+    let h = 0;
+    for (let i = 0; i < 6; i++) h = Math.imul(h ^ words[i]!, 0x9e3779b1);
+    return h ^ (h >>> 16);
+  };
   const vertexId = (v: Vec3): number => {
-    const known = ids.get(v);
-    if (known !== undefined) return known;
-    let ys = coordinates.get(v[0]);
-    if (!ys) coordinates.set(v[0], ys = new Map());
-    let zs = ys.get(v[1]);
-    if (!zs) ys.set(v[1], zs = new Map());
-    let id = zs.get(v[2]);
-    if (id === undefined) {
-      id = vertices.length; vertices.push(v); faces.push([]); zs.set(v[2], id);
+    let slot = hash(v) & mask;
+    while (slots[slot]) {
+      const id = slots[slot]! - 1, known = vertices[id]!;
+      if (same(v[0], known[0]) && same(v[1], known[1]) && same(v[2], known[2])) return id;
+      slot = (slot + 1) & mask;
     }
-    ids.set(v, id);
+    const id = vertices.length; vertices.push(v); faces.push([]); slots[slot] = id + 1;
+    if (vertices.length * 2 > slots.length) {
+      slots = new Int32Array(slots.length * 2); mask = slots.length - 1;
+      for (let i = 0; i < vertices.length; i++) {
+        let next = hash(vertices[i]!) & mask;
+        while (slots[next]) next = (next + 1) & mask;
+        slots[next] = i + 1;
+      }
+    }
     return id;
   };
-  const polygonVertices = polygons.map((p, face) => Int32Array.from(p.vertices, v => {
-    const id = vertexId(v); faces[id]!.push(face); return id;
-  }));
-  const polygonIds = new WeakMap(polygons.map((p, i) => [p, i] as const));
-  const bounds = polygons.map(p => {
-    const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
-    for (const v of p.vertices) for (let d = 0; d < 3; d++) {
-      lo[d] = Math.min(lo[d]!, v[d]!); hi[d] = Math.max(hi[d]!, v[d]!);
+  const polygonVertices: Int32Array[] = new Array(polygons.length);
+  const polygonIds = new WeakMap<Polygon, number>();
+  const n = polygons.length;
+  const minX = new Float64Array(n), minY = new Float64Array(n), minZ = new Float64Array(n);
+  const maxX = new Float64Array(n), maxY = new Float64Array(n), maxZ = new Float64Array(n);
+  const sumX = new Float64Array(n), sumY = new Float64Array(n), sumZ = new Float64Array(n);
+  let maxVertices = 0;
+  for (let face = 0; face < polygons.length; face++) {
+    const p = polygons[face]!, ids = polygonVertices[face] = new Int32Array(p.vertices.length);
+    polygonIds.set(p, face); maxVertices = Math.max(maxVertices, ids.length);
+    let lx = Infinity, ly = Infinity, lz = Infinity, hx = -Infinity, hy = -Infinity, hz = -Infinity;
+    for (let i = 0; i < ids.length; i++) {
+      const v = p.vertices[i]!, id = vertexId(v); ids[i] = id; faces[id]!.push(face);
+      lx = Math.min(lx, v[0]); ly = Math.min(ly, v[1]); lz = Math.min(lz, v[2]);
+      hx = Math.max(hx, v[0]); hy = Math.max(hy, v[1]); hz = Math.max(hz, v[2]);
     }
-    return { lo, hi };
-  });
+    minX[face] = lx; minY[face] = ly; minZ[face] = lz;
+    maxX[face] = hx; maxY[face] = hy; maxZ[face] = hz;
+    sumX[face] = lx + hx; sumY[face] = ly + hy; sumZ[face] = lz + hz;
+  }
+  const sortX = (a: number, b: number) => sumX[a]! - minX[b]! - maxX[b]!;
+  const sortY = (a: number, b: number) => sumY[a]! - minY[b]! - maxY[b]!;
+  const sortZ = (a: number, b: number) => sumZ[a]! - minZ[b]! - maxZ[b]!;
   const node = (indices: number[]): BoundsNode => {
-    const lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity];
-    for (const i of indices) for (let d = 0; d < 3; d++) {
-      lo[d] = Math.min(lo[d]!, bounds[i]!.lo[d]!); hi[d] = Math.max(hi[d]!, bounds[i]!.hi[d]!);
+    let lx = Infinity, ly = Infinity, lz = Infinity, hx = -Infinity, hy = -Infinity, hz = -Infinity;
+    for (let j = 0; j < indices.length; j++) {
+      const k = indices[j]!;
+      lx = Math.min(lx, minX[k]!); ly = Math.min(ly, minY[k]!); lz = Math.min(lz, minZ[k]!);
+      hx = Math.max(hx, maxX[k]!); hy = Math.max(hy, maxY[k]!); hz = Math.max(hz, maxZ[k]!);
     }
-    const corners: Vec3[] = [];
-    for (let i = 0; i < 8; i++) corners.push([i & 1 ? hi[0] : lo[0], i & 2 ? hi[1] : lo[1], i & 4 ? hi[2] : lo[2]]);
+    const lo = [lx, ly, lz], hi = [hx, hy, hz], corners: Vec3[] = [];
+    for (let i = 0; i < 8; i++) corners.push([i & 1 ? hx : lx, i & 2 ? hy : ly, i & 4 ? hz : lz]);
     if (indices.length <= 32) return { corners, faces: indices };
     let axis = 0;
     for (let d = 1; d < 3; d++) if (hi[d]! - lo[d]! > hi[axis]! - lo[axis]!) axis = d;
-    indices.sort((a, b) => bounds[a]!.lo[axis]! + bounds[a]!.hi[axis]! - bounds[b]!.lo[axis]! - bounds[b]!.hi[axis]!);
+    // Keep the original left-associated expression: centre subtraction changes ties.
+    indices.sort(axis === 0 ? sortX : axis === 1 ? sortY : sortZ);
     const middle = indices.length >>> 1;
     return { corners, children: [node(indices.slice(0, middle)), node(indices.slice(middle))] };
   };
-  const root = node(polygons.map((_, i) => i));
-  const incidentCache = new Map<number, Map<number, ReadonlySet<number>>>();
+  const root = node(Array.from({ length: polygons.length }, (_, i) => i));
+  let pairSlots = new Int32Array(capacity), pairMask = capacity - 1;
+  const pairA: number[] = [], pairB: number[] = [], incidents: (ReadonlySet<number> | undefined)[] = [];
+  const pairHash = (a: number, b: number) => Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca6b);
+  const pairId = (a: number, b: number) => {
+    let slot = pairHash(a, b) & pairMask;
+    while (pairSlots[slot]) {
+      const id = pairSlots[slot]! - 1;
+      if (pairA[id] === a && pairB[id] === b) return id;
+      slot = (slot + 1) & pairMask;
+    }
+    const id = pairA.length; pairA.push(a); pairB.push(b); pairSlots[slot] = id + 1;
+    if (pairA.length * 2 > pairSlots.length) {
+      pairSlots = new Int32Array(pairSlots.length * 2); pairMask = pairSlots.length - 1;
+      for (let i = 0; i < pairA.length; i++) {
+        let next = pairHash(pairA[i]!, pairB[i]!) & pairMask;
+        while (pairSlots[next]) next = (next + 1) & pairMask;
+        pairSlots[next] = i + 1;
+      }
+    }
+    return id;
+  };
   const incidentIds = (a: number, b: number): ReadonlySet<number> => {
-    let ends = incidentCache.get(a);
-    if (!ends) incidentCache.set(a, ends = new Map());
-    let incident = ends.get(b);
+    const id = pairId(a, b);
+    let incident = incidents[id];
     if (!incident) {
-      incident = new Set(faces[a]!.filter(face => polygonVertices[face]!.includes(b)));
-      ends.set(b, incident);
+      incident = new Set<number>();
+      // Both incident lists are in face order, including repeated vertices.
+      const as = faces[a]!, bs = faces[b]!;
+      let i = 0, j = 0;
+      while (i < as.length && j < bs.length) {
+        const x = as[i]!, y = bs[j]!;
+        if (x === y) { incident.add(x); i++; j++; }
+        else if (x < y) i++;
+        else j++;
+      }
+      incidents[id] = incident;
     }
     return incident;
   };
-  let maxVertices = 0;
-  for (const p of polygons) maxVertices = Math.max(maxVertices, p.vertices.length);
   const topology = {
     polygons, vertices, polygonVertices, root, vertexId,
     incidentFaces: (a: Vec3, b: Vec3) => incidentIds(vertexId(a), vertexId(b)),
@@ -130,15 +187,15 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     prepare(groups: readonly GlyphMapExtrusionGeometry[]) {
       if (groups.length === topology.outlines.length && groups.every((g, i) => g === topology.outlines[i]!.geometry)) return;
       topology.surfaceCache = undefined;
-      const edgeIds = new Map<number, Map<number, number>>();
+      const edgeIds: (number | undefined)[] = [];
       const endpoints: number[] = [], offsets = [0], incident: number[] = [];
       const edge = (a: Vec3, b: Vec3) => {
         const ia = vertexId(a), ib = vertexId(b);
-        let ends = edgeIds.get(ia);
-        if (!ends) edgeIds.set(ia, ends = new Map());
-        let id = ends.get(ib);
+        const pair = pairId(ia, ib);
+        let id = edgeIds[pair];
         if (id === undefined) {
-          id = endpoints.length / 2; ends.set(ib, id); endpoints.push(ia, ib);
+          id = endpoints.length / 2; edgeIds[pair] = id; endpoints.push(ia, ib);
+          // Keep direct queries' incident sets compiled alongside numeric runs.
           for (const face of incidentIds(ia, ib)) incident.push(face);
           offsets.push(incident.length);
         }
@@ -146,7 +203,8 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
       };
       topology.own.fill(0);
       topology.outlines = groups.map(geometry => {
-        const ids = Int32Array.from(geometry.polygons, p => polygonIds.get(p) ?? -1);
+        const ids = new Int32Array(geometry.polygons.length);
+        for (let i = 0; i < ids.length; i++) ids[i] = polygonIds.get(geometry.polygons[i]!) ?? -1;
         for (const id of ids) if (id >= 0) topology.own[id] = 1;
         const edges: number[] = [], vertical: number[] = [];
         for (const [a, b] of geometry.roofEdges) { edges.push(edge(a, b)); vertical.push(0); }
@@ -157,8 +215,9 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
             edges.push(edge(roof[i]!, base[i]!)); vertical.push(1);
           }
         }
-        return { geometry, faces: ids, footprint: Int32Array.from(geometry.base[0] ?? [], vertexId),
-          edges: Int32Array.from(edges), vertical: Uint8Array.from(vertical) };
+        const base = geometry.base[0] ?? [], footprint = new Int32Array(base.length);
+        for (let i = 0; i < base.length; i++) footprint[i] = vertexId(base[i]!);
+        return { geometry, faces: ids, footprint, edges: Int32Array.from(edges), vertical: Uint8Array.from(vertical) };
       });
       topology.edgeVertices = Int32Array.from(endpoints); topology.edgeOffsets = Int32Array.from(offsets); topology.edgeFaces = Int32Array.from(incident);
     },
