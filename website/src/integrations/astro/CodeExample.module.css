@@ -1,0 +1,18 @@
+/* A code sample beside what it renders: code first, then the render. Narrow
+   columns stack, so the render always follows its code. */
+.root {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--gc-space-4);
+  align-items: center;
+  margin: var(--gc-space-6) 0;
+}
+.root > :global(*) {
+  min-width: 0;
+  margin: 0 !important;
+}
+@media (max-width: 72rem) {
+  .root {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
