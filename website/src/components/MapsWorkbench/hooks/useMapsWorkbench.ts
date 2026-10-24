@@ -154,7 +154,11 @@ import {
   type LayerSliderSpec,
   logHeightSliderSpec,
 } from "../LayersPanel";
+import { createViewSyncThrottle } from "./viewSyncThrottle";
 import { useWalkInput } from "./useWalkInput";
+
+/** The dock's readout rate while the map moves; 5 Hz reads as live without re-rendering per frame. */
+const VIEW_SYNC_INTERVAL_MS = 200;
 
 export function useMapsWorkbench() {
   const initial = useMemo(() => readInitialMapsState(), []);
@@ -1410,20 +1414,14 @@ export function useMapsWorkbench() {
     });
     mapRef.current = map;
 
-    // Throttled to one animation frame. The widget emits `move`/`zoom` per
+    // Throttled to VIEW_SYNC_INTERVAL_MS. The widget emits `move`/`zoom` per
     // input event and per animation step, and this pushes six pieces of
-    // React state — so unthrottled it re-rendered the whole workbench on
-    // every one of them, measured at 3.8 ms/frame of non-render script
-    // during a continuous globe rotation (`bench/maps-render`). One sync per
-    // displayed frame is all a readout can show anyway.
-    let viewSyncFrame: number | null = null;
-    function requestViewSync(): void {
-      if (viewSyncFrame !== null) return;
-      viewSyncFrame = requestAnimationFrame(() => {
-        viewSyncFrame = null;
-        syncViewState();
-      });
-    }
+    // React state and rewrites the URL — so unthrottled it re-rendered the
+    // whole workbench on every one of them (3.8 ms/frame during a globe
+    // rotation, `bench/maps-render`; still ~10% of a drag frame at one sync
+    // per frame). A trailing sync always lands the exact final view.
+    const viewSync = createViewSyncThrottle(() => syncViewState(), VIEW_SYNC_INTERVAL_MS);
+    const requestViewSync = viewSync.request;
     function syncViewState(): void {
       const v = map.getView();
       // Every field off ONE readout of the live widget (`mapsView.ts`), so
@@ -1515,7 +1513,7 @@ export function useMapsWorkbench() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      if (viewSyncFrame !== null) cancelAnimationFrame(viewSyncFrame);
+      viewSync.cancel();
       map.off("move", requestViewSync);
       map.off("zoom", requestViewSync);
       map.destroy();
