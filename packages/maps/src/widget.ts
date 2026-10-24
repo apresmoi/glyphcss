@@ -6137,7 +6137,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * Pivots a pan left on its line of sight. Where the sight crosses a height
    * step (a shore), it meets the step's wall, not `groundPoint(center)`, so a
    * later re-sync of the same centre must reuse the target rather than lift it
-   * to either side of the step. Keyed by centre identity and the ground there.
+   * to either side of the step. Keyed by the centre's value and the ground there.
    */
   let sightPivots: { center: readonly [number, number]; ground: Vec3; target: Vec3 }[] = [];
 
@@ -6145,7 +6145,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function pivotFor(center: readonly [number, number]): Vec3 {
     const ground = groundPoint(projection, center);
     for (const p of sightPivots) {
-      if (p.center === center && p.ground[0] === ground[0] && p.ground[1] === ground[1] && p.ground[2] === ground[2]) return p.target;
+      if (p.center[0] === center[0] && p.center[1] === center[1] && p.ground[0] === ground[0] && p.ground[1] === ground[1] && p.ground[2] === ground[2]) return p.target;
     }
     return ground;
   }
@@ -6167,6 +6167,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return m;
   }
 
+  /** How far in front of the pivot, in screen pixels of footprint, ground is searched for the crossing the centre shows. */
+  const SIGHT_REACH_PX = 1200;
+  /** The steepest real ground the sight march assumes (rise over run, ~63 degrees: DEM slopes past it are cliffs), before the projection's exaggeration. */
+  const GROUND_SLOPE = 2;
+
   /**
    * Where the screen-centre line of sight through `from` meets the drawn
    * ground, for a pan to re-pivot on.
@@ -6180,17 +6185,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * centre actually shows. Exaggerated hills cross one sight several times,
    * and the crossing nearest `from` was often a slope hidden behind a ridge
    * or the ridge in front: the view recentred (tiles and all) on a point you
-   * cannot see, and Ctrl-drag orbited it. The march starts where the sight's
-   * footprint lies half a screen in front of `from` (or 9 km of relief above
-   * it, whichever is nearer): terrain beyond that is off-screen or would
-   * have to tower over the whole view to hide the centre.
+   * cannot see, and Ctrl-drag orbited it. The march starts a screen of
+   * footprint toward the eye. A ceiling from the mounted terrain would be
+   * exact, but the coarse never-black tiles reach whole mountain ranges and
+   * blew the march up to ~130k px.
    *
    * `null` without a ground sampler (the datum is one height, nothing hops)
    * or without a crossing in reach; callers then keep `groundPoint`.
    */
-  /** How far in front of the pivot, in screen pixels, ground can hide the screen centre. */
-  const SIGHT_REACH_PX = 600;
-
   function groundOnSight(from: Vec3, linear: readonly number[]): { target: Vec3; center: readonly [number, number] } | null {
     if (!groundElevationSampler()) return null;
     const [a0, a1, a2, b0, b1, b2, c0, c1, c2] = linear as [number, number, number, number, number, number, number, number, number];
@@ -6218,23 +6220,35 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!(cos > 0.01)) return null;
     const sin = Math.sqrt(Math.max(0, 1 - cos * cos));
     const zoom = pixelsPerWorldUnit();
-    const h = groundAt(base);
-    const lift = projection.project(base[0], base[1], h + 9000), ground = projection.project(base[0], base[1], h);
-    const rise = Math.hypot(lift[0] - ground[0], lift[1] - ground[1], lift[2] - ground[2]);
-    const top = Math.min(SIGHT_REACH_PX / (zoom * sin * cos), rise / cos);
-    // Four CSS pixels of sight per step, never more than 1024 steps above
-    // `from`; the same step continues below it for a pan into a valley.
-    const step = Math.max(4 / zoom, top / 1024);
+    // Start where the sight's footprint lies a screen in front of `from`:
+    // ground beyond that is off-screen. A start inside a hill would make the
+    // first air-to-ground crossing one BEHIND it, so reach on until it is air.
+    let top = SIGHT_REACH_PX / (zoom * Math.max(sin * cos, 0.05));
+    let prev = above(top) / upLen;
+    for (let n = 0; n < 4 && !(prev > 0); n++) prev = above((top *= 2)) / upLen;
+    // March away from the eye down to a kilometre below the datum. High above
+    // the ground the step is that height over a slope bound (the sight drops
+    // `cos` per unit while exaggerated ground under it may climb
+    // `GROUND_SLOPE * exaggeration * sin`),
+    // so a pivot carried from a hilltop out over a valley still lands; near
+    // the ground the step is four CSS pixels. A fixed reach missed the valley
+    // and fell back to the hidden ground point.
+    const datum = projection.project(base[0], base[1], 0), floor = projection.project(base[0], base[1], -1000);
+    const heightOf = (p: Vec3) => ((p[0] - datum[0]) * up[0] + (p[1] - datum[1]) * up[1] + (p[2] - datum[2]) * up[2]) / upLen;
+    const bottom = -(heightOf(from) - heightOf(floor)) / cos;
+    const minStep = 4 / zoom, slope = cos + GROUND_SLOPE * (projection.exaggeration ?? 1) * sin;
     let lo = NaN, hi = NaN;
-    let prev = above(top);
-    for (let s = top - step; s >= -1024 * step; s -= step) {
-      const f = above(s);
-      if (Number.isFinite(f) && Number.isFinite(prev) && prev > 0 && f <= 0) {
-        lo = s + step;
-        hi = s;
+    for (let s = top, n = 0; n < 4096; n++) {
+      const next = s - Math.max(minStep, prev > 0 ? prev / slope : minStep);
+      if (next < bottom) break;
+      const f = above(next) / upLen;
+      if (Number.isFinite(f) && prev > 0 && f <= 0) {
+        lo = s;
+        hi = next;
         break;
       }
-      prev = f;
+      s = next;
+      if (Number.isFinite(f)) prev = f;
     }
     if (Number.isNaN(hi)) return null;
     for (let i = 0; i < 52; i++) {
@@ -10705,33 +10719,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const after = cameraLinear();
       const carried = carriedBy(before, after, pivot);
       const hit = carried && pivotOnSight(carried, after);
-      if (hit) {
-        // Re-aim the rotation at the sight pivot's centre (two Newton steps
-        // on `centerForCamera`, so a through-pole branch is kept), turning
-        // about that pivot: the drift is ~1e-5 rad, far below a cell, and
-        // `view.center` stays the rotation's own centre for the next re-sync.
-        let rx = trueRotX, ry = camera.rotY;
-        for (let i = 0; i < 2; i++) {
-          const c = projection.centerForCamera(rx, ry);
-          const cx = projection.centerForCamera(rx + 1e-6, ry), cy = projection.centerForCamera(rx, ry + 1e-6);
-          const wrap = (d: number) => d - 360 * Math.round(d / 360);
-          const j00 = wrap(cx[0] - c[0]) / 1e-6, j10 = (cx[1] - c[1]) / 1e-6;
-          const j01 = wrap(cy[0] - c[0]) / 1e-6, j11 = (cy[1] - c[1]) / 1e-6;
-          const det = j00 * j11 - j01 * j10;
-          if (!(Math.abs(det) > 1e-9)) break;
-          const dl = wrap(hit.center[0] - c[0]), dp = hit.center[1] - c[1];
-          rx += (j11 * dl - j01 * dp) / det;
-          ry += (j00 * dp - j10 * dl) / det;
-        }
-        if (sameSurfacePoint(projection, projection.centerForCamera(rx, ry), hit.center)) {
-          camera.rotX = rx + appliedTilt;
-          camera.rotY = ry;
-          orbitRotation = { rotX: rx, rotY: ry };
-        }
-        view = { ...view, center: hit.center, bounds: undefined };
-        camera.target = hit.target;
-        syncCameraBearing();
-      }
+      if (hit) adoptSightPivot(hit);
     } else {
       // Only this branch needs a grid; an orbit re-pin must not resolve a
       // dirty layout for a result it discards.
@@ -10769,6 +10757,53 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         camera.target = hit.target;
       }
       syncCameraBearing();
+    }
+    snapRenderedPan();
+  }
+
+  /**
+   * Make a sight pivot the view's own: `view.center` becomes its centre and
+   * an orbit's rotation is re-aimed there (two Newton steps on
+   * `centerForCamera`, so a through-pole branch is kept). The re-aim turns
+   * about the pivot, ~1e-5 rad, far below a cell, and leaves `view.center`
+   * the rotation's own centre for the next re-sync.
+   */
+  function adoptSightPivot(hit: { target: Vec3; center: readonly [number, number] }): void {
+    if (isOrbitProjection() && projection.centerForCamera) {
+      let rx = camera.rotX - appliedTilt, ry = camera.rotY;
+      for (let i = 0; i < 2; i++) {
+        const c = projection.centerForCamera(rx, ry);
+        const cx = projection.centerForCamera(rx + 1e-6, ry), cy = projection.centerForCamera(rx, ry + 1e-6);
+        const wrap = (d: number) => d - 360 * Math.round(d / 360);
+        const j00 = wrap(cx[0] - c[0]) / 1e-6, j10 = (cx[1] - c[1]) / 1e-6;
+        const j01 = wrap(cy[0] - c[0]) / 1e-6, j11 = (cy[1] - c[1]) / 1e-6;
+        const det = j00 * j11 - j01 * j10;
+        if (!(Math.abs(det) > 1e-9)) break;
+        const dl = wrap(hit.center[0] - c[0]), dp = hit.center[1] - c[1];
+        rx += (j11 * dl - j01 * dp) / det;
+        ry += (j00 * dp - j10 * dl) / det;
+      }
+      if (sameSurfacePoint(projection, projection.centerForCamera(rx, ry), hit.center)) {
+        camera.rotX = rx + appliedTilt;
+        camera.rotY = ry;
+        orbitRotation = { rotX: rx, rotY: ry };
+      }
+    }
+    view = { ...view, center: hit.center, bounds: undefined };
+    camera.target = hit.target;
+    syncCameraBearing();
+  }
+
+  /** Slide the exact pivot along its sight onto the ground the centre shows; the picture does not move. */
+  function pivotOnVisibleGround(): void {
+    restoreExactPanPose();
+    const hit = pivotOnSight(camera.target, cameraLinear());
+    if (hit && hit.target.some((v, i) => Math.abs(v - camera.target[i]!) > 1e-12)) {
+      adoptSightPivot(hit);
+      // The lattice anchor still holds the hidden pivot, and the new one is
+      // on the same sight, so a kept anchor would render the old one. A turn
+      // re-keys the anchor every step anyway.
+      panAnchor = null;
     }
     snapRenderedPan();
   }
@@ -10845,6 +10880,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // never reaches here, because `onPointerMove` stands down while the
     // lock is held.
     if (walk) { applyWalkLook(dxPx, dyPx, GLYPH_MAP_WALK_DRAG_DEG_PER_PX); return; }
+    // Turn about the ground the screen centre SHOWS. At rest the pivot is
+    // the ground at `view.center`, which an exaggerated hill in front can
+    // hide; orbiting that point swung the visible hill sideways round it,
+    // which reads as the map turning the wrong way. A turn can hide the
+    // pivot again behind another hill, so it is re-sighted after as well.
+    if (dxPx !== 0 || dyPx !== 0) pivotOnVisibleGround();
     let orbit = false;
     if (dyPx !== 0) {
       orbit = applyTiltState(clamp(appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT));
@@ -10858,6 +10899,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       orbit = true;
     }
     if (!orbit && dxPx === 0 && dyPx === 0) return;
+    pivotOnVisibleGround();
     // The camera turned, so the near/far hemisphere verdict every marker and
     // symbol carries is now one increment stale — the same window `applyDrag`
     // closes here rather than at the deferred motion frame, and for the same
