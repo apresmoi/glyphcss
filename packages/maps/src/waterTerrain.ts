@@ -128,24 +128,53 @@ export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: rea
   // Coastlines have many ears, but each terrain face only meets a few. The
   // index also bounds work for the permanent global terrain backstop.
   const size = Math.min(32, Math.max(1, Math.ceil(Math.sqrt(triangles.length / 8))));
-  const bins: Triangle[][] = Array.from({ length: size * size }, () => []);
   const edgeBins: Boundary[][] = Array.from({ length: size * size }, () => []);
   const x = (lon: number) => Math.min(size - 1, Math.max(0, Math.floor((lon - bounds.west) / (bounds.east - bounds.west) * size)));
   const y = (lat: number) => Math.min(size - 1, Math.max(0, Math.floor((lat - bounds.south) / (bounds.north - bounds.south) * size)));
-  for (const triangle of triangles) {
-    yield;
-    const b = triangle.bounds;
-    for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) bins[row * size + col].push(triangle);
+  // Point lookups run per ground read on every frame, so they get their own
+  // finer grid over flat arrays. Any grid answers the same: the first
+  // triangle in insertion order that contains the point.
+  let fine = Math.min(256, Math.max(1, Math.ceil(Math.sqrt(triangles.length / 2))));
+  const fx = (lon: number) => Math.min(fine - 1, Math.max(0, Math.floor((lon - bounds.west) / (bounds.east - bounds.west) * fine)));
+  const fy = (lat: number) => Math.min(fine - 1, Math.max(0, Math.floor((lat - bounds.south) / (bounds.north - bounds.south) * fine)));
+  const binEntries = () => {
+    let n = 0;
+    for (const { bounds: b } of triangles) n += (fy(b.north) - fy(b.south) + 1) * (fx(b.east) - fx(b.west) + 1);
+    return n;
+  };
+  while (fine > 1 && binEntries() > 2_000_000) fine >>= 1;
+  const coords = new Float64Array(triangles.length * 10);
+  const counts = new Int32Array(fine * fine + 1);
+  triangles.forEach((triangle, t) => {
+    const { ring, bounds: b } = triangle, k = t * 10;
+    coords[k] = ring[0][0]; coords[k + 1] = ring[0][1]; coords[k + 2] = ring[1][0];
+    coords[k + 3] = ring[1][1]; coords[k + 4] = ring[2][0]; coords[k + 5] = ring[2][1];
+    coords[k + 6] = b.west; coords[k + 7] = b.east; coords[k + 8] = b.south; coords[k + 9] = b.north;
+    for (let row = fy(b.south); row <= fy(b.north); row++) for (let col = fx(b.west); col <= fx(b.east); col++) counts[row * fine + col + 1]++;
+  });
+  for (let i = 1; i < counts.length; i++) counts[i] += counts[i - 1];
+  const binned = new Int32Array(counts[counts.length - 1]), fill = counts.slice(0, -1);
+  for (let t = 0; t < triangles.length; t++) {
+    if ((t & 127) === 0) yield;
+    const b = triangles[t].bounds;
+    for (let row = fy(b.south); row <= fy(b.north); row++) for (let col = fx(b.west); col <= fx(b.east); col++) binned[fill[row * fine + col]++] = t;
   }
   for (const edge of boundaries) {
     yield;
     const b = edge.bounds;
     for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) edgeBins[row * size + col].push(edge);
   }
-  const triangleAt = (lon: number, lat: number) => {
-    const p: Point = [lon, lat];
-    return bins[y(lat) * size + x(lon)].find(({ ring, bounds: b }) => glyphMapWaterContains(b, lon, lat)
-      && cross(ring[0], ring[1], p) >= 0 && cross(ring[1], ring[2], p) >= 0 && cross(ring[2], ring[0], p) >= 0);
+  // Same predicate as `cross(a, b, p) >= 0` per edge, same operation order.
+  const side = (ax: number, ay: number, bx: number, by: number, lon: number, lat: number) => (bx - ax) * (lat - ay) - (by - ay) * (lon - ax) >= 0;
+  const triangleAt = (lon: number, lat: number): Triangle | undefined => {
+    const bin = fy(lat) * fine + fx(lon);
+    for (let i = counts[bin], end = counts[bin + 1]; i < end; i++) {
+      const t = binned[i], k = t * 10;
+      if (lon < coords[k + 6] || lon > coords[k + 7] || lat < coords[k + 8] || lat > coords[k + 9]) continue;
+      const ax = coords[k], ay = coords[k + 1], bx = coords[k + 2], by = coords[k + 3], cx = coords[k + 4], cy = coords[k + 5];
+      if (side(ax, ay, bx, by, lon, lat) && side(bx, by, cx, cy, lon, lat) && side(cx, cy, ax, ay, lon, lat)) return triangles[t];
+    }
+    return undefined;
   };
   return { bounds, features, waterAt(lon, lat) {
     return triangleAt(lon, lat) !== undefined;
