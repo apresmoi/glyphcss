@@ -3,11 +3,15 @@ import type { Polygon, Vec3 } from "glyphcss";
 import { createGlyphMapExtrusionTopology as compile } from "./extrusionOutline";
 import { createGlyphMapExtrusionTopology as reference } from "./test/extrusionTopology28Reference";
 import type { GlyphMapExtrusionGeometry } from "./layers";
+import { expectConservativeTree } from "./test/conservativeTree";
+
+type Topology = ReturnType<typeof compile>;
 
 function compare(polygons: Polygon[], groups: GlyphMapExtrusionGeometry[] = []) {
   const actual = compile(polygons, groups), expected = reference(polygons, groups);
-  const fields = ({ vertexId, incidentFaces, prepare, ...data }: ReturnType<typeof compile>) => data;
+  const fields = ({ vertexId, incidentFaces, prepare, root, ...data }: Topology) => data;
   expect(fields(actual)).toEqual(fields(expected));
+  expectConservativeTree(actual);
   return { actual, expected, fields };
 }
 
@@ -37,10 +41,27 @@ it("retains all fields when outline-only vertices and directed pairs outgrow the
   expect(fields(actual)).toEqual(fields(expected));
 });
 
-it("retains the left-associated BVH sort expression even for equal bounds", () => {
-  // This sum rounds down: ((0.2 + 0.5) - 0.2) - 0.5 is not a centre difference.
-  const polygons = Array.from({ length: 65 }, (): Polygon => ({ vertices: [[0.2, 0, 0], [0.5, 0, 0], [0.2, 0.01, 0]] }));
-  compare(polygons);
+it("partitions equal, NaN and infinite bounds into conservative leaves", () => {
+  // Equal sums once broke a comparator sort's ties; a select must still split them.
+  const equal = Array.from({ length: 65 }, (): Polygon => ({ vertices: [[0.2, 0, 0], [0.5, 0, 0], [0.2, 0.01, 0]] }));
+  const odd = Array.from({ length: 200 }, (_, i): Polygon => ({ vertices: [[i % 3 ? i : NaN, i % 7, 0], [i % 5 ? i + 1 : Infinity, -i, 1], [i, i, i % 11 ? 2 : -Infinity]] }));
+  for (const polygons of [equal, odd, [...equal, ...odd]]) {
+    const leaves = expectConservativeTree(compare(polygons).actual);
+    expect(leaves.length).toBe(polygons.length);
+  }
+});
+
+it("splits a large real-sized set into balanced leaves rather than one", () => {
+  const polygons = Array.from({ length: 5000 }, (_, i): Polygon => ({ vertices: [[i % 97, (i * 31) % 89, i % 5], [i % 97 + 1, (i * 31) % 89, i % 5], [i % 97, (i * 31) % 89 + 1, i % 5 + 1]] }));
+  const { actual } = compare(polygons);
+  let leaves = 0, depth = 0;
+  const walk = (node: typeof actual.root, d: number): void => {
+    depth = Math.max(depth, d);
+    if (node.faces) { leaves++; expect(node.faces.length).toBeGreaterThanOrEqual(16); } else { walk(node.children![0], d + 1); walk(node.children![1], d + 1); }
+  };
+  walk(actual.root, 0);
+  expect(leaves).toBeGreaterThanOrEqual(5000 / 32);
+  expect(depth).toBeLessThanOrEqual(Math.ceil(Math.log2(5000 / 16)));
 });
 
 it("compiles incident sets before direct queries rather than deferring their allocation", () => {

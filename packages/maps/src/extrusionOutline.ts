@@ -35,7 +35,7 @@ interface SurfaceCache {
 }
 interface BoundsNode {
   corners: Vec3[];
-  faces?: number[];
+  faces?: Int32Array;
   children?: [BoundsNode, BoundsNode];
 }
 interface OutlineGeometry {
@@ -116,27 +116,41 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     maxX[face] = hx; maxY[face] = hy; maxZ[face] = hz;
     sumX[face] = lx + hx; sumY[face] = ly + hy; sumZ[face] = lz + hz;
   }
-  const sortX = (a: number, b: number) => sumX[a]! - minX[b]! - maxX[b]!;
-  const sortY = (a: number, b: number) => sumY[a]! - minY[b]! - maxY[b]!;
-  const sortZ = (a: number, b: number) => sumZ[a]! - minZ[b]! - maxZ[b]!;
-  const node = (indices: number[]): BoundsNode => {
+  // The tree only CULLS: a face it drops lies wholly off-grid or behind the
+  // eye, where it can neither own a cell nor make a drawn edge visible. So any
+  // conservative partition draws the same bytes, and a linear median select
+  // replaces the comparator sort that was most of every compile.
+  const order = new Int32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  const select = (key: Float64Array, lo: number, hi: number, k: number) => {
+    let l = lo, r = hi - 1;
+    while (r > l) {
+      const pivot = key[order[(l + r) >>> 1]!]!;
+      let i = l, j = r;
+      while (i <= j) {
+        while (key[order[i]!]! < pivot) i++;
+        while (key[order[j]!]! > pivot) j--;
+        if (i <= j) { const t = order[i]!; order[i] = order[j]!; order[j] = t; i++; j--; }
+      }
+      if (k <= j) r = j; else if (k >= i) l = i; else break;
+    }
+  };
+  const node = (lo: number, hi: number): BoundsNode => {
     let lx = Infinity, ly = Infinity, lz = Infinity, hx = -Infinity, hy = -Infinity, hz = -Infinity;
-    for (let j = 0; j < indices.length; j++) {
-      const k = indices[j]!;
+    for (let j = lo; j < hi; j++) {
+      const k = order[j]!;
       lx = Math.min(lx, minX[k]!); ly = Math.min(ly, minY[k]!); lz = Math.min(lz, minZ[k]!);
       hx = Math.max(hx, maxX[k]!); hy = Math.max(hy, maxY[k]!); hz = Math.max(hz, maxZ[k]!);
     }
-    const lo = [lx, ly, lz], hi = [hx, hy, hz], corners: Vec3[] = [];
+    const corners: Vec3[] = [];
     for (let i = 0; i < 8; i++) corners.push([i & 1 ? hx : lx, i & 2 ? hy : ly, i & 4 ? hz : lz]);
-    if (indices.length <= 32) return { corners, faces: indices };
-    let axis = 0;
-    for (let d = 1; d < 3; d++) if (hi[d]! - lo[d]! > hi[axis]! - lo[axis]!) axis = d;
-    // Keep the original left-associated expression: centre subtraction changes ties.
-    indices.sort(axis === 0 ? sortX : axis === 1 ? sortY : sortZ);
-    const middle = indices.length >>> 1;
-    return { corners, children: [node(indices.slice(0, middle)), node(indices.slice(middle))] };
+    if (hi - lo <= 32) return { corners, faces: order.subarray(lo, hi) };
+    const ex = hx - lx, ey = hy - ly, ez = hz - lz;
+    const middle = lo + ((hi - lo) >>> 1);
+    select(ey > ex && ey >= ez ? sumY : ez > ex && ez > ey ? sumZ : sumX, lo, hi, middle);
+    return { corners, children: [node(lo, middle), node(middle, hi)] };
   };
-  const root = node(Array.from({ length: polygons.length }, (_, i) => i));
+  const root = node(0, n);
   let pairSlots = new Int32Array(capacity), pairMask = capacity - 1;
   const pairA: number[] = [], pairB: number[] = [], incidents: (ReadonlySet<number> | undefined)[] = [];
   const pairHash = (a: number, b: number) => Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca6b);

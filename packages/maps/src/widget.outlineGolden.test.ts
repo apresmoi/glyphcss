@@ -16,6 +16,7 @@ import { glyphMapMercatorTileBounds } from "./vector/mercator";
 import * as outline from "./extrusionOutline";
 import * as topologyReference from "./test/extrusionTopology28Reference";
 import * as stroke from "./stroke";
+import { expectConservativeTree } from "./test/conservativeTree";
 import { glyphMapVectorMesh } from "./layers";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 
@@ -134,11 +135,17 @@ function packet28Frame(map: ReturnType<typeof createGlyphMap>, mode: Mode, i: nu
   else frame(map, false, i);
 }
 
-it("retains d9a9c976 grids through extended pan, bearing, walk, Venice and mid-sequence building rebuild", async () => {
+async function packet28Grids(cull: boolean) {
   const actual: Record<string, ReturnType<typeof fingerprint>[][]> = {};
   let compilations = 0;
   const compile = outline.createGlyphMapExtrusionTopology;
-  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => { compilations++; return compile(...args); });
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => {
+    compilations++;
+    const topology = compile(...args);
+    // One leaf over every face: the tree can then drop nothing at all.
+    if (!cull) topology.root = { corners: topology.root.corners, faces: Int32Array.from(topology.polygons, (_, i) => i) };
+    return topology;
+  });
   for (const mode of modes) {
     const { map, host } = await mount(mode === "walk", mode === "venice");
     if (mode === "bearing") { map.setTilt(50); await map.idle(); }
@@ -166,9 +173,21 @@ it("retains d9a9c976 grids through extended pan, bearing, walk, Venice and mid-s
     }
     map.destroy(); maps.splice(maps.indexOf(map), 1); host.remove();
   }
+  return actual;
+}
+
+
+it("retains d9a9c976 grids through extended pan, bearing, walk, Venice and mid-sequence building rebuild", async () => {
+  const actual = await packet28Grids(true);
   const file = path.resolve(__dirname, "test/outlineGolden28.json");
   if (process.env.CAPTURE_PACKET28) writeFileSync(file, JSON.stringify(actual, null, 2) + "\n");
   expect(actual).toEqual(JSON.parse(readFileSync(file, "utf8")));
+}, 120_000);
+
+// The culling tree may take any conservative shape only because a face it
+// drops cannot change a drawn byte. A tree that drops nothing must agree.
+it("draws the same grids when the culling tree drops no face at all", async () => {
+  expect(await packet28Grids(false)).toEqual(JSON.parse(readFileSync(path.resolve(__dirname, "test/outlineGolden28.json"), "utf8")));
 }, 120_000);
 
 // The supplied Venice tile has no buildings. Its real water rings still
@@ -184,13 +203,14 @@ function veniceTopologyInput(): Parameters<typeof outline.createGlyphMapExtrusio
 it("deep-compares every compiled topology field with the frozen d9a9c976 compiler on BA and Venice", async () => {
   const compile = outline.createGlyphMapExtrusionTopology;
   const data = (t: ReturnType<typeof compile>) => {
-    const { vertexId, incidentFaces, prepare, ...fields } = t;
+    const { vertexId, incidentFaces, prepare, root, ...fields } = t;
     return fields;
   };
   let checks = 0;
   vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => {
     const actual = compile(...args), expected = topologyReference.createGlyphMapExtrusionTopology(...args);
     expect(data(actual)).toEqual(data(expected));
+    expectConservativeTree(actual);
     for (const v of actual.vertices) expect(actual.vertexId(v)).toBe(expected.vertexId(v));
     for (let i = 0; i < actual.edgeVertices.length; i += 2) {
       const a = actual.vertices[actual.edgeVertices[i]]!, b = actual.vertices[actual.edgeVertices[i + 1]]!;
