@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { docsSidebar } from "../../config/docsSidebar.mjs";
 import { firstGlyphDocsExample, glyphDocsExamples } from "../docs-render/firstExample";
 import { fitGlyphDocsOutput, renderGlyphDocs } from "../docs-render/glyphRender";
-import { cardFont, socialGrid } from "./docsCards";
+import { DOCS_CARD_OVERRIDES, cardFont, cardLayout, socialGrid } from "./docsCards";
 
 function readEntries(dir = "src/content/docs", root = dir): { id: string; body: string; data: { title: string } }[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -39,7 +39,7 @@ describe("social JSON endpoints", () => {
     for (const doc of manifest) expect(renders[doc.render], doc.slug).toBeDefined();
   });
 
-  it("uses each page's first GlyphRender output, cropped and legible", async () => {
+  it("uses each page's first GlyphRender output, or its richer card override, cropped and legible", async () => {
     let count = 0;
     for (const entry of readEntries()) {
       const inputs = await glyphDocsExamples(entry.body);
@@ -47,10 +47,11 @@ describe("social JSON endpoints", () => {
       count++;
       const doc = manifest.find((doc: { slug: string }) => doc.slug === `docs/${entry.id}`);
       expect(doc.render).toBe(doc.slug);
+      const input = DOCS_CARD_OVERRIDES[entry.id] ?? inputs[0]!;
       const first = socialGrid(
         fitGlyphDocsOutput(
-          await renderGlyphDocs(inputs[0]!),
-          (inputs[0]!.options as { textScale?: number } | undefined)?.textScale ?? 1,
+          await renderGlyphDocs(input),
+          (input.options as { textScale?: number } | undefined)?.textScale ?? 1,
         ),
       );
       const [grid] = renders[doc.render];
@@ -60,6 +61,16 @@ describe("social JSON endpoints", () => {
     expect(count).toBeGreaterThan(35);
     expect(renders["docs/charts/bar"][0].html).toContain("Search");
     expect(renders["docs/charts/bar"]).not.toEqual(renders.charts);
+  });
+
+  it("fills at least half of every lone card's panel, moving wide renders under the title", () => {
+    for (const doc of manifest) {
+      const grids = renders[doc.render];
+      if (grids.length !== 1) continue;
+      expect(cardLayout(grids[0]).fill, doc.slug).toBeGreaterThanOrEqual(0.5);
+    }
+    expect(cardLayout(renders["docs/diagrams/architecture"][0]).layout).toBe("wide");
+    expect(cardLayout(renders["docs-components"][0]).layout).toBe("side");
   });
 
   it("keeps workbench cards readable with one branching pipeline flowchart and two bold charts", () => {
@@ -79,13 +90,15 @@ describe("social JSON endpoints", () => {
     expect(renders.charts[0].html).not.toMatch(/[\u2801-\u28ff]/);
   });
 
-  it("uses distinct colourful real models per section without examples, and Earth for Maps", () => {
+  it("draws distinct colourful real models per section without examples as braille outlines, and Earth for Maps", () => {
     const keys = ["docs-start", "docs-components", "docs-guides", "docs-api"];
     expect(new Set(keys.map((key) => renders[key][0].html)).size).toBe(keys.length);
     for (const key of keys) {
       const html = renders[key][0].html;
       expect(new Set(html.match(/color:[^";]+/g)).size).toBeGreaterThan(2);
-      expect(html.replace(/<[^>]+>/g, "").replace(/\s/g, "").length).toBeGreaterThan(500);
+      const text = html.replace(/<[^>]+>/g, "").replace(/\s/g, "");
+      expect(text.length).toBeGreaterThan(200);
+      expect(text).toMatch(/^[\u2800-\u28ff]+$/);
     }
     for (const [id, key] of [
       ["introduction", "docs-start"],

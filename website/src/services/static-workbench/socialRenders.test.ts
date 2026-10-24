@@ -4,16 +4,18 @@ import { socialBench, socialEarth } from "./socialRenders";
 describe("social-card scene sources", () => {
   it("renders the ETOPO1 globe over the Atlantic as coloured text", async () => {
     const result = await socialEarth();
-    expect(result.rows).toBe(72);
-    expect(result.cols).toBeGreaterThan(100);
+    expect(result.rows).toBe(36);
+    expect(result.cols).toBeGreaterThan(50);
     expect(result.html).toContain("color:");
-    expect(result.html.replace(/<[^>]+>/g, "").replace(/\s/g, "").length).toBeGreaterThan(1000);
+    expect(result.html.replace(/<[^>]+>/g, "").replace(/\s/g, "").length).toBeGreaterThan(500);
     expect(result.html).not.toMatch(/<(canvas|img|svg)\b/);
   });
 
-  it("compiles the benchmark's default icosahedron into text", () => {
+  it("draws the benchmark's default icosahedron as braille outlines", () => {
     const result = socialBench();
-    expect(result.html.replace(/<[^>]+>/g, "").replace(/\s/g, "").length).toBeGreaterThan(1000);
+    const text = result.html.replace(/<[^>]+>/g, "").replace(/\s/g, "");
+    expect(text.length).toBeGreaterThan(300);
+    expect(text).toMatch(/^[\u2800-\u28ff]+$/);
     expect(result.html).toContain("color:");
   });
 });

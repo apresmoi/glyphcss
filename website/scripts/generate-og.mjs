@@ -25,8 +25,11 @@ const BASE = process.env.OG_BASE ?? "http://localhost:4323";
 
 const W = 1200;
 const H = 630;
-// Render panel on the right half of the canvas.
+// Render panel on the right half of the canvas. A lone render that reads
+// larger across the full width (wide, short diagrams) goes under the title in
+// WIDE_PANEL instead; mirrors cardLayout in docsCards.ts.
 const PANEL = { x: 600, y: 70, w: 548, h: 490 };
+const WIDE_PANEL = { x: 72, y: 236, w: 1056, h: 360 };
 
 export const PAGES = [
   {
@@ -174,12 +177,18 @@ const esc = (s) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 export function templateHtml(page, renders, fonts = {}) {
-  const tileHeight = (PANEL.h - 18 * (renders.length - 1)) / renders.length;
+  const [only] = renders;
+  const wide =
+    renders.length === 1 &&
+    fitFont(only.cols, only.rows, WIDE_PANEL) >
+      fitFont(only.cols, only.rows, PANEL) * 1.2;
+  const panel = wide ? WIDE_PANEL : PANEL;
+  const tileHeight = (panel.h - 18 * (renders.length - 1)) / renders.length;
   const tiles = renders
     .map((render) => {
       const font =
         Math.floor(
-          fitFont(render.cols, render.rows, { w: PANEL.w, h: tileHeight }) *
+          fitFont(render.cols, render.rows, { w: panel.w, h: tileHeight }) *
             100,
         ) / 100;
       // Crop the blank margin columns a render pads to its target width.
@@ -216,8 +225,13 @@ export function templateHtml(page, renders, fonts = {}) {
   .sub { font-size: 20px; line-height: 1.5; color: #9a958a; max-width: 470px; }
   .foot { font-size: 18px; color: #6f6a60; margin-top: 8px; }
   .foot b { color: #b9b2a4; font-weight: 500; }
-  .stage { position: absolute; left: ${PANEL.x}px; top: ${PANEL.y}px;
-    width: ${PANEL.w}px; height: ${PANEL.h}px;
+  .meta { display: flex; flex-direction: column; gap: 22px; }
+  .wide .left { top: 52px; height: auto; width: ${WIDE_PANEL.w}px; gap: 12px; }
+  .wide .mark { font-size: 48px; }
+  .wide .sub, .wide .foot { display: inline; font-size: 18px; margin: 0; }
+  .wide .meta { flex-direction: row; align-items: baseline; gap: 24px; }
+  .stage { position: absolute; left: ${panel.x}px; top: ${panel.y}px;
+    width: ${panel.w}px; height: ${panel.h}px;
     display: flex; flex-direction: column; gap: 18px; z-index: 1; }
   .tile { width: 100%; height: ${tileHeight}px; display: flex; align-items: center; justify-content: center; }
   .crop { overflow: hidden; font-family: "Glyph Mono", ui-monospace, monospace; }
@@ -225,12 +239,11 @@ export function templateHtml(page, renders, fonts = {}) {
     white-space: pre;
     color: #cfe9d8; text-shadow: 0 0 1px rgba(0,0,0,0.4); ${boost} }
 </style></head>
-<body>
+<body${wide ? ' class="wide"' : ""}>
   <div class="left">
     <div class="mark"><span class="b">[</span><span class="n">&nbsp;glyphcss&nbsp;</span><span class="b">]</span></div>
     <div class="tag">${esc(t0)}<span class="k">${esc(t1)}</span></div>
-    <div class="sub">${esc(page.sub)}</div>
-    <div class="foot"><b>${esc(page.foot)}</b></div>
+    <div class="meta"><div class="sub">${esc(page.sub)}</div><div class="foot"><b>${esc(page.foot)}</b></div></div>
   </div>
   <div class="stage">${tiles}</div>
 </body></html>`;

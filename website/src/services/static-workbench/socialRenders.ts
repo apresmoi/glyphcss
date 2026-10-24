@@ -41,27 +41,29 @@ export async function socialCharts() {
 
 export function socialDocsSections() {
   const sections = [
-    ["docs-start", "primitive-torus", ["#ffbf69", "#ff6b6b", "#ffd166"]],
-    ["docs-components", "primitive-cube", ["#69e0db", "#80a7ff", "#c7a5ff"]],
-    ["docs-guides", "primitive-icosahedron", ["#ff79c6", "#ffc56e", "#ba9cff"]],
-    ["docs-api", "primitive-dodecahedron", ["#69e0db", "#a4e57e", "#ffd166"]],
+    ["docs-start", "primitive-torus", ["#ffbf69", "#ff6b6b", "#ffd166"], "hide"],
+    ["docs-components", "primitive-cube", ["#69e0db", "#80a7ff", "#c7a5ff"], "show"],
+    ["docs-guides", "primitive-icosahedron", ["#ff79c6", "#ffc56e", "#ba9cff"], "show"],
+    ["docs-api", "primitive-dodecahedron", ["#69e0db", "#a4e57e", "#ffd166"], "show"],
   ] as const;
   return Object.fromEntries(
-    sections.map(([key, id, palette]) => {
+    // The torus's many faces only read as a ring with its back lines hidden.
+    sections.map(([key, id, palette, hiddenLines]) => {
       const preset = PRESETS.find((entry) => entry.id === id)!;
       if (preset.kind !== "primitive") throw new Error("Social docs preset must be a primitive.");
       const polygons = preset.generatePolygons().map((polygon, index) => ({
         ...polygon,
         color: palette[index % palette.length],
       }));
-      return [key, [socialScene(polygons, preset.rotX ?? 65, preset.rotY ?? 45)]];
+      return [key, [socialScene(polygons, preset.rotX ?? 65, preset.rotY ?? 45, hiddenLines)]];
     }),
   );
 }
 
-// Atlantic-centred so the card shows the Americas, Europe and Africa.
+// Atlantic-centred so the card shows the Americas, Europe and Africa, at the
+// landing globe's coarse density so its glyphs read as text.
 export async function socialEarth() {
-  return socialGrid(await staticMap({ centerLon: -38, centerLat: -8, cols: 160, rows: 72 }));
+  return socialGrid(await staticMap({ centerLon: -38, centerLat: -8, cols: 80, rows: 36 }));
 }
 
 export function socialLoaders() {
@@ -91,10 +93,10 @@ export function socialBench() {
   return socialScene(resolveGeometry("icosahedron", { size: 1 }), 65, 45);
 }
 
-function socialScene(polygons: Polygon[], rotX: number, rotY: number) {
-  // A coarser grid keeps glyphs legible at card size.
-  const cols = 84,
-    rows = 42;
+function socialScene(polygons: Polygon[], rotX: number, rotY: number, hiddenLines: "show" | "hide" = "show") {
+  // A coarse grid keeps braille dots and glyphs legible at card size.
+  const cols = 60,
+    rows = 30;
   const camera = createGlyphOrthographicCamera({ rotX, rotY, zoom: 1 });
   const points = polygons.flatMap((polygon) => polygon.vertices.map((vertex) => camera.project(vertex, cols, rows, 2)));
   const xs = points.map((point) => point[0]);
@@ -105,10 +107,12 @@ function socialScene(polygons: Polygon[], rotX: number, rotY: number) {
     camera,
     cols,
     rows,
-    mode: "solid",
+    // Braille outlines read as a mesh at card size; solid faces read as flat blocks.
+    mode: "wireframe",
+    charMode: "braille",
+    hiddenLines,
     useColors: true,
-    directionalLight: { direction: [0.94, 0, 0.34], intensity: 1.1 },
-    ambientLight: { intensity: 0.45 },
+    ambientLight: { intensity: 1 },
   });
   return { html: result.inner, cols, rows };
 }
