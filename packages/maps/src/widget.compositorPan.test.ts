@@ -63,8 +63,11 @@ it("translates small moves without rasterizing and refreshes at the margin", asy
   expect(element(m).style.transform).toBe("translate(-160px, -80px)");
 });
 
+const road = { type: "line" as const, id: "road", color: "#ff0000", experimentalGlyphStrategy: "braille" as const,
+  source: { features: [{ rings: [[[-28, -12], [22, 13]] as [number, number][]] }] } };
+
 it.each([false, true])("settles byte-for-byte like normal rendering (snapPan=%s), restores overlays/styles", async snapPan => {
-  const m = mount({ snapPan }); await ready(m);
+  const m = mount({ snapPan, layers: [{ type: "fill", color: "#789abc", source: { features: [{ rings: [[[-30,-15],[25,-15],[25,15],[-30,15],[-30,-15]]] }] } }, road] }); await ready(m);
   const marker = m.addMarker({ at: [0, 0], label: "home" }); await m.idle();
   const hotspots = marker.el.parentElement!;
   const original = element(m).style.cssText;
@@ -80,7 +83,10 @@ it.each([false, true])("settles byte-for-byte like normal rendering (snapPan=%s)
   const final = m.scene.output.innerHTML;
   m.scene.rerender();
   expect(m.scene.output.innerHTML).toBe(final);
-  const reference = mount({ compositorPan: false, snapPan }); await reference.idle();
+  // The settle render must already project strokes on the normal grid, not the
+  // overscanned text still in the <pre> when it starts.
+  expect(final).toContain("#ff0000");
+  const reference = mount({ compositorPan: false, snapPan, layers: [{ type: "fill", color: "#789abc", source: { features: [{ rings: [[[-30,-15],[25,-15],[25,15],[-30,15],[-30,-15]]] }] } }, road] }); await reference.idle();
   // Identical navigation preserves snapPan's original lattice and remainder.
   pointer(reference, "pointerdown", 200); pointer(reference, "pointermove", 201); frame();
   pointer(reference, "pointermove", 225.3); frame(); pointer(reference, "pointercancel", 225.3); frame();

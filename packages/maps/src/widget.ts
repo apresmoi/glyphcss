@@ -3662,7 +3662,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     sceneStyle: string; hostOverflow: string; hotspotsDisplay: string;
     target: Vec3; rotX: number; rotY: number; zoom: number;
     projection: GlyphMapProjection; tilt: number; bearing: number; span: number;
-    hostWidth: number; hostHeight: number; originLeft: number; originTop: number;
+    hostWidth: number; hostHeight: number; outputWidth: number; outputHeight: number; originLeft: number; originTop: number;
   };
   let compositorFrame: CompositorFrame | null = null;
   let compositorRender = false;
@@ -3701,7 +3701,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     host.style.overflow = f.hostOverflow;
     hotspotElement.style.display = f.hotspotsDisplay;
     setSceneOptions({ cols: f.grid.cols, rows: f.grid.rows, autoSize: f.autoSize });
-    projectionLayout.invalidate();
+    // The <pre> still holds the OVERSCANNED text until the settle render
+    // commits, so measuring it now reads the wide grid's width as the normal
+    // grid's: roads and outlines projected on that wrong grid were hidden by
+    // the terrain for exactly one frame. The cell size never changed, so the
+    // settle render uses the layout measured when the pan began.
+    projectionLayout.prime(f.grid.cols, f.grid.rows, f.grid.cellAspect,
+      { hostWidth: f.hostWidth, hostHeight: f.hostHeight, outputWidth: f.outputWidth, outputHeight: f.outputHeight });
     syncStrokeHookInstalled();
   }
 
@@ -3733,7 +3739,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         sceneStyle: sceneElement.style.cssText, hostOverflow: host.style.overflow, hotspotsDisplay: hotspotElement.style.display,
         target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom,
         projection, tilt: appliedTilt, bearing, span: view.span,
-        hostWidth: hostBox.width, hostHeight: hostBox.height,
+        hostWidth: hostBox.width, hostHeight: hostBox.height, outputWidth: outputBox.width, outputHeight: outputBox.height,
         originLeft: outputBox.left - hostBox.left, originTop: outputBox.top - hostBox.top,
       };
       const cols = grid.cols + 2 * marginCols, rows = grid.rows + 2 * marginRows;
