@@ -10,7 +10,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Branch on projection CAPABILITY (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
 - Crop, don't clamp: `project()` returns `NaN` outside its window. Sole exception: a `raster` elevation window clamps per vertex.
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
-- Planting: `groundElevation`, else mounted raster tiles, else datum. NW–SE tile triangles clamp per vertex. Committed still water is level (lowest shore, ≥ datum); rivers use max(terrain, datum). `null` means datum; `contour` is exempt.
+- Planting: `groundElevation`, else mounted raster tiles, else datum. NW–SE tile triangles clamp per vertex. Committed still water is level (lowest shore, ≥ datum); rivers max(terrain, datum). `null` means datum; `contour` is exempt.
 - Relief resolution is per pyramid LEVEL, never per tile. Non-target tiers are sunk by `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
 - Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable identity).
