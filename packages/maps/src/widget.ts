@@ -117,6 +117,8 @@ import {
 import { glyphMapFacadeTexture, glyphMapFeatureSeed, glyphMapVaryColor, GLYPH_MAP_FACADE_TEXTURE, type GlyphMapFacadeOptions } from "./facade";
 import { glyphMapDeclutterLabels, glyphMapLabelAnchorFraction, glyphMapLabelAnchorPoint, glyphMapPointHeatmap, glyphMapVectorMarkWalls, prepareGlyphMapVectorMesh, glyphMapWrapLabel, type GlyphMapLabelAnchor, type GlyphMapVectorMesh, type GlyphMapVectorWall } from "./layers";
 import type { Polygon } from "glyphcss";
+import { createGlyphMapGroundReadCache } from "./groundReadCache";
+import { createGlyphMapProjectionLayout } from "./projectionLayout";
 
 // ── Layers (MAPS.md §14 — `background`/`raster`/`line`/`contour`;
 // `fill`/`symbol`/`circle`/`heatmap`/`fill-extrusion`/`model` are later
@@ -3013,13 +3015,13 @@ function geoDegreesPerCell(out: readonly GlyphMapDrapeSample[], i: number): numb
  */
 function drapedRunPerCell(
   run: readonly (readonly [number, number])[],
-  sampleAt: (lon: number, lat: number, elevOverride?: number) => GlyphMapDrapeSample,
+  sampleAt: (lon: number, lat: number, elevOverride?: number, source?: readonly [number, number]) => GlyphMapDrapeSample,
   groundAt: (lon: number, lat: number) => number,
   cols: number,
   rows: number,
 ): GlyphMapStrokeVertex[] {
   if (run.length === 0) return [];
-  const out: GlyphMapDrapeSample[] = [sampleAt(run[0][0], run[0][1])];
+  const out: GlyphMapDrapeSample[] = [sampleAt(run[0][0], run[0][1], undefined, run[0])];
   /**
    * Per sample, whether EITHER segment it bounds can reach the grid — the
    * same `onScreenSegmentSpan` verdict the densification above is already
@@ -3045,7 +3047,7 @@ function drapedRunPerCell(
     const [lonB, latB] = run[i];
     const iA = out.length - 1;
     const a = out[iA];
-    const b = sampleAt(lonB, latB);
+    const b = sampleAt(lonB, latB, undefined, run[i]);
     const span = onScreenSegmentSpan(a.col, a.row, b.col, b.row, cols, rows);
     if (span !== null) {
       canInk[iA] = true;
@@ -3644,6 +3646,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     rows: view.rows,
     autoSize: opts.autoSize ?? false,
   });
+  const projectionLayout = createGlyphMapProjectionLayout(host, scene.output);
+  const setSceneOptions = scene.setOptions, fitScene = scene.fit;
+  scene.setOptions = options => {
+    // Headlights update lighting options during camera motion without resizing.
+    if ("cols" in options || "rows" in options || "cellAspect" in options || "autoSize" in options || "colorEncoding" in options || "fontAtlas" in options) {
+      projectionLayout.invalidate();
+    }
+    setSceneOptions(options);
+  };
+  scene.fit = () => { projectionLayout.invalidate(); fitScene(); };
 
   /**
    * Every mesh-backed layer's mount goes through here so the per-layer
@@ -3659,36 +3671,23 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   // ── Screen-space geometry (absorbed from both pages' identical helper) ──
 
-  /**
-   * DELIBERATELY NOT MEMOIZED, though it reads two `getBoundingClientRect()`s
-   * (each a forced synchronous layout) several times per rendered frame.
-   * A memo scoped to "until this widget's next repaint" was built and
-   * measured, and removed on both counts: it moved `layout` by nothing
-   * (1.787 -> 1.824 ms/frame on `bench/maps-render`, i.e. noise), and it was
-   * not sound — glyphcss ALSO renders on its own microtask whenever a mesh is
-   * added or removed, so a tile mount repaints without passing through any
-   * widget-side invalidation, and the stroke hook then stamped against a
-   * stale grid. It changed the render at exactly the two fidelity waypoints
-   * that mount tiles. If this is ever worth caching, the invalidation has to
-   * come from glyphcss's own render boundary, not from this file's.
-   */
+  /** Dimensions follow DOM/option changes, including scene-owned renders. */
   function projectionGrid(): ProjectionGrid {
     const o = scene.getOptions();
     const cols = o.cols ?? view.cols;
     const rows = o.rows ?? view.rows;
     const cellAspect = o.cellAspect ?? 2;
-    const hostRect = host.getBoundingClientRect();
-    const outputRect = scene.output.getBoundingClientRect();
+    const { hostWidth, hostHeight, outputWidth, outputHeight } = projectionLayout.read(cols, rows, cellAspect);
     const fallbackCellHeight = 50;
     const fallbackCellWidth = fallbackCellHeight / cellAspect;
-    const cellWidth = outputRect.width > 0 ? outputRect.width / cols
-      : hostRect.width > 0 ? hostRect.width / cols
+    const cellWidth = outputWidth > 0 ? outputWidth / cols
+      : hostWidth > 0 ? hostWidth / cols
       : fallbackCellWidth;
-    const cellHeight = outputRect.height > 0 ? outputRect.height / rows
-      : hostRect.height > 0 ? hostRect.height / rows
+    const cellHeight = outputHeight > 0 ? outputHeight / rows
+      : hostHeight > 0 ? hostHeight / rows
       : fallbackCellHeight;
-    const centerCol = cols * camera.center[0] + (hostRect.width > 0 ? (hostRect.width - cols * cellWidth) / (2 * cellWidth) : 0);
-    const centerRow = rows * camera.center[1] + (hostRect.height > 0 ? (hostRect.height - rows * cellHeight) / (2 * cellHeight) : 0);
+    const centerCol = cols * camera.center[0] + (hostWidth > 0 ? (hostWidth - cols * cellWidth) / (2 * cellWidth) : 0);
+    const centerRow = rows * camera.center[1] + (hostHeight > 0 ? (hostHeight - rows * cellHeight) / (2 * cellHeight) : 0);
     return { cols, rows, cellAspect, cellWidth, cellHeight, centerCol, centerRow };
   }
 
@@ -4013,11 +4012,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   /**
    * `grid` is a caller-supplied {@link ProjectionGrid} rather than a fresh
-   * `projectionGrid()` call per invocation (P2 "a2" fix): a deep tile sweep
-   * calls this once per candidate, and `projectionGrid()` does two
-   * `getBoundingClientRect()` calls — a real z7 sweep over 16,383 raw
-   * candidates measured 32,766 layout reads from this alone. Every sweep
-   * below now computes ONE grid before its loop and threads it through.
+   * `projectionGrid()` call per invocation: a deep tile sweep can test
+   * thousands of candidates against the same grid. Layout is cached, but
+   * the grid's camera-dependent centre still needs resolving once per sweep.
    * `geoSamples` is hoisted the same way and for the same reason (its own
    * doc) — one unprojection pass per sweep, not one per candidate tile.
    */
@@ -4853,8 +4850,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // the walker has a real one.
     if (walk) { poseWalkCamera(v); return; }
     const [lon, lat] = v.center;
-    // ONE grid for the whole sync (two `getBoundingClientRect`s, this file's
-    // standing rule), and the zoom BEFORE the pitch: the pitch ceiling is a
+    // ONE grid for the whole sync, and the zoom BEFORE the pitch: the pitch ceiling is a
     // function of `camera.zoom`, so deriving it from the zoom this sync is
     // about to install — rather than the one still on the camera — is what
     // keeps the sync idempotent across a span change.
@@ -4888,17 +4884,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /**
    * {@link project} against a grid the CALLER already measured.
    *
-   * `projectionGrid()` is two `getBoundingClientRect()` calls — a forced
-   * style-and-layout flush — so a caller projecting N points through
-   * `project()` pays 2N of them. That is not only the cost (a `symbol`
-   * layer's sweep at the reported view projects ~4,300 anchors); it is a
-   * correctness hazard for anything that PROJECTS AND THEN WRITES STYLE,
-   * because each flush RESOLVES the style of whatever that caller has
-   * already put in the document. A label inserted a moment earlier is
-   * resolved at its CSS-default `opacity: 1`, and the hide that follows is
-   * then a change between two resolved styles — which a consumer's
-   * `transition: opacity` will animate. Hoisting the measurement above the
-   * loop is what makes the whole rebuild one style, not N.
+   * Resolve a dirty layout BEFORE inserting labels: a read after insertion
+   * resolves a fresh label at its CSS-default opacity, making the later hide
+   * animate under a consumer's transition. A shared grid keeps every anchor
+   * in the same coordinate frame even when those insertions dirty layout.
    *
    * `elev` is the point's own GROUND in metres, on the projection's own
    * (exaggerated) elevation axis — the marker drape's channel. It defaults to
@@ -5140,8 +5129,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * per group and stop there.
    */
   const groundChangeSyncs = new Set<() => void>();
+  let groundRevision = 0;
   let groundChangeQueued = false;
   function notifyGroundChanged(): void {
+    groundRevision++;
     if (!walk) {
       // Mount and re-anchor in the same turn: no frame shows the newly drawn
       // centre at the old datum offset. Keep the geographic view/URL exact.
@@ -5898,7 +5889,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // shoreline (never below the datum). Reading the DEM pointwise instead
       // put a bridge below a lake the fill draped from its shore vertices —
       // the Venice causeway vanished under its own lagoon. One level per
-      // shoreline, cached for this reader's lifetime (one stamp pass).
+      // shoreline, cached until this reader's terrain/water snapshot changes.
       const levels = new Map<readonly (readonly [number, number])[], number>();
       const levelOf = (tiles: readonly GlyphMapGeoTile[], shore: readonly (readonly [number, number])[]): number => {
         let level = levels.get(shore);
@@ -6087,6 +6078,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function createLineLayerRuntime(layer: GlyphMapLineLayer): LineLayerRuntime {
+    const cacheGround = createGlyphMapGroundReadCache<{ elev: number; world: Vec3 }>();
+    let readerRevision = -1, readerWaterEpoch = -1;
+    let readerProjection: GlyphMapProjection | undefined;
+    let groundReader: ReturnType<typeof groundElevationSampler> = null;
     const simplifyLine = layer.simplify === "vw" ? createGlyphMapLineSimplifier() : null;
     const sharedArcCache = layer.sharedArcs ? createGlyphMapSharedArcCache(layer.filter) : null;
     // Explicit routes keep their properties; only polygon boundaries lose identity to topology.
@@ -6200,7 +6195,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // `null` = no raster layer mounted, so the ground IS the datum and the
       // whole drape reduces to `projection.project(lon, lat, 0)` — the
       // pre-drape expression, byte for byte, with no lookup at all.
-      const groundElevationAt = groundElevationSampler();
+      // Supplied callbacks can change without a terrain commit. Keep those live.
+      // A raster reader also retains its exact still-water shore levels.
+      if (opts.groundElevation || readerRevision !== groundRevision || readerWaterEpoch !== waterTerrainEpoch || readerProjection !== projection) {
+        groundReader = groundElevationSampler();
+        readerRevision = groundRevision; readerWaterEpoch = waterTerrainEpoch; readerProjection = projection;
+      }
+      const groundElevationAt = groundReader;
+      // Densified points and cross-stroke probes move with the exact camera.
+      // Memoizing their mostly-unique coordinates costs more than sampling.
       // Hoisted to the STAMP, not the run. Nothing in them is run-specific —
       // they close over the sampler, the projection, the camera and the two
       // grids, all of which are fixed for the whole call — and a street-level
@@ -6209,11 +6212,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // single cell. Same closures, same values, same order of calls.
       /** The ground the drape stands on, with the same datum fallback every vertex takes — the raw field, for the slack pass's own cross-stroke probes. */
       const strokeDrapeLift = groundElevationAt ? glyphMapTrueScaleElevation(GLYPH_MAP_DRAPE_LIFT_M, projection) : 0;
+      const sourceSampleAt = groundReader && !opts.groundElevation ? cacheGround(([lon, lat]) => {
+        const sampled = groundReader!(lon, lat);
+        const elev = Number.isFinite(sampled) ? sampled : 0;
+        return { elev, world: projection.project(lon, lat, elev + strokeDrapeLift) };
+      }, [groundRevision, waterTerrainEpoch, projection, projection.exaggeration, strokeDrapeLift]) : null;
       const groundReadAt = (lon: number, lat: number): number => {
         const sampled = groundElevationAt ? groundElevationAt(lon, lat) : 0;
         return Number.isFinite(sampled) ? sampled : 0;
       };
-      const vertexAt = (lon: number, lat: number, elevOverride?: number): GlyphMapDrapeSample => {
+      const vertexAt = (lon: number, lat: number, elevOverride?: number, source?: readonly [number, number]): GlyphMapDrapeSample => {
         // DRAPED: the vertex is projected at the ground elevation under
         // its own lon/lat, so it is drawn where the terrain it belongs to
         // is drawn. Everything else in the scene already stands on the
@@ -6232,7 +6240,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // project to if its ground stood higher — see `drapedRunPerCell`.
         // It bypasses the ground read entirely, so the answer is a pure
         // projection question and cannot re-enter the sampler.
-        const sampled = elevOverride !== undefined ? elevOverride : groundElevationAt ? groundElevationAt(lon, lat) : 0;
+        const retained = source && elevOverride === undefined ? sourceSampleAt?.(source) : undefined;
+        const sampled = retained ? retained.elev : elevOverride !== undefined ? elevOverride : groundElevationAt ? groundElevationAt(lon, lat) : 0;
         const groundElev = Number.isFinite(sampled) ? sampled : 0;
         // The same true-metre tie-break a draped `fill` cap takes — see
         // {@link GLYPH_MAP_DRAPE_LIFT_M} — so a road crossing a park is
@@ -6241,7 +6250,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // above still compares raw ground against raw ground; and only
         // where there is a ground to drape on at all, which is what keeps
         // a terrain-free map byte-identical.
-        const world = projection.project(lon, lat, groundElev + strokeDrapeLift);
+        const world = retained?.world ?? projection.project(lon, lat, groundElev + strokeDrapeLift);
         // `baseGrid` (NOT the live `projectionGrid()`) is what makes this
         // a SCENE/base-grid col/row — see `StrokeLayerRuntime`'s doc.
         // `composedTransformCells` restores `camera`'s zoom/center/
@@ -7281,9 +7290,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * path stays byte-identical.
    *
    * The grid is captured ONCE per mesh rebuild rather than per vertex, the
-   * same `projectionGrid()`-hoisting `isBoundsVisible`'s callers do: a rebuild
-   * runs this for every ring vertex of every feature, and `projectionGrid()`
-   * costs two `getBoundingClientRect()` calls.
+   * same grid hoist `isBoundsVisible`'s callers do: every ring vertex in a
+   * rebuild shares the same layout and camera-dependent centre.
    */
   /**
    * WALK MODE reaches this through {@link nearSideVisible} like every other
@@ -7410,8 +7418,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * which asks only whether a point's `camera.project(...)` DEPTH beats the
      * projection's own anchor's, and the grid dimensions the projection call
      * also takes scale screen x/y without reordering depth. A `resize()`
-     * therefore cannot change which walls survive, and this need not pay
-     * `projectionGrid()`'s two `getBoundingClientRect` calls to find that out.
+     * therefore cannot change which walls survive; no grid is needed here.
      */
     let culledAt = "";
     /**
@@ -10401,11 +10408,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // The pivot moved, so the axis the heading turns about moved with it.
       syncCameraBearing();
     } else {
-      // The grid is measured HERE and not above because only this branch
-      // needs it: `projectionGrid()` reads two `getBoundingClientRect`s, and
-      // the anchored re-pin calls this function several times per pointer
-      // event, so an orbit projection was paying for a forced layout it then
-      // discarded.
+      // Only this branch needs a grid; an orbit re-pin must not resolve a
+      // dirty layout for a result it discards.
       const grid = projectionGrid();
       // NOT `bearingDragDelta` — deliberately. `screenToWorldDelta` solves
       // its basis from three probes of the LIVE `camera.project`, which
@@ -11657,6 +11661,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       layerOrder.length = 0;
       nearSideSyncs.clear();
       listeners.clear();
+      projectionLayout.dispose();
       scene.destroy();
     },
   };

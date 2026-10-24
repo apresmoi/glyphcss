@@ -12,6 +12,22 @@ function grid(depth = -Infinity): CellGrid {
   return {cols:10,rows:10,screenX:new Int32Array(100),screenY:new Int32Array(100),char:Array(100).fill("@"),color:Array(100).fill("#94a3b8"),depth:new Float64Array(100).fill(depth)};
 }
 const ink = (g: CellGrid) => g.char.filter(c => /[\u2801-\u28ff]/u.test(c)).length;
+it("retains exact edge adjacency while projected winding and visibility remain frame-local", () => {
+  const p = { vertices: roof.map(v => [...v] as Vec3) };
+  const topology = createGlyphMapExtrusionTopology([p]);
+  const incident = topology.incidentFaces(p.vertices[0]!, p.vertices[1]!);
+  expect([...incident]).toEqual([0]);
+  expect(topology.incidentFaces([...p.vertices[0]!] as Vec3, [...p.vertices[1]!] as Vec3)).toBe(incident);
+  for (const hidden of [false, true, false]) {
+    const polygon = p as Polygon; polygon.hidden = hidden;
+    const frozen = grid(), actual = createGlyphMapExtrusionSurface(frozen, [polygon], project, eye, topology);
+    const expected = reference.createGlyphMapExtrusionSurface(frozen, [polygon], project, eye);
+    for (const [col, row] of [[2.25, 3], [3, 3], [6, 4]]) {
+      expect(actual.occludes(p.vertices[0]!, p.vertices[1]!)(col!, row!, 1)).toBe(expected.occludes(p.vertices[0]!, p.vertices[1]!)(col!, row!, 1));
+    }
+    expect(topology.incidentFaces(p.vertices[0]!, p.vertices[1]!)).toBe(incident);
+  }
+});
 it("terrain nearer than a roof hides all outline dots", () => {
   const g = grid(2);
   const frozen = {...g,depth:g.depth.slice()};

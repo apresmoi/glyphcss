@@ -4,6 +4,7 @@ import { glyphMapForeignOwned, glyphMapSurfaceOccludes, stampGlyphMapPolyline } 
 import type { GlyphMapStrokeVertex } from "./stroke";
 
 interface Triangle {
+  readonly face: number;
   readonly polygon: Polygon;
   readonly a: GlyphMapStrokeVertex;
   readonly b: GlyphMapStrokeVertex;
@@ -97,7 +98,26 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[]) {
     return { corners, children: [node(indices.slice(0, middle)), node(indices.slice(middle))] };
   };
   const root = node(polygons.map((_, i) => i));
-  return { polygons, vertices, faces, vertexId, faceIds, root, stampCache: undefined as StampCache | undefined };
+  const edges = new Map<number, Map<number, ReadonlySet<number>>>();
+  const edgeIdentities = new WeakMap<Vec3, WeakMap<Vec3, ReadonlySet<number>>>();
+  const incidentFaces = (a: Vec3, b: Vec3): ReadonlySet<number> => {
+    let identities = edgeIdentities.get(a);
+    const known = identities?.get(b);
+    if (known) return known;
+    const ia = vertexId(a), ib = vertexId(b);
+    if (ia === undefined || ib === undefined) return new Set();
+    let ends = edges.get(ia);
+    if (!ends) edges.set(ia, ends = new Map());
+    let incident = ends.get(ib);
+    if (!incident) {
+      incident = new Set(faces[ia]!.filter(i => polygons[i]!.vertices.some(v => same(v, b))));
+      ends.set(ib, incident);
+    }
+    if (!identities) edgeIdentities.set(a, identities = new WeakMap());
+    identities.set(b, incident);
+    return incident;
+  };
+  return { polygons, vertices, faces, vertexId, faceIds, incidentFaces, root, stampCache: undefined as StampCache | undefined };
 }
 // This bounds floating point evaluation error, not a world-space depth bias.
 const roundoff = (a: number, b: number) => Number.EPSILON * 32 * Math.max(Math.abs(a), Math.abs(b), Number.MIN_VALUE);
@@ -175,7 +195,7 @@ export function createGlyphMapExtrusionSurface(
       const top = Math.max(0, Math.floor(Math.min(a.row, b.row, c.row)));
       const bottom = Math.min(grid.rows - 1, Math.floor(Math.max(a.row, b.row, c.row)));
       if (left > right || top > bottom) continue;
-      triangles.push({ polygon, a, b, c, area, left, right, top, bottom });
+      triangles.push({ face, polygon, a, b, c, area, left, right, top, bottom });
       for (let y = top; y <= bottom; y++) {
         for (let x = left; x <= right; x++) counts[y * grid.cols + x]++;
       }
@@ -259,13 +279,10 @@ export function createGlyphMapExtrusionSurface(
     occludes(a: Vec3, b: Vec3) {
       // Incident faces contain this edge by construction. Ignoring those faces
       // accepts coplanar roof ink without forgiving a nearer, unrelated surface.
-      const id = topology.vertexId(a);
-      const incident = new Set<Polygon>();
-      if (id !== undefined) for (const face of topology.faces[id]!) {
-        const p = polygons[face]!;
-        if (accepted[face] && p.vertices.some(v => same(v, b))) incident.add(p);
-      }
-      if (incident.size === 0) return () => true;
+      const incident = topology.incidentFaces(a, b);
+      let visible = false;
+      for (const face of incident) if (accepted[face]) { visible = true; break; }
+      if (!visible) return () => true;
       return (col: number, row: number, depth: number): boolean => {
         const ci = Math.floor(col), ri = Math.floor(row), idx = ri * grid.cols + ci;
         const bin = idx;
@@ -280,7 +297,7 @@ export function createGlyphMapExtrusionSurface(
         }
         for (let i = offsets[bin]!; i < offsets[bin + 1]!; i++) {
           const t = triangles[bins[i]!]!;
-          if (incident.has(t.polygon)) continue;
+          if (incident.has(t.face)) continue;
           const d = depthAt(t, col, row);
           if (d - depth > roundoff(d, depth)) return true;
         }

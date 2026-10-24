@@ -266,6 +266,10 @@ const CORE_BASE_STYLES = `
   margin: 0;
   padding: 0;
   font-family: monospace;
+  font-variant-ligatures: none;
+  font-kerning: none;
+  font-feature-settings: normal;
+  text-rendering: optimizeSpeed;
   font-size: inherit;
   line-height: 1;
   white-space: pre;

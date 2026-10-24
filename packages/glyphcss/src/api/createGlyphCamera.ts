@@ -44,49 +44,6 @@ export interface GlyphProjectionMetrics {
 }
 
 /**
- * MEMOIZED, and that is load-bearing rather than cosmetic: `project()` is
- * called once per mesh VERTEX per render, so a terrain scene runs it a quarter
- * of a million times a frame (measured on /maps: 65,312 quads x 4 = 261,248
- * calls per render). Building a fresh result object on each of those made this
- * function 3.7% of the whole script budget in a CPU profile of a continuous
- * globe rotation, entirely in allocation and GC.
- *
- * The memo is keyed on every input by VALUE, so a hit is bit-identical to a
- * recompute — this changes no arithmetic anywhere. The returned object is
- * REUSED, which is safe because all three call sites destructure it
- * immediately inside the same synchronous block and never retain it; the
- * function is module-private, so there is no other caller to break.
- */
-const metricsMemo = { cellPxW: 0, cellPxH: 0, centerCol: 0, centerRow: 0 };
-let memoCols = NaN, memoRows = NaN, memoAspect = NaN, memoCx = NaN, memoCy = NaN;
-let memoCw: number | undefined = NaN, memoCh: number | undefined = NaN;
-let memoCc: number | undefined = NaN, memoCr: number | undefined = NaN;
-
-function resolveProjectionMetrics(
-  cols: number,
-  rows: number,
-  cellAspect: number,
-  center: [number, number],
-  metrics?: GlyphProjectionMetrics,
-): { cellPxW: number; cellPxH: number; centerCol: number; centerRow: number } {
-  const cw = metrics?.cellWidth, ch = metrics?.cellHeight;
-  const cc = metrics?.centerCol, cr = metrics?.centerRow;
-  if (cols === memoCols && rows === memoRows && cellAspect === memoAspect
-    && center[0] === memoCx && center[1] === memoCy
-    && cw === memoCw && ch === memoCh && cc === memoCc && cr === memoCr) {
-    return metricsMemo;
-  }
-  memoCols = cols; memoRows = rows; memoAspect = cellAspect;
-  memoCx = center[0]; memoCy = center[1];
-  memoCw = cw; memoCh = ch; memoCc = cc; memoCr = cr;
-  metricsMemo.cellPxW = cw && cw > 0 ? cw : BASE_TILE / cellAspect;
-  metricsMemo.cellPxH = ch && ch > 0 ? ch : BASE_TILE;
-  metricsMemo.centerCol = cc ?? cols * center[0];
-  metricsMemo.centerRow = cr ?? rows * center[1];
-  return metricsMemo;
-}
-
-/**
  * Near fraction used by `eyeDepth` for near-plane CLIPPING — deliberately a hair
  * larger than the projection's `PERSPECTIVE_NEAR_FRACTION`. The clip plane sits
  * at `eyeDepth = 0`, which puts the interpolated crossing vertices exactly there;
@@ -122,8 +79,8 @@ const PERSPECTIVE_CLIP_NEAR_FRACTION = PERSPECTIVE_NEAR_FRACTION * 1.01;
  * (caller still needs to multiply by `zoom` to get final CSS pixels).
  */
 /**
- * Per-angle trig memo. Same reason as `resolveProjectionMetrics` above: this
- * runs once per vertex per render, and recomputing `Math.cos`/`Math.sin` of two
+ * Per-angle trig memo. Projection runs once per vertex per render, and
+ * recomputing `Math.cos`/`Math.sin` of two
  * angles that are CONSTANT for the whole render cost four transcendental calls
  * per vertex — over a million per frame on a terrain scene, 8.0% of the script
  * budget in the same profile.
@@ -426,8 +383,12 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       return (state.distance - r[2]) - NEAR;
     },
     project(v, cols, rows, cellAspect, metrics) {
-      const { cellPxW, cellPxH, centerCol, centerRow } =
-        resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
+      // Complete scene grids already resolved these outside the vertex walk.
+      const cw = metrics?.cellWidth, ch = metrics?.cellHeight;
+      const cellPxW = cw && cw > 0 ? cw : BASE_TILE / cellAspect;
+      const cellPxH = ch && ch > 0 ? ch : BASE_TILE;
+      const centerCol = metrics?.centerCol ?? cols * state.center[0];
+      const centerRow = metrics?.centerRow ?? rows * state.center[1];
 
       const shifted: Vec3 = [
         v[0] - state.target[0],
@@ -554,8 +515,12 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     // Orthographic projection has no eye, so nothing is ever near-clipped.
     eyeDepth(_v) { return Number.POSITIVE_INFINITY; },
     project(v, cols, rows, cellAspect, metrics) {
-      const { cellPxW, cellPxH, centerCol, centerRow } =
-        resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
+      // Complete scene grids already resolved these outside the vertex walk.
+      const cw = metrics?.cellWidth, ch = metrics?.cellHeight;
+      const cellPxW = cw && cw > 0 ? cw : BASE_TILE / cellAspect;
+      const cellPxH = ch && ch > 0 ? ch : BASE_TILE;
+      const centerCol = metrics?.centerCol ?? cols * state.center[0];
+      const centerRow = metrics?.centerRow ?? rows * state.center[1];
 
       const shifted: Vec3 = [
         v[0] - state.target[0],

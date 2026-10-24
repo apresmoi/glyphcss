@@ -136,6 +136,23 @@ it("a static water collection grants no authority and keeps its existing drape",
   expect(map.scene.output.outerHTML).toBe(before);
 });
 
+it("invalidates warm road ground reads on committed water removal and replacement", async () => {
+  const map = mount(); await map.idle();
+  const roads = { type: "line" as const, id: "cached-roads", source: { features: tile.layers.transportation }, color: "#ff0000", experimentalGlyphStrategy: "braille" as const };
+  map.addLayer(roads); await map.idle(); map.scene.rerender();
+  const wet = map.scene.output.innerHTML;
+  map.removeLayer("omt-water"); await map.idle(); map.scene.rerender();
+  const dry = map.scene.output.innerHTML;
+  expect(dry).not.toBe(wet);
+  map.removeLayer(roads.id); map.addLayer(roads); await map.idle(); map.scene.rerender();
+  expect(map.scene.output.innerHTML).toBe(dry);
+  map.addLayer(glyphMapOpenMapTilesLayers(source, { include: ["omt-water"], waterTerrain: true })[0], roads.id);
+  await map.idle(); map.scene.rerender();
+  const replaced = map.scene.output.innerHTML;
+  map.removeLayer(roads.id); map.addLayer(roads); await map.idle(); map.scene.rerender();
+  expect(map.scene.output.innerHTML).toBe(replaced);
+});
+
 it.runIf(process.env.GLYPH_MAP_WATER_GROUND_BENCH === "1")("Venice node frame cost", async () => {
   const map = mount(); await map.idle();
   map.addLayer({ type: "line", id: "roads", source: { features: tile.layers.transportation }, color: "#ff0000", experimentalGlyphStrategy: "braille" });
