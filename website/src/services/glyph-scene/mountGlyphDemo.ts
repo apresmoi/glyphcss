@@ -666,6 +666,7 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
   }
 
   // ── Hotspots ─────────────────────────────────────────────────────────────
+  const DOCS_HOTSPOT_AT: [number, number, number] = [50, 50, 50];
   // Two named hotspots anchored to vertex 0 and vertex 4 of the geometry.
   const hotspotLabels: Record<string, string> = { top: "vertex 0", side: "vertex 4" };
 
@@ -678,7 +679,8 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
 
     if (!showHotspots) return;
     if (demoEl.getAttribute("data-docs-hotspot") === "1") {
-      const handle = scene.addHotspot({ id: "anchor", at: [0, 0, 0], size: [14, 3] });
+      // A corner, not the centre: the centre projects to mid-screen at every angle.
+      const handle = scene.addHotspot({ id: "anchor", at: DOCS_HOTSPOT_AT, size: [14, 3] });
       const button = document.createElement("button");
       button.type = "button";
       button.className = "glyph-demo__hotspot-button";

@@ -88,8 +88,11 @@ it('mounts a selectable hotspot on the real hit layer and disposes it on unmount
   button.click();
   expect(button.textContent).toBe('Selected');
   expect(button.getAttribute('aria-pressed')).toBe('true');
+  const placed = anchor.getAttribute('style');
   update({ rotY: 30 });
   expect(host.querySelector('[data-hotspot-id="anchor"]')).toBe(anchor);
+  // Anchored to a corner, so orbiting moves it; the centre would sit still mid-screen.
+  expect(anchor.getAttribute('style')).not.toBe(placed);
   update({ renderMode: 'ink' });
   const rebuilt = host.querySelector<HTMLButtonElement>('[data-hotspot-id="anchor"] button')!;
   expect(rebuilt.getAttribute('aria-pressed')).toBe('true');

@@ -93,7 +93,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
       `scene.add(${source.mesh || source.polygonsUrl ? "recenterPolygons(polygons)" : "polygons"});`,
       ...(source.hotspot
         ? [
-            'const anchor = scene.addHotspot({ id: "anchor", at: [0, 0, 0], size: [14, 3] });',
+            'const anchor = scene.addHotspot({ id: "anchor", at: [50, 50, 50], size: [14, 3] });',
             'const button = document.createElement("button");',
             'button.type = "button";',
             'button.textContent = "Select anchor";',
@@ -123,7 +123,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
       `        ${meshReact}`,
       ...(source.hotspot
         ? [
-            '        <GlyphHotspot id="anchor" at={[0, 0, 0]} size={[14, 3]}>',
+            '        <GlyphHotspot id="anchor" at={[50, 50, 50]} size={[14, 3]}>',
             '          <button type="button" aria-pressed={selected} onPointerDown={event => event.stopPropagation()} onClick={() => setSelected(value => !value)}>',
             '            {selected ? "Selected" : "Select anchor"}',
             "          </button>",
@@ -149,7 +149,7 @@ export function demoSnippets(t: Tunables, source: DemoSource): Record<string, st
       `      ${meshVue}`,
       ...(source.hotspot
         ? [
-            '      <GlyphHotspot id="anchor" :at="[0, 0, 0]" :size="[14, 3]">',
+            '      <GlyphHotspot id="anchor" :at="[50, 50, 50]" :size="[14, 3]">',
             '        <button type="button" :aria-pressed="selected" @pointerdown.stop @click="selected = !selected">',
             '          {{ selected ? "Selected" : "Select anchor" }}',
             "        </button>",

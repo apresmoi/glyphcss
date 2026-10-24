@@ -68,8 +68,8 @@ it('exports a selectable native hotspot button only for the hotspot example', ()
     expect(snippet).toContain('Select anchor');
     expect(snippet).not.toContain('alert(');
   }
-  expect(snippets.vanilla).toContain('scene.addHotspot({ id: "anchor", at: [0, 0, 0], size: [14, 3] })');
-  expect(snippets.react).toContain('<GlyphHotspot id="anchor" at={[0, 0, 0]} size={[14, 3]}>');
-  expect(snippets.vue).toContain('<GlyphHotspot id="anchor" :at="[0, 0, 0]" :size="[14, 3]">');
+  expect(snippets.vanilla).toContain('scene.addHotspot({ id: "anchor", at: [50, 50, 50], size: [14, 3] })');
+  expect(snippets.react).toContain('<GlyphHotspot id="anchor" at={[50, 50, 50]} size={[14, 3]}>');
+  expect(snippets.vue).toContain('<GlyphHotspot id="anchor" :at="[50, 50, 50]" :size="[14, 3]">');
   for (const snippet of Object.values(demoSnippets(DEFAULT_TUNABLES, {}))) expect(snippet).not.toContain('Hotspot');
 });
