@@ -3,6 +3,7 @@ import styles from "./GlyphRender.module.css";
 import { highlightSnippet } from "../../components/CodePanel";
 import { GlyphChart3dPreview, glyphChart3dFrameHtml } from "../../components/GlyphChart3dPreview";
 import {
+  cropGlyphDocsRows,
   fitGlyphDocsOutput,
   glyphDocsInkBounds,
   glyphDocsUsage,
@@ -35,7 +36,8 @@ const usage = glyphDocsUsage(input);
           client:visible
           mark={chart3d.mark}
           options={chart3d.options}
-          initialHtml={glyphChart3dFrameHtml(chart3d.result)}
+          crop={chart3d.crop}
+          initialHtml={cropGlyphDocsRows(glyphChart3dFrameHtml(chart3d.result), chart3d.crop)}
         />
       ) : (
         <div class={styles.crop} style={crop}>

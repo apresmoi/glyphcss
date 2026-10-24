@@ -5,7 +5,7 @@ description: Render 3D surfaces, scatter plots, parametric grids, bars, and line
 
 import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
 
-Import 3D constructors from `@glyphcss/charts/3d`. All five mark families can render headlessly with `renderGlyphChart3d(mark, options)`; the examples below are build-time monospace text, not images.
+`@glyphcss/charts/3d` builds a mark, and `renderGlyphChart3d(mark, options)` turns it into text. Drag any chart to turn it; `[ Code ]` shows the exact call.
 
 ```sh
 npm install @glyphcss/charts glyphcss
@@ -13,166 +13,55 @@ npm install @glyphcss/charts glyphcss
 
 ## Surface
 
-`glyphChartSurface({ z: number[][] }, channels?, options?)` takes a row-major grid. It also accepts long records with x/y/z field channels. Grid channels can supply x column positions and y row positions.
+<GlyphRender kind="chart-3d" source={{"type":"surface","args":[{"z":[[1,1.02,1.11,1.48,2.25,2.94,3.3,3.43,3.1,2.41,1.72,1.28],[1,1.02,1.11,1.48,2.25,2.94,3.3,3.43,3.1,2.41,1.72,1.28],[1,1.02,1.11,1.48,2.25,2.94,3.3,3.43,3.1,2.41,1.72,1.28],[1,1.02,1.11,1.48,2.25,2.94,3.3,3.43,3.1,2.41,1.72,1.28],[1,1.02,1.11,1.48,2.25,2.94,3.3,3.43,3.1,2.41,1.72,1.28],[1,1.01,1.05,1.21,1.56,1.93,2.21,2.33,2.16,1.77,1.4,1.16],[1,1.01,1.05,1.21,1.56,1.93,2.21,2.33,2.16,1.77,1.4,1.16]]},{"x":[0,2,4,6,8,10,12,14,16,18,20,22],"y":[1,2,3,4,5,6,7]},{"axes":{"x":{"title":"Hour","ticks":4},"y":{"title":"Day","ticks":4},"z":{"title":"k req","ticks":3}}}]}} options={{"target":"web","width":88,"height":34,"charset":"braille"}} />
 
-This illustrative request-load surface samples eight hours across seven days; heights are thousands of requests.
-
-```ts
-import { glyphChartSurface, renderGlyphChart3d } from "@glyphcss/charts/3d";
-const mark = glyphChartSurface(
-  {
-    z: [
-      [0.6, 0.5, 0.9, 1.6, 2.0, 1.7, 1.2, 0.8],
-      [0.7, 0.6, 1.1, 1.9, 2.4, 2.0, 1.4, 1.0],
-      [0.9, 0.8, 1.4, 2.4, 3.0, 2.6, 1.8, 1.2],
-      [1.1, 0.9, 1.6, 2.9, 3.6, 3.1, 2.2, 1.4],
-      [1.0, 0.8, 1.4, 2.6, 3.2, 2.7, 1.9, 1.3],
-      [0.8, 0.6, 1.2, 2.1, 2.6, 2.2, 1.6, 1.0],
-      [0.7, 0.6, 1.0, 1.8, 2.2, 1.9, 1.3, 0.9],
-    ],
-  },
-  { x: [0, 3, 6, 9, 12, 15, 18, 21], y: [1, 2, 3, 4, 5, 6, 7] },
-  {
-    axes: {
-      x: { title: "Hour", ticks: 3 },
-      y: { title: "Day", ticks: 3 },
-      z: { title: "k req", ticks: 3 },
-    },
-  },
-);
-const result = renderGlyphChart3d(mark, {
-  target: "web",
-  charset: "braille",
-  style: "wireframe",
-  color: "css",
-  width: 72,
-  height: 28,
-  camera: { rotX: 30, rotY: 145 },
-});
-```
-
-<GlyphRender kind="chart-3d" source={{"type": "surface", "args": [{"z": [[0.6, 0.5, 0.9, 1.6, 2.0, 1.7, 1.2, 0.8], [0.7, 0.6, 1.1, 1.9, 2.4, 2.0, 1.4, 1.0], [0.9, 0.8, 1.4, 2.4, 3.0, 2.6, 1.8, 1.2], [1.1, 0.9, 1.6, 2.9, 3.6, 3.1, 2.2, 1.4], [1.0, 0.8, 1.4, 2.6, 3.2, 2.7, 1.9, 1.3], [0.8, 0.6, 1.2, 2.1, 2.6, 2.2, 1.6, 1.0], [0.7, 0.6, 1.0, 1.8, 2.2, 1.9, 1.3, 0.9]]}, {"x": [0, 3, 6, 9, 12, 15, 18, 21], "y": [1, 2, 3, 4, 5, 6, 7]}, {"axes": {"x": {"title": "Hour", "ticks": 3}, "y": {"title": "Day", "ticks": 3}, "z": {"title": "k req", "ticks": 3}}}]}} options={{"target": "web", "width": 72, "height": 28, "charset": "braille", "style": "wireframe", "camera": {"rotX": 30, "rotY": 145}}} />
-
-The collapsed source for these 3D previews is the documentation adapter's `{ type, args }` descriptor: `args` are the arguments passed to the named constructor. It is not the public chart JSON format.
+`glyphChartSurface({ z }, channels?, options?)` takes a row-major grid; `x`/`y` channels place the columns and rows. Here: requests per hour across a week.
 
 ## Scatter
 
-`glyphChartScatter3d(records, channels?, options?)` defaults to x/y/z fields. Optional channels are categorical `series`, continuous `color` (mutually exclusive with series), and numeric `size`. `markerSize` controls the base object-space marker half-size.
+<GlyphRender kind="chart-3d" source={{"type":"scatter","args":[[{"x":-0.9,"y":1.1,"z":5.6,"group":"Search"},{"x":3.5,"y":2.7,"z":4.7,"group":"Search"},{"x":2.8,"y":0.7,"z":8,"group":"Search"},{"x":2.5,"y":3.2,"z":6.1,"group":"Search"},{"x":1.2,"y":3.2,"z":6.9,"group":"Search"},{"x":1.9,"y":2.3,"z":7.2,"group":"Search"},{"x":2,"y":2.2,"z":6.5,"group":"Search"},{"x":1.9,"y":2,"z":5.8,"group":"Search"},{"x":1.8,"y":0.9,"z":6.3,"group":"Search"},{"x":0.2,"y":1.7,"z":6.2,"group":"Search"},{"x":1.3,"y":2.8,"z":5.8,"group":"Search"},{"x":1.9,"y":2.1,"z":6.5,"group":"Search"},{"x":2,"y":1.4,"z":6.3,"group":"Search"},{"x":1.5,"y":1.3,"z":7.6,"group":"Search"},{"x":6.6,"y":3.6,"z":3,"group":"Checkout"},{"x":6.6,"y":1.1,"z":2.5,"group":"Checkout"},{"x":4.7,"y":3,"z":2.4,"group":"Checkout"},{"x":5.6,"y":2.8,"z":3.8,"group":"Checkout"},{"x":5.2,"y":3,"z":2.7,"group":"Checkout"},{"x":5.6,"y":2.4,"z":1.9,"group":"Checkout"},{"x":6.6,"y":3.1,"z":4.1,"group":"Checkout"},{"x":5.9,"y":3.8,"z":3.6,"group":"Checkout"},{"x":7,"y":3.8,"z":2.2,"group":"Checkout"},{"x":5.4,"y":3.4,"z":2.4,"group":"Checkout"},{"x":6,"y":2.6,"z":2.5,"group":"Checkout"},{"x":6.8,"y":2.1,"z":3.2,"group":"Checkout"},{"x":7.1,"y":2.6,"z":2.5,"group":"Checkout"},{"x":4.8,"y":2.5,"z":2,"group":"Checkout"},{"x":4.1,"y":6.4,"z":2.9,"group":"Profile"},{"x":5.2,"y":6.5,"z":3.3,"group":"Profile"},{"x":2.8,"y":7.3,"z":3.9,"group":"Profile"},{"x":3.7,"y":6.5,"z":3.1,"group":"Profile"},{"x":3.5,"y":6,"z":4.3,"group":"Profile"},{"x":2.8,"y":8.5,"z":4.1,"group":"Profile"},{"x":4.6,"y":6.2,"z":4.1,"group":"Profile"},{"x":3.6,"y":7.4,"z":4.4,"group":"Profile"},{"x":4.8,"y":8.3,"z":3.4,"group":"Profile"},{"x":4.4,"y":5.4,"z":6.3,"group":"Profile"},{"x":4,"y":6.6,"z":3.4,"group":"Profile"},{"x":5.1,"y":6.6,"z":3.8,"group":"Profile"},{"x":3.7,"y":6.1,"z":3,"group":"Profile"},{"x":3.9,"y":7.2,"z":6.5,"group":"Profile"}],{"series":"group"},{"markerSize":0.07,"axes":{"x":{"ticks":3},"y":{"ticks":3},"z":{"ticks":3}}}]}} options={{"target":"web","width":88,"height":34,"charset":"braille"}} />
 
-```ts
-import { glyphChartScatter3d } from "@glyphcss/charts/3d";
-const mark = glyphChartScatter3d(
-  [
-    { x: 1, y: 1, z: 1 },
-    { x: 2, y: 3, z: 2 },
-    { x: 3, y: 2, z: 4 },
-    { x: 4, y: 4, z: 3 },
-    { x: 5, y: 3, z: 5 },
-    { x: 6, y: 5, z: 4 },
-  ],
-  {},
-  { markerSize: 0.18, axes: { x: { ticks: 3 }, y: { ticks: 3 }, z: { ticks: 3 } } },
-);
-```
-
-<GlyphRender kind="chart-3d" source={{"type": "scatter", "args": [[{"x": 1, "y": 1, "z": 1}, {"x": 2, "y": 3, "z": 2}, {"x": 3, "y": 2, "z": 4}, {"x": 4, "y": 4, "z": 3}, {"x": 5, "y": 3, "z": 5}, {"x": 6, "y": 5, "z": 4}], {}, {"markerSize": 0.18, "axes": {"x": {"ticks": 3}, "y": {"ticks": 3}, "z": {"ticks": 3}}}]}} options={{"target": "web", "width": 68, "height": 26, "charset": "braille", "style": "solid"}} />
+`glyphChartScatter3d(records, channels?, options?)` reads x/y/z fields. Use `series` for groups, `color` for a continuous value, `size` for marker size.
 
 ## Parametric surfaces
 
-`glyphChartParametric3d({ x, y, z, value? }, options?)` takes equally shaped coordinate grids. The optional value grid drives color independently of z. `wrapU` joins the last column to the first; `wrapV` joins the last row to the first.
+<GlyphRender kind="chart-3d" source={{"type":"parametric","args":[{"x":[[1.42,1.38,1.28,1.11,0.89,0.62,0.32,0,-0.32,-0.62,-0.89,-1.11,-1.28,-1.38,-1.42,-1.38,-1.28,-1.11,-0.89,-0.62,-0.32,0,0.32,0.62,0.89,1.11,1.28,1.38],[1.38,1.34,1.24,1.08,0.86,0.6,0.31,0,-0.31,-0.6,-0.86,-1.08,-1.24,-1.34,-1.38,-1.34,-1.24,-1.08,-0.86,-0.6,-0.31,0,0.31,0.6,0.86,1.08,1.24,1.34],[1.26,1.23,1.14,0.99,0.79,0.55,0.28,0,-0.28,-0.55,-0.79,-0.99,-1.14,-1.23,-1.26,-1.23,-1.14,-0.99,-0.79,-0.55,-0.28,0,0.28,0.55,0.79,0.99,1.14,1.23],[1.09,1.07,0.99,0.85,0.68,0.47,0.24,0,-0.24,-0.47,-0.68,-0.85,-0.99,-1.07,-1.09,-1.07,-0.99,-0.85,-0.68,-0.47,-0.24,0,0.24,0.47,0.68,0.85,0.99,1.07],[0.91,0.88,0.82,0.71,0.57,0.39,0.2,0,-0.2,-0.39,-0.57,-0.71,-0.82,-0.88,-0.91,-0.88,-0.82,-0.71,-0.57,-0.39,-0.2,0,0.2,0.39,0.57,0.71,0.82,0.88],[0.74,0.72,0.67,0.58,0.46,0.32,0.16,0,-0.16,-0.32,-0.46,-0.58,-0.67,-0.72,-0.74,-0.72,-0.67,-0.58,-0.46,-0.32,-0.16,0,0.16,0.32,0.46,0.58,0.67,0.72],[0.62,0.61,0.56,0.49,0.39,0.27,0.14,0,-0.14,-0.27,-0.39,-0.49,-0.56,-0.61,-0.62,-0.61,-0.56,-0.49,-0.39,-0.27,-0.14,0,0.14,0.27,0.39,0.49,0.56,0.61],[0.58,0.57,0.52,0.45,0.36,0.25,0.13,0,-0.13,-0.25,-0.36,-0.45,-0.52,-0.57,-0.58,-0.57,-0.52,-0.45,-0.36,-0.25,-0.13,0,0.13,0.25,0.36,0.45,0.52,0.57],[0.62,0.61,0.56,0.49,0.39,0.27,0.14,0,-0.14,-0.27,-0.39,-0.49,-0.56,-0.61,-0.62,-0.61,-0.56,-0.49,-0.39,-0.27,-0.14,0,0.14,0.27,0.39,0.49,0.56,0.61],[0.74,0.72,0.67,0.58,0.46,0.32,0.16,0,-0.16,-0.32,-0.46,-0.58,-0.67,-0.72,-0.74,-0.72,-0.67,-0.58,-0.46,-0.32,-0.16,0,0.16,0.32,0.46,0.58,0.67,0.72],[0.91,0.88,0.82,0.71,0.57,0.39,0.2,0,-0.2,-0.39,-0.57,-0.71,-0.82,-0.88,-0.91,-0.88,-0.82,-0.71,-0.57,-0.39,-0.2,0,0.2,0.39,0.57,0.71,0.82,0.88],[1.09,1.07,0.99,0.85,0.68,0.47,0.24,0,-0.24,-0.47,-0.68,-0.85,-0.99,-1.07,-1.09,-1.07,-0.99,-0.85,-0.68,-0.47,-0.24,0,0.24,0.47,0.68,0.85,0.99,1.07],[1.26,1.23,1.14,0.99,0.79,0.55,0.28,0,-0.28,-0.55,-0.79,-0.99,-1.14,-1.23,-1.26,-1.23,-1.14,-0.99,-0.79,-0.55,-0.28,0,0.28,0.55,0.79,0.99,1.14,1.23],[1.38,1.34,1.24,1.08,0.86,0.6,0.31,0,-0.31,-0.6,-0.86,-1.08,-1.24,-1.34,-1.38,-1.34,-1.24,-1.08,-0.86,-0.6,-0.31,0,0.31,0.6,0.86,1.08,1.24,1.34]],"y":[[0,0.32,0.62,0.89,1.11,1.28,1.38,1.42,1.38,1.28,1.11,0.89,0.62,0.32,0,-0.32,-0.62,-0.89,-1.11,-1.28,-1.38,-1.42,-1.38,-1.28,-1.11,-0.89,-0.62,-0.32],[0,0.31,0.6,0.86,1.08,1.24,1.34,1.38,1.34,1.24,1.08,0.86,0.6,0.31,0,-0.31,-0.6,-0.86,-1.08,-1.24,-1.34,-1.38,-1.34,-1.24,-1.08,-0.86,-0.6,-0.31],[0,0.28,0.55,0.79,0.99,1.14,1.23,1.26,1.23,1.14,0.99,0.79,0.55,0.28,0,-0.28,-0.55,-0.79,-0.99,-1.14,-1.23,-1.26,-1.23,-1.14,-0.99,-0.79,-0.55,-0.28],[0,0.24,0.47,0.68,0.85,0.99,1.07,1.09,1.07,0.99,0.85,0.68,0.47,0.24,0,-0.24,-0.47,-0.68,-0.85,-0.99,-1.07,-1.09,-1.07,-0.99,-0.85,-0.68,-0.47,-0.24],[0,0.2,0.39,0.57,0.71,0.82,0.88,0.91,0.88,0.82,0.71,0.57,0.39,0.2,0,-0.2,-0.39,-0.57,-0.71,-0.82,-0.88,-0.91,-0.88,-0.82,-0.71,-0.57,-0.39,-0.2],[0,0.16,0.32,0.46,0.58,0.67,0.72,0.74,0.72,0.67,0.58,0.46,0.32,0.16,0,-0.16,-0.32,-0.46,-0.58,-0.67,-0.72,-0.74,-0.72,-0.67,-0.58,-0.46,-0.32,-0.16],[0,0.14,0.27,0.39,0.49,0.56,0.61,0.62,0.61,0.56,0.49,0.39,0.27,0.14,0,-0.14,-0.27,-0.39,-0.49,-0.56,-0.61,-0.62,-0.61,-0.56,-0.49,-0.39,-0.27,-0.14],[0,0.13,0.25,0.36,0.45,0.52,0.57,0.58,0.57,0.52,0.45,0.36,0.25,0.13,0,-0.13,-0.25,-0.36,-0.45,-0.52,-0.57,-0.58,-0.57,-0.52,-0.45,-0.36,-0.25,-0.13],[0,0.14,0.27,0.39,0.49,0.56,0.61,0.62,0.61,0.56,0.49,0.39,0.27,0.14,0,-0.14,-0.27,-0.39,-0.49,-0.56,-0.61,-0.62,-0.61,-0.56,-0.49,-0.39,-0.27,-0.14],[0,0.16,0.32,0.46,0.58,0.67,0.72,0.74,0.72,0.67,0.58,0.46,0.32,0.16,0,-0.16,-0.32,-0.46,-0.58,-0.67,-0.72,-0.74,-0.72,-0.67,-0.58,-0.46,-0.32,-0.16],[0,0.2,0.39,0.57,0.71,0.82,0.88,0.91,0.88,0.82,0.71,0.57,0.39,0.2,0,-0.2,-0.39,-0.57,-0.71,-0.82,-0.88,-0.91,-0.88,-0.82,-0.71,-0.57,-0.39,-0.2],[0,0.24,0.47,0.68,0.85,0.99,1.07,1.09,1.07,0.99,0.85,0.68,0.47,0.24,0,-0.24,-0.47,-0.68,-0.85,-0.99,-1.07,-1.09,-1.07,-0.99,-0.85,-0.68,-0.47,-0.24],[0,0.28,0.55,0.79,0.99,1.14,1.23,1.26,1.23,1.14,0.99,0.79,0.55,0.28,0,-0.28,-0.55,-0.79,-0.99,-1.14,-1.23,-1.26,-1.23,-1.14,-0.99,-0.79,-0.55,-0.28],[0,0.31,0.6,0.86,1.08,1.24,1.34,1.38,1.34,1.24,1.08,0.86,0.6,0.31,0,-0.31,-0.6,-0.86,-1.08,-1.24,-1.34,-1.38,-1.34,-1.24,-1.08,-0.86,-0.6,-0.31]],"z":[[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18],[0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33],[0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41],[0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41,0.41],[0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33,0.33],[0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18,0.18],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18],[-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33],[-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41],[-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41,-0.41],[-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33,-0.33],[-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18,-0.18]]},{"wrapU":true,"wrapV":true}]}} options={{"target":"web","width":88,"height":34,"charset":"braille"}} />
 
-```ts
-import { glyphChartParametric3d } from "@glyphcss/charts/3d";
-const mark = glyphChartParametric3d({
-  x: [
-    [-1, 0, 1],
-    [-1, 0, 1],
-    [-1, 0, 1],
-  ],
-  y: [
-    [-1, -1, -1],
-    [0, 0, 0],
-    [1, 1, 1],
-  ],
-  z: [
-    [0, 1, 0],
-    [1, 0, 1],
-    [0, 1, 0],
-  ],
-});
-```
-
-<GlyphRender kind="chart-3d" source={{"type": "parametric", "args": [{"x": [[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]], "y": [[-1, -1, -1], [0, 0, 0], [1, 1, 1]], "z": [[0, 1, 0], [1, 0, 1], [0, 1, 0]]}]}} options={{"target": "web", "width": 60, "height": 24, "charset": "braille"}} />
-
-For curved examples, `glyphChart3dSphereGrid(radius?, rows?, cols?)` and `glyphChart3dTorusGrid(majorRadius?, minorRadius?, rows?, cols?)` generate coordinate grids. Enable the appropriate wrap options for the intended seam connections.
+`glyphChartParametric3d({ x, y, z, value? }, options?)` takes equal-shaped coordinate grids. `wrapU`/`wrapV` close the seams, as in this torus. `glyphChart3dSphereGrid` and `glyphChart3dTorusGrid` generate grids for you.
 
 ## Bars
 
-`glyphChartBars3d(records, channels?, options?)` uses numeric x/y positions and z heights. Optional `xLabel`/`yLabel` channels provide labels. `barWidth` is a fraction of nearest-neighbor spacing (default 0.7).
+<GlyphRender kind="chart-3d" source={{"type":"bars","args":[[{"x":0,"y":0,"z":4,"quarter":"Q1","region":"EU"},{"x":1,"y":0,"z":5.3,"quarter":"Q2","region":"EU"},{"x":2,"y":0,"z":6.1,"quarter":"Q3","region":"EU"},{"x":3,"y":0,"z":6.5,"quarter":"Q4","region":"EU"},{"x":0,"y":1,"z":5.7,"quarter":"Q1","region":"US"},{"x":1,"y":1,"z":6.5,"quarter":"Q2","region":"US"},{"x":2,"y":1,"z":6.9,"quarter":"Q3","region":"US"},{"x":3,"y":1,"z":7.1,"quarter":"Q4","region":"US"},{"x":0,"y":2,"z":3.9,"quarter":"Q1","region":"APAC"},{"x":1,"y":2,"z":4.3,"quarter":"Q2","region":"APAC"},{"x":2,"y":2,"z":4.5,"quarter":"Q3","region":"APAC"},{"x":3,"y":2,"z":5.2,"quarter":"Q4","region":"APAC"},{"x":0,"y":3,"z":2.9,"quarter":"Q1","region":"LATAM"},{"x":1,"y":3,"z":3.1,"quarter":"Q2","region":"LATAM"},{"x":2,"y":3,"z":3.8,"quarter":"Q3","region":"LATAM"},{"x":3,"y":3,"z":5,"quarter":"Q4","region":"LATAM"}],{"xLabel":"quarter","yLabel":"region"},{"axes":{"x":{"title":"Quarter"},"y":{"title":"Region"},"z":{"title":"Revenue","ticks":3}}}]}} options={{"target":"web","width":88,"height":34,"charset":"braille"}} />
 
-```ts
-import { glyphChartBars3d } from "@glyphcss/charts/3d";
-const mark = glyphChartBars3d(
-  [
-    { x: 0, y: 0, z: 2 },
-    { x: 1, y: 0, z: 4 },
-    { x: 2, y: 0, z: 3 },
-    { x: 0, y: 1, z: 3 },
-    { x: 1, y: 1, z: 5 },
-    { x: 2, y: 1, z: 4 },
-  ],
-  {},
-  { axes: { x: { ticks: 2 }, y: { ticks: 2 }, z: { ticks: 2 } } },
-);
-```
-
-<GlyphRender kind="chart-3d" source={{"type": "bars", "args": [[{"x": 0, "y": 0, "z": 2}, {"x": 1, "y": 0, "z": 4}, {"x": 2, "y": 0, "z": 3}, {"x": 0, "y": 1, "z": 3}, {"x": 1, "y": 1, "z": 5}, {"x": 2, "y": 1, "z": 4}], {}, {"axes": {"x": {"ticks": 2}, "y": {"ticks": 2}, "z": {"ticks": 2}}}]}} options={{"target": "web", "width": 72, "height": 28, "charset": "braille", "style": "solid"}} />
+`glyphChartBars3d(records, channels?, options?)` places bars at numeric x/y with z heights; `xLabel`/`yLabel` name them. `barWidth` defaults to 0.7.
 
 ## Line
 
-`glyphChartLine3d(points, options?)` accepts `[x, y, z]` triples or named series `{ name?, color?, points }`. Each series needs at least two points. `glyphChart3dLorenzAttractor(steps?, dt?)` generates a longer trajectory.
+<GlyphRender kind="chart-3d" source={{"type":"line","args":[[{"name":"Strand A","points":[[1,0,0],[0.99,0.17,0.06],[0.94,0.33,0.11],[0.88,0.48,0.17],[0.79,0.62,0.22],[0.67,0.74,0.28],[0.54,0.84,0.33],[0.39,0.92,0.39],[0.24,0.97,0.44],[0.07,1,0.5],[-0.1,1,0.56],[-0.26,0.97,0.61],[-0.42,0.91,0.67],[-0.56,0.83,0.72],[-0.69,0.72,0.78],[-0.8,0.6,0.83],[-0.89,0.46,0.89],[-0.95,0.3,0.94],[-0.99,0.14,1],[-1,-0.03,1.06],[-0.98,-0.19,1.11],[-0.94,-0.35,1.17],[-0.87,-0.5,1.22],[-0.77,-0.64,1.28],[-0.65,-0.76,1.33],[-0.52,-0.85,1.39],[-0.37,-0.93,1.44],[-0.21,-0.98,1.5],[-0.05,-1,1.56],[0.12,-0.99,1.61],[0.28,-0.96,1.67],[0.44,-0.9,1.72],[0.58,-0.81,1.78],[0.71,-0.71,1.83],[0.82,-0.58,1.89],[0.9,-0.43,1.94],[0.96,-0.28,2],[0.99,-0.12,2.06],[1,0.05,2.11],[0.98,0.22,2.17],[0.93,0.37,2.22],[0.85,0.52,2.28],[0.75,0.66,2.33],[0.63,0.77,2.39],[0.5,0.87,2.44],[0.35,0.94,2.5],[0.19,0.98,2.56],[0.02,1,2.61],[-0.15,0.99,2.67],[-0.31,0.95,2.72],[-0.46,0.89,2.78],[-0.6,0.8,2.83],[-0.73,0.69,2.89],[-0.83,0.56,2.94],[-0.91,0.41,3],[-0.97,0.26,3.06],[-1,0.09,3.11],[-1,-0.08,3.17],[-0.97,-0.24,3.22],[-0.92,-0.4,3.28]]},{"name":"Strand B","points":[[-1,0,0],[-0.99,-0.17,0.06],[-0.94,-0.33,0.11],[-0.88,-0.48,0.17],[-0.79,-0.62,0.22],[-0.67,-0.74,0.28],[-0.54,-0.84,0.33],[-0.39,-0.92,0.39],[-0.24,-0.97,0.44],[-0.07,-1,0.5],[0.1,-1,0.56],[0.26,-0.97,0.61],[0.42,-0.91,0.67],[0.56,-0.83,0.72],[0.69,-0.72,0.78],[0.8,-0.6,0.83],[0.89,-0.46,0.89],[0.95,-0.3,0.94],[0.99,-0.14,1],[1,0.03,1.06],[0.98,0.19,1.11],[0.94,0.35,1.17],[0.87,0.5,1.22],[0.77,0.64,1.28],[0.65,0.76,1.33],[0.52,0.85,1.39],[0.37,0.93,1.44],[0.21,0.98,1.5],[0.05,1,1.56],[-0.12,0.99,1.61],[-0.28,0.96,1.67],[-0.44,0.9,1.72],[-0.58,0.81,1.78],[-0.71,0.71,1.83],[-0.82,0.58,1.89],[-0.9,0.43,1.94],[-0.96,0.28,2],[-0.99,0.12,2.06],[-1,-0.05,2.11],[-0.98,-0.22,2.17],[-0.93,-0.37,2.22],[-0.85,-0.52,2.28],[-0.75,-0.66,2.33],[-0.63,-0.77,2.39],[-0.5,-0.87,2.44],[-0.35,-0.94,2.5],[-0.19,-0.98,2.56],[-0.02,-1,2.61],[0.15,-0.99,2.67],[0.31,-0.95,2.72],[0.46,-0.89,2.78],[0.6,-0.8,2.83],[0.73,-0.69,2.89],[0.83,-0.56,2.94],[0.91,-0.41,3],[0.97,-0.26,3.06],[1,-0.09,3.11],[1,0.08,3.17],[0.97,0.24,3.22],[0.92,0.4,3.28]]}]]}} options={{"target":"web","width":88,"height":34,"charset":"braille"}} />
 
-```ts
-import { glyphChartLine3d } from "@glyphcss/charts/3d";
-const mark = glyphChartLine3d([
-  [0, 0, 0],
-  [1, 0, 1],
-  [1, 1, 2],
-  [0, 1, 3],
-  [-1, 1, 4],
-]);
-```
+`glyphChartLine3d(points, options?)` takes `[x, y, z]` triples or named series `{ name, color, points }`. `glyphChart3dLorenzAttractor()` generates a long trajectory.
 
-<GlyphRender kind="chart-3d" source={{"type": "line", "args": [[[0, 0, 0], [1, 0, 1], [1, 1, 2], [0, 1, 3], [-1, 1, 4]]]}} options={{"target": "web", "width": 60, "height": 24, "charset": "braille"}} />
+## Render options
 
-## Static rendering, color, and camera
+| Option | Values |
+|---|---|
+| `charset` | `braille` (draws wireframe), `blocks`, `box`, `ascii` (draw solid) |
+| `style` | `solid`, `wireframe`, `ink` |
+| `camera` | `{ rotX, rotY }` in degrees, optional `zoom`, or a `mat` matrix; default `{ rotX: 69, rotY: 318 }` |
+| `colorscale` (mark option) | `viridis`, `cividis`, `magma`, `greys`, or hex anchors |
 
-`renderGlyphChart3d` returns `text`, optional CSS `html`, `object`, `resolved`, and `report`. It uses the same headless `compileScene` pipeline as scene objects. Braille defaults to wireframe; other charsets default to solid. Explicit styles are `solid`, `wireframe`, and `ink`.
+The result carries `text`, CSS `html`, `resolved.camera` (pass it back to reproduce a frame) and `report`.
 
-Mark options include `aspect`, `axes` (x/y/z), and `guides`. Surface, scatter, parametric, and bars support named colorscales `viridis`, `cividis`, `magma`, `greys`, or custom hex anchors, plus band counts. Line series use their own colors.
-
-Camera render options include `rotX`, `rotY` in degrees, optional `zoom`, or a `mat` rotation matrix. Do not combine Euler rotations with a matrix. Omit zoom for auto-fit. Pass `result.resolved.camera` back as `camera` to reproduce a static frame.
-
-## Scene objects
+## Interactive scene
 
 ```ts
 import { createGlyphScene, createGlyphOrthographicCamera } from "glyphcss";
 import { glyphChartSurface, glyphChartObject } from "@glyphcss/charts/3d";
 
-const host = document.querySelector<HTMLElement>("#chart")!;
-const camera = createGlyphOrthographicCamera({ rotX: 30, rotY: -35, zoom: 100 });
+const camera = createGlyphOrthographicCamera({ rotX: 69, rotY: 318, zoom: 100 });
 const scene = createGlyphScene(host, { camera, cols: 80, rows: 30, mode: "solid" });
-const object = glyphChartObject(
-  glyphChartSurface({
-    z: [
-      [0, 1],
-      [1, 2],
-    ],
-  }),
-);
-scene.addObject(object);
+scene.addObject(glyphChartObject(glyphChartSurface({ z: [[0, 1], [1, 2]] })));
 scene.rerender();
-// Call scene.destroy() when this view is removed.
 ```
 
-The scene renders DOM text in a `<pre>`. Mount and dispose it with your framework lifecycle, and use [controls](/components/glyph-controls/) for an interactive camera. Static charts need no mounted scene. The [chart CLI](/charts/cli/) supports surface JSON with `--3d`; the other 3D constructors use JavaScript.
+`glyphChartObject` mounts any mark in a live scene; add [controls](/components/glyph-controls/) to orbit it. The [chart CLI](/charts/cli/) renders surfaces with `--3d`.

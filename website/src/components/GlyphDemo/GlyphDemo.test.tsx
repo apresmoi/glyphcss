@@ -72,8 +72,17 @@ import sliderStyles from '../SliderRow/SliderRow.module.css';
 import selectStyles from '../BracketSelect/BracketSelect.module.css';
 import panelStyles from '../CodePanel/CodePanel.module.css';
 
+const openCode = (host: HTMLElement) => {
+  // Code starts collapsed under the feature; the reader opens it on request.
+  expect(host.querySelector('aside')).toBeNull();
+  const toggle = [...host.querySelectorAll('button')].find(b => b.textContent === 'Code')!;
+  expect(toggle.getAttribute('aria-expanded')).toBe('false');
+  act(() => toggle.click());
+};
+
 it('uses shared workbench controls and code for the apple, with no inapplicable geometry or period control', async () => {
   const { host } = await mount({ id: 'apple', mesh: '/gallery/glb/apple.glb', defaults: '{"renderMode":"solid"}' });
+  openCode(host);
   expect(host.querySelector('fieldset')!.disabled).toBe(false);
   expect(host.querySelector(`[class~="${sectionStyles.root}"]`)).not.toBeNull();
   expect(host.querySelector(`[class~="${sliderStyles.track}"]`)).not.toBeNull();
@@ -93,6 +102,7 @@ it('uses shared workbench controls and code for the apple, with no inapplicable 
 
 it('updates built-in geometry, numeric settings, snippets, copy, and close/reopen through shared controls', async () => {
   const { host } = await mount({ id: 'geometry' });
+  openCode(host);
   const geometry = host.querySelector<HTMLSelectElement>('[aria-label="Geometry"]')!;
   act(() => { geometry.value = 'cube'; geometry.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(host.querySelector('code')!.textContent).toContain('resolveGeometry("cube", { size: 100 })');
@@ -136,6 +146,7 @@ it('preserves the embedded hero prop path without controls, code or a tuning obs
 
 it('honors explicit controls and polygon-source precedence over mesh and geometry', async () => {
   const { host } = await mount({ id: 'polygons', polygonsUrl: '/earth.json', mesh: '/apple.glb', controls: '["geometry", "density", "lineHeight"]' });
+  openCode(host);
   expect(host.querySelector('[aria-label="Geometry"], [aria-label="Zoom"], [aria-label="Render mode"]')).toBeNull();
   expect(host.querySelector('[aria-label="Density"]')).not.toBeNull();
   expect(host.querySelector('[aria-label="Line height"]')).not.toBeNull();

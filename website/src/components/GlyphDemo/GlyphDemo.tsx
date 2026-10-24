@@ -64,7 +64,8 @@ export function GlyphDemo(props: GlyphDemoProps) {
   const ref = useRef<HTMLDivElement>(null);
   const updateTuning = useRef<((partial: Partial<Tunables>) => void) | undefined>(undefined);
   const [ready, setReady] = useState(false);
-  const [codeOpen, setCodeOpen] = useState(true);
+  // The feature leads; code opens on request beneath it.
+  const [codeOpen, setCodeOpen] = useState(false);
   const [tunables, setTunables] = useState<Tunables>(() => {
     let defaults: Partial<Tunables> = {};
     try {

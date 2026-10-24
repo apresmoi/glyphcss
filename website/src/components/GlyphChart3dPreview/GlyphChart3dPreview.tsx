@@ -4,13 +4,13 @@ import {
   type GlyphChart3dMark,
   type GlyphChart3dRenderOptions,
 } from "@glyphcss/charts/3d";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import styles from "./GlyphChart3dPreview.module.css";
 
 // Degrees of orbit per CSS pixel dragged.
 const DRAG_DEGREES = 0.5;
 
-/** Re-renders the docs example's static frame at the dragged camera angle.
+/** Re-renders the docs example's static frame at the dragged turntable angle.
  *  Re-running the same `renderGlyphChart3d` call as the build keeps size,
  *  axis labels and colour key identical to the no-JS frame at every angle;
  *  a live scene would project with measured cells and drop the key. */
@@ -22,10 +22,13 @@ export function glyphChart3dFrameHtml(result: { html?: string; text: string }) {
 export function GlyphChart3dPreview({
   mark,
   options,
+  crop,
   initialHtml,
 }: {
   mark: GlyphChart3dMark;
   options: GlyphChart3dRenderOptions;
+  /** Ink bounds over a full turn: rows are sliced here, columns cropped in CSS. */
+  crop: { top: number; bottom: number; indent: number; cols: number };
   initialHtml: string;
 }) {
   const [html, setHtml] = useState(initialHtml);
@@ -39,7 +42,8 @@ export function GlyphChart3dPreview({
     frame.current = 0;
     // The build resolves one zoom that fits every angle; keep it so the size holds.
     const camera = { ...options.camera, rotX: angle.current.rotX, rotY: angle.current.rotY };
-    setHtml(glyphChart3dFrameHtml(renderGlyphChart3d(mark, { ...options, camera })));
+    const next = glyphChart3dFrameHtml(renderGlyphChart3d(mark, { ...options, camera }));
+    setHtml(next.split("\n").slice(crop.top, crop.bottom).join("\n"));
   }
   function onPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -48,10 +52,8 @@ export function GlyphChart3dPreview({
   function onPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
     const from = drag.current;
     if (!from) return;
-    angle.current = {
-      rotX: Math.max(0, Math.min(90, from.rotX + (event.clientY - from.y) * DRAG_DEGREES)),
-      rotY: from.rotY + (event.clientX - from.x) * DRAG_DEGREES,
-    };
+    // Turntable: the tilt stays where the chart was authored.
+    angle.current = { rotX: from.rotX, rotY: from.rotY + (event.clientX - from.x) * DRAG_DEGREES };
     if (!frame.current) frame.current = requestAnimationFrame(paint);
   }
   function onPointerUp() {
@@ -68,7 +70,9 @@ export function GlyphChart3dPreview({
       role="img"
       aria-label="3D chart; drag to rotate"
     >
-      <pre className="glyph-docs-output" dangerouslySetInnerHTML={{ __html: html }} />
+      <div className={styles.crop} style={{ "--ink-cols": crop.cols, "--ink-indent": crop.indent } as CSSProperties}>
+        <pre className="glyph-docs-output" dangerouslySetInnerHTML={{ __html: html }} />
+      </div>
       <p className={styles.hint}>drag to rotate</p>
     </div>
   );

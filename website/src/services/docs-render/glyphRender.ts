@@ -47,20 +47,44 @@ export function resolveGlyphDocsChart3d(input: Extract<GlyphDocsRenderInput, { k
   const mark = buildGlyphDocsChart3d(input.source);
   const base: GlyphChart3dRenderOptions = { target: "chat", color: "css", ...input.options };
   const { rotX, rotY } = { ...GLYPH_CHART_3D_DEFAULT_CAMERA, ...base.camera };
-  // Auto-fit picks a zoom per angle, so a dragged chart would grow and shrink.
-  // One zoom that fits every reachable angle keeps its size fixed while rotating.
+  // Docs charts turn like a turntable at a fixed tilt. Auto-fit picks a zoom per
+  // angle, so one zoom that fits a full turn keeps the size fixed while dragging.
+  const turn = Array.from(
+    { length: GLYPH_DOCS_TURN_STEPS },
+    (_, step) => (rotY + (step * 360) / GLYPH_DOCS_TURN_STEPS) % 360,
+  );
   const zoom =
     base.camera?.zoom ??
+    // Fit on plain text so CSS colour never changes the frame's geometry.
     Math.min(
-      ...[0, 30, 60, 90].flatMap((x) =>
-        Array.from(
-          { length: 24 },
-          (_, step) => renderGlyphChart3d(mark, { ...base, camera: { rotX: x, rotY: step * 15 } }).resolved.camera.zoom,
-        ),
+      ...turn.map(
+        (y) => renderGlyphChart3d(mark, { ...base, color: "none", camera: { rotX, rotY: y } }).resolved.camera.zoom,
       ),
     );
   const options: GlyphChart3dRenderOptions = { ...base, camera: { ...base.camera, rotX, rotY, zoom } };
-  return { mark, options, result: renderGlyphChart3d(mark, options) };
+  // The grid pads to its target size; crop to the union of ink over the turn so
+  // the frame has no empty margin yet never changes footprint mid-drag.
+  const frames = turn.map(
+    (y) => renderGlyphChart3d(mark, { ...options, color: "none", camera: { ...options.camera, rotY: y } }).text,
+  );
+  const blank = /^[ \u2800]*$/;
+  const rows = frames.flatMap((text) => text.split("\n").flatMap((line, row) => (blank.test(line) ? [] : [row])));
+  const ink = frames.map((text) => glyphDocsInkBounds(text));
+  const indent = Math.min(...ink.map((bounds) => bounds.indent));
+  const crop = {
+    top: Math.min(...rows),
+    bottom: Math.max(...rows) + 1,
+    indent,
+    cols: Math.max(...ink.map((bounds) => bounds.indent + bounds.cols)) - indent,
+  };
+  return { mark, options, crop, result: renderGlyphChart3d(mark, options) };
+}
+
+const GLYPH_DOCS_TURN_STEPS = 48;
+
+/** Rows `top..bottom` of a frame; columns are cropped in CSS (`--ink-cols`/`--ink-indent`). */
+export function cropGlyphDocsRows(frame: string, crop: { top: number; bottom: number }) {
+  return frame.split("\n").slice(crop.top, crop.bottom).join("\n");
 }
 
 export type GlyphDocsRenderInput =
