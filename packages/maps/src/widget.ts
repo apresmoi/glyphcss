@@ -11556,7 +11556,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     didDrag = false;
     tapZoomOnlyPointer = false;
-    if (compositorPan && panMotion) { compositorSettle = true; markMotionDirty(); }
+    // A fling keeps sliding the same overscanned text; the glide settles it
+    // once when it stops. Settling here too rendered the exact view for one
+    // frame and then re-entered the overscan for the glide: a visible flicker.
+    if (compositorPan && panMotion && !gliding) { compositorSettle = true; markMotionDirty(); }
     scheduleTileUpdate();
   }
 

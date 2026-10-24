@@ -89,18 +89,20 @@ it.each([false, true])("settles byte-for-byte like normal rendering (snapPan=%s)
   expect(reference.scene.output.innerHTML).toBe(final);
 });
 
-it("uses the same cache through glide, settles on release and at glide rest", async () => {
+it("slides a fling's glide on the same cache and settles exactly once, at glide rest", async () => {
   const m = mount(); await ready(m);
   vi.spyOn(performance, "now").mockImplementation(() => time);
   pointer(m, "pointerdown", 200); time += 16;
   pointer(m, "pointermove", 208); frame();
   time += 16; pointer(m, "pointermove", 216); frame();
   renders = 0; pointer(m, "pointerup", 216); frame();
-  expect(element(m).style.transform).toBe("");
-  expect(renders).toBe(1);
-  frame(); const cached = renders;
-  frame(); expect(renders).toBe(cached);
-  for (let i = 0; i < 200 && queue.size; i++) frame();
+  // Settling on release and re-entering the overscan for the glide flickered.
+  expect(element(m).style.transform).not.toBe("");
+  expect(renders).toBe(0);
+  const settled: boolean[] = [];
+  for (let i = 0; i < 200 && queue.size; i++) { frame(); settled.push(element(m).style.transform === ""); }
+  expect(settled.indexOf(true)).toBeGreaterThan(-1);
+  expect(settled.slice(settled.indexOf(true)).every(Boolean)).toBe(true);
   expect(queue.size).toBe(0);
   await m.idle();
   expect(element(m).style.transform).toBe("");
