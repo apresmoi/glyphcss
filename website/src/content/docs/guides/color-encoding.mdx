@@ -5,7 +5,7 @@ description: Compare color spans with a COLR/CPAL font atlas, choose palette slo
 
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo hotspot={false} client:visible id="color-encoding-demo" mesh="/gallery/glb/apple.glb" controls='["colorEncoding"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"atlas"}' />
+<GlyphDemo hotspot={false} client:visible id="color-encoding-demo" mesh="/gallery/glb/Taxi.glb" controls='["colorEncoding"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"atlas"}' />
 
 Choose Spans or Atlas on the same mesh. `colorEncoding: "atlas"` stores glyph/color pairs as Private Use Area (PUA) code points in a COLR/CPAL color font: one text node per output layer, without color spans.
 

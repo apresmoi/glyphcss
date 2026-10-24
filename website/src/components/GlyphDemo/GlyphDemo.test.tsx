@@ -189,3 +189,42 @@ it('forwards the hotspot opt-in and includes it in the code panel', async () => 
   openCode(host);
   expect(host.querySelector('code')!.textContent).toContain('scene.addHotspot');
 });
+
+it('switches models and stock effects from pickers on the one mounted runtime', async () => {
+  const setMeshUrl = vi.fn(async () => {});
+  const configureEffect = vi.fn();
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  roots.push(root);
+  runtime.mount.mockImplementation((element, observer) => {
+    Object.assign(element, { glyphcssDemo: { setMeshUrl, configureEffect } });
+    observer?.onReady(() => {});
+    observer?.onChange({ ...DEFAULT_TUNABLES });
+    return runtime.dispose;
+  });
+  const meshes = [
+    { label: 'GLB · Duck', url: '/gallery/glb/Duck.glb' },
+    { label: 'OBJ · Chicken', url: '/gallery/obj/chicken.obj', mtl: '/gallery/obj/chicken.mtl' },
+  ];
+  await act(async () => root.render(
+    <GlyphDemo id="pickers" meshes={meshes} effect="matrixRain" effectParams={{ colorMode: 'monochrome' }} effects={['matrixRain', 'glitch']} controls="[]" />,
+  ));
+  await vi.waitFor(() => expect(configureEffect).toHaveBeenCalledOnce(), { timeout: 5000 });
+  const demo = host.querySelector<HTMLElement>('#pickers')!;
+  expect(demo.dataset.mesh).toBe('/gallery/glb/Duck.glb');
+  expect(configureEffect.mock.calls[0]![0].params).toEqual({ colorMode: 'monochrome' });
+  const model = host.querySelector<HTMLSelectElement>('[aria-label="Model"]')!;
+  act(() => { model.value = '/gallery/obj/chicken.obj'; model.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(setMeshUrl).toHaveBeenCalledWith('/gallery/obj/chicken.obj', '/gallery/obj/chicken.mtl');
+  expect(model.value).toBe('/gallery/obj/chicken.obj');
+  const effect = host.querySelector<HTMLSelectElement>('[aria-label="Effect"]')!;
+  act(() => { effect.value = 'glitch'; effect.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(configureEffect).toHaveBeenCalledTimes(2);
+  // The authored params belong to the starting effect; a switched-to effect uses its defaults.
+  expect(configureEffect.mock.calls[1]![0].params).toEqual({});
+  expect(effect.value).toBe('glitch');
+  expect(runtime.mount).toHaveBeenCalledOnce();
+  act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Code')!.click(); });
+  expect(host.querySelector('code')!.textContent).toContain('/gallery/obj/chicken.obj');
+});

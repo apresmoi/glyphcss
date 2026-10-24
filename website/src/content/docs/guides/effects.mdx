@@ -6,7 +6,7 @@ description: Apply reusable Matrix rain, flowing text, scan, wipe, glitch, disso
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo client:visible id="effects-rain" geometry="cube" defaults='{"renderMode":"solid"}' effect="matrixRain" effectParams={{"space":"auto","colorMode":"monochrome"}} controls='["geometry","rotX"]' autoRotate noCode />
+<GlyphDemo client:visible id="effects-rain" geometry="cube" defaults='{"renderMode":"solid"}' effect="matrixRain" effectParams={{"space":"auto","colorMode":"monochrome"}} effects={["matrixRain", "scan", "glitch", "scramble", "ripple", "flowText"]} controls='[]' autoRotate noCode />
 
 Matrix rain replaces the cube's surface with animated text. Drag to orbit. Install `@glyphcss/effects` alongside `glyphcss` or your framework binding; effects change appearance without changing the mesh.
 
@@ -188,7 +188,7 @@ Rain's `colorMode: "monochrome"` uses `color` and a bright `headColor`; `"origin
 
 ## Field synth
 
-<GlyphDemo client:visible id="effects-field" geometry="cube" defaults='{"renderMode":"solid"}' effect="fieldSynth" effectParams={{"field1":"radial","wave1":"sin","freq1":4,"speed1":0.6,"amp1":1,"field2":"angular","wave2":"saw","freq2":6,"speed2":0.3,"amp2":1,"combine":"multiply","color":"#ffcf5a","colorB":"#ff4fa3","gradient":0.6}} controls='["geometry","rotX"]' autoRotate noCode />
+<GlyphDemo client:visible id="effects-field" geometry="icosahedron" defaults='{"renderMode":"solid"}' effect="fieldSynth" effectParams={{"field1":"radial","wave1":"sin","freq1":4,"speed1":0.6,"amp1":1,"field2":"angular","wave2":"saw","freq2":6,"speed2":0.3,"amp2":1,"combine":"multiply","color":"#ffcf5a","colorB":"#ff4fa3","gradient":0.6}} controls='[]' autoRotate noCode />
 
 ```ts
 const synth = scene.addEffectLayer({

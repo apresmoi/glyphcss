@@ -5,7 +5,7 @@ description: Tune ASCII grid density, interaction resolution, hotspot count, and
 
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo hotspot={false} client:visible id="performance-demo" geometry="icosahedron" controls='["density"]' defaults='{"renderMode":"solid","density":1,"colorEncoding":"spans"}' showStats />
+<GlyphDemo hotspot={false} client:visible id="performance-demo" mesh="/gallery/glb/Octopus.glb" controls='["density"]' defaults='{"fitFill":0.98,"renderMode":"solid","density":1,"colorEncoding":"spans"}' showStats />
 
 Drag while changing density; watch the cell count and FPS. Doubling density roughly quadruples cells. Geometry, shading, color runs, and browser painting also contribute; a cube and a complex model do not have identical costs.
 
@@ -19,7 +19,7 @@ The bundled controls lower resolution during gestures and restore it on release.
 
 ## Spans, not just cells: `colorTolerance`
 
-<GlyphDemo hotspot={false} client:visible id="performance-colors" mesh="/gallery/glb/apple.glb" controls='["colorTolerance"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans","colorTolerance":0}' showStats />
+<GlyphDemo hotspot={false} client:visible id="performance-colors" mesh="/gallery/glb/Watermelon.glb" controls='["colorTolerance"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans","colorTolerance":0}' showStats />
 
 Tolerance merges nearby color runs, trading fidelity for fewer spans. Default `0`: off; range `0–765`; try `24–128`. Semantic output ignores it. [Atlas encoding](/guides/color-encoding/) removes spans for compatible output.
 

@@ -60,7 +60,24 @@ export interface GlyphDemoProps {
    * Ignored when `realSunLight` is set (the sun drives the direction).
    */
   light?: string;
+  /** Models to switch between; the first one loads. Replaces `mesh`. */
+  meshes?: readonly GlyphDemoMeshOption[];
+  /** Stock effects to switch between; `effect` is the one that starts. */
+  effects?: readonly (keyof typeof GlyphEffects)[];
 }
+
+export interface GlyphDemoMeshOption {
+  label: string;
+  url: string;
+  mtl?: string;
+}
+
+type DemoHandle = HTMLDivElement & {
+  glyphcssDemo: {
+    configureEffect: (config: RuntimeEffectConfig) => void;
+    setMeshUrl: (url: string, mtl?: string) => Promise<void>;
+  };
+};
 
 export function GlyphDemo(props: GlyphDemoProps) {
   const ref = useRef<HTMLDivElement>(null);
@@ -68,6 +85,9 @@ export function GlyphDemo(props: GlyphDemoProps) {
   const [ready, setReady] = useState(false);
   // The feature leads; code opens on request beneath it.
   const [codeOpen, setCodeOpen] = useState(false);
+  const [meshUrl, setMeshUrl] = useState(props.meshes?.[0]?.url ?? props.mesh);
+  const [effectName, setEffectName] = useState(props.effect);
+  const effectsModule = useRef<typeof import("@glyphcss/effects") | undefined>(undefined);
   const [tunables, setTunables] = useState<Tunables>(() => {
     let defaults: Partial<Tunables> = {};
     try {
@@ -96,18 +116,8 @@ export function GlyphDemo(props: GlyphDemoProps) {
                   },
                 },
           );
-          if (props.effect && effects) {
-            const demo = ref.current as HTMLDivElement & {
-              glyphcssDemo: { configureEffect: (config: RuntimeEffectConfig) => void };
-            };
-            demo.glyphcssDemo.configureEffect({
-              effect: effects.GlyphEffects[props.effect],
-              params: props.effectParams ?? {},
-              blend: "replace",
-              paused: false,
-              timeScale: 1,
-            });
-          }
+          effectsModule.current = effects;
+          if (props.effect) startEffect(props.effect);
         }
       },
     );
@@ -117,10 +127,26 @@ export function GlyphDemo(props: GlyphDemoProps) {
       dispose?.();
     };
   }, []);
+  function startEffect(name: keyof typeof GlyphEffects) {
+    const effects = effectsModule.current;
+    if (!effects || !ref.current) return;
+    (ref.current as DemoHandle).glyphcssDemo.configureEffect({
+      effect: effects.GlyphEffects[name],
+      // Authored params belong to the starting effect; the others use their defaults.
+      params: name === props.effect ? (props.effectParams ?? {}) : {},
+      blend: "replace",
+      paused: false,
+      timeScale: 1,
+    });
+  }
+  function chooseMesh(option: GlyphDemoMeshOption) {
+    if (!ref.current) return;
+    setMeshUrl(option.url);
+    void (ref.current as DemoHandle).glyphcssDemo.setMeshUrl(option.url, option.mtl);
+  }
   const {
     id,
     geometry,
-    mesh,
     hotspot,
     controls,
     defaults,
@@ -145,7 +171,8 @@ export function GlyphDemo(props: GlyphDemoProps) {
       className={`glyph-demo ${styles.root}${props.embedded ? ` ${styles.embedded}` : ""}`}
       id={id}
       data-geometry={geometry || "cuboctahedron"}
-      data-mesh={mesh || undefined}
+      data-mesh={props.meshes?.[0]?.url || props.mesh || undefined}
+      data-mtl={props.meshes?.[0]?.mtl}
       data-docs-hotspot={hotspot ? "1" : undefined}
       data-no-hotspots={hotspot === false ? "1" : undefined}
       data-polygons-url={polygonsUrl || undefined}
@@ -176,7 +203,20 @@ export function GlyphDemo(props: GlyphDemoProps) {
         {!noControls && (
           <GlyphDemoControls
             id={id}
-            source={{ mesh, polygonsUrl }}
+            source={{ mesh: meshUrl, polygonsUrl }}
+            meshes={props.meshes && { options: props.meshes, value: meshUrl!, onChange: chooseMesh }}
+            effects={
+              props.effects &&
+              effectName && {
+                options: props.effects,
+                value: effectName,
+                onChange: (name) => {
+                  const next = name as keyof typeof GlyphEffects;
+                  setEffectName(next);
+                  startEffect(next);
+                },
+              }
+            }
             tunables={tunables}
             controls={controls}
             autoRotate={autoRotate}
@@ -192,7 +232,7 @@ export function GlyphDemo(props: GlyphDemoProps) {
             inline
             title="Code"
             className="not-content"
-            snippets={demoSnippets(tunables, { mesh, polygonsUrl, hotspot })}
+            snippets={demoSnippets(tunables, { mesh: meshUrl, polygonsUrl, hotspot })}
             formats={[
               { id: "vanilla", label: "JS" },
               { id: "react", label: "React" },

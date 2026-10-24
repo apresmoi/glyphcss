@@ -5,7 +5,7 @@ description: Tune ASCII cell size and per-mesh resolution, choose transparent la
 
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo hotspot={false} client:visible id="density-demo" geometry="icosahedron" controls='["density"]' defaults='{"renderMode":"solid","density":1,"colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="density-demo" mesh="/gallery/glb/Elephant.glb" controls='["density"]' defaults='{"fitFill":0.98,"renderMode":"solid","density":1,"colorEncoding":"spans"}' />
 
 Raise density to shrink the cells while keeping the object the same size. This control changes the whole scene's font size; open Code to see the CSS setting. Per-mesh `density` increases detail for individual objects instead.
 
@@ -29,7 +29,7 @@ Detail layers require browser layout and are unavailable in static compilation. 
 
 ## Row spacing
 
-<GlyphDemo hotspot={false} client:visible id="density-rows" geometry="icosahedron" controls='["lineHeight"]' defaults='{"renderMode":"solid","lineHeight":1,"colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="density-rows" mesh="/gallery/glb/Owl.glb" controls='["lineHeight"]' defaults='{"fitFill":0.98,"renderMode":"solid","lineHeight":1,"colorEncoding":"spans"}' />
 
 Line height changes vertical cell spacing. The camera projection uses the measured cell aspect, preserving the object's proportions.
 

@@ -5,7 +5,7 @@ description: Compare wireframe, solid, voxel, and ink ASCII output; try characte
 
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo hotspot={false} client:visible id="render-modes-demo" geometry="cuboctahedron" controls='["renderMode"]' defaults='{"renderMode":"solid","colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="render-modes-demo" mesh="/gallery/glb/Horse.glb" controls='["renderMode"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans"}' />
 
 Switch modes on the same object, then drag to orbit. Code follows the selection. Set scene `mode` through `createGlyphScene`, `GlyphScene`, or `<glyph-scene>`; a mesh can override it with its own layer.
 
@@ -18,11 +18,11 @@ Switch modes on the same object, then drag to orbit. Code follows the selection.
 
 ## Character encoding (`charMode`)
 
-<GlyphDemo hotspot={false} client:visible id="render-wireframe-characters" geometry="icosahedron" controls='["charMode"]' defaults='{"renderMode":"wireframe","charMode":"braille","colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="render-wireframe-characters" mesh="/gallery/glb/Shark.glb" controls='["charMode"]' defaults='{"fitFill":0.98,"renderMode":"wireframe","charMode":"braille","colorEncoding":"spans"}' />
 
 Braille draws up to eight dots per cell for smoother wireframe edges. ASCII uses the selected glyph palette.
 
-<GlyphDemo hotspot={false} client:visible id="render-solid-characters" geometry="cuboctahedron" controls='["charMode"]' defaults='{"renderMode":"solid","charMode":"quadrant","colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="render-solid-characters" mesh="/gallery/glb/Frog.glb" controls='["charMode"]' defaults='{"fitFill":0.98,"renderMode":"solid","charMode":"quadrant","colorEncoding":"spans"}' />
 
 | `charMode` | Supported mode | What changes |
 |---|---|---|

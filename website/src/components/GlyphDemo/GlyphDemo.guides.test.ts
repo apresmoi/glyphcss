@@ -36,9 +36,9 @@ it('executes the documented static frame and procedural surface APIs', () => {
   expect(polygons.flatMap((polygon: { vertices: number[][] }) => polygon.vertices).flat().every(Number.isFinite)).toBe(true);
 });
 
-it('loads the actual gallery apple through the real runtime and fills a docs frame', async () => {
+it("loads the meshes page's first model through the real runtime and fills a docs frame", async () => {
   const demo = guide('meshes').match(/<GlyphDemo\b[\s\S]*?\/>/)![0]!;
-  const url = demo.match(/mesh="([^"]+)"/)![1]!;
+  const url = (demo.match(/meshes=\{\[\{ label: "[^"]+", url: "([^"]+)"/) ?? demo.match(/mesh="([^"]+)"/))![1]!;
   const data = readFileSync(resolve(`public${url}`));
   vi.stubGlobal('fetch', vi.fn(async () => new Response(data)));
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {

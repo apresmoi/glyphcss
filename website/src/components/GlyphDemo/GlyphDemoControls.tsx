@@ -35,8 +35,25 @@ function controlList(value?: string): string[] {
   return ["renderMode", "scale", "stretch", "distance", "rotX", "duration", "geometry"];
 }
 
+type Picker<T> = { options: readonly T[]; value: string; onChange: (next: T) => void };
+type MeshOption = { label: string; url: string; mtl?: string };
+// Labels for the stock effects a docs demo can switch between.
+const EFFECT_LABELS: Record<string, string> = {
+  matrixRain: "Matrix rain",
+  flowText: "Flow text",
+  scan: "Scan",
+  wipe: "Wipe",
+  scramble: "Scramble",
+  glitch: "Glitch",
+  noiseDissolve: "Noise dissolve",
+  ripple: "Ripple",
+  fieldSynth: "Field synth",
+};
+
 export function GlyphDemoControls({
   id,
+  meshes,
+  effects,
   tunables,
   source,
   controls,
@@ -45,6 +62,8 @@ export function GlyphDemoControls({
   onChange,
 }: {
   id: string;
+  meshes?: Picker<MeshOption>;
+  effects?: Picker<string>;
   tunables: Tunables;
   source: DemoSource;
   controls?: string;
@@ -107,6 +126,25 @@ export function GlyphDemoControls({
   };
   return (
     <fieldset className={styles.controls} disabled={!ready} aria-label="Scene controls">
+      {effects && (
+        <ControlSection className={styles.section}>
+          <InstrumentSectionHeading>Effect</InstrumentSectionHeading>
+          <label className={styles.selectRow}>
+            <span>Effect</span>
+            <BracketSelect
+              aria-label="Effect"
+              value={effects.value}
+              onChange={(event) => effects.onChange(event.target.value)}
+            >
+              {effects.options.map((name) => (
+                <option key={name} value={name}>
+                  {EFFECT_LABELS[name] ?? name}
+                </option>
+              ))}
+            </BracketSelect>
+          </label>
+        </ControlSection>
+      )}
       {(hasGeometry ||
         source.mesh ||
         source.polygonsUrl ||
@@ -116,7 +154,25 @@ export function GlyphDemoControls({
         renderRows.length > 0) && (
         <ControlSection className={styles.section}>
           <InstrumentSectionHeading>Rendering</InstrumentSectionHeading>
-          {(source.polygonsUrl || source.mesh) && (
+          {meshes && (
+            <label className={styles.selectRow}>
+              <span>Model</span>
+              <BracketSelect
+                aria-label="Model"
+                value={meshes.value}
+                onChange={(event) =>
+                  meshes.onChange(meshes.options.find((option) => option.url === event.target.value)!)
+                }
+              >
+                {meshes.options.map((option) => (
+                  <option key={option.url} value={option.url}>
+                    {option.label}
+                  </option>
+                ))}
+              </BracketSelect>
+            </label>
+          )}
+          {!meshes && (source.polygonsUrl || source.mesh) && (
             <div className={styles.source} title={source.polygonsUrl || source.mesh}>
               Mesh: {(source.polygonsUrl || source.mesh)!.split("/").pop()}
             </div>

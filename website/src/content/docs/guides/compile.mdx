@@ -5,9 +5,9 @@ description: Bake 3D ASCII scenes at build time with compileScene, the Vite plug
 
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo hotspot={false} client:visible id="compile-demo" geometry="cuboctahedron" controls='["renderMode"]' defaults='{"renderMode":"solid","colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="compile-demo" mesh="/gallery/glb/Policecar.glb" controls='["rotX","scale"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans"}' />
 
-Choose a mode and orbit to frame the object. The demo is interactive; `compileScene` freezes a scene into HTML with no renderer JavaScript. Its inputs are polygons, camera, and render options.
+Frame the object with tilt and zoom, then open Code. The demo is interactive; `compileScene` freezes a scene into HTML with no renderer JavaScript. Its inputs are polygons, camera, and render options.
 
 ## Bake a frame
 

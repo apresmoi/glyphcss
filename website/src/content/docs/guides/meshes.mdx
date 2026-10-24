@@ -5,9 +5,9 @@ description: Load OBJ, glTF, GLB, STL, and MagicaVoxel models as ASCII art, choo
 
 import { GlyphDemo } from '../../../components/GlyphDemo';
 
-<GlyphDemo hotspot={false} client:visible id="meshes-apple" mesh="/gallery/glb/apple.glb" controls='["renderMode"]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans"}' />
+<GlyphDemo hotspot={false} client:visible id="meshes-apple" meshes={[{ label: "GLB · Duck", url: "/gallery/glb/Duck.glb" }, { label: "OBJ · Chicken", url: "/gallery/obj/chicken.obj", mtl: "/gallery/obj/chicken.mtl" }, { label: "STL · Bunny", url: "/gallery/stl/low-poly-bunny-293137.stl" }, { label: "VOX · Golem", url: "/gallery/vox/MechaGolem.vox" }]} controls='[]' defaults='{"fitFill":0.98,"renderMode":"solid","colorEncoding":"spans"}' />
 
-This bundled apple loads from GLB and fits the viewport. Drag to orbit; switch to wireframe or ink. Code includes the asset URL and camera settings.
+Pick a format to load the same way: GLB, OBJ with its MTL, STL, or a MagicaVoxel `.vox`. Each fits the viewport; Code shows the loader call.
 
 ## Supported formats
 
