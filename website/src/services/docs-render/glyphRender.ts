@@ -40,7 +40,18 @@ function buildGlyphDocsChart3d(source: GlyphDocsChart3dSource) {
   }
 }
 
+// The turntable fit renders every angle twice; the build and the twins resolve
+// the same chart several times, so each input is resolved once.
+const resolvedChart3d = new Map<string, ReturnType<typeof resolveChart3d>>();
+
 export function resolveGlyphDocsChart3d(input: Extract<GlyphDocsRenderInput, { kind: "chart-3d" }>) {
+  const key = JSON.stringify([input.source, input.options]);
+  let resolved = resolvedChart3d.get(key);
+  if (!resolved) resolvedChart3d.set(key, (resolved = resolveChart3d(input)));
+  return resolved;
+}
+
+function resolveChart3d(input: Extract<GlyphDocsRenderInput, { kind: "chart-3d" }>) {
   if (input.options?.color && !["none", "css"].includes(input.options.color)) {
     throw new TypeError("GlyphRender supports color none or css in HTML documentation.");
   }

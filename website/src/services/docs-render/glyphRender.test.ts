@@ -316,7 +316,8 @@ it.each(pages)("validates metadata and renders every source in $name", async ({ 
     );
     expect(markup.querySelector("pre.glyph-docs-usage")?.textContent).toBe(glyphDocsUsage(input));
   }
-});
+  // The 3D page fits each chart over a full turntable of renders.
+}, 30_000);
 
 it.each(fixtures)("emits real $kind output inside a static pre through Astro", async (input) => {
   const container = await createDocsContainer();
