@@ -3164,6 +3164,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     key: string;
     center: readonly [number, number];
     basis: readonly [number, number, number, number];
+    linear: readonly number[];
   };
   let panAnchor: PanAnchor | null = null;
 
@@ -3199,14 +3200,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const origin = screen(t);
       const ground = groundElevationSampler();
       const eps = ground ? (projection.centerForCamera ? Math.min(1e-3, view.span / 1000) : 1e-6) : projection.centerForCamera ? 1e-3 : 1;
+      // The pivot carried rigidly by the pan, at the anchor's own height: a
+      // pan re-pivots along its sight, so terrain under the probes is not motion.
+      const height = groundAt(view.center);
       const point = (x: number, y: number): Vec3 => {
-        if (!projection.centerForCamera) {
-          if (!ground) return [t[0] + x, t[1] + y, t[2]];
-          const center = tryUnproject(projection, [t[0] + x, t[1] + y, t[2]]);
-          return center ? groundPoint(projection, center) : t;
-        }
+        if (!projection.centerForCamera) return [t[0] + x, t[1] + y, t[2]];
         const center = projection.centerForCamera(camera.rotX - appliedTilt + x, camera.rotY + y);
-        return groundPoint(projection, center);
+        return projection.project(center[0], center[1], height);
       };
       const a = screen(point(eps, 0)),
         b = screen(point(0, eps));
@@ -3220,7 +3220,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         bx = -ay;
         by = ax;
       }
-      panAnchor = { ...exactPanPose, projection, key, center: view.center, basis: [ax, ay, bx, by] };
+      panAnchor = { ...exactPanPose, projection, key, center: view.center, basis: [ax, ay, bx, by], linear: cameraLinear(grid) };
       return;
     }
     const anchor = panAnchor;
@@ -3230,16 +3230,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const [ax, ay, bx, by] = anchor.basis;
     const det = ax * by - ay * bx;
     if (!Number.isFinite(det) || Math.abs(det) < 1e-12) return;
-    let x: number, y: number;
-    if (projection.centerForCamera) {
-      x = camera.rotX - anchor.rotX;
-      y = camera.rotY - anchor.rotY;
-    } else {
-      x = camera.target[0] - anchor.target[0];
-      y = camera.target[1] - anchor.target[1];
-    }
-    const col = Math.round(ax * x + bx * y),
-      row = Math.round(ay * x + by * y);
+    // The lattice step is the exact pivot's offset in the ANCHOR's picture,
+    // not the change in pose: a pan re-pivots along its line of sight (and
+    // an orbit re-aims about that pivot), which moves the pose but not the
+    // picture.
+    const l = anchor.linear,
+      e: Vec3 = [camera.target[0] - anchor.target[0], camera.target[1] - anchor.target[1], camera.target[2] - anchor.target[2]];
+    const col = Math.round(l[0]! * e[0] + l[1]! * e[1] + l[2]! * e[2]),
+      row = Math.round(l[3]! * e[0] + l[4]! * e[1] + l[5]! * e[2]);
     const sx = (col * by - row * bx) / det,
       sy = (row * ax - col * ay) / det;
     if (col === 0 && row === 0) {
@@ -3255,10 +3253,25 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       camera.rotY = anchor.rotY + sy;
       renderedCenter = projection.centerForCamera(camera.rotX - appliedTilt, camera.rotY);
       camera.target = groundPoint(projection, renderedCenter);
+      syncCameraBearing();
+      // The lattice step rotates the anchor's pivot with it; re-pivoting on
+      // that sight keeps the snapped image an exact cell shift of the anchor.
+      const after = cameraLinear(grid);
+      const carried = carriedBy(anchor.linear, after, anchor.target);
+      const hit = carried && pivotOnSight(carried, after);
+      if (hit) {
+        renderedCenter = hit.center;
+        camera.target = hit.target;
+      }
     } else {
       const target: Vec3 = [anchor.target[0] + sx, anchor.target[1] + sy, anchor.target[2]];
       renderedCenter = tryUnproject(projection, target) ?? view.center;
       camera.target = groundElevationSampler() ? groundPoint(projection, renderedCenter) : target;
+      const hit = pivotOnSight(target, anchor.linear);
+      if (hit) {
+        renderedCenter = hit.center;
+        camera.target = hit.target;
+      }
     }
     syncCameraBearing();
   }
@@ -4966,7 +4979,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     // Target the surface features actually stand on, so exaggerated relief
     // cannot displace the geographic centre under pitch or bearing.
-    camera.target = groundPoint(projection, v.center);
+    camera.target = pivotFor(v.center);
     appliedTilt = pitch;
     camera.zoom = zoom;
     // The heading rides on TOP of the pose this just installed, and is
@@ -5237,11 +5250,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!walk) {
       // Mount and re-anchor in the same turn: no frame shows the newly drawn
       // centre at the old datum offset. Keep the geographic view/URL exact.
-      const target = groundPoint(projection, renderedCenter ?? view.center);
+      const target = pivotFor(renderedCenter ?? view.center);
       if (target.some((v, i) => v !== camera.target[i])) {
         restoreExactPanPose();
         panAnchor = null;
-        camera.target = groundPoint(projection, view.center);
+        camera.target = pivotFor(view.center);
         snapRenderedPan();
         syncNearSide();
       }
@@ -6118,6 +6131,126 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function groundPoint(proj: GlyphMapProjection, center: readonly [number, number]): Vec3 {
     return proj.project(center[0], center[1], groundAt(center));
+  }
+
+  /**
+   * Pivots a pan left on its line of sight. Where the sight crosses a height
+   * step (a shore), it meets the step's wall, not `groundPoint(center)`, so a
+   * later re-sync of the same centre must reuse the target rather than lift it
+   * to either side of the step. Keyed by centre identity and the ground there.
+   */
+  let sightPivots: { center: readonly [number, number]; ground: Vec3; target: Vec3 }[] = [];
+
+  /** The pivot for `center`: the pan's own sight pivot while it still stands, else the ground point. */
+  function pivotFor(center: readonly [number, number]): Vec3 {
+    const ground = groundPoint(projection, center);
+    for (const p of sightPivots) {
+      if (p.center === center && p.ground[0] === ground[0] && p.ground[1] === ground[1] && p.ground[2] === ground[2]) return p.target;
+    }
+    return ground;
+  }
+
+  /**
+   * The live camera's rotation and lens as a row-major 3×3 (screen col, row,
+   * depth per world unit), probed on `grid` or a unit grid. Orthographic
+   * `project` is affine, so four probes are exact.
+   */
+  function cameraLinear(grid?: ProjectionGrid): number[] {
+    const t = camera.target;
+    const at = (v: Vec3) => (grid ? camera.project(v, grid.cols, grid.rows, grid.cellAspect, grid) : camera.project(v, 0, 0, 1));
+    const o = at(t);
+    const m = new Array<number>(9);
+    for (let j = 0; j < 3; j++) {
+      const p = at([t[0] + (j === 0 ? 1 : 0), t[1] + (j === 1 ? 1 : 0), t[2] + (j === 2 ? 1 : 0)]);
+      for (let i = 0; i < 3; i++) m[i * 3 + j] = p[i]! - o[i]!;
+    }
+    return m;
+  }
+
+  /**
+   * Where the screen-centre line of sight through `from` meets the drawn
+   * ground, for a pan to re-pivot on.
+   *
+   * An orthographic image does not change when its target slides along the
+   * view axis. Re-pivoting along local UP instead (`groundPoint` of the new
+   * centre) shifts a pitched image by the height change times sin(tilt): a
+   * pan across a shore at 24× exaggeration hopped ~4 rows. The crossing
+   * nearest `from` is taken, so the pivot keeps to the ground it was on.
+   * `null` without a ground sampler (the datum is one height, nothing hops)
+   * or without a crossing in reach; callers then keep `groundPoint`.
+   */
+  function groundOnSight(from: Vec3, linear: readonly number[]): { target: Vec3; center: readonly [number, number] } | null {
+    if (!groundElevationSampler()) return null;
+    const [a0, a1, a2, b0, b1, b2, c0, c1, c2] = linear as [number, number, number, number, number, number, number, number, number];
+    // The view axis is the direction both screen rows ignore; point it at the
+    // eye (larger depth = nearer).
+    let ax = a1 * b2 - a2 * b1, ay = a2 * b0 - a0 * b2, az = a0 * b1 - a1 * b0;
+    const len = Math.hypot(ax, ay, az) * Math.sign(ax * c0 + ay * c1 + az * c2);
+    if (!(Math.abs(len) > 0) || !Number.isFinite(len)) return null;
+    ax /= len; ay /= len; az /= len;
+    const at = (s: number): Vec3 => [from[0] + ax * s, from[1] + ay * s, from[2] + az * s];
+    const above = (s: number): number => {
+      const p = at(s);
+      const center = tryUnproject(projection, p);
+      if (!center) return NaN;
+      const g = groundPoint(projection, center);
+      const up = localUpDirection(projection, center[0], center[1], 0);
+      if (!up) return NaN;
+      return (p[0] - g[0]) * up[0] + (p[1] - g[1]) * up[1] + (p[2] - g[2]) * up[2];
+    };
+    const f0 = above(0);
+    if (!Number.isFinite(f0)) return null;
+    let lo = 0, hi = NaN;
+    if (f0 !== 0) {
+      // Two CSS pixels of sight per step, a thousand pixels of reach each way.
+      const step = 2 / pixelsPerWorldUnit();
+      search: for (let k = 1; k <= 512; k++) {
+        for (const s of [-k * step, k * step]) {
+          const f = above(s);
+          if (Number.isFinite(f) && f > 0 !== f0 > 0) {
+            lo = s - Math.sign(s) * step;
+            hi = s;
+            break search;
+          }
+        }
+      }
+      if (Number.isNaN(hi)) return null;
+      for (let i = 0; i < 52; i++) {
+        const mid = (lo + hi) / 2;
+        if (above(mid) > 0 === f0 > 0) lo = mid;
+        else hi = mid;
+      }
+    }
+    const target = at(lo);
+    const center = tryUnproject(projection, target);
+    return center ? { target, center } : null;
+  }
+
+  /**
+   * Re-pivot a pan on `from`'s line of sight and hold that pivot for its
+   * centre. `from` is the old pivot carried rigidly with the pan, so the image
+   * is exactly the pan's and the pivot is on the ground at the screen centre.
+   */
+  function pivotOnSight(from: Vec3, linear: readonly number[]): { target: Vec3; center: readonly [number, number] } | null {
+    const hit = groundOnSight(from, linear);
+    if (!hit) return null;
+    sightPivots = [{ center: hit.center, ground: groundPoint(projection, hit.center), target: hit.target }, ...sightPivots].slice(0, 2);
+    return hit;
+  }
+
+  /** `inverse(after) * before * v`: `v` carried by the rotation between two camera poses, about the world origin. */
+  function carriedBy(before: readonly number[], after: readonly number[], v: Vec3): Vec3 | null {
+    const [a, b, c, d, e, f, g, h, k] = after as [number, number, number, number, number, number, number, number, number];
+    const det = a * (e * k - f * h) - b * (d * k - f * g) + c * (d * h - e * g);
+    if (!(Math.abs(det) > 0) || !Number.isFinite(det)) return null;
+    const s0 = before[0]! * v[0] + before[1]! * v[1] + before[2]! * v[2];
+    const s1 = before[3]! * v[0] + before[4]! * v[1] + before[5]! * v[2];
+    const s2 = before[6]! * v[0] + before[7]! * v[1] + before[8]! * v[2];
+    return [
+      ((e * k - f * h) * s0 - (b * k - c * h) * s1 + (b * f - c * e) * s2) / det,
+      (-(d * k - f * g) * s0 + (a * k - c * g) * s1 - (a * f - c * d) * s2) / det,
+      ((d * h - e * g) * s0 - (a * h - b * g) * s1 + (a * e - b * d) * s2) / det,
+    ];
   }
 
   /**
@@ -10470,6 +10603,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // centre by a few ulps for no reason at all.
     if (dxPx === 0 && dyPx === 0) return;
     restoreExactPanPose();
+    const before = cameraLinear(), pivot = camera.target;
     if (isOrbitProjection() && projection.cameraForCenter && projection.centerForCamera) {
       // Grab-and-drag semantics (verified against `centerForCamera`): drag
       // RIGHT must decrease centre longitude and drag DOWN must increase
@@ -10547,6 +10681,36 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       camera.target = groundPoint(projection, center);
       // The pivot moved, so the axis the heading turns about moved with it.
       syncCameraBearing();
+      const after = cameraLinear();
+      const carried = carriedBy(before, after, pivot);
+      const hit = carried && pivotOnSight(carried, after);
+      if (hit) {
+        // Re-aim the rotation at the sight pivot's centre (two Newton steps
+        // on `centerForCamera`, so a through-pole branch is kept), turning
+        // about that pivot: the drift is ~1e-5 rad, far below a cell, and
+        // `view.center` stays the rotation's own centre for the next re-sync.
+        let rx = trueRotX, ry = camera.rotY;
+        for (let i = 0; i < 2; i++) {
+          const c = projection.centerForCamera(rx, ry);
+          const cx = projection.centerForCamera(rx + 1e-6, ry), cy = projection.centerForCamera(rx, ry + 1e-6);
+          const wrap = (d: number) => d - 360 * Math.round(d / 360);
+          const j00 = wrap(cx[0] - c[0]) / 1e-6, j10 = (cx[1] - c[1]) / 1e-6;
+          const j01 = wrap(cy[0] - c[0]) / 1e-6, j11 = (cy[1] - c[1]) / 1e-6;
+          const det = j00 * j11 - j01 * j10;
+          if (!(Math.abs(det) > 1e-9)) break;
+          const dl = wrap(hit.center[0] - c[0]), dp = hit.center[1] - c[1];
+          rx += (j11 * dl - j01 * dp) / det;
+          ry += (j00 * dp - j10 * dl) / det;
+        }
+        if (sameSurfacePoint(projection, projection.centerForCamera(rx, ry), hit.center)) {
+          camera.rotX = rx + appliedTilt;
+          camera.rotY = ry;
+          orbitRotation = { rotX: rx, rotY: ry };
+        }
+        view = { ...view, center: hit.center, bounds: undefined };
+        camera.target = hit.target;
+        syncCameraBearing();
+      }
     } else {
       // Only this branch needs a grid; an orbit re-pin must not resolve a
       // dirty layout for a result it discards.
@@ -10576,6 +10740,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const lat = clamp(latRaw, d.south, d.north);
       view = { ...view, center: [lon, lat], bounds: undefined };
       camera.target = groundPoint(projection, [lon, lat]);
+      // A sheet pan is a translation, so the old pivot carried with it is the
+      // proposed point at the old height. A clamped centre is not that pan.
+      const hit = lon === lonRaw && lat === latRaw ? pivotOnSight([proposed[0], proposed[1], t[2]], before) : null;
+      if (hit && hit.center[0] >= d.west && hit.center[0] <= d.east && hit.center[1] >= d.south && hit.center[1] <= d.north) {
+        view = { ...view, center: hit.center, bounds: undefined };
+        camera.target = hit.target;
+      }
       syncCameraBearing();
     }
     snapRenderedPan();

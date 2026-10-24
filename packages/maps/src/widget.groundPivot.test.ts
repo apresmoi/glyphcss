@@ -109,6 +109,77 @@ describe("drawn-ground camera pivot", () => {
     } finally { done(); }
   });
 
+  // A shore several rows tall once exaggerated: re-pivoting along local up across it shifted the
+  // whole pitched picture by the height times sin(tilt), many rows at once.
+  function shore(height: number): GlyphMapGeoTile {
+    const cols = 256, rows = 8;
+    const bounds = { west: CENTER[0] - 0.02, east: CENTER[0] + 0.02, south: CENTER[1] - 0.02, north: CENTER[1] + 0.02 };
+    const elevation = new Float32Array((cols + 1) * (rows + 1));
+    for (let y = 0; y <= rows; y++) for (let x = 0; x <= cols; x++) elevation[y * (cols + 1) + x] = x > cols / 2 ? height : 0;
+    return { bounds, cols, rows, elevation, source: "synthetic-shore", sampler: "custom" };
+  }
+
+  it.each([
+    ["globe", "ramp", false],
+    ["globe", "ramp", true],
+    ["globe", "wall", false],
+    ["sheet", "ramp", false],
+    ["sheet", "ramp", true],
+    ["sheet", "wall", false],
+  ] as const)("pans a %s across a %s without the picture hopping (snapPan=%s)", async (kind, step, snapPan) => {
+    // The sheet's relief frame is degrees-scaled, so it needs a taller step for the same rows.
+    const height = kind === "globe" ? 1 : 150;
+    const tile = shore(height);
+    const projection = kind === "globe" ? glyphMapGlobe({ exaggeration: 24 }) : glyphMapEquirectangular({ exaggeration: 24 });
+    const start = [CENTER[0] - 0.0012, CENTER[1]] as const;
+    // A water mask over terrain is a true discontinuity: the sight meets its
+    // wall, where no centre's ground point lies on it.
+    const groundElevation = step === "wall" ? (lon: number) => (lon > CENTER[0] ? height : 0) : undefined;
+    const { map, host, done } = mount({
+      view: { center: start, span: SPAN, cols: COLS, rows: ROWS }, projection, tilt: 59, bearing: 20, snapPan, groundElevation,
+      layers: [{ type: "raster", source: tile }],
+    });
+    try {
+      await map.idle();
+      const fixed = projection.project(CENTER[0], CENTER[1] + 0.0003, 0);
+      const at = () => map.scene.camera.project(fixed, COLS, ROWS, CELL_H / CELL_W, { cellWidth: CELL_W, cellHeight: CELL_H });
+      const init = { pointerId: 3, bubbles: true, button: 0 };
+      host.dispatchEvent(new PointerEvent("pointerdown", { ...init, clientX: 600, clientY: 300 }));
+      let prev = at();
+      const steps: [number, number][] = [];
+      for (let i = 1; i <= 60; i++) {
+        host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 600 - 25 * i, clientY: 300 }));
+        const now = at();
+        steps.push([now[0] - prev[0], now[1] - prev[1]]);
+        prev = now;
+        // A re-sync of the same view (a wheel notch, a resize) keeps the held
+        // pivot, wherever on the shore the pan left it.
+        map.setView({});
+        const again = at();
+        expect(Math.abs(again[0] - now[0])).toBeLessThan(snapPan ? 1.01 : 1e-3);
+        expect(Math.abs(again[1] - now[1])).toBeLessThan(snapPan ? 1.01 : 1e-3);
+      }
+      host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 600 - 25 * 60, clientY: 300 }));
+      // The pan crossed the shore, and the ground under the centre rose.
+      expect(map.getView().center[0]).toBeGreaterThan(CENTER[0] + 0.0002);
+      // A 25 px drag moves a fixed point ~3 columns; the shore must not add a
+      // row-sized jump to any one step (snapping allows its own one cell).
+      const slack = snapPan ? 1.01 : 0.05;
+      const [col0, row0] = steps[0]!;
+      for (const [dc, dr] of steps) {
+        expect(Math.abs(dc - col0)).toBeLessThan(slack + 0.05);
+        expect(Math.abs(dr - row0)).toBeLessThan(slack + 0.05);
+      }
+      // The pivot is still the ground at the screen centre.
+      const center = map.getView().center;
+      const ground = projection.project(center[0], center[1], groundElevation?.(center[0]) ?? glyphMapGeoTileElevationAt(tile, center[0], center[1]));
+      const g = map.scene.camera.project(ground, COLS, ROWS, CELL_H / CELL_W, { cellWidth: CELL_W, cellHeight: CELL_H });
+      expect(Math.abs(g[0] - COLS / 2)).toBeLessThan(1);
+      expect(Math.abs(g[1] - ROWS / 2)).toBeLessThan(1);
+      await map.idle();
+    } finally { done(); }
+  });
+
   it("keeps sheet snap-pan targets on the ground and projection endpoints centred", async () => {
     const tile = terrain();
     const sheet = glyphMapEquirectangular({ exaggeration: 24 });
