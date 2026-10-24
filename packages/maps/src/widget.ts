@@ -7267,12 +7267,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * while the same objects in the same order can only produce the same
      * `selected` array. That makes the skip exact rather than a heuristic.
      *
-     * `featuresAreTheWholeInput` is what a caller asserts to opt in, and only
-     * {@link createPointFeatureRuntime} does. It is NOT true in general: a
+     * `featuresAreTheWholeInput` is what a caller asserts to opt in: point
+     * layers, water and `fill-extrusion` do. It is NOT true in general: a
      * `heatmap`'s relief samples the mounted TERRAIN, so an unchanged vector
      * tile set still has to re-mesh when a finer elevation tier lands, and a
-     * `fill`/`fill-extrusion` re-probes its ground through its own
-     * `groundChangeSyncs` hook rather than here. A point hotspot depends on
+     * draped `fill`'s lift reads the view's span. An extrusion re-probes its
+     * ground through its own `groundChangeSyncs` hook rather than here. A point hotspot depends on
      * the feature, the projection and its own GROUND — and the last of those
      * is re-planted through that same `groundChangeSyncs` hook (see
      * `createPointFeatureRuntime`'s `syncGround`), precisely so this skip can
@@ -7859,7 +7859,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         return true;
       } } : null;
     } : undefined;
-    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, commitWater !== undefined, commitWater);
+    // An extrusion's mesh reads only its features, the projection (a change
+    // forces the sweep) and the ground (re-probed by `syncGround`), so an
+    // unchanged tile set may skip. A draped `fill` may not: its lift reads
+    // the view's span.
+    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, commitWater !== undefined || layer.type === "fill-extrusion", commitWater);
     nearSideGeometrySyncs.add(syncWalls);
     // A draped `fill` needs re-planting for exactly the reason an extrusion
     // does — its mesh is camera-independent, so a tile sweep never rebuilds
