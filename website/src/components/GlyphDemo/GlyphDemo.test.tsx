@@ -161,3 +161,31 @@ it('ignores observer notifications after unmount', async () => {
   await act(async () => observer.onChange({ ...DEFAULT_TUNABLES, zoom: 99 }));
   expect(runtime.dispose).toHaveBeenCalledOnce();
 });
+
+it('shows only the requested encoding controls and keeps the collapsed code in sync', async () => {
+  const { host } = await mount({ id: 'encoding', controls: '["colorEncoding","charMode","hiddenLines","wireframeJunctions","colorTolerance"]', defaults: '{"renderMode":"wireframe","colorEncoding":"spans"}' });
+  expect(host.querySelector('[aria-label="Zoom"], [aria-label="Geometry"], aside')).toBeNull();
+  const atlas = [...host.querySelectorAll('button')].find(button => button.textContent === 'Atlas')!;
+  act(() => atlas.click());
+  expect(atlas.getAttribute('aria-pressed')).toBe('true');
+  const chars = host.querySelector<HTMLSelectElement>('[aria-label="Character encoding"]')!;
+  expect(chars.querySelector<HTMLOptionElement>('[value="halfblock"]')!.disabled).toBe(true);
+  expect(chars.querySelector<HTMLOptionElement>('[value="braille"]')!.disabled).toBe(false);
+  act(() => { chars.value = 'braille'; chars.dispatchEvent(new Event('change', { bubbles: true })); });
+  const hidden = host.querySelector<HTMLSelectElement>('[aria-label="Hidden lines"]')!;
+  act(() => { hidden.value = 'hide'; hidden.dispatchEvent(new Event('change', { bubbles: true })); });
+  act(() => host.querySelector<HTMLInputElement>('[aria-label="Box junctions"]')!.click());
+  const tolerance = host.querySelector<HTMLInputElement>('[aria-label="Color tolerance"]')!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(tolerance, '64'); tolerance.dispatchEvent(new Event('input', { bubbles: true })); });
+  openCode(host);
+  const code = host.querySelector('code')!.textContent!;
+  for (const option of ['colorEncoding: "atlas"', 'charMode: "braille"', 'hiddenLines: "hide"', 'wireframeJunctions: true', 'colorTolerance: 64']) expect(code).toContain(option);
+});
+
+it('forwards the hotspot opt-in and includes it in the code panel', async () => {
+  const { host } = await mount({ id: 'hotspot', hotspot: true, noControls: true });
+  expect(host.querySelector('#hotspot')!.getAttribute('data-docs-hotspot')).toBe('1');
+  expect(host.querySelector('#hotspot')!.getAttribute('data-no-hotspots')).toBeNull();
+  openCode(host);
+  expect(host.querySelector('code')!.textContent).toContain('scene.addHotspot');
+});

@@ -1,65 +1,27 @@
 ---
 title: Hit Layer Interactivity
-description: Add clickable hotspots with custom DOM content, hover styles, and tooltips to 3D ASCII art using glyphcss's sparse hit layer.
+description: Add accessible buttons at 3D world-space anchors, style hover and selection, and move hotspots through glyphcss's sparse DOM hit layer.
 ---
 
-The glyphcss hit layer is **sparse** — you opt-in to interactivity by registering
-hotspots at specific 3D anchors. No polygon-per-DOM-node overhead.
+import { GlyphDemo } from '../../../components/GlyphDemo';
 
-## Why sparse
+<GlyphDemo client:visible id="hit-layer-demo" geometry="cube" hotspot controls='[]' noControls defaults='{"renderMode":"solid","colorEncoding":"spans"}' />
 
-A polycss-style "one DOM node per polygon" model gives you per-polygon events but
-balloons the DOM for large meshes (a 10k-triangle GLB → 10k `<div>`s). glyphcss takes
-the opposite trade: a single `<pre>` for visuals, and only the hotspots you
-explicitly register become DOM nodes.
+Hover the anchor to highlight it; click or press Enter/Space to toggle selection. Drag elsewhere to orbit. Open Code for the same button with `GlyphHotspot` in React/Vue or `scene.addHotspot` in JavaScript.
 
-For most real apps this is what you want. You don't need click handlers on every
-roof shingle; you need them on the front door.
+## Anchors and sizing
 
-## Authoring hotspots
+- `at` is a world-space `[x, y, z]`; string vertex IDs are unsupported.
+- `size: [width, height]` uses character cells; default `[1, 1]`.
+- Hotspots are centered on their projected cell and hidden outside the view, without surface-depth occlusion.
+- Put a real button inside the hotspot for focus, keyboard activation, and an accessible label. Its DOM can carry your hover/focus styles.
 
-```tsx
-import { GlyphCamera, GlyphScene, GlyphMesh, GlyphHotspot } from "@glyphcss/react";
-import { octahedronPolygons } from "@glyphcss/core";
+## Move or remove
 
-const shape = octahedronPolygons({ center: [0, 0, 0], size: 1, color: "#ffcc44" });
-
-<GlyphCamera rotX={25}>
-  <GlyphScene mode="solid" cols={80} rows={24}>
-    <GlyphMesh polygons={shape}>
-      <GlyphHotspot id="top" at={[0, 1, 0]} onClick={() => alert("top vertex")}>
-        <span className="badge">Top</span>
-      </GlyphHotspot>
-      <GlyphHotspot id="bottom" at={[0, -1, 0]} onClick={() => alert("bottom vertex")}>
-        <span className="badge">Bottom</span>
-      </GlyphHotspot>
-    </GlyphMesh>
-  </GlyphScene>
-</GlyphCamera>
+```ts
+const anchor = scene.addHotspot({ id: "door", at: [0, 0, 0], size: [4, 2] });
+anchor.setAt([1, 0, 0]);
+anchor.remove();
 ```
 
-Each `<GlyphHotspot>` becomes:
-
-```html
-<div class="glyph-hotspot" data-hotspot-id="top"
-     style="position: absolute; left: …; top: …; width: 1ch; height: 2ch">
-  <span class="badge">Top</span>
-</div>
-```
-
-The height is `size[1] × cellAspect` ch — 2ch at the default aspect — so the box
-covers a whole character cell. `left`/`top` are reassigned inline each render from the same camera projection
-that produced the character grid, anchored at the **cell centre** — the
-`.glyph-hotspot` rule applies `transform: translate(-50%, -50%)`. There is no
-`role`; add your own semantics if the hotspot is interactive.
-
-## Anchors
-
-`at` is a world-space `Vec3`. String anchors like `"vertex:42"` are not
-implemented — compute the coordinate from your polygon data and pass it.
-
-## Visibility
-
-A hotspot whose projected cell is not visible is hidden with `display: "none"`,
-staged and applied in the same single write as the rest of the frame — not faded
-via opacity. Animate the element yourself if you want a transition.
+`setAt` preserves the element and its listeners. Only registered hotspots add DOM nodes; the mesh remains one text grid. `scene.destroy()` removes the hit layer.

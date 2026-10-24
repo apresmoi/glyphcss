@@ -53,6 +53,8 @@ export interface Tunables {
   density: number;
   lineHeight: number;
   fontSize?: number;
+  /** Fraction of the viewport reserved for the fitted bounding sphere. */
+  fitFill?: number;
   geometry: GeometryName;
   renderMode?: "wireframe" | "solid" | "ink";
   /** Turntable spin; docs demos toggle it live from their controls. */
@@ -68,6 +70,7 @@ export interface Tunables {
    *  colour-font encoding). The atlas palette is not a tunable: `createGlyphScene`
    *  derives and pools it internally from the real cell buffers. */
   colorEncoding?: "spans" | "atlas";
+  colorTolerance?: number;
   useColors?: boolean;
   smoothShading?: boolean;
   creaseAngle?: number;

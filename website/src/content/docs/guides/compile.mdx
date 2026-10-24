@@ -1,347 +1,80 @@
 ---
 title: Compiling to Static
-description: Render meshes to static ASCII at build time — Vite plugin, CLI, Node API, and SSR components.
+description: Bake 3D ASCII scenes at build time with compileScene, the Vite plugin, CLI, or SSR bindings; choose static frames or interactive exports.
 ---
 
-glyphcss's renderer is **pure**: `rasterize(scene) → string` takes geometry +
-camera + grid and returns the `<pre>` text — no DOM, no WebGL. So a scene can be
-rendered **at build time, on a server, or in a worker**, not just in the browser.
-Because the render *is text*, it inlines straight into HTML with **zero runtime**.
+import { GlyphDemo } from '../../../components/GlyphDemo';
 
-There are two flavors:
+<GlyphDemo hotspot={false} client:visible id="compile-demo" geometry="cuboctahedron" controls='["renderMode"]' defaults='{"renderMode":"solid","colorEncoding":"spans"}' />
 
-- **Static** — a frozen `<pre>` of ASCII. No JavaScript ships at all.
-- **Interactive** — a self-contained snippet that ships only the control you
-  declared (orbit / zoom / pan / fpv) plus a decimated mesh.
+Choose a mode and orbit to frame the object. The demo is interactive; `compileScene` freezes a scene into HTML with no renderer JavaScript. Its inputs are polygons, camera, and render options.
 
-## Static compile
-
-Everything is built on one pure function, `compileScene`, which reproduces
-`createGlyphScene`'s exact render (same defaults) without a DOM:
+## Bake a frame
 
 ```ts
-import { compileScene } from "glyphcss";
+import { compileScene, createGlyphCamera } from "glyphcss";
+import { cubePolygons } from "@glyphcss/core";
 
-const { html, inner, cols, rows } = compileScene({
-  polygons,            // a Polygon[]
-  cols: 80, rows: 24,  // library defaults
-  // camera, mode, glyphPalette, useColors, lights… (same options as createGlyphScene)
+const { html } = compileScene({
+  polygons: cubePolygons({ center: [0, 0, 0], size: 100 }),
+  camera: createGlyphCamera({ rotX: 65, rotY: 45, zoom: 1 }),
+  mode: "solid", cols: 80, rows: 24,
 });
-// html === '<pre class="glyph-output">…ascii…</pre>'
 ```
 
-The output is **byte-identical to the runtime render** for the same inputs.
+Insert `html` into your page. `inner` contains the `<pre>` contents; `cols` and `rows` describe the grid. Match camera, grid, lighting, and material inputs when comparing a bake to a live scene.
 
-### Vite plugin
+## Choose a build integration
 
-The `@glyphcss/compile` package ships a Vite plugin that compiles a mesh import
-to its baked `<pre>` **at build time**:
+| Pipeline | Entry point | Result |
+|---|---|---|
+| Node / Astro frontmatter | `compileFile(path, options)` from `@glyphcss/compile` | Loads a mesh and returns compiled HTML |
+| Vite | `glyphcssCompile()` from `@glyphcss/compile/vite` | Compiles `?glyph` imports at build time |
+| React / Vue SSR | `GlyphSceneStatic` from the binding | Renders polygons into a `<pre>` |
+| Any build tool | `npx @glyphcss/compile` | Writes text, ANSI, or HTML |
 
 ```ts
-// vite.config.ts
 import { glyphcssCompile } from "@glyphcss/compile/vite";
-
 export default { plugins: [glyphcssCompile()] };
+// In application code, after registering the plugin:
+import model from "./model.glb?glyph&autoCenter=1&rotX=60&cols=80&rows=30";
 ```
 
-```ts
-import dog from "./dog.glb?glyph&autoCenter=1&rotX=60&rotY=45&cols=80&rows=30";
+Astro accepts the plugin under `vite.plugins`; use `<Fragment set:html={model} />` to insert the imported string. Alternatively, call `compileFile` directly in frontmatter with an absolute filesystem path.
 
-document.querySelector("#app")!.innerHTML = dog; // the <pre> string — no runtime
-```
+`GlyphSceneStatic` is zero-runtime only when rendered on the server or at build time without hydration. In a client-rendered app it still runs the compiler in the browser; use the Vite plugin for a baked string.
 
-Query params map to the [options](#options) below. Works in any Vite pipeline —
-Astro, vanilla Vite, or Vite-React (import the string and inject it).
-
-### In Astro
-
-Astro is built on Vite, so the plugin works once you register it:
-
-```js
-// astro.config.mjs
-import { defineConfig } from "astro/config";
-import { glyphcssCompile } from "@glyphcss/compile/vite";
-
-export default defineConfig({ vite: { plugins: [glyphcssCompile()] } });
-```
-
-```astro
----
-import dog from "../models/dog.glb?glyph&autoCenter=1&rotX=60";
----
-<Fragment set:html={dog} />
-```
-
-But the most idiomatic Astro path needs **no plugin at all** — Astro frontmatter
-runs in Node at build, so `compileFile` works there directly:
-
-```astro
----
-import { compileFile } from "@glyphcss/compile";
-import { fileURLToPath } from "node:url";
-
-const { html } = await compileFile(
-  fileURLToPath(new URL("../models/dog.glb", import.meta.url)),
-  { autoCenter: true, rotX: 60, rotY: 45 },
-);
----
-<Fragment set:html={html} />
-```
-
-Both run at build and emit the `<pre>` into the page HTML with **zero JS** — the
-Astro equivalent of `GlyphSceneStatic`. A dedicated Astro integration isn't
-needed; it would only add sugar (auto-registering the plugin and a typed
-`<GlyphScene src="…" />` component).
-
-### CLI
-
-The universal escape hatch — works in any pipeline (Hugo, Eleventy, CI, a Makefile):
-
-Install it (`npm i -g @glyphcss/compile` → the `glyphcss` command, or `npx
-@glyphcss/compile …`), then:
+## CLI
 
 ```sh
-glyphcss cube --auto-center              # a primitive shape → color ASCII
-glyphcss dog.glb --auto-center           # a mesh file → ANSI color in the terminal
-glyphcss --polygons-json '[{"vertices":[[0,0,0],[2,0,0],[1,2,0]],"color":"#f00"}]'
-glyphcss dog.glb -f full -o dog.html     # full HTML document
+npx @glyphcss/compile cube --auto-center --format full --out cube.html
 ```
 
-**Input** is a mesh file (`.obj/.glb/.gltf/.vox/.stl`), a **primitive shape**
-name (`cube`, `sphere`, `icosahedron`, `torus`, `cone`, … — 44 shapes), or
-**custom polygons** (`--polygons FILE.json` / `--polygons-json '…'`).
+Inputs: a geometry name, `.obj` / `.glb` / `.gltf` / `.vox` / `.stl`, `--polygons FILE.json`, or `--polygons-json`. Formats: `ansi`, `text`, `html`, `full`. Defaults: terminal → ANSI; file → HTML; pipe → text. Omit grid dimensions to auto-fit; specify one to fit that axis.
 
-Output **`-f, --format`** picks the encoding: `ansi` (truecolor terminal), `text`
-(plain), `html` (a `<pre>`), or `full` (HTML doc). The default depends on the
-destination — **terminal → ansi**, `-o` file → html, piped → text. With no
-`--cols`/`--rows` it **auto-fits** the grid + zoom to the content, cropped tight
-(give just one and the other adapts to show the whole model).
+## Options and limits
 
-### Use it from a coding agent
-
-glyphcss ships a **skill** so Claude Code, Cursor, Codex, and other AI coding
-agents can drive this CLI — ask *"render a cube in the terminal"* and the agent
-runs `glyphcss cube --auto-center`. See **[Coding agents](/guides/coding-agents/)**
-for setup.
-
-### Node API
-
-```ts
-import { compileFile, loadMeshFromFile } from "@glyphcss/compile";
-
-const { html, cols, rows } = await compileFile("dog.glb", { autoCenter: true });
-```
-
-`compileFile` loads the mesh from disk (reusing the library's `loadMesh` — format
-dispatch, sibling `.mtl`, optimization) and hands it to `compileScene`.
-
-### SSR / SSG components
-
-React and Vue both export `GlyphSceneStatic`, which calls `compileScene` at render
-time and outputs the `<pre>`:
-
-```tsx
-import { GlyphSceneStatic } from "@glyphcss/react"; // or @glyphcss/vue
-
-<GlyphSceneStatic polygons={polygons} cols={80} rows={24} autoCenter rotX={60} rotY={45} />
-```
-
-**Where it renders decides whether it's static.** Because `compileScene` runs at
-render time, you only get a zero-runtime static `<pre>` when the component is
-rendered **at build or on the server**:
-
-- ✅ **SSG / SSR** — an Astro island *without* a `client:` directive, a Next.js
-  Server Component (or `getStaticProps` + `renderToString`), `vite-ssg`, Gatsby,
-  Remix, `renderToStaticMarkup`. The `<pre>` is baked into the HTML and, if not
-  hydrated, **no glyphcss JS ships.**
-- ❌ **Plain client-side React** (a default CRA / Vite `npm run build`) renders in
-  the browser — `compileScene` executes client-side and glyphcss is in the bundle.
-  You still get the `<pre>` with no interactive machinery, but it isn't
-  "compiled to static." For that, use the [Vite plugin](#vite-plugin) instead,
-  which bakes the string at build in *any* Vite app.
-
-Two caveats for true static output: the `polygons` must be available where it
-renders (load them at build with `loadMeshFromFile` and pass them in — loading via
-`loadMesh` in the browser reintroduces a runtime), and the island must not be
-hydrated. For an interactive scene, use [`GlyphScene`](/components/glyph-scene).
-
-### Options
-
-Defaults are the **library** defaults (`createGlyphScene`). A loaded mesh is not
-recentered or auto-fit unless you ask — pass `autoCenter` + a camera to frame it.
-
-| Option | Query / CLI flag | Default |
-|---|---|---|
-| Camera angle | `rotX` `rotY` / `--rot-x` `--rot-y` | 65 / 45 |
-| Zoom | `zoom` / `--zoom` | 0.65 |
-| Projection | `projection=orthographic` / `--ortho` | perspective |
-| Grid | `cols` `rows` `cellAspect` / `--cols` … | 80 / 24 / 2.0 |
-| Render mode | `mode` / `--mode` | solid |
-| Palette | `palette` / `--palette` | default |
-| Colors | `colors=0` / `--no-colors` | on |
-| Recenter mesh | `autoCenter=1` / `--auto-center` | off |
-| Mesh optimize | `meshResolution` / `--mesh-resolution` | lossy |
-| Smooth shading | `smoothShading` `creaseAngle` / `--smooth` | off / 60 |
-| Back faces | `doubleSided` / `--double-sided` | culled |
-| Supersample | `supersample` / `--supersample` | 1 |
-| Semantic output | `glyphOutput` / `--glyph-output` (with `sceneManifest` + `dictionary`) | visible |
-
-`charMode`, `hiddenLines`, `solidWeightRamp`, and `colorTolerance` are pure
-functions of geometry + camera, so a static bake reproduces them exactly.
-`colorTolerance` is the odd one out mechanically — it operates on the
-already-rasterized cell grid as a post-hoc span merge, while the other three
-change rasterization itself — but all four are equally reproducible at build
-time. `compileScene` and `GlyphSceneStatic` (React + Vue) accept all four.
-`@glyphcss/compile`'s CLI, Vite plugin and `compileFile` do **not** accept
-them yet; call `compileScene` directly if you need them in those pipelines.
-`buildGlyphFramesExport`, `buildGlyphInteractiveExport`, and
-`buildGlyphFieldSynthStaticExport` (`@glyphcss/effects`) accept none of the
-four either — a `colorTolerance` value set through the `/synth` page's UI (it
-persists to the URL) is silently dropped by that page's CodePen export.
-
-`wireframeJunctions` and per-mesh `density`/`transparent` are **runtime-only**
-in every path — the static bake takes a flat polygon list and cannot represent
-per-mesh detail layers.
-
-> **Textures:** per-cell texture sampling needs browser image decoding, so the
-> static compile renders from material / vertex colors.
-
-## Interactive export
-
-The static path produces a frozen frame. To ship interaction, declare which
-interactions you want and `buildGlyphInteractiveExport` (pure, browser-safe)
-produces a self-contained snippet — glyphcss from a CDN + the mesh inlined:
-
-```ts
-import { buildGlyphInteractiveExport, glyphCodepenPrefill } from "glyphcss";
-
-const { html, pen, polygonCount } = buildGlyphInteractiveExport(polygons, {
-  interactions: ["orbit", "zoom"],
-  autoCenter: true,
-});
-// pen → { html, css, js } ready for a CodePen prefill (glyphCodepenPrefill)
-```
-
-An optional `effect: { id, params, blend?, timeScale? }` mounts a live **stock**
-`@glyphcss/effects` layer in the snippet: it adds a second CDN import, resolves
-the effect by id at runtime, and — when `timeScale > 0` — appends a small
-`requestAnimationFrame` loop driving `params.time`. Only stock effects work here;
-a custom `defineGlyphEffect` cannot cross the CDN boundary. `glyphcss` itself
-never imports `@glyphcss/effects`, so that dependency only points one way.
-
-The **capability manifest** (`interactions`) drives two things:
-
-1. **Runtime** — only the declared control is imported, so the snippet
-   tree-shakes. An orbit-only export ships less than an fpv one.
-2. **Mesh** — [`decimatePolygons`](/api/headless) simplifies the geometry to a
-   budget tied to the interaction (coarse for orbit; finer when zoom / fpv let
-   the camera approach). The ASCII grid is coarse, so sub-cell geometry is
-   invisible anyway.
-
-| `interactions` | Ships |
+| Option | Default / use |
 |---|---|
-| `[]` | static scene, no control |
-| `["orbit"]` | orbit control, coarse mesh |
-| `["orbit","zoom"]` | + wheel zoom, finer mesh |
-| `["pan","zoom"]` | map controls |
-| `["fpv"]` | first-person controls, finest mesh |
+| `mode`, `glyphPalette`, `useColors` | `"solid"`, `"default"`, `true` |
+| `cols`, `rows`, `cellAspect` | `80`, `24`, `2` |
+| `autoCenter` | `false`; recenter loaded geometry explicitly |
+| `smoothShading`, `creaseAngle` | `false`, `60` degrees |
+| `doubleSided`, `supersample` | `false`, `1` |
 
-The CLI exposes the same via `--interactions orbit,zoom`.
+- `compileScene` / `GlyphSceneStatic` also accept `charMode`, `hiddenLines`, `solidWeightRamp`, and `colorTolerance`; CLI, Vite, and `compileFile` do not.
+- `wireframeJunctions` and per-mesh detail layers are runtime-only. Static compilation cannot reproduce per-mesh density or transparency.
+- File compilation uses material/vertex colors; browser-decoded texture images are unavailable. `compileScene` can accept procedural `textureSamplers`.
+- [Atlas output](/guides/color-encoding/#static-and-compiled-output) requires an explicit palette and font CSS.
 
-### Static encoding
+## Export motion
 
-When emitting a fully static `<pre>`, `encodeStaticGlyphHtml(inner, mode)` chooses
-how colors and whitespace are encoded — the best choice is model-dependent:
-
-| Mode | What it does |
+| Function | Ships / limits |
 |---|---|
-| `classes` *(default)* | dedupes colors into `.cN{…}` rules + class spans, trims trailing spaces — smallest for typical dense, many-color renders |
-| `grid` | CSS-grid-places each run by column/row — no literal spaces in the markup; wins for sparse renders with big gaps |
-| `inline` | one `style="color:…"` per run — simplest |
+| `buildGlyphInteractiveExport` (`glyphcss`) | Mesh + runtime; `interactions` selects orbit, zoom, pan, or FPV; optional stock `effect` |
+| `buildGlyphFramesExport` (`glyphcss`) | Baked one-axis rotation; fixed resolution, payload grows with `frameCount` |
+| `buildGlyphFieldSynthStaticExport` (`@glyphcss/effects`) | Field-synth animation over fixed geometry/camera, without runtime imports |
 
-## Baked frames (rotate, no mesh)
+Only field synth has an effect-only static export. Check `isGlyphFieldSynthStaticExportSupported(params)`; volumetric, carve, and xray patches need interactive export. Custom effects and `program` are unsupported by these effect export paths.
 
-For orbit-class motion you can do better than shipping a mesh + runtime: pre-bake
-a turntable of frames and cycle them with **pure CSS** — no mesh, no glyphcss, no
-JS at all.
-
-```ts
-import { buildGlyphFramesExport } from "glyphcss";
-
-const { html, pen } = buildGlyphFramesExport(polygons, {
-  frameCount: 36,       // 10° steps over 360°
-  autoCenter: true, rotX: 65,
-  cols: 120, rows: 48,  // fixed grid; frames stack into one <pre>
-});
-// pen.css holds a `@keyframes … steps(36)` loop; pen.js is empty
-```
-
-Each frame is a faithful `compileScene` render (colors baked per face for textured
-meshes). The gallery's CodePen export exposes this as **Static → Rotate**.
-
-Trade-offs: discrete angles (smoothness ∝ `frameCount`), fixed resolution, and
-payload = `frameCount × frame`. It only covers orbit (1 axis) — pan / fpv have too
-many camera states to bake, so those still use the [interactive](#interactive-export)
-mesh + runtime path.
-
-## Effect-only static export (field synth)
-
-For a scene whose camera and mesh are fixed and where only a **field-synth**
-texture animates, `buildGlyphFieldSynthStaticExport` bakes the static base grid
-plus each covered cell's resolved domain coordinate once, then ships a tiny
-hand-written field-synth evaluator that recomputes the pattern every frame —
-**zero imports, zero CDN, no `glyphcss` at runtime**.
-
-```ts
-import { buildGlyphFieldSynthStaticExport } from "@glyphcss/effects";
-
-const { html, pen } = buildGlyphFieldSynthStaticExport(polygons, {
-  params,          // the live field-synth patch
-  blend,           // the layer's REAL blend, not the definition's defaultBlend
-  loopSeconds: 8,
-  cols: 120,
-  rows: 40,
-});
-```
-
-Payload is fixed regardless of loop length and the motion is continuously
-smooth — unlike a frame roll, whose payload grows with `frameCount`. Two bakes
-shrink it further for the common flat-surface case: when every covered cell's
-domain coordinate fits an affine function of `(col, row)`, the per-cell
-coordinate table (most of the payload) collapses to six fitted scalars; and
-when the effect covers every cell with `blend: "replace"` at opacity 1, the
-base grid is skipped too. A curved or partially covered surface keeps the full
-table.
-
-Field synth only: another effect id would need its own exported coordinate
-resolver plus a hand-written port of its per-cell math, since there is no way to
-ship an arbitrary `GlyphEffectProgram.evaluate()` without shipping the effect
-runtime with it.
-
-This exporter ports field synth's 2D machinery — layers, `duty`, `phase`,
-per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and the
-[SDF fields and `step` wave](/guides/effects#sdf-fields-gyroid-menger-sierpinski)
-(`gyroid`/`menger`/`sierpinski`, at real-renderer exact parity) — but rejects
-the [volumetric branch and carve/xray](/guides/effects#volumetric-fields-space-object)
-explicitly (`space: "object"`, `render: "carve"`/`"xray"`, or an active voice
-using `linearZ`/a nonzero `originWN`): a per-cell-per-frame march is a
-different export design this affine-fit/coordinate-table bake can't fake. It
-also rejects a `program` option
-([program-as-data](/guides/effects#program-builder-and-program-as-data)) up
-front, before the flat-param merge/bake — an unbounded field has no schema
-this bake can serialize. The `originWN` reject is waived for an active SDF
-voice, since that family reads `originW` even in the 2D branch. Check
-`isGlyphFieldSynthStaticExportSupported(params)` before calling; a
-volumetric or carve/xray patch (with no `program`) exports through the
-[interactive export](#interactive-export) instead, which ships and evaluates
-the live effect runtime rather than a baked approximation.
-
-
-## Mermaid diagrams and charts
-
-`glyphcss diagram example.mmd --target chat --width 72` accepts every supported
-Mermaid diagram or chart header. It dispatches to the public diagram, sequence,
-lane or chart pipeline and keeps source adaptation notes on stderr. See the
-[supported syntax and workbench examples](/diagrams/cli/).
-`glyphcss chart spec.json` reads JSON chart specs, including surfaces with `--3d`.
-See the [chart CLI guide](/charts/cli/) and [Charts overview](/charts/overview/).
+For text diagrams and charts, see the [diagram CLI](/diagrams/cli/) and [chart CLI](/charts/cli/).

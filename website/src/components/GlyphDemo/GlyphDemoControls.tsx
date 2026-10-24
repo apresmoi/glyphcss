@@ -5,10 +5,11 @@ import { BracketSelect } from "../BracketSelect";
 import { ControlSection } from "../ControlSection";
 import { ReadoutInput } from "../EditableReadout";
 import { InstrumentSectionHeading } from "../InstrumentWorkbench";
+import { ChoiceButton } from "../IconToggle";
 import { SliderRow, SliderTrack } from "../SliderRow";
 import styles from "./GlyphDemo.module.css";
 
-type NumberKey = "zoom" | "stretch" | "distance" | "rotX" | "duration" | "density" | "lineHeight";
+type NumberKey = "zoom" | "stretch" | "distance" | "rotX" | "duration" | "density" | "lineHeight" | "colorTolerance";
 const numbers: {
   control: string;
   key: NumberKey;
@@ -25,6 +26,7 @@ const numbers: {
   { control: "duration", key: "duration", label: "Period (s)", min: 1, max: 12, step: 0.25 },
   { control: "density", key: "density", label: "Density", min: 0.5, max: 4, step: 0.1 },
   { control: "lineHeight", key: "lineHeight", label: "Line height", min: 0.5, max: 1.2, step: 0.01 },
+  { control: "colorTolerance", key: "colorTolerance", label: "Color tolerance", min: 0, max: 765, step: 1 },
 ];
 function controlList(value?: string): string[] {
   try {
@@ -52,15 +54,16 @@ export function GlyphDemoControls({
 }) {
   const keys = controlList(controls);
   const hasGeometry = !source.mesh && !source.polygonsUrl && keys.includes("geometry");
-  const renderRows = numbers.filter((row) => keys.includes(row.control) && ["density", "lineHeight"].includes(row.key));
+  const renderKeys = ["density", "lineHeight", "colorTolerance"];
+  const renderRows = numbers.filter((row) => keys.includes(row.control) && renderKeys.includes(row.key));
   const cameraRows = numbers.filter(
     (row) =>
       keys.includes(row.control) &&
-      !["density", "lineHeight"].includes(row.key) &&
+      !renderKeys.includes(row.key) &&
       (row.key !== "duration" || (tunables.autoRotate ?? autoRotate)),
   );
   const renderNumber = (row: (typeof numbers)[number]) => {
-    const value = tunables[row.key];
+    const value = tunables[row.key] ?? 0;
     const position = row.log
       ? Math.log(value / row.min) / Math.log(row.max / row.min)
       : (value - row.min) / (row.max - row.min);
@@ -104,7 +107,13 @@ export function GlyphDemoControls({
   };
   return (
     <fieldset className={styles.controls} disabled={!ready} aria-label="Scene controls">
-      {(hasGeometry || source.mesh || source.polygonsUrl || keys.includes("renderMode") || renderRows.length > 0) && (
+      {(hasGeometry ||
+        source.mesh ||
+        source.polygonsUrl ||
+        ["renderMode", "charMode", "colorEncoding", "hiddenLines", "wireframeJunctions"].some((key) =>
+          keys.includes(key),
+        ) ||
+        renderRows.length > 0) && (
         <ControlSection className={styles.section}>
           <InstrumentSectionHeading>Rendering</InstrumentSectionHeading>
           {(source.polygonsUrl || source.mesh) && (
@@ -138,6 +147,69 @@ export function GlyphDemoControls({
                 <option value="solid">Solid</option>
                 <option value="ink">Ink</option>
               </BracketSelect>
+            </label>
+          )}
+          {keys.includes("colorEncoding") && (
+            <div className={styles.selectRow} role="group" aria-label="Color encoding">
+              <span>Color encoding</span>
+              {(["spans", "atlas"] as const).map((value) => (
+                <ChoiceButton
+                  key={value}
+                  aria-pressed={(tunables.colorEncoding ?? "spans") === value}
+                  onClick={() => onChange({ colorEncoding: value })}
+                >
+                  {value === "spans" ? "Spans" : "Atlas"}
+                </ChoiceButton>
+              ))}
+            </div>
+          )}
+          {keys.includes("charMode") && (
+            <label className={styles.selectRow}>
+              <span>Characters</span>
+              <BracketSelect
+                aria-label="Character encoding"
+                value={tunables.charMode ?? "ascii"}
+                onChange={(event) => onChange({ charMode: event.target.value as Tunables["charMode"] })}
+              >
+                <option value="ascii">ASCII</option>
+                <option
+                  value="braille"
+                  disabled={(tunables.renderMode ?? "wireframe") !== "wireframe"}
+                  title="Wireframe only"
+                >
+                  Braille
+                </option>
+                <option value="halfblock" disabled={tunables.renderMode !== "solid"} title="Solid only">
+                  Halfblock
+                </option>
+                <option value="quadrant" disabled={tunables.renderMode !== "solid"} title="Solid only">
+                  Quadrant
+                </option>
+              </BracketSelect>
+            </label>
+          )}
+          {keys.includes("hiddenLines") && (
+            <label className={styles.selectRow}>
+              <span>Hidden lines</span>
+              <BracketSelect
+                aria-label="Hidden lines"
+                value={tunables.hiddenLines ?? "show"}
+                onChange={(event) => onChange({ hiddenLines: event.target.value as Tunables["hiddenLines"] })}
+              >
+                <option value="show">Show</option>
+                <option value="hide">Hide</option>
+              </BracketSelect>
+            </label>
+          )}
+          {keys.includes("wireframeJunctions") && (
+            <label className={`${styles.selectRow} ${styles.toggle}`}>
+              <span>Box junctions</span>
+              <input
+                type="checkbox"
+                aria-label="Box junctions"
+                checked={tunables.wireframeJunctions ?? false}
+                onChange={(event) => onChange({ wireframeJunctions: event.target.checked })}
+              />
             </label>
           )}
           {renderRows.map(renderNumber)}

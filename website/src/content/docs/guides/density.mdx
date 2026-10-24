@@ -1,372 +1,64 @@
 ---
 title: Density & Detail
-description: Render some meshes at higher glyph resolution than the rest of the scene, and control which meshes occlude.
+description: Tune ASCII cell size and per-mesh resolution, choose transparent layers, and control occlusion without changing the object's on-screen size.
 ---
 
-import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { GlyphDemo } from '../../../components/GlyphDemo';
 
-By default every mesh in a scene shares **one** character grid — the same glyph
-resolution everywhere. That keeps the whole scene a single `<pre>` write per
-frame. But sometimes you want a *hero* mesh to carry far more detail than the
-backdrop. glyphcss lets you bump the **density** of individual meshes, and choose
-whether a mesh occludes the rest.
+<GlyphDemo hotspot={false} client:visible id="density-demo" geometry="icosahedron" controls='["density"]' defaults='{"renderMode":"solid","density":1,"colorEncoding":"spans"}' />
 
-## How density is defined
+Raise density to shrink the cells while keeping the object the same size. This control changes the whole scene's font size; open Code to see the CSS setting. Per-mesh `density` increases detail for individual objects instead.
 
-The render is a `cols × rows` grid; **density is how many of those cells land on
-your model** — more cells = finer detail. Cell size comes from the font:
-
-```
-cell width  ≈ font-size × monospace-advance    (≈ 0.6)
-cell height =  font-size × line-height
-```
-
-So a smaller cell ⇒ more cells ⇒ more glyphs on the model. `density` is just the
-ergonomic form of that: **`density: 3` makes a mesh's cell `1/3` the scene's, so
-it renders at 3× the resolution** — isotropically, at the same on-screen size.
-
-## Per-mesh `density`
-
-Set `density` on a mesh and it **pops out into its own silhouette-fitted,
-translated `<pre>`** rendered at that resolution. Everything without `density`
-stays in the shared base grid. Omitted (or `1`) = shared grid.
-
-<Tabs syncKey="fw">
-  <TabItem label="React">
+## Per-mesh resolution
 
 ```tsx
-import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/react";
-
-export function Demo() {
-  return (
-    <GlyphCamera rotX={62} rotY={30}>
-      <GlyphScene mode="solid" autoSize>
-        <GlyphOrbitControls />
-        <GlyphMesh geometry="cube" position={[-3, 0, 0]} />        {/* shared grid */}
-        <GlyphMesh geometry="icosahedron" density={4} />          {/* 4× detail */}
-      </GlyphScene>
-    </GlyphCamera>
-  );
-}
+<GlyphMesh geometry="cube" />
+<GlyphMesh geometry="icosahedron" density={3} />
 ```
 
-  </TabItem>
-  <TabItem label="Vue">
+Place these inside your `GlyphScene`. The second mesh uses cells one-third the size in its own `<pre>`; omitted density or `1` uses the shared grid. Vanilla: `scene.add(polygons, { density: 3 })`. Vue uses `:density="3"`; HTML uses `density="3"`.
 
-```vue
-<template>
-  <GlyphCamera :rot-x="62" :rot-y="30">
-    <GlyphScene mode="solid" auto-size>
-      <GlyphOrbitControls />
-      <GlyphMesh geometry="cube" :position="[-3, 0, 0]" />
-      <GlyphMesh geometry="icosahedron" :density="4" />
-    </GlyphScene>
-  </GlyphCamera>
-</template>
-
-<script setup lang="ts">
-import { GlyphCamera, GlyphScene, GlyphMesh, GlyphOrbitControls } from "@glyphcss/vue";
-</script>
-```
-
-  </TabItem>
-  <TabItem label="Vanilla JS">
-
-```ts
-import { createGlyphCamera, createGlyphScene, resolveGeometry } from "glyphcss";
-
-const camera = createGlyphCamera({ rotX: 62, rotY: 30 });
-const scene = createGlyphScene(document.querySelector("#scene")!, { camera, mode: "solid", autoSize: true });
-
-scene.add(resolveGeometry("cube", { size: 1 }), { position: [-3, 0, 0] }); // shared grid
-scene.add(resolveGeometry("icosahedron", { size: 1 }), { density: 4 });    // 4× detail
-```
-
-  </TabItem>
-  <TabItem label="HTML">
-
-```html
-<glyph-camera rot-x="62" rot-y="30">
-  <glyph-scene mode="solid" auto-size>
-    <glyph-orbit-controls></glyph-orbit-controls>
-    <glyph-mesh geometry="cube" position="-3,0,0"></glyph-mesh>
-    <glyph-mesh geometry="icosahedron" density="4"></glyph-mesh>
-  </glyph-scene>
-</glyph-camera>
-```
-
-  </TabItem>
-</Tabs>
-
-## Overriding with `fontSize` / `lineHeight`
-
-`density` is the recommended knob, but you can drop to the raw cell metrics when
-you want **anisotropic** cells (e.g. denser rows than columns). `fontSize` and
-`lineHeight` set the mesh's `<pre>` cell directly and **override `density`** when
-both are present.
-
-- `fontSize` — overall cell scale (a number is px, or any CSS length string). Both axes.
-- `lineHeight` — cell *height* only → vertical density and cell aspect ratio.
-
-<Tabs syncKey="fw">
-  <TabItem label="React">
-
-```tsx
-{/* density wins normally; fontSize/lineHeight override it */}
-<GlyphMesh geometry="icosahedron" fontSize={4} />              {/* 4px cell */}
-<GlyphMesh geometry="icosahedron" fontSize="5px" lineHeight={0.6} /> {/* taller-res, anisotropic */}
-```
-
-  </TabItem>
-  <TabItem label="Vue">
-
-```vue
-<GlyphMesh geometry="icosahedron" :font-size="4" />
-<GlyphMesh geometry="icosahedron" font-size="5px" :line-height="0.6" />
-```
-
-  </TabItem>
-  <TabItem label="Vanilla JS">
-
-```ts
-scene.add(polys, { fontSize: 4 });
-scene.add(polys, { fontSize: "5px", lineHeight: 0.6 });
-```
-
-  </TabItem>
-  <TabItem label="HTML">
-
-```html
-<glyph-mesh geometry="icosahedron" font-size="4"></glyph-mesh>
-<glyph-mesh geometry="icosahedron" font-size="5px" line-height="0.6"></glyph-mesh>
-```
-
-  </TabItem>
-</Tabs>
-
-## Transparency & occlusion
-
-A mesh in the shared grid always occludes (one depth buffer). Once meshes live in
-their **own** `<pre>` layers, glyphcss resolves which one wins per cell with a
-shared camera-depth pass — opaque meshes correctly occlude each other across
-layers (works with colored output, and costs nothing when no detail mesh exists).
-
-Set **`transparent: true`** to make a mesh see-through — it neither occludes
-others nor is occluded (an x-ray / blueprint look). Because that requires its own
-layer, `transparent` also pops the mesh out of the shared grid. Default is
-`false` (opaque, occludes).
-
-<Tabs syncKey="fw">
-  <TabItem label="React">
-
-```tsx
-<GlyphMesh geometry="dodecahedron" density={3} />                 {/* opaque: occludes */}
-<GlyphMesh geometry="icosahedron" density={3} transparent />      {/* x-ray: shows through */}
-```
-
-  </TabItem>
-  <TabItem label="Vue">
-
-```vue
-<GlyphMesh geometry="dodecahedron" :density="3" />
-<GlyphMesh geometry="icosahedron" :density="3" transparent />
-```
-
-  </TabItem>
-  <TabItem label="Vanilla JS">
-
-```ts
-scene.add(dodeca, { density: 3 });                 // opaque
-scene.add(icosa,  { density: 3, transparent: true }); // x-ray
-```
-
-  </TabItem>
-  <TabItem label="HTML">
-
-```html
-<glyph-mesh geometry="dodecahedron" density="3"></glyph-mesh>
-<glyph-mesh geometry="icosahedron" density="3" transparent></glyph-mesh>
-```
-
-  </TabItem>
-</Tabs>
-
-## Per-mesh ramp, lighting and render mode
-
-Three more per-mesh options force a mesh into its own layer for the same
-structural reason `density` does — the shared grid is rasterized **in one pass**,
-so a mesh that wants its own ramp, its own ambient or its own render mode needs
-its own `<pre>`:
-
-- **`glyphPalette`** — this mesh shades from a different named palette than the
-  scene. Solid-mode ramps only; `charMode`, junctions and `solidWeightRamp` stay
-  scene-level. An unknown name falls back to the library default, exactly like
-  the scene-level option.
-- **`ambientIntensity`** — this mesh's layer shades under
-  `{ ...scene.ambientLight, intensity }`, so both its glyph choice and its texel
-  tint follow that value. The ambient **colour** and the key light stay
-  scene-level.
-- **`mode`** — this mesh rasterizes in its own render mode (`wireframe`,
-  `solid`, `voxel`, `ink`). A map is the motivating case: terrain reads as
-  `solid` while an overlay reads as `ink`. Unlike the two above, separation is
-  conditional — declaring the mode the scene is **already** rendering in keeps
-  the mesh in the shared grid, byte-identical and one pass, because a mode is a
-  small closed enum that can be compared exactly. The comparison is re-made
-  every render, so a `setOptions({ mode })` that matches lets the mesh rejoin
-  the base grid on the next frame.
-
-Set any one of them alone and the mesh renders in its own `<pre>` at the **base**
-cell size — no extra detail, just a separate pass. Each distinct mode is a full
-extra rasterizer pass, so reach for `mode` per layer, not per mesh.
-
-Occlusion is unchanged by `mode`: a mode-separated **opaque** mesh still claims
-its full footprint in the shared id-map, so an outline mode (`wireframe`, `ink`)
-blanks the base cells under its silhouette while painting only edges. Add
-`transparent` alongside it for the x-ray layering an outline over other geometry
-usually wants.
-
-<Tabs syncKey="fw">
-  <TabItem label="React">
-
-```tsx
-<GlyphMesh geometry="icosahedron" glyphPalette="dense" ambientIntensity={0.8} mode="ink" transparent />
-```
-
-  </TabItem>
-  <TabItem label="Vue">
-
-```vue
-<GlyphMesh geometry="icosahedron" glyph-palette="dense" :ambient-intensity="0.8" mode="ink" transparent />
-```
-
-  </TabItem>
-  <TabItem label="Vanilla JS">
-
-```ts
-scene.add(polys, { glyphPalette: "dense", ambientIntensity: 0.8, mode: "ink", transparent: true });
-```
-
-  </TabItem>
-  <TabItem label="HTML">
-
-```html
-<glyph-mesh geometry="icosahedron" glyph-palette="dense" ambient-intensity="0.8" mode="ink" transparent></glyph-mesh>
-```
-
-  </TabItem>
-</Tabs>
-
-## Shaping an opaque mesh's occlusion claim
-
-Cross-layer occlusion resolves per cell from a shared id-map, and by default a
-layer claims a cell where its nearest surface point-samples into it. Three
-per-mesh options shape that claim. All three apply to **opaque** detail meshes
-only (a `transparent` mesh opts out of occlusion entirely), and all three default
-to today's behaviour:
-
-| Option | Default | What it does |
+| Option | Default | Effect |
 |---|---|---|
-| `occlusionPriority` | `0` | Occlusion class. A higher class claims a cell over every lower one **regardless of depth**; depth only competes within a class. `1` is a foreground layer no scene geometry can occlude, a negative class is a background layer any mesh occludes. An unclaimed cell is claimable by any class |
-| `occlusionClaim` | `"alpha"` | Claim shape. `"alpha"` claims only the cells whose sampled texel is opaque, so a sprite's transparent margin stops blanking the layer beneath. `"geometry"` claims the whole triangle footprint — a solid plate under partial-alpha artwork |
-| `occlusionContourPx` | — | Coverage-aware claim: any output cell containing this mesh's ink claims, plus a margin in **screen px** stamped around that ink — the way to give fine artwork a clean ground. `0` is the tightest possible claim. Only converts base-layer or unclaimed cells — never steals from another detail mesh. The reduced map is still quantized to output cells, so the ground the layer beneath loses is too. Costs a finer id-map raster of the whole scene — see below |
+| `density` | `1` | Resolution multiplier at the same screen size |
+| `fontSize` | — | Explicit px number or CSS length; overrides density |
+| `lineHeight` | — | Explicit row height multiplier; overrides density for that metric |
+| `transparent` | `false` | See-through layer: neither occludes nor is occluded |
 
-`occlusionContourPx` re-rasters the id-map at 4× per axis, for **every** group in
-the scene, whenever any mesh carries the option — measured at 2.4–3.1× the plain
-id-map pass on a ~2,000-triangle scene, 7.5× at `supersample: 2`, and paid in
-full even while the contour mesh is off-screen. Reach for it when a mesh's
-alpha contour genuinely needs to drive the claim, not by default.
+Detail layers require browser layout and are unavailable in static compilation. They work with orthographic, perspective, and first-person cameras.
 
-The margin is a **screen** reach, not a count of cells, so it stays visually
-uniform on a cell that is taller than it is wide: at a 8×16px cell,
-`occlusionContourPx={16}` buys one output row and two output cols of clean
-ground on each side. Size it in cell heights — one cell height is a tight, clean
-margin. The reach caps at `6 / supersample` output cells, so margins beyond a
-few cells are out of range once supersampling is on.
+## Row spacing
 
-<Tabs syncKey="fw">
-  <TabItem label="React">
+<GlyphDemo hotspot={false} client:visible id="density-rows" geometry="icosahedron" controls='["lineHeight"]' defaults='{"renderMode":"solid","lineHeight":1,"colorEncoding":"spans"}' />
 
-```tsx
-{/* an overlay layer scene geometry can never cover */}
-<GlyphMesh polygons={overlay} density={2} occlusionPriority={1} />
-{/* a sprite that keeps a clean margin of ground around its ink */}
-<GlyphMesh polygons={sprite} density={2} occlusionContourPx={16} />
-```
+Line height changes vertical cell spacing. The camera projection uses the measured cell aspect, preserving the object's proportions.
 
-  </TabItem>
-  <TabItem label="Vue">
-
-```vue
-<GlyphMesh :polygons="overlay" :density="2" :occlusion-priority="1" />
-<GlyphMesh :polygons="sprite" :density="2" :occlusion-contour-px="16" />
-```
-
-  </TabItem>
-  <TabItem label="Vanilla JS">
+## Layer appearance
 
 ```ts
-scene.add(overlay, { density: 2, occlusionPriority: 1 });
-scene.add(sprite,  { density: 2, occlusionContourPx: 16, occlusionClaim: "alpha" });
+scene.add(polygons, { density: 2, mode: "ink", transparent: true });
 ```
 
-  </TabItem>
-  <TabItem label="HTML">
+| Per-mesh option | Effect |
+|---|---|
+| `glyphPalette` | Own solid ramp; unknown names use the default |
+| `ambientIntensity` | Own ambient intensity; ambient color and key light stay scene-wide |
+| `mode` | Own render mode; shares the base grid when it matches the scene |
 
-```html
-<glyph-mesh density="2" occlusion-priority="1"></glyph-mesh>
-<glyph-mesh density="2" occlusion-contour-px="16" occlusion-claim="alpha"></glyph-mesh>
-```
+These overrides create separate layers even at base resolution. Character encoding, junctions, and weight ramps remain scene options. Opaque outline layers claim their full surface footprint; add `transparent` for an outline over other geometry.
 
-  </TabItem>
-</Tabs>
+## Occlusion
 
-## Works in any camera — including first-person
+Opaque layers resolve depth together. Use these options only when a detail mesh needs a different claim:
 
-Detail meshes are rendered **in place** at higher resolution (real world
-positions, scaled zoom, an offset projection center), not faked with a transform.
-So detail + cross-layer occlusion stay correct under **every** camera:
+| Option | Default | Effect / limit |
+|---|---|---|
+| `occlusionPriority` | `0` | Higher values win regardless of depth; depth resolves equal priorities |
+| `occlusionClaim` | `"alpha"` | Claim opaque texels; `"geometry"` claims the full triangle |
+| `occlusionContourPx` | unset | Claim ink plus a screen-pixel margin; `0` is tightest |
 
-- **Orthographic** — the representative glyphcss camera (iso / diagrammatic scenes).
-- **Perspective** — foreshortening of detail meshes is correct as you orbit or zoom.
-- **First-person (FPV)** — you can **walk through a scene** (`createGlyphFirstPersonControls` / `<GlyphFirstPersonControls>`) and hero meshes stay sharp and correctly occlude as you move. Walking *into* a mesh is safe — the detail grid is clamped to the viewport, so getting close never blows up the render.
+`occlusionContourPx` does not steal another detail mesh's cells. It costs a 4×-per-axis coverage pass across the scene; the margin caps at `6 / supersample` output cells. Transparent layers skip occlusion entirely.
 
-No flags or special handling — set `density` (and optionally `transparent`) on a
-mesh and it behaves the same whether the scene is orbited, flown, or walked.
+## Keep interaction responsive
 
-## Reference
-
-| Option | Type | Default | Effect |
-|---|---|---|---|
-| `density` | `number` | `1` (shared grid) | Render this mesh at `density`× the scene resolution, in its own `<pre>`. |
-| `fontSize` | `number \| string` | — | Explicit cell size (px or CSS length). **Overrides `density`.** |
-| `lineHeight` | `number` | — | Explicit cell line-height (vertical density / aspect). **Overrides `density`.** |
-| `transparent` | `boolean` | `false` | See-through — doesn't occlude / isn't occluded. Pops the mesh into its own `<pre>`. |
-| `glyphPalette` | `string` | scene's | Per-mesh solid ramp. Pops the mesh into its own `<pre>` (the shared grid shades against one ramp). |
-| `ambientIntensity` | `number` | scene's | Per-mesh ambient intensity. Pops the mesh into its own `<pre>` (the shared grid is lit under one ambient). |
-| `mode` | `"wireframe" \| "solid" \| "voxel" \| "ink"` | scene's | Per-mesh render mode. Pops the mesh into its own `<pre>` **only when it differs** from the scene's mode (the shared grid is rasterized in one pass under one mode). |
-| `occlusionPriority` | `number` | `0` | Occlusion class — a higher class claims id-map cells regardless of depth. Opaque detail meshes only. |
-| `occlusionClaim` | `"alpha" \| "geometry"` | `"alpha"` | Claim only texel-opaque cells, or the full triangle footprint. Opaque detail meshes only. |
-| `occlusionContourPx` | `number` | — | Coverage-aware claim with a screen-px margin of clean ground around the ink. Never steals from another detail mesh. Costs a 4×-per-axis id-map raster. Opaque detail meshes only. |
-
-Precedence: explicit `fontSize`/`lineHeight` → `density` → shared grid.
-
-## Notes & limits
-
-- **Browser-only.** Detail layers measure the live cell size, so they need
-  layout — they don't apply during SSR / static rendering.
-- **Any camera** (ortho / perspective / FPV) — see the section above.
-- **Cost is where you'd expect.** Each detail mesh is one extra `<pre>` render
-  per frame; the cross-layer occlusion pass only runs when an opaque detail mesh
-  is present. Meshes left in the shared grid are unchanged. Use detail
-  sparingly — a few hero meshes over a low-res backdrop, not everything.
-- **Smooth dragging at high resolution.** A very small cell means many glyphs
-  to shade, stringify, and repaint every frame, and cost scales roughly
-  quadratically with density — dragging can stutter. Set
-  **`interactiveDownscale`** on the scene (e.g. `2`) to render coarser *while
-  a control is dragging* and snap back to full detail on release, at the same
-  on-screen size. Keep the render font ≥ ~6px, or lean on
-  `interactiveDownscale`, for fluid interaction.
-- **Static compile / export.** `compileScene`, `GlyphSceneStatic`, the CLI/Vite
-  plugin, and the interactive/CodePen export work from a flat polygon list, so
-  per-mesh detail layers aren't represented there. For a static whole-scene
-  resolution, scale the render font-size instead.
+Each detail mesh adds a `<pre>` and render pass. Doubling density roughly quadruples cells. Keep detail for a few objects; set scene `interactiveDownscale: 2` to lower resolution during gestures and restore detail on release. See [performance](/guides/performance/).

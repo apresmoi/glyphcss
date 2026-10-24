@@ -276,6 +276,25 @@
   white-space: nowrap;
   color: var(--gc-text-muted);
 }
+
+.root :global(.glyph-demo__hotspot-button) {
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  font: var(--gc-text-sm) / 1 var(--gc-font-ui);
+  color: var(--gc-text);
+  background: var(--gc-surface);
+  border: 1px dashed var(--gc-text-muted);
+  cursor: pointer;
+}
+.root :global(.glyph-demo__hotspot-button):hover,
+.root :global(.glyph-demo__hotspot-button):focus-visible,
+.root :global(.glyph-demo__hotspot-button)[aria-pressed="true"] {
+  color: var(--gc-accent);
+  border-color: var(--gc-accent);
+  outline: none;
+  text-decoration: underline;
+}
 @media (max-width: 768px) {
   .root :global(.glyph-demo__viewer)[data-layout="two-col"] {
     grid-template-columns: minmax(0, 1fr);

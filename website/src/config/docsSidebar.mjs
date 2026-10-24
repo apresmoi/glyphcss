@@ -21,6 +21,7 @@ export const docsSidebar = [
     items: [
       { label: "Loading Meshes", slug: "guides/meshes" },
       { label: "Creating Shapes", slug: "guides/creating-shapes" },
+      { label: "Text & Fonts", slug: "guides/text" },
       { label: "Hit Layer Interactivity", slug: "guides/hit-layer" },
       { label: "Performance", slug: "guides/performance" },
       { label: "Color Encoding", slug: "guides/color-encoding" },

@@ -43,3 +43,33 @@ it('carries a non-default character mode into every framework and omits the asci
     expect(snippet).not.toMatch(/char-?[mM]ode/);
   }
 });
+
+it('exports encoding, tolerance, junctions, and hidden lines in every binding', () => {
+  const snippets = demoSnippets({ ...DEFAULT_TUNABLES, colorEncoding: 'atlas', colorTolerance: 64, hiddenLines: 'hide', wireframeJunctions: true }, {});
+  expect(snippets.vanilla).toContain('colorEncoding: "atlas"');
+  expect(snippets.vanilla).toContain('colorTolerance: 64');
+  expect(snippets.vanilla).toContain('hiddenLines: "hide"');
+  expect(snippets.vanilla).toContain('wireframeJunctions: true');
+  expect(snippets.react).toContain('colorEncoding="atlas"');
+  expect(snippets.react).toContain('colorTolerance={64}');
+  expect(snippets.react).toContain('hiddenLines="hide"');
+  expect(snippets.react).toContain('wireframeJunctions={true}');
+  expect(snippets.vue).toContain('color-encoding="atlas"');
+  expect(snippets.vue).toContain(':color-tolerance="64"');
+  expect(snippets.vue).toContain('hidden-lines="hide"');
+  expect(snippets.vue).toContain(':wireframe-junctions="true"');
+});
+
+it('exports a selectable native hotspot button only for the hotspot example', () => {
+  const snippets = demoSnippets(DEFAULT_TUNABLES, { hotspot: true });
+  for (const snippet of Object.values(snippets)) {
+    expect(snippet).toContain('aria-pressed');
+    expect(snippet).toContain('Selected');
+    expect(snippet).toContain('Select anchor');
+    expect(snippet).not.toContain('alert(');
+  }
+  expect(snippets.vanilla).toContain('scene.addHotspot({ id: "anchor", at: [0, 0, 0], size: [14, 3] })');
+  expect(snippets.react).toContain('<GlyphHotspot id="anchor" at={[0, 0, 0]} size={[14, 3]}>');
+  expect(snippets.vue).toContain('<GlyphHotspot id="anchor" :at="[0, 0, 0]" :size="[14, 3]">');
+  for (const snippet of Object.values(demoSnippets(DEFAULT_TUNABLES, {}))) expect(snippet).not.toContain('Hotspot');
+});

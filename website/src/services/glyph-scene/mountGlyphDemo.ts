@@ -299,12 +299,8 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
       wireframeJunctions: tunables.wireframeJunctions ?? false,
       hiddenLines: tunables.hiddenLines ?? "show",
       solidWeightRamp: tunables.solidWeightRamp ? (getSolidWeightRamp() ?? undefined) : undefined,
-      // Feature-detected site default (see glyphColorEncodingDefault.ts).
-      // GlyphDemo instances have no colorEncoding UI control ("never
-      // user-tunable" — see `atlasReason` below), so this is the only
-      // place a demo picks up the site default; an explicit
-      // `defaults='{"colorEncoding":...}'` prop still wins via `tunables`.
       colorEncoding: tunables.colorEncoding ?? defaultGlyphColorEncoding(),
+      colorTolerance: tunables.colorTolerance ?? 0,
       useColors: tunables.useColors ?? true,
       smoothShading: tunables.smoothShading ?? false,
       creaseAngle: tunables.creaseAngle ?? 60,
@@ -582,7 +578,7 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
   // under-fills (a sphere lands at ~58% when targeting 82%). Projection scales
   // linearly with zoom, so we measure the cell extent at the current zoom and
   // scale to hit the target. Skipped for FPV / pinned-zoom demos.
-  function fitContentZoom(fill = 0.85): void {
+  function fitContentZoom(fill = tunables.fitFill ?? 0.85): void {
     if (hasExplicitZoom || controlState.dragMode === "fpv") return;
     const polys = geometry.polygons as Polygon[];
     if (!polys || polys.length === 0) return;
@@ -674,12 +670,36 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
   const hotspotLabels: Record<string, string> = { top: "vertex 0", side: "vertex 4" };
 
   let hotspotHandles: Array<{ id: string; handle: ReturnType<GlyphSceneHandle["addHotspot"]> }> = [];
+  let docsHotspotSelected = false;
 
   function rebuildHotspots(): void {
     for (const { handle } of hotspotHandles) handle.remove();
     hotspotHandles = [];
 
     if (!showHotspots) return;
+    if (demoEl.getAttribute("data-docs-hotspot") === "1") {
+      const handle = scene.addHotspot({ id: "anchor", at: [0, 0, 0], size: [14, 3] });
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "glyph-demo__hotspot-button";
+      const update = () => {
+        button.textContent = docsHotspotSelected ? "Selected" : "Select anchor";
+        button.setAttribute("aria-pressed", String(docsHotspotSelected));
+      };
+      button.addEventListener("pointerdown", (event) => event.stopPropagation(), { signal: events.signal });
+      button.addEventListener(
+        "click",
+        () => {
+          docsHotspotSelected = !docsHotspotSelected;
+          update();
+        },
+        { signal: events.signal },
+      );
+      update();
+      handle.el.append(button);
+      hotspotHandles.push({ id: "anchor", handle });
+      return;
+    }
     if (geometry.vertices.length === 0) return;
 
     const topHandle = scene.addHotspot({ id: "top", at: geometry.vertices[0]!, size: [3, 2] }, () =>
@@ -1341,6 +1361,9 @@ export function mountGlyphDemo(demoEl: HTMLElement, tuning?: DemoTuningObserver)
     if ("creaseAngle" in partial && partial.creaseAngle !== undefined) sceneOpts.creaseAngle = partial.creaseAngle;
     if ("colorEncoding" in partial && partial.colorEncoding !== undefined) {
       sceneOpts.colorEncoding = partial.colorEncoding;
+    }
+    if ("colorTolerance" in partial && partial.colorTolerance !== undefined) {
+      sceneOpts.colorTolerance = partial.colorTolerance;
     }
     if (Object.keys(sceneOpts).length > 0) scene.setOptions(sceneOpts);
 

@@ -14,6 +14,8 @@ export interface GlyphDemoProps {
   geometry?: "cuboctahedron" | "icosahedron" | "cube";
   /** URL of an OBJ / GLB / glTF / VOX mesh. Takes priority over `geometry`. */
   mesh?: string;
+  /** Show a keyboard-accessible, selectable anchor in the hit-layer guide. */
+  hotspot?: boolean;
   controls?: string;
   defaults?: string;
   /** Stock effect mounted by the demo runtime, which owns its clock and disposal. */
@@ -119,6 +121,7 @@ export function GlyphDemo(props: GlyphDemoProps) {
     id,
     geometry,
     mesh,
+    hotspot,
     controls,
     defaults,
     showStats,
@@ -143,6 +146,8 @@ export function GlyphDemo(props: GlyphDemoProps) {
       id={id}
       data-geometry={geometry || "cuboctahedron"}
       data-mesh={mesh || undefined}
+      data-docs-hotspot={hotspot ? "1" : undefined}
+      data-no-hotspots={hotspot === false ? "1" : undefined}
       data-polygons-url={polygonsUrl || undefined}
       data-controls={controls}
       data-defaults={defaults}
@@ -187,7 +192,7 @@ export function GlyphDemo(props: GlyphDemoProps) {
             inline
             title="Code"
             className="not-content"
-            snippets={demoSnippets(tunables, { mesh, polygonsUrl })}
+            snippets={demoSnippets(tunables, { mesh, polygonsUrl, hotspot })}
             formats={[
               { id: "vanilla", label: "JS" },
               { id: "react", label: "React" },
