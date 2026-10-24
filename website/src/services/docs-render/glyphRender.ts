@@ -205,7 +205,11 @@ const CHART3D_BUILDERS = {
   line: "glyphChartLine3d",
 } as const;
 
-const jsLiteral = (value: unknown) => JSON.stringify(value, null, 2).replace(/"([A-Za-z_$][\w$]*)":/g, "$1:");
+// Unquoted keys, and arrays of plain values on one line so data grids stay readable.
+export const jsLiteral = (value: unknown) =>
+  JSON.stringify(value, null, 2)
+    .replace(/\[\s+([^[\]{}]*?)\s+\]/g, (_, items: string) => `[${items.split(/,\s+/).join(", ")}]`)
+    .replace(/"([A-Za-z_$][\w$]*)":/g, "$1:");
 
 // The library call that reproduces a docs render. `color: "css"` is the docs
 // page's own HTML choice, so the snippet leaves it to the reader's target.

@@ -10,7 +10,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { cleanMarkdown, readDocs, sitemapLastmod } from "./metadata.mjs";
+import { cleanMarkdown, loadDocsRenderer, readDocs, sitemapLastmod } from "./metadata.mjs";
 import { checkPageImages } from "./check-page-images.mjs";
 import { docsPages, PAGES, socialPng, templateHtml } from "./generate-og.mjs";
 import { randomBytes } from "node:crypto";
@@ -110,14 +110,20 @@ test("every real docs example retains its full source and rendered text without 
       `${doc.slug}: untested example`,
     );
     const sources = inputs.map((match) => JSON.parse(match[2]));
-    for (const source of sources) {
+    const { jsLiteral: literal } = await loadDocsRenderer();
+    inputs.forEach((match, index) => {
+      const source = sources[index];
+      // Mermaid prints as-is; data prints inside the library call as literals,
+      // and a 3D descriptor as its constructor's arguments.
       const expected =
-        typeof source === "string" ? source : JSON.stringify(source, null, 2);
-      assert.ok(
-        cleaned.includes(`\n${expected}\n`),
-        `${doc.slug}: lost source ${expected}`,
-      );
-    }
+        typeof source === "string"
+          ? [`\n${source}\n`]
+          : match[1] === "chart-3d"
+            ? source.args.map(literal)
+            : [literal(source)];
+      for (const part of expected)
+        assert.ok(cleaned.includes(part), `${doc.slug}: lost source ${part.slice(0, 80)}`);
+    });
     for (const [, caption] of doc.source.matchAll(/<GlyphRender caption="([^"]+)"/g))
       assert.ok(cleaned.includes(`**${caption}**`), `${doc.slug}: lost caption ${caption}`);
     const outputs = [...cleaned.matchAll(/^```text\n([\s\S]*?)^```/gm)];
@@ -294,4 +300,21 @@ test("PNG compression produces cards below 150 KB and rejects oversized output",
     socialPng(noise, "oversized"),
     /oversized: PNG exceeds 150 KB/,
   );
+});
+
+test("every live docs demo keeps the code its Code panel opens with", async () => {
+  let demos = 0;
+  for (const doc of readDocs()) {
+    const tags = [...doc.source.matchAll(/<GlyphDemo\b[^\n]*\/>/g)].map(([tag]) => tag);
+    if (!tags.length) continue;
+    const cleaned = await cleanMarkdown(doc.source);
+    const scenes = cleaned.match(/^const scene = createGlyphScene\(/gm) ?? [];
+    assert.ok(scenes.length >= tags.length, `${doc.slug}: a demo lost its code`);
+    for (const tag of tags) {
+      const model = /meshes=\{\[\{ label: "[^"]+", url: "([^"]+)"/.exec(tag)?.[1] ?? /mesh="([^"]+)"/.exec(tag)?.[1];
+      if (model) assert.ok(cleaned.includes(model), `${doc.slug}: lost model ${model}`);
+    }
+    demos += tags.length;
+  }
+  assert.ok(demos > 15, `only ${demos} demos found`);
 });

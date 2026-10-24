@@ -78,13 +78,13 @@ export function sitemapLastmod(url) {
 }
 
 let docsRenderer;
-async function loadDocsRenderer() {
+export async function loadDocsRenderer() {
   // Bundle the shared TypeScript adapter for Node versions without type stripping.
   docsRenderer ??= (async () => {
     const require = createRequire(new URL("../package.json", import.meta.url));
     const result = await build({
       entryPoints: [
-        path.join(websiteRoot, "src/services/docs-render/glyphRender.ts"),
+        path.join(websiteRoot, "src/services/docs-render/docsTwins.ts"),
       ],
       bundle: true,
       write: false,
@@ -238,18 +238,32 @@ export async function cleanMarkdown(source) {
           normalizeGlyphDocsSource,
           renderGlyphDocs,
           fitGlyphDocsOutput,
+          glyphDocsUsage,
         } = await loadDocsRenderer();
+        // Mermaid stays as Mermaid; data sources print as the library call
+        // that renders them, with its import and options.
         const example =
           typeof input.source === "string"
             ? normalizeGlyphDocsSource(input.source)
-            : JSON.stringify(input.source, null, 2);
-        const language = typeof input.source === "string" ? "mermaid" : "json";
+            : glyphDocsUsage(input);
+        const language = typeof input.source === "string" ? "mermaid" : "ts";
         const output = fitGlyphDocsOutput(
           await renderGlyphDocs(input),
           input.options?.textScale,
         );
         const caption = input.caption ? `**${input.caption}**\n\n` : "";
         replacement = `\n\n${caption}${fenced(example, language)}\n\n${fenced(output.text, "text")}\n\n`;
+      } else if (match[2] === "GlyphDemo") {
+        const props = {};
+        for (const attribute of opening.attributes.properties) {
+          if (!ts.isJsxAttribute(attribute)) continue;
+          const name = attribute.name.text ?? "";
+          if (!["geometry", "mesh", "meshes", "polygonsUrl", "hotspot", "defaults"].includes(name)) continue;
+          const value = attribute.initializer;
+          props[name] = value === undefined ? true : literalValue(ts.isJsxExpression(value) ? value.expression : value);
+        }
+        const { glyphDemoTwinCode } = await loadDocsRenderer();
+        replacement = `\n\n${fenced(glyphDemoTwinCode(props), "ts")}\n\n`;
       }
     }
     if (replacement) cleaned += `\u0000${saved.push(replacement) - 1}\u0000`;
