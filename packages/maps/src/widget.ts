@@ -3563,6 +3563,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     center: readonly [number, number]; autoSize: boolean;
     sceneStyle: string; hostOverflow: string; hotspotsDisplay: string;
     target: Vec3; rotX: number; rotY: number; zoom: number;
+    /** Ground points across the view and where the last render put them, in frozen-grid cells. */
+    probes: { world: Vec3; col: number; row: number }[];
     projection: GlyphMapProjection; tilt: number; bearing: number; span: number;
     hostWidth: number; hostHeight: number; outputWidth: number; outputHeight: number; originLeft: number; originTop: number;
   };
@@ -3621,7 +3623,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!f) return;
     f.target = [...camera.target]; f.rotX = camera.rotX; f.rotY = camera.rotY;
     f.zoom = camera.zoom;
+    f.probes = compositorProbes(f.grid);
     sceneElement.style.transform = `translate(${-f.marginCols * f.grid.cellWidth}px, ${-f.marginRows * f.grid.cellHeight}px)`;
+  }
+
+  // A globe rotation is not a translation: away from the pivot the picture
+  // drifts from the slid one and snaps back at the next render (measured as
+  // half-cell to 30 px jumps on a wide globe). These points measure that drift.
+  function compositorProbes(grid: ProjectionGrid): CompositorFrame["probes"] {
+    const [lon, lat] = renderedCenter ?? view.center;
+    const halfLat = view.span * 0.45 * (grid.rows * grid.cellHeight) / Math.max(1, grid.cols * grid.cellWidth);
+    const halfLon = view.span * 0.45;
+    const probes: CompositorFrame["probes"] = [];
+    for (const [u, v] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]]) {
+      const world = groundPoint(projection, [lon + u * halfLon, Math.max(-89, Math.min(89, lat + v * halfLat))]);
+      const p = camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid);
+      if (Number.isFinite(p[0]) && Number.isFinite(p[1])) probes.push({ world, col: p[0], row: p[1] });
+    }
+    return probes;
   }
 
   function renderCompositorPan(): boolean {
@@ -3639,7 +3658,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       f = compositorFrame = {
         grid, marginCols, marginRows, center: [...camera.center], autoSize: o.autoSize ?? false,
         sceneStyle: sceneElement.style.cssText, hostOverflow: host.style.overflow, hotspotsDisplay: hotspotElement.style.display,
-        target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom,
+        target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom, probes: [],
         projection, tilt: appliedTilt, bearing, span: view.span,
         hostWidth: hostBox.width, hostHeight: hostBox.height, outputWidth: outputBox.width, outputHeight: outputBox.height,
         originLeft: outputBox.left - hostBox.left, originTop: outputBox.top - hostBox.top,
@@ -3660,10 +3679,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const grid = f.grid;
       const p = camera.project(f.target, grid.cols, grid.rows, grid.cellAspect, grid);
       const dx = (p[0] - grid.centerCol) * grid.cellWidth, dy = (p[1] - grid.centerRow) * grid.cellHeight;
-      // 2 degrees limits tangent-frame rotation error to ~3.5% of distance
-      // from the centre. Pixel margins alone cannot bound distortion at wide globe views.
-      const rotation = isOrbitProjection() ? Math.hypot(camera.rotX - f.rotX, camera.rotY - f.rotY) : 0;
-      if (Number.isFinite(dx) && Number.isFinite(dy) && rotation < 2 &&
+      let drift = 0;
+      for (const probe of f.probes) {
+        const q = camera.project(probe.world, grid.cols, grid.rows, grid.cellAspect, grid);
+        drift = Math.max(drift, Math.abs((q[0] - probe.col) * grid.cellWidth - dx) / grid.cellWidth,
+          Math.abs((q[1] - probe.row) * grid.cellHeight - dy) / grid.cellHeight);
+      }
+      if (Number.isFinite(dx) && Number.isFinite(dy) && drift <= 0.5 &&
           Math.abs(dx) < f.marginCols * grid.cellWidth * 0.8 && Math.abs(dy) < f.marginRows * grid.cellHeight * 0.8) {
         sceneElement.style.transform = `translate(${dx - f.marginCols * grid.cellWidth}px, ${dy - f.marginRows * grid.cellHeight}px)`;
         return true;

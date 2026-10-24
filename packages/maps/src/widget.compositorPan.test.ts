@@ -248,3 +248,15 @@ it("keeps pinch anchors in the visible grid when a second finger arrives before 
   expect(a.getView().center[0]).toBeCloseTo(b.getView().center[0], 10);
   expect(a.getView().center[1]).toBeCloseTo(b.getView().center[1], 10);
 });
+
+// A rotation slid as a translation drifts away from the pivot; past half a
+// cell the next render snaps it back (the reported globe "jumping").
+// Measured here: 12 px is ~1.9 degrees, under the old fixed 2-degree cap, yet
+// the view's edge is ~0.67 cells off the slid picture.
+it("re-renders a tilted wide globe once the slide drifts more than half a cell", async () => {
+  const globe = { projection: glyphMapGlobe(), tilt: 40, view: { center: [0, 30] as [number, number], span: 90, cols: 80, rows: 20 } };
+  const m = mount(globe); await ready(m);
+  pointer(m, "pointerdown", 200); pointer(m, "pointermove", 201); frame();
+  renders = 0; pointer(m, "pointermove", 205); frame(); expect(renders).toBe(0);
+  pointer(m, "pointermove", 213); frame(); expect(renders).toBe(1);
+});
