@@ -19,7 +19,7 @@ import {
   isQuantizableColor,
   nearestPaletteIndex,
   packHexColor,
-  resolveGlyphAtlasPaletteInput,
+  resolveGlyphAtlasPrepared,
   type GlyphAtlasPaletteInput,
 } from "./paletteQuantize";
 
@@ -850,20 +850,36 @@ export function isGlyphAtlasEncodable(
   const n = cols * rows;
   if (char.length < n || color.length < n) return false;
   if (palette !== undefined && (palette.length === 0 || palette.length > atlas.maxPaletteSize)) return false;
-  // Bounded by the number of DISTINCT colour strings, not by cell count — the
-  // same memo discipline `colorTolerance`'s `packColorCached` uses.
-  const validated = new Set<string>();
+  return inspectGlyphAtlas(char, color, n, atlas);
+}
+
+function inspectGlyphAtlas(char: readonly string[], color: readonly (string | null)[], n: number,
+  atlas: GlyphFontAtlas, histogram?: Map<number, number>): boolean {
+  const glyphs = new Set<string>();
+  const colors = new Map<string, number>();
+  let runPacked = -1, runCount = 0;
+  const flush = () => { if (histogram && runCount) histogram.set(runPacked, (histogram.get(runPacked) ?? 0) + runCount); };
   for (let i = 0; i < n; i++) {
     const glyph = char[i];
-    if (glyph === undefined || glyph === " ") continue;
-    if (!isGlyphInFontAtlas(glyph, atlas)) return false;
+    if (glyph === " " || (glyph === undefined && !histogram)) continue;
+    if (glyph !== undefined && !glyphs.has(glyph)) {
+      if (!isGlyphInFontAtlas(glyph, atlas)) return false;
+      glyphs.add(glyph);
+    }
     const c = color[i];
-    if (c === null || c === undefined) return false;
-    if (!validated.has(c)) {
-      if (!isQuantizableColor(c)) return false;
-      validated.add(c);
+    if (c === null || c === undefined) { if (glyph === undefined) continue; return false; }
+    let packed = colors.get(c);
+    if (packed === undefined) {
+      if (!isQuantizableColor(c)) { if (glyph === undefined) continue; return false; }
+      packed = histogram ? parseInt(c.slice(1), 16) : 0;
+      colors.set(c, packed);
+    }
+    if (histogram) {
+      if (packed === runPacked) runCount++;
+      else { flush(); runPacked = packed; runCount = 1; }
     }
   }
+  flush();
   return true;
 }
 
@@ -884,11 +900,12 @@ export function hasGlyphOutsideFontAtlas(
   rows: number,
   atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
 ): boolean {
-  const n = cols * rows;
+  const n = cols * rows, seen = new Set<string>();
   for (let i = 0; i < n; i++) {
     const glyph = char[i];
-    if (glyph === undefined || glyph === " ") continue;
+    if (glyph === undefined || glyph === " " || seen.has(glyph)) continue;
     if (!isGlyphInFontAtlas(glyph, atlas)) return true;
+    seen.add(glyph);
   }
   return false;
 }
@@ -1065,9 +1082,14 @@ export function encodeCellGridOutput(
     && useColors
     && !grid.weight
     && atlasPalette
-    && isGlyphAtlasEncodable(grid.char, grid.color, grid.cols, grid.rows, undefined, atlas)
   ) {
-    const palette = resolveGlyphAtlasPaletteInput(atlasPalette, grid.char, grid.color, grid.cols * grid.rows);
+    const n = grid.cols * grid.rows;
+    const histogram = Array.isArray(atlasPalette) ? undefined : new Map<number, number>();
+    // Ineligible frames must never enter the causal palette history.
+    if (grid.char.length < n || grid.color.length < n || !inspectGlyphAtlas(grid.char, grid.color, n, atlas, histogram)) {
+      return { text: encodeCellGrid(grid, useColors, colorTolerance), encoding: "spans" };
+    }
+    const palette = histogram ? resolveGlyphAtlasPrepared(atlasPalette, grid.char, grid.color, n, histogram) : atlasPalette as readonly string[];
     if (palette && palette.length > 0 && palette.length <= atlas.maxPaletteSize) {
       return { text: encodeCellGridAtlas(grid, palette, atlas), encoding: "atlas" };
     }

@@ -62,6 +62,8 @@ import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
 import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
+import { prepareGlyphMapNearSideProof } from "./nearSide";
+import { createGlyphMapGroundIndex } from "./groundIndex";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
 import {
@@ -2950,198 +2952,96 @@ interface GlyphMapDrapeSample extends GlyphMapStrokeVertex {
   readonly elev: number;
 }
 
-/**
- * The run's own local direction at sample `i`, as a UNIT vector in the
- * east/north frame (degrees of longitude are scaled by `cos(lat)` so the two
- * axes are the same ground length). `[0, 0]` when the neighbours give nothing
- * to take a direction from.
- *
- * Written into {@link strokeDirEast}/{@link strokeDirNorth} rather than
- * returned as a pair, because it is called once per drape sample and the
- * tuple was the allocation. Single-threaded and read immediately by the one
- * caller, which is the same discipline the visibility scratch above takes.
- */
-let strokeDirEast = 0;
-let strokeDirNorth = 0;
-function strokeDirection(out: readonly GlyphMapDrapeSample[], i: number): void {
-  const a = out[i - 1] ?? out[i];
-  const b = out[i + 1] ?? out[i];
-  const cosLat = Math.max(1e-6, Math.cos((out[i].lat * Math.PI) / 180));
-  const east = (b.lon - a.lon) * cosLat;
-  const north = b.lat - a.lat;
-  const len = Math.hypot(east, north);
-  strokeDirEast = len > 0 ? east / len : 0;
-  strokeDirNorth = len > 0 ? north / len : 0;
-}
+type MutableDrapeSample = { -readonly [K in keyof GlyphMapDrapeSample]: GlyphMapDrapeSample[K] };
 
-/**
- * How many DEGREES of ground one output cell spans at sample `i`, read off
- * the run's own consecutive samples — the local scale, taken from the drape
- * rather than from the view, so it needs no unprojection and stays right
- * under a tilt and near a globe's limb where a cell spans far more ground
- * than `span / cols` says. `0` when the neighbours are coincident on screen.
- */
-function geoDegreesPerCell(out: readonly GlyphMapDrapeSample[], i: number): number {
-  const a = out[i - 1] ?? out[i];
-  const b = out[i + 1] ?? out[i];
-  if (a === b) return 0;
-  const screen = Math.hypot(b.col - a.col, b.row - a.row);
-  if (!(screen > 0) || !Number.isFinite(screen)) return 0;
-  const cosLat = Math.max(1e-6, Math.cos((out[i].lat * Math.PI) / 180));
-  return Math.hypot((b.lon - a.lon) * cosLat, b.lat - a.lat) / screen;
+// Scratch belongs to one stroke layer and is consumed synchronously by the
+// stamper. Numeric samples survive subsequent callback writes without copies.
+function createDrapeScratch() {
+  return { lon: [] as number[], lat: [] as number[], elev: [] as number[],
+    col: [] as number[], row: [] as number[], depth: [] as number[],
+    slack: [] as number[], canInk: [] as boolean[], pool: [] as MutableDrapeSample[], vertices: [] as MutableDrapeSample[] };
 }
-
-/**
- * Drape one already-visibility-clipped lon/lat run at ONE SAMPLE PER OUTPUT
- * CELL, and give every sample the ground-support slack the depth test needs
- * (see {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS}).
- *
- * `sampleAt` is the caller's own single-vertex drape — one ground read and one
- * projection — so this adds exactly one of each per sample the stamper was
- * already walking, and only over the part of a segment that can reach the
- * grid. Source vertices are always kept, so a run's own shape is never
- * resampled away. Its optional third argument overrides the ground read with
- * a given elevation, which is how the slack below is converted into depth.
- *
- * The slack is read off the drape itself rather than probed for: after this
- * pass consecutive samples are at most one cell apart on screen, so the
- * neighbours within {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} cells ARE
- * the ground over the span the comparison reads from, already sampled.
- * Distance is tested rather than assumed, so the samples on either side of a
- * long off-screen stretch (which is deliberately not densified) contribute
- * nothing rather than a whole tile's relief.
- *
- * What is compared is their ELEVATION, not their depth — see
- * {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} for the pitch-indexed defect
- * the depth form was. A sample whose neighbours are all at its own elevation
- * (every flat-ground case, at every pitch, every zoom and every stroke
- * direction) takes no slack and costs no extra projection.
- */
 function drapedRunPerCell(
   run: readonly (readonly [number, number])[],
   sampleAt: (lon: number, lat: number, elevOverride?: number, source?: readonly [number, number]) => GlyphMapDrapeSample,
   groundAt: (lon: number, lat: number) => number,
-  cols: number,
-  rows: number,
+  cols: number, rows: number, s: ReturnType<typeof createDrapeScratch>,
 ): GlyphMapStrokeVertex[] {
-  if (run.length === 0) return [];
-  const out: GlyphMapDrapeSample[] = [sampleAt(run[0][0], run[0][1], undefined, run[0])];
-  /**
-   * Per sample, whether EITHER segment it bounds can reach the grid — the
-   * same `onScreenSegmentSpan` verdict the densification above is already
-   * bounded by, kept rather than recomputed.
-   *
-   * It gates the slack pass below, and it is a BOUND, not a rule change. A
-   * sample's slack is only ever read by `stampGlyphMapPolyline` while walking
-   * one of its two adjacent segments; a segment with no span lies entirely
-   * outside the grid grown by one cell, so every sample the stamper takes on
-   * it is off the grid and inks nothing. Slack for such a sample is therefore
-   * unobservable, and leaving it absent (`0`) is what it already resolves to.
-   *
-   * It matters because the walker's own horizon is far wider than the
-   * viewport: measured on the street-level walk with every OpenStreetMap row
-   * mounted, 4,497 of 4,871 source segments per render (92%) have no span at
-   * all, and 6,363 of 9,039 drape samples (70%) lie off the grid — each of
-   * which was paying the ring's six ground reads and up to two projections to
-   * compute an allowance nothing could read.
-   */
-  const canInk: boolean[] = [false];
+  let length = 0;
+  const append = (v: GlyphMapDrapeSample, ink: boolean) => {
+    const i = length++;
+    s.lon[i] = v.lon; s.lat[i] = v.lat; s.elev[i] = v.elev;
+    s.col[i] = v.col; s.row[i] = v.row; s.depth[i] = v.depth;
+    s.slack[i] = 0; s.canInk[i] = ink;
+  };
+  if (run.length) append(sampleAt(run[0][0], run[0][1], undefined, run[0]), false);
   for (let i = 1; i < run.length; i++) {
-    const [lonA, latA] = run[i - 1];
-    const [lonB, latB] = run[i];
-    const iA = out.length - 1;
-    const a = out[iA];
+    const lonA = run[i - 1][0], latA = run[i - 1][1], lonB = run[i][0], latB = run[i][1];
+    const ia = length - 1;
     const b = sampleAt(lonB, latB, undefined, run[i]);
-    const span = onScreenSegmentSpan(a.col, a.row, b.col, b.row, cols, rows);
+    // The callback reuses its result; keep this endpoint across subdivisions.
+    const bc = b.col, br = b.row, bd = b.depth, be = b.elev;
+    const span = onScreenSegmentSpan(s.col[ia], s.row[ia], bc, br, cols, rows);
     if (span !== null) {
-      canInk[iA] = true;
-      const [t0, t1] = span;
-      const steps = Math.ceil(Math.hypot(b.col - a.col, b.row - a.row) * (t1 - t0));
+      s.canInk[ia] = true;
+      const t0 = span[0], t1 = span[1];
+      const steps = Math.ceil(Math.hypot(bc - s.col[ia], br - s.row[ia]) * (t1 - t0));
       for (let k = 0; k <= steps; k++) {
         const t = t0 + ((t1 - t0) * k) / Math.max(1, steps);
         if (t <= 0 || t >= 1) continue;
-        out.push(sampleAt(lonA + (lonB - lonA) * t, latA + (latB - latA) * t));
-        canInk.push(true);
+        append(sampleAt(lonA + (lonB - lonA) * t, latA + (latB - latA) * t), true);
       }
     }
-    out.push(b);
-    canInk.push(span !== null);
+    const j = length++;
+    s.lon[j] = lonB; s.lat[j] = latB; s.elev[j] = be;
+    s.col[j] = bc; s.row[j] = br; s.depth[j] = bd; s.slack[j] = 0; s.canInk[j] = span !== null;
   }
-  const support = GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS;
-  // The walk is bounded as well as distance-tested, because a source ring can
-  // already be far denser than one vertex per cell — a z3 coastline at a world
-  // view puts hundreds of its own vertices inside one — and an unbounded walk
-  // over "everything within 2 cells" would be quadratic in exactly that case.
-  // Past this many samples the extra ones are all inside the same cell as the
-  // ones already read, so they carry the same ground.
-  const reach = support * 4;
-  for (let i = 0; i < out.length; i++) {
-    if (!canInk[i]) continue; // no segment through this sample can ink — see `canInk`
-    const v = out[i];
-    if (!Number.isFinite(v.depth) || !Number.isFinite(v.col) || !Number.isFinite(v.row)) continue;
-    let highest = v.elev;
+  const support = GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS, reach = support * 4;
+  for (let i = 0; i < length; i++) {
+    const col = s.col[i], row = s.row[i], depth = s.depth[i], elev = s.elev[i];
+    if (!s.canInk[i] || !Number.isFinite(depth) || !Number.isFinite(col) || !Number.isFinite(row)) continue;
+    let highest = elev;
     for (let dir = 0; dir < 2; dir++) {
       const step = dir === 0 ? -1 : 1;
-      for (let k = 1, j = i + step; k <= reach && j >= 0 && j < out.length; k++, j += step) {
-        const n = out[j];
-        if (!Number.isFinite(n.col) || !Number.isFinite(n.row)) break;
-        if (Math.hypot(n.col - v.col, n.row - v.row) > support) break;
-        if (n.elev > highest) highest = n.elev;
+      for (let k = 1, j = i + step; k <= reach && j >= 0 && j < length; k++, j += step) {
+        if (!Number.isFinite(s.col[j]) || !Number.isFinite(s.row[j])) break;
+        if (Math.hypot(s.col[j] - col, s.row[j] - row) > support) break;
+        if (s.elev[j] > highest) highest = s.elev[j];
       }
     }
-    // ACROSS the stroke as well as along it. The samples above lie ON the
-    // line, so their spread is the ground's rise in ONE direction — and the
-    // comparison in `stampGlyphMapPolyline` is not one-dimensional: it
-    // reconstructs the surface through a central difference in BOTH screen
-    // axes, so a border running along a parallel is tested against ground to
-    // the north and south of it that no sample on the line ever reads.
-    // Measured on the Sahara fixture, the along-line term alone left 122 of
-    // 240 samples killed and the reconstruction's own row term was the largest
-    // single piece of what remained.
-    //
-    // The reach is {@link GLYPH_MAP_STROKE_GROUND_SUPPORT_CELLS} CELLS, and
-    // cells are not square in ground units: this widget's own default is 8x16
-    // px, so one row spans twice the ground one column does, and a fixed
-    // number of DEGREES either side of the line is the right reach in at most
-    // one direction. So the scale is measured rather than assumed — one
-    // projection of a trial offset says how many cells that offset moves, and
-    // the reach is scaled to `support` of them. The trial is taken at the
-    // sample's OWN elevation (`elevOverride`), so it reads no ground and
-    // asks a pure projection question.
-    const stride = geoDegreesPerCell(out, i);
-    strokeDirection(out, i);
-    const aheadEast = strokeDirEast, aheadNorth = strokeDirNorth;
+    const a = i > 0 ? i - 1 : i, b = i + 1 < length ? i + 1 : i;
+    const cosLat = Math.max(1e-6, Math.cos((s.lat[i] * Math.PI) / 180));
+    const east = (s.lon[b] - s.lon[a]) * cosLat, north = s.lat[b] - s.lat[a];
+    const len = Math.hypot(east, north);
+    const aheadEast = len > 0 ? east / len : 0, aheadNorth = len > 0 ? north / len : 0;
+    const screen = Math.hypot(s.col[b] - s.col[a], s.row[b] - s.row[a]);
+    const stride = a !== b && screen > 0 && Number.isFinite(screen) ? len / screen : 0;
     if (stride > 0 && (aheadEast !== 0 || aheadNorth !== 0)) {
-      const cosLat = Math.max(1e-6, Math.cos((v.lat * Math.PI) / 180));
-      // A quarter turn in the east/north frame; the along-line axis is
-      // already covered by the walk above.
-      const acrossEast = -aheadNorth;
-      const acrossNorth = aheadEast;
-      const trialLon = v.lon + (acrossEast * stride) / cosLat;
-      const trialLat = v.lat + acrossNorth * stride;
-      const trial = sampleAt(trialLon, trialLat, v.elev);
-      const trialCells = Math.hypot(trial.col - v.col, trial.row - v.row);
+      const acrossEast = -aheadNorth, acrossNorth = aheadEast;
+      const trial = sampleAt(s.lon[i] + (acrossEast * stride) / cosLat, s.lat[i] + acrossNorth * stride, elev);
+      const trialCells = Math.hypot(trial.col - col, trial.row - row);
       const reachDeg = Number.isFinite(trialCells) && trialCells > 0 ? (stride * support) / trialCells : stride * support;
       for (let r = 0; r < GLYPH_MAP_STROKE_GROUND_RING_FLAT.length; r += 2) {
-        const du = GLYPH_MAP_STROKE_GROUND_RING_FLAT[r]!;
-        const dv = GLYPH_MAP_STROKE_GROUND_RING_FLAT[r + 1]!;
-        const lon = v.lon + ((acrossEast * dv + aheadEast * du) * reachDeg) / cosLat;
-        const lat = v.lat + (acrossNorth * dv + aheadNorth * du) * reachDeg;
+        const du = GLYPH_MAP_STROKE_GROUND_RING_FLAT[r]!, dv = GLYPH_MAP_STROKE_GROUND_RING_FLAT[r + 1]!;
+        const lon = s.lon[i] + ((acrossEast * dv + aheadEast * du) * reachDeg) / cosLat;
+        const lat = s.lat[i] + (acrossNorth * dv + aheadNorth * du) * reachDeg;
         const probe = groundAt(lon, lat);
         if (Number.isFinite(probe) && probe > highest) highest = probe;
       }
     }
-    if (highest <= v.elev) continue;
-    // Converted by the PROJECTION, at this sample's own lon/lat: how much
-    // nearer this cell's surface would be if the ground here stood as high as
-    // the highest ground within the support radius. Exact for any projection
-    // (a globe's elevation axis is radial and a sheet's is not, and neither
-    // needs stating here), and never negative — where raising the ground
-    // moves it AWAY from the camera there is nothing to forgive.
-    const raised = sampleAt(v.lon, v.lat, highest).depth;
-    if (Number.isFinite(raised) && raised > v.depth) out[i] = { ...v, slack: raised - v.depth };
+    if (highest <= elev) continue;
+    const raised = sampleAt(s.lon[i], s.lat[i], highest).depth;
+    if (Number.isFinite(raised) && raised > depth) s.slack[i] = raised - depth;
   }
-  return out;
+  // Objects are only the stamper adapter; keep them across runs and frames.
+  for (let i = 0; i < length; i++) {
+    const v = s.pool[i] ?? (s.pool[i] = { col: 0, row: 0, depth: 0, lon: 0, lat: 0, elev: 0 });
+    s.vertices[i] = v;
+    v.col = s.col[i]; v.row = s.row[i]; v.depth = s.depth[i]; v.slack = s.slack[i];
+    v.lon = s.lon[i]; v.lat = s.lat[i]; v.elev = s.elev[i];
+  }
+  s.vertices.length = length;
+  return s.vertices;
 }
 
 export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphMapHandle {
@@ -3386,7 +3286,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   const orthographicCamera: GlyphCamera = createGlyphOrthographicCamera({ zoom: 1 });
   let walkCamera: GlyphCamera | null = null;
+  let walkProject: GlyphCamera["project"] | undefined, walkEyeDepth: GlyphCamera["eyeDepth"] | undefined;
   let camera: GlyphCamera = orthographicCamera;
+  const orthographicProject = orthographicCamera.project;
   if (!isOrbitProjection()) {
     // A sheet's ceiling is the flat-surface cap and nothing else, so this
     // needs no measured grid — which the host may not have yet at
@@ -3873,6 +3775,37 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid)[2];
   }
 
+  let visibilityMemo: { key: readonly unknown[]; depth: (v: Vec3) => number;
+    proof: ReturnType<typeof prepareGlyphMapNearSideProof> } | undefined;
+  function preparedVisibility(grid: ProjectionGrid) {
+    const key = [projection, projection.project, projection.visible, camera.project, camera.kind,
+      camera.rotX, camera.rotY, camera.useMat, ...(camera.mat ?? []), ...camera.target,
+      camera.distance, camera.perspective, camera.zoom, camera.eyeMode, camera.stretch, camera.fovScale,
+      ...camera.center, grid.cols, grid.rows, grid.cellAspect, grid.cellWidth, grid.cellHeight, grid.centerCol, grid.centerRow,
+      walk?.far, view.center[0], view.center[1]];
+    if (visibilityMemo && key.length === visibilityMemo.key.length && key.every((v, i) => v === visibilityMemo!.key[i])) return visibilityMemo;
+    let origin = 0, originReady = false;
+    const depth = (v: Vec3) => {
+      if (v[0] !== 0 || v[1] !== 0 || v[2] !== 0) return depthOf(v, grid);
+      // Custom visibility callbacks need not ask for the origin at all.
+      if (!originReady) { origin = depthOf(v, grid); originReady = true; }
+      return origin;
+    };
+    const proof = walk || (camera.kind === "orthographic" && camera.project === orthographicProject) ? prepareGlyphMapNearSideProof(projection, depth,
+      walk ? { lon: view.center[0], lat: view.center[1], far: walk.far } : undefined) : undefined;
+    return visibilityMemo = { key, depth, proof };
+  }
+  const ringBounds = new WeakMap<readonly (readonly [number, number])[], GlyphMapBounds>();
+  function strokeBounds(ring: readonly (readonly [number, number])[]) {
+    let b = ringBounds.get(ring);
+    if (!b) {
+      let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+      for (const v of ring) { west = Math.min(west, v[0]); east = Math.max(east, v[0]); south = Math.min(south, v[1]); north = Math.max(north, v[1]); }
+      b = { west, east, south, north }; ringBounds.set(ring, b);
+    }
+    return b;
+  }
+
   /**
    * "Can the reader see the world at this lon/lat at all?" — the ONE near-side
    * predicate every POINT consumer in this file goes through: stroke run
@@ -3926,7 +3859,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function nearSideVisible(lon: number, lat: number, world: Vec3, grid: ProjectionGrid): boolean {
     const geo = nearSideGeoTest();
     if (geo) return geo(lon, lat);
-    return !projection.visible || projection.visible(world, (w) => depthOf(w, grid));
+    return !projection.visible || projection.visible(world, preparedVisibility(grid).depth);
   }
 
   /**
@@ -4021,6 +3954,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function visibleStrokeRuns(
     ring: readonly (readonly [number, number])[],
     grid: ProjectionGrid,
+    prepared?: ReturnType<typeof preparedVisibility>,
   ): readonly (readonly (readonly [number, number])[])[] {
     const isVisible = projection.visible;
     if (!isVisible || ring.length === 0) return [ring];
@@ -4028,11 +3962,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // well past their own horizon, and this is asked once per ring vertex and
     // sixteen more times per limb bisection.
     const geo = nearSideGeoTest();
+    // Walk already has a cheap local-horizon predicate. The hemisphere proof
+    // is useful off walk; failed walk-box proofs only duplicate that work.
+    if (!geo) {
+      prepared ??= preparedVisibility(grid);
+      if (prepared.proof?.(strokeBounds(ring))) return [ring];
+    }
     const visibleAt = (lon: number, lat: number): boolean => {
       if (geo !== null && !geo(lon, lat)) return false;
       const world = projection.project(lon, lat, 0);
       if (!Number.isFinite(world[0]) || !Number.isFinite(world[1]) || !Number.isFinite(world[2])) return false;
-      return geo !== null || nearSideVisible(lon, lat, world, grid);
+      return geo !== null || isVisible(world, prepared!.depth);
     };
     // ONE pass, not three. `visibleAt` is pure and is called once per vertex
     // in the same order as the `map` this replaces; what goes is the boolean
@@ -6017,9 +5957,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      */
     function groundElevationReader(coverage = waterTerrainSnapshot()): (lon: number, lat: number) => number {
       const landWindow = { minElevation: Math.max(0, window.minElevation ?? -Infinity), maxElevation: Math.max(0, window.maxElevation ?? Infinity) };
-      const raw = (tiles: readonly GlyphMapGeoTile[], lon: number, lat: number, sampleWindow: typeof window): number => {
-        for (let i = 0; i < tiles.length; i++) {
-          const value = glyphMapGeoTileElevationAt(tiles[i]!, lon, lat, sampleWindow);
+      const tiles = !isGlyphMapProvider(layer.source)
+        ? staticHandles.length > 0 ? [layer.source] : [] : resolvedGroundTiles();
+      const tileCandidates = createGlyphMapGroundIndex(tiles);
+      const waterCandidates = createGlyphMapGroundIndex(coverage);
+      const raw = (lon: number, lat: number, sampleWindow: typeof window): number => {
+        const candidates = tileCandidates(lon, lat);
+        for (let i = 0; i < candidates.length; i++) {
+          const value = glyphMapGeoTileElevationAt(candidates[i]!, lon, lat, sampleWindow);
           if (Number.isFinite(value)) return value;
         }
         return NaN;
@@ -6030,33 +5975,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // the Venice causeway vanished under its own lagoon. One level per
       // shoreline, cached until this reader's terrain/water snapshot changes.
       const levels = new Map<readonly (readonly [number, number])[], number>();
-      const levelOf = (tiles: readonly GlyphMapGeoTile[], shore: readonly (readonly [number, number])[]): number => {
+      const levelOf = (shore: readonly (readonly [number, number])[]): number => {
         let level = levels.get(shore);
         if (level !== undefined) return level;
         level = Infinity;
         for (const [vLon, vLat] of shore) {
-          const v = raw(tiles, vLon, vLat, window);
+          const v = raw(vLon, vLat, window);
           if (Number.isFinite(v)) level = Math.min(level, Math.max(v, 0));
         }
         if (!Number.isFinite(level)) level = 0;
         levels.set(shore, level);
         return level;
       };
-      const read = (tiles: readonly GlyphMapGeoTile[], lon: number, lat: number): number => {
-        const region = coverage.find(c => glyphMapWaterContains(c.bounds, lon, lat));
+      const read = (lon: number, lat: number): number => {
+        const region = waterCandidates(lon, lat).find(c => glyphMapWaterContains(c.bounds, lon, lat));
         const shore = region?.waterLevelRingAt(lon, lat);
-        if (shore) return levelOf(tiles, shore);
+        if (shore) return levelOf(shore);
         const water = shore === null;
-        const value = raw(tiles, lon, lat, region && !water ? landWindow : window);
+        const value = raw(lon, lat, region && !water ? landWindow : window);
         // A river stands on its own surface, never on the bathymetry beneath its fill.
         return water && Number.isFinite(value) ? Math.max(value, 0) : value;
       };
-      if (!isGlyphMapProvider(layer.source)) {
-        const tiles = staticHandles.length > 0 ? [layer.source] : [];
-        return (lon, lat) => read(tiles, lon, lat);
-      }
-      const tiles = resolvedGroundTiles();
-      return (lon, lat) => read(tiles, lon, lat);
+      return (lon, lat) => read(lon, lat);
     }
 
     function groundElevationAt(lon: number, lat: number): number {
@@ -6136,9 +6076,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (supplied) {
       const regions = coverage ?? waterTerrainSnapshot();
       if (regions.length === 0) return (lon, lat) => supplied(lon, lat) ?? NaN;
+      const candidates = createGlyphMapGroundIndex(regions);
       return (lon, lat) => {
         const value = supplied(lon, lat) ?? NaN;
-        return value < 0 && regions.find(c => glyphMapWaterContains(c.bounds, lon, lat))?.waterAt(lon, lat) ? 0 : value;
+        return value < 0 && candidates(lon, lat).find(c => glyphMapWaterContains(c.bounds, lon, lat))?.waterAt(lon, lat) ? 0 : value;
       };
     }
     const read = rasterGroundElevationReader(coverage);
@@ -6220,6 +6161,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const cacheGround = createGlyphMapGroundReadCache<{ elev: number; world: Vec3 }>();
     let readerRevision = -1, readerWaterEpoch = -1;
     let readerProjection: GlyphMapProjection | undefined;
+    const drapeScratch = createDrapeScratch();
     let groundReader: ReturnType<typeof groundElevationSampler> = null;
     const simplifyLine = layer.simplify === "vw" ? createGlyphMapLineSimplifier() : null;
     const sharedArcCache = layer.sharedArcs ? createGlyphMapSharedArcCache(layer.filter) : null;
@@ -6360,6 +6302,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const sampled = groundElevationAt ? groundElevationAt(lon, lat) : 0;
         return Number.isFinite(sampled) ? sampled : 0;
       };
+      const drapeSample = { col: 0, row: 0, depth: 0, lon: 0, lat: 0, elev: 0 };
       const vertexAt = (lon: number, lat: number, elevOverride?: number, source?: readonly [number, number]): GlyphMapDrapeSample => {
         // DRAPED: the vertex is projected at the ground elevation under
         // its own lon/lat, so it is drawn where the terrain it belongs to
@@ -6404,17 +6347,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // `project()`'s cssZ/1-over-denom terms never depend on the
         // cellWidth/centerCol metrics that vary between grids.
         const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
-        const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
+
         // ONE projection per vertex. The second one this used to run —
         // the same lon/lat taken at the ground, to forgive that offset in
         // the depth test — was the workaround for projecting here at the
         // datum, and it is exactly the projection this line now IS.
-        return { col: local.col, row: local.row, depth: p[3] ?? p[2], lon, lat, elev: groundElev };
+        drapeSample.col = (p[0] - cellToSceneGrid[4]) / cellToSceneGrid[0]; drapeSample.row = (p[1] - cellToSceneGrid[5]) / cellToSceneGrid[3]; drapeSample.depth = p[3] ?? p[2];
+        drapeSample.lon = lon; drapeSample.lat = lat; drapeSample.elev = groundElev;
+        return drapeSample;
       };
       const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
       // Braille inks every cell it crosses at dot pitch; read relief from before
       // this layer so one road's depth never occludes the next.
       const surface = layer.experimentalGlyphStrategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
+      const visibility = walk ? undefined : preparedVisibility(baseGrid);
       for (const feature of feats) {
         if (layer.filterAtResolution && !layer.filterAtResolution(feature, walk === null ? degPerCell : 0)) continue;
         const color = layer.colorProperty && layer.colors
@@ -6424,7 +6370,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const line = simplifyLine && walk === null ? simplifyLine(ring, degPerCell) : ring;
           // Clip after thinning so limb intersections follow the retained
           // segments; draping still samples the visible runs per cell.
-          for (const run of visibleStrokeRuns(line, baseGrid)) {
+          for (const run of visibleStrokeRuns(line, baseGrid, visibility)) {
           // PER CELL, not per source vertex, wherever there is a ground to
           // read. `stampGlyphMapPolyline` walks a segment at one sample per
           // cell but interpolates DEPTH linearly between the vertices it was
@@ -6441,8 +6387,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // everywhere, there is nothing per cell to sample, and the whole
           // expression stays the pre-drape one, vertex for vertex.
           const verts: GlyphMapStrokeVertex[] = groundElevationAt
-            ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows)
-            : run.map(([lon, lat]) => vertexAt(lon, lat));
+            ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows, drapeScratch)
+            : run.map(([lon, lat]) => { const v = vertexAt(lon, lat); return { col: v.col, row: v.row, depth: v.depth, lon: v.lon, lat: v.lat, elev: v.elev }; });
           stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
           }
         }
@@ -7464,10 +7410,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2]);
       };
     }
+    const depth = preparedVisibility(grid).depth;
     return (lon, lat, elev) => {
       const world = projection.project(lon, lat, elev);
       return Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
-        && nearSideVisible(lon, lat, world, grid);
+        && isVisible(world, depth);
     };
   }
 
@@ -7559,6 +7506,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * also takes scale screen x/y without reordering depth. A `resize()`
      * therefore cannot change which walls survive; no grid is needed here.
      */
+    const wallProofBounds = new WeakMap<GlyphMapVectorMesh, { box: GlyphMapBounds; lo: number; hi: number }>();
     let culledAt = "";
     /**
      * Re-cull the mesh's walls against the LIVE camera, writing the verdict
@@ -7593,7 +7541,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       culledAt = key;
       const nearSide = nearSidePredicate();
       if (!nearSide) return;
-      glyphMapVectorMarkWalls(mesh, nearSide, wallHorizonFastPath() ?? undefined);
+      let bounds = wallProofBounds.get(mesh);
+      if (!bounds) {
+        let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity, lo = Infinity, hi = -Infinity;
+        for (const wall of mesh.walls) {
+          for (const v of wall.cap ?? [wall.a, wall.b]) { west = Math.min(west, v[0]); east = Math.max(east, v[0]); south = Math.min(south, v[1]); north = Math.max(north, v[1]); }
+          lo = Math.min(lo, wall.elev, wall.elevTop); hi = Math.max(hi, wall.elev, wall.elevTop);
+        }
+        bounds = { box: { west, east, south, north }, lo, hi }; wallProofBounds.set(mesh, bounds);
+      }
+      const proven = preparedVisibility(projectionGrid()).proof?.(bounds.box, bounds.lo, bounds.hi);
+      glyphMapVectorMarkWalls(mesh, proven ? () => true : nearSide, proven ? undefined : wallHorizonFastPath() ?? undefined);
     }
 
     /**
@@ -8943,7 +8901,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           ...cellToSceneGrid, camera.kind, camera.rotX, camera.rotY, ...camera.center, ...(camera.mat ?? []),
           camera.useMat, camera.distance, camera.perspective, camera.zoom, camera.stretch, camera.fovScale,
           ...camera.target, camera.eyeMode, camera.project, camera.eyeDepth];
-        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces, outlineBlankFaces);
+        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces, outlineBlankFaces,
+          walk !== null && camera.project === walkProject && camera.eyeDepth === walkEyeDepth);
         if (layerInfo?.viewport === true) surface.blank?.(g);
         else stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
       }
@@ -10332,7 +10291,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     walkRestore = { view, tiltRequest, appliedTilt, bearing, orbitRotation, panAnchor, exactPanPose, renderedCenter, snapPan };
     panAnchor = null; exactPanPose = null; renderedCenter = null;
     walk = resolved;
-    if (!walkCamera) walkCamera = createGlyphPerspectiveCamera({});
+    if (!walkCamera) {
+      walkCamera = createGlyphPerspectiveCamera({});
+      walkProject = walkCamera.project; walkEyeDepth = walkCamera.eyeDepth;
+    }
     camera = walkCamera;
     scene.setOptions({ camera });
     // The walker starts looking at the horizon, facing whichever way the map

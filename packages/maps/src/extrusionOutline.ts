@@ -14,6 +14,25 @@ interface StampCache {
   frozen: Pick<CellGrid, "depth" | "occluded">;
   output?: Pick<CellGrid, "char" | "color" | "depth">;
 }
+interface ExtrusionSurface {
+  project(v: Vec3): GlyphMapStrokeVertex;
+  owns(idx: number, own?: ReadonlySet<Polygon>): boolean;
+  occludes(a: Vec3, b: Vec3): (col: number, row: number, depth: number) => boolean;
+  draw(g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): void;
+  blank?: (g: CellGrid) => void;
+  replay?: (g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) => boolean;
+  remember?: (g: CellGrid) => void;
+}
+interface SurfaceCache {
+  surface: ExtrusionSurface;
+  bindGrid(g: CellGrid): void;
+  key: readonly unknown[];
+  hidden: Uint8Array;
+  filledFaces?: ReadonlySet<Polygon>;
+  blankFaces?: ReadonlySet<Polygon>;
+  polygons: readonly Polygon[];
+  cols: number; rows: number; cullBehind: boolean;
+}
 interface BoundsNode {
   corners: Vec3[];
   faces?: number[];
@@ -110,6 +129,7 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     flagsReady: false,
     prepare(groups: readonly GlyphMapExtrusionGeometry[]) {
       if (groups.length === topology.outlines.length && groups.every((g, i) => g === topology.outlines[i]!.geometry)) return;
+      topology.surfaceCache = undefined;
       const edgeIds = new Map<number, Map<number, number>>();
       const endpoints: number[] = [], offsets = [0], incident: number[] = [];
       const edge = (a: Vec3, b: Vec3) => {
@@ -153,6 +173,7 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
       faceProjection: new Float64Array(maxVertices * 6),
     },
     stampCache: undefined as StampCache | undefined,
+    surfaceCache: undefined as SurfaceCache | undefined,
   };
   topology.prepare(geometries);
   return topology;
@@ -179,7 +200,19 @@ export function createGlyphMapExtrusionSurface(
   frameKey?: readonly unknown[],
   filledFaces?: ReadonlySet<Polygon>,
   blankFaces?: ReadonlySet<Polygon>,
-) {
+  cullBehind = false,
+): ExtrusionSurface {
+  const cached = topology.surfaceCache;
+  if (frameKey && cached && cached.polygons === polygons && cached.cols === grid.cols && cached.rows === grid.rows
+    && cached.cullBehind === cullBehind && cached.filledFaces === filledFaces && cached.blankFaces === blankFaces
+    && equal(frameKey, cached.key) && polygons.every((p, i) => Number(!!p.hidden) === cached.hidden[i])) {
+    // Planes, bins and projected vertices depend on camera/topology/visibility,
+    // not on the frozen depth field. Queries bind this frame's actual surface;
+    // replay still checks every input field before reusing stamped output.
+    cached.bindGrid(grid);
+    return cached.surface;
+  }
+  topology.surfaceCache = undefined;
   const s = topology.scratch, size = grid.cols * grid.rows;
   const { candidates, accepted } = s;
   candidates.fill(0); accepted.fill(0);
@@ -218,9 +251,21 @@ export function createGlyphMapExtrusionSurface(
     }
     topology.filledSource = filledFaces; topology.blankSource = blankFaces; topology.flagsReady = true;
   }
+  const eyeOrigin = cullBehind ? eyeDepth([0, 0, 0]) : 0;
+  const eyeNorm = cullBehind ? Math.abs(eyeDepth([1, 0, 0]) - eyeOrigin)
+    + Math.abs(eyeDepth([0, 1, 0]) - eyeOrigin) + Math.abs(eyeDepth([0, 0, 1]) - eyeOrigin) : 0;
   const visit = (node: BoundsNode) => {
-    let front = true;
-    for (const v of node.corners) if (!(eyeDepth(v) > 0)) { front = false; break; }
+    let front = true, behind = cullBehind;
+    for (const v of node.corners) {
+      const d = eyeDepth(v);
+      front &&= d > 0;
+      // Affine eye depth attains extrema at box corners. A 4096-ulp world
+      // margin retains uncertain near-plane boxes for ordinary clipping.
+      const margin = Number.EPSILON * 4096 * (Math.abs(eyeOrigin) + eyeNorm * Math.max(1, Math.abs(v[0]), Math.abs(v[1]), Math.abs(v[2])));
+      behind &&= d < -margin;
+      if (!front && !behind) break;
+    }
+    if (behind) return;
     if (front) {
       let left = true, right = true, top = true, bottom = true;
       for (const v of node.corners) {
@@ -253,6 +298,16 @@ export function createGlyphMapExtrusionSurface(
         for (let j = 0; j < 3; j++) cut[j] = a[j]! + (b[j]! - a[j]!) * u;
         const v = project(cut); p[length++] = v.col; p[length++] = v.row; p[length++] = v.depth;
       }
+    }
+    // All vertices on one exterior side imply every clipped triangle is
+    // outside too. Non-finite or near-plane crossings take the normal path.
+    if (cullBehind && !clipped && length > 0) {
+      let left = true, right = true, top = true, bottom = true;
+      for (let i = 0; i < length; i += 3) {
+        left &&= p[i]! < -1; right &&= p[i]! > grid.cols + 1;
+        top &&= p[i + 1]! < -1; bottom &&= p[i + 1]! > grid.rows + 1;
+      }
+      if (left || right || top || bottom) continue;
     }
     for (let i = 3; i + 5 < length; i += 3) {
       const area = (p[i]! - p[0]!) * (p[i + 4]! - p[1]!) - (p[i + 1]! - p[1]!) * (p[i + 3]! - p[0]!);
@@ -369,7 +424,7 @@ export function createGlyphMapExtrusionSurface(
     return glyphMapSurfaceOccludes(grid, ci, ri, col - ci, row - ri, depth, 0, 0);
   };
   const previousOutput = topology.stampCache?.output;
-  const surface = {
+  const surface: ExtrusionSurface = {
     replay: frameKey ? (g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) => {
       const cache = topology.stampCache;
       if (cache?.output && cache.filledFaces === filledFaces && cache.blankFaces === blankFaces && cache.tilted === tilted && equal(frameKey, cache.key) &&
@@ -459,6 +514,14 @@ export function createGlyphMapExtrusionSurface(
       }
     },
   };
+  if (frameKey) {
+    const hidden = cached?.hidden.length === polygons.length ? cached.hidden : new Uint8Array(polygons.length);
+    for (let i = 0; i < polygons.length; i++) hidden[i] = Number(!!polygons[i]!.hidden);
+    topology.surfaceCache = {
+      surface, bindGrid: next => { grid = next; }, key: frameKey.slice(), hidden,
+      filledFaces, blankFaces, polygons, cols: grid.cols, rows: grid.rows, cullBehind,
+    };
+  }
   return surface;
 }
 

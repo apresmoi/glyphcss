@@ -302,3 +302,39 @@ it("does not replay stale output when a failed replay has not yet been stamped",
   const next = createGlyphMapExtrusionSurface(grid(2), [polygon], project, eye, topology, [1]);
   expect(next.replay!(grid(2), gs, false)).toBe(false);
 });
+
+it("reuses camera-identical planes before projection and binds fresh frozen depth/ownership", () => {
+  const polygons = [{ ...polygon }], gs = [{ ...geometry, polygons }];
+  const topology = createGlyphMapExtrusionTopology(polygons, gs), projectSpy = vi.fn(project);
+  const first = createGlyphMapExtrusionSurface(grid(), polygons, projectSpy, eye, topology, [0]);
+  stampGlyphMapExtrusionOutlines(grid(), gs, first, projectSpy, eye, false);
+  projectSpy.mockClear();
+  const frozen = grid(100);
+  const second = createGlyphMapExtrusionSurface(frozen, polygons, projectSpy, eye, topology, [0]);
+  expect(second).toBe(first); expect(projectSpy).not.toHaveBeenCalled();
+  const actual = grid(), expected = grid();
+  stampGlyphMapExtrusionOutlines(actual, gs, second, projectSpy, eye, false);
+  reference.stampGlyphMapExtrusionOutlines(expected, gs, reference.createGlyphMapExtrusionSurface(frozen, polygons, projectSpy, eye), projectSpy, eye, false);
+  expect(actual.char).toEqual(expected.char); expect(actual.color).toEqual(expected.color); expect(actual.depth).toEqual(expected.depth);
+  const third = createGlyphMapExtrusionSurface(grid(), polygons, projectSpy, eye, topology, [1]);
+  expect(third).not.toBe(second);
+  polygons[0].hidden = true;
+  expect(createGlyphMapExtrusionSurface(grid(), polygons, projectSpy, eye, topology, [1])).not.toBe(third);
+});
+
+it("conservative walk bins match uncullled planes for behind, grazing and near-plane-straddling faces", () => {
+  const behind = Array.from({ length: 80 }, (_, i) => ({ vertices: roof.map(v => [v[0] + i, v[1], -10] as Vec3) }));
+  const hiddenTopology = createGlyphMapExtrusionTopology(behind);
+  const eyeSpy = vi.fn((v: Vec3) => v[2]);
+  createGlyphMapExtrusionSurface(grid(), behind, project, eyeSpy, hiddenTopology, undefined, undefined, undefined, true);
+  expect(eyeSpy.mock.calls.length).toBe(12);
+  const pieces = [polygon, ...behind, { vertices: roof.map(v => [v[0] - 6.5, v[1], 1] as Vec3) },
+    { vertices: [[0, 0, -1], [0, 5, 1], [5, 5, 1]] as Vec3[] }];
+  const gs = [{ ...geometry, polygons: pieces }];
+  const a = grid(), b = grid(), depth = (v: Vec3) => v[2];
+  const frozen = grid();
+  stampGlyphMapExtrusionOutlines(a, gs, createGlyphMapExtrusionSurface(frozen, pieces, project, depth,
+    createGlyphMapExtrusionTopology(pieces, gs), undefined, undefined, undefined, true), project, depth, true);
+  reference.stampGlyphMapExtrusionOutlines(b, gs, reference.createGlyphMapExtrusionSurface(frozen, pieces, project, depth), project, depth, true);
+  expect(a.char).toEqual(b.char); expect(a.color).toEqual(b.color); expect(a.depth).toEqual(b.depth);
+});

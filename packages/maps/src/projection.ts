@@ -1,3 +1,4 @@
+import { registerGlyphMapNearSphere } from "./nearSide";
 import type { Vec3 } from "glyphcss";
 import type { GlyphMapBounds } from "./types";
 
@@ -230,7 +231,7 @@ export function glyphMapMercator(opts: { maxLat?: number; exaggeration?: number 
 export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } = {}): GlyphMapProjection {
   const radius = opts.radius ?? 1;
   const exaggeration = opts.exaggeration ?? 1;
-  return {
+  const globe: GlyphMapProjection = {
     id: "glyph-map-globe",
     exaggeration,
     domain: FULL_DOMAIN,
@@ -313,6 +314,8 @@ export function glyphMapGlobe(opts: { radius?: number; exaggeration?: number } =
       return [lon, lat];
     },
   };
+  registerGlyphMapNearSphere(globe, radius);
+  return globe;
 }
 
 /**
