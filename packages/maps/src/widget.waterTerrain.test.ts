@@ -167,7 +167,7 @@ it("retains the committed water/land snapshot through pending and failed replace
   expect(colorAt(map, [12.8, 45.3])).toBe(LAND);
 });
 
-it("plants dry land at datum without a terrain floor, while water keeps its original ground", async () => {
+it("plants dry land and submerged water features at datum without a terrain floor", async () => {
   const tile = fixture(8, 136, 91);
   const ground: GlyphMapGeoTile = { bounds: tile.bounds, cols: 4, rows: 4, elevation: new Float32Array(25).fill(-1000), source: "submerged-island", sampler: "nearest" };
   const map = mount(provider(tile), true, false, ground, null);
@@ -175,7 +175,7 @@ it("plants dry land at datum without a terrain floor, while water keeps its orig
   await map.idle();
   expect(map.scene.camera.target).toEqual(projection.project(...VENICE, 0));
   map.setView({ center: [12.36, 45.47] }); await map.idle();
-  expect(map.scene.camera.target).toEqual(projection.project(12.36, 45.47, -1000));
+  expect(map.scene.camera.target).toEqual(projection.project(12.36, 45.47, 0));
 });
 
 it("encodes the corrected land and water cells as atlas glyphs", async () => {

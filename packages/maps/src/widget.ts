@@ -862,6 +862,7 @@ export interface GlyphMapFillLayer {
    * bounds the DEM is unchanged. Inside, dry terrain uses at least the 0 m
    * land colour and datum floor; water footprints are cut from every terrain
    * tier so the existing water drape paints them (including ocean chord sag).
+   * Planted features use max(terrain, datum) inside committed water polygons.
    * A static feature collection has no coverage contract and grants none.
    * Do not filter out water classes when declaring this authority.
    */
@@ -5886,23 +5887,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      */
     function groundElevationReader(coverage = waterTerrainSnapshot()): (lon: number, lat: number) => number {
       const landWindow = { minElevation: Math.max(0, window.minElevation ?? -Infinity), maxElevation: Math.max(0, window.maxElevation ?? Infinity) };
-      const windowAt = (lon: number, lat: number) => {
+      const read = (tiles: readonly GlyphMapGeoTile[], lon: number, lat: number): number => {
         const region = coverage.find(c => glyphMapWaterContains(c.bounds, lon, lat));
-        return region && !region.waterAt(lon, lat) ? landWindow : window;
-      };
-      if (!isGlyphMapProvider(layer.source)) {
-        const source = layer.source;
-        const mounted = staticHandles.length > 0;
-        return (lon, lat) => (mounted ? glyphMapGeoTileElevationAt(source, lon, lat, windowAt(lon, lat)) : NaN);
-      }
-      const tiles = resolvedGroundTiles();
-      return (lon, lat) => {
+        const water = region?.waterAt(lon, lat) ?? false;
+        const sampleWindow = region && !water ? landWindow : window;
         for (let i = 0; i < tiles.length; i++) {
-          const value = glyphMapGeoTileElevationAt(tiles[i]!, lon, lat, windowAt(lon, lat));
-          if (Number.isFinite(value)) return value;
+          const value = glyphMapGeoTileElevationAt(tiles[i]!, lon, lat, sampleWindow);
+          // Reuse the terrain-window classification: planted features stand
+          // on the water surface, not on the bathymetry beneath its fill.
+          if (Number.isFinite(value)) return water ? Math.max(value, 0) : value;
         }
         return NaN;
       };
+      if (!isGlyphMapProvider(layer.source)) {
+        const tiles = staticHandles.length > 0 ? [layer.source] : [];
+        return (lon, lat) => read(tiles, lon, lat);
+      }
+      const tiles = resolvedGroundTiles();
+      return (lon, lat) => read(tiles, lon, lat);
     }
 
     function groundElevationAt(lon: number, lat: number): number {
@@ -5979,7 +5981,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // "no ground here" answer, NaN, so every consumer's existing non-finite
     // fallback covers it unchanged.
     const supplied = opts.groundElevation;
-    if (supplied) return (lon, lat) => supplied(lon, lat) ?? NaN;
+    if (supplied) {
+      const regions = coverage ?? waterTerrainSnapshot();
+      if (regions.length === 0) return (lon, lat) => supplied(lon, lat) ?? NaN;
+      return (lon, lat) => {
+        const value = supplied(lon, lat) ?? NaN;
+        return value < 0 && regions.find(c => glyphMapWaterContains(c.bounds, lon, lat))?.waterAt(lon, lat) ? 0 : value;
+      };
+    }
     const read = rasterGroundElevationReader(coverage);
     if (!read) return null;
     return (lon, lat) => {
@@ -7535,6 +7544,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     function* prepareBuild(features: readonly GlyphMapVectorFeature[], coverage = waterTerrainSnapshot()): Generator<void, () => void> {
       const buildProjection = projection;
+      const cutsTerrain = layer.type === "fill" && layer.waterTerrain && isGlyphMapVectorProvider(layer.source);
       const variation = layer.type === "fill-extrusion" ? layer.colorVariation ?? 0 : 0;
       // `part` is the polygon GROUP's own anchor, and the variation is seeded
       // from it rather than from the feature: a real OSM pyramid emits every
@@ -7599,6 +7609,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // The lift rides ON TOP of the recorded probe, so a terrain change
           // is compared against the terrain and not against the lift.
           if (!Number.isFinite(ground)) return ground;
+          // Authoritative water has no terrain beneath it: its cutout needs
+          // neither terrain-rise forgiveness nor a chord/tie-break lift.
+          if (cutsTerrain) return ground;
           // MEASURED, not assumed: the ground's own rise across the span the
           // terrain's own quads span, plus the true-metre tie-break. Zero rise
           // (a city on a fine tier, a caller-supplied constant ground, no

@@ -10,12 +10,12 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Branch on projection CAPABILITY (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
 - Crop, don't clamp: `project()` returns `NaN` outside its window. Sole exception: a `raster` elevation window clamps per vertex.
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
-- Everything planted shares `groundElevation`, else mounted raster tiles, else datum. Tile sampling follows NW–SE triangles, clamped per vertex. `null` means datum. Only `contour` is exempt.
+- Planting: `groundElevation`, else mounted raster tiles, else datum. NW–SE tile triangles clamp per vertex. Water planting uses max(terrain, datum) within committed coverage. `null` means datum; `contour` is exempt.
 - Relief resolution is per pyramid LEVEL, never per tile. Non-target tiers are sunk by `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
 - Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable identity).
 - Opt-ins stay byte-identical off; mutation-test each.
-- `waterTerrain`: atomic terrain/fill. Outside DEM; dry land/sampler floored at datum (classify >=0). Cut indexed shores on targets; merge convex pieces per source triangle. Sunk backstops floor/colour coverage only. Tile-identity cache, cancellable 2 ms prep; removal restores DEM; no static authority.
+- `waterTerrain`: atomic coverage/fill; outside DEM, dry ground/classification >=0. Indexed shores; convex merges per source triangle; backstops floor/colour only. Cutouts need no fill lift. Tile-identity cache, cancellable 2 ms prep; removal restores DEM; no static authority.
 - Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells. DOM overlays.
 - `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one geometry-centroid dot; open stubs never become dots. Paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
 - `snapPan` is opt-in: camera pans use a cell lattice at fixed lens/tilt/bearing/grid; held views stay exact. Orbit uses a local tangent lattice. Zoom/tilt reset it; walking bypasses it. Renderer dithering stays screen-anchored.
