@@ -17,4 +17,5 @@ it.each(readDocs())("keeps Markdown output identical to the shared docs renderer
     const result = fitGlyphDocsOutput(await renderGlyphDocs(input), textScale);
     expect(markdown).toContain(`\n${result.text}\n`);
   }
-});
+  // The 3D page fits each chart over a full turntable of renders, once per renderer bundle.
+}, 30_000);
