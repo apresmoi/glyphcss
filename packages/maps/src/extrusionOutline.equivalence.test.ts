@@ -50,11 +50,11 @@ async function mount(fill?: boolean, tilt = 0, blank = false, buildings = true) 
 
 it("matches the packet-11 surface and complete stamped grids over BA buildings during pan, tilt and replacement", async () => {
   const create = outline.createGlyphMapExtrusionSurface, stamp = outline.stampGlyphMapExtrusionOutlines;
-  let oldSurface: ReturnType<typeof create>;
+  let oldSurface: ReturnType<typeof reference.createGlyphMapExtrusionSurface>;
   let latestPolygons: readonly Polygon[] = [], latestGeometries: readonly GlyphMapExtrusionGeometry[] = [];
   let polygons = 0, checks = 0, braille = 0;
   vi.spyOn(outline, "createGlyphMapExtrusionSurface").mockImplementation((...args) => {
-    oldSurface = reference.createGlyphMapExtrusionSurface(...args);
+    oldSurface = reference.createGlyphMapExtrusionSurface(args[0], args[1], args[2], args[3]);
     latestPolygons = args[1];
     polygons = Math.max(polygons, args[1].length);
     return create(...args);
@@ -90,7 +90,7 @@ it.skipIf(!process.env.GLYPH_MAP_OUTLINE_BENCH)("benchmarks packet-11 and optimi
   vi.spyOn(outline, "createGlyphMapExtrusionSurface").mockImplementation((...args) => {
     const start = performance.now();
     polygons = Math.max(polygons, args[1].length);
-    const result = (old ? reference.createGlyphMapExtrusionSurface : create)(...args);
+    const result = old ? reference.createGlyphMapExtrusionSurface(args[0], args[1], args[2], args[3]) as ReturnType<typeof create> : create(...args);
     const elapsed = performance.now() - start; outlineMs += elapsed; surfaceMs += elapsed;
     return result;
   });

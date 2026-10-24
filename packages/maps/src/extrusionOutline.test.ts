@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import type { CellGrid, Polygon, Vec3 } from "glyphcss";
 import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import * as reference from "./test/extrusionOutlineReference";
@@ -235,4 +235,70 @@ it("only requested blank faces erase ink; ordinary filled surfaces keep their co
   const surface = createGlyphMapExtrusionSurface(g,[polygon,other],project,eye,undefined,undefined,new Set([other]),new Set([polygon]));
   surface.blank!(g);
   expect(g.char[44]).toBe(" "); expect(g.char[48]).toBe("@"); expect(g.color[48]).toBe("#94a3b8");
+});
+
+it("walks compiled ids without consulting coordinate, edge or polygon identity maps", () => {
+  const gs = [geometry], topology = createGlyphMapExtrusionTopology([polygon], gs);
+  const vertex = vi.spyOn(topology, "vertexId").mockImplementation(() => { throw Error("frame vertex lookup"); });
+  const incident = vi.spyOn(topology, "incidentFaces").mockImplementation(() => { throw Error("frame edge lookup"); });
+  try {
+    for (let frame = 0; frame < 3; frame++) {
+      const g = grid(), shifted = (v: Vec3) => ({ col: v[0] + frame / 8, row: v[1], depth: v[2] });
+      const surface = createGlyphMapExtrusionSurface(grid(), [polygon], shifted, eye, topology);
+      stampGlyphMapExtrusionOutlines(g, gs, surface, shifted, eye, true);
+      expect(ink(g)).toBeGreaterThan(12);
+    }
+    expect(vertex).not.toHaveBeenCalled(); expect(incident).not.toHaveBeenCalled();
+  } finally { vertex.mockRestore(); incident.mockRestore(); }
+});
+
+it("indexes only conservative triangle coverage, including sub-cell grazes and signed depth planes", () => {
+  const faces: Polygon[] = [
+    { vertices: [[-20,-20,1],[-20,120,2],[120,-20,3]] },
+    { vertices: [[0.999999,0.999999,4],[8.999999,9.000001,-4],[9.000001,8.999999,8]] },
+    { vertices: [[0,0,-8],[0,9,-2],[9,9,-4]] },
+    { vertices: [[1,1,1e-30],[1,8,1e-30],[8,1,1e-30]] },
+  ];
+  const all = new Set(faces), topology = createGlyphMapExtrusionTopology(faces);
+  const g = grid(1), actual = createGlyphMapExtrusionSurface(g, faces, project, eye, topology);
+  const expected = reference.createGlyphMapExtrusionSurface(g, faces, project, eye);
+  const queries = faces.map(p => [actual.occludes(p.vertices[0]!, p.vertices[1]!), expected.occludes(p.vertices[0]!, p.vertices[1]!)]);
+  for (let idx = 0; idx < 100; idx++) {
+    expect(actual.owns(idx, all)).toBe(expected.owns(idx, all));
+    const x = idx % 10, y = Math.floor(idx / 10);
+    for (const [a, b] of queries) for (const sub of [0, 1 / 8, 0.5, 1 - Number.EPSILON]) for (const d of [-9, 0, 1, 5]) {
+      expect(a!(x + sub, y + sub, d)).toBe(b!(x + sub, y + sub, d));
+    }
+  }
+  const triangle: Polygon = { vertices: [[0,0,1],[0,99,1],[99,0,1]] };
+  const large = { ...grid(), cols: 100, rows: 100, depth: new Float64Array(10_000) };
+  const compiled = createGlyphMapExtrusionTopology([triangle]);
+  createGlyphMapExtrusionSurface(large, [triangle], project, eye, compiled);
+  // A fan diagonal must not populate the entire 100×100 bounding box.
+  expect(compiled.scratch.offsets[10_000]).toBeLessThan(5_500);
+});
+
+it("reuses capacity across output sizes without carrying stale triangles, bins or replay visibility", () => {
+  const faces = [{ ...polygon }], gs = [{ ...geometry, polygons: faces }];
+  const topology = createGlyphMapExtrusionTopology(faces, gs);
+  for (const [size, hidden] of [[16,false],[10,true],[10,false],[8,false],[16,false]] as const) {
+    faces[0]!.hidden = hidden;
+    const make = () => ({ ...grid(), cols: size, rows: size, char: Array(size * size).fill("@"),
+      color: Array(size * size).fill("#94a3b8"), depth: new Float64Array(size * size).fill(-Infinity) });
+    const g = make(), expected = make();
+    const surface = createGlyphMapExtrusionSurface(make(), faces, project, eye, topology, [size]);
+    stampGlyphMapExtrusionOutlines(g, gs, surface, project, eye, false);
+    reference.stampGlyphMapExtrusionOutlines(expected, gs, reference.createGlyphMapExtrusionSurface(make(), faces, project, eye), project, eye, false);
+    expect(g.char).toEqual(expected.char); expect(g.color).toEqual(expected.color); expect(g.depth).toEqual(expected.depth);
+  }
+});
+
+it("does not replay stale output when a failed replay has not yet been stamped", () => {
+  const topology = createGlyphMapExtrusionTopology([polygon], [geometry]), gs = [geometry];
+  const g = grid();
+  stampGlyphMapExtrusionOutlines(g, gs, createGlyphMapExtrusionSurface(grid(), [polygon], project, eye, topology, [0]), project, eye, false);
+  const changed = createGlyphMapExtrusionSurface(grid(2), [polygon], project, eye, topology, [1]);
+  expect(changed.replay!(grid(2), gs, false)).toBe(false);
+  const next = createGlyphMapExtrusionSurface(grid(2), [polygon], project, eye, topology, [1]);
+  expect(next.replay!(grid(2), gs, false)).toBe(false);
 });

@@ -8931,7 +8931,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const meshes = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? [s.runtime.polygons?.() ?? []] : []);
         if (!outlineTopology || meshes.length !== outlineMeshes.length || meshes.some((p, i) => p !== outlineMeshes[i])) {
           outlineMeshes = meshes;
-          outlineTopology = createGlyphMapExtrusionTopology(meshes.flat());
+          outlineTopology = createGlyphMapExtrusionTopology(meshes.flat(), outlined);
           const filled = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
             !(s.layer.outline === "braille" && s.layer.fill === false) ? s.runtime.polygons?.() ?? [] : []);
           outlineFilledFaces = new Set(filled);

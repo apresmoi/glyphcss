@@ -16,7 +16,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable identity).
 - Mutation-test opt-out byte identity.
 - `waterTerrain`: atomic coverage/fill; outside DEM dry ground/classification >=0. Indexed shores; convex merges/source triangle; floor/colour backstops. No cutout lift. Tile-identity cache, 2 ms cancellable prep; removal restores DEM.
-- Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells. DOM overlays.
+- Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable numeric topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells. DOM overlays.
 - `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one geometry-centroid dot; open stubs never become dots. Paths join accepted cells (gaps split paths), collapse backtracks and add depth-tested corners only on their own path or unowned cells; drop unjoined remnants. Other strategies are unchanged.
 - `compositorPan`: opt-in ¼-grid overscan, fixed cells; translate scene/hide hotspots. Settle on release/rest/pose/layout changes; refresh at 80% margin/2° orbit. Rebase on render; public grid unchanged; no walk.
 - `snapPan`: opt-in cell lattice at fixed lens/tilt/bearing/grid; exact held view. Orbit: tangent lattice. Zoom/tilt reset; walk bypasses. Dither stays screen-anchored.
