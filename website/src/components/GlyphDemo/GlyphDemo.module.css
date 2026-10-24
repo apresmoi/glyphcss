@@ -52,9 +52,11 @@
  * createGlyphScene injects a .glyph-scene div; we need it to fill the
  * .glyph-demo__scene-host so autoSize:true can measure the full viewport. */
 
+/* Out of flow, so the text never sizes its own box: autoSize measures the host,
+   and a grid left large by a higher density cannot grow the host it measures. */
 .root :global(.glyph-demo__scene-host) :global(.glyph-scene) {
-  width: 100%;
-  height: 100%;
+  position: absolute;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
