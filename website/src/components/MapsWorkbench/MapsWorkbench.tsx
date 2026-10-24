@@ -166,6 +166,7 @@ export default function MapsWorkbench() {
             centerLon={centerLon}
             centerLat={centerLat}
             bearing={bearing}
+            colorEncoding={colorEncoding}
           />
           <InstrumentExportBar>
             {renderExportActions}
