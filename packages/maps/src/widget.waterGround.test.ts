@@ -150,3 +150,31 @@ it.runIf(process.env.GLYPH_MAP_WATER_GROUND_BENCH === "1")("Venice node frame co
   console.log("Venice ms/frame", JSON.stringify({ median: [...batches].sort((a, b) => a - b)[3], batches }));
   expect(map.scene.output.textContent?.length).toBe(COLS * ROWS + ROWS - 1);
 });
+
+// The live page draws this view from the z10 tile, whose lagoon ring is far
+// coarser than z12's: draped from its shore vertices the lake surface rose
+// above the DEM the causeway read pointwise, and the bridge vanished under its
+// own lagoon. Still water is level, so both now stand on one shoreline level.
+it.each(["braille", "box"] as const)("real Venice z10: %s causeway stands on the level lagoon surface", async strategy => {
+  const z10: GlyphMapVectorTile = {
+    z: 10, x: 547, y: 366, bounds: glyphMapMercatorTileBounds(10, 547, 366), source: "OpenFreeMap", simplify: "mvt-source",
+    layers: glyphMapDecodeMVT(readFileSync(path.join(root, "10_547_366.pbf")), 10, 547, 366, ["water", "transportation"]),
+  };
+  const z10Source: GlyphMapVectorProvider = {
+    ...source, id: "venice-ground-z10",
+    zooms: [{ z: 10, cols: 1024, rows: 1024, tileLonSpan: 360 / 1024, tileLatSpan: 180 / 1024, tileCols: 256, tileRows: 256 }],
+    tileRange: () => ({ x0: 547, x1: 547, y0: 366, y1: 366 }), loadTile: async () => z10,
+  };
+  const map = mount(); await map.idle();
+  map.removeLayer("omt-water");
+  map.addLayer(glyphMapOpenMapTilesLayers(z10Source, { include: ["omt-water"], waterTerrain: true })[0]);
+  await map.idle(); map.scene.rerender();
+  for (const klass of ["trunk", "rail"]) {
+    const features = z10.layers.transportation.filter(f => f.properties?.class === klass);
+    map.addLayer({ type: "line", id: klass, source: { features }, color: "#ff0000", experimentalGlyphStrategy: strategy });
+    await map.idle(); map.scene.rerender();
+    const grid = cells(map);
+    for (let col = 44; col <= 57; col++) expect(grid.slice(30, 39).some(row => row[col]?.startsWith("#ff0000:")), `${klass} causeway column ${col}`).toBe(true);
+    map.removeLayer(klass); await map.idle();
+  }
+});

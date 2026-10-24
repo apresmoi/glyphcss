@@ -5,7 +5,8 @@ import { glyphMapClipPolygonGroup } from "./vector/clip";
 
 type Point = readonly [number, number];
 type Ring = readonly Point[];
-interface Triangle { ring: Ring; bounds: GlyphMapBounds }
+/** `level` is the shoreline whose water surface the triangle belongs to; null for a river, which runs downhill and stays draped. */
+interface Triangle { ring: Ring; bounds: GlyphMapBounds; level: Ring | null }
 interface Boundary { a: Point; b: Point; bounds: GlyphMapBounds }
 
 /** Internal snapshot: bounds describe successful tile coverage, not a feature's bbox. */
@@ -14,6 +15,8 @@ export interface GlyphMapWaterCoverage {
   readonly features: readonly GlyphMapVectorFeature[];
   boundaries(bounds: GlyphMapBounds): readonly Boundary[];
   waterAt(lon: number, lat: number): boolean;
+  /** The outer shoreline of a FLAT water body at this point (lakes, lagoons, ponds, the sea); null over a river; undefined on land. */
+  waterLevelRingAt(lon: number, lat: number): Ring | null | undefined;
 }
 
 export function glyphMapWaterContains(bounds: GlyphMapBounds, lon: number, lat: number): boolean {
@@ -94,6 +97,8 @@ export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: rea
     }
     if (!polygons.length) continue;
     features.push({ ...feature, polygons, rings: polygons.flat() });
+    // Still water is level; a river is a slope. OpenMapTiles names rivers.
+    const flowing = feature.properties?.class === "river";
     for (const group of polygons) {
       yield;
       for (const ring of group) for (let i = 1; i < ring.length; i++) {
@@ -113,7 +118,7 @@ export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: rea
         const area = cross(ring[0], ring[1], ring[2]);
         if (area === 0) continue;
         if (area < 0) ring.reverse();
-        triangles.push({ ring, bounds: {
+        triangles.push({ ring, level: flowing ? null : group[0]!, bounds: {
           west: Math.min(...ring.map(p => p[0])), east: Math.max(...ring.map(p => p[0])),
           south: Math.min(...ring.map(p => p[1])), north: Math.max(...ring.map(p => p[1])),
         } });
@@ -137,10 +142,15 @@ export function* prepareGlyphMapWaterCoverage(bounds: GlyphMapBounds, input: rea
     const b = edge.bounds;
     for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) edgeBins[row * size + col].push(edge);
   }
-  return { bounds, features, waterAt(lon, lat) {
+  const triangleAt = (lon: number, lat: number) => {
     const p: Point = [lon, lat];
-    return bins[y(lat) * size + x(lon)].some(({ ring, bounds: b }) => glyphMapWaterContains(b, lon, lat)
+    return bins[y(lat) * size + x(lon)].find(({ ring, bounds: b }) => glyphMapWaterContains(b, lon, lat)
       && cross(ring[0], ring[1], p) >= 0 && cross(ring[1], ring[2], p) >= 0 && cross(ring[2], ring[0], p) >= 0);
+  };
+  return { bounds, features, waterAt(lon, lat) {
+    return triangleAt(lon, lat) !== undefined;
+  }, waterLevelRingAt(lon, lat) {
+    return triangleAt(lon, lat)?.level;
   }, boundaries(b) {
     const found = new Set<Boundary>();
     for (let row = y(b.south); row <= y(b.north); row++) for (let col = x(b.west); col <= x(b.east); col++) {

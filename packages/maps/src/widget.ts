@@ -5887,17 +5887,39 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      */
     function groundElevationReader(coverage = waterTerrainSnapshot()): (lon: number, lat: number) => number {
       const landWindow = { minElevation: Math.max(0, window.minElevation ?? -Infinity), maxElevation: Math.max(0, window.maxElevation ?? Infinity) };
-      const read = (tiles: readonly GlyphMapGeoTile[], lon: number, lat: number): number => {
-        const region = coverage.find(c => glyphMapWaterContains(c.bounds, lon, lat));
-        const water = region?.waterAt(lon, lat) ?? false;
-        const sampleWindow = region && !water ? landWindow : window;
+      const raw = (tiles: readonly GlyphMapGeoTile[], lon: number, lat: number, sampleWindow: typeof window): number => {
         for (let i = 0; i < tiles.length; i++) {
           const value = glyphMapGeoTileElevationAt(tiles[i]!, lon, lat, sampleWindow);
-          // Reuse the terrain-window classification: planted features stand
-          // on the water surface, not on the bathymetry beneath its fill.
-          if (Number.isFinite(value)) return water ? Math.max(value, 0) : value;
+          if (Number.isFinite(value)) return value;
         }
         return NaN;
+      };
+      // Still water is LEVEL: its surface is the lowest point of its own
+      // shoreline (never below the datum). Reading the DEM pointwise instead
+      // put a bridge below a lake the fill draped from its shore vertices —
+      // the Venice causeway vanished under its own lagoon. One level per
+      // shoreline, cached for this reader's lifetime (one stamp pass).
+      const levels = new Map<readonly (readonly [number, number])[], number>();
+      const levelOf = (tiles: readonly GlyphMapGeoTile[], shore: readonly (readonly [number, number])[]): number => {
+        let level = levels.get(shore);
+        if (level !== undefined) return level;
+        level = Infinity;
+        for (const [vLon, vLat] of shore) {
+          const v = raw(tiles, vLon, vLat, window);
+          if (Number.isFinite(v)) level = Math.min(level, Math.max(v, 0));
+        }
+        if (!Number.isFinite(level)) level = 0;
+        levels.set(shore, level);
+        return level;
+      };
+      const read = (tiles: readonly GlyphMapGeoTile[], lon: number, lat: number): number => {
+        const region = coverage.find(c => glyphMapWaterContains(c.bounds, lon, lat));
+        const shore = region?.waterLevelRingAt(lon, lat);
+        if (shore) return levelOf(tiles, shore);
+        const water = shore === null;
+        const value = raw(tiles, lon, lat, region && !water ? landWindow : window);
+        // A river stands on its own surface, never on the bathymetry beneath its fill.
+        return water && Number.isFinite(value) ? Math.max(value, 0) : value;
       };
       if (!isGlyphMapProvider(layer.source)) {
         const tiles = staticHandles.length > 0 ? [layer.source] : [];
