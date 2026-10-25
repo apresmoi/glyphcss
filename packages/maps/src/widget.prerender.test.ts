@@ -359,3 +359,26 @@ it("renders once in a motion frame whose live pose has outrun the prepared ancho
   expect(text(a)).toBe(text(b));
   expect(element(a).style.transform).toBe(element(b).style.transform);
 });
+
+it("replays a prepared line plan only while filterAtResolution still answers every feature as it did when the plan was built", async () => {
+  const flags = [{ include: true }, { include: true }];
+  const layersFor = (flag: { include: boolean }): GlyphMapLayer[] => sceneLayers().map(layer =>
+    layer.id === "braille-road" ? { ...layer, filterAtResolution: () => flag.include } as GlyphMapLayer : layer);
+  const a = await framed({ layers: layersFor(flags[0]!) }), b = await framed({ layers: layersFor(flags[1]!) });
+  expect(seam(a).prepare("anchor")).toBe(true);
+  expect(seam(a).plans()).toBe(2);
+  // Closure state the plan key cannot see: the same camera, features and grids, a different answer.
+  flags[0]!.include = false; flags[1]!.include = false;
+  seam(a).renderLive(); seam(b).renderLive();
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).not.toContain("#e8c988");
+  expect(text(a)).toContain("#ff5533");
+  // Unchanged answers still reuse the plan (the filter is checked, not a reason to never prepare).
+  flags[0]!.include = true; flags[1]!.include = true;
+  expect(seam(a).prepare("anchor")).toBe(true);
+  expect(seam(a).plans()).toBe(2);
+  seam(a).renderLive(); seam(b).renderLive();
+  expect(seam(a).plans()).toBe(0);
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).toContain("#e8c988");
+});

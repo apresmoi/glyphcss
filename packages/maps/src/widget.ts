@@ -6756,6 +6756,26 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         groundRevision, waterTerrainEpoch, projection, projection.exaggeration, view.span];
     }
 
+    // Detail/overlay cells occupy a fraction of a base cell. Use their
+    // actual resolution, never their cropped grid width. Walk has no
+    // span-derived resolution, so retains full source detail.
+    const degPerCellOf = (baseGrid: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine): number => view.span / baseGrid.cols * Math.abs(cellToSceneGrid[0]);
+
+    /**
+     * Whether `filterAtResolution` still answers each feature as it did while a
+     * plan was built. The callback is the consumer's and may close over state
+     * the plan key cannot see, so a plan is reusable only when every answer
+     * repeats (it runs again here, once per feature, as a live stamp would).
+     */
+    function sameDecisions(decisions: readonly boolean[], baseGrid: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine): boolean {
+      const filter = layer.filterAtResolution;
+      if (!filter) return true;
+      const feats = currentFeatures(), degPerCell = degPerCellOf(baseGrid, cellToSceneGrid);
+      if (feats.length !== decisions.length) return false;
+      for (let i = 0; i < feats.length; i++) if (!!filter(feats[i]!, walk === null ? degPerCell : 0) !== decisions[i]) return false;
+      return true;
+    }
+
     /**
      * The camera-only half of a stamp: every run's vertex list, in stamp
      * order, handed to `sink` exactly as the stamper consumes it (`verts` is
@@ -6769,12 +6789,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     function* strokeRuns(
       cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid,
       sink: (color: string | undefined, verts: GlyphMapStrokeVertex[]) => void, yieldEvery: number,
+      decisions?: boolean[],
     ): Generator<void, void> {
       const feats = currentFeatures();
-      // Detail/overlay cells occupy a fraction of a base cell. Use their
-      // actual resolution, never their cropped grid width. Walk has no
-      // span-derived resolution, so retains full source detail.
-      const degPerCell = view.span / baseGrid.cols * Math.abs(cellToSceneGrid[0]);
+      const degPerCell = degPerCellOf(baseGrid, cellToSceneGrid);
       refreshGroundReader();
       const groundElevationAt = groundReader;
       // Densified points and cross-stroke probes move with the exact camera.
@@ -6853,7 +6871,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const visibility = walk ? undefined : preparedVisibility(baseGrid);
       let rings = 0;
       for (const feature of feats) {
-        if (layer.filterAtResolution && !layer.filterAtResolution(feature, walk === null ? degPerCell : 0)) continue;
+        if (layer.filterAtResolution) {
+          const keep = !!layer.filterAtResolution(feature, walk === null ? degPerCell : 0);
+          decisions?.push(keep);
+          if (!keep) continue;
+        }
         const color = layer.colorProperty && layer.colors
           ? layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color
           : layer.color;
@@ -6888,7 +6910,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
 
     /** A finished plan: the runs `strokeRuns` produced and the key they are valid under. Vertices are copied out of the shared scratch. */
-    let plan: { readonly key: unknown[]; readonly runs: readonly { readonly color: string | undefined; readonly verts: readonly GlyphMapStrokeVertex[] }[] } | null = null;
+    let plan: { readonly key: unknown[]; readonly decisions: readonly boolean[]; readonly runs: readonly { readonly color: string | undefined; readonly verts: readonly GlyphMapStrokeVertex[] }[] } | null = null;
 
     function* prepare(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
       plan = null;
@@ -6896,12 +6918,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const key = planKey(cols, rows, cellToSceneGrid, baseGrid);
       if (!key) return;
       const runs: { color: string | undefined; verts: GlyphMapStrokeVertex[] }[] = [];
+      const decisions: boolean[] = [];
       yield* strokeRuns(cols, rows, cellToSceneGrid, baseGrid, (color, verts) => {
         runs.push({ color, verts: verts.map(v => ({ col: v.col, row: v.row, depth: v.depth, slack: v.slack })) });
-      }, PREPARE_YIELD_RINGS);
+      }, PREPARE_YIELD_RINGS, decisions);
       // Something the key reads moved while this was suspended: the runs mix two states.
       const done = planKey(cols, rows, cellToSceneGrid, baseGrid);
-      if (done && sameKey(key, done)) plan = { key, runs };
+      if (done && sameKey(key, done)) plan = { key, decisions, runs };
     }
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
@@ -6917,6 +6940,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         refreshGroundReader();
         const key = planKey(grid.cols, grid.rows, cellToSceneGrid, baseGrid);
         if (key && sameKey(key, prepared.key)) plan = null; else prepared = null;
+        if (prepared && !sameDecisions(prepared.decisions, baseGrid, cellToSceneGrid)) prepared = null;
       }
       if (prepared) for (const run of prepared.runs) sink(run.color, run.verts);
       else for (const step = strokeRuns(grid.cols, grid.rows, cellToSceneGrid, baseGrid, sink, Infinity); !step.next().done;);
