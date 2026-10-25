@@ -31,6 +31,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
+import { glyphMapPointCells } from "./point";
 import { glyphMapEquirectangular, glyphMapGlobe, GLYPH_MAP_EARTH_RADIUS_M } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -571,5 +572,44 @@ describe("createGlyphMap — a `circle` layer is a glyph disc in the grid, never
     map.addLayer({ type: "circle", source: { features: [point("far", 150, -40)] }, radius: 4 });
     await settle(map);
     expect(marks(map)).toBe(0);
+  });
+});
+
+describe("createGlyphMap — a `circle` radius is the same apparent size on every grid", () => {
+  it("does not clip a large radius to 8 LOCAL rows on a finer grid", () => {
+    // The unit the widget scales by: a mark stamped on a 4x grid is 4x as many
+    // local rows, and its cap must scale with it.
+    const base = glyphMapPointCells(30, 30, 6, 2, undefined, 8);
+    const fine = glyphMapPointCells(120, 120, 24, 2, undefined, 32);
+    const extent = (cells: readonly { row: number }[]) => Math.max(...cells.map((c) => c.row)) - Math.min(...cells.map((c) => c.row)) + 1;
+    expect(extent(fine)).toBeGreaterThanOrEqual(extent(base) * 3.5);
+  });
+
+  it("stamps a circle past the old 8-row cap at the same apparent size at density 1 and 4", async () => {
+    const stampedRows = async (density: number): Promise<number> => {
+      const tile: GlyphMapGeoTile = {
+        bounds: { west: -180, east: 180, south: -90, north: 90 },
+        cols: 2, rows: 2, elevation: new Float32Array(9).fill(0), source: "synthetic", sampler: "nearest",
+      };
+      const { host, map } = mount({ projection: glyphMapEquirectangular(), view: { center: [0, 0], span: 120, cols: COLS, rows: ROWS } });
+      map.addLayer({ type: "raster", id: "t", source: tile, density });
+      await settle(map);
+      // 96 px = 6 rows at CELL_H 16: inside the cap, so the two grids must agree.
+      map.addLayer({ type: "circle", source: { features: [point("a", 0, 0)] }, radius: 96 });
+      await settle(map);
+      const rows = new Set<number>();
+      for (const pre of host.querySelectorAll("pre")) {
+        const lines = (pre.textContent ?? "").split("\n");
+        const perRow = lines.length / ROWS;
+        lines.forEach((l, r) => { if (/[·•●]/.test(l)) rows.add(r); });
+        void perRow;
+      }
+      return rows.size;
+    };
+    const one = await stampedRows(1);
+    const four = await stampedRows(4);
+    expect(one).toBeGreaterThan(8);
+    expect(four / one).toBeGreaterThan(3);
+    expect(four / one).toBeLessThan(5);
   });
 });

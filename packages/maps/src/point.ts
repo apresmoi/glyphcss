@@ -143,12 +143,13 @@ export function glyphMapPointCells(
   size: number,
   cellAspect: number,
   ramp: readonly string[] = GLYPH_MAP_POINT_RAMP,
+  maxSize: number = GLYPH_MAP_POINT_MAX_SIZE_ROWS,
 ): readonly GlyphMapPointCell[] {
   const glyphs = ramp.length > 0 ? ramp : GLYPH_MAP_POINT_RAMP;
   const largest = glyphs[glyphs.length - 1]!;
   if (!Number.isFinite(col) || !Number.isFinite(row)) return [];
   if (!(size > 0)) return [{ col: Math.floor(col), row: Math.floor(row), glyph: largest, coverage: 1 }];
-  const r = Math.min(size, GLYPH_MAP_POINT_MAX_SIZE_ROWS);
+  const r = Math.min(size, maxSize);
   const rCol = r * (cellAspect > 0 ? cellAspect : 1);
   const c0 = Math.floor(col - rCol);
   const c1 = Math.floor(col + rCol);
@@ -248,6 +249,13 @@ export interface GlyphMapPointStampOptions {
   readonly ramp?: readonly string[];
   /** Extra FLAT depth allowance in world depth units, on top of the terrain's own faceting. Default `0` — a marker planted on the ground is coplanar with it. */
   readonly depthBias?: number;
+  /**
+   * The cap on `mark.size`, in the SAME cells as `mark.size`. A detail grid
+   * stamps a mark at `size * localPerSceneRow`, so the caller scales
+   * {@link GLYPH_MAP_POINT_MAX_SIZE_ROWS} by the same factor; a cap in
+   * local cells would clip the same feature smaller on a finer grid.
+   */
+  readonly maxSize?: number;
   /** Overrides `stroke.ts`'s `GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE`. */
   readonly depthCurvatureScale?: number;
 }
@@ -283,7 +291,7 @@ export function stampGlyphMapPoint(grid: CellGrid, mark: GlyphMapPointMark, opts
   const color = opts.color ?? null;
   const bias = opts.depthBias ?? 0;
   const curvatureScale = opts.depthCurvatureScale;
-  const cells = glyphMapPointCells(mark.col, mark.row, mark.size ?? 0, opts.cellAspect ?? 2, opts.ramp);
+  const cells = glyphMapPointCells(mark.col, mark.row, mark.size ?? 0, opts.cellAspect ?? 2, opts.ramp, opts.maxSize);
   let inked = 0;
   for (const cell of cells) {
     if (cell.col < 0 || cell.col >= grid.cols || cell.row < 0 || cell.row >= grid.rows) continue;

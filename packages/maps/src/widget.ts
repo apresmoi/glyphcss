@@ -106,7 +106,7 @@ import { glyphMapDegreesPerCell, glyphMapEqualAngleTileRange, glyphMapFinestLOD,
 import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSource, GlyphMapVectorTile } from "./vector/types";
 import { glyphMapFieldValueAt } from "./sample";
 import { createGlyphMapBoxStrokeGraph, finishGlyphMapBoxStrokeGraph, stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
-import { glyphMapAsciiLabel, stampGlyphMapPoint, stampGlyphMapPointLabel, GLYPH_MAP_POINT_RAMP } from "./point";
+import { glyphMapAsciiLabel, stampGlyphMapPoint, stampGlyphMapPointLabel, GLYPH_MAP_POINT_RAMP, GLYPH_MAP_POINT_MAX_SIZE_ROWS } from "./point";
 import { glyphMapDropSmallContourRings, glyphMapGeneralizeContourMosaic, glyphMapMarchContourMosaic, type GlyphMapContourSampleGrid, type GlyphMapContourSegment } from "./contourGeometry";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
 import { glyphMapDedupeAttributions } from "./attribution";
@@ -1016,6 +1016,7 @@ export interface GlyphMapSymbolLayer {
  *   pixels and are divided by the grid's own cell height to give the disc's
  *   radius in cell rows. A radius under half a row is the single smallest
  *   mark (`·`).
+ * - **Capped** at 8 base-grid rows of radius, identically on every grid.
  * - **Features sharing a cell merge** into one mark.
  * - **`color`** tints the mark; omitted leaves the cell's own colour.
  * - **`density` is ignored** — a stamped mark lives in the base grid, never in
@@ -7379,8 +7380,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
           const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
           const depth = p[3] ?? p[2];
-          const sceneSize = sizeOf(feature, baseGrid.cellHeight);
+          // Capped in BASE-grid rows, then scaled: the same feature is the same
+          // apparent size on every grid, whatever its lattice.
+          const sceneSize = Math.min(sizeOf(feature, baseGrid.cellHeight), GLYPH_MAP_POINT_MAX_SIZE_ROWS);
           const inked = stampGlyphMapPoint(grid, { col: local.col, row: local.row, depth, size: sceneSize * localPerSceneRow }, {
+            maxSize: GLYPH_MAP_POINT_MAX_SIZE_ROWS * localPerSceneRow,
             color: layer.color,
             cellAspect: baseGrid.cellAspect,
             ramp,
