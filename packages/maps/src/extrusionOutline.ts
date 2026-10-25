@@ -411,7 +411,9 @@ export function createGlyphMapExtrusionSurface(
       const extreme = Math.max(Math.abs(t[k]!), Math.abs(t[k + 1]!), Math.abs(t[k + 3]!), Math.abs(t[k + 4]!), Math.abs(t[k + 6]!), Math.abs(t[k + 7]!)) > 2 ** 40;
       const coord = Math.max(grid.cols, grid.rows, Math.abs(t[k]!), Math.abs(t[k + 1]!), Math.abs(t[k + 3]!), Math.abs(t[k + 4]!), Math.abs(t[k + 6]!), Math.abs(t[k + 7]!));
       // Bound cancellation in both weights and area before skipping any depthAt.
-      const error = Number.EPSILON * 256 * coord * coord * (Math.abs(t[k + 2]!) + Math.abs(t[k + 5]!) + Math.abs(t[k + 8]!)) / Math.abs(area);
+      const error = Number.EPSILON * 256 * coord * coord * (Math.abs(t[k + 2]!) + Math.abs(t[k + 5]!) + Math.abs(t[k + 8]!)) / Math.abs(area)
+        // Products and the quotient round to a subnormal's absolute spacing, which the relative term above loses: at most a few MIN_VALUE per product, magnified by the division.
+        + Number.MIN_VALUE * 8 * (1 + 1 / Math.abs(area));
       const upper = Math.max(t[k + 2]!, t[k + 5]!, t[k + 8]!) + error;
       upperBounds[triangleCount] = Number.isNaN(upper) ? Infinity : upper;
       for (let y = top; y <= bottom; y++) {
