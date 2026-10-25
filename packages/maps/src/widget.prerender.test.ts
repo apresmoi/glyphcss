@@ -11,6 +11,8 @@
  * are unbounded unless a test says otherwise, and idle callbacks are a queue
  * the test flushes.
  */
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createGlyphMap, type GlyphMapLayer, type GlyphMapOptions } from "./widget";
 import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
@@ -264,12 +266,36 @@ it.each([
   flushIdle(1); // restSliceMs 0: one step per idle callback, so one layer's plan exists and the rest of the job is still owed when the change lands
   expect(seam(a).plans()).toBe(1);
   change(a); await a.idle();
+  flushIdle(); // the job runs to completion across the change, either as the same job or a restarted one
   glyphMapPrerenderTuning.restPrepare = false;
   const b = mount({ layers: undefined }); await ready(b);
   for (const layer of sceneLayers()) b.addLayer(layer);
   await b.idle();
   change(b); await b.idle();
 
-  for (const m of [a, b]) { pointer(m, "pointerdown", 200); pointer(m, "pointermove", 200); frame(); }
+  const unchanged = mount(); await ready(unchanged);
+  for (const m of [a, b, unchanged]) { pointer(m, "pointerdown", 200); pointer(m, "pointermove", 200); frame(); }
   expect(text(a)).toBe(text(b));
+  // The change is visible in the picture, so a plan from before it could not pass for one after it.
+  expect(text(b)).not.toBe(text(unchanged));
 });
+
+it("a plan carries each vertex's ground slack: real desert relief keeps the same border ink with and without preparing", async () => {
+  const fixture = JSON.parse(readFileSync(path.resolve(__dirname, "../fixtures/sahara-border.json"), "utf8")) as
+    { bounds: GlyphMapGeoTile["bounds"]; cols: number; rows: number; elevation: number[]; source: string; sampler: string };
+  const tile: GlyphMapGeoTile = { ...fixture, elevation: Float32Array.from(fixture.elevation) } as GlyphMapGeoTile;
+  const options: Partial<GlyphMapOptions> = {
+    view: { center: [26.677342, 25.465411], span: 16.810437949565824, cols: 80, rows: 20 },
+    projection: glyphMapGlobe({ exaggeration: 24 }), tilt: 0,
+    layers: [
+      { type: "raster", id: "terrain", source: tile },
+      { type: "line", id: "borders", color: "#ffffff", experimentalGlyphStrategy: "braille",
+        source: { features: [{ geometryType: "line", rings: [[[24.2, 22], [31.8, 22]]] }, { geometryType: "line", rings: [[[25, 20.2], [25, 27.8]]] }] } },
+    ],
+  };
+  const a = await framed(options), b = await framed(options);
+  expect(seam(a).prepare("anchor")).toBe(true);
+  seam(a).renderLive(); seam(b).renderLive();
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).toContain("#ffffff");
+}, 30000);
