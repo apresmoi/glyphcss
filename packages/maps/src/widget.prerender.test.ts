@@ -19,6 +19,7 @@ import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
 import { glyphMapPrerenderSeam, glyphMapPrerenderTuning, type GlyphMapPrerenderSeam } from "./prerender";
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
+import type { GlyphMapField } from "./types";
 import type { GlyphMapVectorFeature } from "./vector/types";
 
 type Map = ReturnType<typeof createGlyphMap>;
@@ -299,3 +300,31 @@ it("a plan carries each vertex's ground slack: real desert relief keeps the same
   expect(text(a)).toBe(text(b));
   expect(text(a)).toContain("#ffffff");
 }, 30000);
+
+/** Rolling hills over the view, enough quads that contours cross the screen in many segments. */
+function hills(): GlyphMapField {
+  const cols = 64, rows = 48, values = new Float32Array(cols * rows);
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) values[r * cols + c] = 400 + 300 * Math.sin(c / 5) * Math.cos(r / 4) + 8 * c;
+  return { bounds: { west: CENTRE[0] - 0.02, east: CENTRE[0] + 0.02, south: CENTRE[1] - 0.015, north: CENTRE[1] + 0.015 }, cols, rows, values,
+    noData: new Uint8Array(cols * rows), kind: "continuous", min: 400 - 300, max: 400 + 300 + 8 * cols };
+}
+const contourLayers = (): GlyphMapLayer[] => [
+  { type: "contour", id: "contours", source: hills(), levels: 7, color: "#33ccff", labels: true },
+];
+
+it("a contour layer's prepared polylines are consumed byte-for-byte and refused under another camera", async () => {
+  const a = await framed({ layers: contourLayers() }), b = await framed({ layers: contourLayers() });
+  expect(seam(a).prepare("anchor")).toBe(true);
+  expect(seam(a).plans()).toBe(1);
+  seam(a).renderLive(); seam(b).renderLive();
+  expect(seam(a).plans()).toBe(0);
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).toContain("#33ccff");
+
+  expect(seam(a).prepare("anchor")).toBe(true);
+  for (const m of [a, b]) { const c = m.scene.camera; c.target = [c.target[0] + 0.0003, c.target[1], c.target[2]]; }
+  const stale = text(a);
+  seam(a).renderLive(); seam(b).renderLive();
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).not.toBe(stale);
+});
