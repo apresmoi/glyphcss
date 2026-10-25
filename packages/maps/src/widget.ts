@@ -4005,7 +4005,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       restPrepHandle = null;
       if (!prepareAllowed() || compositorFrame) return;
       // Not gated on `widgetBusy`: a sweep after a pan usually changes nothing, and when it does the job is just restarted (every input is keyed).
-      if (motionActive()) { scheduleRestPrepare(); return; }
+      // A held pointer/touch gesture re-poses the camera on every move, which discards the rest job each time: the work is wasted and lands as jank between frames.
+      if (motionActive() || gestureHeld()) { scheduleRestPrepare(); return; }
       if (!prepJob || prepJob.kind !== "rest") startPrepJob("rest");
       if (!prepJob) return;
       runPrepSlice(Math.min(glyphMapPrerenderTuning.restSliceMs, idle ? Math.max(1, idle.timeRemaining()) : Infinity));
@@ -10412,6 +10413,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // most one render per displayed frame.
     return motionDirty || gliding || flight !== null || projectionAnim !== null
       || (walk !== null && walkHeldKeys.size > 0);
+  }
+
+  /** A pointer is down (pan, tilt or tap-zoom) or several fingers are, so the camera is still being driven by the reader. */
+  function gestureHeld(): boolean {
+    return activePointerId !== null || touchPoints.size > 1;
   }
 
   function requestMotionFrame(): void {

@@ -1040,3 +1040,16 @@ it("a tile landing whose build is overtaken by new ground installs on the new gr
   await c.idle();
   expect(text(a)).toBe(text(c));
 }, 30000);
+
+it("does not prepare the rest pose while a tilt drag is held, and prepares it after release", async () => {
+  glyphMapPrerenderTuning.restPrepare = true;
+  const a = mount(); await ready(a);
+  const tilt = (type: string, x: number) =>
+    a.host.dispatchEvent(new PointerEvent(type, { pointerId: 1, button: 0, buttons: 1, ctrlKey: true, clientX: x, clientY: 150, bubbles: true }));
+  tilt("pointerdown", 200); tilt("pointermove", 215); frame(); tilt("pointermove", 230); frame();
+  flushIdle(20);
+  expect(seam(a).restPrepared()).toBe(false);
+  tilt("pointerup", 230); frame();
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+});
