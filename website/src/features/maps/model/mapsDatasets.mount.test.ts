@@ -165,14 +165,12 @@ describe("every row puts something on the map", () => {
   it("Datacenters place markers over Northern Virginia", async () => {
     const { host, after } = await show("ds-datacenters", [-77.45, 39.03], 1.5);
     // A `circle` row is positioned DOM, not grid glyphs — so the grid stays
-    // empty and the markers are what has to be there. Aggregated at
-    // `MAP_DATASET_CLUSTER_CELLS`, measured: 71 visible, from 316 points.
+    // empty and the markers are what has to be there. Measured: 316 visible.
     expect(after).toBe(0);
-    expect(hotspots(host)).toBeGreaterThan(30);
-    expect(hotspots(host)).toBeLessThan(316);
-    // The whole row's DOM shrinks too, which is what a drag pays for: 4,351
-    // features used to be 4,351 elements restyled on every frame.
-    expect(host.querySelectorAll(".glyph-hotspot").length).toBeLessThan(3_000);
+    expect(hotspots(host)).toBeGreaterThan(150);
+    // ...and they are THIS view's, not the world's: the row holds 4,351
+    // features and the widget emits an element for every one of them.
+    expect(hotspots(host)).toBeLessThan(1_000);
   });
 
   it("Dams label themselves over the Alps", async () => {

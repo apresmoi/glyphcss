@@ -1025,20 +1025,6 @@ export interface GlyphMapCircleLayer {
    * {@link radius} (then `2`), which is a pixel count already.
    */
   readonly radiusScale?: number;
-  /**
-   * AGGREGATE nearby points into one dot, as a radius in output cells.
-   * Points are binned on a lon/lat grid that size at the current zoom
-   * (snapped to octaves, so a zoom re-bins only when it crosses one), and
-   * each bin draws one dot at its members' mean position, larger the more it
-   * holds. A bin of one keeps its own feature's properties and size.
-   *
-   * It exists because a circle is a DOM element: a dataset of thousands of
-   * points is thousands of elements restyled on every camera frame, which is
-   * what made a drag stutter, and at a zoom where several share a cell they
-   * were never separately visible anyway. Omitted or `0` draws one dot per
-   * point, exactly as before.
-   */
-  readonly cluster?: number;
 }
 /**
  * A point feature drawn as GLYPHS IN THE GRID — the third point layer, beside
@@ -8883,51 +8869,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       layer.type !== "symbol" ? ""
         : layer.text ? layer.text(feature)
         : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
-    /** How many points each AGGREGATED feature stands for — only the bins `clusterFeatures` makes are in here. */
-    const clusterCounts = new WeakMap<GlyphMapVectorFeature, number>();
-    /** The source's own features as last delivered, kept so a zoom that changes the bin size can re-bin without a refetch. */
-    let rawFeatures: readonly GlyphMapVectorFeature[] = [];
-    /** The bin size, in degrees, the current markers were aggregated at; `0` = not aggregating. */
-    let clusterStep = 0;
-    const clusterStepDeg = (): number => {
-      const cells = layer.type === "circle" ? layer.cluster ?? 0 : 0;
-      const degPerCell = glyphMapDegreesPerCell(getView());
-      if (!(cells > 0) || !(degPerCell > 0)) return 0;
-      return 2 ** Math.round(Math.log2(cells * degPerCell));
-    };
-    /**
-     * One feature per occupied bin. The bin index is the KEY, so a pan keeps
-     * every marker (the reconcile moves survivors) and only a re-bin replaces
-     * them; the bins are anchored to absolute lon/lat, so they do not crawl
-     * as the view moves.
-     */
-    const clusterFeatures = (features: readonly GlyphMapVectorFeature[], step: number): GlyphMapVectorFeature[] => {
-      const bins = new Map<string, { lon: number; lat: number; n: number; first: GlyphMapVectorFeature }>();
-      for (const feature of features) {
-        for (const [lon, lat] of anchorsOf(feature)) {
-          const key = `${Math.floor(lon / step)},${Math.floor(lat / step)}`;
-          const bin = bins.get(key);
-          if (bin) { bin.lon += lon; bin.lat += lat; bin.n++; } else bins.set(key, { lon, lat, n: 1, first: feature });
-        }
-      }
-      const out: GlyphMapVectorFeature[] = [];
-      for (const [key, bin] of bins) {
-        const feature: GlyphMapVectorFeature = {
-          id: `cluster:${key}`,
-          geometryType: "point",
-          rings: [[[bin.lon / bin.n, bin.lat / bin.n]]],
-          properties: bin.n === 1 ? bin.first.properties : { point_count: bin.n },
-        };
-        if (bin.n > 1) clusterCounts.set(feature, bin.n);
-        out.push(feature);
-      }
-      return out;
-    };
     const radiusOf = (feature: GlyphMapVectorFeature): number => {
       if (layer.type !== "circle") return 0;
-      const count = clusterCounts.get(feature);
-      // Area grows with the log of the count: a bin of a thousand reads as big, not as a thousand times bigger.
-      if (count !== undefined) return (layer.radius ?? 2) * (1 + Math.log2(count) / 2);
       const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
       return Number.isFinite(scaled) ? scaled : layer.radius ?? 2;
     };
@@ -9078,10 +9021,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    const runtime = createFeatureLayerRuntime(layer.source, function rebuild(incoming) {
-      rawFeatures = incoming;
-      clusterStep = clusterStepDeg();
-      const features = clusterStep > 0 ? clusterFeatures(incoming, clusterStep) : incoming;
+    const runtime = createFeatureLayerRuntime(layer.source, (features) => {
       // MEASURED FIRST, before a single node is removed or added. Every
       // `getBoundingClientRect()` is a forced style-and-layout flush, so one
       // taken AFTER the new labels are in the document resolves them at the
@@ -9139,8 +9079,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // it took before it touched the DOM, so a rebuild resolves style
         // exactly zero times between inserting a label and deciding whether
         // it is shown (see `projectOn`).
-        // A zoom across an octave changes the bin size: re-bin from the held features, which re-enters this sync with the new markers.
-        if (clusterStep !== clusterStepDeg()) { rebuild(rawFeatures); return; }
         const live = measured ?? projectionGrid();
         if (layer.type === "circle") {
           records.forEach((r) => {
