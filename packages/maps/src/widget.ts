@@ -60,7 +60,7 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
-import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, discardGlyphMapExtrusionPlans, stampGlyphMapExtrusionOutlines, stashedGlyphMapExtrusionPlans } from "./extrusionOutline";
+import { compileGlyphMapExtrusionTopology, createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, discardGlyphMapExtrusionPlans, sameGlyphMapOutlineInputs, stampGlyphMapExtrusionOutlines, stashedGlyphMapExtrusionPlans } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
 import { cameraKey, glyphMapPrerenderStats, glyphMapPrerenderTuning, sameCameraPose, sameKey, snapshotCameraPose, withCameraPose } from "./prerender";
@@ -8046,6 +8046,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     filter?: GlyphMapFeatureFilter,
     featuresAreTheWholeInput: boolean | (() => boolean) = false,
     commitWater?: (tiles: readonly GlyphMapVectorTile[], valid: () => boolean) => Promise<{ commit: () => boolean } | null>,
+    /**
+     * A rebuild as a resumable job (an extrusion's mesh and outline topology are
+     * tens of ms for a city): a sweep that finds new tiles prepares it a slice
+     * at a time and installs it whole, so the layer shows the new tiles a few
+     * frames later instead of one task stalling the frame they landed in.
+     */
+    prepareRebuild?: (features: readonly GlyphMapVectorFeature[]) => Generator<void, () => void>,
   ): FeatureLayerRuntime {
     let source = initialSource;
     const cache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -8165,6 +8172,20 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const selected = desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features));
       const filtered = filter ? selected.filter(filter) : selected;
       if (skipsOnSameSelection && lastSelected !== null && sameFeatureList(lastSelected, filtered)) return;
+      if (prepareRebuild && glyphMapPrerenderTuning.sliceBuild) {
+        // Nothing is recorded until the install: a sweep that is superseded (or a ground that moves under the job) leaves the layer owing this rebuild.
+        lastInputs = null;
+        const valid = () => !disposed && source === current && request === revision;
+        while (valid()) {
+          const groundThen = groundRevision;
+          const install = await runGlyphMapWaterWork(prepareRebuild(filtered), () => valid() && groundRevision === groundThen);
+          if (!install) continue;
+          lastInputs = tiles; lastSelected = filtered;
+          install();
+          return;
+        }
+        return;
+      }
       lastSelected = filtered;
       rebuild(filtered);
     }
@@ -8486,7 +8507,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       while (!next.done) next = steps.next();
       next.value();
     }
-    function* prepareBuild(features: readonly GlyphMapVectorFeature[], coverage = waterTerrainSnapshot()): Generator<void, () => void> {
+    /** This layer's runtime as the layer table holds it, so an install can be predicted against the other layers (set once it exists). */
+    let self: FeatureLayerRuntime | null = null;
+    function* prepareBuild(features: readonly GlyphMapVectorFeature[], coverage = waterTerrainSnapshot(), ahead = false): Generator<void, () => void> {
       const buildProjection = projection;
       const cutsTerrain = layer.type === "fill" && layer.waterTerrain && isGlyphMapVectorProvider(layer.source);
       const variation = layer.type === "fill-extrusion" ? layer.colorVariation ?? 0 : 0;
@@ -8611,6 +8634,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         baseOffset: layer.type === "fill-extrusion" ? (f) => extrusionBaseMetres(layer, f) : undefined,
         facade,
       });
+      // The outline topology the first render after the install would compile in one go, compiled here a slice at a time.
+      if (ahead && layer.type === "fill-extrusion" && layer.outline && self) yield* prepareOutlineTopologyAhead(self, nextMesh.polygons, nextOutlineGeometry);
       return () => {
         lastFeatures = features;
         if (layer.type === "fill-extrusion") invalidateWalkCollision();
@@ -8686,7 +8711,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const meshIgnoresView = commitWater !== undefined || layer.type === "fill-extrusion"
       ? true
       : () => !wantsDrape || (!builtOnTerrain && groundElevationSampler() === null);
-    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, meshIgnoresView, commitWater);
+    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, meshIgnoresView, commitWater,
+      layer.type === "fill-extrusion" ? features => prepareBuild(features, undefined, true) : undefined);
     nearSideGeometrySyncs.add(syncWalls);
     // A draped `fill` needs re-planting for exactly the reason an extrusion
     // does — its mesh is camera-independent, so a tile sweep never rebuilds
@@ -8701,7 +8727,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // own `rebuild([])`) goes through it. One invalidation site, not three.
     const collisionSource = (): readonly GlyphMapVectorFeature[] => lastFeatures;
     if (layer.type === "fill-extrusion") walkCollisionSources.add(collisionSource);
-    return {
+    return self = {
       update: runtime.update,
       setSource: runtime.setSource,
       polygons: () => mesh?.polygons ?? [],
@@ -9657,14 +9683,31 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let outlineTopology: ReturnType<typeof createGlyphMapExtrusionTopology> | undefined;
   let outlineFilledFaces: ReadonlySet<Polygon> | undefined;
   let outlineBlankFaces: ReadonlySet<Polygon> | undefined;
-  function outlineGeometries(): GlyphMapExtrusionGeometry[] {
+  /** What a mounted layer is about to hold instead of what it holds now: the outline sets as they will be once its install has run. */
+  interface OutlineInstall { readonly runtime: FeatureLayerRuntime; readonly polygons: readonly Polygon[]; readonly geometry: readonly GlyphMapExtrusionGeometry[] }
+  function outlineGeometries(next?: OutlineInstall): GlyphMapExtrusionGeometry[] {
     return layerOrder.flatMap(id => {
       const s = layerStates.get(id);
-      return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
+      return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? (s.runtime === next?.runtime ? next.geometry : s.runtime.outlineGeometry?.()) ?? [] : [];
     });
   }
-  function outlineMeshSet(): (readonly Polygon[])[] {
-    return [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? [s.runtime.polygons?.() ?? []] : []);
+  function outlineMeshSet(next?: OutlineInstall): (readonly Polygon[])[] {
+    return [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? [s.runtime === next?.runtime ? next.polygons : s.runtime.polygons?.() ?? []] : []);
+  }
+  /** A topology compiled ahead of the install it is for; the render that follows the install adopts it when its inputs are exactly these. */
+  let aheadOutline: { readonly meshes: readonly (readonly Polygon[])[]; readonly geometries: readonly GlyphMapExtrusionGeometry[]; readonly topology: NonNullable<typeof outlineTopology> } | null = null;
+  function* prepareOutlineTopologyAhead(runtime: FeatureLayerRuntime, polygons: readonly Polygon[], geometry: readonly GlyphMapExtrusionGeometry[]): Generator<void, void> {
+    const next = { runtime, polygons, geometry };
+    const meshes = outlineMeshSet(next), geometries = outlineGeometries(next);
+    if (!geometries.length) return;
+    aheadOutline = null;
+    const topology = yield* compileGlyphMapExtrusionTopology(meshes.flat(), geometries);
+    aheadOutline = { meshes, geometries, topology };
+  }
+  function adoptAheadOutline(meshes: readonly (readonly Polygon[])[], outlined: readonly GlyphMapExtrusionGeometry[]) {
+    const ahead = aheadOutline;
+    aheadOutline = null;
+    return ahead && sameGlyphMapOutlineInputs(ahead, { meshes, geometries: outlined }) ? ahead.topology : undefined;
   }
   function sameOutlineMeshes(meshes: readonly (readonly Polygon[])[]): boolean {
     return meshes.length === outlineMeshes.length && meshes.every((p, i) => p === outlineMeshes[i]);
@@ -9757,7 +9800,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const meshes = outlineMeshSet();
         if (!outlineTopology || !sameOutlineMeshes(meshes)) {
           outlineMeshes = meshes;
-          outlineTopology = createGlyphMapExtrusionTopology(meshes.flat(), outlined);
+          outlineTopology = adoptAheadOutline(meshes, outlined) ?? createGlyphMapExtrusionTopology(meshes.flat(), outlined);
           const filled = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
             !(s.layer.outline === "braille" && s.layer.fill === false) ? s.runtime.polygons?.() ?? [] : []);
           outlineFilledFaces = new Set(filled);

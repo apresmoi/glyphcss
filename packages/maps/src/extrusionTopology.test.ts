@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 import type { Polygon, Vec3 } from "glyphcss";
-import { createGlyphMapExtrusionTopology as compile } from "./extrusionOutline";
+import { compileGlyphMapExtrusionTopology, createGlyphMapExtrusionTopology as compile, prepareGlyphMapExtrusionOutlines, sameGlyphMapOutlineInputs } from "./extrusionOutline";
 import { createGlyphMapExtrusionTopology as reference } from "./test/extrusionTopology28Reference";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { expectConservativeTree } from "./test/conservativeTree";
@@ -83,4 +83,40 @@ it("compiles incident sets before direct queries rather than deferring their all
     delta = allocations - before;
   } finally { vi.unstubAllGlobals(); }
   expect(delta).toBe(0);
+});
+
+it("compiles identically when run as a resumable job in slices (tree, faces and outlines all pause)", () => {
+  const polygons = Array.from({ length: 5000 }, (_, i): Polygon => ({ vertices: [[i % 97, (i * 31) % 89, i % 5], [i % 97 + 1, (i * 31) % 89, i % 5], [i % 97, (i * 31) % 89 + 1, i % 5 + 1]] }));
+  const groups = Array.from({ length: 300 }, (_, i): GlyphMapExtrusionGeometry => {
+    const a: Vec3 = [i % 97, (i * 31) % 89, i % 5], b: Vec3 = [i % 97 + 1, (i * 31) % 89, i % 5], c: Vec3 = [i % 97, (i * 31) % 89 + 1, i % 5 + 1];
+    return { polygons: [polygons[i]!], roof: [[a, b, c]], base: [[a, b, c]], roofEdges: [] };
+  });
+  const job = compileGlyphMapExtrusionTopology(polygons, groups);
+  let steps = 0, next = job.next();
+  while (!next.done) { steps++; next = job.next(); }
+  // Faces (5000/512), the tree's large splits and the outlines (300/128) each paused it.
+  expect(steps).toBeGreaterThanOrEqual(12);
+  const sliced = next.value, expected = reference(polygons, groups);
+  const fields = ({ vertexId, incidentFaces, prepare, root, ...data }: Topology) => data;
+  expect(fields(sliced)).toEqual(fields(expected));
+  // The tree is this compiler's own (the reference partitions differently); pausing must not change it.
+  expectConservativeTree(sliced);
+  expect(sliced.root).toEqual(compile(polygons, groups).root);
+  // And an outline set added later through the job is the one `prepare` makes.
+  const later = compile(polygons), viaJob = compile(polygons);
+  later.prepare(groups);
+  for (const step = prepareGlyphMapExtrusionOutlines(viaJob, groups); !step.next().done;);
+  expect(fields(viaJob)).toEqual(fields(later));
+});
+
+it("treats a compiled topology as another's only for the same arrays and outlines in the same order", () => {
+  const a: Polygon[] = [{ vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] }], b: Polygon[] = [{ vertices: [[0, 0, 0], [1, 0, 0], [0, 1, 0]] }];
+  const g1 = { polygons: a, roof: [], base: [], roofEdges: [] } as GlyphMapExtrusionGeometry, g2 = { ...g1 };
+  expect(sameGlyphMapOutlineInputs({ meshes: [a, b], geometries: [g1, g2] }, { meshes: [a, b], geometries: [g1, g2] })).toBe(true);
+  // An equal-looking copy, another order, a missing or an extra mesh or outline: each is a different compile.
+  expect(sameGlyphMapOutlineInputs({ meshes: [a, b], geometries: [g1] }, { meshes: [a, [...b]], geometries: [g1] })).toBe(false);
+  expect(sameGlyphMapOutlineInputs({ meshes: [a, b], geometries: [g1] }, { meshes: [b, a], geometries: [g1] })).toBe(false);
+  expect(sameGlyphMapOutlineInputs({ meshes: [a, b], geometries: [g1] }, { meshes: [a], geometries: [g1] })).toBe(false);
+  expect(sameGlyphMapOutlineInputs({ meshes: [a], geometries: [g1, g2] }, { meshes: [a], geometries: [g1] })).toBe(false);
+  expect(sameGlyphMapOutlineInputs({ meshes: [a], geometries: [g1] }, { meshes: [a], geometries: [{ ...g1 }] })).toBe(false);
 });

@@ -16,6 +16,7 @@ import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createGlyphMap, type GlyphMapLayer, type GlyphMapOptions } from "./widget";
 import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
+import * as outline from "./extrusionOutline";
 import { glyphMapPrerenderSeam, glyphMapPrerenderTuning, type GlyphMapPrerenderSeam } from "./prerender";
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
@@ -903,3 +904,85 @@ it.each([7, 33])("predicts the end of a glide at the frame cadence it is running
   expect(poseOf(a)).toEqual(poseOf(b));
   expect(text(a)).toBe(text(b));
 });
+
+// ── Building tiles built in slices ─────────────────────────────────────────
+
+/** A district of small blocks: enough faces and outlines for the topology compile to pause several times. */
+const district: GlyphMapVectorFeature[] = Array.from({ length: 600 }, (_, i) => {
+  const lon = CENTRE[0] - 0.0035 + (i % 40) * 0.00018, lat = CENTRE[1] - 0.0012 + Math.floor(i / 40) * 0.00016;
+  return { id: `d${i}`, geometryType: "polygon" as const, rings: [ring(lon, lat, 0.00005)], polygons: [[ring(lon, lat, 0.00005)]], properties: { height: 20 + (i % 7) * 9, base: 0 } };
+});
+function gatedBlocks(g: ReturnType<typeof gate>): GlyphMapLayer {
+  const world = { west: -180, east: 180, south: -90, north: 90 };
+  const source: GlyphMapVectorProvider = {
+    id: "gated-blocks", zooms: [{ z: 1, cols: 1, rows: 1, tileLonSpan: 360, tileLatSpan: 180, tileCols: 256, tileRows: 256 }],
+    bounds: () => world, tileRange: () => ({ x0: 0, x1: 0, y0: 0, y1: 0 }),
+    async loadTile(z, x, y): Promise<GlyphMapVectorTile> {
+      await g.open;
+      return { z, x, y, bounds: world, source: "test", layers: { building: district } };
+    },
+  };
+  return { type: "fill-extrusion", id: "district", sourceLayer: "building", source, heightProperty: "height", baseOffsetProperty: "base", heightScale: 2,
+    color: "#94a3b8", outline: "braille", fill: false, blank: true } as GlyphMapLayer;
+}
+
+it("a building tile landing is built in slices and adopted whole: no topology compiles at the landing render, and the settled bytes are an unsliced build's and a fresh map's", async () => {
+  let paused = 0, oneShot = 0;
+  const compile = outline.compileGlyphMapExtrusionTopology, create = outline.createGlyphMapExtrusionTopology;
+  vi.spyOn(outline, "compileGlyphMapExtrusionTopology").mockImplementation(function* (...args) {
+    const job = compile(...args);
+    for (let next = job.next(); ; next = job.next()) { if (next.done) return next.value; paused++; yield; }
+  });
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => { oneShot++; return create(...args); });
+
+  const g = gate(), open = gate(); open.release();
+  const a = mount(); await ready(a);
+  a.addLayer(gatedBlocks(g));
+  oneShot = 0;
+  g.release(); await a.idle();
+  expect(paused, "the compile paused for other work").toBeGreaterThan(3);
+  expect(oneShot, "the landing render found the topology already compiled").toBe(0);
+  expect(text(a)).toMatch(/[⠁-⣿]/u);
+
+  glyphMapPrerenderTuning.sliceBuild = false;
+  oneShot = 0;
+  const b = mount(); await ready(b);
+  b.addLayer(gatedBlocks(open)); await b.idle();
+  expect(oneShot).toBeGreaterThan(0);
+  const c = mount({ layers: [...sceneLayers(), gatedBlocks(open)] }); await ready(c);
+  await c.idle();
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).toBe(text(c));
+}, 30000);
+
+it("never adopts a topology compiled for a layer set that changed while it was being built", async () => {
+  const shifted = buildings.map((b, i) => {
+    const r = ring(CENTRE[0] + 0.0021 + i * 0.0003, CENTRE[1] - 0.0012, 0.00045);
+    return { ...b, id: `x${i}`, rings: [r], polygons: [[r]] };
+  });
+  const extra: GlyphMapLayer = { type: "fill-extrusion", id: "extra", source: { features: shifted }, heightProperty: "height", baseOffsetProperty: "base", heightScale: 2,
+    color: "#a0b0c0", outline: "braille", fill: false, blank: true } as GlyphMapLayer;
+  let oneShot = 0, added: Map | null = null;
+  const compile = outline.compileGlyphMapExtrusionTopology, create = outline.createGlyphMapExtrusionTopology;
+  vi.spyOn(outline, "compileGlyphMapExtrusionTopology").mockImplementation(function* (...args) {
+    const job = compile(...args);
+    for (let next = job.next(); ; next = job.next()) {
+      if (next.done) return next.value;
+      // Another outlined extrusion mounts while the compile is still pausing.
+      if (added) { const m = added; added = null; m.addLayer(extra); }
+      yield;
+    }
+  });
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => { oneShot++; return create(...args); });
+
+  const g = gate(), open = gate(); open.release();
+  const a = mount(); await ready(a);
+  a.addLayer(gatedBlocks(g));
+  oneShot = 0; added = a;
+  g.release(); await a.idle();
+  expect(added, "the layer was mounted mid-compile").toBeNull();
+  expect(oneShot, "the topology prepared for the old set was refused").toBeGreaterThan(0);
+  const c = mount({ layers: [...sceneLayers(), gatedBlocks(open), extra] }); await ready(c);
+  await c.idle();
+  expect(text(a)).toBe(text(c));
+}, 30000);

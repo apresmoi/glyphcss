@@ -108,6 +108,32 @@ const grow32 = (a: Int32Array<ArrayBuffer>, n: number) => {
 
 /** Coordinate and identity lookups belong to compilation, never the numeric frame walk. */
 export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], geometries: readonly GlyphMapExtrusionGeometry[] = []) {
+  const steps = compileGlyphMapExtrusionTopology(polygons, geometries);
+  for (let next = steps.next(); ; next = steps.next()) if (next.done) return next.value;
+}
+
+/** Whether a topology compiled for one mesh/outline set is exactly the one another needs: the same arrays, in the same order, by identity. */
+export function sameGlyphMapOutlineInputs(
+  a: { readonly meshes: readonly (readonly Polygon[])[]; readonly geometries: readonly GlyphMapExtrusionGeometry[] },
+  b: { readonly meshes: readonly (readonly Polygon[])[]; readonly geometries: readonly GlyphMapExtrusionGeometry[] },
+): boolean {
+  return a.meshes.length === b.meshes.length && a.meshes.every((p, i) => p === b.meshes[i]) &&
+    a.geometries.length === b.geometries.length && a.geometries.every((g, i) => g === b.geometries[i]);
+}
+
+/** Compiles an outline set onto a topology as a resumable job; `prepare` runs the same steps to completion. */
+const outlineJobs = new WeakMap<object, (groups: readonly GlyphMapExtrusionGeometry[]) => Generator<void, void>>();
+export function prepareGlyphMapExtrusionOutlines(topology: object, groups: readonly GlyphMapExtrusionGeometry[]): Generator<void, void> {
+  return outlineJobs.get(topology)!(groups);
+}
+
+/**
+ * The compile, as the one implementation: it yields every few hundred faces,
+ * tree nodes or outlines so a caller can spread it over frames, and
+ * {@link createGlyphMapExtrusionTopology} is this run to its end. Nothing it
+ * computes depends on where it paused.
+ */
+export function* compileGlyphMapExtrusionTopology(polygons: readonly Polygon[], geometries: readonly GlyphMapExtrusionGeometry[] = []) {
   let capacity = 64;
   let vertexCount = 0;
   for (const p of polygons) vertexCount += p.vertices.length;
@@ -149,6 +175,7 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
   const sumX = new Float64Array(n), sumY = new Float64Array(n), sumZ = new Float64Array(n);
   let maxVertices = 0;
   for (let face = 0; face < polygons.length; face++) {
+    if ((face & 511) === 511) yield;
     const p = polygons[face]!, ids = polygonVertices[face] = new Int32Array(p.vertices.length);
     polygonIds.set(p, face); maxVertices = Math.max(maxVertices, ids.length);
     let lx = Infinity, ly = Infinity, lz = Infinity, hx = -Infinity, hy = -Infinity, hz = -Infinity;
@@ -180,7 +207,8 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
       if (k <= j) r = j; else if (k >= i) l = i; else break;
     }
   };
-  const node = (lo: number, hi: number): BoundsNode => {
+  /** A range's bounds and, unless it is a leaf, its median split (which reorders `order[lo, hi)`). */
+  const expand = (lo: number, hi: number): { corners: Vec3[]; middle: number } => {
     let lx = Infinity, ly = Infinity, lz = Infinity, hx = -Infinity, hy = -Infinity, hz = -Infinity;
     for (let j = lo; j < hi; j++) {
       const k = order[j]!;
@@ -189,13 +217,27 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     }
     const corners: Vec3[] = [];
     for (let i = 0; i < 8; i++) corners.push([i & 1 ? hx : lx, i & 2 ? hy : ly, i & 4 ? hz : lz]);
-    if (hi - lo <= 32) return { corners, faces: order.subarray(lo, hi) };
+    if (hi - lo <= 32) return { corners, middle: -1 };
     const ex = hx - lx, ey = hy - ly, ez = hz - lz;
     const middle = lo + ((hi - lo) >>> 1);
     select(ey > ex && ey >= ez ? sumY : ez > ex && ez > ey ? sumZ : sumX, lo, hi, middle);
+    return { corners, middle };
+  };
+  const node = (lo: number, hi: number): BoundsNode => {
+    const { corners, middle } = expand(lo, hi);
+    if (middle < 0) return { corners, faces: order.subarray(lo, hi) };
     return { corners, children: [node(lo, middle), node(middle, hi)] };
   };
-  const root = node(0, n);
+  /** The same tree, pausing after each split of a large range. */
+  const nodeSteps = function* (lo: number, hi: number): Generator<void, BoundsNode> {
+    if (hi - lo <= 2048) return node(lo, hi);
+    const { corners, middle } = expand(lo, hi);
+    yield;
+    const first = yield* nodeSteps(lo, middle);
+    const second = yield* nodeSteps(middle, hi);
+    return { corners, children: [first, second] };
+  };
+  const root = yield* nodeSteps(0, n);
   let pairSlots = new Int32Array(capacity), pairMask = capacity - 1;
   const pairA: number[] = [], pairB: number[] = [], incidents: (ReadonlySet<number> | undefined)[] = [];
   const pairHash = (a: number, b: number) => Math.imul(a, 0x9e3779b1) ^ Math.imul(b, 0x85ebca6b);
@@ -244,6 +286,22 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     filledSource: undefined as ReadonlySet<Polygon> | undefined, blankSource: undefined as ReadonlySet<Polygon> | undefined,
     flagsReady: false,
     prepare(groups: readonly GlyphMapExtrusionGeometry[]) {
+      for (const steps = prepareSteps(groups); !steps.next().done;);
+    },
+    scratch: {
+      projected: new Float64Array(0), eyes: new Float64Array(0), projectedValid: new Uint8Array(0), eyeValid: new Uint8Array(0),
+      candidates: new Uint8Array(polygons.length), accepted: new Uint8Array(polygons.length),
+      incident: new Int32Array(polygons.length), incidentTag: 0,
+      triangles: new Float64Array(0), triangleFaces: new Int32Array(0), triangleBounds: new Int32Array(0),
+      spans: new Int32Array(0), spanOffsets: new Int32Array(0),
+      counts: new Uint32Array(0), offsets: new Uint32Array(0), bins: new Int32Array(0),
+      integerDepth: new Float64Array(0), maxDepth: new Float64Array(0),
+      faceProjection: new Float64Array(maxVertices * 6),
+    },
+    stampCache: undefined as StampCache | undefined,
+    surfaceCache: undefined as SurfaceCache | undefined,
+  };
+  const prepareSteps = function* (groups: readonly GlyphMapExtrusionGeometry[]): Generator<void, void> {
       if (groups.length === topology.outlines.length && groups.every((g, i) => g === topology.outlines[i]!.geometry)) return;
       topology.surfaceCache = undefined;
       planStashes.delete(topology);
@@ -262,7 +320,10 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
         return id;
       };
       topology.own.fill(0);
-      topology.outlines = groups.map(geometry => {
+      const outlines: OutlineGeometry[] = [];
+      for (let g = 0; g < groups.length; g++) {
+        if ((g & 127) === 127) yield;
+        const geometry = groups[g]!;
         const ids = new Int32Array(geometry.polygons.length);
         for (let i = 0; i < ids.length; i++) ids[i] = polygonIds.get(geometry.polygons[i]!) ?? -1;
         for (const id of ids) if (id >= 0) topology.own[id] = 1;
@@ -277,24 +338,13 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
         }
         const base = geometry.base[0] ?? [], footprint = new Int32Array(base.length);
         for (let i = 0; i < base.length; i++) footprint[i] = vertexId(base[i]!);
-        return { geometry, faces: ids, footprint, edges: Int32Array.from(edges), vertical: Uint8Array.from(vertical) };
-      });
+        outlines.push({ geometry, faces: ids, footprint, edges: Int32Array.from(edges), vertical: Uint8Array.from(vertical) });
+      }
+      topology.outlines = outlines;
       topology.edgeVertices = Int32Array.from(endpoints); topology.edgeOffsets = Int32Array.from(offsets); topology.edgeFaces = Int32Array.from(incident);
-    },
-    scratch: {
-      projected: new Float64Array(0), eyes: new Float64Array(0), projectedValid: new Uint8Array(0), eyeValid: new Uint8Array(0),
-      candidates: new Uint8Array(polygons.length), accepted: new Uint8Array(polygons.length),
-      incident: new Int32Array(polygons.length), incidentTag: 0,
-      triangles: new Float64Array(0), triangleFaces: new Int32Array(0), triangleBounds: new Int32Array(0),
-      spans: new Int32Array(0), spanOffsets: new Int32Array(0),
-      counts: new Uint32Array(0), offsets: new Uint32Array(0), bins: new Int32Array(0),
-      integerDepth: new Float64Array(0), maxDepth: new Float64Array(0),
-      faceProjection: new Float64Array(maxVertices * 6),
-    },
-    stampCache: undefined as StampCache | undefined,
-    surfaceCache: undefined as SurfaceCache | undefined,
   };
-  topology.prepare(geometries);
+  outlineJobs.set(topology, prepareSteps);
+  yield* prepareSteps(geometries);
   return topology;
 }
 // Beside the topology like the next map, for the same reason: a stashed plan is not part of what the compiler produces.

@@ -207,8 +207,8 @@ it("deep-compares every compiled topology field with the frozen d9a9c976 compile
     return fields;
   };
   let checks = 0;
-  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => {
-    const actual = compile(...args), expected = topologyReference.createGlyphMapExtrusionTopology(...args);
+  const check = (actual: ReturnType<typeof compile>, args: Parameters<typeof compile>) => {
+    const expected = topologyReference.createGlyphMapExtrusionTopology(...args);
     expect(data(actual)).toEqual(data(expected));
     expectConservativeTree(actual);
     for (const v of actual.vertices) expect(actual.vertexId(v)).toBe(expected.vertexId(v));
@@ -216,7 +216,19 @@ it("deep-compares every compiled topology field with the frozen d9a9c976 compile
       const a = actual.vertices[actual.edgeVertices[i]]!, b = actual.vertices[actual.edgeVertices[i + 1]]!;
       expect([...actual.incidentFaces(a, b)]).toEqual([...expected.incidentFaces(a, b)]);
     }
-    checks++; return actual;
+    checks++;
+  };
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => {
+    const actual = compile(...args);
+    check(actual, args);
+    return actual;
+  });
+  // A tile landing compiles the topology ahead of its install, a slice at a time: that compile is held to the same reference.
+  const compileSteps = outline.compileGlyphMapExtrusionTopology;
+  vi.spyOn(outline, "compileGlyphMapExtrusionTopology").mockImplementation(function* (...args) {
+    const actual = yield* compileSteps(...args);
+    check(actual, args);
+    return actual;
   });
   for (const venice of [false, true]) {
     if (venice) { outline.createGlyphMapExtrusionTopology(...veniceTopologyInput()); continue; }

@@ -101,6 +101,8 @@ export const glyphMapPrerenderTuning = {
   restPrepare: true,
   /** During a glide, prepare the settle frame and the frame the next drag will create at the pose the glide ends in. */
   glidePrepare: true,
+  /** Build a city's extrusion mesh and outline topology in cancellable slices when a tile lands, and show it once whole. */
+  sliceBuild: true,
 };
 
 /** Test seam key: a handle carries {@link GlyphMapPrerenderSeam} under this symbol, off its public type. */
