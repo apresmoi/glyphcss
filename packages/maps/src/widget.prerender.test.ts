@@ -35,8 +35,8 @@ let queue = new globalThis.Map<number, FrameRequestCallback>(), time = 100, next
 let idleQueue: ((deadline: { timeRemaining(): number; didTimeout: boolean }) => void)[] = [];
 const tuning = { ...glyphMapPrerenderTuning };
 
-function frame() {
-  const work = [...queue.values()]; queue.clear(); time += 16;
+function frame(step = 16) {
+  const work = [...queue.values()]; queue.clear(); time += step;
   for (const cb of work) cb(time);
 }
 /** Runs queued idle callbacks (and the ones they queue) for up to `rounds` rounds. */
@@ -660,6 +660,203 @@ it("a job restarted for new content keeps the plans whose keys still match and p
   expect(seam(m).prepare("anchor", true)).toBe(true);
   expect(calls - before).toBe(built);
   expect(seam(m).plans()).toBe(2);
+  // A restart replaces its slot's outline plan; it does not stack another beside it.
+  expect(seam(m).outlinePlans("anchor")).toBe(1);
   expect(seam(m).prepare("anchor")).toBe(true);
   expect(calls - before).toBe(built * 2);
+});
+
+// ── A glide's end is predicted by running its stepping forward (snapPan: the lattice makes the pose a function of whole cells) ──
+
+/** A pointer event stamped with the test clock, so a throw's speed is a function of the test and not of the machine. */
+function touch(m: Map, type: string, x: number, y = 150) {
+  const e = new PointerEvent(type, { pointerId: 1, button: 0, buttons: 1, clientX: x, clientY: y, bubbles: true });
+  Object.defineProperty(e, "timeStamp", { value: time });
+  m.host.dispatchEvent(e);
+}
+/** Three 30 px moves a frame apart, then the release: a fling that glides. */
+function throwMap(m: Map) {
+  touch(m, "pointerdown", 200); touch(m, "pointermove", 230); frame(); touch(m, "pointermove", 260); frame(); touch(m, "pointermove", 290); frame();
+  touch(m, "pointerup", 290);
+}
+const settled = (m: Map) => element(m).style.transform === "";
+/** Frames until the compositor frame is gone (the settle render), returning the prepare-capable stamps and plan hits of that frame alone. */
+function glideToSettle(m: Map, each?: (frameNo: number) => void, step = 16) {
+  let before = seam(m).stats(), frames = 0;
+  while (!settled(m) && frames < 400) { before = seam(m).stats(); each?.(frames++); frame(step); }
+  expect(settled(m), "the glide reached its settle").toBe(true);
+  const after = seam(m).stats();
+  return { stamps: after.stamps - before.stamps, hits: after.hits - before.hits, frames };
+}
+const poseOf = (m: Map) => { const c = m.scene.camera; return { view: m.getView(), rotX: c.rotX, rotY: c.rotY, zoom: c.zoom, target: [...c.target] }; };
+
+it("a glide's settle render consumes plans prepared for its predicted end pose and draws the bytes of an unprepared glide", async () => {
+  const a = mount({ snapPan: true }), b = mount({ snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  throwMap(a);
+  let preparedBefore = -1;
+  const withPlans = glideToSettle(a, () => { preparedBefore = seam(a).plans("settle"); });
+  // The premise: plans existed for the settle frame before it rendered, and every prepare-capable layer took one.
+  expect(preparedBefore).toBe(2);
+  expect(withPlans.stamps).toBeGreaterThan(0);
+  expect(withPlans.hits).toBe(withPlans.stamps);
+  expect(seam(a).outlinePlanned()).toBe(true);
+  expect(seam(a).plans("settle")).toBe(0);
+
+  glyphMapPrerenderTuning.glidePrepare = false;
+  throwMap(b);
+  const without = glideToSettle(b);
+  expect(without.stamps).toBeGreaterThan(0);
+  expect(without.hits).toBe(0);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  await Promise.all([a.idle(), b.idle()]);
+  expect(text(a)).toBe(text(b));
+  // Drapes, outlines and both strategies actually drew, or the equality is empty.
+  expect(text(a)).toContain("#e8c988");
+  expect(text(a)).toContain("#ff5533");
+});
+
+it("a grab right after the settle starts from a prepared oversized frame and draws the bytes of an unprepared grab", async () => {
+  const a = mount({ snapPan: true }), b = mount({ snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  throwMap(a); glideToSettle(a);
+  // No idle time has passed: the frame the next drag creates was prepared during the glide.
+  expect(seam(a).restPrepared()).toBe(true);
+  const grab = (m: Map) => { touch(m, "pointerdown", 200); touch(m, "pointermove", 200); const before = seam(m).stats(); frame(); const after = seam(m).stats(); return { stamps: after.stamps - before.stamps, hits: after.hits - before.hits }; };
+  const prepared = grab(a);
+  expect(prepared.stamps).toBeGreaterThan(0);
+  expect(prepared.hits).toBe(prepared.stamps);
+
+  glyphMapPrerenderTuning.glidePrepare = false;
+  throwMap(b); glideToSettle(b);
+  expect(seam(b).restPrepared()).toBe(false);
+  expect(grab(b).hits).toBe(0);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  expect(text(a)).toBe(text(b));
+  expect(element(a).style.transform).toBe(element(b).style.transform);
+});
+
+it("never uses a plan prepared for a glide that was interrupted: the pan ends elsewhere and renders as an unprepared map does", async () => {
+  const interrupt = (m: Map) => {
+    throwMap(m);
+    for (let i = 0; i < 12; i++) frame();
+    // Grabbed mid-glide, dragged another way, held and released without a throw.
+    touch(m, "pointerdown", 400); touch(m, "pointermove", 380); frame(); touch(m, "pointermove", 330); frame();
+    time += 200; touch(m, "pointerup", 330);
+  };
+  const a = mount({ snapPan: true }), b = mount({ snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  throwMap(a); for (let i = 0; i < 12; i++) frame();
+  expect(seam(a).plans("settle")).toBe(2);
+  expect(seam(a).plans("landing")).toBe(2);
+  touch(a, "pointerdown", 400);
+  // The glide is over the moment the hand lands, and with it what was prepared for where it would have ended.
+  expect(seam(a).plans("settle")).toBe(0);
+  expect(seam(a).plans("landing")).toBe(0);
+  touch(a, "pointermove", 380); frame(); touch(a, "pointermove", 330); frame(); time += 200; touch(a, "pointerup", 330);
+  glyphMapPrerenderTuning.glidePrepare = false;
+  interrupt(b);
+  for (let i = 0; i < 20; i++) frame();
+  await Promise.all([a.idle(), b.idle()]);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  expect(text(a)).toBe(text(b));
+});
+
+it("a glide that ends away from its predicted pose keeps the live path: no plan is consumed and no stale rest frame is kept", async () => {
+  // Every move nudges the camera, as a consumer's handler may: the glide cannot land where it was computed to.
+  const nudge = (m: Map) => m.on("move", () => { m.scene.camera.rotY += 0.0007; });
+  const a = mount({ snapPan: true }), b = mount({ snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  nudge(a); throwMap(a);
+  const stray = glideToSettle(a);
+  expect(stray.stamps).toBeGreaterThan(0);
+  expect(stray.hits).toBe(0);
+  expect(seam(a).restPrepared()).toBe(false);
+  glyphMapPrerenderTuning.glidePrepare = false;
+  nudge(b); throwMap(b); glideToSettle(b);
+  await Promise.all([a.idle(), b.idle()]);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  expect(text(a)).toBe(text(b));
+});
+
+it("releases every plan a glide kept once the frames they were for have rendered or the glide is abandoned", async () => {
+  const a = mount({ snapPan: true }); await ready(a);
+  throwMap(a);
+  for (let i = 0; i < 12; i++) frame();
+  expect(seam(a).outlinePlans("settle")).toBe(1);
+  expect(seam(a).outlinePlans("landing")).toBe(1);
+  glideToSettle(a);
+  // The settle render spent its plans; the next drag's frame is still waiting for the drag.
+  expect(seam(a).outlinePlans("settle")).toBe(0);
+  expect(seam(a).outlinePlans("landing")).toBe(1);
+  touch(a, "pointerdown", 200); touch(a, "pointermove", 200); frame();
+  expect(seam(a).outlinePlans()).toBe(0);
+  expect(seam(a).plans()).toBe(0);
+  // Abandoned mid-glide: nothing is left holding the pose it would have ended in.
+  touch(a, "pointermove", 260); frame(); touch(a, "pointermove", 320); frame(); touch(a, "pointerup", 320);
+  for (let i = 0; i < 60 && !seam(a).glidePrepared().settle; i++) frame();
+  expect(seam(a).outlinePlans("settle")).toBe(1);
+  touch(a, "pointerdown", 100);
+  expect(seam(a).outlinePlans("settle")).toBe(0);
+  expect(seam(a).outlinePlans("landing")).toBe(0);
+});
+
+it("prepares a glide's frames in motion-frame slices and renders each displayed frame once", async () => {
+  glyphMapPrerenderTuning.sliceMs = 0; // one step per frame
+  const a = mount({ snapPan: true }); await ready(a);
+  throwMap(a);
+  let mostRenders = 0;
+  const held = new Set<number>();
+  glideToSettle(a, () => {
+    mostRenders = Math.max(mostRenders, stagedRenders); stagedRenders = 0;
+    held.add(seam(a).plans("settle"));
+  });
+  // A step per frame spreads the work over several frames instead of one block: the frame was seen holding some of its plans ...
+  expect(held.has(1)).toBe(true);
+  expect(held.has(2)).toBe(true);
+  // ... and none of those frames rendered more than the one render a frame is owed.
+  expect(mostRenders).toBeLessThanOrEqual(1);
+});
+
+it("a glide that ends before its preparation finishes still settles to the bytes of an unprepared one", async () => {
+  glyphMapPrerenderTuning.sliceMs = 0;
+  const short = (m: Map) => {
+    touch(m, "pointerdown", 200); touch(m, "pointermove", 206); frame(); touch(m, "pointermove", 213); frame(); touch(m, "pointermove", 221); frame(); touch(m, "pointerup", 221);
+  };
+  const a = mount({ snapPan: true }), b = mount({ snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  short(a); glideToSettle(a);
+  glyphMapPrerenderTuning.glidePrepare = false;
+  short(b); glideToSettle(b);
+  await Promise.all([a.idle(), b.idle()]);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  expect(text(a)).toBe(text(b));
+});
+
+it("a fling into the edge of the world settles on prepared plans too: its clamp is part of the computed end", async () => {
+  const options = { view: { center: [150, 10] as [number, number], span: 24, cols: 80, rows: 20 }, tilt: 0,
+    layers: [{ type: "fill" as const, color: "#789abc", source: { features: [{ rings: [[[120, -10], [180, -10], [180, 30], [120, 30], [120, -10]]] as [number, number][][] }] } },
+      { type: "line" as const, id: "road", color: "#e8c988", experimentalGlyphStrategy: "braille" as const, source: { features: [{ rings: [[[140, 0], [158, 12], [179, 8]]] as [number, number][][] }] } }] };
+  const a = mount({ ...options, snapPan: true }), b = mount({ ...options, snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  const eastward = (m: Map) => { touch(m, "pointerdown", 500); touch(m, "pointermove", 440); frame(); touch(m, "pointermove", 380); frame(); touch(m, "pointermove", 320); frame(); touch(m, "pointerup", 320); };
+  const start = a.getView().center[0];
+  eastward(a);
+  const run = glideToSettle(a);
+  // The throw would carry the centre past the edge; it stops where the map ends.
+  expect(a.getView().center[0] - start).toBeGreaterThan(5);
+  expect(a.getView().center[0]).toBeCloseTo(168, 6);
+  expect(run.hits).toBe(run.stamps);
+  glyphMapPrerenderTuning.glidePrepare = false;
+  eastward(b); glideToSettle(b);
+  await Promise.all([a.idle(), b.idle()]);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  expect(text(a)).toBe(text(b));
+});
+
+it.each([7, 33])("predicts the end of a glide at the frame cadence it is running at (%s ms a frame)", async step => {
+  const a = mount({ snapPan: true }), b = mount({ snapPan: true }); await Promise.all([ready(a), ready(b)]);
+  throwMap(a);
+  const run = glideToSettle(a, undefined, step);
+  expect(run.stamps).toBeGreaterThan(0);
+  expect(run.hits).toBe(run.stamps);
+  glyphMapPrerenderTuning.glidePrepare = false;
+  throwMap(b); glideToSettle(b, undefined, step);
+  await Promise.all([a.idle(), b.idle()]);
+  expect(poseOf(a)).toEqual(poseOf(b));
+  expect(text(a)).toBe(text(b));
 });

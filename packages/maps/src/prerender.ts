@@ -75,6 +75,16 @@ export function sameKey(a: readonly unknown[], b: readonly unknown[]): boolean {
 }
 
 /**
+ * Which prepared job a plan belongs to. A runtime holds one plan per slot, so
+ * jobs that exist at the same time (a glide's settle frame and the frame the
+ * next drag creates) do not displace each other, and a job releases its own.
+ */
+export type GlyphMapPrepSlot = "anchor" | "rest" | "settle" | "landing";
+
+/** Stamps of a prepare-capable layer into the base grid, and how many found a prepared plan; read before and after a render to attribute it. */
+export const glyphMapPrerenderStats = { stamps: 0, hits: 0 };
+
+/**
  * Scheduling knobs for pre-rendering, a module value so a test can make a
  * slice unbounded (and so deterministic) without a public option.
  */
@@ -89,6 +99,8 @@ export const glyphMapPrerenderTuning = {
   contentWaitFrames: 15,
   /** Prepare the compositor frame at rest, in idle time, so a drag's first frame reuses it. */
   restPrepare: true,
+  /** During a glide, prepare the settle frame and the frame the next drag will create at the pose the glide ends in. */
+  glidePrepare: true,
 };
 
 /** Test seam key: a handle carries {@link GlyphMapPrerenderSeam} under this symbol, off its public type. */
@@ -97,14 +109,20 @@ export const glyphMapPrerenderSeam = Symbol.for("glyphcss.maps.prerender");
 export interface GlyphMapPrerenderSeam {
   /** Starts a job for the current state and runs it to completion in one slice; whether it finished. */
   prepare(kind: "rest" | "anchor", keepPlans?: boolean): boolean;
-  /** How many stroke layers hold a finished, unconsumed plan. */
-  plans(): number;
+  /** How many stroke layers hold a finished, unconsumed plan (for one job slot, or any). */
+  plans(slot?: GlyphMapPrepSlot): number;
+  /** Whether a glide's two jobs, the settle render's and the next drag's frame, have finished. */
+  glidePrepared(): { settle: boolean; landing: boolean };
+  /** Process-wide prepare-capable stamps into the base grid and how many consumed a prepared plan; take differences around a render. */
+  stats(): { stamps: number; hits: number };
   /** New content is waiting for the live compositor frame's re-anchor. */
   contentPending(): boolean;
   /** A rest job has finished for the state the map is in now, i.e. a drag starting this moment would be prepared. */
   restPrepared(): boolean;
   /** Whether the outline surface in the topology's cache holds a finished sample plan. */
   outlinePlanned(): boolean;
+  /** Outline sample plans kept beyond the surface that built them (for one job slot, or all). */
+  outlinePlans(slot?: GlyphMapPrepSlot): number;
   discardPlans(): void;
   /** The compositor frame's render at the live camera, as the synchronous fallback does it. */
   renderLive(): void;

@@ -60,13 +60,12 @@ import type {
 import type { GlyphMapAttribution, GlyphMapBounds, GlyphMapClassifier, GlyphMapField, GlyphMapView } from "./types";
 import type { GlyphMapProjection } from "./projection";
 import { glyphMapTrueScaleElevation } from "./projection";
-import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
+import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, discardGlyphMapExtrusionPlans, stampGlyphMapExtrusionOutlines, stashedGlyphMapExtrusionPlans } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
-import { glideLaw, glideOffset, type GlideLaw } from "./glide";
-import { cameraKey, glyphMapPrerenderTuning, sameCameraPose, sameKey, snapshotCameraPose, withCameraPose } from "./prerender";
+import { cameraKey, glyphMapPrerenderStats, glyphMapPrerenderTuning, sameCameraPose, sameKey, snapshotCameraPose, withCameraPose } from "./prerender";
 import { glyphMapPrerenderSeam } from "./prerender";
-import type { GlyphMapCameraPose, GlyphMapPrerenderSeam } from "./prerender";
+import type { GlyphMapCameraPose, GlyphMapPrepSlot, GlyphMapPrerenderSeam } from "./prerender";
 import { createGlyphMapGroundIndex } from "./groundIndex";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
@@ -1557,9 +1556,11 @@ interface StrokeLayerRuntime {
    * resumable job: advance it under the camera pose it is for and the next
    * `stamp` with an identical key consumes the result instead of recomputing.
    */
-  prepare?(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void>;
-  discardPlan?(): void;
-  planned?(): boolean;
+  prepare?(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid, slot: GlyphMapPrepSlot): Generator<void, void>;
+  /** Drops the plan held for `slot`, or every plan. */
+  discardPlan?(slot?: GlyphMapPrepSlot): void;
+  /** Whether a plan is held for `slot`, or any. */
+  planned?(slot?: GlyphMapPrepSlot): boolean;
   dispose(): void;
 }
 
@@ -2655,7 +2656,7 @@ export const GLYPH_MAP_FLY_TO_DEFAULT_MS = 1400;
 /** Default mid-arc zoom-out bow for {@link GlyphMapHandle.flyTo} — see its doc. */
 export const GLYPH_MAP_FLY_TO_MAX_BOW = 3;
 /**
- * Inertial glide: speed decays as `exp(-t / TAU)` (see `glide.ts`), and the
+ * Inertial glide: velocity decays by `exp(-dt / TAU)` per frame, and the
  * glide ends once speed drops below the threshold. 220ms reads as "the map
  * keeps going and settles" rather than either a hard stop or a long skate;
  * the threshold is a quarter of a pixel per 16ms frame, below which another
@@ -3319,14 +3320,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   /**
    * Everything a pan writes: the camera's pose, the view centre and the
-   * lattice bookkeeping. A glide's end is computed by applying its whole
-   * distance to a copy of this and putting the live state back.
+   * lattice bookkeeping. A glide's end is computed by applying its remaining
+   * distance and putting the live state back.
    */
   interface PanState {
     readonly rotX: number; readonly rotY: number; readonly zoom: number;
     readonly target: Vec3; readonly mat: typeof camera.mat; readonly useMat: boolean;
     readonly view: GlyphMapView;
-    readonly orbitRotation: typeof orbitRotation;
+    readonly orbitRotation: { readonly rotX: number; readonly rotY: number } | null;
     readonly exactPanPose: PanPose | null;
     readonly panAnchor: PanAnchor | null;
     readonly renderedCenter: readonly [number, number] | null;
@@ -3349,13 +3350,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       adoptPanState(live);
     }
   }
-  /** Equal but for the float noise of reaching the same place in different steps. */
-  function nearPanState(a: PanState): boolean {
-    const near = (x: number, y: number): boolean => Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
-    return a.panAnchor === panAnchor && near(a.rotX, camera.rotX) && near(a.rotY, camera.rotY) && near(a.zoom, camera.zoom) &&
-      a.target.every((v, i) => near(v, camera.target[i]!)) && near(a.view.center[0], view.center[0]) && near(a.view.center[1], view.center[1]);
-  }
-
   function setSnapPan(enabled: boolean): void {
     restoreExactPanPose();
     snapPan = enabled;
@@ -3762,8 +3756,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   //
   // `rest` jobs prepare the frame a drag will create, in idle time at rest;
   // `anchor` jobs prepare the next anchor during a pan.
+  //
+  // `settle` and `landing` jobs are made at the start of a fling for the pose
+  // its glide is known to end in: the true-size settle render, and the frame
+  // the next drag creates from rest there. They sit beside the one `prepJob`
+  // (a glide still re-anchors with `anchor` jobs) and each keeps its plans
+  // under its own slot.
   interface PrepJob {
-    readonly kind: "rest" | "anchor";
+    readonly kind: "rest" | "anchor" | "settle";
+    readonly slot: GlyphMapPrepSlot;
+    /** A `rest` job prepared ahead, during a glide: valid while that glide's frame stands, and promoted to the rest job at the settle. */
+    landing: boolean;
     readonly pose: GlyphMapCameraPose;
     readonly cols: number;
     readonly rows: number;
@@ -3782,6 +3785,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     ready: boolean;
   }
   let prepJob: PrepJob | null = null;
+  let glidePrep: { readonly settle: PrepJob; readonly landing: PrepJob; readonly epoch: number } | null = null;
+  /** The content epoch a glide's preparation was last started for, so a rejected one is not retried until content changes. */
+  let glidePrepEpoch = -1;
+  /** The render under way is a glide's settle, which consumes `glidePrep` instead of outdating it. */
+  let settleRender = false;
   let restPrepHandle: { cancel(): void } | null = null;
 
   function sameProjectionGrid(a: ProjectionGrid, b: ProjectionGrid): boolean {
@@ -3806,14 +3814,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function prepJobCurrent(job: PrepJob): boolean {
     if (!prepareAllowed() || job.projection !== projection || job.tilt !== appliedTilt || job.bearing !== bearing ||
         job.span !== view.span || job.pose.zoom !== camera.zoom || job.groundRevision !== groundRevision ||
-        job.waterEpoch !== waterTerrainEpoch || (job.kind === "anchor") !== (compositorFrame !== null) ||
-        (job.kind === "anchor" && job.frame !== compositorFrame)) return false;
+        job.waterEpoch !== waterTerrainEpoch) return false;
+    // Anchors and settles belong to the live compositor frame; a rest job to none, unless it was prepared ahead for the frame a glide is ending.
+    if (job.kind === "rest" ? compositorFrame !== (job.landing ? job.frame : null) : compositorFrame === null || job.frame !== compositorFrame) return false;
     const now = strokeRuntimes();
     return now.length === job.runtimes.length && now.every((r, i) => r === job.runtimes[i]);
   }
 
   function discardPlans(job: PrepJob): void {
-    for (const runtime of job.runtimes) runtime.discardPlan?.();
+    for (const runtime of job.runtimes) runtime.discardPlan?.(job.slot);
+    if (outlineTopology) discardGlyphMapExtrusionPlans(outlineTopology, job.slot);
+  }
+
+  function dropJob(job: PrepJob, keepPlans = false): void {
+    for (const step of job.steps) step.return();
+    if (!keepPlans) discardPlans(job);
   }
 
   /** `keepPlans`: a restart for new content keeps the plans whose keys still match, which `prepare` then skips. */
@@ -3821,8 +3836,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const job = prepJob;
     if (!job) return;
     prepJob = null;
-    for (const step of job.steps) step.return();
-    if (!keepPlans) discardPlans(job);
+    dropJob(job, keepPlans);
+  }
+
+  function cancelGlidePrep(): void {
+    const gp = glidePrep;
+    glidePrep = null;
+    if (gp) { dropJob(gp.settle); dropJob(gp.landing); }
   }
 
   /** The render consumed what it could of the job; whatever it did not is released. */
@@ -3831,39 +3851,93 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     discardPlans(job);
   }
 
-  function startPrepJob(kind: PrepJob["kind"], at?: GlyphMapCameraPose, keepPlans = false): void {
+  /** The job for rendering a `cols` x `rows` frame on `baseGrid` at `pose`, whose steps run under that pose. */
+  function buildPrepJob(kind: PrepJob["kind"], slot: GlyphMapPrepSlot, landing: boolean, pose: GlyphMapCameraPose, cols: number, rows: number,
+    baseGrid: ProjectionGrid, frame: CompositorFrame | null): PrepJob {
+    const runtimes = strokeRuntimes();
+    const steps: Generator<void, void>[] = [];
+    for (const runtime of runtimes) if (runtime.prepare) steps.push(runtime.prepare(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid, slot));
+    steps.push(prepareOutlineSurface(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid, slot));
+    return { kind, slot, landing, pose, cols, rows, baseGrid, frame, projection, tilt: appliedTilt, bearing, span: view.span,
+      groundRevision, waterEpoch: waterTerrainEpoch, runtimes, steps, epoch: contentEpoch, cursor: 0, ready: false };
+  }
+
+  /** The grid and centre of the frame a drag creates from rest on `grid`. */
+  function restFrameGeometry(grid: ProjectionGrid): { cols: number; rows: number; baseGrid: ProjectionGrid; center: [number, number] } {
+    const margins = compositorMargins(grid);
+    const cols = grid.cols + 2 * margins.cols, rows = grid.rows + 2 * margins.rows;
+    return { cols, rows, baseGrid: { ...grid, cols, rows, centerCol: grid.centerCol + margins.cols, centerRow: grid.centerRow + margins.rows },
+      center: [(grid.centerCol + margins.cols) / cols, (grid.centerRow + margins.rows) / rows] };
+  }
+
+  function startPrepJob(kind: "rest" | "anchor", at?: GlyphMapCameraPose, keepPlans = false): void {
     cancelPrepJob(keepPlans);
     if (!prepareAllowed()) return;
     const f = compositorFrame;
     if ((kind === "anchor") !== (f !== null)) return;
-    let cols: number, rows: number, baseGrid: ProjectionGrid, pose = at ?? snapshotCameraPose(camera);
     if (f) {
-      baseGrid = projectionGrid(true);
-      cols = baseGrid.cols; rows = baseGrid.rows;
+      const baseGrid = projectionGrid(true);
+      prepJob = buildPrepJob(kind, kind, false, at ?? snapshotCameraPose(camera), baseGrid.cols, baseGrid.rows, baseGrid, f);
     } else {
       // The frame a drag would create, at the camera it would start from.
-      const grid = projectionGrid();
-      const margins = compositorMargins(grid);
-      cols = grid.cols + 2 * margins.cols; rows = grid.rows + 2 * margins.rows;
-      baseGrid = { ...grid, cols, rows, centerCol: grid.centerCol + margins.cols, centerRow: grid.centerRow + margins.rows };
-      pose = { ...pose, center: [(grid.centerCol + margins.cols) / cols, (grid.centerRow + margins.rows) / rows] };
+      const frame = restFrameGeometry(projectionGrid());
+      prepJob = buildPrepJob(kind, kind, false, { ...(at ?? snapshotCameraPose(camera)), center: frame.center }, frame.cols, frame.rows, frame.baseGrid, null);
     }
-    const runtimes = strokeRuntimes();
-    const steps: Generator<void, void>[] = [];
-    for (const runtime of runtimes) if (runtime.prepare) steps.push(runtime.prepare(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
-    steps.push(prepareOutlineSurface(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
-    prepJob = { kind, pose, cols, rows, baseGrid, frame: f, projection, tilt: appliedTilt, bearing, span: view.span,
-      groundRevision, waterEpoch: waterTerrainEpoch, runtimes, steps, epoch: contentEpoch, cursor: 0, ready: false };
   }
 
-  /** Advances the job for up to `budgetMs`, always under its own pose and always restoring the live one. */
-  function runPrepSlice(budgetMs: number): void {
-    const job = prepJob;
-    if (!job || job.ready) return;
-    if (!prepJobCurrent(job) || (job.kind === "rest" && !panMotion && !sameCameraPose(job.pose, snapshotCameraPose(camera), true))) {
-      cancelPrepJob();
-      return;
+  /** The camera pose the running glide ends in, with `center` as the frame it is rendered in has it. */
+  function glideEndPose(center: readonly [number, number]): GlyphMapCameraPose | null {
+    const end = glide?.landing;
+    if (!end) return null;
+    return { ...snapshotCameraPose(camera), rotX: end.rotX, rotY: end.rotY, zoom: end.zoom, target: [end.target[0], end.target[1], end.target[2]],
+      mat: end.mat ? end.mat.slice() : null, useMat: end.useMat, center: [center[0], center[1]] };
+  }
+
+  /** A glide's end is known at the throw: prepare its settle render and the frame the next drag creates there. */
+  function startGlidePrep(): void {
+    const f = compositorFrame, g = glide;
+    glidePrepEpoch = contentEpoch;
+    if (!f || !g?.landing || g.landingGround !== groundRevision || !glyphMapPrerenderTuning.glidePrepare || !prepareAllowed()) return;
+    const settlePose = glideEndPose(f.center);
+    const frame = restFrameGeometry(f.grid);
+    const landingPose = glideEndPose(frame.center);
+    if (!settlePose || !landingPose) return;
+    glidePrep = {
+      settle: buildPrepJob("settle", "settle", false, settlePose, f.grid.cols, f.grid.rows, f.grid, f),
+      landing: buildPrepJob("rest", "landing", true, landingPose, frame.cols, frame.rows, frame.baseGrid, f),
+      epoch: contentEpoch,
+    };
+  }
+
+  /** Spends up to `budgetMs` on a glide's settle frame, then on the frame after it. */
+  function advanceGlidePrep(budgetMs: number): void {
+    if (glidePrep && glidePrep.epoch !== contentEpoch) cancelGlidePrep();
+    if (!glidePrep && glidePrepEpoch !== contentEpoch) startGlidePrep();
+    const gp = glidePrep;
+    if (!gp) return;
+    const t0 = performance.now();
+    for (const job of [gp.settle, gp.landing]) {
+      if (job.ready) continue;
+      if (!runSlice(job, budgetMs - (performance.now() - t0))) { cancelGlidePrep(); return; }
+      if (!job.ready) return;
     }
+  }
+
+  /** The settle render has run: its plans are spent, and the frame prepared for the next drag becomes the rest job if it is still the one. */
+  function finishGlidePrep(): void {
+    const gp = glidePrep;
+    glidePrep = null;
+    if (!gp) return;
+    dropJob(gp.settle);
+    const job = gp.landing;
+    job.landing = false;
+    if (!prepJob && prepJobCurrent(job) && sameCameraPose(job.pose, snapshotCameraPose(camera), true)) prepJob = job;
+    else dropJob(job);
+  }
+
+  /** Advances `job` for up to `budgetMs`, always under its own pose and always restoring the live one. False when the job no longer applies. */
+  function runSlice(job: PrepJob, budgetMs: number): boolean {
+    if (!prepJobCurrent(job) || (job.kind === "rest" && !job.landing && !panMotion && !sameCameraPose(job.pose, snapshotCameraPose(camera), true))) return false;
     const t0 = performance.now();
     let advanced = false;
     try {
@@ -3875,9 +3949,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       });
       advanced = true;
     } finally {
-      if (!advanced) cancelPrepJob();
+      if (!advanced) { dropJob(job); if (prepJob === job) prepJob = null; }
     }
     job.ready = job.cursor === job.steps.length;
+    return true;
+  }
+
+  function runPrepSlice(budgetMs: number): void {
+    const job = prepJob;
+    if (!job || job.ready) return;
+    if (!runSlice(job, budgetMs)) cancelPrepJob();
   }
 
   /** Idle-time preparation of the frame a drag creates, so the drag's first frame is not the expensive one. */
@@ -4070,11 +4151,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (scheduled) { if (!landingOwed) renderScene(); return; }
     if (!compositorRender) {
       endCompositorPan();
-      // Whatever asked for this render changed the state a rest job was made for.
+      // Whatever asked for this render changed the state a rest job was made for; a glide's own settle is the one that does not.
       if (prepJob) cancelPrepJob();
+      if (!settleRender) cancelGlidePrep();
     }
     renderScene();
-    if (!compositorRender) scheduleRestPrepare();
+    if (!compositorRender) {
+      if (settleRender) finishGlidePrep();
+      scheduleRestPrepare();
+    }
   }) as () => void;
   scene.setOptions = options => {
     // Headlights update lighting options during camera motion without resizing.
@@ -7002,14 +7087,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
 
     /** A finished plan: the runs `strokeRuns` produced and the key they are valid under. Vertices are copied out of the shared scratch. */
-    let plan: { readonly key: unknown[]; readonly decisions: readonly boolean[]; readonly runs: readonly { readonly color: string | undefined; readonly verts: readonly GlyphMapStrokeVertex[] }[] } | null = null;
+    type StrokePlan = { readonly slot: GlyphMapPrepSlot; readonly key: unknown[]; readonly decisions: readonly boolean[]; readonly runs: readonly { readonly color: string | undefined; readonly verts: readonly GlyphMapStrokeVertex[] }[] };
+    /** One plan per job slot: a glide prepares its settle frame and its next drag's frame at once. */
+    let plans: StrokePlan[] = [];
 
-    function* prepare(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
+    function* prepare(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid, slot: GlyphMapPrepSlot): Generator<void, void> {
       refreshGroundReader();
       const key = planKey(cols, rows, cellToSceneGrid, baseGrid);
       // A restart for new content finds the plans of the layers it did not touch still current.
-      if (key && plan && sameKey(key, plan.key)) return;
-      plan = null;
+      if (key && plans.some(held => held.slot === slot && sameKey(key, held.key))) return;
+      plans = plans.filter(held => held.slot !== slot);
       if (!key) return;
       const runs: { color: string | undefined; verts: GlyphMapStrokeVertex[] }[] = [];
       const decisions: boolean[] = [];
@@ -7018,7 +7105,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }, PREPARE_YIELD_RINGS, decisions);
       // Something the key reads moved while this was suspended: the runs mix two states.
       const done = planKey(cols, rows, cellToSceneGrid, baseGrid);
-      if (done && sameKey(key, done)) plan = { key, decisions, runs };
+      if (done && sameKey(key, done)) plans.push({ slot, key, decisions, runs });
     }
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
@@ -7029,12 +7116,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const sink = (color: string | undefined, verts: readonly GlyphMapStrokeVertex[]): void => {
         stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
       };
-      let prepared = plan;
-      if (prepared) {
+      let prepared: StrokePlan | undefined;
+      if (plans.length) {
         refreshGroundReader();
         const key = planKey(grid.cols, grid.rows, cellToSceneGrid, baseGrid);
-        if (key && sameKey(key, prepared.key)) plan = null; else prepared = null;
-        if (prepared && !sameDecisions(prepared.decisions, baseGrid, cellToSceneGrid)) prepared = null;
+        prepared = key ? plans.find(held => sameKey(key, held.key)) : undefined;
+        if (prepared) plans = plans.filter(held => held !== prepared);
+        if (prepared && !sameDecisions(prepared.decisions, baseGrid, cellToSceneGrid)) prepared = undefined;
+      }
+      if (cellToSceneGrid[0] === 1 && cellToSceneGrid[3] === 1 && cellToSceneGrid[4] === 0 && cellToSceneGrid[5] === 0) {
+        glyphMapPrerenderStats.stamps++;
+        if (prepared) glyphMapPrerenderStats.hits++;
       }
       if (prepared) for (const run of prepared.runs) sink(run.color, run.verts);
       else for (const step = strokeRuns(grid.cols, grid.rows, cellToSceneGrid, baseGrid, sink, Infinity); !step.next().done;);
@@ -7045,8 +7137,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       update,
       stamp,
       prepare,
-      discardPlan(): void { plan = null; },
-      planned: () => plan !== null,
+      discardPlan(slot?: GlyphMapPrepSlot): void { plans = slot ? plans.filter(held => held.slot !== slot) : []; },
+      planned: (slot?: GlyphMapPrepSlot) => slot ? plans.some(held => held.slot === slot) : plans.length > 0,
       /**
        * The stroke half of {@link GlyphMapHandle.setLayerSource}. Both feature
        * lists are cleared, not just the one the new source will fill: a swap
@@ -7770,12 +7862,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    let prepared: { readonly key: unknown[]; readonly polylines: GlyphMapContourPolyline[] } | null = null;
+    type ContourPlan = { readonly slot: GlyphMapPrepSlot; readonly key: unknown[]; readonly polylines: GlyphMapContourPolyline[] };
+    let plans: ContourPlan[] = [];
 
-    function* prepare(_cols: number, _rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
+    function* prepare(_cols: number, _rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid, slot: GlyphMapPrepSlot): Generator<void, void> {
       const key = planKey(cellToSceneGrid, baseGrid);
-      if (key && prepared && sameKey(key, prepared.key)) return;
-      prepared = null;
+      if (key && plans.some(held => held.slot === slot && sameKey(key, held.key))) return;
+      plans = plans.filter(held => held.slot !== slot);
       const range = fieldRange();
       if (!key || !range) return;
       const segments = contourGeometry(levelsFor(range));
@@ -7783,7 +7876,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const polylines: GlyphMapContourPolyline[] = [];
       if (segments.length > 0) yield* contourPolylines(segments, cellToSceneGrid, baseGrid, polylines, CONTOUR_PREPARE_YIELD_SEGMENTS);
       const done = planKey(cellToSceneGrid, baseGrid);
-      if (done && sameKey(key, done)) prepared = { key, polylines };
+      if (done && sameKey(key, done)) plans.push({ slot, key, polylines });
     }
 
     function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
@@ -7812,10 +7905,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (segments.length === 0) return;
 
       let polylines: GlyphMapContourPolyline[] | null = null;
-      if (prepared) {
+      if (plans.length) {
         const key = planKey(cellToSceneGrid, baseGrid);
-        if (key && sameKey(key, prepared.key)) polylines = prepared.polylines;
-        prepared = null;
+        const held = key ? plans.find(p => sameKey(key, p.key)) : undefined;
+        if (held) { polylines = held.polylines; plans = plans.filter(p => p !== held); }
+      }
+      if (cellToSceneGrid[0] === 1 && cellToSceneGrid[3] === 1 && cellToSceneGrid[4] === 0 && cellToSceneGrid[5] === 0) {
+        glyphMapPrerenderStats.stamps++;
+        if (polylines) glyphMapPrerenderStats.hits++;
       }
       if (!polylines) {
         polylines = [];
@@ -7891,8 +7988,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       update,
       stamp,
       prepare,
-      discardPlan(): void { prepared = null; },
-      planned: () => prepared !== null,
+      discardPlan(slot?: GlyphMapPrepSlot): void { plans = slot ? plans.filter(held => held.slot !== slot) : []; },
+      planned: (slot?: GlyphMapPrepSlot) => slot ? plans.some(held => held.slot === slot) : plans.length > 0,
       dispose(): void {
         disposed = true;
         groundChangeSyncs.delete(resweep);
@@ -9592,14 +9689,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * a render) is part of the cache check, so a surface prepared against flags
    * the render then rewrites simply misses and is rebuilt as before.
    */
-  function* prepareOutlineSurface(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
+  function* prepareOutlineSurface(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid, slot: GlyphMapPrepSlot): Generator<void, void> {
     const outlined = outlineGeometries();
     if (walk || !outlineTopology || !outlined.length || !sameOutlineMeshes(outlineMeshSet())) return;
     const stub = { cols, rows, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
     const surface = outlineSurface(stub, outlineProjector(baseGrid, cellToSceneGrid), baseGrid, cellToSceneGrid);
     yield;
     // The edge samples the render would walk, with every verdict that reads no grid.
-    yield* surface.prepareSamples?.(outlined, appliedTilt !== 0 || walk !== null) ?? [];
+    yield* surface.prepareSamples?.(outlined, appliedTilt !== 0 || walk !== null, slot) ?? [];
   }
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
@@ -9664,6 +9761,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             s.layer.outline === "braille" && s.layer.fill === false && s.layer.blank ? s.runtime.polygons?.() ?? [] : []));
         }
         const surface = outlineSurface(frozen, project, cachedBaseGrid!, cellToSceneGrid);
+        if (layerInfo?.viewport !== true) { glyphMapPrerenderStats.stamps++; if (surface.plan) glyphMapPrerenderStats.hits++; }
         if (layerInfo?.viewport === true) surface.blank?.(g);
         else stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
       }
@@ -10170,10 +10268,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /** An input handler mutated camera/view and the frame has not rendered it yet. */
   let motionDirty = false;
   let glideVx = 0, glideVy = 0, gliding = false;
-  /** The running glide: its law, when it started, and the offset already applied. */
+  /**
+   * The running glide's bookkeeping for preparing its end. The stepping itself
+   * is the per-frame Euler decay below, unchanged; its end is predicted by
+   * running that same law forward at the cadence seen so far.
+   */
   let glide: {
-    readonly law: GlideLaw; start: number | null; appliedX: number; appliedY: number;
-    /** Where applying the glide's whole distance at once ends, and the ground it was computed on. */
+    steps: number; elapsed: number;
+    /** Where the glide is predicted to end (applying its remaining distance at once), and the ground that was computed on. */
     landing: PanState | null; landingGround: number;
   } | null = null;
   let flight: FlyState | null = null;
@@ -10218,8 +10320,27 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    */
   function cancelCameraGlide(): void {
     gliding = false; glide = null;
+    cancelGlidePrep();
     glideVx = 0; glideVy = 0;
     if (flight) { const f = flight; flight = null; f.settle(); }
+  }
+
+  /** Frames of a glide watched before its end is predicted, so the cadence the prediction runs at is one that was seen. */
+  const GLIDE_PREDICT_AFTER = 3;
+
+  /** Runs the glide's own stepping forward at `dt` ms a frame, from the speed it has now, and records where applying what is left ends. */
+  function predictGlideEnd(dt: number): void {
+    const g = glide;
+    if (!g) return;
+    const decay = Math.exp(-dt / GLYPH_MAP_GLIDE_TAU_MS);
+    let vx = glideVx, vy = glideVy, x = 0, y = 0;
+    for (let i = 0; i < 100000; i++) {
+      x += vx * dt; y += vy * dt;
+      vx *= decay; vy *= decay;
+      if (Math.hypot(vx, vy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS) break;
+    }
+    g.landing = panLanding(x, y); g.landingGround = groundRevision;
+    glidePrepEpoch = -1;
   }
 
   const easeInOutQuad = (u: number): number => (u < 0.5 ? 2 * u * u : 1 - ((-2 * u + 2) ** 2) / 2);
@@ -10260,6 +10381,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let moved = motionDirty;
     motionDirty = false;
     compositorRendered = false;
+    let glideLanded = false;
 
     // Before the flight/glide branch, and never alongside one: a `flyTo` is
     // cancelled on entering walk mode and a walk has no inertia, so the two
@@ -10270,26 +10392,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       advanceFlight(now);
       moved = true;
     } else if (gliding) {
-      // The offset is a function of elapsed time, so a dropped frame covers
-      // exactly what the frames it replaced would have.
-      const g = glide!;
-      if (g.start === null) {
-        g.start = now - dt;
-        const [totalX, totalY] = glideOffset(g.law, g.law.duration);
-        g.landing = panLanding(totalX, totalY); g.landingGround = groundRevision;
-      }
-      const t = now - g.start, [x, y] = glideOffset(g.law, t);
-      applyDragState(x - g.appliedX, y - g.appliedY);
-      g.appliedX = x; g.appliedY = y;
+      // Exponential decay, frame-rate independent: a dropped frame decays by
+      // exactly as much as the two frames it replaced would have.
+      const dx = glideVx * dt, dy = glideVy * dt;
+      const decay = Math.exp(-dt / GLYPH_MAP_GLIDE_TAU_MS);
+      glideVx *= decay; glideVy *= decay;
+      applyDragState(dx, dy);
       panMotion = true;
-      const done = t >= g.law.duration;
-      if (done) {
-        compositorSettle = true;
-        // The steps that got here differ from the one-shot landing by float noise; it is the pose preparation was made for.
-        if (g.landing && g.landingGround === groundRevision && nearPanState(g.landing)) adoptPanState(g.landing);
+      const stop = Math.hypot(glideVx, glideVy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS;
+      if (stop) { glideLanded = true; compositorSettle = true; }
+      else if (glide) {
+        glide.steps++; glide.elapsed += dt;
+        if (glide.steps === GLIDE_PREDICT_AFTER) predictGlideEnd(glide.elapsed / glide.steps);
       }
       emitViewChange("move");
-      if (done) { gliding = false; glide = null; }
+      if (stop) { gliding = false; glide = null; glideVx = 0; glideVy = 0; }
       moved = true;
     }
 
@@ -10321,8 +10438,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // it used exactly the cull this ordering now feeds the first.
       applyKeyLight();
       syncNearSide();
-      scene.rerender();
+      settleRender = glideLanded;
+      try { scene.rerender(); } finally { settleRender = false; }
     }
+    if (glidePrep && !gliding) cancelGlidePrep();
 
     // Detail settles when MOTION stops, not when the pointer goes up: every
     // moving frame re-arms the 180ms debounce, so a glide or a flight fetches
@@ -10330,7 +10449,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     compositorSettle = false;
     if (moved) scheduleTileUpdate();
     // A frame that already rendered has spent its budget; preparation only uses frames that did not.
-    if (prepJob?.kind === "anchor" && !prepJob.ready && !compositorRendered) runPrepSlice(glyphMapPrerenderTuning.sliceMs);
+    if (!compositorRendered) {
+      if (prepJob?.kind === "anchor" && !prepJob.ready) runPrepSlice(glyphMapPrerenderTuning.sliceMs);
+      else if (gliding) advanceGlidePrep(glyphMapPrerenderTuning.sliceMs);
+    }
     if (motionActive() || contentDirty || (prepJob?.kind === "anchor" && !prepJob.ready)) requestMotionFrame();
   }
 
@@ -12369,8 +12491,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (didDrag && controlsDrag && sinceLastMove <= 60 && speed > GLYPH_MAP_GLIDE_MIN_PX_PER_MS
       && typeof requestAnimationFrame !== "undefined") {
       const cap = Math.min(1, GLYPH_MAP_GLIDE_MAX_PX_PER_MS / speed);
-      glide = { law: glideLaw(glideVx * cap, glideVy * cap, GLYPH_MAP_GLIDE_TAU_MS, GLYPH_MAP_GLIDE_MIN_PX_PER_MS)!, start: null, appliedX: 0, appliedY: 0, landing: null, landingGround: 0 };
-      glideVx = 0; glideVy = 0;
+      glideVx *= cap; glideVy *= cap;
+      glide = { steps: 0, elapsed: 0, landing: null, landingGround: 0 };
       gliding = true;
       requestMotionFrame();
     } else {
@@ -12678,13 +12800,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       runPrepSlice(Infinity);
       return prepJob?.ready === true;
     },
-    plans: () => strokeRuntimes().filter(runtime => runtime.planned?.()).length,
+    plans: slot => strokeRuntimes().filter(runtime => runtime.planned?.(slot)).length,
     discardPlans() {
       cancelPrepJob();
+      cancelGlidePrep();
       for (const runtime of strokeRuntimes()) runtime.discardPlan?.();
+      if (outlineTopology) discardGlyphMapExtrusionPlans(outlineTopology);
       const cached = outlineTopology?.surfaceCache;
       if (cached) cached.surface.plan = undefined;
     },
+    glidePrepared: () => ({ settle: glidePrep?.settle.ready === true, landing: glidePrep?.landing.ready === true }),
+    stats: () => ({ ...glyphMapPrerenderStats }),
+    outlinePlans: slot => outlineTopology ? stashedGlyphMapExtrusionPlans(outlineTopology, slot) : 0,
     contentPending: () => contentDirty,
     restPrepared: () => prepJob?.kind === "rest" && prepJob.ready && prepJobCurrent(prepJob),
     outlinePlanned: () => outlineTopology?.surfaceCache?.surface.plan !== undefined,

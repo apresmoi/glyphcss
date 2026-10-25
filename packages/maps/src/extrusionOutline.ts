@@ -41,7 +41,8 @@ interface ExtrusionSurface {
   plan?: OutlinePlan;
   /** Per cell, the nearest blanked face's depth (`-Infinity` where none): the camera-only half of `blank`, set with `plan`. */
   blankDepth?: Float64Array;
-  prepareSamples?(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): Generator<void, void>;
+  /** `slot`: the job the finished plan is kept for beyond this surface (see {@link StashedPlan}). */
+  prepareSamples?(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean, slot?: string): Generator<void, void>;
   project(v: Vec3): GlyphMapStrokeVertex;
   owns(idx: number, own?: ReadonlySet<Polygon>): boolean;
   occludes(a: Vec3, b: Vec3): (col: number, row: number, depth: number) => boolean;
@@ -49,6 +50,23 @@ interface ExtrusionSurface {
   blank?: (g: CellGrid) => void;
   replay?: (g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) => boolean;
   remember?: (g: CellGrid) => void;
+}
+/**
+ * A finished sample plan kept past the surface that built it. The surface's
+ * planes and bins live in the topology's shared scratch, so only one surface is
+ * ever current; a plan is plain data and is attached to the next surface built
+ * for exactly the same inputs, whichever job prepared it.
+ */
+interface StashedPlan {
+  slot: string;
+  key: readonly unknown[];
+  hidden: Uint8Array;
+  filledFaces?: ReadonlySet<Polygon>;
+  blankFaces?: ReadonlySet<Polygon>;
+  polygons: readonly Polygon[];
+  cols: number; rows: number; cullBehind: boolean;
+  plan: OutlinePlan;
+  blankDepth?: Float64Array;
 }
 interface SurfaceCache {
   surface: ExtrusionSurface;
@@ -228,6 +246,7 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     prepare(groups: readonly GlyphMapExtrusionGeometry[]) {
       if (groups.length === topology.outlines.length && groups.every((g, i) => g === topology.outlines[i]!.geometry)) return;
       topology.surfaceCache = undefined;
+      planStashes.delete(topology);
       const edgeIds: (number | undefined)[] = [];
       const endpoints: number[] = [], offsets = [0], incident: number[] = [];
       const edge = (a: Vec3, b: Vec3) => {
@@ -277,6 +296,17 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
   };
   topology.prepare(geometries);
   return topology;
+}
+// Beside the topology like the next map, for the same reason: a stashed plan is not part of what the compiler produces.
+const planStashes = new WeakMap<object, StashedPlan[]>();
+/** Releases the plan kept for `slot`, or all of them. */
+export function discardGlyphMapExtrusionPlans(topology: object, slot?: string): void {
+  const kept = planStashes.get(topology);
+  if (kept) planStashes.set(topology, slot ? kept.filter(held => held.slot !== slot) : []);
+}
+/** How many plans are kept beyond their surfaces (for `slot`, or all). */
+export function stashedGlyphMapExtrusionPlans(topology: object, slot?: string): number {
+  return (planStashes.get(topology) ?? []).filter(held => !slot || held.slot === slot).length;
 }
 // Beside the topology, not in its scratch: the topology reference tests compare
 // every scratch field with a frozen compiler that has no such buffer.
@@ -633,6 +663,15 @@ export function createGlyphMapExtrusionSurface(
     return nearest;
   };
   const previousOutput = topology.stampCache?.output;
+  /** Stashes the surface's plan for `slot` (replacing that slot's earlier one), against the inputs this surface was built for. */
+  const keep = (slot?: string): void => {
+    const live = topology.surfaceCache;
+    if (!slot || live?.surface !== surface || !surface.plan) return;
+    const kept = (planStashes.get(topology) ?? []).filter(held => held.slot !== slot);
+    planStashes.set(topology, kept);
+    kept.push({ slot, key: live.key, hidden: live.hidden.slice(), filledFaces, blankFaces, polygons, cols: live.cols, rows: live.rows,
+      cullBehind, plan: surface.plan, blankDepth: surface.blankDepth });
+  };
   const surface: ExtrusionSurface = {
     replay: frameKey ? (g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) => {
       const cache = topology.stampCache;
@@ -687,11 +726,11 @@ export function createGlyphMapExtrusionSurface(
         stampGlyphMapPolyline(g, points, options);
       });
     },
-    *prepareSamples(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): Generator<void, void> {
+    *prepareSamples(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean, slot?: string): Generator<void, void> {
       // Only the walk this surface would take: anything else is the render's to rebuild.
       if (!frameKey || geometries.length !== topology.outlines.length || !geometries.every((x, i) => x === topology.outlines[i]!.geometry)) return;
       // A cached surface keeps its plan: a job redone for another reason (terrain landing) skips this half.
-      if (surface.plan && planFits(surface.plan, geometries, tilted)) return;
+      if (surface.plan && planFits(surface.plan, geometries, tilted)) { keep(slot); return; }
       reserveVertices();
       const cols = grid.cols, rows = grid.rows, gridless = { cols, rows, depth: NO_DEPTH } as unknown as CellGrid;
       let data = new Float64Array(PLAN_STRIDE * 256), at = 0;
@@ -724,6 +763,7 @@ export function createGlyphMapExtrusionSurface(
         surface.blankDepth = nearest;
       }
       surface.plan = { geometries, tilted, data: data.slice(0, at), runs };
+      keep(slot);
     },
   };
   if (frameKey) {
@@ -733,6 +773,10 @@ export function createGlyphMapExtrusionSurface(
       surface, bindGrid: next => { grid = next; }, key: frameKey.slice(), hidden,
       filledFaces, blankFaces, polygons, cols: grid.cols, rows: grid.rows, cullBehind,
     };
+    // A plan prepared for exactly these inputs while another surface was current.
+    const held = planStashes.get(topology)?.find(e => e.polygons === polygons && e.cols === grid.cols && e.rows === grid.rows && e.cullBehind === cullBehind &&
+      e.filledFaces === filledFaces && e.blankFaces === blankFaces && equal(e.key, frameKey) && equal(e.hidden, hidden));
+    if (held) { surface.plan = held.plan; surface.blankDepth = held.blankDepth; }
   }
   return surface;
 }
