@@ -1698,6 +1698,10 @@ export function useMapsWorkbench() {
     contourMaxElevation,
     contourLabels,
     provider,
+    // The map is rebuilt when the vector pyramid lands, and the rebuild's own
+    // layer list carries no contour: without this a link opened with contours
+    // on drew none until the toggle was flipped.
+    vectorProvider,
   ]);
 
   // ── The demo layers.
