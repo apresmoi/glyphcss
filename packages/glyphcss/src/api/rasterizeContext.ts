@@ -572,8 +572,8 @@ export interface RasterizeContextOptions {
  */
 export interface ShadeCache {
   /**
-   * Dense, pre-sized storage (see {@link createShadeCache}); `NaN` in `iA`
-   * means "not filled". Growable JS arrays written at scattered positional
+   * Dense, pre-sized storage (see {@link createShadeCache}); occupancy is the
+   * separate `filled` flag, because any stored value - NaN included - is a hit. Growable JS arrays written at scattered positional
    * indices fall into V8 dictionary mode, which was most of the rasterizer's
    * self time on a street-level map. A slot at or past the capacity is simply
    * never memoized — a miss recomputes identically.
@@ -581,6 +581,8 @@ export interface ShadeCache {
   iA: Float64Array;
   iB: Float64Array;
   iC: Float64Array;
+  /** 1 once a slot holds an entry. Never inferred from the values. */
+  filled: Uint8Array;
   /** Dense and fully populated (`null` until filled) — never holey. */
   lit: (string | null)[];
   /**
@@ -616,33 +618,22 @@ export function createShadeCache(triangleCount: number, journal = false): ShadeC
   const lit: (string | null)[] = [];
   for (let i = 0; i < triangleCount; i++) lit.push(null);
   const cache: ShadeCache = {
-    iA: new Float64Array(triangleCount).fill(NaN),
-    iB: new Float64Array(triangleCount).fill(NaN),
-    iC: new Float64Array(triangleCount).fill(NaN),
+    iA: new Float64Array(triangleCount),
+    iB: new Float64Array(triangleCount),
+    iC: new Float64Array(triangleCount),
+    filled: new Uint8Array(triangleCount),
     lit,
   };
   if (journal) cache.journal = [];
   return cache;
 }
 
-/**
- * A NEW cache of `triangleCount` slots carrying every entry of `source`. The
- * source is left untouched, so a caller that may still roll back never loses it.
- */
-export function growShadeCache(source: ShadeCache, triangleCount: number, journal = false): ShadeCache {
-  const grown = createShadeCache(triangleCount, journal);
-  grown.iA.set(source.iA);
-  grown.iB.set(source.iB);
-  grown.iC.set(source.iC);
-  for (let i = 0; i < source.lit.length; i++) grown.lit[i] = source.lit[i]!;
-  return grown;
-}
-
 /** Mark one slot unfilled again (the journal's undo step). */
 export function clearShadeCacheEntry(cache: ShadeCache, t: number): void {
-  cache.iA[t] = NaN;
-  cache.iB[t] = NaN;
-  cache.iC[t] = NaN;
+  cache.filled[t] = 0;
+  cache.iA[t] = 0;
+  cache.iB[t] = 0;
+  cache.iC[t] = 0;
   cache.lit[t] = null;
 }
 

@@ -66,7 +66,7 @@ function render(polygons: Polygon[], zoom: number, shadeCache: ShadeCache | null
 
 /** A plain copy of the four arrays — what the rollback must reproduce. */
 function snapshot(c: ShadeCache) {
-  return { iA: Array.from(c.iA), iB: Array.from(c.iB), iC: Array.from(c.iC), lit: c.lit.slice() };
+  return { iA: Array.from(c.iA), iB: Array.from(c.iB), iC: Array.from(c.iC), filled: Array.from(c.filled), lit: c.lit.slice() };
 }
 
 describe("ShadeCache.journal", () => {
@@ -87,8 +87,8 @@ describe("ShadeCache.journal", () => {
 
     render(grown, 90, cache);
     expect(cache.journal!.length).toBeGreaterThan(0);
-    expect(Array.from(cache.iA).filter((v) => !Number.isNaN(v)).length)
-      .toBeGreaterThan(before.iA.filter((v) => !Number.isNaN(v)).length);
+    expect(Array.from(cache.filled).reduce((a, b) => a + b, 0))
+      .toBeGreaterThan(before.filled.reduce((a, b) => a + b, 0));
 
     for (const t of cache.journal!) clearShadeCacheEntry(cache, t);
     expect(snapshot(cache)).toEqual(before);

@@ -33,7 +33,7 @@ import { buildTextureSamplers, polygonTexture } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildGlyphPolygonCullChunks, buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
-import { clearShadeCacheEntry, countShadeTriangles, createShadeCache, growShadeCache } from "./rasterizeContext";
+import { clearShadeCacheEntry, countShadeTriangles, createShadeCache } from "./rasterizeContext";
 import type { GlyphPolygonCullChunk, ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds, buildSurfaceDepth, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
 import type { GlyphOcclusionSlopes } from "../render/rasterize";
@@ -1436,7 +1436,7 @@ export function createGlyphScene(
    */
   function rollbackShadeCache(next: ShadeCache): void {
     const journal = next.journal;
-    // A dirty or grown pass wrote into arrays no one else holds: dropping them
+    // A dirty pass wrote into arrays no one else holds: dropping them
     // is the rollback.
     if (journal === undefined || next.iA !== shadeCache.iA) return;
     for (let i = journal.length - 1; i >= 0; i--) clearShadeCacheEntry(next, journal[i]!);
@@ -1467,6 +1467,7 @@ export function createGlyphScene(
     shadeCache.iA = nextShadeCache.iA;
     shadeCache.iB = nextShadeCache.iB;
     shadeCache.iC = nextShadeCache.iC;
+    shadeCache.filled = nextShadeCache.filled;
     shadeCache.lit = nextShadeCache.lit;
     // Committed: nothing left to undo.
     if (nextShadeCache.journal !== undefined) nextShadeCache.journal.length = 0;
@@ -1951,14 +1952,12 @@ export function createGlyphScene(
     // a warm cache is nearly none, because a populated entry is a hit and a
     // hit never writes. A dirty cache still starts from empty, as before.
     // Dense typed storage sized to this pass's positional triangle count: see
-    // `ShadeCache`. A warm cache that has become too small is replaced by a
-    // grown COPY, never resized in place, so the rollback stays a no-op for it.
+    // `ShadeCache`. Every geometry change invalidates, so a warm cache is always
+    // big enough; one that were not would just stop memoizing past its capacity.
     const shadeTriangles = countShadeTriangles(allPolygons);
     const nextShadeCache: ShadeCache = shadeCacheDirty
       ? createShadeCache(shadeTriangles, true)
-      : shadeTriangles > shadeCache.iA.length
-        ? growShadeCache(shadeCache, shadeTriangles, true)
-        : { iA: shadeCache.iA, iB: shadeCache.iB, iC: shadeCache.iC, lit: shadeCache.lit, journal: [] };
+      : { iA: shadeCache.iA, iB: shadeCache.iB, iC: shadeCache.iC, filled: shadeCache.filled, lit: shadeCache.lit, journal: [] };
     const nextTemporalHistory = cloneTemporalHistory(temporalHistory);
 
     try {

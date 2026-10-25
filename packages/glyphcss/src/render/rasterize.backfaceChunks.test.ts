@@ -95,7 +95,7 @@ function render(
   ctx.shadeCache = cache;
   const text = rasterize(ctx);
   let shaded = 0;
-  for (let i = 0; i < cache.iA.length; i++) if (!Number.isNaN(cache.iA[i]!)) shaded++;
+  for (let i = 0; i < cache.iA.length; i++) if (cache.filled[i] === 1) shaded++;
   return { text, shaded };
 }
 
@@ -222,7 +222,7 @@ describe("pre-projection back-face run rejection", () => {
       ctx.shadeCache = cache;
       const text = rasterize(ctx);
       let shaded = 0;
-      for (let i = 0; i < cache.iA.length; i++) if (!Number.isNaN(cache.iA[i]!)) shaded++;
+      for (let i = 0; i < cache.iA.length; i++) if (cache.filled[i] === 1) shaded++;
       return { text, shaded };
     };
     const plain = build();

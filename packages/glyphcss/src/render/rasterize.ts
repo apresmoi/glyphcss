@@ -2659,10 +2659,10 @@ function rasterizeSolid(
       // shadeCache (lazily filled by positional triangle index). On a camera-
       // only change (orbit/zoom drag) every populated entry is a hit; the scene
       // clears the cache when geometry, light, or shading options change.
-      // NaN is the unfilled marker; a slot at or past the capacity can neither hit
-      // nor be written (see `ShadeCache`).
+      // Occupancy is the `filled` flag, never the values (a stored NaN is a hit); a
+      // slot at or past the capacity can neither hit nor be written.
       const shadeCacheInRange = shadeCache !== null && triT < shadeCache.iA.length;
-      const shadeCacheHit = shadeCacheInRange && !Number.isNaN(shadeCache!.iA[triT]!);
+      const shadeCacheHit = shadeCacheInRange && shadeCache!.filled[triT] === 1;
       let fnxN = 0, fnyN = 0, fnzN = 0;
       if (normalBuf !== null || !shadeCacheHit) {
         // An AUTHORED shading normal (`Polygon.shadingNormal`) wins over the
@@ -2796,6 +2796,7 @@ function rasterizeSolid(
         }
 
         if (shadeCacheInRange && shadeCache !== null) {
+          shadeCache.filled[triT] = 1;
           shadeCache.iA[triT] = iA;
           shadeCache.iB[triT] = iB;
           shadeCache.iC[triT] = iC;

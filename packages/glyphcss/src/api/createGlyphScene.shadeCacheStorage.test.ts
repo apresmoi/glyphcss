@@ -32,7 +32,7 @@ function tris(count: number): Polygon[] {
 }
 
 describe("createGlyphScene shade-cache storage", () => {
-  it("hands the rasterizer Float64Array storage sized to the triangle count, dirty or warm or grown", () => {
+  it("hands the rasterizer Float64Array storage sized to the triangle count, dirty or warm", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const scene = createGlyphScene(host, { cols: 8, rows: 4, useColors: true });
@@ -43,6 +43,7 @@ describe("createGlyphScene shade-cache storage", () => {
     expect(last().iA).toBeInstanceOf(Float64Array);
     expect(last().iB).toBeInstanceOf(Float64Array);
     expect(last().iC).toBeInstanceOf(Float64Array);
+    expect(last().filled).toBeInstanceOf(Uint8Array);
     expect(last().iA.length).toBe(40);
     expect(last().lit.length).toBe(40);
 
@@ -51,7 +52,7 @@ describe("createGlyphScene shade-cache storage", () => {
     scene.rerender();
     expect(last().iA).toBeInstanceOf(Float64Array);
     expect(last().iA.length).toBe(40);
-    expect(Array.from(last().iA).some((v) => !Number.isNaN(v))).toBe(true);
+    expect(Array.from(last().filled).some((v) => v === 1)).toBe(true);
 
     scene.add(tris(25));
     scene.rerender();
