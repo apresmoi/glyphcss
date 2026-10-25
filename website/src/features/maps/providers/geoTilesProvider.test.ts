@@ -86,25 +86,28 @@ describe("createGeoTilesProvider — manifest encoding/version gate", () => {
     stubFetch({
       "/manifest.json": () => Response.json(baseManifest()),
     });
-    const provider = await createGeoTilesProvider("/data/geo-tiles");
-    expect(provider.zooms.map((z) => z.z)).toEqual([0, 1]);
-    expect(provider.sampler).toBe("nearest");
+    const provider = await createGeoTilesProvider("/data/geo-tiles", offline);
+    expect(provider.zooms.map((z) => z.z)).toEqual(STREAMED_ZOOMS);
+    expect(provider.sampler).toBe("nearest (z0-z1), bilinear streamed (z2-z12)");
   });
 });
 
-describe("createGeoTilesProvider — curated wiring", () => {
+// Every level below the baked z0-z1 is streamed; the curated z2 level is now
+// the fallback a failed stream degrades to.
+const STREAMED_ZOOMS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+const offline = () => Promise.reject(new Error("offline"));
+
+describe("createGeoTilesProvider — curated fallback under the streamed levels", () => {
   const curatedZoom = { z: 2, cols: 4, rows: 4, tileLonSpan: 90, tileLatSpan: 45, tileCols: TILE_COLS, tileRows: TILE_ROWS };
 
-  it("adds the curated zoom to provider.zooms and fetches a real curated tile from curated/{z}/{x}_{y}.bin", async () => {
+  it("serves a failed streamed tile from the real curated tile at curated/{z}/{x}_{y}.bin", async () => {
     const calls = stubFetch({
       "/manifest.json": () => Response.json(baseManifest([{ name: "Switzerland", zoom: curatedZoom, bounds: { west: 0, east: 90, south: 0, north: 45 }, tiles: ["1_1"] }])),
       "/curated/2/1_1.bin": () => new Response(encodeInt16LE([1, 2, 3, 4, 5, 6])),
       "/1/1_1.bin": () => new Response(encodeInt16LE([9, 9, 9, 9, 9, 9])),
     });
-    const provider = await createGeoTilesProvider("/data/geo-tiles");
-    expect(provider.zooms.map((z) => z.z)).toEqual([0, 1, 2]);
-    // Stored-file bounds are not effective provider coverage: every miss at
-    // this depth is served by an ancestor, including outside Switzerland.
+    const provider = await createGeoTilesProvider("/data/geo-tiles", offline);
+    expect(provider.zooms.map((z) => z.z)).toEqual(STREAMED_ZOOMS);
     expect(provider.zooms.find((z) => z.z === 2)?.bounds).toBeUndefined();
 
     const tile = await provider.loadTile(2, 1, 1);
@@ -112,13 +115,13 @@ describe("createGeoTilesProvider — curated wiring", () => {
     expect(calls.some((u) => u.endsWith("/curated/2/1_1.bin"))).toBe(true);
   });
 
-  it("degrades an uncurated tile at the curated depth to the correct z1 ancestor tile — never blank, never throws", async () => {
+  it("degrades a failed uncurated tile to the z1 ancestor, resampled onto the requested tile — never blank, never throws", async () => {
     const calls = stubFetch({
       "/manifest.json": () => Response.json(baseManifest([{ name: "Switzerland", zoom: curatedZoom, bounds: { west: 0, east: 90, south: 0, north: 45 }, tiles: ["1_1"] }])),
       "/curated/2/1_1.bin": () => new Response(encodeInt16LE([1, 2, 3, 4, 5, 6])),
       "/1/1_1.bin": () => new Response(encodeInt16LE([9, 9, 9, 9, 9, 9])),
     });
-    const provider = await createGeoTilesProvider("/data/geo-tiles");
+    const provider = await createGeoTilesProvider("/data/geo-tiles", offline);
 
     // z2 tile (3, 3) is not curated ("1_1" is the only real curated tile);
     // its z1 ancestor is floor(3/2)=1, floor(3/2)=1.
@@ -126,11 +129,19 @@ describe("createGeoTilesProvider — curated wiring", () => {
     expect(Array.from(tile.elevation)).toEqual([9, 9, 9, 9, 9, 9]);
     expect(calls.some((u) => u.endsWith("/curated/2/3_3.bin"))).toBe(false);
     expect(calls.some((u) => u.endsWith("/1/1_1.bin"))).toBe(true);
-    const requested = provider.bounds(2, 3, 3);
-    const ancestor = provider.bounds(1, 1, 1);
-    expect(ancestor.west).toBeLessThanOrEqual(requested.west);
-    expect(ancestor.east).toBeGreaterThanOrEqual(requested.east);
-    expect(ancestor.south).toBeLessThanOrEqual(requested.south);
-    expect(ancestor.north).toBeGreaterThanOrEqual(requested.north);
+    // Siblings that share the ancestor each get their OWN tile, so none mounts the ancestor's mesh over the others.
+    expect(tile.bounds).toEqual(provider.bounds(2, 3, 3));
+  });
+
+  it("serves a streamed tile when the terrain tiles load, without touching the baked pyramid", async () => {
+    const calls = stubFetch({
+      "/manifest.json": () => Response.json(baseManifest([{ name: "Switzerland", zoom: curatedZoom, bounds: { west: 0, east: 90, south: 0, north: 45 }, tiles: ["1_1"] }])),
+    });
+    const provider = await createGeoTilesProvider("/data/geo-tiles", async () => new Float32Array(256 * 256).fill(42));
+    const tile = await provider.loadTile(2, 1, 1);
+    expect(tile.source).toBe("terrarium");
+    expect(tile.bounds).toEqual(provider.bounds(2, 1, 1));
+    expect(Array.from(tile.elevation)).toEqual([42, 42, 42, 42, 42, 42]);
+    expect(calls.filter((u) => u.endsWith(".bin"))).toEqual([]);
   });
 });
