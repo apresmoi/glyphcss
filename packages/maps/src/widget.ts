@@ -6869,11 +6869,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let updateQueued = false;
     /** Same post-dispose re-entry guard the raster runtime documents above. */
     let disposed = false;
+    /** Bumped by `setSource`: a request that started under an older value belongs to a source that is gone. */
+    let sourceRevision = 0;
 
     async function updateProvider(provider: GlyphMapVectorProvider): Promise<void> {
       if (disposed) return;
       if (updateInFlight) { updateQueued = true; return; }
       updateInFlight = true;
+      const revision = sourceRevision;
       try {
         // `getView()`, not raw `view` — see the raster runtime's own
         // `updateProvider` doc for why.
@@ -6904,9 +6907,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const [zStr, xy] = key.split("/");
             const [xStr, yStr] = xy.split("_");
             const tile = await loadVectorTileSafely(provider, Number(zStr), Number(xStr), Number(yStr));
-            if (tile) tileCache.set(key, tile);
+            if (tile && revision === sourceRevision) tileCache.set(key, tile);
           }));
-          if (disposed) return;
+          if (disposed || revision !== sourceRevision) return;
         }
         const feats: GlyphMapVectorFeature[] = [];
         const arcs: GlyphMapVectorFeature[] = [];
@@ -6935,7 +6938,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         updateInFlight = false;
         if (updateQueued) {
           updateQueued = false;
-          await updateProvider(provider);
+          await update(); // the CURRENT source: a swap may have arrived meanwhile
         }
       }
     }
@@ -7195,6 +7198,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
        */
       setSource(next: GlyphMapVectorSource): void {
         source = next;
+        sourceRevision++;
         tileCache.clear();
         activeFeatures = [];
         activeSelected = false;

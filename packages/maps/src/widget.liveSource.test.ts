@@ -154,7 +154,7 @@ describe("setLayerSource — replacing a mounted layer's data", () => {
    * loaded and the old one's marks stayed. Every other swap test awaits the
    * first load, which is exactly why they route around this.
    */
-  for (const type of ["circle", "glyph"] as const) {
+  for (const type of ["circle", "glyph", "line"] as const) {
     it(`a ${type} layer swapped while its old provider's tile is pending shows only the new source`, async () => {
       const { map, teardown } = mount();
       try {
@@ -174,15 +174,17 @@ describe("setLayerSource — replacing a mounted layer's data", () => {
           const at = map.project([lon, lat]);
           return (map.scene.output.textContent ?? "").split("\n")[Math.floor(at.row)]?.[Math.floor(at.col)] ?? " ";
         };
-        map.addLayer({ type, id: "swap", source: providerOf("a", [quake("a1", -30, 10)], gate) } as Parameters<typeof map.addLayer>[0]);
-        map.setLayerSource("swap", providerOf("b", [quake("b1", 30, -10)]));
+        const feature = (id: string, lon: number, lat: number): GlyphMapVectorFeature =>
+          type === "line" ? { id, geometryType: "line", properties: {}, rings: [[[lon - 10, lat], [lon + 10, lat]]] } : quake(id, lon, lat);
+        map.addLayer({ type, id: "swap", source: providerOf("a", [feature("a1", -30, 10)], gate) } as Parameters<typeof map.addLayer>[0]);
+        map.setLayerSource("swap", providerOf("b", [feature("b1", 30, -10)]));
         releaseA();
         await map.idle();
         map.scene.rerender();
 
         expect(loads.b).toBeGreaterThan(0);
-        expect(cellOf(30, -10)).toMatch(/[·•●]/);
-        expect(cellOf(-30, 10)).not.toMatch(/[·•●]/);
+        expect(cellOf(30, -10).trim()).not.toBe("");
+        expect(cellOf(-30, 10).trim()).toBe("");
       } finally { teardown(); }
     });
   }
