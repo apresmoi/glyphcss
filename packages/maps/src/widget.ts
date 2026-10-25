@@ -10415,9 +10415,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       || (walk !== null && walkHeldKeys.size > 0);
   }
 
-  /** A pointer is down (pan, tilt or tap-zoom) or several fingers are, so the camera is still being driven by the reader. */
+  /**
+   * A held gesture that cannot use the prepared rest frame: a tilt/rotate pointer, or several fingers. A press that
+   * will become a pan (or tap-zoom) must keep preparing, because a pan's first frame is anchored on exactly that job.
+   */
   function gestureHeld(): boolean {
-    return activePointerId !== null || touchPoints.size > 1;
+    return (activePointerId !== null && gestureMode === "tilt") || touchPoints.size > 1;
   }
 
   function requestMotionFrame(): void {
@@ -10842,6 +10845,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     walkHeldKeys.clear();
     walkRunning = false;
     walkGhost = false;
+    // A release outside the window never reaches the host, so a gesture held across a blur would stay held forever.
+    for (const id of [...touchPoints.keys()]) onPointerCancel({ pointerId: id, pointerType: "touch" } as PointerEvent);
+    if (activePointerId !== null) onPointerCancel({ pointerId: activePointerId, pointerType: "mouse" } as PointerEvent);
+  }
+
+  /** Capture lost while a contact is still live is an interruption, exactly like `pointercancel`; after a normal release it is a no-op. */
+  function onLostPointerCapture(e: PointerEvent): void {
+    if (e.pointerId === activePointerId || touchPoints.has(e.pointerId)) onPointerCancel(e);
   }
 
   // ── WALK MODE: mouselook ──────────────────────────────────────────────
@@ -12730,6 +12741,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   host.addEventListener("pointermove", onPointerMove);
   host.addEventListener("pointerup", onPointerUp);
   host.addEventListener("pointercancel", onPointerCancel);
+  host.addEventListener("lostpointercapture", onLostPointerCapture);
   host.addEventListener("wheel", onWheel, { passive: false });
   host.addEventListener("contextmenu", onContextMenu);
   // On the OWNER DOCUMENT, not the host: a `<div>` takes no keyboard focus
@@ -12930,7 +12942,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       host.removeEventListener("pointerdown", onPointerDown);
       host.removeEventListener("pointermove", onPointerMove);
       host.removeEventListener("pointerup", onPointerUp);
-      host.removeEventListener("pointercancel", onPointerUp);
+      host.removeEventListener("pointercancel", onPointerCancel);
+      host.removeEventListener("lostpointercapture", onLostPointerCapture);
       host.removeEventListener("wheel", onWheel);
       host.removeEventListener("contextmenu", onContextMenu);
       keyTarget.removeEventListener("keydown", onKeyDown as EventListener);

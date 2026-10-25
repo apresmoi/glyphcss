@@ -1041,15 +1041,43 @@ it("a tile landing whose build is overtaken by new ground installs on the new gr
   expect(text(a)).toBe(text(c));
 }, 30000);
 
+const tiltPtr = (m: Map, type: string, x: number, id = 1) =>
+  m.host.dispatchEvent(new PointerEvent(type, { pointerId: id, button: 0, buttons: 1, ctrlKey: true, clientX: x, clientY: 150, bubbles: true }));
+
 it("does not prepare the rest pose while a tilt drag is held, and prepares it after release", async () => {
   glyphMapPrerenderTuning.restPrepare = true;
   const a = mount(); await ready(a);
-  const tilt = (type: string, x: number) =>
-    a.host.dispatchEvent(new PointerEvent(type, { pointerId: 1, button: 0, buttons: 1, ctrlKey: true, clientX: x, clientY: 150, bubbles: true }));
-  tilt("pointerdown", 200); tilt("pointermove", 215); frame(); tilt("pointermove", 230); frame();
+  tiltPtr(a, "pointerdown", 200); tiltPtr(a, "pointermove", 215); frame(); tiltPtr(a, "pointermove", 230); frame();
   flushIdle(20);
   expect(seam(a).restPrepared()).toBe(false);
-  tilt("pointerup", 230); frame();
+  tiltPtr(a, "pointerup", 230); frame();
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+});
+
+it("keeps preparing the rest pose while a press that will become a pan is held, so the pan starts from the prepared anchor", async () => {
+  glyphMapPrerenderTuning.restPrepare = true;
+  const a = mount(); await ready(a);
+  pointer(a, "pointerdown", 200); flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+  pointer(a, "pointermove", 205); frame();
+  glyphMapPrerenderTuning.restPrepare = false;
+  const b = mount(); await ready(b);
+  pointer(b, "pointerdown", 200); pointer(b, "pointermove", 200); frame();
+  expect(text(a)).toBe(text(b));
+  expect(Number(element(a).style.transform.match(/translate\(([-.\d]+)px/)![1])).toBeCloseTo(-155, 6);
+});
+
+it.each([
+  ["lostpointercapture", (m: Map) => m.host.dispatchEvent(new PointerEvent("lostpointercapture", { pointerId: 1, bubbles: true }))],
+  ["window blur", (m: Map) => m.host.ownerDocument.defaultView!.dispatchEvent(new Event("blur"))],
+] as const)("prepares the rest pose again after a held tilt drag ends by %s", async (_name, end) => {
+  glyphMapPrerenderTuning.restPrepare = true;
+  const a = mount(); await ready(a);
+  tiltPtr(a, "pointerdown", 200); tiltPtr(a, "pointermove", 215); frame();
+  flushIdle(20);
+  expect(seam(a).restPrepared()).toBe(false);
+  end(a); frame();
   flushIdle();
   expect(seam(a).restPrepared()).toBe(true);
 });
