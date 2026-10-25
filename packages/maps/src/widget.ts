@@ -7231,6 +7231,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let updateInFlight = false;
     let updateQueued = false;
     let disposed = false;
+    /** Bumped by `setSource`: a tile request or sweep that started under an older value belongs to a source that is gone and must not cache or commit. */
+    let sourceRevision = 0;
     let hitList: GlyphMapPointHit[] = [];
     const ramp = glyphOnly?.ramp && glyphOnly.ramp.length > 0 ? glyphOnly.ramp : GLYPH_MAP_POINT_RAMP;
     const labelled = glyphOnly !== null && (glyphOnly.text !== undefined || glyphOnly.textProperty !== undefined);
@@ -7278,6 +7280,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (disposed) return;
       if (updateInFlight) { updateQueued = true; return; }
       updateInFlight = true;
+      const revision = sourceRevision;
       try {
         const lod = sweepLOD(provider);
         const level = provider.zooms.find((z) => z.z === lod);
@@ -7299,9 +7302,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const [zStr, xy] = key.split("/");
             const [xStr, yStr] = xy.split("_");
             const tile = await loadVectorTileSafely(provider, Number(zStr), Number(xStr), Number(yStr));
-            if (tile) tileCache.set(key, tile);
+            if (tile && revision === sourceRevision) tileCache.set(key, tile);
           }));
-          if (disposed) return;
+          if (disposed || revision !== sourceRevision) return;
         }
         const feats: GlyphMapVectorFeature[] = [];
         for (const key of desired) {
@@ -7315,7 +7318,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         updateInFlight = false;
         if (updateQueued) {
           updateQueued = false;
-          await updateProvider(provider);
+          // The CURRENT source, not the captured provider: a swap may have arrived meanwhile.
+          await update();
         }
       }
     }
@@ -7416,6 +7420,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       hits: () => hitList,
       setSource(next: GlyphMapVectorSource): void {
         source = next;
+        sourceRevision++;
         tileCache.clear();
         activeFeatures = [];
         staticFeatures = [];

@@ -147,6 +147,46 @@ describe("setLayerSource — replacing a mounted layer's data", () => {
     } finally { teardown(); }
   });
 
+  /**
+   * A swap that lands while the OLD provider's tile is still in flight. The
+   * old request resolves into the cleared cache and the queued update used
+   * to re-run with the provider it had captured, so the new source was never
+   * loaded and the old one's marks stayed. Every other swap test awaits the
+   * first load, which is exactly why they route around this.
+   */
+  for (const type of ["circle", "glyph"] as const) {
+    it(`a ${type} layer swapped while its old provider's tile is pending shows only the new source`, async () => {
+      const { map, teardown } = mount();
+      try {
+        const loads = { a: 0, b: 0 };
+        let releaseA!: () => void;
+        const gate = new Promise<void>((resolve) => { releaseA = resolve; });
+        const providerOf = (id: "a" | "b", features: readonly GlyphMapVectorFeature[], wait?: Promise<void>): GlyphMapVectorProvider => ({
+          ...slowProvider(features, 0),
+          id: `swap-${id}`,
+          async loadTile(z, x, y) {
+            loads[id]++;
+            if (wait) await wait;
+            return { z, x, y, bounds: { west: -180, east: 180, south: -90, north: 90 }, layers: { live: [...features] }, source: id, simplify: "none" };
+          },
+        });
+        const cellOf = (lon: number, lat: number) => {
+          const at = map.project([lon, lat]);
+          return (map.scene.output.textContent ?? "").split("\n")[Math.floor(at.row)]?.[Math.floor(at.col)] ?? " ";
+        };
+        map.addLayer({ type, id: "swap", source: providerOf("a", [quake("a1", -30, 10)], gate) } as Parameters<typeof map.addLayer>[0]);
+        map.setLayerSource("swap", providerOf("b", [quake("b1", 30, -10)]));
+        releaseA();
+        await map.idle();
+        map.scene.rerender();
+
+        expect(loads.b).toBeGreaterThan(0);
+        expect(cellOf(30, -10)).toMatch(/[·•●]/);
+        expect(cellOf(-30, 10)).not.toMatch(/[·•●]/);
+      } finally { teardown(); }
+    });
+  }
+
   it("keeps every marker element across a refresh where the points only moved", async () => {
     const churn = countHotspotChurn();
     try {
