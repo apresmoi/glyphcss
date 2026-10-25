@@ -450,3 +450,112 @@ it.each([
   flushIdle();
   expect(seam(a).restPrepared()).toBe(true);
 });
+
+// ── Content landing during a pan ────────────────────────────────────────
+
+/** A vector pyramid whose tile set grows from one tile to two when `phase.n` becomes 1: the second tile's roads "land" at the next sweep. */
+function lateProvider(phase: { n: number }): GlyphMapVectorProvider {
+  const world = { west: -180, east: 180, south: -90, north: 90 };
+  return {
+    id: "late-roads", zooms: [{ z: 1, cols: 2, rows: 1, tileLonSpan: 180, tileLatSpan: 180, tileCols: 256, tileRows: 256 }],
+    bounds: () => world, tileRange: () => ({ x0: 0, x1: phase.n, y0: 0, y1: 0 }),
+    async loadTile(z, x, y): Promise<GlyphMapVectorTile> {
+      return { z, x, y, bounds: world, source: "test", layers: { road: x === 0 ? [] : [road(0.0021)] } };
+    },
+  };
+}
+const lateLayers = (phase: { n: number }): GlyphMapLayer[] =>
+  [...sceneLayers(), { type: "line", id: "late-road", color: "#33ccff", experimentalGlyphStrategy: "braille", source: lateProvider(phase) }];
+const LATE = "#33ccff";
+/** Pumps animation frames until the map reports idle: a deferred render needs them to happen at all. */
+async function settle(m: Map) {
+  let done = false;
+  void m.idle().then(() => { done = true; });
+  await vi.waitFor(() => { frame(); expect(done).toBe(true); }, { timeout: 8000, interval: 4 });
+}
+
+it("a tile landing mid-pan re-anchors the live frame from a prepared job instead of ending the pan, and settles to a fresh map's bytes", async () => {
+  const phase = { n: 0 }, fresh = { n: 1 };
+  const a = mount({ layers: lateLayers(phase) }); await ready(a);
+  const b = mount({ layers: lateLayers(fresh) }); await ready(b);
+  expect(text(a)).not.toContain(LATE);
+  expect(text(b)).toContain(LATE);
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  const grid = a.scene.getOptions().cols;
+  expect(element(a).style.willChange).toBe("transform");
+
+  const sizes = new Set<number | undefined>();
+  globalThis.__glyphRenderStage = stage => { if (stage === "base-validate") sizes.add(a.scene.getOptions().cols); };
+  phase.n = 1;
+  // The next sweep fetches the second tile; the road it carries lands while the pointer is still down.
+  await vi.waitFor(() => { frame(); expect(text(a)).toContain(LATE); }, { timeout: 8000, interval: 4 });
+  await a.idle();
+  // Still the same oversized frame: nothing rendered at true size and nothing recreated it.
+  expect(element(a).style.willChange).toBe("transform");
+  expect(a.scene.getOptions().cols).toBe(grid);
+  expect(seam(a).contentPending()).toBe(false);
+  // Every render the landing caused was the oversized frame's: a true-size render (the pan ending) would show up as another grid.
+  expect([...sizes]).toEqual([grid]);
+
+  globalThis.__glyphRenderStage = undefined;
+  for (const m of [a, b]) { if (m === b) { pointer(b, "pointerdown", 200); pointer(b, "pointermove", 201); frame(); } pointer(m, "pointerup", 201); }
+  await Promise.all([settle(a), settle(b)]);
+  expect(element(a).style.willChange).toBe("");
+  expect(text(a)).toBe(text(b));
+}, 30000);
+
+it("keeps idle() unresolved while landed content waits for its re-anchor, then renders it within a bounded number of frames", async () => {
+  glyphMapPrerenderTuning.sliceMs = 0; // one step per frame
+  glyphMapPrerenderTuning.contentWaitFrames = 3;
+  const phase = { n: 0 };
+  const a = mount({ layers: lateLayers(phase) }); await ready(a);
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  phase.n = 1;
+  a.setLayerSource("late-road", lateProvider(phase));
+  await vi.waitFor(() => expect(seam(a).contentPending()).toBe(true), { timeout: 8000 });
+  let resolved = false;
+  void a.idle().then(() => { resolved = true; });
+  for (let i = 0; i < 5; i++) await new Promise<void>(r => setTimeout(r, 0));
+  expect(resolved).toBe(false);
+  expect(text(a)).not.toContain(LATE);
+  // Preparation takes more steps than the wait allows: the frame renders synchronously instead, still as the same pan.
+  let frames = 0;
+  while (seam(a).contentPending() && frames < 10) { frame(); frames++; }
+  expect(frames).toBeLessThanOrEqual(5);
+  expect(seam(a).contentPending()).toBe(false);
+  expect(element(a).style.willChange).toBe("transform");
+  await vi.waitFor(() => { frame(); expect(text(a)).toContain(LATE); }, { timeout: 8000, interval: 4 });
+  await vi.waitFor(() => { frame(); expect(resolved).toBe(true); }, { timeout: 8000, interval: 4 });
+}, 30000);
+
+it("renders the frame once, at the live pose, when the pointer outruns the margin while new content waits", async () => {
+  glyphMapPrerenderTuning.sliceMs = 0;
+  glyphMapPrerenderTuning.contentWaitFrames = 100;
+  const phase = { n: 0 };
+  const a = mount({ layers: lateLayers(phase) }); await ready(a);
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  phase.n = 1;
+  a.setLayerSource("late-road", lateProvider(phase));
+  await vi.waitFor(() => expect(seam(a).contentPending()).toBe(true), { timeout: 8000 });
+  stagedRenders = 0;
+  pointer(a, "pointermove", 600); frame();
+  expect(stagedRenders).toBe(1);
+  expect(seam(a).contentPending()).toBe(false);
+  expect(text(a)).toContain(LATE);
+  expect(element(a).style.willChange).toBe("transform");
+}, 30000);
+
+it("a job restarted for new content keeps the plans whose keys still match and prepares nothing twice", async () => {
+  let calls = 0;
+  const layers = sceneLayers().map(layer => layer.id === "braille-road" ? { ...layer, filterAtResolution: () => { calls++; return true; } } as GlyphMapLayer : layer);
+  const m = await framed({ layers });
+  const before = calls;
+  expect(seam(m).prepare("anchor")).toBe(true);
+  const built = calls - before;
+  expect(built).toBeGreaterThan(0);
+  expect(seam(m).prepare("anchor", true)).toBe(true);
+  expect(calls - before).toBe(built);
+  expect(seam(m).plans()).toBe(2);
+  expect(seam(m).prepare("anchor")).toBe(true);
+  expect(calls - before).toBe(built * 2);
+});

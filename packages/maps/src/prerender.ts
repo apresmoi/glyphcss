@@ -85,6 +85,8 @@ export const glyphMapPrerenderTuning = {
   restSliceMs: 8,
   /** Share of the compositor margin (or of the drift allowance) at which a pan starts preparing its next anchor. */
   startFraction: 0.375,
+  /** Motion frames a pan shows its old content for while a re-anchor with new content (a tile landing) is prepared, before it renders synchronously. */
+  contentWaitFrames: 15,
   /** Prepare the compositor frame at rest, in idle time, so a drag's first frame reuses it. */
   restPrepare: true,
 };
@@ -94,9 +96,11 @@ export const glyphMapPrerenderSeam = Symbol.for("glyphcss.maps.prerender");
 
 export interface GlyphMapPrerenderSeam {
   /** Starts a job for the current state and runs it to completion in one slice; whether it finished. */
-  prepare(kind: "rest" | "anchor"): boolean;
+  prepare(kind: "rest" | "anchor", keepPlans?: boolean): boolean;
   /** How many stroke layers hold a finished, unconsumed plan. */
   plans(): number;
+  /** New content is waiting for the live compositor frame's re-anchor. */
+  contentPending(): boolean;
   /** A rest job has finished for the state the map is in now, i.e. a drag starting this moment would be prepared. */
   restPrepared(): boolean;
   /** Whether the outline surface in the topology's cache holds a finished sample plan. */

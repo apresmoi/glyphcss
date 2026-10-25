@@ -3627,6 +3627,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let compositorSettle = false;
   /** The current motion frame ran a compositor render, so it has no budget left for preparing the next one. */
   let compositorRendered = false;
+  /**
+   * Content (a tile landing) changed while a pan's compositor frame was live: the
+   * frame is re-rendered by a prepared re-anchor instead of ending the pan. The
+   * epoch lets a job tell whether it was started before the latest change.
+   */
+  let contentDirty = false;
+  let contentEpoch = 0;
+  let contentWait = 0;
   let compositorResizeObserver: ResizeObserver | null = null;
   const compositorFonts = host.ownerDocument.fonts;
   function invalidateCompositorLayout(): void {
@@ -3655,6 +3663,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const f = compositorFrame;
     if (!f) return;
     compositorFrame = null;
+    contentDirty = false; contentWait = 0;
     cancelPrepJob();
     camera.center = [...f.center];
     sceneElement.style.cssText = f.sceneStyle;
@@ -3727,6 +3736,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     readonly waterEpoch: number;
     readonly runtimes: readonly StrokeLayerRuntime[];
     readonly steps: Generator<void, void>[];
+    readonly epoch: number;
     cursor: number;
     ready: boolean;
   }
@@ -3765,12 +3775,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     for (const runtime of job.runtimes) runtime.discardPlan?.();
   }
 
-  function cancelPrepJob(): void {
+  /** `keepPlans`: a restart for new content keeps the plans whose keys still match, which `prepare` then skips. */
+  function cancelPrepJob(keepPlans = false): void {
     const job = prepJob;
     if (!job) return;
     prepJob = null;
     for (const step of job.steps) step.return();
-    discardPlans(job);
+    if (!keepPlans) discardPlans(job);
   }
 
   /** The render consumed what it could of the job; whatever it did not is released. */
@@ -3779,12 +3790,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     discardPlans(job);
   }
 
-  function startPrepJob(kind: PrepJob["kind"]): void {
-    cancelPrepJob();
+  function startPrepJob(kind: PrepJob["kind"], at?: GlyphMapCameraPose, keepPlans = false): void {
+    cancelPrepJob(keepPlans);
     if (!prepareAllowed()) return;
     const f = compositorFrame;
     if ((kind === "anchor") !== (f !== null)) return;
-    let cols: number, rows: number, baseGrid: ProjectionGrid, pose = snapshotCameraPose(camera);
+    let cols: number, rows: number, baseGrid: ProjectionGrid, pose = at ?? snapshotCameraPose(camera);
     if (f) {
       baseGrid = projectionGrid(true);
       cols = baseGrid.cols; rows = baseGrid.rows;
@@ -3801,7 +3812,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     for (const runtime of runtimes) if (runtime.prepare) steps.push(runtime.prepare(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
     steps.push(prepareOutlineSurface(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
     prepJob = { kind, pose, cols, rows, baseGrid, frame: f, projection, tilt: appliedTilt, bearing, span: view.span,
-      groundRevision, waterEpoch: waterTerrainEpoch, runtimes, steps, cursor: 0, ready: false };
+      groundRevision, waterEpoch: waterTerrainEpoch, runtimes, steps, epoch: contentEpoch, cursor: 0, ready: false };
   }
 
   /** Advances the job for up to `budgetMs`, always under its own pose and always restoring the live one. */
@@ -3889,6 +3900,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       try { scene.rerender(); } finally { compositorRender = false; }
     };
     compositorRendered = true;
+    contentDirty = false; contentWait = 0;
     if (pose) withCameraPose(camera, pose, render); else render();
   }
 
@@ -3942,12 +3954,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       setSceneOptions({ cols, rows, autoSize: false });
       syncStrokeHookInstalled();
     } else {
+      // New content: prepare the re-anchor at the pose of any job already under way (its plans that still match are kept), else at the live one.
+      if (contentDirty && !(prepJob?.kind === "anchor" && prepJob.epoch === contentEpoch)) {
+        startPrepJob("anchor", prepJob?.kind === "anchor" && prepJobCurrent(prepJob) ? prepJob.pose : undefined, true);
+      }
       const job = prepJob?.kind === "anchor" ? prepJob : null;
       if (job && !prepJobCurrent(job)) cancelPrepJob();
       else if (job?.ready && job.frame === f && sameProjectionGrid(job.baseGrid, projectionGrid(true))) anchor = job;
       if (!anchor) {
         const m = measureCompositor(f);
-        if (m.ok) {
+        // Showing the frame as it is while its replacement is prepared is bounded: past the wait, or with nothing preparing, the frame takes its one synchronous render.
+        if (m.ok && !(contentDirty && (!prepJob || ++contentWait > glyphMapPrerenderTuning.contentWaitFrames))) {
           slideCompositor(f, m.dx, m.dy);
           if (!prepJob && m.pressure >= glyphMapPrerenderTuning.startFraction) startPrepJob("anchor");
           return true;
@@ -3970,6 +3987,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     renderCompositorFrame(null);
     return true;
+  }
+
+  /**
+   * A render owed to new content (a tile or feature batch landing), not to the
+   * camera. While a pan's compositor frame is live it is not rendered at true
+   * size and then re-created: the next motion frame re-anchors the frame, from
+   * a preparation at the current pose, and renders it once.
+   */
+  function renderContent(): void {
+    if (compositorFrame && panMotion && !compositorSettle && prepareAllowed()) {
+      contentDirty = true; contentEpoch++;
+      requestMotionFrame();
+      return;
+    }
+    scene.rerender();
   }
 
   scene.setInteracting = active => {
@@ -5944,7 +5976,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         floorTiles = tiles;
         floorHandles = tiles.flatMap((tile) => mountTile(tile, floorFraction ?? 1, "floor"));
         notifyGroundChanged();
-        scene.rerender();
+        renderContent();
       });
       return floorPromise;
     }
@@ -6096,7 +6128,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             if (tile) { activeHandles.set(key, mountTile(tile, activeFraction, "fine")); mountedNow = true; }
           }
         }
-        if (mountedNow) { notifyGroundChanged(); scene.rerender(); }
+        if (mountedNow) { notifyGroundChanged(); renderContent(); }
 
         // Fallback is fetched and mounted as its OWN phase, awaited BEFORE
         // the fine tier's own fetch — not merged into one `Promise.all`
@@ -6121,7 +6153,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             }
           }
           notifyGroundChanged();
-          scene.rerender();
+          renderContent();
         }
 
         const missingFine = [...desired].filter((key) => !tileCache.has(key));
@@ -6167,7 +6199,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // The mounted tile set is final for this update — anything standing
         // ON this terrain re-reads the ground it is planted on.
         notifyGroundChanged();
-        scene.rerender();
+        renderContent();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -6706,7 +6738,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (activeSelected && sameFeatureList(activeFeatures, next)) return;
         activeSelected = true;
         activeFeatures = next;
-        scene.rerender();
+        renderContent();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -6913,9 +6945,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let plan: { readonly key: unknown[]; readonly decisions: readonly boolean[]; readonly runs: readonly { readonly color: string | undefined; readonly verts: readonly GlyphMapStrokeVertex[] }[] } | null = null;
 
     function* prepare(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
-      plan = null;
       refreshGroundReader();
       const key = planKey(cols, rows, cellToSceneGrid, baseGrid);
+      // A restart for new content finds the plans of the layers it did not touch still current.
+      if (key && plan && sameKey(key, plan.key)) return;
+      plan = null;
       if (!key) return;
       const runs: { color: string | undefined; verts: GlyphMapStrokeVertex[] }[] = [];
       const decisions: boolean[] = [];
@@ -7072,7 +7106,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
         }
         activeFeatures = feats;
-        scene.rerender();
+        renderContent();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -7425,7 +7459,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         const next = [...desired].map((key) => fieldCache.get(key)).filter((f): f is GlyphMapElevationPiece => f !== undefined);
         const changed = next.length !== mosaic.length || next.some((f, i) => f !== mosaic[i]);
         mosaic = next;
-        if (changed) scene.rerender();
+        if (changed) renderContent();
       } finally {
         updateInFlight = false;
         if (updateQueued) {
@@ -7679,8 +7713,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let prepared: { readonly key: unknown[]; readonly polylines: GlyphMapContourPolyline[] } | null = null;
 
     function* prepare(_cols: number, _rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
-      prepared = null;
       const key = planKey(cellToSceneGrid, baseGrid);
+      if (key && prepared && sameKey(key, prepared.key)) return;
+      prepared = null;
       const range = fieldRange();
       if (!key || !range) return;
       const segments = contourGeometry(levelsFor(range));
@@ -8435,7 +8470,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (nearSide) culledAt = cameraCullKey();
         // add/setPolygons already schedule the atomic water snapshot's render.
         // A synchronous rerender here would charge that whole frame to commit.
-        if (layer.type !== "fill" || !layer.waterTerrain) scene.rerender();
+        if (layer.type !== "fill" || !layer.waterTerrain) renderContent();
       };
     }
 
@@ -9073,7 +9108,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         glyphMapPolygons(tile, projection, { colorSample: "corner-mean", color: (v) => colors[Math.min(colors.length - 1, Math.floor(((colorByCenter.get(v) ?? 0) / reliefHeight) * colors.length))] }),
         meshTransform(layer),
       );
-      scene.rerender();
+      renderContent();
     }, 2, layer.sourceLayer, layer.filter);
     return {
       async update(): Promise<void> { await terrain.resolve(); await runtime.update(); },
@@ -10187,7 +10222,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // two compose instead of fighting over `camera`.
       advanceProjectionAnim(now);
       moved = true;
-    } else if (moved && !renderCompositorPan()) {
+    } else if ((moved || contentDirty) && !renderCompositorPan()) {
       endCompositorPan();
       // A drag/glide rotated the camera; a headlight has to follow it in the
       // SAME frame or it is just a dark side that moves one frame late.
@@ -10219,7 +10254,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (moved) scheduleTileUpdate();
     // A frame that already rendered has spent its budget; preparation only uses frames that did not.
     if (prepJob?.kind === "anchor" && !prepJob.ready && !compositorRendered) runPrepSlice(glyphMapPrerenderTuning.sliceMs);
-    if (motionActive() || (prepJob?.kind === "anchor" && !prepJob.ready)) requestMotionFrame();
+    if (motionActive() || contentDirty || (prepJob?.kind === "anchor" && !prepJob.ready)) requestMotionFrame();
   }
 
   /**
@@ -12560,8 +12595,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // exists so a test can finish a job at an exact moment and observe what the
   // next render does with it, instead of racing the scheduler.
   const seam: GlyphMapPrerenderSeam = {
-    prepare(kind) {
-      startPrepJob(kind);
+    prepare(kind, keepPlans) {
+      startPrepJob(kind, undefined, keepPlans);
       runPrepSlice(Infinity);
       return prepJob?.ready === true;
     },
@@ -12572,6 +12607,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const cached = outlineTopology?.surfaceCache;
       if (cached) cached.surface.plan = undefined;
     },
+    contentPending: () => contentDirty,
     restPrepared: () => prepJob?.kind === "rest" && prepJob.ready && prepJobCurrent(prepJob),
     outlinePlanned: () => outlineTopology?.surfaceCache?.surface.plan !== undefined,
     renderLive() { if (compositorFrame) renderCompositorFrame(null); },
