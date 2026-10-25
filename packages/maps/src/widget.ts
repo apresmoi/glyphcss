@@ -3699,6 +3699,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!f) return;
     compositorFrame = null;
     contentDirty = false; contentWait = 0;
+    landingOwed = false;
     cancelPrepJob();
     camera.center = [...f.center];
     sceneElement.style.cssText = f.sceneStyle;
@@ -4125,7 +4126,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       return;
     }
     // Released, with the settle frame already owed: that frame renders everything, including this.
-    if (compositorSettle && motionDirty) { ownSceneRender(); return; }
+    if (compositorSettle && motionDirty) { ownSceneRender(); requestMotionFrame(); return; }
     scene.rerender();
   }
 
@@ -4133,14 +4134,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * Mounting a mesh makes the scene queue its own render for the end of this
    * task, which would render at the live camera into the oversized compositor
    * grid (under a stale transform) and spend a frame the motion loop has not
-   * granted. A landing that a motion frame will render owns that queued render:
-   * it is dropped here, the frame renders once. Cleared by the task's own
-   * microtask (queued after the scene's) and by the next motion step.
+   * granted. A landing that a motion frame will render owns every render the
+   * scene schedules until that frame: they are dropped, the frame renders once.
+   * Landings can overlap in one task (a line source claims, then a fill mounts
+   * its mesh and the scene queues its render after), so ownership is not
+   * delimited by the claiming task: it ends when the frame is taken
+   * (`motionStep`), or when any full render or the end of the pan has made it
+   * moot. Every claimant requests that frame.
    */
   function ownSceneRender(): void {
-    if (landingOwed) return;
     landingOwed = true;
-    queueMicrotask(() => { landingOwed = false; });
   }
 
   scene.setInteracting = active => {
@@ -4157,6 +4160,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     renderScene();
     if (!compositorRender) {
+      landingOwed = false;
       if (settleRender) finishGlidePrep();
       scheduleRestPrepare();
     }

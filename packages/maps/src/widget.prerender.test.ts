@@ -585,6 +585,49 @@ it.each(landings)("a %s landing between pointer release and the settle frame joi
   expect(text(a)).toBe(text(b));
 }, 30000);
 
+/** A line source whose one tile lands when the gate opens: no mesh, so its landing alone claims no scene render. */
+function gatedRoad(g: ReturnType<typeof gate>): GlyphMapVectorProvider {
+  const world = { west: -180, east: 180, south: -90, north: 90 };
+  return {
+    id: "gated-road", zooms: [{ z: 1, cols: 1, rows: 1, tileLonSpan: 360, tileLatSpan: 180, tileCols: 256, tileRows: 256 }],
+    bounds: () => world, tileRange: () => ({ x0: 0, x1: 0, y0: 0, y1: 0 }),
+    async loadTile(z, x, y): Promise<GlyphMapVectorTile> {
+      await g.open;
+      return { z, x, y, bounds: world, source: "test", layers: { road: [road(0.0021)] } };
+    },
+  };
+}
+const overlapping = (g: ReturnType<typeof gate>): GlyphMapLayer[] => [
+  { type: "line", id: "gated-road", color: LATE, experimentalGlyphStrategy: "braille", sourceLayer: "road", source: gatedRoad(g) } as GlyphMapLayer,
+  { type: "fill", id: "gated-fill", color: FILL, sourceLayer: "area", source: gatedFill(g) } as GlyphMapLayer,
+];
+
+it.each(["mid-pan", "in the settle window"] as const)("a line and a fill landing %s from one shared gate render nothing until the motion frame, then once, and settle to a fresh map's bytes", async when => {
+  const g = gate(), open = gate(); open.release();
+  const a = mount(); await ready(a);
+  const b = mount({ layers: [...sceneLayers(), ...overlapping(open)] }); await ready(b);
+  for (const layer of overlapping(g)) a.addLayer(layer);
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  if (when === "in the settle window") pointer(a, "pointerup", 201);
+  const before = text(a);
+  stagedRenders = 0;
+  g.release();
+  // Both landings resolve in the same turns; no animation frame runs, so no render may.
+  await new Promise<void>(r => setTimeout(r, 40));
+  expect(stagedRenders).toBe(0);
+  expect(text(a)).toBe(before);
+  // The motion loop takes the landings: preparing the re-anchor may span frames, but only one of them renders.
+  for (let frames = 0; frames < 12 && stagedRenders === 0; frames++) { frame(); await Promise.resolve(); await Promise.resolve(); }
+  expect(stagedRenders).toBe(1);
+  expect(text(a)).not.toBe(before);
+  if (when === "mid-pan") pointer(a, "pointerup", 201);
+  await settle(a);
+  pointer(b, "pointerdown", 200); pointer(b, "pointermove", 201); frame(); pointer(b, "pointerup", 201);
+  await settle(b);
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).toContain(LATE);
+}, 30000);
+
 it("a vector source landing between pointer release and the settle frame joins the settle render instead of rendering first", async () => {
   const phase = { n: 0 }, fresh = { n: 1 };
   const a = mount({ layers: lateLayers(phase) }); await ready(a);
