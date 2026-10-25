@@ -6398,8 +6398,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
     let activeFeatures: readonly GlyphMapVectorFeature[] = [];
-    /** The tiles, in sweep order, `activeFeatures` was selected from. A sweep that resolves the same tile objects selects the same features, so it owes no render. */
-    let activeTiles: readonly (import("./vector/types").GlyphMapVectorTile | undefined)[] | null = null;
+    /** Whether `activeFeatures` is a selection some sweep made. A sweep whose FILTERED selection is the same feature objects in the same order owes no render; the filter is re-run every sweep because it may close over mutable state. */
+    let activeSelected = false;
     let updateInFlight = false;
     let updateQueued = false;
     /** Same post-dispose re-entry guard the raster runtime documents above. */
@@ -6443,9 +6443,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           }));
           if (disposed) return;
         }
-        const tiles = [...desired].map((key) => tileCache.get(key));
-        if (activeTiles !== null && activeTiles.length === tiles.length && activeTiles.every((tile, i) => tile === tiles[i])) return;
-        activeTiles = tiles;
         const feats: GlyphMapVectorFeature[] = [];
         const arcs: GlyphMapVectorFeature[] = [];
         for (const key of desired) {
@@ -6464,7 +6461,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
           }
         }
-        activeFeatures = sharedArcCache ? arcs : feats;
+        const next = sharedArcCache ? arcs : feats;
+        if (activeSelected && sameFeatureList(activeFeatures, next)) return;
+        activeSelected = true;
+        activeFeatures = next;
         scene.rerender();
       } finally {
         updateInFlight = false;
@@ -6630,13 +6630,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         source = next;
         tileCache.clear();
         activeFeatures = [];
-        activeTiles = null;
+        activeSelected = false;
         staticFeatures = [];
       },
       dispose(): void {
         disposed = true;
         activeFeatures = [];
-        activeTiles = null;
+        activeSelected = false;
         tileCache.clear();
       },
     };
@@ -7508,9 +7508,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const prev = lastInputs;
       return prev !== null && prev.length === next.length && prev.every((value, i) => value === next[i]);
     }
+    /** The features the current mesh was built from (function-gated layers only), so a sweep that selects the same ones owes no rebuild. */
+    let lastSelected: readonly GlyphMapVectorFeature[] | null = null;
     async function update(force = false): Promise<void> {
       const request = ++revision;
-      const maySkip = (typeof featuresAreTheWholeInput === "function" ? featuresAreTheWholeInput() : featuresAreTheWholeInput) && !force;
+      // A function answers per sweep and only vouches for the VIEW; the
+      // filter may close over mutable state, so it is compared by its result.
+      const maySkip = featuresAreTheWholeInput === true && !force;
+      const skipsOnSameSelection = typeof featuresAreTheWholeInput === "function" && !force && featuresAreTheWholeInput();
       // CAPTURED ONCE, at the top of the sweep. `source` is replaceable now
       // (`setSource`), and this function awaits — so reading the live binding
       // after the await would let a sweep that started on one source finish
@@ -7524,7 +7529,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // itself is the whole identity.
         if (maySkip && sameInputs([current.features])) return;
         lastInputs = [current.features];
-        rebuild(filter ? current.features.filter(filter) : current.features);
+        const staticSelected = filter ? current.features.filter(filter) : current.features;
+        if (skipsOnSameSelection && lastSelected !== null && sameFeatureList(lastSelected, staticSelected)) return;
+        lastSelected = staticSelected;
+        rebuild(staticSelected);
         return;
       }
       const provider = current;
@@ -7571,7 +7579,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
       lastInputs = tiles;
       const selected = desired.flatMap((key) => Object.entries(cache.get(key)?.layers ?? {}).filter(([name]) => !sourceLayer || name === sourceLayer).flatMap(([, features]) => features));
-      rebuild(filter ? selected.filter(filter) : selected);
+      const filtered = filter ? selected.filter(filter) : selected;
+      if (skipsOnSameSelection && lastSelected !== null && sameFeatureList(lastSelected, filtered)) return;
+      lastSelected = filtered;
+      rebuild(filtered);
     }
     return {
       update,
@@ -12116,4 +12127,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       scene.destroy();
     },
   };
+}
+
+/** Same feature objects in the same order: what a layer's output is a function of, once the filter has run. */
+function sameFeatureList(a: readonly unknown[], b: readonly unknown[]): boolean {
+  return a.length === b.length && a.every((feature, i) => feature === b[i]);
 }
