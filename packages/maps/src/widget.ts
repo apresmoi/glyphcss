@@ -9045,7 +9045,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // and re-creating every element (`widget.symbolRebuildFlash.test.ts`
         // measured that at `+4298 -4298` and a ~200 ms stall). A live feed
         // refreshing on a timer cannot afford the second shape.
-        const held = new Map(records.map((r) => [r.key, r] as const));
+        // Only a KEYED marker can be matched. A wholesale build keys every
+        // marker "" (a source with no feature ids), and folding those into
+        // one map slot would match one and orphan the rest in the DOM — the
+        // labels that stayed on screen after their layer was switched off.
+        const held = new Map<string, MarkerRecord>();
+        for (const r of records) {
+          if (r.key === "" || held.has(r.key)) r.handle.remove();
+          else held.set(r.key, r);
+        }
         const next: MarkerRecord[] = [];
         for (const { key, feature, point } of desired) {
           const ground = markerGroundAt(groundElevationAt, point[0], point[1]);
