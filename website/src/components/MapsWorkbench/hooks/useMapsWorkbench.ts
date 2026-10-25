@@ -58,6 +58,7 @@ import {
   createOsmSource,
   MAP_OSM_DEFAULT_ANCHOR,
   MAP_CONTOUR_GENERALIZE,
+  MAP_CONTOUR_LABEL_EVERY,
   MAP_LINE_STRATEGY,
   MAP_OSM_DEFAULT_DENSITY,
   MAP_OSM_SUBLAYERS,
@@ -1683,6 +1684,7 @@ export function useMapsWorkbench() {
         }),
         experimentalGlyphStrategy: MAP_LINE_STRATEGY,
         generalize: MAP_CONTOUR_GENERALIZE,
+        labelEvery: MAP_CONTOUR_LABEL_EVERY,
       });
     }
     map.scene.rerender();

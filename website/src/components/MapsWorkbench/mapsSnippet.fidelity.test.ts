@@ -227,6 +227,7 @@ it("exports braille borders and contours by default", async () => {
     const lines = buildMapsSnippet({ ...DEFAULTS, showBorders: true, showContour: true }).split("\n");
     expect(lines.find(l => l.includes('type: "line", source: borderProvider'))).toContain('experimentalGlyphStrategy: "braille"');
     expect(lines.find(l => l.includes('type: "contour"'))).toContain('experimentalGlyphStrategy: "braille"');
+    expect(buildMapsSnippet({ ...DEFAULTS, showContour: true, contourLabels: true })).toContain("labelEvery: 1");
   } finally {
     vi.unstubAllGlobals();
     vi.resetModules();

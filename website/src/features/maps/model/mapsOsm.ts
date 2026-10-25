@@ -62,6 +62,8 @@ import {
 
 /** Contour smoothing radius in output cells (`GlyphMapContourLayer.generalize`): lines keep the bends a reader can see. */
 export const MAP_CONTOUR_GENERALIZE = 2;
+/** Number every contour, not every 5th: generalised lines are sparse enough that unlabelled ones cannot be counted from their neighbours. */
+export const MAP_CONTOUR_LABEL_EVERY = 1;
 
 /** Braille map lines by default; `?lines=box` compares against the box strategy. */
 export const MAP_LINE_STRATEGY: "box" | "braille" =
