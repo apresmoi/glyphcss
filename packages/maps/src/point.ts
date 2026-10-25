@@ -17,7 +17,7 @@
  * The stamped path gets all four for free, because it is the SAME path a
  * border already takes: one write per `<pre>` (this only ever runs inside the
  * scene's existing `transformCells` hook), the depth test in
- * {@link glyphMapSurfaceOccludes}, cross-`<pre>` cell ownership through
+ * {@link glyphMapPointOccluded}, cross-`<pre>` cell ownership through
  * {@link glyphMapForeignOwned}, and the projection's own horizon capability
  * applied by the caller before a mark is ever handed here.
  *
@@ -69,7 +69,7 @@
  * pad is `▲`, a satellite is a star) — see `mapsLive.ts`.
  */
 import type { CellGrid } from "glyphcss";
-import { glyphMapForeignOwned, glyphMapSurfaceOccludes } from "./stroke";
+import { glyphMapForeignOwned } from "./stroke";
 
 /**
  * The default mark ramp, smallest ink first — see this file's header for why
@@ -256,8 +256,6 @@ export interface GlyphMapPointStampOptions {
    * local cells would clip the same feature smaller on a finer grid.
    */
   readonly maxSize?: number;
-  /** Overrides `stroke.ts`'s `GLYPH_MAP_STROKE_DEPTH_CURVATURE_SCALE`. */
-  readonly depthCurvatureScale?: number;
 }
 
 /** One point mark, already projected into the grid being stamped. */
@@ -271,15 +269,47 @@ export interface GlyphMapPointMark {
 }
 
 /**
+ * How many cells around a mark's own cell the depth test looks, in every
+ * direction.
+ *
+ * A mark is planted on the elevation FIELD while the depth buffer holds the
+ * terrain's coarsened MESH, one sample per cell, sampled at integer positions.
+ * Measured on `/maps` (globe, terrain on) the mesh's surface at a mark's cell
+ * matched the mark's own depth only a cell or two away, at every angle from
+ * the view centre: 45% of country marks were wrongly blanked at a one-cell
+ * window and none at two. A mark cannot be placed on that surface any more
+ * exactly than the surface is known, so it is hidden only when EVERY sample
+ * within this window stands in front of it. A ridge or wall is wider than the
+ * window, so it still hides what is behind it; only the margin of
+ * {@link GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS} cells along its silhouette is
+ * forgiven.
+ */
+export const GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS = 2;
+
+/** `true` = the mark at `depth` is behind every surface sample within {@link GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS} of `(col, row)`; an empty sample in the window means open space, so not occluded. */
+export function glyphMapPointOccluded(grid: CellGrid, col: number, row: number, depth: number, allowance: number): boolean {
+  const reach = GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS;
+  let farthest = Infinity;
+  for (let r = Math.max(0, row - reach); r <= Math.min(grid.rows - 1, row + reach); r++) {
+    for (let c = Math.max(0, col - reach); c <= Math.min(grid.cols - 1, col + reach); c++) {
+      const d = grid.depth[r * grid.cols + c]!;
+      if (!Number.isFinite(d)) return false;
+      if (d < farthest) farthest = d;
+    }
+  }
+  return farthest - depth > allowance;
+}
+
+/**
  * Stamp one mark, depth-tested cell by cell.
  *
  * PER CELL and not per mark, deliberately: a mark large enough to span
  * several cells can straddle a ridge, and the half behind it must go dark
- * exactly as a stroke crossing the same ridge does. The verdict is
- * {@link glyphMapSurfaceOccludes} — the SAME test a draped stroke takes, at
- * each cell's own sub-cell position, so a mark planted on the terrain is
- * coplanar with it to within that terrain's own faceting and neither
- * z-fights nor floats.
+ * exactly as a stroke crossing the same ridge does (to within the
+ * {@link GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS}-cell margin along the ridge's
+ * edge). The verdict is {@link glyphMapPointOccluded}, which unlike a
+ * stroke's per-sample test cannot assume the mesh and the field agree at the
+ * mark's own cell.
  *
  * Returns the number of cells actually inked, which is `0` for a mark wholly
  * behind the surface — that count IS the visibility answer, and the widget
@@ -290,25 +320,24 @@ export function stampGlyphMapPoint(grid: CellGrid, mark: GlyphMapPointMark, opts
   if (!Number.isFinite(mark.col) || !Number.isFinite(mark.row) || !Number.isFinite(mark.depth)) return 0;
   const color = opts.color ?? null;
   const bias = opts.depthBias ?? 0;
-  const curvatureScale = opts.depthCurvatureScale;
   const cells = glyphMapPointCells(mark.col, mark.row, mark.size ?? 0, opts.cellAspect ?? 2, opts.ramp, opts.maxSize);
-  let inked = 0;
+  // Every verdict is taken against the buffer as it stood BEFORE this mark:
+  // writing a cell's depth as it is inked would put the mark's own depth into
+  // its neighbours' windows and let the first cell vouch for the rest.
+  const visible: { idx: number; glyph: string }[] = [];
   for (const cell of cells) {
     if (cell.col < 0 || cell.col >= grid.cols || cell.row < 0 || cell.row >= grid.rows) continue;
     const idx = cell.row * grid.cols + cell.col;
     if (glyphMapForeignOwned(grid, idx)) continue;
-    // The mark's own sub-cell position, used for EVERY cell of the mark: the
-    // depth being compared is the mark's single projected depth, so the point
-    // the surface must be evaluated at is where the mark IS, not where each
-    // covered cell's own centre happens to fall.
-    const subCol = mark.col - Math.floor(mark.col);
-    const subRow = mark.row - Math.floor(mark.row);
-    if (glyphMapSurfaceOccludes(grid, cell.col, cell.row, subCol, subRow, mark.depth, bias, curvatureScale ?? 0.25)) continue;
-    grid.char[idx] = cell.glyph;
+    if (glyphMapPointOccluded(grid, cell.col, cell.row, mark.depth, bias)) continue;
+    visible.push({ idx, glyph: cell.glyph });
+  }
+  for (const { idx, glyph } of visible) {
+    grid.char[idx] = glyph;
     grid.color[idx] = color;
     grid.depth[idx] = mark.depth;
-    inked++;
   }
+  const inked = visible.length;
   return inked;
 }
 
