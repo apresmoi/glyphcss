@@ -36,7 +36,7 @@ describe("/maps opening orientation", () => {
   ] as const)("preserves a ground-pivot evidence link: %s", (packed, centerLon, centerLat, span, tilt) => {
     window.history.replaceState(null, "", `/maps?m=${packed}`);
     const state = readInitialMapsState();
-    expect(state).toMatchObject({ centerLon, centerLat, tilt, bearing: 37, exaggeration: 24 });
+    expect(state).toMatchObject({ centerLon, centerLat, tilt, bearing: 37, exaggeration: 12 });
     expect(state.span).toBeCloseTo(span, 12);
     const decoded = mapsCodec.decode(mapsCodec.encode(state));
     expect(decoded).toMatchObject({ centerLon, centerLat, tilt, bearing: 37 });

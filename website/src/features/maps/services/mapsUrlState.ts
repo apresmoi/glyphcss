@@ -726,7 +726,7 @@ export const MAPS_TERRAIN_WINDOW_OFF = { min: -32000, max: 32000 } as const;
 
 export const MAPS_URL_DEFAULTS: MapsUrlState = {
   projection: "globe",
-  exaggeration: 24,
+  exaggeration: 12,
   centerLon: 0,
   centerLat: 20,
   span: 140,
