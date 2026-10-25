@@ -18,7 +18,8 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - `waterTerrain`: atomic coverage/fill; outside DEM dry ground/classification >=0. Indexed shores; convex merges; floor/colour backstops. No cutout lift. Tile-identity cache, 2 ms cancellable prep; removal restores DEM.
 - Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable numeric topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells. DOM overlays.
 - `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one centroid dot; open stubs never do. Paths join accepted cells (gaps split paths), collapse backtracks, add depth-tested corners only on their own path or unowned cells; unjoined remnants drop.
-- `compositorPan`: opt-in ¼-grid overscan, fixed cells; translate scene/hide hotspots. Settle on release/rest/pose/layout changes; refresh at 80% margin/2° orbit. Rebase on render; public grid unchanged; no walk. - `prerender.ts` jobs do a render's camera-only half (line/contour plans, outline surface) at a snapshot pose in slices: idle at rest (the drag's frame), motion frames from ~37% of the margin. A frame is anchored at its render pose; the re-anchor renders AT the prepared pose (camera swapped, restored in `finally`), then translates to live. Plans reuse only on an equal key (camera, grids, features, ground); walk and `groundElevation` never plan. Prep never writes the scene.
+- `compositorPan`: opt-in ¼-grid overscan, fixed cells; translate scene/hide hotspots. Settle on release/rest/pose/layout changes; refresh at 80% margin/2° orbit. Rebase on render; public grid unchanged; no walk.
+- `prerender.ts` jobs do a render's camera-only half (line/contour plans, outline surface) at a snapshot pose in slices: idle at rest (the drag's frame), motion frames from ~37% of the margin. A frame is anchored at its render pose; the re-anchor renders AT the prepared pose (camera swapped), then translates to live. Plans reuse only on an equal key (camera, grids, features, ground); walk and `groundElevation` never plan. Prep never writes the scene.
 - `snapPan`: opt-in cell lattice at fixed lens/tilt/bearing/grid; exact held view. Orbit: tangent lattice. Zoom/tilt reset; walk bypasses. Dither stays screen-anchored.
 - Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per feature set/tile, before live VW; explicit lines stay separate. Reversed edges share geometry; no snapping or noding of differently sampled edges.
 - Stamp surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from an assumed half-cell centre.
@@ -28,7 +29,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); palettes fall back to row colour.
 - `/maps` URL row lists are positional: append rows, never insert.
 - Live data: `setLayerSource`, no clock.
-- A sweep over unchanged tiles renders nothing; a `fill` with no ground ignores the view.
+- A sweep whose filtered features are unchanged (filters rerun) renders nothing; a groundless `fill` ignores the view.
 - Tests await `map.idle()`, never timers/polls. Probe camera poses; give `vi.waitFor` explicit timeouts.
 
 ## Don't

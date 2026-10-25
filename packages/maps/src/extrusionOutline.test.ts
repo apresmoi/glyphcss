@@ -338,3 +338,15 @@ it("conservative walk bins match uncullled planes for behind, grazing and near-p
   reference.stampGlyphMapExtrusionOutlines(b, gs, reference.createGlyphMapExtrusionSurface(frozen, pieces, project, depth), project, depth, true);
   expect(a.char).toEqual(b.char); expect(a.color).toEqual(b.color); expect(a.depth).toEqual(b.depth);
 });
+it("evaluates a triangle whose depth bound underflows, exactly as the ungated compiler does", () => {
+  const tiny = Number.MIN_VALUE;
+  const a: Polygon = { vertices: [[2.25, 2.25, -tiny], [2.25, 2.26, -tiny], [2.26, 2.25, -tiny]] };
+  const incident: Polygon = { vertices: [[2, 2, 1], [2, 3, 1], [3, 2, 1]] };
+  const g = grid();
+  const actual = createGlyphMapExtrusionSurface(g, [a, incident], project, eye);
+  const expected = reference.createGlyphMapExtrusionSurface(g, [a, incident], project, eye);
+  const edge = [incident.vertices[0]!, incident.vertices[1]!] as const;
+  // The plane's evaluated depth underflows to 0, which is above the query's -MIN.
+  expect(expected.occludes(...edge)(2.251, 2.251, -tiny)).toBe(true);
+  expect(actual.occludes(...edge)(2.251, 2.251, -tiny)).toBe(true);
+});
