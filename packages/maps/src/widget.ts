@@ -9512,6 +9512,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const isDetail = !!layerInfo?.detail;
     if (!isDetail) {
       captureCompositorFrame();
+      // A render that changed what a rest job was prepared for (a terrain tile lands and renders on its own, past `scene.rerender`) leaves the job unusable: redo it now, not at the next drag.
+      if (prepJob?.kind === "rest" && !compositorFrame && !prepJobCurrent(prepJob)) { cancelPrepJob(); scheduleRestPrepare(); }
       cachedBaseGrid = projectionGrid(true);
       cachedBaseCamera = { zoom: camera.zoom, center: camera.center, fovScale: camera.fovScale };
     }
@@ -12570,6 +12572,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const cached = outlineTopology?.surfaceCache;
       if (cached) cached.surface.plan = undefined;
     },
+    restPrepared: () => prepJob?.kind === "rest" && prepJob.ready && prepJobCurrent(prepJob),
     outlinePlanned: () => outlineTopology?.surfaceCache?.surface.plan !== undefined,
     renderLive() { if (compositorFrame) renderCompositorFrame(null); },
   };

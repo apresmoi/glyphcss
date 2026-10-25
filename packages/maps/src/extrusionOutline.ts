@@ -29,6 +29,8 @@ interface OutlinePlan {
   readonly runs: readonly { readonly color: string | undefined; readonly end: number }[];
 }
 const PLAN_STRIDE = 5;
+const planFits = (plan: OutlinePlan, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): boolean =>
+  plan.tilted === tilted && plan.geometries.length === geometries.length && geometries.every((x, i) => x === plan.geometries[i]);
 /** Edges examined per resumption of a prepared walk: the slice granularity. */
 const PLAN_EDGES_PER_STEP = 24;
 const NO_DEPTH = new Float64Array(0);
@@ -667,7 +669,7 @@ export function createGlyphMapExtrusionSurface(
       topology.prepare(geometries); reserveVertices();
       for (let idx = 0; idx < g.char.length; idx++) if (g.char[idx] !== " " && owns(idx)) g.char[idx] = ".";
       const plan = surface.plan;
-      if (plan && plan.tilted === tilted && plan.geometries.length === geometries.length && geometries.every((x, i) => x === plan.geometries[i])) {
+      if (plan && planFits(plan, geometries, tilted)) {
         stampPlan(g, plan);
         return;
       }
@@ -681,6 +683,8 @@ export function createGlyphMapExtrusionSurface(
     *prepareSamples(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): Generator<void, void> {
       // Only the walk this surface would take: anything else is the render's to rebuild.
       if (!frameKey || geometries.length !== topology.outlines.length || !geometries.every((x, i) => x === topology.outlines[i]!.geometry)) return;
+      // A cached surface keeps its plan: a job redone for another reason (terrain landing) skips this half.
+      if (surface.plan && planFits(surface.plan, geometries, tilted)) return;
       reserveVertices();
       const cols = grid.cols, rows = grid.rows, gridless = { cols, rows, depth: NO_DEPTH } as unknown as CellGrid;
       let data = new Float64Array(PLAN_STRIDE * 256), at = 0;

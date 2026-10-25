@@ -20,7 +20,12 @@ import { glyphMapPrerenderSeam, glyphMapPrerenderTuning, type GlyphMapPrerenderS
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapField } from "./types";
-import type { GlyphMapVectorFeature } from "./vector/types";
+import { glyphMapBreaks } from "./classify";
+import { glyphMapDecodeGeoTileInt16 } from "./tile";
+import { glyphMapDecodeMVT } from "./vector/pmtiles";
+import { glyphMapMercatorTileBounds } from "./vector/mercator";
+import { glyphMapOpenMapTilesLayers } from "./vector/openmaptiles";
+import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorTile } from "./vector/types";
 
 type Map = ReturnType<typeof createGlyphMap>;
 const seam = (m: Map): GlyphMapPrerenderSeam => (m as unknown as Record<symbol, GlyphMapPrerenderSeam>)[glyphMapPrerenderSeam]!;
@@ -256,6 +261,30 @@ it("anchors a drag's first frame at the rest pose and slides it to where the liv
   expect(element(c).style.transform).toBe("translate(-160px, -80px)");
 });
 
+/** Venice with water that lands after the rest pose was prepared: its terrain commit changes the ground and renders without going through `scene.rerender`. */
+it("prepares the rest pose again when a water commit makes the finished job stale, so the next drag still starts prepared", async () => {
+  const root = path.resolve(__dirname, "../fixtures/openfreemap/venice");
+  const water: GlyphMapVectorTile = { z: 8, x: 136, y: 91, bounds: glyphMapMercatorTileBounds(8, 136, 91), source: "OpenFreeMap", simplify: "mvt-source",
+    layers: glyphMapDecodeMVT(readFileSync(path.join(root, "8_136_91.pbf")), 8, 136, 91, ["water"]) };
+  let open!: () => void;
+  const gate = new Promise<void>(resolve => { open = resolve; });
+  const source: GlyphMapVectorProvider = { id: "water-fixture", zooms: [{ z: 8, cols: 256, rows: 256, tileLonSpan: 360 / 256, tileLatSpan: 180 / 256, tileCols: 256, tileRows: 256 }],
+    bounds: glyphMapMercatorTileBounds, tileRange: () => ({ x0: 136, x1: 136, y0: 91, y1: 91 }), loadTile: async () => { await gate; return water; } };
+  const ground = glyphMapDecodeGeoTileInt16(readFileSync(path.join(root, "terrain-4-8-3.bin")), {
+    bounds: { west: 0, east: 22.5, south: 45, north: 56.25 }, cols: 180, rows: 90, source: "ETOPO1", sampler: "bilinear" });
+  glyphMapPrerenderTuning.restPrepare = true;
+  const a = mount({ view: { center: [12.3376, 45.4394], span: 1.1, cols: 80, rows: 20 }, tilt: 0,
+    layers: [{ type: "raster", id: "terrain", source: ground, minElevation: 0, classifier: glyphMapBreaks([0]), colors: ["#2a55a8", "#2f5a36"] },
+      ...glyphMapOpenMapTilesLayers(source, { include: ["omt-water"], waterTerrain: true }),
+      { type: "line", id: "road", color: "#e8c988", experimentalGlyphStrategy: "braille",
+        source: { features: [{ id: "r", geometryType: "line", rings: [[[12.2, 45.4], [12.3, 45.45], [12.45, 45.43]]] }] } }] });
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+  open(); await a.idle();
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+});
+
 it.each([
   ["a terrain tile landing", (m: Map) => m.addLayer({ type: "raster", id: "terrain-fine", source: terrain(3) })],
   ["a layer's source being replaced", (m: Map) => m.setLayerSource("braille-road", { features: [road(0.0009)] })],
@@ -407,4 +436,17 @@ it.each([
     drawn += (text(a).match(/#94a3b8/g) ?? []).length;
   }
   expect(drawn).toBeGreaterThan(0);
+});
+
+it.each([
+  ["a terrain tile landing", (m: Map) => m.addLayer({ type: "raster", id: "terrain-fine", source: terrain(3) })],
+  ["a layer's source being replaced", (m: Map) => m.setLayerSource("braille-road", { features: [road(0.0009)] })],
+] as const)("prepares the rest pose again after %s has made the finished job stale, so the next drag still starts prepared", async (_name, change) => {
+  glyphMapPrerenderTuning.restPrepare = true;
+  const a = mount(); await ready(a);
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+  change(a); await a.idle();
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
 });

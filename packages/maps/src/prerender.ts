@@ -97,6 +97,8 @@ export interface GlyphMapPrerenderSeam {
   prepare(kind: "rest" | "anchor"): boolean;
   /** How many stroke layers hold a finished, unconsumed plan. */
   plans(): number;
+  /** A rest job has finished for the state the map is in now, i.e. a drag starting this moment would be prepared. */
+  restPrepared(): boolean;
   /** Whether the outline surface in the topology's cache holds a finished sample plan. */
   outlinePlanned(): boolean;
   discardPlans(): void;
