@@ -3958,7 +3958,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // Judge the candidate BEFORE rendering it: the render's own capture would record exactly this target and these probes, so an anchor the live camera has outrun is discarded unrendered and the frame takes its one render at the live pose.
       const a = anchor;
       const probes = withCameraPose(camera, a.pose, () => compositorProbes(f.grid));
-      if (measureCompositor(f, a.pose.target, probes).ok) {
+      if (measureCompositor(f, [...a.pose.target], probes).ok) {
         renderCompositorFrame(a.pose);
         finishPrepJob(a);
         const m = measureCompositor(f);
