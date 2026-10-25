@@ -63,6 +63,7 @@ import { glyphMapTrueScaleElevation } from "./projection";
 import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
+import { cameraKey, sameKey } from "./prerender";
 import { createGlyphMapGroundIndex } from "./groundIndex";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
@@ -1510,6 +1511,8 @@ function extrusionBaseMetres(layer: GlyphMapFillExtrusionLayer, feature: GlyphMa
  */
 type GlyphMapCellAffine = readonly [number, number, number, number, number, number];
 const GLYPH_MAP_IDENTITY_CELL_AFFINE: GlyphMapCellAffine = [1, 0, 0, 1, 0, 0];
+/** Rings between yields of a prepared plan: sets the slice granularity without a clock read per ring. */
+const PREPARE_YIELD_RINGS = 16;
 
 /** Scene/base-grid (col,row) → a grid's own LOCAL (col,row) — the inverse of `cellToSceneGrid`'s forward mapping. */
 function glyphMapSceneToLocalCell(sceneCol: number, sceneRow: number, affine: GlyphMapCellAffine): { readonly col: number; readonly row: number } {
@@ -1544,6 +1547,13 @@ function glyphMapLocalCellToScene(col: number, row: number, affine: GlyphMapCell
 interface StrokeLayerRuntime {
   update(): Promise<void>;
   stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void;
+  /**
+   * The camera-only half of `stamp` for a `cols` x `rows` base grid, as a
+   * resumable job: advance it under the camera pose it is for and the next
+   * `stamp` with an identical key consumes the result instead of recomputing.
+   */
+  prepare?(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void>;
+  discardPlan?(): void;
   dispose(): void;
 }
 
@@ -6485,23 +6495,56 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
-      const feats = isGlyphMapVectorProvider(source) ? activeFeatures : staticFeatures;
-      // Detail/overlay cells occupy a fraction of a base cell. Use their
-      // actual resolution, never their cropped grid width. Walk has no
-      // span-derived resolution, so retains full source detail.
-      const degPerCell = view.span / baseGrid.cols * Math.abs(cellToSceneGrid[0]);
-      // Resolved ONCE per stamp, not per vertex: it walks the mounted layer
-      // list, and a world view hands this loop tens of thousands of vertices.
-      // `null` = no raster layer mounted, so the ground IS the datum and the
-      // whole drape reduces to `projection.project(lon, lat, 0)` — the
-      // pre-drape expression, byte for byte, with no lookup at all.
-      // Supplied callbacks can change without a terrain commit. Keep those live.
-      // A raster reader also retains its exact still-water shore levels.
+    const currentFeatures = (): readonly GlyphMapVectorFeature[] => isGlyphMapVectorProvider(source) ? activeFeatures : staticFeatures;
+
+    // Resolved ONCE per stamp, not per vertex: it walks the mounted layer
+    // list, and a world view hands this loop tens of thousands of vertices.
+    // `null` = no raster layer mounted, so the ground IS the datum and the
+    // whole drape reduces to `projection.project(lon, lat, 0)` — the
+    // pre-drape expression, byte for byte, with no lookup at all.
+    // Supplied callbacks can change without a terrain commit. Keep those live.
+    // A raster reader also retains its exact still-water shore levels.
+    function refreshGroundReader(): void {
       if (opts.groundElevation || readerRevision !== groundRevision || readerWaterEpoch !== waterTerrainEpoch || readerProjection !== projection) {
         groundReader = groundElevationSampler();
         readerRevision = groundRevision; readerWaterEpoch = waterTerrainEpoch; readerProjection = projection;
       }
+    }
+
+    /**
+     * Every input the vertex lists below are a function of, as one comparable
+     * list; a prepared plan is reusable only when this is element-for-element
+     * equal at stamp time. `null` where a plan can never be trusted: walk reads
+     * `view.center` and a supplied `groundElevation` can change without a
+     * terrain commit, neither of which the key could see.
+     */
+    function planKey(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): unknown[] | null {
+      if (walk || opts.groundElevation || camera !== orthographicCamera) return null;
+      return [...cameraKey(camera), cols, rows, ...cellToSceneGrid, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect,
+        baseGrid.cellWidth, baseGrid.cellHeight, baseGrid.centerCol, baseGrid.centerRow, currentFeatures(), groundReader,
+        groundRevision, waterTerrainEpoch, projection, projection.exaggeration, view.span];
+    }
+
+    /**
+     * The camera-only half of a stamp: every run's vertex list, in stamp
+     * order, handed to `sink` exactly as the stamper consumes it (`verts` is
+     * scratch the next run overwrites). It reads nothing from the grid being
+     * stamped except its size, so it can run ahead of the frame it is for.
+     *
+     * A generator so a prepared plan can be built a slice per animation frame;
+     * `yieldEvery` rings between yields (`Infinity` for the synchronous stamp,
+     * which never suspends).
+     */
+    function* strokeRuns(
+      cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid,
+      sink: (color: string | undefined, verts: GlyphMapStrokeVertex[]) => void, yieldEvery: number,
+    ): Generator<void, void> {
+      const feats = currentFeatures();
+      // Detail/overlay cells occupy a fraction of a base cell. Use their
+      // actual resolution, never their cropped grid width. Walk has no
+      // span-derived resolution, so retains full source detail.
+      const degPerCell = view.span / baseGrid.cols * Math.abs(cellToSceneGrid[0]);
+      refreshGroundReader();
       const groundElevationAt = groundReader;
       // Densified points and cross-stroke probes move with the exact camera.
       // Memoizing their mostly-unique coordinates costs more than sampling.
@@ -6576,17 +6619,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         drapeSample.lon = lon; drapeSample.lat = lat; drapeSample.elev = groundElev;
         return drapeSample;
       };
-      const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
-      // Braille inks every cell it crosses at dot pitch; read relief from before
-      // this layer so one road's depth never occludes the next.
-      const surface = layer.experimentalGlyphStrategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
       const visibility = walk ? undefined : preparedVisibility(baseGrid);
+      let rings = 0;
       for (const feature of feats) {
         if (layer.filterAtResolution && !layer.filterAtResolution(feature, walk === null ? degPerCell : 0)) continue;
         const color = layer.colorProperty && layer.colors
           ? layer.colors[String(feature.properties?.[layer.colorProperty])] ?? layer.color
           : layer.color;
         for (const ring of feature.rings) {
+          if (++rings % yieldEvery === 0) yield;
           const line = simplifyLine && walk === null ? simplifyLine(ring, degPerCell) : ring;
           // Clip after thinning so limb intersections follow the retained
           // segments; draping still samples the visible runs per cell.
@@ -6607,18 +6648,55 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           // everywhere, there is nothing per cell to sample, and the whole
           // expression stays the pre-drape one, vertex for vertex.
           const verts: GlyphMapStrokeVertex[] = groundElevationAt
-            ? drapedRunPerCell(run, vertexAt, groundReadAt, grid.cols, grid.rows, drapeScratch)
+            ? drapedRunPerCell(run, vertexAt, groundReadAt, cols, rows, drapeScratch)
             : run.map(([lon, lat]) => { const v = vertexAt(lon, lat); return { col: v.col, row: v.row, depth: v.depth, lon: v.lon, lat: v.lat, elev: v.elev }; });
-          stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
+          sink(color, verts);
           }
         }
       }
+    }
+
+    /** A finished plan: the runs `strokeRuns` produced and the key they are valid under. Vertices are copied out of the shared scratch. */
+    let plan: { readonly key: unknown[]; readonly runs: readonly { readonly color: string | undefined; readonly verts: readonly GlyphMapStrokeVertex[] }[] } | null = null;
+
+    function* prepare(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
+      plan = null;
+      refreshGroundReader();
+      const key = planKey(cols, rows, cellToSceneGrid, baseGrid);
+      if (!key) return;
+      const runs: { color: string | undefined; verts: GlyphMapStrokeVertex[] }[] = [];
+      yield* strokeRuns(cols, rows, cellToSceneGrid, baseGrid, (color, verts) => {
+        runs.push({ color, verts: verts.map(v => ({ col: v.col, row: v.row, depth: v.depth, slack: v.slack })) });
+      }, PREPARE_YIELD_RINGS);
+      // Something the key reads moved while this was suspended: the runs mix two states.
+      const done = planKey(cols, rows, cellToSceneGrid, baseGrid);
+      if (done && sameKey(key, done)) plan = { key, runs };
+    }
+
+    function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
+      const boxGraph = layer.experimentalGlyphStrategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
+      // Braille inks every cell it crosses at dot pitch; read relief from before
+      // this layer so one road's depth never occludes the next.
+      const surface = layer.experimentalGlyphStrategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
+      const sink = (color: string | undefined, verts: readonly GlyphMapStrokeVertex[]): void => {
+        stampGlyphMapPolyline(grid, verts, { color, experimentalGlyphStrategy: layer.experimentalGlyphStrategy, ...(boxGraph ? { boxGraph } : {}), ...(surface ? { surface } : {}) });
+      };
+      let prepared = plan;
+      if (prepared) {
+        refreshGroundReader();
+        const key = planKey(grid.cols, grid.rows, cellToSceneGrid, baseGrid);
+        if (key && sameKey(key, prepared.key)) plan = null; else prepared = null;
+      }
+      if (prepared) for (const run of prepared.runs) sink(run.color, run.verts);
+      else for (const step = strokeRuns(grid.cols, grid.rows, cellToSceneGrid, baseGrid, sink, Infinity); !step.next().done;);
       if (boxGraph) finishGlyphMapBoxStrokeGraph(grid, boxGraph);
     }
 
     return {
       update,
       stamp,
+      prepare,
+      discardPlan(): void { plan = null; },
       /**
        * The stroke half of {@link GlyphMapHandle.setLayerSource}. Both feature
        * lists are cleared, not just the one the new source will fill: a swap
