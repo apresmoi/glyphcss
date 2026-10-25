@@ -319,21 +319,21 @@ describe("circle layer — countries sized by a real measured quantity", () => {
       const countries = (await provider.loadTile(0, 0, 0)).layers.countries ?? [];
       const scale = (name: string) => Number(countries.find((f) => f.properties?.name === name)!.properties?.pop_scale);
       expect(scale("China")).toBeGreaterThan(scale("Iceland"));
-      const inkAround = (name: string): number => {
-        const f = countries.find((c) => c.properties?.name === name)!;
-        const at = map.project(f.rings[0]![0]! as [number, number]);
-        const rows = (map.scene.output.textContent ?? "").split("\n");
-        let n = 0;
-        for (let r = Math.floor(at.row) - 6; r <= Math.floor(at.row) + 6; r++) {
-          for (let c = Math.floor(at.col) - 14; c <= Math.floor(at.col) + 14; c++) if (/[·•●]/.test(rows[r]?.[c] ?? " ")) n++;
-        }
+      // One country per layer, through the real provider, so the mark count
+      // is that country's own disc and nothing beside it.
+      const discOf = async (name: string): Promise<number> => {
+        const id = map.addLayer({
+          type: "circle", source: provider, sourceLayer: "countries", filter: (f) => f.properties?.name === name,
+          radiusProperty: "pop_scale", radiusScale: 100, radius: 2,
+        });
+        await map.idle();
+        map.scene.rerender();
+        const n = marks(map);
+        map.removeLayer(id);
+        await map.idle();
         return n;
       };
-      // A big radiusScale so the disc is several cells even for a small country.
-      map.addLayer({ type: "circle", id: "circle", source: provider, sourceLayer: "countries", radiusProperty: "pop_scale", radiusScale: 100, radius: 2 });
-      await map.idle();
-      map.scene.rerender();
-      expect(inkAround("China")).toBeGreaterThan(inkAround("Iceland"));
+      expect(await discOf("China")).toBeGreaterThan(await discOf("Iceland"));
     } finally { teardown(); }
   });
 });
