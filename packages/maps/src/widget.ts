@@ -4047,7 +4047,27 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return { dx, dy, ok, pressure };
   }
 
+  /**
+   * Under `snapPan` the live camera sits on the cell lattice, so `measureCompositor`
+   * only ever reports whole-cell (or zero) offsets and the frame appears frozen between
+   * lattice steps. The frame's TEXT stays on the lattice; the displayed translation follows
+   * the exact pose, which differs from the lattice by under half a cell.
+   */
+  function exactSlide(f: CompositorFrame, dx: number, dy: number): { dx: number; dy: number } {
+    const exact = exactPanPose;
+    if (!exact) return { dx, dy };
+    const { rotX, rotY, target, mat, useMat } = camera;
+    camera.rotX = exact.rotX; camera.rotY = exact.rotY; camera.target = exact.target;
+    syncCameraBearing();
+    const g = f.grid;
+    const p = camera.project(f.target, g.cols, g.rows, g.cellAspect, g);
+    camera.rotX = rotX; camera.rotY = rotY; camera.target = target; camera.mat = mat; camera.useMat = useMat;
+    const ex = (p[0] - g.centerCol) * g.cellWidth, ey = (p[1] - g.centerRow) * g.cellHeight;
+    return Number.isFinite(ex) && Number.isFinite(ey) ? { dx: ex, dy: ey } : { dx, dy };
+  }
+
   function slideCompositor(f: CompositorFrame, dx: number, dy: number): void {
+    ({ dx, dy } = exactSlide(f, dx, dy));
     sceneElement.style.transform = `translate(${dx - f.marginCols * f.grid.cellWidth}px, ${dy - f.marginRows * f.grid.cellHeight}px)`;
   }
 
@@ -4147,6 +4167,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       cancelPrepJob();
     }
     renderCompositorFrame(null);
+    // The capture reset the translation to the frame's own pose; the live camera may differ from it by the sub-cell remainder.
+    const m = measureCompositor(f);
+    slideCompositor(f, m.dx, m.dy);
     return true;
   }
 

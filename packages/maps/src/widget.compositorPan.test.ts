@@ -260,3 +260,18 @@ it("re-renders a tilted wide globe once the slide drifts more than half a cell",
   renders = 0; pointer(m, "pointermove", 205); frame(); expect(renders).toBe(0);
   pointer(m, "pointermove", 213); frame(); expect(renders).toBe(1);
 });
+
+it("under snapPan the slide carries the sub-cell remainder while the frame stays on the lattice", async () => {
+  const m = mount({ snapPan: true }); await ready(m);
+  const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);
+  pointer(m, "pointerdown", 200);
+  pointer(m, "pointermove", 201); frame();
+  const text = m.scene.output.innerHTML;
+  renders = 0;
+  // 3.5 px is under half of the 8 px cell: the lattice has not stepped, so only the remainder can move the frame.
+  pointer(m, "pointermove", 204.5); frame();
+  expect(renders).toBe(0);
+  expect(m.scene.output.innerHTML).toBe(text);
+  expect(tx() % 8).not.toBe(0);
+  expect(tx()).toBeCloseTo(-160 + 3.5, 6);
+});
