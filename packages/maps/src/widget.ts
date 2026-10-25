@@ -3317,6 +3317,45 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     syncCameraBearing();
   }
 
+  /**
+   * Everything a pan writes: the camera's pose, the view centre and the
+   * lattice bookkeeping. A glide's end is computed by applying its whole
+   * distance to a copy of this and putting the live state back.
+   */
+  interface PanState {
+    readonly rotX: number; readonly rotY: number; readonly zoom: number;
+    readonly target: Vec3; readonly mat: typeof camera.mat; readonly useMat: boolean;
+    readonly view: GlyphMapView;
+    readonly orbitRotation: typeof orbitRotation;
+    readonly exactPanPose: PanPose | null;
+    readonly panAnchor: PanAnchor | null;
+    readonly renderedCenter: readonly [number, number] | null;
+  }
+  function capturePanState(): PanState {
+    return { rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom, target: camera.target, mat: camera.mat, useMat: camera.useMat,
+      view, orbitRotation, exactPanPose, panAnchor, renderedCenter };
+  }
+  function adoptPanState(s: PanState): void {
+    camera.rotX = s.rotX; camera.rotY = s.rotY; camera.zoom = s.zoom; camera.target = s.target; camera.mat = s.mat; camera.useMat = s.useMat;
+    view = s.view; orbitRotation = s.orbitRotation; exactPanPose = s.exactPanPose; panAnchor = s.panAnchor; renderedCenter = s.renderedCenter;
+  }
+  /** The state a pan of `dx`, `dy` px from here ends in; the live state is untouched. */
+  function panLanding(dx: number, dy: number): PanState {
+    const live = capturePanState();
+    try {
+      applyDragState(dx, dy);
+      return capturePanState();
+    } finally {
+      adoptPanState(live);
+    }
+  }
+  /** Equal but for the float noise of reaching the same place in different steps. */
+  function nearPanState(a: PanState): boolean {
+    const near = (x: number, y: number): boolean => Math.abs(x - y) <= 1e-9 * Math.max(1, Math.abs(x), Math.abs(y));
+    return a.panAnchor === panAnchor && near(a.rotX, camera.rotX) && near(a.rotY, camera.rotY) && near(a.zoom, camera.zoom) &&
+      a.target.every((v, i) => near(v, camera.target[i]!)) && near(a.view.center[0], view.center[0]) && near(a.view.center[1], view.center[1]);
+  }
+
   function setSnapPan(enabled: boolean): void {
     restoreExactPanPose();
     snapPan = enabled;
@@ -10132,7 +10171,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let motionDirty = false;
   let glideVx = 0, glideVy = 0, gliding = false;
   /** The running glide: its law, when it started, and the offset already applied. */
-  let glide: { readonly law: GlideLaw; start: number | null; appliedX: number; appliedY: number } | null = null;
+  let glide: {
+    readonly law: GlideLaw; start: number | null; appliedX: number; appliedY: number;
+    /** Where applying the glide's whole distance at once ends, and the ground it was computed on. */
+    landing: PanState | null; landingGround: number;
+  } | null = null;
   let flight: FlyState | null = null;
   let projectionAnim: ProjectionAnimState | null = null;
 
@@ -10230,13 +10273,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // The offset is a function of elapsed time, so a dropped frame covers
       // exactly what the frames it replaced would have.
       const g = glide!;
-      g.start ??= now - dt;
+      if (g.start === null) {
+        g.start = now - dt;
+        const [totalX, totalY] = glideOffset(g.law, g.law.duration);
+        g.landing = panLanding(totalX, totalY); g.landingGround = groundRevision;
+      }
       const t = now - g.start, [x, y] = glideOffset(g.law, t);
       applyDragState(x - g.appliedX, y - g.appliedY);
       g.appliedX = x; g.appliedY = y;
       panMotion = true;
       const done = t >= g.law.duration;
-      if (done) compositorSettle = true;
+      if (done) {
+        compositorSettle = true;
+        // The steps that got here differ from the one-shot landing by float noise; it is the pose preparation was made for.
+        if (g.landing && g.landingGround === groundRevision && nearPanState(g.landing)) adoptPanState(g.landing);
+      }
       emitViewChange("move");
       if (done) { gliding = false; glide = null; }
       moved = true;
@@ -12318,7 +12369,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (didDrag && controlsDrag && sinceLastMove <= 60 && speed > GLYPH_MAP_GLIDE_MIN_PX_PER_MS
       && typeof requestAnimationFrame !== "undefined") {
       const cap = Math.min(1, GLYPH_MAP_GLIDE_MAX_PX_PER_MS / speed);
-      glide = { law: glideLaw(glideVx * cap, glideVy * cap, GLYPH_MAP_GLIDE_TAU_MS, GLYPH_MAP_GLIDE_MIN_PX_PER_MS)!, start: null, appliedX: 0, appliedY: 0 };
+      glide = { law: glideLaw(glideVx * cap, glideVy * cap, GLYPH_MAP_GLIDE_TAU_MS, GLYPH_MAP_GLIDE_MIN_PX_PER_MS)!, start: null, appliedX: 0, appliedY: 0, landing: null, landingGround: 0 };
       glideVx = 0; glideVy = 0;
       gliding = true;
       requestMotionFrame();
