@@ -2801,7 +2801,7 @@ function rasterizeSolid(
           shadeCache.iB[triT] = iB;
           shadeCache.iC[triT] = iC;
           shadeCache.lit[triT] = litColor;
-          // Only reached on a MISS, so this index was undefined a line ago —
+          // Only reached on a MISS, so this slot was unfilled a line ago —
           // which is what makes the journal a complete undo log. See
           // `ShadeCache.journal`.
           if (shadeCache.journal !== undefined) shadeCache.journal.push(triT);
