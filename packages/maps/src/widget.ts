@@ -107,7 +107,7 @@ import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorSourc
 import { glyphMapFieldValueAt } from "./sample";
 import { createGlyphMapBoxStrokeGraph, finishGlyphMapBoxStrokeGraph, stampGlyphMapContourGeometry, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapContourPolyline, type GlyphMapStrokeVertex, type GlyphMapStrokeGlyphStrategy } from "./stroke";
 import { glyphMapAsciiLabel, stampGlyphMapPoint, stampGlyphMapPointLabel, GLYPH_MAP_POINT_RAMP } from "./point";
-import { glyphMapMarchContourMosaic, type GlyphMapContourSampleGrid, type GlyphMapContourSegment } from "./contourGeometry";
+import { glyphMapDropSmallContourRings, glyphMapGeneralizeContourMosaic, glyphMapMarchContourMosaic, type GlyphMapContourSampleGrid, type GlyphMapContourSegment } from "./contourGeometry";
 import { GLYPH_MAP_NIGHT_LEVELS, GLYPH_MAP_NIGHT_OPACITY, GLYPH_MAP_SUN_TWILIGHT_DEG, glyphMapSubsolarPoint, glyphMapSunDirection, stampGlyphMapNight, type GlyphMapSolarPosition } from "./sun";
 import { glyphMapDedupeAttributions } from "./attribution";
 import {
@@ -710,6 +710,15 @@ export interface GlyphMapContourLayer {
   readonly density?: number;
   /** @experimental The `line` layer's glyph strategy, applied to every contour level. Omit for byte-identical oriented ink. */
   readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
+  /**
+   * Cartographic GENERALISATION, as a smoothing radius in output cells:
+   * the elevation is smoothed at about this many cells before the levels are
+   * cut, and closed rings smaller than it are dropped, so a line keeps the
+   * bends a reader can see and loses the per-sample jitter. It follows the
+   * zoom, in half-octave steps, so zooming in brings the detail back.
+   * Omitted or `0` cuts the native grid, byte-identical to before.
+   */
+  readonly generalize?: number;
 }
 
 /**
@@ -7457,14 +7466,32 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * because it changes only when the mosaic does.
      */
     let geometryQuadDeg = 0;
+    let geometryRadius = 0;
+
+    /** {@link GlyphMapContourLayer.generalize} in degrees at the current zoom, snapped to half octaves so a zoom re-cuts only when it crosses one. */
+    function generalizeRadiusDeg(): number {
+      const cells = layer.generalize ?? 0;
+      const degPerCell = glyphMapDegreesPerCell(getView());
+      if (!(cells > 0) || !(degPerCell > 0)) return 0;
+      return 2 ** (Math.round(Math.log2(cells * degPerCell) * 2) / 2);
+    }
 
     function contourGeometry(levels: readonly number[]): readonly GlyphMapContourSegment[] {
+      const radius = generalizeRadiusDeg();
       const unchanged = geometryMosaic === mosaic
+        && geometryRadius === radius
         && geometryLevels.length === levels.length
         && geometryLevels.every((level, i) => level === levels[i]);
       if (unchanged) return geometry;
       geometryMosaic = mosaic;
       geometryLevels = levels;
+      geometryRadius = radius;
+      const smoothed = radius > 0 ? glyphMapGeneralizeContourMosaic(mosaic, radius) : null;
+      if (smoothed) {
+        geometryQuadDeg = Math.max((smoothed.bounds.east - smoothed.bounds.west) / smoothed.cols, (smoothed.bounds.north - smoothed.bounds.south) / smoothed.rows);
+        geometry = glyphMapDropSmallContourRings(glyphMapMarchContourMosaic([smoothed], levels), radius);
+        return geometry;
+      }
       const grids = mosaic.map((piece) => piece.grid);
       geometryQuadDeg = 0;
       for (const g of grids) {

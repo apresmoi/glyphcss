@@ -60,6 +60,9 @@ import {
   type GlyphMapVectorTile,
 } from "@glyphcss/maps";
 
+/** Contour smoothing radius in output cells (`GlyphMapContourLayer.generalize`): lines keep the bends a reader can see. */
+export const MAP_CONTOUR_GENERALIZE = 2;
+
 /** Braille map lines by default; `?lines=box` compares against the box strategy. */
 export const MAP_LINE_STRATEGY: "box" | "braille" =
   typeof location !== "undefined" && new URLSearchParams(location.search).get("lines") === "box" ? "box" : "braille";

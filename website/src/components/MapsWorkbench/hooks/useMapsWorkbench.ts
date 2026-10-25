@@ -57,6 +57,7 @@ import {
   type MapOsmAnchors,
   createOsmSource,
   MAP_OSM_DEFAULT_ANCHOR,
+  MAP_CONTOUR_GENERALIZE,
   MAP_LINE_STRATEGY,
   MAP_OSM_DEFAULT_DENSITY,
   MAP_OSM_SUBLAYERS,
@@ -1681,6 +1682,7 @@ export function useMapsWorkbench() {
           labels: contourLabels,
         }),
         experimentalGlyphStrategy: MAP_LINE_STRATEGY,
+        generalize: MAP_CONTOUR_GENERALIZE,
       });
     }
     map.scene.rerender();
