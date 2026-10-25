@@ -36,6 +36,13 @@ export function snapshotCameraPose(camera: GlyphCamera): GlyphMapCameraPose {
   };
 }
 
+/** Poses compare field by field; `ignoreCenter` for a rest pose, whose centre is the hypothetical overscanned frame's. */
+export function sameCameraPose(a: GlyphMapCameraPose, b: GlyphMapCameraPose, ignoreCenter = false): boolean {
+  const list = (p: GlyphMapCameraPose): unknown[] => [p.rotX, p.rotY, ...(ignoreCenter ? [] : p.center), p.useMat, p.mat?.length ?? -1,
+    ...(p.mat ?? []), p.distance, p.perspective, p.zoom, p.stretch, p.fovScale, ...p.target, p.eyeMode];
+  return sameKey(list(a), list(b));
+}
+
 /** Installs `pose` for the duration of `fn` and restores the exact live values, references included, in `finally`. */
 export function withCameraPose<T>(camera: GlyphCamera, pose: GlyphMapCameraPose, fn: () => T): T {
   const { rotX, rotY, center, mat, useMat, distance, perspective, zoom, stretch, fovScale, target, eyeMode } = camera;
@@ -72,8 +79,10 @@ export function sameKey(a: readonly unknown[], b: readonly unknown[]): boolean {
  * slice unbounded (and so deterministic) without a public option.
  */
 export const glyphMapPrerenderTuning = {
-  /** Main-thread budget for one preparation slice. */
+  /** Main-thread budget for one preparation slice inside a motion frame, which also has a render and input to serve. */
   sliceMs: 4,
+  /** The same for a slice of idle time at rest, capped further by the browser's idle deadline. */
+  restSliceMs: 8,
   /** Share of the compositor margin (or of the drift allowance) at which a pan starts preparing its next anchor. */
   startFraction: 0.375,
   /** Prepare the compositor frame at rest, in idle time, so a drag's first frame reuses it. */

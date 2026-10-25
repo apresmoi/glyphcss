@@ -63,7 +63,8 @@ import { glyphMapTrueScaleElevation } from "./projection";
 import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
-import { cameraKey, sameKey } from "./prerender";
+import { cameraKey, glyphMapPrerenderTuning, sameCameraPose, sameKey, snapshotCameraPose, withCameraPose } from "./prerender";
+import type { GlyphMapCameraPose } from "./prerender";
 import { createGlyphMapGroundIndex } from "./groundIndex";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
@@ -3620,6 +3621,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let compositorRender = false;
   let panMotion = false;
   let compositorSettle = false;
+  /** The current motion frame ran a compositor render, so it has no budget left for preparing the next one. */
+  let compositorRendered = false;
   let compositorResizeObserver: ResizeObserver | null = null;
   const compositorFonts = host.ownerDocument.fonts;
   function invalidateCompositorLayout(): void {
@@ -3648,6 +3651,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const f = compositorFrame;
     if (!f) return;
     compositorFrame = null;
+    cancelPrepJob();
     camera.center = [...f.center];
     sceneElement.style.cssText = f.sceneStyle;
     host.style.overflow = f.hostOverflow;
@@ -3691,15 +3695,226 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return probes;
   }
 
+  // ── Pre-rendering a compositor frame ──────────────────────────────────
+  //
+  // A compositor re-anchor is one full render, and ~half of what a stroke or
+  // outline layer spends in it depends on the camera alone, not on the grid
+  // being stamped. A job does that half ahead of time, a few ms per animation
+  // frame, AT a snapshot of the camera pose the frame will be anchored at (the
+  // live camera has moved on by the time it finishes; each slice installs the
+  // pose and puts the live one back). The render that follows is anchored at
+  // that pose, so its stamps find their plans by exact key; anything that
+  // changed in between simply misses and computes synchronously.
+  //
+  // `rest` jobs prepare the frame a drag will create, in idle time at rest;
+  // `anchor` jobs prepare the next anchor during a pan.
+  interface PrepJob {
+    readonly kind: "rest" | "anchor";
+    readonly pose: GlyphMapCameraPose;
+    readonly cols: number;
+    readonly rows: number;
+    readonly baseGrid: ProjectionGrid;
+    readonly frame: CompositorFrame | null;
+    readonly projection: GlyphMapProjection;
+    readonly tilt: number;
+    readonly bearing: number;
+    readonly span: number;
+    readonly groundRevision: number;
+    readonly waterEpoch: number;
+    readonly runtimes: readonly StrokeLayerRuntime[];
+    readonly steps: Generator<void, void>[];
+    cursor: number;
+    ready: boolean;
+  }
+  let prepJob: PrepJob | null = null;
+  let restPrepHandle: { cancel(): void } | null = null;
+
+  function sameProjectionGrid(a: ProjectionGrid, b: ProjectionGrid): boolean {
+    return a.cols === b.cols && a.rows === b.rows && a.cellAspect === b.cellAspect && a.cellWidth === b.cellWidth &&
+      a.cellHeight === b.cellHeight && a.centerCol === b.centerCol && a.centerRow === b.centerRow;
+  }
+
+  function strokeRuntimes(): StrokeLayerRuntime[] {
+    const out: StrokeLayerRuntime[] = [];
+    for (const id of layerOrder) {
+      const state = layerStates.get(id);
+      if ((state?.kind === "line" || state?.kind === "contour") && strokeLayerStampsIntoGrid(state.layer)) out.push(state.runtime);
+    }
+    return out;
+  }
+
+  function prepareAllowed(): boolean {
+    return !destroyed && compositorPan && !walk && !flight && !projectionAnim && camera === orthographicCamera;
+  }
+
+  /** The state a job was made under is still the state: anything else is not a render worth anchoring at. */
+  function prepJobCurrent(job: PrepJob): boolean {
+    if (!prepareAllowed() || job.projection !== projection || job.tilt !== appliedTilt || job.bearing !== bearing ||
+        job.span !== view.span || job.pose.zoom !== camera.zoom || job.groundRevision !== groundRevision ||
+        job.waterEpoch !== waterTerrainEpoch || (job.kind === "anchor") !== (compositorFrame !== null) ||
+        (job.kind === "anchor" && job.frame !== compositorFrame)) return false;
+    const now = strokeRuntimes();
+    return now.length === job.runtimes.length && now.every((r, i) => r === job.runtimes[i]);
+  }
+
+  function discardPlans(job: PrepJob): void {
+    for (const runtime of job.runtimes) runtime.discardPlan?.();
+  }
+
+  function cancelPrepJob(): void {
+    const job = prepJob;
+    if (!job) return;
+    prepJob = null;
+    for (const step of job.steps) step.return();
+    discardPlans(job);
+  }
+
+  /** The render consumed what it could of the job; whatever it did not is released. */
+  function finishPrepJob(job: PrepJob): void {
+    if (prepJob === job) prepJob = null;
+    discardPlans(job);
+  }
+
+  function startPrepJob(kind: PrepJob["kind"]): void {
+    cancelPrepJob();
+    if (!prepareAllowed()) return;
+    const f = compositorFrame;
+    if ((kind === "anchor") !== (f !== null)) return;
+    let cols: number, rows: number, baseGrid: ProjectionGrid, pose = snapshotCameraPose(camera);
+    if (f) {
+      baseGrid = projectionGrid(true);
+      cols = baseGrid.cols; rows = baseGrid.rows;
+    } else {
+      // The frame a drag would create, at the camera it would start from.
+      const grid = projectionGrid();
+      const margins = compositorMargins(grid);
+      cols = grid.cols + 2 * margins.cols; rows = grid.rows + 2 * margins.rows;
+      baseGrid = { ...grid, cols, rows, centerCol: grid.centerCol + margins.cols, centerRow: grid.centerRow + margins.rows };
+      pose = { ...pose, center: [(grid.centerCol + margins.cols) / cols, (grid.centerRow + margins.rows) / rows] };
+    }
+    const runtimes = strokeRuntimes();
+    const steps: Generator<void, void>[] = [];
+    for (const runtime of runtimes) if (runtime.prepare) steps.push(runtime.prepare(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
+    steps.push((function* () { prepareOutlineSurface(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid); })());
+    prepJob = { kind, pose, cols, rows, baseGrid, frame: f, projection, tilt: appliedTilt, bearing, span: view.span,
+      groundRevision, waterEpoch: waterTerrainEpoch, runtimes, steps, cursor: 0, ready: false };
+  }
+
+  /** Advances the job for up to `budgetMs`, always under its own pose and always restoring the live one. */
+  function runPrepSlice(budgetMs: number): void {
+    const job = prepJob;
+    if (!job || job.ready) return;
+    if (!prepJobCurrent(job) || (job.kind === "rest" && !panMotion && !sameCameraPose(job.pose, snapshotCameraPose(camera), true))) {
+      cancelPrepJob();
+      return;
+    }
+    const t0 = performance.now();
+    let advanced = false;
+    try {
+      withCameraPose(camera, job.pose, () => {
+        while (job.cursor < job.steps.length) {
+          if (job.steps[job.cursor]!.next().done) job.cursor++;
+          if (performance.now() - t0 >= budgetMs) break;
+        }
+      });
+      advanced = true;
+    } finally {
+      if (!advanced) cancelPrepJob();
+    }
+    job.ready = job.cursor === job.steps.length;
+  }
+
+  /** Idle-time preparation of the frame a drag creates, so the drag's first frame is not the expensive one. */
+  function scheduleRestPrepare(): void {
+    if (restPrepHandle || !glyphMapPrerenderTuning.restPrepare || !prepareAllowed() || compositorFrame) return;
+    const run = (idle?: IdleDeadline): void => {
+      restPrepHandle = null;
+      if (!prepareAllowed() || compositorFrame) return;
+      // Not gated on `widgetBusy`: a sweep after a pan usually changes nothing, and when it does the job is just restarted (every input is keyed).
+      if (motionActive()) { scheduleRestPrepare(); return; }
+      if (!prepJob || prepJob.kind !== "rest") startPrepJob("rest");
+      if (!prepJob) return;
+      runPrepSlice(Math.min(glyphMapPrerenderTuning.restSliceMs, idle ? Math.max(1, idle.timeRemaining()) : Infinity));
+      if (prepJob && !prepJob.ready) scheduleRestPrepare();
+    };
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(run, { timeout: 500 });
+      restPrepHandle = { cancel: () => cancelIdleCallback(id) };
+    } else {
+      const id = setTimeout(run, 32);
+      restPrepHandle = { cancel: () => clearTimeout(id) };
+    }
+  }
+
+  function cancelRestPrepare(): void {
+    restPrepHandle?.cancel();
+    restPrepHandle = null;
+  }
+
+  function compositorMargins(grid: ProjectionGrid): { cols: number; rows: number } {
+    return { cols: Math.max(1, Math.ceil(grid.cols / 4)), rows: Math.max(1, Math.ceil(grid.rows / 4)) };
+  }
+
+  /** Where the live camera has carried the frame's anchor, and how close that is to forcing a re-anchor. */
+  function measureCompositor(f: CompositorFrame): { dx: number; dy: number; ok: boolean; pressure: number } {
+    const grid = f.grid;
+    const p = camera.project(f.target, grid.cols, grid.rows, grid.cellAspect, grid);
+    const dx = (p[0] - grid.centerCol) * grid.cellWidth, dy = (p[1] - grid.centerRow) * grid.cellHeight;
+    let drift = 0;
+    for (const probe of f.probes) {
+      const q = camera.project(probe.world, grid.cols, grid.rows, grid.cellAspect, grid);
+      drift = Math.max(drift, Math.abs((q[0] - probe.col) * grid.cellWidth - dx) / grid.cellWidth,
+        Math.abs((q[1] - probe.row) * grid.cellHeight - dy) / grid.cellHeight);
+    }
+    const ok = Number.isFinite(dx) && Number.isFinite(dy) && drift <= 0.5 &&
+      Math.abs(dx) < f.marginCols * grid.cellWidth * 0.8 && Math.abs(dy) < f.marginRows * grid.cellHeight * 0.8;
+    const pressure = Math.max(Math.abs(dx) / (f.marginCols * grid.cellWidth), Math.abs(dy) / (f.marginRows * grid.cellHeight), drift / 0.5);
+    return { dx, dy, ok, pressure };
+  }
+
+  function slideCompositor(f: CompositorFrame, dx: number, dy: number): void {
+    sceneElement.style.transform = `translate(${dx - f.marginCols * f.grid.cellWidth}px, ${dy - f.marginRows * f.grid.cellHeight}px)`;
+  }
+
+  /** The frame's one real render. `pose`, when given, is the camera it is rendered AT (the live one is put back): wall culls and the key light are part of the render, so they follow it. */
+  function renderCompositorFrame(pose: GlyphMapCameraPose | null): void {
+    const render = (): void => {
+      applyKeyLight();
+      syncNearSide();
+      compositorRender = true;
+      try { scene.rerender(); } finally { compositorRender = false; }
+    };
+    compositorRendered = true;
+    if (pose) withCameraPose(camera, pose, render); else render();
+  }
+
+  /**
+   * One displayed frame of a compositor pan. Returns false when the pan is not
+   * one (the caller renders normally).
+   *
+   * A frame is anchored at the camera pose it was rendered at and the live
+   * camera is shown as a translation from it. Normally that anchor is the live
+   * pose at the moment of the render, which is a 30-70 ms block on a busy map.
+   * A prepared job (see {@link startPrepJob}) lets the anchor be an EARLIER pose
+   * whose camera-only work is already done: the render runs at that pose, then
+   * the live camera is applied as the same translation every frame uses.
+   */
   function renderCompositorPan(): boolean {
     if (!compositorPan || walk || flight || projectionAnim || !panMotion || compositorSettle) return false;
     let f = compositorFrame;
     if (f && (f.projection !== projection || f.tilt !== appliedTilt || f.bearing !== bearing || f.span !== view.span || f.zoom !== camera.zoom)) {
       endCompositorPan(); f = null;
     }
+    let anchor: PrepJob | null = null;
     if (!f) {
       const grid = projectionGrid();
-      const marginCols = Math.max(1, Math.ceil(grid.cols / 4)), marginRows = Math.max(1, Math.ceil(grid.rows / 4));
+      const margins = compositorMargins(grid);
+      const marginCols = margins.cols, marginRows = margins.rows;
+      const cols = grid.cols + 2 * marginCols, rows = grid.rows + 2 * marginRows;
+      const rest = prepJob?.kind === "rest" ? prepJob : null;
+      if (rest && rest.ready && prepJobCurrent(rest) && rest.cols === cols && rest.rows === rows &&
+          sameProjectionGrid(rest.baseGrid, { ...grid, cols, rows, centerCol: grid.centerCol + marginCols, centerRow: grid.centerRow + marginRows })) anchor = rest;
+      else if (rest) cancelPrepJob();
       const o = scene.getOptions();
       const hostBox = host.getBoundingClientRect();
       const outputBox = scene.output.getBoundingClientRect();
@@ -3711,7 +3926,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         hostWidth: hostBox.width, hostHeight: hostBox.height, outputWidth: outputBox.width, outputHeight: outputBox.height,
         originLeft: outputBox.left - hostBox.left, originTop: outputBox.top - hostBox.top,
       };
-      const cols = grid.cols + 2 * marginCols, rows = grid.rows + 2 * marginRows;
       // Freeze physical cell size; only the grid's extent grows. Explicit
       // centres also preserve autoSize's host-centred (rather than grid-centred) framing.
       camera.center = [(grid.centerCol + marginCols) / cols, (grid.centerRow + marginRows) / rows];
@@ -3724,25 +3938,30 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       setSceneOptions({ cols, rows, autoSize: false });
       syncStrokeHookInstalled();
     } else {
-      const grid = f.grid;
-      const p = camera.project(f.target, grid.cols, grid.rows, grid.cellAspect, grid);
-      const dx = (p[0] - grid.centerCol) * grid.cellWidth, dy = (p[1] - grid.centerRow) * grid.cellHeight;
-      let drift = 0;
-      for (const probe of f.probes) {
-        const q = camera.project(probe.world, grid.cols, grid.rows, grid.cellAspect, grid);
-        drift = Math.max(drift, Math.abs((q[0] - probe.col) * grid.cellWidth - dx) / grid.cellWidth,
-          Math.abs((q[1] - probe.row) * grid.cellHeight - dy) / grid.cellHeight);
-      }
-      if (Number.isFinite(dx) && Number.isFinite(dy) && drift <= 0.5 &&
-          Math.abs(dx) < f.marginCols * grid.cellWidth * 0.8 && Math.abs(dy) < f.marginRows * grid.cellHeight * 0.8) {
-        sceneElement.style.transform = `translate(${dx - f.marginCols * grid.cellWidth}px, ${dy - f.marginRows * grid.cellHeight}px)`;
-        return true;
+      const job = prepJob?.kind === "anchor" ? prepJob : null;
+      if (job && !prepJobCurrent(job)) cancelPrepJob();
+      else if (job?.ready && job.frame === f && sameProjectionGrid(job.baseGrid, projectionGrid(true))) anchor = job;
+      if (!anchor) {
+        const m = measureCompositor(f);
+        if (m.ok) {
+          slideCompositor(f, m.dx, m.dy);
+          if (!prepJob && m.pressure >= glyphMapPrerenderTuning.startFraction) startPrepJob("anchor");
+          return true;
+        }
       }
     }
-    applyKeyLight();
-    syncNearSide();
-    compositorRender = true;
-    try { scene.rerender(); } finally { compositorRender = false; }
+    if (anchor) {
+      renderCompositorFrame(anchor.pose);
+      finishPrepJob(anchor);
+      const m = measureCompositor(f);
+      if (m.ok) {
+        slideCompositor(f, m.dx, m.dy);
+        if (m.pressure >= glyphMapPrerenderTuning.startFraction) startPrepJob("anchor");
+        return true;
+      }
+      // The live camera ran past the guards while the anchor was prepared: render it as the frame's anchor instead.
+    }
+    renderCompositorFrame(null);
     return true;
   }
 
@@ -3750,8 +3969,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!compositorPan) interactScene(active);
   };
   scene.rerender = () => {
-    if (!compositorRender) endCompositorPan();
+    if (!compositorRender) {
+      endCompositorPan();
+      // Whatever asked for this render changed the state a rest job was made for.
+      if (prepJob) cancelPrepJob();
+    }
     renderScene();
+    if (!compositorRender) scheduleRestPrepare();
   };
   scene.setOptions = options => {
     // Headlights update lighting options during camera motion without resizing.
@@ -9171,12 +9395,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /**
    * Builds the camera-only outline surface (projection, planes, bins) for the
    * installed pose so the render that follows finds it in the topology's
-   * cache. A topology rebuild is never done here, and neither is a projection
-   * whose wall cull (`Polygon.hidden`, per camera) a later frame rewrites
-   * before it renders: the surface would be keyed on flags that are gone.
+   * cache. A topology rebuild is never done here. The wall cull
+   * (`Polygon.hidden`, per camera, written only by `syncNearSide` right before
+   * a render) is part of the cache check, so a surface prepared against flags
+   * the render then rewrites simply misses and is rebuilt as before.
    */
   function prepareOutlineSurface(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
-    if (walk || projection.visible || !outlineTopology || !outlineGeometries().length || !sameOutlineMeshes(outlineMeshSet())) return;
+    if (walk || !outlineTopology || !outlineGeometries().length || !sameOutlineMeshes(outlineMeshSet())) return;
     const stub = { cols, rows, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
     outlineSurface(stub, outlineProjector(baseGrid, cellToSceneGrid), baseGrid, cellToSceneGrid);
   }
@@ -9829,6 +10054,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     motionLastTime = now;
     let moved = motionDirty;
     motionDirty = false;
+    compositorRendered = false;
 
     // Before the flight/glide branch, and never alongside one: a `flyTo` is
     // cancelled on entering walk mode and a walk has no inertia, so the two
@@ -9888,7 +10114,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // once at rest instead of at every waypoint.
     compositorSettle = false;
     if (moved) scheduleTileUpdate();
-    if (motionActive()) requestMotionFrame();
+    // A frame that already rendered has spent its budget; preparation only uses frames that did not.
+    if (prepJob?.kind === "anchor" && !prepJob.ready && !compositorRendered) runPrepSlice(glyphMapPrerenderTuning.sliceMs);
+    if (motionActive() || (prepJob?.kind === "anchor" && !prepJob.ready)) requestMotionFrame();
   }
 
   /**
@@ -12013,7 +12241,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   const blurTarget: EventTarget | null = host.ownerDocument?.defaultView ?? null;
   blurTarget?.addEventListener("blur", onWalkBlur);
 
-  if (compositorPan) watchCompositorLayout();
+  if (compositorPan) { watchCompositorLayout(); scheduleRestPrepare(); }
 
   // ── Initial mount ─────────────────────────────────────────────────────
 
@@ -12110,6 +12338,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     setCompositorPan(enabled) {
       if (enabled) { interactScene(false); watchCompositorLayout(); }
       compositorPan = enabled;
+      if (enabled) scheduleRestPrepare(); else { cancelRestPrepare(); cancelPrepJob(); }
       if (!enabled && compositorFrame) { endCompositorPan(); syncNearSide(); scene.rerender(); }
     },
     getCompositorPan: () => compositorPan,
@@ -12178,6 +12407,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       cancelCameraGlide();
       if (projectionAnim) { const prev = projectionAnim; projectionAnim = null; prev.settle(); }
       cancelMotionFrame();
+      cancelRestPrepare();
+      cancelPrepJob();
       if (sunTimer !== null) { clearInterval(sunTimer); sunTimer = null; }
       if (tileUpdateTimer !== null) clearTimeout(tileUpdateTimer);
       if (wheelInteractingTimer !== null) clearTimeout(wheelInteractingTimer);
