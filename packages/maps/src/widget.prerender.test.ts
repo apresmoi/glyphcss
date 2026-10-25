@@ -1081,3 +1081,41 @@ it.each([
   flushIdle();
   expect(seam(a).restPrepared()).toBe(true);
 });
+
+// ── Multi-touch holds back rest preparation too ──────────────────────────
+
+const finger = (m: Map, type: string, id: number, x: number) =>
+  m.host.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: "touch", isPrimary: id === 1, button: 0, buttons: 1, clientX: x, clientY: 150, bubbles: true }));
+async function twoFingersDown() {
+  glyphMapPrerenderTuning.restPrepare = true;
+  const a = mount(); await ready(a);
+  finger(a, "pointerdown", 1, 200); finger(a, "pointerdown", 2, 260);
+  finger(a, "pointermove", 1, 195); finger(a, "pointermove", 2, 265); frame();
+  flushIdle(20);
+  return a;
+}
+
+it("does not prepare the rest pose while two touch contacts are held", async () => {
+  const a = await twoFingersDown();
+  expect(seam(a).restPrepared()).toBe(false);
+});
+
+it.each([
+  ["a touch cancel", (m: Map) => { finger(m, "pointercancel", 1, 195); finger(m, "pointercancel", 2, 265); }],
+  ["window blur", (m: Map) => m.host.ownerDocument.defaultView!.dispatchEvent(new Event("blur"))],
+  ["lostpointercapture", (m: Map) => { finger(m, "lostpointercapture", 1, 195); finger(m, "lostpointercapture", 2, 265); }],
+] as const)("prepares the rest pose after a two-finger gesture ends by %s", async (_name, end) => {
+  const a = await twoFingersDown();
+  expect(seam(a).restPrepared()).toBe(false);
+  end(a); frame();
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+});
+
+it("allows rest preparation again once one finger is lifted and a single finger is left", async () => {
+  const a = await twoFingersDown();
+  expect(seam(a).restPrepared()).toBe(false);
+  finger(a, "pointerup", 2, 265); frame();
+  flushIdle();
+  expect(seam(a).restPrepared()).toBe(true);
+});
