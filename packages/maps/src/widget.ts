@@ -8501,7 +8501,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * a layer that reads a ground it never uses still renders identically.
      */
     const wantsDrape = drapeFor !== null && fillDrape !== "flat";
+    /** Bumped by every build that starts: a sliced one that finds a newer start behind it has been overtaken and does not install. */
+    let buildSeq = 0;
+    let layerDisposed = false;
     function build(features: readonly GlyphMapVectorFeature[]): void {
+      buildSeq++;
       const steps = prepareBuild(features);
       let next = steps.next();
       while (!next.done) next = steps.next();
@@ -8677,7 +8681,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const groundAt = groundElevationSampler();
       const moved = (groundAt !== null) !== builtOnTerrain
         || (groundAt !== null && groundProbes.some((p) => groundAt(p.lon, p.lat) !== p.ground));
-      if (moved) build(lastFeatures);
+      if (!moved) return;
+      if (layer.type === "fill-extrusion" && glyphMapPrerenderTuning.sliceBuild) void trackUpdate(rebuildForGround());
+      else build(lastFeatures);
+    }
+    /** The re-plant as a sliced job: the old mesh stands (planted on the old ground) until the new one is whole. */
+    async function rebuildForGround(): Promise<void> {
+      const seq = ++buildSeq;
+      while (seq === buildSeq && !layerDisposed) {
+        const groundThen = groundRevision;
+        const install = await runGlyphMapWaterWork(prepareBuild(lastFeatures, undefined, true), () => seq === buildSeq && !layerDisposed && groundRevision === groundThen);
+        if (seq !== buildSeq || layerDisposed) return;
+        if (install) { install(); return; }
+      }
     }
     const waterCoverageCache = new WeakMap<GlyphMapVectorTile, GlyphMapWaterCoverage>();
     const commitWater = layer.type === "fill" && layer.waterTerrain ? async (tiles: readonly GlyphMapVectorTile[], valid: () => boolean): Promise<{ commit: () => boolean } | null> => {
@@ -8712,7 +8728,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       ? true
       : () => !wantsDrape || (!builtOnTerrain && groundElevationSampler() === null);
     const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, meshIgnoresView, commitWater,
-      layer.type === "fill-extrusion" ? features => prepareBuild(features, undefined, true) : undefined);
+      // Starting it overtakes a ground re-plant that is still being prepared.
+      layer.type === "fill-extrusion" ? features => { buildSeq++; return prepareBuild(features, undefined, true); } : undefined);
     nearSideGeometrySyncs.add(syncWalls);
     // A draped `fill` needs re-planting for exactly the reason an extrusion
     // does — its mesh is camera-independent, so a tile sweep never rebuilds
@@ -8737,6 +8754,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         groundChangeSyncs.delete(syncGround);
         // `runtime.dispose()` below re-runs `build([])`, which invalidates.
         walkCollisionSources.delete(collisionSource);
+        layerDisposed = true;
         runtime.dispose();
         mesh = null;
         wallHorizonDist = null;

@@ -986,3 +986,57 @@ it("never adopts a topology compiled for a layer set that changed while it was b
   await c.idle();
   expect(text(a)).toBe(text(c));
 }, 30000);
+
+it("re-plants an extrusion layer on new ground in slices, installing it whole, to the bytes of an unsliced re-plant and of a fresh map", async () => {
+  let paused = 0, oneShot = 0;
+  const compile = outline.compileGlyphMapExtrusionTopology, create = outline.createGlyphMapExtrusionTopology;
+  vi.spyOn(outline, "compileGlyphMapExtrusionTopology").mockImplementation(function* (...args) {
+    const job = compile(...args);
+    for (let next = job.next(); ; next = job.next()) { if (next.done) return next.value; paused++; yield; }
+  });
+  vi.spyOn(outline, "createGlyphMapExtrusionTopology").mockImplementation((...args) => { oneShot++; return create(...args); });
+  // One outlined extrusion layer: with several, each one's topology is prepared against the others' old meshes and the later installs refuse it.
+  const open = gate(); open.release();
+  const finer: GlyphMapLayer = { type: "raster", id: "terrain-fine", source: terrain(3) };
+
+  const a = mount({ layers: [...sceneLayers().filter(l => l.id !== "blocks"), gatedBlocks(open)] }); await ready(a);
+  const before = text(a);
+  paused = 0; oneShot = 0;
+  a.addLayer(finer); await a.idle();
+  expect(text(a)).not.toBe(before);
+  expect(paused, "the re-plant paused for other work").toBeGreaterThan(3);
+  expect(oneShot, "the render after the install found the topology compiled").toBe(0);
+
+  glyphMapPrerenderTuning.sliceBuild = false;
+  const b = mount({ layers: [...sceneLayers().filter(l => l.id !== "blocks"), gatedBlocks(open)] }); await ready(b);
+  b.addLayer(finer); await b.idle();
+  const c = mount({ layers: [...sceneLayers().filter(l => l.id !== "blocks"), finer, gatedBlocks(open)] }); await ready(c);
+  await c.idle();
+  expect(text(a)).toBe(text(b));
+  expect(text(a)).toBe(text(c));
+}, 30000);
+
+it("a tile landing whose build is overtaken by new ground installs on the new ground, to a fresh map's bytes", async () => {
+  const finer: GlyphMapLayer = { type: "raster", id: "terrain-fine", source: terrain(3) };
+  const flat = () => sceneLayers().filter(l => l.id !== "blocks");
+  let landed: Map | null = null;
+  const compile = outline.compileGlyphMapExtrusionTopology;
+  vi.spyOn(outline, "compileGlyphMapExtrusionTopology").mockImplementation(function* (...args) {
+    const job = compile(...args);
+    for (let next = job.next(); ; next = job.next()) {
+      if (next.done) return next.value;
+      // The terrain lands while the buildings' topology is still being compiled.
+      if (landed) { const m = landed; landed = null; m.addLayer(finer); }
+      yield;
+    }
+  });
+  const g = gate(), open = gate(); open.release();
+  const a = mount({ layers: flat() }); await ready(a);
+  a.addLayer(gatedBlocks(g));
+  landed = a; g.release(); await a.idle();
+  expect(landed, "the terrain landed mid-build").toBeNull();
+  vi.restoreAllMocks();
+  const c = mount({ layers: [...flat(), finer, gatedBlocks(open)] }); await ready(c);
+  await c.idle();
+  expect(text(a)).toBe(text(c));
+}, 30000);
