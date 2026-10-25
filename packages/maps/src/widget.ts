@@ -9140,6 +9140,46 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let outlineTopology: ReturnType<typeof createGlyphMapExtrusionTopology> | undefined;
   let outlineFilledFaces: ReadonlySet<Polygon> | undefined;
   let outlineBlankFaces: ReadonlySet<Polygon> | undefined;
+  function outlineGeometries(): GlyphMapExtrusionGeometry[] {
+    return layerOrder.flatMap(id => {
+      const s = layerStates.get(id);
+      return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
+    });
+  }
+  function outlineMeshSet(): (readonly Polygon[])[] {
+    return [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? [s.runtime.polygons?.() ?? []] : []);
+  }
+  function sameOutlineMeshes(meshes: readonly (readonly Polygon[])[]): boolean {
+    return meshes.length === outlineMeshes.length && meshes.every((p, i) => p === outlineMeshes[i]);
+  }
+  /** Reads `baseGrid` by value so a surface cached for one pose keeps answering `project` for that pose's grid. */
+  function outlineProjector(baseGrid: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine) {
+    return (world: Vec3): GlyphMapStrokeVertex => {
+      const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+      return { ...glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid), depth: p[3] ?? p[2] };
+    };
+  }
+  /** The one place the surface's cache key is built, so a surface prepared ahead of a frame and the frame's own lookup cannot disagree. */
+  function outlineSurface(frozen: CellGrid, project: (world: Vec3) => GlyphMapStrokeVertex, pg: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine) {
+    const frameKey = [frozen.cols, frozen.rows, pg.cols, pg.rows, pg.cellAspect, pg.cellWidth, pg.cellHeight, pg.centerCol, pg.centerRow,
+      ...cellToSceneGrid, camera.kind, camera.rotX, camera.rotY, ...camera.center, ...(camera.mat ?? []),
+      camera.useMat, camera.distance, camera.perspective, camera.zoom, camera.stretch, camera.fovScale,
+      ...camera.target, camera.eyeMode, camera.project, camera.eyeDepth];
+    return createGlyphMapExtrusionSurface(frozen, outlineTopology!.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces, outlineBlankFaces,
+      walk !== null && camera.project === walkProject && camera.eyeDepth === walkEyeDepth);
+  }
+  /**
+   * Builds the camera-only outline surface (projection, planes, bins) for the
+   * installed pose so the render that follows finds it in the topology's
+   * cache. A topology rebuild is never done here, and neither is a projection
+   * whose wall cull (`Polygon.hidden`, per camera) a later frame rewrites
+   * before it renders: the surface would be keyed on flags that are gone.
+   */
+  function prepareOutlineSurface(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
+    if (walk || projection.visible || !outlineTopology || !outlineGeometries().length || !sameOutlineMeshes(outlineMeshSet())) return;
+    const stub = { cols, rows, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
+    outlineSurface(stub, outlineProjector(baseGrid, cellToSceneGrid), baseGrid, cellToSceneGrid);
+  }
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
     if (baseTransformCells) g = baseTransformCells(g, layerInfo) ?? g;
@@ -9183,21 +9223,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           state.runtime.stamp(g, cellToSceneGrid, cachedBaseGrid!, !isDetail);
         }
       }
-      const outlined = layerOrder.flatMap(id => {
-        const s = layerStates.get(id);
-        return s?.kind === "feature" && s.layer.type === "fill-extrusion" && s.layer.outline ? s.runtime.outlineGeometry?.() ?? [] : [];
-      });
+      const outlined = outlineGeometries();
       if (!outlined.length) { outlineMeshes = []; outlineTopology = undefined; outlineFilledFaces = undefined; outlineBlankFaces = undefined; }
       const blanked = [...layerStates.values()].some(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
         s.layer.outline === "braille" && s.layer.fill === false && s.layer.blank);
       if (outlined.length && (layerInfo?.viewport !== true || blanked)) {
         const frozen = { ...g, depth: g.depth.slice() };
-        const project = (world: Vec3): GlyphMapStrokeVertex => {
-          const p = camera.project(world, cachedBaseGrid!.cols, cachedBaseGrid!.rows, cachedBaseGrid!.cellAspect, cachedBaseGrid!);
-          return { ...glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid), depth: p[3] ?? p[2] };
-        };
-        const meshes = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" ? [s.runtime.polygons?.() ?? []] : []);
-        if (!outlineTopology || meshes.length !== outlineMeshes.length || meshes.some((p, i) => p !== outlineMeshes[i])) {
+        const project = outlineProjector(cachedBaseGrid!, cellToSceneGrid);
+        const meshes = outlineMeshSet();
+        if (!outlineTopology || !sameOutlineMeshes(meshes)) {
           outlineMeshes = meshes;
           outlineTopology = createGlyphMapExtrusionTopology(meshes.flat(), outlined);
           const filled = [...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
@@ -9206,13 +9240,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           outlineBlankFaces = new Set([...layerStates.values()].flatMap(s => s.kind === "feature" && s.layer.type === "fill-extrusion" &&
             s.layer.outline === "braille" && s.layer.fill === false && s.layer.blank ? s.runtime.polygons?.() ?? [] : []));
         }
-        const pg = cachedBaseGrid!;
-        const frameKey = [g.cols, g.rows, pg.cols, pg.rows, pg.cellAspect, pg.cellWidth, pg.cellHeight, pg.centerCol, pg.centerRow,
-          ...cellToSceneGrid, camera.kind, camera.rotX, camera.rotY, ...camera.center, ...(camera.mat ?? []),
-          camera.useMat, camera.distance, camera.perspective, camera.zoom, camera.stretch, camera.fovScale,
-          ...camera.target, camera.eyeMode, camera.project, camera.eyeDepth];
-        const surface = createGlyphMapExtrusionSurface(frozen, outlineTopology.polygons, project, v => camera.eyeDepth(v), outlineTopology, frameKey, outlineFilledFaces, outlineBlankFaces,
-          walk !== null && camera.project === walkProject && camera.eyeDepth === walkEyeDepth);
+        const surface = outlineSurface(frozen, project, cachedBaseGrid!, cellToSceneGrid);
         if (layerInfo?.viewport === true) surface.blank?.(g);
         else stampGlyphMapExtrusionOutlines(g, outlined, surface, project, v => camera.eyeDepth(v), appliedTilt !== 0 || walk !== null);
       }
