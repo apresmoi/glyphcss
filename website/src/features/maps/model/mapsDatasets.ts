@@ -66,6 +66,7 @@
  * the reason a 673 KiB (gzipped) land-regions file is a fetch a reader opts
  * into rather than a cost every visitor carries.
  */
+import { MAP_LINE_STRATEGY } from "./mapsOsm";
 import type {
   GlyphMapAttribution,
   GlyphMapLabelAnchor,
@@ -353,7 +354,7 @@ export function mapDatasetLayers(
         textAnchor: anchors[row.id] ?? MAP_DATASET_DEFAULT_ANCHOR,
       });
     } else if (row.type === "line") {
-      layers.push({ ...base, type: "line" as const, ...withDensity });
+      layers.push({ ...base, type: "line" as const, experimentalGlyphStrategy: MAP_LINE_STRATEGY, ...withDensity });
     } else {
       layers.push({ ...base, type: "fill" as const, ...withDensity });
     }

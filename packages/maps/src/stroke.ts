@@ -1076,6 +1076,8 @@ export interface GlyphMapContourPolyline {
 
 export interface GlyphMapContourGeometryOptions {
   readonly color?: string;
+  /** @see GlyphMapStampOptions.experimentalGlyphStrategy — `"braille"` and `"box"` are the line layer's own, shared across this call's lines. */
+  readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
   /** @see GlyphMapStampOptions.requireSurface — default `true` here, the contour ANNOTATION rule. */
   readonly requireSurface?: boolean;
   readonly depthBias?: number;
@@ -1132,12 +1134,19 @@ export function stampGlyphMapContourGeometry(
   const levelAt = labels ? new Float64Array(cells).fill(NaN) : null;
   const horizontality = labels ? new Float32Array(cells) : null;
   const restore = labels ? new Map<number, { readonly char: string; readonly color: string | null }>() : null;
+  const strategy = opts.experimentalGlyphStrategy;
+  const boxGraph = strategy === "box" ? createGlyphMapBoxStrokeGraph() : undefined;
+  // As for a braille line layer: relief is read from before any level inked, so one level's dots never occlude the next.
+  const surface = strategy === "braille" ? { ...grid, depth: grid.depth.slice() } : undefined;
 
   for (const line of polylines) {
     if (line.points.length < 2) continue;
     const level = line.level;
     stampGlyphMapPolyline(grid, line.points, {
       color: opts.color,
+      ...(strategy ? { experimentalGlyphStrategy: strategy } : {}),
+      ...(boxGraph ? { boxGraph } : {}),
+      ...(surface ? { surface } : {}),
       requireSurface,
       depthBias: opts.depthBias,
       depthCurvatureScale: opts.depthCurvatureScale,
@@ -1156,6 +1165,7 @@ export function stampGlyphMapContourGeometry(
         : undefined,
     });
   }
+  if (boxGraph) finishGlyphMapBoxStrokeGraph(grid, boxGraph);
 
   if (!labels) return null;
   // With geometry there is no per-cell elevation array to read coverage off,

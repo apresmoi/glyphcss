@@ -708,6 +708,8 @@ export interface GlyphMapContourLayer {
   readonly labelEvery?: number;
   /** See {@link GlyphMapLineLayer.density}'s doc — the same "default follows the annotated surface, a genuine value gets its own viewport overlay" reasoning applies here. */
   readonly density?: number;
+  /** @experimental The `line` layer's glyph strategy, applied to every contour level. Omit for byte-identical oriented ink. */
+  readonly experimentalGlyphStrategy?: GlyphMapStrokeGlyphStrategy;
 }
 
 /**
@@ -7950,6 +7952,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       };
       const plan = stampGlyphMapContourGeometry(grid, polylines, {
         color: layer.color,
+        ...(layer.experimentalGlyphStrategy ? { experimentalGlyphStrategy: layer.experimentalGlyphStrategy } : {}),
         requireSurface: hasOpaqueSurface,
         covered: layer.labels === true && !hasOpaqueSurface ? coveredByProjection : undefined,
         labels: layer.labels === true

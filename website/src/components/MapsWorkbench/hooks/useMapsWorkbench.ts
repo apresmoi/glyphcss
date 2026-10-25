@@ -1680,6 +1680,7 @@ export function useMapsWorkbench() {
           maxElevation: contourMaxElevation,
           labels: contourLabels,
         }),
+        experimentalGlyphStrategy: MAP_LINE_STRATEGY,
       });
     }
     map.scene.rerender();

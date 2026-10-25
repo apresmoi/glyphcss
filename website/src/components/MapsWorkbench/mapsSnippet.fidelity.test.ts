@@ -218,3 +218,17 @@ it("exports braille lines and outline-only OSM buildings by default", async () =
     vi.resetModules();
   }
 });
+
+it("exports braille borders and contours by default", async () => {
+  vi.stubGlobal("location", { search: "" });
+  vi.resetModules();
+  try {
+    const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
+    const lines = buildMapsSnippet({ ...DEFAULTS, showBorders: true, showContour: true }).split("\n");
+    expect(lines.find(l => l.includes('type: "line", source: borderProvider'))).toContain('experimentalGlyphStrategy: "braille"');
+    expect(lines.find(l => l.includes('type: "contour"'))).toContain('experimentalGlyphStrategy: "braille"');
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+});

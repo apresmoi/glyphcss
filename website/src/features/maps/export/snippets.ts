@@ -189,12 +189,12 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
       : []),
     ...(state.showBorders
       ? [
-          `    { type: "line", source: borderProvider, color: ${JSON.stringify(state.borderColor)}${optional("density", state.borderDensity, 1)} },`,
+          `    { type: "line", source: borderProvider, color: ${JSON.stringify(state.borderColor)}${optional("density", state.borderDensity, 1)}, simplify: "vw", sharedArcs: true, experimentalGlyphStrategy: ${JSON.stringify(MAP_LINE_STRATEGY)} },`,
         ]
       : []),
     ...(state.showContour
       ? [
-          `    { type: "contour", source: terrainProvider, levels: { interval: ${fmt(state.contourInterval)} }, color: ${JSON.stringify(state.contourColor)}${elevationWindowSource(state.contourMinElevation, state.contourMaxElevation)}${state.contourLabels ? ", labels: true" : ""}${optional("density", state.contourDensity, 1)} },`,
+          `    { type: "contour", source: terrainProvider, levels: { interval: ${fmt(state.contourInterval)} }, color: ${JSON.stringify(state.contourColor)}${elevationWindowSource(state.contourMinElevation, state.contourMaxElevation)}${state.contourLabels ? ", labels: true" : ""}${optional("density", state.contourDensity, 1)}, experimentalGlyphStrategy: ${JSON.stringify(MAP_LINE_STRATEGY)} },`,
         ]
       : []),
     // The OSM stack is ONE call, exactly as the page mounts it
