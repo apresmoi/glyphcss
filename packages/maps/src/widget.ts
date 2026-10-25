@@ -4083,7 +4083,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
       const job = prepJob?.kind === "anchor" ? prepJob : null;
       if (job && !prepJobCurrent(job)) cancelPrepJob();
-      else if (job?.ready && job.frame === f && sameProjectionGrid(job.baseGrid, projectionGrid(true))) anchor = job;
+      // Landings of one sweep's layers arrive a task apart; the re-anchor waits for the last of them so the frame renders them once.
+      else if (job?.ready && !sweepActive && job.frame === f && sameProjectionGrid(job.baseGrid, projectionGrid(true))) anchor = job;
       if (!anchor) {
         const m = measureCompositor(f);
         // Showing the frame as it is while its replacement is prepared is bounded: past the wait, or with nothing preparing, the frame takes its one synchronous render.
@@ -4127,6 +4128,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     // Released, with the settle frame already owed: that frame renders everything, including this.
     if (compositorSettle && motionDirty) { ownSceneRender(); requestMotionFrame(); return; }
+    if (sweepActive) { sweepRenderOwed = true; return; }
     scene.rerender();
   }
 
@@ -10970,29 +10972,64 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (tileUpdateTimer !== null) clearTimeout(tileUpdateTimer);
     tileUpdateTimer = setTimeout(() => {
       tileUpdateTimer = null;
-      for (const state of layerStates.values()) {
-        if (state.kind === "raster" && isGlyphMapProvider(state.layer.source)) void trackUpdate(state.runtime.update());
-        else if (state.kind === "line" && isGlyphMapVectorProvider(state.layer.source)) void trackUpdate(state.runtime.update());
-        // A static (non-provider) `line`/`contour` source has nothing to
-        // re-fetch — `stamp()` already re-samples live off the CURRENT
-        // camera on every render (every view-changing gesture already calls
-        // `scene.rerender()` directly, see `applyDrag`/`applyWheel`/`setView`
-        // below), so gating this on the provider check, not the layer kind
-        // alone, is intentional and mirrors `line`'s own gate exactly — not
-        // an oversight to "fix" by dropping the condition.
-        else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void trackUpdate(state.runtime.update());
-        // A `fill-extrusion`'s mesh is camera-INDEPENDENT: its far-side wall
-        // cull is re-applied per rendered frame from `nearSideSyncs`, not
-        // baked in at build time, so a static source has nothing to redo as
-        // the globe turns and this stays the plain provider-only condition
-        // every other layer kind uses. Rebuilding it on the view change too
-        // would cost a full re-triangulation (measured 13.7ms on the real z0
-        // admin_0 tile) for a picture the cull has already produced.
-        else if (state.kind === "feature" && isGlyphMapVectorProvider(state.layer.source)) {
-          void trackUpdate(state.runtime.update());
-        }
-      }
+      void trackUpdate(sweepLayers());
     }, 180);
+  }
+
+  /** Starts one layer's sweep, if it is a kind that has one. */
+  function sweepLayer(state: LayerState): void {
+    if (state.kind === "raster" && isGlyphMapProvider(state.layer.source)) void trackUpdate(state.runtime.update());
+    else if (state.kind === "line" && isGlyphMapVectorProvider(state.layer.source)) void trackUpdate(state.runtime.update());
+    // A static (non-provider) `line`/`contour` source has nothing to
+    // re-fetch — `stamp()` already re-samples live off the CURRENT
+    // camera on every render (every view-changing gesture already calls
+    // `scene.rerender()` directly, see `applyDrag`/`applyWheel`/`setView`
+    // below), so gating this on the provider check, not the layer kind
+    // alone, is intentional and mirrors `line`'s own gate exactly — not
+    // an oversight to "fix" by dropping the condition.
+    else if (state.kind === "contour" && isGlyphMapFieldProvider(state.layer.source)) void trackUpdate(state.runtime.update());
+    // A `fill-extrusion`'s mesh is camera-INDEPENDENT: its far-side wall
+    // cull is re-applied per rendered frame from `nearSideSyncs`, not
+    // baked in at build time, so a static source has nothing to redo as
+    // the globe turns and this stays the plain provider-only condition
+    // every other layer kind uses. Rebuilding it on the view change too
+    // would cost a full re-triangulation (measured 13.7ms on the real z0
+    // admin_0 tile) for a picture the cull has already produced.
+    else if (state.kind === "feature" && isGlyphMapVectorProvider(state.layer.source)) {
+      void trackUpdate(state.runtime.update());
+    }
+  }
+
+  /** Renders that landings owe while a sweep is still starting layers; the sweep makes them one render. */
+  let sweepActive = false;
+  let sweepRenderOwed = false;
+  /**
+   * Every layer's sweep, in layer order. With cached tiles a layer's whole
+   * rebuild and render runs in the microtasks behind its start, so starting
+   * them all back to back was one task of every layer's cost at once (100-460
+   * ms measured on a city). Each layer starts in a task of its own, and the
+   * renders the landings in between owe are one render, taken when the last
+   * layer has started.
+   */
+  async function sweepLayers(): Promise<void> {
+    sweepActive = true;
+    try {
+      for (const [id, state] of [...layerStates]) {
+        if (destroyed) return;
+        // Motion re-armed the sweep: that one covers the layers not yet started, for the view it will see.
+        if (tileUpdateTimer !== null) return;
+        if (layerStates.get(id) !== state) continue;
+        sweepLayer(state);
+        if (glyphMapPrerenderTuning.sweepSplit) await new Promise<void>(resolve => { setTimeout(resolve, 0); });
+      }
+    } finally {
+      sweepActive = false;
+      if (contentDirty) requestMotionFrame();
+      if (sweepRenderOwed) {
+        sweepRenderOwed = false;
+        if (!destroyed) scene.rerender();
+      }
+    }
   }
 
   /**

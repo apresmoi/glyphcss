@@ -103,6 +103,8 @@ export const glyphMapPrerenderTuning = {
   glidePrepare: true,
   /** Build a city's extrusion mesh and outline topology in cancellable slices when a tile lands, and show it once whole. */
   sliceBuild: true,
+  /** Start each layer's tile sweep in a task of its own, rather than all of them in the task the debounce fired in. */
+  sweepSplit: true,
 };
 
 /** Test seam key: a handle carries {@link GlyphMapPrerenderSeam} under this symbol, off its public type. */
