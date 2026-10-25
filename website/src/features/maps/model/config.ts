@@ -299,10 +299,12 @@ export const OSM_DENSITY_TITLES: Record<string, (label: string) => string> = {
     `${label} — positioned labels rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
   circle: (label) =>
     `${label} — positioned markers rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
+  glyph: (label) =>
+    `${label} — one mark per point in the text grid, so this row has no density: nothing in the renderer reads one for it.`,
 };
 
-/** The two layer types these cards mount that read no `density` at all — so their rows carry no density control. */
-export const MAP_ROW_DENSITYLESS_TYPES = new Set(["symbol", "circle"]);
+/** The layer types these cards mount that read no `density` at all — so their rows carry no density control. */
+export const MAP_ROW_DENSITYLESS_TYPES = new Set(["symbol", "circle", "glyph"]);
 
 /**
  * The one layer type on this card that DRAWS LABELS — so its rows, and only

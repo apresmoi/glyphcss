@@ -113,7 +113,7 @@ const OPENINFRAMAP_CREDIT: GlyphMapAttribution = {
 };
 
 /** The layer types this card mounts — the same four the OSM card already proves the widget renders from a static source. */
-export type MapDatasetLayerType = "circle" | "symbol" | "line" | "fill";
+export type MapDatasetLayerType = "glyph" | "symbol" | "line" | "fill";
 
 export interface MapDatasetRow {
   readonly id: string;
@@ -127,8 +127,6 @@ export interface MapDatasetRow {
   readonly color: string;
   /** `symbol` rows only — which decoded property is printed. */
   readonly textProperty?: string;
-  /** `circle` rows only — flat marker radius in CSS pixels; these datasets carry no magnitude to size by. */
-  readonly radius?: number;
 }
 
 /**
@@ -175,11 +173,10 @@ export const MAP_DATASET_ROWS: readonly MapDatasetRow[] = [
   {
     id: "ds-datacenters",
     label: "Datacenters",
-    type: "circle",
+    type: "glyph",
     url: "/data/datacenters/datacenters.json",
     credit: [OSM_CREDIT],
     color: "#5ad1c4",
-    radius: 2,
   },
   {
     id: "ds-dams",
@@ -344,8 +341,9 @@ export function mapDatasetLayers(
     const density = densities[row.id] ?? MAP_DATASET_DEFAULT_DENSITY;
     const withDensity = density === MAP_DATASET_DEFAULT_DENSITY ? {} : { density };
     const base = { id: row.id, source: data.collection, color: row.color };
-    if (row.type === "circle") {
-      layers.push({ ...base, type: "circle" as const, radius: row.radius ?? 2 });
+    if (row.type === "glyph") {
+      // Marks stamped into the text grid, never DOM dots: points sharing a cell merge into one mark, so a dense row costs nothing per point on a drag.
+      layers.push({ ...base, type: "glyph" as const });
     } else if (row.type === "symbol") {
       layers.push({
         ...base,

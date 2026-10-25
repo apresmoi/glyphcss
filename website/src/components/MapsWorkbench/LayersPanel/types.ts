@@ -123,9 +123,9 @@ export interface MapLayerRowInputs {
   readonly id: string;
   readonly label: string;
   /** The glyph layer type this row mounts as — it decides what the row's density COSTS, and whether the row gets a density control at all (`MAP_ROW_DENSITYLESS_TYPES`). */
-  readonly type: "line" | "fill" | "fill-extrusion" | "symbol" | "circle";
+  readonly type: "line" | "fill" | "fill-extrusion" | "symbol" | "circle" | "glyph";
   readonly on: boolean;
-  /** This row's own density. Ignored for a `symbol`/`circle` row, which renders no density control. */
+  /** This row's own density. Ignored for a `symbol`/`glyph` row, which renders no density control. */
   readonly density: number;
   /**
    * Where this row's labels sit relative to their own point — MapLibre's
