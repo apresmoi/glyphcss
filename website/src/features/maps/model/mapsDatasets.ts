@@ -67,6 +67,9 @@
  * into rather than a cost every visitor carries.
  */
 import { MAP_LINE_STRATEGY } from "./mapsOsm";
+
+/** Point rows aggregate into one dot per this many cells: thousands of DOM dots restyled every frame is what made a drag stutter. */
+export const MAP_DATASET_CLUSTER_CELLS = 2;
 import type {
   GlyphMapAttribution,
   GlyphMapLabelAnchor,
@@ -345,7 +348,7 @@ export function mapDatasetLayers(
     const withDensity = density === MAP_DATASET_DEFAULT_DENSITY ? {} : { density };
     const base = { id: row.id, source: data.collection, color: row.color };
     if (row.type === "circle") {
-      layers.push({ ...base, type: "circle" as const, radius: row.radius ?? 2 });
+      layers.push({ ...base, type: "circle" as const, radius: row.radius ?? 2, cluster: MAP_DATASET_CLUSTER_CELLS });
     } else if (row.type === "symbol") {
       layers.push({
         ...base,
