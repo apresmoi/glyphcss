@@ -1515,6 +1515,8 @@ type GlyphMapCellAffine = readonly [number, number, number, number, number, numb
 const GLYPH_MAP_IDENTITY_CELL_AFFINE: GlyphMapCellAffine = [1, 0, 0, 1, 0, 0];
 /** Rings between yields of a prepared plan: sets the slice granularity without a clock read per ring. */
 const PREPARE_YIELD_RINGS = 16;
+/** The same for a contour's marching segments, which are far cheaper than a ring each. */
+const CONTOUR_PREPARE_YIELD_SEGMENTS = 2048;
 
 /** Scene/base-grid (col,row) → a grid's own LOCAL (col,row) — the inverse of `cellToSceneGrid`'s forward mapping. */
 function glyphMapSceneToLocalCell(sceneCol: number, sceneRow: number, affine: GlyphMapCellAffine): { readonly col: number; readonly row: number } {
@@ -7406,31 +7408,29 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
 
-    function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
-      const range = fieldRange();
-      if (!range) return;
-      // `hasOpaqueSurface` stays a SCENE-level check (does ANY raster layer
-      // exist, anywhere — base or a detail grid, regardless of density) —
-      // deliberately not per-grid. The per-cell gate inside the stamp
-      // (`Number.isFinite(grid.depth[idx])`) already reads whichever grid IS
-      // passed to it, so it already answers "does a surface exist HERE" per
-      // grid on its own; this flag only decides whether that question is
-      // meaningful at all. With a raster layer mounted at density > 1, its
-      // geometry lives ENTIRELY in its own detail grid (AGENTS.md's per-mesh
-      // detail layers): the base grid's own `grid.depth` then reads
-      // non-finite everywhere, so `requireSurface: true` correctly blanks
-      // the contour on the base (nothing there to annotate) while the SAME
-      // flag, passed to the detail grid's own `stamp()` call, correctly
-      // gates on that grid's real terrain coverage instead. No raster layer
-      // mounted anywhere degrades every grid to "draw wherever the geometry
-      // is" (open sky reads uniformly non-finite too, and the per-grid gate
-      // can't tell that apart from "no surface exists to annotate" — see
-      // `stroke.ts`'s `GlyphMapStampOptions.requireSurface` doc).
-      const hasOpaqueSurface = [...layerStates.values()].some((s) => s.kind === "raster");
-      const levels = levelsFor(range);
-      const segments = contourGeometry(levels);
-      if (segments.length === 0) return;
+    /**
+     * Every input the polylines below are a function of. The marched geometry,
+     * the level list and the screen-cull margin all follow from the mosaic and
+     * the layer's own fixed options, so the mosaic's identity stands for them.
+     */
+    function planKey(cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): unknown[] | null {
+      if (walk || camera !== orthographicCamera) return null;
+      const v = getView();
+      return [...cameraKey(camera), ...cellToSceneGrid, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid.cellWidth,
+        baseGrid.cellHeight, baseGrid.centerCol, baseGrid.centerRow, mosaic, projection, projection.exaggeration, v.span, v.cols];
+    }
 
+    /**
+     * The camera-only half of a stamp: every marching segment projected,
+     * clipped to the visible side and densified per output cell, in lon/lat
+     * order. It reads nothing from the grid being stamped, so it can run ahead
+     * of the frame it is for; `yieldEvery` segments between yields (`Infinity`
+     * for the synchronous stamp, which never suspends).
+     */
+    function* contourPolylines(
+      segments: readonly GlyphMapContourSegment[], cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid,
+      out: GlyphMapContourPolyline[], yieldEvery: number,
+    ): Generator<void, void> {
       /**
        * SCREEN CULL, and it is what keeps this affordable. A mounted mosaic
        * covers the swept tiles, not the viewport, and the marching grid is
@@ -7583,8 +7583,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         return out;
       };
 
-      const polylines: GlyphMapContourPolyline[] = [];
+      let visited = 0;
       for (const segment of segments) {
+        if (++visited % yieldEvery === 0) yield;
         // THE WHOLE POINT: the vertex is projected at the LEVEL'S OWN
         // elevation, in metres, through the same `projection.project` the
         // terrain vertex beside it goes through — so the exaggerated relief
@@ -7616,7 +7617,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         if (visibleA && visibleB) {
           const la = glyphMapSceneToLocalCell(pa[0], pa[1], cellToSceneGrid);
           const lb = glyphMapSceneToLocalCell(pb[0], pb[1], cellToSceneGrid);
-          polylines.push({
+          out.push({
             level: segment.level,
             points: contourRun(
               segment.a[0], segment.a[1], segment.b[0], segment.b[1], segment.level,
@@ -7643,8 +7644,60 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
             const piece = contourRun(a.lon, a.lat, b.lon, b.lat, segment.level, a.col, a.row, a.depth, b.col, b.row, b.depth);
             points.push(...(i === 1 ? piece : piece.slice(1)));
           }
-          polylines.push({ level: segment.level, points });
+          out.push({ level: segment.level, points });
         }
+      }
+    }
+
+    let prepared: { readonly key: unknown[]; readonly polylines: GlyphMapContourPolyline[] } | null = null;
+
+    function* prepare(_cols: number, _rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
+      prepared = null;
+      const key = planKey(cellToSceneGrid, baseGrid);
+      const range = fieldRange();
+      if (!key || !range) return;
+      const segments = contourGeometry(levelsFor(range));
+      yield;
+      const polylines: GlyphMapContourPolyline[] = [];
+      if (segments.length > 0) yield* contourPolylines(segments, cellToSceneGrid, baseGrid, polylines, CONTOUR_PREPARE_YIELD_SEGMENTS);
+      const done = planKey(cellToSceneGrid, baseGrid);
+      if (done && sameKey(key, done)) prepared = { key, polylines };
+    }
+
+    function stamp(grid: CellGrid, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
+      const range = fieldRange();
+      if (!range) return;
+      // `hasOpaqueSurface` stays a SCENE-level check (does ANY raster layer
+      // exist, anywhere — base or a detail grid, regardless of density) —
+      // deliberately not per-grid. The per-cell gate inside the stamp
+      // (`Number.isFinite(grid.depth[idx])`) already reads whichever grid IS
+      // passed to it, so it already answers "does a surface exist HERE" per
+      // grid on its own; this flag only decides whether that question is
+      // meaningful at all. With a raster layer mounted at density > 1, its
+      // geometry lives ENTIRELY in its own detail grid (AGENTS.md's per-mesh
+      // detail layers): the base grid's own `grid.depth` then reads
+      // non-finite everywhere, so `requireSurface: true` correctly blanks
+      // the contour on the base (nothing there to annotate) while the SAME
+      // flag, passed to the detail grid's own `stamp()` call, correctly
+      // gates on that grid's real terrain coverage instead. No raster layer
+      // mounted anywhere degrades every grid to "draw wherever the geometry
+      // is" (open sky reads uniformly non-finite too, and the per-grid gate
+      // can't tell that apart from "no surface exists to annotate" — see
+      // `stroke.ts`'s `GlyphMapStampOptions.requireSurface` doc).
+      const hasOpaqueSurface = [...layerStates.values()].some((s) => s.kind === "raster");
+      const levels = levelsFor(range);
+      const segments = contourGeometry(levels);
+      if (segments.length === 0) return;
+
+      let polylines: GlyphMapContourPolyline[] | null = null;
+      if (prepared) {
+        const key = planKey(cellToSceneGrid, baseGrid);
+        if (key && sameKey(key, prepared.key)) polylines = prepared.polylines;
+        prepared = null;
+      }
+      if (!polylines) {
+        polylines = [];
+        for (const step = contourPolylines(segments, cellToSceneGrid, baseGrid, polylines, Infinity); !step.next().done;);
       }
 
       // The globe's horizon gate for LABELS, and only where the grid cannot
@@ -7715,6 +7768,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return {
       update,
       stamp,
+      prepare,
+      discardPlan(): void { prepared = null; },
+      planned: () => prepared !== null,
       dispose(): void {
         disposed = true;
         groundChangeSyncs.delete(resweep);
