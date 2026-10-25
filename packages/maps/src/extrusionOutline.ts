@@ -258,7 +258,7 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
 }
 // Beside the topology, not in its scratch: the topology reference tests compare
 // every scratch field with a frozen compiler that has no such buffer.
-const triangleUppers = new WeakMap<object, Float64Array>();
+const triangleUppers = new WeakMap<object, Float64Array<ArrayBuffer>>();
 // This bounds floating point evaluation error, not a world-space depth bias.
 const roundoff = (a: number, b: number) => Number.EPSILON * 32 * Math.max(Math.abs(a), Math.abs(b), Number.MIN_VALUE);
 
