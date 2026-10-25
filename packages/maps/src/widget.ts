@@ -2658,6 +2658,16 @@ function nowMs(): number {
 }
 
 /**
+ * When the hand actually moved, not when the handler got to run. A frame that
+ * takes 40 ms to draw delays the handlers behind it, so handler time read a
+ * quick release as a pause and dropped the fling, and a throw near a heavy
+ * part of the map simply stopped dead.
+ */
+function pointerEventTime(e: Event): number {
+  return Number.isFinite(e.timeStamp) && e.timeStamp > 0 ? e.timeStamp : nowMs();
+}
+
+/**
  * Default {@link GlyphMapRasterLayer.padCells} — widened from the original
  * `2` (never-black investigation): tile updates are gesture-GATED
  * (`scheduleTileUpdate`'s debounce never fires mid-drag/mid-wheel, only once
@@ -3176,6 +3186,21 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     syncCameraBearing();
   }
 
+  /**
+   * An orbit's lattice is measured as the pivot's offset in the anchor's
+   * picture, which is only linear near the anchor: carried round the sphere
+   * the offset shrinks, and a whole-globe drag left the drawn camera up to
+   * 125 degrees behind the real one. Past this arc the lattice is re-keyed.
+   * At city scale that is a hundred viewports; at a whole globe, every step.
+   */
+  const SNAP_ORBIT_REANCHOR_RAD = Math.PI / 180;
+  function orbitedPastLattice(from: Vec3, to: Vec3): boolean {
+    if (!projection.centerForCamera) return false;
+    const dot = from[0] * to[0] + from[1] * to[1] + from[2] * to[2];
+    const cos = dot / (Math.hypot(from[0], from[1], from[2]) * Math.hypot(to[0], to[1], to[2]));
+    return !(cos > Math.cos(SNAP_ORBIT_REANCHOR_RAD));
+  }
+
   /** Freeze one cell lattice until the lens/orientation/grid changes. Navigation stays exact. */
   function snapRenderedPan(measuredGrid?: ProjectionGrid): void {
     if (!snapPan || walk) {
@@ -3194,7 +3219,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       grid.cellWidth,
       grid.cellHeight,
     ].join(",");
-    if (!panAnchor || panAnchor.projection !== projection || panAnchor.key !== key) {
+    if (!panAnchor || panAnchor.projection !== projection || panAnchor.key !== key || orbitedPastLattice(panAnchor.target, camera.target)) {
       const t = camera.target;
       const screen = (v: Vec3) => camera.project(v, grid.cols, grid.rows, grid.cellAspect, grid);
       const origin = screen(t);
@@ -11641,7 +11666,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // can't launch the camera. `now - lastMoveTime` is floored at one frame:
     // two pointer events in the same millisecond would otherwise divide by
     // ~0 and report an enormous velocity.
-    const now = nowMs();
+    const now = pointerEventTime(e);
     if (lastMoveTime > 0) {
       const dt = Math.max(4, now - lastMoveTime);
       const mix = GLYPH_MAP_GLIDE_VELOCITY_MIX;
@@ -11777,7 +11802,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // Release into an inertial glide when the gesture was actually moving.
     // A stale velocity from a drag that PAUSED before release must not fling:
     // if the last move is older than a couple of frames, there is no throw.
-    const sinceLastMove = lastMoveTime > 0 ? nowMs() - lastMoveTime : Infinity;
+    const sinceLastMove = lastMoveTime > 0 ? pointerEventTime(e) - lastMoveTime : Infinity;
     const speed = Math.hypot(glideVx, glideVy);
     if (didDrag && controlsDrag && sinceLastMove <= 60 && speed > GLYPH_MAP_GLIDE_MIN_PX_PER_MS
       && typeof requestAnimationFrame !== "undefined") {

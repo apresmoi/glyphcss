@@ -426,6 +426,28 @@ describe("tilted globe pan", () => {
     } finally { done(); }
   });
 
+  it.each([false, true])("keeps a whole-globe drag's drawn camera on its own centre, pass after pass, through the pole (snapPan=%s)", async (snapPan) => {
+    const projection = glyphMapGlobe();
+    const { map, host, done } = mount({ view: { center: [-2.1, -61.7], span: 360, cols: COLS, rows: ROWS }, projection, snapPan });
+    try {
+      await map.idle();
+      const camera = map.scene.camera;
+      for (let pass = 0; pass < 6; pass++) {
+        const init = { pointerId: 3, bubbles: true, button: 0 };
+        host.dispatchEvent(new PointerEvent("pointerdown", { ...init, clientX: 300, clientY: 150 }));
+        for (let i = 1; i <= 10; i++) {
+          host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 300, clientY: 150 + 30 * i }));
+          // The drawn camera must look at the centre the map reports; a gap is a hidden extra angle that bends every later drag.
+          const [, lat] = projection.centerForCamera!(camera.rotX - map.getTilt(), camera.rotY);
+          const [, clat] = map.getView().center;
+          // Snap-pan may draw up to a cell (span / cols degrees) off the exact camera, never more.
+          expect(Math.abs(lat - clat)).toBeLessThan(360 / COLS);
+        }
+        host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 300, clientY: 450 }));
+      }
+    } finally { done(); }
+  });
+
   it("moves a near-pole globe with the hand when a vertical drag drifts sideways, never spinning it about the pole", async () => {
     const { map, host, done } = mount({ view: { center: [-52.33, 82.57], span: 360, cols: COLS, rows: ROWS }, projection: glyphMapGlobe() });
     try {
