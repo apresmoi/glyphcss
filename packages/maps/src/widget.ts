@@ -63,6 +63,7 @@ import { glyphMapTrueScaleElevation } from "./projection";
 import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
+import { createGlyphMapOrthographicProjector } from "./orthographicCell";
 import { createGlyphMapGroundIndex } from "./groundIndex";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
@@ -3845,10 +3846,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       walk?.far, view.center[0], view.center[1]];
     if (visibilityMemo && key.length === visibilityMemo.key.length && key.every((v, i) => v === visibilityMemo!.key[i])) return visibilityMemo;
     let origin = 0, originReady = false;
+    const ortho = camera.project === orthographicProject ? createGlyphMapOrthographicProjector(camera, grid) : null;
+    const depthIn = ortho ? (v: Vec3) => { ortho.to(v[0], v[1], v[2]); return ortho.depth; } : (v: Vec3) => depthOf(v, grid);
     const depth = (v: Vec3) => {
-      if (v[0] !== 0 || v[1] !== 0 || v[2] !== 0) return depthOf(v, grid);
+      if (v[0] !== 0 || v[1] !== 0 || v[2] !== 0) return depthIn(v);
       // Custom visibility callbacks need not ask for the origin at all.
-      if (!originReady) { origin = depthOf(v, grid); originReady = true; }
+      if (!originReady) { origin = depthIn(v); originReady = true; }
       return origin;
     };
     const proof = walk || (camera.kind === "orthographic" && camera.project === orthographicProject) ? prepareGlyphMapNearSideProof(projection, depth,
@@ -6523,6 +6526,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         return Number.isFinite(sampled) ? sampled : 0;
       };
       const drapeSample = { col: 0, row: 0, depth: 0, lon: 0, lat: 0, elev: 0 };
+      const ortho = camera.project === orthographicProject ? createGlyphMapOrthographicProjector(camera, baseGrid) : null;
       const vertexAt = (lon: number, lat: number, elevOverride?: number, source?: readonly [number, number]): GlyphMapDrapeSample => {
         // DRAPED: the vertex is projected at the ground elevation under
         // its own lon/lat, so it is drawn where the terrain it belongs to
@@ -6566,13 +6570,17 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // silently out of bounds. Depth is unaffected by the affine:
         // `project()`'s cssZ/1-over-denom terms never depend on the
         // cellWidth/centerCol metrics that vary between grids.
-        const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
-
         // ONE projection per vertex. The second one this used to run —
         // the same lon/lat taken at the ground, to forgive that offset in
         // the depth test — was the workaround for projecting here at the
         // datum, and it is exactly the projection this line now IS.
-        drapeSample.col = (p[0] - cellToSceneGrid[4]) / cellToSceneGrid[0]; drapeSample.row = (p[1] - cellToSceneGrid[5]) / cellToSceneGrid[3]; drapeSample.depth = p[3] ?? p[2];
+        if (ortho) {
+          ortho.to(world[0], world[1], world[2]);
+          drapeSample.col = (ortho.col - cellToSceneGrid[4]) / cellToSceneGrid[0]; drapeSample.row = (ortho.row - cellToSceneGrid[5]) / cellToSceneGrid[3]; drapeSample.depth = ortho.depth;
+        } else {
+          const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
+          drapeSample.col = (p[0] - cellToSceneGrid[4]) / cellToSceneGrid[0]; drapeSample.row = (p[1] - cellToSceneGrid[5]) / cellToSceneGrid[3]; drapeSample.depth = p[3] ?? p[2];
+        }
         drapeSample.lon = lon; drapeSample.lat = lat; drapeSample.elev = groundElev;
         return drapeSample;
       };
