@@ -357,12 +357,9 @@
 .root :global(.maps-osm-row--density-off) input[type="range"] {
   cursor: not-allowed;
 }
-.root :global(.glyph-scene) :global(.glyph-map-symbol),
-.root :global(.glyph-scene) :global(.glyph-map-circle) {
+.root :global(.glyph-scene) :global(.glyph-map-symbol) {
   pointer-events: none;
   cursor: default;
-}
-.root :global(.glyph-scene) :global(.glyph-map-symbol) {
   font: 500 10px/1 var(--gc-font-ui);
   letter-spacing: 0.04em;
   white-space: nowrap;
@@ -375,11 +372,6 @@
     1px 0 0 rgba(var(--gc-surface-rgb), 0.95),
     -1px 0 0 rgba(var(--gc-surface-rgb), 0.95);
   transition: opacity 120ms linear;
-}
-.root :global(.glyph-scene) :global(.glyph-map-circle) {
-  border: 1px solid rgba(var(--gc-surface-rgb), 0.85);
-  box-sizing: border-box;
-  opacity: 0.75;
 }
 .root :global(.maps-search) {
   position: absolute;

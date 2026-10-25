@@ -28,6 +28,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Line `simplify: "vw"`: latitude-corrected VW at half a live cell, eight quarter-octave buckets per line/arc, before clipping/draping; keeps endpoints and collapsed rings. Walk keeps detail. Omitted is byte-identical.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
+- `circle` = the `glyph` stamper with a CSS-pixel radius: `radius / baseGrid.cellHeight` = disc rows, <½ row = one smallest mark; shared cells merge. No `density`/ramp/labels/`onSelect`; only `symbol` is DOM.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); palettes fall back to row colour.
 - `/maps` URL row lists are positional: append rows, never insert.
 - Live data: `setLayerSource`, no clock.
@@ -36,18 +37,18 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 ## Don't
 
-- Never bias stroke/contour/point depth: forgive only curvature plus projected elevation rise. Pitch slopes flat ground in depth; slope slack draws through buildings.
+- Never bias stroke/contour/point depth: forgive only curvature plus projected elevation rise; slope slack draws through buildings.
 - Don't write a drape lift or bias on the exaggerated axis (10 m was 240 true metres at 24x). Measure rise and chord sag; the constant is a 1 true-metre tie-break.
 - Don't plant on a feature attribute (`ele`, `min_height`): the drawn surface is the terrain sample; `min_height` is a true-metre offset above it.
-- Ocean DEM is seabed, not surface: drape `ocean` at datum; lakes keep the terrain drape.
+- Ocean DEM is seabed: drape `ocean` at datum; lakes keep the terrain drape.
 - Opaque `density`/`renderMode`/`glyphPalette`/`ambientIntensity` splits cost a whole-scene id raster (~+10 ms); each stroke density adds an overlay grid.
-- Camera-following meshes (walk sky): rebuild polygons past a distance threshold.
+- Don't draw a point as a CSS shape (border-radius dot): output is text only.
 - Don't use `projection.visible` or `view.span / cols` under the walk camera: points use `nearSideVisible`, tiles the horizon BOX, LOD the finest level (span-keyed LOD drops buildings on a phone).
 - Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers forever). The raster sweep still has this gap.
-- Don't rebuild point layers on an unchanged sweep, create labels visible then hide them (CSS transitions flash), or move one by remove+add. Compare tile identity, create at `opacity: 0`, move with `setAt`.
-- Shadows: never default `lift` (0.05 = 318 km) or terrain casting (256 texels across Earth); a headlight key casts none.
+- Don't rebuild `symbol` layers on an unchanged sweep, create labels visible then hide them (CSS transitions flash), or move one by remove+add. Compare tile identity; create at `opacity: 0`; `setAt`.
+- Shadows: never default `lift` (0.05 = 318 km) or terrain casting; a headlight key casts none.
 - Don't widen a positional URL tuple (`M`, `J`, `l`, `1`) or insert into a row list: a tuple's width is wire format. Add a new token, appended last.
-- Read OSM schemas from vendored tiles: `water_name` are lines, flags `0`/`1` or present-`true`, rank 1 most important.
+- Read OSM schemas from vendored tiles: `water_name` are lines; flags `0`/`1` or present-`true`; rank 1 first.
 - Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
 - Per-cell `unproject` tests stub the metrics prototype (existing `<pre>`s miss the 8x16-fallback probe).
 - Don't swap the glide's Euler stepping for a closed form: its positions and duration depend on frame cadence, and that feel is fixed.

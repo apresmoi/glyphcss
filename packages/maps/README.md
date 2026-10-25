@@ -111,7 +111,7 @@ MapLibre-shaped layer names describe glyphcss rendering; this is not a MapLibre 
 | `fill` | Polygon meshes, draped or flat. |
 | `fill-extrusion` | Buildings and other extruded polygons. |
 | `symbol` | Positioned DOM labels. |
-| `circle` | Positioned DOM dots. |
+| `circle` | Glyph discs stamped into the grid, sized in CSS pixels. |
 | `glyph` | Point marks and labels stamped into the grid. |
 | `heatmap` | Point density as a relief mesh. |
 | `model` | Supplied polygon meshes. |

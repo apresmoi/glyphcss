@@ -260,8 +260,8 @@ export const formatDensity = (v: number) => `${v.toFixed(1)}x`;
  * the value column.
  *
  * **A `symbol`/`circle` row renders no density control at all** — not a
- * disabled one. Those two mount positioned DOM hotspots rather than
- * geometry and nothing in `widget.ts` reads their `density`, so there is no
+ * disabled one. A `symbol` mounts positioned DOM text and a `circle`
+ * stamps glyphs into the base grid; neither is geometry and nothing in `widget.ts` reads their `density`, so there is no
  * number to show and no gesture to offer; a greyed slider is a control a
  * reader has to work out is dead, and it takes the row's own width to say
  * nothing. The row keeps its label and its toggle, and because the checkbox
@@ -298,7 +298,7 @@ export const OSM_DENSITY_TITLES: Record<string, (label: string) => string> = {
   symbol: (label) =>
     `${label} — positioned labels rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
   circle: (label) =>
-    `${label} — positioned markers rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
+    `${label} — glyph discs stamped into the text grid, so this row has no density: nothing in the renderer reads one for it.`,
   glyph: (label) =>
     `${label} — one mark per point in the text grid, so this row has no density: nothing in the renderer reads one for it.`,
 };
@@ -318,7 +318,7 @@ export const MAP_ROW_DENSITYLESS_TYPES = new Set(["symbol", "circle", "glyph"]);
  * hardcoded id list written when this card was first built was two rows out
  * of date by the time anyone looked.
  *
- * A `circle` row is deliberately NOT in it: it mounts a dot with no text, so
+ * A `circle` row is deliberately NOT in it: it stamps a glyph disc with no text, so
  * there is no label to place. That is why this is its own set rather than
  * the complement of the density one.
  */
@@ -352,7 +352,7 @@ export const OSM_LABEL_ANCHOR_OPTIONS: readonly GlyphMapLabelAnchor[] = ["center
  * carry. An extrusion (real building wireframes) and a model (arbitrary
  * authored geometry) genuinely read in all three. `line`/`contour` are
  * stamped post-raster and already stroke by construction, and
- * `symbol`/`circle` mount DOM hotspots rather than geometry, so none of
+ * `symbol` mounts DOM hotspots and `circle` stamps glyphs, so none of
  * those four ever had the row.
  *
  * The cost argument points the same way. "Solid" is the scene's own mode, so

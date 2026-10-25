@@ -31,17 +31,17 @@ and that split matters more here than it does in a GPU renderer:
 | `fill` | A draped or flat polygon mesh | see [below](#fill) |
 | `fill-extrusion` | An extruded polygon mesh with walls and a cap | see [below](#fill-extrusion) |
 | `symbol` | A positioned DOM label | see [below](#symbol) |
-| `circle` | A positioned DOM dot | `source`, `sourceLayer`, `filter`, `radius`, `radiusProperty`, `radiusScale`, `color`, `density` |
+| `circle` | A post-raster **stamp** of a glyph disc sized in CSS pixels | `source`, `sourceLayer`, `filter`, `radius`, `radiusProperty`, `radiusScale`, `color` |
 | `glyph` | A post-raster **stamp** of a point mark, and its label | see [below](#glyph) |
 | `heatmap` | A density relief mesh | `source`, `sourceLayer`, `filter`, `radius`, `weightProperty`, `colors`, `bounds`, `height`, `threshold`, plus appearance |
 | `model` | A mesh from polygons you supply | `polygons`, `attribution`, plus appearance |
 
 **Mesh-backed** layers (`raster`, `fill`, `fill-extrusion`, `heatmap`, `model`)
 are geometry: they project, depth-test, and can cast and receive shadows.
-**Stamped** layers (`line`, `contour`, `glyph`) own no geometry — they are
+**Stamped** layers (`line`, `contour`, `glyph`, `circle`) own no geometry — they are
 written into an output grid after rasterization and depth-tested against
-whatever surface already won each cell. **DOM** layers (`symbol`, `circle`)
-mount positioned elements over the `<pre>`.
+whatever surface already won each cell. The **DOM** layer (`symbol`)
+mounts positioned text labels over the `<pre>`.
 
 That split explains most of the asymmetries below: only mesh-backed layers carry
 `renderMode`/`glyphPalette`, and only mesh-backed layers can *receive* a shadow.
@@ -192,9 +192,9 @@ all, so the layer stays in the base pass. That escape lives in this package
 because two *equal* names always resolve to one ramp, while glyphcss cannot
 compare in general.
 
-`line`, `contour`, `glyph`, `symbol` and `circle` carry neither `renderMode` nor
-`glyphPalette`, and never will — the first two are strokes stamped after
-shading, the last two are DOM.
+`line`, `contour`, `glyph`, `circle` and `symbol` carry neither `renderMode` nor
+`glyphPalette`, and never will — the first three are marks stamped after
+shading, the last is DOM text.
 
 ## `raster`
 
@@ -493,8 +493,18 @@ uses, within two cell rows of a mark plus its own size. A layer without
 `onSelect` arms neither the test nor the pointer cursor. What a click *means* is
 yours: the widget resolves which feature and nothing else.
 
-Use `symbol`/`circle` instead when the mark must be a real element — a name a
-reader selects and copies, or a marker with its own hover chrome.
+### `circle`
+
+The same stamp as `glyph`, sized in CSS pixels instead of cell rows. `radius` /
+`radiusProperty * radiusScale` stay pixels; at stamp time the radius is divided
+by the grid's own cell height to get the disc's radius in cell rows, and a
+radius under half a row becomes the single smallest mark (`·`). Features that
+share a cell merge into one mark. `color` tints the mark; omitted keeps the
+terrain's colour under it. There is no element per circle, and no `density`,
+`ramp`, altitude, label or `onSelect` — use a `glyph` layer for those.
+
+Use `symbol` instead when the mark must be a real element — a name a reader
+selects and copies.
 
 ## `model`
 
