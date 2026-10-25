@@ -1005,6 +1005,23 @@ export interface GlyphMapSymbolLayer {
    */
   readonly textOffset?: readonly [number, number];
 }
+/**
+ * A point feature drawn as a GLYPH DISC stamped into the text grid — the same
+ * machinery, ramp (`· • ●`), depth test and horizon rule as
+ * {@link GlyphMapGlyphLayer}, with the size given in CSS pixels. There is no
+ * DOM element per circle: marks are present in "Copy ASCII", occluded by
+ * terrain, and cost nothing per frame beyond the stamp.
+ *
+ * - **Pixels to cells:** `radius` / `radiusProperty * radiusScale` stay CSS
+ *   pixels and are divided by the grid's own cell height to give the disc's
+ *   radius in cell rows. A radius under half a row is the single smallest
+ *   mark (`·`).
+ * - **Features sharing a cell merge** into one mark.
+ * - **`color`** tints the mark; omitted leaves the cell's own colour.
+ * - **`density` is ignored** — a stamped mark lives in the base grid, never in
+ *   its own resolution layer. Use a `glyph` layer for the other point options
+ *   (`ramp`, `altitude*`, labels, `onSelect`).
+ */
 export interface GlyphMapCircleLayer {
   readonly type: "circle"; readonly id?: string; readonly source: GlyphMapVectorSource;
   readonly sourceLayer?: string;
@@ -1028,32 +1045,21 @@ export interface GlyphMapCircleLayer {
 }
 /**
  * A point feature drawn as GLYPHS IN THE GRID — the third point layer, beside
- * {@link GlyphMapSymbolLayer} (a DOM label) and {@link GlyphMapCircleLayer} (a
- * DOM dot), and the only one of the three that is part of the picture.
+ * {@link GlyphMapSymbolLayer} (a DOM label) and {@link GlyphMapCircleLayer}
+ * (the same stamped disc, sized in pixels).
  *
- * ## Why a third type rather than a mode on `circle`/`symbol`
+ * ## Why its own type rather than a mode on `symbol`
  *
- * The two existing point layers are DOM BY CONTRACT, not by implementation
- * accident: a `symbol` exists so a reader can select and copy a place name,
- * and a `circle` sizes itself in CSS pixels. Every option either carries has
- * meaning only in that medium — `textAnchor` resolves to a CSS percentage of
- * a laid-out box, `radiusScale` to `style.width`, `minPriority` to
- * `style.opacity` — and none of it survives a translation into cells. A
- * `mode: "glyph"` flag on them would be a discriminated union hiding inside
- * one interface, with two disjoint runtimes and two disjoint option sets
- * behind one name.
+ * A `symbol` is DOM by contract: a reader selects and copies a place name,
+ * and `textAnchor` resolves to a CSS percentage of a laid-out box,
+ * `minPriority` to `style.opacity`. None of that survives a translation into
+ * cells, and a `mode: "glyph"` flag would hide two disjoint runtimes behind
+ * one name. `circle` is this same runtime with a pixel radius.
  *
- * The precedent for what this IS, meanwhile, already exists and is exact:
- * `line` and `contour` are stamped layers, composed into the scene's single
- * `transformCells` hook, depth-tested per cell against whatever geometry won
- * it, and clipped to the projection's own horizon. This is that same
- * machinery for a POINT. It costs no extra DOM node, no extra `<pre>` write
- * and no extra rasterizer pass.
- *
- * The three are complementary and all three stay: a name a reader copies is a
- * `symbol`, a click target with its own hover chrome is a `circle`, and
- * something that is part of the rendered picture — occluded by the terrain in
- * front of it, gone round the limb, present in "Copy ASCII" — is a `glyph`.
+ * The precedent is exact: `line` and `contour` are stamped layers, composed
+ * into the scene's single `transformCells` hook, depth-tested per cell and
+ * clipped to the projection's own horizon. This is that machinery for a
+ * POINT, with no extra DOM node, `<pre>` write or rasterizer pass.
  *
  * ## Size, altitude, labels, clicks
  *
@@ -1594,6 +1600,24 @@ interface GlyphMapPointHit {
   readonly row: number;
   /** The mark's own disc radius in scene ROWS — a big mark is clickable across all of itself, not only at its centre. */
   readonly size: number;
+}
+
+/** A `circle` feature's radius in CSS pixels: `radiusProperty * radiusScale`, else the flat `radius`, else `2`. */
+function circleRadiusPx(layer: GlyphMapCircleLayer, feature: GlyphMapVectorFeature): number {
+  const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
+  return Math.max(0, Number.isFinite(scaled) ? scaled : layer.radius ?? 2);
+}
+
+/**
+ * A `circle`'s pixel radius as the glyph disc's radius in CELL ROWS, at the
+ * grid's own cell height. Below half a row the disc is not drawn at its true
+ * size but as the single smallest mark: a tiny positive size covers no cell
+ * enough to ink, which `glyphMapPointCells` resolves to one centre cell with
+ * the ramp's smallest glyph (a size of exactly `0` would pick the LARGEST).
+ */
+export function glyphMapCircleSizeRows(radiusPx: number, cellHeightPx: number): number {
+  const rows = cellHeightPx > 0 ? radiusPx / cellHeightPx : 0;
+  return rows >= 0.5 ? rows : 1e-6;
 }
 
 /**
@@ -7196,7 +7220,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * {@link createFeatureLayerRuntime}'s mount/rebuild cycle, which exists to
    * manage DOM elements this layer does not have.
    */
-  function createGlyphPointLayerRuntime(layer: GlyphMapGlyphLayer): GlyphPointLayerRuntime {
+  function createGlyphPointLayerRuntime(layer: GlyphMapGlyphLayer | GlyphMapCircleLayer): GlyphPointLayerRuntime {
+    // A `circle` layer is this runtime with a pixel radius where a `glyph`
+    // layer has a cell-row size: ONE stamper, so the two cannot drift apart.
+    const glyphOnly = layer.type === "glyph" ? layer : null;
     let source: GlyphMapVectorSource = layer.source;
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -7205,10 +7232,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let updateQueued = false;
     let disposed = false;
     let hitList: GlyphMapPointHit[] = [];
-    const ramp = layer.ramp && layer.ramp.length > 0 ? layer.ramp : GLYPH_MAP_POINT_RAMP;
-    const labelled = layer.text !== undefined || layer.textProperty !== undefined;
-    const anchorFraction = glyphMapLabelAnchorFraction(layer.textAnchor);
-    const offset = layer.textOffset ?? [0, 0];
+    const ramp = glyphOnly?.ramp && glyphOnly.ramp.length > 0 ? glyphOnly.ramp : GLYPH_MAP_POINT_RAMP;
+    const labelled = glyphOnly !== null && (glyphOnly.text !== undefined || glyphOnly.textProperty !== undefined);
+    const anchorFraction = glyphMapLabelAnchorFraction(glyphOnly?.textAnchor);
+    const offset = glyphOnly?.textOffset ?? [0, 0];
 
     /**
      * The anchor point(s) one feature contributes — POINT geometry only.
@@ -7224,14 +7251,16 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         ? feature.rings.map((ring) => ring[0]).filter((point): point is readonly [number, number] => point !== undefined)
         : [];
 
-    const sizeOf = (feature: GlyphMapVectorFeature): number => {
+    const sizeOf = (feature: GlyphMapVectorFeature, cellHeightPx: number): number => {
+      if (layer.type === "circle") return glyphMapCircleSizeRows(circleRadiusPx(layer, feature), cellHeightPx);
       const scaled = layer.sizeProperty ? Number(feature.properties?.[layer.sizeProperty]) * (layer.sizeScale ?? 1) : NaN;
       return Number.isFinite(scaled) ? Math.max(0, scaled) : layer.size ?? 0;
     };
     /** TRUE METRES above the ground — see {@link GlyphMapGlyphLayer.altitudeProperty}. */
     const altitudeOf = (feature: GlyphMapVectorFeature): number => {
-      const scaled = layer.altitudeProperty ? Number(feature.properties?.[layer.altitudeProperty]) * (layer.altitudeScale ?? 1) : NaN;
-      return Number.isFinite(scaled) ? scaled : layer.altitude ?? 0;
+      if (!glyphOnly) return 0;
+      const scaled = glyphOnly.altitudeProperty ? Number(feature.properties?.[glyphOnly.altitudeProperty]) * (glyphOnly.altitudeScale ?? 1) : NaN;
+      return Number.isFinite(scaled) ? scaled : glyphOnly.altitude ?? 0;
     };
     /**
      * REDUCED TO WHAT THE GRID CAN CARRY — see {@link glyphMapAsciiLabel}. A
@@ -7240,10 +7269,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * label has no such constraint and is untouched by this.
      */
     const labelOf = (feature: GlyphMapVectorFeature): string =>
-      !labelled ? ""
-        : glyphMapAsciiLabel(layer.text ? layer.text(feature) : String(feature.properties?.[layer.textProperty!] ?? ""));
+      !glyphOnly || !labelled ? ""
+        : glyphMapAsciiLabel(glyphOnly.text ? glyphOnly.text(feature) : String(feature.properties?.[glyphOnly.textProperty!] ?? ""));
     const priorityOf = (feature: GlyphMapVectorFeature): number =>
-      layer.priorityProperty ? Number(feature.properties?.[layer.priorityProperty] ?? 0) || 0 : 0;
+      glyphOnly?.priorityProperty ? Number(feature.properties?.[glyphOnly.priorityProperty] ?? 0) || 0 : 0;
 
     async function updateProvider(provider: GlyphMapVectorProvider): Promise<void> {
       if (disposed) return;
@@ -7342,7 +7371,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const p = camera.project(world, baseGrid.cols, baseGrid.rows, baseGrid.cellAspect, baseGrid);
           const local = glyphMapSceneToLocalCell(p[0], p[1], cellToSceneGrid);
           const depth = p[3] ?? p[2];
-          const sceneSize = sizeOf(feature);
+          const sceneSize = sizeOf(feature, baseGrid.cellHeight);
           const inked = stampGlyphMapPoint(grid, { col: local.col, row: local.row, depth, size: sceneSize * localPerSceneRow }, {
             color: layer.color,
             cellAspect: baseGrid.cellAspect,
@@ -8805,7 +8834,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     };
   }
 
-  function createPointFeatureRuntime(layer: GlyphMapSymbolLayer | GlyphMapCircleLayer): FeatureLayerRuntime {
+  function createPointFeatureRuntime(layer: GlyphMapSymbolLayer): FeatureLayerRuntime {
     let hotspots: GlyphHotspotHandle[] = [];
     /** Takes an optional pre-measured grid — see the rebuild's own `grid`. `nearSideSyncs` calls it with none. */
     let sync: ((measured?: ProjectionGrid) => void) | null = null;
@@ -8834,11 +8863,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       label: string;
       lines: readonly string[];
       priority: number;
-      /** A `circle` row's own resolved pixel radius — kept so a refresh writes the size only when the feature's own magnitude actually moved. Unused by a `symbol` layer. */
-      radius: number;
     }
     let records: MarkerRecord[] = [];
-    const placement = layer.type === "symbol" ? glyphMapLabelPlacement(layer.textAnchor, layer.textOffset) : null;
+    const placement = glyphMapLabelPlacement(layer.textAnchor, layer.textOffset);
     let placementTransform: string | null = null;
     /**
      * The anchor point(s) one feature contributes.
@@ -8859,21 +8886,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (feature.geometryType === "point" || feature.rings.every((r) => r.length === 1)) {
         return feature.rings.map((ring) => ring[0]).filter((point) => point !== undefined);
       }
-      if (layer.type !== "symbol") return [];
       const anchor = glyphMapLabelAnchorPoint(feature);
       return anchor ? [anchor] : [];
     };
     const priorityOf = (feature: GlyphMapVectorFeature): number =>
-      Number(feature.properties?.[layer.type === "symbol" ? layer.priorityProperty ?? "population_rank" : "population"] ?? 0);
+      Number(feature.properties?.[layer.priorityProperty ?? "population_rank"] ?? 0);
     const labelOf = (feature: GlyphMapVectorFeature): string =>
-      layer.type !== "symbol" ? ""
-        : layer.text ? layer.text(feature)
+      layer.text ? layer.text(feature)
         : String(feature.properties?.[layer.textProperty ?? "name"] ?? "");
-    const radiusOf = (feature: GlyphMapVectorFeature): number => {
-      if (layer.type !== "circle") return 0;
-      const scaled = layer.radiusProperty ? Number(feature.properties?.[layer.radiusProperty]) * (layer.radiusScale ?? 1) : NaN;
-      return Number.isFinite(scaled) ? scaled : layer.radius ?? 2;
-    };
 
     /** One marker's anchor and the feature it came from, keyed for the reconcile. */
     interface DesiredMarker { readonly key: string; readonly feature: GlyphMapVectorFeature; readonly point: readonly [number, number] }
@@ -8899,7 +8919,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       for (const feature of features) {
         const id = feature.id;
         if (id === undefined || id === "") return null;
-        if (layer.type === "symbol" && priorityOf(feature) < (layer.minPriority ?? -Infinity)) continue;
+        if (priorityOf(feature) < (layer.minPriority ?? -Infinity)) continue;
         const anchors = anchorsOf(feature);
         for (let i = 0; i < anchors.length; i++) {
           const key = anchors.length > 1 ? `${id}#${i}` : id;
@@ -8929,14 +8949,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // Without it a rebuild puts every label on Earth in the document in
       // the SHOWN state and hides them one moment later — which is the
       // reported flicker wherever the consumer transitions `opacity`.
-      if (layer.type === "symbol") handle.el.style.opacity = "0";
+      handle.el.style.opacity = "0";
       const label = labelOf(feature);
       // Wrapped ONCE, here, off the finished label — a break depends only
       // on the string, never on the camera, so `sync` (which runs on every
       // marker update) must not pay for it.
-      const lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
-      handle.el.classList.add(layer.type === "symbol" ? "glyph-map-symbol" : "glyph-map-circle");
-      if (layer.type === "symbol") {
+      const lines = glyphMapWrapLabel(label);
+      handle.el.classList.add("glyph-map-symbol");
+      {
         // glyphcss gives every hotspot a `size` box, `[1, 1]` by default —
         // right for a click anchor, wrong for a LABEL. A 6-character name
         // in a 1-character box overflows it, and `.glyph-hotspot`'s own
@@ -8958,13 +8978,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
       writeMarkerLabel(handle.el, label, lines);
       handle.el.style.color = layer.color ?? "";
-      const radius = radiusOf(feature);
-      if (layer.type === "circle") {
-        handle.el.style.width = handle.el.style.height = `${Math.max(1, radius) * 2}px`;
-        handle.el.style.borderRadius = "50%";
-        handle.el.style.backgroundColor = layer.color ?? "currentColor";
-      }
-      return { key, handle, feature, lon: point[0], lat: point[1], ground, label, lines, priority: priorityOf(feature), radius };
+      return { key, handle, feature, lon: point[0], lat: point[1], ground, label, lines, priority: priorityOf(feature) };
     }
 
     function writeMarkerLabel(el: HTMLElement, label: string, lines: readonly string[]): void {
@@ -9009,15 +9023,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const label = labelOf(feature);
       if (label !== r.label) {
         r.label = label;
-        r.lines = layer.type === "symbol" ? glyphMapWrapLabel(label) : [label];
+        r.lines = glyphMapWrapLabel(label);
         writeMarkerLabel(r.handle.el, label, r.lines);
-      }
-      if (layer.type === "circle") {
-        const radius = radiusOf(feature);
-        if (radius !== r.radius) {
-          r.radius = radius;
-          r.handle.el.style.width = r.handle.el.style.height = `${Math.max(1, radius) * 2}px`;
-        }
       }
     }
 
@@ -9074,7 +9081,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         hotspots = [];
         records = [];
         for (const feature of features) for (const point of anchorsOf(feature)) {
-          if (layer.type === "symbol" && priorityOf(feature) < (layer.minPriority ?? -Infinity)) continue;
+          if (priorityOf(feature) < (layer.minPriority ?? -Infinity)) continue;
           const record = createMarker("", feature, point, markerGroundAt(groundElevationAt, point[0], point[1]));
           hotspots.push(record.handle);
           records.push(record);
@@ -9088,15 +9095,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         // exactly zero times between inserting a label and deciding whether
         // it is shown (see `projectOn`).
         const live = measured ?? projectionGrid();
-        if (layer.type === "circle") {
-          records.forEach((r) => {
-            const world = projection.project(r.lon, r.lat, r.ground);
-            const visible = Number.isFinite(world[0]) && Number.isFinite(world[1]) && Number.isFinite(world[2])
-              && nearSideVisible(r.lon, r.lat, world, live);
-            setHotspotNearSide(r.handle.el, visible);
-          });
-          return;
-        }
         // The label is DISPLACED in CSS by a fraction of its own laid-out box
         // plus a whole number of cells, so the pixel half of that has to be
         // re-derived whenever the cell size can have changed — which is
@@ -9375,8 +9373,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     | { readonly kind: "raster"; readonly layer: GlyphMapRasterLayer; readonly runtime: RasterLayerRuntime }
     | { readonly kind: "line"; readonly layer: GlyphMapLineLayer; readonly runtime: LineLayerRuntime }
     | { readonly kind: "contour"; readonly layer: GlyphMapContourLayer; readonly runtime: ContourLayerRuntime }
-    | { readonly kind: "glyph"; readonly layer: GlyphMapGlyphLayer; readonly runtime: GlyphPointLayerRuntime }
-    | { readonly kind: "feature"; readonly layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer | GlyphMapSymbolLayer | GlyphMapCircleLayer | GlyphMapHeatmapLayer; readonly runtime: FeatureLayerRuntime }
+    | { readonly kind: "glyph"; readonly layer: GlyphMapGlyphLayer | GlyphMapCircleLayer; readonly runtime: GlyphPointLayerRuntime }
+    | { readonly kind: "feature"; readonly layer: GlyphMapFillLayer | GlyphMapFillExtrusionLayer | GlyphMapSymbolLayer | GlyphMapHeatmapLayer; readonly runtime: FeatureLayerRuntime }
     | { readonly kind: "model"; readonly layer: GlyphMapModelLayer; readonly handle: GlyphMeshHandle };
 
   const layerOrder: string[] = [];
@@ -9410,7 +9408,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function syncPointSelectArmed(): void {
     let armed = false;
-    for (const state of layerStates.values()) if (state.kind === "glyph" && state.layer.onSelect) armed = true;
+    for (const state of layerStates.values()) if (state.kind === "glyph" && state.layer.type === "glyph" && state.layer.onSelect) armed = true;
     if (armed === pointSelectArmed) return;
     pointSelectArmed = armed;
     if (!armed && pointCursorOn) {
@@ -9451,7 +9449,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let bestDistance = Infinity;
     for (const id of layerOrder) {
       const state = layerStates.get(id);
-      if (state?.kind !== "glyph" || !state.layer.onSelect) continue;
+      if (state?.kind !== "glyph" || state.layer.type !== "glyph" || !state.layer.onSelect) continue;
       for (const hit of state.runtime.hits()) {
         const distance = Math.hypot((hit.col - col) / aspect, hit.row - row);
         if (distance > GLYPH_MAP_POINT_HIT_CELLS + hit.size) continue;
@@ -9940,7 +9938,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       syncViewportOverlayDensities();
       const p = trackUpdate(runtime.update());
       if (!mapLoaded) initialLoadPromises.push(p);
-    } else if (layer.type === "glyph") {
+    } else if (layer.type === "glyph" || layer.type === "circle") {
       const runtime = createGlyphPointLayerRuntime(layer);
       layerStates.set(id, { kind: "glyph", layer, runtime });
       strokeLayerCount++;
