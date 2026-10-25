@@ -251,6 +251,9 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
   topology.prepare(geometries);
   return topology;
 }
+// Beside the topology, not in its scratch: the topology reference tests compare
+// every scratch field with a frozen compiler that has no such buffer.
+const triangleUppers = new WeakMap<object, Float64Array>();
 // This bounds floating point evaluation error, not a world-space depth bias.
 const roundoff = (a: number, b: number) => Number.EPSILON * 32 * Math.max(Math.abs(a), Math.abs(b), Number.MIN_VALUE);
 
@@ -353,6 +356,7 @@ export function createGlyphMapExtrusionSurface(
   };
   visit(topology.root);
   const cut: Vec3 = [0, 0, 0];
+  let upperBounds = triangleUppers.get(topology) ?? new Float64Array(0);
   let triangleCount = 0, spanCount = 0;
   for (let face = 0; face < polygons.length; face++) {
     if (!candidates[face] || polygons[face]!.hidden) continue;
@@ -392,6 +396,7 @@ export function createGlyphMapExtrusionSurface(
       const bottom = Math.min(grid.rows - 1, Math.floor(Math.max(p[1]!, p[i + 1]!, p[i + 4]!)));
       if (left > right || top > bottom) continue;
       s.triangles = grow64(s.triangles, (triangleCount + 1) * 10);
+      upperBounds = grow64(upperBounds, triangleCount + 1);
       s.triangleFaces = grow32(s.triangleFaces, triangleCount + 1);
       s.triangleBounds = grow32(s.triangleBounds, (triangleCount + 1) * 2);
       s.spanOffsets = grow32(s.spanOffsets, triangleCount + 2);
@@ -408,6 +413,7 @@ export function createGlyphMapExtrusionSurface(
       // Bound cancellation in both weights and area before skipping any depthAt.
       const error = Number.EPSILON * 256 * coord * coord * (Math.abs(t[k + 2]!) + Math.abs(t[k + 5]!) + Math.abs(t[k + 8]!)) / Math.abs(area);
       const upper = Math.max(t[k + 2]!, t[k + 5]!, t[k + 8]!) + error;
+      upperBounds[triangleCount] = Number.isNaN(upper) ? Infinity : upper;
       for (let y = top; y <= bottom; y++) {
         let lo = Infinity, hi = -Infinity;
         if (!extreme) for (let e = 0; e < 3; e++) {
@@ -434,6 +440,8 @@ export function createGlyphMapExtrusionSurface(
   for (let i = 0; i < size; i++) offsets[i + 1] = offsets[i]! + counts[i]!;
   s.bins = grow32(s.bins, offsets[size]!);
   const { triangles, triangleFaces, bins } = s;
+  const triangleUpper = upperBounds;
+  triangleUppers.set(topology, upperBounds);
   counts.fill(0);
   for (let i = 0; i < triangleCount; i++) {
     const top = s.triangleBounds[i * 2]!, bottom = s.triangleBounds[i * 2 + 1]!;
@@ -488,9 +496,12 @@ export function createGlyphMapExtrusionSurface(
     }
     if (maxDepth[idx]! > depth) for (let i = offsets[idx]!; i < offsets[idx + 1]!; i++) {
       const t = bins[i]!;
-      if (incident[triangleFaces[t]!] === tag) continue;
+      // The same bound `maxDepth` gates the bin with, per triangle: a plane
+      // cannot reach past its own highest vertex plus the evaluation error.
+      if (incident[triangleFaces[t]!] === tag || !(triangleUpper[t]! > depth)) continue;
       const d = depthAt(triangles, t * 10, col, row);
-      if (d - depth > roundoff(d, depth)) return true;
+      const rise = d - depth;
+      if (rise > 0 && rise > roundoff(d, depth)) return true;
     }
     const frozen = grid.depth[idx]!;
     if (Number.isFinite(buildingAtInteger) && frozen <= buildingAtInteger + roundoff(frozen, buildingAtInteger)) return false;
