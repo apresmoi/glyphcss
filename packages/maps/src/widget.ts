@@ -63,6 +63,7 @@ import { glyphMapTrueScaleElevation } from "./projection";
 import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampGlyphMapExtrusionOutlines } from "./extrusionOutline";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
+import { glideLaw, glideOffset, type GlideLaw } from "./glide";
 import { cameraKey, glyphMapPrerenderTuning, sameCameraPose, sameKey, snapshotCameraPose, withCameraPose } from "./prerender";
 import { glyphMapPrerenderSeam } from "./prerender";
 import type { GlyphMapCameraPose, GlyphMapPrerenderSeam } from "./prerender";
@@ -2654,7 +2655,7 @@ export const GLYPH_MAP_FLY_TO_DEFAULT_MS = 1400;
 /** Default mid-arc zoom-out bow for {@link GlyphMapHandle.flyTo} — see its doc. */
 export const GLYPH_MAP_FLY_TO_MAX_BOW = 3;
 /**
- * Inertial glide: velocity decays by `exp(-dt / TAU)` per frame, and the
+ * Inertial glide: speed decays as `exp(-t / TAU)` (see `glide.ts`), and the
  * glide ends once speed drops below the threshold. 220ms reads as "the map
  * keeps going and settles" rather than either a hard stop or a long skate;
  * the threshold is a quarter of a pixel per 16ms frame, below which another
@@ -10130,6 +10131,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   /** An input handler mutated camera/view and the frame has not rendered it yet. */
   let motionDirty = false;
   let glideVx = 0, glideVy = 0, gliding = false;
+  /** The running glide: its law, when it started, and the offset already applied. */
+  let glide: { readonly law: GlideLaw; start: number | null; appliedX: number; appliedY: number } | null = null;
   let flight: FlyState | null = null;
   let projectionAnim: ProjectionAnimState | null = null;
 
@@ -10171,7 +10174,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * a drag, a wheel, a `setView`/`fitBounds`, or a second `flyTo`.
    */
   function cancelCameraGlide(): void {
-    gliding = false;
+    gliding = false; glide = null;
     glideVx = 0; glideVy = 0;
     if (flight) { const f = flight; flight = null; f.settle(); }
   }
@@ -10224,16 +10227,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       advanceFlight(now);
       moved = true;
     } else if (gliding) {
-      // Exponential decay, frame-rate independent: a dropped frame decays by
-      // exactly as much as the two frames it replaced would have.
-      const dx = glideVx * dt, dy = glideVy * dt;
-      const decay = Math.exp(-dt / GLYPH_MAP_GLIDE_TAU_MS);
-      glideVx *= decay; glideVy *= decay;
-      applyDragState(dx, dy);
+      // The offset is a function of elapsed time, so a dropped frame covers
+      // exactly what the frames it replaced would have.
+      const g = glide!;
+      g.start ??= now - dt;
+      const t = now - g.start, [x, y] = glideOffset(g.law, t);
+      applyDragState(x - g.appliedX, y - g.appliedY);
+      g.appliedX = x; g.appliedY = y;
       panMotion = true;
-      if (Math.hypot(glideVx, glideVy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS) compositorSettle = true;
+      const done = t >= g.law.duration;
+      if (done) compositorSettle = true;
       emitViewChange("move");
-      if (Math.hypot(glideVx, glideVy) < GLYPH_MAP_GLIDE_MIN_PX_PER_MS) { gliding = false; glideVx = 0; glideVy = 0; }
+      if (done) { gliding = false; glide = null; }
       moved = true;
     }
 
@@ -12313,7 +12318,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (didDrag && controlsDrag && sinceLastMove <= 60 && speed > GLYPH_MAP_GLIDE_MIN_PX_PER_MS
       && typeof requestAnimationFrame !== "undefined") {
       const cap = Math.min(1, GLYPH_MAP_GLIDE_MAX_PX_PER_MS / speed);
-      glideVx *= cap; glideVy *= cap;
+      glide = { law: glideLaw(glideVx * cap, glideVy * cap, GLYPH_MAP_GLIDE_TAU_MS, GLYPH_MAP_GLIDE_MIN_PX_PER_MS)!, start: null, appliedX: 0, appliedY: 0 };
+      glideVx = 0; glideVy = 0;
       gliding = true;
       requestMotionFrame();
     } else {

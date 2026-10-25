@@ -299,8 +299,9 @@ describe("createGlyphMap — inertial glide", () => {
     const gliding = map.getView().center[0];
     expect(gliding).not.toBe(atRelease);
 
-    // The glide decays to a stop rather than running forever.
-    await wait(900);
+    // The glide decays to a stop rather than running forever: it ends when the
+    // widget says it is idle, not at a wall-clock guess of how long it lasts.
+    await map.idle();
     const settled = map.getView().center[0];
     await wait(200);
     expect(map.getView().center[0]).toBe(settled);
