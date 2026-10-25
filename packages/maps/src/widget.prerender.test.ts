@@ -345,3 +345,17 @@ it("spreads a pan's preparation over animation frames, stops asking for frames o
   expect(stagedRenders).toBe(1);
   expect(seam(m).plans()).toBe(0);
 });
+
+it("renders once in a motion frame whose live pose has outrun the prepared anchor's margin, and draws what an unprepared map draws", async () => {
+  const a = await framed(), b = await framed();
+  expect(seam(a).prepare("anchor")).toBe(true);
+  expect(seam(a).plans()).toBe(2);
+  // Translation, not zoom: the frame stays valid, only the prepared anchor is too far from where the pointer now is.
+  stagedRenders = 0;
+  pointer(a, "pointermove", 500); frame();
+  expect(stagedRenders).toBe(1);
+  expect(seam(a).plans()).toBe(0);
+  pointer(b, "pointermove", 500); frame();
+  expect(text(a)).toBe(text(b));
+  expect(element(a).style.transform).toBe(element(b).style.transform);
+});

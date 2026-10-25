@@ -3860,12 +3860,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   /** Where the live camera has carried the frame's anchor, and how close that is to forcing a re-anchor. */
-  function measureCompositor(f: CompositorFrame): { dx: number; dy: number; ok: boolean; pressure: number } {
+  function measureCompositor(f: CompositorFrame, target: Vec3 = f.target, probes: CompositorFrame["probes"] = f.probes): { dx: number; dy: number; ok: boolean; pressure: number } {
     const grid = f.grid;
-    const p = camera.project(f.target, grid.cols, grid.rows, grid.cellAspect, grid);
+    const p = camera.project(target, grid.cols, grid.rows, grid.cellAspect, grid);
     const dx = (p[0] - grid.centerCol) * grid.cellWidth, dy = (p[1] - grid.centerRow) * grid.cellHeight;
     let drift = 0;
-    for (const probe of f.probes) {
+    for (const probe of probes) {
       const q = camera.project(probe.world, grid.cols, grid.rows, grid.cellAspect, grid);
       drift = Math.max(drift, Math.abs((q[0] - probe.col) * grid.cellWidth - dx) / grid.cellWidth,
         Math.abs((q[1] - probe.row) * grid.cellHeight - dy) / grid.cellHeight);
@@ -3955,15 +3955,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       }
     }
     if (anchor) {
-      renderCompositorFrame(anchor.pose);
-      finishPrepJob(anchor);
-      const m = measureCompositor(f);
-      if (m.ok) {
+      // Judge the candidate BEFORE rendering it: the render's own capture would record exactly this target and these probes, so an anchor the live camera has outrun is discarded unrendered and the frame takes its one render at the live pose.
+      const a = anchor;
+      const probes = withCameraPose(camera, a.pose, () => compositorProbes(f.grid));
+      if (measureCompositor(f, a.pose.target, probes).ok) {
+        renderCompositorFrame(a.pose);
+        finishPrepJob(a);
+        const m = measureCompositor(f);
         slideCompositor(f, m.dx, m.dy);
         if (m.pressure >= glyphMapPrerenderTuning.startFraction) startPrepJob("anchor");
         return true;
       }
-      // The live camera ran past the guards while the anchor was prepared: render it as the frame's anchor instead.
+      cancelPrepJob();
     }
     renderCompositorFrame(null);
     return true;
