@@ -10794,6 +10794,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     syncCameraBearing();
   }
 
+  /** The pivot the turn in progress sighted; a turn that still stands on it keeps it. */
+  let orientPivot: Vec3 | null = null;
+
   /** Slide the exact pivot along its sight onto the ground the centre shows; the picture does not move. */
   function pivotOnVisibleGround(): void {
     restoreExactPanPose();
@@ -10883,9 +10886,15 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // Turn about the ground the screen centre SHOWS. At rest the pivot is
     // the ground at `view.center`, which an exaggerated hill in front can
     // hide; orbiting that point swung the visible hill sideways round it,
-    // which reads as the map turning the wrong way. A turn can hide the
-    // pivot again behind another hill, so it is re-sighted after as well.
-    if (dxPx !== 0 || dyPx !== 0) pivotOnVisibleGround();
+    // which reads as the map turning the wrong way. Sighted ONCE per pivot,
+    // never again while the turn keeps it: re-sighting every step let a
+    // hill the tilt raised in front take over the pivot, then the next hill,
+    // and the centre walked off 6 km over Florence's southern hills.
+    const exactTarget = exactPanPose?.target ?? camera.target;
+    if ((dxPx !== 0 || dyPx !== 0) && !(orientPivot && orientPivot.every((v, i) => v === exactTarget[i]))) {
+      pivotOnVisibleGround();
+      orientPivot = [...camera.target];
+    }
     let orbit = false;
     if (dyPx !== 0) {
       orbit = applyTiltState(clamp(appliedTilt - dyPx * GLYPH_MAP_TILT_DRAG_DEG_PER_PX, -GLYPH_MAP_MAX_TILT, GLYPH_MAP_MAX_TILT));
@@ -10899,7 +10908,6 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       orbit = true;
     }
     if (!orbit && dxPx === 0 && dyPx === 0) return;
-    pivotOnVisibleGround();
     // The camera turned, so the near/far hemisphere verdict every marker and
     // symbol carries is now one increment stale — the same window `applyDrag`
     // closes here rather than at the deferred motion frame, and for the same

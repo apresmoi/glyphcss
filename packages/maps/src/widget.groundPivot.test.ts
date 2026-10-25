@@ -250,6 +250,30 @@ describe("drawn-ground camera pivot", () => {
     } finally { done(); }
   });
 
+  it.each([false, true])("keeps one pivot through a whole tilt stroke while the tilt raises hills in front of it (snapPan=%s)", async (snapPan) => {
+    const tile = hills();
+    const { map, host, done } = mount({
+      view: { center: CENTER, span: SPAN * 4, cols: COLS, rows: ROWS }, projection: glyphMapGlobe({ exaggeration: 24 }), tilt: 0, bearing: 31, snapPan,
+      layers: [{ type: "raster", source: tile }],
+    });
+    try {
+      await map.idle();
+      const init = { pointerId: 5, bubbles: true, button: 0, ctrlKey: true };
+      host.dispatchEvent(new PointerEvent("pointerdown", { ...init, clientX: 400, clientY: 600 }));
+      host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 400, clientY: 598 }));
+      const pivot = map.getView().center;
+      // Re-sighting each step let the hill the tilt raised in front take the
+      // pivot over, then the next one, and the centre walked off the city.
+      for (let i = 2; i <= 60; i++) {
+        host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 400, clientY: 600 - 2 * i }));
+        expect(map.getView().center).toEqual(pivot);
+      }
+      host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 400, clientY: 480 }));
+      expect(map.getTilt()).toBeGreaterThan(40);
+      await map.idle();
+    } finally { done(); }
+  });
+
   it("keeps sheet snap-pan targets on the ground and projection endpoints centred", async () => {
     const tile = terrain();
     const sheet = glyphMapEquirectangular({ exaggeration: 24 });
