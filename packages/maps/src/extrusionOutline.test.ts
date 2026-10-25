@@ -392,22 +392,22 @@ const clone = (g: CellGrid): CellGrid => ({ ...g, char: g.char.slice(), color: g
 const drain = (steps: Generator<void, void>): number => { let n = 0; while (!steps.next().done) n++; return n; };
 
 /** The plain surface and the surface whose camera-only samples were prepared against a gridless stub, stamped into the same live grid. */
-function stampBoth(scene: ReturnType<typeof blocks>, frozen: CellGrid, live: CellGrid, tilted: boolean, prepared?: { geometries?: GlyphMapExtrusionGeometry[]; tilt?: boolean }) {
+function stampBoth(scene: ReturnType<typeof blocks>, frozen: CellGrid, live: CellGrid, tilted: boolean, prepared?: { geometries?: GlyphMapExtrusionGeometry[]; tilt?: boolean }, blank?: ReadonlySet<Polygon>) {
   const key = ["k"];
-  const plain = createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, createGlyphMapExtrusionTopology(scene.polygons), key);
+  const plain = createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, createGlyphMapExtrusionTopology(scene.polygons), key, undefined, blank);
   const a = clone(live), b = clone(live), expected = clone(live);
   stampGlyphMapExtrusionOutlines(a, scene.geometries, plain, slanted, eye, tilted);
   const topology = createGlyphMapExtrusionTopology(scene.polygons, scene.geometries);
   const stub = { cols: frozen.cols, rows: frozen.rows, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
-  const first = createGlyphMapExtrusionSurface(stub, scene.polygons, slanted, eye, topology, key);
+  const first = createGlyphMapExtrusionSurface(stub, scene.polygons, slanted, eye, topology, key, undefined, blank);
   drain(first.prepareSamples!(scene.geometries, prepared?.tilt ?? tilted));
   expect(first.plan).toBeDefined();
-  const surface = createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, topology, key);
+  const surface = createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, topology, key, undefined, blank);
   expect(surface).toBe(first);
   stampGlyphMapExtrusionOutlines(b, prepared?.geometries ?? scene.geometries, surface, slanted, eye, tilted);
   const old = reference.createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye);
   reference.stampGlyphMapExtrusionOutlines(expected, prepared?.geometries ?? scene.geometries, old, slanted, eye, tilted);
-  return { a, b, expected };
+  return { a, b, expected, surface };
 }
 
 it.each([false, true])("a prepared sample plan stamps the bytes of the unprepared walk and of the reference compiler (tilted %s)", tilted => {
@@ -453,4 +453,14 @@ it("prepares a large outline set in bounded steps and never finishes against a s
   createGlyphMapExtrusionSurface(frozen, scene.polygons, (v: Vec3) => ({ col: v[0] + 1, row: v[1] + 0.9 * v[2], depth: v[2] }), eye, topology, ["c"]);
   drain(steps);
   expect(interrupted.plan).toBeUndefined();
+});
+
+it("a prepared blank mask erases the bytes the unprepared one does, and keeps nearer cells", () => {
+  const scene = blocks(14), blank = new Set(scene.polygons.filter((_, i) => i % 3 === 0));
+  for (const kind of ["empty", "low", "rough"] as const) {
+    const { a, b, surface } = stampBoth(scene, field(40, 40, kind), field(40, 40, "rough"), true, undefined, blank);
+    expect(surface.blankDepth).toBeDefined();
+    expect(b.char).toEqual(a.char); expect(b.color).toEqual(a.color); expect(b.depth).toEqual(a.depth);
+    expect(b.char).toContain(" ");
+  }
 });

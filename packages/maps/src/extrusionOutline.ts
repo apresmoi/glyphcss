@@ -39,6 +39,8 @@ interface EdgeCursor { o: number; entered: boolean; e: number }
 interface ExtrusionSurface {
   /** Set once {@link ExtrusionSurface.prepareSamples} has finished; `draw` consumes it when geometries and tilt match. */
   plan?: OutlinePlan;
+  /** Per cell, the nearest blanked face's depth (`-Infinity` where none): the camera-only half of `blank`, set with `plan`. */
+  blankDepth?: Float64Array;
   prepareSamples?(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): Generator<void, void>;
   project(v: Vec3): GlyphMapStrokeVertex;
   owns(idx: number, own?: ReadonlySet<Polygon>): boolean;
@@ -621,6 +623,15 @@ export function createGlyphMapExtrusionSurface(
       }
     }
   };
+  const nearestBlanked = (idx: number, cols: number): number => {
+    const col = idx % cols, row = Math.floor(idx / cols);
+    let nearest = -Infinity;
+    for (let i = offsets[idx]!; i < offsets[idx + 1]!; i++) {
+      const t = bins[i]!;
+      if (topology.blanked[triangleFaces[t]!]) nearest = Math.max(nearest, depthAt(triangles, t * 10, col, row));
+    }
+    return nearest;
+  };
   const previousOutput = topology.stampCache?.output;
   const surface: ExtrusionSurface = {
     replay: frameKey ? (g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) => {
@@ -642,14 +653,10 @@ export function createGlyphMapExtrusionSurface(
     } : undefined,
     remember: frameKey ? (g: CellGrid) => { topology.stampCache!.output = copy(g, previousOutput); } : undefined,
     blank: blankFaces?.size ? (g: CellGrid) => {
+      const prepared = surface.blankDepth;
       for (let idx = 0; idx < g.depth.length; idx++) {
         if (offsets[idx] === offsets[idx + 1]) continue;
-        const col = idx % g.cols, row = Math.floor(idx / g.cols);
-        let nearest = -Infinity;
-        for (let i = offsets[idx]!; i < offsets[idx + 1]!; i++) {
-          const t = bins[i]!;
-          if (topology.blanked[triangleFaces[t]!]) nearest = Math.max(nearest, depthAt(triangles, t * 10, col, row));
-        }
+        const nearest = prepared ? prepared[idx]! : nearestBlanked(idx, g.cols);
         if (nearest > g.depth[idx]!) { g.char[idx] = " "; g.color[idx] = null; g.depth[idx] = nearest; }
       }
     } : undefined,
@@ -710,6 +717,11 @@ export function createGlyphMapExtrusionSurface(
         });
         if (done) break;
         yield;
+      }
+      if (blankFaces?.size && !surface.blankDepth) {
+        const nearest = new Float64Array(cols * rows).fill(-Infinity);
+        for (let idx = 0; idx < nearest.length; idx++) if (offsets[idx] !== offsets[idx + 1]) nearest[idx] = nearestBlanked(idx, cols);
+        surface.blankDepth = nearest;
       }
       surface.plan = { geometries, tilted, data: data.slice(0, at), runs };
     },
