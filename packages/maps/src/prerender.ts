@@ -88,3 +88,16 @@ export const glyphMapPrerenderTuning = {
   /** Prepare the compositor frame at rest, in idle time, so a drag's first frame reuses it. */
   restPrepare: true,
 };
+
+/** Test seam key: a handle carries {@link GlyphMapPrerenderSeam} under this symbol, off its public type. */
+export const glyphMapPrerenderSeam = Symbol.for("glyphcss.maps.prerender");
+
+export interface GlyphMapPrerenderSeam {
+  /** Starts a job for the current state and runs it to completion in one slice; whether it finished. */
+  prepare(kind: "rest" | "anchor"): boolean;
+  /** How many stroke layers hold a finished, unconsumed plan. */
+  plans(): number;
+  discardPlans(): void;
+  /** The compositor frame's render at the live camera, as the synchronous fallback does it. */
+  renderLive(): void;
+}

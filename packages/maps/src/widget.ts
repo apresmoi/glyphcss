@@ -64,7 +64,8 @@ import { createGlyphMapExtrusionSurface, createGlyphMapExtrusionTopology, stampG
 import type { GlyphMapExtrusionGeometry } from "./layers";
 import { prepareGlyphMapNearSideProof } from "./nearSide";
 import { cameraKey, glyphMapPrerenderTuning, sameCameraPose, sameKey, snapshotCameraPose, withCameraPose } from "./prerender";
-import type { GlyphMapCameraPose } from "./prerender";
+import { glyphMapPrerenderSeam } from "./prerender";
+import type { GlyphMapCameraPose, GlyphMapPrerenderSeam } from "./prerender";
 import { createGlyphMapGroundIndex } from "./groundIndex";
 import { createGlyphMapLineSimplifier } from "./vector/simplify";
 import { createGlyphMapSharedArcCache } from "./vector/sharedArcs";
@@ -1555,6 +1556,7 @@ interface StrokeLayerRuntime {
    */
   prepare?(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void>;
   discardPlan?(): void;
+  planned?(): boolean;
   dispose(): void;
 }
 
@@ -6921,6 +6923,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       stamp,
       prepare,
       discardPlan(): void { plan = null; },
+      planned: () => plan !== null,
       /**
        * The stroke half of {@link GlyphMapHandle.setLayerSource}. Both feature
        * lists are cleared, not just the one the new source will fill: a swap
@@ -12328,7 +12331,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     },
   });
 
-  return {
+  const handle: GlyphMapHandle = {
     host,
     scene: publicScene,
     setView,
@@ -12453,4 +12456,19 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       scene.destroy();
     },
   };
+  // Reachable only through the symbol, which is not part of `GlyphMapHandle`: it
+  // exists so a test can finish a job at an exact moment and observe what the
+  // next render does with it, instead of racing the scheduler.
+  const seam: GlyphMapPrerenderSeam = {
+    prepare(kind) {
+      startPrepJob(kind);
+      runPrepSlice(Infinity);
+      return prepJob?.ready === true;
+    },
+    plans: () => strokeRuntimes().filter(runtime => runtime.planned?.()).length,
+    discardPlans() { cancelPrepJob(); for (const runtime of strokeRuntimes()) runtime.discardPlan?.(); },
+    renderLive() { if (compositorFrame) renderCompositorFrame(null); },
+  };
+  Object.defineProperty(handle, glyphMapPrerenderSeam, { value: seam });
+  return handle;
 }
