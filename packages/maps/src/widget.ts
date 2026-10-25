@@ -7468,12 +7468,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let geometryQuadDeg = 0;
     let geometryRadius = 0;
 
-    /** {@link GlyphMapContourLayer.generalize} in degrees at the current zoom, snapped to half octaves so a zoom re-cuts only when it crosses one. */
+    /** {@link GlyphMapContourLayer.generalize} in degrees at the current zoom and pitch, snapped to half octaves so a zoom re-cuts only when it crosses one. */
     function generalizeRadiusDeg(): number {
       const cells = layer.generalize ?? 0;
       const degPerCell = glyphMapDegreesPerCell(getView());
       if (!(cells > 0) || !(degPerCell > 0)) return 0;
-      return 2 ** (Math.round(Math.log2(cells * degPerCell) * 2) / 2);
+      // A pitched camera squeezes ground rows by cos(tilt), so one row covers more ground than one column does.
+      const squeeze = 1 / Math.cos((Math.min(75, Math.max(0, getTilt())) * Math.PI) / 180);
+      return 2 ** (Math.round(Math.log2(cells * degPerCell * squeeze) * 2) / 2);
     }
 
     function contourGeometry(levels: readonly number[]): readonly GlyphMapContourSegment[] {
