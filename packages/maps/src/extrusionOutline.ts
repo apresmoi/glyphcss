@@ -1,6 +1,6 @@
 import type { CellGrid, Polygon, Vec3 } from "glyphcss";
 import type { GlyphMapExtrusionGeometry } from "./layers";
-import { glyphMapForeignOwned, glyphMapSurfaceOccludes, stampGlyphMapPolyline } from "./stroke";
+import { glyphMapForeignOwned, glyphMapStampBrailleDot, glyphMapSurfaceOccludes, stampGlyphMapPolyline } from "./stroke";
 import type { GlyphMapStrokeVertex } from "./stroke";
 
 interface StampCache {
@@ -14,7 +14,30 @@ interface StampCache {
   frozen: Pick<CellGrid, "depth" | "occluded">;
   output?: Pick<CellGrid, "char" | "color" | "depth">;
 }
+/**
+ * The camera-only half of `draw`, resolved ahead of the frame it is for: every
+ * braille sample the outline edges visit, in stamp order, that no building
+ * plane occludes outright. What is left to the render is what reads the grid
+ * being stamped: foreign ownership, the frozen-depth tests and the ink merge.
+ * `data` holds {@link PLAN_STRIDE} numbers per sample.
+ */
+interface OutlinePlan {
+  readonly geometries: readonly GlyphMapExtrusionGeometry[];
+  readonly tilted: boolean;
+  readonly data: Float64Array;
+  /** Colour of each outline and the `data` offset its samples end at. */
+  readonly runs: readonly { readonly color: string | undefined; readonly end: number }[];
+}
+const PLAN_STRIDE = 5;
+/** Edges examined per resumption of a prepared walk: the slice granularity. */
+const PLAN_EDGES_PER_STEP = 24;
+const NO_DEPTH = new Float64Array(0);
+interface EdgeCursor { o: number; entered: boolean; e: number }
+
 interface ExtrusionSurface {
+  /** Set once {@link ExtrusionSurface.prepareSamples} has finished; `draw` consumes it when geometries and tilt match. */
+  plan?: OutlinePlan;
+  prepareSamples?(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): Generator<void, void>;
   project(v: Vec3): GlyphMapStrokeVertex;
   owns(idx: number, own?: ReadonlySet<Polygon>): boolean;
   occludes(a: Vec3, b: Vec3): (col: number, row: number, depth: number) => boolean;
@@ -485,7 +508,10 @@ export function createGlyphMapExtrusionSurface(
     }
     return false;
   };
-  const query = (col: number, row: number, depth: number, incident: Int32Array, tag: number): boolean => {
+  // The cell's integer-position building depth, as the last `planes` call resolved it.
+  let building = -Infinity;
+  /** Whether a building plane occludes the sample outright. Camera-only: reads no grid. */
+  const planes = (col: number, row: number, depth: number, incident: Int32Array, tag: number): boolean => {
     const ci = Math.floor(col), ri = Math.floor(row), idx = ri * grid.cols + ci;
     let buildingAtInteger = integerDepth[idx]!;
     if (Number.isNaN(buildingAtInteger)) {
@@ -496,6 +522,7 @@ export function createGlyphMapExtrusionSurface(
       }
       integerDepth[idx] = buildingAtInteger;
     }
+    building = buildingAtInteger;
     if (maxDepth[idx]! > depth) for (let i = offsets[idx]!; i < offsets[idx + 1]!; i++) {
       const t = bins[i]!;
       // The same bound `maxDepth` gates the bin with, per triangle: a plane
@@ -505,9 +532,92 @@ export function createGlyphMapExtrusionSurface(
       const rise = d - depth;
       if (rise > 0 && rise > roundoff(d, depth)) return true;
     }
-    const frozen = grid.depth[idx]!;
+    return false;
+  };
+  /** The grid-dependent rest of a depth verdict: the frozen surface against the cell's building depth. */
+  const surfaceOccludes = (ci: number, ri: number, subCol: number, subRow: number, depth: number, buildingAtInteger: number): boolean => {
+    const frozen = grid.depth[ri * grid.cols + ci]!;
     if (Number.isFinite(buildingAtInteger) && frozen <= buildingAtInteger + roundoff(frozen, buildingAtInteger)) return false;
-    return glyphMapSurfaceOccludes(grid, ci, ri, col - ci, row - ri, depth, 0, 0);
+    return glyphMapSurfaceOccludes(grid, ci, ri, subCol, subRow, depth, 0, 0);
+  };
+  const query = (col: number, row: number, depth: number, incident: Int32Array, tag: number): boolean => {
+    if (planes(col, row, depth, incident, tag)) return true;
+    const ci = Math.floor(col), ri = Math.floor(row);
+    return surfaceOccludes(ci, ri, col - ci, row - ri, depth, building);
+  };
+  const pa = { col: 0, row: 0, depth: 0 }, pb = { ...pa }, points = [pa, pb];
+  let tag = 0;
+  const setPoint = (p: typeof pa, id: number) => {
+    const k = projectId(id); p.col = s.projected[k]!; p.row = s.projected[k + 1]!; p.depth = s.projected[k + 2]!;
+  };
+  /**
+   * Advances `cursor` over the outline edges that can be seen, up to `budget`
+   * edges examined, projecting each into `points` and tagging its incident
+   * faces before `emit`. The one walk both the render and its preparation take,
+   * so they cannot visit different edges. True once every edge has been walked.
+   */
+  const walkEdges = (cursor: EdgeCursor, cols: number, rows: number, tilted: boolean, budget: number, emit: (color: string | undefined) => void): boolean => {
+    while (cursor.o < topology.outlines.length) {
+      const outline = topology.outlines[cursor.o]!;
+      if (!cursor.entered) {
+        let visible = false;
+        for (const face of outline.faces) if (face === -1 || candidates[face]) { visible = true; break; }
+        let small = true;
+        if (visible) {
+          let minCol = Infinity, minRow = Infinity, maxCol = -Infinity, maxRow = -Infinity;
+          for (const id of outline.footprint) {
+            const k = projectId(id), col = s.projected[k]!, row = s.projected[k + 1]!;
+            minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col); minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
+          }
+          small = Math.max(maxCol - minCol, maxRow - minRow) < 2;
+        }
+        if (!visible || small) { cursor.o++; continue; }
+        cursor.entered = true; cursor.e = 0;
+      }
+      while (cursor.e < outline.edges.length) {
+        if (budget-- <= 0) return false;
+        const i = cursor.e++;
+        if (outline.vertical[i] && !tilted) continue;
+        const edge = outline.edges[i]!, ia = topology.edgeVertices[edge * 2]!, ib = topology.edgeVertices[edge * 2 + 1]!;
+        const da = eye(ia), db = eye(ib);
+        if (da <= 0 && db <= 0) continue;
+        setPoint(pa, ia); setPoint(pb, ib);
+        if ((da > 0) !== (db > 0)) {
+          const a = topology.vertices[ia]!, b = topology.vertices[ib]!, u = da / (da - db);
+          for (let j = 0; j < 3; j++) cut[j] = a[j]! + (b[j]! - a[j]!) * u;
+          const p = project(cut), target = da <= 0 ? pa : pb;
+          target.col = p.col; target.row = p.row; target.depth = p.depth;
+        }
+        if (Math.max(pa.col, pb.col) < 0 || Math.min(pa.col, pb.col) >= cols || Math.max(pa.row, pb.row) < 0 || Math.min(pa.row, pb.row) >= rows) continue;
+        // The sampler consumes the occlusion callback synchronously. Tags avoid a Set
+        // and a new closure for every directed edge, without clearing the mask.
+        if (s.incidentTag === 2147483647) { s.incident.fill(0); s.incidentTag = 0; }
+        tag = ++s.incidentTag;
+        let seen = false;
+        for (let j = topology.edgeOffsets[edge]!; j < topology.edgeOffsets[edge + 1]!; j++) {
+          const face = topology.edgeFaces[j]!; s.incident[face] = tag; if (accepted[face]) seen = true;
+        }
+        if (!seen) continue;
+        emit(outline.geometry.color);
+      }
+      cursor.o++; cursor.entered = false;
+    }
+    return true;
+  };
+  /** The render's share of a prepared walk: every verdict that reads the grid being stamped, then the same ink merge `stampGlyphMapPolyline` makes. */
+  const stampPlan = (g: CellGrid, plan: OutlinePlan): void => {
+    const d = plan.data, cols = grid.cols;
+    let at = 0;
+    for (const run of plan.runs) {
+      const color = run.color ?? null;
+      for (; at < run.end; at += PLAN_STRIDE) {
+        const idx = d[at]!;
+        if (glyphMapForeignOwned(g, idx)) continue;
+        const ci = idx % cols;
+        if (surfaceOccludes(ci, (idx - ci) / cols, d[at + 2]!, d[at + 3]!, d[at + 1]!, d[at + 4]!)) continue;
+        glyphMapStampBrailleDot(g, idx, d[at + 2]!, d[at + 3]!, color, d[at + 1]!);
+      }
+    }
   };
   const previousOutput = topology.stampCache?.output;
   const surface: ExtrusionSurface = {
@@ -556,48 +666,48 @@ export function createGlyphMapExtrusionSurface(
     draw(g: CellGrid, geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean) {
       topology.prepare(geometries); reserveVertices();
       for (let idx = 0; idx < g.char.length; idx++) if (g.char[idx] !== " " && owns(idx)) g.char[idx] = ".";
-      const pa = { col: 0, row: 0, depth: 0 }, pb = { ...pa }, points = [pa, pb];
-      let tag = 0;
-      const occludes = (col: number, row: number, depth: number) => query(col, row, depth, s.incident, tag);
-      const options = { color: undefined as string | undefined, experimentalGlyphStrategy: "braille" as const, occludes };
-      const setPoint = (p: typeof pa, id: number) => {
-        const k = projectId(id); p.col = s.projected[k]!; p.row = s.projected[k + 1]!; p.depth = s.projected[k + 2]!;
-      };
-      for (const outline of topology.outlines) {
-        let visible = false;
-        for (const face of outline.faces) if (face === -1 || candidates[face]) { visible = true; break; }
-        if (!visible) continue;
-        let minCol = Infinity, minRow = Infinity, maxCol = -Infinity, maxRow = -Infinity;
-        for (const id of outline.footprint) {
-          const k = projectId(id), col = s.projected[k]!, row = s.projected[k + 1]!;
-          minCol = Math.min(minCol, col); maxCol = Math.max(maxCol, col); minRow = Math.min(minRow, row); maxRow = Math.max(maxRow, row);
-        }
-        if (Math.max(maxCol - minCol, maxRow - minRow) < 2) continue;
-        options.color = outline.geometry.color;
-        for (let i = 0; i < outline.edges.length; i++) {
-          if (outline.vertical[i] && !tilted) continue;
-          const edge = outline.edges[i]!, ia = topology.edgeVertices[edge * 2]!, ib = topology.edgeVertices[edge * 2 + 1]!;
-          const da = eye(ia), db = eye(ib);
-          if (da <= 0 && db <= 0) continue;
-          setPoint(pa, ia); setPoint(pb, ib);
-          if ((da > 0) !== (db > 0)) {
-            const a = topology.vertices[ia]!, b = topology.vertices[ib]!, u = da / (da - db);
-            for (let j = 0; j < 3; j++) cut[j] = a[j]! + (b[j]! - a[j]!) * u;
-            const p = project(cut), target = da <= 0 ? pa : pb;
-            target.col = p.col; target.row = p.row; target.depth = p.depth;
-          }
-          if (Math.max(pa.col, pb.col) < 0 || Math.min(pa.col, pb.col) >= g.cols || Math.max(pa.row, pb.row) < 0 || Math.min(pa.row, pb.row) >= g.rows) continue;
-          // The sampler consumes this callback synchronously. Tags avoid a Set
-          // and a new closure for every directed edge, without clearing the mask.
-          if (s.incidentTag === 2147483647) { s.incident.fill(0); s.incidentTag = 0; }
-          tag = ++s.incidentTag; visible = false;
-          for (let j = topology.edgeOffsets[edge]!; j < topology.edgeOffsets[edge + 1]!; j++) {
-            const face = topology.edgeFaces[j]!; s.incident[face] = tag; if (accepted[face]) visible = true;
-          }
-          if (!visible) continue;
-          stampGlyphMapPolyline(g, points, options);
-        }
+      const plan = surface.plan;
+      if (plan && plan.tilted === tilted && plan.geometries.length === geometries.length && geometries.every((x, i) => x === plan.geometries[i])) {
+        stampPlan(g, plan);
+        return;
       }
+      const options = { color: undefined as string | undefined, experimentalGlyphStrategy: "braille" as const, occludes: (col: number, row: number, depth: number) => query(col, row, depth, s.incident, tag) };
+      const cursor: EdgeCursor = { o: 0, entered: false, e: 0 };
+      walkEdges(cursor, g.cols, g.rows, tilted, Infinity, color => {
+        options.color = color;
+        stampGlyphMapPolyline(g, points, options);
+      });
+    },
+    *prepareSamples(geometries: readonly GlyphMapExtrusionGeometry[], tilted: boolean): Generator<void, void> {
+      // Only the walk this surface would take: anything else is the render's to rebuild.
+      if (!frameKey || geometries.length !== topology.outlines.length || !geometries.every((x, i) => x === topology.outlines[i]!.geometry)) return;
+      reserveVertices();
+      const cols = grid.cols, rows = grid.rows, gridless = { cols, rows, depth: NO_DEPTH } as unknown as CellGrid;
+      let data = new Float64Array(PLAN_STRIDE * 256), at = 0;
+      const runs: { color: string | undefined; end: number }[] = [];
+      // `occludes` never says no, so the walk stamps nothing: it only reports each sample it would visit, in order.
+      const options = { color: undefined as string | undefined, experimentalGlyphStrategy: "braille" as const, occludes: (col: number, row: number, depth: number) => {
+        if (planes(col, row, depth, s.incident, tag)) return true;
+        if (at + PLAN_STRIDE > data.length) data = grow64(data, at + PLAN_STRIDE);
+        const ci = Math.floor(col), ri = Math.floor(row);
+        data[at] = ri * cols + ci; data[at + 1] = depth; data[at + 2] = col - ci; data[at + 3] = row - ri; data[at + 4] = building;
+        at += PLAN_STRIDE;
+        return true;
+      } };
+      const cursor: EdgeCursor = { o: 0, entered: false, e: 0 };
+      for (;;) {
+        // The planes, bins and scratch belong to this surface only while it is the cached one.
+        if (topology.surfaceCache?.surface !== surface) return;
+        const done = walkEdges(cursor, cols, rows, tilted, PLAN_EDGES_PER_STEP, color => {
+          options.color = color;
+          stampGlyphMapPolyline(gridless, points, options);
+          const last = runs[runs.length - 1];
+          if (last && last.color === color) last.end = at; else runs.push({ color, end: at });
+        });
+        if (done) break;
+        yield;
+      }
+      surface.plan = { geometries, tilted, data: data.slice(0, at), runs };
     },
   };
   if (frameKey) {

@@ -528,6 +528,16 @@ function stampTinyBoxShape(
 /** Unicode braille dot bits, row-major over the 2×4 cell. */
 const BRAILLE_DOTS = [0x01, 0x08, 0x02, 0x10, 0x04, 0x20, 0x40, 0x80];
 
+/** The ink merge of one accepted braille sample: shared with a prepared outline plan so both write the same bytes. */
+export function glyphMapStampBrailleDot(grid: CellGrid, idx: number, subCol: number, subRow: number, color: string | null, depth: number): void {
+  const dot = BRAILLE_DOTS[Math.min(3, (subRow * 4) | 0) * 2 + Math.min(1, (subCol * 2) | 0)]!;
+  const prev = grid.char[idx]!.codePointAt(0)! - 0x2800;
+  const held = prev >= 0 && prev < 256 && grid.color[idx] === color ? prev : 0;
+  grid.char[idx] = String.fromCodePoint(0x2800 | held | dot);
+  grid.color[idx] = color;
+  grid.depth[idx] = depth;
+}
+
 export function stampGlyphMapPolyline(
   grid: CellGrid,
   points: readonly GlyphMapStrokeVertex[],
@@ -644,13 +654,12 @@ export function stampGlyphMapPolyline(
       if (onInk) onInk(idx, grid.char[idx], grid.color[idx], dCol, dRow);
       if (graph) { rememberBoxCell(grid, graph, idx); touched!.add(idx); }
       if (braille) {
-        const dot = BRAILLE_DOTS[Math.min(3, (subRow * 4) | 0) * 2 + Math.min(1, (subCol * 2) | 0)]!;
-        const prev = grid.char[idx]!.codePointAt(0)! - 0x2800;
-        const held = prev >= 0 && prev < 256 && grid.color[idx] === color ? prev : 0;
-        grid.char[idx] = String.fromCodePoint(0x2800 | held | dot);
-      } else grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
-      grid.color[idx] = color;
-      grid.depth[idx] = depth;
+        glyphMapStampBrailleDot(grid, idx, subCol, subRow, color, depth);
+      } else {
+        grid.char[idx] = inkGlyphForTangent(dCol, dRow, subRow, subCol);
+        grid.color[idx] = color;
+        grid.depth[idx] = depth;
+      }
       if (paths) {
         // A rejected sample need not separate the next accepted CELL.
         // Only a real grid gap (or an invalid run above) breaks connectivity.

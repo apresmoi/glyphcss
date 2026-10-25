@@ -97,6 +97,8 @@ export interface GlyphMapPrerenderSeam {
   prepare(kind: "rest" | "anchor"): boolean;
   /** How many stroke layers hold a finished, unconsumed plan. */
   plans(): number;
+  /** Whether the outline surface in the topology's cache holds a finished sample plan. */
+  outlinePlanned(): boolean;
   discardPlans(): void;
   /** The compositor frame's render at the live camera, as the synchronous fallback does it. */
   renderLive(): void;

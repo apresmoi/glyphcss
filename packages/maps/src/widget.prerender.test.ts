@@ -336,8 +336,8 @@ it("spreads a pan's preparation over animation frames, stops asking for frames o
   expect(seam(m).plans()).toBe(1);
   let frames = 0;
   while (queue.size && frames < 10) { frame(); frames++; }
-  // Two stroke layers and the outline surface: three steps, the first already taken.
-  expect(frames).toBe(2);
+  // Two stroke layers, the outline surface and its edge samples: four steps, the first already taken.
+  expect(frames).toBe(3);
   expect(seam(m).plans()).toBe(2);
   expect(queue.size).toBe(0);
   stagedRenders = 0;
@@ -381,4 +381,30 @@ it("replays a prepared line plan only while filterAtResolution still answers eve
   expect(seam(a).plans()).toBe(0);
   expect(text(a)).toBe(text(b));
   expect(text(a)).toContain("#e8c988");
+});
+
+const outlineScene = (variant: "blank" | "filled", relief: number): GlyphMapLayer[] => sceneLayers(relief).map(layer =>
+  layer.id === "blocks" ? (variant === "blank" ? layer : { ...layer, fill: undefined, blank: undefined } as GlyphMapLayer) : layer);
+
+it.each([
+  ["flat, outline only, blank", glyphMapEquirectangular({ exaggeration: 24 }), "blank", 1, 40],
+  ["flat, filled roofs", glyphMapEquirectangular({ exaggeration: 24 }), "filled", 1, 40],
+  ["flat, buildings partly behind terrain", glyphMapEquirectangular({ exaggeration: 24 }), "blank", 14, 55],
+  ["flat, top-down", glyphMapEquirectangular({ exaggeration: 24 }), "blank", 1, 0],
+  ["globe, tilted", glyphMapGlobe({ exaggeration: 24 }), "blank", 1, 40],
+] as const)("prepared outline samples draw the bytes of an unprepared render at several poses (%s)", async (_name, projection, variant, relief, tilt) => {
+  const options = { projection, tilt, layers: outlineScene(variant, relief) };
+  const a = await framed(options), b = await framed(options);
+  let drawn = 0;
+  for (const x of [0, 17, 41, 83]) {
+    if (x) for (const m of [a, b]) { pointer(m, "pointermove", 201 + x); frame(); }
+    expect(seam(a).prepare("anchor")).toBe(true);
+    expect(seam(a).outlinePlanned(), `pose ${x}`).toBe(true);
+    seam(b).discardPlans();
+    expect(seam(b).outlinePlanned()).toBe(false);
+    seam(a).renderLive(); seam(b).renderLive();
+    expect(text(a), `pose ${x}`).toBe(text(b));
+    drawn += (text(a).match(/#94a3b8/g) ?? []).length;
+  }
+  expect(drawn).toBeGreaterThan(0);
 });

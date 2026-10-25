@@ -3799,7 +3799,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const runtimes = strokeRuntimes();
     const steps: Generator<void, void>[] = [];
     for (const runtime of runtimes) if (runtime.prepare) steps.push(runtime.prepare(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
-    steps.push((function* () { prepareOutlineSurface(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid); })());
+    steps.push(prepareOutlineSurface(cols, rows, GLYPH_MAP_IDENTITY_CELL_AFFINE, baseGrid));
     prepJob = { kind, pose, cols, rows, baseGrid, frame: f, projection, tilt: appliedTilt, bearing, span: view.span,
       groundRevision, waterEpoch: waterTerrainEpoch, runtimes, steps, cursor: 0, ready: false };
   }
@@ -9497,10 +9497,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * a render) is part of the cache check, so a surface prepared against flags
    * the render then rewrites simply misses and is rebuilt as before.
    */
-  function prepareOutlineSurface(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): void {
-    if (walk || !outlineTopology || !outlineGeometries().length || !sameOutlineMeshes(outlineMeshSet())) return;
+  function* prepareOutlineSurface(cols: number, rows: number, cellToSceneGrid: GlyphMapCellAffine, baseGrid: ProjectionGrid): Generator<void, void> {
+    const outlined = outlineGeometries();
+    if (walk || !outlineTopology || !outlined.length || !sameOutlineMeshes(outlineMeshSet())) return;
     const stub = { cols, rows, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
-    outlineSurface(stub, outlineProjector(baseGrid, cellToSceneGrid), baseGrid, cellToSceneGrid);
+    const surface = outlineSurface(stub, outlineProjector(baseGrid, cellToSceneGrid), baseGrid, cellToSceneGrid);
+    yield;
+    // The edge samples the render would walk, with every verdict that reads no grid.
+    yield* surface.prepareSamples?.(outlined, appliedTilt !== 0 || walk !== null) ?? [];
   }
   function composedTransformCells(grid: CellGrid, layerInfo?: Parameters<TransformCells>[1]): CellGrid {
     let g = grid;
@@ -12560,7 +12564,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       return prepJob?.ready === true;
     },
     plans: () => strokeRuntimes().filter(runtime => runtime.planned?.()).length,
-    discardPlans() { cancelPrepJob(); for (const runtime of strokeRuntimes()) runtime.discardPlan?.(); },
+    discardPlans() {
+      cancelPrepJob();
+      for (const runtime of strokeRuntimes()) runtime.discardPlan?.();
+      const cached = outlineTopology?.surfaceCache;
+      if (cached) cached.surface.plan = undefined;
+    },
+    outlinePlanned: () => outlineTopology?.surfaceCache?.surface.plan !== undefined,
     renderLive() { if (compositorFrame) renderCompositorFrame(null); },
   };
   Object.defineProperty(handle, glyphMapPrerenderSeam, { value: seam });

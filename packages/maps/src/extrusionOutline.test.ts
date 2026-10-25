@@ -350,3 +350,107 @@ it("evaluates a triangle whose depth bound underflows, exactly as the ungated co
   expect(expected.occludes(...edge)(2.251, 2.251, -tiny)).toBe(true);
   expect(actual.occludes(...edge)(2.251, 2.251, -tiny)).toBe(true);
 });
+
+// ── Prepared sample plans ──────────────────────────────────────────────
+
+/** Heights shift the picture, so a roof's vertical edges are real segments rather than points. */
+const slanted = (v: Vec3) => ({ col: v[0] + 0.4 * v[2], row: v[1] + 0.9 * v[2], depth: v[2] });
+
+/** A deterministic scene of overlapping blocks at different heights, so planes occlude one another's edges. */
+function blocks(count: number) {
+  let seed = 12345;
+  const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  const polygons: Polygon[] = [], geometries: GlyphMapExtrusionGeometry[] = [];
+  for (let i = 0; i < count; i++) {
+    const x = 1 + rand() * 30, y = 1 + rand() * 30, w = 3 + rand() * 5, h = 1 + rand() * 6;
+    const top: Vec3[] = [[x, y, h], [x, y + w, h], [x + w, y + w, h], [x + w, y, h]];
+    const base = top.map(v => [v[0], v[1], 0] as Vec3), p: Polygon = { vertices: top };
+    // Walls in both windings, so whichever side the projection shows has its vertical edges visible.
+    const walls = top.flatMap((v, k): Polygon[] => {
+      const n = (k + 1) % 4, quad = [v, top[n]!, base[n]!, base[k]!];
+      return [{ vertices: quad }, { vertices: [...quad].reverse() }];
+    });
+    polygons.push(p, ...walls);
+    geometries.push({ roof: [top], base: [base], roofEdges: [], polygons: [p, ...walls], color: i % 2 ? "#94a3b8" : "#ff8800" });
+  }
+  return { polygons, geometries };
+}
+function field(cols: number, rows: number, kind: "empty" | "low" | "rough"): CellGrid {
+  const n = cols * rows;
+  let seed = 99;
+  const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
+  const g: CellGrid = { cols, rows, screenX: new Int32Array(n), screenY: new Int32Array(n), char: Array(n).fill("@"), color: Array(n).fill("#445566"), depth: new Float64Array(n) };
+  for (let i = 0; i < n; i++) {
+    g.depth[i] = kind === "empty" ? -Infinity : kind === "low" ? 0.5 : rand() < 0.1 ? -Infinity : rand() * 7;
+    if (kind === "rough" && rand() < 0.15) { g.char[i] = String.fromCodePoint(0x2800 + ((rand() * 256) | 0)); g.color[i] = rand() < 0.5 ? "#ff8800" : "#94a3b8"; }
+  }
+  if (kind === "rough") { g.occluded = new Uint8Array(n); for (let i = 0; i < n; i++) g.occluded[i] = rand() < 0.1 ? 1 : 0; }
+  return g;
+}
+const clone = (g: CellGrid): CellGrid => ({ ...g, char: g.char.slice(), color: g.color.slice(), depth: g.depth.slice(), occluded: g.occluded?.slice() });
+/** Runs a generator to completion and counts its steps. */
+const drain = (steps: Generator<void, void>): number => { let n = 0; while (!steps.next().done) n++; return n; };
+
+/** The plain surface and the surface whose camera-only samples were prepared against a gridless stub, stamped into the same live grid. */
+function stampBoth(scene: ReturnType<typeof blocks>, frozen: CellGrid, live: CellGrid, tilted: boolean, prepared?: { geometries?: GlyphMapExtrusionGeometry[]; tilt?: boolean }) {
+  const key = ["k"];
+  const plain = createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, createGlyphMapExtrusionTopology(scene.polygons), key);
+  const a = clone(live), b = clone(live), expected = clone(live);
+  stampGlyphMapExtrusionOutlines(a, scene.geometries, plain, slanted, eye, tilted);
+  const topology = createGlyphMapExtrusionTopology(scene.polygons, scene.geometries);
+  const stub = { cols: frozen.cols, rows: frozen.rows, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
+  const first = createGlyphMapExtrusionSurface(stub, scene.polygons, slanted, eye, topology, key);
+  drain(first.prepareSamples!(scene.geometries, prepared?.tilt ?? tilted));
+  expect(first.plan).toBeDefined();
+  const surface = createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, topology, key);
+  expect(surface).toBe(first);
+  stampGlyphMapExtrusionOutlines(b, prepared?.geometries ?? scene.geometries, surface, slanted, eye, tilted);
+  const old = reference.createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye);
+  reference.stampGlyphMapExtrusionOutlines(expected, prepared?.geometries ?? scene.geometries, old, slanted, eye, tilted);
+  return { a, b, expected };
+}
+
+it.each([false, true])("a prepared sample plan stamps the bytes of the unprepared walk and of the reference compiler (tilted %s)", tilted => {
+  const scene = blocks(14);
+  for (const kind of ["empty", "low", "rough"] as const) {
+    const frozen = field(40, 40, kind), live = field(40, 40, kind === "empty" ? "rough" : "rough");
+    const { a, b, expected } = stampBoth(scene, frozen, live, tilted);
+    expect(b.char).toEqual(a.char); expect(b.color).toEqual(a.color); expect(b.depth).toEqual(a.depth);
+    expect(b.char).toEqual(expected.char); expect(b.depth).toEqual(expected.depth);
+    // The comparison is not between two blank grids.
+    expect(b.char.filter(c => /[⠁-⣿]/u.test(c)).length).toBeGreaterThan(live.char.filter(c => /[⠁-⣿]/u.test(c)).length);
+  }
+});
+
+it("a prepared sample plan is refused under another tilt or other geometries, and drawn as the plain walk would", () => {
+  const scene = blocks(14), frozen = field(40, 40, "low"), live = field(40, 40, "rough");
+  // Vertical edges exist only when tilted: a plan made for one answer cannot serve the other.
+  for (const tilted of [false, true]) {
+    const { a, b } = stampBoth(scene, frozen, live, tilted, { tilt: !tilted });
+    expect(b.char).toEqual(a.char); expect(b.color).toEqual(a.color);
+  }
+  const recoloured = scene.geometries.map(g => ({ ...g, color: "#00ff00" }));
+  const { b } = stampBoth(scene, frozen, live, true, { geometries: recoloured });
+  const plain = clone(live);
+  const topology = createGlyphMapExtrusionTopology(scene.polygons, recoloured);
+  stampGlyphMapExtrusionOutlines(plain, recoloured, createGlyphMapExtrusionSurface(frozen, scene.polygons, slanted, eye, topology, ["k"]), slanted, eye, true);
+  expect(b.color).toEqual(plain.color);
+  expect(b.color).toContain("#00ff00");
+});
+
+it("prepares a large outline set in bounded steps and never finishes against a surface that was replaced mid-walk", () => {
+  const scene = blocks(60), frozen = field(40, 40, "low");
+  const topology = createGlyphMapExtrusionTopology(scene.polygons, scene.geometries);
+  const stub = { cols: 40, rows: 40, char: [], color: [], depth: new Float64Array(0) } as unknown as CellGrid;
+  const surface = createGlyphMapExtrusionSurface(stub, scene.polygons, slanted, eye, topology, ["a"]);
+  expect(drain(surface.prepareSamples!(scene.geometries, true))).toBeGreaterThan(5);
+  expect(surface.plan).toBeDefined();
+
+  const interrupted = createGlyphMapExtrusionSurface(stub, scene.polygons, slanted, eye, topology, ["b"]);
+  const steps = interrupted.prepareSamples!(scene.geometries, true);
+  expect(steps.next().done).toBe(false);
+  // Another camera's surface now owns the topology's scratch buffers.
+  createGlyphMapExtrusionSurface(frozen, scene.polygons, (v: Vec3) => ({ col: v[0] + 1, row: v[1] + 0.9 * v[2], depth: v[2] }), eye, topology, ["c"]);
+  drain(steps);
+  expect(interrupted.plan).toBeUndefined();
+});
