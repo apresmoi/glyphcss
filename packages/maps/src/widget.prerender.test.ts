@@ -485,7 +485,8 @@ it("a tile landing mid-pan re-anchors the live frame from a prepared job instead
   expect(element(a).style.willChange).toBe("transform");
 
   const sizes = new Set<number | undefined>();
-  globalThis.__glyphRenderStage = stage => { if (stage === "base-validate") sizes.add(a.scene.getOptions().cols); };
+  let landingRenders = 0;
+  globalThis.__glyphRenderStage = stage => { if (stage === "base-validate") { landingRenders++; sizes.add(a.scene.getOptions().cols); } };
   phase.n = 1;
   // The next sweep fetches the second tile; the road it carries lands while the pointer is still down.
   await vi.waitFor(() => { frame(); expect(text(a)).toContain(LATE); }, { timeout: 8000, interval: 4 });
@@ -496,11 +497,114 @@ it("a tile landing mid-pan re-anchors the live frame from a prepared job instead
   expect(seam(a).contentPending()).toBe(false);
   // Every render the landing caused was the oversized frame's: a true-size render (the pan ending) would show up as another grid.
   expect([...sizes]).toEqual([grid]);
+  // ...and each was a displayed frame's one render: the landing's re-anchor, nothing else.
+  expect(landingRenders).toBe(1);
 
   globalThis.__glyphRenderStage = undefined;
   for (const m of [a, b]) { if (m === b) { pointer(b, "pointerdown", 200); pointer(b, "pointermove", 201); frame(); } pointer(m, "pointerup", 201); }
   await Promise.all([settle(a), settle(b)]);
   expect(element(a).style.willChange).toBe("");
+  expect(text(a)).toBe(text(b));
+}, 30000);
+
+/** Gates a layer's tile load: the load starts at once and lands when `release()` is called. */
+function gate() {
+  let release!: () => void;
+  const open = new Promise<void>(r => { release = r; });
+  return { open, release: () => release() };
+}
+function gatedTerrain(g: { open: Promise<void> }): GlyphMapProvider {
+  const base = terrain(3);
+  return { ...base, id: "gated-terrain", async loadTile(z, x, y) { await g.open; return base.loadTile(z, x, y); } };
+}
+const FILL = "#cc33aa";
+function gatedFill(g: { open: Promise<void> }): GlyphMapVectorProvider {
+  const world = { west: -180, east: 180, south: -90, north: 90 };
+  const square = ring(CENTRE[0], CENTRE[1], 0.0012);
+  return {
+    id: "gated-fill", zooms: [{ z: 1, cols: 1, rows: 1, tileLonSpan: 360, tileLatSpan: 180, tileCols: 256, tileRows: 256 }],
+    bounds: () => world, tileRange: () => ({ x0: 0, x1: 0, y0: 0, y1: 0 }),
+    async loadTile(z, x, y): Promise<GlyphMapVectorTile> {
+      await g.open;
+      return { z, x, y, bounds: world, source: "test", layers: { area: [{ id: "a", geometryType: "polygon", rings: [square], polygons: [[square]] }] } };
+    },
+  };
+}
+const landings = [
+  ["terrain tile", (g: ReturnType<typeof gate>): GlyphMapLayer => ({ type: "raster", id: "late-terrain", source: gatedTerrain(g) }), "terrain"],
+  ["filled feature batch", (g: ReturnType<typeof gate>): GlyphMapLayer => ({ type: "fill", id: "late-fill", color: FILL, sourceLayer: "area", source: gatedFill(g) } as GlyphMapLayer), "fill"],
+] as const;
+
+it.each(landings)("a %s landing mid-pan renders nothing until the motion loop re-anchors, then once, and settles to a fresh map's bytes", async (_name, layerOf) => {
+  const g = gate(), open = gate(); open.release();
+  const a = mount(); await ready(a);
+  const b = mount({ layers: [...sceneLayers(), layerOf(open)] }); await ready(b);
+  a.addLayer(layerOf(g));
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  expect(element(a).style.willChange).toBe("transform");
+  const before = text(a);
+  stagedRenders = 0;
+  g.release();
+  // Microtasks and timers drain WITHOUT an animation frame: the scene's own queued render must not run.
+  await vi.waitFor(() => expect(seam(a).contentPending()).toBe(true), { timeout: 8000, interval: 2 });
+  await new Promise<void>(r => setTimeout(r, 20));
+  expect(stagedRenders).toBe(0);
+  expect(text(a)).toBe(before);
+  expect(element(a).style.willChange).toBe("transform");
+  // The motion loop re-anchors: this frame's one render.
+  let frames = 0;
+  while (seam(a).contentPending() && frames < 10) { frame(); frames++; }
+  await Promise.resolve(); await Promise.resolve();
+  expect(stagedRenders).toBe(1);
+  expect(text(a)).not.toBe(before);
+  expect(element(a).style.willChange).toBe("transform");
+
+  pointer(a, "pointerup", 201); pointer(b, "pointerdown", 200); pointer(b, "pointermove", 201); frame(); pointer(b, "pointerup", 201);
+  await Promise.all([settle(a), settle(b)]);
+  expect(text(a)).toBe(text(b));
+}, 30000);
+
+it.each(landings)("a %s landing between pointer release and the settle frame joins the settle render instead of rendering first", async (_name, layerOf) => {
+  const g = gate(), open = gate(); open.release();
+  const a = mount(); await ready(a);
+  const b = mount({ layers: [...sceneLayers(), layerOf(open)] }); await ready(b);
+  a.addLayer(layerOf(g));
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  pointer(a, "pointerup", 201);
+  // Released: the settle frame is owed, but no animation frame has run. The landing resolves now.
+  stagedRenders = 0;
+  g.release();
+  await new Promise<void>(r => setTimeout(r, 20));
+  expect(stagedRenders).toBe(0);
+  frame();
+  await Promise.resolve(); await Promise.resolve();
+  expect(stagedRenders).toBe(1);
+  await settle(a);
+  pointer(b, "pointerdown", 200); pointer(b, "pointermove", 201); frame(); pointer(b, "pointerup", 201);
+  await settle(b);
+  expect(text(a)).toBe(text(b));
+}, 30000);
+
+it("a vector source landing between pointer release and the settle frame joins the settle render instead of rendering first", async () => {
+  const phase = { n: 0 }, fresh = { n: 1 };
+  const a = mount({ layers: lateLayers(phase) }); await ready(a);
+  const b = mount({ layers: lateLayers(fresh) }); await ready(b);
+  pointer(a, "pointerdown", 200); pointer(a, "pointermove", 201); frame();
+  phase.n = 1;
+  const inner = lateProvider(phase);
+  let loaded = 0;
+  a.setLayerSource("late-road", { ...inner, async loadTile(z, x, y) { const t = await inner.loadTile(z, x, y); if (x === 1) loaded++; return t; } });
+  pointer(a, "pointerup", 201);
+  stagedRenders = 0;
+  await vi.waitFor(() => expect(loaded).toBeGreaterThan(0), { timeout: 8000, interval: 2 });
+  await new Promise<void>(r => setTimeout(r, 20));
+  expect(stagedRenders).toBe(0);
+  frame();
+  await Promise.resolve(); await Promise.resolve();
+  expect(stagedRenders).toBe(1);
+  await settle(a);
+  pointer(b, "pointerdown", 200); pointer(b, "pointermove", 201); frame(); pointer(b, "pointerup", 201);
+  await settle(b);
   expect(text(a)).toBe(text(b));
 }, 30000);
 

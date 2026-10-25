@@ -1561,7 +1561,8 @@ export function createGlyphScene(
       if (generation !== renderGeneration) return;
       pendingRender = false;
       if (destroyed) return;
-      doRender();
+      // Through the returned object, flagged as scheduled, so a wrapper installed on its `rerender` can own the render (it renders exactly as before unless it does).
+      (api.rerender as (scheduled: true) => void)(true);
     });
   }
 
@@ -3822,7 +3823,7 @@ export function createGlyphScene(
   syncGlyphAtlasStyles();
   scheduleRender();
 
-  return {
+  const api: GlyphSceneHandle = {
     get host() { return host; },
     get output() { return pre; },
     get camera() { return options.camera; },
@@ -3843,4 +3844,5 @@ export function createGlyphScene(
     getOpaqueCoverage,
     destroy,
   };
+  return api;
 }

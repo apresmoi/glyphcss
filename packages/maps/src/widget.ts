@@ -3625,6 +3625,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   let compositorRender = false;
   let panMotion = false;
   let compositorSettle = false;
+  let landingOwed = false;
   /** The current motion frame ran a compositor render, so it has no budget left for preparing the next one. */
   let compositorRendered = false;
   /**
@@ -3998,16 +3999,35 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function renderContent(): void {
     if (compositorFrame && panMotion && !compositorSettle && prepareAllowed()) {
       contentDirty = true; contentEpoch++;
+      ownSceneRender();
       requestMotionFrame();
       return;
     }
+    // Released, with the settle frame already owed: that frame renders everything, including this.
+    if (compositorSettle && motionDirty) { ownSceneRender(); return; }
     scene.rerender();
+  }
+
+  /**
+   * Mounting a mesh makes the scene queue its own render for the end of this
+   * task, which would render at the live camera into the oversized compositor
+   * grid (under a stale transform) and spend a frame the motion loop has not
+   * granted. A landing that a motion frame will render owns that queued render:
+   * it is dropped here, the frame renders once. Cleared by the task's own
+   * microtask (queued after the scene's) and by the next motion step.
+   */
+  function ownSceneRender(): void {
+    if (landingOwed) return;
+    landingOwed = true;
+    queueMicrotask(() => { landingOwed = false; });
   }
 
   scene.setInteracting = active => {
     if (!compositorPan) interactScene(active);
   };
-  scene.rerender = () => {
+  scene.rerender = ((scheduled?: true) => {
+    // The scene's own queued render (a mesh was mounted or changed): unchanged, unless a landing that a motion frame renders owns it.
+    if (scheduled) { if (!landingOwed) renderScene(); return; }
     if (!compositorRender) {
       endCompositorPan();
       // Whatever asked for this render changed the state a rest job was made for.
@@ -4015,7 +4035,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     renderScene();
     if (!compositorRender) scheduleRestPrepare();
-  };
+  }) as () => void;
   scene.setOptions = options => {
     // Headlights update lighting options during camera motion without resizing.
     if ("cols" in options || "rows" in options || "cellAspect" in options || "autoSize" in options || "colorEncoding" in options || "fontAtlas" in options) {
@@ -10190,6 +10210,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (destroyed) return;
     const dt = synchronous ? 16 : Math.min(64, Math.max(1, motionLastTime > 0 ? now - motionLastTime : 16));
     motionLastTime = now;
+    landingOwed = false;
     let moved = motionDirty;
     motionDirty = false;
     compositorRendered = false;

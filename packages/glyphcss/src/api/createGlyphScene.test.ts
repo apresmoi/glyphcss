@@ -295,6 +295,20 @@ describe("createGlyphScene", () => {
     scene.destroy();
   });
 
+  it("dispatches a queued render through the scene's own rerender, flagged as scheduled; a direct call is not", async () => {
+    const scene = createGlyphScene(host, { cols: 20, rows: 10 });
+    await Promise.resolve();
+    const real = scene.rerender;
+    const calls: unknown[] = [];
+    scene.rerender = ((scheduled?: unknown) => { calls.push(scheduled); real(); }) as () => void;
+    scene.add(makeSinglePolygon());
+    await Promise.resolve();
+    expect(calls).toEqual([true]);
+    scene.rerender();
+    expect(calls).toEqual([true, undefined]);
+    scene.destroy();
+  });
+
   it("returns a GlyphMeshHandle with dispose", () => {
     const scene = createGlyphScene(host, { cols: 20, rows: 10 });
     const handle = scene.add(makeSinglePolygon());
