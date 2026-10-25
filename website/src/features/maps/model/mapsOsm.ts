@@ -60,9 +60,9 @@ import {
   type GlyphMapVectorTile,
 } from "@glyphcss/maps";
 
-/** Exploration only: `?lines=braille` previews braille map lines against the box default. */
+/** Braille map lines by default; `?lines=box` compares against the box strategy. */
 export const MAP_LINE_STRATEGY: "box" | "braille" =
-  typeof location !== "undefined" && new URLSearchParams(location.search).get("lines") === "braille" ? "braille" : "box";
+  typeof location !== "undefined" && new URLSearchParams(location.search).get("lines") === "box" ? "box" : "braille";
 
 /** Shared with the code export so the exported map draws the same line stack. */
 export const MAP_OSM_LINE_OPTIONS = {

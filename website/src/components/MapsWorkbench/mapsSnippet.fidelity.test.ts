@@ -184,24 +184,34 @@ it("exports the pan snapping selected on the page", () => {
   expect(build({ snapPan: false })).not.toContain("snapPan:");
 });
 
-it("exports the OSM box lines, class palette, and live road hierarchy used by the page", async () => {
-  const { MAP_OSM_LINE_OPTIONS } = await import("../../features/maps/model/mapsOsm");
-  const code = build({ osm: { enabled: ["omt-roads"], densities: {}, anchors: {} } });
-  expect(code).toContain(`lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)}`);
-  expect(code).toContain("roadHierarchy: true");
-  expect(code).toContain("waterTerrain: true");
-  expect(code).not.toContain('buildingOutline: "braille"');
-  expect(code).not.toContain("fill: false");
+it("exports the OSM box lines, class palette, and live road hierarchy used by the page under ?lines=box", async () => {
+  vi.stubGlobal("location", { search: "?lines=box" });
+  vi.resetModules();
+  try {
+    const { MAP_OSM_LINE_OPTIONS } = await import("../../features/maps/model/mapsOsm");
+    const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
+    const code = buildMapsSnippet({ ...DEFAULTS, osm: { enabled: ["omt-roads"], densities: {}, anchors: {} } });
+    expect(code).toContain(`lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)}`);
+    expect(code).toContain('"experimentalGlyphStrategy":"box"');
+    expect(code).toContain("roadHierarchy: true");
+    expect(code).toContain("waterTerrain: true");
+    expect(code).not.toContain('buildingOutline: "braille"');
+    expect(code).not.toContain("fill: false");
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
 });
 
 
-it("exports outline-only OSM buildings in the braille exploration", async () => {
-  vi.stubGlobal("location", { search: "?lines=braille" });
+it("exports braille lines and outline-only OSM buildings by default", async () => {
+  vi.stubGlobal("location", { search: "" });
   vi.resetModules();
   try {
     const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
     const code = buildMapsSnippet({ ...DEFAULTS, osm: { enabled: ["omt-buildings"], densities: {}, anchors: {} } });
     expect(code).toContain('buildingOutline: "braille"');
+    expect(code).toContain('"experimentalGlyphStrategy":"braille"');
     expect(code).toContain('.map(layer => layer.type === "fill-extrusion" ? { ...layer, fill: false, blank: true } : layer)');
   } finally {
     vi.unstubAllGlobals();

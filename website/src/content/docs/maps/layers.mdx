@@ -369,9 +369,9 @@ covered cells even when their footprint is too small for an outline. DOM symbol
 labels and circles remain overlays and are not erased by this cell mask.
 
 For OpenMapTiles, pass `buildingOutline: "braille"` to
-`glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export enable
-blanked outlines without fill for buildings with `?lines=braille`; box mode retains
-the normal building fill.
+`glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export draw
+braille lines and blanked outlines without fill for buildings by default;
+`?lines=box` switches to box lines with the normal building fill.
 
 ## `symbol`
 

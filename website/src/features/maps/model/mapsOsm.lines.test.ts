@@ -2,11 +2,11 @@ import { afterEach, expect, it, vi } from "vitest";
 import type { GlyphMapLineLayer } from "@glyphcss/maps";
 import { MAP_OSM_LINE_OPTIONS, MAP_OSM_SUBLAYERS, createOsmSource, mapOsmLayers } from "./mapsOsm";
 
-it("opts every OSM line row into box/VW, and only boundaries into shared polygon arcs", () => {
+it("opts every OSM line row into braille/VW by default, and only boundaries into shared polygon arcs", () => {
   const layers = mapOsmLayers(createOsmSource(), { enabled: MAP_OSM_SUBLAYERS.map(s => s.id), densities: {} });
   for (const layer of layers) {
     if (layer.type === "line") {
-      expect(layer.experimentalGlyphStrategy, layer.id).toBe("box");
+      expect(layer.experimentalGlyphStrategy, layer.id).toBe("braille");
       expect(layer.simplify, layer.id).toBe("vw");
       expect(layer.sharedArcs, layer.id).toBe(layer.id === "omt-boundaries" ? true : undefined);
     } else expect(layer).not.toHaveProperty("experimentalGlyphStrategy");
@@ -33,15 +33,15 @@ it("lets only the mounted OSM water row decide terrain land versus sea", () => {
 
 
 afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
-it.each(["", "?lines=braille"])("outlines /maps buildings only in braille mode, URL %s", async search => {
+it.each([["", true], ["?lines=braille", true], ["?lines=box", false]])("outlines /maps buildings only in braille mode, URL %s", async (search, braille) => {
   vi.stubGlobal("location", { search });
   vi.resetModules();
   const { mapOsmLayers, createOsmSource } = await import("./mapsOsm");
   const layers = mapOsmLayers(createOsmSource(), { enabled: ["omt-buildings", "omt-roads"], densities: {} });
   const buildings = layers.find(l => l.type === "fill-extrusion")!;
   expect(buildings).toMatchObject({ facade: true });
-  expect((buildings as { outline?: string }).outline).toBe(search ? "braille" : undefined);
-  expect((buildings as { fill?: boolean }).fill).toBe(search ? false : undefined);
-  expect((buildings as { blank?: boolean }).blank).toBe(search ? true : undefined);
-  expect(layers.find(l => l.type === "line")).toMatchObject({ experimentalGlyphStrategy: search ? "braille" : "box" });
+  expect((buildings as { outline?: string }).outline).toBe(braille ? "braille" : undefined);
+  expect((buildings as { fill?: boolean }).fill).toBe(braille ? false : undefined);
+  expect((buildings as { blank?: boolean }).blank).toBe(braille ? true : undefined);
+  expect(layers.find(l => l.type === "line")).toMatchObject({ experimentalGlyphStrategy: braille ? "braille" : "box" });
 });
