@@ -483,3 +483,93 @@ describe("createGlyphMap — a `glyph` layer's labels are rationed by the arbite
     expect(inkedNear(before, after, small.col, small.row, 1)).toBeGreaterThan(0);
   });
 });
+
+describe("createGlyphMap — a `circle` layer is a glyph disc in the grid, never a DOM dot", () => {
+  const CIRCLE_RAMP = /[·•●]/g;
+  const marks = (map: { scene: { output: { textContent: string | null } } }): number => (frame(map).match(CIRCLE_RAMP) ?? []).length;
+
+  it("adds no element and stamps its marks into the `<pre>` text", async () => {
+    const { host, map } = mount({ projection: glyphMapEquirectangular(), view: { center: [0, 0], span: 120, cols: COLS, rows: ROWS } });
+    await settle(map);
+    const hotspotsBefore = host.querySelectorAll(".glyph-hotspot").length;
+
+    map.addLayer({ type: "circle", id: "pois", source: { features: [point("a", 0, 0), point("b", 20, 20)] }, radius: 4 });
+    await settle(map);
+
+    // Regressing to the DOM dot adds `.glyph-map-circle` hotspots and no text.
+    expect(host.querySelectorAll(".glyph-map-circle").length).toBe(0);
+    expect(host.querySelectorAll(".glyph-hotspot").length).toBe(hotspotsBefore);
+    expect(marks(map)).toBe(2);
+    const at = map.project([20, 20]);
+    expect(gridRows(map)[Math.floor(at.row)]?.[Math.floor(at.col)]).toMatch(CIRCLE_RAMP);
+  });
+
+  it("converts the CSS-pixel radius to cell rows at the grid's own cell height", async () => {
+    const { map } = mount({ projection: glyphMapEquirectangular(), view: { center: [0, 0], span: 120, cols: COLS, rows: ROWS } });
+    await settle(map);
+    const inkedFor = async (radius: number): Promise<number> => {
+      const id = map.addLayer({ type: "circle", source: { features: [point("a", 0, 0)] }, radius });
+      await settle(map);
+      const n = marks(map);
+      map.removeLayer(id);
+      await settle(map);
+      return n;
+    };
+    // CELL_H is 16px: 4px is under half a row (one smallest mark), 40px is 2.5 rows.
+    expect(await inkedFor(4)).toBe(1);
+    const small = await inkedFor(16);
+    const large = await inkedFor(40);
+    expect(large).toBeGreaterThan(small);
+    expect(large).toBeGreaterThan(8);
+  });
+
+  it("takes the radius from radiusProperty * radiusScale per feature", async () => {
+    const { map } = mount({ projection: glyphMapEquirectangular(), view: { center: [0, 0], span: 120, cols: COLS, rows: ROWS } });
+    await settle(map);
+    map.addLayer({
+      type: "circle", id: "pop", radiusProperty: "pop", radiusScale: 10,
+      source: { features: [point("big", -40, 0, { pop: 4 }), point("small", 40, 0, { pop: 0.2 })] },
+    });
+    await settle(map);
+    const rows = gridRows(map);
+    const around = (lon: number): number => {
+      const at = map.project([lon, 0]);
+      let n = 0;
+      for (let r = Math.floor(at.row) - 4; r <= Math.floor(at.row) + 4; r++) {
+        for (let c = Math.floor(at.col) - 10; c <= Math.floor(at.col) + 10; c++) if (CIRCLE_RAMP.test(rows[r]?.[c] ?? " ")) n++;
+        CIRCLE_RAMP.lastIndex = 0;
+      }
+      return n;
+    };
+    expect(around(-40)).toBeGreaterThan(around(40));
+    expect(around(40)).toBe(1);
+  });
+
+  it("applies `color` to the stamped cells", async () => {
+    const { map } = mount({ projection: glyphMapEquirectangular(), view: { center: [0, 0], span: 120, cols: COLS, rows: ROWS } });
+    await settle(map);
+    map.addLayer({ type: "circle", source: { features: [point("a", 0, 0)] }, radius: 4, color: "#12ab34" });
+    await settle(map);
+    expect(map.scene.output.innerHTML.toLowerCase()).toContain("#12ab34");
+  });
+
+  it("merges features that share a cell into one mark", async () => {
+    const { map } = mount({ projection: glyphMapEquirectangular(), view: { center: [0, 0], span: 120, cols: COLS, rows: ROWS } });
+    await settle(map);
+    // Centre the trio mid-cell so a boundary cannot split it.
+    const origin = map.project([0, 0]);
+    const lon = 0.5 - (origin.col - Math.floor(origin.col));
+    const lat = (origin.row - Math.floor(origin.row)) - 0.5; // one cell is 2.5 degrees tall; the offset stays inside it
+    map.addLayer({ type: "circle", source: { features: [point("a", lon, lat), point("b", lon + 0.05, lat), point("c", lon, lat + 0.05)] }, radius: 4 });
+    await settle(map);
+    expect(marks(map)).toBe(1);
+  });
+
+  it("is hidden round the limb of a globe, like every stamped mark", async () => {
+    const { map } = mount();
+    await settle(map);
+    map.addLayer({ type: "circle", source: { features: [point("far", 150, -40)] }, radius: 4 });
+    await settle(map);
+    expect(marks(map)).toBe(0);
+  });
+});

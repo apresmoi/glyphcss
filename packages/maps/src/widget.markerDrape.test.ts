@@ -278,19 +278,27 @@ describe("createGlyphMap — a marker is anchored on the ground under it", () =>
     expect([...strokeRows].some((r) => Math.abs(r - datumRow) <= 1)).toBe(false);
   });
 
-  it("drapes a `circle` dot and a label with no elevation property at all", async () => {
+  it("drapes a `symbol` label and a `circle` mark with no elevation property at all", async () => {
     const { map, host } = mount();
     map.addLayer({ type: "raster", id: "terrain", source: terrainProvider(FINE_M) });
     map.addLayer({ type: "symbol", id: "places", source: { features: [placeFeature] }, color: "#ffffff", textProperty: "name" });
+    await settleFrames(map);
+    const before = (map.scene.output.textContent ?? "").split("\n");
     map.addLayer({ type: "circle", id: "pois", source: { features: [placeFeature] }, color: "#f59e0b" });
     await settleFrames(map);
+    const after = (map.scene.output.textContent ?? "").split("\n");
 
     const groundRow = groundRowFor(map, PEAK[0], PEAK[1], FINE_M);
     const datumRow = groundRowFor(map, PEAK[0], PEAK[1], 0);
-    for (const selector of [".glyph-map-symbol", ".glyph-map-circle"]) {
-      const cell = stagedCell(marker(host, selector));
-      expect(Math.abs(cell.row - groundRow), selector).toBeLessThanOrEqual(1);
-      expect(Math.abs(cell.row - datumRow), selector).toBeGreaterThan(8);
+    const label = stagedCell(marker(host));
+    expect(Math.abs(label.row - groundRow)).toBeLessThanOrEqual(1);
+    expect(Math.abs(label.row - datumRow)).toBeGreaterThan(8);
+    // The circle is grid ink: the cells it changed sit on the terrain's row too.
+    const circleRows = inkedCells(before, after).map((c) => c.row);
+    expect(circleRows.length).toBeGreaterThan(0);
+    for (const row of circleRows) {
+      expect(Math.abs(row - groundRow)).toBeLessThanOrEqual(1);
+      expect(Math.abs(row - datumRow)).toBeGreaterThan(8);
     }
   });
 
@@ -322,14 +330,12 @@ describe("createGlyphMap — a marker is anchored on the ground under it", () =>
     const { map, host } = mount();
     map.addLayer({ type: "line", id: "ridge", source: { features: [ridgeRoad] }, color: "#e8c988" });
     map.addLayer({ type: "symbol", id: "peaks", source: { features: [peakFeature] }, color: "#fbbf24", textProperty: "name" });
-    map.addLayer({ type: "circle", id: "pois", source: { features: [placeFeature] }, color: "#f59e0b" });
     await settleFrames(map);
 
     // Captured from the build BEFORE markers were draped: with no `raster`
     // layer mounted `groundElevationSampler()` is `null`, the ground is the
     // datum for every marker, and not one extra lookup or projection runs.
     expect(marker(host).outerHTML).toBe(GOLDEN_SYMBOL_HTML);
-    expect(marker(host, ".glyph-map-circle").outerHTML).toBe(GOLDEN_CIRCLE_HTML);
     const frame = map.scene.output.textContent ?? "";
     let hash = 5381;
     for (let i = 0; i < frame.length; i++) hash = ((hash * 33) ^ frame.charCodeAt(i)) >>> 0;
@@ -338,5 +344,4 @@ describe("createGlyphMap — a marker is anchored on the ground under it", () =>
 });
 
 const GOLDEN_SYMBOL_HTML = '<div class="glyph-hotspot glyph-map-symbol" data-hotspot-id="glyph-map-layer-point-0" style="position: absolute; opacity: 1; color: #fbbf24; left: 564px; top: 512px; z-index: 0;">Matterhorn</div>';
-const GOLDEN_CIRCLE_HTML = '<div class="glyph-hotspot glyph-map-circle" data-hotspot-id="glyph-map-layer-point-1" style="position: absolute; width: 4px; height: 4px; color: #f59e0b; border-radius: 50%; background-color: #f59e0b; left: 564px; top: 512px; z-index: 0;"></div>';
 const GOLDEN_FRAME = { hash: 123306501, length: 8882 };
