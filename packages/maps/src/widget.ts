@@ -3734,6 +3734,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const f = compositorFrame;
     if (!f) return;
     compositorFrame = null;
+    settleEase = null;
     contentDirty = false; contentWait = 0;
     landingOwed = false;
     cancelPrepJob();
@@ -3761,6 +3762,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     f.target = [...camera.target]; f.rotX = camera.rotX; f.rotY = camera.rotY;
     f.zoom = camera.zoom;
     f.probes = compositorProbes(f.grid);
+    // Every re-capture (a compositor render, or a scene-owned one) re-bases the frame on the snapped pose; the sub-cell remainder is the part of the displayed slide that rebase must not drop.
+    if (exactPanPose) { slideCompositor(f, 0, 0); return; }
     sceneElement.style.transform = `translate(${-f.marginCols * f.grid.cellWidth}px, ${-f.marginRows * f.grid.cellHeight}px)`;
   }
 
@@ -4066,9 +4069,37 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     return Number.isFinite(ex) && Number.isFinite(ey) ? { dx: ex, dy: ey } : { dx, dy };
   }
 
-  function slideCompositor(f: CompositorFrame, dx: number, dy: number): void {
-    ({ dx, dy } = exactSlide(f, dx, dy));
+  function slideCompositor(f: CompositorFrame, dx: number, dy: number, exact = true): void {
+    if (exact) ({ dx, dy } = exactSlide(f, dx, dy));
     sceneElement.style.transform = `translate(${dx - f.marginCols * f.grid.cellWidth}px, ${dy - f.marginRows * f.grid.cellHeight}px)`;
+  }
+
+  /**
+   * On release the displayed slide carries a sub-cell remainder that the settle render (on the
+   * lattice) does not. The remainder is eased out inside the still-live frame, then the settle
+   * renders. The held view stays exact: only the DRAWN pose is on the lattice, as at any rest.
+   */
+  const SETTLE_EASE_MS = 100;
+  let settleEase: { start: number; baseDx: number; baseDy: number; rx: number; ry: number } | null = null;
+  /** True while the remainder is still easing out (the caller skips this frame's render). */
+  function easeSettle(now: number): boolean {
+    const f = compositorFrame;
+    if (!f || !exactPanPose || walk || flight || projectionAnim || gestureHeld() || activePointerId !== null ||
+        f.projection !== projection || f.tilt !== appliedTilt || f.bearing !== bearing || f.span !== view.span || f.zoom !== camera.zoom) {
+      settleEase = null; return false;
+    }
+    if (!settleEase) {
+      const m = measureCompositor(f);
+      const e = exactSlide(f, m.dx, m.dy);
+      const rx = e.dx - m.dx, ry = e.dy - m.dy;
+      if (!m.ok || Math.hypot(rx, ry) < 0.5) return false;
+      settleEase = { start: now, baseDx: m.dx, baseDy: m.dy, rx, ry };
+    }
+    const z = settleEase, t = (now - z.start) / SETTLE_EASE_MS;
+    if (t >= 1) { settleEase = null; return false; }
+    const k = (1 - t) * (1 - t);
+    slideCompositor(f, z.baseDx + z.rx * k, z.baseDy + z.ry * k, false);
+    return true;
   }
 
   /** The frame's one real render. `pose`, when given, is the camera it is rendered AT (the live one is put back): wall culls and the key light are part of the render, so they follow it. */
@@ -5506,8 +5537,23 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   // ── project()/unproject() ────────────────────────────────────────────
 
+  /**
+   * Under `snapPan` a live compositor frame shows the EXACT pose (the slide carries the sub-cell
+   * remainder) while the camera sits on the lattice; public queries answer for what is displayed.
+   */
+  function atDisplayedPose<T>(fn: () => T): T {
+    const exact = exactPanPose;
+    if (!exact || !compositorFrame) return fn();
+    const { rotX, rotY, target, mat, useMat } = camera;
+    camera.rotX = exact.rotX; camera.rotY = exact.rotY; camera.target = exact.target;
+    syncCameraBearing();
+    try { return fn(); } finally {
+      camera.rotX = rotX; camera.rotY = rotY; camera.target = target; camera.mat = mat; camera.useMat = useMat;
+    }
+  }
+
   function project(lngLat: readonly [number, number]): GlyphMapProjectResult {
-    return projectOn(lngLat, projectionGrid(), groundAt(lngLat));
+    return atDisplayedPose(() => projectOn(lngLat, projectionGrid(), groundAt(lngLat)));
   }
 
   /**
@@ -5665,7 +5711,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function unproject(cell: readonly [number, number]): readonly [number, number] | null {
-    return viewUnprojector(projectionGrid())(cell[0], cell[1]);
+    return atDisplayedPose(() => viewUnprojector(projectionGrid())(cell[0], cell[1]));
   }
 
   // ── Events ────────────────────────────────────────────────────────────
@@ -10529,6 +10575,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (t >= 1) { projectionAnim = null; a.settle(); }
   }
 
+  let easeGlideLanded = false;
   function motionStep(now: number, synchronous: boolean): void {
     if (destroyed) return;
     const dt = synchronous ? 16 : Math.min(64, Math.max(1, motionLastTime > 0 ? now - motionLastTime : 16));
@@ -10537,7 +10584,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let moved = motionDirty;
     motionDirty = false;
     compositorRendered = false;
-    let glideLanded = false;
+    let glideLanded = easeGlideLanded;
+    easeGlideLanded = false;
 
     // Before the flight/glide branch, and never alongside one: a `flyTo` is
     // cancelled on entering walk mode and a walk has no inertia, so the two
@@ -10566,6 +10614,12 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       moved = true;
     }
 
+    if (compositorSettle && !projectionAnim && easeSettle(now)) {
+      easeGlideLanded = glideLanded;
+      motionDirty = true;
+      requestMotionFrame();
+      return;
+    }
     if (projectionAnim) {
       // Runs LAST and does its own repaint: it owns camera framing outright,
       // reading whatever `view` the flight/glide above just produced, so the

@@ -275,3 +275,50 @@ it("under snapPan the slide carries the sub-cell remainder while the frame stays
   expect(tx() % 8).not.toBe(0);
   expect(tx()).toBeCloseTo(-160 + 3.5, 6);
 });
+
+const SUB = -160 + 3.5;
+function subCellDrag(m: ReturnType<typeof createGlyphMap>) {
+  pointer(m, "pointerdown", 200);
+  pointer(m, "pointermove", 201); frame();
+  pointer(m, "pointermove", 204.5); frame();
+}
+
+it("under snapPan, release eases the sub-cell remainder out inside the live frame instead of snapping back", async () => {
+  const m = mount({ snapPan: true }); await ready(m);
+  const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);
+  subCellDrag(m);
+  expect(tx()).toBeCloseTo(SUB, 6);
+  const text = m.scene.output.innerHTML;
+  pointer(m, "pointercancel", 204.5); frame(); frame();
+  // Not yet settled: still the overscanned frame, moved part-way toward the lattice.
+  expect(m.scene.output.innerHTML).toBe(text);
+  expect(tx()).toBeGreaterThan(-160); expect(tx()).toBeLessThan(SUB);
+  let last = tx();
+  for (let i = 0; i < 12 && element(m).style.willChange === "transform"; i++) {
+    frame();
+    if (element(m).style.willChange !== "transform") break;
+    expect(tx()).toBeLessThanOrEqual(last + 1e-9); last = tx();
+  }
+  for (let i = 0; i < 12; i++) frame();
+  await m.idle();
+  expect(m.scene.output.textContent!.split("\n")[0]!.length).toBe(80);
+  expect(element(m).style.willChange).not.toBe("transform");
+});
+
+it("under snapPan, project() answers for the displayed (exact) frame mid-drag", async () => {
+  const m = mount({ snapPan: true }); await ready(m);
+  const rest = m.project([0, 0]);
+  subCellDrag(m);
+  // The whole 4.5 px drag (0.5625 of an 8 px cell) is displayed, not just the lattice steps.
+  expect(m.project([0, 0]).col - rest.col).toBeCloseTo(4.5 / 8, 2);
+});
+
+it("under snapPan, a scene-owned render mid-drag keeps the remainder", async () => {
+  const m = mount({ snapPan: true }); await ready(m);
+  const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);
+  subCellDrag(m);
+  expect(tx()).toBeCloseTo(SUB, 6);
+  m.addMarker({ at: [1, 1], label: "x" });
+  await Promise.resolve(); await Promise.resolve(); await m.idle();
+  expect(tx()).toBeCloseTo(SUB, 6);
+});

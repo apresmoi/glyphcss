@@ -78,7 +78,12 @@ it.each([false, true])("moves exactly as the base commit's glide did at every fr
   const want = JSON.parse(readFileSync(FIXTURE, "utf8"))[String(snapPan)] as typeof got;
   for (const name of Object.keys(CADENCES)) {
     expect(got[name]!.frames, `${name}: frames`).toBeGreaterThan(20);
-    expect(got[name]!.frames, `${name}: duration in frames`).toBe(want[name]!.frames);
-    expect(got[name]!.centers, `${name}: positions`).toEqual(want[name]!.centers);
+    const w = want[name]!, g = got[name]!;
+    // snapPan eases the sub-cell remainder out (~100 ms) AFTER the glide has landed: those trailing frames hold the final centre, and the glide itself is frame-for-frame the base's.
+    const tail = snapPan ? g.frames - w.frames : 0;
+    expect(tail, `${name}: trailing settle frames`).toBeGreaterThanOrEqual(0);
+    expect(tail, `${name}: trailing settle frames`).toBeLessThanOrEqual(snapPan ? 100 : 0);
+    expect(g.centers.slice(0, w.frames), `${name}: positions`).toEqual(w.centers);
+    for (const c of g.centers.slice(w.frames)) expect(c, `${name}: settle holds the view`).toEqual(w.centers[w.frames - 1]);
   }
 });
