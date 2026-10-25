@@ -6,7 +6,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 ## Invariants
 
-- Public API: lat/lng/degrees; views aspect-locked. Camera pivots on drawn ground at `view.center` (planting sampler/window; datum fallback); `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering.
+- Public API uses lat/lng/degrees; views are aspect-locked. Camera pivots on drawn ground at `view.center` (planting sampler/window; datum fallback); `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering, view unchanged.
 - Branch on capability (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
 - Crop, don't clamp: `project()` is `NaN` outside its window, except `raster` elevation windows (clamp per vertex).
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
@@ -18,17 +18,16 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable numeric topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells. DOM overlays.
 - `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one centroid dot; open stubs never do. Paths join accepted cells (gaps split paths), collapse backtracks, add depth-tested corners only on their own path or unowned cells; unjoined remnants drop.
 - `compositorPan`: opt-in ¼-grid overscan, fixed cells; translate scene/hide hotspots. Settle on release/rest/pose/layout changes; refresh at 80% margin/2° orbit. Rebase on render; public grid unchanged; no walk.
-- `prerender.ts` jobs do a render's camera-only half (stroke plans, outline samples) at a snapshot pose in slices: at rest, and from ~37% of margin. A re-anchor is validated against live, renders AT the prepared pose, translates; else one live render. Plans reuse only on an equal key (incl. `filterAtResolution`), one per slot (`anchor`/`rest`/`settle`/`landing`); walk/`groundElevation` never plan.
-- Glide: per-frame Euler stepping is FROZEN (`widget.glideTrajectory` vs base fixtures). Its end is predicted by simulating at the cadence seen (3 frames in), prepared as `settle` + `landing`; `snapPan` makes keys hit, else live. A settle consumes `settle`; the next drag `landing`.
+- `prerender.ts` jobs do a render's camera-only half (stroke plans, outline samples) at a snapshot pose in slices: at rest and from ~37% of margin. A re-anchor is validated against live, renders AT the prepared pose, then translates; else one live render. Plans reuse only on an equal key (incl. `filterAtResolution`), one per slot (`anchor`/`rest`/`settle`/`landing`); walk/`groundElevation` never plan.
+- Glide: per-frame Euler stepping is FROZEN (`widget.glideTrajectory` vs base fixtures). Its end is predicted by simulating it at the cadence seen (3 frames in), prepared as `settle` + `landing`; `snapPan` lattice makes keys hit, else the live path runs. A settle consumes `settle`; the next drag `landing`.
 - Landings (`renderContent`) own every scheduled scene render until the motion frame; it renders once. A sweep starts one layer per task and its landings render once (re-anchor waits).
 - Extrusion tile arrival/ground move: mesh + outline topology built sliced (`sliceBuild`), installed whole; a topology compiled ahead is adopted only for identical mesh/outline arrays.
 - `snapPan`: opt-in cell lattice at fixed lens/tilt/bearing/grid; exact held view. Orbit: tangent lattice. Zoom/tilt reset; walk bypasses. Dither stays screen-anchored.
-- Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per feature set/tile, before live VW; explicit lines stay separate. Reversed edges share geometry; no snapping/noding of differently sampled edges.
-- Stroke surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from a half-cell centre.
-- Line `simplify: "vw"`: latitude-corrected VW at half a live cell, before clipping/draping; keeps endpoints and collapsed rings. Walk keeps detail. Omitted is byte-identical.
+- Line `sharedArcs: true` deduplicates exact polygon boundary edges into junction-pinned arcs once per feature set/tile, before live VW; explicit lines stay separate. Reversed edges share geometry; no snapping or noding of differently sampled edges.
+- Stamp surface reconstruction starts at the rasterizer’s integer cell sample and interpolates forward, never from an assumed half-cell centre.
+- Line `simplify: "vw"`: latitude-corrected VW at half a live cell, eight quarter-octave buckets per line/arc, before clipping/draping; keeps endpoints and collapsed rings. Walk keeps detail. Omitted is byte-identical.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
-- Stamped points hide only behind a surface nearer across a ±2-cell window (mesh vs field disagree by cells); verdicts precede writes. Size caps at 8 BASE rows on every grid.
 - `circle` = the `glyph` stamper with a CSS-pixel radius: `radius / baseGrid.cellHeight` = disc rows, <½ row = one smallest mark; shared cells merge. No `density`/ramp/labels/`onSelect`; only `symbol` is DOM.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); palettes fall back to row colour.
 - `/maps` URL row lists are positional: append rows, never insert.
@@ -38,19 +37,19 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 ## Don't
 
-- Never bias stroke/contour depth: forgive only curvature plus projected elevation rise.
-- Don't write a drape lift or bias on the exaggerated axis (10 m was 240 true metres at 24x): measure rise and chord sag; the constant is a 1 true-metre tie-break.
-- Don't plant on a feature attribute (`ele`, `min_height`): the drawn surface is the terrain sample; `min_height` is a true-metre offset.
+- Never bias stroke/contour/point depth: forgive only curvature plus projected elevation rise; slope slack draws through buildings.
+- Don't write a drape lift or bias on the exaggerated axis (10 m was 240 true metres at 24x). Measure rise and chord sag; the constant is a 1 true-metre tie-break.
+- Don't plant on a feature attribute (`ele`, `min_height`): the drawn surface is the terrain sample; `min_height` is a true-metre offset above it.
 - Ocean DEM is seabed: drape `ocean` at datum; lakes keep the terrain drape.
-- Opaque `density`/`renderMode`/`glyphPalette`/`ambientIntensity` splits cost a whole-scene id raster (~10 ms); each stroke density adds an overlay grid.
+- Opaque `density`/`renderMode`/`glyphPalette`/`ambientIntensity` splits cost a whole-scene id raster (~+10 ms); each stroke density adds an overlay grid.
 - Don't draw a point as a CSS shape (border-radius dot): output is text only.
 - Don't use `projection.visible` or `view.span / cols` under the walk camera: points use `nearSideVisible`, tiles the horizon BOX, LOD the finest level (span-keyed LOD drops buildings on a phone).
-- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers forever); the raster sweep still has this gap.
+- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers forever). The raster sweep still has this gap.
 - Don't rebuild `symbol` layers on an unchanged sweep, create labels visible then hide them (CSS transitions flash), or move one by remove+add. Compare tile identity; create at `opacity: 0`; `setAt`.
 - Shadows: never default `lift` (0.05 = 318 km) or terrain casting; a headlight key casts none.
 - Don't widen a positional URL tuple (`M`, `J`, `l`, `1`) or insert into a row list: a tuple's width is wire format. Add a new token, appended last.
 - Read OSM schemas from vendored tiles: `water_name` are lines; flags `0`/`1` or present-`true`; rank 1 first.
-- Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule size log-linearly, clamp to the destination up front, assign endpoints verbatim.
+- Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
 - Per-cell `unproject` tests stub the metrics prototype (existing `<pre>`s miss the 8x16-fallback probe).
 - Don't swap the glide's Euler stepping for a closed form: its positions and duration depend on frame cadence, and that feel is fixed.
 - Test occlusion in both road directions with a ground source (west-east without one skips draping).

@@ -17,7 +17,6 @@
 import { describe, expect, it } from "vitest";
 import type { CellGrid } from "glyphcss";
 import {
-  GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS,
   glyphMapAsciiLabel,
   GLYPH_MAP_POINT_MAX_SIZE_ROWS,
   GLYPH_MAP_POINT_RAMP,
@@ -131,32 +130,17 @@ describe("stampGlyphMapPoint — the depth test is the stroke's own", () => {
     expect(inked(grid)).toBe(0);
   });
 
-  it("is blanked PER CELL, so a mark straddling a ridge loses the half well behind it", () => {
+  it("is blanked PER CELL, so a mark straddling a ridge loses only the half behind it", () => {
     // A wall down the middle of the mark: everything left of column 20 is in
     // front of it, everything right is behind. A per-MARK test would draw all
-    // of it or none of it. Cells within the support margin of the wall's edge
-    // are forgiven (see GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS); the rest of the
-    // left half stays dark.
+    // of it or none of it.
     const grid = makeGrid((col) => (col < 20 ? 10 : -10));
-    const drawn = stampGlyphMapPoint(grid, { col: 20, row: 10, depth: 0, size: 3 }, { cellAspect: ASPECT });
+    const drawn = stampGlyphMapPoint(grid, { col: 20, row: 10, depth: 0, size: 2 }, { cellAspect: ASPECT });
     expect(drawn).toBeGreaterThan(0);
-    const reach = GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS;
-    const deepLeft = grid.char.filter((c, i) => c !== " " && i % COLS < 20 - reach).length;
+    const left = grid.char.filter((c, i) => c !== " " && i % COLS < 20).length;
     const right = grid.char.filter((c, i) => c !== " " && i % COLS >= 20).length;
-    expect(deepLeft).toBe(0);
+    expect(left).toBe(0);
     expect(right).toBeGreaterThan(0);
-  });
-
-  it("forgives a mark whose own cell reads nearer than it when the surface a cell away is not — rough ground", () => {
-    // The mesh sample at the mark's cell stands in front of it, but a cell
-    // over it does not: the mark is on its own ground, not behind anything.
-    const grid = makeGrid((col) => (col === 10 ? 10 : 0));
-    expect(stampGlyphMapPoint(grid, { col: 10.5, row: 5.5, depth: 0 }, { cellAspect: ASPECT })).toBe(1);
-  });
-
-  it("still hides a mark behind a surface that is nearer across the whole window", () => {
-    const grid = makeGrid((col) => (Math.abs(col - 10) <= GLYPH_MAP_POINT_DEPTH_SUPPORT_CELLS ? 10 : 0));
-    expect(stampGlyphMapPoint(grid, { col: 10.5, row: 5.5, depth: 0 }, { cellAspect: ASPECT })).toBe(0);
   });
 
   it("skips a cell a DIFFERENT output layer owns", () => {
