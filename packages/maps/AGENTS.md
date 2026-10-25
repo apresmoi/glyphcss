@@ -28,7 +28,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); line palettes fall back to row colour. Shared arcs retain explicit line properties.
 - `/maps` URL row lists are positional: append rows, never insert.
 - Live data: `setLayerSource`, no clock.
-- A sweep over unchanged tiles renders nothing; a `fill` with no ground ignores the view.
+- A sweep whose filtered features are unchanged (filters rerun) renders nothing; a groundless `fill` ignores the view.
 - Tests await `map.idle()`, never timers/polls. Probe camera poses; give `vi.waitFor` explicit timeouts.
 
 ## Don't
@@ -40,14 +40,14 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Opaque `density`/`renderMode`/`glyphPalette`/`ambientIntensity` splits trigger a whole-scene id raster (~+10 ms); each distinct stroke density adds an overlay grid.
 - Camera-following meshes (walk sky): rebuild polygons past a distance threshold. `setTransform` rebuilds cull runs every render.
 - Don't use `projection.visible` or `view.span / cols` under the walk camera: point consumers use `nearSideVisible`, tiles the horizon BOX, LOD the finest level (span-keyed LOD depends on window width and drops buildings on a phone).
-- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers and a contour forever). The raster sweep still has this gap.
+- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers forever). The raster sweep still has this gap.
 - Don't rebuild point layers on an unchanged sweep, create labels visible then hide them (the consumer's CSS transition flashes every label), or move one by remove+add. Compare tile identity, create at `opacity: 0`, move with `setAt`.
 - Shadows: never default `lift` (0.05 = 318 km) or terrain casting (256 texels across Earth); a headlight key casts none.
 - Don't widen a positional URL tuple (`M`, `J`, `l`, `1`) or insert into a row list: a tuple's width is wire format. Add a new token, appended last.
 - Read OSM schemas from vendored tiles: `water_name` are lines, flags `0`/`1` or present-`true`, rank 1 most important.
 - Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
-- Per-cell `unproject` tests stub the metrics prototype; stubbing existing `<pre>`s misses the 8x16-fallback probe.
-- Test occlusion in both road directions with a ground source (west-east without ground skips draping).
+- Per-cell `unproject` tests stub the metrics prototype, not existing `<pre>`s (8x16 fallback).
+- Test occlusion in both road directions with a ground source (west-east skips draping without one).
 - Known gaps: `getMaxTilt` ignores base pitch; `temporalBlend` at nonzero bearing; stamps get no shadows; contours below floored terrain; antimeridian single-cell fill loss.
 
 ## Key gates (`src/`)
