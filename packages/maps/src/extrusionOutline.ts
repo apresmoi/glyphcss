@@ -172,20 +172,25 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
     }
     return id;
   };
+  /** Faces holding both vertices, ascending and once each, appended to `out`. */
+  const appendIncident = (a: number, b: number, out: number[]) => {
+    // Both incident lists are in face order, including repeated vertices.
+    const as = faces[a]!, bs = faces[b]!, start = out.length;
+    let i = 0, j = 0;
+    while (i < as.length && j < bs.length) {
+      const x = as[i]!, y = bs[j]!;
+      if (x === y) { if (out.length === start || out[out.length - 1] !== x) out.push(x); i++; j++; }
+      else if (x < y) i++;
+      else j++;
+    }
+  };
   const incidentIds = (a: number, b: number): ReadonlySet<number> => {
     const id = pairId(a, b);
     let incident = incidents[id];
     if (!incident) {
-      incident = new Set<number>();
-      // Both incident lists are in face order, including repeated vertices.
-      const as = faces[a]!, bs = faces[b]!;
-      let i = 0, j = 0;
-      while (i < as.length && j < bs.length) {
-        const x = as[i]!, y = bs[j]!;
-        if (x === y) { incident.add(x); i++; j++; }
-        else if (x < y) i++;
-        else j++;
-      }
+      const found: number[] = [];
+      appendIncident(a, b, found);
+      incident = new Set(found);
       incidents[id] = incident;
     }
     return incident;
@@ -209,8 +214,8 @@ export function createGlyphMapExtrusionTopology(polygons: readonly Polygon[], ge
         let id = edgeIds[pair];
         if (id === undefined) {
           id = endpoints.length / 2; edgeIds[pair] = id; endpoints.push(ia, ib);
-          // Keep direct queries' incident sets compiled alongside numeric runs.
-          for (const face of incidentIds(ia, ib)) incident.push(face);
+          // The numeric run needs the faces, not a Set per edge.
+          appendIncident(ia, ib, incident);
           offsets.push(incident.length);
         }
         return id;
