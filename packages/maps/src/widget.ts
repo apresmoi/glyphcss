@@ -10657,15 +10657,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       // camera foreshortens the ground along the screen's vertical by
       // cos(tilt), so a screen pixel there covers 1/cos(tilt) of surface;
       // that is undone BEFORE the heading, in screen space, where the pitch
-      // acts. A degree of longitude is cos(lat) of a degree of arc, so the
-      // east component is divided by it after. Without either, a 60-degree
-      // pitch dragged at half speed vertically and Buenos Aires at 82 %
-      // horizontally. Both cosines are floored so the horizon and the poles
-      // stay finite.
+      // acts. Floored so the horizon stays finite. Longitude is deliberately
+      // NOT divided by cos(lat): near a pole a parallel is a small circle
+      // round the screen centre, so that boost turned any sideways drift of
+      // a vertical drag into a spin about the pole (7x at 82 degrees).
       const pitchCos = Math.max(0.1, Math.cos((appliedTilt * Math.PI) / 180));
-      const latCos = Math.max(0.05, Math.cos((view.center[1] * Math.PI) / 180));
       const [dx, dy] = bearingDragDelta(dxPx, dyPx / pitchCos);
-      camera.rotY -= (dx * degPerPx) / latCos;
+      camera.rotY -= dx * degPerPx;
       camera.rotX -= dy * degPerPx;
       // UNCLAMPED (was `clamp(trueRotX, 90 - 89.999, 90 + 89.999)`): that
       // clamp existed only to keep `centerForCamera`'s latitude away from

@@ -397,18 +397,49 @@ describe("tilted globe pan", () => {
     host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 300 + dx, clientY: 300 + dy }));
     host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 300 + dx, clientY: 300 + dy }));
   }
-  it.each([[0, 64, 60], [64, 0, 60], [0, -64, 60], [0, 64, 0], [64, 0, 0], [0, 64, 60, 90], [48, 32, 45, 30]])("moves the grabbed centre ground by the dragged pixels (%i, %i) at tilt %i, bearing %s", async (dx, dy, TILT, BEARING = 0) => {
+  it.each([[0, 64, 60], [0, -64, 60], [0, 64, 0]])("moves the grabbed centre ground by the dragged pixels (%i, %i) at tilt %i", async (dx, dy, TILT) => {
     const { map, host, done } = mount({
       view: { center: CENTER, span: SPAN, cols: COLS, rows: ROWS }, projection: glyphMapGlobe(), tilt: TILT,
     });
     try {
-      map.setBearing(BEARING);
       await map.idle();
       const grabbed = map.getView().center;
       pan(host, dx, dy);
       const at = map.project(grabbed);
       expect(at.col - COLS / 2).toBeCloseTo(dx / CELL_W, 0);
       expect(at.row - ROWS / 2).toBeCloseTo(dy / CELL_H, 0);
+    } finally { done(); }
+  });
+
+  it.each([0, 90, 30])("turns longitude and latitude at the same degrees per pixel at bearing %i", async (BEARING) => {
+    const { map, host, done } = mount({ view: { center: CENTER, span: SPAN, cols: COLS, rows: ROWS }, projection: glyphMapGlobe() });
+    try {
+      map.setBearing(BEARING);
+      await map.idle();
+      const [lon0, lat0] = map.getView().center;
+      pan(host, 0, 64);
+      const [lon1, lat1] = map.getView().center;
+      const vertical = Math.hypot(lon1 - lon0, lat1 - lat0);
+      pan(host, 64, 0);
+      const [lon2, lat2] = map.getView().center;
+      expect(Math.hypot(lon2 - lon1, lat2 - lat1)).toBeCloseTo(vertical, 9);
+    } finally { done(); }
+  });
+
+  it("moves a near-pole globe with the hand when a vertical drag drifts sideways, never spinning it about the pole", async () => {
+    const { map, host, done } = mount({ view: { center: [-52.33, 82.57], span: 360, cols: COLS, rows: ROWS }, projection: glyphMapGlobe() });
+    try {
+      await map.idle();
+      const probe: readonly [number, number] = [-52.33, 75];
+      const before = map.project(probe);
+      const init = { pointerId: 2, bubbles: true, button: 0 };
+      host.dispatchEvent(new PointerEvent("pointerdown", { ...init, clientX: 300, clientY: 300 }));
+      for (let i = 1; i <= 12; i++) host.dispatchEvent(new PointerEvent("pointermove", { ...init, clientX: 300 + 2 * i, clientY: 300 + 15 * i }));
+      host.dispatchEvent(new PointerEvent("pointerup", { ...init, clientX: 324, clientY: 480 }));
+      const after = map.project(probe);
+      // 24 px of drift is 3 columns; the cos(lat) boost swung this point 6 sideways.
+      expect(Math.abs(after.col - before.col)).toBeLessThan(3);
+      expect(after.row - before.row).toBeGreaterThan(5);
     } finally { done(); }
   });
 });
