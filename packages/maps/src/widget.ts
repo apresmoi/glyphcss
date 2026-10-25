@@ -6398,6 +6398,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
     let activeFeatures: readonly GlyphMapVectorFeature[] = [];
+    /** The tiles, in sweep order, `activeFeatures` was selected from. A sweep that resolves the same tile objects selects the same features, so it owes no render. */
+    let activeTiles: readonly (import("./vector/types").GlyphMapVectorTile | undefined)[] | null = null;
     let updateInFlight = false;
     let updateQueued = false;
     /** Same post-dispose re-entry guard the raster runtime documents above. */
@@ -6441,6 +6443,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           }));
           if (disposed) return;
         }
+        const tiles = [...desired].map((key) => tileCache.get(key));
+        if (activeTiles !== null && activeTiles.length === tiles.length && activeTiles.every((tile, i) => tile === tiles[i])) return;
+        activeTiles = tiles;
         const feats: GlyphMapVectorFeature[] = [];
         const arcs: GlyphMapVectorFeature[] = [];
         for (const key of desired) {
@@ -6625,11 +6630,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         source = next;
         tileCache.clear();
         activeFeatures = [];
+        activeTiles = null;
         staticFeatures = [];
       },
       dispose(): void {
         disposed = true;
         activeFeatures = [];
+        activeTiles = null;
         tileCache.clear();
       },
     };
@@ -7453,7 +7460,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     padCells = 2,
     sourceLayer?: string,
     filter?: GlyphMapFeatureFilter,
-    featuresAreTheWholeInput = false,
+    featuresAreTheWholeInput: boolean | (() => boolean) = false,
     commitWater?: (tiles: readonly GlyphMapVectorTile[], valid: () => boolean) => Promise<{ commit: () => boolean } | null>,
   ): FeatureLayerRuntime {
     let source = initialSource;
@@ -7486,8 +7493,9 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
      * layers, water and `fill-extrusion` do. It is NOT true in general: a
      * `heatmap`'s relief samples the mounted TERRAIN, so an unchanged vector
      * tile set still has to re-mesh when a finer elevation tier lands, and a
-     * draped `fill`'s lift reads the view's span. An extrusion re-probes its
-     * ground through its own `groundChangeSyncs` hook rather than here. A point hotspot depends on
+     * draped `fill`'s lift reads the view's span (a function answers per
+     * sweep, for the fill whose lift has no ground to read). An extrusion
+     * re-probes its ground through its own `groundChangeSyncs` hook rather than here. A point hotspot depends on
      * the feature, the projection and its own GROUND — and the last of those
      * is re-planted through that same `groundChangeSyncs` hook (see
      * `createPointFeatureRuntime`'s `syncGround`), precisely so this skip can
@@ -7502,7 +7510,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     }
     async function update(force = false): Promise<void> {
       const request = ++revision;
-      const maySkip = featuresAreTheWholeInput && !force;
+      const maySkip = (typeof featuresAreTheWholeInput === "function" ? featuresAreTheWholeInput() : featuresAreTheWholeInput) && !force;
       // CAPTURED ONCE, at the top of the sweep. `source` is replaceable now
       // (`setSource`), and this function awaits — so reading the live binding
       // after the await would let a sweep that started on one source finish
@@ -8077,8 +8085,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // An extrusion's mesh reads only its features, the projection (a change
     // forces the sweep) and the ground (re-probed by `syncGround`), so an
     // unchanged tile set may skip. A draped `fill` may not: its lift reads
-    // the view's span.
-    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, commitWater !== undefined || layer.type === "fill-extrusion", commitWater);
+    // the view's span. But the lift only exists over a ground: with none
+    // mounted now or at the last build, the mesh is a function of the tiles
+    // alone and an unchanged set may skip too.
+    const meshIgnoresView = commitWater !== undefined || layer.type === "fill-extrusion"
+      ? true
+      : () => !wantsDrape || (!builtOnTerrain && groundElevationSampler() === null);
+    const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, meshIgnoresView, commitWater);
     nearSideGeometrySyncs.add(syncWalls);
     // A draped `fill` needs re-planting for exactly the reason an extrusion
     // does — its mesh is camera-independent, so a tile sweep never rebuilds
