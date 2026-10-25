@@ -8,7 +8,7 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 - Public API uses lat/lng/degrees; views are aspect-locked. Camera pivots on drawn ground at `view.center` (planting sampler/window; datum fallback). `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering without changing the geographic view.
 - Branch on capability (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
-- Crop, don't clamp: `project()` returns `NaN` outside its window. Except: `raster` elevation windows clamp per vertex.
+- Crop, don't clamp: `project()` returns `NaN` outside its window, except `raster` elevation windows (clamp per vertex).
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
 - Planting: `groundElevation`, else mounted raster tiles, else datum. NW–SE tile triangles clamp per vertex. Committed still water is level (lowest shore, ≥ datum); rivers max(terrain, datum). `null` means datum; `contour` is exempt.
 - Relief resolution is per pyramid LEVEL, never per tile. Non-target tiers are sunk by `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
@@ -28,7 +28,8 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); line palettes fall back to row colour. Shared arcs retain explicit line properties.
 - `/maps` URL row lists are positional: append rows, never insert.
 - Live data: `setLayerSource`, no clock.
-- Tests await `map.idle()`, never timers/polls. Probe camera poses; set explicit `vi.waitFor` timeouts.
+- A sweep over unchanged tiles renders nothing; a `fill` with no ground ignores the view.
+- Tests await `map.idle()`, never timers/polls. Probe camera poses; give `vi.waitFor` explicit timeouts.
 
 ## Don't
 
@@ -37,17 +38,17 @@ Docs: `README.md`, `website/src/content/docs/maps/**`.
 - Don't plant anything on a feature attribute (`ele`, `min_height` as ground): the drawn surface is the terrain sample; `min_height` is a true-metre offset above it.
 - Ocean DEM is seabed, not surface: drape `ocean` at datum; lakes keep the terrain drape.
 - Opaque `density`/`renderMode`/`glyphPalette`/`ambientIntensity` splits trigger a whole-scene id raster (~+10 ms); each distinct stroke density adds an overlay grid.
-- Camera-following meshes (walk sky): rebuild world-space polygons past a distance threshold. `setTransform` rebuilds cull runs every render.
-- Don't use `projection.visible` or `view.span / cols` under the walk camera: point consumers go through `nearSideVisible`, tiles through the horizon BOX, LOD through the finest level (span-keyed LOD depends on window width and drops buildings on a phone).
-- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing. One rejection blanked whole layers and a contour forever. The raster sweep still has this gap.
+- Camera-following meshes (walk sky): rebuild polygons past a distance threshold. `setTransform` rebuilds cull runs every render.
+- Don't use `projection.visible` or `view.span / cols` under the walk camera: point consumers use `nearSideVisible`, tiles the horizon BOX, LOD the finest level (span-keyed LOD depends on window width and drops buildings on a phone).
+- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers and a contour forever). The raster sweep still has this gap.
 - Don't rebuild point layers on an unchanged sweep, create labels visible then hide them (the consumer's CSS transition flashes every label), or move one by remove+add. Compare tile identity, create at `opacity: 0`, move with `setAt`.
-- Shadows: never default `lift` (0.05 = 318 km) or terrain casting (256 texels across Earth). A headlight key shows no shadows.
+- Shadows: never default `lift` (0.05 = 318 km) or terrain casting (256 texels across Earth); a headlight key casts none.
 - Don't widen a positional URL tuple (`M`, `J`, `l`, `1`) or insert into a row list: a tuple's width is wire format. Add a new token, appended last.
-- Read OSM schemas from vendored tiles: `water_name` are lines, flags `0`/`1` or present-`true`, rank 1 is most important.
+- Read OSM schemas from vendored tiles: `water_name` are lines, flags `0`/`1` or present-`true`, rank 1 most important.
 - Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
-- Stub the metrics prototype for per-cell `unproject` tests: stubbing existing `<pre>`s misses the probe, whose 8x16 fallback disagrees with the render.
-- Test occlusion in both road directions with a ground source: west-east without ground skips draping.
-- Known gaps: `getMaxTilt` ignores base pitch; `temporalBlend` at nonzero bearing; stamps receive no shadows; contours below floored terrain; antimeridian single-cell fill loss.
+- Per-cell `unproject` tests stub the metrics prototype; stubbing existing `<pre>`s misses the 8x16-fallback probe.
+- Test occlusion in both road directions with a ground source (west-east without ground skips draping).
+- Known gaps: `getMaxTilt` ignores base pitch; `temporalBlend` at nonzero bearing; stamps get no shadows; contours below floored terrain; antimeridian single-cell fill loss.
 
 ## Key gates (`src/`)
 
