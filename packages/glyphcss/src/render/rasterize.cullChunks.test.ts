@@ -4,6 +4,8 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera } from "../
 import {
   buildGlyphPolygonCullChunks,
   buildRasterizeContext,
+  countShadeTriangles,
+  createShadeCache,
   GLYPH_CULL_CHUNK_MIN_POLYGONS,
   type GlyphPolygonCullChunk,
 } from "../api/rasterizeContext";
@@ -179,7 +181,7 @@ describe("pre-projection cull runs are render-identical", () => {
     // another triangle's shade and colour on the second frame.
     const poseA = { rotX: 62, rotY: 24 };
     const poseB = { rotX: 58, rotY: 71 };
-    const shared = { iA: [] as number[], iB: [] as number[], iC: [] as number[], lit: [] as (string | null)[] };
+    const shared = createShadeCache(countShadeTriangles(polygons));
     const warm = context(polygons, chunks, false, poseA);
     warm.shadeCache = shared;
     rasterize(warm);

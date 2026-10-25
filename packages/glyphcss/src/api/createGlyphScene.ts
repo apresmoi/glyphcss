@@ -33,6 +33,7 @@ import { buildTextureSamplers, polygonTexture } from "@glyphcss/core";
 import type { GlyphCamera } from "./createGlyphCamera";
 import { createGlyphPerspectiveCamera } from "./createGlyphCamera";
 import { buildGlyphPolygonCullChunks, buildRasterizeContext, normalizeGlyphColorEncoding, normalizeGlyphColorTolerance } from "./rasterizeContext";
+import { clearShadeCacheEntry, countShadeTriangles, createShadeCache, growShadeCache } from "./rasterizeContext";
 import type { GlyphPolygonCullChunk, ShadeCache, TemporalHistory } from "./rasterizeContext";
 import { rasterize, rasterizeToCells, computeOcclusionIds, buildSurfaceDepth, GLYPH_FOREIGN_OCCLUDER_ID } from "../render/rasterize";
 import type { GlyphOcclusionSlopes } from "../render/rasterize";
@@ -1274,7 +1275,7 @@ export function createGlyphScene(
   // and only need clearing when geometry, transforms, or lighting/shading
   // options change. Shadow changes do NOT invalidate it — shadows are blended
   // per cell at scan-fill, not baked into the cached lit color.
-  const shadeCache: ShadeCache = { iA: [], iB: [], iC: [], lit: [] };
+  const shadeCache: ShadeCache = createShadeCache(0);
   /**
    * Per-mesh pre-projection cull runs (`buildGlyphPolygonCullChunks`), keyed
    * by the TRANSFORMED polygon array identity. A mesh with no
@@ -1433,23 +1434,12 @@ export function createGlyphScene(
    * only on a failed render transaction, where the guarantee is that the
    * frame AND its next-frame inputs are left exactly as they were.
    */
-  function rollbackShadeCache(next: ShadeCache, lengths: readonly [number, number, number, number]): void {
+  function rollbackShadeCache(next: ShadeCache): void {
     const journal = next.journal;
+    // A dirty or grown pass wrote into arrays no one else holds: dropping them
+    // is the rollback.
     if (journal === undefined || next.iA !== shadeCache.iA) return;
-    for (let i = journal.length - 1; i >= 0; i--) {
-      const t = journal[i]!;
-      delete next.iA[t];
-      delete next.iB[t];
-      delete next.iC[t];
-      delete next.lit[t];
-    }
-    // `delete` leaves a hole, not a shorter array, and a pass that reached
-    // past the end grew all four. Restore the lengths too, so "exactly as
-    // they were" is literal rather than merely equivalent.
-    next.iA.length = lengths[0];
-    next.iB.length = lengths[1];
-    next.iC.length = lengths[2];
-    next.lit.length = lengths[3];
+    for (let i = journal.length - 1; i >= 0; i--) clearShadeCacheEntry(next, journal[i]!);
     journal.length = 0;
   }
 
@@ -1960,11 +1950,15 @@ export function createGlyphScene(
     // thing for the cost of the entries this pass actually FILLS — which on
     // a warm cache is nearly none, because a populated entry is a hit and a
     // hit never writes. A dirty cache still starts from empty, as before.
+    // Dense typed storage sized to this pass's positional triangle count: see
+    // `ShadeCache`. A warm cache that has become too small is replaced by a
+    // grown COPY, never resized in place, so the rollback stays a no-op for it.
+    const shadeTriangles = countShadeTriangles(allPolygons);
     const nextShadeCache: ShadeCache = shadeCacheDirty
-      ? { iA: [], iB: [], iC: [], lit: [], journal: [] }
-      : { iA: shadeCache.iA, iB: shadeCache.iB, iC: shadeCache.iC, lit: shadeCache.lit, journal: [] };
-    const shadeCacheLengths: readonly [number, number, number, number] =
-      [nextShadeCache.iA.length, nextShadeCache.iB.length, nextShadeCache.iC.length, nextShadeCache.lit.length];
+      ? createShadeCache(shadeTriangles, true)
+      : shadeTriangles > shadeCache.iA.length
+        ? growShadeCache(shadeCache, shadeTriangles, true)
+        : { iA: shadeCache.iA, iB: shadeCache.iB, iC: shadeCache.iC, lit: shadeCache.lit, journal: [] };
     const nextTemporalHistory = cloneTemporalHistory(temporalHistory);
 
     try {
@@ -2119,7 +2113,7 @@ export function createGlyphScene(
       // The shade cache is the scene's OWN arrays this render wrote into, so
       // the rollback is what stands in for the defensive copy it used to be
       // handed — see `ShadeCache.journal`.
-      rollbackShadeCache(nextShadeCache, shadeCacheLengths);
+      rollbackShadeCache(nextShadeCache);
       throw error;
     } finally {
       endAtlasPaletteTransaction();

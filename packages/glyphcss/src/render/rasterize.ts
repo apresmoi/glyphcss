@@ -2375,6 +2375,9 @@ function rasterizeSolid(
   // Key on (color, intensity quantized to 8 bits) — lossless for 8-bit
   // output — and reuse the formatted string across all triangles that match.
   const litCache = new Map<string, string>();
+  // The per-triangle lit-colour buckets (q in 0..255) by base colour; the
+  // string-keyed `litCache` still serves the rare out-of-range q and shadows.
+  const litSlots = new Map<string, (string | undefined)[]>();
 
   // Per-cell texture sampling: when a polygon carries a texture + UVs and its
   // sampler is available, the rasterizer samples the texture per cell (the
@@ -2656,7 +2659,10 @@ function rasterizeSolid(
       // shadeCache (lazily filled by positional triangle index). On a camera-
       // only change (orbit/zoom drag) every populated entry is a hit; the scene
       // clears the cache when geometry, light, or shading options change.
-      const shadeCacheHit = shadeCache !== null && shadeCache.iA[triT] !== undefined;
+      // NaN is the unfilled marker; a slot at or past the capacity can neither hit
+      // nor be written (see `ShadeCache`).
+      const shadeCacheInRange = shadeCache !== null && triT < shadeCache.iA.length;
+      const shadeCacheHit = shadeCacheInRange && !Number.isNaN(shadeCache!.iA[triT]!);
       let fnxN = 0, fnyN = 0, fnzN = 0;
       if (normalBuf !== null || !shadeCacheHit) {
         // An AUTHORED shading normal (`Polygon.shadingNormal`) wins over the
@@ -2759,8 +2765,21 @@ function rasterizeSolid(
           // Cache key: base color + intensity quantized to 0..255. Two triangles
           // with the same base and intensity-to-8-bits produce identical output.
           const q = (avgKey * 255) | 0;
-          const cacheKey = `${baseColor}:${q}`;
-          let cached = litCache.get(cacheKey);
+          // `q` is an int32; the common 0..255 range indexes a per-colour slot
+          // table (no string built per triangle), anything else keeps the
+          // original string key. Either way it is the same cache entry the
+          // string key named, so first-arrival populates exactly as before.
+          let slots: (string | undefined)[] | undefined;
+          let cacheKey = "";
+          let cached: string | undefined;
+          if (q >= 0 && q < 256) {
+            slots = litSlots.get(baseColor);
+            if (slots === undefined) { slots = new Array<string | undefined>(256); litSlots.set(baseColor, slots); }
+            cached = slots[q];
+          } else {
+            cacheKey = `${baseColor}:${q}`;
+            cached = litCache.get(cacheKey);
+          }
           if (cached === undefined) {
             const triRgb = hexToRgb(baseColor); // memoized internally
             const tintR = ambIntensity * ambRgb[0] / 255 + avgKey * keyRgb[0] / 255;
@@ -2770,12 +2789,13 @@ function rasterizeSolid(
             const litG = Math.min(255, triRgb[1] * tintG);
             const litB = Math.min(255, triRgb[2] * tintB);
             cached = `#${toHex2(litR)}${toHex2(litG)}${toHex2(litB)}`;
-            litCache.set(cacheKey, cached);
+            if (slots !== undefined) slots[q] = cached;
+            else litCache.set(cacheKey, cached);
           }
           litColor = cached;
         }
 
-        if (shadeCache !== null) {
+        if (shadeCacheInRange && shadeCache !== null) {
           shadeCache.iA[triT] = iA;
           shadeCache.iB[triT] = iB;
           shadeCache.iC[triT] = iC;

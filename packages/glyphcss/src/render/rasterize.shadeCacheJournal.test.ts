@@ -19,7 +19,13 @@
 import { describe, expect, it } from "vitest";
 import type { Polygon } from "@glyphcss/core";
 import { createGlyphOrthographicCamera } from "../api/createGlyphCamera";
-import { buildRasterizeContext, type ShadeCache } from "../api/rasterizeContext";
+import {
+  buildRasterizeContext,
+  clearShadeCacheEntry,
+  countShadeTriangles,
+  createShadeCache,
+  type ShadeCache,
+} from "../api/rasterizeContext";
 import { rasterize } from "./rasterize";
 
 const light = { direction: [0.3, 0.4, 0.86] as [number, number, number], intensity: 0.8 };
@@ -58,9 +64,9 @@ function render(polygons: Polygon[], zoom: number, shadeCache: ShadeCache | null
   return rasterize(ctx);
 }
 
-/** A plain copy of the four arrays, holes and all — what the rollback must reproduce. */
+/** A plain copy of the four arrays — what the rollback must reproduce. */
 function snapshot(c: ShadeCache) {
-  return { iA: c.iA.slice(), iB: c.iB.slice(), iC: c.iC.slice(), lit: c.lit.slice() };
+  return { iA: Array.from(c.iA), iB: Array.from(c.iB), iC: Array.from(c.iC), lit: c.lit.slice() };
 }
 
 describe("ShadeCache.journal", () => {
@@ -70,7 +76,9 @@ describe("ShadeCache.journal", () => {
     // order, so every index pass 1 owns still means the same triangle and the
     // appended quads are exactly the misses pass 2 has to journal.
     const grown = [...first, ...quads(12, 12)];
-    const cache: ShadeCache = { iA: [], iB: [], iC: [], lit: [], journal: [] };
+    // Sized for the grown list: pass 1 fills only the first part, so the
+    // appended quads are genuine misses for pass 2 to journal.
+    const cache = createShadeCache(countShadeTriangles(grown), true);
 
     render(first, 90, cache);
     expect(cache.journal!.length).toBeGreaterThan(0);
@@ -79,29 +87,16 @@ describe("ShadeCache.journal", () => {
 
     render(grown, 90, cache);
     expect(cache.journal!.length).toBeGreaterThan(0);
-    expect(cache.iA.length).toBeGreaterThan(before.iA.length);
+    expect(Array.from(cache.iA).filter((v) => !Number.isNaN(v)).length)
+      .toBeGreaterThan(before.iA.filter((v) => !Number.isNaN(v)).length);
 
-    for (const t of cache.journal!) {
-      delete cache.iA[t];
-      delete cache.iB[t];
-      delete cache.iC[t];
-      delete cache.lit[t];
-    }
-    // `delete` leaves a hole, not a shorter array — restoring the lengths is
-    // the rollback's own second half (`rollbackShadeCache`).
-    cache.iA.length = before.iA.length;
-    cache.iB.length = before.iB.length;
-    cache.iC.length = before.iC.length;
-    cache.lit.length = before.lit.length;
-    expect(cache.iA).toEqual(before.iA);
-    expect(cache.iB).toEqual(before.iB);
-    expect(cache.iC).toEqual(before.iC);
-    expect(cache.lit).toEqual(before.lit);
+    for (const t of cache.journal!) clearShadeCacheEntry(cache, t);
+    expect(snapshot(cache)).toEqual(before);
   });
 
   it("journals nothing on a pass that is all hits", () => {
     const polygons = quads(40, 20);
-    const cache: ShadeCache = { iA: [], iB: [], iC: [], lit: [], journal: [] };
+    const cache = createShadeCache(countShadeTriangles(polygons), true);
     render(polygons, 40, cache);
     cache.journal!.length = 0;
     // Same geometry, same light, same camera: every triangle is a hit.
@@ -111,8 +106,8 @@ describe("ShadeCache.journal", () => {
 
   it("renders identically whether or not the journal is being kept", () => {
     const polygons = quads(40, 20);
-    const journaled: ShadeCache = { iA: [], iB: [], iC: [], lit: [], journal: [] };
-    const plain: ShadeCache = { iA: [], iB: [], iC: [], lit: [] };
+    const journaled = createShadeCache(countShadeTriangles(polygons), true);
+    const plain = createShadeCache(countShadeTriangles(polygons));
     expect(render(polygons, 40, journaled)).toBe(render(polygons, 40, plain));
     expect(render(polygons, 90, journaled)).toBe(render(polygons, 90, plain));
   });

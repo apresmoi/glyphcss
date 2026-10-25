@@ -571,9 +571,17 @@ export interface RasterizeContextOptions {
  * shading options change. Absent/null → always recompute (current behavior).
  */
 export interface ShadeCache {
-  iA: number[];
-  iB: number[];
-  iC: number[];
+  /**
+   * Dense, pre-sized storage (see {@link createShadeCache}); `NaN` in `iA`
+   * means "not filled". Growable JS arrays written at scattered positional
+   * indices fall into V8 dictionary mode, which was most of the rasterizer's
+   * self time on a street-level map. A slot at or past the capacity is simply
+   * never memoized — a miss recomputes identically.
+   */
+  iA: Float64Array;
+  iB: Float64Array;
+  iC: Float64Array;
+  /** Dense and fully populated (`null` until filled) — never holey. */
   lit: (string | null)[];
   /**
    * Positional triangle indices this pass FILLED, in order — the undo log a
@@ -587,6 +595,55 @@ export interface ShadeCache {
    * takes.
    */
   journal?: number[];
+}
+
+/**
+ * Triangles a polygon list advances `rasterizeSolid`'s positional `triT` by:
+ * a fan of `vertices - 2` per polygon with at least three vertices, hidden or
+ * culled polygons included, and nothing for a degenerate one.
+ */
+export function countShadeTriangles(polygons: readonly Polygon[]): number {
+  let n = 0;
+  for (let i = 0; i < polygons.length; i++) {
+    const v = polygons[i]!.vertices.length;
+    if (v >= 3) n += v - 2;
+  }
+  return n;
+}
+
+/** An all-unfilled cache with room for `triangleCount` positional slots. */
+export function createShadeCache(triangleCount: number, journal = false): ShadeCache {
+  const lit: (string | null)[] = [];
+  for (let i = 0; i < triangleCount; i++) lit.push(null);
+  const cache: ShadeCache = {
+    iA: new Float64Array(triangleCount).fill(NaN),
+    iB: new Float64Array(triangleCount).fill(NaN),
+    iC: new Float64Array(triangleCount).fill(NaN),
+    lit,
+  };
+  if (journal) cache.journal = [];
+  return cache;
+}
+
+/**
+ * A NEW cache of `triangleCount` slots carrying every entry of `source`. The
+ * source is left untouched, so a caller that may still roll back never loses it.
+ */
+export function growShadeCache(source: ShadeCache, triangleCount: number, journal = false): ShadeCache {
+  const grown = createShadeCache(triangleCount, journal);
+  grown.iA.set(source.iA);
+  grown.iB.set(source.iB);
+  grown.iC.set(source.iC);
+  for (let i = 0; i < source.lit.length; i++) grown.lit[i] = source.lit[i]!;
+  return grown;
+}
+
+/** Mark one slot unfilled again (the journal's undo step). */
+export function clearShadeCacheEntry(cache: ShadeCache, t: number): void {
+  cache.iA[t] = NaN;
+  cache.iB[t] = NaN;
+  cache.iC[t] = NaN;
+  cache.lit[t] = null;
 }
 
 /**

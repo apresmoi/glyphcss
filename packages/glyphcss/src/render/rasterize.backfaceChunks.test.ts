@@ -4,8 +4,9 @@ import { createGlyphOrthographicCamera, createGlyphPerspectiveCamera } from "../
 import {
   buildGlyphPolygonCullChunks,
   buildRasterizeContext,
+  countShadeTriangles,
+  createShadeCache,
   type GlyphPolygonCullChunk,
-  type ShadeCache,
 } from "../api/rasterizeContext";
 import { deriveFacingGradient, glyphChunkIsBackFacing, rasterize } from "./rasterize";
 
@@ -69,8 +70,8 @@ function sphere(lonSteps = 128, latSteps = 12, radius = 1): Polygon[] {
   return polygons;
 }
 
-function emptyShadeCache(): ShadeCache {
-  return { iA: [], iB: [], iC: [], lit: [] };
+function emptyShadeCache(polygons: readonly Polygon[]) {
+  return createShadeCache(countShadeTriangles(polygons));
 }
 
 function render(
@@ -90,11 +91,11 @@ function render(
     ambientLight: ambient,
     ...(cullChunks ? { cullChunks } : {}),
   });
-  const cache = emptyShadeCache();
+  const cache = emptyShadeCache(polygons);
   ctx.shadeCache = cache;
   const text = rasterize(ctx);
   let shaded = 0;
-  for (let i = 0; i < cache.iA.length; i++) if (cache.iA[i] !== undefined) shaded++;
+  for (let i = 0; i < cache.iA.length; i++) if (!Number.isNaN(cache.iA[i]!)) shaded++;
   return { text, shaded };
 }
 
@@ -217,11 +218,11 @@ describe("pre-projection back-face run rejection", () => {
         directionalLight: light, ambientLight: ambient,
         ...(cull ? { cullChunks: cull } : {}),
       });
-      const cache = emptyShadeCache();
+      const cache = emptyShadeCache(polygons);
       ctx.shadeCache = cache;
       const text = rasterize(ctx);
       let shaded = 0;
-      for (let i = 0; i < cache.iA.length; i++) if (cache.iA[i] !== undefined) shaded++;
+      for (let i = 0; i < cache.iA.length; i++) if (!Number.isNaN(cache.iA[i]!)) shaded++;
       return { text, shaded };
     };
     const plain = build();
