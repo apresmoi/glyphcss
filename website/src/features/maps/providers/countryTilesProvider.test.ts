@@ -28,7 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "@glyphcss/maps";
-import { glyphMapEquirectangular, glyphMapGlobe } from "@glyphcss/maps";
+import { glyphMapEquirectangular, glyphMapGlobe, glyphMapTargetLOD, glyphMapDegreesPerCell } from "@glyphcss/maps";
 import {
   COUNTRY_PRIORITY_PROPERTY,
   COUNTRY_TILE_LAYERS,
@@ -277,31 +277,63 @@ describe("circle layer — countries sized by a real measured quantity", () => {
     } finally { teardown(); }
   });
 
-  it("hides far-side country marks on the globe through the same projection.visible path the labels use", async () => {
-    const { map, provider, teardown } = await mount({
-      view: { center: [10, 50], span: 160, cols: COLS, rows: ROWS },
-      projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }),
-    });
+  /**
+   * The bake is PROGRESSIVE: z0 carries 94 countries, z1 139, z2 178 — each
+   * level is a different, larger set, not the same features repeated across
+   * tiles (checked: no name appears twice within any level). A view that
+   * resolves to z1 therefore draws more marks than z0 has countries, which
+   * is correct. The expectation below is built from the level the sweep
+   * actually chose.
+   */
+  it("hides far-side country marks on the globe, through the real provider and sourceLayer", async () => {
+    const view = { center: [10, 50] as [number, number], span: 160, cols: COLS, rows: ROWS };
+    const { map, provider, teardown } = await mount({ view, projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }) });
     try {
-      const countries = (await provider.loadTile(0, 0, 0)).layers.countries ?? [];
       // A flat 2px radius is one cell per country, so the mark count IS the
       // number of distinct cells holding a visible country.
-      map.addLayer({ type: "circle", id: "circle", source: { features: countries }, radius: 2, color: "#f59e0b" });
+      map.addLayer({ type: "circle", id: "circle", source: provider, sourceLayer: "countries", radius: 2, color: "#f59e0b" });
       await map.idle();
       map.scene.rerender();
+      const lod = glyphMapTargetLOD(provider, glyphMapDegreesPerCell(view));
+      const level = provider.zooms.find((z) => z.z === lod)!;
       const cells = new Set<string>();
       let behind = 0;
-      for (const f of countries) {
-        const [lon, lat] = f.rings[0]![0]!;
-        const at = map.project([lon, lat]);
-        if (!at.visible) { behind++; continue; }
-        const col = Math.floor(at.col), row = Math.floor(at.row);
-        if (col >= 0 && col < COLS && row >= 0 && row < ROWS) cells.add(`${col},${row}`);
+      for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) {
+        for (const f of (await provider.loadTile(lod, x, y)).layers.countries ?? []) {
+          const [lon, lat] = f.rings[0]![0]!;
+          const at = map.project([lon, lat]);
+          if (!at.visible) { behind++; continue; }
+          const col = Math.floor(at.col), row = Math.floor(at.row);
+          if (col >= 0 && col < COLS && row >= 0 && row < ROWS) cells.add(`${col},${row}`);
+        }
       }
-      // The premise: a real share of the world is behind the limb, so a leak
-      // of far-side marks would show as extra cells.
       expect(behind).toBeGreaterThan(10);
+      expect(cells.size).toBeGreaterThan(20);
       expect(marks(map)).toBe(cells.size);
+    } finally { teardown(); }
+  });
+
+  it("draws a larger rendered disc for a larger pop_scale", async () => {
+    const { map, provider, teardown } = await mount();
+    try {
+      const countries = (await provider.loadTile(0, 0, 0)).layers.countries ?? [];
+      const scale = (name: string) => Number(countries.find((f) => f.properties?.name === name)!.properties?.pop_scale);
+      expect(scale("China")).toBeGreaterThan(scale("Iceland"));
+      const inkAround = (name: string): number => {
+        const f = countries.find((c) => c.properties?.name === name)!;
+        const at = map.project(f.rings[0]![0]! as [number, number]);
+        const rows = (map.scene.output.textContent ?? "").split("\n");
+        let n = 0;
+        for (let r = Math.floor(at.row) - 6; r <= Math.floor(at.row) + 6; r++) {
+          for (let c = Math.floor(at.col) - 14; c <= Math.floor(at.col) + 14; c++) if (/[·•●]/.test(rows[r]?.[c] ?? " ")) n++;
+        }
+        return n;
+      };
+      // A big radiusScale so the disc is several cells even for a small country.
+      map.addLayer({ type: "circle", id: "circle", source: provider, sourceLayer: "countries", radiusProperty: "pop_scale", radiusScale: 100, radius: 2 });
+      await map.idle();
+      map.scene.rerender();
+      expect(inkAround("China")).toBeGreaterThan(inkAround("Iceland"));
     } finally { teardown(); }
   });
 });
