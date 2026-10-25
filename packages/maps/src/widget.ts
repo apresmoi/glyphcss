@@ -4153,7 +4153,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   };
   scene.rerender = ((scheduled?: true) => {
     // The scene's own queued render (a mesh was mounted or changed): unchanged, unless a landing that a motion frame renders owns it.
-    if (scheduled) { if (!landingOwed) renderScene(); return; }
+    if (scheduled) {
+      if (landingOwed) return;
+      // A sweep renders its landings once, at its end; a mesh's own queued render is one of them. A live compositor frame is not: it keeps the unchanged path.
+      if (sweepActive && !compositorFrame) { sweepRenderOwed = true; return; }
+      renderScene();
+      return;
+    }
     if (!compositorRender) {
       endCompositorPan();
       // Whatever asked for this render changed the state a rest job was made for; a glide's own settle is the one that does not.

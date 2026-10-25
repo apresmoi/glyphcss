@@ -17,7 +17,7 @@ let renders = 0;
 const tuning = { ...glyphMapPrerenderTuning };
 const CENTRE: readonly [number, number] = [8.54, 47.375];
 
-function mount(layers: GlyphMapLayer[]): Map {
+function mount(layers: GlyphMapLayer[], span = 0.006): Map {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
     const pre = this.tagName === "PRE";
     const lines = this.textContent?.split("\n") ?? [];
@@ -26,7 +26,7 @@ function mount(layers: GlyphMapLayer[]): Map {
   });
   const host = document.createElement("div"); document.body.append(host);
   const m = createGlyphMap(host, {
-    view: { center: [CENTRE[0], CENTRE[1]], span: 0.006, cols: 80, rows: 20 },
+    view: { center: [CENTRE[0], CENTRE[1]], span, cols: 80, rows: 20 },
     projection: glyphMapEquirectangular({ exaggeration: 24 }), tilt: 0, layers,
   });
   maps.push(m);
@@ -95,4 +95,46 @@ it("starts each layer's sweep in a task of its own, and settles to the bytes of 
 it("renders the landings of one sweep's layers once, not once per layer", async () => {
   const split = await sweep(true);
   expect(split.renders).toBe(1);
+});
+
+// ── Mesh-backed landings ───────────────────────────────────────────────────
+
+const sq = (lon: number, lat: number, h: number): [number, number][] =>
+  [[lon - h, lat - h], [lon + h, lat - h], [lon + h, lat + h], [lon - h, lat + h], [lon - h, lat - h]];
+/** Polygon pyramid whose tile set grows from one tile to two when `phase.n` becomes 1; tile 1 carries one polygon. */
+function polygonProvider(id: string, phase: { n: number }, k: number): GlyphMapVectorProvider {
+  return {
+    id, zooms: [{ z: 1, cols: 2, rows: 1, tileLonSpan: 180, tileLatSpan: 180, tileCols: 256, tileRows: 256 }],
+    bounds: () => world,
+    tileRange: () => ({ x0: 0, x1: phase.n, y0: 0, y1: 0 }),
+    async loadTile(z, x, y): Promise<GlyphMapVectorTile> {
+      const ring = sq(CENTRE[0] + 0.0012 * (k - 1), CENTRE[1] + 0.0006 * (k - 1), 0.0004 * k);
+      const a: GlyphMapVectorFeature = { id: `${id}-a`, geometryType: "polygon", rings: [ring], polygons: [[ring]], properties: { height: 30 * k, base: 0 } };
+      return { z, x, y, bounds: world, source: "test", layers: { area: x === 0 ? [] : [a] } };
+    },
+  };
+}
+/** The extrusion is first: its sliced build runs in the tasks the later layers' starts leave between them, so it lands inside the sweep. */
+const meshLayers = (phase: { n: number }): GlyphMapLayer[] => [
+  { type: "fill-extrusion", id: "blocks", sourceLayer: "area", source: polygonProvider("blocks", phase, 2), heightProperty: "height", baseOffsetProperty: "base", color: "#99aabb" } as GlyphMapLayer,
+  ...COLORS.map((color, i) => ({ type: "fill", id: `fill-${i}`, color, sourceLayer: "area", source: polygonProvider(`fill-${i}`, phase, i + 1) }) as GlyphMapLayer),
+];
+
+it("renders the mesh landings of one sweep (several fills and an extrusion) once, to a fresh map's bytes", async () => {
+  glyphMapPrerenderTuning.sweepSplit = true;
+  const phase = { n: 0 };
+  const m = mount(meshLayers(phase));
+  await m.idle();
+  const before = m.scene.output.innerHTML;
+  globalThis.__glyphRenderStage = stage => { if (stage === "base-validate") renders++; };
+  phase.n = 1;
+  m.setView({ span: 0.00601 });
+  renders = 0;
+  await m.idle();
+  expect(renders).toBe(1);
+  globalThis.__glyphRenderStage = undefined;
+  expect(m.scene.output.innerHTML).not.toBe(before);
+  const fresh = mount(meshLayers({ n: 1 }), 0.00601);
+  await fresh.idle();
+  expect(m.scene.output.innerHTML).toBe(fresh.scene.output.innerHTML);
 });
