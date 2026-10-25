@@ -328,3 +328,20 @@ it("a contour layer's prepared polylines are consumed byte-for-byte and refused 
   expect(text(a)).toBe(text(b));
   expect(text(a)).not.toBe(stale);
 });
+
+it("spreads a pan's preparation over animation frames, stops asking for frames once it is done, and re-anchors on the next move", async () => {
+  glyphMapPrerenderTuning.sliceMs = 0; // one step per frame
+  const m = await framed();
+  pointer(m, "pointermove", 270); frame(); // past a third of the 20-column margin: a job starts, one step in
+  expect(seam(m).plans()).toBe(1);
+  let frames = 0;
+  while (queue.size && frames < 10) { frame(); frames++; }
+  // Two stroke layers and the outline surface: three steps, the first already taken.
+  expect(frames).toBe(2);
+  expect(seam(m).plans()).toBe(2);
+  expect(queue.size).toBe(0);
+  stagedRenders = 0;
+  pointer(m, "pointermove", 275); frame();
+  expect(stagedRenders).toBe(1);
+  expect(seam(m).plans()).toBe(0);
+});
