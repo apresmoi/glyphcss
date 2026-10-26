@@ -162,7 +162,8 @@ export function createTerrariumFetcher(baseUrl = TERRARIUM_URL, capacity = 64): 
       return terrariumElevations(await decodePng(new Uint8Array(await res.arrayBuffer())));
     })();
     // A failed load must not stay cached, or one dropped request pins that tile to the fallback for the session.
-    load.catch(() => cache.delete(key));
+    // Only its own entry: an LRU eviction may have let a newer load take the key.
+    load.catch(() => { if (cache.get(key) === load) cache.delete(key); });
     cache.set(key, load);
     while (cache.size > capacity) cache.delete(cache.keys().next().value!);
     return load;

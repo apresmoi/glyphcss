@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { buildTerrariumGeoTile, decodePng, terrariumElevations } from "./terrariumTiles";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildTerrariumGeoTile, createTerrariumFetcher, decodePng, terrariumElevations } from "./terrariumTiles";
 
 function crcTable(): Uint32Array {
   const t = new Uint32Array(256);
@@ -98,5 +98,47 @@ describe("buildTerrariumGeoTile", () => {
         throw new Error("HTTP 503");
       }),
     ).rejects.toThrow("HTTP 503");
+  });
+});
+
+describe("createTerrariumFetcher", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const okPng = async () => {
+    const png = await encodePng(2, 2, new Uint8Array(12).fill(128));
+    return { ok: true, status: 200, arrayBuffer: async () => png.buffer } as Response;
+  };
+  const fail = { ok: false, status: 503 } as Response;
+
+  it("rejects a non-OK response", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => fail));
+    await expect(createTerrariumFetcher("https://t")(3, 1, 1)).rejects.toThrow("HTTP 503");
+  });
+
+  it("evicts a failed load, so the next call retries instead of pinning the failure", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(fail).mockImplementation(okPng);
+    vi.stubGlobal("fetch", fetchMock);
+    const fetcher = createTerrariumFetcher("https://t");
+    await expect(fetcher(3, 1, 1)).rejects.toThrow("HTTP 503");
+    await expect(fetcher(3, 1, 1)).resolves.toHaveLength(4);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await fetcher(3, 1, 1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a stale rejection delete a newer in-flight entry for the same key", async () => {
+    const pending: ((res: Response) => void)[] = [];
+    const fetchMock = vi.fn(() => new Promise<Response>((resolve) => pending.push(resolve)));
+    vi.stubGlobal("fetch", fetchMock);
+    const fetcher = createTerrariumFetcher("https://t", 1);
+    const stale = fetcher(3, 1, 1);
+    stale.catch(() => undefined);
+    void fetcher(3, 2, 2).catch(() => undefined); // capacity 1 evicts the first entry
+    const newer = fetcher(3, 1, 1); // a fresh in-flight load for the evicted key
+    newer.catch(() => undefined);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    pending[0]!(fail);
+    await expect(stale).rejects.toThrow("HTTP 503");
+    expect(fetcher(3, 1, 1)).toBe(newer);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
