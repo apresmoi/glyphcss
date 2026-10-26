@@ -365,6 +365,27 @@ it("on an off-centre bearing globe, project/unproject follow the drawn text mid-
   expect(eased).toBeGreaterThan(1);
 });
 
+it("on a bearing globe, answers stay on the rendered text through a move that renders nothing", async () => {
+  const m = mount({ snapPan: true, projection: glyphMapGlobe(), view: { center: [0, 70], span: 140, cols: 80, rows: 20 }, bearing: 33 });
+  await ready(m);
+  const P: [number, number] = [60, -10];
+  const slide = () => {
+    const [x, y] = element(m).style.transform.match(/translate\(([-.\d]+)px, ([-.\d]+)px/)!.slice(1).map(Number);
+    return { col: (x! + 20 * 8) / 8, row: (y! + 5 * 16) / 16 };
+  };
+  pointer(m, "pointerdown", 200); pointer(m, "pointermove", 201); frame();
+  const first = m.project(P), s0 = slide();
+  renders = 0;
+  pointer(m, "pointermove", 210); frame();
+  expect(renders).toBe(0);
+  const at = m.project(P), s1 = slide();
+  expect(at.visible).toBe(true);
+  expect(at.col - s1.col).toBeCloseTo(first.col - s0.col, 6);
+  expect(at.row - s1.row).toBeCloseTo(first.row - s0.row, 6);
+  const near = m.project([10, 50]), back = m.unproject([near.col, near.row])!;
+  expect(back[0]).toBeCloseTo(10, 4); expect(back[1]).toBeCloseTo(50, 4);
+});
+
 it("under snapPan, a scene-owned render mid-drag keeps the remainder", async () => {
   const m = mount({ snapPan: true }); await ready(m);
   const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);

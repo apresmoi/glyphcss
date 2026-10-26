@@ -3688,6 +3688,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     center: readonly [number, number]; autoSize: boolean;
     sceneStyle: string; hostOverflow: string; hotspotsDisplay: string;
     target: Vec3; rotX: number; rotY: number; zoom: number;
+    /** The bearing matrix the frame was rendered with: it is built from the live geographic centre, so it is frozen with the pose. */
+    mat: typeof camera.mat; useMat: boolean;
     /** Ground points across the view and where the last render put them, in frozen-grid cells. */
     probes: { world: Vec3; col: number; row: number }[];
     projection: GlyphMapProjection; tilt: number; bearing: number; span: number;
@@ -3777,7 +3779,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function captureCompositorFrame(): void {
     const f = compositorFrame;
     if (!f) return;
-    f.target = [...camera.target]; f.rotX = camera.rotX; f.rotY = camera.rotY;
+    f.target = [...camera.target]; f.rotX = camera.rotX; f.rotY = camera.rotY; f.mat = camera.mat; f.useMat = camera.useMat;
     f.zoom = camera.zoom;
     f.probes = compositorProbes(f.grid);
     // Every re-capture (a compositor render, or a scene-owned one) re-bases the frame on the snapped pose; the sub-cell remainder is the part of the displayed slide that rebase must not drop.
@@ -4168,7 +4170,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       f = compositorFrame = {
         grid, marginCols, marginRows, center: [...camera.center], autoSize: o.autoSize ?? false,
         sceneStyle: sceneElement.style.cssText, hostOverflow: host.style.overflow, hotspotsDisplay: hotspotElement.style.display,
-        target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom, probes: [],
+        target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom, mat: camera.mat, useMat: camera.useMat, probes: [],
         projection, tilt: appliedTilt, bearing, span: view.span, shownDx: 0, shownDy: 0,
         hostWidth: hostBox.width, hostHeight: hostBox.height, outputWidth: outputBox.width, outputHeight: outputBox.height,
         originLeft: outputBox.left - hostBox.left, originTop: outputBox.top - hostBox.top,
@@ -5570,7 +5572,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (!f) return fn(0, 0);
     const { rotX, rotY, target, zoom, mat, useMat } = camera;
     camera.rotX = f.rotX; camera.rotY = f.rotY; camera.target = f.target; camera.zoom = f.zoom;
-    syncCameraBearing();
+    camera.mat = f.mat; camera.useMat = f.useMat;
     try { return fn(f.shownDx / f.grid.cellWidth, f.shownDy / f.grid.cellHeight); } finally {
       camera.rotX = rotX; camera.rotY = rotY; camera.target = target; camera.zoom = zoom; camera.mat = mat; camera.useMat = useMat;
     }
