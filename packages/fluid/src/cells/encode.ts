@@ -3,10 +3,12 @@
 // so slots stay put between repools and the palette CSS changes only when it repools.
 import {
   GLYPH_FONT_ATLAS,
+  GLYPH_FONT_ATLAS_BRAILLE_DOTS,
   buildGlyphAtlasFontPaletteValuesCss,
   createGlyphAtlasPaletteQuantizer,
   encodeGlyphAtlas,
   type GlyphAtlasPaletteQuantizer,
+  type GlyphFontAtlas,
 } from "glyphcss";
 import type { GlyphFluidCells } from "./cells";
 
@@ -16,6 +18,20 @@ import type { GlyphFluidCells } from "./cells";
  * unavailable: real braille code points, one CSS colour.
  */
 export type GlyphFluidEncoding = "atlas" | "mono" | "plain";
+
+/**
+ * Which core atlas draws the dots. `"dots"` (default): `GLYPH_FONT_ATLAS_BRAILLE_DOTS`,
+ * molty's dot rectangles in a font whose em square is the 1 × 1.6 cell, so dots sit where
+ * molty's canvas draws them. `"universal"`: `GLYPH_FONT_ATLAS`, whose braille comes from
+ * Menlo/DejaVu and spans a text line (~1.93 aspect), so on a 1.6 cell its rows bunch
+ * across cell boundaries.
+ */
+export type GlyphFluidFace = "dots" | "universal";
+
+/** The core atlas a face encodes against. */
+export function glyphFluidAtlas(face: GlyphFluidFace = "dots"): GlyphFontAtlas {
+  return face === "universal" ? GLYPH_FONT_ATLAS : GLYPH_FONT_ATLAS_BRAILLE_DOTS;
+}
 
 /** One encoded frame, ready for one `textContent` write. */
 export interface GlyphFluidFrame {
@@ -41,6 +57,8 @@ export interface GlyphFluidEncoderOptions {
   encoding: GlyphFluidEncoding;
   /** `mono`'s colour. */
   monoColor: string;
+  /** Default `"dots"`. */
+  face?: GlyphFluidFace;
   /**
    * The quantizer's clock in ms. The runtime passes the SIM clock, not wall time, so a
    * repool lands on the same frame in the worker and on the main thread.
@@ -57,9 +75,11 @@ export class GlyphFluidEncoder {
   private color: (string | null)[] = [];
   private quantizer: GlyphAtlasPaletteQuantizer;
   private mono: readonly string[];
+  private atlas: GlyphFontAtlas;
 
   constructor(private opts: GlyphFluidEncoderOptions) {
-    this.quantizer = createGlyphAtlasPaletteQuantizer({ now: opts.now });
+    this.atlas = glyphFluidAtlas(opts.face);
+    this.quantizer = createGlyphAtlasPaletteQuantizer({ now: opts.now, atlas: this.atlas });
     this.mono = [opts.monoColor];
   }
 
@@ -78,7 +98,7 @@ export class GlyphFluidEncoder {
     }
     const palette = mono ? this.mono : (this.quantizer.resolveGlyphAtlasPalette(char, color, n) ?? this.mono);
     return {
-      text: encodeGlyphAtlas(char, color, cells.cols, cells.rows, palette, GLYPH_FONT_ATLAS),
+      text: encodeGlyphAtlas(char, color, cells.cols, cells.rows, palette, this.atlas),
       palette,
       paletteGeneration: mono ? 0 : this.quantizer.generation,
       drawn: cells.drawn,
@@ -105,6 +125,6 @@ function plainFrame(cells: GlyphFluidCells, palette: readonly string[]): GlyphFl
 }
 
 /** The `@font-palette-values` rule a frame's `<pre>` references by `font-palette`. */
-export function glyphFluidPaletteCss(name: string, palette: readonly string[]): string {
-  return buildGlyphAtlasFontPaletteValuesCss(name, palette, GLYPH_FONT_ATLAS);
+export function glyphFluidPaletteCss(name: string, palette: readonly string[], face: GlyphFluidFace = "dots"): string {
+  return buildGlyphAtlasFontPaletteValuesCss(name, palette, glyphFluidAtlas(face));
 }

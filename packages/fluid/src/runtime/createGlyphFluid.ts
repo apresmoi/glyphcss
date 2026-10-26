@@ -1,10 +1,10 @@
 // The standalone fluid surface: one <pre>, one textContent write per drawn frame. DOM
 // targets are measured on layout changes only; each frame composes them into a packed
 // target frame and hands it, with the queued sim ops, to a pipeline (worker or main).
-import { ensureGlyphAtlasFontFaceStyles, GLYPH_FONT_ATLAS } from "glyphcss";
+import { ensureGlyphAtlasFontFaceStyles } from "glyphcss";
 import type { GlyphFluidTuning } from "../sim/sim";
 import type { GlyphFluidOp, GlyphFluidStepParams, RGB } from "../sim/ops";
-import { glyphFluidPaletteCss, type GlyphFluidEncoding, type GlyphFluidFrame } from "../cells/encode";
+import { glyphFluidAtlas, glyphFluidPaletteCss, type GlyphFluidEncoding, type GlyphFluidFace, type GlyphFluidFrame } from "../cells/encode";
 import { createGlyphFluidTargetFrame } from "../targets/frame";
 import { measureGlyphFluidZone, writeGlyphFluidZones, type GlyphFluidZoneBox, type GlyphFluidZoneOptions } from "../targets/zones";
 import { parseHexColor, type GlyphFluidLayout, type GlyphFluidTargetImpl, type GlyphFluidTargetSpec } from "../targets/types";
@@ -28,6 +28,12 @@ export interface GlyphFluidOptions {
   grid?: GlyphFluidGridOptions;
   /** Default `"atlas"`. */
   encoding?: Exclude<GlyphFluidEncoding, "plain">;
+  /**
+   * The dot face (`GlyphFluidFace`). `"dots"` (default) draws molty's dot rects on a
+   * 1.6 cell; exact with the default `grid.cellAspect`. `"universal"` uses core's
+   * universal atlas.
+   */
+  face?: GlyphFluidFace;
   /** Frame cap. Default 60; drops to 30 for the session when frames keep missing. */
   fps?: 60 | 30;
   /** Allow the automatic 60 → 30 drop. Default true. */
@@ -127,6 +133,8 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     typeof matchMedia === "function" &&
     matchMedia("(prefers-reduced-motion: reduce)").matches;
   let encoding: GlyphFluidEncoding = options.encoding ?? "atlas";
+  const face = options.face ?? "dots";
+  const atlas = glyphFluidAtlas(face);
   const governor = createGlyphFluidFpsGovernor(options.fps ?? 60, options.fpsFallback ?? true);
   // The random part keeps names unique when the package is bundled twice (the `./reader`
   // entry carries its own copy of this module, and with it its own counter).
@@ -178,7 +186,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   }
 
   function coreInit(): GlyphFluidCoreInit {
-    return { cols, rows, cellW: cw, cellH: ch, fieldColor, fieldLevel, tuning: options.tuning ?? {}, encoding, monoColor: fieldHex, shape: options.shape ?? "rect" };
+    return { cols, rows, cellW: cw, cellH: ch, fieldColor, fieldLevel, tuning: options.tuning ?? {}, encoding, monoColor: fieldHex, face, shape: options.shape ?? "rect" };
   }
 
   function makePipeline(): GlyphFluidPipeline {
@@ -295,7 +303,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   function write(frame: GlyphFluidFrame): void {
     if (frame.paletteGeneration !== paletteGen && encoding !== "plain") {
       paletteGen = frame.paletteGeneration;
-      style.textContent = glyphFluidPaletteCss(paletteName, frame.palette);
+      style.textContent = glyphFluidPaletteCss(paletteName, frame.palette, face);
     }
     pre.textContent = frame.text;
     lit = frame.drawn;
@@ -393,11 +401,11 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
 
   async function boot(): Promise<void> {
     if (encoding !== "plain") {
-      const ok = await ensureGlyphAtlasFontFaceStyles(document, GLYPH_FONT_ATLAS);
+      const ok = await ensureGlyphAtlasFontFaceStyles(document, atlas);
       if (!ok) encoding = "plain";
     }
     if (destroyed) return;
-    pre.style.fontFamily = encoding === "plain" ? "monospace" : `"${GLYPH_FONT_ATLAS.family}"`;
+    pre.style.fontFamily = encoding === "plain" ? "monospace" : `"${atlas.family}"`;
     if (encoding !== "plain") pre.style.fontPalette = paletteName;
     else pre.style.color = fieldHex;
     advance = measureAdvance();
@@ -412,7 +420,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   function measureAdvance(): number {
     const probe = document.createElement("span");
     probe.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-size:100px;font-family:${pre.style.fontFamily};letter-spacing:0;font-kerning:none;`;
-    const ch1 = encoding === "plain" ? "⠀" : String.fromCodePoint(GLYPH_FONT_ATLAS.puaStart);
+    const ch1 = encoding === "plain" ? "⠀" : String.fromCodePoint(atlas.puaStart);
     probe.textContent = ch1.repeat(20);
     stack.append(probe);
     const w = probe.getBoundingClientRect().width / 20 / 100;

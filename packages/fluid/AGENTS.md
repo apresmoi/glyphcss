@@ -8,7 +8,7 @@ Four layers, each usable alone; only the last touches the DOM. `./reader` sits o
 
 1. **Sim** (`src/sim/`): `GlyphFluidSim` is a transliteration of molty's `sim.js` (vendored under `reference/molty-fluid/`, tests only). `configureGlyphFluidRect` turns the device disc into the page rectangle. Host writes go through `GlyphFluidOp`s (`impulse`/`push`/`kick`/`scroll`), applied in call order before the step.
 2. **Cells** (`src/cells/cells.ts`): molty's `GlyphRenderer.draw` per-cell decision (braille "all", pastel, edges 1) as data: Unicode braille mask + 5-bit-quantised colour.
-3. **Encode** (`src/cells/encode.ts`): core's `encodeGlyphAtlas` against a palette from core's pooled `createGlyphAtlasPaletteQuantizer`. The quantizer's clock is SIM time (`t × 1000`), never wall time.
+3. **Encode** (`src/cells/encode.ts`): core's `encodeGlyphAtlas` against a palette from core's pooled `createGlyphAtlasPaletteQuantizer`. The quantizer's clock is SIM time (`t × 1000`), never wall time. The atlas is the `face`: core's `GLYPH_FONT_ATLAS_BRAILLE_DOTS` (`"dots"`, default) or `GLYPH_FONT_ATLAS` (`"universal"`); same 30 slots, so palettes and slots are identical, only code points differ.
 4. **Runtime** (`src/runtime/`): `createGlyphFluid` composes DOM targets into a packed `GlyphFluidTargetFrame`, hands it with the queued ops to a pipeline, and writes the returned frame. `GlyphFluidCore` (ops → adopt targets → step → cells → encode) is what both pipelines run; `handleGlyphFluidWorkerMessage` IS the worker (`worker.ts` only binds it).
 5. **Reader** (`src/reader/`, the `./reader` subpath): `rules/` is molty's speed-reader rules (`tokenizeGlyphReaderText`, `glyphReaderOrp`, `glyphReaderWordDelay`, vendored `reference/molty-fluid/reader.js`) plus `createGlyphReaderClock` (play/pause/seek/wpm, injectable scheduler). `createGlyphFluidReader` drives one word target (`target.ts`, molty's TextTarget 'glyph' look) on its own small fluid.
 
@@ -18,6 +18,7 @@ Four layers, each usable alone; only the last touches the DOM. `./reader` sits o
 
 - The sim port steps bit-identically to `reference/molty-fluid/sim.js` (every Float32 field, `t`, `err`, `energy`, `swirlKick`). Same fields, loop order, arithmetic order. Molty's firmware runs the same step as C. Change both or neither.
 - The cell decision lights the same dots in the same colours as molty's `render.js`, whose real `draw` is run on a recording context in the test.
+- The `"dots"` face puts each dot where `render.js` fills it (`cells/dots.geometry` against the atlas's `dotGeometry`; core's `test-atlas.py` checks the outlines). Exact at `cellAspect` 1.6 and cells ≥ 6.25 px wide: below that `render.js` clamps dots to 1.5 px, a font scales.
 - One `<pre>`, one `textContent` write per drawn frame. The palette `<style>` is rewritten only when `paletteGeneration` changes (a repool), never per frame.
 - Worker and main thread draw identical frames from identical inputs: text, palette and generation. The worker path draws one frame late and never has more than one step in flight; a busy vsync is skipped, not queued.
 - `unpackGlyphFluidTargets` adopts TR/TG/TB only where T > 0. Those fields persist in the sim (`applyBackground` blends them), so cells no target wrote keep their blended colour; garbage there must not change output.
@@ -43,7 +44,7 @@ Four layers, each usable alone; only the last touches the DOM. `./reader` sits o
 - Don't make the worker pipeline lockstep or deeper than one frame: the main thread cannot block, and two in flight only skips results.
 - Don't let a target read layout per frame.
 - Don't render the fluid as a glyph-scene effect layer here: that changes what runs in the render path and needs the user's approval.
-- Don't swap in a custom braille dot font: core's atlas is the face; a fluid dot face is a core decision.
+- Don't ship a dot font in this package: the face is core's braille-dots atlas. Geometry changes go through core's `build-atlas.py braille-dots` and both geometry tests.
 - Don't draw the reader's letters as a DOM overlay (molty's 'plain' look): a second layer written per frame breaks the one-`<pre>` contract. The fluid takes the letter shapes.
 - Don't import fluid, DOM or runtime code into `reader/rules/`.
 
@@ -51,5 +52,5 @@ Four layers, each usable alone; only the last touches the DOM. `./reader` sits o
 
 - Parity: `sim/sim.parity`, `cells/cells.parity`, `runtime/pipeline.parity`, `reader/rules/rules.parity` (each with a planted-bug case that must go red).
 - Reader: `reader/rules/clock` (timing on a fake scheduler), `reader/reader` (ORP pivot, condensed size, circle shape, reduced-motion redraw).
-- Encode: `cells/encode`. Targets/zones: `targets/targets`. Runtime: `runtime/createGlyphFluid`, `.atlas`, `.plain`, `runtime/pipeline.settle`, `runtime/fps`.
-- Real browser (`bench/fluid/`): `parity.mjs` (real Worker, `drop-push` mutation), `text.mjs` (wrapped/`<br>`/centred text lands on its words), `bench.mjs` (60 fps, ×1/×4), `dots.mjs` (dot geometry), `reader.mjs` (words advance on the worker, ORP accent on the centre column).
+- Encode: `cells/encode`, `cells/dots.geometry`. Targets/zones: `targets/targets`. Runtime: `runtime/createGlyphFluid`, `.atlas`, `.plain`, `runtime/pipeline.settle`, `runtime/fps`.
+- Real browser (`bench/fluid/`): `parity.mjs` (real Worker, `drop-push` mutation), `text.mjs` (wrapped/`<br>`/centred text lands on its words), `bench.mjs` (60 fps, ×1/×4), `dots.mjs` (canvas vs both faces as DOM: dot pitch/gap in-cell vs across, pixel IoU), `reader.mjs` (words advance on the worker, ORP accent on the centre column).

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { decodeGlyphAtlasCodePoint, GLYPH_FONT_ATLAS } from "glyphcss";
+import { decodeGlyphAtlasCodePoint, GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_BRAILLE_DOTS, type GlyphFontAtlas } from "glyphcss";
 import { createGlyphFluidCells, type GlyphFluidCells } from "./cells";
 import { GlyphFluidEncoder, glyphFluidPaletteCss } from "./encode";
 
@@ -15,9 +15,9 @@ function cellsOf(cols: number, rows: number, fill: (k: number) => [number, numbe
 }
 
 /** Decode atlas text back to (glyph, slot) per cell, by code point. */
-function decode(text: string) {
+function decode(text: string, atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS_BRAILLE_DOTS) {
   const rows = text.split("\n");
-  return rows.map((row) => [...row].map((ch) => decodeGlyphAtlasCodePoint(ch.codePointAt(0)!, GLYPH_FONT_ATLAS)!));
+  return rows.map((row) => [...row].map((ch) => decodeGlyphAtlasCodePoint(ch.codePointAt(0)!, atlas)!));
 }
 
 describe("GlyphFluidEncoder", () => {
@@ -69,9 +69,24 @@ describe("GlyphFluidEncoder", () => {
     expect(enc.encode(cellsOf(3, 2, (k) => [k === 1 ? 0xff : 0, 0])).text).toBe("⠀⣿⠀\n⠀⠀⠀");
   });
 
-  it("emits a palette rule for the atlas family", () => {
+  it("emits a palette rule for the face's atlas family (braille-dots by default)", () => {
     expect(glyphFluidPaletteCss("--f", ["#010203", "#aabbcc"])).toBe(
-      `@font-palette-values --f{font-family:"${GLYPH_FONT_ATLAS.family}";override-colors:0 #010203, 1 #aabbcc;}`,
+      `@font-palette-values --f{font-family:"${GLYPH_FONT_ATLAS_BRAILLE_DOTS.family}";override-colors:0 #010203, 1 #aabbcc;}`,
     );
+    expect(glyphFluidPaletteCss("--f", ["#010203"], "universal")).toBe(
+      `@font-palette-values --f{font-family:"${GLYPH_FONT_ATLAS.family}";override-colors:0 #010203;}`,
+    );
+  });
+
+  it("encodes the same cells and slots against either face; only the code points differ", () => {
+    const cells = cellsOf(16, 16, (k) => [k % 256, k % 256 ? 0x102030 + (k % 5) * 0x080808 : 0]);
+    const dots = new GlyphFluidEncoder({ encoding: "atlas", monoColor: "#6f8f82", now: () => 0 }).encode(cells);
+    const uni = new GlyphFluidEncoder({ encoding: "atlas", monoColor: "#6f8f82", now: () => 0, face: "universal" }).encode(cells);
+    expect(dots.palette).toEqual(uni.palette);
+    expect(decode(dots.text)).toEqual(decode(uni.text, GLYPH_FONT_ATLAS));
+    expect(dots.text).not.toBe(uni.text);
+    // braille-dots: lit cell = U+F0000 + slot * 256 + mask
+    const first = [...dots.text][1]!.codePointAt(0)!;
+    expect(first).toBe(0xf0000 + decode(dots.text)[0]![1]!.paletteSlot * 256 + 1);
   });
 });

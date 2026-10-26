@@ -60,6 +60,7 @@ Every target takes `delay` (seconds before it first condenses) and `visibility: 
 |---|---|---|
 | `glue` | `"host"` | `"host"` fills the host box; `"document"` glues to the page |
 | `encoding` | `"atlas"` | per-cell colour; `"mono"` is one colour |
+| `face` | `"dots"` | `"dots"` draws molty's dot rectangles from glyphcss's braille-dots atlas, exactly where molty's canvas draws them (at `cellAspect` 1.6); `"universal"` uses glyphcss's universal atlas, whose braille spans a text line, so rows bunch across cell boundaries |
 | `fps` | `60` | drops to 30 for the session when frames keep missing (`fpsFallback: false` to keep 60) |
 | `worker` | `"auto"` | `false` for the main thread, or a function returning your own Worker running `@glyphcss/fluid/worker` |
 | `clock` | `"auto"` | `"manual"` draws only on `fluid.step(dt)` |
@@ -91,7 +92,9 @@ GlyphFluidSim  →  computeGlyphFluidCells  →  GlyphFluidEncoder  →  createG
 
 ## Browser support
 
-Per-cell colour needs `font-palette` with `@font-palette-values` (Chrome 101+, Safari 15.4+, Firefox 107+). Without it the fluid draws plain braille in one colour.
+Per-cell colour needs `font-palette` with `@font-palette-values` (Chrome 101+, Safari 15.4+, Firefox 107+). Without it the fluid draws plain braille in one colour, in the platform's own braille face.
+
+The `"dots"` face is a ~37 KB WOFF2 (49 KB as base64) that glyphcss loads only when a fluid asks for it.
 
 ## License
 

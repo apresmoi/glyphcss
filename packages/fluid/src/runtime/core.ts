@@ -4,7 +4,7 @@
 import { GlyphFluidSim, type GlyphFluidTuning } from "../sim/sim";
 import { applyGlyphFluidOp, configureGlyphFluidDisc, configureGlyphFluidRect, stepGlyphFluidSim, type GlyphFluidOp, type GlyphFluidStepParams, type RGB } from "../sim/ops";
 import { computeGlyphFluidCells, createGlyphFluidCells, type GlyphFluidCells } from "../cells/cells";
-import { GlyphFluidEncoder, type GlyphFluidEncoding, type GlyphFluidFrame } from "../cells/encode";
+import { GlyphFluidEncoder, type GlyphFluidEncoding, type GlyphFluidFace, type GlyphFluidFrame } from "../cells/encode";
 import { unpackGlyphFluidTargets } from "../targets/frame";
 
 export interface GlyphFluidCoreInit {
@@ -17,6 +17,8 @@ export interface GlyphFluidCoreInit {
   tuning: Partial<GlyphFluidTuning>;
   encoding: GlyphFluidEncoding;
   monoColor: string;
+  /** Default `"dots"`. */
+  face?: GlyphFluidFace;
   /** `"rect"` (default) fills the grid; `"circle"` keeps molty's disc inscribed in it. */
   shape?: "rect" | "circle";
 }
@@ -44,7 +46,7 @@ export class GlyphFluidCore {
     Object.assign(sim.p, init.tuning);
     this.sim = sim;
     this.cells = createGlyphFluidCells(init.cols, init.rows);
-    this.encoder = new GlyphFluidEncoder({ encoding: init.encoding, monoColor: init.monoColor, now: () => this.clockMs });
+    this.encoder = new GlyphFluidEncoder({ encoding: init.encoding, monoColor: init.monoColor, face: init.face, now: () => this.clockMs });
   }
 
   /** Apply ops in order and adopt targets, without stepping (reduced-motion settling). */
