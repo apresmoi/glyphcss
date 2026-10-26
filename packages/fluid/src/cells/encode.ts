@@ -43,6 +43,10 @@ export interface GlyphFluidFrame {
   paletteGeneration: number;
   /** Lit cells. */
   drawn: number;
+  /** Letter probe results (`GLYPH_FLUID_PROBE_OUT` per probe) for the step's `probes`. */
+  probes?: Float64Array;
+  /** The step input's `probeTag`, echoed so the drawer pairs results with its letters. */
+  probeTag?: number;
 }
 
 const BRAILLE: string[] = Array.from({ length: 256 }, (_, m) => (m ? String.fromCharCode(0x2800 + m) : " "));

@@ -187,7 +187,7 @@ describe("GlyphFluidReaderTarget", () => {
 });
 
 describe("createGlyphFluidReader", () => {
-  it("condenses on the first word, rings on later ones, melts at the end; destroy stops the clock", async () => {
+  it("gathers the first word during the lead-in, rings on later words, melts at the end; destroy stops the clock", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     fakeCanvas();
     const sch = fakeScheduler();
@@ -201,13 +201,13 @@ describe("createGlyphFluidReader", () => {
       for (let i = 0; i < n; i++) reader.fluid.step(1 / 60);
       return writes.mock.calls.length - before;
     };
-    expect(drawnFrames(3)).toBe(0); // lead-in: melted
+    expect(drawnFrames(3)).toBe(3); // lead-in: the first word is already gathering (molty's)
     const impulse = vi.spyOn(reader.fluid, "impulse");
     const words: string[] = [];
     reader.clock.subscribe((e) => e.type === "word" && words.push(e.token.word));
     sch.advance(550);
     expect(words).toEqual(["one"]);
-    expect(impulse).not.toHaveBeenCalled(); // the first word condenses (a target event), no ring
+    expect(impulse).not.toHaveBeenCalled(); // the first word condensed with the lead-in (a target event), no ring
     sch.advance(100);
     expect(impulse).toHaveBeenCalledTimes(1);
     expect(impulse.mock.calls[0]![2]).toEqual({ strength: 0.63, radius: 0.12 });
@@ -255,5 +255,111 @@ describe("createGlyphFluidReader", () => {
     step();
     expect(reader.fluid.stats().frames).toBe(base + 2);
     reader.destroy();
+  });
+});
+
+describe("plain look", () => {
+  function plainTarget(word: string, w = 416, h = 416) {
+    const host = sizedHost(w, h);
+    const t = new GlyphFluidReaderTarget(host, [1, 1, 1], "plain", "monospace");
+    const cw = w / 52, ch = cw * 1.6;
+    t.measure({ cw, ch, originX: 0, originY: 0 });
+    const toks = tokenizeGlyphReaderText(word);
+    t.setSentence(toks);
+    t.setWord(toks[0]!);
+    return { t, cw, ch, host };
+  }
+
+  it("pivots the ORP letter on the centre column; the pooled band sits under the letters, accent under the ORP one", () => {
+    for (const word of ["reading", "a", "extraordinary"]) {
+      const { t, cw, ch } = plainTarget(word);
+      const p = t.probes(0, 1 / 60)!.data, n = p.length / 7;
+      const orp = tokenizeGlyphReaderText(word)[0]!.orp;
+      expect(n, word).toBe(word.length);
+      expect(Math.abs(p[orp * 7]! * cw - 208), word).toBeLessThan(0.01); // centre x in px
+      expect(Math.abs(p[orp * 7 + 1]! * ch - 208), word).toBeLessThan(ch); // centre row
+      const f = createGlyphFluidTargetFrame(52, 33);
+      t.write(f, 0);
+      // every probe's own cell is pooled at molty's 0.62; the ORP one is accented
+      for (let l = 0; l < n; l++) {
+        const k = Math.floor(p[l * 7 + 1]!) * 52 + Math.floor(p[l * 7]!);
+        expect(f.T[k], `${word}[${l}]`).toBeCloseTo(0.62, 5);
+        expect(f.TA[k], `${word}[${l}]`).toBe(l === orp ? 1 : 0);
+      }
+    }
+  });
+
+  it("sizes the letters once per sentence (they don't jump between words)", () => {
+    const toks = tokenizeGlyphReaderText("a an extraordinary");
+    const { t, host } = plainTarget("a");
+    t.setSentence(toks);
+    const px = host.querySelector<HTMLElement>("div[aria-hidden]")!.style.fontSize;
+    for (const tok of toks) {
+      t.setWord(tok);
+      expect(host.querySelector<HTMLElement>("div[aria-hidden]")!.style.fontSize).toBe(px);
+    }
+  });
+
+  it("keeps an astral character one letter, wherever the ORP unit falls", () => {
+    for (const w of ["a😀bcd", "😀bcde"]) {
+      const { t } = plainTarget(w);
+      expect(t.probes(0, 1 / 60)!.data.length / 7, w).toBe([...w].length);
+    }
+  });
+
+  it("melts: after the text the letters stay probed for 0.8 s with a rising threshold, then go", () => {
+    const { t } = plainTarget("one");
+    t.melt();
+    const a = t.probes(0, 0.1)!.data;
+    expect(a[6]).toBeCloseTo(0.14 + 0.1, 10);
+    for (let i = 0; i < 6; i++) t.probes(0, 0.1);
+    expect(t.probes(0, 0.2)).toBeNull();
+  });
+});
+
+describe("createGlyphFluidReader, plain look", () => {
+  it("draws the showing word as real DOM letters over the fluid, keeps it for assistive tech, melts them at the end", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sch = fakeScheduler();
+    const host = sizedHost();
+    const reader = createGlyphFluidReader(host, { text: "one two", wpm: 600, scheduler: sch, clock: "manual", worker: false });
+    await reader.ready;
+    const shown = () => Array.from(host.querySelectorAll<HTMLElement>("div[aria-hidden] > span")).filter((s) => s.style.opacity === "1").map((s) => s.textContent).join("");
+    const said = host.querySelector("[aria-live]")!;
+    expect(said.getAttribute("aria-live")).toBe("off");
+    for (let i = 0; i < 40; i++) reader.fluid.step(1 / 60); // the lead-in: "one" gathers and decodes
+    expect(shown()).toBe("one");
+    sch.advance(550);
+    expect(said.textContent).toBe("one");
+    sch.advance(100);
+    for (let i = 0; i < 40; i++) reader.fluid.step(1 / 60);
+    expect(shown()).toBe("two");
+    expect(host.querySelector("pre")!.getAttribute("aria-hidden")).toBe("true");
+    sch.advance(100); // the end: melt
+    expect(said.textContent).toBe("");
+    for (let i = 0; i < 60; i++) reader.fluid.step(1 / 60);
+    expect(shown()).toBe("");
+    reader.destroy();
+    expect(host.querySelector("div[aria-hidden]")).toBeNull();
+    expect(host.querySelector("[aria-live]")).toBeNull();
+  });
+
+  it("blanks the fluid under shown letters (the sim decides it, from the same step)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = sizedHost();
+    const run = async (look: "plain" | "glyph") => {
+      const reader = createGlyphFluidReader(host, { text: "wonderful", scheduler: fakeScheduler(), clock: "manual", worker: false, look, encoding: "mono", field: { level: 1 } });
+      await reader.ready;
+      for (let i = 0; i < 60; i++) reader.fluid.step(1 / 60);
+      const rows = host.querySelector("pre")!.textContent!.split("\n");
+      const mid = rows[Math.floor(rows.length / 2)]!;
+      reader.destroy();
+      return mid;
+    };
+    // the middle row: a blank run where the letters are, ink on both sides of it; the glyph
+    // look draws the letters with the fluid, so it has none
+    const run6 = /\S {6,}\S/u;
+    expect(run6.test(await run("plain"))).toBe(true);
+    expect(run6.test(await run("glyph"))).toBe(false);
   });
 });

@@ -24,7 +24,7 @@ pnpm monorepo:
 
 ## Rules for every package
 
-**Rendering.** Each render writes each `<pre>` exactly once: the base `<pre>` plus one write and one `transform` per detail layer. There is no per-cell DOM patching, and hotspots update with one inline-style assignment each. Any optimisation must keep the output byte-identical. Changing what JS runs in the render path is an architectural change (see below).
+**Rendering.** Each render writes each `<pre>` exactly once: the base `<pre>` plus one write and one `transform` per detail layer. There is no per-cell DOM patching, and DOM overlays (hotspots, the fluid reader's plain letters) update with one inline-style assignment each. Any optimisation must keep the output byte-identical. Changing what JS runs in the render path is an architectural change (see below).
 
 **Naming.** Every public export gets a `Glyph` prefix: `createGlyphScene`, `useGlyphCamera`, `GlyphScene`, `<glyph-scene>` (custom elements are kebab-case). The exceptions:
 - generic math/geometry types and helpers (`Vec3`, `Polygon`, `gridSurfacePolygons`)

@@ -1,5 +1,6 @@
 // The speed reader in a real browser. Live: `createGlyphFluidReader` on a round 412 px
-// host with the real worker. Capture (`__reader.capture(word, steps)`): the same target
+// host with the real worker, in either look (`?look=plain|glyph`). `__reader.midWord()`
+// resolves halfway through the next word, with what the plain letters show. Capture (`__reader.capture(word, steps)`): the same target
 // and core stepped deterministically, plain-encoded, plus where the ORP accent landed.
 // `__reader.captureText(text, cols, rows, steps)` does the same for a DOM text target;
 // both produce the README's real output.
@@ -13,6 +14,7 @@ const reader = createGlyphFluidReader(document.getElementById("live")!, {
   wpm: Number(q.get("wpm") ?? 250),
   loop: 2600,
   shape: "circle",
+  look: (q.get("look") as "plain" | "glyph" | null) ?? "plain",
   ...(q.get("cols") ? { grid: { targetCols: Number(q.get("cols")), maxCols: Number(q.get("cols")) } } : {}),
   worker: q.get("worker") === "0" ? false : () => new Worker("fluid-worker.bundle.js", { type: "module" }),
 });
@@ -29,7 +31,7 @@ function capture(sentence: string, steps: number) {
     cols, rows, cellW: cw, cellH: ch, fieldColor: [0x6f / 255, 0x8f / 255, 0x82 / 255], fieldLevel: 0.18,
     tuning: { relaxUp: 7, relaxDown: 2.4 }, encoding: "plain", monoColor: "#6f8f82", shape: "circle",
   });
-  const target = new GlyphFluidReaderTarget(host, [0.95, 0.96, 1]);
+  const target = new GlyphFluidReaderTarget(host, [0.95, 0.96, 1], "glyph");
   target.measure({ cw, ch, originX: r.left, originY: r.top });
   const toks = tokenizeGlyphReaderText(sentence);
   target.setWord(toks[0]!);
@@ -74,4 +76,26 @@ function captureText(text: string, cols: number, rows: number, steps: number) {
   return out;
 }
 
-(window as unknown as Record<string, unknown>).__reader = { reader, words, capture, captureText, ready: reader.ready.then(() => true) };
+/** Halfway through word `index` (the next one by default): the word, and each plain letter span's text, colour and centre. */
+function midWord(index = -1): Promise<unknown> {
+  return new Promise((done) => {
+    const off = reader.clock.subscribe((e) => {
+      if (e.type !== "word" || (index >= 0 && e.index !== index)) return;
+      off();
+      // the delay is what's measured here: mid-word, as a reader sees it
+      setTimeout(() => {
+        const host = document.getElementById("live")!, hr = host.getBoundingClientRect();
+        const spans = [...host.querySelectorAll("div[aria-hidden] > span")] as HTMLElement[];
+        const letters = spans
+          .filter((s) => getComputedStyle(s).opacity !== "0")
+          .map((s) => {
+            const r = s.getBoundingClientRect();
+            return { ch: s.textContent, color: getComputedStyle(s).color, cx: r.left + r.width / 2 - hr.left, cy: r.top + r.height / 2 - hr.top };
+          });
+        done({ word: e.token.word, orp: e.token.orp, ms: e.ms, letters, stats: reader.fluid.stats() });
+      }, e.ms * 0.5);
+    });
+  });
+}
+
+(window as unknown as Record<string, unknown>).__reader = { reader, words, capture, captureText, midWord, ready: reader.ready.then(() => true) };

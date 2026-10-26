@@ -50,6 +50,11 @@ export interface GlyphFluidTargetImpl {
   /** Kick strength when it condenses / melts. */
   readonly strengthOn: number;
   readonly strengthOff: number;
+  /**
+   * How the shape firms up after this target condenses or melts: `hold` stays 0 for
+   * `delay` s, then eases to 1 over `ramp` s. Default 0.4 / 1.0 (molty's page states).
+   */
+  readonly hold?: { delay: number; ramp: number };
   /** Re-measure against a (new) layout; DOM reads happen here, never per frame. */
   measure(layout: GlyphFluidLayout): void;
   /** Cell box in content cells, or null before the first measure. */
@@ -63,6 +68,14 @@ export interface GlyphFluidTargetImpl {
   update(dt: number): void;
   /** Max-merge into the frame; `r0` is the content row at frame row 0. */
   write(frame: GlyphFluidTargetFrame, r0: number, swell: number): void;
+  /**
+   * DOM letters drawn over the fluid (the reader's plain look): probes for this frame
+   * (`GLYPH_FLUID_PROBE_IN` each, frame rows) and a key naming the letter set. Asked every
+   * frame, condensed or not, so letters can melt.
+   */
+  probes?(r0: number, dt: number): { data: Float64Array; key: unknown } | null;
+  /** The results for the probes submitted under `key`, right after the frame they belong to is written. */
+  readProbes?(values: Float64Array, key: unknown): void;
   dispose(): void;
 }
 

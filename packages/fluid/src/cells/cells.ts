@@ -1,5 +1,5 @@
 // The per-cell decision of molty's canvas renderer (`reference/molty-fluid/render.js`,
-// GlyphRenderer.draw with braille "all", palette "pastel", no letters, edges 1) as DATA:
+// GlyphRenderer.draw with braille "all", palette "pastel", edges 1) as DATA:
 // which of the 8 sub-dots a cell lights and in what colour. `cells.parity.test.ts` runs
 // the real renderer on a recording 2D context and requires the same dots and colours.
 import type { GlyphFluidSim } from "../sim/sim";
@@ -40,11 +40,23 @@ export function createGlyphFluidCells(cols: number, rows: number): GlyphFluidCel
 
 const sub = new Float32Array(8);
 
+// render.js's 8-neighbour test; out-of-range reads are undefined (falsy) there too
+const nearSkip = (s: Uint8Array, k: number, W: number) =>
+  s[k - 1] || s[k + 1] || s[k - W] || s[k + W] || s[k - W - 1] || s[k - W + 1] || s[k + W - 1] || s[k + W + 1];
+
 /**
  * Decide every cell of `sim`'s current view. `time` drives the 24 Hz dither shimmer;
  * `shimmer` is its amplitude (0 = a still dither, as the reduced-motion frame uses).
+ * `skip` marks cells under condensed DOM letters (render.js's `letters` overlay): they
+ * stay blank, and their neighbours only dither (no contour ring around a letter).
  */
-export function computeGlyphFluidCells(sim: GlyphFluidSim, time: number, shimmer: number, out: GlyphFluidCells): GlyphFluidCells {
+export function computeGlyphFluidCells(
+  sim: GlyphFluidSim,
+  time: number,
+  shimmer: number,
+  out: GlyphFluidCells,
+  skip: Uint8Array | null = null,
+): GlyphFluidCells {
   const { W, H, view, mask } = sim;
   const om = out.mask,
     orgb = out.rgb;
@@ -61,7 +73,7 @@ export function computeGlyphFluidCells(sim: GlyphFluidSim, time: number, shimmer
       const k = j * W + i;
       om[k] = 0;
       orgb[k] = 0;
-      if (!mask[k]) continue;
+      if (!mask[k] || (skip && skip[k])) continue;
       const v = view[k]!;
       const feat = eW > 0.5 && TF[k]! > 0.5;
       let dots = 255,
@@ -90,7 +102,7 @@ export function computeGlyphFluidCells(sim: GlyphFluidSim, time: number, shimmer
         for (let q = 0; q < 8; q++) smean += sub[q]!;
         smean *= 0.125;
         dots = 0;
-        if (smax - smin > R.EDGE_RANGE && smax >= R.EDGE_MIN) {
+        if (smax - smin > R.EDGE_RANGE && smax >= R.EDGE_MIN && !(skip && nearSkip(skip, k, W))) {
           const mid = (smin + smax) * 0.5;
           for (let q = 0; q < 8; q++) if (sub[q]! > mid) dots |= 1 << q;
         } else {

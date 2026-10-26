@@ -6,6 +6,7 @@ import { applyGlyphFluidOp, configureGlyphFluidDisc, configureGlyphFluidRect, st
 import { computeGlyphFluidCells, createGlyphFluidCells, type GlyphFluidCells } from "../cells/cells";
 import { GlyphFluidEncoder, type GlyphFluidEncoding, type GlyphFluidFace, type GlyphFluidFrame } from "../cells/encode";
 import { unpackGlyphFluidTargets } from "../targets/frame";
+import { GLYPH_FLUID_PROBE_IN, GLYPH_FLUID_PROBE_OUT, sampleGlyphFluidProbes } from "../cells/probes";
 
 export interface GlyphFluidCoreInit {
   cols: number;
@@ -30,6 +31,10 @@ export interface GlyphFluidStepInput {
   targets: Float32Array;
   /** Dither shimmer amplitude. */
   shimmer: number;
+  /** Letter probes (`GLYPH_FLUID_PROBE_IN` per probe); sampled after the step. */
+  probes?: Float64Array;
+  /** Echoed on the frame with the probe results. */
+  probeTag?: number;
 }
 
 export class GlyphFluidCore {
@@ -37,6 +42,7 @@ export class GlyphFluidCore {
   readonly cells: GlyphFluidCells;
   private encoder: GlyphFluidEncoder;
   private clockMs = 0;
+  private skip: Uint8Array;
 
   constructor(init: GlyphFluidCoreInit) {
     const sim = new GlyphFluidSim(init.cols, init.rows, init.cellW, init.cellH);
@@ -46,6 +52,7 @@ export class GlyphFluidCore {
     Object.assign(sim.p, init.tuning);
     this.sim = sim;
     this.cells = createGlyphFluidCells(init.cols, init.rows);
+    this.skip = new Uint8Array(init.cols * init.rows);
     this.encoder = new GlyphFluidEncoder({ encoding: init.encoding, monoColor: init.monoColor, face: init.face, now: () => this.clockMs });
   }
 
@@ -61,15 +68,25 @@ export class GlyphFluidCore {
     stepGlyphFluidSim(this.sim, input.params);
   }
 
-  /** Decide cells and encode the current view. */
-  render(time: number, shimmer: number): GlyphFluidFrame {
+  /** Sample the letter probes, decide cells (blank under shown letters) and encode the current view. */
+  render(time: number, shimmer: number, probes?: Float64Array, probeTag?: number): GlyphFluidFrame {
     this.clockMs = time * 1000;
-    computeGlyphFluidCells(this.sim, time, shimmer, this.cells);
-    return this.encoder.encode(this.cells);
+    let out: Float64Array | undefined;
+    if (probes?.length) {
+      out = new Float64Array((probes.length / GLYPH_FLUID_PROBE_IN) * GLYPH_FLUID_PROBE_OUT);
+      sampleGlyphFluidProbes(this.sim, probes, this.skip, out);
+    }
+    computeGlyphFluidCells(this.sim, time, shimmer, this.cells, out ? this.skip : null);
+    const frame = this.encoder.encode(this.cells);
+    if (probes) {
+      frame.probes = out ?? new Float64Array(0);
+      frame.probeTag = probeTag;
+    }
+    return frame;
   }
 
   step(input: GlyphFluidStepInput): GlyphFluidFrame {
     this.advance(input);
-    return this.render(input.params.t, input.shimmer);
+    return this.render(input.params.t, input.shimmer, input.probes, input.probeTag);
   }
 }

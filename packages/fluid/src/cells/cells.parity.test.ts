@@ -6,10 +6,15 @@ import { GlyphRenderer } from "../../reference/molty-fluid/render.js";
 import { GlyphFluidSim } from "../sim/sim";
 import { applyGlyphFluidOp, configureGlyphFluidRect, stepGlyphFluidSim } from "../sim/ops";
 import { computeGlyphFluidCells, createGlyphFluidCells, GLYPH_FLUID_DOTS_TO_BRAILLE } from "./cells";
+import { FluidSim } from "../../reference/molty-fluid/sim.js";
+import { GLYPH_FLUID_PROBE_IN, GLYPH_FLUID_PROBE_OUT, sampleGlyphFluidProbes } from "./probes";
+
+/** molty's overlay letter: a box in its 412 px panel. */
+interface Letter { ch: string; x: number; y: number; w: number; h: number; acc: boolean; fs: number }
 
 const PANEL = 412;
 
-function reference(sim: GlyphFluidSim, time: number, shimmer: number) {
+function reference(sim: GlyphFluidSim, time: number, shimmer: number, letters: Letter[] = [], melt = 0) {
   const { W, H } = sim;
   const cw = PANEL / W, ch = PANEL / H;
   const mask = new Uint8Array(W * H), rgb = new Uint32Array(W * H);
@@ -32,13 +37,33 @@ function reference(sim: GlyphFluidSim, time: number, shimmer: number) {
   };
   const r = new GlyphRenderer({ getContext: () => rec });
   r.scale = 1;
-  r.draw(sim, { ramp: " .:-=+*#%@", palette: "pastel", braille: "all", edges: 1, time, shimmer, letters: [], melt: 0 });
+  // render.js samples under each letter with molty's own sampleAt
+  (sim as unknown as { sampleAt: unknown }).sampleAt = FluidSim.prototype.sampleAt;
+  r.draw(sim, { ramp: " .:-=+*#%@", palette: "pastel", braille: "all", edges: 1, time, shimmer, letters, melt });
   return { mask, rgb };
 }
 
-function compare(sim: GlyphFluidSim, time: number, shimmer: number, portShimmer = shimmer) {
-  const ref = reference(sim, time, shimmer);
-  const port = computeGlyphFluidCells(sim, time, portShimmer, createGlyphFluidCells(sim.W, sim.H));
+/** The letters as probes, with render.js's own arithmetic for centre and box. */
+function probesOf(sim: GlyphFluidSim, letters: Letter[], melt: number): Float64Array {
+  const { W, H } = sim, cw = PANEL / W, ch = PANEL / H;
+  const out = new Float64Array(letters.length * GLYPH_FLUID_PROBE_IN);
+  letters.forEach((L, n) => {
+    const sx = ((L.x + L.w / 2) / PANEL) * 2 - 1, sy = ((L.y + L.h / 2) / PANEL) * 2 - 1;
+    out.set([((sx + 1) / 2) * W, ((sy + 1) / 2) * H, Math.floor(L.x / cw), Math.floor(L.y / ch),
+      Math.floor((L.x + L.w) / cw - 0.001), Math.floor((L.y + L.h) / ch - 0.001), 0.14 + melt], n * GLYPH_FLUID_PROBE_IN);
+  });
+  return out;
+}
+
+function compare(sim: GlyphFluidSim, time: number, shimmer: number, portShimmer = shimmer, letters: Letter[] = [], melt = 0, portLetters = letters) {
+  const ref = reference(sim, time, shimmer, letters, melt);
+  let skip: Uint8Array | null = null;
+  if (portLetters.length) {
+    skip = new Uint8Array(sim.N);
+    const p = probesOf(sim, portLetters, melt);
+    sampleGlyphFluidProbes(sim, p, skip, new Float64Array((p.length / GLYPH_FLUID_PROBE_IN) * GLYPH_FLUID_PROBE_OUT));
+  }
+  const port = computeGlyphFluidCells(sim, time, portShimmer, createGlyphFluidCells(sim.W, sim.H), skip);
   let lit = 0, maskDiff = 0, rgbDiff = 0, features = 0;
   for (let k = 0; k < sim.N; k++) {
     const real = GLYPH_FLUID_DOTS_TO_BRAILLE[ref.mask[k]!]!;
@@ -117,6 +142,26 @@ describe("computeGlyphFluidCells parity with molty's GlyphRenderer", () => {
     expect(c.lit).toBeGreaterThan(3000);
     expect(c.maskDiff).toBe(0);
     expect(c.rgbDiff).toBe(0);
+  });
+
+  it("blanks the cells under condensed letters and drops their contour ring, as render.js's letters overlay does", () => {
+    const { sim, t } = scene();
+    // molty's plain letter geometry (30 px, 0.6 em slots) tiled in rows over the whole panel:
+    // letters on the blob show, letters off it don't, and the ones at its rim sit next to
+    // contour cells, where the ring suppression matters
+    const fs = 30, adv = fs * 0.6, lh = fs * 1.05;
+    const letters: Letter[] = [];
+    for (let y = 20; y + lh < PANEL - 20; y += lh * 1.6)
+      for (let x = 20; x + adv < PANEL - 20; x += adv * 1.5) letters.push({ ch: "m", x, y, w: adv, h: lh, acc: false, fs });
+    const plain = compare(sim, t, 0.12);
+    for (const melt of [0, 0.3]) {
+      const c = compare(sim, t, 0.12, 0.12, letters, melt);
+      expect(c.maskDiff).toBe(0);
+      expect(c.rgbDiff).toBe(0);
+      if (melt === 0) expect(c.lit).toBeLessThan(plain.lit); // some letters showed and blanked cells
+    }
+    // mutation: the port forgetting the letters goes red
+    expect(compare(sim, t, 0.12, 0.12, letters, 0, []).maskDiff).toBeGreaterThan(0);
   });
 
   it("the parity check is not vacuous: a different shimmer goes red", () => {

@@ -164,3 +164,49 @@ describe("createGlyphFluid", () => {
     expect(() => createGlyphFluid(sizedHost(), { field: { color: "green" } })).toThrow(TypeError);
   });
 });
+
+describe("letter probes", () => {
+  it("hands each target the probe results of the letters it submitted, one frame late on the worker", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("Worker", class {});
+    const { handleGlyphFluidWorkerMessage } = await import("./protocol");
+    const state = { core: null, gen: -1 };
+    const w = {
+      onmessage: null as ((e: MessageEvent) => void) | null,
+      onerror: null,
+      postMessage(msg: never, transfer: Transferable[] = []) {
+        const got = structuredClone(msg, { transfer });
+        queueMicrotask(() => handleGlyphFluidWorkerMessage(state, got, (reply, tr) => {
+          const back = structuredClone(reply, { transfer: tr });
+          queueMicrotask(() => w.onmessage?.({ data: back } as MessageEvent));
+        }));
+      },
+      terminate() {},
+    };
+    let frame = 0;
+    const got: Array<{ key: unknown; n: number; drawnAt: number }> = [];
+    const { fluid, host } = await make({ worker: () => w as unknown as Worker });
+    const spy = spyWrites(host);
+    fluid.addTarget({
+      kind: "reader",
+      create: () => ({
+        options: { delay: 0, visibility: "always" },
+        strengthOn: 0, strengthOff: 0,
+        measure() {}, box: () => ({ i0: 0, j0: 0, w: 4, h: 4 }), update() {}, write() {}, dispose() {},
+        // frame f submits f + 1 letters, keyed by f
+        probes: () => ({ data: new Float64Array(7 * (frame + 1)).fill(2), key: frame }),
+        readProbes: (values: Float64Array, key: unknown) => got.push({ key, n: values.length / 4, drawnAt: spy.writes }),
+      }),
+    });
+    for (frame = 0; frame < 6; frame++) {
+      fluid.step(1 / 60);
+      for (let i = 0; i < 4; i++) await Promise.resolve();
+    }
+    expect(fluid.stats().pipeline).toBe("worker");
+    expect(got.length).toBeGreaterThanOrEqual(4);
+    for (const g of got) {
+      expect(g.n).toBe((g.key as number) + 1); // results paired with the letters they sampled
+      expect(g.drawnAt).toBe((g.key as number) + 1); // delivered with the frame drawn from them
+    }
+  });
+});

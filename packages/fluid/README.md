@@ -21,7 +21,7 @@ A text target (`fluid`, Arial Black 88 px) after 150 steps · 48 × 12 cells, bl
   ⠁⠄⠁⠄⠁⠄⠁⠄⠁⠄⠁⠄⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁ ⠁⠄⠁⠄⠁⠄⠁
 ```
 
-The reader on the round 52 × 32 disc, `reading` after 90 steps · rows 11–21 (the ORP letter `a` sits on the centre column, drawn in the accent colour)
+The reader's `glyph` look on the round 52 × 32 disc, `reading` after 90 steps · rows 11–21 (the ORP letter `a` sits on the centre column, drawn in the accent colour)
 
 ```text
       ⠁ ⠁⠄⠁⠄⠁⠄⠁⠄⠁⠄⠁ ⠁ ⠁⠄⠁⠄⠁⠄⠁⠄⠁⠄⣀⣀⠁⣀⣀⠄⠁⠄⠁⠄⠁ ⠁ ⠁ ⠁ ⠁
@@ -134,7 +134,12 @@ reader.clock.setText("Something new.");
 reader.destroy();
 ```
 
-Each word condenses out of the fluid in a heavy, condensed face, its optimal recognition point (ORP) letter pivoted on the centre column and drawn in the accent colour; each word is sized to fill the host on its own. The rules are molty's, shared with its firmware: ORP by core length (≤1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥14 → 4), and `delay = max(40, 60000/wpm × long × punctuation)`. They and the clock are plain functions with no fluid dependency:
+Each word's optimal recognition point (ORP) letter is pivoted on the centre column and drawn in the accent colour, in one of molty's two looks:
+
+- `look: "plain"` (default): the fluid pools into a band and real letters condense out of it, scrambling through ramp glyphs (`.:-=+*#%@`) into the letter as ink arrives under each one, riding the wave, and melting back after the last word. They are DOM text: one `<span>` per letter over the `<pre>`, at most one inline-style write per letter per frame, text written only when the shown character changes. Bold monospace, `font` to change it.
+- `look: "glyph"`: the fluid itself takes the letter shapes in a heavy, condensed face, each word sized to fill the host on its own.
+
+The showing word is kept as text in a visually hidden element (`ariaLive`, default `"off"`); under reduced motion plain letters show settled. The rules are molty's, shared with its firmware: ORP by core length (≤1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥14 → 4), and `delay = max(40, 60000/wpm × long × punctuation)`. They and the clock are plain functions with no fluid dependency:
 
 ```ts
 import { tokenizeGlyphReaderText, glyphReaderWordDelay, createGlyphReaderClock } from "@glyphcss/fluid/reader";

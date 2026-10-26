@@ -11,6 +11,7 @@ import { parseHexColor, type GlyphFluidLayout, type GlyphFluidTargetImpl, type G
 import { GlyphFluidMainPipeline, GlyphFluidWorkerPipeline, type GlyphFluidPipeline } from "./pipeline";
 import type { GlyphFluidCoreInit } from "./core";
 import { createGlyphFluidFpsGovernor } from "./fps";
+import { GLYPH_FLUID_PROBE_IN, GLYPH_FLUID_PROBE_OUT } from "../cells/probes";
 
 export interface GlyphFluidGridOptions {
   /** Cell height / width. Default 1.6. */
@@ -171,10 +172,15 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   const zones: Array<{ opts: GlyphFluidZoneOptions; box: GlyphFluidZoneBox | null }> = [];
   let ops: GlyphFluidOp[] = [];
   let t = 0, breathPh = 0, lastEvent = 0, lastDraw = 0, last = 0;
+  let hold = { delay: 0.4, ramp: 1.0 };
   let frames = 0, stalls = 0, lit = 0, raf = 0, destroyed = false, started = false;
   let paletteGen = -1;
   let settleDirty = true;
   const pointer = { x: 0, y: 0, px: NaN, py: NaN, moved: false };
+  // probe sets in flight: the worker answers one frame late, so results are paired with
+  // the letters they were sampled for by tag, never by "the current" letters
+  let probeTag = 0;
+  const probeSets = new Map<number, Array<{ lt: LiveTarget; off: number; n: number; key: unknown }>>();
   const disposers: Array<() => void> = [];
 
   const layoutCtx = (): GlyphFluidLayout => ({ cw, ch, originX, originY });
@@ -263,8 +269,9 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     return [((i + 0.5) / cols) * 2 - 1, ((j - r0 + 0.5) / rows) * 2 - 1];
   }
 
-  function event(i: number, j: number, strength: number): void {
+  function event(i: number, j: number, strength: number, timing = hold): void {
     lastEvent = t;
+    hold = timing;
     settleDirty = true;
     if (reduced) return;
     ops.push(["kick", 1.2]);
@@ -308,6 +315,37 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     pre.textContent = frame.text;
     lit = frame.drawn;
     frames++;
+    if (frame.probeTag === undefined || !frame.probes) return;
+    const set = probeSets.get(frame.probeTag);
+    for (const tag of probeSets.keys()) if (tag <= frame.probeTag) probeSets.delete(tag);
+    if (!set) return;
+    for (const p of set)
+      if (targets.includes(p.lt)) p.lt.impl.readProbes?.(frame.probes.subarray(p.off * GLYPH_FLUID_PROBE_OUT, (p.off + p.n) * GLYPH_FLUID_PROBE_OUT), p.key);
+  }
+
+  /** This frame's letter probes from every target that draws letters, tagged. */
+  function collectProbes(dt: number): { probes?: Float64Array; probeTag?: number } {
+    let parts: Array<{ lt: LiveTarget; data: Float64Array; key: unknown }> | null = null;
+    for (const lt of targets) {
+      const p = lt.impl.probes?.(r0, dt);
+      if (p) (parts ??= []).push({ lt, data: p.data, key: p.key });
+    }
+    if (!parts) return {};
+    const total = parts.reduce((a, p) => a + p.data.length, 0);
+    const probes = new Float64Array(total);
+    const set: Array<{ lt: LiveTarget; off: number; n: number; key: unknown }> = [];
+    let off = 0;
+    for (const p of parts) {
+      probes.set(p.data, off * GLYPH_FLUID_PROBE_IN);
+      const n = p.data.length / GLYPH_FLUID_PROBE_IN;
+      set.push({ lt: p.lt, off, n, key: p.key });
+      off += n;
+    }
+    const tag = ++probeTag;
+    probeSets.set(tag, set);
+    // results lost to a re-init or fallback never come back: keep the map small
+    for (const old of probeSets.keys()) if (old < tag - 4) probeSets.delete(old);
+    return { probes, probeTag: tag };
   }
 
   /** One frame: targets → pipeline → write. */
@@ -332,7 +370,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
       const want = lt.enabled && t >= o.delay && (o.visibility === "always" || inView(b.j0, b.h));
       if (want !== lt.on) {
         lt.on = want;
-        event(b.i0 + b.w / 2, b.j0 + b.h / 2, want ? lt.impl.strengthOn : lt.impl.strengthOff);
+        event(b.i0 + b.w / 2, b.j0 + b.h / 2, want ? lt.impl.strengthOn : lt.impl.strengthOff, lt.impl.hold ?? { delay: 0.4, ramp: 1.0 });
       }
       if (lt.impl.changed?.()) settleDirty = true;
       if (!lt.on) continue;
@@ -340,8 +378,8 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
       lt.impl.write(frame, r0, swell);
     }
     writeGlyphFluidZones(frame, zones.flatMap((z) => (z.box ? [z.box] : [])), r0);
-    const params: GlyphFluidStepParams = { t, breath, dt, hold: smooth((t - lastEvent - 0.4) / 1.0) };
-    const input = { ops, params, targets: frame.packed, shimmer };
+    const params: GlyphFluidStepParams = { t, breath, dt, hold: smooth((t - lastEvent - hold.delay) / hold.ramp) };
+    const input = { ops, params, targets: frame.packed, shimmer, ...collectProbes(dt) };
     ops = [];
     if (reduced) {
       if (!settleDirty) return;

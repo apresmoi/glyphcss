@@ -47,7 +47,10 @@ function inputs(count: number): GlyphFluidStepInput[] {
         if (n % 40 < 30 && Math.abs(i - ci + 3) < 3) f.TA[k] = 0.4 + 0.6 * rand();
       }
     for (let k = 0; k < 200; k++) f.BGM[k] = 0.12;
-    out.push({ ops, params: { t, breath: 0.5 + 0.5 * Math.sin(t), dt, hold: Math.min(1, n / 60) }, targets: f.packed, shimmer: 0.12 });
+    // reader letters riding over the blob: centre, cell box, threshold (rising like a melt)
+    const probes = new Float64Array(4 * 7);
+    for (let l = 0; l < 4; l++) probes.set([ci - 4 + l * 2.5, cj + 0.5, ci - 5 + l * 2, cj - 1, ci - 4 + l * 2, cj + 1, 0.14 + (n % 50) / 100], l * 7);
+    out.push({ ops, params: { t, breath: 0.5 + 0.5 * Math.sin(t), dt, hold: Math.min(1, n / 60) }, targets: f.packed, shimmer: 0.12, probes, probeTag: n });
   }
   return out;
 }
@@ -86,6 +89,7 @@ function diffFrames(a: GlyphFluidFrame, b: GlyphFluidFrame): number {
   for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) n++;
   if (a.palette.join() !== b.palette.join()) n++;
   if (a.paletteGeneration !== b.paletteGeneration) n++;
+  if (a.probeTag !== b.probeTag || a.probes?.join() !== b.probes?.join()) n++;
   return n;
 }
 
@@ -107,13 +111,14 @@ async function run(mutate?: (m: GlyphFluidWorkerMessage) => GlyphFluidWorkerMess
   await settle();
   const last = pipe.submit({ ...frames[0]!, targets: pipe.targetBuffer() });
   got.push(last!);
-  let diffs = 0, lit = 0;
+  let diffs = 0, lit = 0, shown = 0;
   expect(got).toHaveLength(ref.length);
   for (let i = 0; i < ref.length; i++) {
     diffs += diffFrames(ref[i]!, got[i]!);
     lit += ref[i]!.drawn;
+    for (let p = 3; p < ref[i]!.probes!.length; p += 4) shown += ref[i]!.probes![p]!;
   }
-  return { diffs, lit, repools: ref[ref.length - 1]!.paletteGeneration };
+  return { diffs, lit, shown, repools: ref[ref.length - 1]!.paletteGeneration };
 }
 
 describe("worker pipeline parity", () => {
@@ -121,7 +126,18 @@ describe("worker pipeline parity", () => {
     const r = await run();
     expect(r.lit).toBeGreaterThan(100_000);
     expect(r.repools).toBeGreaterThan(0);
+    expect(r.shown).toBeGreaterThan(50); // letters condensed (and blanked cells) on many frames
     expect(r.diffs).toBe(0);
+  });
+
+  it("goes red when the worker loses the letter probes", async () => {
+    const r = await run((m) => (m.kind === "step" ? { ...m, input: { ...m.input, probes: undefined } } : m));
+    expect(r.diffs).toBeGreaterThan(0);
+  });
+
+  it("goes red when probe centres are corrupted on the wire", async () => {
+    const r = await run((m) => (m.kind === "step" ? { ...m, input: { ...m.input, probes: m.input.probes?.map((v, i) => (i % 7 === 1 ? v + 0.5 : v)) } } : m));
+    expect(r.diffs).toBeGreaterThan(0);
   });
 
   it("goes red when the worker drops push ops", async () => {

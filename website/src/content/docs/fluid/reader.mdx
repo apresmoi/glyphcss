@@ -32,7 +32,16 @@ reader.clock.setText("Something new to say.");
 reader.destroy();
 ```
 
-Each word condenses out of the fluid in a heavy face stretched ×1.9 in height (cells are taller than wide), with its ORP letter pivoted on the centre column and drawn in the accent colour. Each word is sized to fill the screen on its own, so short words are large. Every word change sends a soft ring out from the centre; after the last word the letters melt back into the field.
+## Looks
+
+Both looks are molty's, and both pivot the ORP letter on the centre column in the accent orange. Every word change sends a soft ring out from the centre; after the last word the letters melt back into the field.
+
+- **`plain`** (default, molty's website look): the fluid pools into a band under the word, and real letters condense out of it. A letter appears once enough ink has arrived under it, as a scramble of ramp glyphs (`.:-=+*#%@`), and decodes into the real letter as the ink fills in; it rides the wave height and brightens with the ink. The fluid stays blank under shown letters. Letters are bold monospace (`font`), sized once per sentence so they don't jump between words.
+- **`glyph`**: the fluid itself takes the letter shapes, in a heavy face stretched ×1.9 in height (cells are taller than wide). Each word is sized to fill the screen on its own, so short words are large.
+
+The plain letters are real DOM text: one positioned `<span>` per letter in an overlay above the fluid's `<pre>`, each updated with at most one inline-style assignment per frame (position, colour, opacity) and its text written only when the shown character changes. Whether a letter shows, and the ink and wave under it, come from the same simulation step as the fluid frame, on the worker or the main thread.
+
+During the lead-in the first word is already the target, so its ink gathers (and its plain letters scramble in) before the clock shows it.
 
 Reader options are the fluid's options (except `glue`) plus:
 
@@ -43,12 +52,15 @@ Reader options are the fluid's options (except `glue`) plus:
 | `leadIn` | `550` | ms before the first word, while the ink gathers |
 | `loop` | `false` | ms of rest after the last word before reading again |
 | `autoplay` | `true` | start once the fluid is ready |
+| `look` | `"plain"` | `"plain"`: real letters condense out of a pooled band; `"glyph"`: the fluid takes the letter shapes |
+| `font` | `"ui-monospace, Menlo, Consolas, monospace"` | plain letters' font-family, drawn bold |
+| `ariaLive` | `"off"` | the hidden word element's `aria-live`; `"polite"` announces every word |
 | `color` | `"#f2f5ff"` | letter colour; the ORP accent is the fluid's accent orange |
 | `ripple` | `0.63` | strength of the ring each later word sends out; 0 for none (the first word condensing and the last melting still stir the fluid, like any target) |
 | `scheduler` | timers | the clock's `now` / `setTimeout` / `clearTimeout` |
 | `grid` | 52 columns | molty's device grid |
 
-The fluid's `<pre>` is `aria-hidden`: keep the sentence in the page (for example in an `aria-live` region) for assistive technology. Under reduced motion each word is drawn as one settled still.
+The fluid's `<pre>` and the letter overlay are `aria-hidden`; the showing word is kept as text in a visually hidden element, with `aria-live="off"` by default (a word every quarter second would flood a screen reader), so it is readable on demand. For a sentence read aloud, keep the whole text in the page. Under reduced motion each word is drawn as one settled still, and plain letters show settled: no scramble, no wave.
 
 ## The rules
 
