@@ -90,6 +90,7 @@ export function createGlyphFluidReader(host: HTMLElement, options: GlyphFluidRea
   // gathers (and its plain letters scramble in) before the clock shows it
   const begin = (tokens: readonly GlyphReaderToken[]) => {
     target.setSentence(tokens);
+    said.textContent = "";
     if (!tokens.length) return melt();
     target.setWord(tokens[0]!);
     live.condense();

@@ -139,6 +139,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private ch = 1;
   /** Plain look: font px of the sentence in molty's panel units, the letters and their cell boxes. */
   private plainPx = 30;
+  private plainExt = 1;
   private letters: GlyphFluidReaderLetter[] = [];
   private boxes: number[] = [];
   /** px of wave displacement per molty panel px (the host's scale over molty's 412 px panel). */
@@ -162,6 +163,7 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   /** Plain look: fix the type size for a whole sentence so it doesn't jump between words. */
   setSentence(tokens: readonly GlyphReaderToken[]): void {
     this.plainPx = glyphFluidReaderPlainFontPx(tokens);
+    this.plainExt = tokens.reduce((e, t) => Math.max(e, glyphFluidReaderExtent(t)), 1);
     this.raster();
   }
 
@@ -232,7 +234,10 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private rasterPlain(box: GlyphFluidCellBox, tok: GlyphReaderToken): void {
     const { w, h } = box, { pw, ph, cw, ch } = this;
     const scale = pw / PANEL;
-    const fs = Math.min(this.plainPx * scale, (ph * 0.8) / 1.05), adv = fs * 0.6, lh = fs * 1.05;
+    // molty's size floor (18) lets a very long word overrun the panel: shrink the sentence
+    // until its longest half around the ORP fits inside FIT of the half-width
+    const fit = ((pw / 2) * FIT) / (this.plainExt * 0.6);
+    const fs = Math.min(this.plainPx * scale, (ph * 0.8) / 1.05, fit), adv = fs * 0.6, lh = fs * 1.05;
     const { chars, orp } = glyphFluidReaderLetterSlots(tok);
     const x0 = pw / 2 - (orp + 0.5) * adv, y0 = ph / 2 - lh / 2;
     this.overlay?.setFontPx(fs);

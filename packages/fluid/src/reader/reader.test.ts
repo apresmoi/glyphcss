@@ -300,6 +300,19 @@ describe("plain look", () => {
     }
   });
 
+  it("fits a very long word inside the host (molty's 18 px floor would overrun it)", () => {
+    for (const [w, h] of [[416, 416], [300, 120]] as const) {
+      const word = "Donaudampfschifffahrtsgesellschaft";
+      const { t, cw } = plainTarget(word, w, h);
+      const p = t.probes(0, 1 / 60)!.data, n = p.length / 7;
+      const first = p[0]! * cw, last = p[(n - 1) * 7]! * cw;
+      expect(first, `${w}×${h}`).toBeGreaterThan(0);
+      expect(last, `${w}×${h}`).toBeLessThan(w);
+      const orp = tokenizeGlyphReaderText(word)[0]!.orp;
+      expect(Math.abs(p[orp * 7]! * cw - w / 2)).toBeLessThan(0.01); // still pivoted
+    }
+  });
+
   it("keeps an astral character one letter, wherever the ORP unit falls", () => {
     for (const w of ["a😀bcd", "😀bcde"]) {
       const { t } = plainTarget(w);
@@ -327,6 +340,7 @@ describe("createGlyphFluidReader, plain look", () => {
     const shown = () => Array.from(host.querySelectorAll<HTMLElement>("div[aria-hidden] > span")).filter((s) => s.style.opacity === "1").map((s) => s.textContent).join("");
     const said = host.querySelector("[aria-live]")!;
     expect(said.getAttribute("aria-live")).toBe("off");
+    expect(said.textContent).toBe(""); // nothing shown yet: the lead-in
     for (let i = 0; i < 40; i++) reader.fluid.step(1 / 60); // the lead-in: "one" gathers and decodes
     expect(shown()).toBe("one");
     sch.advance(550);
@@ -342,6 +356,22 @@ describe("createGlyphFluidReader, plain look", () => {
     reader.destroy();
     expect(host.querySelector("div[aria-hidden]")).toBeNull();
     expect(host.querySelector("[aria-live]")).toBeNull();
+  });
+
+  it("a new text clears the assistive word until its first word shows", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sch = fakeScheduler();
+    const host = sizedHost();
+    const reader = createGlyphFluidReader(host, { text: "one two", scheduler: sch, clock: "manual", worker: false });
+    await reader.ready;
+    sch.advance(550);
+    const said = host.querySelector("[aria-live]")!;
+    expect(said.textContent).toBe("one");
+    reader.clock.setText("three four");
+    expect(said.textContent).toBe("");
+    sch.advance(550);
+    expect(said.textContent).toBe("three");
+    reader.destroy();
   });
 
   it("blanks the fluid under shown letters (the sim decides it, from the same step)", async () => {
