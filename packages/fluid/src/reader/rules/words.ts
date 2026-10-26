@@ -6,8 +6,7 @@
 //   delay: max(40, 60000/wpm × long × punc), rounded
 //          long = min(2, 1 + 0.05·(coreLen − 6)) when coreLen > 6
 //          punc = paragraph 2.5 · sentence end (. ! ?) 2.0 · clause (, ; :) 1.5
-// Indices are UTF-16 code units, exactly as the reference (and the firmware's bytes-free
-// port) count them.
+// Indices are UTF-16 code units, exactly as the reference counts them.
 
 /** One word to show. */
 export interface GlyphReaderToken {

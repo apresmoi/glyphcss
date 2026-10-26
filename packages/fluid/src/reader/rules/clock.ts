@@ -88,23 +88,27 @@ export function createGlyphReaderClock(opts: GlyphReaderClockOptions = {}): Glyp
     timer = sch.setTimeout(step, ms);
   }
 
+  // Every transition settles its state and timer BEFORE notifying: a listener may call
+  // back into the clock (setText, seek, pause…), and its change must be the last word.
+
   /** Back to the lead-in of the current text. */
   function restart(): void {
     index = -1;
-    emit({ type: "text", tokens });
     arm(tokens.length ? leadIn : 0);
+    emit({ type: "text", tokens });
   }
 
   function show(i: number): void {
     index = i;
     const token = tokens[i]!;
     const ms = glyphReaderWordDelay(token, wpm);
-    emit({ type: "word", token, index: i, ms });
     arm(ms);
+    emit({ type: "word", token, index: i, ms });
   }
 
   function step(): void {
     timer = null;
+    if (!playing) return;
     if (!tokens.length) {
       playing = false;
       return;
@@ -112,11 +116,11 @@ export function createGlyphReaderClock(opts: GlyphReaderClockOptions = {}): Glyp
     if (index >= tokens.length) return restart();
     if (index + 1 < tokens.length) return show(index + 1);
     index = tokens.length;
-    emit({ type: "end" });
     if (loop === false) {
       playing = false;
       remaining = 0;
     } else arm(loop);
+    emit({ type: "end" });
   }
 
   const clock: GlyphReaderClock = {

@@ -123,6 +123,61 @@ describe("createGlyphReaderClock", () => {
     expect(log.at(-1)![1]).toBe("text");
   });
 
+  it("a word listener's setText wins: the new text gets its own lead-in", () => {
+    const sch = fakeScheduler();
+    const clock = createGlyphReaderClock({ text: "aa bb", wpm: 600, scheduler: sch, leadIn: 50 });
+    const log = record(clock, sch);
+    let once = true;
+    clock.subscribe((e) => e.type === "word" && once && ((once = false), clock.setText("cc dd")));
+    sch.advance(50 + 50);
+    expect(log).toEqual([[50, "word:aa"], [50, "text"], [100, "word:cc"]]);
+  });
+
+  it("a word listener's seek holds the sought word for its own delay at the new wpm", () => {
+    const sch = fakeScheduler();
+    const clock = createGlyphReaderClock({ text: "aa bb cc", wpm: 600, scheduler: sch, leadIn: 0 });
+    const log = record(clock, sch);
+    let once = true;
+    clock.subscribe((e) => {
+      if (e.type === "word" && once) {
+        once = false;
+        clock.setWpm(60);
+        clock.seek(1);
+      }
+    });
+    sch.advance(0 + 999);
+    expect(log).toEqual([[0, "word:aa"], [0, "word:bb"]]);
+    sch.advance(1);
+    expect(log.at(-1)).toEqual([1000, "word:cc"]);
+  });
+
+  it("an end listener's setText leaves a stopped clock stopped, with no stray timer", () => {
+    const sch = fakeScheduler();
+    const clock = createGlyphReaderClock({ text: "aa", wpm: 600, scheduler: sch, leadIn: 0 });
+    const log = record(clock, sch);
+    clock.subscribe((e) => e.type === "end" && clock.setText("bb"));
+    sch.advance(5000);
+    expect(log.map((e) => e[1])).toEqual(["word:aa", "end", "text"]);
+    expect(clock.playing).toBe(false);
+    expect(sch.pending()).toBe(0);
+    clock.play();
+    sch.advance(0);
+    expect(log.at(-1)![1]).toBe("word:bb");
+  });
+
+  it("a word listener's pause keeps the full delay of that word for resume", () => {
+    const sch = fakeScheduler();
+    const clock = createGlyphReaderClock({ text: "aa bb", wpm: 600, scheduler: sch, leadIn: 0 });
+    const log = record(clock, sch);
+    let once = true;
+    clock.subscribe((e) => e.type === "word" && once && ((once = false), clock.pause()));
+    sch.advance(1000);
+    expect(log).toEqual([[0, "word:aa"]]);
+    clock.play();
+    sch.advance(100);
+    expect(log.at(-1)).toEqual([1100, "word:bb"]);
+  });
+
   it("empty text never schedules; destroy cancels the pending step", () => {
     const sch = fakeScheduler();
     const empty = createGlyphReaderClock({ text: "  ", scheduler: sch });

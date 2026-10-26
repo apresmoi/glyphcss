@@ -43,6 +43,8 @@ function inputs(count: number): GlyphFluidStepInput[] {
         f.T[k] = 1 - d;
         f.TR[k] = 0.9; f.TG[k] = 0.3 + 0.3 * rand(); f.TB[k] = 0.6;
         f.TF[k] = d < 0.15 ? 1 : 0;
+        // an accented band that moves and switches off every fourth stretch (accent removal)
+        if (n % 40 < 30 && Math.abs(i - ci + 3) < 3) f.TA[k] = 0.4 + 0.6 * rand();
       }
     for (let k = 0; k < 200; k++) f.BGM[k] = 0.12;
     out.push({ ops, params: { t, breath: 0.5 + 0.5 * Math.sin(t), dt, hold: Math.min(1, n / 60) }, targets: f.packed, shimmer: 0.12 });
@@ -124,6 +126,16 @@ describe("worker pipeline parity", () => {
 
   it("goes red when the worker drops push ops", async () => {
     const r = await run((m) => (m.kind === "step" ? { ...m, input: { ...m.input, ops: m.input.ops.filter((o) => o[0] !== "push") } } : m));
+    expect(r.diffs).toBeGreaterThan(0);
+  });
+
+  it("goes red when the worker loses the accent (TA) field", async () => {
+    const r = await run((m) => {
+      if (m.kind !== "step") return m;
+      const N = INIT.cols * INIT.rows;
+      m.input.targets.fill(0, 6 * N, 7 * N);
+      return m;
+    });
     expect(r.diffs).toBeGreaterThan(0);
   });
 
