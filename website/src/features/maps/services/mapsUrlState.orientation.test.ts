@@ -36,11 +36,22 @@ describe("/maps opening orientation", () => {
   ] as const)("preserves a ground-pivot evidence link: %s", (packed, centerLon, centerLat, span, tilt) => {
     window.history.replaceState(null, "", `/maps?m=${packed}`);
     const state = readInitialMapsState();
-    expect(state).toMatchObject({ centerLon, centerLat, tilt, bearing: 37, exaggeration: 12 });
+    expect(state).toMatchObject({ centerLon, centerLat, tilt, bearing: 37, exaggeration: 24 });
     expect(state.span).toBeCloseTo(span, 12);
     const decoded = mapsCodec.decode(mapsCodec.encode(state));
     expect(decoded).toMatchObject({ centerLon, centerLat, tilt, bearing: 37 });
     expect(decoded.span).toBeCloseTo(span, 12);
+  });
+
+  it("opens a fresh /maps at 12x relief, but a link without an e token keeps its original 24x", () => {
+    window.history.replaceState(null, "", "/maps");
+    expect(readInitialMapsState().exaggeration).toBe(12);
+    window.history.replaceState(null, "", "/maps?m=p3");
+    expect(readInitialMapsState().exaggeration).toBe(24);
+    window.history.replaceState(null, "", "/maps");
+    const shared = mapsCodec.encode(readInitialMapsState());
+    window.history.replaceState(null, "", `/maps?m=${shared}`);
+    expect(readInitialMapsState().exaggeration).toBe(12);
   });
 
   it("restores an explicitly tilted and turned shared view", () => {

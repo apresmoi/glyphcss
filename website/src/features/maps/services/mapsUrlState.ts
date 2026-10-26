@@ -724,9 +724,14 @@ export const MAPS_CONTOUR_WINDOW_OFF = { min: -32000, max: 32000 } as const;
  */
 export const MAPS_TERRAIN_WINDOW_OFF = { min: -32000, max: 32000 } as const;
 
+/** Terrain exaggeration of a fresh `/maps` load (no `m` at all); a share written from it carries an explicit `e`. */
+export const MAPS_FRESH_EXAGGERATION = 12;
+
 export const MAPS_URL_DEFAULTS: MapsUrlState = {
   projection: "globe",
-  exaggeration: 12,
+  // FROZEN omission sentinel: a link without `e` was written at 24, so it keeps
+  // meaning 24. The page's own opening value is {@link MAPS_FRESH_EXAGGERATION}.
+  exaggeration: 24,
   centerLon: 0,
   centerLat: 20,
   span: 140,
@@ -1340,6 +1345,9 @@ export function readInitialMapsState(): MapsUrlState {
     // A fresh map starts head-on. Keep the codec's 40° omission default
     // frozen so previously shared links still restore their original pose.
     tilt: decoded.tilt ?? (packed ? MAPS_URL_DEFAULTS.tilt : 0),
+    // Same split for relief: the codec's omission value (24) is what every
+    // already-shared link without `e` meant; only a fresh load opens at 12.
+    exaggeration: decoded.exaggeration ?? (packed ? MAPS_URL_DEFAULTS.exaggeration : MAPS_FRESH_EXAGGERATION),
     // Feature-detected site default, applied only when the LINK carries no
     // choice (`decoded`, the raw partial — never the already-defaulted
     // merge) — see `MAPS_URL_DEFAULTS.colorEncoding`'s doc for why the
