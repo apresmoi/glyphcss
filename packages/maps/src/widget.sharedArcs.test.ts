@@ -115,4 +115,13 @@ describe("line-layer shared arcs", () => {
     await map.idle();
     expect(ink()).toBeGreaterThan(0);
   });
+
+  it("keeps colorProperty colours on polygon boundaries whose contributors agree", async () => {
+    const tagged = countries.map(feature => ({ ...feature, properties: { kind: "land" } }));
+    const map = mount({ source: { features: tagged }, colorProperty: "kind", colors: { land: "#12ab34" }, color: "#ff00ff" });
+    await map.idle();
+    const html = map.scene.output.parentElement!.innerHTML.toLowerCase();
+    expect(html).toContain("#12ab34");
+    expect(html).not.toContain("#ff00ff");
+  });
 });

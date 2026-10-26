@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createGlyphMapSharedArcCache, glyphMapSharedLineArcs } from "./sharedArcs";
+import { createGlyphMapSharedArcCache, glyphMapSharedArcFeatures, glyphMapSharedLineArcs } from "./sharedArcs";
 import { createGlyphMapLineSimplifier, type GlyphMapLonLat } from "./simplify";
 
 import { countries, shared } from "./sharedArcs.fixture";
@@ -49,5 +49,28 @@ describe("shared line arcs", () => {
       [[0, 0], [1, 0]], [[1, 0], [2, 0]], [[2, 0], [3, 0]],
     ]);
     expect(glyphMapSharedLineArcs([{ geometryType: "line", rings: [a, a.toReversed()] }])).toEqual([a, a.toReversed()]);
+  });
+});
+
+describe("shared arc feature properties", () => {
+  const square = (x: number): GlyphMapLonLat[] => [[x, 0], [x + 1, 0], [x + 1, 1], [x, 1], [x, 0]];
+  const arcFor = (arcs: readonly { rings: readonly (readonly GlyphMapLonLat[])[]; properties?: Record<string, unknown> }[], point: GlyphMapLonLat) =>
+    arcs.find(arc => arc.rings[0]!.some(p => p[0] === point[0] && p[1] === point[1]));
+
+  it("keeps the properties every contributing feature agrees on and drops the rest", () => {
+    const arcs = glyphMapSharedArcFeatures([
+      { geometryType: "polygon", rings: [square(0)], properties: { kind: "land", name: "a" } },
+      { geometryType: "polygon", rings: [square(1)], properties: { kind: "land", name: "b" } },
+    ]);
+    const shared = arcs.find(arc => arc.rings[0]!.every(p => p[0] === 1))!;
+    expect(shared.properties).toEqual({ kind: "land" });
+    const outer = arcs.find(arc => arc.rings[0]!.some(p => p[0] === 0))!;
+    expect(outer.properties).toEqual({ kind: "land", name: "a" });
+    const none = glyphMapSharedArcFeatures([
+      { geometryType: "polygon", rings: [square(0)], properties: { kind: "land" } },
+      { geometryType: "polygon", rings: [square(1)], properties: { kind: "sea" } },
+    ]);
+    expect(none.find(arc => arc.rings[0]!.every(p => p[0] === 1))!.properties).toBeUndefined();
+    expect(arcFor(none, [0, 0])!.properties).toEqual({ kind: "land" });
   });
 });

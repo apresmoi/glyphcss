@@ -6929,7 +6929,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const held = sharedFeatureCache.get(owner);
       if (held && sameFeatureList(held.kept, kept)) return held.out;
       const out = [
-        ...sharedArcCache!(kept.filter(f => f.geometryType !== "line")).map(ring => ({ rings: [ring] })),
+        ...sharedArcCache!(kept.filter(f => f.geometryType !== "line")),
         ...kept.filter(f => f.geometryType === "line"),
       ];
       sharedFeatureCache.set(owner, { kept, out });
