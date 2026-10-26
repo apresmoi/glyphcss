@@ -337,6 +337,35 @@ it("under snapPan, project() follows the displayed frame through the release eas
   for (let i = 1; i < samples.length; i += 2) expect(samples[i]).toBeCloseTo(exact, 6);
 });
 
+it("on an off-centre bearing globe, project/unproject follow the drawn text mid-drag and through the release ease", async () => {
+  const m = mount({ snapPan: true, projection: glyphMapGlobe(), view: { center: [0, 70], span: 140, cols: 80, rows: 20 }, bearing: 33 });
+  await ready(m);
+  const P: [number, number] = [60, -10];
+  expect(m.project(P).col).toBeGreaterThan(0);
+  let drawn: { col: number; row: number } | null = null;
+  const slide = () => {
+    const [x, y] = element(m).style.transform.match(/translate\(([-.\d]+)px, ([-.\d]+)px/)!.slice(1).map(Number);
+    return { col: (x! + 20 * 8) / 8, row: (y! + 5 * 16) / 16 };
+  };
+  // The text is rendered once; a point sits where that render put it, moved by the slide. So the answer minus the slide never changes.
+  const check = () => {
+    const at = m.project(P), s = slide();
+    drawn ??= { col: at.col - s.col, row: at.row - s.row };
+    expect(at.col - s.col).toBeCloseTo(drawn.col, 6);
+    expect(at.row - s.row).toBeCloseTo(drawn.row, 6);
+    // Newton's inverse is loose near the limb at rest too, so the round trip uses a point well inside the disc.
+    const near = m.project([10, 50]), back = m.unproject([near.col, near.row])!;
+    expect(back[0]).toBeCloseTo(10, 4); expect(back[1]).toBeCloseTo(50, 4);
+  };
+  subCellDrag(m);
+  expect(element(m).style.transform).toMatch(/translate/);
+  check();
+  pointer(m, "pointercancel", 204.5); frame(); frame();
+  let eased = 0;
+  for (let i = 0; i < 12 && element(m).style.willChange === "transform"; i++) { check(); eased++; frame(); }
+  expect(eased).toBeGreaterThan(1);
+});
+
 it("under snapPan, a scene-owned render mid-drag keeps the remainder", async () => {
   const m = mount({ snapPan: true }); await ready(m);
   const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);

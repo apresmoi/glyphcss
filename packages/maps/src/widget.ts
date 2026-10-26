@@ -3691,6 +3691,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     /** Ground points across the view and where the last render put them, in frozen-grid cells. */
     probes: { world: Vec3; col: number; row: number }[];
     projection: GlyphMapProjection; tilt: number; bearing: number; span: number;
+    /** The slide the frame is displayed at (px), relative to the pose it was rendered at. */
+    shownDx: number; shownDy: number;
     hostWidth: number; hostHeight: number; outputWidth: number; outputHeight: number; originLeft: number; originTop: number;
   };
   let compositorFrame: CompositorFrame | null = null;
@@ -3784,6 +3786,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     f.probes = compositorProbes(f.grid);
     // Every re-capture (a compositor render, or a scene-owned one) re-bases the frame on the snapped pose; the sub-cell remainder is the part of the displayed slide that rebase must not drop.
     if (exactPanPose) { slideCompositor(f, 0, 0); return; }
+    f.shownDx = 0; f.shownDy = 0;
     sceneElement.style.transform = `translate(${-f.marginCols * f.grid.cellWidth}px, ${-f.marginRows * f.grid.cellHeight}px)`;
   }
 
@@ -4091,6 +4094,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
 
   function slideCompositor(f: CompositorFrame, dx: number, dy: number, exact = true): void {
     if (exact) ({ dx, dy } = exactSlide(f, dx, dy));
+    f.shownDx = dx; f.shownDy = dy;
     sceneElement.style.transform = `translate(${dx - f.marginCols * f.grid.cellWidth}px, ${dy - f.marginRows * f.grid.cellHeight}px)`;
   }
 
@@ -4100,8 +4104,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * renders. The held view stays exact: only the DRAWN pose is on the lattice, as at any rest.
    */
   const SETTLE_EASE_MS = 100;
-  /** `k` is the share of the remainder still displayed (1 = the exact pose, 0 = the lattice), as of the last eased frame. */
-  let settleEase: { start: number; baseDx: number; baseDy: number; rx: number; ry: number; k: number } | null = null;
+  let settleEase: { start: number; baseDx: number; baseDy: number; rx: number; ry: number } | null = null;
   /** True while the remainder is still easing out (the caller skips this frame's render). */
   function easeSettle(now: number): boolean {
     const f = compositorFrame;
@@ -4114,11 +4117,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const e = exactSlide(f, m.dx, m.dy);
       const rx = e.dx - m.dx, ry = e.dy - m.dy;
       if (!m.ok || Math.hypot(rx, ry) < 0.5) return false;
-      settleEase = { start: now, baseDx: m.dx, baseDy: m.dy, rx, ry, k: 1 };
+      settleEase = { start: now, baseDx: m.dx, baseDy: m.dy, rx, ry };
     }
     const z = settleEase, t = (now - z.start) / SETTLE_EASE_MS;
     if (t >= 1) { settleEase = null; return false; }
-    const k = z.k = (1 - t) * (1 - t);
+    const k = (1 - t) * (1 - t);
     slideCompositor(f, z.baseDx + z.rx * k, z.baseDy + z.ry * k, false);
     return true;
   }
@@ -4170,7 +4173,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
         grid, marginCols, marginRows, center: [...camera.center], autoSize: o.autoSize ?? false,
         sceneStyle: sceneElement.style.cssText, hostOverflow: host.style.overflow, hotspotsDisplay: hotspotElement.style.display,
         target: [...camera.target], rotX: camera.rotX, rotY: camera.rotY, zoom: camera.zoom, probes: [],
-        projection, tilt: appliedTilt, bearing, span: view.span,
+        projection, tilt: appliedTilt, bearing, span: view.span, shownDx: 0, shownDy: 0,
         hostWidth: hostBox.width, hostHeight: hostBox.height, outputWidth: outputBox.width, outputHeight: outputBox.height,
         originLeft: outputBox.left - hostBox.left, originTop: outputBox.top - hostBox.top,
       };
@@ -5559,25 +5562,26 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   // ── project()/unproject() ────────────────────────────────────────────
 
   /**
-   * Under `snapPan` a live compositor frame shows the EXACT pose (the slide carries the sub-cell
-   * remainder) while the camera sits on the lattice; public queries answer for what is displayed.
+   * While a compositor frame is live the text on screen is the frame as it was
+   * rendered, translated by its slide. Public queries are defined that way, so
+   * they match the drawn text by construction: the projection at the pose the
+   * frame was rendered at, plus the slide it is displayed at. (Interpolating the
+   * live pose instead is not the same on a non-linear projection.) Returns the
+   * slide in cells for the caller to apply.
    */
-  function atDisplayedPose<T>(fn: () => T): T {
-    const exact = exactPanPose;
-    if (!exact || !compositorFrame) return fn();
-    const { rotX, rotY, target, mat, useMat } = camera;
-    // While the release ease runs, the displayed pose is `k` of the way from the lattice to the exact one.
-    const k = settleEase?.k ?? 1;
-    camera.rotX = rotX + (exact.rotX - rotX) * k; camera.rotY = rotY + (exact.rotY - rotY) * k;
-    camera.target = k === 1 ? exact.target : [0, 1, 2].map(i => target[i]! + (exact.target[i]! - target[i]!) * k) as typeof target;
+  function atFramePose<T>(fn: (dCol: number, dRow: number) => T): T {
+    const f = compositorFrame;
+    if (!f) return fn(0, 0);
+    const { rotX, rotY, target, zoom, mat, useMat } = camera;
+    camera.rotX = f.rotX; camera.rotY = f.rotY; camera.target = f.target; camera.zoom = f.zoom;
     syncCameraBearing();
-    try { return fn(); } finally {
-      camera.rotX = rotX; camera.rotY = rotY; camera.target = target; camera.mat = mat; camera.useMat = useMat;
+    try { return fn(f.shownDx / f.grid.cellWidth, f.shownDy / f.grid.cellHeight); } finally {
+      camera.rotX = rotX; camera.rotY = rotY; camera.target = target; camera.zoom = zoom; camera.mat = mat; camera.useMat = useMat;
     }
   }
 
   function project(lngLat: readonly [number, number]): GlyphMapProjectResult {
-    return atDisplayedPose(() => projectOn(lngLat, projectionGrid(), groundAt(lngLat)));
+    return atFramePose((dCol, dRow) => projectOn(lngLat, projectionGrid(), groundAt(lngLat), dCol, dRow));
   }
 
   /**
@@ -5592,12 +5596,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * (exaggerated) elevation axis — the marker drape's channel. It defaults to
    * the datum, so every other caller is the expression it always was.
    */
-  function projectOn(lngLat: readonly [number, number], grid: ProjectionGrid, elev = 0): GlyphMapProjectResult {
+  function projectOn(lngLat: readonly [number, number], grid: ProjectionGrid, elev = 0, dCol = 0, dRow = 0): GlyphMapProjectResult {
     const world = projection.project(lngLat[0], lngLat[1], elev);
     if (!Number.isFinite(world[0]) || !Number.isFinite(world[1]) || !Number.isFinite(world[2])) {
       return { col: NaN, row: NaN, visible: false };
     }
-    const [col, row] = camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid);
+    const [c0, r0] = camera.project(world, grid.cols, grid.rows, grid.cellAspect, grid);
+    const col = c0 + dCol, row = r0 + dRow;
     const visible = Number.isFinite(col) && Number.isFinite(row)
       // Walking, the horizon is LOCAL — see `nearSideVisible`. The perspective
       // camera's own near-plane rejection already returns NaN for anything
@@ -5735,7 +5740,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   }
 
   function unproject(cell: readonly [number, number]): readonly [number, number] | null {
-    return atDisplayedPose(() => viewUnprojector(projectionGrid())(cell[0], cell[1]));
+    return atFramePose((dCol, dRow) => viewUnprojector(projectionGrid())(cell[0] - dCol, cell[1] - dRow));
   }
 
   // ── Events ────────────────────────────────────────────────────────────
