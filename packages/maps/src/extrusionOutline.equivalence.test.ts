@@ -82,7 +82,7 @@ it("matches the packet-11 surface and complete stamped grids over BA buildings d
   expect(polygons).toBeGreaterThan(10_000);
   expect(checks).toBeGreaterThanOrEqual(17);
   expect(braille).toBeGreaterThan(100);
-});
+}, 60_000); // ~3.6 s of pure CPU natively (BA tiles x pan/tilt/replacement frames, twice); an emulated or loaded runner is 10x slower
 
 it.skipIf(!process.env.GLYPH_MAP_OUTLINE_BENCH)("benchmarks packet-11 and optimized 15-frame BA pans without a browser", async () => {
   const create = outline.createGlyphMapExtrusionSurface, stamp = outline.stampGlyphMapExtrusionOutlines;
@@ -235,4 +235,4 @@ it("blank bins equal an independent depth raster through BA pan, tilt and replac
   const features = glyphMapDecodeMVT(readFileSync(path.join(root,"osm_13_2767_4936.pbf")),13,2767,4936).building!;
   map.setLayerSource("omt-buildings",{features:features.slice(0,3)}); await map.idle();
   expect(checks).toBeGreaterThan(6); expect(covered).toBeGreaterThan(1000);
-});
+}, 60_000); // pure CPU, ~1 s natively: nothing here to settle on
