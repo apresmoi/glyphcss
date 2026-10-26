@@ -143,6 +143,8 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private boxes: number[] = [];
   /** px of wave displacement per molty panel px (the host's scale over molty's 412 px panel). */
   private wave = 1;
+  /** Bumped when the letters are cleared after a melt: older probe results are dropped. */
+  private generation = 0;
   private melting = false;
   private meltT = 0;
   private overlay: GlyphFluidReaderLetters | null;
@@ -221,11 +223,14 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   /**
    * molty's plain setWord: a row of letter slots 0.6 em apart with the ORP slot centred,
    * ink PLAIN_INK in every cell whose centre falls inside a slot, accent under the ORP one.
+   * The row is a line of text, so it scales with the host's WIDTH (molty's panel is
+   * square), capped to fit its height; and each letter always inks the cell under its own
+   * centre, so a slot thinner than a cell (a short banner host) still pools.
    */
   private rasterPlain(box: GlyphFluidCellBox, tok: GlyphReaderToken): void {
     const { w, h } = box, { pw, ph, cw, ch } = this;
-    const scale = Math.min(pw, ph) / PANEL;
-    const fs = this.plainPx * scale, adv = fs * 0.6, lh = fs * 1.05;
+    const scale = pw / PANEL;
+    const fs = Math.min(this.plainPx * scale, (ph * 0.8) / 1.05), adv = fs * 0.6, lh = fs * 1.05;
     const { chars, orp } = glyphFluidReaderLetterSlots(tok);
     const x0 = pw / 2 - (orp + 0.5) * adv, y0 = ph / 2 - lh / 2;
     this.overlay?.setFontPx(fs);
@@ -247,7 +252,14 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
         cov[k] = inL * PLAIN_INK;
         acc[k] = isO;
       }
-    this.wave = scale;
+    const jc = Math.min(h - 1, Math.floor(ph / 2 / ch));
+    this.letters.forEach((L, n) => {
+      if (L.ch === " ") return;
+      const k = jc * w + Math.min(w - 1, Math.max(0, Math.floor(L.x / cw)));
+      cov[k] = PLAIN_INK;
+      acc[k] = n === orp ? 1 : acc[k]!;
+    });
+    this.wave = fs / this.plainPx;
   }
 
   private rasterGlyph(box: GlyphFluidCellBox, tok: GlyphReaderToken): void {
@@ -349,6 +361,8 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
       this.meltT += dt;
       if (this.meltT > MELT_END) {
         this.letters = [];
+        // results still in flight (the worker answers a frame late) must not redraw them
+        this.generation++;
         this.overlay.draw(null, null);
         return null;
       }
@@ -367,11 +381,12 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
       data[q + 6] = GLYPH_FLUID_READER_SHOW_INK + melt;
     }
     const set: GlyphFluidReaderLetterSet = { letters, melt, wave: this.wave };
-    return { data, key: set };
+    return { data, key: { set, generation: this.generation } };
   }
 
   readProbes(values: Float64Array, key: unknown): void {
-    this.overlay?.draw(key as GlyphFluidReaderLetterSet, values);
+    const k = key as { set: GlyphFluidReaderLetterSet; generation: number };
+    if (k.generation === this.generation) this.overlay?.draw(k.set, values);
   }
 
   dispose(): void {

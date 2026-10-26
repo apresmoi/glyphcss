@@ -363,3 +363,53 @@ describe("createGlyphFluidReader, plain look", () => {
     expect(run6.test(await run("glyph"))).toBe(false);
   });
 });
+
+describe("plain look: review regressions", () => {
+  const shownIn = (host: HTMLElement) =>
+    Array.from(host.querySelectorAll<HTMLElement>("div[aria-hidden] > span")).filter((s) => s.style.opacity === "1").map((s) => s.textContent).join("");
+
+  it("pools and shows the letters in a short banner host (416 × 100)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = sizedHost(416, 100);
+    const reader = createGlyphFluidReader(host, { text: "one two", scheduler: fakeScheduler(), clock: "manual", worker: false });
+    await reader.ready;
+    for (let i = 0; i < 60; i++) reader.fluid.step(1 / 60);
+    expect(shownIn(host)).toBe("one");
+    reader.destroy();
+  });
+
+  it("on the worker, a result still in flight when the melt ends does not bring the letters back", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("Worker", class {});
+    const { handleGlyphFluidWorkerMessage } = await import("../runtime/protocol");
+    const state = { core: null, gen: -1 };
+    const w = {
+      onmessage: null as ((e: MessageEvent) => void) | null,
+      onerror: null,
+      postMessage(msg: never, transfer: Transferable[] = []) {
+        const got = structuredClone(msg, { transfer });
+        queueMicrotask(() => handleGlyphFluidWorkerMessage(state, got, (reply, tr) => {
+          const back = structuredClone(reply, { transfer: tr });
+          queueMicrotask(() => w.onmessage?.({ data: back } as MessageEvent));
+        }));
+      },
+      terminate() {},
+    };
+    const host = sizedHost();
+    const reader = createGlyphFluidReader(host, { text: "one", scheduler: fakeScheduler(), clock: "manual", worker: () => w as unknown as Worker, field: { level: 3.2 } });
+    await reader.ready;
+    const frames = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        reader.fluid.step(1 / 60);
+        for (let k = 0; k < 4; k++) await Promise.resolve();
+      }
+    };
+    await frames(60);
+    expect(reader.fluid.stats().pipeline).toBe("worker");
+    expect(shownIn(host)).toBe("one");
+    reader.clock.setText("");
+    await frames(120);
+    expect(shownIn(host)).toBe("");
+    reader.destroy();
+  });
+});
