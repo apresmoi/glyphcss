@@ -225,7 +225,9 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
    * ink PLAIN_INK in every cell whose centre falls inside a slot, accent under the ORP one.
    * The row is a line of text, so it scales with the host's WIDTH (molty's panel is
    * square), capped to fit its height; and each letter always inks the cell under its own
-   * centre, so a slot thinner than a cell (a short banner host) still pools.
+   * centre, so a slot thinner than a cell (a short banner host) still pools. The frame's
+   * border rows are never written, so a host under 3 rows (about 40 px at the default
+   * grid) has no interior to pool in.
    */
   private rasterPlain(box: GlyphFluidCellBox, tok: GlyphReaderToken): void {
     const { w, h } = box, { pw, ph, cw, ch } = this;

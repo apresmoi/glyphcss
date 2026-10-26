@@ -368,12 +368,25 @@ describe("plain look: review regressions", () => {
   const shownIn = (host: HTMLElement) =>
     Array.from(host.querySelectorAll<HTMLElement>("div[aria-hidden] > span")).filter((s) => s.style.opacity === "1").map((s) => s.textContent).join("");
 
-  it("pools and shows the letters in a short banner host (416 × 100)", async () => {
+  it("pools and shows decoded letters in short banner hosts, down to 3 rows (416 × 100 / 52 / 40)", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const host = sizedHost(416, 100);
-    const reader = createGlyphFluidReader(host, { text: "one two", scheduler: fakeScheduler(), clock: "manual", worker: false });
+    for (const h of [100, 52, 40, 34]) {
+      const host = sizedHost(416, h);
+      const reader = createGlyphFluidReader(host, { text: "one two", scheduler: fakeScheduler(), clock: "manual", worker: false });
+      await reader.ready;
+      for (let i = 0; i < 120; i++) reader.fluid.step(1 / 60);
+      expect(shownIn(host), `416 × ${h}`).toBe("one");
+      reader.destroy();
+    }
+  });
+
+  it("decodes letters when a long sentence makes the band thinner than two rows", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = sizedHost(416, 416);
+    // the longest word sets the sentence's type size: 18 molty px, a band of ~1.5 rows
+    const reader = createGlyphFluidReader(host, { text: "one incomprehensibilities", scheduler: fakeScheduler(), clock: "manual", worker: false });
     await reader.ready;
-    for (let i = 0; i < 60; i++) reader.fluid.step(1 / 60);
+    for (let i = 0; i < 120; i++) reader.fluid.step(1 / 60);
     expect(shownIn(host)).toBe("one");
     reader.destroy();
   });
