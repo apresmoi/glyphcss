@@ -406,3 +406,37 @@ it("resolves road hierarchy from the visible grid, not the enlarged overscan gri
   expect(seen.length).toBeGreaterThan(0);
   for (const d of seen) expect(d).toBeCloseTo(60 / 80, 12);
 });
+
+it.each([false, true])("selects a stamped glyph released over it after a compositor frame rendered (snapPan=%s)", async snapPan => {
+  const selected: unknown[] = [];
+  const m = mount({ snapPan, layers: [
+    { type: "fill", color: "#789abc", source: { features: [{ rings: [[[-30,-15],[25,-15],[25,15],[-30,15],[-30,-15]]] }] } },
+    { type: "glyph", id: "pts", color: "#ff0000", source: { features: [{ id: "g", geometryType: "point", rings: [[[0, 0]]] }] }, onSelect: f => selected.push(f.id) },
+  ] });
+  await ready(m);
+  const at = m.project([0, 0]);
+  const x = at.col * 8, y = at.row * 16;
+  pointer(m, "pointerdown", x, y); pointer(m, "pointermove", x + 1, y); frame();
+  expect(element(m).style.willChange).toBe("transform");
+  m.host.dispatchEvent(new PointerEvent("pointerup", { pointerId: 1, button: 0, clientX: x + 1, clientY: y, bubbles: true }));
+  expect(selected).toEqual(["g"]);
+});
+
+it("hovers a stamped glyph at the place its frame is displayed, not where it was rendered", async () => {
+  const m = mount({ layers: [
+    { type: "fill", color: "#789abc", source: { features: [{ rings: [[[-30,-15],[25,-15],[25,15],[-30,15],[-30,-15]]] }] } },
+    { type: "glyph", id: "pts", color: "#ff0000", source: { features: [{ id: "g", geometryType: "point", rings: [[[0, 0]]] }] }, onSelect: () => {} },
+  ] });
+  await ready(m);
+  const at = m.project([0, 0]);
+  const x = at.col * 8, y = at.row * 16;
+  pointer(m, "pointerdown", x, y); pointer(m, "pointermove", x + 4, y); frame();
+  pointer(m, "pointermove", x + 80, y); frame();
+  pointer(m, "pointercancel", x + 80, y);
+  expect(element(m).style.willChange).toBe("transform");
+  const hover = (px: number) => m.host.dispatchEvent(new PointerEvent("pointermove", { pointerId: 1, pointerType: "mouse", bubbles: true, clientX: px, clientY: y }));
+  hover(x);
+  expect(m.host.style.cursor).toBe("");
+  hover(x + 80);
+  expect(m.host.style.cursor).toBe("pointer");
+});

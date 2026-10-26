@@ -9558,13 +9558,18 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function hitTestPoint(col: number, row: number): { readonly layer: GlyphMapGlyphLayer; readonly feature: GlyphMapVectorFeature } | null {
     if (!pointSelectArmed) return null;
     const aspect = projectionGrid().cellAspect || 1;
+    // Hits keep the cells of the grid the last render stamped, which a live compositor
+    // frame makes the overscanned one; the pointer is in visible cells. Bring a hit to
+    // where it is displayed: out of the margin, plus the slide (as `atFramePose` does).
+    const f = compositorFrame;
+    const dCol = f ? f.shownDx / f.grid.cellWidth - f.marginCols : 0, dRow = f ? f.shownDy / f.grid.cellHeight - f.marginRows : 0;
     let best: { layer: GlyphMapGlyphLayer; feature: GlyphMapVectorFeature } | null = null;
     let bestDistance = Infinity;
     for (const id of layerOrder) {
       const state = layerStates.get(id);
       if (state?.kind !== "glyph" || state.layer.type !== "glyph" || !state.layer.onSelect) continue;
       for (const hit of state.runtime.hits()) {
-        const distance = Math.hypot((hit.col - col) / aspect, hit.row - row);
+        const distance = Math.hypot((hit.col + dCol - col) / aspect, hit.row + dRow - row);
         if (distance > GLYPH_MAP_POINT_HIT_CELLS + hit.size) continue;
         if (distance > bestDistance) continue;
         bestDistance = distance;
