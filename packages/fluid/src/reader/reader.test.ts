@@ -10,7 +10,7 @@ import { createGlyphFluidTargetFrame } from "../targets/frame";
  * 0.7 em tall around the (middle) baseline, through translate/scale in y. Enough to see
  * where the word and its ORP letter land on the cell grid.
  */
-function fakeCanvas() {
+function fakeCanvas(em = 0.6) {
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
     const cv = this, data = new Uint8ClampedArray(cv.width * cv.height * 4);
     let fs = 10, ty = 0, sy = 1;
@@ -19,14 +19,14 @@ function fakeCanvas() {
       fillStyle: "#000",
       textBaseline: "alphabetic",
       set font(f: string) { fs = parseFloat(/(\d+(?:\.\d+)?)px/.exec(f)![1]!); },
-      measureText: (s: string) => ({ width: s.length * fs * 0.6 }),
+      measureText: (s: string) => ({ width: s.length * fs * em }),
       save: () => stack.push([ty, sy]),
       restore: () => ([ty, sy] = stack.pop()!),
       translate: (_x: number, y: number) => (ty += y * sy),
       scale: (_x: number, y: number) => (sy *= y),
       fillText(s: string, x: number, y: number) {
         const green = ctx.fillStyle === "#0f0";
-        const x1 = x + s.length * fs * 0.6;
+        const x1 = x + s.length * fs * em;
         const ya = ty + sy * (y - fs * 0.35), yb = ty + sy * (y + fs * 0.35);
         for (let py = Math.max(0, Math.floor(ya)); py < Math.min(cv.height, Math.ceil(yb)); py++)
           for (let px = Math.max(0, Math.floor(x)); px < Math.min(cv.width, Math.ceil(x1)); px++) {
@@ -94,21 +94,21 @@ describe("glyphFluidReaderWordCells", () => {
     expect([...c.orp]).toEqual([0, 0.5]);
   });
 
-  it("sizes a sentence by its longest half-word around the ORP letter", () => {
-    expect(glyphFluidReaderExtent(tokenizeGlyphReaderText("a"))).toBe(1);
+  it("sizes a word by its longer half around the ORP letter", () => {
+    const [a, , x] = tokenizeGlyphReaderText("a big extraordinary");
+    expect(glyphFluidReaderExtent(a!)).toBe(1);
     // "extraordinary": core 13 → orp 3; 13 − 3 − 0.5 = 9.5
-    expect(glyphFluidReaderExtent(tokenizeGlyphReaderText("an extraordinary day"))).toBe(9.5);
+    expect(glyphFluidReaderExtent(x!)).toBe(9.5);
   });
 });
 
 describe("GlyphFluidReaderTarget", () => {
-  function written(word: string) {
-    fakeCanvas();
+  function written(word: string, em = 0.6) {
+    fakeCanvas(em);
     const host = sizedHost(416, 416);
     const t = new GlyphFluidReaderTarget(host, [1, 1, 1]);
     t.measure({ cw: 8, ch: 13, originX: 0, originY: 0 }); // 52 × 32 cells
     const toks = tokenizeGlyphReaderText(word);
-    t.setSentence(toks);
     t.setWord(toks[0]!);
     const f = createGlyphFluidTargetFrame(52, 32);
     t.write(f, 0);
@@ -137,6 +137,33 @@ describe("GlyphFluidReaderTarget", () => {
     // molty's baseline sits 0.04 em low, stretched ×1.9: about one row under centre
     expect(Math.abs((j0 + j1 + 1) / 2 - 16)).toBeLessThanOrEqual(1);
     expect(j1 - j0 + 1).toBeGreaterThan(10); // 150 px × 0.7 × 1.9 ≈ 200 px ≈ 15 rows
+  });
+
+  it("sizes each word on its own: a short word is drawn taller than a long one", () => {
+    const rowsOf = (w: string) => {
+      const { f } = written(w);
+      let n = 0;
+      for (let j = 0; j < 32; j++) if ([...f.T.subarray(j * 52, j * 52 + 52)].some((v) => v > 0.5)) n++;
+      return n;
+    };
+    expect(rowsOf("at")).toBeGreaterThan(rowsOf("extraordinary") + 3);
+  });
+
+  it("shrinks a word set in a wide face to fit the host, pivot still centred", () => {
+    for (const w of ["living", "extraordinary", "a"]) {
+      const { f } = written(w, 0.95); // far wider than the 0.62 em molty's formula assumes
+      let i0 = 99, i1 = -1, accSum = 0, accX = 0;
+      for (let j = 0; j < 32; j++)
+        for (let i = 0; i < 52; i++) {
+          const k = j * 52 + i;
+          if (f.T[k]! > 0.5) ((i0 = Math.min(i0, i)), (i1 = Math.max(i1, i)));
+          accSum += f.TA[k]!;
+          accX += f.TA[k]! * (i + 0.5);
+        }
+      expect(i0, w).toBeGreaterThanOrEqual(3);
+      expect(i1, w).toBeLessThanOrEqual(48);
+      expect(Math.abs(accX / accSum - 26), w).toBeLessThan(1);
+    }
   });
 
   it("reports a change once per word (reduced-motion redraw signal)", () => {

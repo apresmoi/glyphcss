@@ -1,7 +1,8 @@
 // The reader's word target: molty's speed-text target (`creatures/js/fluid/targets.js`,
-// TextTarget, 'glyph' look) over the fluid's host box. The word is rasterised large in a
-// heavy face, stretched ×1.9 in y (cells are ~1.6× taller than wide, so unstretched letters
-// would be only a few rows tall), with the ORP letter pivoted on the centre column and
+// TextTarget, 'glyph' look) over the fluid's host box. Each word is rasterised as large as
+// it fits (sized per word, as molty's glyph look does: a sentence-wide size leaves short
+// words a few cells wide) in a heavy face stretched ×1.9 in y (cells are ~1.6× taller
+// than wide, so unstretched letters would be only a few rows tall), with the ORP letter pivoted on the centre column and
 // painted into the accent channel. Around the word, streak lines stream past and bow away
 // from it (the meniscus).
 //
@@ -17,6 +18,8 @@ import type { GlyphReaderToken } from "./rules/words";
 /** molty's panel size: font constants below are in its 412 px units. */
 const PANEL = 412;
 const STRETCH_Y = 1.9;
+/** Share of the host's half-width a word half may use (room for the circle's rim). */
+const FIT = 0.86;
 const FONT = `"Arial Black", "Helvetica Neue", Arial, sans-serif`;
 /** The meniscus tint (molty's wv = 0 colour); the word itself is `color` (wv = 1). */
 const TINT: [number, number, number] = [0.6, 0.68, 0.92];
@@ -54,11 +57,9 @@ export function glyphFluidReaderWordCells(data: ArrayLike<number>, pw: number, p
   return { cov, orp };
 }
 
-/** The sentence's type size factor: the longest half-word around its ORP letter. */
-export function glyphFluidReaderExtent(tokens: readonly GlyphReaderToken[]): number {
-  let ext = 1;
-  for (const t of tokens) ext = Math.max(ext, t.orp + 0.5, t.word.length - t.orp - 0.5);
-  return ext;
+/** A word's type size factor: its longer half around the ORP letter, in letters. */
+export function glyphFluidReaderExtent(token: GlyphReaderToken): number {
+  return Math.max(1, token.orp + 0.5, token.word.length - token.orp - 0.5);
 }
 
 // separable box blur (radius rx × ry), plain loops, as molty's target does
@@ -90,7 +91,6 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private cellBox: GlyphFluidCellBox | null = null;
   private pw = 0;
   private ph = 0;
-  private ext = 1;
   private token: GlyphReaderToken | null = null;
   private dirty = false;
   private t = 0;
@@ -106,11 +106,6 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
   private acc = new Float32Array(0);
 
   constructor(private host: HTMLElement, private color: [number, number, number]) {}
-
-  /** Fix the type size for a whole sentence so it doesn't jump between words. */
-  setSentence(tokens: readonly GlyphReaderToken[]): void {
-    this.ext = glyphFluidReaderExtent(tokens);
-  }
 
   /** Rasterise the next word (an event, not per frame). */
   setWord(token: GlyphReaderToken): void {
@@ -141,10 +136,10 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
     this.raster();
   }
 
-  /** Font px for the current sentence: molty's 412 px formula, scaled to the host box. */
-  fontPx(): number {
+  /** Font px for `token`: molty's glyph-look formula in its 412 px panel, scaled to the host box. */
+  fontPx(token: GlyphReaderToken): number {
     const sw = this.pw / PANEL, sh = this.ph / PANEL;
-    return Math.max(40 * sh, Math.min(150 * sh, (372 * sw) / (2 * this.ext) / 0.64));
+    return Math.max(40 * sh, Math.min(150 * sh, (380 * sw) / (2 * glyphFluidReaderExtent(token)) / 0.62));
   }
 
   private raster(): void {
@@ -157,13 +152,24 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
     cv.height = ph;
     const g = cv.getContext("2d", { willReadFrequently: true });
     if (g) {
-      const fs = this.fontPx();
       const word = tok.word, o = tok.orp;
       // an astral focal character is two code units; keep the pair together
       const end = o + (/[\uD800-\uDBFF]/.test(word[o] ?? "") ? 2 : 1);
       const before = word.slice(0, o), focal = word.slice(o, end), after = word.slice(end);
+      let fs = this.fontPx(tok);
       g.font = `900 ${fs}px ${FONT}`;
       g.textBaseline = "middle";
+      // molty's formula assumes 0.62 em per letter; heavy faces run wider, so shrink until
+      // the longer half around the pivot fits inside FIT of the host's half-width
+      const half = () => {
+        const p = g.measureText(before).width, w = g.measureText(focal).width;
+        return Math.max(p + w / 2, g.measureText(after).width + w / 2);
+      };
+      const h0 = half();
+      if (h0 > (pw / 2) * FIT) {
+        fs *= ((pw / 2) * FIT) / h0;
+        g.font = `900 ${fs}px ${FONT}`;
+      }
       const pre = g.measureText(before).width, ow = g.measureText(focal).width;
       const x0 = pw / 2 - pre - ow / 2;
       g.save();

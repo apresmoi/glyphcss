@@ -53,14 +53,11 @@ export function createGlyphFluidReader(host: HTMLElement, options: GlyphFluidRea
   const live = fluid.addTarget({ kind: "reader", create: () => target });
   live.melt();
   const clock = createGlyphReaderClock({ text, wpm, leadIn, loop, scheduler, autoplay: false });
-  target.setSentence(clock.tokens);
   const ring = ripple ?? 0.63;
 
   const unsubscribe = clock.subscribe((e) => {
-    if (e.type === "text") {
-      target.setSentence(e.tokens);
-      live.melt();
-    } else if (e.type === "word") {
+    if (e.type === "text") live.melt();
+    else if (e.type === "word") {
       target.setWord(e.token);
       if (!live.enabled) live.condense();
       else if (ring > 0) {
