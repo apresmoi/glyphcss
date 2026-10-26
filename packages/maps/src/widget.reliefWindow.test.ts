@@ -115,9 +115,18 @@ async function render(span: number, center: [number, number], window: Record<str
     scene: { mode: "solid", useColors: true },
   });
   mounted.push({ map, host });
-  for (let i = 0; i < 60; i++) await new Promise((r) => setTimeout(r, 10));
+  await map.idle();
   map.scene.rerender();
 
+  // These colour comparisons classify identical datum rays across windows,
+  // independently of the widget inverse's newly window-dependent ground.
+  const datumHost = document.createElement("div");
+  document.body.appendChild(datumHost);
+  const datumMap = createGlyphMap(datumHost, {
+    view: { center, span, cols: COLS, rows: ROWS }, projection: glyphMapGlobe({ exaggeration: 24 }), tilt: 0,
+  });
+  datumMap.scene.camera.target = map.scene.camera.target;
+  mounted.push({ map: datumMap, host: datumHost });
   const grid: (string | null)[][] = [[]];
   const walk = (node: Node, color: string | null): void => {
     if (node.nodeType === 3) {
@@ -136,7 +145,7 @@ async function render(span: number, center: [number, number], window: Record<str
   return {
     text: map.scene.output.textContent ?? "",
     cellColor: (col, row) => grid[row]?.[col] ?? null,
-    lonLat: (col, row) => map.unproject([col + 0.5, row + 0.5]),
+    lonLat: (col, row) => datumMap.unproject([col + 0.5, row + 0.5]),
     ground: (lon, lat) => map.getGroundElevation?.(lon, lat) ?? null,
   };
 }

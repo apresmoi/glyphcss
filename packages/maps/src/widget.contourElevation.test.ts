@@ -53,7 +53,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
+import { glyphMapGlobe } from "./projection";
 import { glyphMapGeoTileElevationAt } from "./tile";
 import { glyphMapMarchContourGrid, glyphMapMarchContourMosaic } from "./contourGeometry";
 import type { GlyphMapProvider } from "./provider";
@@ -175,12 +175,10 @@ function rampProvider(mPerDeg = RAMP_M_PER_DEG): GlyphMapProvider {
  * antipode recovers the world origin's own cell.
  */
 function projectAtElevation(map: ReturnType<typeof createGlyphMap>, lon: number, lat: number, elevM: number): { col: number; row: number } {
-  const p = map.project([lon, lat]);
-  const anti = map.project([lon > 0 ? lon - 180 : lon + 180, -lat]);
-  const originCol = (p.col + anti.col) / 2;
-  const originRow = (p.row + anti.row) / 2;
-  const k = 1 + (elevM * EXAGGERATION) / GLYPH_MAP_EARTH_RADIUS_M;
-  return { col: originCol + k * (p.col - originCol), row: originRow + k * (p.row - originRow) };
+  const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
+  const [col, row] = map.scene.camera.project(projection.project(lon, lat, elevM), COLS, ROWS, CELL_H / CELL_W,
+    { cellWidth: CELL_W, cellHeight: CELL_H });
+  return { col, row };
 }
 
 /** Every cell a level's isoline would occupy if drawn at `elevM`, sampled densely along it in longitude. */

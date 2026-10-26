@@ -24,11 +24,11 @@ Every layer accepts an optional `id`. `addLayer(layer, beforeId)` inserts before
 | `background` | `color`, `density`; no source |
 | `raster` | Elevation tile or provider; `classifier`, `colors` |
 | `contour` | Field or elevation provider; `levels`, `labels` |
-| `line` | Vector lines; `color`, `padCells` |
+| `line` | Vector lines; `color`, `colorProperty`, `colors`, `padCells`, `filterAtResolution`, `simplify`, `sharedArcs` |
 | `fill` | Vector polygons; `color`, `colorProperty`, `colors`, `drape` |
 | `fill-extrusion` | Vector buildings; `heightProperty`, `height`, `heightScale` |
 | `symbol` | DOM text labels; `textProperty`, `priorityProperty` |
-| `circle` | DOM dots; `radius`, `radiusProperty`, `radiusScale`, `color` |
+| `circle` | Stamped glyph discs sized in CSS pixels; `radius`, `radiusProperty`, `radiusScale`, `color` |
 | `glyph` | Points and labels in copied text; `size`, `ramp`, `textProperty` |
 | `heatmap` | Density relief; `radius`, `weightProperty`, `colors`, `bounds`, `height`, `threshold` |
 | `model` | Your `polygons` and `attribution`; no source |
@@ -72,7 +72,7 @@ map.addLayer({
 });
 ```
 
-`levels` accepts a count, an explicit elevation array, or `{ interval }` in metres. Intervals stay fixed while panning. Elevation windows clip contours independently of terrain; match their floors. Labels default off; `labelEvery` defaults to `5`. `getContourFieldRange(id)` reports the data range.
+`levels` accepts a count, an explicit elevation array, or `{ interval }` in metres. Intervals stay fixed while panning. Elevation windows clip contours independently of terrain; match their floors. `generalize` is a smoothing radius in output cells: the field is smoothed at about that radius before the levels are cut and closed rings smaller than it are dropped, so a line keeps the bends a reader can see and loses per-sample jitter. It follows the zoom in half-octave steps, so zooming in brings detail back; omitted or `0` cuts the native grid. Labels default off; `labelEvery` defaults to `5`. `getContourFieldRange(id)` reports the data range.
 
 ## Fill
 
@@ -95,6 +95,14 @@ map.addLayer({
 
 Heights and base offsets are true metres above terrain, exempt from terrain exaggeration. `height` is the fallback; `heightScale` multiplies height. `facade` and `colorVariation` default off. See a [live street view](/maps/openstreetmap/).
 
+`outline: "braille"` opts into braille roof rings and, when tilted, vertical corner edges at the mesh's planted base and roof heights. The body uses `.` so edges carry the shape. Only footprints spanning at least two projected cells get outlines; the cutoff follows zoom and output density. Scene depth and exact building planes hide occluded edges, while incident faces accept their own edge without a depth bias. All glyphs fit the universal atlas. Omitted preserves the original output. Building outlines currently support braille only.
+
+Add `fill: false` alongside `outline: "braille"` for outlines only: no building mesh is mounted or rasterized. Terrain and nearer building faces still hide roof rings and vertical corners. `fill` defaults to true and is ignored without braille outlines.
+
+Add `blank: true` with unfilled braille outlines to erase rear raster content inside the visible building faces. Face depth preserves nearer terrain, elevated roads and other nearer meshes; courtyards stay open. This skips lighting and solid glyph shading and reuses the outline pass's projected faces. The default is false, preserving the see-through outline output. Tiny faces still blank covered cells even when their footprint is too small for an outline. DOM symbol labels remain overlays and are not erased by this cell mask.
+
+For OpenMapTiles, pass `buildingOutline: "braille"` to `glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export draw braille lines and blanked outlines without fill for buildings by default; `?lines=box` switches to box lines with the normal building fill.
+
 ## Labels and point marks
 
 ```ts
@@ -109,7 +117,20 @@ map.addLayer({
 - `textAnchor` defaults to `"center"`; `textOffset` defaults to `[0, 0]`, in cells with y down.
 - `glyph` uses `size` / `sizeProperty` / `sizeScale` in cell rows; default `size: 0` is one cell, with ramp `["·", "•", "●"]`.
 - Glyph `altitude` / `altitudeProperty` / `altitudeScale` use true metres above ground; `onSelect(feature)` handles selection.
-- Use `symbol` / `circle` for DOM interaction; `glyph` marks and labels survive copying the text.
+- Use `symbol` for DOM interaction; `glyph` and `circle` marks are stamped into the copied text.
+- `circle` is the same stamp as `glyph`, sized in CSS pixels instead of cell rows: `radius` / `radiusProperty * radiusScale` are divided by the grid's cell height to get the disc radius in cell rows, and a radius under half a row becomes the single smallest mark (`·`). Features sharing a cell merge into one mark. `color` tints the mark; omitted keeps the terrain's colour. There is no element per circle, and no `density`, `ramp`, altitude, label or `onSelect`; use `glyph` for those.
+
+## Line detail at low zoom
+
+Line layers can opt into `simplify: "vw"`. It reuses the bake pipeline's latitude-corrected Visvalingam–Whyatt simplifier, with a tolerance of half the current output cell's degrees (`view.span / cols`, adjusted for layer density). Quarter-octave zoom buckets cache each source line, so orbiting does not repeat simplification. Zooming in retains finer source detail. Endpoints stay fixed; closed rings that would collapse below a triangle retain their source geometry. Walking retains full source detail.
+
+`sharedArcs: true` also reconstructs polygon boundary topology per source feature set or tile: exact shared edges (in either direction) become one arc, split at junctions before VW. Junction endpoints stay fixed, and the arc geometry and zoom buckets are cached. Explicit line features keep their own paths. Differently sampled edges are not snapped together; bake shared arcs before tile clipping when source tiles need consistent simplification.
+
+The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in one graph per layer and frame, including coincident feature/tile endpoints. Diagonal steps add one staircase corner using the same depth and ownership tests; when both corners are blocked, both cells point into the hidden corner instead. Immediate backtracks collapse before joining. A closed ring whose projected extent is under two cells becomes one depth-tested `·` at its geometry centroid. Open lines retain their joined cells, including short stubs; unjoined cells restore the surface instead of leaving dots. Box depth tests read the surface before the layer wrote any ink; staircase corners cannot borrow cells from a separate path.
+
+Omitting these options leaves the default output unchanged. The `/maps` borders enable live VW and shared arcs, and its OpenStreetMap line rows enable VW; only boundaries request shared polygon arcs. The page draws its lines in braille by default; `?lines=box` opts into `box` for comparison.
+
+Lines accept `colorProperty` and `colors` with the same per-feature fallback as fills. `filterAtResolution(feature, degreesPerCell)` can make a live resolution cut after `filter`; it receives the actual overlay cell size and `0` while walking. A shared polygon arc carries the properties every polygon contributing to it agrees on, so a border between two polygons of one class keeps its colour and a border between two classes falls back to the layer `color`; explicit line features retain their own.
 
 ## Per-layer appearance
 

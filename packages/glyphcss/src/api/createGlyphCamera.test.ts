@@ -10,6 +10,24 @@ import {
   createGlyphCamera,
 } from "./createGlyphCamera";
 
+it.each([createGlyphOrthographicCamera, createGlyphPerspectiveCamera])("projects complete metrics identically to fallback resolution and reads in-place updates", create => {
+  const camera = create({ rotX: 40, rotY: 25, zoom: 100 });
+  const metrics = { cellWidth: 8, cellHeight: 16, centerCol: 40, centerRow: 15 };
+  const world: [number, number, number] = [0.2, 0.3, 0.4];
+  const compare = () => {
+    const fast = camera.project(world, 80, 30, 2, metrics);
+    camera.center = [metrics.centerCol / 80, metrics.centerRow / 30];
+    const fallback = camera.project(world, 80, 30, 2, { cellWidth: metrics.cellWidth, cellHeight: metrics.cellHeight });
+    expect(fast).toEqual(fallback);
+    return fast;
+  };
+  const before = compare();
+  metrics.cellWidth = 10; metrics.cellHeight = 20; metrics.centerCol = 20; metrics.centerRow = 0;
+  expect(compare()).not.toEqual(before);
+  metrics.cellWidth = 0; metrics.cellHeight = -1;
+  expect(compare()).not.toEqual(before);
+});
+
 // ─── Helper: reproduce voxcss's forward projection in pure math ──────────────
 // Used in parity tests to assert that createGlyphCamera uses the SAME matrix
 // as voxcss camera.ts + unproject.ts.  Inputs are world coords + camera state;

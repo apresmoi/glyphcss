@@ -122,8 +122,8 @@ const PERSPECTIVE_CLIP_NEAR_FRACTION = PERSPECTIVE_NEAR_FRACTION * 1.01;
  * (caller still needs to multiply by `zoom` to get final CSS pixels).
  */
 /**
- * Per-angle trig memo. Same reason as `resolveProjectionMetrics` above: this
- * runs once per vertex per render, and recomputing `Math.cos`/`Math.sin` of two
+ * Per-angle trig memo. Projection runs once per vertex per render, and
+ * recomputing `Math.cos`/`Math.sin` of two
  * angles that are CONSTANT for the whole render cost four transcendental calls
  * per vertex — over a million per frame on a terrain scene, 8.0% of the script
  * budget in the same profile.
@@ -605,8 +605,12 @@ export function createGlyphPerspectiveCamera(opts: GlyphPerspectiveCameraOptions
       return (state.distance - r[2]) - NEAR;
     },
     project(v, cols, rows, cellAspect, metrics) {
-      const { cellPxW, cellPxH, centerCol, centerRow } =
-        resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
+      // Complete scene grids already resolved these outside the vertex walk.
+      const cw = metrics?.cellWidth, ch = metrics?.cellHeight;
+      const cellPxW = cw && cw > 0 ? cw : BASE_TILE / cellAspect;
+      const cellPxH = ch && ch > 0 ? ch : BASE_TILE;
+      const centerCol = metrics?.centerCol ?? cols * state.center[0];
+      const centerRow = metrics?.centerRow ?? rows * state.center[1];
 
       const shifted: Vec3 = [
         v[0] - state.target[0],
@@ -761,8 +765,12 @@ export function createGlyphOrthographicCamera(opts: GlyphOrthographicCameraOptio
     // Orthographic projection has no eye, so nothing is ever near-clipped.
     eyeDepth(_v) { return Number.POSITIVE_INFINITY; },
     project(v, cols, rows, cellAspect, metrics) {
-      const { cellPxW, cellPxH, centerCol, centerRow } =
-        resolveProjectionMetrics(cols, rows, cellAspect, state.center, metrics);
+      // Complete scene grids already resolved these outside the vertex walk.
+      const cw = metrics?.cellWidth, ch = metrics?.cellHeight;
+      const cellPxW = cw && cw > 0 ? cw : BASE_TILE / cellAspect;
+      const cellPxH = ch && ch > 0 ? ch : BASE_TILE;
+      const centerCol = metrics?.centerCol ?? cols * state.center[0];
+      const centerRow = metrics?.centerRow ?? rows * state.center[1];
 
       const shifted: Vec3 = [
         v[0] - state.target[0],

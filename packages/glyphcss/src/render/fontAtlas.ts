@@ -21,7 +21,10 @@
  *
  * ── PUA mapping scheme ──────────────────────────────────────────────────
  *
- * `codePoint = atlas.puaStart + paletteSlot * atlas.glyphCount + glyphIndex`
+ * Each block uses `codePoint = puaStart + paletteSlot * blockSize + blockIndex`.
+ * Without `extension`, the block is all `glyphs`. With it, the first block
+ * ends at `extension.glyphOffset`; the appended block starts there and uses
+ * `extension.puaStart`. The original 212-glyph block never changes stride.
  *
  * `glyphIndex` is the glyph's position in `atlas.glyphs` (fixed, checked in).
  * `paletteSlot` is a POSITION in the caller's palette array — never a colour
@@ -42,16 +45,12 @@
  * layer, matching the spike's font (a COLR-blind fallback then renders
  * loudly-visible blanks instead of masquerading as a fast correct render).
  *
- * The atlas caps at `atlas.maxPaletteSize` (currently 30, at 212 glyphs) BMP
- * Private Use Area is U+E000..U+F8FF = 6,400 code points, and the checked-in
- * artifact's glyph count divides that budget across palette slots — today
- * that division (30) is the actual binding constraint, not the 31-slot
- * ceiling `build-atlas.py`'s own `MAX_PALETTE_SIZE_CAP` still allows; adding
- * more glyphs to the universal set narrows `maxPaletteSize` further. Past the
- * BMP PUA an atlas would need a plane-15/16 code point, which is a surrogate
- * pair in JS (two UTF-16 units) — that breaks glyphcss's one-char-per-cell
- * invariant everywhere (grid indexing, `ch` CSS units, clipboard), so this
- * cap is architectural, not a size knob to raise later without a redesign.
+ * The universal atlas keeps 30 palette slots: its original 212 glyphs stay
+ * at U+E000..U+F8D7, and 248 appended braille patterns use Supplementary PUA-A
+ * U+F0000..U+F1D0F. The eight original braille patterns retain BMP addresses.
+ * Extension output takes two UTF-16 units (four UTF-8 bytes) per cell; it is
+ * one code point and one font advance. Source grid glyphs remain single BMP
+ * characters. Iterate encoded output by code point, not string index.
  *
  * ── Glyph-set scope ─────────────────────────────────────────────────────
  *
@@ -61,11 +60,11 @@
  * "runes" — all of it, not just what the primary source face happens to
  * contain), the wireframe THIN/NORMAL/CORE tiers of only the "default" and
  * "ascii" palettes, ink mode's fixed 10-glyph set, and the 11-glyph
- * wireframe-junctions box-drawing set. It deliberately excludes `charMode:
- * "braille"`/`"quadrant"`/`"halfblock"` glyphs (two-colour-per-cell or
- * 255-glyph encoding needs its own atlas design) and the 11 other named
- * wireframe palettes' non-solid line-weight tiers (runes/math/arrows/etc.) —
- * both are documented scope cuts, not a source-face limitation: every glyph
+ * wireframe-junctions box-drawing set, plus all 256 Braille Patterns.
+ * Wireframe `charMode: "braille"` uses one colour per cell and is covered.
+ * SOLID quadrant/halfblock still require two colours per cell and use spans.
+ * Other named wireframe tiers remain excluded unless already covered (the
+ * braille palette is now fully covered). Every glyph
  * IN scope resolves from one of the atlas's three source faces (see below),
  * and `build-atlas.py`'s own glyph-set builder hard-fails the build, naming
  * the glyph, if an in-scope character resolves from none of them — it used
@@ -90,11 +89,11 @@
  * imported glyph can never desync the monospace grid. The build writes TWO
  * checked-in artifacts, which is load-bearing:
  *
- *   `../../assets/glyph-atlas/atlas.json`      — metadata (~1.8KB), imported
+ *   `../../assets/glyph-atlas/atlas.json`      — metadata (~4KB), imported
  *      STATICALLY below because the PUA encode/decode formula needs `glyphs`,
  *      `puaStart`, `glyphCount` and `maxPaletteSize` synchronously on every
  *      frame (and `decodeGlyphAtlasText` runs on plain "spans" output too).
- *   `../../assets/glyph-atlas/atlas-font.json` — base64 WOFF2 (~49KB), reached
+ *   `../../assets/glyph-atlas/atlas-font.json` — base64 WOFF2 (~99KB), reached
  *      ONLY through `import("./fontAtlasPayload")` in {@link loadGlyphAtlasFontPayload}.
  *
  * The payload was previously a field of the one manifest, which put 44KB of
@@ -134,8 +133,10 @@ export interface GlyphFontAtlas {
   readonly puaStart: number;
   /** `glyphs.length` — cached for the mapping formula. */
   readonly glyphCount: number;
-  /** Maximum palette slots the atlas supports without leaving the BMP PUA. */
+  /** Maximum palette slots supported by every block in the font. */
   readonly maxPaletteSize: number;
+  /** Appended glyph block; earlier glyphs keep their original PUA stride. */
+  readonly extension?: Readonly<{ glyphOffset: number; puaStart: number }>;
 }
 
 /**
@@ -161,7 +162,7 @@ export const GLYPH_FONT_ATLAS: GlyphFontAtlas = Object.freeze({ ...atlasManifest
  * `override-colors` engine limit. A scene on this variant whose frame needs
  * any non-ASCII glyph falls back to the span encoder for that frame — the
  * same whole-grid fallback the universal atlas applies to ITS out-of-scope
- * glyphs (braille charMode, exotic wireframe palettes).
+ * glyphs (exotic wireframe palettes).
  *
  * Nothing defaults to this variant; every existing caller stays on
  * {@link GLYPH_FONT_ATLAS} untouched.
@@ -176,7 +177,7 @@ const SHIPPED_ATLASES: readonly GlyphFontAtlas[] = Object.freeze([GLYPH_FONT_ATL
  * the stack names none of them.
  *
  * Both shipped atlases occupy the SAME PUA range from `puaStart` 0xE000 with
- * different `glyphCount` moduli (universal 212, ASCII 94), so a code point
+ * different BMP block sizes (universal 212, ASCII 94), so a code point
  * alone does not identify a glyph — decoding one against the wrong variant
  * yields a different, silently wrong character. Disjoint ranges cannot fix
  * that: 94 x 68 = 6392 of the BMP PUA's 6400 code points are already spoken
@@ -236,7 +237,11 @@ export function glyphAtlasCodePoint(
   if (!Number.isInteger(paletteSlot) || paletteSlot < 0 || paletteSlot >= atlas.maxPaletteSize) return undefined;
   const glyphIndex = glyphIndexMap(atlas).get(glyph);
   if (glyphIndex === undefined) return undefined;
-  return atlas.puaStart + paletteSlot * atlas.glyphCount + glyphIndex;
+  const extension = atlas.extension;
+  if (extension && glyphIndex >= extension.glyphOffset) {
+    return extension.puaStart + paletteSlot * (atlas.glyphCount - extension.glyphOffset) + glyphIndex - extension.glyphOffset;
+  }
+  return atlas.puaStart + paletteSlot * (extension?.glyphOffset ?? atlas.glyphCount) + glyphIndex;
 }
 
 /**
@@ -250,10 +255,14 @@ export function decodeGlyphAtlasCodePoint(
   atlas: GlyphFontAtlas = GLYPH_FONT_ATLAS,
 ): { glyph: string; paletteSlot: number } | undefined {
   if (codePoint === 0x20) return { glyph: " ", paletteSlot: -1 };
-  const offset = codePoint - atlas.puaStart;
+  const extension = atlas.extension;
+  const extended = extension !== undefined && codePoint >= extension.puaStart;
+  const start = extended ? extension.puaStart : atlas.puaStart;
+  const count = extended ? atlas.glyphCount - extension.glyphOffset : (extension?.glyphOffset ?? atlas.glyphCount);
+  const offset = codePoint - start;
   if (offset < 0) return undefined;
-  const paletteSlot = Math.floor(offset / atlas.glyphCount);
-  const glyphIndex = offset % atlas.glyphCount;
+  const paletteSlot = Math.floor(offset / count);
+  const glyphIndex = offset % count + (extended ? extension.glyphOffset : 0);
   if (paletteSlot < 0 || paletteSlot >= atlas.maxPaletteSize) return undefined;
   const glyph = atlas.glyphs[glyphIndex];
   return glyph === undefined ? undefined : { glyph, paletteSlot };

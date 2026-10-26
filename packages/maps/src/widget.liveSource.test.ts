@@ -77,7 +77,8 @@ function slowProvider(features: readonly GlyphMapVectorFeature[], delayMs = 20):
   };
 }
 
-const dots = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")];
+/** Stamped circle marks in the frame (a `circle` layer is grid text, one cell per far-apart feature). */
+const dots = (map: { scene: { output: { textContent: string | null } } }) => map.scene.output.textContent?.match(/[·•●]/g) ?? [];
 const labels = (host: HTMLElement) => [...host.querySelectorAll<HTMLElement>(".glyph-map-symbol")];
 
 /**
@@ -108,17 +109,17 @@ function countHotspotChurn(): { readonly added: () => number; readonly removed: 
 
 describe("setLayerSource — replacing a mounted layer's data", () => {
   it("swaps a circle layer's features and settles inside map.idle()", async () => {
-    const { host, map, teardown } = mount();
+    const { map, teardown } = mount();
     try {
       map.addLayer({ type: "circle", id: "quakes", source: collection([quake("a", -10, 10), quake("b", 10, -10)]) });
       await map.idle();
-      expect(dots(host).length).toBe(2);
+      expect(dots(map).length).toBe(2);
 
       map.setLayerSource("quakes", collection([quake("a", -10, 10), quake("b", 10, -10), quake("c", 30, 20)]));
       // No polling, no sleep: idle() covers the dispatched rebuild, exactly
       // as it covers `addLayer`'s.
       await map.idle();
-      expect(dots(host).length).toBe(3);
+      expect(dots(map).length).toBe(3);
     } finally { teardown(); }
   });
 
@@ -134,17 +135,59 @@ describe("setLayerSource — replacing a mounted layer's data", () => {
    * (verified: `idle()` resolves on an empty layer).
    */
   it("covers an asynchronous source swap, so idle() still means what it says", async () => {
-    const { host, map, teardown } = mount();
+    const { map, teardown } = mount();
     try {
       map.addLayer({ type: "circle", id: "quakes", source: collection([quake("a", 0, 0)]) });
       await map.idle();
-      expect(dots(host).length).toBe(1);
+      expect(dots(map).length).toBe(1);
 
       map.setLayerSource("quakes", slowProvider([quake("p1", -20, 10), quake("p2", 20, -10)]));
       await map.idle();
-      expect(dots(host).length).toBe(2);
+      expect(dots(map).length).toBe(2);
     } finally { teardown(); }
   });
+
+  /**
+   * A swap that lands while the OLD provider's tile is still in flight. The
+   * old request resolves into the cleared cache and the queued update used
+   * to re-run with the provider it had captured, so the new source was never
+   * loaded and the old one's marks stayed. Every other swap test awaits the
+   * first load, which is exactly why they route around this.
+   */
+  for (const type of ["circle", "glyph", "line"] as const) {
+    it(`a ${type} layer swapped while its old provider's tile is pending shows only the new source`, async () => {
+      const { map, teardown } = mount();
+      try {
+        const loads = { a: 0, b: 0 };
+        let releaseA!: () => void;
+        const gate = new Promise<void>((resolve) => { releaseA = resolve; });
+        const providerOf = (id: "a" | "b", features: readonly GlyphMapVectorFeature[], wait?: Promise<void>): GlyphMapVectorProvider => ({
+          ...slowProvider(features, 0),
+          id: `swap-${id}`,
+          async loadTile(z, x, y) {
+            loads[id]++;
+            if (wait) await wait;
+            return { z, x, y, bounds: { west: -180, east: 180, south: -90, north: 90 }, layers: { live: [...features] }, source: id, simplify: "none" };
+          },
+        });
+        const cellOf = (lon: number, lat: number) => {
+          const at = map.project([lon, lat]);
+          return (map.scene.output.textContent ?? "").split("\n")[Math.floor(at.row)]?.[Math.floor(at.col)] ?? " ";
+        };
+        const feature = (id: string, lon: number, lat: number): GlyphMapVectorFeature =>
+          type === "line" ? { id, geometryType: "line", properties: {}, rings: [[[lon - 10, lat], [lon + 10, lat]]] } : quake(id, lon, lat);
+        map.addLayer({ type, id: "swap", source: providerOf("a", [feature("a1", -30, 10)], gate) } as Parameters<typeof map.addLayer>[0]);
+        map.setLayerSource("swap", providerOf("b", [feature("b1", 30, -10)]));
+        releaseA();
+        await map.idle();
+        map.scene.rerender();
+
+        expect(loads.b).toBeGreaterThan(0);
+        expect(cellOf(30, -10).trim()).not.toBe("");
+        expect(cellOf(-30, 10).trim()).toBe("");
+      } finally { teardown(); }
+    });
+  }
 
   it("keeps every marker element across a refresh where the points only moved", async () => {
     const churn = countHotspotChurn();
@@ -183,23 +226,26 @@ describe("setLayerSource — replacing a mounted layer's data", () => {
     } finally { churn.restore(); }
   });
 
-  it("adds arrivals and removes departures without touching the survivors", async () => {
-    const { host, map, teardown } = mount();
+  it("adds arrivals and removes departures, leaving the survivors' marks where they were", async () => {
+    const { map, teardown } = mount();
     try {
+      const markAt = (lon: number, lat: number): string => {
+        const at = map.project([lon, lat]);
+        return (map.scene.output.textContent ?? "").split("\n")[Math.floor(at.row)]?.[Math.floor(at.col)] ?? " ";
+      };
       map.addLayer({ type: "circle", id: "quakes", source: collection([quake("a", -10, 10), quake("b", 10, -10)]) });
       await map.idle();
-      const first = dots(host);
-      expect(first.length).toBe(2);
-      const survivor = first[0];
+      expect(markAt(-10, 10)).toMatch(/[·•●]/);
+      expect(markAt(10, -10)).toMatch(/[·•●]/);
 
       map.setLayerSource("quakes", collection([quake("a", -10, 10), quake("c", 30, 20)]));
       await map.idle();
 
-      const second = dots(host);
-      expect(second.length).toBe(2);
-      // `a` survived as the SAME element; `b` left; `c` is new.
-      expect(second[0]).toBe(survivor);
-      expect(second.includes(first[1]!)).toBe(false);
+      // `a` stayed, `b` left, `c` arrived — and nothing was added to the DOM.
+      expect(markAt(-10, 10)).toMatch(/[·•●]/);
+      expect(markAt(10, -10)).not.toMatch(/[·•●]/);
+      expect(markAt(30, 20)).toMatch(/[·•●]/);
+      expect(dots(map).length).toBe(2);
     } finally { teardown(); }
   });
 

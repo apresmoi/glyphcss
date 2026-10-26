@@ -51,8 +51,18 @@ Buildings appear only at street scale. Missing or undecodable tiles resolve empt
 - `classes`: allowed class values per source layer.
 - `colors`: colour override per spec id, replacing its class palette.
 - `densities`: resolution per spec id; `textAnchors`: placement per symbol id.
+- `lineOptions`: per line spec id, `experimentalGlyphStrategy`, `simplify`, `sharedArcs`, `color`, `colorProperty`, `colors`.
+- `roadHierarchy`: opt-in live road-class cut by output-cell resolution.
+
+`roadHierarchy: true` keeps motorway/trunk/primary at every resolution; secondary/rail appear at ≤0.003 longitude degrees per output cell, tertiary/transit at ≤0.0008°, minor at ≤0.00035°, and service/track/path and unknown classes at ≤0.00012°. This uses the live output grid, including density overlays, rather than a fixed view span or the provider's zoom cap. Walking keeps all classes. At 139 columns, Buenos Aires span 0.3 keeps the main structure, Zürich span 0.06 adds tertiary roads, and Buenos Aires span 0.04 retains minor streets. These are resolution cuts; tile zoom still controls which classes the source supplies.
+
+The `/maps` card opts into this hierarchy and VW line options, drawn in braille by default (`?lines=box` opts into the `box` strategy). Roads use a blue-grey class palette (`#dbeafe` major through `#394d63` paths), distinct from the amber country borders. Only boundaries request shared polygon arcs: roads, waterways and aeroways are explicit routes, whose paths the topology pass deliberately keeps separate. The factory defaults remain unchanged; a uniform `colors` override replaces a class palette.
 
 Roads exclude tunnels, driveways, parking aisles, and indoor paths. Water drapes lakes on terrain and keeps oceans flat.
+
+When terrain is mounted, pass `waterTerrain: true` to `glyphMapOpenMapTilesLayers` to let the complete water row decide land versus sea. Inside loaded tile coverage, dry land uses at least the terrain ramp's 0 m land colour and stays at or above datum, preserving islands that a coarse DEM misses. Water polygons keep their existing drape; terrain is cut away beneath them, including the ocean. `/maps` enables this on its Water row; the package default stays off.
+
+The entire requested tile batch must succeed before its coverage and water geometry replace the previous snapshot. While tiles load or fail, the previous snapshot remains; outside that coverage the DEM still decides. A successful tile without water features means land. Failed tiles grant no authority and retry on the next sweep. Static collections and water rows narrowed to selected classes grant no authority through this option. Removing Water restores the DEM. The datum floor for dry land also overrides a negative terrain ceiling.
 
 ## Provider options
 

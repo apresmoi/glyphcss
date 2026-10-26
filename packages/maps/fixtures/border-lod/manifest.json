@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "format": "int16",
+  "byteOrder": "little-endian",
+  "elevationRange": {
+    "min": -10898,
+    "max": 8271,
+    "units": "metres"
+  },
+  "zooms": [
+    {
+      "z": 0,
+      "cols": 1,
+      "rows": 1,
+      "tileLonSpan": 360,
+      "tileLatSpan": 180,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 1,
+      "cols": 2,
+      "rows": 2,
+      "tileLonSpan": 180,
+      "tileLatSpan": 90,
+      "tileCols": 180,
+      "tileRows": 90
+    }
+  ],
+  "source": "etopo1",
+  "sampler": "nearest",
+  "attribution": [
+    {
+      "name": "NOAA NCEI (ETOPO1)",
+      "url": "https://www.ngdc.noaa.gov/mgg/global/",
+      "license": "Public domain",
+      "date": "2009"
+    }
+  ]
+}

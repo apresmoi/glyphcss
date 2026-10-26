@@ -155,6 +155,7 @@ export {
   glyphMapForeignOwned,
   glyphMapSurfaceOccludes,
 } from "./stroke";
+export type { GlyphMapStrokeGlyphStrategy } from "./stroke";
 export {
   glyphMapAsciiLabel,
   glyphMapPointCells,

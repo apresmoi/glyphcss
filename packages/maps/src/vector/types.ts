@@ -60,6 +60,8 @@ export interface GlyphMapVectorTile {
   /** Recorded id of the simplification level baked into this tile (MAPS.md §10) — e.g. `"vw-z2"`. */
   readonly simplify: string;
   readonly attribution?: readonly GlyphMapAttribution[];
+  /** Transport/decode failure, distinct from a successfully loaded land-only tile with no water features. Never grants water/land authority. */
+  readonly unavailable?: boolean;
 }
 
 /**

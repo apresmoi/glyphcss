@@ -13,14 +13,17 @@ import {
 import { WIREFRAME_PALETTES } from "./ramps";
 
 describe("fontAtlas — checked-in manifest", () => {
-  it("loads a non-trivial universal glyph set within the BMP PUA budget", () => {
+  it("keeps the original BMP block and appends braille within PUA-A", () => {
     expect(GLYPH_FONT_ATLAS.glyphCount).toBe(GLYPH_FONT_ATLAS.glyphs.length);
     expect(GLYPH_FONT_ATLAS.glyphCount).toBeGreaterThan(50);
     expect(GLYPH_FONT_ATLAS.maxPaletteSize).toBeGreaterThan(1);
     expect(GLYPH_FONT_ATLAS.maxPaletteSize).toBeLessThanOrEqual(31);
-    const lastCodePoint = GLYPH_FONT_ATLAS.puaStart + GLYPH_FONT_ATLAS.maxPaletteSize * GLYPH_FONT_ATLAS.glyphCount - 1;
+    const lastCodePoint = GLYPH_FONT_ATLAS.puaStart + GLYPH_FONT_ATLAS.maxPaletteSize * GLYPH_FONT_ATLAS.extension!.glyphOffset - 1;
     expect(lastCodePoint).toBeLessThanOrEqual(0xf8ff);
     expect(GLYPH_FONT_ATLAS.puaStart).toBe(0xe000);
+    expect(GLYPH_FONT_ATLAS.extension).toEqual({ glyphOffset: 212, puaStart: 0xf0000 });
+    expect(GLYPH_FONT_ATLAS.glyphCount).toBe(460);
+    expect(GLYPH_FONT_ATLAS.maxPaletteSize).toBe(30);
   });
 
   it("includes plain ASCII printable characters (field-synth free-form ramps)", () => {
@@ -119,7 +122,7 @@ describe("fontAtlas — PUA mapping scheme", () => {
     const a = glyphAtlasCodePoint("#", 0);
     const b = glyphAtlasCodePoint("#", 1);
     expect(a).not.toBe(b);
-    expect(b! - a!).toBe(GLYPH_FONT_ATLAS.glyphCount);
+    expect(b! - a!).toBe(212);
   });
 
   it("rejects a glyph outside the universal atlas", () => {
@@ -154,8 +157,9 @@ describe("fontAtlas — PUA round-trip", () => {
 
   it("returns undefined for a code point before puaStart (other than space) and past the occupied range", () => {
     expect(decodeGlyphAtlasCodePoint(0x21)).toBeUndefined(); // '!' — plain ASCII, not PUA
-    const pastRange = GLYPH_FONT_ATLAS.puaStart + GLYPH_FONT_ATLAS.maxPaletteSize * GLYPH_FONT_ATLAS.glyphCount;
-    expect(decodeGlyphAtlasCodePoint(pastRange)).toBeUndefined();
+    for (const cp of [0xe000 - 1, 0xf8d8, 0xf8ff, 0xf0000 - 1, 0xf1d10, 0xffffe, 0x100000]) {
+      expect(decodeGlyphAtlasCodePoint(cp), `U+${cp.toString(16)}`).toBeUndefined();
+    }
   });
 
   it("decodeGlyphAtlasText recovers the original glyph string, dropping only color", () => {
@@ -218,5 +222,39 @@ describe("fontAtlas — @font-face / @font-palette-values CSS emission", () => {
 
   it("rejects a non-hex color", () => {
     expect(() => buildGlyphAtlasFontPaletteValuesCss("--p", ["red"])).toThrow(TypeError);
+  });
+});
+
+// Frozen before the braille extension: never derive this oracle from the manifest.
+const LEGACY_GLYPHS = "!\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·˙ΑΒΓΔΕΖΗΘΙΚΛΜΝΞΟΠΡΣΤΥΦΧΨΩᚠᚣᚤᚨᚱᚷᛞᛢ•‾←↑→↓↖↗↘↙∑∗∘∙√∞∫∴∵≈⊕⊗⊙⊚⊛⊥⋅⋆─│┌┐└┘├┤┬┴┼╋═║╬╳▀▄█▌▏▐░▒▓▔▕■▲△▼▽◆◇◈◉◊◎●★✦✧✩✪✫⠁⠃⠇⠧⠷⠿⡿⣿⬡⬢⬤";
+
+describe("fontAtlas — stable legacy addresses and full braille", () => {
+  it("preserves every original glyph code point at all 30 palette slots", () => {
+    expect([...LEGACY_GLYPHS]).toHaveLength(212);
+    expect(GLYPH_FONT_ATLAS.glyphs.slice(0, 212)).toEqual([...LEGACY_GLYPHS]);
+    for (const [index, glyph] of [...LEGACY_GLYPHS].entries()) {
+      for (let slot = 0; slot < 30; slot++) {
+        expect(glyphAtlasCodePoint(glyph, slot)).toBe(0xe000 + slot * 212 + index);
+      }
+    }
+  });
+
+  it("round-trips every braille pattern, including blank, at every palette slot", () => {
+    for (let cp = 0x2800; cp <= 0x28ff; cp++) {
+      const glyph = String.fromCodePoint(cp);
+      expect(isGlyphInFontAtlas(glyph)).toBe(true);
+      for (let slot = 0; slot < 30; slot++) {
+        const encoded = glyphAtlasCodePoint(glyph, slot)!;
+        expect(decodeGlyphAtlasCodePoint(encoded)).toEqual({ glyph, paletteSlot: slot });
+        expect(decodeGlyphAtlasText(String.fromCodePoint(encoded))).toBe(glyph);
+      }
+    }
+  });
+
+  it("decodes mixed BMP/PUA-A text by code point, preserving other supplementary text", () => {
+    const text = ["@", "⠂", "⣿", "⠀", " ", "⣾"].map((g) => String.fromCodePoint(glyphAtlasCodePoint(g, 29)!)).join("");
+    expect([...text]).toHaveLength(6);
+    expect(text).toHaveLength(9);
+    expect(decodeGlyphAtlasText(text + "\n😀\u{ffffe}")).toBe("@⠂⣿⠀ ⣾\n😀\u{ffffe}");
   });
 });

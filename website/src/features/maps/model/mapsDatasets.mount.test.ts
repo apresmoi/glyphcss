@@ -153,15 +153,22 @@ describe("every row puts something on the map", () => {
     expect(after).toBeGreaterThan(800);
   });
 
-  it("Datacenters place markers over Northern Virginia", async () => {
+  it("Submarine cables draw in braille, like the page's other lines", async () => {
+    const [layer] = mapDatasetLayers(DATASETS, { enabled: ["ds-cables"] });
+    expect(layer).toMatchObject({ type: "line", experimentalGlyphStrategy: "braille" });
+    const { map } = await show("ds-cables", [-40, 35], 60);
+    const ink = (map.scene.output.textContent ?? "").replace(/\s/g, "");
+    expect(ink.length).toBeGreaterThan(0);
+    expect(ink).toMatch(/^[\u2801-\u28ff]+$/u);
+  });
+
+  it("Datacenters stamp marks into the text grid over Northern Virginia", async () => {
     const { host, after } = await show("ds-datacenters", [-77.45, 39.03], 1.5);
-    // A `circle` row is positioned DOM, not grid glyphs — so the grid stays
-    // empty and the markers are what has to be there. Measured: 316 visible.
-    expect(after).toBe(0);
-    expect(hotspots(host)).toBeGreaterThan(150);
-    // ...and they are THIS view's, not the world's: the row holds 4,351
-    // features and the widget emits an element for every one of them.
-    expect(hotspots(host)).toBeLessThan(1_000);
+    // A `glyph` row is TEXT: the marks are cells of the grid, and the row
+    // puts no DOM element on the page at all — 4,351 positioned dots were
+    // both off-medium and what stalled a drag.
+    expect(after).toBeGreaterThan(30);
+    expect(host.querySelectorAll(".glyph-hotspot")).toHaveLength(0);
   });
 
   it("Dams label themselves over the Alps", async () => {

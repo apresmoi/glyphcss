@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
+import { glyphMapSurfaceOccludes, stampGlyphMapContour, stampGlyphMapContourLabels, stampGlyphMapPolyline, type GlyphMapStrokeVertex } from "./stroke";
 import { glyphMapDeclutterLabels, GLYPH_MAP_LABEL_WRAP_CELLS } from "./layers";
 import { GLYPH_MAP_CONTOUR_LABEL_PAD_X, GLYPH_MAP_CONTOUR_LABEL_PAD_Y } from "./widget";
 import type { CellGrid } from "glyphcss";
@@ -82,9 +82,9 @@ describe("stampGlyphMapPolyline — gate 1: a border behind terrain is occluded 
  * (`widget.strokeDrape.test.ts`'s ridge fixture).
  *
  * But most of that gap was never faceting at all: `grid.depth` is sampled at
- * the cell CENTRE and the stroke sits wherever inside the cell its geometry
- * puts it, so on a tilted view a stroke lying FLUSH on the surface reads up
- * to half a cell of depth away from it for that reason alone. Paying for it
+ * integer cell coordinate and the stroke sits wherever inside the cell its
+ * geometry puts it, so a flush stroke can read up to one cell of depth away.
+ * Paying for it
  * with a SLOPE-scaled allowance made the allowance a fraction of the depth
  * one cell spans, which on flat ground under a tilt is metres — and so a road
  * drew straight through every building shorter than that
@@ -108,16 +108,22 @@ describe("stampGlyphMapPolyline — the reconstruction, the curvature allowance,
     { col: 8, row: 2, depth: depthAt(8) },
   ];
 
+  it.each([[0.125, 0], [-0.125, 0], [0, 0.125], [0, -0.125], [0.125, -0.25]])(
+    "reconstructs the integer-sampled plane with slopes %s, %s without forgiving an occluder", (gx, gy) => {
+      const grid = makeGrid(5, 5, (col, row) => gx * col + gy * row);
+      const depth = gx * 2.25 + gy * 2.75;
+      expect(glyphMapSurfaceOccludes(grid, 2, 2, 0.25, 0.75, depth, 0, 0)).toBe(false);
+      expect(glyphMapSurfaceOccludes(grid, 2, 2, 0.25, 0.75, depth - 0.015625, 0, 0)).toBe(true);
+    },
+  );
+
   it("draws a stroke lying exactly ON a steep plane, at a sub-cell position half a cell from where the surface was sampled", () => {
-    // `grid.depth[c]` is the plane's depth at cell `c`'s CENTRE, so the same
-    // plane at this stroke's own position — the cell's left edge, half a cell
-    // back — is `GRADIENT / 2` further away, and that is exactly the stroke's
-    // depth here. It is FLUSH on the surface and every cell of it must draw.
-    // The plane has no curvature, so no allowance is available to cover the
-    // half cell: only reconstructing the surface where the stroke actually is
-    // can, and with that reconstruction dropped all eight cells go dark.
-    const grid = plane();
-    stampGlyphMapPolyline(grid, line((col) => (col - 0.5) * GRADIENT), { color: "#fff" });
+    // The rasterizer samples at integer c. Put the stroke halfway toward
+    // c+1 at the SAME plane depth; the reconstruction must move with it.
+    // A falling plane makes an omitted or reversed correction reject it.
+    const grid = makeGrid(10, 5, col => -col * GRADIENT);
+    const points = line(col => -(col + 0.5) * GRADIENT).map(p => ({ ...p, col: p.col + 0.5 }));
+    stampGlyphMapPolyline(grid, points, { color: "#fff" });
     expect(nonEmptyCells(grid)).toBe(8);
   });
 
@@ -128,7 +134,7 @@ describe("stampGlyphMapPolyline — the reconstruction, the curvature allowance,
     // the whole job of the curvature term: with the scale at 0 the four ridge
     // cells go dark and this drops to 4.
     const grid = rough(0.4 * GRADIENT);
-    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT), { color: "#fff" });
+    stampGlyphMapPolyline(grid, line((col) => col * GRADIENT + 0.3 * GRADIENT), { color: "#fff" });
     expect(nonEmptyCells(grid)).toBe(8);
   });
 

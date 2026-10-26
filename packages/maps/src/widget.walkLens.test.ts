@@ -158,15 +158,20 @@ describe("walk lens — the field of view the camera actually produces", () => {
     done();
   });
 
-  it("stops observing the host on the way out of walk mode, and on destroy", () => {
+  it("disconnects the walk observer on exit and all observers on destroy", () => {
     globalThis.ResizeObserver = CapturingResizeObserver as unknown as typeof ResizeObserver;
     const { map, done } = mount(140, 63);
+    const layoutObserver = observers.find(o => o.targets.includes(map.scene.output));
+    expect(layoutObserver).toBeDefined();
+    const walkObservers = () => observers.filter(o => o !== layoutObserver);
     map.setWalk({});
-    expect(observers.filter((o) => !o.disconnected).length).toBe(1);
+    expect(walkObservers().filter((o) => !o.disconnected).length).toBe(1);
+    expect(layoutObserver!.disconnected).toBe(false);
     map.setWalk(null);
-    expect(observers.every((o) => o.disconnected)).toBe(true);
+    expect(walkObservers().every((o) => o.disconnected)).toBe(true);
+    expect(layoutObserver!.disconnected).toBe(false);
     map.setWalk({});
-    expect(observers.filter((o) => !o.disconnected).length).toBe(1);
+    expect(walkObservers().filter((o) => !o.disconnected).length).toBe(1);
     done();
     expect(observers.every((o) => o.disconnected)).toBe(true);
   });

@@ -47,6 +47,7 @@
 import { createGlyphMap, type GlyphMapHandle, type GlyphMapVectorSource } from "@glyphcss/maps";
 import { injectGlyphBaseStyles } from "glyphcss";
 import { useEffect, useRef } from "react";
+import type { MapColorEncoding } from "../../features/maps/services/mapsUrlState";
 import {
   MAP_SCENE_GLYPH_PALETTE,
   MAP_SCENE_RENDER_MODE,
@@ -79,13 +80,24 @@ export interface MapMinimapProps {
   readonly centerLat: number;
   /** The main map's heading. While walking this IS the walker's heading, which is what makes the inset heading-up. */
   readonly bearing: number;
+  /** The page's colour encoding, so braille/box streets render through the same atlas font as the map. */
+  readonly colorEncoding: MapColorEncoding;
 }
 
 /** The wedge, in a viewBox whose unit circle is the walker's horizon. */
 const CONE_PATH = mapMinimapConePath();
 const CONE_WIDTH_PERCENT = `${(mapMinimapConeWidthFraction() * 100).toFixed(3)}%`;
 
-export function MapMinimap({ visible, walking, source, projectionId, centerLon, centerLat, bearing }: MapMinimapProps) {
+export function MapMinimap({
+  visible,
+  walking,
+  source,
+  projectionId,
+  centerLon,
+  centerLat,
+  bearing,
+  colorEncoding,
+}: MapMinimapProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<GlyphMapHandle | null>(null);
   /** The pose the inset was last actually WRITTEN at — not the main map's, which runs ahead of it between steps. */
@@ -124,7 +136,7 @@ export function MapMinimap({ visible, walking, source, projectionId, centerLon, 
       // place to be lost in.
       controls: { drag: false, wheel: false, tilt: false },
       layers: [...mapMinimapLayers(source)],
-      scene: { mode: MAP_SCENE_RENDER_MODE, glyphPalette: MAP_SCENE_GLYPH_PALETTE, useColors: true },
+      scene: { mode: MAP_SCENE_RENDER_MODE, glyphPalette: MAP_SCENE_GLYPH_PALETTE, useColors: true, colorEncoding },
     });
     mapRef.current = map;
     poseRef.current = pose;
@@ -137,7 +149,7 @@ export function MapMinimap({ visible, walking, source, projectionId, centerLon, 
     // listed — they are the pose the inset opens at, and every later change
     // goes through the update-rule effect below on the mounted widget.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, projectionId, source]);
+  }, [visible, projectionId, source, colorEncoding]);
 
   useEffect(() => {
     const map = mapRef.current;

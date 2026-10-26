@@ -59,6 +59,8 @@ const pose = [map.getTilt(), map.getBearing(), map.getMaxTilt()];
 
 `tilt` pitches around the surface point at the view centre. Sheets default to `40` degrees; globes to `0`. `getTilt()` reports the applied, clamped value; zooming back in restores a previously limited request.
 
+The pivot uses the drawn ground: the same triangle-sampled, elevation-windowed terrain used to plant features, including exaggeration. A supplied `groundElevation` wins; without ground, the pivot stays at the datum. Terrain arriving later re-anchors before its first render and preserves the geographic centre and shared URL. Surrounding content can shift as the new relief appears. `map.project(map.getView().center)` lands at the centre of the grid at every pitch and span (within a cell with `snapPan`). `unproject()` inverts that same ground surface; a local solve can return `null` where it has no answer.
+
 `getMaxTilt()` is `85` degrees on sheets; globes use a scale-dependent horizon limit capped at `85`. Read it after zooming. `bearing` defaults to `0` (north up); `90` puts east up. `getBearing()` normalizes to `[0, 360)`.
 
 ## Flights
@@ -100,3 +102,38 @@ Mount [OSM streets and buildings](/maps/openstreetmap/) first. Walk mode require
 - Collision uses `fill-extrusion` footprints; fills remain walkable.
 - The sky requires `solid` mode; `sky: false` removes it.
 - Calling `setWalk` again reconfigures; `setWalk(null)` restores the saved view, tilt, bearing, and camera.
+
+### Whole-cell pans
+
+`createGlyphMap({ ..., snapPan: true })` holds tiny pans on one rendered
+cell lattice. Flat maps translate by whole output cells; globes quantize
+rotation on a local tangent lattice, so shapes near the limb can still change.
+The camera translation is exact on flat maps. The renderer’s screen-anchored
+shading dither can still change terrain glyphs during a whole-cell step.
+The held centre (`getView()` and shared links) stays exact. Zoom, tilt,
+bearing and grid changes start a new lattice without snapping that change.
+Walking bypasses snapping. Use `map.setSnapPan(boolean)` to toggle it.
+The `/maps` View folder enables **Snap pan** by default and saves the choice
+in shared links. Omission in the package keeps continuous pans.
+
+### Experimental compositor pan
+
+`createGlyphMap({ ..., compositorPan: true })` renders a quarter-view margin
+of extra cells and translates the text container during mouse or one-finger
+pans and inertial glide. Cell size stays fixed; base, detail, and stroke-overlay
+text move together. Labels, markers, and other DOM hotspots hide until
+settle. Compass and minimap UI remain fixed.
+
+The cache refreshes at 80% of either margin. Globe pans approximate rotation
+with the screen displacement of the cached view centre and refresh after 2°
+of rotation, so features away from the centre can distort briefly. Refreshes
+can change screen-anchored shading dither. Tile arrivals may force earlier
+renders; unloaded tiles are not prefetched just for the extra margin.
+
+Release and glide rest restore the normal grid and render the actual view
+(with its existing `snapPan` lattice). Zoom, tilt, bearing, projection, resize,
+and font changes invalidate the cache. Walking bypasses it. With this option
+on, `scene.setInteracting` does not downscale the text.
+Use `map.setCompositorPan(boolean)` and `map.getCompositorPan()` at runtime.
+The package defaults off; `/maps` defaults **Compositor pan** on in the View
+folder and preserves the toggle in shared links.

@@ -300,9 +300,10 @@ describe("createGlyphMap — inertial glide", () => {
     expect(gliding).not.toBe(atRelease);
 
     // The glide decays to a stop rather than running forever.
-    await wait(900);
+    await map.idle();
     const settled = map.getView().center[0];
-    await wait(200);
+    await frame();
+    await frame();
     expect(map.getView().center[0]).toBe(settled);
     map.destroy();
     host.remove();
@@ -322,6 +323,27 @@ describe("createGlyphMap — inertial glide", () => {
     await frame();
     await frame();
     expect(map.getView().center[0]).toBe(atRelease);
+    map.destroy();
+    host.remove();
+  });
+
+  it("a quick release still flings when a slow frame delays its handler", async () => {
+    const { host, map } = mount();
+    await frame();
+    firePointer(host, "pointerdown", 400, 300);
+    for (let i = 1; i <= 8; i++) {
+      firePointer(host, "pointermove", 400 + i * 24, 300);
+      await frame();
+    }
+    // The hand lifts right after the last move, but the handler only runs
+    // once a 140 ms frame has finished drawing.
+    const up = new PointerEvent("pointerup", { clientX: 400 + 8 * 24, clientY: 300, pointerId: 1, button: 0, bubbles: true });
+    await wait(140);
+    host.dispatchEvent(up);
+    const atRelease = map.getView().center[0];
+    await frame();
+    await frame();
+    expect(map.getView().center[0]).not.toBe(atRelease);
     map.destroy();
     host.remove();
   });

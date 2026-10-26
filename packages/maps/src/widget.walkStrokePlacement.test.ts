@@ -109,7 +109,7 @@ async function mount(rows: readonly string[], buildingDensity: number) {
   }, { timeout: 5000 });
   // The sweep resolves per layer; let every layer's own tile land before the
   // frame this test reads, so the two mounts it compares describe the same map.
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await map.idle();
   map.scene.rerender();
   return { map, host, done: () => { map.destroy(); host.remove(); } };
 }

@@ -571,22 +571,70 @@ export interface RasterizeContextOptions {
  * shading options change. Absent/null → always recompute (current behavior).
  */
 export interface ShadeCache {
-  iA: number[];
-  iB: number[];
-  iC: number[];
+  /**
+   * Dense, pre-sized storage (see {@link createShadeCache}); occupancy is the
+   * separate `filled` flag, because any stored value - NaN included - is a hit. Growable JS arrays written at scattered positional
+   * indices fall into V8 dictionary mode, which was most of the rasterizer's
+   * self time on a street-level map. A slot at or past the capacity is simply
+   * never memoized — a miss recomputes identically.
+   */
+  iA: Float64Array;
+  iB: Float64Array;
+  iC: Float64Array;
+  /** 1 once a slot holds an entry. Never inferred from the values. */
+  filled: Uint8Array;
+  /** Dense and fully populated (`null` until filled) — never holey. */
   lit: (string | null)[];
   /**
    * Positional triangle indices this pass FILLED, in order — the undo log a
    * caller needs to hand the rasterizer its live cache instead of a copy.
    *
-   * An entry is only ever written on a MISS (`iA[triT] === undefined` is the
-   * gate), so every journaled index was undefined before this pass and
-   * `delete`-ing them restores the cache exactly as it stood. Omitted means
+   * An entry is only ever written on a MISS (`filled[triT] === 0` is the
+   * gate), so every journaled index was empty before this pass and clearing
+   * them (`clearShadeCacheEntry`) restores the cache exactly as it stood. Omitted means
    * "do not journal" — the rasterizer then writes with no bookkeeping at all,
    * which is the path every caller that already hands over a private copy
    * takes.
    */
   journal?: number[];
+}
+
+/**
+ * Triangles a polygon list advances `rasterizeSolid`'s positional `triT` by:
+ * a fan of `vertices - 2` per polygon with at least three vertices, hidden or
+ * culled polygons included, and nothing for a degenerate one.
+ */
+export function countShadeTriangles(polygons: readonly Polygon[]): number {
+  let n = 0;
+  for (let i = 0; i < polygons.length; i++) {
+    const v = polygons[i]!.vertices.length;
+    if (v >= 3) n += v - 2;
+  }
+  return n;
+}
+
+/** An all-unfilled cache with room for `triangleCount` positional slots. */
+export function createShadeCache(triangleCount: number, journal = false): ShadeCache {
+  const lit: (string | null)[] = [];
+  for (let i = 0; i < triangleCount; i++) lit.push(null);
+  const cache: ShadeCache = {
+    iA: new Float64Array(triangleCount),
+    iB: new Float64Array(triangleCount),
+    iC: new Float64Array(triangleCount),
+    filled: new Uint8Array(triangleCount),
+    lit,
+  };
+  if (journal) cache.journal = [];
+  return cache;
+}
+
+/** Mark one slot unfilled again (the journal's undo step). */
+export function clearShadeCacheEntry(cache: ShadeCache, t: number): void {
+  cache.filled[t] = 0;
+  cache.iA[t] = 0;
+  cache.iB[t] = 0;
+  cache.iC[t] = 0;
+  cache.lit[t] = null;
 }
 
 /**

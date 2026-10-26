@@ -212,3 +212,147 @@ export function glyphMapMarchContourMosaic(
   out.sort((p, q) => p.level - q.level || p.a[0] - q.a[0] || p.a[1] - q.a[1] || p.b[0] - q.b[0] || p.b[1] - q.b[1]);
   return out;
 }
+
+/** What {@link glyphMapGeneralizeContourMosaic} reads from a mounted piece: its native grid (for the extent) and a point sampler. */
+export interface GlyphMapContourGeneralizeSource {
+  readonly grid: GlyphMapContourSampleGrid;
+  valueAt(lon: number, lat: number): number;
+}
+
+/** Above this many lattice vertices the lattice coarsens rather than stall a frame. */
+const GENERALIZE_MAX_VERTICES = 1 << 20;
+
+/**
+ * The mosaic resampled onto ONE lattice and Gaussian-smoothed at `radiusDeg`,
+ * for contours a reader can follow rather than a trace of every bump.
+ *
+ * A contour cut from the native grid follows relief finer than one output
+ * cell can draw, so on rough ground it reads as a staircase, scatters tiny
+ * rings and fuses neighbouring levels. Smoothing the FIELD (not the lines) is
+ * the cartographic generalisation: every level is cut from the same smoothed
+ * surface, so lines still never cross and still sit at their own elevation.
+ *
+ * The lattice is aligned to multiples of its own step in lon/lat, not to any
+ * tile, and samples the whole mosaic through each piece's own `valueAt` — so
+ * there is no tile edge for a kernel to be truncated at, and the seam
+ * identity the native path gets from shared edge vertices holds here by
+ * construction. A sample no piece answers is NaN, and the blur normalises by
+ * the weight it actually found, so a hole stays a hole instead of pulling the
+ * surface toward zero.
+ */
+export function glyphMapGeneralizeContourMosaic(
+  pieces: readonly GlyphMapContourGeneralizeSource[],
+  radiusDeg: number,
+): GlyphMapContourSampleGrid | null {
+  if (pieces.length === 0 || !(radiusDeg > 0)) return null;
+  let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+  for (const { grid: { bounds } } of pieces) {
+    west = Math.min(west, bounds.west);
+    east = Math.max(east, bounds.east);
+    south = Math.min(south, bounds.south);
+    north = Math.max(north, bounds.north);
+  }
+  south = Math.max(-90, south);
+  north = Math.min(90, north);
+  let step = radiusDeg / 2;
+  while (((east - west) / step + 2) * ((north - south) / step + 2) > GENERALIZE_MAX_VERTICES) step *= 2;
+  const c0 = Math.ceil(west / step), c1 = Math.floor(east / step);
+  const r0 = Math.ceil(-north / step), r1 = Math.floor(-south / step);
+  const cols = c1 - c0, rows = r1 - r0;
+  if (cols < 1 || rows < 1) return null;
+  const stride = cols + 1;
+  const raw = new Float64Array(stride * (rows + 1));
+  for (let r = 0; r <= rows; r++) {
+    const lat = -(r0 + r) * step;
+    for (let c = 0; c <= cols; c++) {
+      const lon = (c0 + c) * step;
+      let v = NaN;
+      for (const piece of pieces) {
+        v = piece.valueAt(lon, lat);
+        if (Number.isFinite(v)) break;
+      }
+      raw[r * stride + c] = v;
+    }
+  }
+  // Separable Gaussian, sigma one lattice step (half the radius), cut at 3 sigma.
+  const kernel = [0.004431848, 0.053990967, 0.241970725, 0.39894228, 0.241970725, 0.053990967, 0.004431848];
+  const reach = 3;
+  const blur = (src: Float64Array, horizontal: boolean): Float64Array => {
+    const out = new Float64Array(src.length);
+    for (let r = 0; r <= rows; r++) {
+      for (let c = 0; c <= cols; c++) {
+        const i = r * stride + c;
+        if (!Number.isFinite(src[i])) { out[i] = NaN; continue; }
+        let sum = 0, weight = 0;
+        for (let k = -reach; k <= reach; k++) {
+          const cc = horizontal ? c + k : c, rr = horizontal ? r : r + k;
+          if (cc < 0 || cc > cols || rr < 0 || rr > rows) continue;
+          const v = src[rr * stride + cc];
+          if (!Number.isFinite(v)) continue;
+          const w = kernel[k + reach];
+          sum += v * w;
+          weight += w;
+        }
+        out[i] = sum / weight;
+      }
+    }
+    return out;
+  };
+  return {
+    bounds: { west: c0 * step, east: c1 * step, north: -r0 * step, south: -r1 * step },
+    cols,
+    rows,
+    values: blur(blur(raw, true), false),
+  };
+}
+
+/**
+ * Drops every CLOSED isoline whose lon/lat extent is under `minExtentDeg` —
+ * the specks a knoll or a pit leaves, which on a character grid read as noise
+ * rather than as a hill. Open lines (ending at the data's edge or a hole) are
+ * kept whatever their size: they are pieces of something larger.
+ *
+ * Chaining is exact: within one marched grid, two quads sharing an edge
+ * compute that edge's crossing from the same corner values and the same
+ * coordinates, so the endpoints are equal numbers, not merely close ones.
+ */
+export function glyphMapDropSmallContourRings(
+  segments: readonly GlyphMapContourSegment[],
+  minExtentDeg: number,
+): readonly GlyphMapContourSegment[] {
+  if (!(minExtentDeg > 0) || segments.length === 0) return segments;
+  const key = (level: number, p: readonly [number, number]) => `${level}|${p[0]}|${p[1]}`;
+  const at = new Map<string, number[]>();
+  segments.forEach((s, i) => {
+    for (const p of [s.a, s.b]) {
+      const k = key(s.level, p);
+      const list = at.get(k);
+      if (list) list.push(i); else at.set(k, [i]);
+    }
+  });
+  const seen = new Uint8Array(segments.length);
+  const drop = new Uint8Array(segments.length);
+  for (let start = 0; start < segments.length; start++) {
+    if (seen[start]) continue;
+    // Flood the connected component; it is a ring when every endpoint is shared by exactly two segments.
+    const component: number[] = [];
+    const queue = [start];
+    seen[start] = 1;
+    let closed = true;
+    let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+    while (queue.length) {
+      const i = queue.pop()!;
+      component.push(i);
+      const s = segments[i];
+      for (const p of [s.a, s.b]) {
+        west = Math.min(west, p[0]); east = Math.max(east, p[0]);
+        south = Math.min(south, p[1]); north = Math.max(north, p[1]);
+        const list = at.get(key(s.level, p))!;
+        if (list.length !== 2) closed = false;
+        for (const j of list) if (!seen[j]) { seen[j] = 1; queue.push(j); }
+      }
+    }
+    if (closed && Math.max(east - west, north - south) < minExtentDeg) for (const i of component) drop[i] = 1;
+  }
+  return segments.filter((_, i) => !drop[i]);
+}

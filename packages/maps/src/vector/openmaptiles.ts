@@ -261,7 +261,7 @@ export interface GlyphMapOpenMapTilesFeatureFilterOptions {
   readonly minAdminLevel?: number;
   /** Keep only boundaries at or below this administrative importance (`admin_level <= max`); `2` is "international borders only". */
   readonly maxAdminLevel?: number;
-  /** Drop features whose {@link glyphMapOpenMapTilesBrunnel} is one of these. `["tunnel"]` takes a subway line off the surface and leaves the bridge over it drawn. Hidden rather than dimmed: dimming, road hierarchy by `class` and `transportation.layer` ordering all need a per-feature line colour or draw order the widget does not have. */
+  /** Drop features whose {@link glyphMapOpenMapTilesBrunnel} is one of these. `["tunnel"]` takes a subway line off the surface and leaves the bridge over it drawn. Hidden rather than dimmed: underground ways do not belong on the surface. */
   readonly excludeBrunnel?: readonly string[];
   /** Drop features whose `service` is one of these — `driveway`/`parking_aisle` is car-park hatching rather than street network. */
   readonly excludeService?: readonly string[];
@@ -569,7 +569,26 @@ export const GLYPH_MAP_OPENMAPTILES_LAYERS: readonly GlyphMapOpenMapTilesLayerSp
   },
 ];
 
+/** Maximum longitude degrees per output cell for each road class; unknown classes wait for street detail. */
+const ROAD_CELL_LIMITS: Readonly<Record<string, number>> = {
+  motorway: Infinity, trunk: Infinity, primary: Infinity,
+  secondary: 0.003, rail: 0.003,
+  tertiary: 0.0008, transit: 0.0008,
+  minor: 0.00035,
+  service: 0.00012, track: 0.00012, path: 0.00012,
+};
+
 export interface GlyphMapOpenMapTilesLayersOptions {
+  /** Opt the complete `omt-water` row into {@link GlyphMapFillLayer.waterTerrain}. Requires tiled, unfiltered water coverage. Default off. */
+  readonly waterTerrain?: boolean;
+  /** Opt-in quiet fill and braille roof/corner edges on the omt-buildings row. */
+  readonly buildingOutline?: GlyphMapFillExtrusionLayer["outline"];
+  /** Opt-in class hierarchy on omt-roads, evaluated at the live output grid resolution; walking keeps all classes. */
+  readonly roadHierarchy?: boolean;
+  /** Line-only opt-ins keyed by spec id. Explicit colour overrides still replace a class palette. */
+  readonly lineOptions?: Readonly<Record<string, Pick<GlyphMapLineLayer,
+    "experimentalGlyphStrategy" | "simplify" | "sharedArcs" | "color" | "colorProperty" | "colors"
+  >>>;
   /** Only build these spec ids, in this order. Omitted = every spec. */
   readonly include?: readonly string[];
   /** Extra `class` narrowing, keyed by SOURCE LAYER — intersected with the spec's own. */
@@ -670,12 +689,27 @@ export function glyphMapOpenMapTilesLayers(
       ...(density === undefined ? {} : { density }),
     } as const;
     switch (spec.type) {
-      case "line":
-        out.push({ type: "line", ...common });
+      case "line": {
+        const line = opts.lineOptions?.[spec.id];
+        out.push({
+          type: "line", ...common,
+          ...(!overridden && line?.color !== undefined ? { color: line.color } : {}),
+          ...(line?.experimentalGlyphStrategy === undefined ? {} : { experimentalGlyphStrategy: line.experimentalGlyphStrategy }),
+          ...(line?.simplify === undefined ? {} : { simplify: line.simplify }),
+          ...(line?.sharedArcs === undefined ? {} : { sharedArcs: line.sharedArcs }),
+          ...(overridden || line?.colorProperty === undefined ? {} : { colorProperty: line.colorProperty }),
+          ...(overridden || line?.colors === undefined ? {} : { colors: line.colors }),
+          ...(opts.roadHierarchy && spec.id === "omt-roads" ? {
+            filterAtResolution: (feature: GlyphMapVectorFeature, degreesPerCell: number) =>
+              degreesPerCell <= (ROAD_CELL_LIMITS[glyphMapOpenMapTilesClass(feature) ?? ""] ?? 0.00012),
+          } : {}),
+        });
         break;
+      }
       case "fill":
         out.push({
           type: "fill", ...common,
+          ...(opts.waterTerrain && spec.id === "omt-water" && opts.classes?.water === undefined ? { waterTerrain: true } : {}),
           ...(overridden || spec.colorProperty === undefined ? {} : { colorProperty: spec.colorProperty }),
           ...(overridden || spec.colors === undefined ? {} : { colors: spec.colors }),
           ...(spec.drape === undefined ? {} : { drape: spec.drape }),
@@ -685,6 +719,7 @@ export function glyphMapOpenMapTilesLayers(
         out.push({
           type: "fill-extrusion", ...common,
           heightProperty: spec.heightProperty,
+          ...(spec.id === "omt-buildings" && opts.buildingOutline ? { outline: opts.buildingOutline } : {}),
           ...(spec.baseOffsetProperty === undefined ? {} : { baseOffsetProperty: spec.baseOffsetProperty }),
           ...(spec.facade === undefined ? {} : { facade: spec.facade }),
           ...(spec.colorVariation === undefined ? {} : { colorVariation: spec.colorVariation }),

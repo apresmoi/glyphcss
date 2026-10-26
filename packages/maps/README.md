@@ -94,6 +94,10 @@ The widget's settled `<pre>` produces the text above directly: water polygons as
 
 For static raster baking, use `loadGlyphMapSource` → `sampleGlyphMapField` → `classifyGlyphMapField` → `compileGlyphMap`; the returned `{ html, css }` needs no runtime JavaScript. The bundled [sample grid](fixtures/sample-region.asc) is synthetic terrain, not a city map.
 
+With terrain mounted, `glyphMapOpenMapTilesLayers(source, { waterTerrain: true })` lets the complete `omt-water` row decide land versus water inside successfully loaded tile coverage. Dry terrain uses at least the classifier's 0 m land colour and sits no lower than datum, so small islands missing from the DEM remain visible. Water footprints are removed from every terrain tier. Inside committed water polygons, strokes, point layers and extrusions stand at max(terrain, datum); water fills need no terrain-clearance lift over their cutouts. Ocean fills remain at datum, and lakes retain their terrain drape above datum. Outside coverage, terrain keeps its DEM colours and geometry. The default is off.
+
+Coverage and water geometry commit together only after the whole requested tile batch succeeds. Pending or failed replacements retain the previous snapshot; before the first success the DEM remains authoritative. A successful tile with no water features means land; a failed tile (`unavailable: true`) grants no authority and retries on the next sweep. Static collections have no tile coverage and grant none. Custom complete tiled water fills can declare `waterTerrain: true` directly; do not filter out water classes. Removing the fill restores the DEM. A negative terrain ceiling cannot sink authoritative dry land below datum.
+
 ## What it does
 
 MapLibre-shaped layer names describe glyphcss rendering; this is not a MapLibre style-spec implementation. The current API has eleven layer types:
@@ -102,12 +106,12 @@ MapLibre-shaped layer names describe glyphcss rendering; this is not a MapLibre 
 |---|---|
 | `background` | CSS background colour. |
 | `raster` | Elevation tiles as a 3D relief mesh. |
-| `line` | Vector lines stamped into the text grid. |
+| `line` | Vector lines stamped into the text grid; opt-in `sharedArcs: true` deduplicates polygon boundaries before live `simplify: "vw"`. Experimental `box` glyphs join layer paths with depth-tested staircase corners; tiny closed shapes become dots, open stubs never do. `colorProperty`/`colors` select per-feature line colours. |
 | `contour` | Elevation isolines, with optional labels. |
 | `fill` | Polygon meshes, draped or flat. |
 | `fill-extrusion` | Buildings and other extruded polygons. |
 | `symbol` | Positioned DOM labels. |
-| `circle` | Positioned DOM dots. |
+| `circle` | Glyph discs stamped into the grid, sized in CSS pixels. |
 | `glyph` | Point marks and labels stamped into the grid. |
 | `heatmap` | Point density as a relief mesh. |
 | `model` | Supplied polygon meshes. |
@@ -120,7 +124,7 @@ MapLibre-shaped layer names describe glyphcss rendering; this is not a MapLibre 
 | OpenFreeMap / OpenMapTiles | Tile provider plus schema-aware layer presets and filters. |
 | Protomaps | PMTiles extract helper, layer presets and filters. |
 | Projections | Equirectangular, Mercator, globe, orthographic; adapter for d3 raw projections. |
-| Camera / gestures | Pan/orbit, zoom, tilt, bearing, flights and projection transitions; mouse and touch. |
+| Camera / gestures | Pan/orbit, zoom, tilt, bearing, flights and projection transitions; mouse and touch. Pitch and bearing pivot on the drawn ground at the geographic centre (datum fallback); `project`/`unproject` use that surface. Opt-in `snapPan` quantizes rendered pans to output cells while `getView()` stays exact; toggle with `setSnapPan`. Opt-in `compositorPan` translates cached overscanned text during drag/glide; `setCompositorPan` toggles it. Hotspots hide until settle; walking bypasses it. |
 | Walk mode | Orbit-capable projections: perspective walking, collision and sky; enter with `map.setWalk({})`. |
 | Lighting | Real-sun lighting, camera-following key light and optional cast shadows. |
 

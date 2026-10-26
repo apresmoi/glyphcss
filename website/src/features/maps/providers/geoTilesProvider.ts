@@ -24,6 +24,12 @@
  * `curated` list is a genuine no-op — `glyphMapCuratedProvider` with zero
  * levels returns `base` itself, unwrapped — so this reader has exactly one
  * code path regardless of whether the manifest declares curated depth.
+ *
+ * Below the baked pyramid, levels down to {@link STREAMED_MAX_ZOOM} are
+ * streamed from the AWS terrain tiles (`terrariumTiles.ts`). A streamed tile
+ * that fails to load degrades to the baked/curated answer resampled onto the
+ * requested tile, so the ground never goes blank and siblings never mount one
+ * shared ancestor twice.
  */
 import type {
   GlyphMapAttribution,
@@ -33,7 +39,25 @@ import type {
   GlyphMapProvider,
   GlyphMapProviderZoomLevel,
 } from "@glyphcss/maps";
-import { glyphMapCuratedProvider, glyphMapDecodeGeoTileInt16 } from "@glyphcss/maps";
+import {
+  glyphMapCuratedProvider,
+  glyphMapDecodeGeoTileInt16,
+  glyphMapGeoTileElevationAt,
+  glyphMapVectorTileBounds,
+} from "@glyphcss/maps";
+import {
+  buildTerrariumGeoTile,
+  createTerrariumFetcher,
+  TERRARIUM_ATTRIBUTION,
+  TERRARIUM_MAX_ZOOM,
+} from "./terrariumTiles";
+
+/**
+ * The deepest streamed level: 0.00049-degree quads (~40 m), about the
+ * terrain tiles' real ~30 m resolution over most land. Deeper levels would
+ * only interpolate, at four times the quads per level.
+ */
+export const STREAMED_MAX_ZOOM = 12;
 
 interface GeoTilesManifestCurated {
   readonly name: string;
@@ -74,6 +98,7 @@ function tileBounds(level: GlyphMapProviderZoomLevel, x: number, y: number): Gly
  */
 export async function createGeoTilesProvider(
   baseUrl = "/data/geo-tiles",
+  fetchTerrarium = createTerrariumFetcher(),
 ): Promise<GlyphMapProvider & { readonly sampler: string }> {
   const res = await fetch(`${baseUrl}/manifest.json`);
   if (!res.ok) {
@@ -140,6 +165,60 @@ export async function createGeoTilesProvider(
     },
   }));
 
-  const provider = glyphMapCuratedProvider(base, curatedLevels);
-  return { ...provider, sampler: manifest.sampler };
+  const baked = glyphMapCuratedProvider(base, curatedLevels);
+  const bakedMaxZ = Math.max(...baked.zooms.map((z) => z.z));
+  const baseMaxZ = Math.max(...manifest.zooms.map((z) => z.z));
+  const tileCols = manifest.zooms[0].tileCols,
+    tileRows = manifest.zooms[0].tileRows;
+
+  async function bakedFallback(z: number, x: number, y: number, bounds: GlyphMapBounds): Promise<GlyphMapGeoTile> {
+    const zt = Math.min(z, bakedMaxZ),
+      scale = 2 ** (z - zt);
+    const ancestor = await baked.loadTile(zt, Math.floor(x / scale), Math.floor(y / scale));
+    const elevation = new Float32Array((tileCols + 1) * (tileRows + 1));
+    for (let r = 0; r <= tileRows; r++) {
+      const lat = bounds.north - ((bounds.north - bounds.south) * r) / tileRows;
+      for (let c = 0; c <= tileCols; c++) {
+        elevation[r * (tileCols + 1) + c] = glyphMapGeoTileElevationAt(
+          ancestor,
+          bounds.west + ((bounds.east - bounds.west) * c) / tileCols,
+          lat,
+        );
+      }
+    }
+    return { bounds, cols: tileCols, rows: tileRows, elevation, source: ancestor.source, sampler: ancestor.sampler };
+  }
+
+  const streamed: GlyphMapProviderZoomLevel[] = [];
+  for (let z = baseMaxZ + 1; z <= STREAMED_MAX_ZOOM; z++) {
+    streamed.push({
+      z,
+      cols: 2 ** z,
+      rows: 2 ** z,
+      tileLonSpan: 360 / 2 ** z,
+      tileLatSpan: 180 / 2 ** z,
+      tileCols,
+      tileRows,
+    });
+  }
+
+  return {
+    id: `${baked.id}+terrarium`,
+    zooms: [...manifest.zooms, ...streamed],
+    attribution: [...(manifest.attribution ?? []), TERRARIUM_ATTRIBUTION],
+    bounds(z, x, y) {
+      return z > baseMaxZ ? glyphMapVectorTileBounds(z, x, y) : base.bounds(z, x, y);
+    },
+    async loadTile(z, x, y) {
+      if (z <= baseMaxZ) return base.loadTile(z, x, y);
+      const bounds = glyphMapVectorTileBounds(z, x, y);
+      try {
+        return await buildTerrariumGeoTile(bounds, tileCols, tileRows, Math.min(z, TERRARIUM_MAX_ZOOM), fetchTerrarium);
+      } catch (err) {
+        console.warn(`glyphcss website: streamed terrain ${z}/${x}_${y} failed, using the baked pyramid.`, err);
+        return bakedFallback(z, x, y, bounds);
+      }
+    },
+    sampler: `${manifest.sampler} (z0-z${baseMaxZ}), bilinear streamed (z${baseMaxZ + 1}-z${STREAMED_MAX_ZOOM})`,
+  };
 }

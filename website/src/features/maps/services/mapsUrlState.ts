@@ -267,6 +267,8 @@ export interface MapsUrlState {
    * `setWalk` itself throws on the first of those.
    */
   walk: boolean;
+  snapPan: boolean;
+  compositorPan: boolean;
 
   /**
    * The DATASETS card's rows, as a bitfield over
@@ -722,8 +724,13 @@ export const MAPS_CONTOUR_WINDOW_OFF = { min: -32000, max: 32000 } as const;
  */
 export const MAPS_TERRAIN_WINDOW_OFF = { min: -32000, max: 32000 } as const;
 
+/** Terrain exaggeration of a fresh `/maps` load (no `m` at all); a share written from it carries an explicit `e`. */
+export const MAPS_FRESH_EXAGGERATION = 12;
+
 export const MAPS_URL_DEFAULTS: MapsUrlState = {
   projection: "globe",
+  // FROZEN omission sentinel: a link without `e` was written at 24, so it keeps
+  // meaning 24. The page's own opening value is {@link MAPS_FRESH_EXAGGERATION}.
   exaggeration: 24,
   centerLon: 0,
   centerLat: 20,
@@ -813,6 +820,8 @@ export const MAPS_URL_DEFAULTS: MapsUrlState = {
   // Off, so a link that carries no `w` opens the map — which is what every
   // link ever shared describes, and what a reader expects a map link to be.
   walk: false,
+  snapPan: true,
+  compositorPan: true,
   // The FROZEN omission sentinel, not the page's opening set — see
   // `MAPS_DATASET_MASK_LINK_DEFAULT`, which exists because the OSM card's
   // equivalent was once derived and rewrote a real shared link.
@@ -1250,6 +1259,8 @@ const mapsFields: readonly UrlField<MapsUrlState>[] = [
     type: { kind: "floatTuple", length: MAPS_LIVE_WINDOW_SLOTS, step: 1 },
     default: MAPS_URL_DEFAULTS.liveWindows,
   },
+  { key: "snapPan", token: "2", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.snapPan },
+  { key: "compositorPan", token: "3", type: { kind: "bool" }, default: MAPS_URL_DEFAULTS.compositorPan },
 ];
 
 export const MAPS_SCHEMA_VERSION = "3";
@@ -1334,6 +1345,9 @@ export function readInitialMapsState(): MapsUrlState {
     // A fresh map starts head-on. Keep the codec's 40° omission default
     // frozen so previously shared links still restore their original pose.
     tilt: decoded.tilt ?? (packed ? MAPS_URL_DEFAULTS.tilt : 0),
+    // Same split for relief: the codec's omission value (24) is what every
+    // already-shared link without `e` meant; only a fresh load opens at 12.
+    exaggeration: decoded.exaggeration ?? (packed ? MAPS_URL_DEFAULTS.exaggeration : MAPS_FRESH_EXAGGERATION),
     // Feature-detected site default, applied only when the LINK carries no
     // choice (`decoded`, the raw partial — never the already-defaulted
     // merge) — see `MAPS_URL_DEFAULTS.colorEncoding`'s doc for why the

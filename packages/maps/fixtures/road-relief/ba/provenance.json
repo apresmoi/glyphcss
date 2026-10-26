@@ -1,0 +1,25 @@
+{
+  "origin": "Verbatim packet 9 downloads; URLs in supplied INDEX.txt. Terrain NOAA ETOPO1 public domain; OSM OpenFreeMap \u00a9 OpenStreetMap contributors ODbL.",
+  "sha256": {
+    "osm_13_2768_4936.pbf": "e325f8fddbc79d67df11e5433146405347b6bb14f5c43f9627cb4457aeeac059",
+    "osm_13_2768_4935.pbf": "fa13bfa2a2d1fed681b0aff9aba8047de5568ae5d27b314a349c28bd24862995",
+    "curated_5_10_22.bin": "a490cb4e2be720a95d9fc448da4923fadeacb39ce19657e15b1877052885665e",
+    "manifest.json": "cec89955feb96d6b3ae00d9f3954f2379018173f1333c64c502b8e36884ad834",
+    "0_0_0.bin": "7fc89dd09fd699ca2b2c450a92bf6add274875728b9a99675eed8e03ba6e616a",
+    "osm_13_2766_4936.pbf": "4119bdac44f9267009f2adf510ec31b993105143da87c54a8fa529f2aa4c9321",
+    "osm_13_2767_4936.pbf": "1bdcc8d8e460d7594a698aea29ba87e07b3ffd29a38ac7c1225bc1150cbc742d",
+    "osm_13_2767_4935.pbf": "5fa603189fe96cfbc29a874abdc671dc72428f7c6a13b5901ff209506f5b24df",
+    "osm_13_2766_4935.pbf": "6fdb32d6968692c5adb9063c15083d870f7adeef44b7a617d704bea87b8d0eca"
+  },
+  "urls": {
+    "osm_13_2768_4936.pbf": "https://tiles.openfreemap.org/planet/latest/13/2768/4936.pbf",
+    "osm_13_2768_4935.pbf": "https://tiles.openfreemap.org/planet/latest/13/2768/4935.pbf",
+    "curated_5_10_22.bin": "http://localhost:4420/data/geo-tiles/curated/5/10_22.bin",
+    "manifest.json": "http://localhost:4420/data/geo-tiles/manifest.json",
+    "0_0_0.bin": "http://localhost:4420/data/geo-tiles/0/0_0.bin",
+    "osm_13_2766_4936.pbf": "https://tiles.openfreemap.org/planet/latest/13/2766/4936.pbf",
+    "osm_13_2767_4936.pbf": "https://tiles.openfreemap.org/planet/latest/13/2767/4936.pbf",
+    "osm_13_2767_4935.pbf": "https://tiles.openfreemap.org/planet/latest/13/2767/4935.pbf",
+    "osm_13_2766_4935.pbf": "https://tiles.openfreemap.org/planet/latest/13/2766/4935.pbf"
+  }
+}

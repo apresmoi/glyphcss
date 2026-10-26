@@ -139,7 +139,6 @@ const tower: GlyphMapVectorFeature = {
   properties: { render_height: BUILDING_M },
 };
 
-const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
 const rows = (map: { scene: { output: { textContent: string | null } } }): string[] => (map.scene.output.textContent ?? "").split("\n");
 
 function changedCells(before: readonly string[], after: readonly string[]): { row: number; col: number }[] {
@@ -184,7 +183,7 @@ async function mountScene(light: V3, opts: { exaggeration?: number; heightM?: nu
     type: "fill-extrusion", id: "tower", color: BUILDING_COLOR, heightProperty: "render_height",
     source: { features: [{ ...tower, properties: { render_height: height } }] },
   });
-  await settle();
+  await map.idle();
   map.scene.rerender();
   return { map, projection, height };
 }
@@ -219,7 +218,7 @@ async function mountTowers(light: V3, towers: [number, number, number][]) {
       })),
     },
   });
-  await settle();
+  await map.idle();
   map.scene.rerender();
   return { map, projection };
 }
@@ -412,7 +411,7 @@ describe("createGlyphMap — a building casts onto the ground it stands on", () 
     mounted.push(map);
     map.addLayer({ type: "raster", id: "terrain", source: flatTerrain(400) });
     map.addLayer({ type: "fill-extrusion", id: "tower", source: { features: [tower] }, color: BUILDING_COLOR, heightProperty: "render_height" });
-    await settle();
+    await map.idle();
     map.scene.rerender();
     const cells = shadowCells(map);
     expect(cells.length).toBeGreaterThan(0);
@@ -578,7 +577,7 @@ describe("createGlyphMap — a HEADLIGHT key light hides every shadow behind its
         type: "fill-extrusion", id: "tower", color: BUILDING_COLOR, heightProperty: "render_height",
         source: { features: [tower] },
       });
-      await settle();
+      await map.idle();
       map.scene.rerender();
       return map;
     };

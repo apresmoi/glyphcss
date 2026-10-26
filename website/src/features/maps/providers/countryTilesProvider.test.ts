@@ -28,7 +28,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "@glyphcss/maps";
-import { glyphMapEquirectangular, glyphMapGlobe } from "@glyphcss/maps";
+import { glyphMapEquirectangular, glyphMapGlobe, glyphMapTargetLOD, glyphMapDegreesPerCell } from "@glyphcss/maps";
 import {
   COUNTRY_PRIORITY_PROPERTY,
   COUNTRY_TILE_LAYERS,
@@ -256,18 +256,18 @@ describe("symbol layer — country labels from the baked country pyramid", () =>
 });
 
 describe("circle layer — countries sized by a real measured quantity", () => {
-  it("sizes each dot from the baked pop_scale column, so a populous country reads bigger", async () => {
+  const MARK = /[·•●]/g;
+  const marks = (map: { scene: { output: { textContent: string | null } } }): number => (map.scene.output.textContent?.match(MARK) ?? []).length;
+
+  it("stamps each country as a glyph in the grid — no DOM dot — with a real magnitude behind its radius", async () => {
     const { host, map, provider, teardown } = await mount();
     try {
       map.addLayer({
         type: "circle", id: "circle", source: provider, sourceLayer: "countries",
         radiusProperty: "pop_scale", radiusScale: 9, radius: 2, color: "#f59e0b",
       });
-      await vi.waitFor(() => expect(host.querySelectorAll(".glyph-map-circle").length).toBeGreaterThan(20));
-      const widths = [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")].map((el) => parseFloat(el.style.width));
-      expect(widths.every((w) => Number.isFinite(w) && w > 0)).toBe(true);
-      // A real magnitude, not one uniform dot per country.
-      expect(new Set(widths).size).toBeGreaterThan(5);
+      await vi.waitFor(() => expect(marks(map)).toBeGreaterThan(20));
+      expect(host.querySelectorAll(".glyph-map-circle")).toHaveLength(0);
 
       const tile = await provider.loadTile(0, 0, 0);
       const byName = new Map((tile.layers.countries ?? []).map((f) => [String(f.properties?.name), f]));
@@ -277,46 +277,63 @@ describe("circle layer — countries sized by a real measured quantity", () => {
     } finally { teardown(); }
   });
 
-  it("hides a far-side country dot on the globe through the same projection.visible path the labels use", async () => {
-    const { host, map, provider, teardown } = await mount({
-      view: { center: [10, 50], span: 160, cols: COLS, rows: ROWS },
-      projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }),
-    });
+  /**
+   * The bake is PROGRESSIVE: z0 carries 94 countries, z1 139, z2 178 — each
+   * level is a different, larger set, not the same features repeated across
+   * tiles (checked: no name appears twice within any level). A view that
+   * resolves to z1 therefore draws more marks than z0 has countries, which
+   * is correct. The expectation below is built from the level the sweep
+   * actually chose.
+   */
+  it("hides far-side country marks on the globe, through the real provider and sourceLayer", async () => {
+    const view = { center: [10, 50] as [number, number], span: 160, cols: COLS, rows: ROWS };
+    const { map, provider, teardown } = await mount({ view, projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }) });
     try {
-      map.addLayer({
-        type: "circle", id: "circle", source: provider, sourceLayer: "countries",
-        radiusProperty: "pop_scale", radiusScale: 9, radius: 2, color: "#f59e0b",
-      });
-      await vi.waitFor(() => expect(host.querySelectorAll(".glyph-map-circle").length).toBeGreaterThan(5));
-      const dots = [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")];
-      // `setHotspotNearSide` writes `visibility: hidden` for a far-side dot;
-      // on a globe half the world's countries sit behind the limb.
-      await vi.waitFor(() => {
-        const hidden = dots.filter((el) => el.style.visibility === "hidden");
-        expect(hidden.length).toBeGreaterThan(0);
-        expect(hidden.length).toBeLessThan(dots.length);
-      });
+      // A flat 2px radius is one cell per country, so the mark count IS the
+      // number of distinct cells holding a visible country.
+      map.addLayer({ type: "circle", id: "circle", source: provider, sourceLayer: "countries", radius: 2, color: "#f59e0b" });
+      await map.idle();
+      map.scene.rerender();
+      const lod = glyphMapTargetLOD(provider, glyphMapDegreesPerCell(view));
+      const level = provider.zooms.find((z) => z.z === lod)!;
+      const cells = new Set<string>();
+      let behind = 0;
+      for (let y = 0; y < level.rows; y++) for (let x = 0; x < level.cols; x++) {
+        for (const f of (await provider.loadTile(lod, x, y)).layers.countries ?? []) {
+          const [lon, lat] = f.rings[0]![0]!;
+          const at = map.project([lon, lat]);
+          if (!at.visible) { behind++; continue; }
+          const col = Math.floor(at.col), row = Math.floor(at.row);
+          if (col >= 0 && col < COLS && row >= 0 && row < ROWS) cells.add(`${col},${row}`);
+        }
+      }
+      expect(behind).toBeGreaterThan(10);
+      expect(cells.size).toBeGreaterThan(20);
+      expect(marks(map)).toBe(cells.size);
     } finally { teardown(); }
   });
 
-  /**
-   * The discriminator for the test above: a SHEET projection exposes no
-   * `visible` capability at all (every invisible point is already excluded by
-   * `project()` returning NaN), so nothing is hemisphere-hidden there. If the
-   * globe test's hidden dots came from anything other than
-   * `projection.visible`, this would find them here too.
-   */
-  it("hides nothing on a sheet projection, which has no visible() capability", async () => {
-    const { host, map, provider, teardown } = await mount();
+  it("draws a larger rendered disc for a larger pop_scale", async () => {
+    const { map, provider, teardown } = await mount();
     try {
-      map.addLayer({
-        type: "circle", id: "circle", source: provider, sourceLayer: "countries",
-        radiusProperty: "pop_scale", radiusScale: 9, radius: 2, color: "#f59e0b",
-      });
-      await vi.waitFor(() => expect(host.querySelectorAll(".glyph-map-circle").length).toBeGreaterThan(20));
-      const dots = [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")];
-      expect(dots.filter((el) => el.style.visibility === "hidden")).toHaveLength(0);
-      void map;
+      const countries = (await provider.loadTile(0, 0, 0)).layers.countries ?? [];
+      const scale = (name: string) => Number(countries.find((f) => f.properties?.name === name)!.properties?.pop_scale);
+      expect(scale("China")).toBeGreaterThan(scale("Iceland"));
+      // One country per layer, through the real provider, so the mark count
+      // is that country's own disc and nothing beside it.
+      const discOf = async (name: string): Promise<number> => {
+        const id = map.addLayer({
+          type: "circle", source: provider, sourceLayer: "countries", filter: (f) => f.properties?.name === name,
+          radiusProperty: "pop_scale", radiusScale: 100, radius: 2,
+        });
+        await map.idle();
+        map.scene.rerender();
+        const n = marks(map);
+        map.removeLayer(id);
+        await map.idle();
+        return n;
+      };
+      expect(await discOf("China")).toBeGreaterThan(await discOf("Iceland"));
     } finally { teardown(); }
   });
 });

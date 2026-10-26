@@ -66,7 +66,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
+import { glyphMapGlobe } from "./projection";
 import type { GlyphMapProvider } from "./provider";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
@@ -383,11 +383,7 @@ describe("createGlyphMap — a building occludes a road passing under it", () =>
     // `widget.strokeDrape.test.ts` for the derivation of this expression and
     // for why the ground has to be small enough to stay on a 63-row
     // viewport (10 m is already 16 rows at 24x; 400 m would be 2,000).
-    const near = map.project([CENTRE[0], CENTRE[1]]);
-    const far = map.project([CENTRE[0] + 180, -CENTRE[1]]);
-    const originRow = (near.row + far.row) / 2;
-    const k = 1 + (GROUND_M / GLYPH_MAP_EARTH_RADIUS_M) * 24;
-    const roadRow = Math.floor(originRow + k * (near.row - originRow));
+    const roadRow = Math.floor(map.project(CENTRE).row);
     // The road crosses the whole viewport, and the terrain it lies on
     // occludes not one cell of it.
     expect(inkedColumns(before, after, roadRow).length).toBeGreaterThan(100);

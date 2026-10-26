@@ -33,7 +33,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
+import { glyphMapGlobe } from "./projection";
 import type { GlyphMapGeoTile } from "./tile";
 import type { GlyphMapVectorFeature } from "./vector/types";
 
@@ -110,11 +110,9 @@ function mount(window: Record<string, number>) {
 }
 
 function groundRowFor(map: ReturnType<typeof createGlyphMap>, lon: number, lat: number, elevM: number): number {
-  const near = map.project([lon, lat]);
-  const far = map.project([lon + 180, -lat]);
-  const originRow = (near.row + far.row) / 2;
-  const k = 1 + (elevM / GLYPH_MAP_EARTH_RADIUS_M) * EXAGGERATION;
-  return originRow + k * (near.row - originRow);
+  const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
+  return map.scene.camera.project(projection.project(lon, lat, elevM), COLS, ROWS, CELL_H / CELL_W,
+    { cellWidth: CELL_W, cellHeight: CELL_H })[1];
 }
 
 async function settleFrames(map: { scene: { rerender(): void; output: { textContent: string | null } } }): Promise<void> {

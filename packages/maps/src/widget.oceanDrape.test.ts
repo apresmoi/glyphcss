@@ -357,6 +357,27 @@ function holeCells(text: string): [number, number][] {
   return out;
 }
 
+/** Ocean crack oracles intersect sea level; the widget inverse now intersects terrain. */
+function seaLevelAtCell(map: ReturnType<typeof createGlyphMap>, col: number, row: number): readonly [number, number] | null {
+  const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
+  const screen = (lon: number, lat: number) => map.scene.camera.project(projection.project(lon, lat, 0), COLS, ROWS, CELL_H / CELL_W,
+    { cellWidth: CELL_W, cellHeight: CELL_H });
+  let [lon, lat] = map.getView().center;
+  const eps = 1e-4;
+  for (let i = 0; i < 16; i++) {
+    const p = screen(lon, lat), x = screen(lon + eps, lat), y = screen(lon, lat + eps);
+    const dc = col - p[0], dr = row - p[1];
+    if (Math.hypot(dc, dr) < 1e-4) return [lon, lat];
+    const ax = (x[0] - p[0]) / eps, ay = (x[1] - p[1]) / eps;
+    const bx = (y[0] - p[0]) / eps, by = (y[1] - p[1]) / eps;
+    const det = ax * by - ay * bx;
+    if (!Number.isFinite(det) || Math.abs(det) < 1e-9) return null;
+    lon += (dc * by - dr * bx) / det;
+    lat += (dr * ax - dc * ay) / det;
+  }
+  return null;
+}
+
 describe("an ocean `fill` stands at the datum, not on the seabed", () => {
   it("puts every ocean cap vertex at sea level instead of on the bathymetry", () => {
     const projection = glyphMapGlobe({ exaggeration: EXAGGERATION });
@@ -482,7 +503,7 @@ describe("an ocean `fill` stands at the datum, not on the seabed", () => {
       expect(rendered.text.replace(/[\s\n]/g, "").length).toBeGreaterThan(2000);
       const out: string[] = [];
       for (const [col, row] of holeCells(rendered.text)) {
-        const lonLat = rendered.map.unproject([col, row]);
+        const lonLat = seaLevelAtCell(rendered.map, col, row);
         if (lonLat && isOpenWater(ocean, lonLat[0], lonLat[1])) out.push(`${col},${row}@${lonLat[0].toFixed(2)},${lonLat[1].toFixed(2)}`);
       }
       return out;

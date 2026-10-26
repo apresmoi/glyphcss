@@ -223,42 +223,31 @@ describe("symbol layer — city labels from a baked point pyramid", () => {
   });
 });
 
-describe("circle layer — radius from a real population column", () => {
-  it("radiusScale converts a normalized attribute into a pixel radius", async () => {
-    const { host, teardown } = mount({
+describe("circle layer — glyph discs stamped into the grid", () => {
+  const MARK = /[·•●]/g;
+  const marks = (map: { scene: { output: { textContent: string | null } } }): number => (map.scene.output.textContent?.match(MARK) ?? []).length;
+
+  it("draws a city as text in the grid, not as a DOM dot", async () => {
+    const { host, map, teardown } = mount({
       layers: [{ type: "circle", source: placeProvider([ZURICH]), sourceLayer: "places", radiusProperty: "pop_scale", radiusScale: 15, color: "#f59e0b" }],
     });
     try {
-      await vi.waitFor(() => expect(host.querySelectorAll(".glyph-map-circle")).toHaveLength(1));
-      const dot = host.querySelector<HTMLElement>(".glyph-map-circle")!;
-      // 0.6 * 15 = 9px radius -> an 18px box.
-      expect(dot.style.width).toBe("18px");
-      expect(dot.style.height).toBe("18px");
-      expect(dot.style.visibility).not.toBe("hidden");
-    } finally { teardown(); }
-  });
-
-  it("without radiusScale the raw attribute is the radius — the pre-existing contract, unchanged", async () => {
-    const { host, teardown } = mount({
-      layers: [{ type: "circle", source: placeProvider([ZURICH]), sourceLayer: "places", radiusProperty: "pop_scale" }],
-    });
-    try {
-      await vi.waitFor(() => expect(host.querySelectorAll(".glyph-map-circle")).toHaveLength(1));
-      // 0.6 -> clamped to the 1px floor -> a 2px box.
-      expect(host.querySelector<HTMLElement>(".glyph-map-circle")!.style.width).toBe("2px");
+      await vi.waitFor(() => expect(marks(map)).toBeGreaterThan(0));
+      expect(host.querySelectorAll(".glyph-map-circle")).toHaveLength(0);
+      expect(host.querySelectorAll(".glyph-hotspot")).toHaveLength(0);
     } finally { teardown(); }
   });
 
   it("hides a far-side city on the globe — keyed on ROWS, since a far-side point shares its twin's column", async () => {
     const north: Place = { ...ZURICH, name: "North", lon: 0, lat: 30 };
     const south: Place = { ...ZURICH, name: "South", lon: 180, lat: -30 };
-    const { host, map, teardown } = mount({
+    const { map, teardown } = mount({
       view: { center: [0, 0], span: 160, cols: COLS, rows: ROWS },
       projection: glyphMapGlobe({ radius: 1, exaggeration: 0 }),
       layers: [{ type: "circle", source: placeProvider([north, south]), sourceLayer: "places", radiusProperty: "pop_scale", radiusScale: 10 }],
     });
     try {
-      await vi.waitFor(() => expect(host.querySelectorAll(".glyph-map-circle")).toHaveLength(2));
+      await vi.waitFor(() => expect(marks(map)).toBeGreaterThan(0));
       // The fixture's own premise: same column, different rows.
       const a = map.project([0, 30]);
       const b = map.project([180, -30]);
@@ -266,8 +255,12 @@ describe("circle layer — radius from a real population column", () => {
       expect(Math.round(a.row)).not.toBe(Math.round(b.row));
       expect(a.visible).toBe(true);
       expect(b.visible).toBe(false);
-      const shown = [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")].filter((el) => el.style.visibility !== "hidden");
-      expect(shown).toHaveLength(1);
+      // The tiny radius makes each visible city exactly one cell, so a
+      // far-side mark that leaked would make this 2.
+      const rows = (map.scene.output.textContent ?? "").split("\n");
+      const inked = (row: number) => (rows[Math.round(row)]?.match(MARK) ?? []).length;
+      expect(inked(a.row)).toBeGreaterThan(0);
+      expect(inked(b.row)).toBe(0);
     } finally { teardown(); }
   });
 });

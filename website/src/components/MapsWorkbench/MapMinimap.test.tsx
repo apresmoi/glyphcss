@@ -82,6 +82,7 @@ function node(pose: Pose = {}) {
       walking={pose.walking ?? true}
       source={SOURCE}
       projectionId="globe"
+      colorEncoding="atlas"
       centerLon={pose.lon ?? LON}
       centerLat={pose.lat ?? LAT}
       bearing={pose.bearing ?? 0}

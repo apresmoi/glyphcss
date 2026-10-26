@@ -1,0 +1,75 @@
+{
+  "view": {
+    "center": [
+      -58.3918,
+      -34.5919
+    ],
+    "span": 0.0475,
+    "tilt": 0,
+    "exaggeration": 24
+  },
+  "zooms": [
+    {
+      "z": 0,
+      "cols": 1,
+      "rows": 1,
+      "tileLonSpan": 360,
+      "tileLatSpan": 180,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 1,
+      "cols": 2,
+      "rows": 2,
+      "tileLonSpan": 180,
+      "tileLatSpan": 90,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 2,
+      "cols": 4,
+      "rows": 4,
+      "tileLonSpan": 90,
+      "tileLatSpan": 45,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 3,
+      "cols": 8,
+      "rows": 8,
+      "tileLonSpan": 45,
+      "tileLatSpan": 22.5,
+      "tileCols": 180,
+      "tileRows": 90
+    },
+    {
+      "z": 4,
+      "cols": 16,
+      "rows": 16,
+      "tileLonSpan": 22.5,
+      "tileLatSpan": 11.25,
+      "tileCols": 180,
+      "tileRows": 90
+    }
+  ],
+  "source": "etopo1",
+  "sampler": "nearest",
+  "attribution": [
+    {
+      "name": "NOAA NCEI (ETOPO1)",
+      "url": "https://www.ngdc.noaa.gov/mgg/global/",
+      "license": "Public domain",
+      "date": "2009"
+    }
+  ],
+  "origin": "Verbatim local baked website/public/data/geo-tiles tiles; Houston uses 4/3_5.bin. BA roads download was blocked; BA test routes are synthetic. Houston uses the existing real OpenFreeMap z14-3851-6772-hide3d.mvt fixture.",
+  "sha256": {
+    "terrain/houston_4_3_5.bin": "a4f79396e6a175b988b50ab8083bc3389587f094eefea049ea18eba8b4b33a0f",
+    "terrain/4_5_11.bin": "4c75a8c6d13c7da4803a9a4a0b1e4d42c0472ba4be970a313313e067efdb4329",
+    "terrain/0_0_0.bin": "7fc89dd09fd699ca2b2c450a92bf6add274875728b9a99675eed8e03ba6e616a",
+    "terrain/3_2_5.bin": "2144d2c550b7fba9cddae9719d1b7236fb3b08afb7f612b9fc859acc9c2d33f9"
+  }
+}

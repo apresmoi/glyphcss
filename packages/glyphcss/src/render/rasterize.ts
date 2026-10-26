@@ -2662,7 +2662,10 @@ function rasterizeSolid(
       // shadeCache (lazily filled by positional triangle index). On a camera-
       // only change (orbit/zoom drag) every populated entry is a hit; the scene
       // clears the cache when geometry, light, or shading options change.
-      const shadeCacheHit = shadeCache !== null && shadeCache.iA[triT] !== undefined;
+      // Occupancy is the `filled` flag, never the values (a stored NaN is a hit); a
+      // slot at or past the capacity can neither hit nor be written.
+      const shadeCacheInRange = shadeCache !== null && triT < shadeCache.iA.length;
+      const shadeCacheHit = shadeCacheInRange && shadeCache!.filled[triT] === 1;
       let fnxN = 0, fnyN = 0, fnzN = 0;
       if (normalBuf !== null || !shadeCacheHit) {
         // An AUTHORED shading normal (`Polygon.shadingNormal`) wins over the
@@ -2782,12 +2785,13 @@ function rasterizeSolid(
           litColor = cached;
         }
 
-        if (shadeCache !== null) {
+        if (shadeCacheInRange && shadeCache !== null) {
+          shadeCache.filled[triT] = 1;
           shadeCache.iA[triT] = iA;
           shadeCache.iB[triT] = iB;
           shadeCache.iC[triT] = iC;
           shadeCache.lit[triT] = litColor;
-          // Only reached on a MISS, so this index was undefined a line ago —
+          // Only reached on a MISS, so this slot was unfilled a line ago —
           // which is what makes the journal a complete undo log. See
           // `ShadeCache.journal`.
           if (shadeCache.journal !== undefined) shadeCache.journal.push(triT);
@@ -4940,7 +4944,7 @@ function computeVertexNormals(polygons: Polygon[], creaseAngleDeg: number): Vec3
  *
  * The STRUCTURAL encodability test runs BEFORE the palette resolves, not
  * after. Resolving first means a permanently-unencodable grid (an out-of-atlas
- * ramp glyph, `charMode: "braille"`) still feeds the pooled quantizer, still
+ * ramp glyph) still feeds the pooled quantizer, still
  * repools on its refresh window, and still republishes `@font-palette-values`
  * for a palette no `<pre>` will ever reference.
  */

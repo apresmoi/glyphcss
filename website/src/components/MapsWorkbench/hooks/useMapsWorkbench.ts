@@ -57,6 +57,9 @@ import {
   type MapOsmAnchors,
   createOsmSource,
   MAP_OSM_DEFAULT_ANCHOR,
+  MAP_CONTOUR_GENERALIZE,
+  MAP_CONTOUR_LABEL_EVERY,
+  MAP_LINE_STRATEGY,
   MAP_OSM_DEFAULT_DENSITY,
   MAP_OSM_SUBLAYERS,
   mapOsmAnchorRecord,
@@ -153,7 +156,11 @@ import {
   type LayerSliderSpec,
   logHeightSliderSpec,
 } from "../LayersPanel";
+import { createViewSyncThrottle } from "./viewSyncThrottle";
 import { useWalkInput } from "./useWalkInput";
+
+/** The dock's readout rate while the map moves; 5 Hz reads as live without re-rendering per frame. */
+const VIEW_SYNC_INTERVAL_MS = 200;
 
 export function useMapsWorkbench() {
   const initial = useMemo(() => readInitialMapsState(), []);
@@ -1078,6 +1085,13 @@ export function useMapsWorkbench() {
 
   const [sunHour, setSunHour] = useState(initial.sunHour);
 
+  const [compositorPan, setCompositorPan] = useState(initial.compositorPan);
+  const compositorPanRef = useRef(compositorPan);
+  compositorPanRef.current = compositorPan;
+  const [snapPan, setSnapPan] = useState(initial.snapPan);
+  const snapPanRef = useRef(snapPan);
+  snapPanRef.current = snapPan;
+
   // ── Cast shadows, off by default. Whatever aims the key light above also
   //    casts them — the widget reads ONE `directionalLight.direction`, so
   //    there is nothing here to keep in step with the sun.
@@ -1328,6 +1342,8 @@ export function useMapsWorkbench() {
 
     const map = createGlyphMap(host, {
       view,
+      snapPan: snapPanRef.current,
+      compositorPan: compositorPanRef.current,
       projection,
       autoSize: true,
       tilt,
@@ -1369,6 +1385,9 @@ export function useMapsWorkbench() {
                 source: vectorProvider,
                 color: borderColorRef.current,
                 density: borderDensityRef.current,
+                simplify: "vw" as const,
+                sharedArcs: true,
+                experimentalGlyphStrategy: MAP_LINE_STRATEGY,
               },
             ]
           : []),
@@ -1397,20 +1416,14 @@ export function useMapsWorkbench() {
     });
     mapRef.current = map;
 
-    // Throttled to one animation frame. The widget emits `move`/`zoom` per
+    // Throttled to VIEW_SYNC_INTERVAL_MS. The widget emits `move`/`zoom` per
     // input event and per animation step, and this pushes six pieces of
-    // React state — so unthrottled it re-rendered the whole workbench on
-    // every one of them, measured at 3.8 ms/frame of non-render script
-    // during a continuous globe rotation (`bench/maps-render`). One sync per
-    // displayed frame is all a readout can show anyway.
-    let viewSyncFrame: number | null = null;
-    function requestViewSync(): void {
-      if (viewSyncFrame !== null) return;
-      viewSyncFrame = requestAnimationFrame(() => {
-        viewSyncFrame = null;
-        syncViewState();
-      });
-    }
+    // React state and rewrites the URL — so unthrottled it re-rendered the
+    // whole workbench on every one of them (3.8 ms/frame during a globe
+    // rotation, `bench/maps-render`; still ~10% of a drag frame at one sync
+    // per frame). A trailing sync always lands the exact final view.
+    const viewSync = createViewSyncThrottle(() => syncViewState(), VIEW_SYNC_INTERVAL_MS);
+    const requestViewSync = viewSync.request;
     function syncViewState(): void {
       const v = map.getView();
       // Every field off ONE readout of the live widget (`mapsView.ts`), so
@@ -1479,7 +1492,7 @@ export function useMapsWorkbench() {
       down.add(e.pointerId);
     };
     const onMove = (): void => {
-      if (down.size === 0 || dragging) return;
+      if (down.size === 0 || dragging || map.getCompositorPan()) return;
       dragging = true;
       map.scene.setInteracting(true);
       applyDensity(true);
@@ -1502,7 +1515,7 @@ export function useMapsWorkbench() {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      if (viewSyncFrame !== null) cancelAnimationFrame(viewSyncFrame);
+      viewSync.cancel();
       map.off("move", requestViewSync);
       map.off("zoom", requestViewSync);
       map.destroy();
@@ -1633,6 +1646,9 @@ export function useMapsWorkbench() {
         source: vectorProvider,
         color: borderColor,
         density: borderDensity,
+        simplify: "vw",
+        sharedArcs: true,
+        experimentalGlyphStrategy: MAP_LINE_STRATEGY,
       });
     }
     map.scene.rerender();
@@ -1666,6 +1682,9 @@ export function useMapsWorkbench() {
           maxElevation: contourMaxElevation,
           labels: contourLabels,
         }),
+        experimentalGlyphStrategy: MAP_LINE_STRATEGY,
+        generalize: MAP_CONTOUR_GENERALIZE,
+        labelEvery: MAP_CONTOUR_LABEL_EVERY,
       });
     }
     map.scene.rerender();
@@ -1681,6 +1700,10 @@ export function useMapsWorkbench() {
     contourMaxElevation,
     contourLabels,
     provider,
+    // The map is rebuilt when the vector pyramid lands, and the rebuild's own
+    // layer list carries no contour: without this a link opened with contours
+    // on drew none until the toggle was flipped.
+    vectorProvider,
   ]);
 
   // ── The demo layers.
@@ -1836,6 +1859,8 @@ export function useMapsWorkbench() {
   //    widget's own sweep then streams whatever the current view is looking
   //    at, so there is nothing to preload and nowhere to fly to: enabling the
   //    card over the Pacific draws the Pacific.
+  //    The complete water row also owns land/sea classification inside its
+  //    committed tile coverage; removing it restores the DEM's sea colours.
   //
   //    `mapOsmLayers` hands back ready-to-mount layers whose `source` already
   //    carries the ODbL OpenStreetMap credit, so `map.getAttributions()`
@@ -2054,6 +2079,15 @@ export function useMapsWorkbench() {
     mapRef.current?.setShadow(shadows ? {} : null);
   }, [shadows]);
 
+  useEffect(() => {
+    mapRef.current?.setSnapPan(snapPan);
+  }, [snapPan]);
+
+  useEffect(() => {
+    mapRef.current?.setCompositorPan(compositorPan);
+    if (compositorPan) applyDensity(false);
+  }, [compositorPan]);
+
   // ── Lighting -> `scene.setOptions()`. ──────────────────────────────────
   //    `map.getKeyLightDirection()` is read FRESH here rather than cached:
   //    when the widget owns the direction — the sun on an orbit projection,
@@ -2257,6 +2291,8 @@ export function useMapsWorkbench() {
       ambientColor: lighting.ambientColor,
       sunMode,
       shadows,
+      snapPan,
+      compositorPan,
       sunDay,
       sunHour,
       contourFloor: contourMinElevation ?? MAPS_CONTOUR_WINDOW_OFF.min,
@@ -2341,6 +2377,8 @@ export function useMapsWorkbench() {
     sunDay,
     sunHour,
     shadows,
+    snapPan,
+    compositorPan,
     contourMinElevation,
     contourMaxElevation,
     terrainMinElevation,
@@ -2484,6 +2522,8 @@ export function useMapsWorkbench() {
         sunDay,
         sunHour,
         shadows,
+        snapPan,
+        compositorPan,
         showTerrain,
         terrainDensity,
         terrainMinElevation,
@@ -2525,6 +2565,8 @@ export function useMapsWorkbench() {
       sunDay,
       sunHour,
       shadows,
+      snapPan,
+      compositorPan,
       showTerrain,
       terrainDensity,
       terrainMinElevation,
@@ -2576,6 +2618,10 @@ export function useMapsWorkbench() {
     onSpanChange,
     onTilt,
     onBearing,
+    snapPan,
+    compositorPan,
+    setSnapPan,
+    setCompositorPan,
     charMode,
     charModeReason,
     wireframeJunctions,

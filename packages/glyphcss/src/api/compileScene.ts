@@ -95,7 +95,7 @@ export interface CompileSceneOptions {
    * Font atlas `colorEncoding: "atlas"` encodes against — the universal
    * `GLYPH_FONT_ATLAS` by default, or `GLYPH_FONT_ATLAS_ASCII` for an
    * all-ASCII scene that wants the 68-slot palette axis instead of the
-   * 212-glyph one. Pure configuration, exactly like `charMode`, so a build-time
+   * universal glyph axis. Pure configuration, exactly like `charMode`, so a build-time
    * bake can target either variant rather than being pinned to the default.
    *
    * The `@font-face` a caller must supply itself (see `colorEncoding` above)

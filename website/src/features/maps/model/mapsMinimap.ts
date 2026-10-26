@@ -33,6 +33,7 @@ import {
   type GlyphMapLayer,
   type GlyphMapVectorSource,
 } from "@glyphcss/maps";
+import { MAP_OSM_LINE_OPTIONS } from "./mapsOsm";
 
 /** Metres per degree of great circle — the same conversion `mapsWalk.ts` states, so one page speaks one unit. */
 const METRES_PER_DEGREE = (Math.PI / 180) * 6_371_000;
@@ -262,7 +263,7 @@ export function mapMinimapLayers(source: GlyphMapVectorSource): readonly GlyphMa
       color: s.color,
     };
   }
-  function minimapLine(specId: string, id: string): GlyphMapLayer {
+  function minimapLine(specId: "omt-roads", id: string): GlyphMapLayer {
     const s = spec(specId);
     return {
       type: "line",
@@ -270,7 +271,9 @@ export function mapMinimapLayers(source: GlyphMapVectorSource): readonly GlyphMa
       source,
       sourceLayer: s.sourceLayer,
       filter: glyphMapOpenMapTilesFeatureFilter({ geometry: s.geometry, classes: s.classes }),
-      color: s.color,
+      // The page's own line stack (glyph strategy, live thinning, class
+      // palette), so the inset draws streets the way the map does.
+      ...MAP_OSM_LINE_OPTIONS[specId],
     };
   }
 }

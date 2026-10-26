@@ -961,14 +961,16 @@ describe("createGlyphMap — layers", () => {
     map.destroy(); host.remove();
   });
 
-  it("mounts symbol labels with greedy declutter and attribute-sized circles", () => {
+  it("mounts symbol labels with greedy declutter and glyph circles", () => {
     const { host, map } = mountFlat({ layers: [
       { type: "symbol", source: pointSource, textProperty: "name", priorityProperty: "population_rank" },
       { type: "circle", source: pointSource, radiusProperty: "population", color: "#ff00ff" },
     ] });
     expect(host.querySelectorAll(".glyph-map-symbol")).toHaveLength(2);
     expect([...host.querySelectorAll<HTMLElement>(".glyph-map-symbol")].filter((el) => el.style.opacity === "1")).toHaveLength(1);
-    expect(host.querySelector<HTMLElement>(".glyph-map-circle")?.style.width).toBe("16px");
+    // The circle is grid text now: no element, one stamped mark per cell.
+    expect(host.querySelector(".glyph-map-circle")).toBeNull();
+    expect(map.scene.output.textContent).toMatch(/[·•●]/);
     map.destroy(); host.remove();
   });
 
@@ -984,21 +986,18 @@ describe("createGlyphMap — layers", () => {
     map.destroy(); host.remove();
   });
 
-  it("hides far-side globe circles on every marker sync", () => {
+  it("hides far-side globe circles, and shows them again when the view turns", () => {
     const source = { features: [
       { geometryType: "point" as const, properties: { name: "front" }, rings: [[[0, 0] as const]] },
-      { geometryType: "point" as const, properties: { name: "back" }, rings: [[[180, 0] as const]] },
     ] };
     const { host, map } = mountFlat({ projection: glyphMapGlobe(), layers: [{ type: "circle", source }] });
-    const circles = [...host.querySelectorAll<HTMLElement>(".glyph-map-circle")];
-    // `visibility`, not `display` — `display` belongs to glyphcss's own
-    // hotspot staging and is rewritten on every committed render (see
-    // `widget.ts`'s `setHotspotNearSide`).
-    expect(circles[0].style.visibility).toBe("");
-    expect(circles[1].style.visibility).toBe("hidden");
+    const marks = () => (map.scene.output.textContent?.match(/[·•●]/g) ?? []).length;
+    expect(host.querySelector(".glyph-map-circle")).toBeNull();
+    expect(marks()).toBe(1);
     map.setView({ center: [180, 0] });
-    expect(circles[0].style.visibility).toBe("hidden");
-    expect(circles[1].style.visibility).toBe("");
+    expect(marks()).toBe(0);
+    map.setView({ center: [0, 0] });
+    expect(marks()).toBe(1);
     map.destroy(); host.remove();
   });
 

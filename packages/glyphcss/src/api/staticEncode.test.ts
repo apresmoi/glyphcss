@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { encodeStaticGlyphHtml } from "./staticEncode";
+import { encodeStaticGlyphHtml, cropGlyphInner, cropGlyphFrames } from "./staticEncode";
 
 // Two lines, two colors (one repeated), with leading + internal + trailing spaces.
 const INNER = `  <span style="color:#ff0000">@@</span> <span style="color:#00ff00">##</span>  \n<span style="color:#ff0000">**</span>   `;
@@ -46,5 +46,27 @@ describe("encodeStaticGlyphHtml", () => {
     const inline = encodeStaticGlyphHtml(repeated, "inline");
     const classes = encodeStaticGlyphHtml(repeated, "classes");
     expect((classes.html.length + classes.css.length)).toBeLessThan(inline.html.length);
+  });
+});
+
+
+describe("supplementary atlas cells in static exports", () => {
+  const braille = String.fromCodePoint(0xf0001);
+
+  it("crops mixed BMP/PUA-A rows in cell coordinates", () => {
+    expect(cropGlyphInner(`  @${braille}  \n   @  `)).toBe(`@${braille}\n @`);
+    const encoded = encodeStaticGlyphHtml(`  @${braille}  \n   @  `, "inline", { crop: true });
+    expect(encoded.html).toBe(`<pre class="glyph-output">@${braille}\n @</pre>`);
+  });
+
+  it("keeps turntable frames at one common cell width", () => {
+    expect(cropGlyphFrames([`  ${braille}  `, "   @ "])).toEqual({ frames: [`${braille} `, " @"], rows: 1 });
+  });
+
+  it("uses one grid track per supplementary code point", () => {
+    const result = encodeStaticGlyphHtml(`<span style="color:#ff0000">${braille}@</span> <span style="color:#0000ff">@</span>`, "grid");
+    expect(result.css).toContain("grid-template-columns:repeat(4,1ch)");
+    expect(result.html).toContain(`grid-area:1/1/auto/span 2">${braille}@`);
+    expect(result.html).toContain("grid-area:1/4/auto/span 1");
   });
 });

@@ -48,10 +48,11 @@ function vertexIndex(tile: GlyphMapGeoTile, col: number, row: number): number {
 }
 
 /**
- * Bilinear elevation at an arbitrary geographic point, read from the tile's
- * own VERTEX grid — the surface {@link glyphMapPolygons} actually builds, so
- * an annotation of the terrain (a `contour` layer, a heatmap's ground-hugging
- * relief) reads exactly the field the terrain draws. NaN outside `bounds`.
+ * Triangle-interpolated elevation at an arbitrary geographic point, read from
+ * the tile's own VERTEX grid with the NW–SE diagonal {@link glyphMapPolygons}
+ * emits for the rasterizer's triangle fan. This matches the full-resolution
+ * relief's elevation interpolation before projection; coarsened geometry
+ * and globe chords still differ from this field. NaN outside `bounds`.
  *
  * Why this and not `glyphMapFieldValueAt` over a cell-centered field derived
  * from the same tile: adjacent tiles SHARE their edge vertex row/column (the
@@ -110,7 +111,7 @@ export function glyphMapGeoTileElevationAt(
   // innermost leaf (a draped sample reads the ground up to eight times, and a
   // street-level frame takes thousands of samples), so the closure this used
   // to allocate per call was one of the walk trace's larger allocation
-  // sources. Same four reads, same four clamps, same bilinear expression.
+  // sources. Same four reads and same four clamps for either triangle.
   let a: number, b: number, c: number, d: number;
   if (lo === -Infinity && hi === Infinity) {
     a = e[vertexIndex(tile, c0, r0)]!;
@@ -123,7 +124,13 @@ export function glyphMapGeoTileElevationAt(
     c = Math.min(hi, Math.max(lo, e[vertexIndex(tile, c0, r0 + 1)]!));
     d = Math.min(hi, Math.max(lo, e[vertexIndex(tile, c0 + 1, r0 + 1)]!));
   }
-  return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  // A quad is rasterized as NW–SW–SE and NW–SE–NE (reversing its winding
+  // keeps that diagonal). A bilinear patch bows away from those planes:
+  // on BA's z4 tile it puts roads 1.285 m below their own relief, before
+  // exaggeration. Sample the same triangles instead of forgiving that gap.
+  return tx >= ty
+    ? a * (1 - tx) + b * (tx - ty) + d * ty
+    : a * (1 - ty) + c * (ty - tx) + d * tx;
 }
 
 /** Min/max over a tile's vertex elevations — the range an annotation of THIS tile is scaled against. */

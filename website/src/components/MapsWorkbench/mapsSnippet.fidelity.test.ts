@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MAP_SCENE_GLYPH_PALETTE, MAP_SCENE_RENDER_MODE } from "../../features/maps/model/config";
 import { buildMapsSnippet, type MapsSnippetState } from "../../features/maps/export/snippets";
@@ -175,4 +175,61 @@ describe("the snippet carries the scene the page actually builds", () => {
     expect(code).not.toMatch(/glyphMapOpenFreeMapProvider/);
     expect(code).not.toMatch(/minElevation/);
   });
+});
+
+it("exports the pan snapping selected on the page", () => {
+  expect(build({ snapPan: true })).toContain("snapPan: true");
+  expect(build({ compositorPan: true })).toContain("compositorPan: true");
+  expect(build({ compositorPan: false })).not.toContain("compositorPan:");
+  expect(build({ snapPan: false })).not.toContain("snapPan:");
+});
+
+it("exports the OSM box lines, class palette, and live road hierarchy used by the page under ?lines=box", async () => {
+  vi.stubGlobal("location", { search: "?lines=box" });
+  vi.resetModules();
+  try {
+    const { MAP_OSM_LINE_OPTIONS } = await import("../../features/maps/model/mapsOsm");
+    const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
+    const code = buildMapsSnippet({ ...DEFAULTS, osm: { enabled: ["omt-roads"], densities: {}, anchors: {} } });
+    expect(code).toContain(`lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)}`);
+    expect(code).toContain('"experimentalGlyphStrategy":"box"');
+    expect(code).toContain("roadHierarchy: true");
+    expect(code).toContain("waterTerrain: true");
+    expect(code).not.toContain('buildingOutline: "braille"');
+    expect(code).not.toContain("fill: false");
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+});
+
+
+it("exports braille lines and outline-only OSM buildings by default", async () => {
+  vi.stubGlobal("location", { search: "" });
+  vi.resetModules();
+  try {
+    const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
+    const code = buildMapsSnippet({ ...DEFAULTS, osm: { enabled: ["omt-buildings"], densities: {}, anchors: {} } });
+    expect(code).toContain('buildingOutline: "braille"');
+    expect(code).toContain('"experimentalGlyphStrategy":"braille"');
+    expect(code).toContain('.map(layer => layer.type === "fill-extrusion" ? { ...layer, fill: false, blank: true } : layer)');
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
+});
+
+it("exports braille borders and contours by default", async () => {
+  vi.stubGlobal("location", { search: "" });
+  vi.resetModules();
+  try {
+    const { buildMapsSnippet } = await import("../../features/maps/export/snippets");
+    const lines = buildMapsSnippet({ ...DEFAULTS, showBorders: true, showContour: true }).split("\n");
+    expect(lines.find(l => l.includes('type: "line", source: borderProvider'))).toContain('experimentalGlyphStrategy: "braille"');
+    expect(lines.find(l => l.includes('type: "contour"'))).toContain('experimentalGlyphStrategy: "braille"');
+    expect(buildMapsSnippet({ ...DEFAULTS, showContour: true, contourLabels: true })).toContain("labelEvery: 1");
+  } finally {
+    vi.unstubAllGlobals();
+    vi.resetModules();
+  }
 });

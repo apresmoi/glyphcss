@@ -6,6 +6,12 @@ import {
   MAP_SCENE_GLYPH_PALETTE,
   MAP_SCENE_RENDER_MODE,
 } from "../model/config";
+import {
+  MAP_CONTOUR_GENERALIZE,
+  MAP_CONTOUR_LABEL_EVERY,
+  MAP_LINE_STRATEGY,
+  MAP_OSM_LINE_OPTIONS,
+} from "../model/mapsOsm";
 import { mapSunManualInstant } from "../model/lighting";
 
 // Map snippets use the vanilla widget API; the export panel only enables JS.
@@ -68,6 +74,8 @@ export interface MapsSnippetState {
   readonly sunDay: number;
   readonly sunHour: number;
   readonly shadows: boolean;
+  readonly snapPan?: boolean;
+  readonly compositorPan?: boolean;
 
   // ── Per-layer state ─────────────────────────────────────────────────────
   readonly showTerrain: boolean;
@@ -186,12 +194,12 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
       : []),
     ...(state.showBorders
       ? [
-          `    { type: "line", source: borderProvider, color: ${JSON.stringify(state.borderColor)}${optional("density", state.borderDensity, 1)} },`,
+          `    { type: "line", source: borderProvider, color: ${JSON.stringify(state.borderColor)}${optional("density", state.borderDensity, 1)}, simplify: "vw", sharedArcs: true, experimentalGlyphStrategy: ${JSON.stringify(MAP_LINE_STRATEGY)} },`,
         ]
       : []),
     ...(state.showContour
       ? [
-          `    { type: "contour", source: terrainProvider, levels: { interval: ${fmt(state.contourInterval)} }, color: ${JSON.stringify(state.contourColor)}${elevationWindowSource(state.contourMinElevation, state.contourMaxElevation)}${state.contourLabels ? ", labels: true" : ""}${optional("density", state.contourDensity, 1)} },`,
+          `    { type: "contour", source: terrainProvider, levels: { interval: ${fmt(state.contourInterval)} }, color: ${JSON.stringify(state.contourColor)}${elevationWindowSource(state.contourMinElevation, state.contourMaxElevation)}${state.contourLabels ? ", labels: true" : ""}${optional("density", state.contourDensity, 1)}, experimentalGlyphStrategy: ${JSON.stringify(MAP_LINE_STRATEGY)}, generalize: ${MAP_CONTOUR_GENERALIZE}${state.contourLabels ? `, labelEvery: ${MAP_CONTOUR_LABEL_EVERY}` : ""} },`,
         ]
       : []),
     // The OSM stack is ONE call, exactly as the page mounts it
@@ -204,7 +212,7 @@ export function buildMapsSnippet(state: MapsSnippetState): string {
   ].join("\n");
 
   const osmPreamble = state.osm
-    ? `\n// The OpenStreetMap stack — OpenFreeMap's planet (public, no API key),\n// mapped onto glyph layers by @glyphcss/maps' OpenMapTiles schema table.\nconst osmSource = glyphMapOpenFreeMapProvider();\nconst osmLayers = glyphMapOpenMapTilesLayers(osmSource, {\n  include: ${JSON.stringify(state.osm.enabled)},\n  densities: ${JSON.stringify(state.osm.densities)},\n  textAnchors: ${JSON.stringify(state.osm.anchors)},\n});\n`
+    ? `\n// The OpenStreetMap stack — OpenFreeMap's planet (public, no API key),\n// mapped onto glyph layers by @glyphcss/maps' OpenMapTiles schema table.\nconst osmSource = glyphMapOpenFreeMapProvider();\nconst osmLayers = glyphMapOpenMapTilesLayers(osmSource, {\n  include: ${JSON.stringify(state.osm.enabled)},\n  densities: ${JSON.stringify(state.osm.densities)},\n  textAnchors: ${JSON.stringify(state.osm.anchors)},\n  lineOptions: ${JSON.stringify(MAP_OSM_LINE_OPTIONS)},\n  roadHierarchy: true,\n  waterTerrain: true,\n${MAP_LINE_STRATEGY === "braille" ? '  buildingOutline: "braille",\n' : ""}})${MAP_LINE_STRATEGY === "braille" ? '.map(layer => layer.type === "fill-extrusion" ? { ...layer, fill: false, blank: true } : layer)' : ""};\n`
     : "";
 
   const imports = [
@@ -229,7 +237,7 @@ ${osmPreamble}
 const map = createGlyphMap(host, {
   view: { center: [${fmt(state.centerLon)}, ${fmt(state.centerLat)}], span: ${fmt(state.span)}, cols: 160, rows: 64 },
   projection: ${factory}(${projectionArgs}),
-  tilt: ${fmt(state.tilt)},${state.bearing === 0 ? "" : `\n  bearing: ${fmt(state.bearing)},`}${sunSource(state)}${state.shadows ? "\n  shadow: {}," : ""}
+  tilt: ${fmt(state.tilt)},${state.snapPan ? "\n  snapPan: true," : ""}${state.compositorPan ? "\n  compositorPan: true," : ""}${state.bearing === 0 ? "" : `\n  bearing: ${fmt(state.bearing)},`}${sunSource(state)}${state.shadows ? "\n  shadow: {}," : ""}
   autoSize: true,
   controls: { drag: true, wheel: true },
   layers: [

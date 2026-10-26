@@ -125,7 +125,9 @@ export const DATASET_DENSITY_TITLES: Record<string, (label: string) => string> =
   symbol: (label) =>
     `${label} — positioned labels rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
   circle: (label) =>
-    `${label} — positioned markers rather than geometry, so this row has no density: nothing in the renderer reads one for it.`,
+    `${label} — glyph discs stamped into the text grid, so this row has no density: nothing in the renderer reads one for it.`,
+  glyph: (label) =>
+    `${label} — one mark per point in the text grid, so this row has no density: nothing in the renderer reads one for it.`,
 };
 
 /**

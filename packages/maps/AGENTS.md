@@ -1,53 +1,62 @@
 # @glyphcss/maps agent guide
 
-Geographic data → glyphcss: `source → sample → field → classify → bands → compile`, relief meshes, vector layers, and `createGlyphMap` (the interactive widget). Root entry is pure and browser-safe; `@glyphcss/maps/node` holds fs readers (never `gdal-async`). No React/Vue surface.
+`createGlyphMap` and geodata. Browser-safe; fs in `./node`, never `gdal-async`. No React/Vue API.
 
-Docs: `README.md` (package reference), `website/src/content/docs/maps/**` (user docs). Rationale for a specific rule lives in the comment next to its code.
+Docs: `README.md`, `website/src/content/docs/maps/**`.
 
 ## Invariants
 
-- Public API speaks lat/lng and degrees; `GlyphMapView` is aspect-locked.
-- Branch on projection CAPABILITY (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
-- Crop, don't clamp: `project()` returns `NaN` outside its window. Sole exception: a `raster` elevation window clamps per vertex.
+- Public API uses lat/lng/degrees; views are aspect-locked. Camera pivots on drawn ground at `view.center` (planting sampler/window; datum fallback); `project`/`unproject`, pan lattices and transition targets share it. Mounts re-anchor before rendering, view unchanged.
+- Branch on capability (`visible`, `cameraForCenter`, `tileRange`), never on `projection.id` or a provider id.
+- Crop, don't clamp: `project()` is `NaN` outside its window, except `raster` elevation windows (clamp per vertex).
 - `project` is the one elevation conversion. Ground is exaggerated; structure heights, altitudes, eye height and lifts are TRUE metres via `glyphMapTrueScaleElevation`.
-- Everything planted uses the one ground source (`groundElevation` option, else mounted raster tiles, else the datum). `null` means datum, never a dropped feature. `contour` is the only exception.
+- Planting: `groundElevation`, else mounted raster tiles, else datum. NW–SE tile triangles clamp per vertex. Still water is level (lowest shore, ≥ datum); rivers max(terrain, datum). `null` is datum; `contour` is exempt.
 - Relief resolution is per pyramid LEVEL, never per tile. Non-target tiers are sunk by `GLYPH_MAP_RELIEF_BACKSTOP_SINK_M`.
-- Every scene write goes before that frame's `scene.rerender()`; input handlers never write to the scene; one motion loop, one render per frame.
-- Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable array identity).
-- Opt-in features are byte-identical when off, each with a test that goes red.
+- Scene writes precede `scene.rerender()`; no scene writes from input handlers; one motion loop/render per frame.
+- Never bake a camera verdict into a mesh; wall/sliver culls run per frame on the mesh's own polygons (`Polygon.hidden`, stable identity).
+- `waterTerrain`: atomic coverage/fill; outside DEM dry ground/classification >=0. Indexed shores; convex merges; floor/colour backstops. No cutout lift, decided from the layer's CURRENT source. Tile-identity cache, 2 ms cancellable prep; removal restores DEM.
+- Extrusion outlines: planted edges, `.`, <2-cell cutoff; frozen depth, unbiased planes, immutable numeric topology, exact replay. `fill:false`: no mesh. `blank:true`: integer-depth mask before edges in all grids; keeps holes/nearer cells.
+- `box` depth-tests against the pre-layer surface, never its own ink. Closed extents <2 cells become one centroid dot; open stubs never do. Paths join accepted cells (gaps split), collapse backtracks, add depth-tested corners only on their own path or unowned cells; remnants drop.
+- `compositorPan`: opt-in ¼-grid overscan, fixed cells; translate scene/hide hotspots. Settle on release/rest/pose/layout changes; refresh at 80% margin/2° orbit. Rebase on render; public grid unchanged; no walk. Under `snapPan` the slide follows `exactPanPose` (sub-cell remainder), frame text stays on the lattice, and `project`/`unproject` answer at the displayed pose, interpolated through the ~100 ms release ease that precedes the settle. Resolution (hierarchy, VW) reads the visible grid (`visibleCols`), never the overscan. A layout change re-measures, never reuses the frame's host dims.
+- `prerender.ts` jobs do a render's camera-only half (stroke plans, outline samples) at a snapshot pose in slices, at rest and from ~37% of margin. A re-anchor is validated against live and renders AT the prepared pose, else one live render. Plans reuse only on an equal key (incl. `filterAtResolution`), one per slot (`anchor`/`rest`/`settle`/`landing`); walk/`groundElevation` never plan.
+- Glide: per-frame Euler stepping is FROZEN, never a closed form: positions and duration depend on frame cadence (`widget.glideTrajectory`). Its end is simulated at the cadence seen (3 frames in) and prepared as `settle` + `landing`; the `snapPan` lattice makes keys hit, else the live path runs.
+- Landings (`renderContent`) own every scheduled scene render until the motion frame, which renders once. A sweep starts one layer per task; its landings render once.
+- Extrusion tile arrival/ground move: mesh + outline topology built sliced (`sliceBuild`), installed whole; a topology compiled ahead is adopted only for identical arrays.
+- `snapPan`: opt-in cell lattice at fixed lens/tilt/bearing/grid; exact held view. Orbit: tangent lattice. Zoom/tilt reset; walk bypasses.
+- Line `sharedArcs: true` dedupes exact polygon edges (either direction) into junction-pinned arcs before live VW; explicit lines stay separate; no snapping of differently sampled edges. An arc carries the properties its contributors agree on. The filter reruns every sweep; topology rebuilds only when the selection changes.
+- Stamp surface reconstruction starts at the rasterizer’s integer cell sample, never an assumed half-cell centre.
+- Line `simplify: "vw"`: latitude-corrected VW at half a live cell, quarter-octave buckets per line/arc, before clipping/draping; keeps endpoints and collapsed rings. Walk keeps detail. Omitted is byte-identical.
 - Walk mode keys on "walk is active" and the local horizon (`nearSideVisible`), never on a widened projection capability.
 - `symbol` label box = arbiter box: anchors, offsets and wraps go through the shared tables.
+- `circle` = the `glyph` stamper with a CSS-pixel radius: `radius / baseGrid.cellHeight` = disc rows, <½ row = one smallest mark; shared cells merge. No `density`/ramp/labels/`onSelect`; only `symbol` is DOM.
+- OMT line styling/hierarchy are opt-in. Hierarchy uses live grid degrees/cell (walk keeps all); palettes fall back to row colour.
 - `/maps` URL row lists are positional: append rows, never insert.
-- No clock or refresh policy in the package; live data goes through `setLayerSource`.
-- Tests settle on `await map.idle()`, never timers or stability polls. Moving-camera probes advance frames to a pose. `vi.waitFor` gets an explicit timeout.
+- Live data: `setLayerSource`, no clock.
+- A sweep whose filtered features are unchanged renders nothing (filters always rerun, extrusions too; only water skips on tiles alone); a groundless `fill` ignores the view.
+- Tests await `map.idle()`, never timers/polls. Probe camera poses; give `vi.waitFor` explicit timeouts.
 
 ## Don't
 
-- Don't forgive stroke/contour/point depth with a flat or slope-scaled bias: forgive only curvature plus ground rise measured in ELEVATION and converted by the projection. Camera depth ramps on flat ground under a pitch, so any depth-unit slack draws roads through low buildings.
-- Don't write a drape lift or bias on the exaggerated axis: 10 m there was 240 true metres at 24x and buried every building. Measure rise and chord sag; the constant is a 1 true-metre tie-break.
-- Don't plant anything on a feature attribute (`ele`, `min_height` as ground): the drawn surface is the terrain sample; `min_height` is a true-metre offset above it.
-- Don't drape the ocean on the DEM: its zero is sea level and below it is seabed, so the sea turns into cliffs. Datum for `ocean` only; lakes keep the drape.
-- Don't separate an opaque layer casually (`density`, a differing `renderMode`/`glyphPalette`, `ambientIntensity`): one makes `computeOcclusionIds` raster the whole scene (~+10 ms); each distinct stroke density adds a full overlay grid.
-- Don't move a camera-following mesh (the walk sky) with `setTransform`: a transformed mesh rebuilds its cull runs every render. Rebuild world-space polygons past a distance threshold.
-- Don't use `projection.visible` or `view.span / cols` under the walk camera: point consumers go through `nearSideVisible`, tiles through the horizon BOX, LOD through the finest level (span-keyed LOD depends on window width and drops buildings on a phone).
-- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing. One rejection blanked whole layers and a contour forever. The raster sweep still has this gap.
-- Don't rebuild point layers on an unchanged sweep, create labels visible then hide them (the consumer's CSS transition flashes every label), or move one by remove+add. Compare tile identity, create at `opacity: 0`, move with `setAt`.
-- Don't give glyphcss shadows their default `lift` (0.05 = 318 km on the globe) or let terrain cast (256 texels across the Earth). A headlight key light shows no shadows at all.
+- Never bias stroke/contour/point depth: forgive only curvature plus projected elevation rise; slope slack draws through buildings.
+- Don't write a drape lift on the exaggerated axis (10 m was 240 true metres at 24x): measure rise and chord sag; the constant is a 1 true-metre tie-break.
+- Don't plant on a feature attribute (`ele`, `min_height`): the drawn surface is the terrain sample; `min_height` is a true-metre offset above it.
+- Ocean DEM is seabed: drape `ocean` at datum; lakes keep the terrain drape.
+- Opaque `density`/`renderMode`/`glyphPalette`/`ambientIntensity` splits cost a whole-scene id raster (~10 ms); each stroke density adds an overlay grid.
+- Don't draw a point as a CSS shape (border-radius dot): output is text only.
+- Don't use `projection.visible` or `view.span / cols` under the walk camera: points use `nearSideVisible`, tiles the horizon BOX, LOD the finest level.
+- Don't let a tile batch's `Promise.all` reject: resolve a failed tile as missing (a rejection blanked layers forever). The raster sweep still has this gap.
+- Don't rebuild `symbol` layers on an unchanged sweep, create labels visible then hide them (CSS flash), or move one by remove+add: compare tile identity, create at `opacity: 0`, `setAt`.
+- Shadows: never default `lift` (0.05 = 318 km) or terrain casting; a headlight key casts none.
 - Don't widen a positional URL tuple (`M`, `J`, `l`, `1`) or insert into a row list: a tuple's width is wire format. Add a new token, appended last.
-- Don't take an OSM schema's names, flags or ranks from its docs: read the vendored tiles. Lakes' `water_name` are lines, flags come as `0`/`1` or present-`true`, and `rank` counts 1 = most important.
+- Read OSM schemas from vendored tiles: `water_name` are lines; flags `0`/`1` or present-`true`; rank 1 first.
 - Don't lerp `camera.zoom` or clamp on landing in a projection transition: schedule apparent size log-linearly, clamp to the destination up front, assign endpoints verbatim.
-- Don't trust `stubMonospaceMetrics` when a test reads `unproject` per cell: it stubs existing `<pre>`s only, so glyphcss's probe falls back to 8x16 and the render disagrees with `unproject`. Stub the prototype.
-- Don't gate an occlusion test on one road direction or with no ground source: a west-east road with no ground skips the drape path entirely and hid a real defect.
-- Known gaps, not tunings: the orbit pivot is the datum (city-span terrain leaves the grid); `getMaxTilt` ignores the orbit base pitch; `temporalBlend` smears at nonzero bearing; stamps never receive shadows; a contour below a floored terrain is buried; single-cell fill loss at the antimeridian.
+- Per-cell `unproject` tests stub the metrics prototype.
+- Test occlusion in both road directions with a ground source.
 
 ## Key gates (`src/`)
 
-- Projection/tiles: `chirality`, `parity`, `widget.backstopOcclusion`, `mesh.seaLevelBand`, `mesh.surfaceMedian`, `widget.reliefSurfaceBand`, `mesh.elevationWindow`, `widget.reliefWindow*`
-- Widget loop: `widget.motion`, `widget.extrusionWalls`, `widget.idle`, `widget.symbolRebuildFlash`, `widget.liveSource`
-- Camera: `widget.tiltPivot`, `widget.tiltGesture`, `widget.bearing`, `widget.transitionContinuity`, `widget.transitionAnchor`, `widget.touchGestures`
-- Lighting: `widget.headlight`, `widget.sun`, `widget.shadow`
-- Walk: `widget.walk*`, `walkCollision`, `walk.entryGate`, `widget.sky`
-- Strokes/contours: `stroke`, `widget.strokeDrape`, `widget.strokeRelief`, `widget.strokeOcclusion`, `widget.contourElevation`, `widget.contourRelief`, `widget.contourFreshLoad`
-- Fills/extrusions: `widget.fillDrape*`, `widget.oceanDrape`, `widget.fillSliver`, `widget.fillCrack`, `layers.extrusionHeight`, `layers.extrusionFloor`, `facade.slenderness`, `widget.extrusionGround`, `widget.osmBuildings`
-- Labels/points: `layers`, `widget.symbolWrap`, `widget.symbolAnchor`, `widget.markerDrape`, `point`, `widget.glyphPoint`
-- OSM: `vector/openmaptiles`, `vector/protomaps`, `widget.osmFilters`, `widget.featureFilter`
+- Tiles: `chirality`, `parity`, `widget.backstopOcclusion`, `mesh.*`, `widget.relief*`
+- Loop: `widget.motion`, `widget.prerender`, `widget.glideTrajectory`, `widget.sweep*`, `widget.compositorPan`, `widget.idle`, `widget.liveSource`
+- Walk: `widget.walk*`, `walkCollision`, `widget.sky`
+- Strokes: `stroke`, `widget.stroke*`, `widget.contour*`
+- Fills: `widget.fill*`, `widget.oceanDrape`, `layers.extrusion*`, `widget.extrusion*`, `widget.osmBuildings`

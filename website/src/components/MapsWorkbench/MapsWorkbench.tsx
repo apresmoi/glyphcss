@@ -68,6 +68,10 @@ export default function MapsWorkbench({ snapshot }: { snapshot?: InstrumentSnaps
     onSpanChange,
     onTilt,
     onBearing,
+    snapPan,
+    setSnapPan,
+    compositorPan,
+    setCompositorPan,
     charMode,
     charModeReason,
     wireframeJunctions,
@@ -167,6 +171,7 @@ export default function MapsWorkbench({ snapshot }: { snapshot?: InstrumentSnaps
             centerLon={centerLon}
             centerLat={centerLat}
             bearing={bearing}
+            colorEncoding={colorEncoding}
           />
           <InstrumentExportBar>
             {renderExportActions}
@@ -220,6 +225,10 @@ export default function MapsWorkbench({ snapshot }: { snapshot?: InstrumentSnaps
             onSpan={onSpanChange}
             onTilt={onTilt}
             onBearing={onBearing}
+            snapPan={snapPan}
+            onSnapPan={setSnapPan}
+            compositorPan={compositorPan}
+            onCompositorPan={setCompositorPan}
             charMode={charMode}
             charModeReason={charModeReason}
             wireframeJunctions={wireframeJunctions}

@@ -251,7 +251,7 @@ async function render(options: {
     scene: { mode: "solid", useColors: true },
   });
   mounted.push(map);
-  for (let i = 0; i < 60; i++) await new Promise((r) => setTimeout(r, 10));
+  await map.idle();
   map.scene.rerender();
   const cells = readCells(map);
   return { html: map.scene.output.innerHTML, waterCells: cells.water, waterRows: cells.rows, inkedCells: cells.inked, map };
@@ -288,7 +288,8 @@ describe("createGlyphMap — a `fill` stands on the terrain under it", () => {
     // CAN see a drape — the same map with a ground source is a different
     // render, so a leaked ground of terrain magnitude cannot hide here.
     const withGround = await render({ terrain: null, groundElevation: () => LAKE_M, tilt: 40 });
-    expect(withGround.html).not.toBe(flat.html);
+    const flatWithGround = await render({ terrain: null, groundElevation: () => LAKE_M, drape: "flat", tilt: 40 });
+    expect(withGround.html).not.toBe(flatWithGround.html);
   }, 45000);
 
   it("follows the ground when a finer tier lands", async () => {
@@ -313,7 +314,8 @@ describe("createGlyphMap — a `fill` stands on the terrain under it", () => {
 
     // ...and with no raster layer at all it drapes on the caller's own DEM.
     const own = await render({ terrain: null, groundElevation: () => LAKE_M, tilt: 40 });
-    const datum = await render({ terrain: null, drape: "flat", tilt: 40 });
+    // Hold the ground pivot fixed while comparing the two planting heights.
+    const datum = await render({ terrain: null, groundElevation: () => LAKE_M, drape: "flat", tilt: 40 });
     const mean = (rows: readonly number[]): number => rows.reduce((a, b) => a + b, 0) / rows.length;
     expect(own.waterCells).toBeGreaterThan(100);
     expect(datum.waterCells).toBeGreaterThan(100);

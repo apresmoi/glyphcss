@@ -958,3 +958,29 @@ describe("`mountain_peak` — 92 named peaks per alpine tile, drawn as anonymous
     expect(layer.text!(anonymous)).toBe("4478");
   });
 });
+
+
+it("opts building outlines in without changing the default row or other rows", () => {
+  const source = glyphMapOpenFreeMapProvider();
+  const defaults = glyphMapOpenMapTilesLayers(source);
+  expect(defaults.find(l => l.type === "fill-extrusion")).not.toHaveProperty("outline");
+  const outlined = glyphMapOpenMapTilesLayers(source, { buildingOutline: "braille" });
+  expect(outlined.find(l => l.type === "fill-extrusion")).toHaveProperty("outline", "braille");
+  // Builders create fresh predicate/text closures; compare their code and data.
+  const stable = (layers: typeof defaults) => JSON.stringify(layers.filter(l => l.type !== "fill-extrusion"),
+    (_key, value) => typeof value === "function" ? value.toString() : value);
+  expect(stable(outlined)).toBe(stable(defaults));
+});
+
+it("opts only the complete water row into terrain authority; narrowed water never grants it", () => {
+  const source = glyphMapOpenFreeMapProvider();
+  const defaults = glyphMapOpenMapTilesLayers(source);
+  const off = glyphMapOpenMapTilesLayers(source, { waterTerrain: false });
+  const stable = (layers: typeof defaults) => JSON.stringify(layers, (_key, value) => typeof value === "function" ? value.toString() : value);
+  expect(stable(off)).toBe(stable(defaults));
+  expect(defaults.every(layer => !("waterTerrain" in layer))).toBe(true);
+  const on = glyphMapOpenMapTilesLayers(source, { waterTerrain: true });
+  expect(on.filter(layer => "waterTerrain" in layer).map(layer => layer.id)).toEqual(["omt-water"]);
+  expect(glyphMapOpenMapTilesLayers(source, { waterTerrain: true, classes: { water: ["lake"] } })
+    .every(layer => !("waterTerrain" in layer))).toBe(true);
+});

@@ -32,7 +32,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
-import { GLYPH_MAP_EARTH_RADIUS_M, glyphMapGlobe } from "./projection";
+import { glyphMapGlobe } from "./projection";
 import { glyphMapCuratedProvider } from "./curated";
 import { glyphMapCuratedVectorProvider } from "./vector/curated";
 import { glyphMapDegreesPerCell, glyphMapTargetLOD, type GlyphMapProvider, type GlyphMapProviderZoomLevel } from "./provider";
@@ -163,23 +163,9 @@ function screenCentreVectorTileKey(): string {
   return `4/${Math.floor((SCREEN_CENTRE[0] + 180) / lvl.tileLonSpan)}_${Math.floor((90 - SCREEN_CENTRE[1]) / lvl.tileLatSpan)}`;
 }
 
-/**
- * The row the ground under `SCREEN_CENTRE` reaches — the expected home of a
- * draped stroke, from public API only.
- *
- * `glyphMapGlobe.project(lon, lat, h)` is purely RADIAL, i.e.
- * `(1 + h * exaggeration / R_earth)` times the same point at the datum, and
- * the widget's only camera is orthographic, whose `project()` is AFFINE in
- * the world point. So with `b` the row the world ORIGIN maps to,
- * `row(k * P) = b + k * (row(P) - b)` — and `b` needs no internals either:
- * `row(P) + row(-P) = 2b`, and `-P` is the ANTIPODE at the datum.
- */
+/** `map.project` now reads the mounted terrain's own ground, including its LOD. */
 function groundRow(map: ReturnType<typeof createGlyphMap>): number {
-  const near = map.project(SCREEN_CENTRE);
-  const far = map.project([SCREEN_CENTRE[0] + 180, -SCREEN_CENTRE[1]]);
-  const originRow = (near.row + far.row) / 2;
-  const k = 1 + (elevAt(SCREEN_CENTRE[0], SCREEN_CENTRE[1]) / GLYPH_MAP_EARTH_RADIUS_M) * 24;
-  return originRow + k * (near.row - originRow);
+  return map.project(SCREEN_CENTRE).row;
 }
 
 interface InkReport {

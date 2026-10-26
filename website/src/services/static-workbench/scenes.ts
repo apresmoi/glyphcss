@@ -21,7 +21,7 @@ import { SYNTH_PARAM_DEFAULTS } from "../../features/synth/model/urlState";
 import { WORD_ART_DEFAULTS } from "../../features/wordart/model/urlState";
 import { fitWordArtZoom } from "../../features/wordart/model/parameters";
 import { paletteColorsFor } from "../../features/maps/model/config";
-import { MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
+import { MAPS_FRESH_EXAGGERATION, MAPS_URL_DEFAULTS } from "../../features/maps/services/mapsUrlState";
 import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
 
 function gridRender(grid: CellGrid) {
@@ -167,7 +167,8 @@ export async function staticMap(view: { centerLon?: number; centerLat?: number; 
     source: manifest.source,
     sampler: manifest.sampler,
   });
-  const defaults = { ...MAPS_URL_DEFAULTS, ...view };
+  // The build-time render is what a fresh /maps opens on, not what an old link without `e` meant.
+  const defaults = { ...MAPS_URL_DEFAULTS, exaggeration: MAPS_FRESH_EXAGGERATION, ...view };
   const projection = glyphMapGlobe({ exaggeration: defaults.exaggeration });
   const pose = projection.cameraForCenter!(defaults.centerLon, defaults.centerLat);
   const { cols = 160, rows = 72 } = view;

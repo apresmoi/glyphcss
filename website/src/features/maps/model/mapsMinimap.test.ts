@@ -1,3 +1,4 @@
+import { MAP_OSM_LINE_OPTIONS } from "./mapsOsm";
 /**
  * The minimap's pure half: when it is on screen, what it mounts, and the
  * update rule that is the whole reason a second `createGlyphMap` is
@@ -222,9 +223,11 @@ describe("mapMinimapLayers — a PLAN of three rows, off the page's own OSM tabl
       const spec = GLYPH_MAP_OPENMAPTILES_LAYERS.find((s) => s.id === specId)!;
       const layer = layers.find((l) => l.id === id) as { sourceLayer?: string; color?: string; filter?: unknown };
       expect(layer.sourceLayer).toBe(spec.sourceLayer);
-      expect(layer.color).toBe(spec.color);
+      // Streets take the page's own line stack (glyphs, thinning, class palette) instead.
+      if (specId !== "omt-roads") expect(layer.color).toBe(spec.color);
       expect(typeof layer.filter).toBe("function");
     }
+    expect(layers.find((l) => l.id === "minimap-roads")).toMatchObject(MAP_OSM_LINE_OPTIONS["omt-roads"]);
   });
 
   it("mounts every row on the ONE source it was handed", () => {
