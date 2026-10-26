@@ -8877,10 +8877,14 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // unchanged tile set may skip. A draped `fill` may not: its lift reads
     // the view's span. But the lift only exists over a ground: with none
     // mounted now or at the last build, the mesh is a function of the tiles
-    // alone and an unchanged set may skip too.
-    const meshIgnoresView = commitWater !== undefined || layer.type === "fill-extrusion"
+    // alone and an unchanged set may skip too. Only water skips on the tile set
+    // alone: an extrusion's `filter` may close over mutable state, so its sweep
+    // re-runs it and skips only when the selection it makes is unchanged.
+    const meshIgnoresView = commitWater !== undefined
       ? true
-      : () => !wantsDrape || (!builtOnTerrain && groundElevationSampler() === null);
+      : layer.type === "fill-extrusion"
+        ? () => true
+        : () => !wantsDrape || (!builtOnTerrain && groundElevationSampler() === null);
     const runtime = createFeatureLayerRuntime(layer.source, build, 2, layer.sourceLayer, layer.filter, meshIgnoresView, commitWater,
       // Starting it overtakes a ground re-plant that is still being prepared.
       layer.type === "fill-extrusion" ? features => { buildSeq++; return prepareBuild(features, undefined, true); } : undefined);

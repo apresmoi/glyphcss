@@ -5,8 +5,10 @@
  * scratch — measured as a ~380 ms stall on release on a braille Buenos Aires
  * view, after every drag and every ctrl-rotate.
  *
- * The layer `filter` is the observable: the sweep runs it over the selected
- * features exactly when it hands them to `rebuild`.
+ * The observable is the height property read: the mesh build reads it once per
+ * feature, and nothing else does. The layer `filter` is NOT an observable of a
+ * skip: it may close over mutable state, so every sweep re-runs it and compares
+ * the selection it makes.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createGlyphMap } from "./widget";
@@ -46,14 +48,15 @@ function square(lon: number, lat: number, half: number): [number, number][] {
 }
 
 /** One whole-world tile holding a block of buildings, at every zoom the sweep may pick. */
-function buildingsProvider(): GlyphMapVectorProvider {
+function buildingsProvider(heightReads?: { n: number }): GlyphMapVectorProvider {
   const zooms = Array.from({ length: 15 }, (_, z) => ({
     z, cols: 1, rows: 1, tileLonSpan: 360, tileLatSpan: 180, tileCols: 32, tileRows: 32,
   }));
   const bounds = () => ({ west: -180, east: 180, south: -90, north: 90 });
   const buildings: GlyphMapVectorFeature[] = [];
   for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
-    buildings.push({ id: `b${i}${j}`, geometryType: "polygon", rings: [square(CENTRE[0] + (i - 1.5) * 0.0008, CENTRE[1] + (j - 1.5) * 0.0006, 0.0002)], properties: { render_height: 30 } });
+    buildings.push({ id: `b${i}${j}`, geometryType: "polygon", rings: [square(CENTRE[0] + (i - 1.5) * 0.0008, CENTRE[1] + (j - 1.5) * 0.0006, 0.0002)],
+      properties: heightReads ? { get render_height() { heightReads.n++; return 30; } } : { render_height: 30 } });
   }
   return {
     id: "sweep-skip-buildings",
@@ -65,34 +68,64 @@ function buildingsProvider(): GlyphMapVectorProvider {
   };
 }
 
+const ink = (map: ReturnType<typeof createGlyphMap>) =>
+  [...(map.scene.output.parentElement!.textContent ?? "")].filter((c) => c.trim() !== "").length;
+
+function mountExtrusion(keep: { on: boolean }, heightReads: { n: number }) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  stubMonospaceMetrics(host);
+  const map = createGlyphMap(host, {
+    view: { center: [CENTRE[0], CENTRE[1]], span: SPAN, cols: COLS, rows: ROWS },
+    projection: glyphMapGlobe(),
+    tilt: 40,
+  });
+  map.addLayer({
+    id: "buildings", type: "fill-extrusion", source: buildingsProvider(heightReads), sourceLayer: "building",
+    color: "#94a3b8", heightProperty: "render_height", outline: "braille", fill: false, blank: true,
+    filter: () => keep.on,
+  });
+  return { map, dispose: () => { map.destroy(); host.remove(); } };
+}
+
 describe("a fill-extrusion layer across a sweep that resolves the same tiles", () => {
-  it("does not rebuild its buildings", async () => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    stubMonospaceMetrics(host);
-    const map = createGlyphMap(host, {
-      view: { center: [CENTRE[0], CENTRE[1]], span: SPAN, cols: COLS, rows: ROWS },
-      projection: glyphMapGlobe(),
-      tilt: 40,
-    });
+  it("does not rebuild its buildings while its filter keeps the same selection", async () => {
+    const heightReads = { n: 0 };
+    const { map, dispose } = mountExtrusion({ on: true }, heightReads);
     try {
-      let filtered = 0;
-      map.addLayer({
-        id: "buildings", type: "fill-extrusion", source: buildingsProvider(), sourceLayer: "building",
-        color: "#94a3b8", heightProperty: "render_height", outline: "braille", fill: false, blank: true,
-        filter: () => { filtered++; return true; },
-      });
       await map.idle();
-      const afterMount = filtered;
+      const afterMount = heightReads.n;
       expect(afterMount).toBeGreaterThan(0);
 
       map.setView({ center: [CENTRE[0] + SPAN * 0.02, CENTRE[1]] });
       await map.idle();
 
-      expect(filtered).toBe(afterMount);
+      expect(heightReads.n).toBe(afterMount);
     } finally {
-      map.destroy();
-      host.remove();
+      dispose();
+    }
+  });
+
+  it("drops buildings whose filter turned false across a pan within the cached tiles", async () => {
+    const keep = { on: true };
+    const { map, dispose } = mountExtrusion(keep, { n: 0 });
+    try {
+      await map.idle();
+      const before = ink(map);
+      expect(before).toBeGreaterThan(0);
+      keep.on = false;
+      map.setView({ center: [CENTRE[0] + SPAN * 0.02, CENTRE[1]] });
+      await map.idle();
+      const fresh = mountExtrusion({ on: false }, { n: 0 });
+      try {
+        await fresh.map.idle();
+        expect(ink(map)).toBe(ink(fresh.map));
+        expect(ink(map)).toBeLessThan(before);
+      } finally {
+        fresh.dispose();
+      }
+    } finally {
+      dispose();
     }
   });
 });
