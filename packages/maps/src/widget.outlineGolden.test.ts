@@ -14,6 +14,7 @@ import { glyphMapOpenMapTilesLayers } from "./vector/openmaptiles";
 import { glyphMapDecodeMVT } from "./vector/pmtiles";
 import { glyphMapMercatorTileBounds } from "./vector/mercator";
 import * as outline from "./extrusionOutline";
+import { platformGolden } from "./test/platformGolden";
 import * as topologyReference from "./test/extrusionTopology28Reference";
 import * as stroke from "./stroke";
 import { expectConservativeTree } from "./test/conservativeTree";
@@ -21,7 +22,7 @@ import { glyphMapVectorMesh } from "./layers";
 import type { GlyphMapExtrusionGeometry } from "./layers";
 
 const root = path.resolve(__dirname, "../fixtures/road-relief/ba");
-const golden = path.resolve(__dirname, "test/outlineGolden26.json");
+const golden = platformGolden(path.resolve(__dirname, "test/outlineGolden26.json"));
 const center = [-58.387044, -34.594994] as const;
 const cols = 156, rows = 77, cellWidth = 12 * 1200 / 2048, cellHeight = 12;
 const maps: ReturnType<typeof createGlyphMap>[] = [];
@@ -179,7 +180,7 @@ async function packet28Grids(cull: boolean) {
 
 it("retains d9a9c976 grids through extended pan, bearing, walk, Venice and mid-sequence building rebuild", async () => {
   const actual = await packet28Grids(true);
-  const file = path.resolve(__dirname, "test/outlineGolden28.json");
+  const file = platformGolden(path.resolve(__dirname, "test/outlineGolden28.json"));
   if (process.env.CAPTURE_PACKET28) writeFileSync(file, JSON.stringify(actual, null, 2) + "\n");
   expect(actual).toEqual(JSON.parse(readFileSync(file, "utf8")));
 }, 120_000);
@@ -187,7 +188,7 @@ it("retains d9a9c976 grids through extended pan, bearing, walk, Venice and mid-s
 // The culling tree may take any conservative shape only because a face it
 // drops cannot change a drawn byte. A tree that drops nothing must agree.
 it("draws the same grids when the culling tree drops no face at all", async () => {
-  expect(await packet28Grids(false)).toEqual(JSON.parse(readFileSync(path.resolve(__dirname, "test/outlineGolden28.json"), "utf8")));
+  expect(await packet28Grids(false)).toEqual(JSON.parse(readFileSync(platformGolden(path.resolve(__dirname, "test/outlineGolden28.json")), "utf8")));
 }, 120_000);
 
 // The supplied Venice tile has no buildings. Its real water rings still
@@ -325,7 +326,7 @@ it("retains packet-26 Venice water/road grids through pan and authority removal"
   capture = []; map.scene.rerender(); frames.push(capture);
   expect(frames.every(f => f.some(g => g.kind === "base"))).toBe(true);
   expect(frames[4]).not.toEqual(frames[3]);
-  const file = path.resolve(__dirname, "test/outlineGolden26Venice.json");
+  const file = platformGolden(path.resolve(__dirname, "test/outlineGolden26Venice.json"));
   if (process.env.CAPTURE_PACKET26_VENICE) writeFileSync(file, JSON.stringify(frames, null, 2) + "\n");
   expect(frames).toEqual(JSON.parse(readFileSync(file, "utf8")));
 }, 60_000);

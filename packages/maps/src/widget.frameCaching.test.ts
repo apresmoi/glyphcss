@@ -8,9 +8,10 @@ import { glyphMapDecodeGeoTileInt16 } from "./tile";
 import { glyphMapOpenFreeMapProvider } from "./vector/openfreemap";
 import { glyphMapOpenMapTilesLayers } from "./vector/openmaptiles";
 import * as outline from "./extrusionOutline";
+import { platformGolden } from "./test/platformGolden";
 
 const root = path.resolve(__dirname, "../fixtures/road-relief/ba");
-const baseline = path.resolve(__dirname, "test/frameCachingBaseline.json");
+const baseline = platformGolden(path.resolve(__dirname, "test/frameCachingBaseline.json"));
 const center = [-58.387044, -34.594994] as const;
 const maps: ReturnType<typeof createGlyphMap>[] = [];
 const hosts = new Set<HTMLElement>();
