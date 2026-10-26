@@ -36,8 +36,9 @@ The governor drops to 30 for the session after a 60-frame window with more than 
 
 ## The reader is hard to read
 
-- Each word is a target the ink has to flow into; at high `wpm` short words leave before they settle. Lower `wpm`; long words are drawn smaller (each word is sized to fit the host).
-- Give the host room: the letters scale with the host box; a host under about 240 px makes them few cells tall.
+- Use the default `look: "plain"`: real letters, legible at 600 wpm. In `look: "glyph"` each word is a target the ink has to flow into; at high `wpm` short words leave before they settle, and long words are drawn smaller (each word is sized to fit the host).
+- Plain letters still scrambling (`.:-=`): the ink under them has not arrived yet. It pools in a band shared by consecutive words, so this only shows at a sentence start or on a much longer word; lower `wpm` if it bothers.
+- Give the host room: the letters scale with the host box; a host under about 240 px makes them small (glyph look: few cells tall).
 - Keep the default 52-column grid: denser grids make smaller dots, not sharper letters.
 - Under reduced motion each word is a single settled still, by design.
 
