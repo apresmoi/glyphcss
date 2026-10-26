@@ -202,8 +202,7 @@ it.each([false, true])("invalidates the cache on a host resize and cleans up its
   for (const map of [m, plain]) Object.defineProperty(map.host, "getBoundingClientRect", { value: () => ({ width: 800, height: 400 }) });
   renders = 0;
   for (const o of observers) o.cb([], {} as ResizeObserver);
-  // An autoSize grid renders once more: it must commit normal-size text before it can measure it.
-  expect(element(m).style.transform).toBe(""); expect(renders).toBe(autoSize ? 2 : 1);
+  expect(element(m).style.transform).toBe(""); expect(renders).toBe(1);
   // A layout primed at the frame's 640 px host would centre the answer for the old width.
   expect(m.project([0, 0]).col).toBeCloseTo(plain.project([0, 0]).col, 6);
   expect(m.project([0, 0]).col).not.toBeCloseTo(41, 1);
