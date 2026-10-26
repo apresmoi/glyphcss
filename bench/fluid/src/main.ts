@@ -16,6 +16,7 @@ const q = new URLSearchParams(location.search);
 const FPS = Number(q.get("fps") ?? 60) === 30 ? 30 : 60;
 const WORKER = q.get("worker") !== "0";
 const MOLTYS = q.get("moltys") !== "off";
+const FACE = q.get("face") === "universal" ? "universal" : "dots";
 const DANCE: Array<[string, number]> = [["idle", 1.6], ["happy", 3.2], ["idle", 1.8], ["surprised", 1.0], ["happy", 3.6], ["listening", 1.8]];
 
 const host = document.getElementById("fluid")!;
@@ -24,6 +25,7 @@ const fluid = createGlyphFluid(host, {
   pointer: "window",
   fps: FPS,
   fpsFallback: false, // the bench measures the cap it asked for
+  face: FACE,
   worker: WORKER ? () => new Worker("fluid-worker.bundle.js", { type: "module" }) : false,
 });
 

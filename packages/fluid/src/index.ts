@@ -35,8 +35,8 @@ export type { GlyphFluidOp, GlyphFluidStepParams, GlyphFluidRectOptions } from "
 
 export { computeGlyphFluidCells, createGlyphFluidCells, GLYPH_FLUID_DOTS_TO_BRAILLE } from "./cells/cells";
 export type { GlyphFluidCells } from "./cells/cells";
-export { GlyphFluidEncoder, glyphFluidPaletteCss } from "./cells/encode";
-export type { GlyphFluidEncoding, GlyphFluidFrame, GlyphFluidEncoderOptions } from "./cells/encode";
+export { GlyphFluidEncoder, glyphFluidAtlas, glyphFluidPaletteCss } from "./cells/encode";
+export type { GlyphFluidEncoding, GlyphFluidFace, GlyphFluidFrame, GlyphFluidEncoderOptions } from "./cells/encode";
 
 export { GlyphFluidCore } from "./runtime/core";
 export type { GlyphFluidCoreInit, GlyphFluidStepInput } from "./runtime/core";

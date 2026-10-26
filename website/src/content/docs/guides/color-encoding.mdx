@@ -32,6 +32,7 @@ const scene = createGlyphScene(host, {
 |---|---|---|
 | `GLYPH_FONT_ATLAS` (default) | 212; ASCII plus selected Unicode ramps/edges | 30 |
 | `GLYPH_FONT_ATLAS_ASCII` | 94; printable ASCII excluding space | 68 |
+| `GLYPH_FONT_ATLAS_BRAILLE_DOTS` | 256 braille patterns as rectangular dots in a 1 × 1.6 cell (used by `@glyphcss/fluid`); set `font-size` and `line-height` to the cell height | 30 |
 
 `fontAtlas` is fixed at scene creation. React/Vue expose the same prop; custom elements take it as a JavaScript property. Space remains ordinary U+0020. A glyph outside the selected atlas triggers span fallback.
 

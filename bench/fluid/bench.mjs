@@ -2,6 +2,7 @@
 // bench/fluid-spike) pointed at the package: same setups, scenarios and trace analysis.
 // node bench.mjs <out.json> [--warm s] [--secs s] [--setups a,b] [--throttle 1,4]
 //                [--fps 30|60] [--configs atlas,atlas+w] [--scenarios idle,stirred] [--moltys off]
+//                [--face dots|universal]
 // "atlas" = main-thread pipeline (?worker=0), "atlas+w" = worker pipeline.
 // "stirred" holds the pointer down and drags it along a Lissajous path for the whole window.
 import { chromium } from "playwright";
@@ -26,6 +27,7 @@ const FPS = Number(opt("fps", 60));
 const query = (c) => `fps=${FPS}&worker=${c.includes("+w") ? 1 : 0}`;
 const throttles = opt("throttle", "1,4").split(",").map(Number);
 const moltys = opt("moltys", "on");
+const face = opt("face", "dots");
 
 const MAIN_RENDER = new Set(["UpdateLayoutTree", "Layout", "PrePaint", "Paint", "Layerize", "Commit", "ParseHTML"]);
 const pct = (a, p) => (a.length ? [...a].sort((x, y) => x - y)[Math.min(a.length - 1, Math.floor((p / 100) * a.length))] : 0);
@@ -118,7 +120,7 @@ for (const s of setups) {
       const cdp = await ctx.newCDPSession(p);
       await cdp.send("Performance.enable");
       if (thr > 1) await cdp.send("Emulation.setCPUThrottlingRate", { rate: thr });
-      await p.goto(`http://127.0.0.1:4361/?${query(v)}&hud=0&moltys=${moltys}`);
+      await p.goto(`http://127.0.0.1:${process.env.FLUID_BENCH_PORT ?? 4361}/?${query(v)}&hud=0&moltys=${moltys}&face=${face}`);
       await p.waitForFunction(() => window.__fluid, null, { timeout: 30000 });
       await p.waitForTimeout(WARM * 1000);
       const m0 = Object.fromEntries((await cdp.send("Performance.getMetrics")).metrics.map((m) => [m.name, m.value]));

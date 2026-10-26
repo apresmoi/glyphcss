@@ -61,6 +61,8 @@ Under `prefers-reduced-motion: reduce` the default `reducedMotion: "settle"` run
 | `"mono"` | The atlas in one colour. |
 | `"plain"` (automatic fallback) | Real braille code points in one CSS colour when the atlas font fails to load or `font-palette` is unsupported. Blank cells are U+2800, not spaces, so the grid never shears. |
 
+`face` picks the atlas font. `"dots"` (default) uses glyphcss's braille-dots atlas, which draws molty's dot rectangles exactly where molty's canvas draws them at `cellAspect` 1.6; it is a separate ~37 KB font, loaded only when a fluid uses it. `"universal"` uses glyphcss's universal atlas, whose braille spans a whole text line, so at 1.6 the dot rows bunch across cell boundaries.
+
 ## Clock and grid
 
 - `clock: "manual"` draws only on `fluid.step(dt)` — for tests, recordings and hosts that own their frame loop.

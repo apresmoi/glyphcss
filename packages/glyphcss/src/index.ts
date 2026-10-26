@@ -238,6 +238,7 @@ export type { CellGrid, TransformCells, GlyphTransformCellsLayer, GlyphColorEnco
 export {
   GLYPH_FONT_ATLAS,
   GLYPH_FONT_ATLAS_ASCII,
+  GLYPH_FONT_ATLAS_BRAILLE_DOTS,
   glyphAtlasForFamily,
   isGlyphInFontAtlas,
   glyphAtlasCodePoint,
@@ -253,7 +254,7 @@ export {
   glyphAtlasFontPayload,
   glyphAtlasFontLoadState,
 } from "./render/fontAtlas";
-export type { GlyphFontAtlas, GlyphAtlasFontLoadState } from "./render/fontAtlas";
+export type { GlyphFontAtlas, GlyphFontAtlasDotGeometry, GlyphAtlasFontLoadState } from "./render/fontAtlas";
 // ── Atlas palette quantization (the slot reduction the atlas needs) ──
 export {
   medianCutPalette,

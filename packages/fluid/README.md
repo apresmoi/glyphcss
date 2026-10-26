@@ -97,6 +97,7 @@ Every target takes `delay` (seconds before it first condenses) and `visibility: 
 | `glue` | `"host"` | `"host"` fills the host box; `"document"` glues to the page |
 | `shape` | `"rect"` | `"circle"`: molty's round screen, the disc inscribed in the host |
 | `encoding` | `"atlas"` | per-cell colour; `"mono"` is one colour |
+| `face` | `"dots"` | `"dots"` draws molty's dot rectangles from glyphcss's braille-dots atlas, exactly where molty's canvas draws them (at `cellAspect` 1.6); `"universal"` uses glyphcss's universal atlas, whose braille spans a text line, so rows bunch across cell boundaries |
 | `fps` | `60` | drops to 30 for the session when frames keep missing (`fpsFallback: false` to keep 60) |
 | `worker` | `"auto"` | `false` for the main thread, or a function returning your own Worker running `@glyphcss/fluid/worker` |
 | `clock` | `"auto"` | `"manual"` draws only on `fluid.step(dt)` |

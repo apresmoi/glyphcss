@@ -25,12 +25,13 @@ import { join, resolve } from "node:path";
 const ROOT = resolve(process.cwd());
 const DIST = join(ROOT, "dist");
 
-// Every shipped atlas variant's payload, each its own chunk. Both are checked:
+// Every shipped atlas variant's payload, each its own chunk. All are checked:
 // the guarantee is per-payload, so a stray static import of only the ASCII one
 // would merge ~45KB into `dist/index.js` with a universal-only probe still green.
 const PAYLOADS = [
   { name: "universal", asset: "assets/glyph-atlas/atlas-font.json", chunk: "fontAtlasPayload-" },
   { name: "ascii", asset: "assets/glyph-atlas/ascii-atlas-font.json", chunk: "fontAtlasAsciiPayload-" },
+  { name: "braille-dots", asset: "assets/glyph-atlas/braille-dots-atlas-font.json", chunk: "fontAtlasBrailleDotsPayload-" },
 ] as const;
 
 const built = existsSync(join(DIST, "index.js")) && PAYLOADS.every((p) => existsSync(join(ROOT, p.asset)));
