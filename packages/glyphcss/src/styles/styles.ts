@@ -54,8 +54,11 @@ export function resetGlyphAtlasFontFaceStylesForTests(): void {
   atlasFontReady = new WeakMap();
 }
 
-// A dense glyph, so the probe below has plenty of covered pixels to read.
-const ATLAS_PROBE_GLYPH = "@";
+// Dense glyphs, so the probe below has plenty of covered pixels to read; the
+// first one the atlas carries is used. The braille-dots atlas has no "@", and
+// its glyph 0 (the fallback) is the inkless U+2800, which would read as
+// "COLR not painted" and demote every engine to spans.
+const ATLAS_PROBE_GLYPHS = ["@", "\u28ff"];
 const ATLAS_PROBE_PX = 24;
 // Palette slot 0's baked CPAL colour is a saturated hue (see `build-atlas.py`'s
 // `hue_palette`), so "the painted pixels are CHROMATIC" cleanly separates a
@@ -99,7 +102,8 @@ function atlasColrPaints(target: Document, atlas: GlyphFontAtlas): boolean {
   ctx.fillStyle = "#000000";
   ctx.font = `${ATLAS_PROBE_PX}px "${atlas.family}"`;
   ctx.textBaseline = "alphabetic";
-  const glyphIndex = Math.max(0, atlas.glyphs.indexOf(ATLAS_PROBE_GLYPH));
+  const probeGlyph = ATLAS_PROBE_GLYPHS.find((glyph) => atlas.glyphs.includes(glyph));
+  const glyphIndex = probeGlyph === undefined ? 0 : atlas.glyphs.indexOf(probeGlyph);
   ctx.fillText(String.fromCodePoint(atlas.puaStart + glyphIndex), 0, ATLAS_PROBE_PX * 0.8);
 
   let pixels: Uint8ClampedArray;
