@@ -2375,6 +2375,8 @@ interface ProjectionGrid {
   readonly cellHeight: number;
   readonly centerCol: number;
   readonly centerRow: number;
+  /** The visible (public) grid's columns: `cols` itself, except an overscanned compositor frame, whose `cols` is enlarged. Resolution is read from this. */
+  readonly visibleCols: number;
 }
 
 function clamp(v: number, lo: number, hi: number): number {
@@ -4310,7 +4312,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       : fallbackCellHeight;
     const centerCol = cols * camera.center[0] + (hostWidth > 0 ? (hostWidth - cols * cellWidth) / (2 * cellWidth) : 0);
     const centerRow = rows * camera.center[1] + (hostHeight > 0 ? (hostHeight - rows * cellHeight) / (2 * cellHeight) : 0);
-    return { cols, rows, cellAspect, cellWidth, cellHeight, centerCol, centerRow };
+    return { cols, rows, cellAspect, cellWidth, cellHeight, centerCol, centerRow, visibleCols: cols };
   }
 
   /**
@@ -7057,7 +7059,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     // Detail/overlay cells occupy a fraction of a base cell. Use their
     // actual resolution, never their cropped grid width. Walk has no
     // span-derived resolution, so retains full source detail.
-    const degPerCellOf = (baseGrid: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine): number => view.span / baseGrid.cols * Math.abs(cellToSceneGrid[0]);
+    const degPerCellOf = (baseGrid: ProjectionGrid, cellToSceneGrid: GlyphMapCellAffine): number => view.span / baseGrid.visibleCols * Math.abs(cellToSceneGrid[0]);
 
     /**
      * Whether `filterAtResolution` still answers each feature as it did while a

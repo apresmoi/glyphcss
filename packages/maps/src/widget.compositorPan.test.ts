@@ -322,3 +322,14 @@ it("under snapPan, a scene-owned render mid-drag keeps the remainder", async () 
   await Promise.resolve(); await Promise.resolve(); await m.idle();
   expect(tx()).toBeCloseTo(SUB, 6);
 });
+
+it("resolves road hierarchy from the visible grid, not the enlarged overscan grid, mid-pan", async () => {
+  const seen: number[] = [];
+  const m = mount({ layers: [{ ...road, filterAtResolution: (_f: unknown, degPerCell: number) => { seen.push(degPerCell); return true; } }] });
+  await ready(m);
+  seen.length = 0;
+  pointer(m, "pointerdown", 200); pointer(m, "pointermove", 201); frame(); await m.idle();
+  expect(element(m).style.willChange).toBe("transform");
+  expect(seen.length).toBeGreaterThan(0);
+  for (const d of seen) expect(d).toBeCloseTo(60 / 80, 12);
+});
