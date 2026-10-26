@@ -3713,10 +3713,28 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
   function invalidateCompositorLayout(): void {
     const f = compositorFrame;
     if (!f) return;
+    // The <pre> still holds the OVERSCANNED text, so a measure now would read
+    // the wide extent as the normal grid's. The frame's own dimensions, which
+    // `endCompositorPan` primes, are right only on the settle path. A fixed
+    // grid keeps its columns, so the host and the cell (the <pre>'s extent per
+    // column it holds) are measured here and primed. An autoSize grid changes
+    // its columns, so it renders once to commit normal-size text, then measures.
+    const hostBox = host.getBoundingClientRect(), outputBox = scene.output.getBoundingClientRect();
     endCompositorPan();
-    if (f.autoSize) fitScene();
-    syncCameraToView(view);
-    applyKeyLight(); syncNearSide(); scene.rerender();
+    const primed = !f.autoSize && outputBox.width > 0 && outputBox.height > 0;
+    if (primed) {
+      projectionLayout.prime(f.grid.cols, f.grid.rows, f.grid.cellAspect, {
+        hostWidth: hostBox.width, hostHeight: hostBox.height,
+        outputWidth: outputBox.width / (f.grid.cols + 2 * f.marginCols) * f.grid.cols,
+        outputHeight: outputBox.height / (f.grid.rows + 2 * f.marginRows) * f.grid.rows,
+      });
+    } else {
+      projectionLayout.invalidate();
+      if (f.autoSize) fitScene();
+    }
+    const render = (): void => { syncCameraToView(view); applyKeyLight(); syncNearSide(); scene.rerender(); };
+    render();
+    if (!primed) { projectionLayout.invalidate(); render(); }
   }
   function watchCompositorLayout(): void {
     if (typeof ResizeObserver !== "undefined" && !compositorResizeObserver) {

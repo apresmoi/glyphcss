@@ -189,19 +189,25 @@ it.each([glyphMapEquirectangular, glyphMapGlobe])("settles tilted, bearing-rotat
   expect(a.scene.output.innerHTML).toBe(b.scene.output.innerHTML);
 });
 
-it("invalidates the cache on a host resize and cleans up its observer", async () => {
+it.each([false, true])("invalidates the cache on a host resize and cleans up its observer (autoSize=%s)", async autoSize => {
   const observers: { cb: ResizeObserverCallback; disconnect: ReturnType<typeof vi.fn> }[] = [];
   vi.stubGlobal("ResizeObserver", class {
     disconnect = vi.fn(); observe() {} unobserve() {}
     constructor(cb: ResizeObserverCallback) { observers.push({ cb, disconnect: this.disconnect }); }
   });
-  const m = mount(); await ready(m);
-  pointer(m, "pointerdown", 200); pointer(m, "pointermove", 208); frame();
-  Object.defineProperty(m.host, "getBoundingClientRect", { value: () => ({ width: 800, height: 400 }) });
+  const m = mount({ autoSize }); await ready(m);
+  // The oracle: the same map without a compositor, panned and resized the same way.
+  const plain = mount({ compositorPan: false, autoSize }); await plain.idle();
+  for (const map of [m, plain]) { pointer(map, "pointerdown", 200); pointer(map, "pointermove", 208); frame(); }
+  for (const map of [m, plain]) Object.defineProperty(map.host, "getBoundingClientRect", { value: () => ({ width: 800, height: 400 }) });
   renders = 0;
   for (const o of observers) o.cb([], {} as ResizeObserver);
-  expect(element(m).style.transform).toBe(""); expect(renders).toBe(1);
-  m.destroy();
+  // An autoSize grid renders once more: it must commit normal-size text before it can measure it.
+  expect(element(m).style.transform).toBe(""); expect(renders).toBe(autoSize ? 2 : 1);
+  // A layout primed at the frame's 640 px host would centre the answer for the old width.
+  expect(m.project([0, 0]).col).toBeCloseTo(plain.project([0, 0]).col, 6);
+  expect(m.project([0, 0]).col).not.toBeCloseTo(41, 1);
+  m.destroy(); plain.destroy();
   for (const o of observers) expect(o.disconnect).toHaveBeenCalled();
 });
 
