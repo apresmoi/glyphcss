@@ -9,7 +9,7 @@ import { glyphMapDecodeGeoTileInt16, glyphMapGeoTileElevationAt, type GlyphMapGe
 import { glyphMapDecodeMVT } from "./vector/pmtiles";
 import { glyphMapMercatorTileBounds } from "./vector/mercator";
 import { glyphMapOpenMapTilesLayers, GLYPH_MAP_OPENMAPTILES_WATER_COLORS } from "./vector/openmaptiles";
-import type { GlyphMapVectorProvider, GlyphMapVectorTile } from "./vector/types";
+import type { GlyphMapVectorFeature, GlyphMapVectorProvider, GlyphMapVectorTile } from "./vector/types";
 import { glyphMapWaterContains } from "./waterTerrain";
 
 const root = path.resolve(__dirname, "../fixtures/openfreemap/venice");
@@ -237,4 +237,29 @@ it("never renders new land authority before its matching water fill", async () =
     expect(frames).toContainEqual([LAND, "#1b3f66"]);
     expect(frames.every(frame => frame[0] === SEA && frame[1] === SEA || frame[0] === LAND && frame[1] === "#1b3f66")).toBe(true);
   } finally { writes.mockRestore(); }
+});
+
+it("decides the terrain cutout from the water layer's current source, not the one it mounted with", async () => {
+  const tile = fixture(8, 136, 91), live = provider(tile);
+  type Source = GlyphMapVectorProvider | { features: readonly GlyphMapVectorFeature[] };
+  // The cutout leaves water at the ground sample; a draped fill lifts it above it. Read the lift off the installed mesh.
+  const build = async (source: Source, then?: (map: GlyphMapHandle) => Promise<void>) => {
+    const map = mount(live, true), heights: number[] = [];
+    const add = map.scene.add.bind(map.scene);
+    vi.spyOn(map.scene, "add").mockImplementation((polygons, ...rest) => {
+      heights.length = 0;
+      for (const polygon of polygons) for (const v of polygon.vertices) heights.push(v[2]);
+      return add(polygons, ...rest);
+    });
+    map.removeLayer("omt-water");
+    map.addLayer({ type: "fill", id: "w", source, sourceLayer: "water", waterTerrain: true, color: "#2255aa" });
+    await map.idle();
+    await then?.(map);
+    await map.idle();
+    return Math.max(...heights);
+  };
+  const direct = await build(live);
+  const swapped = await build({ features: [] }, async map => { map.setLayerSource("w", live); });
+  expect(Number.isFinite(direct)).toBe(true);
+  expect(swapped).toBe(direct);
 });

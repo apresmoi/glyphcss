@@ -8662,11 +8662,13 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       while (!next.done) next = steps.next();
       next.value();
     }
+    /** The source the layer reads now: `setLayerSource` replaces it, and only a tiled provider is authoritative water. */
+    let currentSource = layer.source;
     /** This layer's runtime as the layer table holds it, so an install can be predicted against the other layers (set once it exists). */
     let self: FeatureLayerRuntime | null = null;
     function* prepareBuild(features: readonly GlyphMapVectorFeature[], coverage = waterTerrainSnapshot(), ahead = false): Generator<void, () => void> {
       const buildProjection = projection;
-      const cutsTerrain = layer.type === "fill" && layer.waterTerrain && isGlyphMapVectorProvider(layer.source);
+      const cutsTerrain = layer.type === "fill" && layer.waterTerrain && isGlyphMapVectorProvider(currentSource);
       const variation = layer.type === "fill-extrusion" ? layer.colorVariation ?? 0 : 0;
       // `part` is the polygon GROUP's own anchor, and the variation is seeded
       // from it rather than from the feature: a real OSM pyramid emits every
@@ -8901,7 +8903,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     if (layer.type === "fill-extrusion") walkCollisionSources.add(collisionSource);
     return self = {
       update: runtime.update,
-      setSource: runtime.setSource,
+      setSource(next) { currentSource = next; runtime.setSource(next); },
       polygons: () => mesh?.polygons ?? [],
       outlineGeometry: () => outlineGeometry,
       dispose() {
