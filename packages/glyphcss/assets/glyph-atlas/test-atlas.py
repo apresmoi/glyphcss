@@ -7,7 +7,12 @@ import base64
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
 import unittest
 
 from fontTools.ttLib import TTFont
@@ -174,6 +179,36 @@ class BrailleDotsAtlasTests(unittest.TestCase):
 
     def test_build_reproduces_the_checked_in_geometry(self):
         self.assertEqual([list(r) for r in build.braille_dot_rects()], self.manifest["dotGeometry"]["dots"])
+
+
+def _font_of(path):
+    return TTFont(io.BytesIO(base64.b64decode(json.loads(Path(path).read_text())["woff2Base64"])))
+
+
+@unittest.skipUnless(os.path.exists(build.SRC), "the legacy atlases need Menlo")
+class LegacyRegenerationTests(unittest.TestCase):
+    """Rebuilding the universal and ASCII atlases with today's build-atlas.py must
+    reproduce the checked-in fonts table for table (only head's build timestamps
+    and checksum may differ): the braille-dots variant shares their assembly code."""
+
+    def test_universal_and_ascii_rebuild_identically(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in ("build-atlas.py", "sources"):
+                src = HERE / name
+                (shutil.copytree if src.is_dir() else shutil.copy)(src, Path(tmp) / name)
+            for variant, prefix in ((None, ""), ("ascii", "ascii-")):
+                subprocess.run([sys.executable, "build-atlas.py", *([variant] if variant else [])],
+                               cwd=tmp, check=True, capture_output=True)
+                with self.subTest(variant=variant or "universal"):
+                    self.assertEqual((Path(tmp) / f"{prefix}atlas.json").read_bytes(),
+                                     (HERE / f"{prefix}atlas.json").read_bytes())
+                    built, checked_in = _font_of(Path(tmp) / f"{prefix}atlas-font.json"), _font_of(HERE / f"{prefix}atlas-font.json")
+                    self.assertEqual(sorted(built.keys()), sorted(checked_in.keys()))
+                    for font in (built, checked_in):
+                        font["head"].created = font["head"].modified = font["head"].checkSumAdjustment = 0
+                    for tag in built.keys():
+                        if tag != "GlyphOrder":
+                            self.assertEqual(built.getTableData(tag), checked_in.getTableData(tag), tag)
 
 
 if __name__ == "__main__":
