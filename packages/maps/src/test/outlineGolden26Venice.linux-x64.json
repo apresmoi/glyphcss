@@ -1,0 +1,66 @@
+[
+  [
+    {
+      "kind": "base",
+      "cols": 156,
+      "rows": 77,
+      "char": "191155a67e432bc9ef62dd19e51d9eb1ea5902df4cba02f7d51697b1e2c94697",
+      "color": "644180856aa6e6fb9b3cbfddc981821dcbbb7f3832aa03d63c7cc59398b911f6",
+      "depth": "4a276f66d9f9ae1aa4a2259b7a610fcf4a7fd816f685e97ef1cc20e0db9d2635",
+      "occluded": null
+    }
+  ],
+  [
+    {
+      "kind": "base",
+      "cols": 156,
+      "rows": 77,
+      "char": "03bc94d29506b6f9c9ddb5a49d7dd6c3f8f6dab784b4014efce6553ff4e521ed",
+      "color": "dc7b2c2a9d5a87e789b0ddab3e756ae9413ae463f4ffe7268d296d4a5cd10acb",
+      "depth": "aa08db003bc4bca6b583bda30a773e21fcffb916690afa477e6bd794ddb229a4",
+      "occluded": null
+    }
+  ],
+  [
+    {
+      "kind": "base",
+      "cols": 156,
+      "rows": 77,
+      "char": "01298e7185690cae27984a29f5690990dfb31f2cf21a0177ba00e4e159c3880b",
+      "color": "c9b57641efc737c71b9091206f96a5252a5ff131d8c451a9c78b4db1b09a8170",
+      "depth": "ebd8b1f2828e35fb38ec69b32d646a24ecf3573e5b968a97593403a2908598ec",
+      "occluded": null
+    }
+  ],
+  [
+    {
+      "kind": "base",
+      "cols": 156,
+      "rows": 77,
+      "char": "c3173629bc45b7801655864b20385d492b01a296d76247591fed423105584c4b",
+      "color": "56c6c67b28ee36a6e5faaa3ea7e4fc0d6850018d8519af0b9a215ed5a1cb6337",
+      "depth": "5b720febb276759a9c6686ae45b49312efed68f05a41c4aa5711af552def7604",
+      "occluded": null
+    },
+    {
+      "kind": "base",
+      "cols": 156,
+      "rows": 77,
+      "char": "bf819ad84743e28e2fbc12f10572130e8b5b430bfae8229be2d33d6fe4690684",
+      "color": "81b3d1b2cce9b758db7b2b5e6f313aafbfc3d95da62e18c78c903addad4b17a2",
+      "depth": "adf4a00371dc5fd75bb3d9bacc47872414ec08fbe98502ab3b64c3b49201b400",
+      "occluded": null
+    }
+  ],
+  [
+    {
+      "kind": "base",
+      "cols": 156,
+      "rows": 77,
+      "char": "bf819ad84743e28e2fbc12f10572130e8b5b430bfae8229be2d33d6fe4690684",
+      "color": "81b3d1b2cce9b758db7b2b5e6f313aafbfc3d95da62e18c78c903addad4b17a2",
+      "depth": "adf4a00371dc5fd75bb3d9bacc47872414ec08fbe98502ab3b64c3b49201b400",
+      "occluded": null
+    }
+  ]
+]
