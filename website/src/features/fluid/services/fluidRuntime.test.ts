@@ -108,8 +108,13 @@ describe("mountFluidReader", () => {
     expect(onProgress).toHaveBeenCalledTimes(calls);
   });
 
-  it("stops at the end when loop is off", () => {
+  // The reader stopping at the end is the package's contract (reader.test.ts); this pins
+  // the workbench's loop toggle onto the reader option in both directions.
+  it("maps the loop toggle onto the reader's loop option", () => {
     mountFluidReader(document.createElement("div"), { ...FLUID_READER_DEFAULTS, loop: false }, FLUID_DEFAULTS).destroy();
-    expect(vi.mocked(readerApi.createGlyphFluidReader).mock.calls[0]![1]!.loop).toBe(false);
+    mountFluidReader(document.createElement("div"), { ...FLUID_READER_DEFAULTS, loop: true }, FLUID_DEFAULTS).destroy();
+    const calls = vi.mocked(readerApi.createGlyphFluidReader).mock.calls;
+    expect(calls.at(-2)![1]!.loop).toBe(false);
+    expect(calls.at(-1)![1]!.loop).toBe(FLUID_READER_LOOP_MS);
   });
 });

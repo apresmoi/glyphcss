@@ -10,7 +10,9 @@ import { createGlyphFluidTargetFrame } from "../targets/frame";
  * 0.7 em tall around the (middle) baseline, through translate/scale in y. Enough to see
  * where the word and its ORP letter land on the cell grid.
  */
+const drawn: string[] = [];
 function fakeCanvas(em = 0.6) {
+  drawn.length = 0;
   vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockImplementation(function (this: HTMLCanvasElement) {
     const cv = this, data = new Uint8ClampedArray(cv.width * cv.height * 4);
     let fs = 10, ty = 0, sy = 1;
@@ -25,6 +27,7 @@ function fakeCanvas(em = 0.6) {
       translate: (_x: number, y: number) => (ty += y * sy),
       scale: (_x: number, y: number) => (sy *= y),
       fillText(s: string, x: number, y: number) {
+        drawn.push(s);
         const green = ctx.fillStyle === "#0f0";
         const x1 = x + s.length * fs * em;
         const ya = ty + sy * (y - fs * 0.35), yb = ty + sy * (y + fs * 0.35);
@@ -166,6 +169,16 @@ describe("GlyphFluidReaderTarget", () => {
     }
   });
 
+  it("never splits an astral character, whichever half the ORP index lands on", () => {
+    const lone = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    for (const w of ["a😀bcd", "😀bcde", "ab😀"]) {
+      written(w);
+      expect(drawn.join("|"), w).not.toMatch(lone);
+      expect(drawn[0]! + drawn[2]! + drawn[1]!, w).toBe(w); // drawn as before, after, focal
+    }
+    expect(tokenizeGlyphReaderText("a😀bcd")[0]!.orp).toBe(2); // the low surrogate
+  });
+
   it("reports a change once per word (reduced-motion redraw signal)", () => {
     const { t } = written("one");
     expect(t.changed?.()).toBe(true);
@@ -178,9 +191,17 @@ describe("createGlyphFluidReader", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     fakeCanvas();
     const sch = fakeScheduler();
+    const writes = vi.spyOn(GlyphFluidReaderTarget.prototype, "write");
     const reader = createGlyphFluidReader(sizedHost(), { text: "one two three", wpm: 600, scheduler: sch, clock: "manual", worker: false, shape: "circle" });
     await reader.ready;
     expect(reader.clock.playing).toBe(true);
+    /** Frames in which the word target drew. */
+    const drawnFrames = (n: number) => {
+      const before = writes.mock.calls.length;
+      for (let i = 0; i < n; i++) reader.fluid.step(1 / 60);
+      return writes.mock.calls.length - before;
+    };
+    expect(drawnFrames(3)).toBe(0); // lead-in: melted
     const impulse = vi.spyOn(reader.fluid, "impulse");
     const words: string[] = [];
     reader.clock.subscribe((e) => e.type === "word" && words.push(e.token.word));
@@ -190,8 +211,12 @@ describe("createGlyphFluidReader", () => {
     sch.advance(100);
     expect(impulse).toHaveBeenCalledTimes(1);
     expect(impulse.mock.calls[0]![2]).toEqual({ strength: 0.63, radius: 0.12 });
-    for (let i = 0; i < 5; i++) reader.fluid.step(1 / 60);
+    expect(drawnFrames(3)).toBe(3); // reading: condensed
     expect(reader.fluid.stats().cols).toBe(52);
+    sch.advance(100 + 100); // "three", then the end
+    expect(words).toEqual(["one", "two", "three"]);
+    expect(reader.clock.playing).toBe(false);
+    expect(drawnFrames(3)).toBe(0); // ended: melted back into the field
     reader.destroy();
     expect(sch.pending()).toBe(0);
     expect(reader.clock.playing).toBe(false);

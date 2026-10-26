@@ -20,7 +20,10 @@ export interface GlyphFluidReaderOptions extends Omit<GlyphFluidOptions, "glue">
   autoplay?: boolean;
   /** Letter colour, `#rrggbb`. Default `#f2f5ff` (molty's). The ORP accent is the fluid's accent orange. */
   color?: string;
-  /** Strength of the ring each new word sends out. Default 0.63; 0 for none. */
+  /**
+   * Strength of the ring each word after the first sends out. Default 0.63; 0 for none.
+   * The first word condensing and the last melting stir the fluid like any target change.
+   */
   ripple?: number;
   /** The word clock's timer (tests, or a host-driven clock). Default `performance.now` / `setTimeout`. */
   scheduler?: GlyphReaderScheduler;

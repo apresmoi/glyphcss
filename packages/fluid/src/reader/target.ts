@@ -153,9 +153,11 @@ export class GlyphFluidReaderTarget implements GlyphFluidTargetImpl {
     const g = cv.getContext("2d", { willReadFrequently: true });
     if (g) {
       const word = tok.word, o = tok.orp;
-      // an astral focal character is two code units; keep the pair together
-      const end = o + (/[\uD800-\uDBFF]/.test(word[o] ?? "") ? 2 : 1);
-      const before = word.slice(0, o), focal = word.slice(o, end), after = word.slice(end);
+      // The rules index UTF-16 code units, so the focal unit can be either half of an
+      // astral character: widen the drawn focal slice to the whole pair.
+      const start = /[\uDC00-\uDFFF]/.test(word[o] ?? "") && /[\uD800-\uDBFF]/.test(word[o - 1] ?? "") ? o - 1 : o;
+      const end = start + (/[\uD800-\uDBFF]/.test(word[start] ?? "") ? 2 : 1);
+      const before = word.slice(0, start), focal = word.slice(start, end), after = word.slice(end);
       let fs = this.fontPx(tok);
       g.font = `900 ${fs}px ${FONT}`;
       g.textBaseline = "middle";

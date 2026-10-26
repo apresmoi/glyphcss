@@ -165,6 +165,25 @@ describe("createGlyphReaderClock", () => {
     expect(log.at(-1)![1]).toBe("word:bb");
   });
 
+  it("a transition in an earlier listener supersedes the event for later listeners", () => {
+    for (const nested of ["seek", "setText", "destroy"] as const) {
+      const sch = fakeScheduler();
+      const clock = createGlyphReaderClock({ text: "aa bb", wpm: 600, scheduler: sch, leadIn: 0 });
+      let once = true;
+      clock.subscribe((e) => {
+        if (e.type !== "word" || !once) return;
+        once = false;
+        if (nested === "seek") clock.seek(1);
+        else if (nested === "setText") clock.setText("cc");
+        else clock.destroy();
+      });
+      const seen: string[] = []; // registered SECOND: sees only what is current
+      clock.subscribe((e) => seen.push(e.type === "word" ? e.token.word : e.type));
+      sch.advance(0);
+      expect(seen, nested).toEqual(nested === "seek" ? ["bb"] : nested === "setText" ? ["text", "cc"] : []);
+    }
+  });
+
   it("a word listener's pause keeps the full delay of that word for resume", () => {
     const sch = fakeScheduler();
     const clock = createGlyphReaderClock({ text: "aa bb", wpm: 600, scheduler: sch, leadIn: 0 });

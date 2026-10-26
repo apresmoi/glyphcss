@@ -71,8 +71,15 @@ export function createGlyphReaderClock(opts: GlyphReaderClockOptions = {}): Glyp
   /** ms left on the current step while paused. */
   let remaining = leadIn;
   const listeners = new Set<(e: GlyphReaderClockEvent) => void>();
+  /** Bumped by every dispatch: a transition made inside a listener supersedes the event
+   *  being delivered, so later listeners never see an event older than the clock state. */
+  let dispatch = 0;
   const emit = (e: GlyphReaderClockEvent) => {
-    for (const fn of [...listeners]) fn(e);
+    const id = ++dispatch;
+    for (const fn of [...listeners]) {
+      if (destroyed || id !== dispatch) return;
+      fn(e);
+    }
   };
 
   function cancel(): void {

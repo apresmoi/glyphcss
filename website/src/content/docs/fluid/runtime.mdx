@@ -51,7 +51,7 @@ The worker takes the step off the main thread; what remains there is composing t
 
 ## Reduced motion
 
-Under `prefers-reduced-motion: reduce` the default `reducedMotion: "settle"` runs on the main thread with no impulses or kicks and draws one still frame per change (targets, zones, layout, scroll — and each [reader](/fluid/reader) word). Each still is run forward until every cell is within 0.02 of its target, so a small target is never shown half-formed. `reducedMotion: "animate"` ignores the preference.
+Under `prefers-reduced-motion: reduce` the default `reducedMotion: "settle"` runs on the main thread with no impulses or kicks and draws one still frame per change (targets, zones, layout, scroll — and each [reader](/fluid/reader) word). Each still is run forward until every cell is within 0.02 of its target (capped at 120 steps), not until the grid-wide mean error is small, so a small target is not shown half-formed while the rest of the grid has settled. `reducedMotion: "animate"` ignores the preference.
 
 ## Encodings
 
