@@ -98,6 +98,16 @@ export const docsSidebar = [
     ],
   },
   {
+    label: "Fluid",
+    items: [
+      { label: "Overview", slug: "fluid/overview" },
+      { label: "Targets & zones", slug: "fluid/targets" },
+      { label: "Runtime & performance", slug: "fluid/runtime" },
+      { label: "Reader", slug: "fluid/reader" },
+      { label: "Troubleshooting", slug: "fluid/troubleshooting" },
+    ],
+  },
+  {
     label: "API Reference",
     items: [
       { label: "React API", slug: "api/react" },

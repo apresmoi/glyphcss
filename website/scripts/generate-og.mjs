@@ -66,6 +66,16 @@ export const PAGES = [
     foot: "glyphcss.com/maps",
   },
   {
+    slug: "fluid",
+    url: "/fluid/",
+    // The live page writes atlas PUA text, which the card's Glyph Mono cannot draw;
+    // the build-time frame is the same package core in real braille code points.
+    render: "fluid",
+    tagline: ["a living ", "braille fluid"],
+    sub: "Text condenses out of a simulated fluid and melts back. One <pre>, sim in a Web Worker.",
+    foot: "glyphcss.com/fluid",
+  },
+  {
     slug: "bench",
     url: "/bench/",
     render: "bench",

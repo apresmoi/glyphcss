@@ -1,0 +1,92 @@
+---
+title: Reader
+description: A speed reader that shows one word at a time out of the fluid — molty's ORP and pacing rules, a renderer-agnostic word clock, and createGlyphFluidReader.
+---
+
+import { GlyphFluidDemo } from '../../../components/GlyphFluidDemo';
+
+<GlyphFluidDemo client:visible variant="reader" />
+
+`@glyphcss/fluid/reader` is molty.uno's speed reader in two layers:
+
+- **Rules**: tokenizer, optimal recognition point (ORP), word delay and a word clock. Pure functions with no fluid or DOM dependency; molty's device firmware applies the same rules.
+- **Rendering**: `createGlyphFluidReader` draws the clock's words with a fluid of its own.
+
+## Read a sentence
+
+```ts
+import { createGlyphFluidReader } from "@glyphcss/fluid/reader";
+
+const reader = createGlyphFluidReader(host, {
+  text: "Molty reads one word at a time, out of the fluid.",
+  wpm: 250,
+  shape: "circle",   // molty's round screen
+  loop: 2600,        // ms of rest after the last word, then read again
+});
+
+reader.clock.setWpm(400);            // takes effect from the next word
+reader.clock.pause();
+reader.clock.play();
+reader.clock.seek(3);                // show word 3 now
+reader.clock.setText("Something new to say.");
+reader.destroy();
+```
+
+Each word condenses out of the fluid in a heavy face stretched ×1.9 in height (cells are taller than wide), with its ORP letter pivoted on the centre column and drawn in the accent colour. Each word is sized to fill the screen on its own, so short words are large. Every word change sends a soft ring out from the centre; after the last word the letters melt back into the field.
+
+Reader options are the fluid's options (except `glue`) plus:
+
+| Option | Default | |
+|---|---|---|
+| `text` | `""` | the sentence; `clock.setText` replaces it |
+| `wpm` | `250` | words per minute |
+| `leadIn` | `550` | ms before the first word, while the ink gathers |
+| `loop` | `false` | ms of rest after the last word before reading again |
+| `autoplay` | `true` | start once the fluid is ready |
+| `color` | `"#f2f5ff"` | letter colour; the ORP accent is the fluid's accent orange |
+| `ripple` | `0.63` | strength of the ring on each word change; 0 for none |
+| `scheduler` | timers | the clock's `now` / `setTimeout` / `clearTimeout` |
+| `grid` | 52 columns | molty's device grid |
+
+The fluid's `<pre>` is `aria-hidden`: keep the sentence in the page (for example in an `aria-live` region) for assistive technology. Under reduced motion each word is drawn as one settled still.
+
+## The rules
+
+```ts
+import { tokenizeGlyphReaderText, glyphReaderOrp, glyphReaderWordDelay } from "@glyphcss/fluid/reader";
+
+const tokens = tokenizeGlyphReaderText("Stop.\n\nGo on, slowly.");
+// [{ word: "Stop.", orp: 1, core: 4, para: true }, { word: "Go", ... }, ...]
+glyphReaderWordDelay(tokens[0], 250);   // 600 ms
+```
+
+- **ORP**: strip leading and trailing non-alphanumerics to get the core; the focal letter is the core start plus a bucket of the core length: ≤ 1 → 0, 2–5 → 1, 6–9 → 2, 10–13 → 3, ≥ 14 → 4.
+- **Delay**: `max(40, round(60000 / wpm × long × punctuation))` ms, where `long = min(2, 1 + 0.05 × (core − 6))` for cores longer than 6, and punctuation is 2.5 at a paragraph end, 2.0 after `.` `!` `?`, 1.5 after `,` `;` `:` (closing quotes and brackets are skipped).
+- **Tokens**: words are runs of non-whitespace; a blank line marks the word before it as a paragraph end. Indices count UTF-16 code units, exactly as molty's reference does.
+
+The port is held to molty's `reader.js` on a corpus of punctuation, Unicode, emoji and paragraph cases, with planted-bug tests that prove the comparison catches a one-character slip.
+
+## The word clock
+
+```ts
+import { createGlyphReaderClock } from "@glyphcss/fluid/reader";
+
+const clock = createGlyphReaderClock({ text, wpm: 300, loop: 2000 });
+const off = clock.subscribe((e) => {
+  if (e.type === "text") prepare(e.tokens);          // a reading (re)starts: lead-in
+  if (e.type === "word") show(e.token, e.index, e.ms);
+  if (e.type === "end") clear();
+});
+```
+
+| Member | |
+|---|---|
+| `tokens`, `index`, `playing`, `wpm` | state; `index` is −1 during the lead-in, `tokens.length` once ended |
+| `play()`, `pause()` | pause keeps the remaining time of the current word |
+| `seek(i)` | show word `i` now (clamped); while playing it stays for its full delay |
+| `setWpm(wpm)` | from the next word |
+| `setText(text)` | new tokens, back to the lead-in; playing state is kept |
+| `subscribe(fn)` | `text`, `word` and `end` events; returns an unsubscribe |
+| `destroy()` | cancels the pending step |
+
+The clock knows nothing about the fluid: drive a terminal, a canvas or another renderer with it. If a second consumer appears, the rules layer moves to its own package unchanged.

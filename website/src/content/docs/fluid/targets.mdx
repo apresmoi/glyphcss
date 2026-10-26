@@ -1,0 +1,74 @@
+---
+title: Targets & zones
+description: Text, image and mesh targets that @glyphcss/fluid condenses out of the fluid, zones that shape its field, and the condense/melt lifecycle.
+---
+
+A target is a shape the ink flows toward. The fluid never draws a target directly: each frame the target writes how much ink it wants per cell (and in what colour), the simulation relaxes toward it, and the flow carries ink there. Remove or melt a target and the ink drains back into the field.
+
+## Text
+
+```ts
+import { createGlyphFluid, GlyphFluidTargets } from "@glyphcss/fluid";
+
+const fluid = createGlyphFluid(host, { glue: "document", pointer: "window" });
+const title = fluid.addTarget(
+  GlyphFluidTargets.text(h1, { color: "#3ccf96", delay: 0.5, visibility: "viewport" }),
+);
+```
+
+- Ink comes from the element's own text in its computed fonts, drawn word by word at the positions the browser laid out (wrapping, `<br>`, alignment, nested spans in other fonts, words broken across lines).
+- Keep the element in the page with `color: transparent`: its box keeps driving layout, selection and accessibility.
+- `color` is `#rrggbb`; the default is the field colour.
+
+## Image
+
+```ts
+fluid.addTarget(GlyphFluidTargets.image(img, figureEl, { ink: "luminance" }));
+fluid.addTarget(GlyphFluidTargets.image(imageData, { x: 40, y: 600, width: 320, height: 180 }));
+```
+
+- The source is anything a 2D canvas can draw, or raw `ImageData`.
+- `rect` is an element (its box) or a content-space rectangle in CSS px.
+- `ink: "luminance"` (default): bright, opaque pixels pull the most ink. `"alpha"`: coverage alone.
+
+## Mesh
+
+```ts
+import { createGlyphOrthographicCamera } from "glyphcss";
+
+fluid.addTarget(GlyphFluidTargets.mesh(el, {
+  polygons: () => creature.polygons(),   // read every frame: animate by returning new vertices
+  camera: createGlyphOrthographicCamera({ rotX: -20, rotY: 30 }),
+  extent: 2.4,                           // world units across the target; owns camera.zoom
+}));
+```
+
+- glyphcss rasterises the polygons itself with `compileScene`, twice per frame on a 2 × grid: unlit albedo for colour, a white Lambert pass for shading. No WebGL.
+- Dark covered cells (eyes, mouths) become solid 8-dot feature blocks once the shape holds; `features: false` turns that off.
+- `light`, `ambient` and `swell` (breathe with the field) tune the shading.
+
+## Condense, melt, show
+
+```ts
+const t = fluid.addTarget(spec);
+t.melt();       // flow out
+t.condense();   // flow back in
+t.remove();
+```
+
+- Every target takes `delay` (seconds before it first condenses) and `visibility`: `"always"` (default) or `"viewport"` — condensed only while its middle is between 7 % and 95 % of the viewport height, so scrolling a heading in and out condenses and melts it.
+- Each transition kicks the fluid: a ripple from the target's centre and a swirl.
+- Overlapping targets merge per cell by maximum ink; the winning target owns the cell's colour, feature flag and accent.
+
+## Zones
+
+```ts
+fluid.addZone({ el: proseEl, kind: "quiet" });   // dim the field under prose (level 0.12)
+fluid.addZone({ el: poolEl, kind: "pool", level: 3.2 });   // an elliptical well, deeper field
+```
+
+Zones add no ink; they scale the dim background floor. Later zones apply over earlier ones.
+
+## Measuring
+
+Targets and zones read the DOM only when they are measured: on add, layout, resize, font load and `fluid.relayout()`. Per frame they only compose. Call `relayout()` after a layout change the fluid's observers cannot see (a sibling animating its height, for example).

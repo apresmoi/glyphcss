@@ -1,0 +1,65 @@
+---
+title: Fluid
+description: A living braille fluid as DOM text with @glyphcss/fluid — headings, images and meshes condense out of it and melt back, pointer moves stir it, all in one <pre>.
+---
+
+import { GlyphFluidDemo } from '../../../components/GlyphFluidDemo';
+
+<GlyphFluidDemo client:visible variant="fluid" />
+
+Move the pointer over it to stir the fluid; tune the field and the reader in the [fluid workbench](/fluid).
+
+`@glyphcss/fluid` is molty.uno's landing-page fluid as a glyphcss surface. A shallow-water simulation runs on a cell grid; DOM text, images and meshes become *targets* the ink flows toward and condenses into, then melts back out of. Each frame is one `textContent` write to one `<pre>`, drawn as 8-dot braille with per-cell colour through glyphcss's colour-font atlas. The simulation runs in a Web Worker.
+
+## A first fluid
+
+```ts
+import { createGlyphFluid, GlyphFluidTargets } from "@glyphcss/fluid";
+
+const host = document.querySelector<HTMLElement>("#fluid")!;
+const fluid = createGlyphFluid(host);
+await fluid.ready;
+
+const h1 = document.querySelector<HTMLElement>("h1")!;
+h1.style.color = "transparent"; // the fluid draws it; the element keeps layout and accessibility
+const title = fluid.addTarget(GlyphFluidTargets.text(h1, { color: "#3ccf96" }));
+
+title.melt();      // flows out; title.condense() flows back in
+// On unmount: fluid.destroy();
+```
+
+Install with `npm install @glyphcss/fluid glyphcss`. There are no React/Vue bindings: create the fluid in your framework's mount hook and `destroy()` it on unmount.
+
+## Layers
+
+Each layer works alone; only the last touches the DOM.
+
+```
+GlyphFluidSim  →  computeGlyphFluidCells  →  GlyphFluidEncoder  →  createGlyphFluid
+(molty's sim,     (braille mask + colour     (glyphcss atlas text   (targets, worker,
+ bit-identical)    per cell)                  + pooled palette)      one <pre>)
+```
+
+- `GlyphFluidSim` steps bit-identically to molty's `sim.js`; molty's device firmware runs the same step in C.
+- `computeGlyphFluidCells` is molty's renderer's per-cell decision as data: which of the 8 dots light and in what colour.
+- `GlyphFluidEncoder` turns cells into atlas text against a pooled palette, so the palette CSS changes only when it repools.
+- `createGlyphFluid` composes targets and zones, runs the pipeline in a worker and writes the frame.
+- [`@glyphcss/fluid/reader`](/fluid/reader) adds a speed reader on top.
+
+## Handle reference
+
+| Task | Methods |
+|---|---|
+| Content | `addTarget(spec)` → `{ enabled, condense, melt, remove }`; `addZone({ el, kind })` → `{ remove }` |
+| Motion | `impulse(clientX, clientY, { strength, radius })`, `push(clientX, clientY, dx, dy)` |
+| Clock | `step(dt)` with `clock: "manual"`; `relayout()` after layout changes the observers miss |
+| Lifecycle | `ready`, `stats()`, `destroy()` |
+
+`stats()` reports `fps`, `pipeline` (`"worker"` or `"main"`), `encoding`, `cols`, `rows`, `frames`, `stalls`, `stepMs` and `lit` cells.
+
+## Where next
+
+- [Targets & zones](/fluid/targets): text, image and mesh targets and the zones that shape the field.
+- [Runtime & performance](/fluid/runtime): worker, frame rate, reduced motion and measured costs.
+- [Reader](/fluid/reader): one word at a time out of the fluid.
+- [Troubleshooting](/fluid/troubleshooting).

@@ -4,9 +4,9 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';
 
-const routes = ['diagrams', 'charts', 'gallery', 'maps', 'synth', 'wordart', 'examples/loaders'];
+const routes = ['diagrams', 'charts', 'gallery', 'maps', 'synth', 'wordart', 'fluid', 'examples/loaders'];
 const richRoutes = new Set(['diagrams', 'charts']);
-const rails = { diagrams: 'diagrams-source-panel', charts: 'charts-data-panel', gallery: 'gallery-models-panel', maps: 'maps-layers-panel', synth: 'synth-voices-panel', wordart: 'wa-compose-panel', 'examples/loaders': 'loaders-voices-panel' };
+const rails = { diagrams: 'diagrams-source-panel', charts: 'charts-data-panel', gallery: 'gallery-models-panel', maps: 'maps-layers-panel', synth: 'synth-voices-panel', wordart: 'wa-compose-panel', fluid: 'fluid-controls-panel', 'examples/loaders': 'loaders-voices-panel' };
 
 function check(html, route, mutate = () => {}) {
   const window = new Window();

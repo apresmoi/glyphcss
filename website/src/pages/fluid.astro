@@ -1,0 +1,25 @@
+---
+import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
+import { FluidWorkbench } from "../components/FluidWorkbench";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticFluid } from "../services/static-workbench/scenes";
+const snapshot = await staticFluid();
+const heading = "Fluid";
+const title = "Fluid — a living braille text surface | glyphcss";
+const description =
+  "A braille fluid simulated in a Web Worker and written as one text frame per tick — headings condense out of it, the pointer stirs it, and a round speed reader shows one word at a time.";
+---
+
+<WorkbenchLayout title={title} description={description} path="/fluid/" image="/og/fluid.png">
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <FluidWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench
+        page="fluid"
+        heading={heading}
+        description={`${description} The static view is one settled frame of the fluid, computed at build time by the package's own core. Enable JavaScript to stir it live.`}
+        initial={snapshot}
+      />
+    </Fragment>
+  </FluidWorkbench>
+</WorkbenchLayout>

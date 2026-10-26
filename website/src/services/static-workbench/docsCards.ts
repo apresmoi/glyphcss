@@ -15,6 +15,7 @@ export const DOCS_SECTION_RENDERS: Record<string, string> = {
   Maps: "home",
   Diagrams: "diagrams",
   Charts: "charts",
+  Fluid: "fluid",
   "Coding agents": "agents",
   Help: "docs-start",
 };

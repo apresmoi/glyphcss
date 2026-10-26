@@ -24,7 +24,7 @@ Four layers, each usable alone; only the last touches the DOM. `./reader` sits o
 - Text targets draw word by word at their Range rects (wrapping, `<br>`, alignment, nested fonts); never the element's `textContent` as one line.
 - A merge winner owns the cell's feature flag and accent (TA); a winner without them clears them. TA is a packed target field; the cell layer mixes accented cells toward molty's accent orange.
 - Reader rules match `reference/molty-fluid/reader.js` exactly (UTF-16 indices, rounding, the 40 ms floor); molty's firmware applies the same rules. Change both or neither.
-- The reader pivots the ORP letter on the host's centre column; the sentence fixes the type size; `setWpm` takes effect from the next word. A word change is a target change (`changed()`), so reduced motion draws one settled still per word.
+- The reader pivots the ORP letter on the host's centre column; each word is sized on its own (molty's glyph look); `setWpm` takes effect from the next word. A word change is a target change (`changed()`), so reduced motion draws one settled still per word.
 - `shape: "circle"` keeps the sim constructor's disc (stage-space circle inscribed in the grid); `"rect"` reshapes it.
 - Targets read the DOM in `measure()` only (layout, resize, font load, add). Per frame they only compose; the runtime reads the host rect once at the start of a frame, before its write.
 - Target merge is max-ink per cell; frame border cells are never written.

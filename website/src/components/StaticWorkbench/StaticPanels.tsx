@@ -12,6 +12,7 @@ import { DEFAULT_LOADER, findLoader } from "../../features/loaders/model/loaders
 import { synthPatchOf } from "../../features/loaders/model/patches";
 import { DEFAULT_MAP_LIGHTING } from "../../features/maps/model/lighting";
 import { WORD_ART_DEFAULTS } from "../../features/wordart/model/urlState";
+import { FLUID_DEFAULTS } from "../../features/fluid/model/fluidWorkbench";
 import {
   StaticChoice as Choice,
   StaticChoices as Choices,
@@ -22,9 +23,28 @@ import {
   StaticToggle as Toggle,
 } from "./StaticControls";
 
-export type StaticWorkbenchPage = "gallery" | "synth" | "maps" | "wordart" | "loaders" | "charts" | "diagrams";
+export type StaticWorkbenchPage =
+  | "gallery"
+  | "synth"
+  | "maps"
+  | "wordart"
+  | "loaders"
+  | "charts"
+  | "diagrams"
+  | "fluid";
 
 export function StaticPanels({ page }: { page: StaticWorkbenchPage }) {
+  if (page === "fluid") {
+    // Readouts of a live fluid; without JavaScript there is no pipeline to read.
+    return (
+      <Section title="Pipeline">
+        <Text label="fps" value={FLUID_DEFAULTS.fps} />
+        <Text label="pipeline" value="–" />
+        <Text label="cols × rows" value="–" />
+        <Text label="step ms" value="–" />
+      </Section>
+    );
+  }
   if (page === "charts" || page === "diagrams") {
     const diagrams = createGlyphDiagramsWorkbenchState();
     const charts = createChartsWorkbenchState();

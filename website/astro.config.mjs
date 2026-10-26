@@ -48,6 +48,14 @@ export default defineConfig({
           find: /^@glyphcss\/vue$/,
           replacement: repoPath('../packages/vue/src/index.ts'),
         },
+        { find: /^@glyphcss\/fluid\/reader$/, replacement: repoPath('../packages/fluid/src/reader/index.ts') },
+        // The worker entry, for `@glyphcss/fluid/worker?worker` (the package's default
+        // `new URL("./worker.js")` only exists next to its built dist).
+        { find: /^@glyphcss\/fluid\/worker$/, replacement: repoPath('../packages/fluid/src/runtime/worker.ts') },
+        {
+          find: /^@glyphcss\/fluid$/,
+          replacement: repoPath('../packages/fluid/src/index.ts'),
+        },
         {
           // Root entry only — `@glyphcss/maps/node` is fs-backed and never
           // reaches the browser bundle.
