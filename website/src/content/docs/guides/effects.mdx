@@ -4,21 +4,11 @@ description: Apply reusable Matrix rain, flowing text, scan, wipe, glitch, disso
 ---
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
+import { GlyphDemo } from '../../../components/GlyphDemo';
 
-Glyph Effects change the **raster appearance** of a scene after geometry has
-been projected and depth-tested. A parameter-only update reuses the retained
-glyph frame — no polygon is transformed or rasterised again. Effects stay
-inside the normal render transaction: no extra DOM nodes, and every affected
-`<pre>` is written at most once.
+<GlyphDemo client:visible id="effects-rain" geometry="cube" defaults='{"renderMode":"solid"}' effect="matrixRain" effectParams={{"space":"auto","colorMode":"monochrome"}} effects={["matrixRain", "scan", "glitch", "scramble", "ripple", "flowText"]} controls='[]' autoRotate noCode />
 
-Install the optional catalog alongside the binding you use:
-
-```bash
-pnpm add @glyphcss/effects glyphcss
-```
-
-The catalog contains `matrixRain`, `flowText`, `scan`, `wipe`, `scramble`,
-`glitch`, `noiseDissolve`, `ripple`, and `fieldSynth`.
+Matrix rain replaces the cube's surface with animated text. Drag to orbit. Install `@glyphcss/effects` alongside `glyphcss` or your framework binding; effects change appearance without changing the mesh.
 
 ## Mount an effect
 
@@ -26,27 +16,35 @@ The catalog contains `matrixRain`, `flowText`, `scan`, `wipe`, `scramble`,
   <TabItem label="Vanilla JS">
 
 ```ts
-import { createGlyphScene } from "glyphcss";
+import { createGlyphScene, createGlyphPerspectiveCamera } from "glyphcss";
+import { cubePolygons } from "@glyphcss/core";
 import { GlyphEffects } from "@glyphcss/effects";
 
-const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
+const host = document.querySelector<HTMLElement>("#scene")!;
+const scene = createGlyphScene(host, {
+  camera: createGlyphPerspectiveCamera({ zoom: 80 }),
+  mode: "solid",
+  autoSize: true,
+});
+scene.add(cubePolygons({ center: [0, 0, 0], size: 1 }));
 const rain = scene.addEffectLayer({
   effect: GlyphEffects.matrixRain,
   blend: "replace",
-  params: {
-    glyphs: "HOLA",
-    speedMin: 5,
-    speedMax: 12,
-    trail: 14,
-    density: 0.55,
-  },
+  params: { glyphs: "HOLA", space: "auto", colorMode: "monochrome" },
 });
-
+let raf = 0;
 function frame(now: number) {
   rain.params.time = now / 1000;
-  requestAnimationFrame(frame);
+  raf = requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
+raf = requestAnimationFrame(frame);
+
+// Call when the host unmounts:
+function dispose() {
+  cancelAnimationFrame(raf);
+  rain.dispose();
+  scene.destroy();
+}
 ```
 
   </TabItem>
@@ -58,9 +56,8 @@ import { GlyphEffectLayer, type GlyphEffectLayerHandle } from "@glyphcss/react";
 import { GlyphEffects } from "@glyphcss/effects";
 import type { GlyphEffectParamsOf } from "glyphcss";
 
-function Rain() {
+export function Rain() {
   const ref = useRef<GlyphEffectLayerHandle<GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>>>(null);
-
   useEffect(() => {
     let raf = 0;
     const frame = (now: number) => {
@@ -70,42 +67,23 @@ function Rain() {
     raf = requestAnimationFrame(frame);
     return () => cancelAnimationFrame(raf);
   }, []);
-
-  return (
-    <GlyphEffectLayer
-      ref={ref}
-      effect={GlyphEffects.matrixRain}
-      blend="replace"
-      params={{ glyphs: "HOLA", speedMin: 5, speedMax: 12 }}
-    />
-  );
+  return <GlyphEffectLayer ref={ref} effect={GlyphEffects.matrixRain} blend="replace" />;
 }
 ```
 
-Place `<Rain />` inside the surrounding `<GlyphScene>`.
+Place `<Rain />` inside a `GlyphScene` containing a mesh. Unmounting disposes the layer.
 
   </TabItem>
   <TabItem label="Vue">
 
 ```vue
-<template>
-  <GlyphEffectLayer
-    ref="rain"
-    :effect="GlyphEffects.matrixRain"
-    blend="replace"
-    :params="{ glyphs: 'HOLA', speedMin: 5, speedMax: 12 }"
-  />
-</template>
-
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
+import { onMounted, onBeforeUnmount, ref } from "vue";
 import { GlyphEffectLayer, type GlyphEffectLayerExposed } from "@glyphcss/vue";
 import { GlyphEffects } from "@glyphcss/effects";
 import type { GlyphEffectParamsOf } from "glyphcss";
 
-const rain = ref<GlyphEffectLayerExposed<
-  GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>
-> | null>(null);
+const rain = ref<GlyphEffectLayerExposed<GlyphEffectParamsOf<typeof GlyphEffects.matrixRain>> | null>(null);
 let raf = 0;
 onMounted(() => {
   const frame = (now: number) => {
@@ -116,804 +94,204 @@ onMounted(() => {
 });
 onBeforeUnmount(() => cancelAnimationFrame(raf));
 </script>
+
+<template>
+  <GlyphEffectLayer ref="rain" :effect="GlyphEffects.matrixRain" blend="replace" />
+</template>
 ```
+
+Mount inside `GlyphScene`; unmounting disposes the layer.
 
   </TabItem>
   <TabItem label="HTML">
 
 ```html
 <glyph-effect-layer id="rain" blend="replace"></glyph-effect-layer>
-
 <script type="module">
   import "glyphcss/elements";
   import { GlyphEffects } from "@glyphcss/effects";
-
-  const element = document.querySelector("glyph-effect-layer");
-  if (!element) throw new Error("Missing glyph effect layer");
-  element.configure({
-    effect: GlyphEffects.matrixRain,
-    params: { glyphs: "HOLA", speedMin: 5, speedMax: 12 },
-  });
+  const element = document.querySelector("#rain");
+  element.configure({ effect: GlyphEffects.matrixRain });
   const layer = await element.whenReady();
-  const frame = (now) => {
+  let raf = 0;
+  function frame(now) {
     layer.params.time = now / 1000;
-    requestAnimationFrame(frame);
-  };
-  requestAnimationFrame(frame);
+    raf = requestAnimationFrame(frame);
+  }
+  raf = requestAnimationFrame(frame);
+  // On teardown: cancelAnimationFrame(raf), then remove the element.
 </script>
 ```
 
-`<glyph-effect-layer>` must be a child of `<glyph-scene>`. Effect definitions
-are JavaScript values, so configuration is property-based rather than
-executable JSON in attributes.
+Place the element inside `glyph-scene` with a mesh. Definitions are JavaScript properties, never JSON attributes.
 
   </TabItem>
 </Tabs>
 
+Effects own no clock: update `params.time` in seconds. Use `layer.setParams({...})` for batches. Animation libraries can target the stable `layer.params` object directly.
+
 ## Composition and mapping
 
-How a layer combines with the base render:
-
-- `blend: "replace"` makes the effect the texture. Cells the effect leaves
-  empty hide that part of the surface — Matrix rain describes the model with
-  the falling strands alone.
-- `blend: "over"` keeps the shaded glyph texture and paints only active effect
-  cells on top of it.
-- `target: "surfaces"` limits writes to visible rendered geometry.
-- `target: "viewport"` can also author the base output's background.
-- `target: mesh` or `target: [meshA, meshB]` limits writes to that mesh (or
-  meshes) only — see [Targeting specific meshes](#targeting-specific-meshes)
-  below.
-
-### Targeting specific meshes
-
-Pass the handle returned by `scene.add(...)` (or an array of handles) as
-`target` to apply a layer to specific geometry instead of the whole scene —
-a normal render plus one weird effect object, without touching anything
-else:
-
 ```ts
-import { createGlyphScene } from "glyphcss";
-import { GlyphEffects } from "@glyphcss/effects";
-
-const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
-
-const ground = scene.add(groundPolygons);
-const cube = scene.add(cubePolygons);
-
-const carve = scene.addEffectLayer({
-  effect: GlyphEffects.fieldSynth,
-  target: cube, // only the cube's own cells — the ground is untouched
-  blend: "replace",
-  params: {
-    space: "object",
-    render: "carve",
-    field1: "menger", wave1: "step", freq1: 3, amp1: 1, iter1: 3,
-    amp2: 0,
-    combine: "min",
-    glyphs: " .:-=+*#%@",
-    color: "#ffcf5a",
-  },
+const cube = scene.add(cubePolygons({ center: [0, 0, 0], size: 1 }));
+const layer = scene.addEffectLayer({
+  effect: GlyphEffects.scan,
+  target: cube,
+  blend: "over",
 });
-
-function frame(now: number) {
-  carve.params.time = now / 1000;
-  requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
 ```
 
-The target normalizes to an immutable set of mesh ids at mount — it cannot
-be changed afterward (`setOptions({ target: ... })` with a different mesh set
-throws; an equivalent set, e.g. the same handles in a different array, is a
-no-op). To retarget, remove the layer and add a new one. A mesh removed from
-the scene later simply stops matching — the layer degrades to inactive, it
-does not error. Targeting a mesh outside `solid` mode is also a documented
-no-op rather than a throw, since only solid mode tracks a per-cell winning
-mesh.
-
-**Ordering note:** a later scene-wide (`target: "surfaces"`/`"viewport"`)
-layer still composites *over* an earlier targeted layer's output, including
-painting into any holes a targeted `render: "carve"` cut — that's the normal
-layer-order semantics working as designed, not a bug specific to targeting.
-
-Mesh identity also matters inside a single targeted carve layer: [ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve)
-never bridge a contour or Braille dot across a boundary between two different
-target meshes, even when they're coplanar and share a normal — the same
-per-cell winning-mesh data `target` itself reads.
-
-### Coordinate space (`space`)
-
-`space` picks the coordinate system the pattern is evaluated in:
-
-| Value | Mapping |
+| Option | Behavior |
 |---|---|
-| `"auto"` | Authored, perspective-correct UVs when the mesh has them; otherwise the generated surface mapping; otherwise projected scene coordinates. |
-| `"surface"` | Always the generated per-face mapping, even when authored UVs exist. |
-| `"scene"` | Projected 2D scene coordinates. |
-| `"object"` | A volumetric field in the mesh's own 3D frame — see [`space: "object"`](#space-object--volumetric-mapping) below. |
+| `blend: "replace"` | Empty effect cells hide the base surface |
+| `blend: "over"` | Paint active cells over the base texture |
+| `target: "surfaces"` | Visible geometry; default target |
+| `target: "viewport"` | Includes the base output's background |
+| `target: mesh` or `[meshA, meshB]` | Only those meshes; solid mode only |
 
-`flowText` and `scan` default to `"auto"`. `matrixRain` defaults to
-`"object"` — a volumetric field is matrix rain's natural form.
+Mesh targets are fixed at mount; dispose and remount to retarget. Removed meshes stop matching. Layers compose in order; later scene-wide layers can fill earlier carve holes.
 
-A matrix-rain preset tuned before `"object"` became the default should set
-`space: "auto"` explicitly to keep its old look; `scale` in particular means
-something different under `"object"`.
+| `space` | Mapping |
+|---|---|
+| `"auto"` | Authored UVs, otherwise generated surface mapping, otherwise scene coordinates |
+| `"surface"` | Generated per-face mapping; ignores authored UVs |
+| `"scene"` | Projected 2D coordinates |
+| `"object"` | Mesh-local 3D field; needs solid mode, otherwise falls back to surface/scene |
 
-`scale` controls pattern frequency without changing scene glyph density.
+`matrixRain` defaults to `"object"`; `flowText`, `scan`, and `fieldSynth` default to `"auto"`. `scale` changes pattern frequency, not grid density; retune it when switching to object space. Generated flow follows downhill per face; flat caps get a deterministic direction.
 
-### Generated surface mapping
-
-When no authored UVs exist, each face derives its own flow frame:
-
-- `down` is world `-Z` projected into the face's tangent plane. Slopes flow
-  downhill, coplanar triangles agree, and differently oriented faces derive
-  different directions.
-- A face exactly perpendicular to `-Z` has no downhill direction, so it gets
-  a deterministic pseudo-random in-plane direction instead.
-- `up` reverses the generated flow; `left` and `right` use its perpendicular
-  lane axis.
-
-If surface fields are unavailable, the effect falls back to projected scene
-coordinates.
-
-### Text glyphs
-
-Text effects accept any printable, single-cell character set: `HOLA`, `⣿⠿⠷`,
-`ᚠᚢᚦ`, `←↑→↓`. Combining marks, emoji, and double-width glyphs are rejected —
-they would break the fixed cell grid.
-
-### Matrix rain behavior
-
-On surfaces, each strand flows and reads in the face's own frame, so the word
-travels at the strand's direction and speed even on sheared or foreshortened
-faces. Active trail cells emit full coverage; `density` and `trail` create the
-sparse look, so a word never dithers into isolated glyphs.
-
-`colorMode` keeps the model's original colors or switches to a single
-monochrome `color`. In monochrome, each strand lights a bright `headColor`
-head and fades its tail toward black — the classic falling-code gradient —
-still modulated by the surface shade, so lighting, shadows, and the 3D
-silhouette stay visible.
-
-### `space: "object"` — volumetric mapping
-
-`"auto"` and `"surface"` give every polygon its own 2D parameterization. A
-cube's caps and walls can never fully agree on one flow, and a face turned
-edge-on to its projection plane smears. `space: "object"` stops painting the
-pattern per face: it becomes a **field filling the mesh's volume**, sampled at
-each covered cell's position in the mesh's own pre-transform 3D frame. Faces
-are windows into the same body of rain — they agree by construction, and the
-field turns with the mesh.
-
-Matrix rain uses this volumetric form directly, which is why it defaults to
-`"object"`. The mesh-local frame is Z-up: strand phase runs along `Z` for
-`down`/`up` and along `Y` for `left`/`right`, and lanes are indexed by the
-remaining axes — so a cap cell and an adjacent wall cell continue the same
-strand across their shared edge. A cell whose sample sits near a lane boundary
-fades briefly instead of popping to another strand as the mesh rotates.
-
-`scan` and `flowText` have no 3D form of their own, so under `"object"` they
-use a **triplanar** fallback: each cell projects onto whichever axis-aligned
-plane its face normal most faces, with a narrow blend across transitions.
-
-Two practical notes:
-
-- `"object"` needs the retained `objectPosition` field, which only exists in
-  `solid` mode. In wireframe/voxel modes it degrades to the same
-  surface/scene fallback `"surface"` uses — never a silent empty render.
-- Under `"object"`, `scale` is a 3D field frequency, not a 2D UV frequency.
-  Re-tune it after switching mapping.
+Text effects require printable single-cell glyphs. Combining marks, emoji, and double-width characters are rejected.
 
 ## Stock effect parameters
 
-Every stock effect also takes `time` (the clock you drive), and the mapping
-params `space` / `scale` where noted in [Composition and mapping](#composition-and-mapping).
-`direction` is `"up" | "down" | "left" | "right"`.
+```ts
+import { getGlyphEffect, defaultGlyphEffectParams, GlyphEffectCatalog } from "@glyphcss/effects";
+const scan = getGlyphEffect("scan")!;
+const defaults = defaultGlyphEffectParams(scan);
+const schema = scan.parameterSchema;
+```
 
-| Effect | Parameters (with defaults) |
+Every stock effect takes `time`. Inspect `parameterSchema` for ranges and defaults, or iterate `GlyphEffectCatalog`. `direction` accepts `up`, `down`, `left`, or `right`.
+
+| Effect | Main parameters and defaults |
 |---|---|
-| `matrixRain` | `glyphs: "HOLA"`, `direction: "down"`, `space: "object"`, `speedMin: 5`, `speedMax: 12`, `trail: 14`, `density: 0.55`, `seed: 1`, `colorMode`, `color: "#00ff66"`, `headColor: "#d8ffe4"` |
-| `flowText` | `glyphs: "HOLA"`, `direction: "right"`, `speed: 6` (cells/s) |
-| `scan` | `speed: 10` (cells/s), `width: 3` (cells), `spacing: 28` (cells), `color: "#ffffff"` |
+| `matrixRain` | `glyphs: "HOLA"`, `direction: "down"`, `speedMin: 5`, `speedMax: 12`, `trail: 14`, `density: 0.55`, `seed: 1`, `colorMode: "original"`, `color: "#00ff66"`, `headColor: "#d8ffe4"` |
+| `flowText` | `glyphs: "HOLA"`, `direction: "right"`, `speed: 6` cells/s |
+| `scan` | `speed: 10` cells/s, `width: 3`, `spacing: 28`, `color: "#ffffff"` |
 | `wipe` | `progress: 0.5`, `softness: 0.04`, `direction`, `invert: false` |
-| `scramble` | `glyphs: "@#$%&*+=?"`, `amount: 0.35`, `rate: 10` (Hz), `seed: 1` |
-| `glitch` | `glyphs: "#%/=+!?"`, `amount: 0.28`, `rate: 12` (Hz), `bandSize: 4` (rows), `seed: 1`, `color: "#ff4fd8"` |
+| `scramble` | `glyphs: "@#$%&*+=?"`, `amount: 0.35`, `rate: 10` Hz, `seed: 1` |
+| `glitch` | `glyphs: "#%/=+!?"`, `amount: 0.28`, `rate: 12` Hz, `bandSize: 4`, `seed: 1`, `color: "#ff4fd8"` |
 | `noiseDissolve` | `progress: 0.5`, `softness: 0.08`, `scale: 0.22`, `seed: 1` |
 | `ripple` | `glyphs: "*+"`, `speed: 6`, `frequency: 0.5`, `width: 0.18`, `amount: 0.85`, `color: "#72d9ff"` |
 
-`wipe` and `noiseDissolve` are **masks**: they write coverage only, driven by
-`progress` rather than `time` — that is how you get a determinate progress bar
-rather than a loop. Mount them with `blend: "replace"`; under `"over"` the
-masked-out region stays lit, so nothing appears to fill.
-
-Reading a schema at runtime rather than from this table:
-
-```ts
-import { getGlyphEffect, defaultGlyphEffectParams, GlyphEffectCatalog } from "@glyphcss/effects";
-
-const scan = getGlyphEffect("scan");            // by id, or iterate GlyphEffectCatalog
-const defaults = defaultGlyphEffectParams(scan); // every param at its default
-scan.parameterSchema.width;                      // { kind, default, min, max, step, unit, label }
-```
+Rain's `colorMode: "monochrome"` uses `color` and a bright `headColor`; `"original"` preserves model colors. `wipe` and `noiseDissolve` are progress-driven masks: use `blend: "replace"` so masked cells disappear.
 
 ## Field synth
 
-`fieldSynth` is a small composable synth: up to nine oscillators, each a
-spatial **field** sampled through a **waveform**, combined into one scalar and
-mapped to a glyph ramp and color. It is the glyph-grid analogue of a fragment
-shader — interfering a handful of oscillators is where the emergent moiré,
-plaid, sonar, and lattice patterns come from.
-
-### Voices
-
-Each of the nine voices (`field1`/`wave1`/`freq1`/`speed1`/`amp1` through
-`field9`/…/`amp9`) is independent:
-
-- `fieldN` — the spatial field. `radial` measures distance from the origin,
-  `angular` the angle around it, `spiral` combines both;
-  `linearX`/`linearY`/`diagonal` are ramps; `noise` is a 3D value-noise field
-  that evolves in place over `time` rather than sliding. `linearZ` exists only
-  under the volumetric branch — see [below](#volumetric-fields-space-object).
-  `gyroid`/`menger`/`sierpinski` are a separate SDF family — see
-  [below](#sdf-fields-gyroid-menger-sierpinski).
-- `waveN` — the waveform: `sin`, `triangle`, `saw`, `square`, or the
-  non-periodic `step` (`+1` at or above its argument's zero, else `−1`).
-- `freqN` — spatial frequency, in cycles per unit.
-- `speedN` — animation rate, in cycles per second.
-- `ampN` — a **mix weight**, not a signal gain. Each active voice blends the
-  running result toward `combine(result, voice)` by its own `ampN`. `amp: 0`
-  skips the voice entirely; a low `ampN` gently mixes it in instead of
-  crushing the field.
-- `dutyN` (`0..1`, default `0.5`) — the square wave's high fraction (other
-  waveforms ignore it).
-- `phaseN` (cycles, default `0`) — added to that voice's wave argument. Voice
-  origins don't shift linear fields at all (`linearX`/`linearY`/`diagonal`
-  ignore the origin; only `angleN` and the radial/angular/spiral centers read
-  it), so `phase` is how you shift one: a middle-third band selector is
-  `wave: "square", duty: 1/3, phase: -1/3`.
-
-### Combine, gain, bias
-
-`combine` (`add` / `multiply` / `max` / `min` / `difference`) folds active
-voices pairwise, in voice order. `gain` (contrast) and `bias` (brightness)
-then map the combined scalar to `0..1`:
-`value = clamp01(bias + gain * combined * 0.5)`.
-
-`combine: "argmax"` is the exception — it is **categorical**. It reports
-*which* voice won a cell, not by how much, so every cell in a region gets one
-flat level (and, with `voiceColors`, the winning voice's own color). That is
-what makes hard-edged tilings reachable: three plane waves 60° apart under
-`argmax` produce a cube tessellation no value-folding operator can express.
-Under `argmax`, `amp` becomes a comparison weight — a quiet voice simply
-loses everywhere rather than blending in.
-
-### Placement: scale and origin
-
-`scale` sets pattern frequency. `originU`/`originV` place the center that
-`radial`, `angular`, and `spiral` measure from.
-
-Each voice can also carry its own placement on top of the global values:
-
-- `angleN` (degrees, default `0`) rotates that voice's sampling frame about
-  its own origin, turning the three fixed linear fields into one steerable
-  plane wave — two gratings a few degrees apart is where fine moiré lives.
-  `radial` is rotation-invariant; `angular`, `spiral`, and `noise` respond.
-- `originUN`/`originVN` (default `0`) offset that voice's center from the
-  global origin, so two `radial` voices can sit on **different** centers —
-  the classic interference figure.
-
-On generated surface coordinates (no authored UVs), origin resolves **per
-face**: `originU: 0.5, originV: 0.5` centers the pattern on each visible
-face's own bounds rather than on one fixed world point.
-
-### Output: ramp, color, lighting
-
-- `glyphs` — a **ramp** indexed by the mapped `0..1` value (dark → dense),
-  not a random character pool. See [`GlyphRamps`](#glyphramps), or author one
-  like `" .:-=+*#%@"`. A leading space gives the ramp a true blank dark step.
-- `color` / `colorB` / `gradient` — a two-color gradient across the mapped
-  value. `gradient: 0` is solid `color`; `1` is a full blend to `colorB`.
-- `voiceColors` (default `false`) — replaces the gradient with a per-voice
-  blend: each active voice's own `colorN` is mixed in by that voice's
-  contribution.
-- `lit` (`0..1`, default `1`) — modulates the output color by the surface's
-  Lambert shade, so scene lighting reads through the texture. `0` is
-  flat/unlit.
-
-`subcellRes` selects how the field becomes glyphs:
-
-| Value | Rendering |
-|---|---|
-| `"1x1"` (default) | One ramp-indexed glyph per cell. |
-| `"2x4"` | Thresholds eight subcells into a Braille dot pattern (`U+2800` block) — finer shape, still one glyph per cell. Ignores the ramp. |
-| `"ink"` | Contours the field instead of shading it, the way `mode: "ink"` outlines geometry. Ignores the ramp; emits plain-ASCII strokes. |
-
-At `"ink"`, `inkLevels` (`1..12`, default `4`) sets how many evenly spaced
-contour levels are drawn. A cell inks where a level crosses between it and a
-neighbour, with the stroke oriented perpendicular to the local gradient;
-plateaus and interiors stay empty. An oscillating field contours densely, so
-legibility comes from *fewer* levels, not more.
-
-The `"2x4"` dot offsets are exact under `space: "scene"`; under
-`"auto"`/`"surface"` they are reconstructed from neighboring cells and can
-shear on genuinely curved surfaces.
-
-`fieldSynth` shares the same `space: "auto" | "surface" | "scene" | "object"`
-mapping described [above](#composition-and-mapping).
-
-### Volumetric fields (`space: "object"`)
-
-Under `space: "object"`, field synth takes its own 3D branch rather than
-reusing the 2D formulas with `z` fixed at `0` — most fields are genuinely
-different in the two branches:
-
-- `linearZ` — the third axis projection. Only meaningful in 3D.
-- `diagonal` is `(x + y + z) / √3` here, vs. `(x + y) / √2` in 2D — the 2D
-  formula is untouched so existing presets don't shift.
-- `radial` measures spherical distance from the voice origin.
-- `angular` and `spiral` stay evaluated in the XY plane; `z` is ignored.
-- `noise` becomes a 4D hash (adding `z` to the existing `x, y, time` lattice)
-  so a volumetric noise voice animates instead of freezing.
-
-Voice origins gain `originWN` (default `0`) for the third axis, alongside the
-existing `originUN`/`originVN`. `angleN` keeps its 2D meaning — rotation about
-Z. `scale` is a 3D field frequency under `"object"`, the same caveat matrix
-rain's own volumetric mode carries: a value tuned for `"auto"`/`"surface"`
-does not carry over 1:1.
-
-`subcellRes: "2x4"` and `"ink"` still work volumetrically, finite-differencing
-neighboring cells' resolved 3D coordinate, for `render: "paint"`. Under
-`render: "carve"` both are legal too, but through a different mechanism —
-[ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve),
-below — since a march has no stable neighbor *coordinate* to difference, only
-a per-cell hit/hole result. `render: "xray"` still rejects both: an
-accumulated transmittance integral has no per-cell hit point for either
-volumetric subcell mode to read.
-
-### SDF fields (`gyroid`, `menger`, `sierpinski`)
-
-Every field above is a 1D wave sampled along some scalar projection of space
-— constant along its own level sets, terrain always ruled or revolved. The
-SDF family breaks that: `gyroid`, `menger`, and `sierpinski` are genuine
-implicit surfaces, so a single voice already carries real 2D/3D relief with
-no `combine` needed.
-
-They also read placement differently from every other field. `originUN`/
-`originVN`/`originWN` **translate the sampled point** before evaluation —
-the opposite of a linear field (which ignores origin) or radial/angular/
-spiral (which read origin only as a distance-from-center anchor) — since an
-implicit surface has no other way to align itself to its host mesh. `phaseN`
-correspondingly becomes an **iso-level offset**: it erodes or dilates the
-solid rather than sliding it.
-
-- `gyroid` — a smooth periodic implicit
-  (`sin(2πx)cos(2πy) + sin(2πy)cos(2πz) + sin(2πz)cos(2πx)`), `freq`-normalized
-  so `freq` means cycles per domain unit like every other field. Its sign
-  means "which labyrinth half," not inside/outside solid.
-- `menger` / `sierpinski` — the signed distance to the depth-`iterN`
-  approximation of a Menger sponge / corner-tetra Sierpinski fractal: the
-  union of solid boxes (menger) or corner tetras (sierpinski) kept after
-  `iterN` rounds of subdivision. This is an **exact** union distance (computed
-  by a pruned recursive descent over the same kept-child tree the fractal's
-  own membership rule walks), not a distance-estimator approximation — a true
-  limit-set SDF is positive almost everywhere and would carve to nothing.
-  `iterN` (integer `1..4`, default `3`) is capped at 4 because carve/xray's
-  march resolution caps at 256 steps; `menger` at `iter: 4` already needs
-  ~162 steps on a unit chord, and `iter: 5` would need ~486 and render
-  guaranteed false holes. **`iter: 3` and up costs noticeably more** to
-  march/integrate at full resolution — turn on `interactiveDownscale` while
-  dragging camera controls on a deep menger/sierpinski patch.
-
-Both fractal fields assume the unit cube `[0, 1]³` as their domain window,
-matching the `pyramid` stage's own (uncentered) authoring box — see the
-Sierpinski pyramid preset below. In the 2D branch, every SDF field evaluates
-at `z = 0` (a slice through the volume).
-
-The non-periodic `step` waveform exists mainly for this family: every SDF
-preset relies on "inside the solid → `step` → `+1` → density above the
-default bias → solid," which a periodic wave can't express directly. `step`
-is legal on any field, though — a `linearX` + `step` voice is a half-space.
-
-### Voice layers
-
-Voices can opt into one of three **layers** (`layer1..9`, default `1`), each
-with its own intra-layer combine, threshold, invert, and blend into the next
-layer:
-
-- `layerCombineL` — how that layer's own voices fold (default: the patch's
-  `combine`).
-- `layerThresholdOnL` / `layerThresholdL` (`-3..3`, default off / `0`) — when
-  on, the layer's folded value collapses to `+1` above the threshold or `-1`
-  below it.
-- `layerInvertL` — negates the layer's value (after thresholding, if on).
-- `layerBlendL` (`add`/`multiply`/`max`/`min`/`difference`, default
-  `multiply`) and `layerAmpL` (`0..1`, default `1`) — how the layer enters the
-  stack, one level up from how voices enter a layer.
-
-Layers exist because a flat fold of voices — every voice is a 1D wave along
-one axis — cannot express a **per-scale** rule like a Menger sponge's ("hole
-if at least two axes are in their middle third at the *same* scale"). A
-threshold per layer, one layer per scale, is what makes that expressible; a
-single flat `combine` cannot mix a per-scale threshold into the fold.
-
-A single-layer patch with threshold and invert off and amp `1` is identical
-to the pre-layers flat fold — existing patches and presets are unaffected.
-`argmax` stays single-layer: a multi-layer patch is only valid if every
-populated layer's *effective* combine (its own override, or else the patch's
-`combine`) resolves to something other than `argmax`.
-
-### Carve mode
-
-`render: "paint"` (default) is everything above. `render: "carve"` raymarches
-the field through the mesh's own volume and turns it into interior structure —
-holes, walls, hollow chambers — instead of a surface texture. `render: "xray"`
-(below) shares the same march but reports a transmittance brightness instead
-of a first hit. Both require the volumetric branch (`space: "object"`); xray
-is `subcellRes: "1x1"` only, while carve also supports `"2x4"` and `"ink"` —
-see [Ink-over-carve and braille-over-carve](#ink-over-carve-and-braille-over-carve)
-below.
-
-Per cell, carve marches from the mesh's entry point to its exit point along
-the view ray, sampling the same combined field paint uses. `marchSteps`
-(default `48`, max `256`) sets the sampling density; a chord with fine
-enough content near the cap raises this automatically so thin walls don't
-flicker in and out under rotation. Where the march finds no solid sample, the
-cell renders nothing; the recommended mount is `blend: "replace"` at full
-opacity, so a hole shows the page background — the "hollowed-out" look. Under
-`blend: "over"`, the base surface still shows through a hole instead.
-
-An interior hit fades with depth — `marchFade` (default `1`) controls how
-quickly a wall recedes into shadow as the march goes deeper — so a
-near-surface wall reads brighter than one buried further in.
-
-This layer/duty/phase/volumetric machinery is what a Menger-membership carve
-is built from (`space: "object"`, `render: "carve"`, three layers of three
-axis voices each — a scale-3, then scale-9, then scale-27 lattice,
-`min`-blended so solid means "solid at every scale") on a plain cube mesh —
-no sponge geometry, no baked frames needed. `fieldSynth` ships one preset
-built from this same recipe — **Sierpinski pyramid** (base-2 constants, two
-layers instead of three) — tuned for the dedicated `pyramid` stage the
-[`/synth`](/synth) page offers alongside its cube/sphere/tetrahedron shapes —
-an uncentered corner-tetra whose window matches the recipe's own `[0, 1]³`
-assumption. The recipe's own `square`-wave axis voices (not the
-`menger`/`sierpinski` SDF fields) drive its Nyquist floor, and that floor is
-duty-aware: `freq / min(duty, 1 − duty)` (two samples per narrowest band)
-rather than a flat `2 × freq` — a three-layer, scale-27 Menger recipe's finest
-band needs only 94 steps under the fixed formula, well inside the 256-step
-cap; an earlier, un-fixed estimate put it past ~281 and out of carve's budget
-entirely.
-
-### Ink-over-carve and braille-over-carve
-
-`subcellRes: "ink"` and `"2x4"` both work under `render: "carve"` — a
-different mechanism from their `render: "paint"` form, since carve has no
-stable per-cell field coordinate to finite-difference, only a per-cell march
-result.
-
-- **`"ink"`** contours the march's hit/hole boundary instead of shading every
-  hit cell — an outline of the sponge/fractal interior rather than a filled
-  one. A new param, `inkSpacing` (domain units, default `0.25`), sets contour
-  spacing in absolute terms (not a fraction of the observed depth range, which
-  would make contours crawl frame-to-frame under orbit). Every silhouette
-  edge — a hit cell next to a hole, or next to a cell on a *different* target
-  mesh — is always inked as a rim; interior cells ink where a multiple of
-  `inkSpacing` falls between two neighboring march depths. `inkLevels` is a
-  no-op here (2D `subcellRes: "ink"` keeps using it).
-- **`"2x4"`** marches 8 sub-rays per cell, one per Braille dot position,
-  registering a dot wherever its own sub-ray hits — finer silhouette detail
-  than `"1x1"`'s one glyph per cell. One color per cell (the center sub-ray's
-  hit color, or the first hitting sub-ray's).
-
-Both respect [mesh targeting](#targeting-specific-meshes): a contour or dot
-mask never bridges across a boundary between two different target meshes,
-even when they're coplanar and share a normal.
-
-### Sphere tracing
-
-For programs that are provably distance fields — a single layer, every active
-voice `menger` or `sierpinski` with `wave: "step"` and `amp: 1`, `combine`
-`"min"`, no layer threshold — carve automatically switches from fixed-step
-marching to sphere tracing: stepping by the field's own reported distance
-instead of a fixed grid, converging faster on thin or deep recursive detail.
-It falls back to an ordinary fixed-step scan of the remaining segment when a
-ray stalls near an off-axis feature or runs into its own step budget, so it
-never finds *fewer* hits than fixed-step marching would — only the same or
-more, at the same shaded ramp step. Measured roughly 1.8-1.9× faster than
-fixed-step marching on a deep (`iter: 3`) recursive scene. A single SDF voice
-(`menger` or `sierpinski`, `wave: "step"`, `amp: 1`, `combine: "min"`, no
-layer threshold) is what qualifies — the shipped Sierpinski pyramid preset
-above is built from linear recipe voices instead and never qualifies, so it
-stays on the fixed-step path unchanged. No preset currently ships built from a
-genuine SDF voice, so no shipped preset exercises sphere tracing directly —
-the mechanism itself remains fully implemented and tested independent of any
-preset. No params control this — it applies automatically whenever a mounted
-carve patch qualifies.
-
-### Xray mode
-
-`render: "xray"` is carve's sibling: instead of stopping at the first solid
-sample, it **integrates** density along the whole chord and reports how much
-of it a viewer sees through. Per cell: transmittance
-`T = exp(-xrayGain * integral)`, brightness `B = 1 - T`. `xrayGain` (default
-`4`, range `0..16`) is xray's own contrast knob — `marchFade` doesn't apply
-here, since carve's own default fade barely dims a solid unit chord and `0`
-means opposite things in the two modes (no fade in carve, fully invisible in
-xray).
-
-A cell with `B` under `1/255` renders nothing; anything at or above it gets
-**full coverage**, regardless of the resolved color's alpha — a translucent
-xray color is a stylistic choice, not a transparency signal to dither through.
-`voiceColors` has no meaning under xray (an integral has no single winning
-voice) and is hidden in the UI. A degenerate chord (no exit point, or zero
-length) also renders nothing — unlike carve's paint-at-entry fallback, since a
-bright rim around a transmittance volume would contradict the mode.
-
-**Absorption reads near-binary fields best.** A smoothly oscillating field
-integrates to roughly its own `bias` over any long-enough chord — the
-structure averages into fog. Shaping a voice with a layer threshold (turning
-it into a flat two-level field) before feeding it to xray reads its actual
-structure instead; the shipped **Breathing gyroid** preset does exactly this.
-
-### Animated volumetrics
-
-Every volumetric preset's `speedN` is exactly the same time axis every 2D
-preset's own animation already uses (`raw*freq - time*speed + phase`, or for
-the SDF voice family `sdfRaw - time*speed + phase`) — nothing new is needed to
-animate a carve/xray patch, just a nonzero `speedN` on an already-volumetric
-recipe. One shipped preset turns this on: **Breathing gyroid** animates the
-gyroid xray recipe's one voice — the implicit surface deforms in place rather
-than sliding along a single axis (a gyroid's three-term sum has no one "flow
-axis" the way a linear voice does), reading as an organic pulse rather than a
-directional sweep.
-
-A `wave: "step"` SDF voice (the only wave [sphere tracing](#sphere-tracing)
-qualifies) can animate the same way, but stays a one-way erosion/bloom rather
-than a looping breathe cycle: `synthWave`'s `step` case is explicitly
-non-periodic (`+1` when `t >= 0`, else `-1`, no wraparound), so raising
-`speed*time` over time only ever SHRINKS the solid region — an inherent
-trade-off of staying inside the sphere-tracing predicate rather than a tuning
-mistake. A consumer wanting a repeating loop resets or wraps `time` itself.
-
-### Example
+<GlyphDemo client:visible id="effects-field" geometry="icosahedron" defaults='{"renderMode":"solid"}' effect="fieldSynth" effectParams={{"field1":"radial","wave1":"sin","freq1":4,"speed1":0.6,"amp1":1,"field2":"angular","wave2":"saw","freq2":6,"speed2":0.3,"amp2":1,"combine":"multiply","color":"#ffcf5a","colorB":"#ff4fa3","gradient":0.6}} controls='[]' autoRotate noCode />
 
 ```ts
-import { createGlyphScene } from "glyphcss";
-import { GlyphEffects } from "@glyphcss/effects";
-
-const scene = createGlyphScene(host, { mode: "solid", autoSize: true });
 const synth = scene.addEffectLayer({
   effect: GlyphEffects.fieldSynth,
   blend: "replace",
   params: {
     field1: "radial", wave1: "sin", freq1: 4, speed1: 0.6, amp1: 1,
     field2: "angular", wave2: "saw", freq2: 6, speed2: 0.3, amp2: 1,
-    combine: "multiply",
-    glyphs: " .:-=+*#%@",
-    color: "#ffcf5a",
-    colorB: "#ff4fa3",
-    gradient: 0.6,
+    combine: "multiply", color: "#ffcf5a", colorB: "#ff4fa3", gradient: 0.6,
   },
 });
-
-function frame(now: number) {
-  synth.params.time = now / 1000;
-  requestAnimationFrame(frame);
-}
-requestAnimationFrame(frame);
 ```
 
-`fieldSynth` also ships curated named presets (`Sunburst`, `Ring pulse`,
-`Plaid weave`, `Sonar ping`, `Lattice`, `Vortex`, `Lava`, `Static rain`,
-`Moiré rings`, `Checkerboard`, `Warp core`, `Bubbles`, `Aurora`, `Zebra`,
-`Kaleidoscope`, `Halftone`, `Weave`, `Pulse grid`, `Nebula`, `Cube tiles`,
-`Ink cells`, `Sierpinski pyramid`, `Breathing gyroid`,
-`Menger (cssGraphics)`) as `{ name, params }` pairs — quick starting points
-for `params`. `Cube tiles` and `Ink cells` exercise `argmax` and the ink
-contour mode; `Sierpinski pyramid` and `Menger (cssGraphics)` exercise the
-volumetric branch, voice layers, and carve together, on the `pyramid` and
-`cube` stages respectively; `Breathing gyroid` exercises the SDF family,
-`render: "xray"`, and volumetric animation together — see
-[Animated volumetrics](#animated-volumetrics). These three volumetric
-presets are also individually exported by object identity
-(`GlyphSierpinskiPyramidPreset`, `GlyphBreathingGyroidPreset`,
-`GlyphCssGraphicsMengerPreset`, alongside `GlyphCubeTilesPreset`), for a
-consumer that needs to key off a specific preset rather than its display
-name.
+Drive `synth.params.time` with the same animation loop. Each voice samples a spatial field through a waveform. Try `GlyphEffects.fieldSynth.presets` (`{ name, params }` pairs) or design a patch in the [synth workbench](/synth).
+
+| Controls | Meaning |
+|---|---|
+| `field1..9` | `radial`, `angular`, `spiral`, `linearX`, `linearY`, `diagonal`, `noise`; `linearZ` requires object space |
+| `wave1..9` | `sin`, `triangle`, `saw`, `square`, `step`; step is non-periodic |
+| `freqN`, `speedN`, `ampN` | Cycles/unit, cycles/second, mix weight; `ampN: 0` skips a voice |
+| `dutyN`, `phaseN` | Square-wave high fraction (`0.5`), phase in cycles (`0`) |
+| `scale`, `originU`, `originV` | Global frequency (`2`) and center (`0.5`, `0.5`) |
+| `angleN`, `originUN`, `originVN`, `originWN` | Per-voice rotation in degrees and origin offsets; default `0` |
+| `combine` | `add`, `multiply`, `max`, `min`, `difference`, `argmax` |
+| `gain`, `bias` | Contrast and brightness: `clamp01(bias + gain * combined * 0.5)` |
+| `glyphs` | Dark-to-dense ramp, default `" .:-=+*#%@"` |
+| `color`, `colorB`, `gradient` | Two-color gradient; `gradient: 0` uses only `color` |
+| `voiceColors`, `colorN` | Per-voice colors instead of the gradient; default off |
+| `lit` | Surface lighting amount: `1` by default, `0` unlit |
+
+`argmax` selects the winning voice; amplitudes become comparison weights. Linear fields ignore origins: shift them with `phaseN`. Object-space radial fields are spherical; angular/spiral remain in XY. `noise` evolves over time. Object-space scan/flow text use triplanar mapping.
+
+### Voice layers
+
+```ts
+synth.setParams({ layer1: 1, layer2: 2, layerCombine2: "max", layerBlend2: "multiply" });
+```
+
+Assign voices to `layer1..9` (default `1`), choosing layers `1..3`. Each layer has `layerCombineL`, `layerThresholdOnL`/`layerThresholdL` (off/`0`, range `-3..3`), `layerInvertL`, `layerBlendL` (`multiply`), and `layerAmpL` (`1`). Populated layers cannot use `argmax` in a multi-layer patch.
+
+### Volumetric fields (`space: "object"`)
+
+```ts
+synth.setParams({
+  space: "object", render: "carve",
+  field1: "menger", wave1: "step", freq1: 3, amp1: 1, iter1: 3,
+  amp2: 0, combine: "min",
+});
+```
+
+<a id="sdf-fields-gyroid-menger-sierpinski"></a>
+
+| Option | Behavior / limitation |
+|---|---|
+| `gyroid`, `menger`, `sierpinski` | Distance fields; `iterN: 1..4` (`3`) controls recursive detail; use `waveN: "step"` for solid membership |
+| `render: "paint"` | Default surface texture |
+| `render: "carve"` | Interior walls/holes; requires object space and preferably full-opacity `replace` |
+| `render: "xray"` | Integrated density; requires object space and `subcellRes: "1x1"`; `xrayGain: 4` (`0..16`) controls contrast |
+| `marchSteps`, `marchFade` | Sampling budget (`48`, maximum `256`), carve depth fade (`1`) |
+| `subcellRes: "1x1"` | Default ramp glyphs |
+| `subcellRes: "2x4"` | Braille dots; ignores ramp; surface mapping can shear |
+| `subcellRes: "ink"` | ASCII contours; ignores ramp; `inkLevels: 4` (`1..12`) in paint, `inkSpacing: 0.25` in carve |
+
+Carve contours/dots respect mesh boundaries. Xray ignores `voiceColors`; thresholded fields show structure more clearly. Nonzero `speedN` animates volumetrics; reset/wrap `time` for looping step-wave erosion.
 
 ### Program builder and program-as-data
 
-Two more ways to author a field, beyond the flat `field1..9`/`layer1..9`
-params:
-
-- **`buildGlyphFieldProgram({ domain, layers: [{ voices: [...] }] })`**
-  (`@glyphcss/effects`) fills in every internal default from a pleasant
-  `voices: [...]` shape — a nicer authoring surface for the same program the
-  flat schema compiles down to, with no 9-voice cap.
-- **Program-as-data**: pass a fully-formed program straight to a layer via
-  the `program` option, instead of `params`:
-
-  ```ts
-  import { buildGlyphFieldProgram } from "@glyphcss/effects";
-
-  const program = buildGlyphFieldProgram({
-    domain: "3d",
-    layers: [{
-      voices: [{ field: "menger", wave: "step", freq: 3, iter: 3 }],
-      combine: "min",
-    }],
-  });
-
-  scene.addEffectLayer({
-    effect: GlyphEffects.fieldSynth,
-    program, // an unbounded field, not limited to 9 voices
-    params: { space: "object", render: "carve", glyphs: " .:-=+*#%@" }, // still governs space/render/march/output
-  });
-  ```
-
-  When `program` is set, field-synth ignores its own per-voice/per-layer
-  params entirely — `params` still controls `space`/`render`/`marchSteps`/
-  output mapping (ramp, color, `lit`, and so on). `validateGlyphFieldProgram`
-  (also exported) shape-checks an arbitrary value before you hand it to
-  `evaluateFieldProgram` yourself, if you're building the program by other
-  means. `program` is **immutable after mount** — pass a different one and
-  the layer's `setOptions` throws; remove and re-add the layer instead.
-  React/Vue and `<glyph-effect-layer>` all accept a `program` prop/property,
-  applied only at creation. It's an API-first feature: `program` is not
-  URL-persistable, and the [`/synth`](/synth) page and the static exporter
-  (below) don't support it.
-
-  `program` has a colour-stack sibling, **`colorProgram`**: field-synth's
-  independent colour voice stack (its own `min`/`max`/etc.-combined layers of
-  voices, evaluated separately from geometry) accepts its own program-as-data
-  payload the same way — opaque, forwarded unchanged, validated once at mount
-  via `validateGlyphFieldProgram`, and immutable after mount. Pass it
-  alongside `program` (not instead of it) when both geometry and colour are
-  program-authored; mirrored the same way across React/Vue/`<glyph-effect-layer>`.
-
-### `GlyphRamps`
-
-Named character ramps (dark → dense) for `glyphs`-style params:
-
 ```ts
-import { GlyphRamps } from "@glyphcss/effects";
-
+import { buildGlyphFieldProgram } from "@glyphcss/effects";
+const program = buildGlyphFieldProgram({
+  domain: "3d",
+  layers: [{ voices: [{ field: "menger", wave: "step", freq: 3, iter: 3 }], combine: "min" }],
+});
 scene.addEffectLayer({
   effect: GlyphEffects.fieldSynth,
-  params: { glyphs: GlyphRamps.Blocks },
+  program,
+  blend: "replace",
+  params: { space: "object", render: "carve" },
 });
 ```
 
-| Name | Ramp |
-|---|---|
-| `Fade` | `" .:-=+*#%@"` |
-| `Blocks` | `" ░▒▓█"` |
-| `Shades` | `" .·:;+=xX#"` |
-| `Dots` | `" .·•●"` |
-| `Binary` | `" 01"` |
-| `ASCII` | `" .,:;i1tfLCG08@"` |
-| `Hatch` | `" .-+=#"` |
-| `Stars` | `" .+*✦★"` |
-| `Digital` | `" .:i\|1oX#"` |
+Programs remove the nine-voice cap. `program` overrides voice/layer params; mapping, rendering, and output still use `params`. `colorProgram` independently supplies color voices. Both are immutable after mount, supported in React/Vue/HTML, and unavailable in workbench URLs or static exports.
 
-### Font-calibrated ramps
+Use `validateGlyphFieldProgram` to validate authored data before calling `evaluateGlyphFieldProgram` yourself.
 
-`GlyphRamps` are authored guesses, eyeballed against one font. Change family
-or weight and the gradient bands unevenly. `calibrateGlyphRamp` measures
-instead: it paints each candidate glyph on a canvas in the given font, sorts
-by real ink coverage, collapses visually identical steps, and returns a ramp
-that is perceptually linear for **that font**.
+### GlyphRamps
 
 ```ts
-import { calibrateGlyphRamp } from "@glyphcss/effects";
-
-const { ramp } = calibrateGlyphRamp({
-  font: { family: "ui-monospace, Menlo, monospace", size: 32 },
-  steps: 12,
-});
-// ramp is a plain string, e.g. " .'`,:;+=xXo#8@" (exact glyphs depend on
-// the resolved font) — drop it in anywhere a ramp is used today.
+import { GlyphRamps, calibrateGlyphRamp } from "@glyphcss/effects";
+const { ramp } = calibrateGlyphRamp({ font: { family: "Menlo, monospace", size: 32 }, steps: 12 });
+synth.setParams({ glyphs: ramp });
+// Or use GlyphRamps.Blocks directly.
 ```
 
-`measureGlyphInkCoverage(glyph, { font })` is the underlying per-glyph
-measurement, exported separately.
+Named ramps: `Fade`, `Blocks`, `Shades`, `Dots`, `Binary`, `ASCII`, `Hatch`, `Stars`, `Digital`. Calibration measures your font; `measureGlyphInkCoverage(glyph, { font })` measures one glyph. Both need browser Canvas 2D, or a supplied `canvasFactory` outside the DOM. Results are plain strings usable in effects or static compilation.
 
-Both are **browser-only** — the measurement needs a Canvas 2D context. Off the
-DOM (SSR, a worker, a test), pass `canvasFactory` to supply any
-Canvas-2D-compatible surface, such as
-[`@napi-rs/canvas`](https://github.com/Brooooooklyn/canvas)'s `createCanvas`.
-
-The result is a **plain string**, the same shape as `GlyphRamps` — data, not a
-live measurement. It slots in anywhere a ramp does, including static compile:
+## Exports and limits
 
 ```ts
-import { compileScene, WIREFRAME_PALETTES } from "glyphcss";
-import { calibrateGlyphRamp } from "@glyphcss/effects";
-
-const { ramp } = calibrateGlyphRamp({ font: { family: "Menlo, monospace" }, steps: 12 });
-WIREFRAME_PALETTES.myCalibrated = { ...WIREFRAME_PALETTES.default!, solid: ramp.split("") };
-
-compileScene({ polygons, mode: "solid", glyphPalette: "myCalibrated" });
+import { isGlyphFieldSynthStaticExportSupported } from "@glyphcss/effects";
+const supported = isGlyphFieldSynthStaticExportSupported(synth.params);
 ```
 
-The gallery's Rendering dock exposes this as the **Calibrated** glyph palette
-option — pick it to switch the live scene to a ramp measured in the gallery's
-own font.
+Only field synth supports [effect-only static export](/guides/compile#effect-only-static-export-field-synth) through `buildGlyphFieldSynthStaticExport`. Object-space, carve/xray, and program-authored patches require the [interactive export](/guides/compile#interactive-export). Check support rather than duplicating restrictions; other static compile paths do not evaluate effects.
 
-### Design it live
-
-The [`/synth`](/synth) page is a dual-sidebar modular synth built on
-`fieldSynth`: voice cards — with live previews that stay static until
-hovered — grouped into collapsible per-layer groups (blend mode, mix,
-threshold, invert) in the voice sidebar, plus Stage / Mix / Output / Lighting
-docks and a live preset gallery. A single **Mapping** dropdown is the whole
-2D/3D control (it just sets `space`; there's no separate mode toggle), and
-once a volumetric stage is active an optional camera auto-orbit is available.
-The full patch persists to the URL, so a design can be shared or pasted
-straight into `params`; a two-tier repair gate means an invalid or
-older-schema URL still hydrates to a working page instead of throwing — known
-bad combinations get their offending keys reset to defaults, and anything the
-repair table doesn't recognize resets the whole effect patch rather than
-leaving the page blank.
-
-## Use Anime.js directly
-
-The layer handle deliberately exposes a stable flat parameter object. Anime.js
-can target it without a GlyphCSS adapter:
-
-```ts
-import { animate } from "animejs";
-
-animate(layer.params, {
-  time: 60,
-  duration: 60_000,
-  loop: true,
-  ease: "linear",
-});
-```
-
-Anime owns time, easing, timelines, springs, and playback. GlyphCSS owns the
-spatial program, retained frames, composition, and final write.
-
-## Current boundary
-
-The runtime accepts `baseColor`, `baseShade`, `depth`, `normal`,
-`objectPosition`, `worldPosition`, and `uv0` program inputs, plus the base
-glyph and coverage buffers. Hard surface requirements need `solid` mode;
-`optionalRequirements` let a program request retained fields while still
-providing a wireframe/voxel fallback. Layers compose in order with
-`over`/`replace` blends and `surfaces`/`viewport`/mesh-handle targets (see
-[Targeting specific meshes](#targeting-specific-meshes)).
-
-Not implemented yet — these reject explicitly: scene-image sampling/
-displacement, shader-like scratch graphs, and surface-key / UV-footprint
-fields.
-
-Effects can cross into exports in two cases: the
-[interactive export](/guides/compile#interactive-export) mounts a stock effect
-by id in its CDN snippet, and
-[`buildGlyphFieldSynthStaticExport`](/guides/compile#effect-only-static-export-field-synth)
-bakes an effect-only, static-camera field-synth scene with zero runtime.
-Other static compile paths do not evaluate effects.
-
-`buildGlyphFieldSynthStaticExport` supports layers, `duty`, `phase`,
-per-voice `angleN`/`originUN`/`originVN`, `subcellRes: "2x4"`/`"ink"`, and —
-since slice 2 — the SDF fields (`gyroid`/`menger`/`sierpinski`, with `iterN`)
-and the `step` waveform, all at real-renderer exact parity, all 2D. It
-rejects, with a specific error naming the reason: `space: "object"` (the
-volumetric branch), `render: "carve"`/`"xray"`, a `program` option
-([program-as-data](#program-builder-and-program-as-data) — an unbounded
-authoring surface with no schema this baked coordinate-table/affine-fit
-exporter can serialize), and an active voice (`ampN > 0`) using `linearZ` or
-a nonzero `originWN` — all semantics a per-cell coordinate bake can't fake,
-since carve/xray in particular need a march per cell per frame and a program
-has no flat-param shape to merge and bake. The `originWN` reject is waived
-for an active SDF
-voice: `gyroid`/`menger`/`sierpinski` genuinely read `originW` even in the 2D
-branch (it's part of their translation contract), so that combination exports
-normally. Call `isGlyphFieldSynthStaticExportSupported(params)` to check
-before exporting rather than duplicating this list; the `/synth` page's
-CodePen button uses it to decide which export to offer. A volumetric or
-carve/xray patch still exports through the
-[interactive export](/guides/compile#interactive-export) — it ships and
-evaluates the live effect runtime instead of a baked approximation.
+Scene-image sampling/displacement, scratch graphs, and surface-key/UV-footprint fields are unsupported and reject explicitly.

@@ -1,0 +1,25 @@
+---
+title: Mermaid flowcharts as ASCII text diagrams
+description: Render Mermaid flowchart and graph syntax as ASCII or box-drawing text, including decisions, groups, labelled edges, directions, and fitting limits.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `renderGlyphDiagram` from `@glyphcss/diagrams`. Both `flowchart` and `graph` accept `TB`, `BT`, `LR`, and `RL`; an omitted direction starts at `TB`.
+
+## Route an order
+
+<GlyphRender kind="diagram" source={"flowchart LR\n Cart[Submit cart] --> Stock{In stock?}\n Stock -->|yes| Pay[Take payment]\n Pay --> Pack[Pack order]\n Pack --> Ship[Ship parcel]\n Ship --> Receipt[Send receipt]\n Stock -->|no| Notify[Notify buyer]\n Notify --> Wait[Join waitlist]"} options={{"target": "chat", "width": 72, "height": 23, "overflow": "expand"}} />
+
+## Group a processing pipeline
+
+<GlyphRender kind="diagram" source={"graph LR\n subgraph ingest[Order ingestion]\n Upload[Upload batch] --> Validate[Validate rows]\n end\n Validate -->|valid| Store[(Orders)]\n Validate -->|invalid| Reject[Reject batch]\n Store -.-> Audit[Audit log]"} options={{"target": "chat", "width": 80, "height": 19, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Declare labels with `A[Label]`, decisions with `A{Question}`, and storage with `A[(Records)]`. See the [shape catalogue](/diagrams/shapes/) for JSON and `@{shape: ...}` forms.
+- Use `-->` for a directed edge, `---` for a line, `-.->` for dotted, and `==>` for thick. Pipe labels such as `-->|yes|` travel with their edge.
+- `subgraph ... end` creates a group; nested groups reserve enclosing frames.
+- Bidirectional edges retain both heads. Invisible connections influence layout without painting an edge.
+- Styling, click actions, images, and external assets do not execute. Read `mermaid-degraded` notes for adaptations.
+- Long labels wrap. A fixed grid may simplify or split a graph; choose [faithful detail or expansion](/diagrams/options/) when identity matters.

@@ -1,0 +1,127 @@
+.root {
+  margin: 1.5rem 0;
+  min-width: 0;
+  max-width: 100%;
+}
+/* Renders sit on the page unframed and centred; the crop hides the margin
+   columns each render pads to its target width. */
+.stage {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.crop {
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-base);
+  width: calc(var(--ink-cols) * 1ch);
+  flex: none;
+  overflow: hidden;
+}
+.root .crop :global(.glyph-docs-output) {
+  margin: 0 0 0 calc(var(--ink-indent) * -1ch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
+}
+.root :global(.glyph-docs-output) {
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-base);
+  line-height: 1;
+  letter-spacing: normal;
+  font-weight: 400;
+  white-space: pre;
+}
+/* Copy and code sit under the render as bracket actions, like the workbenches. */
+.tools {
+  text-align: center;
+  margin-top: var(--gc-space-3);
+  font-family: var(--gc-font-ui);
+  font-size: var(--gc-text-sm);
+}
+.action {
+  display: inline;
+  margin: 0 var(--gc-space-2);
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--gc-text-muted);
+  font: inherit;
+  cursor: pointer;
+  list-style: none;
+}
+.action::marker,
+.action::-webkit-details-marker {
+  display: none;
+  content: "";
+}
+.action::before {
+  content: "[ ";
+  white-space: pre;
+}
+.action::after {
+  content: " ]";
+  white-space: pre;
+}
+.action:hover,
+.code[open] > .action {
+  color: var(--gc-accent);
+}
+/* Inline, so the summary sits beside Copy and the open code drops below both. */
+.code {
+  display: inline;
+}
+.code > :global(pre) {
+  display: block;
+  margin-top: var(--gc-space-3);
+  padding: var(--gc-space-3) var(--gc-space-4);
+  border: 1px solid var(--gc-rule);
+  background: var(--gc-surface-deep);
+  font-size: var(--gc-text-sm);
+  line-height: 1.5;
+  overflow-x: auto;
+  text-align: left;
+}
+.code :global(.hljs-keyword) {
+  color: var(--gc-accent);
+}
+.code :global(.hljs-string) {
+  color: var(--gc-warning);
+}
+.code :global(.hljs-number),
+.code :global(.hljs-literal) {
+  color: var(--gc-violet);
+}
+.code :global(.hljs-attr),
+.code :global(.hljs-property) {
+  color: var(--gc-orange);
+}
+.code :global(.hljs-title) {
+  color: var(--gc-success);
+}
+
+/* A catalogue of small renders, e.g. one per node shape. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 2.5rem var(--gc-space-3);
+  margin: 2rem 0;
+}
+/* Each tile reads as one unit: render, then its name, then clear space. */
+.grid > :global(figure) {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+.grid :global(figcaption) {
+  text-align: center;
+  font-family: var(--gc-font-render);
+  font-size: var(--gc-text-sm);
+  margin-top: 0.6rem;
+  color: var(--gc-text-muted, inherit);
+}
+.root :global(.glyph-docs-output span) {
+  font: inherit;
+  letter-spacing: inherit;
+}

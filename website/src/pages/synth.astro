@@ -1,11 +1,20 @@
 ---
 import WorkbenchLayout from "../layouts/WorkbenchLayout.astro";
 import { SynthWorkbench } from "../components/SynthWorkbench";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../components/StaticWorkbench";
+import { staticSynth } from "../services/static-workbench/scenes";
+const snapshot = await staticSynth();
+const heading = "Synth";
 const title = "Synth — modular ASCII field synthesizer | glyphcss";
 const description =
   "Stack oscillators into moiré interference and map them to glyphs — a live, in-browser modular synthesizer for animated ASCII fields, built on glyphcss.";
 ---
 
 <WorkbenchLayout title={title} description={description} path="/synth/" image="/og/synth.png">
-  <SynthWorkbench client:only="react" />
+  <StaticWorkbenchIntro heading={heading} description={description} />
+  <SynthWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench page="synth" heading={heading} description={description} initial={snapshot} />
+    </Fragment>
+  </SynthWorkbench>
 </WorkbenchLayout>

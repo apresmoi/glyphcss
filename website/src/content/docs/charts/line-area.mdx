@@ -1,0 +1,38 @@
+---
+title: "Braille line charts and filled area charts"
+description: Draw line and area charts from numeric arrays or record data. Compare shared series, apply a rolling mean, and choose braille for detailed terminal trends.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `glyphChartLine(data, channels?, options?)` for trends and `glyphChartArea` for filled values from a zero baseline. The example is an illustrative twelve days of orders, not measured production data.
+
+## Line over an area
+
+Compose marks in paint order. Give matching marks the same series name and color. Here the shaded area is capacity and the line is actual demand.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "area", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Capacity"}}, {"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders", "strokeWidth": 2}}], "title": "Daily order volume"}} options={{"target": "terminal", "width": 64, "height": 18, "color": "css"}} />
+
+```ts
+import { glyphChartArea, glyphChartLine, glyphChartPlot, renderGlyphChart } from "@glyphcss/charts";
+
+const spec = glyphChartPlot({
+  marks: [
+    glyphChartArea([30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], {}, { name: "Capacity" }),
+    glyphChartLine(
+      [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57],
+      {},
+      { name: "Orders", strokeWidth: 2 },
+    ),
+  ],
+});
+const result = renderGlyphChart(spec, { target: "terminal", width: 60, height: 18 });
+```
+
+## Record-based series
+
+For records, bind `x` and `y` explicitly. Bind `stroke` or `fill` to a category to split a mark into series. Keep rows in the intended traversal order; pre-sort dates yourself.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [{"day": 1, "orders": 18, "store": "North"}, {"day": 2, "orders": 24, "store": "North"}, {"day": 3, "orders": 21, "store": "North"}, {"day": 4, "orders": 35, "store": "North"}, {"day": 5, "orders": 42, "store": "North"}, {"day": 6, "orders": 39, "store": "North"}, {"day": 7, "orders": 48, "store": "North"}, {"day": 1, "orders": 12, "store": "South"}, {"day": 2, "orders": 20, "store": "South"}, {"day": 3, "orders": 28, "store": "South"}, {"day": 4, "orders": 25, "store": "South"}, {"day": 5, "orders": 32, "store": "South"}, {"day": 6, "orders": 36, "store": "South"}, {"day": 7, "orders": 41, "store": "South"}], "channels": {"x": "day", "y": "orders", "stroke": "store"}}]}} options={{"target": "web", "width": 64, "height": 16}} />
+
+Use `scales.x.type: "time"` for ISO dates or `Date` values. Areas require a domain containing zero. A rolling mean uses a mark-level `window` transform; see the [spec reference](/charts/spec/#transforms). Choose box drawing for chat when its font lacks braille.

@@ -1,0 +1,75 @@
+---
+title: Text & Fonts
+description: Turn your own TrueType files or Google Fonts into extruded ASCII text with @glyphcss/fonts. Add bevels, warps, and textured fills, or try WordArt.
+---
+
+import { GlyphDemo } from "../../../components/GlyphDemo";
+
+<GlyphDemo client:visible id="text-demo" polygonsUrl="/data/docs-text.json" defaults='{"renderMode":"solid","rotX":80,"rotY":0,"density":1,"zoom":1.7}' controls='["rotX"]' />
+
+Bevelled text from a bundled font. Drag to inspect the depth; try [WordArt](/wordart/).
+
+Install `@glyphcss/fonts`. Both `textPolygons` and `composeText` return `Polygon[]` for `scene.add(polygons)` or `<GlyphMesh polygons={polygons} />`.
+
+## Your own font
+
+```ts
+import { loadFont, composeText } from "@glyphcss/fonts";
+const font = await loadFont("/fonts/default.ttf");
+const polygons = composeText(font, "Hello", {
+  depth: 30, profile: { edge: "bevel", segments: 3 },
+  warp: { shape: "wave", amount: 0.35 },
+});
+```
+
+Serve your `.ttf` at that URL; cross-origin fonts need CORS. Or parse local bytes:
+
+```ts
+import { readFile } from "node:fs/promises";
+import { parseFont, textPolygons } from "@glyphcss/fonts";
+const font = parseFont(await readFile("./my-font.ttf"));
+const polygons = textPolygons(font, "Hello", { depth: 20 });
+```
+
+- TrueType only: no CFF, WOFF/WOFF2, shaping, ligatures, or variable-axis controls.
+- Z-up: Y is width, X is depth. Start the [camera](/components/glyph-camera/) at `rotX: 90`, `rotY: 0`; centre with `autoCenter` or `recenterPolygons`.
+- `textPolygons`: one line. `composeText`: multiline, alignment, warps, materials.
+
+## Google Fonts
+
+```ts
+import { listGoogleFonts, loadGoogleFont, textPolygons } from "@glyphcss/fonts";
+const entry = (await listGoogleFonts()).find(font => font.id === "roboto");
+if (!entry) throw new Error("Roboto is unavailable");
+const font = await loadGoogleFont(entry, 700, "normal");
+const polygons = textPolygons(font, "Hello");
+```
+
+Fontsource supplies the catalogue and TTF files; no API key. Unavailable weights/styles fall back. Self-host with `loadFont` for offline use.
+
+## Depth, bevels, and warps
+
+`composeText(font, text, options)` accepts:
+
+| Option | Default | Change |
+|---|---|---|
+| `size`, `depth` | `100`, `size * 0.2` | World units; `depth: 0` makes flat text |
+| `profile` | `"flat"` | `{ edge: "bevel" }`, `{ edge: "round", raised: true }`, or `{ curve: [0.25, 0.1, 0.25, 1] }`; optional `segments` |
+| `warp` | None | `{ shape: "wave", amount: 0.35 }`; amount `0..1`, default `0.5` |
+| `letterSpacing`, `lineHeight` | `0`, `1.25` | Extra world units; line advance × `size` |
+| `align`, `scale` | `"center"`, `[1, 1]` | `"left"` / `"right"`; horizontal/vertical stretch |
+| `faces` | Gold front, darker sides | `{ front, sides, back }`, one `{ color, texture, tile }`, or material stops with `at: 0..1` |
+| `outline`, `underline`, `strike` | Off | `{ color, width }`; decoration booleans |
+| `curveSteps`, `simplify` | `6`, `0` | Curve segments; simplification tolerance in world units |
+
+Warp shapes: `none`, `arch`, `archDown`, `arc`, `wave`, `bulge`, `cone`, `slantUp`, `slantDown`. `textPolygons` uses `profile: "bevel"` / `"round"`, `profileSegments: 6`, and no warp.
+
+## Gradient fills
+
+```ts
+import { makeFillTexture, composeText } from "@glyphcss/fonts";
+const texture = makeFillTexture({ type: "gradient", from: "#ffd23f", to: "#ff5e3a" });
+const polygons = composeText(font, "Hello", { faces: { front: { texture } } });
+```
+
+With a loaded `font`, gradients/rainbows use browser canvas to create a texture spanning the word. Solid colours need no canvas. Explore fills and exports in [WordArt](/wordart/).

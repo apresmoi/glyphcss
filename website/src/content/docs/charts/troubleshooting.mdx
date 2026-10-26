@@ -1,0 +1,87 @@
+---
+title: "Fix chart validation errors, missing labels, and braille fonts"
+description: Diagnose chart error codes, malformed data, dropped labels, and broken braille alignment. Validate specs, inspect render notes, and choose reliable targets.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Validation failures throw tagged errors. Layout adaptations succeed but add `result.report.ledger` entries. Treat them separately: fix invalid data before increasing the chart size.
+
+## Validate and read the report
+
+```ts
+import { renderGlyphChart, validateGlyphChartSpec, glyphChartRepairHint } from "@glyphcss/charts";
+const spec = {
+  marks: [
+    {
+      type: "line" as const,
+      data: [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57],
+      channels: {},
+      options: { name: "Orders" },
+    },
+    {
+      type: "line" as const,
+      data: [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66],
+      channels: {},
+      options: { name: "Plan" },
+    },
+  ],
+  title: "Daily orders vs plan",
+  axes: { x: { title: "Day (index)" }, y: { title: "Orders" } },
+};
+try {
+  validateGlyphChartSpec(spec);
+  const result = renderGlyphChart(spec, { target: "chat", width: 64, height: 18 });
+  console.log(result.text);
+  for (const entry of result.report.ledger) console.warn(entry.code, entry.message, entry.detail);
+} catch (error) {
+  if (error instanceof Error) {
+    console.error(error.message);
+    if ("code" in error) console.error(glyphChartRepairHint(String(error.code)));
+  }
+}
+```
+
+This illustrative order series fits both its data and legend at 64 × 18 cells. Inspect the report before reducing the budget.
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "charset": "blocks", "width": 64, "height": 18}} />
+
+Structural validation cannot resolve every accessor or hierarchy. Rendering performs the additional checks. Use [JSON Schema](/charts/spec/#json-schema-and-validation) in an editor, then render the actual data.
+
+## Common error codes
+
+| Code | Repair |
+| --- | --- |
+| `bad-chart-input`, `empty-marks`, `empty-data` | Supply a supported input shape and nonempty marks/data. |
+| `missing-xy-channels`, `bad-channels` | Map both x/y for Cartesian record data; channels are fields, arrays, or functions. |
+| `non-finite-data` | Remove NaN/Infinity and return finite numeric values from accessors. |
+| `arc-missing-value`, `funnel-missing-value`, `sankey-bad-value` | Supply required value channels; Sankey values must be positive. |
+| `funnel-bad-value` | Use nonnegative finite stage values. |
+| `bad-scale`, `log-domain`, `bad-time-domain` | Use valid types/domains; log domains cannot cross zero and time domains need valid dates. |
+| `mixed-x-scale` | Keep numeric and categorical x values out of the same shared scale. |
+| `bar-domain-excludes-zero` | Include zero for baseline bars/areas, or use horizontal floating intervals. |
+| `sankey-cycle`, `treemap-hierarchy` | Repair cyclic flows or invalid parent/id trees. |
+| `bad-size`, `bad-text-scale` | Use positive integer cell dimensions and integral textScale ≥1. |
+| `bad-options`, `bad-stroke-width`, `invalid-inner-radius` | Remove unsupported options; strokeWidth is 1–3, arc hole is in `[0, 1)`. |
+| `bad-axis-color`, `bad-mark-color`, `bad-axis-title-at`, `bad-tick-format` | Use lowercase six-digit hex, the correct axis placement vocabulary, and supported formats. |
+| `GLYPH_MERMAID_SYNTAX`, `GLYPH_MERMAID_NOT_CHART_TYPE` | Fix Mermaid source, or route diagram headers to the [diagram renderer](/diagrams/overview/). |
+
+`glyphChartRepairHint(code)` covers native validation and several runtime errors, and returns undefined for unknown codes. Use the error message and dedicated guide for other codes. 3D exports `GLYPH_CHART_3D_VALIDATION_RULES` and `glyphChart3dRepairHint` separately.
+
+## Output fits, but information is missing
+
+- `ticks-thinned`, `label-dropped`, `label-abbreviated`, `title-dropped`, or `legend-dropped`: increase the cell budget, simplify labels, or move/suppress optional chrome.
+- `legend-placement-degraded`: title placement did not fit; the legend moved to bottom.
+- `treemap-omitted`, `sankey-folded-flows`, or `funnel-folded-stages`: aggregate tiny categories or provide more space.
+- `label-folded`: source characters were replaced to fit the output vocabulary.
+- `mermaid-degraded`: a source feature was adapted or kept inert. Read the message rather than assuming browser Mermaid styling survived.
+
+## Braille is broken or rows do not join
+
+Use Glyph Mono or another font covering braille, box drawing, and block elements at consistent monospace advances. Disable proportional font substitution. In HTML, keep `white-space: pre` and `line-height: 1`; color spans must inherit the same metrics.
+
+Chat applications choose their own fonts. If you cannot control them, use `target: "chat"` with box drawing, or `charset: "ascii"`. ANSI escapes are for terminals, not chat or HTML; use CSS output on web pages.
+
+## The chart is blank or different after copy
+
+An all-zero pie/funnel reports `empty-total`; negative pie slices are omitted. Heatmap zero can be intentionally blank. Inspect the actual data and the report before changing CSS. Colored HTML and plain text can use different region fills while preserving series readability. Copy `result.text` for text consumers and `result.html` for web color; never copy ANSI into an HTML element.

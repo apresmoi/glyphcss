@@ -1,0 +1,39 @@
+---
+title: Mermaid C4 diagrams as text
+description: Render all five Mermaid C4 variants as text, covering context, containers, components, dynamic interactions, deployment boundaries, and syntax limits.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+All five Mermaid C4 headers use `renderGlyphDiagram`. Nodes carry stereotypes,
+technology, and descriptions as text; boundaries become groups. These are graph layouts,
+not pixel-identical Mermaid C4 drawings.
+
+## System context
+
+<GlyphRender kind="diagram" source={"C4Context\n Person(buyer, \"Buyer\")\n System(portal, \"Order portal\", \"Online checkout\")\n System_Ext(pay, \"Payments\", \"Card processor\")\n System_Ext(ship, \"Shipping\", \"Parcel tracking\")\n System_Ext(mail, \"Email\", \"Order updates\")\n Rel(buyer, portal, \"Orders\")\n Rel(portal, pay, \"Charges\")\n Rel(portal, ship, \"Dispatches\")\n Rel(portal, mail, \"Notifies\")"} options={{"target": "chat", "width": 88, "height": 29, "overflow": "expand"}} />
+
+## Containers
+
+<GlyphRender kind="diagram" source={"C4Container\n System_Boundary(shop, \"Shop\") {\n Container(api, \"API\", \"Node\")\n ContainerDb(db, \"Orders\", \"Postgres\")\n }\n Rel(api, db, \"Stores\")"} options={{"target": "chat", "width": 72, "height": 24, "overflow": "expand"}} />
+
+## Components
+
+<GlyphRender kind="diagram" source={"C4Component\n Container_Boundary(api, \"API\") {\n Component(handler, \"Checkout\", \"HTTP\")\n Component(repo, \"Repository\", \"SQL\")\n }\n Rel(handler, repo, \"Saves\")"} options={{"target": "chat", "width": 72, "height": 24, "overflow": "expand"}} />
+
+## Dynamic interactions
+
+<GlyphRender kind="diagram" source={"C4Dynamic\n Container(web, \"Web\", \"React\")\n Container(api, \"API\", \"Node\")\n Rel(web, api, \"Submit cart\")\n Rel(api, web, \"Confirm\")"} options={{"target": "chat", "width": 72, "height": 24, "overflow": "expand"}} />
+
+## Deployment
+
+<GlyphRender kind="diagram" source={"C4Deployment\n Deployment_Node(prod, \"Production\", \"Linux\") {\n Container(api, \"API\", \"Node\")\n ContainerDb(db, \"Orders\", \"Postgres\")\n }\n Rel(api, db, \"Writes\")"} options={{"target": "chat", "width": 72, "height": 24, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- Use `Person`, `System`, `Container`, and `Component` declarations with the appropriate header. External variants add an external marker.
+- Database variants draw cylinders; queue variants draw rectangles. Person nodes use rounded outlines.
+- `Enterprise_Boundary`, `System_Boundary`, `Container_Boundary`, and `Deployment_Node` enclose related nodes where supported.
+- `Rel` and its directional variants create edges; dynamic relationships retain order in their labels.
+- Index, style, layout, title, and asset directives are inert and reported. Set a rendered title through the API's `title` option.
+- C4 captions often need a wider or taller budget. The fitter protects words and captions before gutters; an explicit direction takes precedence over automatic C4 orientation.

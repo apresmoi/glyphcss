@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { PRESETS } from "../../features/wordart/model/parameters";
 import { ActionButton } from "../ActionButton";
 import { Dock } from "../Dock";
@@ -21,7 +22,7 @@ import { Stage } from "./WordArtStage";
 import styles from "./WordArtWorkbench.module.css";
 import { useWordArtWorkbench } from "./hooks/useWordArtWorkbench";
 
-export function WordArtWorkbench() {
+export function WordArtWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot } = {}) {
   const view = useWordArtWorkbench();
   if (!view) return null;
   const {
@@ -106,7 +107,7 @@ export function WordArtWorkbench() {
             <FontPicker catalog={catalog} value={familyInput} onPick={pickFamily} />
           </label>
 
-          <Dock id="wa-rail-controls" inline>
+          <Dock id="wa-rail-controls" inline staticContent={snapshot?.railControls}>
             <WordArtRailControls left={leftValues} setLeft={leftSet} />
           </Dock>
         </InstrumentRail>
@@ -117,35 +118,37 @@ export function WordArtWorkbench() {
               host element rather than JSX placement). */}
           <StatsOverlay anchor="top-left" container={stageHost} />
           <InstrumentViewport>
-            <Stage
-              polygons={polygons}
-              scaleXFrac={scaleX / 100}
-              scaleYFrac={scaleY / 100}
-              zoomScale={zoomScale}
-              setZoomScale={setZoomScale}
-              turn={turn}
-              setTurn={setTurn}
-              tilt={tilt}
-              setTilt={setTilt}
-              density={density}
-              renderMode={renderMode}
-              charMode={charMode}
-              hiddenLines={hiddenLines}
-              colorEncoding={colorEncoding}
-              onAtlasAvailability={setAtlasReason}
-              perspective={perspective}
-              lightDir={lightDir}
-              lightIntensity={lightIntensity}
-              lightColor={lightColor}
-              ambient={ambient}
-              spin={spin}
-              effectDefinition={effectDefinition}
-              effectParams={effectState.params}
-              effectBlend={effectState.blend}
-              effectPaused={effectState.paused}
-              effectTimeScale={effectState.timeScale}
-              snapshotRef={stageSnapshotRef}
-            />
+            {snapshot?.viewport ?? (
+              <Stage
+                polygons={polygons}
+                scaleXFrac={scaleX / 100}
+                scaleYFrac={scaleY / 100}
+                zoomScale={zoomScale}
+                setZoomScale={setZoomScale}
+                turn={turn}
+                setTurn={setTurn}
+                tilt={tilt}
+                setTilt={setTilt}
+                density={density}
+                renderMode={renderMode}
+                charMode={charMode}
+                hiddenLines={hiddenLines}
+                colorEncoding={colorEncoding}
+                onAtlasAvailability={setAtlasReason}
+                perspective={perspective}
+                lightDir={lightDir}
+                lightIntensity={lightIntensity}
+                lightColor={lightColor}
+                ambient={ambient}
+                spin={spin}
+                effectDefinition={effectDefinition}
+                effectParams={effectState.params}
+                effectBlend={effectState.blend}
+                effectPaused={effectState.paused}
+                effectTimeScale={effectState.timeScale}
+                snapshotRef={stageSnapshotRef}
+              />
+            )}
           </InstrumentViewport>
           <InstrumentExportBar>
             <ActionButton
@@ -215,7 +218,11 @@ export function WordArtWorkbench() {
           )}
         </InstrumentMain>
 
-        <Dock id="wa-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="wa-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <WordArtDock
             gui={guiValues}
             setGui={guiSet}

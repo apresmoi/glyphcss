@@ -1,0 +1,25 @@
+---
+title: Mermaid state diagrams as text
+description: Render Mermaid state machines as text with transitions, start and end markers, choices, composite states, concurrent regions, and documented limits.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Pass `stateDiagram` or `stateDiagram-v2` source to `renderGlyphDiagram`.
+
+## Order lifecycle
+
+<GlyphRender kind="diagram" source={"stateDiagram-v2\n direction LR\n [*] --> Draft\n Draft --> Pending: submit\n Pending --> Paid: pay\n Pending --> Cancelled: cancel\n Paid --> Shipped: dispatch\n Paid --> Refunded: refund\n Shipped --> [*]"} options={{"target": "chat", "width": 92, "height": 19, "overflow": "expand"}} />
+
+## Composite state
+
+<GlyphRender kind="diagram" source={"stateDiagram-v2\n direction LR\n [*] --> Checkout\n state Checkout {\n [*] --> Review\n Review --> Payment\n Payment --> [*]\n }\n Checkout --> Complete\n Complete --> [*]"} options={{"target": "chat", "width": 72, "height": 17, "overflow": "expand"}} />
+
+## Syntax and limits
+
+- `[*]` becomes a point marker scoped to its region; transitions use `-->` with an optional `: caption`.
+- `state Choice <<choice>>` draws a diamond. Fork/join declarations use rounded nodes and report the adaptation.
+- `state Name { ... }` encloses a composite. `--` separates concurrent regions; empty regions are omitted and reported.
+- Notes become text rows. Invalid notes and concurrency separators have named errors in [troubleshooting](/diagrams/troubleshooting/).
+- Composite transitions attach to the group's start/first or end/last child. Self-transitions on composites are adapted and reported.
+- Reused state identities across scopes may need copies; inspect `state-shared`. Styling and nested directives do not execute.

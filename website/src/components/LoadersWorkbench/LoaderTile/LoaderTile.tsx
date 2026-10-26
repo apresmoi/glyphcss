@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { type LoaderTab, generateLoaderSnippets } from "../../../features/loaders/export/loaderSnippets";
 import { type LiveEdits } from "../../../features/loaders/model/liveEdits";
 import { type LoaderPreset } from "../../../features/loaders/model/loaders";
 import { useGhostScene, useLoaderScene } from "../hooks/useLoaderScene";
 
 export function LoaderTile({
+  staticRender,
   loader,
   cols,
   rows,
@@ -14,6 +15,7 @@ export function LoaderTile({
   fontSize,
   onCode,
 }: {
+  staticRender?: ReactNode;
   loader: LoaderPreset;
   cols: number;
   rows: number;
@@ -52,7 +54,9 @@ export function LoaderTile({
         </span>
       </figcaption>
       <div className="ld-size__stack" style={{ fontSize: `${fontSize}px` }}>
-        <div className="ld-size__view" ref={setHost} />
+        <div className="ld-size__view" ref={setHost}>
+          {staticRender}
+        </div>
         <div className="ld-size__ghost" ref={setGhost} aria-hidden="true" />
       </div>
       <div className="ld-size__foot">

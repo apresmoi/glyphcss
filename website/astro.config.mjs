@@ -1,21 +1,29 @@
 import { analyticsHead } from './src/config/analytics.mjs';
+import { docsSidebar } from './src/config/docsSidebar.mjs';
+import { ogGeneratorRoutes } from './src/config/ogRoutes.mjs';
 // @ts-check
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import sitemap from '@astrojs/sitemap';
 import react from '@astrojs/react';
+import { sitemapLastmod } from './scripts/metadata.mjs';
 
 /** @param {string} path */
 const repoPath = (path) => fileURLToPath(new URL(path, import.meta.url));
 
 export default defineConfig({
   site: 'https://glyphcss.com',
+  redirects: {
+    '/guides/diagrams/': '/diagrams/overview/',
+  },
   devToolbar: { enabled: false },
   vite: {
     resolve: {
       dedupe: ['react', 'react-dom'],
       alias: [
+        { find: /^@glyphcss\/diagrams\/sequence$/, replacement: repoPath('../packages/diagrams/src/sequence/index.ts') },
+        { find: /^@glyphcss\/diagrams\/lanes$/, replacement: repoPath('../packages/diagrams/src/lanes/index.ts') },
         {
           find: /^@glyphcss\/core$/,
           replacement: repoPath('../packages/core/src/index.ts'),
@@ -58,16 +66,16 @@ export default defineConfig({
     },
   },
   integrations: [
+    ogGeneratorRoutes(),
     react(),
-    sitemap(),
+    sitemap({ serialize: (item) => ({ ...item, lastmod: sitemapLastmod(item.url) }) }),
     starlight({
       title: 'glyphcss',
-      description: 'Render 3D models (OBJ, glTF, GLB, STL, .vox) as ASCII art — in the browser, React/Vue, or your terminal. A three.js-style API with no WebGL.',
+      description: 'Render 3D models, Mermaid diagrams and data charts as ASCII text. Use JavaScript, React, Vue or the CLI for chat, terminal and web output.',
+      lastUpdated: true,
+      routeMiddleware: './src/integrations/starlight/routeData.ts',
       head: [
         ...(process.env.NODE_ENV === 'production' ? analyticsHead : []),
-        // Social preview image for docs pages (Starlight emits og:title/description/url itself).
-        { tag: 'meta', attrs: { property: 'og:image', content: 'https://glyphcss.com/og.png' } },
-        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://glyphcss.com/og.png' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
       ],
       components: {
@@ -80,63 +88,7 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/apresmoi/glyphcss' },
       ],
       customCss: ['./src/integrations/starlight/starlight.css'],
-      sidebar: [
-        {
-          label: 'Getting Started',
-          items: [
-            { label: 'Introduction', slug: 'introduction' },
-            { label: 'Quickstart', slug: 'quickstart' },
-            { label: 'Core Concepts', slug: 'core-concepts' },
-          ],
-        },
-        {
-          label: 'Components',
-          items: [
-            { label: 'GlyphScene', slug: 'components/glyph-scene' },
-            { label: 'Cameras', slug: 'components/glyph-camera' },
-            { label: 'Controls', slug: 'components/glyph-controls' },
-            { label: 'GlyphHotspot', slug: 'components/glyph-hotspot' },
-          ],
-        },
-        {
-          label: 'Guides',
-          items: [
-            { label: 'Loading Meshes', slug: 'guides/meshes' },
-            { label: 'Creating Shapes', slug: 'guides/creating-shapes' },
-            { label: 'Hit Layer Interactivity', slug: 'guides/hit-layer' },
-            { label: 'Performance', slug: 'guides/performance' },
-            { label: 'Color Encoding', slug: 'guides/color-encoding' },
-            { label: 'Render Modes', slug: 'guides/render-modes' },
-            { label: 'Density & Detail', slug: 'guides/density' },
-            { label: 'Responsive Diagrams', slug: 'guides/diagrams' },
-            { label: 'Glyph Effects', slug: 'guides/effects' },
-            { label: 'Compiling to Static', slug: 'guides/compile' },
-            { label: 'Coding agents', slug: 'guides/coding-agents' },
-          ],
-        },
-        {
-          label: 'Maps',
-          items: [
-            { label: 'Overview', slug: 'maps/overview' },
-            { label: 'Projections', slug: 'maps/projections' },
-            { label: 'Layers', slug: 'maps/layers' },
-            { label: 'Camera & Navigation', slug: 'maps/camera' },
-            { label: 'Terrain', slug: 'maps/terrain' },
-            { label: 'OpenStreetMap', slug: 'maps/openstreetmap' },
-          ],
-        },
-        {
-          label: 'API Reference',
-          items: [
-            { label: 'React API', slug: 'api/react' },
-            { label: 'Vue API', slug: 'api/vue' },
-            { label: 'HTML API', slug: 'api/html' },
-            { label: 'Headless API', slug: 'api/headless' },
-            { label: 'Three.js Parity API', slug: 'api/three-parity' },
-            { label: 'Core Types', slug: 'api/types' },
-          ],
-        },
-      ],
+      sidebar: docsSidebar,
     }),
   ],
 });

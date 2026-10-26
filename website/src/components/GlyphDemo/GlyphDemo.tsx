@@ -1,19 +1,30 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { GlyphEffects } from "@glyphcss/effects";
+import { demoSnippets } from "../../services/glyph-scene/demoSnippets";
+import { DEFAULT_TUNABLES, type RuntimeEffectConfig, type Tunables } from "../../services/glyph-scene/types";
+import { ActionButton } from "../ActionButton";
+import { CodePanel } from "../CodePanel";
+import { GlyphDemoControls } from "./GlyphDemoControls";
 import styles from "./GlyphDemo.module.css";
 import { loadRuntime } from "./loadRuntime";
 export interface GlyphDemoProps {
   id: string;
-  /** Fill an existing positioned frame without the standalone demo border. */
+  /** Fill an existing positioned frame without standalone demo spacing. */
   embedded?: boolean;
   geometry?: "cuboctahedron" | "icosahedron" | "cube";
   /** URL of an OBJ / GLB / glTF / VOX mesh. Takes priority over `geometry`. */
   mesh?: string;
+  /** Show a keyboard-accessible, selectable anchor in the hit-layer guide. */
+  hotspot?: boolean;
   controls?: string;
   defaults?: string;
+  /** Stock effect mounted by the demo runtime, which owns its clock and disposal. */
+  effect?: keyof typeof GlyphEffects;
+  effectParams?: RuntimeEffectConfig["params"];
   showStats?: boolean;
   /** Hide the code panel beneath the demo (landing hero, gallery). */
   noCode?: boolean;
-  /** Hide the lil-gui controls column (landing hero clean view). */
+  /** Hide the controls column (landing hero clean view). */
   noControls?: boolean;
   /** Auto-rotate the camera around Y from the moment the demo mounts. */
   autoRotate?: boolean;
@@ -49,25 +60,94 @@ export interface GlyphDemoProps {
    * Ignored when `realSunLight` is set (the sun drives the direction).
    */
   light?: string;
+  /** Models to switch between; the first one loads. Replaces `mesh`. */
+  meshes?: readonly GlyphDemoMeshOption[];
+  /** Stock effects to switch between; `effect` is the one that starts. */
+  effects?: readonly (keyof typeof GlyphEffects)[];
 }
+
+export interface GlyphDemoMeshOption {
+  label: string;
+  url: string;
+  mtl?: string;
+}
+
+type DemoHandle = HTMLDivElement & {
+  glyphcssDemo: {
+    configureEffect: (config: RuntimeEffectConfig) => void;
+    setMeshUrl: (url: string, mtl?: string) => Promise<void>;
+  };
+};
 
 export function GlyphDemo(props: GlyphDemoProps) {
   const ref = useRef<HTMLDivElement>(null);
+  const updateTuning = useRef<((partial: Partial<Tunables>) => void) | undefined>(undefined);
+  const [ready, setReady] = useState(false);
+  // The feature leads; code opens on request beneath it.
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [meshUrl, setMeshUrl] = useState(props.meshes?.[0]?.url ?? props.mesh);
+  const [effectName, setEffectName] = useState(props.effect);
+  const effectsModule = useRef<typeof import("@glyphcss/effects") | undefined>(undefined);
+  const [tunables, setTunables] = useState<Tunables>(() => {
+    let defaults: Partial<Tunables> = {};
+    try {
+      defaults = JSON.parse(props.defaults || "{}");
+    } catch {}
+    return { ...DEFAULT_TUNABLES, geometry: props.geometry || "cuboctahedron", ...defaults };
+  });
   useEffect(() => {
     let disposed = false;
     let dispose: (() => void) | undefined;
-    void loadRuntime().then(({ mountGlyphDemo }) => {
-      if (!disposed && ref.current) dispose = mountGlyphDemo(ref.current);
-    });
+    void Promise.all([loadRuntime(), props.effect ? import("@glyphcss/effects") : undefined]).then(
+      ([{ mountGlyphDemo }, effects]) => {
+        if (!disposed && ref.current) {
+          dispose = mountGlyphDemo(
+            ref.current,
+            props.noControls && props.noCode
+              ? undefined
+              : {
+                  onReady: (update) => {
+                    updateTuning.current = update;
+                  },
+                  onChange: (next) => {
+                    if (disposed) return;
+                    setTunables(next);
+                    setReady(true);
+                  },
+                },
+          );
+          effectsModule.current = effects;
+          if (props.effect) startEffect(props.effect);
+        }
+      },
+    );
     return () => {
       disposed = true;
+      updateTuning.current = undefined;
       dispose?.();
     };
   }, []);
+  function startEffect(name: keyof typeof GlyphEffects) {
+    const effects = effectsModule.current;
+    if (!effects || !ref.current) return;
+    (ref.current as DemoHandle).glyphcssDemo.configureEffect({
+      effect: effects.GlyphEffects[name],
+      // Authored params belong to the starting effect; the others use their defaults.
+      params: name === props.effect ? (props.effectParams ?? {}) : {},
+      blend: "replace",
+      paused: false,
+      timeScale: 1,
+    });
+  }
+  function chooseMesh(option: GlyphDemoMeshOption) {
+    if (!ref.current) return;
+    setMeshUrl(option.url);
+    void (ref.current as DemoHandle).glyphcssDemo.setMeshUrl(option.url, option.mtl);
+  }
   const {
     id,
     geometry,
-    mesh,
+    hotspot,
     controls,
     defaults,
     showStats,
@@ -91,7 +171,10 @@ export function GlyphDemo(props: GlyphDemoProps) {
       className={`glyph-demo ${styles.root}${props.embedded ? ` ${styles.embedded}` : ""}`}
       id={id}
       data-geometry={geometry || "cuboctahedron"}
-      data-mesh={mesh || undefined}
+      data-mesh={props.meshes?.[0]?.url || props.mesh || undefined}
+      data-mtl={props.meshes?.[0]?.mtl}
+      data-docs-hotspot={hotspot ? "1" : undefined}
+      data-no-hotspots={hotspot === false ? "1" : undefined}
       data-polygons-url={polygonsUrl || undefined}
       data-controls={controls}
       data-defaults={defaults}
@@ -117,32 +200,52 @@ export function GlyphDemo(props: GlyphDemoProps) {
           </div>
           <div className="glyph-demo__loading">Loading…</div>
         </div>
-        {!noControls && <div className="glyph-demo__controls"></div>}
+        {!noControls && (
+          <GlyphDemoControls
+            id={id}
+            source={{ mesh: meshUrl, polygonsUrl }}
+            meshes={props.meshes && { options: props.meshes, value: meshUrl!, onChange: chooseMesh }}
+            effects={
+              props.effects &&
+              effectName && {
+                options: props.effects,
+                value: effectName,
+                onChange: (name) => {
+                  const next = name as keyof typeof GlyphEffects;
+                  setEffectName(next);
+                  startEffect(next);
+                },
+              }
+            }
+            tunables={tunables}
+            controls={controls}
+            autoRotate={autoRotate}
+            ready={ready}
+            onChange={(partial) => updateTuning.current?.(partial)}
+          />
+        )}
       </div>
-      {!noCode && (
-        <div className="glyph-demo__code not-content">
-          <div className="glyph-demo__tabs">
-            <button className="glyph-demo__tab active" data-fw="vanilla">
-              Vanilla JS
-            </button>
-            <button className="glyph-demo__tab" data-fw="react">
-              React
-            </button>
-            <button className="glyph-demo__tab" data-fw="vue">
-              Vue
-            </button>
-          </div>
-          <pre className="glyph-demo__snippet" data-fw="vanilla">
-            <code></code>
-          </pre>
-          <pre className="glyph-demo__snippet glyph-demo__snippet--hidden" data-fw="react">
-            <code></code>
-          </pre>
-          <pre className="glyph-demo__snippet glyph-demo__snippet--hidden" data-fw="vue">
-            <code></code>
-          </pre>
-        </div>
-      )}
+      {!noCode &&
+        (codeOpen ? (
+          <CodePanel
+            id={`${id}-code`}
+            inline
+            title="Code"
+            className="not-content"
+            snippets={demoSnippets(tunables, { mesh: meshUrl, polygonsUrl, hotspot })}
+            formats={[
+              { id: "vanilla", label: "JS" },
+              { id: "react", label: "React" },
+              { id: "vue", label: "Vue" },
+            ]}
+            defaultFormat="vanilla"
+            onClose={() => setCodeOpen(false)}
+          />
+        ) : (
+          <ActionButton aria-controls={`${id}-code`} aria-expanded={false} onClick={() => setCodeOpen(true)}>
+            Code
+          </ActionButton>
+        ))}
     </div>
   );
 }

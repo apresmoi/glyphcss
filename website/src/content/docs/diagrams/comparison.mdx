@@ -1,0 +1,46 @@
+---
+title: glyphcss vs beautiful-mermaid vs mermaid-ascii
+description: Compare documented diagram families, charts, text charsets, width fitting, agent integration, runtimes, and output formats across three Mermaid renderers.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+This compares `@glyphcss/diagrams` and `@glyphcss/charts` with
+[beautiful-mermaid](https://github.com/lukilabs/beautiful-mermaid#readme) and
+[mermaid-ascii](https://github.com/AlexanderGrooff/mermaid-ascii#readme).
+Competitor entries describe their public READMEs, checked on 23 October 2026.
+An empty cell means the README does not establish that feature, not that it is
+unsupported. Family support does not imply every Mermaid feature is reproduced.
+
+<GlyphRender kind="diagram" source={"flowchart LR\n Cart[Submit cart] --> Stock{In stock?}\n Stock -->|yes| Pay[Take payment]\n Pay --> Pack[Pack order]\n Pack --> Ship[Ship parcel]\n Ship --> Receipt[Send receipt]\n Stock -->|no| Notify[Notify buyer]\n Notify --> Wait[Join waitlist]"} options={{"target": "chat", "width": 72, "height": 23, "overflow": "expand"}} />
+
+## Documented features
+
+| Feature | glyphcss | beautiful-mermaid | mermaid-ascii |
+| --- | --- | --- | --- |
+| Diagram families | Flowchart, sequence, state, class, ER, mindmap, gitGraph, block, architecture, requirement, C4; JSON graphs, sequences, and lanes | Flowchart, state, sequence, class, ER | Graph/flowchart, sequence, ER |
+| Charts | Line, area, bar, scatter, pie/donut, heatmap, Sankey, funnel, treemap; Mermaid charts and schedules | XY bars, lines, combinations; ASCII and SVG | |
+| Text charsets | `ascii`, `box`, `blocks`, `braille`; diagram borders remain whole-cell | ASCII or Unicode box drawing; XY bars also use blocks | ASCII or Unicode box drawing |
+| Width fitting | Cell budgets, label wrapping, orientation fitting, diagram pagination; skill checks output fit | | Graph-only `--max-width N` or `auto`; retries compact spacing and warns if still too wide |
+| Agent skill | One [glyphcss-diagrams skill](/coding-agents/install/) for charts and diagrams | | |
+| Runtime | JavaScript/TypeScript; Node.js for CLI, browser for embeds | TypeScript, no DOM dependency | Go; prebuilt CLI binaries |
+| Output | Plain/ANSI text or escaped HTML spans for a `<pre>` | SVG plus ASCII/Unicode, ANSI/HTML color modes | Terminal text; HTTP rendering server |
+| License | MIT | MIT | |
+
+Glyphcss entries follow the [diagrams README](https://github.com/apresmoi/glyphcss/tree/main/packages/diagrams#readme),
+[charts README](https://github.com/apresmoi/glyphcss/tree/main/packages/charts#readme),
+and [skill README](https://github.com/apresmoi/glyphcss-diagrams#readme).
+For beautiful-mermaid, see its [features](https://github.com/lukilabs/beautiful-mermaid#features),
+[ASCII chart support](https://github.com/lukilabs/beautiful-mermaid#ascii-xy-charts),
+and [API reference](https://github.com/lukilabs/beautiful-mermaid#api-reference).
+For mermaid-ascii, see [usage and width fitting](https://github.com/AlexanderGrooff/mermaid-ascii#usage)
+and [supported types](https://github.com/AlexanderGrooff/mermaid-ascii#supported-diagram-types).
+
+## Choose for your destination
+
+- Use Glyphcss when you need chat-sized text, diagram panels, chart types beyond XY plots, or the bundled agent skill. Check render notes for adaptations; [Mermaid styling and interactions are inert](/diagrams/troubleshooting/).
+- Use beautiful-mermaid when SVG, theme switching, or Shiki theme integration matters. Its README also documents synchronous rendering and interactive SVG chart tooltips. Charts are available there too.
+- Use mermaid-ascii when a prebuilt Go CLI or its HTTP server fits your workflow. Its README documents sequence frames and ER attribute tables as well as flowcharts.
+
+Try the [diagrams workbench](/diagrams/), explore [charts](/charts/overview/),
+or [install the agent skill](/coding-agents/install/).

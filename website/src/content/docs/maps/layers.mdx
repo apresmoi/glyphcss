@@ -1,542 +1,152 @@
 ---
 title: Layers
-description: The eleven map layer types — background, raster, line, contour, fill, fill-extrusion, symbol, circle, glyph, heatmap, model — and what each one takes.
+description: Stack terrain, contours, vector overlays, labels, and buildings in an ASCII map; choose sources, style each layer, and add anchored markers.
 ---
 
-A map is an **ordered list of layers**. Declare them at construction, or mutate
-the list afterwards:
+import { GlyphMapDemo } from '../../../components/GlyphMapDemo';
+
+<GlyphMapDemo client:visible label="South America: terrain, contours and borders" view={{ center: [-62, -26], span: 70 }} projection={{ type: "globe", options: { exaggeration: 24 } }} layers={[{ type: "raster" }, { type: "contour", id: "contours", levels: { interval: 1000 }, minElevation: 0, color: "#ffe8b8" }, { type: "line", color: "#ff9e64" }]} />
+
+Terrain, elevation contours and country borders share one map. Layers form an ordered list; geometry also uses depth testing.
+
+## Add, move, remove
 
 ```ts
-const id = map.addLayer({ type: "background", color: "#05070c" });
-map.addLayer({ type: "raster", source: reliefProvider }, id);  // insert before `id`
-map.moveLayer(id);                                             // move to the end
+const id = map.addLayer({ type: "line", source: borders, color: "#ff9e64" });
+map.moveLayer(id);              // move to the end
 map.removeLayer(id);
 ```
 
-`addLayer` returns the layer's id — the one you passed as `layer.id`, or a
-generated one. Every layer type takes an optional `id`.
+Every layer accepts an optional `id`. `addLayer(layer, beforeId)` inserts before another layer; `moveLayer(id, beforeId)` reorders it.
 
-## The vocabulary
-
-The names and roughly the semantics are MapLibre's, so a reader who knows a
-style spec knows this list. What differs is **how** a layer reaches the screen,
-and that split matters more here than it does in a GPU renderer:
-
-| Type | Reaches the screen as | Takes |
-|---|---|---|
-| `background` | The scene output's CSS background colour | `color`, `density` |
-| `raster` | A real 3D relief mesh from elevation tiles | see [below](#raster) |
-| `line` | A post-raster **stamp** into the cell grid | `source`, `sourceLayer`, `filter`, `filterAtResolution`, `color`, `colorProperty`, `colors`, `padCells`, `density`, `simplify`, `sharedArcs` |
-| `contour` | A post-raster stamp, marched from an elevation field | see [below](#contour) |
-| `fill` | A draped or flat polygon mesh | see [below](#fill) |
-| `fill-extrusion` | An extruded polygon mesh with walls and a cap | see [below](#fill-extrusion) |
-| `symbol` | A positioned DOM label | see [below](#symbol) |
-| `circle` | A post-raster **stamp** of a glyph disc sized in CSS pixels | `source`, `sourceLayer`, `filter`, `radius`, `radiusProperty`, `radiusScale`, `color` |
-| `glyph` | A post-raster **stamp** of a point mark, and its label | see [below](#glyph) |
-| `heatmap` | A density relief mesh | `source`, `sourceLayer`, `filter`, `radius`, `weightProperty`, `colors`, `bounds`, `height`, `threshold`, plus appearance |
-| `model` | A mesh from polygons you supply | `polygons`, `attribution`, plus appearance |
-
-**Mesh-backed** layers (`raster`, `fill`, `fill-extrusion`, `heatmap`, `model`)
-are geometry: they project, depth-test, and can cast and receive shadows.
-**Stamped** layers (`line`, `contour`, `glyph`, `circle`) own no geometry — they are
-written into an output grid after rasterization and depth-tested against
-whatever surface already won each cell. The **DOM** layer (`symbol`)
-mounts positioned text labels over the `<pre>`.
-
-That split explains most of the asymmetries below: only mesh-backed layers carry
-`renderMode`/`glyphPalette`, and only mesh-backed layers can *receive* a shadow.
+| Type | Data / key options |
+|---|---|
+| `background` | `color`, `density`; no source |
+| `raster` | Elevation tile or provider; `classifier`, `colors` |
+| `contour` | Field or elevation provider; `levels`, `labels` |
+| `line` | Vector lines; `color`, `colorProperty`, `colors`, `padCells`, `filterAtResolution`, `simplify`, `sharedArcs` |
+| `fill` | Vector polygons; `color`, `colorProperty`, `colors`, `drape` |
+| `fill-extrusion` | Vector buildings; `heightProperty`, `height`, `heightScale` |
+| `symbol` | DOM text labels; `textProperty`, `priorityProperty` |
+| `circle` | Stamped glyph discs sized in CSS pixels; `radius`, `radiusProperty`, `radiusScale`, `color` |
+| `glyph` | Points and labels in copied text; `size`, `ramp`, `textProperty` |
+| `heatmap` | Density relief; `radius`, `weightProperty`, `colors`, `bounds`, `height`, `threshold` |
+| `model` | Your `polygons` and `attribution`; no source |
 
 ## Sources
 
-Every layer except `background` and `model` takes a `source`.
-
-- `raster` takes a `GlyphMapGeoTile` (mounted once) or a `GlyphMapProvider` — a
-  tile pyramid the widget sweeps, caches, culls and debounces for you.
-- `contour` takes a `GlyphMapField` (a fixed, already-sampled snapshot) or the
-  same `GlyphMapProvider` type, re-derived into a field per visible tile.
-- Every vector layer takes a `GlyphMapVectorSource`: a static
-  `GlyphMapVectorFeatureCollection`, or a `GlyphMapVectorProvider`.
-
-A **static collection** is the right shape for a dataset small enough to fetch
-whole — a few thousand features rather than a pyramid — and it carries its own
-provenance, so the credit follows the layer:
-
 ```ts
-const cables: GlyphMapVectorFeatureCollection = {
-  features,  // { properties, geometryType, rings }
-  attribution: [{ name: "TeleGeography", license: "CC BY-NC-SA 3.0", url: "https://www.submarinecablemap.com" }],
+const cities = {
+  features: [{
+    geometryType: "point" as const,
+    rings: [[[-58.38, -34.6]]],
+    properties: { name: "Buenos Aires" },
+  }],
 };
-
-const id = map.addLayer({ type: "line", source: cables, color: "#e8a33d" });
-map.getAttributions();   // → [{ name: "TeleGeography", … }]
-map.removeLayer(id);
-map.getAttributions();   // → []
+map.addLayer({ type: "glyph", source: cities, textProperty: "name", color: "#ff9e64" });
 ```
 
-`geometryType` decides how the rings are read (`"point"` — one coordinate per
-ring; `"line"` — one open polyline per ring; `"polygon"` — one closed ring each,
-or `polygons` for hole groups). The [maps workbench](/maps)'s **Datasets** card
-mounts five such collections — submarine cables, data centres, dams and Natural
-Earth's land and marine regions — as `line`, `circle`, `symbol` and `fill`
-layers with no package-side machinery at all.
+Vector layers accept a `GlyphMapVectorFeatureCollection` or `GlyphMapVectorProvider`. Static features use `geometryType` (`"point"`, `"line"`, `"polygon"`) and `rings`; polygon hole groups use `polygons`. Add `attribution` to the collection to include its credits.
 
-### Filtering features
+Provider layers can select `sourceLayer`; all vector layers accept `filter: (feature) => boolean`, applied after source-layer selection. Without terrain or a custom `groundElevation`, features sit on the datum.
 
-Every vector-source layer takes `filter`, a plain predicate applied **after**
-`sourceLayer` (and instead of it for a static collection, which has no
-source-layer grouping):
+## Raster
 
 ```ts
 map.addLayer({
-  type: "line",
-  source: osm,
-  sourceLayer: "transportation",
-  filter: (f) => f.properties?.class === "motorway",
+  type: "raster", source: reliefProvider,
+  classifier: GlyphMapClassifiers.etopo1V1, colors: terrainColors,
+  minElevation: 0, density: 2,
 });
 ```
 
-A predicate rather than a match spec, because a provider-backed source's tiles
-arrive *after* mount — a caller cannot pre-split features it has not received.
-Omitting `filter` keeps every feature and is byte-identical.
+`colors` supplies one colour per classifier band. Optional `minElevation` / `maxElevation` flatten terrain outside a metre window; colours retain the original elevations. `padCells` keeps nearby provider tiles mounted. See [terrain](/maps/terrain/).
 
-### Line detail at low zoom
-
-Line layers can opt into `simplify: "vw"`. It reuses the bake pipeline's
-latitude-corrected Visvalingam–Whyatt simplifier, with a tolerance of half
-the current output cell's degrees (`view.span / cols`, adjusted for layer
-density). Quarter-octave zoom buckets cache each source line, so orbiting
-does not repeat simplification. Zooming in retains finer source detail.
-Endpoints stay fixed; closed rings that would collapse below a triangle
-retain their source geometry. Walking retains full source detail.
-
-`sharedArcs: true` also reconstructs polygon boundary topology per source
-feature set or tile: exact shared edges (in either direction) become one
-arc, split at junctions before VW. Junction endpoints stay fixed, and the
-arc geometry and zoom buckets are cached. Explicit line features keep their
-own paths. Differently sampled edges are not snapped together; bake shared
-arcs before tile clipping when source tiles need consistent simplification.
-
-The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in
-one graph per layer and frame, including coincident feature/tile endpoints.
-Diagonal steps add one staircase corner using the same depth and ownership
-tests; when both corners are blocked, both cells point into the hidden corner
-instead. Immediate backtracks
-collapse before joining. A closed ring whose projected extent is under two
-cells becomes one depth-tested `·` at its geometry centroid. Open lines retain
-their joined cells, including short stubs; unjoined cells restore the surface
-instead of leaving dots. Box depth tests read the surface
-before the layer wrote any ink; staircase corners cannot borrow cells from
-a separate path.
-
-Omitting these options leaves the default output unchanged. The `/maps`
-borders enable live VW, shared arcs, and `box`. Its OpenStreetMap line rows
-also enable VW and `box`; only boundaries request shared polygon arcs.
-
-Lines accept `colorProperty` and `colors` with the same per-feature fallback
-as fills. `filterAtResolution(feature, degreesPerCell)` can make a live
-resolution cut after `filter`; it receives the actual overlay cell size
-and `0` while walking. Shared polygon arcs have no feature properties;
-explicit line features retain theirs.
-
-## Appearance: `density`, `renderMode`, `glyphPalette`
-
-Three options recur, and they mean the same thing everywhere.
-
-### `density`
-
-For a **mesh-backed** layer, `density` is glyphcss's per-mesh density: the layer
-pops into its own silhouette-fitted `<pre>` rendered at that multiple of the
-scene's glyph resolution.
-
-For a **stamped** layer it picks *which grid* the stroke lands in, and the
-default is the interesting case:
-
-- `undefined` or `1` — the layer has no resolution preference, so it stamps into
-  **every** grid the scene produces and follows the annotated surface's own
-  density. Sharpen a border where it crosses terrain by raising the *terrain*
-  layer's density.
-- any other value — the layer wants its own independent resolution. It gets a
-  meshless full-viewport overlay grid at that density, with its own geometry
-  depth pass, and stamps only there, so the same stroke never renders twice at
-  two resolutions.
-
-### `renderMode`
-
-A map is not one picture in one mode: terrain reads as `solid` while an
-administrative overlay reads as `ink`.
-
-```ts
-map.addLayer({ type: "raster", source: reliefProvider });               // the scene's mode
-map.addLayer({ type: "fill", source: adminProvider, renderMode: "ink" });
-```
-
-Omitted — **or set to the mode the scene is already in** — the layer stays in the
-shared base grid: one pass, byte-identical. A genuinely different mode is a full
-extra rasterizer pass, so it is a per-*layer* choice. `wireframe` and `ink`
-layers are additionally mounted `transparent`, because those modes paint edges
-only and an opaque claim over the whole footprint would erase the terrain the
-outline is drawn over.
-
-### `glyphPalette`
-
-The same argument one axis over: which **characters** carry the shade, never
-which colours they are painted in. It composes with — never replaces — a
-`raster` layer's `colors`, which is the elevation-band colour ramp.
-
-```ts
-map.addLayer({ type: "fill-extrusion", source: osm, glyphPalette: "blocks" });
-```
-
-Naming the ramp the scene is already on is free: the option is not forwarded at
-all, so the layer stays in the base pass. That escape lives in this package
-because two *equal* names always resolve to one ramp, while glyphcss cannot
-compare in general.
-
-`line`, `contour`, `glyph`, `circle` and `symbol` carry neither `renderMode` nor
-`glyphPalette`, and never will — the first three are marks stamped after
-shading, the last is DOM text.
-
-## `raster`
-
-The terrain layer. Elevation tiles in, a shaded relief mesh out.
-
-```ts
-import { GlyphMapClassifiers } from "@glyphcss/maps";
-
-map.addLayer({
-  type: "raster",
-  source: reliefProvider,
-  classifier: GlyphMapClassifiers.etopo1V1,
-  colors: ["#0b1d3a", "#14356b", "#2a55a8", "#3a6b30", "#5a7a30", "#8a7050", "#a89070", "#c0a080", "#e0c0a0", "#ffffff"],
-  minElevation: 0,          // land only
-  density: 2,
-});
-```
-
-- `classifier` — how elevations become bands. See
-  [Terrain](/maps/terrain#classifiers).
-- `colors` — one colour per band.
-- `minElevation` / `maxElevation` — an **elevation window** in metres. Omitted =
-  unbounded and byte-identical. See
-  [Terrain](/maps/terrain#the-terrain-elevation-window).
-- `padCells` — screen-space padding, in output cells, a provider tile's bounds
-  must be within to stay mounted. Ignored for a single-tile source.
-
-## `contour`
-
-Isolines marched from an elevation field and stamped into the grid.
+## Contour
 
 ```ts
 map.addLayer({
-  type: "contour",
-  source: reliefProvider,
-  levels: { interval: 500 },   // or 12, or [0, 500, 1000, 2000]
-  minElevation: 0,
-  color: "#94a3b8",
-  labels: true,
-  labelEvery: 5,
+  type: "contour", source: reliefProvider,
+  levels: { interval: 500 }, minElevation: 0,
+  color: "#ffe8b8", labels: true, labelEvery: 5,
 });
 ```
 
-`levels` takes three shapes, and they behave differently on purpose:
+`levels` accepts a count, an explicit elevation array, or `{ interval }` in metres. Intervals stay fixed while panning. Elevation windows clip contours independently of terrain; match their floors. Labels default off; `labelEvery` defaults to `5`. `getContourFieldRange(id)` reports the data range.
 
-- **a count** (`12`) — distributed across the elevation window intersected with
-  the mosaic's own range. Without a window an ETOPO1 count spends most of its
-  lines on the abyssal plains.
-- **an explicit array** — used as given, clipped to the window, never
-  renumbered.
-- **`{ interval }`** — every absolute multiple of `interval`, clipped. Absolute,
-  so the lines stay at fixed elevations instead of crawling on every pan.
-
-`minElevation`/`maxElevation` are an elevation window, and two numbers rather
-than a land/sea mode: `minElevation: 0` is land, `maxElevation: 0` is sea,
-`0`–`2000` is the foothills, and no "land" ever has to be defined. An empty
-window renders nothing and never throws.
-
-`labels: true` prints elevations **on** the lines: index contours only (every
-`labelEvery`-th line on the absolute ladder, default `5`, the USGS convention),
-each number sitting in a gap in its own line, placed where the contour runs
-near-horizontal and locally straight, and arbitrated by the same declutter pass
-the `symbol` layer uses. Labels are off by default and allocate nothing when
-off.
-
-`map.getContourFieldRange(id)` reports the field's own data range, which is what
-a UI needs to bound its floor/ceiling controls.
-
-## `fill`
-
-A polygon wash. The one option worth understanding is `drape`.
+## Fill
 
 ```ts
-map.addLayer({ type: "fill", source: water,   color: "#1e6fd9" });                  // draped (default)
-map.addLayer({ type: "fill", source: landuse, color: "#4a5a3a", drape: "flat" });   // datum overlay
+map.addLayer({ type: "fill", source: regions, color: "#4a5a3a", drape: "flat" });
 ```
 
-- **`"surface"`** (the default) projects every cap vertex at the ground under its
-  own lon/lat, so the wash lies on the relief. Sampled per *vertex*, not once per
-  polygon — a park spanning a valley would otherwise float one end and bury the
-  other.
-- **`"flat"`** is a datum overlay: coplanar with every other flat layer, never
-  wrapping a ridge, never eaten by the relief. Usually what an administrative or
-  landcover tint you are *reading* wants.
+`drape: "surface"` (default) follows terrain; `"flat"` keeps a datum overlay. A predicate can choose per feature. For OSM water, use `glyphMapOpenMapTilesWaterDrape`: ocean flat, lakes draped. `colorProperty` plus `colors` maps property values to colours.
 
-`drape` also takes a **predicate**, `(feature) => "surface" | "flat"`, because
-the ocean is the one water body a DEM cannot place: over the sea the terrain *is*
-bathymetry, so draping an ocean polygon builds the sea surface on the sea floor.
-The shipped OpenMapTiles water row carries one:
-
-```ts
-import { glyphMapOpenMapTilesWaterDrape } from "@glyphcss/maps";
-
-map.addLayer({
-  type: "fill",
-  source: osm,
-  sourceLayer: "water",
-  colorProperty: "class",
-  drape: glyphMapOpenMapTilesWaterDrape,   // ocean flat, lakes draped
-});
-```
-
-Colour is either flat (`color`) or per-feature: `colorProperty` names a feature
-property and `colors` maps its values to colours.
-
-With no ground available at all, `"surface"` and `"flat"` render identically,
-cell for cell.
-
-## `fill-extrusion`
-
-Buildings. Two rules carry most of the weight.
+## Fill-extrusion
 
 ```ts
 map.addLayer({
-  type: "fill-extrusion",
-  source: osm,
-  sourceLayer: "building",
-  heightProperty: "render_height",
-  baseOffsetProperty: "render_min_height",
-  height: 8,               // fallback when the feature has no height
-  heightScale: 1,
-  color: "#8a8f9c",
-  colorVariation: 0.5,
-  facade: true,
+  type: "fill-extrusion", source: osm, sourceLayer: "building",
+  heightProperty: "render_height", baseOffsetProperty: "render_min_height",
+  height: 8, heightScale: 1, color: "#8a8f9c",
+  colorVariation: 0.5, facade: true,
 });
 ```
 
-**Height is true metres, and is exempt from the terrain's `exaggeration`.** The
-ground a structure stands on is wherever the exaggerated relief puts it, so only
-what is measured *up* from that ground is exempt. Reverse that and every
-building is buried; exempt neither and a 20 m building draws 480 m tall at
-`exaggeration: 24`. `baseOffsetProperty` is a structure measurement in true
-metres above the ground (OSM's `min_height`), not a terrain elevation.
-`heightScale` multiplies the same metre count, for a stylised skyline.
+Heights and base offsets are true metres above terrain, exempt from terrain exaggeration. `height` is the fallback; `heightScale` multiplies height. `facade` and `colorVariation` default off. See a [live street view](/maps/openstreetmap/).
 
-**The ground is the terrain under the footprint**, probed once per polygon group
-at its outer ring's mean lon/lat — a structure is rigid, so one ground per piece
-keeps the cap planar and the walls planar quads. Extrusions on a static source
-are re-planted when the mounted tile set changes, so a building mounted before
-its terrain landed does not stay at the datum.
+`outline: "braille"` opts into braille roof rings and, when tilted, vertical corner edges at the mesh's planted base and roof heights. The body uses `.` so edges carry the shape. Only footprints spanning at least two projected cells get outlines; the cutoff follows zoom and output density. Scene depth and exact building planes hide occluded edges, while incident faces accept their own edge without a depth bias. All glyphs fit the universal atlas. Omitted preserves the original output. Building outlines currently support braille only.
 
-Two appearance options exist because an untextured flat-roofed box is one Lambert
-value per face, so a block of them at eye height is two tones and a wedge:
+Add `fill: false` alongside `outline: "braille"` for outlines only: no building mesh is mounted or rasterized. Terrain and nearer building faces still hide roof rings and vertical corners. `fill` defaults to true and is ignored without braille outlines.
 
-- **`facade`** — window bays across and floor bands up each wall, derived from
-  the wall's own metres. One small generated tile, tiled by UV wrap; the widget
-  registers the texture itself and never fetches anything.
-- **`colorVariation`** — a deterministic per-feature tone around `color`, seeded
-  from the feature's own identity.
+Add `blank: true` with unfilled braille outlines to erase rear raster content inside the visible building faces. Face depth preserves nearer terrain, elevated roads and other nearer meshes; courtyards stay open. This skips lighting and solid glyph shading and reuses the outline pass's projected faces. The default is false, preserving the see-through outline output. Tiny faces still blank covered cells even when their footprint is too small for an outline. DOM symbol labels remain overlays and are not erased by this cell mask.
 
-Both default off and are byte-identical there.
+For OpenMapTiles, pass `buildingOutline: "braille"` to `glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export draw braille lines and blanked outlines without fill for buildings by default; `?lines=box` switches to box lines with the normal building fill.
 
-`outline: "braille"` opts into braille roof rings and, when tilted, vertical
-corner edges at the mesh's planted base and roof heights. The body uses `.` so
-edges carry the shape. Only footprints spanning at least two projected cells get
-outlines; the cutoff follows zoom and output density. Scene depth and exact
-building planes hide occluded edges, while incident faces accept their own edge
-without a depth bias. All glyphs fit the universal atlas. Omitted preserves the
-original output. Building outlines currently support braille only.
-
-Add `fill: false` alongside `outline: "braille"` for outlines only: no building
-mesh is mounted or rasterized. Terrain and nearer building faces still hide
-roof rings and vertical corners. `fill` defaults to true and is ignored without
-braille outlines.
-
-Add `blank: true` with unfilled braille outlines to erase rear raster content
-inside the visible building faces. Face depth preserves nearer terrain, elevated
-roads and other nearer meshes; courtyards stay open. This skips lighting and
-solid glyph shading and reuses the outline pass's projected faces. The default
-is false, preserving the see-through outline output. Tiny faces still blank
-covered cells even when their footprint is too small for an outline. DOM symbol
-labels and circles remain overlays and are not erased by this cell mask.
-
-For OpenMapTiles, pass `buildingOutline: "braille"` to
-`glyphMapOpenMapTilesLayers`. The `/maps` workbench and its code export draw
-braille lines and blanked outlines without fill for buildings by default;
-`?lines=box` switches to box lines with the normal building fill.
-
-## `symbol`
-
-Text labels, mounted as DOM over the grid.
+## Labels and point marks
 
 ```ts
 map.addLayer({
-  type: "symbol",
-  source: osm,
-  sourceLayer: "place",
-  textProperty: "name",
-  priorityProperty: "rank",
-  minPriority: 0,
-  textAnchor: "left",
-  textOffset: [1, 0],
-  color: "#ffe8b8",
+  type: "symbol", source: cities, textProperty: "name",
+  textAnchor: "left", textOffset: [1, 0], color: "#ffe8b8",
 });
 ```
 
-`textProperty` names the property to read; `text: (feature) => string` is the
-escape hatch for a composed label. `priorityProperty`/`minPriority` drive the
-declutter arbiter, which is greedy and reserves the box where a label **lands**,
-not where its point is.
+- `symbol` labels points and lines, not polygons; `text(feature)` composes labels.
+- `priorityProperty` / `minPriority` control decluttering; labels wrap at 20 characters, up to three lines.
+- `textAnchor` defaults to `"center"`; `textOffset` defaults to `[0, 0]`, in cells with y down.
+- `glyph` uses `size` / `sizeProperty` / `sizeScale` in cell rows; default `size: 0` is one cell, with ramp `["·", "•", "●"]`.
+- Glyph `altitude` / `altitudeProperty` / `altitudeScale` use true metres above ground; `onSelect(feature)` handles selection.
+- Use `symbol` for DOM interaction; `glyph` and `circle` marks are stamped into the copied text.
+- `circle` is the same stamp as `glyph`, sized in CSS pixels instead of cell rows: `radius` / `radiusProperty * radiusScale` are divided by the grid's cell height to get the disc radius in cell rows, and a radius under half a row becomes the single smallest mark (`·`). Features sharing a cell merge into one mark. `color` tints the mark; omitted keeps the terrain's colour. There is no element per circle, and no `density`, `ramp`, altitude, label or `onSelect`; use `glyph` for those.
 
-**Placement.** `textAnchor` is MapLibre's `text-anchor` vocabulary and semantics
-— `center` (the default), `left`, `right`, `top`, `bottom` and the four corners,
-where `left` puts the label's left edge on the point so it reads out to the
-right. `textOffset` is `[x, y]` in **cells** with `y` down, applied on top of the
-anchor, because an anchor alone puts the label's edge exactly *on* the point and
-a name anchored `left` of a dot has its first character inside the dot. Omitting
-both — or `textAnchor: "center"` with `textOffset: [0, 0]` — writes no transform
-at all and is byte-identical.
+## Line detail at low zoom
 
-**Wrapping.** A label longer than `GLYPH_MAP_LABEL_WRAP_CELLS` (20 characters) is
-broken onto up to `GLYPH_MAP_LABEL_WRAP_MAX_LINES` (3) **balanced** lines, at
-word boundaries only, centred on each other and on the feature's point. The
-arbiter measures the wrapped block, so a long name no longer reserves a strip
-across a third of the frame. The rule is exported if you want it for your own
-text:
+Line layers can opt into `simplify: "vw"`. It reuses the bake pipeline's latitude-corrected Visvalingam–Whyatt simplifier, with a tolerance of half the current output cell's degrees (`view.span / cols`, adjusted for layer density). Quarter-octave zoom buckets cache each source line, so orbiting does not repeat simplification. Zooming in retains finer source detail. Endpoints stay fixed; closed rings that would collapse below a triangle retain their source geometry. Walking retains full source detail.
 
-```ts
-import { glyphMapWrapLabel } from "@glyphcss/maps";
+`sharedArcs: true` also reconstructs polygon boundary topology per source feature set or tile: exact shared edges (in either direction) become one arc, split at junctions before VW. Junction endpoints stay fixed, and the arc geometry and zoom buckets are cached. Explicit line features keep their own paths. Differently sampled edges are not snapped together; bake shared arcs before tile clipping when source tiles need consistent simplification.
 
-glyphMapWrapLabel("Region de Magallanes y de la Antartica Chilena");
-// → ["Region de", "Magallanes y de la", "Antartica Chilena"]
-```
+The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in one graph per layer and frame, including coincident feature/tile endpoints. Diagonal steps add one staircase corner using the same depth and ownership tests; when both corners are blocked, both cells point into the hidden corner instead. Immediate backtracks collapse before joining. A closed ring whose projected extent is under two cells becomes one depth-tested `·` at its geometry centroid. Open lines retain their joined cells, including short stubs; unjoined cells restore the surface instead of leaving dots. Box depth tests read the surface before the layer wrote any ink; staircase corners cannot borrow cells from a separate path.
 
-**What gets labelled.** Points, and **lines**. A line gets one anchor: the
-arc-length midpoint of its longest part, with longitude weighted by `cos(lat)`
-so the midpoint is a ground midpoint. Lines are labelled because a vector schema
-ships an elongated feature's name as the path a curved-text renderer would run
-the name along — OpenMapTiles' `water_name` does, and every lake in it is a line
-— while a character grid has no curved text. A **polygon is not labelled**: its
-anchor is a pole of inaccessibility, a different algorithm, and a point on the
-boundary would be a wrong answer rather than no answer.
+Omitting these options leaves the default output unchanged. The `/maps` borders enable live VW, shared arcs, and `box`. Its OpenStreetMap line rows also enable VW and `box`; only boundaries request shared polygon arcs.
 
-```ts
-import { glyphMapLabelAnchorPoint } from "@glyphcss/maps";
+Lines accept `colorProperty` and `colors` with the same per-feature fallback as fills. `filterAtResolution(feature, degreesPerCell)` can make a live resolution cut after `filter`; it receives the actual overlay cell size and `0` while walking. Shared polygon arcs have no feature properties; explicit line features retain theirs.
 
-glyphMapLabelAnchorPoint({ geometryType: "line", rings: [[[0, 0], [1, 0]]] });
-// → [0.5, 0]
-```
+## Per-layer appearance
 
-## `glyph`
+| Option | Applies to | Effect |
+|---|---|---|
+| `density` | All layers | Mesh detail; strokes at `1` or omitted follow the surface grid, other values use an independent grid |
+| `renderMode` | Mesh layers | Override scene mode; a different mode costs an extra pass |
+| `glyphPalette` | Mesh layers | Override the character ramp independently of colours; a different ramp costs an extra pass |
 
-A point feature drawn as **glyphs in the grid** rather than as a DOM node — the
-third point layer, and the only one that is part of the picture. It stamps
-through the same post-raster path `line` and `contour` use, so its marks survive
-"copy the text", are depth-tested per cell against whatever geometry won it, and
-disappear round the limb of a globe.
-
-```ts
-map.addLayer({
-  type: "glyph",
-  source: { features: quakes },
-  color: "#ff6b4a",
-  sizeProperty: "mag", sizeScale: 0.2, size: 0.5,
-  altitudeProperty: "altKm", altitudeScale: 1000,
-  textProperty: "title", priorityProperty: "score", textAnchor: "top", textOffset: [0, -1],
-  onSelect: (feature) => window.open(String(feature.properties?.url), "_blank", "noopener,noreferrer"),
-});
-```
-
-| Option | Meaning |
-|---|---|
-| `size`, `sizeProperty`, `sizeScale` | The mark's disc radius **in cell rows** — not a pixel radius. `size: 0` (the default) is exactly one cell. |
-| `ramp` | Ordered mark glyphs, least ink first. Default `["·", "•", "●"]`. |
-| `altitude`, `altitudeProperty`, `altitudeScale` | Height above the ground in **true metres**, exempt from the terrain's `exaggeration`. |
-| `textProperty` / `text`, `textAnchor`, `textOffset`, `priorityProperty` | An optional stamped label and its placement. |
-| `onSelect` | Called with the feature a click landed on. |
-
-**Size is a glyph.** A character grid cannot draw a 3-pixel dot, so `size` is a
-disc radius in cell rows (columns stretched by the cell aspect). The disc is
-rasterized and each cell's glyph is picked by **its own coverage** out of
-`ramp` — so under one cell the mark grows by climbing the ramp, and past one
-cell it grows by covering more cells, with the partial rim landing on the
-smaller entries. `ramp` defaults to three centred discs of increasing ink, which
-reads as one shape getting bigger rather than as three different symbols. A
-one-entry `ramp` with `size: 0` is a fixed identity mark — a `▲` for a launch
-pad, a `★` for a satellite.
-
-**Altitude is true metres.** Like a `fill-extrusion`'s height, and for the same
-reason: an orbital altitude is a measured length, not relief, so it does not
-take the terrain's exaggeration. The ground it is measured from *is* the
-exaggerated relief. A satellite at 550 km therefore stands 8.6% of a radius off
-the surface on a globe, clears the limb from altitude, and is hidden when it is
-behind the Earth — all from the projection's existing horizon test.
-
-**Labels are rationed, marks are not.** `priorityProperty` feeds the same greedy
-declutter arbiter a `symbol` uses, so labels thin out smoothly as the view zooms
-out while every feature keeps its mark. A stamped label is folded to printable
-ASCII (`glyphMapAsciiLabel`), because a glyph outside the colour-font atlas
-would latch the whole scene to the span encoder.
-
-**Selection is a hit test.** A glyph is not an element, so `onSelect` is resolved
-by matching a click against the marks the last render actually stamped — one
-handler for the whole layer, drag-guarded by the same rule the `click` event
-uses, within two cell rows of a mark plus its own size. A layer without
-`onSelect` arms neither the test nor the pointer cursor. What a click *means* is
-yours: the widget resolves which feature and nothing else.
-
-### `circle`
-
-The same stamp as `glyph`, sized in CSS pixels instead of cell rows. `radius` /
-`radiusProperty * radiusScale` stay pixels; at stamp time the radius is divided
-by the grid's own cell height to get the disc's radius in cell rows, and a
-radius under half a row becomes the single smallest mark (`·`). Features that
-share a cell merge into one mark. `color` tints the mark; omitted keeps the
-terrain's colour under it. There is no element per circle, and no `density`,
-`ramp`, altitude, label or `onSelect` — use a `glyph` layer for those.
-
-Use `symbol` instead when the mark must be a real element — a name a reader
-selects and copies.
-
-## `model`
-
-Your own polygons, in map world space:
-
-```ts
-map.addLayer({
-  type: "model",
-  polygons: myPolygons,
-  attribution: [{ name: "Me", license: "CC-BY 4.0" }],
-});
-```
-
-The only LAYER that carries its own `attribution`, because it is the only one
-with no source to declare it. Every other layer takes the credit off its
-source — a provider's `attribution`, a geo tile's, or a static
-[feature collection's](#sources).
+Mesh layers are `raster`, `fill`, `fill-extrusion`, `heatmap`, and `model`.
 
 ## Markers
 
-A marker is not a layer — it is a single anchored DOM element:
-
 ```ts
-const marker = map.addMarker({ at: [-58.38, -34.6], label: "Buenos Aires", elevation: 0 });
-marker.el.classList.add("my-pin");
+const marker = map.addMarker({ at: [-58.38, -34.6], label: "Buenos Aires", elevation: 30 });
 marker.remove();
 ```
 
-`elevation` is metres, passed straight through as `project`'s third argument, so
-it lifts along the locally-correct up direction with no separate anchoring
-concept. Default `0` — exactly at the geographic point, Leaflet's convention.
-
-`symbol`, `circle` and `glyph` marks, by contrast, are anchored at the **ground
-elevation** under their own lon/lat — never a feature's own elevation property.
-See [Terrain](/maps/terrain#where-the-ground-comes-from).
+Markers are individual DOM elements, separate from layers. `marker.el` exposes the element. `elevation` defaults to `0`, passes through the projection's elevation axis, and does not automatically follow terrain.

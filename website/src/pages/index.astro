@@ -6,7 +6,11 @@ import { HomeAsciiArt } from "../components/HomeAsciiArt";
 import { FrameworkTabs } from "../components/FrameworkTabs";
 import { PackageVersion } from "../components/PackageVersion";
 import { GitHubStars } from "../components/GitHubStars";
+import GlyphRender from "../integrations/astro/GlyphRender.astro";
 import { title, description, ldJson, frameworkTabs } from "../features/home/content";
+import { homeDiagrams } from "../features/home/diagrams";
+import { homeWordmark } from "../features/home/wordmark";
+const wordmark = await homeWordmark();
 ---
 
 <ContentLayout title={title} description={description} path="/">
@@ -23,7 +27,7 @@ import { title, description, ldJson, frameworkTabs } from "../features/home/cont
       id="hero-demo"
       embedded
       polygonsUrl="/data/landing-earth.json"
-      defaults={JSON.stringify({ rotX: 103, rotY: 45, duration: 12, renderMode: "solid", density: 2.2 })}
+      defaults={JSON.stringify({ rotX: 103, rotY: 45, duration: 12, renderMode: "solid", density: 1 })}
       noCode
       noControls
       autoRotate
@@ -34,15 +38,23 @@ import { title, description, ldJson, frameworkTabs } from "../features/home/cont
       realSunLight
       light={JSON.stringify({ intensity: 1.1, ambient: 0.45 })}
     />
+    <div slot="wordmark" style={`--ink-cols:${wordmark.cols};--ink-indent:${wordmark.indent}`}>
+      <pre set:html={wordmark.html} />
+    </div>
     <HomeAsciiArt client:load slot="rule" factory="heroRule" className="hero-rule" ariaLabel="divider" />
-    <HomeAsciiArt
-      client:load
-      slot="diagram"
-      factory="howItWorksDiagram"
-      className="stacking-art"
-      minCols={48}
-      ariaLabel="glyphcss render pipeline diagram"
-    />
+    <div slot="diagram" class="home-diagrams">
+      {
+        homeDiagrams.map(({ layout, input }) => (
+          <div class={`home-diagram-${layout}`}>
+            <GlyphRender
+              {...input}
+              showSource={false}
+              caption="Each render writes the text once per <pre>. Optional hotspots share the scene camera."
+            />
+          </div>
+        ))
+      }
+    </div>
     <FrameworkTabs slot="frameworks" tabs={frameworkTabs} client:load />
     <PackageVersion slot="version" client:load />
     <GitHubStars slot="stars" client:visible />

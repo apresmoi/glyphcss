@@ -1,0 +1,35 @@
+---
+title: "Text Sankey charts for flows between categories"
+description: Render Sankey flows from source, target, and value channels. Read node totals, inspect imbalances and folded links, and distinguish graph diagrams from flows.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Use `glyphChartSankey(data, { source, target, value, name?, color? })` for directed, positive-valued flows. The example is an illustrative energy balance; values use the same unit throughout.
+
+<GlyphRender kind="chart" source={{"type": "sankey", "data": [{"from": "Solar", "to": "Grid", "amount": 30}, {"from": "Wind", "to": "Grid", "amount": 25}, {"from": "Gas", "to": "Grid", "amount": 45}, {"from": "Grid", "to": "Homes", "amount": 40}, {"from": "Grid", "to": "Shops", "amount": 20}, {"from": "Grid", "to": "Rail", "amount": 15}, {"from": "Grid", "to": "Industry", "amount": 25}], "channels": {"source": "from", "target": "to", "value": "amount"}}} options={{"target": "chat", "width": 72, "height": 24}} />
+
+```ts
+import { glyphChartSankey, renderGlyphChart } from "@glyphcss/charts";
+const mark = glyphChartSankey(
+  [
+    { from: "Solar", to: "Grid", amount: 30 },
+    { from: "Wind", to: "Grid", amount: 25 },
+    { from: "Gas", to: "Grid", amount: 45 },
+    { from: "Grid", to: "Homes", amount: 40 },
+    { from: "Grid", to: "Shops", amount: 20 },
+    { from: "Grid", to: "Rail", amount: 15 },
+    { from: "Grid", to: "Industry", amount: 25 },
+  ],
+  { source: "from", target: "to", value: "amount" },
+);
+const result = renderGlyphChart(mark, { target: "chat", width: 72, height: 24 });
+```
+
+- Values must be finite and greater than zero. Native cyclic input rejects with `sankey-cycle`.
+- `sankey-imbalance` reports differing inflow/outflow totals at intermediate nodes.
+- Increase width for more columns and height for more nodes/flows. Narrow layouts may fold thin flows into an identified “other” band or omit nodes; read every relevant render note.
+- Sankey uses its graph structure, not Cartesian scales or transforms.
+- This text renderer draws node stubs, brackets, and one line per flow rather than filled ribbons.
+
+[Mermaid Sankey](/charts/mermaid/#sankey) accepts CSV source and can adapt cycles to a flow list. For dependencies without quantitative flow, use a [flowchart](/diagrams/flowcharts/).

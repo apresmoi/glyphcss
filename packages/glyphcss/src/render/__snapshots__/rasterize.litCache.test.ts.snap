@@ -1,0 +1,131 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`keeps shadowed glyph and colour bytes identical in spans and atlas > atlas 1`] = `
+"                             
+                     
+             
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+       
+             
+                     "
+`;
+
+exports[`keeps shadowed glyph and colour bytes identical in spans and atlas > spans 1`] = `
+"     <span style="color:#af8350">@@@@@@@@@@@</span>                        
+   <span style="color:#74af99">@@@%@</span><span style="color:#af8350">@@%@@@%@@@%@@@</span>                  
+ <span style="color:#74af99">@@@@@@@@@@@@@@</span><span style="color:#af8350">@</span><span style="color:#9770ca">@@@@@@@@</span><span style="color:#af8350">@@@@</span>            
+<span style="color:#af8350">%@%@%@%</span><span style="color:#74af99">@%@%@%@</span><span style="color:#9770ca">%@%@%@%@%@%@%@%@</span><span style="color:#af8350">%@%@</span>      
+<span style="color:#af8350">@@@@@@@@@@@@</span><span style="color:#9770ca">@@@@@@@@@@@@@@@@</span><span style="color:#231a2f">-:</span><span style="color:#af8350">@@@@@@@@@@</span>
+<span style="color:#74af99">@@%@@</span><span style="color:#af8350">@%@@@%</span><span style="color:#46345d">====</span><span style="color:#9770ca">@@@%@@@%@@@</span><span style="color:#231a2f">::::</span><span style="color:#74af99">%@@</span><span style="color:#af8350">@%@@@%@</span>
+<span style="color:#74af99">@@@@@@@@@@@</span><span style="color:#46345d">===+===+==</span><span style="color:#9770ca">@@@</span><span style="color:#231a2f">::::::</span><span style="color:#74af99">@@@@@@@@@</span><span style="color:#af8350">@</span>
+<span style="color:#af8350">%@%@</span><span style="color:#74af99">%@%@%@%</span><span style="color:#46345d">============</span><span style="color:#231a2f">:::::::</span><span style="color:#af8350">%</span><span style="color:#74af99">@%@%@%@%@</span>
+<span style="color:#af8350">@@@@@@@@@@</span><span style="color:#74af99">@</span><span style="color:#46345d">=+===+===+==</span><span style="color:#231a2f">:-:::-:</span><span style="color:#af8350">@@@@@@@</span><span style="color:#74af99">@@@</span>
+<span style="color:#74af99">@@</span><span style="color:#af8350">%@@@%@@@%</span><span style="color:#46345d">============</span><span style="color:#231a2f">::::::</span><span style="color:#74af99">@</span><span style="color:#af8350">%@@@%@@@%@</span>
+<span style="color:#74af99">@@@@@@@@</span><span style="color:#af8350">@@@@</span><span style="color:#46345d">==+===+===+</span><span style="color:#231a2f">::::</span><span style="color:#41676a">=======</span><span style="color:#74af99">@@</span><span style="color:#af8350">@@@@</span>
+<span style="color:#af8350">%</span><span style="color:#74af99">@%@%@%@%@%@%@</span><span style="color:#af8350">%@</span><span style="color:#5b534a">-=</span><span style="color:#46345d">=====</span><span style="color:#231a2f">::</span><span style="color:#5b534a">===</span><span style="color:#41676a">-===-==</span><span style="color:#74af99">@%@%@</span>
+<span style="color:#af8350">@@@@@@@</span><span style="color:#74af99">@@@@@@@</span><span style="color:#41676a">======</span><span style="color:#5b534a">=============</span><span style="color:#af8350">@</span><span style="color:#74af99">@@@@@@</span>
+<span style="color:#af8350">@@%@@@%@@@%@@</span><span style="color:#74af99">@%@@</span><span style="color:#41676a">=-===-===-</span><span style="color:#5b534a">===-</span><span style="color:#af8350">@@@%@@@%@</span>
+<span style="color:#74af99">@@@@@</span><span style="color:#af8350">@@@@@@@@@@@@@@</span><span style="color:#74af99">@@@@</span><span style="color:#41676a">=====</span><span style="color:#74af99">@@@@@</span><span style="color:#af8350">@@@@@@@</span>
+<span style="color:#74af99">%@%@%@%@%@%</span><span style="color:#af8350">@%@%@%@%@%@%@%</span><span style="color:#74af99">@%@%@%@%@%@%@%</span><span style="color:#af8350">@</span>
+<span style="color:#af8350">@@@@</span><span style="color:#74af99">@@@@@@@@@@@@@</span><span style="color:#af8350">@@@@@@@@@@@@@@</span><span style="color:#74af99">@@@@@@@@@</span>
+<span style="color:#af8350">@@%@@@%@@@</span><span style="color:#74af99">%@@@%@@@%@@@%</span><span style="color:#af8350">@@@%@@@%@@@%@@</span><span style="color:#74af99">@%@</span>
+<span style="color:#74af99">@@</span><span style="color:#af8350">@@@@@@@@@@@@@@</span><span style="color:#74af99">@@@@@@@@@@@@@@</span><span style="color:#af8350">@@@@@@@@@@</span>
+<span style="color:#74af99">%@%@%@%@</span><span style="color:#af8350">%@%@%@%@%@%@%@</span><span style="color:#74af99">%@%@%@%@%@%@%@</span><span style="color:#af8350">%@%@</span>
+ <span style="color:#74af99">@@@@@@@@@@@@@</span><span style="color:#af8350">@@@@@@@@@@@@@@</span><span style="color:#74af99">@@@@@@@@@@@@</span>
+       <span style="color:#74af99">@@@%@@@%@@@%@</span><span style="color:#af8350">@@%@@@%@@@%@@@</span><span style="color:#74af99">%@@@%@</span>
+             <span style="color:#74af99">@@@@@@@@@@@@@</span><span style="color:#af8350">@@@@@@@@@@@@@@</span>
+                   <span style="color:#74af99">@%@%@%@%@%@%@%</span><span style="color:#af8350">@%@%@</span>  "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete atlas bytes 1`] = `
+"                                
+                                
+                                
+                 
+                 
+                                
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                                
+                                "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete atlas bytes 2`] = `
+"                                
+                                
+                                
+                 
+                 
+                                
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                                
+                                "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete spans bytes 1`] = `
+"                                
+                                
+                                
+        <span style="color:#716b64">+*+*+</span> <span style="color:#716b64">+*+*+*+*+*</span>        
+        <span style="color:#716b64">***+*</span> <span style="color:#716b64">*+***+***+</span>        
+                                
+        <span style="color:#716b64">*+*+*</span> <span style="color:#716b64">*+*+*+*+*+</span>        
+        <span style="color:#716b64">+*+*+</span> <span style="color:#716b64">+*+*+*+*+*</span>        
+        <span style="color:#482456">***+*</span> <span style="color:#482456">*+***+***+</span>        
+        <span style="color:#482456">+*+*+</span> <span style="color:#482456">+*+*+*+*+*</span>        
+        <span style="color:#482456">*+*+*</span> <span style="color:#482456">*+*+*+*+*+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+        <span style="color:#104b4f">***+*</span> <span style="color:#104b4f">*+***+***+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+                                
+                                "
+`;
+
+exports[`lit-cache byte identity > preserves first-triangle tints and complete spans bytes 2`] = `
+"                                
+                                
+                                
+        <span style="color:#716b65">+*+*+</span> <span style="color:#716b65">+*+*+*+*+*</span>        
+        <span style="color:#716b65">***+*</span> <span style="color:#716b65">*+***+***+</span>        
+                                
+        <span style="color:#716b65">*+*+*</span> <span style="color:#716b65">*+*+*+*+*+</span>        
+        <span style="color:#716b65">+*+*+</span> <span style="color:#716b65">+*+*+*+*+*</span>        
+        <span style="color:#482456">***+*</span> <span style="color:#482456">*+***+***+</span>        
+        <span style="color:#482456">+*+*+</span> <span style="color:#482456">+*+*+*+*+*</span>        
+        <span style="color:#482456">*+*+*</span> <span style="color:#482456">*+*+*+*+*+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+        <span style="color:#104b4f">***+*</span> <span style="color:#104b4f">*+***+***+</span>        
+        <span style="color:#104b4f">+*+*+</span> <span style="color:#104b4f">+*+*+*+*+*</span>        
+                                
+                                "
+`;

@@ -454,16 +454,16 @@ export function resolveGlyphAtlasPaletteInput(
   return (input as GlyphAtlasPaletteSource).resolveGlyphAtlasPalette(char, color, n);
 }
 
-const histogramResolvers = new WeakMap<GlyphAtlasPaletteSource["resolveGlyphAtlasPalette"],
-  (frame: ReadonlyMap<number, number>) => readonly string[] | undefined>();
+type HistogramResolver = (frame: Map<number, number>) => readonly string[] | undefined;
+const histogramResolvers = new WeakMap<GlyphAtlasPaletteSource, {
+  resolve: GlyphAtlasPaletteSource["resolveGlyphAtlasPalette"]; histogram: HistogramResolver;
+}>();
 
-/** Internal prepared-grid path; arbitrary sources still receive their original buffers. */
-export function resolveGlyphAtlasPrepared(input: GlyphAtlasPaletteInput, char: readonly string[],
-  color: readonly (string | null)[], n: number, frame: ReadonlyMap<number, number>) {
-  if (Array.isArray(input)) return input as readonly string[];
-  const source = input as GlyphAtlasPaletteSource;
-  const resolve = histogramResolvers.get(source.resolveGlyphAtlasPalette);
-  return resolve ? resolve(frame) : source.resolveGlyphAtlasPalette(char, color, n);
+// Only an unmodified built-in source can consume a prevalidated histogram.
+// Wrappers and custom sources must still observe their original grid callback.
+export function resolveGlyphAtlasHistogramResolver(input: GlyphAtlasPaletteInput): HistogramResolver | undefined {
+  const entry = histogramResolvers.get(input as GlyphAtlasPaletteSource);
+  return entry && entry.resolve === (input as GlyphAtlasPaletteSource).resolveGlyphAtlasPalette ? entry.histogram : undefined;
 }
 
 export interface GlyphAtlasPaletteQuantizerOptions {
@@ -626,7 +626,7 @@ export function createGlyphAtlasPaletteQuantizer(
     generation += 1;
   }
 
-  function resolveFrame(frame: ReadonlyMap<number, number>): readonly string[] | undefined {
+  const resolveHistogram: HistogramResolver = (frame) => {
     // A blank grid contributes nothing and must not close the latch: an
     // off-screen detail layer would otherwise pin the whole transaction to
     // whatever palette existed before the frame that actually has colour.
@@ -668,7 +668,7 @@ export function createGlyphAtlasPaletteQuantizer(
     }
     if (inTransaction) latched = hexPalette;
     return hexPalette;
-  }
+  };
 
   const quantizer: GlyphAtlasPaletteQuantizer = {
     get palette(): readonly string[] | undefined {
@@ -701,9 +701,9 @@ export function createGlyphAtlasPaletteQuantizer(
       repoolDeferred = false;
     },
     resolveGlyphAtlasPalette(char, color, n) {
-      return resolveFrame(histogramGridColors(char, color, n));
+      return resolveHistogram(histogramGridColors(char, color, n));
     },
   };
-  histogramResolvers.set(quantizer.resolveGlyphAtlasPalette, resolveFrame);
+  histogramResolvers.set(quantizer, { resolve: quantizer.resolveGlyphAtlasPalette, histogram: resolveHistogram });
   return quantizer;
 }

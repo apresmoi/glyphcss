@@ -14,6 +14,8 @@ export default defineConfig({
     jsx: "automatic",
   },
   test: {
+    // Includes docs-render's real Astro adapter tests. CI builds the workspace
+    // packages before this suite, so they use the same package exports as other tests.
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
     environment: "node",
     setupFiles: ["./src/test/eventLoop.ts"],

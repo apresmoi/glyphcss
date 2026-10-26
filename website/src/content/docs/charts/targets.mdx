@@ -1,0 +1,78 @@
+---
+title: "Chart charsets, ANSI color, and output targets"
+description: Choose ASCII, box, blocks, or braille chart output for chat, terminal, and web. Configure ANSI or CSS color, cell budgets, region fills, and font metrics.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Targets select defaults; explicit render options override them. The library default target is `web`. The command-line chart target defaults to `terminal`.
+
+| Target | Width × height in cells | Charset | Color |
+| --- | --- | --- | --- |
+| `chat` | 72 × 24 | `box` | `none` |
+| `terminal` | 80 × 24 | `braille` | `truecolor` |
+| `web` | 96 × 32 | `braille` | `css` |
+
+## Choose a charset
+
+| Charset | Use |
+| --- | --- |
+| `ascii` | Strict 7-bit output where Unicode support is uncertain. |
+| `box` | Readable whole-cell lines and junctions, the default for chat. |
+| `blocks` | Filled regions and sub-cell boundaries using block glyphs. |
+| `braille` | Fine sub-cell lines and dots for terminal or web charts. Requires matching font coverage. |
+
+The same illustrative twelve-day order series and plan rendered with each charset:
+
+### ASCII
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "ascii"}} />
+
+### Box
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "box"}} />
+
+### Blocks
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "blocks"}} />
+
+### Braille
+
+<GlyphRender kind="chart" source={{"marks": [{"type": "line", "data": [18, 24, 21, 35, 42, 39, 48, 44, 38, 52, 61, 57], "channels": {}, "options": {"name": "Orders"}}, {"type": "line", "data": [30, 32, 34, 38, 44, 46, 50, 52, 54, 58, 64, 66], "channels": {}, "options": {"name": "Plan"}}], "title": "Daily orders vs plan", "axes": {"x": {"title": "Day (index)"}, "y": {"title": "Orders"}}}} options={{"target": "chat", "width": 64, "height": 18, "charset": "braille"}} />
+
+Chat clients control their fonts and commonly lose braille alignment or ANSI escapes. Prefer box or ASCII when pasting into a conversation.
+
+## Choose a color encoding
+
+| `color` | Result |
+| --- | --- |
+| `none` | Plain `result.text`. |
+| `ansi16` | Text with 16-color ANSI escapes. |
+| `ansi256` | Text with 256-color ANSI escapes. |
+| `truecolor` | Text with 24-bit ANSI escapes. |
+| `css` | Plain text plus `result.html`, an escaped span fragment for a `<pre>`. |
+
+There is no `color: "ansi"` value. Pass `env: process.env` explicitly in Node when `NO_COLOR`/`FORCE_COLOR` should affect ANSI output; the library does not read the process environment implicitly. The CLI does this for you.
+
+```ts
+import { renderGlyphChart } from "@glyphcss/charts";
+const result = renderGlyphChart([18, 24, 21, 35, 42], {
+  target: "terminal", color: "ansi256", env: process.env,
+  width: 60, height: 12,
+});
+console.log(result.text);
+```
+
+These documentation previews display terminal examples with CSS color, since ANSI escape sequences do not color HTML pages.
+
+## Size and detail
+
+- `width` and `height` are positive integer cell budgets. Increasing them changes layout and data resolution; changing CSS font size changes physical size.
+- `detail` accepts `auto`, `faithful`, `balanced`, or `simplified`; always inspect fitting notes rather than assuming every label survives a small budget.
+- `cellAspect` is column width divided by row height. It adjusts arc shaping; use measured monospace metrics when overriding it.
+- `textScale` is an integer at least 1 for web HTML text sizing. Plain text/ANSI and compiled outputs ignore it. It reserves more cells for titles, ticks, and labels.
+- `regionFill` accepts `auto`, `solid`, or `texture`. Colored outputs may use solid regions; plain text keeps textures. Indistinguishable solid series fall back to textures with a note.
+- `shades` replaces series texture glyphs. `cellRamp` replaces unsigned heatmap ramp glyphs. Each must be a nonempty array of single visible characters; ASCII requires 7-bit characters.
+- Mermaid radar alone reads `radarGrid: "all" | "outer"` and `radarSeries: "line" | "cells"`.
+
+Use a font covering braille U+2800–U+28FF, box drawing, and blocks with consistent advances. On web output use `font-family: "Glyph Mono", ui-monospace, monospace` and `line-height: 1`, and load the font in your application. See [framework snippets](/charts/frameworks/) and [troubleshooting](/charts/troubleshooting/).

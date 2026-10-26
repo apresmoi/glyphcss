@@ -1,11 +1,24 @@
 ---
 import ExampleLayout from "../../layouts/ExampleLayout.astro";
 import { LoadersWorkbench } from "../../components/LoadersWorkbench";
+import { StaticWorkbench, StaticWorkbenchIntro } from "../../components/StaticWorkbench";
+import { staticLoader } from "../../services/static-workbench/scenes";
+import { LOADER_SIZES } from "../../features/loaders/model/loaders";
+const snapshot = await staticLoader();
+const tiles = Object.fromEntries(
+  LOADER_SIZES.map(({ cols, rows }) => [`${cols}x${rows}`, staticLoader(undefined, 0, cols, rows)]),
+);
+const heading = "ASCII loaders";
 const title = "glyphcss · ASCII Loaders";
 const description =
   "Looping ASCII loaders and progress bars built from stock glyphcss effects on a flat plane, each shown at nine box sizes with copyable code.";
 ---
 
 <ExampleLayout title={title} description={description} path="/examples/loaders/" active="loaders"
-  ><LoadersWorkbench client:only="react" /></ExampleLayout
+  ><StaticWorkbenchIntro heading={heading} description={description} />
+  <LoadersWorkbench client:only="react">
+    <Fragment slot="fallback">
+      <StaticWorkbench page="loaders" heading={heading} description={description} initial={snapshot} tiles={tiles} />
+    </Fragment>
+  </LoadersWorkbench></ExampleLayout
 >

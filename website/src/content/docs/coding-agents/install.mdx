@@ -1,0 +1,114 @@
+---
+title: Install the coding-agent skills
+description: Install glyphcss-diagrams for Claude Code, Codex, Copilot, Factory Droid, Pi, or other agents, and add the separate glyphcss CLI skill for 3D models.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+```sh
+npx skills add apresmoi/glyphcss-diagrams
+```
+
+Requires **Node.js 22+**. Select hosts; start a new session. Use one install route per host.
+
+> Use glyphcss-diagrams to draw Request → Agent → Answer.
+
+<GlyphRender kind="diagram" source={"flowchart LR; request[Request] --> agent[Agent] --> answer[Answer]"} options={{"target": "chat", "width": 48, "height": 7, "color": "none"}} />
+
+## Diagrams and charts
+
+<Tabs>
+  <TabItem label="Claude Code">
+
+```sh
+claude plugin marketplace add apresmoi/glyphcss-diagrams
+claude plugin install glyphcss-diagrams@glyphcss-diagrams
+claude plugin details glyphcss-diagrams@glyphcss-diagrams
+```
+
+Invoke `/glyphcss-diagrams:glyphcss-diagrams`.
+
+  </TabItem>
+  <TabItem label="Codex">
+
+```sh
+codex plugin marketplace add apresmoi/glyphcss-diagrams
+codex plugin add glyphcss-diagrams@glyphcss-diagrams
+codex plugin list --marketplace glyphcss-diagrams
+```
+
+Requires `codex plugin`; otherwise use the installer above.
+
+  </TabItem>
+  <TabItem label="Copilot CLI">
+
+```sh
+copilot plugin marketplace add apresmoi/glyphcss-diagrams
+copilot plugin install glyphcss-diagrams@glyphcss-diagrams
+copilot skill list
+```
+
+  </TabItem>
+  <TabItem label="Factory Droid">
+
+```sh
+droid plugin marketplace add https://github.com/apresmoi/glyphcss-diagrams
+droid plugin install glyphcss-diagrams@glyphcss-diagrams --scope user
+droid plugin list --scope user
+```
+
+  </TabItem>
+  <TabItem label="Pi">
+
+```sh
+pi install https://github.com/apresmoi/glyphcss-diagrams
+pi list
+```
+
+Existing sessions: run `/reload`. Invoke `/skill:glyphcss-diagrams`.
+
+  </TabItem>
+  <TabItem label="Kiro">
+
+Import the [skill folder URL](https://github.com/apresmoi/glyphcss-diagrams/tree/main/skills/glyphcss-diagrams).
+
+  </TabItem>
+</Tabs>
+
+### Cursor, OpenCode, and other hosts
+
+```sh
+test -d glyphcss-diagrams/.git || git clone https://github.com/apresmoi/glyphcss-diagrams.git
+cd glyphcss-diagrams
+node install.mjs --provider grok
+```
+
+- Other providers: `cursor`, `opencode`, `agents`, `codex`, `claude`; Antigravity: `agy` (CLI), `antigravity` (IDE).
+- For custom destinations, replace `--provider grok` with `--dest /absolute/path/to/skills`.
+- Append `--copy` to avoid symlinks; symlink installs require the checkout to stay put.
+
+[Directories, updates, and removal](https://github.com/apresmoi/glyphcss-diagrams/blob/main/docs/installation.md).
+
+## 3D CLI skill
+
+```sh
+npm i -g @glyphcss/compile
+mkdir -p .claude/skills/glyphcss
+curl -sS https://glyphcss.com/skill.md -o .claude/skills/glyphcss/SKILL.md
+glyphcss cube --auto-center
+```
+
+Claude Code: run in your project. Other hosts: place [SKILL.md](/skill.md) at `glyphcss/SKILL.md` in their skill directory. Bundled copy: `node_modules/@glyphcss/compile/SKILL.md`.
+
+Without a global installation:
+
+```sh
+npx @glyphcss/compile cube --auto-center
+```
+
+## Troubleshooting
+
+- **No trigger:** start a new session; check the host lists `glyphcss-diagrams`; name it explicitly.
+- **Wrapping:** request fewer columns; split without losing values or connections. See [sizing](/diagrams/options/).
+- **Misalignment:** request `--charset ascii` or `box`. Use monospace; web embeds need `white-space: pre` and `line-height: 1`; chat must omit ANSI escapes.

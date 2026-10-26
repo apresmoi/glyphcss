@@ -96,9 +96,6 @@
   grid-template-columns: 1.2fr 1fr;
   gap: 20px;
   align-items: center;
-  background: linear-gradient(135deg, var(--gc-surface), var(--gc-surface));
-  border-radius: 12px;
-  border: 1px solid rgba(var(--gc-accent-rgb), 0.25);
   padding: 0px 40px;
   position: relative;
   /* Locked to glyphcss's hero-card height (~390px). */
@@ -131,8 +128,6 @@
   min-height: 0;
   padding: 0;
   overflow: hidden;
-  background: radial-gradient(circle at 30% 20%, var(--gc-surface) 0%, var(--gc-surface) 60%, var(--gc-surface) 100%);
-  border-color: var(--gc-rule);
   font-family: var(--gc-font-ui);
 }
 .root :global(.hero--ascii) :global(.hero-scene) {
@@ -170,26 +165,61 @@
 
 /* same minmax(0, ...) guard for the demo's inner grid — without it, the
      strip's white-space: pre min-content leaks back through here too. */
+/* The real heading stays for search and screen readers; the extruded
+   wordmark beside it is the visible title. */
+.root :global(.hero-wordmark-title) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
 .root :global(.hero-wordmark) {
+  container-type: inline-size;
+  width: min(100%, 560px);
   margin: 0 0 14px;
-  padding: 0;
-  font-family: var(--gc-font-ui);
-  font-size: clamp(48px, 7vw, 88px);
+}
+/* The leading indent is spaces (1ch), but star glyphs advance 0.6em, a touch
+   wider than Glyph Mono's 1ch, so the visible width is measured in em. */
+.root :global(.hero-wordmark) pre {
+  margin: 0 0 0 calc(var(--ink-indent) * -1ch);
+  font-family: var(--gc-font-render);
+  /* Size the cells so the inked columns span the container exactly. */
+  font-size: calc(100cqw / (var(--ink-cols) * 0.6));
   line-height: 1;
-  letter-spacing: -2px;
-  font-weight: 900;
+  white-space: pre;
 }
-.root :global(.hero-wordmark) :global(.wm-a) {
-  color: var(--gc-orange);
-  text-shadow:
-    0 0 18px rgba(var(--gc-orange-rgb), 0.6),
-    0 0 4px var(--gc-surface);
+.root :global(.hero-wordmark) :global(.tw) {
+  animation: wordmark-twinkle 4s ease-in-out var(--tw-delay) infinite;
 }
-.root :global(.hero-wordmark) :global(.wm-b) {
-  color: var(--gc-accent);
-  text-shadow:
-    0 0 18px rgba(var(--gc-accent-rgb), 0.6),
-    0 0 4px var(--gc-surface);
+@keyframes wordmark-twinkle {
+  0%,
+  70%,
+  100% {
+    opacity: 1;
+    text-shadow: none;
+  }
+  80% {
+    opacity: 0.25;
+  }
+  88% {
+    opacity: 1;
+    color: var(--gc-text);
+    text-shadow: 0 0 6px currentColor;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .root :global(.hero-wordmark) :global(.tw) {
+    animation: none;
+  }
+}
+.root :global(.hero-wordmark) > div {
+  width: calc(var(--ink-cols) * 0.6em);
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--gc-font-render);
+  font-size: calc(100cqw / (var(--ink-cols) * 0.6));
 }
 .root :global(.hero-tag) {
   margin: 6px 0;
@@ -274,14 +304,6 @@
   font-family: var(--gc-font-ui);
   font-weight: 900;
   letter-spacing: -2px;
-}
-.root :global(.wm-a) {
-  color: var(--gc-orange);
-  text-shadow: 0 0 12px rgba(var(--gc-orange-rgb), 0.45);
-}
-.root :global(.wm-b) {
-  color: var(--gc-accent);
-  text-shadow: 0 0 12px rgba(var(--gc-accent-rgb), 0.45);
 }
 .root :global(.hero-copy) p {
   color: var(--gc-text);
@@ -457,19 +479,9 @@
 /* ── Install ────────────────────────────────────── */
 .root :global(.install) {
   margin-top: 30px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-radius: 0;
   padding: 28px;
   padding-bottom: 20px;
   font-family: var(--gc-font-ui);
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0px,
-    transparent 3px,
-    rgba(var(--gc-text-rgb), 0.008) 3px,
-    rgba(var(--gc-text-rgb), 0.008) 4px
-  );
 }
 .root :global(.install-list) {
   display: flex;
@@ -562,9 +574,6 @@
 /* ── How It Works ───────────────────────────────── */
 .root :global(.stacking) {
   margin-top: 30px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-radius: 0;
   padding: 28px;
   font-family: var(--gc-font-ui);
 }
@@ -572,26 +581,23 @@
   margin: var(--gc-space-3) 0 32px;
   width: 100%;
 }
-.root :global(.stacking-art) {
-  margin: 0;
-  font-family: var(--gc-font-ui);
-  font-size: 13px;
-  line-height: 1.55;
-  background: transparent;
-  padding: 0;
-  white-space: pre;
+.root :global(.home-diagram-wide) {
+  display: none;
 }
-.root :global(.art-dim) {
-  color: var(--gc-rule-strong);
+.root :global(.home-diagrams) :global(figcaption) {
+  margin-top: var(--gc-space-4);
+  color: var(--gc-text-muted);
+  font-size: var(--gc-text-sm);
+  line-height: 1.5;
+  text-align: center;
 }
-.root :global(.art-amber) {
-  color: var(--gc-text);
-}
-.root :global(.art-cyan) {
-  color: var(--gc-accent);
-}
-.root :global(.art-orange) {
-  color: var(--gc-orange);
+@media (min-width: 960px) {
+  .root :global(.home-diagram-wide) {
+    display: block;
+  }
+  .root :global(.home-diagram-narrow) {
+    display: none;
+  }
 }
 .root :global(.stacking-copy) p {
   font-family: var(--gc-font-ui);
@@ -612,18 +618,8 @@
 /* ── Getting Started ────────────────────────────── */
 .root :global(.getting-started) {
   margin-top: 30px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-radius: 0;
   padding: 28px;
   font-family: var(--gc-font-ui);
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0px,
-    transparent 3px,
-    rgba(var(--gc-text-rgb), 0.008) 3px,
-    rgba(var(--gc-text-rgb), 0.008) 4px
-  );
 }
 .root :global(.getting-lede) {
   margin-bottom: 20px;
@@ -798,9 +794,6 @@
   justify-content: center;
   gap: 0;
   padding: 14px 28px;
-  background: var(--gc-surface);
-  border: 1px solid var(--gc-rule);
-  border-bottom: none;
   font-size: 11px;
   letter-spacing: 0.05em;
 }
@@ -904,9 +897,6 @@
   .root :global(.framework-tabpanel) code {
     white-space: pre-wrap;
     word-break: break-word;
-  }
-  .root :global(.stacking-art) {
-    font-size: 10px;
   }
   .root :global(.term-footer-bar) {
     flex-direction: column;

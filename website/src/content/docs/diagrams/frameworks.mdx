@@ -1,0 +1,162 @@
+---
+title: Text diagrams in vanilla JavaScript, React, and Vue
+description: Display Mermaid text diagrams in vanilla JavaScript, React, and Vue using the same async renderer, with copyable snippets, font rules, and HTML output.
+---
+
+import GlyphRender from '../../../integrations/astro/GlyphRender.astro';
+
+Diagrams use the cell renderer directly. They do not need the 3D scene bindings.
+Install `@glyphcss/diagrams` in your application, then pass Mermaid source or graph data.
+The examples use `color: "none"` and assign the result as text.
+
+## Vanilla JavaScript
+
+```html
+<pre id="diagram"></pre>
+<style>
+  #diagram { font-family: "Glyph Mono", ui-monospace, monospace; line-height: 1; overflow: auto; }
+</style>
+```
+
+```ts
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
+
+const host = document.querySelector<HTMLPreElement>("#diagram")!;
+try {
+  const result = await renderGlyphDiagram(`flowchart LR
+  Push[Push commit] --> Build[Build app]
+  Build --> Test{Tests pass?}
+  Test -->|yes| Stage[Deploy staging]
+  Stage --> Smoke[Smoke tests]
+  Smoke --> Prod[Deploy prod]
+  Test -->|no| Fix[Fix build]`, {
+    target: "web", color: "none", width: 72, height: 19, overflow: "expand",
+  });
+  host.textContent = result.text;
+} catch (error) {
+  host.textContent = error instanceof Error ? error.message : String(error);
+}
+```
+
+## React
+
+```tsx
+import { useEffect, useState } from "react";
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
+
+export function GlyphOrderDiagram({ source = `flowchart LR
+  Push[Push commit] --> Build[Build app]
+  Build --> Test{Tests pass?}
+  Test -->|yes| Stage[Deploy staging]
+  Stage --> Smoke[Smoke tests]
+  Smoke --> Prod[Deploy prod]
+  Test -->|no| Fix[Fix build]` }) {
+  const [text, setText] = useState("");
+  useEffect(() => {
+    let active = true;
+    renderGlyphDiagram(source, {
+      target: "web", color: "none", width: 72, height: 19, overflow: "expand",
+    }).then(
+      result => { if (active) setText(result.text); },
+      error => { if (active) setText(error instanceof Error ? error.message : String(error)); },
+    );
+    return () => { active = false; };
+  }, [source]);
+  return <pre className="order-diagram">{text}</pre>;
+}
+```
+
+```css
+.order-diagram {
+  font-family: "Glyph Mono", ui-monospace, monospace;
+  line-height: 1;
+  overflow: auto;
+}
+```
+
+The cleanup prevents a completed older request from replacing a newer diagram or
+updating an unmounted component. It also tolerates React StrictMode replay.
+
+## Vue
+
+```vue
+<script setup lang="ts">
+import { ref, watchEffect } from "vue";
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
+
+const props = withDefaults(defineProps<{ source?: string }>(), {
+  source: `flowchart LR
+  Push[Push commit] --> Build[Build app]
+  Build --> Test{Tests pass?}
+  Test -->|yes| Stage[Deploy staging]
+  Stage --> Smoke[Smoke tests]
+  Smoke --> Prod[Deploy prod]
+  Test -->|no| Fix[Fix build]`,
+});
+const text = ref("");
+watchEffect(onCleanup => {
+  let active = true;
+  onCleanup(() => { active = false; });
+  renderGlyphDiagram(props.source, {
+    target: "web", color: "none", width: 72, height: 19, overflow: "expand",
+  }).then(
+    result => { if (active) text.value = result.text; },
+    error => { if (active) text.value = error instanceof Error ? error.message : String(error); },
+  );
+});
+</script>
+
+<template><pre class="order-diagram">{{ text }}</pre></template>
+
+<style scoped>
+.order-diagram {
+  font-family: "Glyph Mono", ui-monospace, monospace;
+  line-height: 1;
+  overflow: auto;
+}
+</style>
+```
+
+## Rendered result
+
+<GlyphRender kind="diagram" source={"flowchart LR\n Push[Push commit] --> Build[Build app]\n Build --> Test{Tests pass?}\n Test -->|yes| Stage[Deploy staging]\n Stage --> Smoke[Smoke tests]\n Smoke --> Prod[Deploy prod]\n Test -->|no| Fix[Fix build]"} options={{"target": "web", "width": 72, "height": 19, "overflow": "expand", "color": "none"}} showSource={false} />
+
+## Colored HTML
+
+Use `color: "css"` to obtain `result.html`, escaped span markup for the contents of a `<pre>`.
+Insert that fragment inside the `<pre>`; the library does not supply the outer element.
+The library escapes label text; do not concatenate unescaped source into the fragment.
+
+```ts
+import { renderGlyphDiagram } from "@glyphcss/diagrams";
+
+const result = await renderGlyphDiagram("flowchart LR; Build --> Ship", {
+  target: "web", color: "css", width: 64, height: 16,
+});
+const wrapper = document.createElement("pre");
+wrapper.className = "diagram-html";
+wrapper.innerHTML = result.html!;
+document.body.append(wrapper);
+```
+
+```css
+.diagram-html {
+  font-family: "Glyph Mono", ui-monospace, monospace;
+  line-height: 1;
+  overflow: auto;
+}
+```
+
+React can use `<pre dangerouslySetInnerHTML={{ __html: html }} />`; Vue can use
+`<pre v-html="html" />`. Populate `html` from `result.html` and retain the same stale-result
+cleanup as in the text examples. The `pre` needs the font and line-height rules above.
+
+## Resize and static rendering
+
+Measure available columns and rows at a stable font size, then call the renderer again.
+Use a `ResizeObserver` owned and disconnected by the component lifecycle. Read actual
+expanded dimensions from `result.canvas.grid`; see [sizing](/diagrams/options/#width-and-height).
+
+For a static site, call the renderer at build time and emit text or CSS HTML without
+hydration. These documentation examples do that through a shared Astro adapter; no diagram
+runtime is required to display their output. The same renderer works in Node for server output.

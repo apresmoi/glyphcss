@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { isOrbitProjectionId } from "../../features/maps/model/config";
 import { mapShadowCasterReason, mapSunManualFields } from "../../features/maps/model/lighting";
 import { type MapCharMode, type MapColorEncoding } from "../../features/maps/services/mapsUrlState";
@@ -25,7 +26,7 @@ import { MapSearchBox } from "./MapSearchBox";
 import styles from "./MapsWorkbench.module.css";
 import { MapWalkButton } from "./MapWalkButton";
 
-export default function MapsWorkbench() {
+export default function MapsWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot } = {}) {
   const view = useMapsWorkbench();
   if (!view) return null;
   const {
@@ -139,7 +140,9 @@ export default function MapsWorkbench() {
           <LayersPanel {...layersFolderInputs} />
         </InstrumentRail>
         <InstrumentMain elementRef={setStageHost}>
-          <InstrumentViewport className="maps-viewport" elementRef={hostRef} />
+          <InstrumentViewport className="maps-viewport" elementRef={hostRef}>
+            {snapshot?.viewport}
+          </InstrumentViewport>
           {providerError && <div className="maps-error">Couldn&apos;t load terrain data: {providerError}</div>}
           <StatsOverlay anchor="top-left" container={stageHost} />
           <MapSearchBox loadIndex={loadSearchIndex} onSelect={flyToSearchResult} getView={getSearchView} />
@@ -201,7 +204,11 @@ export default function MapsWorkbench() {
             />
           )}
         </InstrumentMain>
-        <Dock id="maps-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="maps-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <MapsDockFolders
             projectionId={projectionId}
             onProjectionId={setProjectionId}

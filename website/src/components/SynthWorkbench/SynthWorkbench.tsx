@@ -1,3 +1,4 @@
+import type { InstrumentSnapshot } from "../InstrumentWorkbench";
 import { MAX_LAYERS, MAX_VOICES } from "../../features/synth/model/parameters";
 import { ActionButton } from "../ActionButton";
 import { Dock } from "../Dock";
@@ -21,7 +22,7 @@ import { PresetTile } from "./PresetTile";
 import { SynthCodePanel } from "./SynthCodePanel";
 import { SynthDock } from "./SynthDock";
 
-export default function SynthWorkbench() {
+export default function SynthWorkbench({ snapshot }: { snapshot?: InstrumentSnapshot } = {}) {
   const view = useSynthWorkbench();
   if (!view) return null;
   const {
@@ -150,7 +151,7 @@ export default function SynthWorkbench() {
           <ColorStackSection params={params} onParam={onParam} stageShape={shape} />
         </InstrumentRail>
         <InstrumentMain elementRef={setStageHost}>
-          <InstrumentViewport elementRef={hostRef} />
+          <InstrumentViewport elementRef={hostRef}>{snapshot?.viewport}</InstrumentViewport>
           <StatsOverlay anchor="top-left" container={stageHost} />
           <InstrumentExportBar>
             <ActionButton
@@ -203,7 +204,11 @@ export default function SynthWorkbench() {
             />
           )}
         </InstrumentMain>
-        <Dock id="synth-controls-panel" className={mobilePanel === "controls" ? "is-mobile-open" : ""}>
+        <Dock
+          staticContent={snapshot?.controls}
+          id="synth-controls-panel"
+          className={mobilePanel === "controls" ? "is-mobile-open" : ""}
+        >
           <SynthDock
             shape={shape}
             onShape={setShape}
