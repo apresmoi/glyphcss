@@ -88,7 +88,16 @@ export interface MapMinimapProps {
 const CONE_PATH = mapMinimapConePath();
 const CONE_WIDTH_PERCENT = `${(mapMinimapConeWidthFraction() * 100).toFixed(3)}%`;
 
-export function MapMinimap({ visible, walking, source, projectionId, centerLon, centerLat, bearing, colorEncoding }: MapMinimapProps) {
+export function MapMinimap({
+  visible,
+  walking,
+  source,
+  projectionId,
+  centerLon,
+  centerLat,
+  bearing,
+  colorEncoding,
+}: MapMinimapProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<GlyphMapHandle | null>(null);
   /** The pose the inset was last actually WRITTEN at — not the main map's, which runs ahead of it between steps. */

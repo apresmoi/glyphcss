@@ -28,10 +28,14 @@ export const TERRARIUM_ATTRIBUTION: GlyphMapAttribution = {
 const TILE_PX = 256;
 
 /** Decodes an 8-bit, non-interlaced RGB or RGBA PNG to its raw pixels. Throws on anything else. */
-export async function decodePng(bytes: Uint8Array): Promise<{ width: number; height: number; channels: number; pixels: Uint8Array }> {
+export async function decodePng(
+  bytes: Uint8Array,
+): Promise<{ width: number; height: number; channels: number; pixels: Uint8Array }> {
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (view.getUint32(0) !== 0x89504e47 || view.getUint32(4) !== 0x0d0a1a0a) throw new Error("PNG: bad signature.");
-  let width = 0, height = 0, channels = 0;
+  let width = 0,
+    height = 0,
+    channels = 0;
   const idat: Uint8Array[] = [];
   for (let at = 8; at + 8 <= bytes.length; ) {
     const length = view.getUint32(at);
@@ -40,7 +44,9 @@ export async function decodePng(bytes: Uint8Array): Promise<{ width: number; hei
     if (type === "IHDR") {
       width = view.getUint32(at + 8);
       height = view.getUint32(at + 12);
-      const depth = data[8], colorType = data[9], interlace = data[12];
+      const depth = data[8],
+        colorType = data[9],
+        interlace = data[12];
       if (depth !== 8 || (colorType !== 2 && colorType !== 6) || interlace !== 0) {
         throw new Error(`PNG: unsupported depth ${depth} / colour type ${colorType} / interlace ${interlace}.`);
       }
@@ -52,13 +58,18 @@ export async function decodePng(bytes: Uint8Array): Promise<{ width: number; hei
   if (!channels) throw new Error("PNG: no IHDR.");
   const deflated = new Uint8Array(idat.reduce((n, d) => n + d.length, 0));
   idat.reduce((at, d) => (deflated.set(d, at), at + d.length), 0);
-  const inflated = new Uint8Array(await new Response(new Blob([deflated]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer());
+  const inflated = new Uint8Array(
+    await new Response(new Blob([deflated]).stream().pipeThrough(new DecompressionStream("deflate"))).arrayBuffer(),
+  );
   const stride = width * channels;
-  if (inflated.length !== height * (stride + 1)) throw new Error(`PNG: ${inflated.length} inflated bytes for ${width}x${height}.`);
+  if (inflated.length !== height * (stride + 1))
+    throw new Error(`PNG: ${inflated.length} inflated bytes for ${width}x${height}.`);
   const pixels = new Uint8Array(height * stride);
   for (let y = 0; y < height; y++) {
     const filter = inflated[y * (stride + 1)];
-    const src = y * (stride + 1) + 1, out = y * stride, up = out - stride;
+    const src = y * (stride + 1) + 1,
+      out = y * stride,
+      up = out - stride;
     for (let i = 0; i < stride; i++) {
       const x = inflated[src + i];
       const a = i >= channels ? pixels[out + i - channels] : 0;
@@ -66,16 +77,28 @@ export async function decodePng(bytes: Uint8Array): Promise<{ width: number; hei
       const c = y > 0 && i >= channels ? pixels[up + i - channels] : 0;
       let v: number;
       switch (filter) {
-        case 0: v = x; break;
-        case 1: v = x + a; break;
-        case 2: v = x + b; break;
-        case 3: v = x + ((a + b) >> 1); break;
+        case 0:
+          v = x;
+          break;
+        case 1:
+          v = x + a;
+          break;
+        case 2:
+          v = x + b;
+          break;
+        case 3:
+          v = x + ((a + b) >> 1);
+          break;
         case 4: {
-          const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+          const p = a + b - c,
+            pa = Math.abs(p - a),
+            pb = Math.abs(p - b),
+            pc = Math.abs(p - c);
           v = x + (pa <= pb && pa <= pc ? a : pb <= pc ? b : c);
           break;
         }
-        default: throw new Error(`PNG: bad filter ${filter} on row ${y}.`);
+        default:
+          throw new Error(`PNG: bad filter ${filter} on row ${y}.`);
       }
       pixels[out + i] = v & 0xff;
     }
@@ -84,7 +107,12 @@ export async function decodePng(bytes: Uint8Array): Promise<{ width: number; hei
 }
 
 /** Terrarium pixels to metres: `R * 256 + G + B / 256 - 32768`. */
-export function terrariumElevations(png: { width: number; height: number; channels: number; pixels: Uint8Array }): Float32Array {
+export function terrariumElevations(png: {
+  width: number;
+  height: number;
+  channels: number;
+  pixels: Uint8Array;
+}): Float32Array {
   const out = new Float32Array(png.width * png.height);
   for (let i = 0, p = 0; i < out.length; i++, p += png.channels) {
     out[i] = png.pixels[p] * 256 + png.pixels[p + 1] + png.pixels[p + 2] / 256 - 32768;
@@ -110,12 +138,15 @@ export async function buildTerrariumGeoTile(
   zoom: number,
   fetchTile: (z: number, x: number, y: number) => Promise<Float32Array>,
 ): Promise<GlyphMapGeoTile> {
-  const n = 2 ** zoom, size = n * TILE_PX;
+  const n = 2 ** zoom,
+    size = n * TILE_PX;
   const pxX = (lon: number) => ((lon + 180) / 360) * size - 0.5;
   const pxY = (lat: number) => mercY(lat) * size - 0.5;
   const clampPx = (p: number) => Math.max(0, Math.min(size - 1, p));
-  const x0 = Math.floor(clampPx(pxX(bounds.west)) / TILE_PX), x1 = Math.floor(clampPx(Math.floor(pxX(bounds.east)) + 1) / TILE_PX);
-  const y0 = Math.floor(clampPx(pxY(bounds.north)) / TILE_PX), y1 = Math.floor(clampPx(Math.floor(pxY(bounds.south)) + 1) / TILE_PX);
+  const x0 = Math.floor(clampPx(pxX(bounds.west)) / TILE_PX),
+    x1 = Math.floor(clampPx(Math.floor(pxX(bounds.east)) + 1) / TILE_PX);
+  const y0 = Math.floor(clampPx(pxY(bounds.north)) / TILE_PX),
+    y1 = Math.floor(clampPx(Math.floor(pxY(bounds.south)) + 1) / TILE_PX);
   const tiles = new Map<string, Float32Array>();
   const loads: Promise<void>[] = [];
   for (let ty = y0; ty <= y1; ty++) {
@@ -123,16 +154,19 @@ export async function buildTerrariumGeoTile(
   }
   await Promise.all(loads);
   const at = (px: number, py: number) => {
-    const tx = Math.floor(px / TILE_PX), ty = Math.floor(py / TILE_PX);
+    const tx = Math.floor(px / TILE_PX),
+      ty = Math.floor(py / TILE_PX);
     return tiles.get(`${tx}_${ty}`)![(py - ty * TILE_PX) * TILE_PX + (px - tx * TILE_PX)];
   };
   const elevation = new Float32Array((cols + 1) * (rows + 1));
   for (let r = 0; r <= rows; r++) {
     const py = clampPx(pxY(bounds.north - ((bounds.north - bounds.south) * r) / rows));
-    const iy = Math.min(size - 2, Math.floor(py)), fy = py - iy;
+    const iy = Math.min(size - 2, Math.floor(py)),
+      fy = py - iy;
     for (let c = 0; c <= cols; c++) {
       const px = clampPx(pxX(bounds.west + ((bounds.east - bounds.west) * c) / cols));
-      const ix = Math.min(size - 2, Math.floor(px)), fx = px - ix;
+      const ix = Math.min(size - 2, Math.floor(px)),
+        fx = px - ix;
       const top = at(ix, iy) * (1 - fx) + at(ix + 1, iy) * fx;
       const bottom = at(ix, iy + 1) * (1 - fx) + at(ix + 1, iy + 1) * fx;
       elevation[r * (cols + 1) + c] = top * (1 - fy) + bottom * fy;
@@ -146,7 +180,10 @@ export async function buildTerrariumGeoTile(
  * equal-angle tiles share mercator tiles at every seam, and a decoded tile is
  * 256 KB.
  */
-export function createTerrariumFetcher(baseUrl = TERRARIUM_URL, capacity = 64): (z: number, x: number, y: number) => Promise<Float32Array> {
+export function createTerrariumFetcher(
+  baseUrl = TERRARIUM_URL,
+  capacity = 64,
+): (z: number, x: number, y: number) => Promise<Float32Array> {
   const cache = new Map<string, Promise<Float32Array>>();
   return (z, x, y) => {
     const key = `${z}/${x}/${y}`;
@@ -163,7 +200,9 @@ export function createTerrariumFetcher(baseUrl = TERRARIUM_URL, capacity = 64): 
     })();
     // A failed load must not stay cached, or one dropped request pins that tile to the fallback for the session.
     // Only its own entry: an LRU eviction may have let a newer load take the key.
-    load.catch(() => { if (cache.get(key) === load) cache.delete(key); });
+    load.catch(() => {
+      if (cache.get(key) === load) cache.delete(key);
+    });
     cache.set(key, load);
     while (cache.size > capacity) cache.delete(cache.keys().next().value!);
     return load;

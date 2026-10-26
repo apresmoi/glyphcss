@@ -6,7 +6,12 @@ import {
   MAP_SCENE_GLYPH_PALETTE,
   MAP_SCENE_RENDER_MODE,
 } from "../model/config";
-import { MAP_CONTOUR_GENERALIZE, MAP_CONTOUR_LABEL_EVERY, MAP_LINE_STRATEGY, MAP_OSM_LINE_OPTIONS } from "../model/mapsOsm";
+import {
+  MAP_CONTOUR_GENERALIZE,
+  MAP_CONTOUR_LABEL_EVERY,
+  MAP_LINE_STRATEGY,
+  MAP_OSM_LINE_OPTIONS,
+} from "../model/mapsOsm";
 import { mapSunManualInstant } from "../model/lighting";
 
 // Map snippets use the vanilla widget API; the export panel only enables JS.

@@ -39,8 +39,18 @@ import type {
   GlyphMapProvider,
   GlyphMapProviderZoomLevel,
 } from "@glyphcss/maps";
-import { glyphMapCuratedProvider, glyphMapDecodeGeoTileInt16, glyphMapGeoTileElevationAt, glyphMapVectorTileBounds } from "@glyphcss/maps";
-import { buildTerrariumGeoTile, createTerrariumFetcher, TERRARIUM_ATTRIBUTION, TERRARIUM_MAX_ZOOM } from "./terrariumTiles";
+import {
+  glyphMapCuratedProvider,
+  glyphMapDecodeGeoTileInt16,
+  glyphMapGeoTileElevationAt,
+  glyphMapVectorTileBounds,
+} from "@glyphcss/maps";
+import {
+  buildTerrariumGeoTile,
+  createTerrariumFetcher,
+  TERRARIUM_ATTRIBUTION,
+  TERRARIUM_MAX_ZOOM,
+} from "./terrariumTiles";
 
 /**
  * The deepest streamed level: 0.00049-degree quads (~40 m), about the
@@ -158,16 +168,22 @@ export async function createGeoTilesProvider(
   const baked = glyphMapCuratedProvider(base, curatedLevels);
   const bakedMaxZ = Math.max(...baked.zooms.map((z) => z.z));
   const baseMaxZ = Math.max(...manifest.zooms.map((z) => z.z));
-  const tileCols = manifest.zooms[0].tileCols, tileRows = manifest.zooms[0].tileRows;
+  const tileCols = manifest.zooms[0].tileCols,
+    tileRows = manifest.zooms[0].tileRows;
 
   async function bakedFallback(z: number, x: number, y: number, bounds: GlyphMapBounds): Promise<GlyphMapGeoTile> {
-    const zt = Math.min(z, bakedMaxZ), scale = 2 ** (z - zt);
+    const zt = Math.min(z, bakedMaxZ),
+      scale = 2 ** (z - zt);
     const ancestor = await baked.loadTile(zt, Math.floor(x / scale), Math.floor(y / scale));
     const elevation = new Float32Array((tileCols + 1) * (tileRows + 1));
     for (let r = 0; r <= tileRows; r++) {
       const lat = bounds.north - ((bounds.north - bounds.south) * r) / tileRows;
       for (let c = 0; c <= tileCols; c++) {
-        elevation[r * (tileCols + 1) + c] = glyphMapGeoTileElevationAt(ancestor, bounds.west + ((bounds.east - bounds.west) * c) / tileCols, lat);
+        elevation[r * (tileCols + 1) + c] = glyphMapGeoTileElevationAt(
+          ancestor,
+          bounds.west + ((bounds.east - bounds.west) * c) / tileCols,
+          lat,
+        );
       }
     }
     return { bounds, cols: tileCols, rows: tileRows, elevation, source: ancestor.source, sampler: ancestor.sampler };
@@ -175,7 +191,15 @@ export async function createGeoTilesProvider(
 
   const streamed: GlyphMapProviderZoomLevel[] = [];
   for (let z = baseMaxZ + 1; z <= STREAMED_MAX_ZOOM; z++) {
-    streamed.push({ z, cols: 2 ** z, rows: 2 ** z, tileLonSpan: 360 / 2 ** z, tileLatSpan: 180 / 2 ** z, tileCols, tileRows });
+    streamed.push({
+      z,
+      cols: 2 ** z,
+      rows: 2 ** z,
+      tileLonSpan: 360 / 2 ** z,
+      tileLatSpan: 180 / 2 ** z,
+      tileCols,
+      tileRows,
+    });
   }
 
   return {

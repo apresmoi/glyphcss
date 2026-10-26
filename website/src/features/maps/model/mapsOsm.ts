@@ -72,13 +72,22 @@ export const MAP_LINE_STRATEGY: "box" | "braille" =
 /** Shared with the code export so the exported map draws the same line stack. */
 export const MAP_OSM_LINE_OPTIONS = {
   "omt-roads": {
-    experimentalGlyphStrategy: MAP_LINE_STRATEGY, simplify: "vw",
-    color: "#506981", colorProperty: "class",
+    experimentalGlyphStrategy: MAP_LINE_STRATEGY,
+    simplify: "vw",
+    color: "#506981",
+    colorProperty: "class",
     colors: {
-      motorway: "#dbeafe", trunk: "#dbeafe", primary: "#dbeafe",
-      secondary: "#9fb6cf", rail: "#9fb6cf",
-      tertiary: "#7893af", transit: "#7893af", minor: "#506981",
-      service: "#394d63", track: "#394d63", path: "#394d63",
+      motorway: "#dbeafe",
+      trunk: "#dbeafe",
+      primary: "#dbeafe",
+      secondary: "#9fb6cf",
+      rail: "#9fb6cf",
+      tertiary: "#7893af",
+      transit: "#7893af",
+      minor: "#506981",
+      service: "#394d63",
+      track: "#394d63",
+      path: "#394d63",
     },
   },
   "omt-waterways": { experimentalGlyphStrategy: MAP_LINE_STRATEGY, simplify: "vw" },
@@ -362,7 +371,9 @@ export function mapOsmLayers(source: GlyphMapVectorProvider, opts: MapOsmLayerOp
     // keeps an untouched card's layer objects identical lives in ONE place
     // rather than being enforced here and re-checked there.
     textAnchors: Object.fromEntries(opts.enabled.map((id) => [id, opts.anchors?.[id] ?? MAP_OSM_DEFAULT_ANCHOR])),
-  }).map(layer => layer.type === "fill-extrusion" && MAP_LINE_STRATEGY === "braille" ? { ...layer, fill: false, blank: true } : layer);
+  }).map((layer) =>
+    layer.type === "fill-extrusion" && MAP_LINE_STRATEGY === "braille" ? { ...layer, fill: false, blank: true } : layer,
+  );
 }
 
 /** The card's one provenance row — every part of it read off the provider, so it cannot describe a source the page is not mounting. */
@@ -550,7 +561,8 @@ export const MAP_OSM_ROW_SUMMARIES: Readonly<Record<string, string>> = {
     "Water as AREAS — oceans, lakes, ponds and wide rivers, each kind in its own blue (a swimming pool is not the blue of the Pacific).",
   "omt-waterways":
     "Rivers, streams and canals as LINES — the narrow water that is too thin to have an area of its own.",
-  "omt-roads": "The street and rail network as joined lines: bright main roads first, dim local streets and paths as the output cells get smaller.",
+  "omt-roads":
+    "The street and rail network as joined lines: bright main roads first, dim local streets and paths as the output cells get smaller.",
   "omt-buildings":
     "Building footprints extruded to their real height, standing on the terrain under them, with textured facades and a tone of their own.",
   "omt-boundaries": "Administrative borders, drawn as lines.",
