@@ -1,5 +1,5 @@
-// DOM text → ink: the element's own text, drawn with its computed font into a canvas at
-// 2× and area-averaged onto the cell lattice. The element stays in the page (usually
+// DOM text → ink: the element's own text, drawn word by word with its computed fonts at
+// the laid-out positions into a canvas at 2×, and area-averaged onto the cell lattice. The element stays in the page (usually
 // `color: transparent`) so its box keeps driving layout, selection and accessibility.
 import { glyphFluidCoverageFromAlpha, mergeGlyphFluidCells } from "./raster";
 import { elementRect, parseHexColor, resolveTargetOptions, type GlyphFluidCellBox, type GlyphFluidLayout, type GlyphFluidTargetImpl, type GlyphFluidTargetOptions } from "./types";
@@ -41,18 +41,31 @@ export class GlyphFluidTextTarget implements GlyphFluidTargetImpl {
       this.cov = new Float32Array(w * h);
       return;
     }
-    const cs = getComputedStyle(this.el);
     g.scale(SUPERSAMPLE, SUPERSAMPLE);
-    g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
-    if ("letterSpacing" in g) (g as { letterSpacing: string }).letterSpacing = cs.letterSpacing;
     g.textBaseline = "alphabetic";
     g.fillStyle = "#fff";
-    const text = this.el.textContent ?? "";
-    const m = g.measureText(text);
-    const asc = m.fontBoundingBoxAscent,
-      desc = m.fontBoundingBoxDescent;
-    const padL = parseFloat(cs.paddingLeft) || 0;
-    g.fillText(text, r.x - i0 * cw + padL, r.y - j0 * ch + (r.height - (asc + desc)) / 2 + asc);
+    // Word by word at the positions the browser laid them out (Range rects), so wrapped
+    // lines, <br>, alignment and nested spans in other fonts land where they are drawn.
+    const ox = layout.originX + i0 * cw, oy = layout.originY + j0 * ch;
+    const walker = document.createTreeWalker(this.el, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const parent = node.parentElement;
+      if (!parent) continue;
+      const cs = getComputedStyle(parent);
+      g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      if ("letterSpacing" in g) (g as { letterSpacing: string }).letterSpacing = cs.letterSpacing;
+      const text = node.textContent ?? "";
+      for (const m of text.matchAll(/\S+/g)) {
+        range.setStart(node, m.index!);
+        range.setEnd(node, m.index! + m[0].length);
+        const rect = range.getClientRects()[0];
+        if (!rect) continue;
+        const fm = g.measureText(m[0]);
+        const asc = fm.fontBoundingBoxAscent, desc = fm.fontBoundingBoxDescent;
+        g.fillText(m[0], rect.left - ox, rect.top - oy + (rect.height - (asc + desc)) / 2 + asc);
+      }
+    }
     const img = g.getImageData(0, 0, cv.width, cv.height);
     this.cov = glyphFluidCoverageFromAlpha(img.data, cv.width, cv.height, w, h, cw, ch, SUPERSAMPLE);
   }

@@ -95,7 +95,8 @@ export function mergeGlyphFluidCells(
       TR[k] = typeof r === "number" ? r : r[q]!;
       TG[k] = typeof g === "number" ? g : g[q]!;
       TB[k] = typeof b === "number" ? b : b[q]!;
-      if (feature) TF[k] = feature[q]!;
+      // the winner owns the cell: a featureless winner clears a loser's feature flag
+      TF[k] = feature ? feature[q]! : 0;
     }
   }
 }

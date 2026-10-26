@@ -193,9 +193,12 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     pipeline = new GlyphFluidMainPipeline();
     if (cols) pipeline.init(coreInit());
     ops = [];
+    // a new encoder counts palette generations from zero again
+    paletteGen = -1;
   }
 
   function layout(): void {
+    if (destroyed) return;
     const vw = host.clientWidth;
     const vh = glue === "document" ? window.innerHeight : host.clientHeight;
     if (vw <= 0 || vh <= 0) return;
@@ -326,7 +329,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     if (reduced) {
       if (!settleDirty) return;
       settleDirty = false;
-      write((pipeline as GlyphFluidMainPipeline).settle(input, 90));
+      write((pipeline as GlyphFluidMainPipeline).settle(input, 120));
       return;
     }
     const out = pipeline.submit(input);
@@ -371,7 +374,9 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
       on(el, "pointerdown", (e) => api.impulse(e.clientX, e.clientY));
     }
     if (typeof ResizeObserver !== "undefined") {
-      const ro = new ResizeObserver(() => (cols ? measure() : layout()));
+      // host glue: the host's size IS the grid, so a resize re-lays out; document glue: the
+      // body changing size moves targets, the grid follows the viewport (window resize)
+      const ro = new ResizeObserver(() => (glue === "host" || !cols ? layout() : measure()));
       ro.observe(glue === "document" ? document.body : host);
       disposers.push(() => ro.disconnect());
     }
@@ -385,6 +390,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     if (destroyed) return;
     pre.style.fontFamily = encoding === "plain" ? "monospace" : `"${GLYPH_FONT_ATLAS.family}"`;
     if (encoding !== "plain") pre.style.fontPalette = paletteName;
+    else pre.style.color = fieldHex;
     advance = measureAdvance();
     layout();
     listen();
@@ -456,7 +462,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
       drawFrame(dt);
     },
     relayout() {
-      if (started) layout();
+      if (started && !destroyed) layout();
     },
     stats() {
       return { fps: governor.fps, pipeline: pipeline?.kind ?? "main", encoding, cols, rows, frames, stalls, stepMs: pipeline?.lastMs() ?? 0, lit };

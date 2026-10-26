@@ -49,17 +49,21 @@ export class GlyphFluidMainPipeline implements GlyphFluidPipeline {
     return frame;
   }
   /**
-   * Reduced motion: run the sim forward without drawing until the ink has reached its
-   * targets (or `maxSteps`), with the shape held, then encode one still frame.
+   * Reduced motion: run the sim forward without drawing until EVERY cell's ink is within
+   * `tolerance` of its target (or `maxSteps`), with the shape held, then encode one
+   * still frame. Per cell, not `sim.err`: that is a mean over the whole grid, so one
+   * small target could be "settled" while still half-formed.
    */
-  settle(input: GlyphFluidStepInput, maxSteps: number): GlyphFluidFrame {
-    const core = this.core!;
+  settle(input: GlyphFluidStepInput, maxSteps: number, tolerance = 0.02): GlyphFluidFrame {
+    const core = this.core!, sim = core.sim;
     core.prepare(input);
     const p = { ...input.params, hold: 1, dt: 1 / 30 };
     for (let s = 0; s < maxSteps; s++) {
       p.t += p.dt;
-      stepGlyphFluidSim(core.sim, p);
-      if (core.sim.err < 0.01) break;
+      stepGlyphFluidSim(sim, p);
+      let worst = 0;
+      for (let k = 0; k < sim.N; k++) if (sim.mask[k]) worst = Math.max(worst, Math.abs(sim.T[k]! - sim.ink[k]!));
+      if (worst < tolerance) break;
     }
     return core.render(p.t, 0);
   }

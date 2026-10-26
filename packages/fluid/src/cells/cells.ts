@@ -69,7 +69,6 @@ export function computeGlyphFluidCells(sim: GlyphFluidSim, time: number, shimmer
         smax = 0,
         cellMean = -1;
       if (!feat) {
-        let smean = 0;
         for (let q = 0; q < 8; q++) {
           let x = i + (q >> 2 ? 0.25 : -0.25),
             y = j + ((q & 3) - 1.5) * 0.25;
@@ -83,10 +82,12 @@ export function computeGlyphFluidCells(sim: GlyphFluidSim, time: number, shimmer
           const s =
             (view[kk]! * (1 - fx) + view[kk + 1]! * fx) * (1 - fy) + (view[kk + W]! * (1 - fx) + view[kk + W + 1]! * fx) * fy;
           sub[q] = s;
-          smean += s;
           if (s < smin) smin = s;
           if (s > smax) smax = s;
         }
+        // the mean is taken over the STORED (Float32) samples, as render.js does
+        let smean = 0;
+        for (let q = 0; q < 8; q++) smean += sub[q]!;
         smean *= 0.125;
         dots = 0;
         if (smax - smin > R.EDGE_RANGE && smax >= R.EDGE_MIN) {

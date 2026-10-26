@@ -141,6 +141,25 @@ describe("createGlyphFluid", () => {
     fluid.destroy();
   });
 
+  it("relayout() after destroy() starts nothing", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal("Worker", class {});
+    let width = 400, created = 0;
+    const host = document.createElement("div");
+    Object.defineProperty(host, "clientWidth", { get: () => width });
+    Object.defineProperty(host, "clientHeight", { value: 240 });
+    document.body.append(host);
+    const { fluid } = await make({
+      worker: () => (created++, { onerror: null, onmessage: null, postMessage() {}, terminate() {} }) as unknown as Worker,
+    }, host);
+    expect(created).toBe(1);
+    fluid.destroy();
+    width = 800;
+    fluid.relayout();
+    expect(created).toBe(1);
+    expect(host.children).toHaveLength(0);
+  });
+
   it("rejects a malformed field colour at the API edge", () => {
     expect(() => createGlyphFluid(sizedHost(), { field: { color: "green" } })).toThrow(TypeError);
   });

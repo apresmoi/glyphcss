@@ -18,11 +18,13 @@ Four layers, each usable alone; only the last touches the DOM.
 - One `<pre>`, one `textContent` write per drawn frame. The palette `<style>` is rewritten only when `paletteGeneration` changes (a repool), never per frame.
 - Worker and main thread draw identical frames from identical inputs: text, palette and generation. The worker path draws one frame late and never has more than one step in flight; a busy vsync is skipped, not queued.
 - `unpackGlyphFluidTargets` adopts TR/TG/TB only where T > 0. Those fields persist in the sim (`applyBackground` blends them), so cells no target wrote keep their blended colour; garbage there must not change output.
+- Text targets draw word by word at their Range rects (wrapping, `<br>`, alignment, nested fonts); never the element's `textContent` as one line.
+- A merge winner owns the cell's feature flag (a featureless winner clears it).
 - Targets read the DOM in `measure()` only (layout, resize, font load, add). Per frame they only compose; the runtime reads the host rect once at the start of a frame, before its write.
 - Target merge is max-ink per cell; frame border cells are never written.
 - The mesh target rasterises with `compileScene` (two passes: unlit albedo, white Lambert) on a 2W × 2H grid. No WebGL, no three.js in the package. With `extent` set it owns `camera.zoom`.
 - `fps: 60` drops to 30 for the session after a 60-frame window with > 20 % missed vsyncs. One-way. Gaps over 250 ms are idle, not misses.
-- Reduced motion (`settle`): main-thread pipeline, no impulses or kicks, one settled still per change (targets, zones, layout, row scroll).
+- Reduced motion (`settle`): main-thread pipeline, no impulses or kicks, one settled still per change (targets, zones, layout, row scroll). Settled = every cell within 0.02 of its target (capped), never the grid-mean `sim.err`.
 - Font unavailable (load failure or no `font-palette`): `"plain"` encoding, real braille code points in one colour, U+2800 for blanks (a space would come from another face and shear the grid).
 - `destroy()` cancels the frame, removes every listener and observer, terminates the worker and restores any host style it set.
 - Public exports carry the `Glyph` prefix. No React/Vue bindings (same as `@glyphcss/maps`).
@@ -40,5 +42,5 @@ Four layers, each usable alone; only the last touches the DOM.
 ## Key gates (`src/`)
 
 - Parity: `sim/sim.parity`, `cells/cells.parity`, `runtime/pipeline.parity` (each with a planted-bug case that must go red).
-- Encode: `cells/encode`. Targets/zones: `targets/targets`. Runtime: `runtime/createGlyphFluid`, `runtime/createGlyphFluid.atlas`, `runtime/fps`.
-- Real browser (`bench/fluid/`): `parity.mjs` (real Worker, `drop-push` mutation), `bench.mjs` (60 fps, ×1/×4), `dots.mjs` (dot geometry).
+- Encode: `cells/encode`. Targets/zones: `targets/targets`. Runtime: `runtime/createGlyphFluid`, `.atlas`, `.plain`, `runtime/pipeline.settle`, `runtime/fps`.
+- Real browser (`bench/fluid/`): `parity.mjs` (real Worker, `drop-push` mutation), `text.mjs` (wrapped/`<br>`/centred text lands on its words), `bench.mjs` (60 fps, ×1/×4), `dots.mjs` (dot geometry).

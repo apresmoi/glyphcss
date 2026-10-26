@@ -23,5 +23,6 @@ await Promise.all([
   build(page("../../packages/fluid/src/runtime/worker.ts", "fluid-worker.bundle.js")),
   build(page("src/parity.ts", "parity.bundle.js")),
   build(page("src/dots.ts", "dots.bundle.js")),
+  build(page("src/text.ts", "text.bundle.js")),
 ]);
 console.log("[fluid bench] built");

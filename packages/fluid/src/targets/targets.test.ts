@@ -51,6 +51,20 @@ describe("raster helpers", () => {
   });
 });
 
+describe("feature ownership", () => {
+  it("a stronger featureless target clears a weaker target's feature flag, in either order", () => {
+    const box = { i0: 1, j0: 1, w: 1, h: 1 };
+    const a = createGlyphFluidTargetFrame(3, 3);
+    mergeGlyphFluidCells(a, box, 0, 0, [0.1], 1, 1, 1, [1]);
+    mergeGlyphFluidCells(a, box, 0, 0, [1], 1, 1, 1);
+    expect([a.T[4], a.TF[4]]).toEqual([1, 0]);
+    const b = createGlyphFluidTargetFrame(3, 3);
+    mergeGlyphFluidCells(b, box, 0, 0, [1], 1, 1, 1);
+    mergeGlyphFluidCells(b, box, 0, 0, [0.1], 1, 1, 1, [1]);
+    expect([b.T[4], b.TF[4]]).toEqual([1, 0]);
+  });
+});
+
 describe("mesh target", () => {
   const quad = (color: string, z = 0, s = 1): Polygon => ({
     vertices: [[-s, -s, z], [s, -s, z], [s, s, z], [-s, s, z]], color,

@@ -1,5 +1,5 @@
-// The atlas path of the runtime, with the font load stubbed as ready (happy-dom has no
-// font-palette support, so the real loader reports "unsupported" and the runtime goes plain).
+// The atlas path of the runtime, with the font load stubbed as ready so the test does not
+// depend on how the environment loads fonts.
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("glyphcss", async (orig) => ({
@@ -37,5 +37,47 @@ describe("createGlyphFluid atlas encoding", () => {
     const plain = decodeGlyphAtlasText(pre.textContent!);
     expect(/^[⠀-⣿ \n]+$/.test(plain)).toBe(true);
     fluid.destroy();
+  });
+});
+
+describe("createGlyphFluid worker fallback", () => {
+  it("re-emits the palette after falling back, because the new encoder restarts its generations", async () => {
+    const { handleGlyphFluidWorkerMessage } = await import("./protocol");
+    vi.stubGlobal("Worker", class {});
+    const state = { core: null, gen: -1 };
+    type Fake = { onerror: ((e: unknown) => void) | null; onmessage: ((e: MessageEvent) => void) | null; terminate(): void; postMessage(m: never): void };
+    let fake: Fake | null = null;
+    const host = document.createElement("div");
+    Object.defineProperty(host, "clientWidth", { value: 300 });
+    Object.defineProperty(host, "clientHeight", { value: 200 });
+    document.body.append(host);
+    const fluid = createGlyphFluid(host, {
+      clock: "manual",
+      worker: () => (fake = {
+        onerror: null, onmessage: null, terminate() {},
+        postMessage(m: never) {
+          handleGlyphFluidWorkerMessage(state, structuredClone(m), (r) => queueMicrotask(() => fake!.onmessage?.({ data: r } as MessageEvent)));
+        },
+      }) as unknown as Worker,
+    });
+    await fluid.ready;
+    const style = host.querySelector("style")!;
+    for (let i = 0; i < 4; i++) {
+      fluid.step(1 / 60);
+      await Promise.resolve();
+      await Promise.resolve();
+    }
+    expect(fluid.stats().pipeline).toBe("worker");
+    expect(style.textContent).toContain("@font-palette-values");
+    let writes = 0;
+    const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Object.getPrototypeOf(style)), "textContent")
+      ?? Object.getOwnPropertyDescriptor(Node.prototype, "textContent")!;
+    Object.defineProperty(style, "textContent", { get() { return desc.get!.call(this); }, set(v) { writes++; desc.set!.call(this, v); } });
+    fake!.onerror!(new Event("error"));
+    expect(fluid.stats().pipeline).toBe("main");
+    fluid.step(1 / 60);
+    expect(writes).toBe(1);
+    fluid.destroy();
+    vi.unstubAllGlobals();
   });
 });
