@@ -121,6 +121,8 @@ it.each(examples)("renders the actual $page example: $props.label", async ({ pro
   const requested: string[] = [];
   vi.stubGlobal("fetch", vi.fn(async (url: string) => {
     requested.push(url);
+    // Streamed terrain is a network source the bundle falls back from; failing it keeps the run offline and deterministic.
+    if (url.startsWith("https://s3.amazonaws.com/elevation-tiles-prod/")) throw new Error("offline");
     if (!url.startsWith("https://tiles.openfreemap.org/")) return bundledFetch(url);
     const match = /\/(\d+)\/(\d+)\/(\d+)\.pbf$/.exec(url)!;
     const [z, x, y] = match.slice(1).map(Number);
@@ -138,7 +140,8 @@ it.each(examples)("renders the actual $page example: $props.label", async ({ pro
   await act(async () => { await map.idle(); });
   expect(host.querySelector("pre.glyph-output")!.textContent!.replace(/\s/g, "").length, requested.join("\n")).toBeGreaterThan(100);
   expect(host.querySelector("figure")?.getAttribute("aria-label")).toBe(props.label);
-  expect(host.querySelector('[role="status"]')).toBeNull();
+  // The demo clears its status from its own idle() continuation, which may run after this one.
+  await vi.waitFor(() => expect(host.querySelector('[role="status"]')).toBeNull(), { timeout: 10000 });
   expect(map.getTilt()).toBeCloseTo(props.tilt ?? (projection.type === "globe" ? 0 : 40));
   expect(map.getBearing()).toBe(props.bearing ?? 0);
   const options = create.mock.calls[0]![1];
