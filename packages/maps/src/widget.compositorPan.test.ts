@@ -313,6 +313,24 @@ it("under snapPan, project() answers for the displayed (exact) frame mid-drag", 
   expect(m.project([0, 0]).col - rest.col).toBeCloseTo(4.5 / 8, 2);
 });
 
+it("under snapPan, project() follows the displayed frame through the release ease", async () => {
+  const m = mount({ snapPan: true }); await ready(m);
+  const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);
+  const onScreen = () => m.project([0, 0]).col * 8 - tx();
+  subCellDrag(m);
+  const exact = onScreen();
+  pointer(m, "pointercancel", 204.5); frame(); frame();
+  const samples: number[] = [];
+  for (let i = 0; i < 12 && element(m).style.willChange === "transform"; i++) {
+    samples.push(tx(), onScreen());
+    frame();
+  }
+  expect(samples.length).toBeGreaterThan(2);
+  // The frame moved, and the answer moved with it: a point stays where the text draws it.
+  expect(new Set(samples.filter((_, i) => i % 2 === 0)).size).toBeGreaterThan(1);
+  for (let i = 1; i < samples.length; i += 2) expect(samples[i]).toBeCloseTo(exact, 6);
+});
+
 it("under snapPan, a scene-owned render mid-drag keeps the remainder", async () => {
   const m = mount({ snapPan: true }); await ready(m);
   const tx = () => Number(element(m).style.transform.match(/translate\(([-.\d]+)px/)![1]);

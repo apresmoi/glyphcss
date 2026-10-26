@@ -4082,7 +4082,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
    * renders. The held view stays exact: only the DRAWN pose is on the lattice, as at any rest.
    */
   const SETTLE_EASE_MS = 100;
-  let settleEase: { start: number; baseDx: number; baseDy: number; rx: number; ry: number } | null = null;
+  /** `k` is the share of the remainder still displayed (1 = the exact pose, 0 = the lattice), as of the last eased frame. */
+  let settleEase: { start: number; baseDx: number; baseDy: number; rx: number; ry: number; k: number } | null = null;
   /** True while the remainder is still easing out (the caller skips this frame's render). */
   function easeSettle(now: number): boolean {
     const f = compositorFrame;
@@ -4095,11 +4096,11 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       const e = exactSlide(f, m.dx, m.dy);
       const rx = e.dx - m.dx, ry = e.dy - m.dy;
       if (!m.ok || Math.hypot(rx, ry) < 0.5) return false;
-      settleEase = { start: now, baseDx: m.dx, baseDy: m.dy, rx, ry };
+      settleEase = { start: now, baseDx: m.dx, baseDy: m.dy, rx, ry, k: 1 };
     }
     const z = settleEase, t = (now - z.start) / SETTLE_EASE_MS;
     if (t >= 1) { settleEase = null; return false; }
-    const k = (1 - t) * (1 - t);
+    const k = z.k = (1 - t) * (1 - t);
     slideCompositor(f, z.baseDx + z.rx * k, z.baseDy + z.ry * k, false);
     return true;
   }
@@ -5547,7 +5548,10 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const exact = exactPanPose;
     if (!exact || !compositorFrame) return fn();
     const { rotX, rotY, target, mat, useMat } = camera;
-    camera.rotX = exact.rotX; camera.rotY = exact.rotY; camera.target = exact.target;
+    // While the release ease runs, the displayed pose is `k` of the way from the lattice to the exact one.
+    const k = settleEase?.k ?? 1;
+    camera.rotX = rotX + (exact.rotX - rotX) * k; camera.rotY = rotY + (exact.rotY - rotY) * k;
+    camera.target = k === 1 ? exact.target : [0, 1, 2].map(i => target[i]! + (exact.target[i]! - target[i]!) * k) as typeof target;
     syncCameraBearing();
     try { return fn(); } finally {
       camera.rotX = rotX; camera.rotY = rotY; camera.target = target; camera.mat = mat; camera.useMat = useMat;
