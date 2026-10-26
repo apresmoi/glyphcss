@@ -1,5 +1,3 @@
-import path from "node:path";
-
 // V8's transcendental Math functions (sin, cos, atan2, pow, ...) return
 // different last bits per platform, and the rendered grids are hashed exactly.
 // The unsuffixed goldens were recorded on darwin-arm64 from the pinned old
@@ -10,5 +8,3 @@ export function platformGolden(file: string): string {
     ? file.replace(/\.json$/, ".linux-x64.json")
     : file;
 }
-
-export const goldenPath = (name: string) => platformGolden(path.resolve(__dirname, name));
