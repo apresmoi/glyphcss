@@ -3,6 +3,7 @@ import { createGlyphFluidReader, type GlyphFluidReader } from "@glyphcss/fluid/r
 // Aliased to the package's worker source: its default `new URL("./worker.js")` only
 // exists next to the built dist, so the website hands it a Vite-bundled worker instead.
 import FluidWorker from "@glyphcss/fluid/worker?worker";
+import { fluidReaderFontFamily } from "./fluidReaderFont";
 import {
   FLUID_HEADING_COLOR,
   FLUID_READER_LOOP_MS,
@@ -68,6 +69,8 @@ export function mountFluidReader(
     encoding: settings.encoding,
     fps: settings.fps,
     worker: workerOption(settings.worker),
+    // The plain letters use the site's render font, like every glyph <pre>.
+    font: fluidReaderFontFamily("render"),
   });
   const { clock } = handle;
   let destroyed = false;

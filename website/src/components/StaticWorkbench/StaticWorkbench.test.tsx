@@ -14,7 +14,7 @@ import type { StaticWorkbenchPage } from "./StaticPanels";
 
 const pages = ["gallery", "synth", "maps", "wordart", "loaders", "charts", "diagrams", "fluid"] as const;
 const renderers = { gallery: staticGallery, synth: staticSynth, maps: staticMap, wordart: staticWordArt, loaders: staticLoader, fluid: staticFluid };
-const railIds = { gallery: "gallery-models-panel", synth: "synth-voices-panel", maps: "maps-layers-panel", wordart: "wa-compose-panel", loaders: "loaders-voices-panel", charts: "charts-data-panel", diagrams: "diagrams-source-panel", fluid: "fluid-controls-panel" };
+const railIds = { gallery: "gallery-models-panel", synth: "synth-voices-panel", maps: "maps-layers-panel", wordart: "wa-compose-panel", loaders: "loaders-voices-panel", charts: "charts-data-panel", diagrams: "diagrams-source-panel", fluid: "fluid-examples-panel" };
 
 function assertShell(document: Document, page: StaticWorkbenchPage) {
   const root = document.querySelector(`[data-static-workbench="${page}"]`)!;

@@ -28,15 +28,20 @@ export interface ModelCategory {
 export interface ModelsSidebarProps {
   modelSearch: string;
   onModelSearchChange: (value: string) => void;
-  onImportClick: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement | null>;
-  onFileInputChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
+  /** Import offers the gallery's file picker; omit it for a list without imports. */
+  onImportClick?: () => void;
+  fileInputRef?: React.RefObject<HTMLInputElement | null>;
+  onFileInputChange?: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onRandomPreset: () => void;
   modelCategories: ModelCategory[];
   activeCategoryId: string;
   presetId: string;
   onPresetClick: (id: string) => void;
   attribution?: ModelAttribution;
+  /** Show the attribution footer; lists whose entries are not models turn it off. Default true. */
+  showCredit?: boolean;
+  /** Rail title and search noun. Default "Models". */
+  title?: string;
   /** Extra class on the sidebar root (e.g. `is-mobile-open` for the mobile drawer). */
   className?: string;
   id?: string;
@@ -74,14 +79,17 @@ export function ModelsSidebar({
   presetId,
   onPresetClick,
   attribution,
+  showCredit = true,
+  title = "Models",
   className,
   id,
 }: ModelsSidebarProps) {
+  const noun = title.toLowerCase();
   const categories = useModelCategories(presetId, activeCategoryId, modelSearch);
   return (
     <InstrumentRail
       id={id ?? "gallery-models-panel"}
-      title="Models"
+      title={title}
       bodyInset="inline"
       open={className?.includes("is-mobile-open")}
       className={`${styles.root} models-sidebar`}
@@ -89,33 +97,37 @@ export function ModelsSidebar({
         <div className="models-sidebar__header">
           <input
             className="model-search models-sidebar__search"
-            aria-label="Search models"
+            aria-label={`Search ${noun}`}
             type="search"
-            placeholder="Search models"
+            placeholder={`Search ${noun}`}
             value={modelSearch}
             onChange={(event) => onModelSearchChange(event.target.value)}
             autoComplete="off"
           />
-          <ActionButton type="button" className="control-btn" onClick={onImportClick}>
-            Import
-          </ActionButton>
+          {onImportClick && (
+            <ActionButton type="button" className="control-btn" onClick={onImportClick}>
+              Import
+            </ActionButton>
+          )}
           <ActionButton type="button" className="control-btn control-btn--primary" onClick={onRandomPreset}>
             Load Random
           </ActionButton>
-          <input
-            ref={fileInputRef}
-            className="model-file-input"
-            type="file"
-            multiple
-            accept=".obj,.glb,.vox,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp"
-            onChange={onFileInputChange}
-          />
+          {onImportClick && (
+            <input
+              ref={fileInputRef}
+              className="model-file-input"
+              type="file"
+              multiple
+              accept=".obj,.glb,.vox,.mtl,.png,.jpg,.jpeg,.webp,.gif,.bmp"
+              onChange={onFileInputChange}
+            />
+          )}
         </div>
       }
-      footer={<AttributionCredit attribution={attribution} />}
+      footer={showCredit ? <AttributionCredit attribution={attribution} /> : undefined}
     >
       {modelCategories.length === 0 ? (
-        <div className="model-empty">No matching models</div>
+        <div className="model-empty">No matching {noun}</div>
       ) : (
         <div className="model-tree">
           {modelCategories.map((category) => (

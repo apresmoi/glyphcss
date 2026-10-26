@@ -11,7 +11,17 @@ const fakes = vi.hoisted(() => {
   }
   const fluid = {
     addTarget: vi.fn(),
-    stats: vi.fn(() => ({ fps: 60, pipeline: "worker", encoding: "atlas", cols: 10, rows: 4, frames: 1, stalls: 0, stepMs: 1.234, lit: 3 })),
+    stats: vi.fn(() => ({
+      fps: 60,
+      pipeline: "worker",
+      encoding: "atlas",
+      cols: 10,
+      rows: 4,
+      frames: 1,
+      stalls: 0,
+      stepMs: 1.234,
+      lit: 3,
+    })),
     destroy: vi.fn(),
   };
   const listeners = new Set<(e: unknown) => void>();
@@ -56,7 +66,12 @@ describe("mountFluidField", () => {
     const onStats = vi.fn();
     const mount = mountFluidField(host, heading, { ...FLUID_DEFAULTS, encoding: "mono", fps: 30 }, onStats);
     const options = vi.mocked(fluidApi.createGlyphFluid).mock.calls[0]![1]!;
-    expect(options).toMatchObject({ field: { color: "#6f8f82", level: 0.18 }, encoding: "mono", fps: 30, pointer: "host" });
+    expect(options).toMatchObject({
+      field: { color: "#6f8f82", level: 0.18 },
+      encoding: "mono",
+      fps: 30,
+      pointer: "host",
+    });
     // The website supplies its own bundled worker: the package default URL does not exist when aliased to source.
     expect(typeof options.worker).toBe("function");
     (options.worker as () => Worker)();
@@ -72,13 +87,18 @@ describe("mountFluidField", () => {
   });
 
   it("runs on the main thread when the worker is off", () => {
-    mountFluidField(document.createElement("div"), document.createElement("p"), { ...FLUID_DEFAULTS, worker: false }).destroy();
+    mountFluidField(document.createElement("div"), document.createElement("p"), {
+      ...FLUID_DEFAULTS,
+      worker: false,
+    }).destroy();
     expect(vi.mocked(fluidApi.createGlyphFluid).mock.calls[0]![1]!.worker).toBe(false);
   });
 });
 
 describe("mountFluidReader", () => {
   it("mounts molty's round reader and reports clock progress until destroyed", async () => {
+    // The plain letters use the site's render font token, like every glyph <pre>.
+    document.documentElement.style.setProperty("--gc-font-render", '"Glyph Mono", monospace');
     const onProgress = vi.fn();
     const mount = mountFluidReader(document.createElement("div"), FLUID_READER_DEFAULTS, FLUID_DEFAULTS, onProgress);
     expect(vi.mocked(readerApi.createGlyphFluidReader).mock.calls[0]![1]).toMatchObject({
@@ -88,6 +108,7 @@ describe("mountFluidReader", () => {
       shape: "circle",
       encoding: "atlas",
       fps: 60,
+      font: '"Glyph Mono", monospace',
     });
     await Promise.resolve();
     fakes.clock.index = 1;
@@ -111,7 +132,11 @@ describe("mountFluidReader", () => {
   // The reader stopping at the end is the package's contract (reader.test.ts); this pins
   // the workbench's loop toggle onto the reader option in both directions.
   it("maps the loop toggle onto the reader's loop option", () => {
-    mountFluidReader(document.createElement("div"), { ...FLUID_READER_DEFAULTS, loop: false }, FLUID_DEFAULTS).destroy();
+    mountFluidReader(
+      document.createElement("div"),
+      { ...FLUID_READER_DEFAULTS, loop: false },
+      FLUID_DEFAULTS,
+    ).destroy();
     mountFluidReader(document.createElement("div"), { ...FLUID_READER_DEFAULTS, loop: true }, FLUID_DEFAULTS).destroy();
     const calls = vi.mocked(readerApi.createGlyphFluidReader).mock.calls;
     expect(calls.at(-2)![1]!.loop).toBe(false);

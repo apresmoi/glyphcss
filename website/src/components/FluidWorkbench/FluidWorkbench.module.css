@@ -3,7 +3,7 @@
   min-height: 0;
 }
 
-/* ── Viewport: the field fills the stage; the heading and reader sit in it. ── */
+/* ── Viewport: the field fills the stage; each example's subject sits in it. ── */
 .root :global(.fluid-stage) {
   position: absolute;
   inset: 0;
@@ -13,162 +13,62 @@
 /* The fluid draws these letters; the element only supplies their shape and box. */
 .root :global(.fluid-heading) {
   position: absolute;
-  top: 7%;
+  top: 50%;
   left: 0;
   right: 0;
   margin: 0;
+  transform: translateY(-50%);
   color: transparent;
   font-family: var(--gc-font-render);
-  font-size: clamp(56px, 11vw, 150px);
+  font-size: clamp(56px, 13vw, 180px);
   font-weight: 700;
   line-height: 1;
   letter-spacing: 0.04em;
   text-align: center;
   user-select: none;
 }
-/* molty's round screen: above the field's <pre>, which the runtime appends last. */
+/* Image and mesh targets ink the box; the box itself stays invisible. */
+.root :global(.fluid-box) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  transform: translate(-50%, -50%);
+}
+.root :global(.fluid-box--image) {
+  width: min(80%, calc(80vh * var(--fluid-box-aspect, 1)));
+  aspect-ratio: var(--fluid-box-aspect, 1);
+}
+.root :global(.fluid-box--mesh) {
+  width: min(70%, 70vh);
+  aspect-ratio: 1;
+}
+.root :global(.fluid-zone) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(70%, 520px);
+  padding: var(--gc-space-4);
+  transform: translate(-50%, -50%);
+  color: var(--gc-text);
+  font-family: var(--gc-font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.root :global(.fluid-zone) p {
+  margin: 0;
+}
+/* The reader's host: square, centred; molty's round screen when its shape is circle. */
 .root :global(.fluid-reader) {
   position: absolute;
-  z-index: 1;
+  top: 50%;
   left: 50%;
-  bottom: 6%;
-  width: min(60%, 54vh, 420px);
+  width: min(80%, 80vh, 560px);
   aspect-ratio: 1;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
+}
+.root :global(.fluid-reader--circle) {
   border: 1px solid var(--gc-rule);
   border-radius: 50%;
   background: var(--gc-surface-deep);
-}
-
-/* ── Rail rows: the Dock's name | widget | value grid. ── */
-.root :global(.fluid-section) {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding-bottom: var(--gc-space-3);
-}
-.root :global(.fluid-row),
-.root :global(.charts-color-row) {
-  display: grid;
-  grid-template-columns: 34% minmax(0, 1fr) 52px;
-  align-items: center;
-  gap: 6px;
-  min-height: 24px;
-  font-size: 11px;
-}
-.root :global(.fluid-row) > span:first-child,
-.root :global(.fluid-text) > span:first-child,
-.root :global(.charts-color-row) > span:first-child {
-  color: rgba(var(--gc-text-rgb), 0.7);
-  letter-spacing: 0.02em;
-  white-space: pre;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.root :global(.fluid-row--choices) > :last-child,
-.root :global(.fluid-row--check) > input,
-.root :global(.fluid-row--info) > output {
-  grid-column: 2 / 4;
-  min-width: 0;
-}
-.root :global(.fluid-row--info) > output {
-  color: var(--gc-accent);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
-.root :global(.fluid-row--check) input[type="checkbox"] {
-  -webkit-appearance: none;
-  appearance: none;
-  position: relative;
-  justify-self: start;
-  width: 20px;
-  height: 16px;
-  margin: 0;
-  cursor: pointer;
-}
-.root :global(.fluid-row--check) input[type="checkbox"]::before {
-  content: "[ ]";
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font: 10px/1 var(--gc-font-ui);
-  color: var(--gc-text-muted);
-}
-.root :global(.fluid-row--check) input[type="checkbox"]:checked::before {
-  content: "[x]";
-  color: var(--gc-accent);
-}
-.root :global(.fluid-row--check) input[type="checkbox"]:focus-visible::before {
-  color: var(--gc-accent);
-  text-decoration: underline;
-}
-.root :global(.fluid-row) :global(.voice-slider-readout) {
-  margin-left: 0;
-}
-.root :global(.fluid-text) {
-  display: flex;
-  flex-direction: column;
-  gap: var(--gc-space-1);
-  font-size: 11px;
-}
-.root :global(.fluid-text) textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding: var(--gc-space-1) 0;
-  border: 0;
-  border-bottom: 1px dotted var(--gc-rule);
-  background: transparent;
-  color: var(--gc-text);
-  font: 11px/1.45 var(--gc-font-ui);
-  resize: vertical;
-}
-.root :global(.fluid-text) textarea:focus-visible {
-  outline: none;
-  border-bottom-color: rgba(var(--gc-accent-rgb), 0.8);
-}
-
-/* ColorSwatch's bar: the same bracketed swatch /charts and /maps draw. */
-.root :global(.charts-color-swatch) input[type="color"] {
-  -webkit-appearance: none;
-  appearance: none;
-  display: block;
-  width: 100%;
-  height: 10px;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--gc-text-faint);
-  border-radius: 0;
-  background: none;
-  cursor: pointer;
-}
-.root :global(.charts-color-swatch) input[type="color"]::-webkit-color-swatch-wrapper {
-  padding: 0;
-}
-.root :global(.charts-color-swatch) input[type="color"]::-webkit-color-swatch {
-  border: none;
-}
-.root :global(.charts-color-swatch) input[type="color"]::-moz-color-swatch {
-  border: none;
-}
-.root :global(.charts-color-hex) {
-  box-sizing: border-box;
-  width: 100%;
-  min-width: 0;
-  padding: 1px 0;
-  border: none;
-  border-bottom: 1px dotted var(--gc-rule);
-  background: transparent;
-  color: var(--gc-text-muted);
-  font-family: inherit;
-  font-size: 11px;
-  text-align: right;
-  -webkit-appearance: none;
-  appearance: none;
-}
-.root :global(.charts-color-hex):focus-visible {
-  outline: none;
-  border-bottom-color: rgba(var(--gc-accent-rgb), 0.8);
 }
