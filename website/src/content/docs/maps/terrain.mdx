@@ -9,6 +9,8 @@ import { GlyphMapDemo } from '../../../components/GlyphMapDemo';
 
 ETOPO1 elevations become a shaded relief mesh, with contours every 500 metres. Exaggeration `40` makes the Alps readable; projection defaults use `1` for true-scale relief.
 
+The site's terrain is a baked ETOPO1 pyramid (zoom 0–4, plus curated regional tiles). Below it, `/maps` and the demos on these pages stream the Mapzen terrain tiles hosted on AWS (terrarium encoding, about 30 m over most land) down to zoom 12, from `s3.amazonaws.com/elevation-tiles-prod`, and credit them in the map attribution. A streamed tile that fails to load falls back to the baked pyramid.
+
 ## Elevation sources
 
 ```ts

@@ -72,7 +72,7 @@ map.addLayer({
 });
 ```
 
-`levels` accepts a count, an explicit elevation array, or `{ interval }` in metres. Intervals stay fixed while panning. Elevation windows clip contours independently of terrain; match their floors. Labels default off; `labelEvery` defaults to `5`. `getContourFieldRange(id)` reports the data range.
+`levels` accepts a count, an explicit elevation array, or `{ interval }` in metres. Intervals stay fixed while panning. Elevation windows clip contours independently of terrain; match their floors. `generalize` is a smoothing radius in output cells: the field is smoothed at about that radius before the levels are cut and closed rings smaller than it are dropped, so a line keeps the bends a reader can see and loses per-sample jitter. It follows the zoom in half-octave steps, so zooming in brings detail back; omitted or `0` cuts the native grid. Labels default off; `labelEvery` defaults to `5`. `getContourFieldRange(id)` reports the data range.
 
 ## Fill
 
@@ -128,9 +128,9 @@ Line layers can opt into `simplify: "vw"`. It reuses the bake pipeline's latitud
 
 The experimental `experimentalGlyphStrategy: "box"` joins accepted paths in one graph per layer and frame, including coincident feature/tile endpoints. Diagonal steps add one staircase corner using the same depth and ownership tests; when both corners are blocked, both cells point into the hidden corner instead. Immediate backtracks collapse before joining. A closed ring whose projected extent is under two cells becomes one depth-tested `·` at its geometry centroid. Open lines retain their joined cells, including short stubs; unjoined cells restore the surface instead of leaving dots. Box depth tests read the surface before the layer wrote any ink; staircase corners cannot borrow cells from a separate path.
 
-Omitting these options leaves the default output unchanged. The `/maps` borders enable live VW, shared arcs, and `box`. Its OpenStreetMap line rows also enable VW and `box`; only boundaries request shared polygon arcs.
+Omitting these options leaves the default output unchanged. The `/maps` borders enable live VW and shared arcs, and its OpenStreetMap line rows enable VW; only boundaries request shared polygon arcs. The page draws its lines in braille by default; `?lines=box` opts into `box` for comparison.
 
-Lines accept `colorProperty` and `colors` with the same per-feature fallback as fills. `filterAtResolution(feature, degreesPerCell)` can make a live resolution cut after `filter`; it receives the actual overlay cell size and `0` while walking. Shared polygon arcs have no feature properties; explicit line features retain theirs.
+Lines accept `colorProperty` and `colors` with the same per-feature fallback as fills. `filterAtResolution(feature, degreesPerCell)` can make a live resolution cut after `filter`; it receives the actual overlay cell size and `0` while walking. A shared polygon arc carries the properties every polygon contributing to it agrees on, so a border between two polygons of one class keeps its colour and a border between two classes falls back to the layer `color`; explicit line features retain their own.
 
 ## Per-layer appearance
 
