@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createGlyphOrthographicCamera, type Polygon } from "glyphcss";
-import { createGlyphFluidTargetFrame } from "./frame";
+import { createGlyphFluidTargetFrame, unpackGlyphFluidTargets } from "./frame";
+import { GlyphFluidSim } from "../sim/sim";
 import { glyphFluidCoverageFromAlpha, glyphFluidImageCells, mergeGlyphFluidCells } from "./raster";
 import { GlyphFluidMeshTarget } from "./mesh";
 import { GlyphFluidImageTarget } from "./image";
@@ -62,6 +63,27 @@ describe("feature ownership", () => {
     mergeGlyphFluidCells(b, box, 0, 0, [1], 1, 1, 1);
     mergeGlyphFluidCells(b, box, 0, 0, [0.1], 1, 1, 1, [1]);
     expect([b.T[4], b.TF[4]]).toEqual([1, 0]);
+  });
+});
+
+describe("accent (TA)", () => {
+  it("a merge winner owns the accent: an accentless stronger target clears it", () => {
+    const box = { i0: 1, j0: 1, w: 1, h: 1 };
+    const f = createGlyphFluidTargetFrame(3, 3);
+    mergeGlyphFluidCells(f, box, 0, 0, [0.5], 1, 1, 1, undefined, [0.8]);
+    expect(f.TA[4]).toBeCloseTo(0.8);
+    mergeGlyphFluidCells(f, box, 0, 0, [1], 1, 1, 1);
+    expect(f.TA[4]).toBe(0);
+  });
+
+  it("unpack adopts the frame's accent into the sim", () => {
+    const sim = new GlyphFluidSim(4, 4, 8, 13);
+    const f = createGlyphFluidTargetFrame(4, 4);
+    f.TA[5] = 0.7;
+    sim.TA.fill(0.3);
+    unpackGlyphFluidTargets(sim, f.packed);
+    expect(sim.TA[5]).toBeCloseTo(0.7);
+    expect(sim.TA[6]).toBe(0);
   });
 });
 

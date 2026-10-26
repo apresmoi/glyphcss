@@ -79,8 +79,9 @@ export function mergeGlyphFluidCells(
   frame: GlyphFluidTargetFrame, box: GlyphFluidCellBox, r0: number, minInk: number,
   ink: ArrayLike<number>, r: ArrayLike<number> | number, g: ArrayLike<number> | number, b: ArrayLike<number> | number,
   feature?: ArrayLike<number>,
+  accent?: ArrayLike<number>,
 ): void {
-  const { cols: W, rows: H, T, TR, TG, TB, TF } = frame;
+  const { cols: W, rows: H, T, TR, TG, TB, TF, TA } = frame;
   for (let jj = 0; jj < box.h; jj++) {
     const j = box.j0 + jj - r0;
     if (j < 1 || j >= H - 1) continue;
@@ -95,8 +96,9 @@ export function mergeGlyphFluidCells(
       TR[k] = typeof r === "number" ? r : r[q]!;
       TG[k] = typeof g === "number" ? g : g[q]!;
       TB[k] = typeof b === "number" ? b : b[q]!;
-      // the winner owns the cell: a featureless winner clears a loser's feature flag
+      // the winner owns the cell: a featureless winner clears a loser's feature flag and accent
       TF[k] = feature ? feature[q]! : 0;
+      TA[k] = accent ? accent[q]! : 0;
     }
   }
 }

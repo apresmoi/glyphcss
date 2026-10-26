@@ -23,7 +23,7 @@ describe("createGlyphFluid atlas encoding", () => {
     const pre = host.querySelector("pre")!, style = host.querySelector("style")!;
     expect(fluid.stats().encoding).toBe("atlas");
     expect(pre.style.fontFamily).toContain(GLYPH_FONT_ATLAS.family);
-    expect(pre.style.fontPalette).toMatch(/^--glyph-fluid-\d+$/);
+    expect(pre.style.fontPalette).toMatch(/^--glyph-fluid-\d+-[a-z0-9]+$/);
     let cssWrites = 0;
     let last = "";
     for (let i = 0; i < 40; i++) {

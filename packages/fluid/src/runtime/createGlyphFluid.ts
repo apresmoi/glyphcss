@@ -55,6 +55,11 @@ export interface GlyphFluidOptions {
   pointer?: "host" | "window" | "none";
   /** Dither shimmer amplitude. Default 0.12. */
   shimmer?: number;
+  /**
+   * `"rect"` (default) fills the host. `"circle"`: molty's round device screen, the disc
+   * inscribed in the grid (a circle in a square host); cells outside it stay blank.
+   */
+  shape?: "rect" | "circle";
 }
 
 /** A live target: toggles condense (flow in) / melt (flow out); each change kicks the fluid. */
@@ -123,7 +128,9 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     matchMedia("(prefers-reduced-motion: reduce)").matches;
   let encoding: GlyphFluidEncoding = options.encoding ?? "atlas";
   const governor = createGlyphFluidFpsGovernor(options.fps ?? 60, options.fpsFallback ?? true);
-  const paletteName = `--glyph-fluid-${++instances}`;
+  // The random part keeps names unique when the package is bundled twice (the `./reader`
+  // entry carries its own copy of this module, and with it its own counter).
+  const paletteName = `--glyph-fluid-${++instances}-${Math.random().toString(36).slice(2, 8)}`;
 
   // ---- DOM: host > stack > (style, pre) ----
   const restore: Array<() => void> = [];
@@ -171,7 +178,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   }
 
   function coreInit(): GlyphFluidCoreInit {
-    return { cols, rows, cellW: cw, cellH: ch, fieldColor, fieldLevel, tuning: options.tuning ?? {}, encoding, monoColor: fieldHex };
+    return { cols, rows, cellW: cw, cellH: ch, fieldColor, fieldLevel, tuning: options.tuning ?? {}, encoding, monoColor: fieldHex, shape: options.shape ?? "rect" };
   }
 
   function makePipeline(): GlyphFluidPipeline {
@@ -309,6 +316,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
     const frame = createGlyphFluidTargetFrame(cols, rows, pipeline.targetBuffer());
     frame.T.fill(0);
     frame.TF.fill(0);
+    frame.TA.fill(0);
     for (const lt of targets) {
       const b = lt.impl.box();
       if (!b) continue;
@@ -318,6 +326,7 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
         lt.on = want;
         event(b.i0 + b.w / 2, b.j0 + b.h / 2, want ? lt.impl.strengthOn : lt.impl.strengthOff);
       }
+      if (lt.impl.changed?.()) settleDirty = true;
       if (!lt.on) continue;
       lt.impl.update(dt);
       lt.impl.write(frame, r0, swell);

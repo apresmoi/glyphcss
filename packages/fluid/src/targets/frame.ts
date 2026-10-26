@@ -3,7 +3,7 @@
 import type { GlyphFluidSim } from "../sim/sim";
 
 /** Packed field order. Each field is `cols × rows` floats. */
-export const GLYPH_FLUID_TARGET_FIELDS = ["T", "TR", "TG", "TB", "TF", "BGM"] as const;
+export const GLYPH_FLUID_TARGET_FIELDS = ["T", "TR", "TG", "TB", "TF", "BGM", "TA"] as const;
 export type GlyphFluidTargetField = (typeof GLYPH_FLUID_TARGET_FIELDS)[number];
 
 /** A composed target frame: views into one packed buffer. */
@@ -20,13 +20,15 @@ export interface GlyphFluidTargetFrame {
   TF: Float32Array;
   /** Background-floor multiplier (zones). */
   BGM: Float32Array;
+  /** Accent 0..1: mixes the cell toward the accent colour (the reader's ORP letter). */
+  TA: Float32Array;
 }
 
 export function createGlyphFluidTargetFrame(cols: number, rows: number, packed?: Float32Array): GlyphFluidTargetFrame {
   const N = cols * rows;
   const buf = packed ?? new Float32Array(GLYPH_FLUID_TARGET_FIELDS.length * N);
   const at = (n: number) => buf.subarray(n * N, (n + 1) * N);
-  return { cols, rows, packed: buf, T: at(0), TR: at(1), TG: at(2), TB: at(3), TF: at(4), BGM: at(5) };
+  return { cols, rows, packed: buf, T: at(0), TR: at(1), TG: at(2), TB: at(3), TF: at(4), BGM: at(5), TA: at(6) };
 }
 
 /**
@@ -42,7 +44,7 @@ export function unpackGlyphFluidTargets(sim: GlyphFluidSim, packed: Float32Array
   sim.T.set(T);
   sim.TF.set(at(4));
   sim.BGM.set(at(5));
-  sim.TA.fill(0);
+  sim.TA.set(at(6));
   const TR = at(1), TG = at(2), TB = at(3);
   for (let k = 0; k < N; k++)
     if (T[k]! > 0) {

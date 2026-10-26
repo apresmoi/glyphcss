@@ -2,7 +2,7 @@
 // encode. The worker and the main-thread fallback both run THIS class on the same
 // inputs, which is what makes their output identical (`pipeline.parity.test.ts`).
 import { GlyphFluidSim, type GlyphFluidTuning } from "../sim/sim";
-import { applyGlyphFluidOp, configureGlyphFluidRect, stepGlyphFluidSim, type GlyphFluidOp, type GlyphFluidStepParams, type RGB } from "../sim/ops";
+import { applyGlyphFluidOp, configureGlyphFluidDisc, configureGlyphFluidRect, stepGlyphFluidSim, type GlyphFluidOp, type GlyphFluidStepParams, type RGB } from "../sim/ops";
 import { computeGlyphFluidCells, createGlyphFluidCells, type GlyphFluidCells } from "../cells/cells";
 import { GlyphFluidEncoder, type GlyphFluidEncoding, type GlyphFluidFrame } from "../cells/encode";
 import { unpackGlyphFluidTargets } from "../targets/frame";
@@ -17,6 +17,8 @@ export interface GlyphFluidCoreInit {
   tuning: Partial<GlyphFluidTuning>;
   encoding: GlyphFluidEncoding;
   monoColor: string;
+  /** `"rect"` (default) fills the grid; `"circle"` keeps molty's disc inscribed in it. */
+  shape?: "rect" | "circle";
 }
 
 export interface GlyphFluidStepInput {
@@ -36,7 +38,9 @@ export class GlyphFluidCore {
 
   constructor(init: GlyphFluidCoreInit) {
     const sim = new GlyphFluidSim(init.cols, init.rows, init.cellW, init.cellH);
-    configureGlyphFluidRect(sim, init.cellW, { fieldColor: init.fieldColor, fieldLevel: init.fieldLevel });
+    const field = { fieldColor: init.fieldColor, fieldLevel: init.fieldLevel };
+    if (init.shape === "circle") configureGlyphFluidDisc(sim, init.cellW, field);
+    else configureGlyphFluidRect(sim, init.cellW, field);
     Object.assign(sim.p, init.tuning);
     this.sim = sim;
     this.cells = createGlyphFluidCells(init.cols, init.rows);

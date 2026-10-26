@@ -30,7 +30,7 @@ export type { GlyphFluidImageCells } from "./targets/raster";
 
 export { GlyphFluidSim, GLYPH_FLUID_SIM_TUNING } from "./sim/sim";
 export type { GlyphFluidTuning } from "./sim/sim";
-export { configureGlyphFluidRect, applyGlyphFluidOp, stepGlyphFluidSim } from "./sim/ops";
+export { configureGlyphFluidRect, configureGlyphFluidDisc, applyGlyphFluidOp, stepGlyphFluidSim } from "./sim/ops";
 export type { GlyphFluidOp, GlyphFluidStepParams, GlyphFluidRectOptions } from "./sim/ops";
 
 export { computeGlyphFluidCells, createGlyphFluidCells, GLYPH_FLUID_DOTS_TO_BRAILLE } from "./cells/cells";

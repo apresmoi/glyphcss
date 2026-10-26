@@ -39,7 +39,7 @@ export interface GlyphFluidTargetOptions {
 
 /** What `GlyphFluidTargets.*` return; `fluid.addTarget` turns it into a live target. */
 export interface GlyphFluidTargetSpec {
-  readonly kind: "text" | "image" | "mesh";
+  readonly kind: "text" | "image" | "mesh" | "reader";
   /** Internal: builds the live target. */
   readonly create: (ctx: { fieldColor: () => [number, number, number] }) => GlyphFluidTargetImpl;
 }
@@ -54,6 +54,11 @@ export interface GlyphFluidTargetImpl {
   measure(layout: GlyphFluidLayout): void;
   /** Cell box in content cells, or null before the first measure. */
   box(): GlyphFluidCellBox | null;
+  /**
+   * True once after the target's ink changed outside `measure()` (the reader's next word),
+   * so a reduced-motion fluid draws a new settled still.
+   */
+  changed?(): boolean;
   /** Per-frame update (animated targets rasterise here). */
   update(dt: number): void;
   /** Max-merge into the frame; `r0` is the content row at frame row 0. */

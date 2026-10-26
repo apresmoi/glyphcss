@@ -38,6 +38,16 @@ export function configureGlyphFluidRect(sim: GlyphFluidSim, cellW: number, opts:
     }
   sim.rim.fill(1);
   sim.inside = inside;
+  return configureGlyphFluidDisc(sim, cellW, opts);
+}
+
+/**
+ * Keep the constructor's disc (molty's round device screen: the circle inscribed in the
+ * grid in stage space, its sponge and rim fade) and give it the page fluid's field
+ * colour, level, noise scale and relax rates. The rect shape applies the same field.
+ */
+export function configureGlyphFluidDisc(sim: GlyphFluidSim, cellW: number, opts: GlyphFluidRectOptions): GlyphFluidSim {
+  const { W } = sim;
   sim.p.bgColor = [...opts.fieldColor];
   sim.p.bgLevel = opts.fieldLevel;
   const zoom = Math.max(1, ((W * cellW) / 412) * 0.6);
