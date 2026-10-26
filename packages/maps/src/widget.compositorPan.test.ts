@@ -1,6 +1,7 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createGlyphMap, type GlyphMapOptions } from "./widget";
 import { glyphMapEquirectangular, glyphMapGlobe } from "./projection";
+import { glyphMapPrerenderTuning } from "./prerender";
 
 const maps: ReturnType<typeof createGlyphMap>[] = [];
 let queue = new Map<number, FrameRequestCallback>(), time = 100, next = 0, renders = 0;
@@ -37,7 +38,15 @@ async function ready(m: ReturnType<typeof createGlyphMap>) {
   renders = 0;
 }
 const element = (m: ReturnType<typeof createGlyphMap>) => m.scene.output.parentElement!;
+const tuning = { ...glyphMapPrerenderTuning };
+// Rest preparation runs in idle time (a wall-clock timer here) and `idle()` deliberately does not wait for it, so whether a
+// drag's first frame anchors at the rest pose or at the live one would depend on the runner's speed. These tests assert
+// the displayed transform, so they run without it; `widget.prerender` owns the prepared anchor.
+beforeEach(() => {
+  Object.assign(glyphMapPrerenderTuning, { sliceMs: Infinity, restSliceMs: Infinity, restPrepare: false });
+});
 afterEach(() => {
+  Object.assign(glyphMapPrerenderTuning, tuning);
   globalThis.__glyphRenderStage = undefined;
   for (const m of maps.splice(0)) { m.destroy(); m.host.remove(); }
   vi.restoreAllMocks(); vi.unstubAllGlobals(); queue.clear(); renders = 0;
