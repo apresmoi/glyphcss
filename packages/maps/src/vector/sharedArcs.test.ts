@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { createGlyphMapSharedArcCache, glyphMapSharedLineArcs } from "./sharedArcs";
 import { createGlyphMapLineSimplifier, type GlyphMapLonLat } from "./simplify";
 
@@ -35,14 +35,11 @@ describe("shared line arcs", () => {
     expect(glyphMapSharedLineArcs([{ rings: [ring, ring.toReversed()] }])).toEqual([ring]);
   });
 
-  it("caches topology by source/tile feature identity and filters once", () => {
-    const filter = vi.fn(() => true);
-    const cache = createGlyphMapSharedArcCache(filter);
+  it("caches topology by source/tile feature identity", () => {
+    const cache = createGlyphMapSharedArcCache();
     const first = cache(countries);
     expect(cache(countries)).toBe(first);
-    expect(filter).toHaveBeenCalledTimes(2);
     expect(cache([...countries])).not.toBe(first);
-    expect(filter).toHaveBeenCalledTimes(4);
   });
 
   it("pins open tile-cut endpoints and leaves explicit routes alone", () => {

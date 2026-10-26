@@ -93,4 +93,26 @@ describe("line-layer shared arcs", () => {
     await Promise.all([legacy.idle(), disabled.idle()]);
     expect(disabled.scene.output.textContent).toBe(legacy.scene.output.textContent);
   });
+
+  it("re-runs the filter on every sweep, so a flip drops the borders across a pan within the cached tiles", async () => {
+    const bounds = (_z: number, x: number) => ({ west: x ? 0 : -180, east: x ? 180 : 0, south: -90, north: 90 });
+    const provider: GlyphMapVectorProvider = {
+      id: "two-tiles", zooms: [{ z: 0, cols: 2, rows: 1, tileLonSpan: 180, tileLatSpan: 180, tileCols: 180, tileRows: 180 }], bounds,
+      loadTile: async (z, x, y): Promise<GlyphMapVectorTile> => ({ z, x, y, bounds: bounds(z, x), source: "fixture", simplify: "none", layers: { borders: x ? countries : [] } }),
+    };
+    const keep = { on: true }, calls = { n: 0 };
+    const map = mount({ source: provider, sourceLayer: "borders", filter: () => { calls.n++; return keep.on; } });
+    await map.idle();
+    const ink = () => [...map.scene.output.textContent!].filter(c => c.trim() !== "").length;
+    expect(ink()).toBeGreaterThan(0);
+    keep.on = false; calls.n = 0;
+    map.setView({ center: [1, 0] });
+    await map.idle();
+    expect(calls.n).toBeGreaterThan(0);
+    expect(ink()).toBe(0);
+    keep.on = true;
+    map.setView({ center: [0.3, 0] });
+    await map.idle();
+    expect(ink()).toBeGreaterThan(0);
+  });
 });

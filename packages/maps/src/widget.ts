@@ -6917,21 +6917,24 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
     const drapeScratch = createDrapeScratch();
     let groundReader: ReturnType<typeof groundElevationSampler> = null;
     const simplifyLine = layer.simplify === "vw" ? createGlyphMapLineSimplifier() : null;
-    const sharedArcCache = layer.sharedArcs ? createGlyphMapSharedArcCache(layer.filter) : null;
-    // Explicit routes keep their properties; only polygon boundaries lose identity to topology.
-    const sharedFeatureCache = new WeakMap<readonly GlyphMapVectorFeature[], readonly GlyphMapVectorFeature[]>();
-    const sharedFeatures = (features: readonly GlyphMapVectorFeature[]): readonly GlyphMapVectorFeature[] => {
-      let selected = sharedFeatureCache.get(features);
-      if (!selected) {
-        selected = [
-          ...sharedArcCache!(features.filter(f => f.geometryType !== "line")).map(ring => ({ rings: [ring] })),
-          ...features.filter(f => f.geometryType === "line" && (!layer.filter || layer.filter(f))),
-        ];
-        sharedFeatureCache.set(features, selected);
-      }
-      return selected;
+    const sharedArcCache = layer.sharedArcs ? createGlyphMapSharedArcCache() : null;
+    // Topology is cached per owner (a static collection's array, a tile) against the
+    // filtered selection it was built from. The filter may close over mutable state,
+    // so it re-runs every sweep and the topology is rebuilt only when it selects
+    // differently. Explicit routes keep their properties; only polygon boundaries
+    // lose identity to topology.
+    const sharedFeatureCache = new WeakMap<object, { readonly kept: readonly GlyphMapVectorFeature[]; readonly out: readonly GlyphMapVectorFeature[] }>();
+    const sharedFeatures = (features: readonly GlyphMapVectorFeature[], owner: object): readonly GlyphMapVectorFeature[] => {
+      const kept = layer.filter ? features.filter(layer.filter) : features;
+      const held = sharedFeatureCache.get(owner);
+      if (held && sameFeatureList(held.kept, kept)) return held.out;
+      const out = [
+        ...sharedArcCache!(kept.filter(f => f.geometryType !== "line")).map(ring => ({ rings: [ring] })),
+        ...kept.filter(f => f.geometryType === "line"),
+      ];
+      sharedFeatureCache.set(owner, { kept, out });
+      return out;
     };
-    const tileArcs = new WeakMap<import("./vector/types").GlyphMapVectorTile, readonly GlyphMapVectorFeature[]>();
     let source: GlyphMapVectorSource = layer.source;
     let staticFeatures: readonly GlyphMapVectorFeature[] = isGlyphMapVectorProvider(source) ? [] : source.features;
     const tileCache = new Map<string, import("./vector/types").GlyphMapVectorTile>();
@@ -6990,14 +6993,8 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
           const tile = tileCache.get(key);
           if (!tile) continue;
           if (sharedArcCache) {
-            let cached = tileArcs.get(tile);
-            if (!cached) {
-              const selected = Object.entries(tile.layers).flatMap(([name, list]) =>
-                !layer.sourceLayer || name === layer.sourceLayer ? list : []);
-              cached = sharedFeatures(selected);
-              tileArcs.set(tile, cached);
-            }
-            arcs.push(...cached);
+            arcs.push(...sharedFeatures(Object.entries(tile.layers).flatMap(([name, list]) =>
+              !layer.sourceLayer || name === layer.sourceLayer ? list : []), tile));
           } else {
             for (const [name, list] of Object.entries(tile.layers)) if (!layer.sourceLayer || name === layer.sourceLayer) feats.push(...(layer.filter ? list.filter(layer.filter) : list));
           }
@@ -7020,7 +7017,7 @@ export function createGlyphMap(host: HTMLElement, opts: GlyphMapOptions): GlyphM
       if (isGlyphMapVectorProvider(source)) {
         await updateProvider(source);
       } else {
-        if (sharedArcCache) staticFeatures = sharedFeatures(source.features);
+        if (sharedArcCache) staticFeatures = sharedFeatures(source.features, source.features);
         else staticFeatures = layer.filter ? source.features.filter(layer.filter) : source.features;
         scene.rerender();
       }

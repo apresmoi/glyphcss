@@ -59,11 +59,11 @@ export function glyphMapSharedLineArcs(features: readonly GlyphMapVectorFeature[
 }
 
 /** Source/tile feature arrays outlive frames; replacing one gets fresh topology. */
-export function createGlyphMapSharedArcCache(filter?: (feature: GlyphMapVectorFeature) => boolean): (features: readonly GlyphMapVectorFeature[]) => readonly Line[] {
+export function createGlyphMapSharedArcCache(): (features: readonly GlyphMapVectorFeature[]) => readonly Line[] {
   const cache = new WeakMap<readonly GlyphMapVectorFeature[], readonly Line[]>();
   return features => {
     let arcs = cache.get(features);
-    if (!arcs) { arcs = glyphMapSharedLineArcs(filter ? features.filter(filter) : features); cache.set(features, arcs); }
+    if (!arcs) { arcs = glyphMapSharedLineArcs(features); cache.set(features, arcs); }
     return arcs;
   };
 }
