@@ -1,0 +1,30 @@
+import { defineConfig } from "tsup";
+
+export default defineConfig([
+  {
+    entry: { index: "src/index.ts" },
+    format: ["esm", "cjs"],
+    dts: true,
+    splitting: false,
+    sourcemap: false,
+    clean: true,
+    minify: false,
+    target: "es2020",
+    tsconfig: "tsconfig.json",
+  },
+  {
+    // The worker is a self-contained module: `createGlyphFluid` starts it with
+    // `new URL("./worker.js", import.meta.url)`, which bundlers follow, and a worker
+    // cannot resolve bare specifiers on its own, so glyphcss is bundled in.
+    entry: { worker: "src/runtime/worker.ts" },
+    format: ["esm"],
+    dts: true,
+    splitting: false,
+    sourcemap: false,
+    clean: false,
+    minify: false,
+    target: "es2020",
+    tsconfig: "tsconfig.json",
+    noExternal: ["glyphcss", "@glyphcss/core"],
+  },
+]);
