@@ -56,14 +56,31 @@ export class GlyphFluidTextTarget implements GlyphFluidTargetImpl {
       g.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
       if ("letterSpacing" in g) (g as { letterSpacing: string }).letterSpacing = cs.letterSpacing;
       const text = node.textContent ?? "";
+      const draw = (str: string, start: number) => {
+        range.setStart(node, start);
+        range.setEnd(node, start + str.length);
+        return range.getClientRects();
+      };
       for (const m of text.matchAll(/\S+/g)) {
-        range.setStart(node, m.index!);
-        range.setEnd(node, m.index! + m[0].length);
-        const rect = range.getClientRects()[0];
-        if (!rect) continue;
-        const fm = g.measureText(m[0]);
-        const asc = fm.fontBoundingBoxAscent, desc = fm.fontBoundingBoxDescent;
-        g.fillText(m[0], rect.left - ox, rect.top - oy + (rect.height - (asc + desc)) / 2 + asc);
+        const rects = draw(m[0], m.index!);
+        if (!rects.length) continue;
+        // A word broken across lines (break-all, overflow-wrap) has one rect per line:
+        // place it character by character instead of whole on the first line.
+        const pieces: Array<[string, DOMRect]> = [];
+        if (rects.length === 1) pieces.push([m[0], rects[0]!]);
+        else {
+          let at = m.index!;
+          for (const ch of m[0]) {
+            const r = draw(ch, at)[0];
+            if (r) pieces.push([ch, r]);
+            at += ch.length;
+          }
+        }
+        for (const [str, rect] of pieces) {
+          const fm = g.measureText(str);
+          const asc = fm.fontBoundingBoxAscent, desc = fm.fontBoundingBoxDescent;
+          g.fillText(str, rect.left - ox, rect.top - oy + (rect.height - (asc + desc)) / 2 + asc);
+        }
       }
     }
     const img = g.getImageData(0, 0, cv.width, cv.height);
