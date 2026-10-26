@@ -300,9 +300,10 @@ describe("createGlyphMap — inertial glide", () => {
     expect(gliding).not.toBe(atRelease);
 
     // The glide decays to a stop rather than running forever.
-    await wait(900);
+    await map.idle();
     const settled = map.getView().center[0];
-    await wait(200);
+    await frame();
+    await frame();
     expect(map.getView().center[0]).toBe(settled);
     map.destroy();
     host.remove();

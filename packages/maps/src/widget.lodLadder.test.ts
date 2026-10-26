@@ -335,10 +335,8 @@ async function buildingsDrawnAt(span: number, minZoom: number): Promise<{ readon
   const ids = new Set<string>();
   const built = glyphMapOpenMapTilesLayers(glyphMapOpenFreeMapProvider(), { include: ["omt-buildings"] })[0] as GlyphMapFillExtrusionLayer;
   map.addLayer({ ...built, source: provider, filter: (f) => { ids.add(String(f.id)); return true; } } as GlyphMapFillExtrusionLayer);
-  await vi.waitFor(() => expect(polygons + ids.size).toBeGreaterThanOrEqual(0));
-  // The mesh build is awaited inside the layer runtime's own update; give it
-  // the microtask turn the sweep's `Promise.all` needs.
-  await new Promise((r) => setTimeout(r, 50));
+  // The mesh build is awaited inside the layer runtime's own update, which `idle()` covers.
+  await map.idle();
   return { ids, polygons };
 }
 
