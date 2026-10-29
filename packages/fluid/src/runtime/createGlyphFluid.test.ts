@@ -64,6 +64,16 @@ describe("createGlyphFluid", () => {
     fluid.destroy();
   });
 
+  it("destroy() puts back a host's own inline position: static is made relative, then restored", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = sizedHost();
+    host.style.position = "static";
+    const { fluid } = await make({}, host);
+    expect(host.style.position).toBe("relative");
+    fluid.destroy();
+    expect(host.style.position).toBe("static");
+  });
+
   it("destroy() removes the DOM, listeners and host styles it added, and stops drawing", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const host = sizedHost();

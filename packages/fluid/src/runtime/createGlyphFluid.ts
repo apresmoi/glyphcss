@@ -145,8 +145,9 @@ export function createGlyphFluid(host: HTMLElement, options: GlyphFluidOptions =
   const restore: Array<() => void> = [];
   const hs = getComputedStyle(host);
   if (hs.position === "static" || hs.position === "") {
+    const prev = host.style.position;
     host.style.position = "relative";
-    restore.push(() => (host.style.position = ""));
+    restore.push(() => (host.style.position = prev));
   }
   if (hs.overflow !== "hidden") {
     const prev = host.style.overflow;
