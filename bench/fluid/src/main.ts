@@ -1,10 +1,10 @@
-// molty.uno's landing-page fluid, rebuilt on @glyphcss/fluid (the spike page on the
+// a landing-page fluid, rebuilt on @glyphcss/fluid (the spike page on the
 // `feat/fluid` branch, bench/fluid-spike, ported to the package). Headings are text
-// targets, prose is quiet zones, the pool is a pool zone, and each Molty slot is a mesh
+// targets, prose is quiet zones, the pool is a pool zone, and each creature slot is a mesh
 // target fed by the cute kit's three.js rig (three is only the animation rig here: the
 // package rasterises the posed triangles with glyphcss).
 //
-// Query: ?worker=0 (main thread) · ?fps=30|60 · ?moltys=off · ?hud=0
+// Query: ?worker=0 (main thread) · ?fps=30|60 · ?creatures=off · ?hud=0
 import * as THREE from "three";
 import { createGlyphFluid, GlyphFluidTargets, type GlyphFluidTarget } from "@glyphcss/fluid";
 import { createGlyphOrthographicCamera, type Polygon } from "glyphcss";
@@ -15,7 +15,7 @@ import { MoodEngine } from "../vendor/creatures/mood.js";
 const q = new URLSearchParams(location.search);
 const FPS = Number(q.get("fps") ?? 60) === 30 ? 30 : 60;
 const WORKER = q.get("worker") !== "0";
-const MOLTYS = q.get("moltys") !== "off";
+const CREATURES = q.get("creatures") !== "off";
 const FACE = q.get("face") === "universal" ? "universal" : "dots";
 const DANCE: Array<[string, number]> = [["idle", 1.6], ["happy", 3.2], ["idle", 1.8], ["surprised", 1.0], ["happy", 3.6], ["listening", 1.8]];
 
@@ -34,8 +34,8 @@ for (const el of document.querySelectorAll<HTMLElement>("[data-fluid-word]"))
 for (const el of document.querySelectorAll<HTMLElement>("[data-fluid-quiet]")) fluid.addZone({ el, kind: "quiet" });
 for (const el of document.querySelectorAll<HTMLElement>("[data-fluid-pool]")) fluid.addZone({ el, kind: "pool" });
 
-/** One Molty slot: the cute-kit rig posed by a MoodEngine, framed like molty's CreatureTarget. */
-class MoltySlot {
+/** One creature slot: the cute-kit rig posed by a MoodEngine, framed like the reference's CreatureTarget. */
+class CreatureSlot {
   creature: CuteCreature | null = null;
   engine = new MoodEngine();
   cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, 100);
@@ -52,7 +52,7 @@ class MoltySlot {
   private v = new THREE.Vector3();
 
   constructor(private el: HTMLElement) {
-    this.ids = (el.dataset.fluidMolty ?? "").split(",").filter(Boolean);
+    this.ids = (el.dataset.fluidCreature ?? "").split(",").filter(Boolean);
     const d = new THREE.Vector3(0.5, 1, 1).normalize();
     this.keyDir = [d.x, d.y, d.z];
   }
@@ -74,7 +74,7 @@ class MoltySlot {
     }));
   }
 
-  /** molty's CreatureTarget._frame: fit the motion envelope's hull into the round panel. */
+  /** The reference CreatureTarget._frame: fit the motion envelope's hull into the round panel. */
   frame(env: { min: THREE.Vector3; max: THREE.Vector3; rise?: number }) {
     const STD = { min: [-0.36, 0, -0.36], max: [0.36, 1.26, 0.36] };
     const lo = [Math.min(env.min.x, STD.min[0]!), 0, Math.min(env.min.z, STD.min[2]!)];
@@ -154,7 +154,7 @@ class MoltySlot {
   }
 }
 
-const slots = MOLTYS ? [...document.querySelectorAll<HTMLElement>("[data-fluid-molty]")].map((el) => new MoltySlot(el)) : [];
+const slots = CREATURES ? [...document.querySelectorAll<HTMLElement>("[data-fluid-creature]")].map((el) => new CreatureSlot(el)) : [];
 
 // ---- bench instrumentation: drawn frames are marked from a MutationObserver on the <pre>,
 // which fires at the microtask checkpoint inside the drawing rAF task

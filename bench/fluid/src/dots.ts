@@ -1,8 +1,8 @@
-// Dot geometry: molty's canvas dots vs the fluid's two atlas faces as real DOM text, in the
+// Dot geometry: the reference's canvas dots vs the fluid's two atlas faces as real DOM text, in the
 // fluid's cell (aspect 1.6, font-size chosen so one advance = one cell, line-height = one
 // cell), exactly as createGlyphFluid lays its <pre> out. Three panels, two rows each (the
 // second row repeats the first, so ⣿ over ⣿ in column 0 shows the cross-cell spacing):
-//   canvas    molty's render.js rectangles (0.26 × 0.15 cell at 0.3|0.7, 0.14 + 0.24·row)
+//   canvas    the reference's render.js rectangles (0.26 × 0.15 cell at 0.3|0.7, 0.14 + 0.24·row)
 //   universal core's universal atlas (Menlo/DejaVu braille)
 //   dots      core's braille-dots atlas (the fluid's default face)
 // dots.mjs screenshots each panel element and hands the PNGs back to window.__analyse.
@@ -174,7 +174,7 @@ async function main() {
   uni.pre.id = "universal";
   const dots = domPanel(GLYPH_FONT_ATLAS_BRAILLE_DOTS, "--dots");
   dots.pre.id = "dots";
-  panel("molty canvas (render.js rects)", cv);
+  panel("reference canvas (render.js rects)", cv);
   panel(`DOM, universal atlas (adv ${uni.advance.toFixed(3)} em)`, uni.pre);
   panel(`DOM, braille-dots atlas (adv ${dots.advance.toFixed(3)} em)`, dots.pre);
   const note = document.createElement("div");

@@ -1,4 +1,4 @@
-// Dot geometry: molty's canvas vs the fluid's two atlas faces as real DOM text.
+// Dot geometry: the reference's canvas vs the fluid's two atlas faces as real DOM text.
 // node dots.mjs <out.png> [out.json]
 // Screenshots each panel element (device pixels, DPR 2), decodes the PNGs in the page and
 // reports per-dot geometry of ⣿ over ⣿, the dot pitch and edge gap inside a cell vs across

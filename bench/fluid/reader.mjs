@@ -17,7 +17,7 @@ for (const look of ["plain", "glyph"])
     p.on("pageerror", (e) => errors.push(e.message));
     p.on("response", (r) => r.status() >= 400 && !r.url().endsWith("/favicon.ico") && errors.push(`${r.status()} ${r.url()}`));
     p.on("console", (m) => (m.type() === "error" && !m.location().url.endsWith("/favicon.ico") && !/^Failed to load resource/.test(m.text()) ? errors.push(m.text()) : null));
-    await p.goto(`http://127.0.0.1:4361/reader.html?look=${look}&wpm=${wpm}&text=${encodeURIComponent("Molty reads one word at a time, condensing letters out of the living fluid.")}`);
+    await p.goto(`http://127.0.0.1:4361/reader.html?look=${look}&wpm=${wpm}&text=${encodeURIComponent("Words appear one at a time, condensing letters out of the living fluid.")}`);
     await p.waitForFunction(() => window.__reader?.ready, null, { timeout: 30000 });
     const mid = await p.evaluate(() => window.__reader.midWord(7)); // "condensing": long, ORP off the middle
     if (dir) await p.screenshot({ path: `${dir}/${look}-${wpm}.png` });

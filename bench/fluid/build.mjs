@@ -2,7 +2,7 @@
 //   node bench/fluid/build.mjs && node bench/fluid/serve.mjs &     # http://127.0.0.1:4361/
 //   node bench/fluid/parity.mjs 600 [drop-push]                    # real-Worker parity (+ mutation)
 //   node bench/fluid/reader.mjs [shot.png] [capture.txt]               # speed reader: words advance, ORP on centre
-//   node bench/fluid/dots.mjs <out.png>                            # dot geometry vs molty's canvas
+//   node bench/fluid/dots.mjs <out.png>                            # dot geometry vs the reference's canvas
 //   node bench/fluid/bench.mjs <out.json> --setups desktop --throttle 1,4 --scenarios idle,stirred
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";

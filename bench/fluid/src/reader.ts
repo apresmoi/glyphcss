@@ -10,7 +10,7 @@ import { GlyphFluidReaderTarget } from "../../../packages/fluid/src/reader/targe
 
 const q = new URLSearchParams(location.search);
 const reader = createGlyphFluidReader(document.getElementById("live")!, {
-  text: q.get("text") ?? "Molty reads one word at a time, out of the fluid.",
+  text: q.get("text") ?? "Words appear one at a time, out of the fluid.",
   wpm: Number(q.get("wpm") ?? 250),
   loop: 2600,
   shape: "circle",
