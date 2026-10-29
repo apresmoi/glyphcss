@@ -259,7 +259,7 @@ export type { GlyphShadowOptions } from "glyphcss";
 // fontAtlas>` take an atlas MANIFEST, and `glyphcss` is this package's own
 // dependency — a consumer of the bindings alone has no other route to one.
 export { GLYPH_FONT_ATLAS, GLYPH_FONT_ATLAS_ASCII, GLYPH_FONT_ATLAS_BRAILLE_DOTS } from "glyphcss";
-export type { GlyphFontAtlas } from "glyphcss";
+export type { GlyphFontAtlas, GlyphFontAtlasDotGeometry } from "glyphcss";
 
 // ── Cross-scene occlusion currency ───────────────────────────────────────────
 // The type flowing between two stacked scenes' `getOpaqueCoverage()` and
