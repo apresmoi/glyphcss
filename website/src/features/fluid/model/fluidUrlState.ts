@@ -66,7 +66,7 @@ const CONFIG_FIELDS: readonly { key: FluidConfigKey; token: string; type: UrlFie
   { key: "wpm", token: "q", type: int },
   { key: "loop", token: "L", type: bool },
   { key: "look", token: "K", type: oneOf("plain", "glyph") },
-  { key: "font", token: "f", type: oneOf("render", "ui", "prose", "molty") },
+  { key: "font", token: "f", type: oneOf("render", "ui", "prose", "system") },
   { key: "ripple", token: "j", type: float(0.01) },
   { key: "readerColor", token: "J", type: color },
   { key: "leadIn", token: "N", type: int },

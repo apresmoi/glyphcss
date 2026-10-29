@@ -391,7 +391,7 @@ function ReaderRows({
             : "Font sets the plain look's letters — switch Look to Plain to use it."
         }
         enabled={config.look === "plain"}
-        options={{ "Render mono": "render", "UI mono": "ui", Prose: "prose", molty: "molty" }}
+        options={{ "Render mono": "render", "UI mono": "ui", Prose: "prose", "System mono": "system" }}
         value={config.font}
         onChange={(font) => update({ font })}
         select
@@ -485,7 +485,7 @@ function FluidFolder({
       <Choice
         folder={folder}
         label="Shape"
-        title="rect fills the host; circle is molty's round screen inscribed in it (shape)"
+        title="rect fills the host; circle is a circular surface inscribed in it (shape)"
         options={{ Rect: "rect", Circle: "circle" }}
         value={config.shape}
         onChange={(shape) => update({ shape })}
@@ -501,7 +501,7 @@ function FluidFolder({
       <Choice
         folder={folder}
         label="Face"
-        title="dots: molty's dot rectangles; universal: glyphcss's universal atlas, rows bunch across cells (face)"
+        title="dots: braille-dots atlas rectangles; universal: glyphcss's universal atlas, rows bunch across cells (face)"
         options={{ Dots: "dots", Universal: "universal" }}
         value={config.face}
         onChange={(face) => update({ face })}
@@ -667,7 +667,7 @@ function SimFolder({
   onReset: () => void;
 }) {
   const folder = useFolder(useDockGui(), "Sim", { open: false });
-  useFolderTitleReset(folder, "Reset the sim to molty's tuning", onReset);
+  useFolderTitleReset(folder, "Reset the sim to the default tuning", onReset);
   const inert: Record<string, string> = {
     tintRate: "3 + 9·hold",
     hold: "0 → 1",
@@ -682,7 +682,7 @@ function SimFolder({
           key={key}
           folder={folder}
           label={key}
-          title={`${key} (tuning.${key}); molty's value is ${defaults[key]}${key === "bgFreq" || key === "swirlFreq" ? ", scaled with the fluid's width until you set it" : ""}`}
+          title={`${key} (tuning.${key}); default is ${defaults[key]}${key === "bgFreq" || key === "swirlFreq" ? ", scaled with the fluid's width until you set it" : ""}`}
           range={FLUID_TUNING_RANGES[key]}
           value={values[key]}
           onChange={(v) => onTuning(key, v)}

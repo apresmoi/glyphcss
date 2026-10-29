@@ -11,7 +11,7 @@ import {
 
 export type FluidExampleKind = "text" | "image" | "mesh" | "reader" | "zones";
 export type FluidReaderLook = "plain" | "glyph";
-export type FluidReaderFont = "render" | "ui" | "prose" | "molty";
+export type FluidReaderFont = "render" | "ui" | "prose" | "system";
 
 /**
  * Every option the /fluid workbench exposes, flat: `createGlyphFluid`'s own options,
@@ -268,19 +268,19 @@ export const FLUID_TUNING_RANGES: Record<FluidTunableKey, { min: number; max: nu
 
 /**
  * Tunables the package owns elsewhere, shown dimmed with the reason: the step rewrites
- * `hold` and `tintRate` every frame, `bgRim` is read once at construction from molty's
+ * `hold` and `tintRate` every frame, `bgRim` is read once at construction from the default
  * constant, and `field` sets `bgLevel` / `bgColor`.
  */
 export const FLUID_INERT_TUNING: readonly { key: keyof GlyphFluidTuning; reason: string }[] = [
   { key: "tintRate", reason: "The step sets tintRate from hold every frame." },
   { key: "hold", reason: "The runtime drives hold from the time since the last target change." },
-  { key: "bgRim", reason: "The disc's rim fade is computed once from molty's constant." },
+  { key: "bgRim", reason: "The disc's rim fade is computed once from the default constant." },
   { key: "bgLevel", reason: "Set by Fluid → field level (field.level)." },
   { key: "bgColor", reason: "Set by Fluid → field color (field.color)." },
 ];
 
 /**
- * molty's `SIM_TUNING` as the fluid actually runs it: both shapes give the page fluid's
+ * The default `SIM_TUNING` as the fluid actually runs it: both shapes give the page fluid's
  * relax rates, and the reader its faster text rates.
  */
 export function fluidTuningDefaults(example: FluidExample): Record<FluidTunableKey, number> {

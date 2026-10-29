@@ -96,7 +96,7 @@ describe("mountFluidField", () => {
 });
 
 describe("mountFluidReader", () => {
-  it("mounts molty's round reader and reports clock progress until destroyed", async () => {
+  it("mounts the round reader and reports clock progress until destroyed", async () => {
     // The plain letters use the site's render font token, like every glyph <pre>.
     document.documentElement.style.setProperty("--gc-font-render", '"Glyph Mono", monospace');
     const onProgress = vi.fn();

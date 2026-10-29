@@ -9,7 +9,7 @@ import { GlyphFluidDemo } from '../../../components/GlyphFluidDemo';
 
 Move the pointer over it to stir the fluid; tune the field and the reader in the [fluid workbench](/fluid).
 
-`@glyphcss/fluid` is molty.uno's landing-page fluid as a glyphcss surface. A shallow-water simulation runs on a cell grid; DOM text, images and meshes become *targets* the ink flows toward and condenses into, then melts back out of. Each frame is one `textContent` write to one `<pre>`, drawn as 8-dot braille with per-cell colour through glyphcss's colour-font atlas. The simulation runs in a Web Worker.
+`@glyphcss/fluid` is a living braille fluid as a glyphcss surface. A shallow-water simulation runs on a cell grid; DOM text, images and meshes become *targets* the ink flows toward and condenses into, then melts back out of. Each frame is one `textContent` write to one `<pre>`, drawn as 8-dot braille with per-cell colour through glyphcss's colour-font atlas. The simulation runs in a Web Worker.
 
 ## A first fluid
 
@@ -36,12 +36,12 @@ Each layer works alone; only the last touches the DOM.
 
 ```
 GlyphFluidSim  →  computeGlyphFluidCells  →  GlyphFluidEncoder  →  createGlyphFluid
-(molty's sim,     (braille mask + colour     (glyphcss atlas text   (targets, worker,
+(the fluid sim,   (braille mask + colour     (glyphcss atlas text   (targets, worker,
  bit-identical)    per cell)                  + pooled palette)      one <pre>)
 ```
 
-- `GlyphFluidSim` steps bit-identically to molty's `sim.js`; molty's device firmware runs the same step in C.
-- `computeGlyphFluidCells` is molty's renderer's per-cell decision as data: which of the 8 dots light and in what colour.
+- `GlyphFluidSim` steps bit-identically to a reference implementation of the step.
+- `computeGlyphFluidCells` is the renderer's per-cell decision as data: which of the 8 dots light and in what colour.
 - `GlyphFluidEncoder` turns cells into atlas text against a pooled palette, so the palette CSS changes only when it repools.
 - `createGlyphFluid` composes targets and zones, runs the pipeline in a worker and writes the frame.
 - [`@glyphcss/fluid/reader`](/fluid/reader) adds a speed reader on top.

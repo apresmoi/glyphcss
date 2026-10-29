@@ -54,7 +54,7 @@ export interface FluidReaderMount {
   destroy(): void;
 }
 
-/** molty's round speed reader on its own small fluid; reports word progress. */
+/** The round speed reader on its own small fluid; reports word progress. */
 export function mountFluidReader(
   host: HTMLElement,
   reader: FluidReaderSettings,

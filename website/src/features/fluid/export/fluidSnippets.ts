@@ -122,7 +122,7 @@ export function buildFluidSnippet(
       ? `, { strength: ${config.impulseStrength}, radius: ${config.impulseRadius} }`
       : "";
   if (example.kind === "reader") {
-    // The reader sizes its own grid and starts round in molty's examples.
+    // The reader sizes its own grid and starts round.
     const base = { ...defaults, shape: "rect" as const };
     const options = [
       `text: ${json(config.text)},`,
@@ -130,7 +130,7 @@ export function buildFluidSnippet(
       `loop: ${config.loop ? FLUID_READER_LOOP_MS : "false"},`,
       `look: ${json(config.look)},`,
       ...(config.look === "plain"
-        ? [`// font: "…",   // the plain letters' CSS font-family; default molty's ui-monospace stack`]
+        ? [`// font: "…",   // the plain letters' CSS font-family; default is the system ui-monospace stack`]
         : []),
       ...(config.leadIn !== FLUID_CONFIG_DEFAULTS.leadIn ? [`leadIn: ${config.leadIn},`] : []),
       ...(config.ariaLive !== FLUID_CONFIG_DEFAULTS.ariaLive ? [`ariaLive: ${json(config.ariaLive)},`] : []),
@@ -141,7 +141,7 @@ export function buildFluidSnippet(
     return [
       ...IMPORTS.reader,
       ``,
-      `// molty's speed reader, one word at a time with its ORP letter accented.`,
+      `// A speed reader, one word at a time with its ORP letter accented.`,
       `const reader = createGlyphFluidReader(document.querySelector("#reader"), {`,
       ...options.map((line) => `  ${line}`),
       `});`,

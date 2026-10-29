@@ -5,7 +5,7 @@ import { IconToggle } from "../IconToggle";
 import styles from "./GlyphFluidDemo.module.css";
 
 export interface GlyphFluidDemoProps {
-  /** `"fluid"`: a heading condensing out of a stirrable field. `"reader"`: molty's round speed reader. */
+  /** `"fluid"`: a heading condensing out of a stirrable field. `"reader"`: round speed reader. */
   variant: "fluid" | "reader";
   /** The fluid variant's heading, or the reader variant's sentence. */
   text?: string;
